@@ -236,34 +236,7 @@ impl Transaction for DwgTxn<'_> {
             ),
         };
         let release = file.release;
-        // 大きさが変わったヘッダーのセクション（元の範囲と、書き直したセクション）
-        let mut rewritten: Option<(Range<usize>, Vec<u8>)> = None;
-        let unreadable =
-            |cx: &mut Cx<'_>, len: usize| invalid(cx, "header variables", header.unwrap_or(0)..len);
-        if let Some(value) = self.seed {
-            let Some(seed) = header.and_then(|start| handle_seed(header_src, start, release))
-            else {
-                return Err(unreadable(cx, header_src.len()));
-            };
-            // HANDSEED の大きさ（バイト）が変われば、セクションを伸ばして書き直す（#701）
-            if set_handle_seed(header_src, &seed, value).is_none() {
-                rewritten = Some(
-                    grow_handle_seed(header_src, &seed, release, value)
-                        .ok_or_else(|| unreadable(cx, header_src.len()))?,
-                );
-            }
-        }
-        if self.values.any() {
-            let changed = match rewritten.take() {
-                // 伸ばした HANDSEED のセクションの上で、ほかの変数を書き直す
-                Some((span, section)) => set_values(&section, 0, release, self.values)
-                    .map(|(_, section)| (span, section)),
-                None => {
-                    header.and_then(|start| set_values(header_src, start, release, self.values))
-                }
-            };
-            rewritten = Some(changed.ok_or_else(|| unreadable(cx, header_src.len()))?);
-        }
+        let rewritten = rewrite_header(header_src, header, release, self.seed, self.values, cx)?;
         // 大きさが変わったヘッダーのセクション。R2000 は、ファイルの後ろに置いてセクションの記録を直す（決定 0193）
         let mut moved_header = None;
         if let Some((span, section)) = rewritten {
@@ -417,6 +390,47 @@ impl Transact for DwgFile {
     }
 }
 
+/// ヘッダーを書き直す規則を、全体保存と出所の位置計算で共有する。
+pub(super) type RewrittenHeader = (Range<usize>, Vec<u8>);
+
+/// 書き直すヘッダーの元の範囲と新しいバイト列を返す。
+pub(super) fn rewrite_header(
+    header_src: &mut [u8],
+    header: Option<usize>,
+    release: Release,
+    seed_value: Option<u64>,
+    values: Values,
+    cx: &mut Cx<'_>,
+) -> Result<Option<RewrittenHeader>, Error> {
+    // 大きさが変わったヘッダーのセクション（元の範囲と、書き直したセクション）
+    let mut rewritten: Option<(Range<usize>, Vec<u8>)> = None;
+    let unreadable =
+        |cx: &mut Cx<'_>, len: usize| invalid(cx, "header variables", header.unwrap_or(0)..len);
+    if let Some(value) = seed_value {
+        let Some(seed) = header.and_then(|start| handle_seed(header_src, start, release)) else {
+            return Err(unreadable(cx, header_src.len()));
+        };
+        // HANDSEED の大きさ（バイト）が変われば、セクションを伸ばして書き直す（#701）
+        if set_handle_seed(header_src, &seed, value).is_none() {
+            rewritten = Some(
+                grow_handle_seed(header_src, &seed, release, value)
+                    .ok_or_else(|| unreadable(cx, header_src.len()))?,
+            );
+        }
+    }
+    if values.any() {
+        let changed = match rewritten.take() {
+            // 伸ばした HANDSEED のセクションの上で、ほかの変数を書き直す
+            Some((span, section)) => {
+                set_values(&section, 0, release, values).map(|(_, section)| (span, section))
+            }
+            None => header.and_then(|start| set_values(header_src, start, release, values)),
+        };
+        rewritten = Some(changed.ok_or_else(|| unreadable(cx, header_src.len()))?);
+    }
+    Ok(rewritten)
+}
+
 /// R2000 のファイルのヘッダーの、番号 `number` のセクションの記録の位置と大きさを書き直し、ヘッダーの CRC を直す
 fn set_locator(
     src: &mut [u8],
@@ -448,21 +462,35 @@ pub(super) fn put(src: &mut [u8], at: usize, bytes: &[u8]) -> Option<()> {
 /// バージョン `release` のハンドル `handle` のオブジェクトのデータ `data` を、大きさ（MS）と CRC を付けて `src` の
 /// 後ろに足す。R2010 からは、大きさは、データの初めのハンドルのストリームの大きさ（MC）を除いたバイトの数
 fn push_object(src: &mut Vec<u8>, handle: u64, data: &[u8], release: Release) -> Option<Entry> {
+    let entry = object_layout(src.len(), handle, data, release)?;
+    let offset = src.len();
+    push_modular_short(src, entry.data.len() as u64);
+    src.extend_from_slice(data);
+    let crc = crc16(OBJECT_CRC_SEED, src.get(offset..).unwrap_or_default());
+    src.extend_from_slice(&crc.to_le_bytes());
+    Some(entry)
+}
+
+/// オブジェクトを実際に書かず、書き出しと同じ長さとデータ位置を求める。
+pub(super) fn object_layout(
+    offset: usize,
+    handle: u64,
+    data: &[u8],
+    release: Release,
+) -> Option<Entry> {
     let type_code = type_code(data, release)?;
     let (skip, handles) = match handle_bits(data, release) {
         Some((skip, bits)) => (skip, Some(data.len().checked_sub(skip)? * 8 - bits)),
         None => (0, None),
     };
-    let offset = src.len();
-    push_modular_short(src, (data.len() - skip) as u64);
-    let start = src.len() + skip;
-    src.extend_from_slice(data);
-    let crc = crc16(OBJECT_CRC_SEED, src.get(offset..).unwrap_or_default());
-    src.extend_from_slice(&crc.to_le_bytes());
+    let mut size = Vec::new();
+    push_modular_short(&mut size, (data.len() - skip) as u64);
+    let start = offset.checked_add(size.len())?.checked_add(skip)?;
+    let end = start.checked_add(data.len() - skip)?;
     Some(Entry {
         handle,
-        span: offset..src.len(),
-        data: start..start + data.len() - skip,
+        span: offset..end.checked_add(2)?,
+        data: start..end,
         handles,
         type_code,
     })
@@ -493,6 +521,19 @@ fn handle_bits(data: &[u8], release: Release) -> Option<(usize, usize)> {
 /// オブジェクトのマップを、ハンドルの順に書く。セクションごとに、ハンドルと位置の差分を 0 から数え、
 /// 大きさ（上位のバイトから）と CRC（上位のバイトから）を付ける。大きさが 2 のセクションで終える
 fn push_object_map(out: &mut Vec<u8>, entries: &[super::Entry]) {
+    object_map_sections(entries, |body| push_map_section(out, body));
+}
+
+/// 保存時と同じ区切りと可変長符号で、マップの大きさだけを数える。
+pub(super) fn object_map_len(entries: &[super::Entry]) -> Option<usize> {
+    let mut len = Some(0_usize);
+    object_map_sections(entries, |body| {
+        len = len.and_then(|len| len.checked_add(body.len().checked_add(4)?));
+    });
+    len
+}
+
+fn object_map_sections(entries: &[super::Entry], mut section: impl FnMut(&[u8])) {
     let mut order: Vec<_> = entries.iter().collect();
     order.sort_by_key(|entry| entry.handle);
     let mut body = Vec::new();
@@ -503,7 +544,7 @@ fn push_object_map(out: &mut Vec<u8>, entries: &[super::Entry]) {
         push_modular_char(&mut pair, (entry.handle - handle) as i64, false);
         push_modular_char(&mut pair, offset - location, true);
         if body.len() + pair.len() > MAP_SECTION_LIMIT {
-            push_map_section(out, &body);
+            section(&body);
             body.clear();
             pair.clear();
             push_modular_char(&mut pair, entry.handle as i64, false);
@@ -513,9 +554,9 @@ fn push_object_map(out: &mut Vec<u8>, entries: &[super::Entry]) {
         (handle, location) = (entry.handle, offset);
     }
     if !body.is_empty() {
-        push_map_section(out, &body);
+        section(&body);
     }
-    push_map_section(out, &[]);
+    section(&[]);
 }
 
 fn push_map_section(out: &mut Vec<u8>, body: &[u8]) {

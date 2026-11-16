@@ -8,13 +8,13 @@
 
 use std::collections::BTreeMap;
 
-use zumen_base::{Key, Ref};
+use zumen_base::{Cx, Key, Kind, Ref, Stop};
 use zumen_drawing::{
     Attribute, CalloutContent, Clip, Color, ColorCode, ColorSystem, Draft, Edge, Element, Fit,
-    FormattedText, Grid, Hatch, Height, HeightMeaning, Horizontal, Inherit, Layer, LayerId, Leader,
-    Length, LineType, LineTypeId, LineWeight, ModelLength, ModelPoint, PaperLength, Placement,
-    Polyline, Shape, Style, Symbol, SymbolDefinition, SymbolKey, Table, Text, Transparency,
-    Underlay, Vertex, Vertical,
+    FormattedText, Grid, Hash, Hatch, Height, HeightMeaning, Horizontal, Inherit, Layer, LayerId,
+    Leader, Length, LineType, LineTypeId, LineWeight, ModelLength, ModelPoint, PaperLength,
+    Placement, Polyline, Shape, Style, Symbol, SymbolDefinition, SymbolKey, Table, Text,
+    Transparency, Underlay, Vertex, Vertical,
 };
 use zumen_live::display::{DisplayWriter, radians_from_deg};
 use zumen_live::{BytePool, Paged, TableRow, TextSpan};
@@ -1524,6 +1524,68 @@ impl LiveShapes {
             style,
             shape,
         })
+    }
+
+    /// 単体取得で複製する可変長の列を、複製する前に数える。
+    pub fn check_element_copy(&self, row: &LiveRow, cx: &mut Cx<'_>) -> Result<(), Stop> {
+        cx.check(Kind::Work, 1)?;
+        let mut bytes = 512_u64;
+        let text_bytes = |text: &TextGeom| {
+            (self.pools.bytes.str_of(text.content).len() as u64)
+                .saturating_add(self.pools.bytes.str_of(text.style).len() as u64)
+                .saturating_add(64)
+        };
+        match row.kind {
+            LiveKind::General => {
+                if let Some(general) = self.generals.get(row.shape as usize) {
+                    let work = cx.budget.used(Kind::Work);
+                    Hash::element_checked(&general.element, cx)?;
+                    // ハッシュが一度に渡す文字列は高々 1024 バイト。列の各項目も数える。
+                    bytes = bytes.saturating_add(
+                        cx.budget
+                            .used(Kind::Work)
+                            .saturating_sub(work)
+                            .saturating_mul(1024),
+                    );
+                }
+            }
+            LiveKind::Polyline => {
+                if let Some(poly) = self.polylines.get(row.shape as usize) {
+                    cx.check(Kind::Work, u64::from(poly.count))?;
+                    bytes = bytes.saturating_add(u64::from(poly.count).saturating_mul(96));
+                }
+            }
+            LiveKind::Text => {
+                if let Some(text) = self.texts.get(row.shape as usize) {
+                    bytes = bytes.saturating_add(text_bytes(text));
+                }
+            }
+            LiveKind::Insert => {
+                if let Some(insert) = self.inserts.get(row.shape as usize) {
+                    bytes = bytes.saturating_add(self.pools.bytes.str_of(insert.name).len() as u64);
+                    for index in 0..insert.attrib_count {
+                        cx.check(Kind::Work, 1)?;
+                        if let Some(attribute) = self
+                            .pools
+                            .attribs
+                            .get(insert.attrib_start.saturating_add(index) as usize)
+                        {
+                            bytes = bytes
+                                .saturating_add(text_bytes(&attribute.text))
+                                .saturating_add(self.pools.bytes.str_of(attribute.tag).len() as u64)
+                                .saturating_add(512);
+                        }
+                    }
+                    if let Some(clip) = self.pools.clips.get(insert.clip_index as usize) {
+                        cx.check(Kind::Work, clip.vertices.len() as u64)?;
+                        bytes =
+                            bytes.saturating_add((clip.vertices.len() as u64).saturating_mul(16));
+                    }
+                }
+            }
+            _ => {}
+        }
+        cx.check(Kind::DecodedBytes, bytes)
     }
 
     fn text_to_model(&self, g: &TextGeom, height_key: &'static str) -> Text<ModelPoint> {

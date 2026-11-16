@@ -29,6 +29,372 @@ pub type EncodedBorn = (Vec<(u64, Vec<u8>)>, u64);
 /// 差分書き戻しで更新する 1 レコードの `(handle, section, kind, old_values, new_values)`
 pub type UpdatedDwgRecord = (u64, Section, Vec<u8>, Vec<Value>, Vec<Value>);
 
+/// 書き戻したオブジェクトのハンドルと出所のバイト範囲。
+pub(crate) type DwgSourceSpans = BTreeMap<u64, Range<usize>>;
+
+/// 保存と出所の位置計算へ渡す、1 回分の変更。
+pub(crate) struct DwgFastStep<'a> {
+    pub updated: &'a [UpdatedDwgRecord],
+    pub removed: &'a BTreeSet<u64>,
+    pub removed_model: &'a BTreeSet<u64>,
+    pub added: &'a [(u64, Vec<u8>, bool)],
+    pub seed: Option<u64>,
+    pub point_mode: Option<i16>,
+    pub point_size: Option<f64>,
+}
+
+struct DwgMutation {
+    changes: BTreeMap<usize, Vec<u8>>,
+    removed: BTreeSet<usize>,
+    added: Vec<(u64, Vec<u8>, bool)>,
+    seed: Option<u64>,
+    values: header::Values,
+}
+
+trait FastStepTarget {
+    fn prepare_step(&self, _: &DwgFastStep<'_>, _: &mut Cx<'_>) -> Result<(), Error> {
+        Ok(())
+    }
+    fn entries(&self) -> &[Entry];
+    fn encoded(&self, single: &DwgSingle, record: usize, cx: &mut Cx<'_>)
+    -> Result<Vec<u8>, Error>;
+    #[allow(clippy::too_many_arguments)]
+    fn patch_block(
+        &self,
+        record: usize,
+        handle: u64,
+        records: &BTreeMap<u64, usize>,
+        changes: &mut BTreeMap<usize, Vec<u8>>,
+        removed: &BTreeSet<u64>,
+        added: &mut [(u64, Vec<u8>, bool)],
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error>;
+    fn commit_step(&mut self, mutation: DwgMutation, cx: &mut Cx<'_>) -> Result<(), Error>;
+
+    fn handle_map(&self) -> BTreeMap<u64, usize> {
+        let mut records = BTreeMap::new();
+        for (index, entry) in self.entries().iter().enumerate() {
+            records.entry(entry.handle).or_insert(index);
+        }
+        records
+    }
+}
+
+impl FastStepTarget for DwgFile {
+    fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    fn encoded(&self, single: &DwgSingle, record: usize, _: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
+        single.base_encoded(self, record).ok_or(Error::Rejected)
+    }
+
+    fn patch_block(
+        &self,
+        record: usize,
+        handle: u64,
+        records: &BTreeMap<u64, usize>,
+        changes: &mut BTreeMap<usize, Vec<u8>>,
+        removed: &BTreeSet<u64>,
+        added: &mut [(u64, Vec<u8>, bool)],
+        _: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        self.patch_model_block_and_added(
+            record,
+            handle,
+            |h| records.get(&h).copied(),
+            changes,
+            removed,
+            added,
+        )
+        .ok_or(Error::Rejected)
+    }
+
+    fn commit_step(&mut self, mutation: DwgMutation, cx: &mut Cx<'_>) -> Result<(), Error> {
+        let mut txn = self.transaction();
+        for (record, data) in mutation.changes {
+            if !mutation.removed.contains(&record) {
+                txn.set_data(record, &data)?;
+            }
+        }
+        for record in mutation.removed {
+            txn.remove(record)?;
+        }
+        for (handle, data, _) in mutation.added {
+            txn.add(handle, &data)?;
+        }
+        if let Some(seed) = mutation.seed {
+            txn.set_handle_seed(seed)?;
+        }
+        if let Some(mode) = mutation.values.point_mode {
+            txn.set_point_mode(mode)?;
+        }
+        if let Some(size) = mutation.values.point_size {
+            txn.set_point_size(size)?;
+        }
+        txn.commit(cx)
+    }
+}
+
+/// 保存前の保持モデルに付ける出所の位置。元のバイト列は借用し、変更したデータだけを持つ。
+pub(crate) struct DwgSourceLayout<'a> {
+    base: &'a DwgFile,
+    entries: Vec<Entry>,
+    origins: Vec<Option<usize>>,
+    changed: BTreeMap<usize, Vec<u8>>,
+    header: Vec<u8>,
+    cursor: usize,
+}
+
+impl<'a> DwgSourceLayout<'a> {
+    pub fn new(base: &'a DwgFile, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        let count = base.entries.len() as u64;
+        layout_check(cx, count, count.saturating_mul(112))?;
+        let header = match base.header_section() {
+            Some((bytes, range)) => {
+                crate::snapshot::bytes(bytes.get(range).ok_or(Error::Rejected)?, cx)?
+            }
+            None => Vec::new(),
+        };
+        Ok(Self {
+            base,
+            entries: base.entries.clone(),
+            origins: (0..base.entries.len()).map(Some).collect(),
+            changed: BTreeMap::new(),
+            header,
+            cursor: base.body().len(),
+        })
+    }
+
+    pub fn source_spans(&self, cx: &mut Cx<'_>) -> Result<DwgSourceSpans, Error> {
+        let mut spans = BTreeMap::new();
+        for entry in &self.entries {
+            layout_check(cx, 1, 64)?;
+            spans
+                .entry(entry.handle)
+                .or_insert_with(|| entry.span.clone());
+        }
+        Ok(spans)
+    }
+
+    fn raw_data(&self, record: usize) -> Option<&[u8]> {
+        let entry = self.entries.get(record)?;
+        if let Some(encoded) = self.changed.get(&record) {
+            encoded.get(encoded.len().checked_sub(entry.data.len())?..)
+        } else {
+            self.base
+                .entry_raw_data(self.origins.get(record).copied().flatten()?)
+        }
+    }
+}
+
+fn layout_check(cx: &mut Cx<'_>, work: u64, bytes: u64) -> Result<(), Error> {
+    cx.check(Kind::Work, work)
+        .map_err(|stop| stopped(cx, stop))?;
+    cx.check(Kind::DecodedBytes, bytes)
+        .map_err(|stop| stopped(cx, stop))
+}
+
+impl FastStepTarget for DwgSourceLayout<'_> {
+    fn prepare_step(&self, step: &DwgFastStep<'_>, cx: &mut Cx<'_>) -> Result<(), Error> {
+        let count = self.entries.len() as u64;
+        layout_check(
+            cx,
+            count
+                .saturating_mul(count.checked_ilog2().unwrap_or(0).into())
+                .saturating_add(1),
+            count.saturating_mul(96),
+        )?;
+        for (_, _, kind, before, after) in step.updated {
+            layout_check(cx, 1, kind.len() as u64)?;
+            for value in before.iter().chain(after) {
+                let bytes = match &value.data {
+                    Data::Text(bytes) | Data::Binary(bytes) => bytes.len() as u64,
+                    _ => 0,
+                };
+                layout_check(cx, 1, bytes.saturating_add(32).saturating_mul(8))?;
+            }
+        }
+        for (_, data, _) in step.added {
+            layout_check(
+                cx,
+                1,
+                (data.len() as u64).saturating_add(64).saturating_mul(8),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    fn encoded(
+        &self,
+        single: &DwgSingle,
+        record: usize,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<u8>, Error> {
+        let entry = self.entries.get(record).ok_or(Error::Rejected)?;
+        layout_check(
+            cx,
+            1,
+            (entry.data.len() as u64)
+                .saturating_add(16)
+                .saturating_mul(8),
+        )?;
+        if let Some(encoded) = self.changed.get(&record) {
+            Ok(encoded.clone())
+        } else {
+            let origin = self
+                .origins
+                .get(record)
+                .copied()
+                .flatten()
+                .ok_or(Error::Rejected)?;
+            single
+                .base_encoded(self.base, origin)
+                .ok_or(Error::Rejected)
+        }
+    }
+
+    fn patch_block(
+        &self,
+        record: usize,
+        handle: u64,
+        records: &BTreeMap<u64, usize>,
+        changes: &mut BTreeMap<usize, Vec<u8>>,
+        removed: &BTreeSet<u64>,
+        added: &mut [(u64, Vec<u8>, bool)],
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        // 既存のリンク更新器へ渡す一時の見え方。R2004 以降はブロックのデータだけ、
+        // R2000 は前後リンクの走査に使うデータを置く。元のファイルや保存列は複製しない。
+        layout_check(
+            cx,
+            self.entries.len() as u64,
+            (self.entries.len() as u64).saturating_mul(96),
+        )?;
+        let mut entries = self.entries.clone();
+        let mut src = Vec::new();
+        for (index, entry) in entries.iter_mut().enumerate() {
+            if index == record || self.base.release == Release::R2000 {
+                let data = self.raw_data(index).ok_or(Error::Rejected)?;
+                layout_check(cx, 1, (data.len() as u64).saturating_mul(8))?;
+                let start = src.len();
+                src.extend_from_slice(data);
+                entry.data = start..src.len();
+            } else {
+                entry.data = 0..0;
+            }
+        }
+        let view = DwgFile {
+            src,
+            release: self.base.release,
+            code_page: self.base.code_page,
+            locators: Vec::new(),
+            container: None,
+            r2007: None,
+            classes: Vec::new(),
+            entries,
+        };
+        view.patch_model_block_and_added(
+            record,
+            handle,
+            |h| records.get(&h).copied(),
+            changes,
+            removed,
+            added,
+        )
+        .ok_or(Error::Rejected)
+    }
+
+    fn commit_step(&mut self, mutation: DwgMutation, cx: &mut Cx<'_>) -> Result<(), Error> {
+        use super::edit::{object_layout, object_map_len, rewrite_header};
+        if mutation.changes.is_empty()
+            && mutation.removed.is_empty()
+            && mutation.added.is_empty()
+            && mutation.seed.is_none()
+            && !mutation.values.any()
+        {
+            return Ok(());
+        }
+        let count = self.entries.len() as u64;
+        layout_check(
+            cx,
+            count,
+            count
+                .saturating_mul(160)
+                .saturating_add(self.header.len() as u64 * 3),
+        )?;
+        let header_start = (!self.header.is_empty()).then_some(0);
+        let rewritten = rewrite_header(
+            &mut self.header,
+            header_start,
+            self.base.release,
+            mutation.seed,
+            mutation.values,
+            cx,
+        )?;
+        for (record, data) in mutation.changes {
+            if mutation.removed.contains(&record) {
+                continue;
+            }
+            let entry = self.entries.get_mut(record).ok_or(Error::Rejected)?;
+            *entry = object_layout(self.cursor, entry.handle, &data, self.base.release)
+                .ok_or(Error::Rejected)?;
+            self.cursor = entry.span.end;
+            self.changed.insert(record, data);
+        }
+        for (handle, data, _) in mutation.added {
+            let entry = object_layout(self.cursor, handle, &data, self.base.release)
+                .ok_or(Error::Rejected)?;
+            self.cursor = entry.span.end;
+            self.changed.insert(self.entries.len(), data);
+            self.entries.push(entry);
+            self.origins.push(None);
+        }
+        let mut entries = Vec::with_capacity(self.entries.len());
+        let mut origins = Vec::with_capacity(self.origins.len());
+        let mut changed = BTreeMap::new();
+        for (record, (entry, origin)) in self
+            .entries
+            .drain(..)
+            .zip(self.origins.drain(..))
+            .enumerate()
+        {
+            if !mutation.removed.contains(&record) {
+                if let Some(data) = self.changed.remove(&record) {
+                    changed.insert(entries.len(), data);
+                }
+                entries.push(entry);
+                origins.push(origin);
+            }
+        }
+        self.entries = entries;
+        self.origins = origins;
+        self.changed = changed;
+        if let Some((span, section)) = rewritten {
+            if self.base.release == Release::R2000 && span.len() != section.len() {
+                self.cursor = self
+                    .cursor
+                    .checked_add(section.len())
+                    .ok_or(Error::Rejected)?;
+                self.header = section;
+            } else {
+                self.header.splice(span, section);
+            }
+        }
+        if self.base.release == Release::R2000 {
+            self.cursor = self
+                .cursor
+                .checked_add(object_map_len(&self.entries).ok_or(Error::Rejected)?)
+                .ok_or(Error::Rejected)?;
+        }
+        Ok(())
+    }
+}
+
 /// 図形レコードの所属空間の分類
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EntitySpace {
@@ -1277,154 +1643,285 @@ impl DwgSingle {
         point_size: Option<f64>,
         cx: &mut Cx<'_>,
     ) -> Result<(), Error> {
-        if updated_records.is_empty()
-            && removed_handles.is_empty()
+        self.apply_step_to(
+            file,
+            DwgFastStep {
+                updated: updated_records,
+                removed: removed_handles,
+                removed_model: removed_model_handles,
+                added,
+                seed: new_seed,
+                point_mode,
+                point_size,
+            },
+            cx,
+        )
+    }
+
+    /// 全体のバイト列を作らず、保存時のオブジェクトの位置へ変更を当てる。
+    pub(crate) fn apply_layout_step(
+        &self,
+        layout: &mut DwgSourceLayout<'_>,
+        step: DwgFastStep<'_>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        self.apply_step_to(layout, step, cx)
+    }
+
+    fn apply_step_to(
+        &self,
+        file: &mut impl FastStepTarget,
+        step: DwgFastStep<'_>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        file.prepare_step(&step, cx)?;
+        let DwgFastStep {
+            updated,
+            removed,
+            removed_model,
+            added,
+            seed,
+            point_mode,
+            point_size,
+        } = step;
+        if updated.is_empty()
+            && removed.is_empty()
             && added.is_empty()
-            && new_seed.is_none()
+            && seed.is_none()
             && point_mode.is_none()
             && point_size.is_none()
         {
             return Ok(());
         }
-        let mut handle_map: BTreeMap<u64, usize> = BTreeMap::new();
-        for (idx, entry) in file.entries.iter().enumerate() {
-            handle_map.entry(entry.handle).or_insert(idx);
-        }
-        let mut changes: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
-        for (handle, section, kind, old_values, new_values) in updated_records {
+        let handle_map = file.handle_map();
+        let mut changes = BTreeMap::new();
+        for (handle, section, kind, old_values, new_values) in updated {
             if old_values == new_values {
                 continue;
             }
             let rec = *handle_map.get(handle).ok_or(Error::Rejected)?;
-            let current_encoded = self.base_encoded(file, rec).ok_or(Error::Rejected)?;
+            let encoded = file.encoded(self, rec, cx)?;
             let bytes = self
-                .encode_record_edit(
-                    &current_encoded,
-                    section.clone(),
-                    kind,
-                    old_values,
-                    new_values,
-                )
+                .encode_record_edit(&encoded, section.clone(), kind, old_values, new_values)
                 .ok_or(Error::Rejected)?;
             changes.insert(rec, bytes);
         }
-        let mut removed_records: BTreeSet<usize> = BTreeSet::new();
-        for handle in removed_handles {
-            let rec = *handle_map.get(handle).ok_or(Error::Rejected)?;
-            removed_records.insert(rec);
-        }
-        let mut added_copy: Vec<(u64, Vec<u8>, bool)> = added.to_vec();
-        if added_copy
+        let removed_records = removed
             .iter()
-            .any(|(h, _, _)| removed_handles.contains(h))
-        {
-            if !removed_model_handles.is_empty() {
-                let (_, block_handle) = self.model_block.ok_or(Error::Rejected)?;
-                let block_record = *handle_map.get(&block_handle).ok_or(Error::Rejected)?;
-                let mut no_added = Vec::new();
-                file.patch_model_block_and_added(
-                    block_record,
-                    block_handle,
-                    |h| handle_map.get(&h).copied(),
+            .map(|handle| handle_map.get(handle).copied().ok_or(Error::Rejected))
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        let mut added = added.to_vec();
+        let reused = added.iter().any(|(handle, _, _)| removed.contains(handle));
+        if reused {
+            if !removed_model.is_empty() {
+                let (_, block) = self.model_block.ok_or(Error::Rejected)?;
+                let record = *handle_map.get(&block).ok_or(Error::Rejected)?;
+                file.patch_block(
+                    record,
+                    block,
+                    &handle_map,
                     &mut changes,
-                    removed_model_handles,
-                    &mut no_added,
-                )
-                .ok_or(Error::Rejected)?;
+                    removed_model,
+                    &mut [],
+                    cx,
+                )?;
             }
-            {
-                let mut txn = file.transaction();
-                for (&rec, data) in &changes {
-                    if !removed_records.contains(&rec) {
-                        txn.set_data(rec, data)?;
-                    }
-                }
-                for &rec in &removed_records {
-                    txn.remove(rec)?;
-                }
-                txn.commit(cx)?;
-            }
-            let mut post_map: BTreeMap<u64, usize> = BTreeMap::new();
-            for (idx, entry) in file.entries.iter().enumerate() {
-                post_map.entry(entry.handle).or_insert(idx);
-            }
-            let mut add_changes = BTreeMap::new();
-            if !added_copy.is_empty() {
-                let (_, block_handle) = self.model_block.ok_or(Error::Rejected)?;
-                let block_record = *post_map.get(&block_handle).ok_or(Error::Rejected)?;
-                file.patch_model_block_and_added(
-                    block_record,
-                    block_handle,
-                    |h| post_map.get(&h).copied(),
-                    &mut add_changes,
+            file.commit_step(
+                DwgMutation {
+                    changes,
+                    removed: removed_records,
+                    added: Vec::new(),
+                    seed: None,
+                    values: header::Values::default(),
+                },
+                cx,
+            )?;
+            let post_map = file.handle_map();
+            let mut changes = BTreeMap::new();
+            if !added.is_empty() {
+                let (_, block) = self.model_block.ok_or(Error::Rejected)?;
+                let record = *post_map.get(&block).ok_or(Error::Rejected)?;
+                file.patch_block(
+                    record,
+                    block,
+                    &post_map,
+                    &mut changes,
                     &BTreeSet::new(),
-                    &mut added_copy,
-                )
-                .ok_or(Error::Rejected)?;
+                    &mut added,
+                    cx,
+                )?;
             }
-            let mut txn = file.transaction();
-            for (&rec, data) in &add_changes {
-                txn.set_data(rec, data)?;
-            }
-            for (handle, data, _) in &added_copy {
-                txn.add(*handle, data)?;
-            }
-            if let Some(seed) = new_seed {
-                txn.set_handle_seed(seed)?;
-            }
-            if let Some(mode) = point_mode {
-                txn.set_point_mode(mode)?;
-            }
-            if let Some(size) = point_size {
-                txn.set_point_size(size)?;
-            }
-            return txn.commit(cx);
+            return file.commit_step(
+                DwgMutation {
+                    changes,
+                    removed: BTreeSet::new(),
+                    added,
+                    seed,
+                    values: header::Values {
+                        point_mode,
+                        point_size,
+                        ..header::Values::default()
+                    },
+                },
+                cx,
+            );
         }
-        if !removed_model_handles.is_empty() || !added_copy.is_empty() {
-            let (_, block_handle) = self.model_block.ok_or(Error::Rejected)?;
-            let block_record = *handle_map.get(&block_handle).ok_or(Error::Rejected)?;
-            file.patch_model_block_and_added(
-                block_record,
-                block_handle,
-                |h| handle_map.get(&h).copied(),
+        if !removed_model.is_empty() || !added.is_empty() {
+            let (_, block) = self.model_block.ok_or(Error::Rejected)?;
+            let record = *handle_map.get(&block).ok_or(Error::Rejected)?;
+            file.patch_block(
+                record,
+                block,
+                &handle_map,
                 &mut changes,
-                removed_model_handles,
-                &mut added_copy,
-            )
-            .ok_or(Error::Rejected)?;
+                removed_model,
+                &mut added,
+                cx,
+            )?;
         }
-        let mut txn = file.transaction();
-        for (&rec, data) in &changes {
-            if !removed_records.contains(&rec) {
-                txn.set_data(rec, data)?;
-            }
-        }
-        for &rec in &removed_records {
-            txn.remove(rec)?;
-        }
-        for (handle, data, _) in &added_copy {
-            txn.add(*handle, data)?;
-        }
-        if let Some(seed) = new_seed {
-            txn.set_handle_seed(seed)?;
-        }
-        if let Some(mode) = point_mode {
-            txn.set_point_mode(mode)?;
-        }
-        if let Some(size) = point_size {
-            txn.set_point_size(size)?;
-        }
-        txn.commit(cx)
+        file.commit_step(
+            DwgMutation {
+                changes,
+                removed: removed_records,
+                added,
+                seed,
+                values: header::Values {
+                    point_mode,
+                    point_size,
+                    ..header::Values::default()
+                },
+            },
+            cx,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Limits};
     use zumen_sdk::{Codec, FileModel};
 
-    use super::DwgSingle;
+    use super::{DwgFastStep, DwgSingle, DwgSourceLayout, bit_get};
     use crate::Dwg;
+
+    #[test]
+    fn source_layout_matches_saved_offsets_with_handle_reuse_and_header_growth() {
+        for name in [
+            "zumen-layout-r2000.dwg",
+            "zumen-layout-r2004.dwg",
+            "zumen-layout-r2018.dwg",
+        ] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../samples/dwg")
+                .join(name);
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            let base = Dwg::read(&std::fs::read(path).unwrap(), &mut cx).unwrap();
+            let single = DwgSingle::from_file(&base, &mut cx).unwrap();
+            let mut layout = DwgSourceLayout::new(&base, &mut cx).unwrap();
+            let mut reference = base.snapshot(&mut cx).unwrap();
+            let record = (0..base.entries.len())
+                .find(|&i| bit_get(&single.model_owned_bits, i))
+                .unwrap();
+            let handle = base.entries[record].handle;
+            let removed = BTreeSet::from([handle]);
+            for (seed, mode, size) in [(1 << 40, 35, 2.5), (1 << 48, 0, 0.0)] {
+                let current = reference
+                    .entries
+                    .iter()
+                    .position(|entry| entry.handle == handle)
+                    .unwrap();
+                let object = single.decode_record(&reference, current, &mut cx).unwrap();
+                let unchanged = vec![(
+                    handle,
+                    object.section,
+                    object.kind,
+                    object.values.clone(),
+                    object.values,
+                )];
+                let empty = BTreeSet::new();
+                single
+                    .apply_layout_step(
+                        &mut layout,
+                        DwgFastStep {
+                            updated: &unchanged,
+                            removed: &empty,
+                            removed_model: &empty,
+                            added: &[],
+                            seed: None,
+                            point_mode: None,
+                            point_size: None,
+                        },
+                        &mut cx,
+                    )
+                    .unwrap();
+                single
+                    .apply_fast_step(
+                        &mut reference,
+                        &unchanged,
+                        &empty,
+                        &empty,
+                        &[],
+                        None,
+                        None,
+                        None,
+                        &mut cx,
+                    )
+                    .unwrap();
+                assert_eq!(
+                    layout.cursor,
+                    reference.body().len(),
+                    "no-op changed the append position"
+                );
+                let added = vec![(
+                    handle,
+                    single.base_encoded(&reference, current).unwrap(),
+                    true,
+                )];
+                let step = DwgFastStep {
+                    updated: &[],
+                    removed: &removed,
+                    removed_model: &removed,
+                    added: &added,
+                    seed: Some(seed),
+                    point_mode: Some(mode),
+                    point_size: Some(size),
+                };
+                single
+                    .apply_layout_step(&mut layout, step, &mut cx)
+                    .unwrap();
+                single
+                    .apply_fast_step(
+                        &mut reference,
+                        &[],
+                        &removed,
+                        &removed,
+                        &added,
+                        Some(seed),
+                        Some(mode),
+                        Some(size),
+                        &mut cx,
+                    )
+                    .unwrap();
+                let mut saved = Vec::new();
+                Dwg::write(&reference, &mut saved, &mut cx).unwrap();
+                let reloaded = Dwg::read(&saved, &mut cx).unwrap();
+                let expected = reloaded
+                    .entries
+                    .iter()
+                    .map(|entry| (entry.handle, entry.span.clone()))
+                    .collect();
+                assert_eq!(
+                    layout.source_spans(&mut cx).unwrap(),
+                    expected,
+                    "{name}; seed={seed}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn decode_record_matches_full_objects_across_releases() {

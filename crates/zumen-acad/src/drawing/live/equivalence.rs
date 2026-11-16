@@ -2,7 +2,8 @@
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Key, Kind, Limit, Limits};
 use zumen_drawing::{
-    Affine, Changes, Drawing2D, Edge, Edit, Hash, Placed, Restyle, Seen, Shape, id, transform,
+    Affine, Applied, Changes, Drawing2D, Edge, Edit, Hash, Placed, Restyle, Seen, Shape, id,
+    transform,
 };
 use zumen_live::RowId;
 use zumen_sdk::{Apply, Codec, Error, Lift};
@@ -11,20 +12,26 @@ use super::AcadLive;
 use super::tests::{
     all_element_ids_and_hashes, fresh_cx, synthetic_associative_dxf, synthetic_rich_dxf,
 };
-use crate::{Dxf, DxfFile};
+use crate::{Dwg, Dxf};
 
-struct DxfPair {
+struct AcadPair<C: Codec> {
     live: AcadLive,
-    reference: DxfFile,
+    reference: C::File,
 }
 
-impl DxfPair {
+type DxfPair = AcadPair<Dxf>;
+type DwgPair = AcadPair<Dwg>;
+
+impl<C: Codec> AcadPair<C>
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+{
     fn open(bytes: &[u8], threads: usize) -> Self {
         let (reference, reference_diag) = fresh_cx(|cx| {
-            let file = Dxf::read(bytes, cx)?;
+            let file = C::read(bytes, cx)?;
             file.lift(cx).map(|_: Drawing2D| file)
         });
-        let (live, live_diag) = fresh_cx(|cx| AcadLive::open_dxf_with_threads(bytes, threads, cx));
+        let (live, live_diag) = fresh_cx(|cx| AcadLive::open_with_threads(bytes, threads, cx));
         assert_eq!(live_diag, reference_diag);
         let pair = Self {
             live: live.unwrap(),
@@ -45,7 +52,7 @@ impl DxfPair {
         );
         let saved = fresh_cx(|cx| self.live.save(cx)).0.unwrap();
         let (reloaded, diagnostics) =
-            fresh_cx(|cx| Dxf::read(&saved, cx).and_then(|file| file.lift(cx)));
+            fresh_cx(|cx| C::read(&saved, cx).and_then(|file| file.lift(cx)));
         assert_eq!(reloaded.unwrap(), actual);
         assert_eq!(diagnostics, expected_diag);
         for index in 0..self.live.table().len() {
@@ -53,7 +60,10 @@ impl DxfPair {
             if !self.live.table().is_alive(row) {
                 continue;
             }
-            let element = self.live.element_of_row(row).unwrap();
+            let element = fresh_cx(|cx| self.live.element_with_source(row, cx))
+                .0
+                .unwrap()
+                .unwrap();
             let expected = expected
                 .spaces
                 .iter()
@@ -74,7 +84,7 @@ impl DxfPair {
         Seen { id, hash }
     }
 
-    fn apply(&mut self, edit: Edit) {
+    fn apply(&mut self, edit: Edit) -> Vec<Applied> {
         let before = fresh_cx(|cx| self.live.drawing(cx)).0.unwrap();
         let before_bytes = fresh_cx(|cx| self.live.save(cx)).0.unwrap();
         let changes = Changes {
@@ -89,7 +99,7 @@ impl DxfPair {
         let saved = fresh_cx(|cx| self.live.save(cx)).0.unwrap();
         let expected_bytes = fresh_cx(|cx| {
             let mut bytes = Vec::new();
-            Dxf::write(&self.reference, &mut bytes, cx).map(|()| bytes)
+            C::write(&self.reference, &mut bytes, cx).map(|()| bytes)
         })
         .0
         .unwrap();
@@ -101,6 +111,7 @@ impl DxfPair {
         assert!(fresh_cx(|cx| self.live.redo(cx)).0.unwrap());
         assert_eq!(fresh_cx(|cx| self.live.save(cx)).0.unwrap(), saved);
         self.assert_model();
+        actual.unwrap()
     }
 
     fn reject(&mut self, edit: Edit) {
@@ -639,4 +650,297 @@ fn stopped_external_dependency_edits_preserve_state_and_history() {
         }
         assert!(succeeded, "no successful edit for {kind:?}");
     }
+}
+
+fn dwg_sample(name: &str) -> Vec<u8> {
+    std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../samples/dwg")
+            .join(name),
+    )
+    .unwrap()
+}
+
+#[test]
+fn dwg_public_samples_retain_full_models() {
+    for name in [
+        "zumen-layout-r2000.dwg",
+        "zumen-layout-r2018.dwg",
+        "zumen-points-a-r2000.dwg",
+        "zumen-points-a-r2018.dwg",
+        "zumen-arcdim-r2018.dwg",
+    ] {
+        let bytes = dwg_sample(name);
+        for threads in [1, 4] {
+            DwgPair::open(&bytes, threads);
+        }
+    }
+}
+
+#[test]
+fn dwg_general_shape_additions_match_sequential_apply() {
+    let mut added = Vec::new();
+    for (bytes, handles) in [
+        (general_shapes_dxf(), vec![0x109, 0x120, 0x122]),
+        (synthetic_associative_dxf(), vec![0x103, 0x104]),
+    ] {
+        let model: Drawing2D = fresh_cx(|cx| Dxf::read(&bytes, cx).and_then(|file| file.lift(cx)))
+            .0
+            .unwrap();
+        for handle in handles {
+            let mut element = model.spaces[0]
+                .elements
+                .iter()
+                .find(|element| element.source.key() == Some(Key::Handle(handle)))
+                .unwrap()
+                .clone();
+            if let Shape::Leader(leader) = &mut element.shape {
+                leader.annotation = None;
+            }
+            added.push(element);
+        }
+    }
+    assert_eq!(added.len(), 5);
+    for name in ["zumen-layout-r2000.dwg", "zumen-layout-r2018.dwg"] {
+        let bytes = dwg_sample(name);
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(&bytes, threads);
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let style = model.spaces[0].elements[0].style;
+            let layer = model.layers[0].id;
+            for original in &added {
+                let mut element = original.clone();
+                element.layer = layer;
+                element.style = style;
+                let edit = Edit::Add {
+                    place: "space/0".to_owned(),
+                    element: Box::new(Placed::Model(element)),
+                };
+                if matches!(original.shape, Shape::Leader(_)) {
+                    pair.reject(edit);
+                } else {
+                    pair.apply(edit);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn dwg_source_positions_follow_repeated_edits_and_removals() {
+    for name in [
+        "zumen-layout-r2000.dwg",
+        "zumen-layout-r2004.dwg",
+        "zumen-layout-r2018.dwg",
+    ] {
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(&dwg_sample(name), threads);
+            let drawing = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let original = drawing.spaces[0]
+                .elements
+                .iter()
+                .find(|element| matches!(element.shape, Shape::Line { .. } | Shape::Circle { .. }))
+                .unwrap()
+                .clone();
+            pair.apply(Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(original)),
+            });
+            pair.apply(Edit::SetPointStyle {
+                style: zumen_drawing::PointStyle {
+                    mark: zumen_drawing::PointMark::Cross,
+                    circle: true,
+                    square: false,
+                    size: zumen_drawing::PointSize::Length(2.5),
+                },
+            });
+            let drawing = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let handles: Vec<_> = drawing.spaces[0]
+                .elements
+                .iter()
+                .filter(|element| {
+                    matches!(element.shape, Shape::Line { .. } | Shape::Circle { .. })
+                })
+                .filter_map(|element| match element.source.key() {
+                    Some(Key::Handle(h)) => Some(h),
+                    _ => None,
+                })
+                .take(2)
+                .collect();
+            assert_eq!(handles.len(), 2);
+            for handle in &handles {
+                pair.apply(Edit::Transform {
+                    target: pair.seen(*handle),
+                    transform: Affine::translation(2.0, 3.0),
+                });
+                pair.apply(Edit::Restyle {
+                    target: pair.seen(*handle),
+                    style: Restyle {
+                        line_type_scale: Some(2.0),
+                        ..Restyle::default()
+                    },
+                });
+                let current = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+                let mut replacement = current.spaces[0]
+                    .elements
+                    .iter()
+                    .find(|element| element.source.key() == Some(Key::Handle(*handle)))
+                    .unwrap()
+                    .clone();
+                replacement.shape =
+                    transform::transform(&replacement.shape, &Affine::translation(-3.0, 4.0))
+                        .unwrap();
+                pair.apply(Edit::Replace {
+                    target: pair.seen(*handle),
+                    element: Box::new(Placed::Model(replacement)),
+                });
+            }
+            for handle in handles {
+                pair.apply(Edit::Remove {
+                    target: pair.seen(handle),
+                });
+            }
+        }
+    }
+}
+
+#[test]
+fn dwg_source_queries_share_budget_and_preserve_history() {
+    for name in ["zumen-layout-r2000.dwg", "zumen-layout-r2018.dwg"] {
+        let mut pair = DwgPair::open(&dwg_sample(name), 1);
+        let row = RowId::from_index(0).unwrap();
+        let Some(Key::Handle(handle)) = pair.live.element_of_row(row).unwrap().source.key() else {
+            panic!("handle required");
+        };
+        pair.apply(Edit::Transform {
+            target: pair.seen(handle),
+            transform: Affine::translation(2.0, 3.0),
+        });
+        let before = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+        let bytes = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+        let history = (
+            pair.live.state_id(),
+            pair.live.undo_len(),
+            pair.live.redo_len(),
+        );
+        for whole in [false, true] {
+            let query = |cx: &mut Cx<'_>| {
+                if whole {
+                    pair.live.drawing(cx).map(|_| ())
+                } else {
+                    pair.live.element_with_source(row, cx).map(|_| ())
+                }
+            };
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            query(&mut Cx::new(&mut budget, &mut diagnostics, &cancel)).unwrap();
+            for kind in [Kind::Work, Kind::DecodedBytes] {
+                let used = budget.used(kind);
+                assert!(used > 0);
+                for remaining in [0, used / 2, used - 1, used] {
+                    let mut limited =
+                        Budget::new(Limits::default().with(kind, Limit::Finite(remaining + 7)));
+                    limited.spend(kind, 7).unwrap();
+                    let mut diagnostics = Diagnostics::new();
+                    let result = query(&mut Cx::new(&mut limited, &mut diagnostics, &cancel));
+                    assert_eq!(
+                        result.is_ok(),
+                        remaining == used,
+                        "{name}: {kind:?} {remaining}/{used}"
+                    );
+                    if remaining != used {
+                        assert!(matches!(result, Err(Error::Stopped(_))));
+                    }
+                }
+            }
+            cancel.cancel();
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            assert!(matches!(
+                query(&mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+                Err(Error::Stopped(_))
+            ));
+        }
+        assert_eq!(
+            (
+                pair.live.state_id(),
+                pair.live.undo_len(),
+                pair.live.redo_len()
+            ),
+            history
+        );
+        assert_eq!(fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap(), before);
+        assert_eq!(fresh_cx(|cx| pair.live.save(cx)).0.unwrap(), bytes);
+    }
+}
+
+#[test]
+fn source_query_counts_other_dxf_insertions_and_removals() {
+    let mut pair = DxfPair::open(&synthetic_rich_dxf(), 1);
+    let row = pair.live.table().find_handle(0x101).unwrap();
+    let element = pair.live.element_of_row(row).unwrap();
+    let mut base_budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    pair.live
+        .element_with_source(
+            row,
+            &mut Cx::new(&mut base_budget, &mut diagnostics, &cancel),
+        )
+        .unwrap();
+    let mut edits: Vec<_> = (0..64)
+        .map(|_| Edit::Add {
+            place: "space/0".to_owned(),
+            element: Box::new(Placed::Model(element.clone())),
+        })
+        .collect();
+    edits.push(Edit::Remove {
+        target: pair.seen(0x102),
+    });
+    fresh_cx(|cx| {
+        pair.live.apply(
+            &Changes {
+                document: None,
+                edits,
+            },
+            cx,
+        )
+    })
+    .0
+    .unwrap();
+    let before = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+    let mut full_budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let actual = pair
+        .live
+        .element_with_source(
+            row,
+            &mut Cx::new(&mut full_budget, &mut diagnostics, &cancel),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        &actual,
+        before.spaces[0]
+            .elements
+            .iter()
+            .find(|element| element.source.key() == Some(Key::Handle(0x101)))
+            .unwrap()
+    );
+    for kind in [Kind::Work, Kind::DecodedBytes] {
+        assert!(full_budget.used(kind) > base_budget.used(kind));
+        for available in [base_budget.used(kind), full_budget.used(kind) - 1] {
+            let mut limited = Budget::new(Limits::default().with(kind, Limit::Finite(available)));
+            let mut diagnostics = Diagnostics::new();
+            assert!(matches!(
+                pair.live.element_with_source(
+                    row,
+                    &mut Cx::new(&mut limited, &mut diagnostics, &cancel)
+                ),
+                Err(Error::Stopped(_))
+            ));
+        }
+    }
+    assert_eq!(fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap(), before);
 }

@@ -11,13 +11,15 @@
 use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
+use zumen_base::{Cx, Diagnostic, Key, Kind, Ref, codes};
 use zumen_drawing::{CalloutContent, Drawing2D, Element, Shape};
 use zumen_live::SourceBytes;
 use zumen_sdk::{Codec, Error};
 
 use crate::db::{Section, Value};
-use crate::dwg::single::{DwgSingle, UpdatedDwgRecord};
+use crate::dwg::single::{
+    DwgFastStep, DwgSingle, DwgSourceLayout, DwgSourceSpans, UpdatedDwgRecord,
+};
 use crate::dwg::{Dwg, DwgFile};
 use crate::dxf::live_io::{
     AppliedTagOp, OTag, OverlayRecord, Span, apply_tag_edits, decode_record, replay_tag_ops,
@@ -140,6 +142,94 @@ pub struct DxfRecordMapper {
     born: BTreeMap<u32, u32>,
 }
 
+/// 保持モデルの出所を、全体保存した DWG のオブジェクトの位置へ移す。
+pub struct DwgSourceMapper(DwgSourceSpans);
+
+impl DwgSourceMapper {
+    pub fn remap_ref(&self, source: &mut Ref) {
+        if let Some(Key::Handle(handle)) = source.key()
+            && let Some(span) = self.0.get(&handle)
+        {
+            *source = source
+                .clone()
+                .with_bytes(span.start as u64, span.end as u64);
+        }
+    }
+
+    pub fn remap_element<P>(&self, element: &mut Element<P>) {
+        self.remap_ref(&mut element.source);
+        match &mut element.shape {
+            Shape::Symbol(symbol) => {
+                for attribute in &mut symbol.attributes {
+                    self.remap_ref(&mut attribute.source);
+                }
+            }
+            Shape::Leader(leader) => {
+                if let Some(annotation) = &mut leader.annotation {
+                    self.remap_ref(annotation);
+                }
+            }
+            Shape::Hatch(hatch) => {
+                for boundary in &mut hatch.loops {
+                    for source in &mut boundary.sources {
+                        self.remap_ref(source);
+                    }
+                }
+            }
+            Shape::Callout(callout) => {
+                if let Some(style) = &mut callout.style {
+                    self.remap_ref(style);
+                }
+                if let CalloutContent::Symbol { values, .. } = &mut callout.content {
+                    for value in values {
+                        self.remap_ref(&mut value.definition);
+                    }
+                }
+            }
+            Shape::Table(table) => {
+                if let Some(style) = &mut table.style {
+                    self.remap_ref(style);
+                }
+            }
+            Shape::Underlay(underlay) => self.remap_ref(&mut underlay.resource.definition),
+            _ => {}
+        }
+    }
+
+    pub fn remap_non_model_sources(&self, drawing: &mut Drawing2D) {
+        for layer in &mut drawing.layers {
+            self.remap_ref(&mut layer.source);
+        }
+        for line_type in &mut drawing.line_types {
+            self.remap_ref(&mut line_type.source);
+        }
+        for style in &mut drawing.dimension_styles {
+            self.remap_ref(&mut style.source);
+        }
+        for style in &mut drawing.text_styles {
+            self.remap_ref(&mut style.source);
+        }
+        for symbol in &mut drawing.symbols {
+            self.remap_ref(&mut symbol.source);
+            for element in &mut symbol.space.elements {
+                self.remap_element(element);
+            }
+            for attribute in &mut symbol.attributes {
+                self.remap_ref(&mut attribute.attribute.source);
+            }
+        }
+        for sheet in &mut drawing.sheets {
+            self.remap_ref(&mut sheet.source);
+            for element in &mut sheet.elements {
+                self.remap_element(element);
+            }
+            for view in &mut sheet.views {
+                self.remap_ref(&mut view.source);
+            }
+        }
+    }
+}
+
 impl DxfRecordMapper {
     pub fn effective(&self, record: u32) -> Option<u32> {
         if record >= self.source_records {
@@ -249,6 +339,22 @@ impl DxfRecordMapper {
 }
 
 impl DxfLiveBacking {
+    /// 単体取得の補正用の対応表を、呼び出し元の予算で作る。
+    pub fn record_mapper_with_cx(&self, cx: &mut Cx<'_>) -> Result<Option<DxfRecordMapper>, Error> {
+        let count = (self.gone.len() as u64).saturating_add(self.overlay.len() as u64);
+        let work = count.saturating_mul(u64::from(count.checked_ilog2().unwrap_or(0)) + 8);
+        for (kind, amount) in [
+            (Kind::Work, work),
+            (Kind::DecodedBytes, count.saturating_mul(256)),
+        ] {
+            cx.check(kind, amount).map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+        }
+        Ok(self.record_mapper())
+    }
+
     /// 追加と削除がある場合だけ、保存時と同じ挿入位置・作成順の対応表を作る。
     pub fn record_mapper(&self) -> Option<DxfRecordMapper> {
         let source_records = self.source_records();
@@ -812,6 +918,38 @@ impl DwgLiveBacking {
             Dwg::write(&self.base_file, &mut out, cx)?;
             return Ok(out);
         }
+        let file = self.replay_file(cx)?;
+        let mut out = Vec::new();
+        Dwg::write(&file, &mut out, cx)?;
+        Ok(out)
+    }
+
+    /// 保持した形状を復号し直さず、保存と同じ変更列から出所だけを得る。
+    pub fn source_mapper(&self, cx: &mut Cx<'_>) -> Result<Option<DwgSourceMapper>, Error> {
+        if self.step_cursor == 0 {
+            return Ok(None);
+        }
+        let mut layout = DwgSourceLayout::new(&self.base_file, cx)?;
+        for step in self.steps.get(..self.step_cursor).unwrap_or_default() {
+            self.single.apply_layout_step(
+                &mut layout,
+                DwgFastStep {
+                    updated: &step.step_updated,
+                    removed: &step.step_removed_handles,
+                    removed_model: &step.step_removed_model_handles,
+                    added: &step.step_added,
+                    seed: step.step_new_seed,
+                    point_mode: step.step_point_mode,
+                    point_size: step.step_point_size,
+                },
+                cx,
+            )?;
+        }
+        Ok(Some(DwgSourceMapper(layout.source_spans(cx)?)))
+    }
+
+    fn replay_file(&self, cx: &mut Cx<'_>) -> Result<DwgFile, Error> {
+        let active = self.steps.get(..self.step_cursor).unwrap_or_default();
         let mut file = self.base_file.snapshot(cx)?;
         for step in active {
             self.single.apply_fast_step(
@@ -826,9 +964,7 @@ impl DwgLiveBacking {
                 cx,
             )?;
         }
-        let mut out = Vec::new();
-        Dwg::write(&file, &mut out, cx)?;
-        Ok(out)
+        Ok(file)
     }
 
     /// 後ろに足す（畳み込み）保存。複数段階の変更を 1 回のトランザクションとして書き出し、中間リビジョンを省く

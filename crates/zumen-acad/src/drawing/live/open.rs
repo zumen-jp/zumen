@@ -134,6 +134,37 @@ impl LiveState {
         self.element_from_row(row, mapper.as_ref())
     }
 
+    pub(super) fn element_with_source(
+        &self,
+        row_id: RowId,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Element<ModelPoint>>, Error> {
+        cx.check(Kind::Work, 1).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        let Some(row) = self.table.row(row_id) else {
+            return Ok(None);
+        };
+        self.shapes.check_element_copy(row, cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic().at(row.source_ref()));
+            Error::Stopped(stop)
+        })?;
+        let dxf_mapper = match &self.backing {
+            LiveBacking::AsciiDxf(dxf) => dxf.record_mapper_with_cx(cx)?,
+            _ => None,
+        };
+        let Some(mut element) = self.element_from_row(row, dxf_mapper.as_ref()) else {
+            return Ok(None);
+        };
+        if let LiveBacking::Dwg(dwg) = &self.backing
+            && let Some(mapper) = dwg.source_mapper(cx)?
+        {
+            mapper.remap_element(&mut element);
+        }
+        Ok(Some(element))
+    }
+
     fn element_from_row(
         &self,
         row: &LiveRow,
@@ -235,6 +266,10 @@ impl LiveState {
             LiveBacking::AsciiDxf(dxf) => dxf.record_mapper(),
             _ => None,
         };
+        let dwg_mapper = match &self.backing {
+            LiveBacking::Dwg(dwg) => dwg.source_mapper(cx)?,
+            _ => None,
+        };
         for row_idx in 0..self.table.len() {
             let Some(row_id) = RowId::from_index(row_idx) else {
                 break;
@@ -248,13 +283,19 @@ impl LiveState {
             {
                 row_ref = row_ref.with_record(u64::from(eff));
             }
+            if let Some(mapper) = &dwg_mapper {
+                mapper.remap_ref(&mut row_ref);
+            }
             cx.check(Kind::Work, 1).map_err(|stop| {
                 cx.report(stop.to_diagnostic().at(row_ref.clone()));
                 Error::Stopped(stop)
             })?;
-            let Some(el) = self.element_from_row(row, dxf_mapper.as_ref()) else {
+            let Some(mut el) = self.element_from_row(row, dxf_mapper.as_ref()) else {
                 continue;
             };
+            if let Some(mapper) = &dwg_mapper {
+                mapper.remap_element(&mut el);
+            }
             let model_index = model_elements.len();
             if row.kind == LiveKind::General
                 && let Some(general) = self.shapes.generals.get(row.shape as usize)
@@ -288,6 +329,12 @@ impl LiveState {
             ..Drawing2D::default()
         };
         if let Some(mapper) = &dxf_mapper {
+            mapper.remap_non_model_sources(&mut drawing);
+            for extension in &mut extensions {
+                mapper.remap_ref(&mut extension.source);
+            }
+        }
+        if let Some(mapper) = &dwg_mapper {
             mapper.remap_non_model_sources(&mut drawing);
             for extension in &mut extensions {
                 mapper.remap_ref(&mut extension.source);

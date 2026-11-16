@@ -235,9 +235,19 @@ impl AcadLive {
         );
     }
 
-    /// 生きている行 `row` から図面モデルの [`Element<ModelPoint>`] を 1 件だけ復元する
+    /// 生きている行 `row` から図面モデルの [`Element<ModelPoint>`] を 1 件だけ復元する。
+    /// DWG の出所は保持時の位置。保存結果と照らす場合は [`Self::element_with_source`] を使う。
     pub fn element_of_row(&self, row: RowId) -> Option<Element<ModelPoint>> {
         self.state.element_of_row(row)
+    }
+
+    /// 保存後と同じ出所を持つ要素を、共有予算で復元する。
+    pub fn element_with_source(
+        &self,
+        row: RowId,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Element<ModelPoint>>, Error> {
+        self.state.element_with_source(row, cx)
     }
 
     /// 現在の常駐状態から [`Drawing2D`] を組み立てる
