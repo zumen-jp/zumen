@@ -29,6 +29,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `polyline/` | 2 頂点の自作 POLYLINE の画層・線種・色を、監査前の ezdxf の値と照らし、親だけの変更による不一致を検出する（#885）。手順と期待値は [README](polyline/README.md) |
 | `express/` | buildingSMART の公開 IFC EXPRESS 3版を実行時だけ取得し、実体・明示属性・型を同じ入力から読んだ IfcOpenShell と照らす（#663）。手順は [README](express/README.md) |
 | `ids/` | 公開 IFC2X3 と自作 IDS の名前の要件 6 仕様を、3 文字コードで IfcTester と照らす（#522）。手順と期待値は [README](ids/README.md) |
+| `bcf/` | 自作 BCF 2.1・3.0 の編集・新規出力と外部実装の再保存を、Smino.Bcf.Toolkit と固定期待値で照らす（#522）。手順と範囲は [README](bcf/README.md) |
 | `acc/` | 公開 IFC と BCF 2.1 のオフライン検証キットを作り、Autodesk Build の取り込み・書き出しを利用者が確認する（#686・#787）。手順と期待値は [README](acc/README.md) |
 | `check_autocad.py` | キットの DXF・DWG を、画面のない AutoCAD（`accoreconsole.exe`）で 1 つずつ開き、監査の誤りの数と `dump.lsp` の書き出しを、zumen の読みと変更で決めた値に照らす（#683）。AutoCAD のある端末の手元でだけ流す |
 | `test_check_autocad.py` | `check_autocad.py` の、流すスクリプトの組み立て、コンソールの出力と書き出しの読み、形の値への直し、寸法と表の部品の比べ方を、合成の入力で確かめる。AutoCAD がなくても流せる |
@@ -198,6 +199,7 @@ python -I -m unittest discover -s xtask/verify -p 'test_check_autocad.py'
 | DWG | [ACadSharp](https://github.com/DomCR/ACadSharp) 3.8.0 | MIT | 照らす（`acadsharp/`・`check_acadsharp.py`）。.NET のツールで読み、値を JSON に書き出す |
 | JWW | [ezjww](https://github.com/monozukuri-ai/ezjww) 0.7.6 | MIT | 照らす（`check_ezjww.py`） |
 | SFC・P21 | [ezsxf](https://github.com/monozukuri-ai/ezsxf) 0.3.7 | MIT | 照らす（`check_ezsxf.py`） |
+| BCF | [Smino.Bcf.Toolkit](https://www.nuget.org/packages/Smino.Bcf.Toolkit/3.2.0) 3.2.0 | Apache-2.0 | 自作の 2.1・3.0 の値と参照を照らす（[`bcf/`](bcf/README.md)）。外部 DLL と生成された型は同梱しない |
 | PDF アンダーレイ | [pdf.js](https://github.com/mozilla/pdf.js) 6.5.438 | Apache-2.0 | `@zumen-jp/view2d` のブラウザーテストで使う（`pdfjs/`） |
 | LAS | [laspy](https://github.com/laspy/laspy) 2.7.0 | BSD-2-Clause | 非圧縮 LAS のヘッダーと全点を照らす（[`laspy/`](laspy/README.md)）。NumPy 2.5.4 を別に導入 |
 | GeoJSON | [Shapely](https://github.com/shapely/shapely) 2.2.0 | BSD-3-Clause | GeoJSON の書き出しの妥当性（GEOS）・回転方向・座標・属性と、7 種の図形の読みを照らす（[`shapely/`](shapely/README.md)）。NumPy 2.5.4 を別に導入 |

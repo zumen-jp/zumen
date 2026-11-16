@@ -13,7 +13,7 @@
 
 | キー | 名前 | 系統 | 領域 | 権利 | 置き場所 | 読み | 書き |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [bcf](#format-bcf) | BCF | bcf | review | `public` | `core` | `synthetic` | `synthetic` |
+| [bcf](#format-bcf) | BCF | bcf | review | `public` | `core` | `synthetic` | `external` |
 | [bebridge](#format-bebridge) | BE-Bridge | bebridge | building | `unknown` | `none` |  |  |
 | [boring](#format-boring) | ボーリング交換用データ（BED） | boring | delivery | `public` | `core` | `synthetic` |  |
 | [cedxm](#format-cedxm) | CEDXM | cedxm | building | `permission` | `none` |  |  |
@@ -581,10 +581,11 @@
 - 仕様: [bcf\_xml\_2\_1](#spec-bcf_xml_2_1)、[bcf\_xml\_3\_0](#spec-bcf_xml_3_0)、[bcf\_api\_3\_0](#spec-bcf_api_3_0)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [IFC4 ADD2 TC1 の文書の著作権の注記（商標の注記を含む）](https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD2_TC1/HTML/copyright.htm)（確認日: 2026-10-31）
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: BCF-XML 2.1・3.0 の文書と、テストの中で作った bcfzip（crates/zumen-bcf/tests）で確かめた。公開サンプル・外部の実装・BCF を読むソフトでの照合はまだ（#522）
-- 書きの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 書きの確かめた範囲: 書いた bcfzip を読み直して確かめた。書いたファイルを、外部の実装や BCF を読むソフトで読ませてはいない（#522）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-16）
+- 読みの確かめた範囲: 自作の BCF 2.1・3.0 を Smino.Bcf.Toolkit 3.2.0 で再保存し、指摘・コメント・視点の GUID と参照・値、カメラ・選択要素を入力の期待値と照らした（xtask/verify/bcf、#522）。元が自作なので synthetic を維持する。再配布できる公開 BCF は未収録。文字コードの変種・未知の XML の外部照合と製品の表示は未確認
+- 書きの確かめた度合い: `external`（確認日: 2026-11-16）
+- 書きの確かめた範囲: 自作 BCF 2.1 の編集出力と 2.1・3.0 の新規出力の 3 ファイルを Smino.Bcf.Toolkit で読み、12 指摘の GUID・参照・題・状態・コメント・透視と平行のカメラ・選択要素・可視性と、2.1 の画像 4 枚を固定期待値と照らした（xtask/verify/bcf、#522）。未知の XML・文書参照・切断面・色・別の文字コードと製品の表示は未確認
+- 書きで照らした外部の実装: Smino.Bcf.Toolkit 3.2.0
 - issue: [zumen-jp/zumen#429](https://github.com/zumen-jp/zumen/issues/429)
 - issue: [zumen-jp/zumen#454](https://github.com/zumen-jp/zumen/issues/454)
 - 形式の文書: [docs/formats/bcf.md](../../docs/formats/bcf.md)

@@ -1,0 +1,22 @@
+<!-- 外部の BcfToolkit を別プロセスで動かす。ライブラリと生成された型は同梱しない。 -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="bcf-toolkit"><HintPath>$(BcfTools)/lib/bcf-toolkit.dll</HintPath></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(BcfTools)/lib/Newtonsoft.Json.dll</HintPath></Reference>
+    <Reference Include="RecursiveDataAnnotationsValidation"><HintPath>$(BcfTools)/lib/RecursiveDataAnnotationsValidation.dll</HintPath></Reference>
+    <Reference Include="Serilog"><HintPath>$(BcfTools)/lib/Serilog.dll</HintPath></Reference>
+    <Reference Include="System.CommandLine"><HintPath>$(BcfTools)/lib/System.CommandLine.dll</HintPath></Reference>
+  </ItemGroup>
+  <Target Name="RequireExternalTools" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(BcfTools)/lib/bcf-toolkit.dll')" Text="先に prepare.py で外部ツールを用意してください。" />
+  </Target>
+</Project>
