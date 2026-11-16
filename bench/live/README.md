@@ -46,6 +46,17 @@ pwsh -File bench/live/memory.ps1 -Executable target/bench-live-core/release/core
 
 この入口の比較は 2 回の移動の経路です。全種類の操作の検証は続けます。公開サンプル・5 形式×4 規模・100 万要素の結果と未達は、[2026-11-16 の記録](results/core-2026-11-16.md)にあります。
 
+## 常駐子プロセスの測定
+
+`native-ipc.mjs` は実際の `zumen live --stdio` と Node.js の接続を使い、行の ID とハッシュの取得、移動と表示差分、取り消しを往復します。1 万・100 万本の LINE を生成し、受信側の列へ 64 要素ブロックを反映します。最後に、保存の全バイトと表示の全列が初期状態と同じであることを直接照合します。
+
+```sh
+cargo build -p zumen-cli --release --locked
+node --expose-gc bench/live/native-ipc.mjs target/release/zumen 1000000 1000 4
+```
+
+引数は実行ファイル、要素数、試行数、開くときのスレッド数です。Windows では `zumen.exe` を使います。[2026-11-16 の結果](results/native-ipc-2026-11-16.md)には、中央値・p99・最大値、1 ms を超えた回数、親子別のメモリと残件を記しています。
+
 ## 範囲
 
 以下は既存の試作 `live` の範囲・手順・過去の測定です。コアの `core-live` の範囲は上に記したとおりです。

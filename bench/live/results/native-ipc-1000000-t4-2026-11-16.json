@@ -1,0 +1,44 @@
+{
+  "platform": "win32",
+  "architecture": "x64",
+  "node": "v24.22.2",
+  "cpu": "AMD Ryzen 5 3600XT 6-Core Processor",
+  "nativeCommit": "3fe7ad65195cbf0e106d7fe27e01fec4fc5eb216",
+  "count": 1000000,
+  "iterations": 1000,
+  "threads": 4,
+  "inputBytes": 46493241,
+  "initialPacketBytes": 44375224,
+  "openAndMirrorMs": 1107.0743,
+  "childEditPeakBytes": 427237376,
+  "childPeakIncludingSaveBytes": 427237376,
+  "parentPeakBytes": 256999424,
+  "parentRssAfterBytes": 257011712,
+  "undoSaveHash": "f14aba55740d62925cb020ec3e01d01ab9a3fcefee6a30570d9a3806d0bb197a",
+  "undoMirrorHash": "11711961b0e44b81d3ddd1beedf4f28c203db8046dcb5399ab7fe4095f3ca54f",
+  "targetUs": {
+    "median": 67.59999999985666,
+    "p95": 111.59999999995307,
+    "p99": 178.40000000001055,
+    "maximum": 1039.600000000064,
+    "over1000us": 1
+  },
+  "transformWithDisplayUs": {
+    "median": 128.69999999998072,
+    "p95": 187.7999999999247,
+    "p99": 300.6000000000313,
+    "maximum": 775.0999999998385,
+    "over1000us": 0
+  },
+  "undoWithDisplayUs": {
+    "median": 93.69999999989886,
+    "p95": 138.30000000007203,
+    "p99": 254.79999999993197,
+    "maximum": 529.3000000001484,
+    "over1000us": 0
+  },
+  "deltaPacketBytes": {
+    "min": 2280,
+    "max": 2280
+  }
+}
