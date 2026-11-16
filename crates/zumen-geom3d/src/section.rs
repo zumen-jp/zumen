@@ -14,34 +14,83 @@ use crate::{Failure, Mesh, Plane, Section, Xy, Xyz, add, dot, scale, sub};
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MeshSection;
 
+/// 切断の輪郭。開いた面の切り口は、終点を始点へ結ばない。
+#[derive(Clone, Debug, PartialEq)]
+pub struct SectionPath {
+    /// 平面の局所座標の点。閉じた輪郭でも始点を末尾に重ねない。
+    pub points: Vec<Xy>,
+    /// 始点から終点までたどって、元の始点に戻ったか。
+    pub closed: bool,
+}
+
 type Key = [[u64; 3]; 2];
 
 /// 辺の交点。端点を座標の順に並べてから求め、どちらの三角形からも同じ値にする
-fn crossing(a: (Xyz, f64), b: (Xyz, f64)) -> (Key, Xyz) {
+fn crossing(a: (Xyz, f64), b: (Xyz, f64)) -> Result<(Key, Xyz), Failure> {
     let (ka, kb) = (a.0.map(f64::to_bits), b.0.map(f64::to_bits));
     let ((p, dp), (q, dq), key) = if ka <= kb {
         (a, b, [ka, kb])
     } else {
         (b, a, [kb, ka])
     };
-    let t = dp / (dp - dq);
-    (key, add(p, scale(sub(q, p), t)))
+    let denominator = dp - dq;
+    if !denominator.is_finite() {
+        return Err(Failure::Invalid("section_coordinate"));
+    }
+    let t = dp / denominator;
+    Ok((key, add(p, scale(sub(q, p), t))))
 }
 
 impl Section for MeshSection {
     fn section(&self, mesh: &Mesh, plane: &Plane, cx: &mut Cx) -> Result<Vec<Vec<Xy>>, Failure> {
+        Ok(self
+            .paths(mesh, plane, cx)?
+            .into_iter()
+            .map(|p| p.points)
+            .collect())
+    }
+}
+
+impl MeshSection {
+    /// 開いた鎖と閉じた輪郭を区別して切る。点の順は [`Section::section`] と同じ。
+    pub fn paths(
+        &self,
+        mesh: &Mesh,
+        plane: &Plane,
+        cx: &mut Cx,
+    ) -> Result<Vec<SectionPath>, Failure> {
+        let n = mesh.triangles.len() as u64;
+        // 交点の索引 2 つ、始点、鎖と出力を、確保前に固定の論理量で予約する。
+        // 各三角形は最大 1 辺を作る。木の探索と走査も入力の上限から先に数える。
+        let bytes = n
+            .checked_mul(1536)
+            .ok_or(Failure::Invalid("section_size"))?;
+        if bytes > i32::MAX as u64 {
+            return Err(Failure::Invalid("section_size"));
+        }
+        let levels = 65 - n.leading_zeros() as u64;
+        cx.check(
+            Kind::Work,
+            n.saturating_mul(64 * levels)
+                .saturating_add(mesh.positions.len() as u64)
+                .saturating_add(mesh.edges.len() as u64),
+        )?;
+        cx.check(Kind::DecodedBytes, bytes)?;
         mesh.validate()?;
         let frame = plane.frame().ok_or(Failure::Invalid("plane"))?;
         let normal = frame.column(2);
         let d = |p: Xyz| dot(sub(p, plane.origin), normal);
         // 始まりの交点の辺 → (終わりの交点の辺, 始まりの点, 終わりの点)
         let mut next: BTreeMap<Key, Vec<(Key, Xyz, Xyz)>> = BTreeMap::new();
-        let mut count = 0u64;
         for t in &mesh.triangles {
+            cx.check(Kind::Work, 0)?;
             let Some(points) = mesh.triangle(*t) else {
                 continue;
             };
             let side = points.map(|p| (p, d(p)));
+            if side.iter().any(|(_, distance)| !distance.is_finite()) {
+                return Err(Failure::Invalid("section_coordinate"));
+            }
             // 外から見て反時計回りの三角形では、表から裏へ渡る辺の交点から、裏から表へ渡る辺の
             // 交点へ向かうと、平面の表から見て中身が左になる。向きを点の符号だけで決めるので、
             // 長さが 0 の辺でも、隣の三角形とつながる
@@ -51,18 +100,20 @@ impl Section for MeshSection {
                     continue;
                 };
                 match (a.1 > 0.0, b.1 > 0.0) {
-                    (true, false) => start = Some(crossing(*a, *b)),
-                    (false, true) => end = Some(crossing(*a, *b)),
+                    (true, false) => start = Some(crossing(*a, *b)?),
+                    (false, true) => end = Some(crossing(*a, *b)?),
                     _ => {}
                 }
             }
             let (Some((start, from)), Some((end, to))) = (start, end) else {
                 continue;
             };
+            if !from.into_iter().chain(to).all(f64::is_finite) {
+                return Err(Failure::Invalid("section_coordinate"));
+            }
+            cx.check(Kind::Segments, 1)?;
             next.entry(start).or_default().push((end, from, to));
-            count += 1;
         }
-        cx.check(Kind::Segments, count)?;
         let ends: BTreeMap<Key, ()> = next
             .values()
             .flatten()
@@ -77,10 +128,12 @@ impl Section for MeshSection {
             .collect();
         let mut loops = Vec::new();
         for start in starts {
+            cx.check(Kind::Work, 0)?;
             let mut chain = Vec::new();
             let mut at = start;
             let mut last = None;
             while let Some((end, from, to)) = next.get_mut(&at).and_then(Vec::pop) {
+                cx.check(Kind::Work, 0)?;
                 chain.push(Plane::project(&frame, from));
                 last = Some(to);
                 at = end;
@@ -98,7 +151,13 @@ impl Section for MeshSection {
                 if at == start && chain.len() > 1 && chain.first() == chain.last() {
                     chain.pop();
                 }
-                loops.push(chain);
+                if chain.iter().flatten().any(|v| !v.is_finite()) {
+                    return Err(Failure::Invalid("section_coordinate"));
+                }
+                loops.push(SectionPath {
+                    points: chain,
+                    closed: at == start,
+                });
             }
         }
         Ok(loops)

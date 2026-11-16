@@ -294,6 +294,45 @@ fn cuts_holes_clockwise_and_open_meshes_into_chains() {
     })
     .unwrap();
     assert_eq!(chains, vec![vec![[0.0, 0.5], [0.5, 0.0]]]);
+    let paths = with_cx(Limits::default(), |cx| {
+        MeshSection.paths(&triangle, &plane, cx)
+    })
+    .unwrap();
+    assert_eq!(paths.len(), 1);
+    assert!(!paths[0].closed);
+    assert_eq!(paths[0].points, chains[0]);
+    let paths = with_cx(Limits::default(), |cx| {
+        MeshSection.paths(&unit_cube(), &plane, cx)
+    })
+    .unwrap();
+    assert_eq!(paths.len(), 1);
+    assert!(paths[0].closed);
+    assert_ne!(paths[0].points.first(), paths[0].points.last());
+}
+
+#[test]
+fn section_reserves_work_and_storage_before_constructing_paths() {
+    let cube = unit_cube();
+    let plane = Plane {
+        origin: [0.0, 0.0, 0.5],
+        normal: [0.0, 0.0, 1.0],
+    };
+    for kind in [Kind::Work, Kind::DecodedBytes] {
+        let result = with_cx(Limits::default().with(kind, Limit::Finite(0)), |cx| {
+            MeshSection.paths(&cube, &plane, cx)
+        });
+        assert!(matches!(result, Err(Failure::Stopped(Stop::Exceeded(e))) if e.kind == kind));
+    }
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    assert_eq!(
+        MeshSection.paths(&cube, &plane, &mut cx),
+        Err(Failure::Stopped(Stop::Cancelled))
+    );
+    assert_eq!(budget.used(Kind::DecodedBytes), 0);
 }
 
 #[test]

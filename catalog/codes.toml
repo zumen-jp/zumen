@@ -48,6 +48,40 @@ group-by = ["kind", "reason"]
 since = "0.3.0"
 status = "active"
 
+[codes."building.drawing.dropped"]
+description = "切断または投影できない形の項目を図面から除いた"
+severity = "warning"
+fidelity = "dropped"
+params = { reason = "text" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."building.grid.approximated"]
+description = "図面への切り出しで点または交点を整数の格子へ移した"
+severity = "info"
+fidelity = "approximated"
+params = { spacing = "float" }
+group-by = ["spacing"]
+since = "0.3.0"
+status = "active"
+
+[codes."building.line.dropped"]
+description = "図面の格子上で点に縮んだ辺または輪郭を除いた"
+severity = "warning"
+fidelity = "dropped"
+since = "0.3.0"
+status = "active"
+
+[codes."building.joinery.drawn"]
+description = "建具の平面の表現もプロファイルの記号も使えず切断の形を描いた"
+severity = "warning"
+fidelity = "drawn"
+params = { reason = "text" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
 [codes."geom3d.edge.equivalent"]
 description = "面の境界にある T 字の継ぎ目を分けて同じ形のメッシュにした"
 severity = "info"

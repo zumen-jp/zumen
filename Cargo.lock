@@ -873,6 +873,9 @@ dependencies = [
  "blake3",
  "libm",
  "zumen-base",
+ "zumen-crs",
+ "zumen-drawing",
+ "zumen-geom2d",
  "zumen-geom3d",
 ]
 
@@ -1088,6 +1091,7 @@ dependencies = [
  "zumen-building",
  "zumen-civil",
  "zumen-crs",
+ "zumen-drawing",
  "zumen-geom3d",
  "zumen-ids",
  "zumen-json",

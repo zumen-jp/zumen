@@ -33,6 +33,8 @@ building = ["dep:zumen-building", "dep:zumen-live", "dep:libm", "dep:encoding_rs
 ids = ["building", "dep:zumen-ids"]
 # IFC4.3 の線形を、土木の領域モデル（L2、決定 0230）に移す
 civil = ["building", "dep:zumen-civil", "dep:zumen-crs"]
+# 建物から平断面・断面・立面を切り出す検査用の入口。
+drawing = ["building", "zumen-building/drawing"]
 
 [lints]
 workspace = true
@@ -45,7 +47,12 @@ required-features = ["building"]
 name = "mesh_audit"
 required-features = ["building"]
 
+[[example]]
+name = "building_drawing"
+required-features = ["drawing"]
+
 [dev-dependencies]
+zumen-drawing = { path = "../zumen-drawing" }
 zumen-geom3d = { path = "../zumen-geom3d" }
 # 公開サンプルの要素の値を、IfcOpenShell と照らす JSON に書く
 zumen-json = { path = "../zumen-json" }

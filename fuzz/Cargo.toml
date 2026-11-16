@@ -19,7 +19,7 @@ zumen = { path = "../crates/zumen" }
 zumen-acad = { path = "../crates/zumen-acad" }
 zumen-base = { path = "../crates/zumen-base" }
 zumen-bcf = { path = "../crates/zumen-bcf" }
-zumen-building = { path = "../crates/zumen-building" }
+zumen-building = { path = "../crates/zumen-building", features = ["drawing"] }
 zumen-citygml = { path = "../crates/zumen-citygml" }
 zumen-civil = { path = "../crates/zumen-civil" }
 zumen-crs = { path = "../crates/zumen-crs" }
@@ -57,6 +57,13 @@ zumen-zip = { path = "../crates/zumen-zip" }
 
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "building_drawing"
+path = "fuzz_targets/building_drawing.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "scene3d"

@@ -207,7 +207,7 @@ fn trimmed(
     }
 }
 
-pub(super) fn evaluate(
+pub(crate) fn evaluate(
     graph: &CurveGraph,
     reference: CurveRef,
     chord: f64,

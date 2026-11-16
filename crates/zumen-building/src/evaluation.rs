@@ -12,10 +12,10 @@ use zumen_geom3d::{
 };
 
 mod boolean;
-mod curves;
+pub(crate) mod curves;
 mod openings;
 mod shape;
-mod values;
+pub(crate) mod values;
 use values::{inverse, mapping, placement, reserve, unit};
 
 /// 建物の形を評価する設定。結果の長さの単位はメートル。
@@ -471,6 +471,15 @@ pub fn evaluate(
     options: Options,
     cx: &mut Cx,
 ) -> Result<Vec<ElementMesh>, Failure> {
+    evaluate_selected(building, options, |_| true, cx)
+}
+
+pub(crate) fn evaluate_selected(
+    building: &Building,
+    options: Options,
+    include: impl Fn(ElementRef) -> bool,
+    cx: &mut Cx,
+) -> Result<Vec<ElementMesh>, Failure> {
     if !options.chord.is_finite() || options.chord <= 0.0 {
         return Err(Failure::Invalid("chord"));
     }
@@ -479,6 +488,15 @@ pub fn evaluate(
     for (index, _) in building.elements().iter().enumerate() {
         cx.check(Kind::Work, 1)?;
         let at = ElementRef(index as u32);
+        if !include(at) {
+            elements.push(ElementMesh {
+                element: at,
+                id: building.id(at).ok_or(Failure::Invalid("element"))?,
+                parts: Vec::new(),
+                complete: true,
+            });
+            continue;
+        }
         let value = match element(building, at, options, cx) {
             Ok(value) => value,
             Err(error) => {

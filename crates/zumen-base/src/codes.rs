@@ -292,6 +292,17 @@ pub const BUILDING_BOOLEAN_FAILED: Code = Code::new(
     &["kind", "reason"],
 );
 
+/// 切断または投影できない形の項目を図面から除いた
+///
+/// `building.drawing.dropped`（0.3.0 から）
+pub const BUILDING_DRAWING_DROPPED: Code = Code::new(
+    "building.drawing.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("reason", ParamType::Text)],
+    &["reason"],
+);
+
 /// 同じ GlobalId がもうあるので、後の要素はインスタンスの番号で ID を作った
 ///
 /// `building.global-id.exists`（0.2.0 から）
@@ -314,6 +325,17 @@ pub const BUILDING_GLOBAL_ID_INVALID: Code = Code::new(
     &[],
 );
 
+/// 図面への切り出しで点または交点を整数の格子へ移した
+///
+/// `building.grid.approximated`（0.3.0 から）
+pub const BUILDING_GRID_APPROXIMATED: Code = Code::new(
+    "building.grid.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[Param::new("spacing", ParamType::Float)],
+    &["spacing"],
+);
+
 /// 同じ ID の要素がもうあるので、要素を足さなかった
 ///
 /// `building.id.exists`（0.2.0 から）
@@ -322,6 +344,28 @@ pub const BUILDING_ID_EXISTS: Code = Code::new(
     Severity::Error,
     None,
     &[Param::new("id", ParamType::Text)],
+    &[],
+);
+
+/// 建具の平面の表現もプロファイルの記号も使えず切断の形を描いた
+///
+/// `building.joinery.drawn`（0.3.0 から）
+pub const BUILDING_JOINERY_DRAWN: Code = Code::new(
+    "building.joinery.drawn",
+    Severity::Warning,
+    Some(Fidelity::Drawn),
+    &[Param::new("reason", ParamType::Text)],
+    &["reason"],
+);
+
+/// 図面の格子上で点に縮んだ辺または輪郭を除いた
+///
+/// `building.line.dropped`（0.3.0 から）
+pub const BUILDING_LINE_DROPPED: Code = Code::new(
+    "building.line.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
     &[],
 );
 
@@ -5646,9 +5690,13 @@ pub const ALL: &[Code] = &[
     BUDGET_TIME_EXCEEDED,
     BUDGET_WORK_EXCEEDED,
     BUILDING_BOOLEAN_FAILED,
+    BUILDING_DRAWING_DROPPED,
     BUILDING_GLOBAL_ID_EXISTS,
     BUILDING_GLOBAL_ID_INVALID,
+    BUILDING_GRID_APPROXIMATED,
     BUILDING_ID_EXISTS,
+    BUILDING_JOINERY_DRAWN,
+    BUILDING_LINE_DROPPED,
     BUILDING_PLACEMENT_INVALID,
     BUILDING_PLACEMENT_MISSING,
     BUILDING_PLACEMENT_UNSUPPORTED,

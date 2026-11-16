@@ -77,7 +77,7 @@ pub(super) fn unit(unit: Option<&Unit>, kind: &str) -> Result<f64, Failure> {
     Ok(value)
 }
 
-pub(super) fn placement(value: Option<&AxisPlacement3>, factor: f64) -> Result<Transform, Failure> {
+pub(crate) fn placement(value: Option<&AxisPlacement3>, factor: f64) -> Result<Transform, Failure> {
     let Some(value) = value else {
         return Ok(Transform::IDENTITY);
     };
@@ -141,6 +141,6 @@ fn operator(value: &CartesianMapping3, factor: f64) -> Result<Transform, Failure
     ]))
 }
 
-pub(super) fn mapping(value: &ShapeMapping3, factor: f64) -> Result<Transform, Failure> {
+pub(crate) fn mapping(value: &ShapeMapping3, factor: f64) -> Result<Transform, Failure> {
     Ok(inverse(placement(Some(&value.origin), factor)?)?.then(&operator(&value.target, factor)?))
 }

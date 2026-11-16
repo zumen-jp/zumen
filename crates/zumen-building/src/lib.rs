@@ -10,6 +10,8 @@ use zumen_base::{Cx, Diagnostic, Ref, codes};
 mod boolean;
 mod component;
 mod curve;
+#[cfg(feature = "drawing")]
+pub mod drawing;
 pub mod evaluation;
 mod extrusion;
 mod faces;

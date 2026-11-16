@@ -19,7 +19,7 @@ mod transform;
 pub use kernel::{Failure, Kernel, Section, Tolerance};
 pub use manifold::{EvaluatedMesh, ManifoldKernel, MeshChanges};
 pub use mesh::{Mesh, Part};
-pub use section::MeshSection;
+pub use section::{MeshSection, SectionPath};
 pub use shape::{BooleanOp, Curve, Face, Profile, Shape};
 pub use transform::{Plane, Transform};
 pub use zumen_geom2d::Xy;
