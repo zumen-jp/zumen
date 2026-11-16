@@ -183,8 +183,15 @@ fn read_ops_on_the_resident_model_answer_like_a_fresh_session() {
     }
 }
 
-/// 常駐の図面モデルを捨て、次の読み取りで変換し直させる
+/// 常駐の図面モデルを捨て、次の読み取りで変換し直させる。文書エンジンは持ち続ける
 fn forget(session: &mut Session, name: &str) {
+    if let Some(Document::Drawing { file, .. }) = session.docs.get_mut(name) {
+        file.lifted = OnceCell::new();
+    }
+}
+
+/// 常駐の図面モデルと文書エンジンを捨てる
+fn forget_engine(session: &mut Session, name: &str) {
     if let Some(Document::Drawing { file, .. }) = session.docs.get_mut(name) {
         file.file_mut();
     }
@@ -282,4 +289,508 @@ fn apply_moves_the_resident_model_and_keeps_it_only_when_nothing_changed() {
         }
     }
     assert_eq!(edited, ["a.dxf", "a.dwg", "a.jww", "a.sfc"]);
+}
+
+/// 文書エンジンで当てる形式の公開サンプル。ハンドルのない R12、R2007 の DXF、R2000〜R2018 の DWG を含む
+const ENGINE_SAMPLES: [(&str, &[u8]); 8] = [
+    (
+        "a.dxf",
+        include_bytes!("../../../../../samples/dxf/text_alignments.dxf"),
+    ),
+    (
+        "r12.dxf",
+        include_bytes!("../../../../../samples/dxf/ezdxf-ascii-r12.dxf"),
+    ),
+    (
+        "mtext.dxf",
+        include_bytes!("../../../../../samples/dxf/ezdxf-mtext-columns-r2007.dxf"),
+    ),
+    (
+        "layout.dxf",
+        include_bytes!("../../../../../samples/dwg/zumen-layout-r2018_ascii.dxf"),
+    ),
+    (
+        "a.dwg",
+        include_bytes!("../../../../../samples/dwg/zumen-layout-r2000.dwg"),
+    ),
+    (
+        "r2004.dwg",
+        include_bytes!("../../../../../samples/dwg/zumen-minsert-r2004.dwg"),
+    ),
+    (
+        "r2013.dwg",
+        include_bytes!("../../../../../samples/dwg/zumen-xclip-r2013.dwg"),
+    ),
+    (
+        "r2018.dwg",
+        include_bytes!("../../../../../samples/dwg/zumen-arcdim-r2018.dwg"),
+    ),
+];
+
+/// 文書エンジンを使うセッションと、今までの経路だけを使うセッション
+fn twins(name: &str, bytes: &[u8]) -> (Session, Session) {
+    let engine = opened(name, bytes);
+    let mut old = opened(name, bytes);
+    old.engines = false;
+    (engine, old)
+}
+
+/// 両方のセッションに同じ要求を送り、応答とバイナリの結果が同じことを確かめる
+fn same(engine: &mut Session, old: &mut Session, request: &str) -> (Status, Vec<u8>) {
+    let actual = answer(engine, request);
+    let expected = answer(old, request);
+    assert_eq!(
+        actual,
+        expected,
+        "{request}\n{}\n{}",
+        String::from_utf8_lossy(&actual.1),
+        String::from_utf8_lossy(&expected.1)
+    );
+    (actual.0, actual.1)
+}
+
+/// 応答の文書のハッシュ
+fn result_hash(response: &[u8]) -> Option<String> {
+    match zumen_json::parse(response).ok()?.pointer("/result/hash") {
+        Some(Value::String(hash)) => Some(hash.clone()),
+        _ => None,
+    }
+}
+
+/// 止まったときの診断が、予算か中断のものだけか
+fn stopped_on_budget(response: &[u8]) -> bool {
+    let value = zumen_json::parse(response).unwrap();
+    let Some(Value::Array(diagnostics)) = value.pointer("/diagnostics") else {
+        return false;
+    };
+    diagnostics.iter().any(|diagnostic| {
+        matches!(diagnostic.pointer("/code"), Some(Value::String(code)) if code.starts_with("budget."))
+    })
+}
+
+/// 要素ごとに当てる変更の並び。動かす・文書のハッシュを付けて足す・除く・古い文書のハッシュで断られる・違う要素のハッシュで断られる
+fn edits(doc: &str, id: &str, hash: &str, document: &str) -> Vec<String> {
+    [
+        format!(
+            r#""edits":[{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[1,0,5,0,1,7]}}]"#
+        ),
+        format!(
+            r#""hash":"{document}","edits":[{{"kind":"add","place":"space/0","geometry":{{"shape":"line","start":[0,1],"end":[10,1]}}}}]"#
+        ),
+        format!(r#""edits":[{{"kind":"remove","id":"{id}","hash":"{hash}"}}]"#),
+        r#""hash":"v2:00000000000000000000000000000000","edits":[]"#.to_string(),
+        format!(r#""edits":[{{"kind":"remove","id":"{id}","hash":"v2:00000000000000000000000000000000"}}]"#),
+    ]
+    .into_iter()
+    .map(|edits| format!(r#"{{"v":1,"op":"apply","doc":"{doc}",{edits}}}"#))
+    .collect()
+}
+
+#[test]
+fn apply_on_the_engine_answers_like_the_file_model() {
+    for (name, bytes) in ENGINE_SAMPLES {
+        let (mut engine, mut old) = twins(name, bytes);
+        let empty = format!(r#"{{"v":1,"op":"apply","doc":"{name}","edits":[]}}"#);
+        let mut document = result_hash(&same(&mut engine, &mut old, &empty).1);
+        // 最初の 4 件の要素に、順に変更を当てる。ID・要素のハッシュ・文書のハッシュは、当てるたびに読み直す
+        let mut applied = 0;
+        for round in 0..4 {
+            for step in 0..5 {
+                let found = elements(&mut engine, name);
+                assert_eq!(found, elements(&mut old, name), "{name}");
+                // 要素のない図面（モデル空間が空の R12）は、足すことから始める
+                let (id, hash) = match found.get(round) {
+                    Some(element) => element.clone(),
+                    None if step == 1 => Default::default(),
+                    None => continue,
+                };
+                let request = edits(name, &id, &hash, document.as_deref().unwrap_or_default())
+                    .swap_remove(step);
+                let (status, response) = same(&mut engine, &mut old, &request);
+                if status == Status::Ok {
+                    applied += 1;
+                    document = result_hash(&response);
+                }
+                for read in reads(name, "") {
+                    same(&mut engine, &mut old, &read);
+                }
+            }
+        }
+        assert!(applied > 0, "{name}");
+        // 文書エンジンで当てたあとも、持ち続ける
+        assert!(
+            matches!(resident(&engine, name).live, Live::Acad(_)),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn apply_on_the_engine_stops_without_changing_the_document() {
+    for (name, bytes) in ENGINE_SAMPLES {
+        let (mut engine, mut old) = twins(name, bytes);
+        let Some((id, hash)) = elements(&mut engine, name).into_iter().next() else {
+            continue;
+        };
+        elements(&mut old, name);
+        let moved = |budget: &str| {
+            format!(
+                r#"{{"v":1,"op":"apply","doc":"{name}"{budget},"edits":[{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[1,0,5,0,1,7]}}]}}"#
+            )
+        };
+        let before: Vec<_> = reads(name, "")
+            .iter()
+            .map(|read| answer(&mut engine, read))
+            .collect();
+        let mut stops = 0;
+        for kind in [
+            "work",
+            "decoded_bytes",
+            "records",
+            "elements",
+            "input_bytes",
+        ] {
+            for limit in [0_u64, 1, 10, 100, 1_000, 10_000, 100_000, 1_000_000] {
+                // 文書エンジンを作る前と、作ったあとの両方で止める。要素のハッシュが違う変更は、文書エンジンを作って断る
+                for warm in [false, true] {
+                    if warm {
+                        let rejected = format!(
+                            r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"remove","id":"{id}","hash":"v2:00000000000000000000000000000000"}}]}}"#
+                        );
+                        assert_eq!(answer(&mut engine, &rejected).0, Status::Failed, "{name}");
+                        assert!(
+                            matches!(resident(&engine, name).live, Live::Acad(_)),
+                            "{name}"
+                        );
+                    } else {
+                        forget_engine(&mut engine, name);
+                    }
+                    let limited = moved(&format!(r#","budget":{{"{kind}":{limit}}}"#));
+                    let (status, response, blobs) = answer(&mut engine, &limited);
+                    if status == Status::Ok {
+                        // 通ったら、今までの経路と同じ結果になり、文書を戻すために開き直す
+                        let expected = answer(&mut old, &moved(""));
+                        assert_eq!(
+                            (status, &response, &blobs),
+                            (expected.0, &expected.1, &expected.2),
+                            "{name} {kind} {limit}"
+                        );
+                        let (fresh_engine, fresh_old) = twins(name, bytes);
+                        engine = fresh_engine;
+                        old = fresh_old;
+                        elements(&mut engine, name);
+                        elements(&mut old, name);
+                        continue;
+                    }
+                    stops += 1;
+                    assert!(
+                        stopped_on_budget(&response),
+                        "{name} {kind} {limit} {}",
+                        String::from_utf8_lossy(&response)
+                    );
+                    assert!(blobs.is_empty(), "{name}");
+                    // 止まった apply は文書を変えない
+                    let after: Vec<_> = reads(name, "")
+                        .iter()
+                        .map(|read| answer(&mut engine, read))
+                        .collect();
+                    assert_eq!(after, before, "{name} {kind} {limit}");
+                }
+            }
+        }
+        assert!(stops > 0, "{name}");
+        // 止まったあとも、今までの経路と同じ結果で当てられる
+        same(&mut engine, &mut old, &moved(""));
+        for read in reads(name, "") {
+            same(&mut engine, &mut old, &read);
+        }
+    }
+}
+
+/// 型どおりに読めないオブジェクトを持つ DWG（適合テストの `entity_details_formats` の R2000）。今までの経路は、
+/// 当てる前に作るオブジェクトの表でも、その診断を返す。文書エンジンで当てても、同じ診断を同じ順で返す
+#[test]
+fn apply_on_the_engine_reports_unreadable_dwg_objects_like_the_file_model() {
+    let (mut engine, mut old) = twins("a", &unreadable_dwg());
+    for aci in [3, 4, 5] {
+        let found = elements(&mut engine, "a");
+        assert_eq!(found, elements(&mut old, "a"));
+        let (id, hash) = found[0].clone();
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"a","edits":[{{"kind":"restyle","id":"{id}","hash":"{hash}","color":{{"aci":{aci}}}}}]}}"#
+        );
+        let (status, response) = same(&mut engine, &mut old, &request);
+        assert_eq!(status, Status::Ok);
+        assert!(
+            String::from_utf8_lossy(&response)
+                .contains(r#""code":"dwg.object.invalid","severity":"warning","count":2"#)
+        );
+        for read in reads("a", "") {
+            same(&mut engine, &mut old, &read);
+        }
+    }
+    assert!(matches!(resident(&engine, "a").live, Live::Acad(_)));
+}
+
+/// 変更の種類ごとの要求。`{id0}`・`{hash0}`・`{id1}`・`{hash1}` は初めから 1・2 番目の要素、`{layer0}`・`{lhash0}` は
+/// 最初のレイヤ、`{doc}` は文書のハッシュ、`{hash:ID}` はその ID の要素のハッシュで埋める
+const EDIT_KINDS: [&str; 16] = [
+    r#""edits":[]"#,
+    r#""hash":"{doc}","edits":[]"#,
+    r#""edits":[{"kind":"remove","id":"{id0}","hash":"{hash0}"}]"#,
+    // 色が変わらない変更と、変わる変更
+    r#""edits":[{"kind":"restyle","id":"{id0}","hash":"{hash0}","color":{"aci":2}}]"#,
+    r#""edits":[{"kind":"restyle","id":"{id0}","hash":"{hash0}","color":{"aci":5}}]"#,
+    r#""edits":[{"kind":"replace","id":"{id0}","hash":"{hash0}","geometry":{"shape":"circle","center":[100,50],"radius":30}}]"#,
+    r#""edits":[{"kind":"replace","id":"{id1}","hash":"{hash1}","geometry":{"shape":"circle","center":[100,50],"radius":30}}]"#,
+    r#""edits":[{"kind":"transform","id":"{id0}","hash":"{hash0}","matrix":[1,0,5,0,1,7]}]"#,
+    r#""edits":[{"kind":"layer","id":"{layer0}","hash":"{lhash0}","color":{"aci":2}}]"#,
+    r#""edits":[{"kind":"point_style","mark":"plus","size":1,"size_kind":"length"}]"#,
+    r#""edits":[{"kind":"add_layer","name":"N","color":{"aci":3}}]"#,
+    // 当てられる変更と、古いハッシュの変更を一緒に送る
+    r#""max_places":1,"edits":[{"kind":"restyle","id":"{id0}","hash":"{hash0}","color":{"aci":5}},{"kind":"restyle","id":"{id1}","hash":"v2:00000000000000000000000000000000","color":{"aci":6}}]"#,
+    r#""max_places":0,"edits":[{"kind":"remove","id":"{id0}","hash":"{hash0}"},{"kind":"remove","id":"{id1}","hash":"{hash1}"}]"#,
+    r#""hash":"{doc}","edits":[{"kind":"add","place":"space/0","geometry":{"shape":"circle","center":[-3,4],"radius":2}}]"#,
+    r#""edits":[{"kind":"add","place":"space/9","geometry":{"shape":"line","start":[0,0],"end":[1,1]}}]"#,
+    r#""edits":[{"kind":"add","place":"space/0","geometry":{"shape":"line","start":[0,0],"end":[1e9,-2e9]}}]"#,
+];
+
+/// 文書のレイヤの ID とハッシュ
+fn layers(session: &mut Session, doc: &str) -> Vec<(String, String)> {
+    let (_, response) = call(
+        session,
+        &format!(r#"{{"v":1,"op":"tables","doc":"{doc}"}}"#),
+    );
+    let value = zumen_json::parse(&response).unwrap();
+    (0..)
+        .map_while(|index| {
+            match (
+                value.pointer(&format!("/result/layers/{index}/id")),
+                value.pointer(&format!("/result/layers/{index}/hash")),
+            ) {
+                (Some(Value::String(id)), Some(Value::String(hash))) => {
+                    Some((id.clone(), hash.clone()))
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// 要求の雛形を、今の文書の値で埋める。ない要素は、どの要素とも合わない ID とハッシュにする
+fn filled(
+    found: &[(String, String)],
+    layers: &[(String, String)],
+    document: &str,
+    template: &str,
+) -> String {
+    const NONE: &str = "v2:00000000000000000000000000000000";
+    let pick = |list: &[(String, String)], index: usize| {
+        list.get(index)
+            .cloned()
+            .unwrap_or_else(|| ("space/0/h0".to_owned(), NONE.to_owned()))
+    };
+    let (id0, hash0) = pick(found, 0);
+    let (id1, hash1) = pick(found, 1);
+    let (layer0, lhash0) = pick(layers, 0);
+    let mut text = template
+        .replace("{id0}", &id0)
+        .replace("{hash0}", &hash0)
+        .replace("{id1}", &id1)
+        .replace("{hash1}", &hash1)
+        .replace("{layer0}", &layer0)
+        .replace("{lhash0}", &lhash0)
+        .replace("{doc}", document);
+    while let Some((before, rest)) = text.split_once("{hash:") {
+        let (id, after) = rest.split_once('}').unwrap();
+        let hash = found
+            .iter()
+            .find(|(found, _)| found == id)
+            .map_or(NONE, |(_, hash)| hash.as_str());
+        text = format!("{before}{hash}{after}");
+    }
+    text
+}
+
+/// 両方のセッションに雛形の要求を順に送り、応答・バイナリの結果・読み取りの答えが違えば、その説明を足して止める
+fn run_both(
+    engine: &mut Session,
+    old: &mut Session,
+    doc: &str,
+    document: &mut String,
+    templates: &[&str],
+    mismatches: &mut Vec<String>,
+) {
+    for template in templates {
+        let found = elements(engine, doc);
+        if found != elements(old, doc) {
+            mismatches.push(format!("{doc} の要素が違う（{template} の前）"));
+            return;
+        }
+        let tables = layers(engine, doc);
+        let request = format!(
+            r#"{{"v":1,"op":"apply","doc":"{doc}",{}}}"#,
+            filled(&found, &tables, document, template)
+        );
+        let actual = answer(engine, &request);
+        let expected = answer(old, &request);
+        if actual != expected {
+            let blobs = |blobs: &[Vec<u8>]| blobs.iter().map(Vec::len).collect::<Vec<_>>();
+            mismatches.push(format!(
+                "{request}\n  文書エンジン {:?} {} {:?}\n  今までの経路 {:?} {} {:?}",
+                actual.0,
+                String::from_utf8_lossy(&actual.1),
+                blobs(&actual.2),
+                expected.0,
+                String::from_utf8_lossy(&expected.1),
+                blobs(&expected.2),
+            ));
+            return;
+        }
+        if expected.0 == Status::Ok
+            && let Some(hash) = result_hash(&expected.1)
+        {
+            *document = hash;
+        }
+        for read in reads(doc, "") {
+            if answer(engine, &read) != answer(old, &read) {
+                mismatches.push(format!("{request} のあとの {read} が違う"));
+                return;
+            }
+        }
+    }
+}
+
+/// 適合テストの `entity_details_formats` の、型どおりに読めないオブジェクトを持つ R2000 の DWG
+fn unreadable_dwg() -> Vec<u8> {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../bindings/conformance/cases/entity_details_formats.json"
+    ))
+    .unwrap();
+    let value = zumen_json::parse(text.as_bytes()).unwrap();
+    let Some(Value::String(hex)) = value.pointer("/steps/12/push/hex") else {
+        panic!("適合テストの DWG がない");
+    };
+    hex.as_bytes()
+        .chunks(2)
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+        .collect()
+}
+
+/// 同じハンドルの LINE を 2 つ持つ R2000 の DXF。`garbage` なら EOF の後ろに読まないバイトを足す
+fn duplicate_handles(garbage: bool) -> Vec<u8> {
+    let line = |handle: &str, x: u32| {
+        format!(
+            "0\nLINE\n5\n{handle}\n8\n0\n10\n{x}.0\n20\n0.0\n30\n0.0\n11\n{x}.5\n21\n1.0\n31\n0.0\n"
+        )
+    };
+    let mut text = format!(
+        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$HANDSEED\n5\n40\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{}{}{}0\nENDSEC\n0\nEOF\n",
+        line("2A", 0),
+        line("2A", 2),
+        line("2B", 4),
+    );
+    if garbage {
+        text.push_str("not a group code\nxyz\n");
+    }
+    text.into_bytes()
+}
+
+/// ハンドルを持たない R12 の DXF。モデル空間と紙空間（67 が 1）の LINE・CIRCLE を交互に持ち、図面の範囲は空
+/// （$EXTMIN が大きく $EXTMAX が小さい）。ID はレコードの番号で、`space/0/r5` はモデル空間の最初の CIRCLE
+fn r12_paper() -> Vec<u8> {
+    let mut text = String::from(
+        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$EXTMIN\n10\n1e+20\n20\n1e+20\n30\n1e+20\n9\n$EXTMAX\n10\n-1e+20\n20\n-1e+20\n30\n-1e+20\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n",
+    );
+    for index in 0..5 {
+        let x = index * 10;
+        for paper in ["", "67\n1\n"] {
+            text.push_str(&format!(
+                "0\nLINE\n8\n0\n{paper}10\n{x}.0\n20\n0.0\n30\n0.0\n11\n{x}.5\n21\n2.0\n31\n0.0\n"
+            ));
+        }
+        for paper in ["", "67\n1\n"] {
+            text.push_str(&format!(
+                "0\nCIRCLE\n8\n0\n{paper}10\n{x}.0\n20\n5.0\n30\n0.0\n40\n1.5\n"
+            ));
+        }
+    }
+    text.push_str("0\nENDSEC\n0\nEOF\n");
+    text.into_bytes()
+}
+
+/// 文書エンジンで当てても、変更の種類ごとに、今までの経路と同じ応答・保存したバイト列・診断（件数・場所・順）を返す。
+/// 公開サンプルに加え、型どおりに読めないオブジェクトを持つ DWG、ハンドルが重複する DXF、ハンドルを持たず
+/// 紙空間の図形と空の図面の範囲を持つ R12 の DXF を使う。雛形ごとに開き直す場合と、続けて当てる場合の両方を見る
+#[test]
+fn apply_on_the_engine_answers_like_the_file_model_for_each_edit_kind() {
+    let mut documents: Vec<(&str, Vec<u8>)> = ENGINE_SAMPLES
+        .iter()
+        .map(|(name, bytes)| (*name, bytes.to_vec()))
+        .collect();
+    documents.extend([
+        (
+            "r2000.dxf",
+            include_bytes!("../../../../../samples/dwg/zumen-layout-r2000_ascii.dxf").to_vec(),
+        ),
+        ("unreadable.dwg", unreadable_dwg()),
+        ("duplicate.dxf", duplicate_handles(false)),
+        ("garbage.dxf", duplicate_handles(true)),
+        ("paper.dxf", r12_paper()),
+    ]);
+    let mut mismatches = Vec::new();
+    for (name, bytes) in &documents {
+        let start = zumen_drawing::Hash::document(bytes).to_string();
+        for template in EDIT_KINDS {
+            let (mut engine, mut old) = twins(name, bytes);
+            let mut document = start.clone();
+            run_both(
+                &mut engine,
+                &mut old,
+                name,
+                &mut document,
+                &[template],
+                &mut mismatches,
+            );
+        }
+        let (mut engine, mut old) = twins(name, bytes);
+        let mut document = start.clone();
+        run_both(
+            &mut engine,
+            &mut old,
+            name,
+            &mut document,
+            &EDIT_KINDS,
+            &mut mismatches,
+        );
+    }
+    // ハンドルを持たない R12 の DXF で、動かす・古いハッシュで断られる・2 つ除く・断られる足す・置き換える、を続ける。
+    // 除くと後ろの要素の ID がずれるので、ずれたあとの `space/0/r5` も置き換える
+    let paper = r12_paper();
+    let (mut engine, mut old) = twins("paper.dxf", &paper);
+    let mut document = zumen_drawing::Hash::document(&paper).to_string();
+    run_both(
+        &mut engine,
+        &mut old,
+        "paper.dxf",
+        &mut document,
+        &[
+            r#""edits":[{"kind":"transform","id":"space/0/r3","hash":"{hash:space/0/r3}","matrix":[1,0,5,0,1,7]}]"#,
+            r#""edits":[{"kind":"remove","id":"space/0/r3","hash":"v2:00000000000000000000000000000000"}]"#,
+            r#""max_places":0,"edits":[{"kind":"remove","id":"space/0/r7","hash":"{hash:space/0/r7}"},{"kind":"remove","id":"space/0/r9","hash":"{hash:space/0/r9}"}]"#,
+            r#""edits":[{"kind":"add","place":"space/9","geometry":{"shape":"line","start":[0,0],"end":[1,1]}}]"#,
+            r#""edits":[{"kind":"add","place":"space/0","geometry":{"shape":"text","content":"漢字","position":[0,0],"height":1,"rotation":0}}]"#,
+            r#""edits":[{"kind":"add","place":"space/0","layer":"nope","geometry":{"shape":"line","start":[0,0],"end":[1,1]}}]"#,
+            r#""edits":[{"kind":"add","place":"space/0","geometry":{"shape":"circle","center":[0,0],"radius":-1}}]"#,
+            r#""edits":[{"kind":"add","place":"space/0","geometry":{"shape":"line","start":[0,0],"end":[1,1]}},{"kind":"remove","id":"{id0}","hash":"v2:00000000000000000000000000000000"}]"#,
+            r#""edits":[{"kind":"replace","id":"space/0/r5","hash":"{hash:space/0/r5}","geometry":{"shape":"circle","center":[100,50],"radius":30}}]"#,
+            r#""max_places":0,"edits":[{"kind":"remove","id":"space/0/r3","hash":"{hash:space/0/r3}"},{"kind":"remove","id":"space/0/r5","hash":"{hash:space/0/r5}"}]"#,
+            r#""edits":[{"kind":"replace","id":"space/0/r5","hash":"{hash:space/0/r5}","geometry":{"shape":"line","start":[1,2],"end":[3,4]}}]"#,
+            r#""edits":[{"kind":"transform","id":"space/0/r3","hash":"{hash:space/0/r3}","matrix":[1,0,5,0,1,7]}]"#,
+            r#""edits":[{"kind":"remove","id":"space/0/r5","hash":"{hash:space/0/r5}"}]"#,
+        ],
+        &mut mismatches,
+    );
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }

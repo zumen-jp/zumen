@@ -177,7 +177,110 @@ fn duplicate_and_keyless_ids_keep_edit_results_after_open() {
                     pair.apply(edit);
                 }
             }
+            // ハンドルが重複する文書は、書き戻しの参照が空の変更でも `duplicate_handle` で断る。文書エンジンも
+            // 参照の経路に入り、同じ結果と診断を返す。重複しない文書の空の変更は、読み直さずに通す
+            let empty = Changes {
+                document: None,
+                edits: Vec::new(),
+            };
+            let before = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+            let ((actual, rereads), diagnostics) =
+                fresh_cx(|cx| pair.live.apply_rereading(&empty, cx));
+            let expected = fresh_cx(|cx| pair.reference.apply(&empty, cx));
+            assert_eq!((actual, diagnostics), expected);
+            assert_eq!(expected.0.is_err(), duplicated);
+            assert_eq!(rereads, duplicated);
+            assert_eq!(fresh_cx(|cx| pair.live.save(cx)).0.unwrap(), before);
         }
+    }
+}
+
+/// 図面の範囲（`$EXTMIN`・`$EXTMAX`）を持つ ASCII の DXF で、文書エンジンが書き戻しの参照と同じヘッダーを書く。
+/// 参照は、値を変えた図形と足した図形だけで範囲を広げ、除いた図形と値の変わらない図形は使わない。
+/// 範囲が空（`$EXTMIN` が 1e+20）の図面と、範囲の Z がわずかに負の図面の両方で確かめる。
+/// これまでの比較は、この 2 つの変数を持たない DXF と DWG だけを使っていたので、除いた図形で範囲を広げる誤りを見逃した
+#[test]
+fn dxf_extents_follow_only_changed_and_added_elements() {
+    for (bytes, handle) in [
+        (
+            include_bytes!("../../../../../samples/dxf/text_alignments.dxf").as_slice(),
+            0x4E,
+        ),
+        (
+            include_bytes!("../../../../../samples/dwg/zumen-layout-r2000_ascii.dxf").as_slice(),
+            0x2DA,
+        ),
+        (
+            include_bytes!("../../../../../samples/dwg/zumen-layout-r2018_ascii.dxf").as_slice(),
+            0x2DA,
+        ),
+    ] {
+        let element = |pair: &DxfPair| {
+            fresh_cx(|cx| pair.reference.lift(cx))
+                .0
+                .unwrap()
+                .spaces
+                .into_iter()
+                .flat_map(|space| space.elements)
+                .find(|element| element.source.key() == Some(Key::Handle(handle)))
+                .unwrap()
+        };
+        let mut pair = DxfPair::open(bytes, 1);
+        pair.apply(Edit::Remove {
+            target: pair.seen(handle),
+        });
+        let mut pair = DxfPair::open(bytes, 1);
+        // 今と同じ色にする変更は値を変えないので、範囲を広げない
+        let same = element(&pair).style.color;
+        pair.apply(Edit::Restyle {
+            target: pair.seen(handle),
+            style: Restyle {
+                color: Some(same),
+                ..Restyle::default()
+            },
+        });
+        pair.apply(Edit::Restyle {
+            target: pair.seen(handle),
+            style: Restyle {
+                color: Some(Inherit::Own(zumen_drawing::Color {
+                    code: Some(zumen_drawing::ColorCode {
+                        system: zumen_drawing::ColorSystem::Aci,
+                        value: 5,
+                    }),
+                    rgb: None,
+                })),
+                ..Restyle::default()
+            },
+        });
+        pair.apply(Edit::Transform {
+            target: pair.seen(handle),
+            transform: Affine::translation(2.0, 3.0),
+        });
+        let mut pair = DxfPair::open(bytes, 1);
+        let mut circle = element(&pair);
+        let at = match &circle.shape {
+            Shape::Line { start, .. } => *start,
+            Shape::Circle { center, .. } => *center,
+            shape => panic!("{shape:?}"),
+        };
+        circle.shape = Shape::Circle {
+            center: zumen_drawing::ModelPoint {
+                x: 100.0,
+                y: 50.0,
+                ..at
+            },
+            radius: zumen_drawing::Length::Model(zumen_drawing::ModelLength {
+                space: at.space,
+                value: 30.0,
+            }),
+        };
+        pair.apply(Edit::Replace {
+            target: pair.seen(handle),
+            element: Box::new(Placed::Model(circle)),
+        });
+        pair.apply(Edit::Remove {
+            target: pair.seen(handle),
+        });
     }
 }
 

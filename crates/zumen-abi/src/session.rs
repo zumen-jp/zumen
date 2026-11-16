@@ -105,6 +105,9 @@ pub struct Session {
     /// 実行の形態が `process` なら、子プロセスの CLI。要求をそのまま送る（決定 0013・0200）
     #[cfg(not(target_family = "wasm"))]
     child: Option<crate::process::Child>,
+    /// 試験で、文書エンジンを使わない今までの経路と比べるときに `false` にする
+    #[cfg(test)]
+    engines: bool,
 }
 
 /// 一つの元文書。IFC から読んだ線形は、その建物と一緒に登録・更新・破棄する。
@@ -259,6 +262,8 @@ impl Session {
             blobs: Vec::new(),
             #[cfg(not(target_family = "wasm"))]
             child,
+            #[cfg(test)]
+            engines: true,
         })
     }
 

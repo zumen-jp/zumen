@@ -11,6 +11,8 @@ use zumen_sxf::Sxf;
 mod batch;
 mod details;
 mod filters;
+#[cfg(feature = "drawing")]
+mod live;
 mod metadata;
 #[cfg(feature = "drawing")]
 mod prepared;
@@ -252,6 +254,30 @@ impl Session {
             return self.apply_with_tables(request, drawing, cx);
         }
         let changes = changes(request, drawing, cx)?;
+        // DXF・DWG は文書エンジンで当てる。当てない文書は、今までの経路で当てる
+        let changes = match self.apply_on_engine(request, drawing, changes, cx)? {
+            Ok(result) => return Ok(result),
+            Err(changes) => changes,
+        };
+        // 今までの経路はファイルモデルを書き換えるので、文書エンジンを捨てる。断られたとき・止まったときは
+        // ファイルモデルが変わらないので、文書エンジンを戻す
+        let kept = self.take_live(&request.doc);
+        let result = self.apply_on_file(request, drawing, &changes, cx);
+        if result.is_err() {
+            self.put_live(&request.doc, kept);
+        }
+        result
+    }
+
+    /// 変更の一覧を、ファイルモデルの写しに当てて書き出す今までの経路
+    #[cfg(feature = "drawing")]
+    fn apply_on_file(
+        &mut self,
+        request: &ApplyRequest,
+        drawing: &Drawing2D,
+        changes: &zumen_drawing::Changes,
+        cx: &mut Cx<'_>,
+    ) -> Result<ApplyResult, Failed> {
         let Some(Document::Drawing {
             file,
             hash: current_hash,
@@ -275,7 +301,7 @@ impl Session {
             }
             DrawingFile::Dxf(file) => {
                 let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
-                let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
+                let applied = updated.apply(changes, cx).map_err(|_| Failed)?;
                 Dxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
                 let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
                 // ハンドルを持たない DXF（R12 など）の要素の ID は、レコードの番号で決まる（決定 0156、#722）
@@ -292,21 +318,21 @@ impl Session {
                             Failed
                         }
                     })?;
-                    ids_shifted = record_ids_shifted(drawing, &after, &changes, cx)?;
+                    ids_shifted = record_ids_shifted(drawing, &after, changes, cx)?;
                 }
                 *file = updated;
                 (applied, hash)
             }
             DrawingFile::Dwg(file) => {
                 let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
-                let applied = updated.apply(&changes, cx).map_err(|_| Failed)?;
+                let applied = updated.apply(changes, cx).map_err(|_| Failed)?;
                 Dwg::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
                 let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
                 *file = updated;
                 (applied, hash)
             }
             DrawingFile::Sxf(file, archive, _) => {
-                let (updated, applied) = file.applied(&changes, cx).map_err(|_| Failed)?;
+                let (updated, applied) = file.applied(changes, cx).map_err(|_| Failed)?;
                 Sxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
                 if let Some(archive) = archive {
                     bytes = archive
@@ -319,7 +345,7 @@ impl Session {
             }
             DrawingFile::Jww(file) => {
                 let mut updated = file.clone();
-                let (applied, shifted) = updated.apply(&changes, cx).map_err(|_| Failed)?;
+                let (applied, shifted) = updated.apply(changes, cx).map_err(|_| Failed)?;
                 Jww::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
                 let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
                 *file = updated;

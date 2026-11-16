@@ -281,13 +281,27 @@ impl AcadLive {
 
     /// 変更 `changes` を当てて履歴に積み、各項目の適用後 ID・ハッシュを返す
     pub fn apply(&mut self, changes: &Changes, cx: &mut Cx<'_>) -> Result<Vec<Applied>, Error> {
-        apply_changes(
+        self.apply_rereading(changes, cx).0
+    }
+
+    /// [`Self::apply`] と同じく当て、保存したバイト列を読み直して書き戻しの参照（[`zumen_sdk::Apply`]）で当てる
+    /// 経路に入ったかも返す。その経路は、読み直したファイルの診断（DWG の型どおりに読めないオブジェクトなど）を、
+    /// ファイルモデルに当てたときと同じく返す。差分の経路と空の変更は、それらを返さない
+    pub fn apply_rereading(
+        &mut self,
+        changes: &Changes,
+        cx: &mut Cx<'_>,
+    ) -> (Result<Vec<Applied>, Error>, bool) {
+        let mut rereads = false;
+        let result = apply_changes(
             &mut self.state,
             &mut self.journal,
             changes,
             self.threads,
+            &mut rereads,
             cx,
-        )
+        );
+        (result, rereads)
     }
 
     /// 直前の変更を取り消す。取り消したら `Ok(true)`、履歴が空なら `Ok(false)` を返す

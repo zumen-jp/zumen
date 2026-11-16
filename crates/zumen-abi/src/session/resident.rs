@@ -3,7 +3,11 @@
 //! 図面モデルは、最初に要る読み取りで作り、そのときの予算と診断への作用を [`Replay`] に記録して持ち続ける。
 //! 次からは、作り直す代わりに記録を当て、使う予算・届く診断・止まる所を、作り直したときとそろえる。
 //! 記録を当てられない呼び出し（予算が足りない、中断の合図がある、入力順の収集の中など）は、今までどおり作り直す。
-//! ファイルモデルを書き換えるときは [`Resident::file_mut`] を通し、常駐の図面モデルを捨てる。
+//! ファイルモデルを書き換えるときは [`Resident::file_mut`] を通し、常駐の図面モデルと文書エンジンを捨てる。
+//!
+//! DXF・DWG の文書は、最初の `apply` で文書エンジン（[`zumen_acad::AcadLive`]）も作り、持ち続ける。
+//! 正はファイルモデルで、文書エンジンはその写しにする。文書エンジンで当てたら、保存したバイト列から
+//! ファイルモデルを読み直して置き換える（[`Resident::commit_live`]）。写しが食い違うおそれのある経路では捨てる。
 
 use std::borrow::Cow;
 use std::cell::OnceCell;
@@ -14,11 +18,38 @@ use zumen_drawing::Drawing2D;
 
 use crate::formats::DrawingFile;
 
-/// 開いた図面。ファイルモデルと、常駐させた図面モデル
+/// 開いた図面。ファイルモデルと、常駐させた図面モデルと、文書エンジン
 #[derive(Debug)]
 pub(crate) struct Resident {
     file: Box<DrawingFile>,
     lifted: OnceCell<Box<Lifted>>,
+    live: Live,
+}
+
+/// 文書エンジンの状態。ファイルモデルと同じ内容を持つ
+#[derive(Default)]
+pub(crate) enum Live {
+    /// まだ作っていない
+    #[default]
+    Absent,
+    /// 作れなかった。ファイルモデルを書き換えるまで作り直さない
+    #[cfg(feature = "drawing")]
+    Refused,
+    /// DXF（ASCII）・DWG の文書エンジン
+    #[cfg(feature = "drawing")]
+    Acad(Box<zumen_acad::AcadLive>),
+}
+
+impl std::fmt::Debug for Live {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Absent => "Absent",
+            #[cfg(feature = "drawing")]
+            Self::Refused => "Refused",
+            #[cfg(feature = "drawing")]
+            Self::Acad(_) => "Acad",
+        })
+    }
 }
 
 /// 常駐させた図面モデルと、それを作ったときの作用
@@ -33,13 +64,45 @@ impl Resident {
         Self {
             file,
             lifted: OnceCell::new(),
+            live: Live::Absent,
         }
     }
 
-    /// ファイルモデルを書き換えるために借りる。常駐の図面モデルは捨てる
+    /// ファイルモデルを書き換えるために借りる。常駐の図面モデルと文書エンジンは捨てる
     pub(crate) fn file_mut(&mut self) -> &mut DrawingFile {
         self.lifted = OnceCell::new();
+        self.live = Live::Absent;
         &mut self.file
+    }
+
+    /// 文書エンジンを受け取る。当てたあとは [`Self::commit_live`]、文書を変えなかったときは [`Self::put_live`] で戻す。
+    /// 戻さなければ、次の `apply` で作り直す
+    #[cfg(feature = "drawing")]
+    pub(crate) fn take_live(&mut self) -> Live {
+        std::mem::take(&mut self.live)
+    }
+
+    /// 文書を変えなかったときに、[`Self::take_live`] で受け取った文書エンジンを戻す
+    #[cfg(feature = "drawing")]
+    pub(crate) fn put_live(&mut self, live: Live) {
+        self.live = live;
+    }
+
+    /// 文書エンジンで当てた結果に置き換える。`file` は文書エンジンが保存したバイト列から読み直したファイルモデル、
+    /// `lifted` は、それを変換した図面モデルと記録（変換したときだけ）
+    #[cfg(feature = "drawing")]
+    pub(crate) fn commit_live(
+        &mut self,
+        file: DrawingFile,
+        lifted: Option<(Drawing2D, Replay)>,
+        live: Live,
+    ) {
+        *self.file = file;
+        self.lifted = OnceCell::new();
+        if let Some((drawing, replay)) = lifted {
+            self.restore(drawing, replay);
+        }
+        self.live = live;
     }
 
     /// 変換して図面モデルを作る形式か。図面モデルを持つ文書（プラグイン・図面モデルのバイナリ）は、変換せずに貸す。

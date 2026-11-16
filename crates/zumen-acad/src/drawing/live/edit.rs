@@ -525,16 +525,21 @@ enum FastAttempt {
     Err(Error),
 }
 
-/// 変更 `changes` を常駐状態へ反映し、履歴に積んで各項目の結果を返す
+/// 変更 `changes` を常駐状態へ反映し、履歴に積んで各項目の結果を返す。
+/// 保存したバイト列を読み直し、書き戻しの参照（`Apply`）で当てる経路に入ったら `rereads` を真にする
 pub fn apply_changes(
     state: &mut LiveState,
     journal: &mut LiveJournal,
     changes: &Changes,
     threads: usize,
+    rereads: &mut bool,
     cx: &mut Cx<'_>,
 ) -> Result<Vec<Applied>, Error> {
+    *rereads = false;
     state.backing.check_editable(cx)?;
-    if changes.document.is_none() && changes.edits.is_empty() {
+    // ハンドルが重複する文書は、書き戻しの参照が空の変更でも断る（`change.edit.unsupported` の
+    // `duplicate_handle`）。同じ診断で断るように、参照の経路に任せる
+    if changes.document.is_none() && changes.edits.is_empty() && !state.duplicate_handles_global {
         cx.check(Kind::Work, 1).map_err(|stop| {
             cx.report(stop.to_diagnostic());
             Error::Stopped(stop)
@@ -544,7 +549,10 @@ pub fn apply_changes(
     match try_apply_fast(state, journal, changes, cx) {
         FastAttempt::Applied(applied) => Ok(applied),
         FastAttempt::Err(err) => Err(err),
-        FastAttempt::Fallback => apply_structural(state, journal, changes, threads, cx),
+        FastAttempt::Fallback => {
+            *rereads = true;
+            apply_structural(state, journal, changes, threads, cx)
+        }
     }
 }
 
@@ -2097,7 +2105,7 @@ fn try_apply_fast(
                             return FastAttempt::Fallback;
                         }
                         removed_records.push(row.record);
-                        touched_model.push((kind_vec, old_vals));
+                        // 除いた図形は図面の範囲を変えない（範囲は狭めない）
                         row_actions.push(StagedRowAction::Remove { row_id });
                         applied_out.push(Applied {
                             id: None,
@@ -2162,7 +2170,10 @@ fn try_apply_fast(
                             return FastAttempt::Fallback;
                         };
                         record_ops.push(main_op);
-                        touched_model.push((kind_vec.clone(), new_vals.clone()));
+                        // 書き戻しの参照（`dxf::write_back`）と同じく、図面の範囲は値を変えた図形と足した図形だけで広げる
+                        if new_vals != old_vals {
+                            touched_model.push((kind_vec.clone(), new_vals.clone()));
+                        }
 
                         let mut follower_tuples = Vec::with_capacity(moved_atts.len());
                         for ((f_rec, old_fv), new_fv) in att_decoded.into_iter().zip(moved_atts) {
@@ -2180,7 +2191,9 @@ fn try_apply_fast(
                                 Origin::New
                             };
                             record_ops.push(f_op);
-                            touched_model.push((b"ATTRIB".to_vec(), new_fv.clone()));
+                            if new_fv != old_fv {
+                                touched_model.push((b"ATTRIB".to_vec(), new_fv.clone()));
+                            }
                             follower_tuples.push((f_rec, fo, fh, b"ATTRIB".to_vec(), new_fv));
                         }
 
@@ -2278,7 +2291,9 @@ fn try_apply_fast(
                             return FastAttempt::Fallback;
                         };
                         record_ops.push(main_op);
-                        touched_model.push((kind_vec.clone(), new_vals.clone()));
+                        if new_vals != old_vals {
+                            touched_model.push((kind_vec.clone(), new_vals.clone()));
+                        }
 
                         let mut follower_tuples = Vec::with_capacity(f_recs.len());
                         for &f_rec in &f_recs {
@@ -2377,7 +2392,9 @@ fn try_apply_fast(
                             return FastAttempt::Fallback;
                         };
                         record_ops.push(main_op);
-                        touched_model.push((kind_vec.clone(), new_vals.clone()));
+                        if new_vals != old_vals {
+                            touched_model.push((kind_vec.clone(), new_vals.clone()));
+                        }
 
                         let mut changed_map: BTreeMap<usize, Vec<Value>> =
                             changed_atts.into_iter().collect();
@@ -2390,7 +2407,9 @@ fn try_apply_fast(
                                     return FastAttempt::Fallback;
                                 };
                                 record_ops.push(f_op);
-                                touched_model.push((b"ATTRIB".to_vec(), new_fv.clone()));
+                                if new_fv != old_fv {
+                                    touched_model.push((b"ATTRIB".to_vec(), new_fv.clone()));
+                                }
                                 new_fv
                             } else {
                                 old_fv
