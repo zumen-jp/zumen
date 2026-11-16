@@ -1,0 +1,220 @@
+{
+  "edition": "2026-03",
+  "format": "0.1",
+  "id": "mlit-bim-drawing",
+  "license": "CC-BY-4.0",
+  "revision": 1,
+  "rules": [
+    {
+      "check": "ifc-schema",
+      "id": "ifc-schema",
+      "level": "warning",
+      "schemas": ["IFC2X3"],
+      "source": {
+        "document": "input-output",
+        "item": "p.4（PDF p.8）",
+        "section": "2-2-2"
+      }
+    },
+    {
+      "axis-tolerance": 1e-9,
+      "check": "models-aligned",
+      "id": "models-aligned",
+      "length-tolerance": 0.000001,
+      "level": "warning",
+      "source": {
+        "basis": "chosen",
+        "document": "input-output",
+        "item": "p.4（PDF p.8）",
+        "section": "2-2-2"
+      }
+    },
+    {
+      "check": "representation-present",
+      "classes": ["walls", "columns", "beams", "slabs", "roofs", "doors", "windows", "spaces"],
+      "id": "representation-present",
+      "level": "warning",
+      "source": {
+        "basis": "chosen",
+        "document": "guideline",
+        "item": "p.15（PDF p.19）",
+        "section": "6-3"
+      }
+    },
+    {
+      "check": "property-present",
+      "classes": ["spaces"],
+      "id": "room-use",
+      "level": "warning",
+      "property": "",
+      "property-set": "",
+      "source": {
+        "document": "input-output",
+        "item": "① p.8（PDF p.12）",
+        "section": "意-012"
+      }
+    },
+    {
+      "check": "property-present",
+      "classes": [],
+      "id": "area-region-code",
+      "level": "warning",
+      "property": "",
+      "property-set": "",
+      "source": {
+        "document": "input-output",
+        "item": "①の2 p.8〜9（PDF p.12〜13）",
+        "section": "意-013・意-014"
+      }
+    },
+    {
+      "check": "property-present",
+      "classes": [],
+      "id": "floor-area-ratio",
+      "level": "warning",
+      "property": "",
+      "property-set": "",
+      "source": {
+        "document": "input-output",
+        "item": "② p.9（PDF p.13）",
+        "section": "意-014"
+      }
+    },
+    {
+      "check": "property-present",
+      "classes": ["walls", "columns", "slabs", "doors", "windows"],
+      "id": "fire-compartment",
+      "level": "warning",
+      "property": "",
+      "property-set": "",
+      "source": {
+        "document": "input-output",
+        "item": "① p.9（PDF p.13）",
+        "section": "意-015"
+      }
+    }
+  ],
+  "sources": {
+    "guideline": {
+      "checked": "2026-11-16",
+      "publisher": "建築 BIM 推進会議 審査 TF",
+      "title": "建築確認における BIM 図面審査ガイドライン",
+      "url": "https://www.mlit.go.jp/jutakukentiku/content/001990514.pdf",
+      "version": "初版 令和8年3月24日版"
+    },
+    "input-output": {
+      "checked": "2026-11-16",
+      "publisher": "建築 BIM 推進会議 審査 TF",
+      "title": "BIM 図面審査における入出力基準",
+      "url": "https://www.mlit.go.jp/jutakukentiku/content/001990843.pdf",
+      "version": "初版 令和8年3月24日版"
+    },
+    "order": {
+      "checked": "2026-11-16",
+      "publisher": "e-Gov 法令検索",
+      "title": "建築基準法施行令",
+      "url": "https://laws.e-gov.go.jp/law/325CO0000000338",
+      "version": "昭和25年政令第338号 第2条"
+    },
+    "presentation": {
+      "checked": "2026-11-16",
+      "publisher": "建築 BIM 推進会議 審査 TF",
+      "title": "BIM 図面審査における確認申請図書表現標準",
+      "url": "https://www.mlit.go.jp/jutakukentiku/content/001990518.pdf",
+      "version": "初版 令和8年3月24日版"
+    }
+  },
+  "title": "BIM 図面審査の申請前のチェック",
+  "vocabularies": {
+    "beams": {
+      "source": {
+        "basis": "chosen",
+        "document": "input-output",
+        "section": "3-1-1"
+      },
+      "values": ["IfcBeam", "IfcBeamStandardCase"]
+    },
+    "building-area": {
+      "source": {
+        "basis": "chosen",
+        "document": "presentation",
+        "item": "② p.14（PDF p.18）",
+        "section": "2-3"
+      },
+      "values": [
+        {
+          "boundary": "shape",
+          "digits": 2,
+          "groups": ["storey", "use", "building"],
+          "rounding": "truncate",
+          "stage": "total",
+          "unit": "m2"
+        }
+      ]
+    },
+    "building-area-unverified": {
+      "source": {
+        "basis": "chosen",
+        "document": "order",
+        "section": "第2条第1項第2号"
+      },
+      "values": ["basement-exclusion", "eaves-setback"]
+    },
+    "columns": {
+      "source": {
+        "basis": "chosen",
+        "document": "input-output",
+        "section": "3-1-1"
+      },
+      "values": ["IfcColumn", "IfcColumnStandardCase"]
+    },
+    "doors": {
+      "source": {
+        "basis": "chosen",
+        "document": "input-output",
+        "section": "3-1-1"
+      },
+      "values": ["IfcDoor", "IfcDoorStandardCase"]
+    },
+    "roofs": {
+      "source": {
+        "basis": "chosen",
+        "document": "input-output",
+        "section": "3-1-1"
+      },
+      "values": ["IfcRoof"]
+    },
+    "slabs": {
+      "source": {
+        "basis": "chosen",
+        "document": "input-output",
+        "section": "3-1-1"
+      },
+      "values": ["IfcSlab", "IfcSlabStandardCase", "IfcSlabElementedCase"]
+    },
+    "spaces": {
+      "source": {
+        "basis": "chosen",
+        "document": "input-output",
+        "section": "3-1-1-4"
+      },
+      "values": ["IfcSpace"]
+    },
+    "walls": {
+      "source": {
+        "basis": "chosen",
+        "document": "input-output",
+        "section": "3-1-1"
+      },
+      "values": ["IfcWall", "IfcWallStandardCase", "IfcWallElementedCase"]
+    },
+    "windows": {
+      "source": {
+        "basis": "chosen",
+        "document": "input-output",
+        "section": "3-1-1"
+      },
+      "values": ["IfcWindow", "IfcWindowStandardCase"]
+    }
+  }
+}

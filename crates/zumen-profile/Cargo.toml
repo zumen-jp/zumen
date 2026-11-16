@@ -1,11 +1,15 @@
 [package]
 name = "zumen-profile"
-description = "zumen のプロファイルの照合。配置をたどって解いた図面モデルの値を、プロファイルの規則と語彙と比べる（決定 0138・0173）"
+description = "zumen のプロファイルの照合。図面・建物の値を、版つきの規則と語彙と比べる"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = true
+
+[features]
+default = []
+building = ["dep:zumen-building", "dep:zumen-crs", "dep:zumen-geom3d", "dep:blake3"]
 
 [dependencies]
 # 縮尺の分母を仮数と 10 の累乗に分ける対数（決定 0007）。どの対象でも同じ値にする
@@ -13,6 +17,14 @@ libm = { version = "0.2.16", default-features = false }
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
 zumen-json = { version = "0.2.0", path = "../zumen-json" }
+zumen-building = { version = "0.2.0", path = "../zumen-building", features = ["measure"], optional = true }
+zumen-crs = { version = "0.2.0", path = "../zumen-crs", optional = true }
+zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d", optional = true }
+blake3 = { version = "1.8.2", default-features = false, features = ["pure"], optional = true }
 
 [lints]
 workspace = true
+
+[[example]]
+name = "building_contract"
+required-features = ["building"]

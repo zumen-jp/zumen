@@ -1198,9 +1198,13 @@ dependencies = [
 name = "zumen-profile"
 version = "0.2.0"
 dependencies = [
+ "blake3",
  "libm",
  "zumen-base",
+ "zumen-building",
+ "zumen-crs",
  "zumen-drawing",
+ "zumen-geom3d",
  "zumen-json",
 ]
 

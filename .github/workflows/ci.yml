@@ -263,6 +263,13 @@ jobs:
           cargo test --package zumen-building --features measure --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
           cargo build --package zumen-building --features measure --example measure_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
           python crates/zumen-building/tests/check_measure.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/measure_contract"
+      - name: 確認申請のプロファイル・面積・診断・予算停止を同じバイト列で照らす（#426）
+        shell: bash
+        run: |
+          cargo clippy --package zumen-profile --features building --all-targets --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }} -- -D warnings
+          cargo test --package zumen-profile --features building --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          cargo build --package zumen-profile --features building --example building_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          python crates/zumen-profile/tests/check_building.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/building_contract"
       - name: .NET のラッパーの適合テストに使う .NET の SDK を入れる
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -365,6 +372,11 @@ jobs:
         run: |
           cargo build --package zumen-building --features measure --example measure_contract --target wasm32-wasip1 --locked
           python3 crates/zumen-building/tests/check_measure.py --wasm target/wasm32-wasip1/debug/examples/measure_contract.wasm
+      - name: 確認申請のプロファイル・面積・診断・予算停止を wasm で照らす（#426）
+        if: env.TEST_CORE == 'true'
+        run: |
+          cargo build --package zumen-profile --features building --example building_contract --target wasm32-wasip1 --locked
+          python3 crates/zumen-profile/tests/check_building.py --wasm target/wasm32-wasip1/debug/examples/building_contract.wasm
       - name: シーンからの SVG・PNG のバイト列・診断・予算・停止が wasm とネイティブで同じことを確かめる（決定 0272・0277）
         if: env.TEST_CORE == 'true'
         run: |

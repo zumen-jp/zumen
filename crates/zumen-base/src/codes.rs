@@ -3871,6 +3871,21 @@ pub const PLY_PROPERTY_DROPPED: Code = Code::new(
     &["property"],
 );
 
+/// 計測した領域の建築面積について地階や軒等の除外を判断していない
+///
+/// `profile.building-area.unsupported`（0.3.0 から）
+pub const PROFILE_BUILDING_AREA_UNSUPPORTED: Code = Code::new(
+    "profile.building-area.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("group", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &["rule", "group", "reason"],
+);
+
 /// 文字の内容が、語彙の範囲の文字を含む（指摘）。character は U+XXXX の形
 ///
 /// `profile.characters.invalid`（0.0.0 から）
@@ -4158,6 +4173,36 @@ pub const PROFILE_FORMAT_UNSUPPORTED: Code = Code::new(
     &["name"],
 );
 
+/// IFC のバージョンがプロファイルで指定した版と異なる。model は入力の 1 始まりの番号で、0 は規則の設定を指す
+///
+/// `profile.ifc-schema.invalid`（0.3.0 から）
+pub const PROFILE_IFC_SCHEMA_INVALID: Code = Code::new(
+    "profile.ifc-schema.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("model", ParamType::UInt),
+        Param::new("reason", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &["rule", "model", "reason"],
+);
+
+/// IFC のバージョンか照合の設定がないため版を確かめられない。model は入力の 1 始まりの番号で、0 は規則の設定を指す
+///
+/// `profile.ifc-schema.unsupported`（0.3.0 から）
+pub const PROFILE_IFC_SCHEMA_UNSUPPORTED: Code = Code::new(
+    "profile.ifc-schema.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("model", ParamType::UInt),
+        Param::new("reason", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &["rule", "model", "reason"],
+);
+
 /// レイヤの名前が、規則の区切りと語彙に合わないか、長すぎる（指摘）
 ///
 /// `profile.layer-name.invalid`（0.0.0 から）
@@ -4251,6 +4296,36 @@ pub const PROFILE_LINE_WIDTH_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 複数の建物モデルの長さの単位か配置の原点・軸が異なる。model は入力の 1 始まりの番号で、0 は規則の設定を指す
+///
+/// `profile.models-aligned.invalid`（0.3.0 から）
+pub const PROFILE_MODELS_ALIGNED_INVALID: Code = Code::new(
+    "profile.models-aligned.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("model", ParamType::UInt),
+        Param::new("reason", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &["rule", "model", "reason"],
+);
+
+/// 単位・建物・座標系の情報が足りないか曖昧なためモデルの重なりを確かめられない。model は入力の 1 始まりの番号で、0 は規則の設定を指す
+///
+/// `profile.models-aligned.unsupported`（0.3.0 から）
+pub const PROFILE_MODELS_ALIGNED_UNSUPPORTED: Code = Code::new(
+    "profile.models-aligned.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("model", ParamType::UInt),
+        Param::new("reason", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &["rule", "model", "reason"],
+);
+
 /// 用紙の向きが、規則の向きと違う（指摘）
 ///
 /// `profile.orientation.invalid`（0.0.0 から）
@@ -4275,6 +4350,66 @@ pub const PROFILE_ORIENTATION_UNSUPPORTED: Code = Code::new(
     None,
     &[Param::new("rule", ParamType::Text)],
     &[],
+);
+
+/// 指定された要素に値を持つ対象のプロパティがない。model は入力の 1 始まりの番号で、0 は規則の設定を指す
+///
+/// `profile.property-present.invalid`（0.3.0 から）
+pub const PROFILE_PROPERTY_PRESENT_INVALID: Code = Code::new(
+    "profile.property-present.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("model", ParamType::UInt),
+        Param::new("reason", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &["rule", "model", "reason"],
+);
+
+/// 属性名・型への対応・値を解けずプロパティの有無を確かめられない。model は入力の 1 始まりの番号で、0 は規則の設定を指す
+///
+/// `profile.property-present.unsupported`（0.3.0 から）
+pub const PROFILE_PROPERTY_PRESENT_UNSUPPORTED: Code = Code::new(
+    "profile.property-present.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("model", ParamType::UInt),
+        Param::new("reason", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &["rule", "model", "reason"],
+);
+
+/// 形を持つ対象の要素に項目のある形状表現がない。model は入力の 1 始まりの番号で、0 は規則の設定を指す
+///
+/// `profile.representation-present.invalid`（0.3.0 から）
+pub const PROFILE_REPRESENTATION_PRESENT_INVALID: Code = Code::new(
+    "profile.representation-present.invalid",
+    Severity::Warning,
+    None,
+    &[
+        Param::new("model", ParamType::UInt),
+        Param::new("reason", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &["rule", "model", "reason"],
+);
+
+/// 型への対応や要素の分類を解けず形状表現の有無を確かめられない。model は入力の 1 始まりの番号で、0 は規則の設定を指す
+///
+/// `profile.representation-present.unsupported`（0.3.0 から）
+pub const PROFILE_REPRESENTATION_PRESENT_UNSUPPORTED: Code = Code::new(
+    "profile.representation-present.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("model", ParamType::UInt),
+        Param::new("reason", ParamType::Text),
+        Param::new("rule", ParamType::Text),
+    ],
+    &["rule", "model", "reason"],
 );
 
 /// 照合の種類を知らないか、フィールドか語彙を使えない規則を、照合しなかった
@@ -6061,6 +6196,7 @@ pub const ALL: &[Code] = &[
     PLY_ELEMENT_DROPPED,
     PLY_FILE_INVALID,
     PLY_PROPERTY_DROPPED,
+    PROFILE_BUILDING_AREA_UNSUPPORTED,
     PROFILE_CHARACTERS_INVALID,
     PROFILE_COLOR_INVALID,
     PROFILE_COLOR_UNSUPPORTED,
@@ -6081,6 +6217,8 @@ pub const ALL: &[Code] = &[
     PROFILE_FILE_NAME_INVALID,
     PROFILE_FILE_NAME_UNSUPPORTED,
     PROFILE_FORMAT_UNSUPPORTED,
+    PROFILE_IFC_SCHEMA_INVALID,
+    PROFILE_IFC_SCHEMA_UNSUPPORTED,
     PROFILE_LAYER_NAME_INVALID,
     PROFILE_LINE_TYPE_INVALID,
     PROFILE_LINE_TYPE_UNSUPPORTED,
@@ -6088,8 +6226,14 @@ pub const ALL: &[Code] = &[
     PROFILE_LINE_WIDTH_BY_SHEET_UNSUPPORTED,
     PROFILE_LINE_WIDTH_INVALID,
     PROFILE_LINE_WIDTH_UNSUPPORTED,
+    PROFILE_MODELS_ALIGNED_INVALID,
+    PROFILE_MODELS_ALIGNED_UNSUPPORTED,
     PROFILE_ORIENTATION_INVALID,
     PROFILE_ORIENTATION_UNSUPPORTED,
+    PROFILE_PROPERTY_PRESENT_INVALID,
+    PROFILE_PROPERTY_PRESENT_UNSUPPORTED,
+    PROFILE_REPRESENTATION_PRESENT_INVALID,
+    PROFILE_REPRESENTATION_PRESENT_UNSUPPORTED,
     PROFILE_RULE_UNSUPPORTED,
     PROFILE_SCALE_INVALID,
     PROFILE_SCALE_UNSUPPORTED,

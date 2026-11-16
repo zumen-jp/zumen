@@ -3866,3 +3866,75 @@ params = { format = "text", kind = "key", reason = "key" }
 group-by = ["kind", "reason"]
 since = "0.2.0"
 status = "active"
+
+[codes."profile.ifc-schema.invalid"]
+description = "IFC のバージョンがプロファイルで指定した版と異なる。model は入力の 1 始まりの番号で、0 は規則の設定を指す"
+severity = "warning"
+params = { rule = "text", model = "uint", reason = "text" }
+group-by = ["rule", "model", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."profile.ifc-schema.unsupported"]
+description = "IFC のバージョンか照合の設定がないため版を確かめられない。model は入力の 1 始まりの番号で、0 は規則の設定を指す"
+severity = "info"
+params = { rule = "text", model = "uint", reason = "text" }
+group-by = ["rule", "model", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."profile.models-aligned.invalid"]
+description = "複数の建物モデルの長さの単位か配置の原点・軸が異なる。model は入力の 1 始まりの番号で、0 は規則の設定を指す"
+severity = "warning"
+params = { rule = "text", model = "uint", reason = "text" }
+group-by = ["rule", "model", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."profile.models-aligned.unsupported"]
+description = "単位・建物・座標系の情報が足りないか曖昧なためモデルの重なりを確かめられない。model は入力の 1 始まりの番号で、0 は規則の設定を指す"
+severity = "info"
+params = { rule = "text", model = "uint", reason = "text" }
+group-by = ["rule", "model", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."profile.representation-present.invalid"]
+description = "形を持つ対象の要素に項目のある形状表現がない。model は入力の 1 始まりの番号で、0 は規則の設定を指す"
+severity = "warning"
+params = { rule = "text", model = "uint", reason = "text" }
+group-by = ["rule", "model", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."profile.representation-present.unsupported"]
+description = "型への対応や要素の分類を解けず形状表現の有無を確かめられない。model は入力の 1 始まりの番号で、0 は規則の設定を指す"
+severity = "info"
+params = { rule = "text", model = "uint", reason = "text" }
+group-by = ["rule", "model", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."profile.property-present.invalid"]
+description = "指定された要素に値を持つ対象のプロパティがない。model は入力の 1 始まりの番号で、0 は規則の設定を指す"
+severity = "warning"
+params = { rule = "text", model = "uint", reason = "text" }
+group-by = ["rule", "model", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."profile.property-present.unsupported"]
+description = "属性名・型への対応・値を解けずプロパティの有無を確かめられない。model は入力の 1 始まりの番号で、0 は規則の設定を指す"
+severity = "info"
+params = { rule = "text", model = "uint", reason = "text" }
+group-by = ["rule", "model", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."profile.building-area.unsupported"]
+description = "計測した領域の建築面積について地階や軒等の除外を判断していない"
+severity = "info"
+params = { rule = "text", group = "text", reason = "text" }
+group-by = ["rule", "group", "reason"]
+since = "0.3.0"
+status = "active"

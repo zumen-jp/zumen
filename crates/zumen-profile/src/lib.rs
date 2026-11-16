@@ -4,6 +4,8 @@
 //! 語彙と比べる。指摘は診断と同じ形の値で返し、重要度は規則の `level` にする。照合できない値は、重要度
 //! `info` の `profile.<種類>.unsupported` の指摘にし、黙って通さない。
 
+#[cfg(feature = "building")]
+pub mod building;
 mod civil;
 mod profile;
 
@@ -23,6 +25,10 @@ use crate::profile::{GetKey, text};
 
 /// 照合の種類と、規則に書ける種類ごとのフィールド（決定 0173）。`xtask` のプロファイルの検査も、ここから引く
 pub const CHECKS: &[(&str, &[&str])] = &[
+    ("ifc-schema", &["schemas"]),
+    ("models-aligned", &["length-tolerance", "axis-tolerance"]),
+    ("representation-present", &["classes"]),
+    ("property-present", &["classes", "property-set", "property"]),
     (
         "layer-name",
         &["parts", "user-part", "separator", "max-width"],
@@ -86,6 +92,10 @@ pub const CHECKS: &[(&str, &[&str])] = &[
 
 /// 語彙を使わない照合
 pub const WITHOUT_VOCABULARY: &[&str] = &[
+    "ifc-schema",
+    "models-aligned",
+    "representation-present",
+    "property-present",
     "layer-name",
     "orientation",
     "file-name",

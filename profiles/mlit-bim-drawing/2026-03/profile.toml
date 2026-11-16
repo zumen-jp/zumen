@@ -1,0 +1,139 @@
+# 申請前の IFC のチェック。法令への適合や PDF と IFC の一致は判定しない。
+# 出典の文章・表・図は転載せず、項の番号と事実、明示した選択だけをデータにする。
+# この元から cargo xtask codegen が profile.json を作る。
+
+format = "0.1"
+id = "mlit-bim-drawing"
+edition = "2026-03"
+revision = 1
+title = "BIM 図面審査の申請前のチェック"
+license = "CC-BY-4.0"
+
+[sources.guideline]
+title = "建築確認における BIM 図面審査ガイドライン"
+publisher = "建築 BIM 推進会議 審査 TF"
+version = "初版 令和8年3月24日版"
+url = "https://www.mlit.go.jp/jutakukentiku/content/001990514.pdf"
+checked = "2026-11-16"
+
+[sources.input-output]
+title = "BIM 図面審査における入出力基準"
+publisher = "建築 BIM 推進会議 審査 TF"
+version = "初版 令和8年3月24日版"
+url = "https://www.mlit.go.jp/jutakukentiku/content/001990843.pdf"
+checked = "2026-11-16"
+
+[sources.presentation]
+title = "BIM 図面審査における確認申請図書表現標準"
+publisher = "建築 BIM 推進会議 審査 TF"
+version = "初版 令和8年3月24日版"
+url = "https://www.mlit.go.jp/jutakukentiku/content/001990518.pdf"
+checked = "2026-11-16"
+
+[sources.order]
+title = "建築基準法施行令"
+publisher = "e-Gov 法令検索"
+version = "昭和25年政令第338号 第2条"
+url = "https://laws.e-gov.go.jp/law/325CO0000000338"
+checked = "2026-11-16"
+
+# 出典は IFC のクラス名を指定しない。下位の型を含める対応は選んだ値。
+[vocabularies.walls]
+source = { document = "input-output", section = "3-1-1", basis = "chosen" }
+values = ["IfcWall", "IfcWallStandardCase", "IfcWallElementedCase"]
+
+[vocabularies.columns]
+source = { document = "input-output", section = "3-1-1", basis = "chosen" }
+values = ["IfcColumn", "IfcColumnStandardCase"]
+
+[vocabularies.beams]
+source = { document = "input-output", section = "3-1-1", basis = "chosen" }
+values = ["IfcBeam", "IfcBeamStandardCase"]
+
+[vocabularies.slabs]
+source = { document = "input-output", section = "3-1-1", basis = "chosen" }
+values = ["IfcSlab", "IfcSlabStandardCase", "IfcSlabElementedCase"]
+
+[vocabularies.roofs]
+source = { document = "input-output", section = "3-1-1", basis = "chosen" }
+values = ["IfcRoof"]
+
+[vocabularies.doors]
+source = { document = "input-output", section = "3-1-1", basis = "chosen" }
+values = ["IfcDoor", "IfcDoorStandardCase"]
+
+[vocabularies.windows]
+source = { document = "input-output", section = "3-1-1", basis = "chosen" }
+values = ["IfcWindow", "IfcWindowStandardCase"]
+
+[vocabularies.spaces]
+source = { document = "input-output", section = "3-1-1-4", basis = "chosen" }
+values = ["IfcSpace"]
+
+# 階別と用途別で区分を混ぜず、各区分の合計後に丸める。第三者からの引用部分は使わない。
+[vocabularies.building-area]
+source = { document = "presentation", section = "2-3", item = "② p.14（PDF p.18）", basis = "chosen" }
+values = [{ boundary = "shape", unit = "m2", rounding = "truncate", digits = 2, stage = "total", groups = ["storey", "use", "building"] }]
+
+[vocabularies.building-area-unverified]
+source = { document = "order", section = "第2条第1項第2号", basis = "chosen" }
+values = ["basement-exclusion", "eaves-setback"]
+
+[[rules]]
+id = "ifc-schema"
+check = "ifc-schema"
+level = "warning"
+source = { document = "input-output", section = "2-2-2", item = "p.4（PDF p.8）" }
+schemas = ["IFC2X3"]
+
+[[rules]]
+id = "models-aligned"
+check = "models-aligned"
+level = "warning"
+source = { document = "input-output", section = "2-2-2", item = "p.4（PDF p.8）", basis = "chosen" }
+# 原点の差は m、軸の成分の差は無次元。出典が数値を指定しないので選んだ値。
+length-tolerance = 0.000001
+axis-tolerance = 0.000000001
+
+[[rules]]
+id = "representation-present"
+check = "representation-present"
+level = "warning"
+source = { document = "guideline", section = "6-3", item = "p.15（PDF p.19）", basis = "chosen" }
+classes = ["walls", "columns", "beams", "slabs", "roofs", "doors", "windows", "spaces"]
+
+[[rules]]
+id = "room-use"
+check = "property-present"
+level = "warning"
+source = { document = "input-output", section = "意-012", item = "① p.8（PDF p.12）" }
+classes = ["spaces"]
+property-set = ""
+property = ""
+
+[[rules]]
+id = "area-region-code"
+check = "property-present"
+level = "warning"
+source = { document = "input-output", section = "意-013・意-014", item = "①の2 p.8〜9（PDF p.12〜13）" }
+classes = []
+property-set = ""
+property = ""
+
+[[rules]]
+id = "floor-area-ratio"
+check = "property-present"
+level = "warning"
+source = { document = "input-output", section = "意-014", item = "② p.9（PDF p.13）" }
+classes = []
+property-set = ""
+property = ""
+
+[[rules]]
+id = "fire-compartment"
+check = "property-present"
+level = "warning"
+source = { document = "input-output", section = "意-015", item = "① p.9（PDF p.13）" }
+classes = ["walls", "columns", "slabs", "doors", "windows"]
+property-set = ""
+property = ""

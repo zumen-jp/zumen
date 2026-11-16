@@ -42,6 +42,7 @@ zumen-las = { path = "../crates/zumen-las" }
 zumen-photo = { path = "../crates/zumen-photo" }
 zumen-ply = { path = "../crates/zumen-ply" }
 zumen-pointcloud = { path = "../crates/zumen-pointcloud" }
+zumen-profile = { path = "../crates/zumen-profile", features = ["building"] }
 zumen-sdk = { path = "../crates/zumen-sdk" }
 zumen-render = { path = "../crates/zumen-render" }
 zumen-review = { path = "../crates/zumen-review" }
@@ -58,6 +59,13 @@ zumen-zip = { path = "../crates/zumen-zip" }
 
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "building_profile"
+path = "fuzz_targets/building_profile.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "building_drawing"

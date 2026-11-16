@@ -22,6 +22,8 @@ pub mod geom3d;
 pub mod building_drawing;
 /// 建物の数量・境界の推定・丸めを、合成入力と小さい予算で照らす。
 pub mod building_measure;
+/// 建物プロファイルの属性・配置・面積と、読めない設定・小さい予算を照らす。
+pub mod building_profile;
 
 /// 要求の予算のフィールドの名前。単位の名前（`decoded-bytes`）の `-` を `_` にしたもの（`schema/messages.json` の
 /// `budget`）
