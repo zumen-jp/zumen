@@ -1,5 +1,5 @@
-#![cfg(feature = "drawing")]
 //! 平断面と鉛直面の座標、見る側、巨大座標と不正値の検査。
+#![cfg(feature = "drawing")]
 
 use zumen_building::drawing::{Side, View};
 use zumen_crs::ProjectPoint;

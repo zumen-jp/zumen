@@ -1,3 +1,4 @@
+//! 合成した建物の平断面・断面・立面と、元の要素への対応。
 #![cfg(feature = "drawing")]
 #![allow(
     clippy::unwrap_used,
@@ -5,7 +6,6 @@
     clippy::panic,
     reason = "試験用に作る既知の建物と、その期待値の検査"
 )]
-//! 合成した建物の平断面・断面・立面と、元の要素への対応。
 
 #[path = "support/evaluation.rs"]
 mod fixtures;
