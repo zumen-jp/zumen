@@ -1585,6 +1585,9 @@ fn moves_dwg_tables_without_rebuilding_cells_or_cache() {
         "table-r2010.dwg",
         "table-r2013.dwg",
         "table-r2018.dwg",
+        "table-styled-r2010.dwg",
+        "table-styled-r2013.dwg",
+        "table-styled-r2018.dwg",
     ] {
         let raw = std::fs::read(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1592,9 +1595,15 @@ fn moves_dwg_tables_without_rebuilding_cells_or_cache() {
                 .join(name),
         )
         .unwrap();
+        let case_name = if name.starts_with("table-styled-") {
+            "apply_styled_dwg_table.json"
+        } else {
+            "apply_dwg_table.json"
+        };
         let case = std::fs::read_to_string(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../bindings/conformance/cases/apply_dwg_table.json"),
+                .join("../../bindings/conformance/cases")
+                .join(case_name),
         )
         .unwrap();
         let hex: String = raw.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -1616,6 +1625,18 @@ fn moves_dwg_tables_without_rebuilding_cells_or_cache() {
             .iter()
             .position(|o| o.kind == b"ACAD_TABLE")
             .unwrap();
+        let table_style = changed_db.objects()[table_index]
+            .values
+            .iter()
+            .find(|v| v.code == 342)
+            .map(|v| v.data.clone());
+        if name.starts_with("table-styled-") {
+            let Some(Data::Handle(style)) = table_style else {
+                panic!("{name}: 表スタイルの参照がない")
+            };
+            assert_ne!(style, 0, "{name}");
+            assert_eq!(changed_db.get(style).unwrap().kind, b"TABLESTYLE", "{name}");
+        }
         changed_db
             .object_mut(table_index)
             .unwrap()
@@ -1650,6 +1671,17 @@ fn moves_dwg_tables_without_rebuilding_cells_or_cache() {
             let after = cx_run(|cx| reopened.lift(cx).unwrap()).0;
             let (seen, mut element) = seen_model(&after, 0);
             assert_eq!(seen.id, target.id, "{name}");
+            let db = cx_run(|cx| reopened.objects(cx).unwrap()).0;
+            let style = db
+                .objects()
+                .iter()
+                .find(|o| o.kind == b"ACAD_TABLE")
+                .unwrap()
+                .values
+                .iter()
+                .find(|v| v.code == 342)
+                .map(|v| &v.data);
+            assert_eq!(style, table_style.as_ref(), "{name}");
             expected.position = position;
             assert_eq!(element.shape, Shape::Table(expected.clone()), "{name}");
             assert_eq!(seen_model(&after, 1).0, seen_model(&before, 1).0, "{name}");

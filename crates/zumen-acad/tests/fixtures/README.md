@@ -4,6 +4,8 @@
 
 `xtask/verify/acadsharp/TableFixtures.cs` から、別に入れた ACadSharp 3.8.0（MIT）で作ります。
 
+`table-styled-r2010.dwg`・`table-styled-r2013.dwg`・`table-styled-r2018.dwg` は、文書に登録した表スタイルと文字スタイルを参照する別の入力です。表・データ・見出し・題のセルスタイルに文字スタイルを結び、生成器が読み戻して参照が正しいことと、読取通知が 0 件であることを検査します。既存の `table-r*.dwg` は、表スタイルを指さない最小入力として残します。
+
 ```powershell
 dotnet run --project xtask/verify/acadsharp -c Release -- --make-table-fixtures <生成先>
 cargo run -p zumen-acad --example legacy_table_fixture -- <生成先>
@@ -13,6 +15,6 @@ ACadSharp 3.8.0 は R2000・R2004 の表を書かないため、旧版だけは�
 
 日時と単位を固定し、著者と最終保存者は空にします。GUID は外部ライブラリが決めるので、再生成ではファイルのハッシュも確認します。ネイティブと wasm の一致は、記録した同じ入力バイトを使って確かめます。
 
-生成先で内容を確かめ、DWG だけをこのフォルダーにコピーします。再生成後は `bindings/conformance/cases/apply_dwg_table.json` の同名の `push.hex` も更新し、適合テストの手順でハッシュを作り直します。Rust の試験は、この入力が同じバイト列であることも確かめます。
+生成先で内容を確かめ、DWG だけをこのフォルダーにコピーします。再生成後は `bindings/conformance/cases/apply_dwg_table.json`、スタイルを参照する入力は `apply_styled_dwg_table.json` の同名の `push.hex` も更新し、適合テストの手順でハッシュを作り直します。Rust の試験は、この入力が同じバイト列であることも確かめます。
 
 表の移動で、セル・書式・表示用ブロックの元の値を保つ試験に使います。AutoCAD での監査と表示の確認は含みません。

@@ -63,6 +63,9 @@ CASES = [
     ("apply_dwg_table.json", "table-r2010.dwg"),
     ("apply_dwg_table.json", "table-r2013.dwg"),
     ("apply_dwg_table.json", "table-r2018.dwg"),
+    ("apply_styled_dwg_table.json", "table-styled-r2010.dwg"),
+    ("apply_styled_dwg_table.json", "table-styled-r2013.dwg"),
+    ("apply_styled_dwg_table.json", "table-styled-r2018.dwg"),
 ]
 # ezsxf がフィーチャを型で読む SFC（マーカーが `/*SXF` で、FILE_NAME がある）。適合テストの SFC はマーカーが `/*SXF3` で、
 # ezsxf はそのフィーチャの値を読まないので、外部の実装と照らすために作る
@@ -1245,8 +1248,8 @@ RECIPES = [
     ("parts", 314, lambda name, fmt: fmt in ("dxf", "dwg") and ("-parts-" in name or "-arcdim-" in name), parts_steps),
     ("parts-turned", 314, lambda name, fmt: fmt in ("dxf", "dwg") and ("-parts-" in name or "-arcdim-" in name), parts_turned_steps),
     ("partial-arc-moved", 684, lambda name, fmt: fmt in ("dxf", "dwg") and "-arcdim-" in name, partial_arc_steps),
-    ("table-moved", 684, lambda name, fmt: fmt == "dwg" and "apply_dwg_table-" in name, lambda _: table_position_steps(True)),
-    ("table-placed", 684, lambda name, fmt: fmt == "dwg" and "apply_dwg_table-" in name, lambda _: table_position_steps(False)),
+    ("table-moved", 684, lambda name, fmt: fmt == "dwg" and ("apply_dwg_table-" in name or "apply_styled_dwg_table-" in name), lambda _: table_position_steps(True)),
+    ("table-placed", 684, lambda name, fmt: fmt == "dwg" and ("apply_dwg_table-" in name or "apply_styled_dwg_table-" in name), lambda _: table_position_steps(False)),
     ("table-cells", 684, lambda name, fmt: fmt == "dwg" and name in ("apply_dwg_table-table-r2000.dwg", "apply_dwg_table-table-r2004.dwg"), table_cell_steps),
 ]
 # 記号の定義の中の要素も読む組（read の definitions）。定義の中に足した要素を、書いたファイルの読みに残す
@@ -1899,7 +1902,7 @@ SECTIONS = {
     ),
     684: (
         "#684 表の位置だけの書き戻し",
-        """自作の 2 行 2 列の表を ACadSharp 3.8.0 で符号化した R2010・R2013・R2018 の DWG に、平行移動（table-moved）または位置の置き換え（table-placed）を当てました。セルの値・大きさ・向きと表示用ブロックを保ちます。ACadSharp で、位置・方向・行の高さ・列の幅・セルの文字を照らします。セルの変更・回転・拡大は、この組では扱いません。AutoCAD では共通の手順で開けることと監査を確認し、表全体が指定した位置へ動き、セルの書式と罫線が保たれることを確かめます。
+        """自作の 2 行 2 列の表を ACadSharp 3.8.0 で符号化した R2010・R2013・R2018 の DWG に、平行移動（table-moved）または位置の置き換え（table-placed）を当てました。セルの値・大きさ・向きと表示用ブロックを保ちます。ACadSharp で、位置・方向・行の高さ・列の幅・セルの文字を照らします。`apply_styled_dwg_table` の 3 入力は文書内の表スタイルと文字スタイルを参照し、入力と出力の読取通知が 0 件であることも確認します。セルの変更・回転・拡大は、この組では扱いません。AutoCAD では共通の手順で開けることと監査を確認し、表全体が指定した位置へ動き、セルの書式と罫線が保たれることを確かめます。
 """,
     ),
     314: (

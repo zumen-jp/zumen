@@ -12,12 +12,15 @@ static class TableFixtures
     public static void Write(string folder)
     {
         Directory.CreateDirectory(folder);
-        foreach (var (version, name) in new[] {
-            (ACadVersion.AC1015, "table-r2000.dwg"),
-            (ACadVersion.AC1018, "table-r2004.dwg"),
-            (ACadVersion.AC1024, "table-r2010.dwg"),
-            (ACadVersion.AC1027, "table-r2013.dwg"),
-            (ACadVersion.AC1032, "table-r2018.dwg") })
+        foreach (var (version, name, withStyles) in new[] {
+            (ACadVersion.AC1015, "table-r2000.dwg", false),
+            (ACadVersion.AC1018, "table-r2004.dwg", false),
+            (ACadVersion.AC1024, "table-r2010.dwg", false),
+            (ACadVersion.AC1027, "table-r2013.dwg", false),
+            (ACadVersion.AC1032, "table-r2018.dwg", false),
+            (ACadVersion.AC1024, "table-styled-r2010.dwg", true),
+            (ACadVersion.AC1027, "table-styled-r2013.dwg", true),
+            (ACadVersion.AC1032, "table-styled-r2018.dwg", true) })
         {
             var doc = new CadDocument(version);
             var date = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -32,12 +35,19 @@ static class TableFixtures
             doc.SummaryInfo.CreatedDate = date;
             doc.SummaryInfo.ModifiedDate = date;
 
+            // 既定の表スタイルは文書に登録されたものを使い、各セルスタイルの文字スタイルも結ぶ。
+            var tableStyle = doc.TableStyles!["Standard"];
+            if (withStyles)
+                foreach (var style in new[] { tableStyle.TableCellStyle, tableStyle.DataCellStyle, tableStyle.HeaderCellStyle, tableStyle.TitleCellStyle })
+                    style.TextStyle = doc.TextStyles["Standard"];
             var block = new BlockRecord("*T1");
             foreach (double y in new[] { 0.0, -10.0, -25.0 })
                 block.Entities.Add(new Line(new XYZ(0, y, 0), new XYZ(50, y, 0)));
             foreach (double x in new[] { 0.0, 20.0, 50.0 })
                 block.Entities.Add(new Line(new XYZ(x, 0, 0), new XYZ(x, -25, 0)));
             var table = new TableEntity(block) { InsertPoint = new XYZ(10, 20, 0), HorizontalDirection = XYZ.AxisX };
+            if (withStyles)
+                table.Style = tableStyle;
             table.Columns.Add(new TableEntity.Column { Width = 20 });
             table.Columns.Add(new TableEntity.Column { Width = 30 });
             for (int r = 0; r < 2; r++)
@@ -65,7 +75,10 @@ static class TableFixtures
                 doc.Entities.Add(placeholder);
             }
             doc.Entities.Add(new Line(new XYZ(-20, -20, 0), new XYZ(-10, -10, 0)));
-            DwgWriter.Write(Path.Combine(folder, name), doc);
+            var path = Path.Combine(folder, name);
+            DwgWriter.Write(path, doc);
+            if (withStyles)
+                ValidateReferences(path);
             if (placeholder != null)
             {
                 File.WriteAllLines(Path.Combine(folder, name + ".meta"), new[] {
@@ -75,5 +88,18 @@ static class TableFixtures
             }
             Console.WriteLine(name);
         }
+    }
+
+    static void ValidateReferences(string path)
+    {
+        var notes = new List<string>();
+        using var reader = new DwgReader(path, (_, e) => notes.Add(e.Message));
+        var doc = reader.Read();
+        var table = doc.Entities.OfType<TableEntity>().Single();
+        if (notes.Count != 0 || table.Style.Handle == 0 || !ReferenceEquals(table.Style, doc.TableStyles!["Standard"]))
+            throw new InvalidOperationException($"表のスタイル参照を読み戻せない: {string.Join("; ", notes)}");
+        foreach (var style in new[] { table.Style.TableCellStyle, table.Style.DataCellStyle, table.Style.HeaderCellStyle, table.Style.TitleCellStyle })
+            if (style.TextStyle.Handle == 0 || !ReferenceEquals(style.TextStyle, doc.TextStyles["Standard"]))
+                throw new InvalidOperationException("セルスタイルの文字スタイル参照を読み戻せない");
     }
 }
