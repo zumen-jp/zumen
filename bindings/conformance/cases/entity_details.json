@@ -1,0 +1,47 @@
+{
+  "description": "要素のスタイル、重複する出所と線種の ID、拡張の全型・順序・有効性、ページ分け、予算停止。entity_details_case.rs から生成する",
+  "module": "drawing",
+  "steps": [
+    { "push": { "name": "details", "hex": "5a4d4452010000000400000002000000200000002d00000050000000810300002c13746573742d656e746974792d64657461696c730764726177696e6755555555555555555555555555555555000000ff0601d701000000035207000100000100010022020801020001010c223802080000000000000440010200666666666666d63f02018000241100000000000000000000000000000000001100000000000000244000000000000000003c0700010100010001000c0001000000000000f03f0000002411000000000000000000000000000000f03f11000000000000002440000000000000f03f3e0700010200010003000e0101000000000000f03f0102010100241100000000000000000000000000000000401100000000000000244000000000000000400300010200000210070566697273740007000107000100201108067365636f6e640007000108000100200000000000000176110b746573742e73796d626f6c04706172745701000001500500011e00000022020801020001010c223802080000000000000440010200666666666666d63f02018000241101000000000000000000000000000000001101000000000000f03f00000000000000000100000000000700011f0001003006df010b746573742e76616c756573077a2d666972737401013103010a73706163652f302f683101aa5e191fab467e8a562fa8edfab9eced08140473616d6501d00f000ae69687e5ad970ae580a4130473616d6501de1001feffffffffffffffff0113036d696e01ffff0301ffffffffffffffffff010f047265616c0002000000000000c0bf2205706f696e7401e40f03000000000000f03f00000000000000400000000000000840150668616e646c6501da0f04ffffffffffffffffff010f05627974657301d80f0504000f80ff0905656d70747900050008000111000100ff01250b746573742e76616c75657308646f63756d656e740101310300000008000111000100ff01400b746573742e76616c756573067365636f6e6401013103010c73706163652f302f68312f3101ada276be4f04effb32493e8f9dff27770008000111000100ff013f0b746573742e76616c75657307612d7374616c6501013103010a73706163652f302f683101000000000000000000000000000000000008000111000100ff01330b746573742e76616c756573066f727068616e01013103010f73706163652f302f6d697373696e67000008000111000100ff01410b746573742e76616c7565730673796d626f6c01013103010d73706163652f6833302f7233300174b20dd2cd310180a1291bfaf2fc096c0008000111000100ff010000" } },
+    { "call": { "v": 1, "op": "open", "input": "details" }, "expect": { "/result/format": "test-entity-details" } },
+    { "call": { "v": 1, "op": "entities", "doc": "details" }, "expect": { "/result/total": 3 }, "absent": ["/result/items/0/style", "/result/items/0/extensions"] },
+    { "call": { "v": 1, "op": "tables", "doc": "details" }, "expect": { "/result/line_types/0/id": "line-type/h20", "/result/line_types/1/id": "line-type/h20/1" } },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["style", "hash", "extensions"], "limit": 1 }, "expect": {
+      "/result/items/0/id": "space/0/h1", "/result/next_offset": 1,
+      "/result/items/0/style/color": { "aci": 1, "rgb": [12, 34, 56] },
+      "/result/items/0/style/line_type": { "id": "line-type/h20/1" },
+      "/result/items/0/style/line_type_scale": 2.5,
+      "/result/items/0/style/line_weight": { "mm": 0.35 },
+      "/result/items/0/style/transparency": { "alpha": 128 },
+      "/result/items/0/extensions/0/name": "z-first", "/result/items/0/extensions/0/current": true,
+      "/result/items/0/extensions/0/fields/0/value": { "kind": "text", "value": "文字\n値" },
+      "/result/items/0/extensions/0/fields/1/value": { "kind": "integer", "value": "9223372036854775807" },
+      "/result/items/0/extensions/0/fields/2/value": { "kind": "integer", "value": "-9223372036854775808" },
+      "/result/items/0/extensions/0/fields/2/code": -32768,
+      "/result/items/0/extensions/0/fields/3/value": { "kind": "real", "value": -0.125 },
+      "/result/items/0/extensions/0/fields/4/value": { "kind": "point", "value": [1, 2, 3] },
+      "/result/items/0/extensions/0/fields/5/value": { "kind": "handle", "value": "FFFFFFFFFFFFFFFF" },
+      "/result/items/0/extensions/0/fields/6/value": { "kind": "bytes", "value": "000f80ff" },
+      "/result/items/0/extensions/0/fields/7/value": { "kind": "bytes", "value": "" },
+      "/result/items/0/extensions/0/source": { "record": 17, "handle": "FF" },
+      "/result/items/0/extensions/1/name": "a-stale", "/result/items/0/extensions/1/current": false
+    } },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["style", "extensions"], "offset": 1, "limit": 1 }, "expect": {
+      "/result/items/0/id": "space/0/h1/1", "/result/next_offset": 2,
+      "/result/items/0/style/color": { "inherit": "layer" },
+      "/result/items/0/style/line_type": { "inherit": "block" },
+      "/result/items/0/style/transparency": { "inherit": "layer" },
+      "/result/items/0/extensions/0/name": "second", "/result/items/0/extensions/0/current": true
+    }, "absent": ["/result/items/0/style/line_weight"] },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["style", "extensions"], "offset": 2 }, "expect": {
+      "/result/items/0/style/color": { "inherit": "block" }, "/result/items/0/style/line_weight": { "default": true },
+      "/result/items/0/extensions": []
+    } },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["extensions"], "place": "space/h30" }, "expect": {
+      "/result/items/0/id": "space/h30/r30", "/result/items/0/extensions/0/name": "symbol", "/result/items/0/extensions/0/current": true
+    }, "absent": ["/result/items/0/style"] },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["style", "extensions"], "budget": { "work": 0 } }, "status": "failed", "expect": { "/diagnostics/0/code": "budget.work.exceeded" }, "absent": ["/result"] },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["style", "extensions"] }, "expect": { "/result/total": 3, "/result/items/0/extensions/0/current": true } },
+    { "call": { "v": 1, "op": "drawing", "doc": "details" }, "expect": { "/result/hash": "v2:55555555555555555555555555555555" } }
+  ]
+}

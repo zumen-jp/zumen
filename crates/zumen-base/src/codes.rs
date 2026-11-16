@@ -1180,6 +1180,20 @@ pub const DRAWING_ELEMENT_MEASUREMENT_FAILED: Code = Code::new(
     &["id", "quantity", "reason"],
 );
 
+/// 要素のスタイルか拡張の値を応答の型で表せず、または複製する領域を確保できず、指定したフィールドを返せなかった
+///
+/// `drawing.entity-details.failed`（0.3.0 から）
+pub const DRAWING_ENTITY_DETAILS_FAILED: Code = Code::new(
+    "drawing.entity-details.failed",
+    Severity::Error,
+    None,
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("reason", ParamType::Key),
+    ],
+    &["id", "reason"],
+);
+
 /// 線種に添える文字の高さが有限の実数で表せず、結果に含めなかった
 ///
 /// `drawing.mark-height.dropped`（0.0.0 から）
@@ -5444,6 +5458,7 @@ pub const ALL: &[Code] = &[
     DRAWING_CALIBRATION_INVALID,
     DRAWING_ELEMENT_MEASUREMENT_APPROXIMATED,
     DRAWING_ELEMENT_MEASUREMENT_FAILED,
+    DRAWING_ENTITY_DETAILS_FAILED,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_MEASUREMENT_FAILED,
     DRAWING_PLACEMENT_INVALID,

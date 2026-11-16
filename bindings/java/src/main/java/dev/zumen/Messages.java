@@ -3098,6 +3098,28 @@ public final class Messages {
             put("geometry", value);
             return this;
         }
+
+        /** 要素自身のスタイル。fields に style を指定したときだけ返す。マイナーバージョン 79 から */
+        public EntityStyle getStyle() {
+            return Json.read(json.get("style"), EntityStyle::of);
+        }
+
+        /** {@link #getStyle()} を書く。null ならフィールドを除く */
+        public Entity withStyle(EntityStyle value) {
+            put("style", value);
+            return this;
+        }
+
+        /** 要素に付く拡張の一覧。fields に extensions を指定したときだけ返し、拡張がなければ空の一覧。マイナーバージョン 79 から */
+        public List<EntityExtension> getExtensions() {
+            return Json.read(json.get("extensions"), v0 -> Json.list(v0, EntityExtension::of));
+        }
+
+        /** {@link #getExtensions()} を書く。null ならフィールドを除く */
+        public Entity withExtensions(List<EntityExtension> value) {
+            put("extensions", value);
+            return this;
+        }
     }
 
     /**
@@ -3121,6 +3143,580 @@ public final class Messages {
         public static final String HASH = "hash";
 
         public static final String GEOMETRY = "geometry";
+
+        public static final String STYLE = "style";
+
+        public static final String EXTENSIONS = "extensions";
+    }
+
+    /** 要素自身が持つスタイル。継承は解かず、色表の RGB も補わない。色・線種・線幅の形は restyle と同じ。透過性は読むだけで、restyle の指定には含めない */
+    public static final class EntityStyle extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntityStyle(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntityStyle of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntityStyle(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public EntityStyle() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 色の符号・図面内 RGB、または継承元 */
+        public ColorChange getColor() {
+            return Json.read(json.get("color"), ColorChange::of);
+        }
+
+        /** {@link #getColor()} を書く。null ならフィールドを除く */
+        public EntityStyle withColor(ColorChange value) {
+            put("color", value);
+            return this;
+        }
+
+        /** 継承元か、tables が返す線種の公開 ID */
+        public LineTypeChange getLineType() {
+            return Json.read(json.get("line_type"), LineTypeChange::of);
+        }
+
+        /** {@link #getLineType()} を書く。null ならフィールドを除く */
+        public EntityStyle withLineType(LineTypeChange value) {
+            put("line_type", value);
+            return this;
+        }
+
+        /** 要素自身の線種の倍率。文書や配置の倍率を掛けない */
+        public Double getLineTypeScale() {
+            return Json.read(json.get("line_type_scale"), Json::number);
+        }
+
+        /** {@link #getLineTypeScale()} を書く。null ならフィールドを除く */
+        public EntityStyle withLineTypeScale(Double value) {
+            put("line_type_scale", value);
+            return this;
+        }
+
+        /** 線幅の指定。元の形式から読めていなければ持たない */
+        public LineWeightChange getLineWeight() {
+            return Json.read(json.get("line_weight"), LineWeightChange::of);
+        }
+
+        /** {@link #getLineWeight()} を書く。null ならフィールドを除く */
+        public EntityStyle withLineWeight(LineWeightChange value) {
+            put("line_weight", value);
+            return this;
+        }
+
+        /** 透過性の指定 */
+        public EntityTransparency getTransparency() {
+            return Json.read(json.get("transparency"), EntityTransparency::of);
+        }
+
+        /** {@link #getTransparency()} を書く。null ならフィールドを除く */
+        public EntityStyle withTransparency(EntityTransparency value) {
+            put("transparency", value);
+            return this;
+        }
+    }
+
+    /** 透過性。inherit または alpha の一方を返す */
+    public static final class EntityTransparency extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntityTransparency(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntityTransparency of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntityTransparency(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public EntityTransparency() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 継承元 */
+        public String getInherit() {
+            return Json.read(json.get("inherit"), Json::string);
+        }
+
+        /** {@link #getInherit()} を書く。null ならフィールドを除く */
+        public EntityTransparency withInherit(String value) {
+            put("inherit", value);
+            return this;
+        }
+
+        /** 不透明度。0 は透明、255 は不透明 */
+        public Long getAlpha() {
+            return Json.read(json.get("alpha"), Json::integer);
+        }
+
+        /** {@link #getAlpha()} を書く。null ならフィールドを除く */
+        public EntityTransparency withAlpha(Long value) {
+            put("alpha", value);
+            return this;
+        }
+    }
+
+    /** 要素に付く形式固有の情報。元の順序を保ち、失効した値も current を偽にして返す。書き戻す操作ではない */
+    public static final class EntityExtension extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntityExtension(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntityExtension of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntityExtension(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public EntityExtension() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 値の型を定める名前空間 */
+        public String getNamespace() {
+            return Json.read(json.get("namespace"), Json::string);
+        }
+
+        /** {@link #getNamespace()} を書く。null ならフィールドを除く */
+        public EntityExtension withNamespace(String value) {
+            put("namespace", value);
+            return this;
+        }
+
+        /** 元の名前。翻訳しない */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public EntityExtension withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 元の形式のバージョン。不明なら持たない */
+        public String getVersion() {
+            return Json.read(json.get("version"), Json::string);
+        }
+
+        /** {@link #getVersion()} を書く。null ならフィールドを除く */
+        public EntityExtension withVersion(String value) {
+            put("version", value);
+            return this;
+        }
+
+        /** 名前空間の値の型のバージョン */
+        public Long getSchema() {
+            return Json.read(json.get("schema"), Json::integer);
+        }
+
+        /** {@link #getSchema()} を書く。null ならフィールドを除く */
+        public EntityExtension withSchema(Long value) {
+            put("schema", value);
+            return this;
+        }
+
+        /** 拡張が依存する元の要素のハッシュ。要素に依存するハッシュがなければ持たない */
+        public String getBasis() {
+            return Json.read(json.get("basis"), Json::string);
+        }
+
+        /** {@link #getBasis()} を書く。null ならフィールドを除く */
+        public EntityExtension withBasis(String value) {
+            put("basis", value);
+            return this;
+        }
+
+        /** basis が現在の要素のハッシュと一致する */
+        public Boolean getCurrent() {
+            return Json.read(json.get("current"), Json::bool);
+        }
+
+        /** {@link #getCurrent()} を書く。null ならフィールドを除く */
+        public EntityExtension withCurrent(Boolean value) {
+            put("current", value);
+            return this;
+        }
+
+        /** 元の順序と型を保つフィールド */
+        public List<EntityExtensionField> getFields() {
+            return Json.read(json.get("fields"), v0 -> Json.list(v0, EntityExtensionField::of));
+        }
+
+        /** {@link #getFields()} を書く。null ならフィールドを除く */
+        public EntityExtension withFields(List<EntityExtensionField> value) {
+            put("fields", value);
+            return this;
+        }
+
+        /** 拡張の出所 */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public EntityExtension withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 拡張のフィールド。同じキーの重複と並びを保つ */
+    public static final class EntityExtensionField extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntityExtensionField(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntityExtensionField of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntityExtensionField(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public EntityExtensionField() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元のキー */
+        public String getKey() {
+            return Json.read(json.get("key"), Json::string);
+        }
+
+        /** {@link #getKey()} を書く。null ならフィールドを除く */
+        public EntityExtensionField withKey(String value) {
+            put("key", value);
+            return this;
+        }
+
+        /** 元の形式の値の番号。番号がなければ持たない */
+        public Long getCode() {
+            return Json.read(json.get("code"), Json::integer);
+        }
+
+        /** {@link #getCode()} を書く。null ならフィールドを除く */
+        public EntityExtensionField withCode(Long value) {
+            put("code", value);
+            return this;
+        }
+
+        /** 型付きの値 */
+        public EntityExtensionValue getValue() {
+            return Json.read(json.get("value"), EntityExtensionValue::of);
+        }
+
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
+        public EntityExtensionField withValue(EntityExtensionValue value) {
+            put("value", value);
+            return this;
+        }
+    }
+
+    /** 拡張の値。整数・ハンドル・バイト列は文字列で正確に返し、実数と点は有限値だけを返す */
+    public static final class EntityExtensionValue extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntityExtensionValue(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntityExtensionValue of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntityExtensionValue(json);
+        }
+
+        /** kind が text の形なら、そのビュー。違えば null */
+        public EntityExtensionText asEntityExtensionText() {
+            return "text".equals(json.get("kind")) ? new EntityExtensionText(json) : null;
+        }
+
+        /** kind が integer の形なら、そのビュー。違えば null */
+        public EntityExtensionInteger asEntityExtensionInteger() {
+            return "integer".equals(json.get("kind")) ? new EntityExtensionInteger(json) : null;
+        }
+
+        /** kind が real の形なら、そのビュー。違えば null */
+        public EntityExtensionReal asEntityExtensionReal() {
+            return "real".equals(json.get("kind")) ? new EntityExtensionReal(json) : null;
+        }
+
+        /** kind が point の形なら、そのビュー。違えば null */
+        public EntityExtensionPoint asEntityExtensionPoint() {
+            return "point".equals(json.get("kind")) ? new EntityExtensionPoint(json) : null;
+        }
+
+        /** kind が handle の形なら、そのビュー。違えば null */
+        public EntityExtensionHandle asEntityExtensionHandle() {
+            return "handle".equals(json.get("kind")) ? new EntityExtensionHandle(json) : null;
+        }
+
+        /** kind が bytes の形なら、そのビュー。違えば null */
+        public EntityExtensionBytes asEntityExtensionBytes() {
+            return "bytes".equals(json.get("kind")) ? new EntityExtensionBytes(json) : null;
+        }
+    }
+
+    /** 元の文字列 */
+    public static final class EntityExtensionText extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntityExtensionText(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntityExtensionText of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntityExtensionText(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public EntityExtensionText() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "text");
+        }
+
+        /** 値の型 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public EntityExtensionText withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 文字列 */
+        public String getValue() {
+            return Json.read(json.get("value"), Json::string);
+        }
+
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
+        public EntityExtensionText withValue(String value) {
+            put("value", value);
+            return this;
+        }
+    }
+
+    /** 符号付き 64 bit 整数 */
+    public static final class EntityExtensionInteger extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntityExtensionInteger(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntityExtensionInteger of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntityExtensionInteger(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public EntityExtensionInteger() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "integer");
+        }
+
+        /** 値の型 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public EntityExtensionInteger withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 10 進の文字列。負数以外には符号を付けず、先頭の 0 を付けない */
+        public String getValue() {
+            return Json.read(json.get("value"), Json::string);
+        }
+
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
+        public EntityExtensionInteger withValue(String value) {
+            put("value", value);
+            return this;
+        }
+    }
+
+    /** 有限の実数 */
+    public static final class EntityExtensionReal extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntityExtensionReal(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntityExtensionReal of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntityExtensionReal(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public EntityExtensionReal() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "real");
+        }
+
+        /** 値の型 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public EntityExtensionReal withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 実数 */
+        public Double getValue() {
+            return Json.read(json.get("value"), Json::number);
+        }
+
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
+        public EntityExtensionReal withValue(Double value) {
+            put("value", value);
+            return this;
+        }
+    }
+
+    /** 3 次元の点やベクトル。単位と空間は名前空間が定める */
+    public static final class EntityExtensionPoint extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntityExtensionPoint(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntityExtensionPoint of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntityExtensionPoint(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public EntityExtensionPoint() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "point");
+        }
+
+        /** 値の型 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public EntityExtensionPoint withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** [X, Y, Z] の有限値 */
+        public List<Double> getValue() {
+            return Json.read(json.get("value"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
+        public EntityExtensionPoint withValue(List<Double> value) {
+            put("value", value);
+            return this;
+        }
+    }
+
+    /** 元の形式のオブジェクトを指す符号なし 64 bit の値 */
+    public static final class EntityExtensionHandle extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntityExtensionHandle(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntityExtensionHandle of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntityExtensionHandle(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public EntityExtensionHandle() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "handle");
+        }
+
+        /** 値の型 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public EntityExtensionHandle withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 大文字の 16 進の文字列。接頭辞と先頭の 0 を付けない */
+        public String getValue() {
+            return Json.read(json.get("value"), Json::string);
+        }
+
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
+        public EntityExtensionHandle withValue(String value) {
+            put("value", value);
+            return this;
+        }
+    }
+
+    /** 元のバイト列 */
+    public static final class EntityExtensionBytes extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntityExtensionBytes(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntityExtensionBytes of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntityExtensionBytes(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public EntityExtensionBytes() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "bytes");
+        }
+
+        /** 値の型 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public EntityExtensionBytes withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 1 バイトを小文字の 16 進 2 桁にした文字列。空も保つ */
+        public String getValue() {
+            return Json.read(json.get("value"), Json::string);
+        }
+
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
+        public EntityExtensionBytes withValue(String value) {
+            put("value", value);
+            return this;
+        }
     }
 
     /** 形の値。点は要素の空間か用紙の座標、長さは同じ単位（実寸の空間は文書の単位、用紙は mm）、角度は度で反時計回り。shape の値で形が決まる */

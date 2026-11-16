@@ -1053,6 +1053,12 @@ type Entity struct {
 
 	// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
 	Geometry Geometry `json:"geometry,omitempty"`
+
+	// 要素自身のスタイル。fields に style を指定したときだけ返す。マイナーバージョン 79 から
+	Style *EntityStyle `json:"style,omitempty"`
+
+	// 要素に付く拡張の一覧。fields に extensions を指定したときだけ返し、拡張がなければ空の一覧。マイナーバージョン 79 から
+	Extensions []EntityExtension `json:"extensions,omitempty"`
 }
 
 // EntityField: entities で返す要素のフィールド（決定 0118）
@@ -1080,6 +1086,226 @@ const EntityFieldHash EntityField = "hash"
 
 // EntityFieldGeometry は geometry。
 const EntityFieldGeometry EntityField = "geometry"
+
+// EntityFieldStyle は style。
+const EntityFieldStyle EntityField = "style"
+
+// EntityFieldExtensions は extensions。
+const EntityFieldExtensions EntityField = "extensions"
+
+// EntityStyle: 要素自身が持つスタイル。継承は解かず、色表の RGB も補わない。色・線種・線幅の形は restyle と同じ。透過性は読むだけで、restyle の指定には含めない
+type EntityStyle struct {
+	// 色の符号・図面内 RGB、または継承元
+	Color *ColorChange `json:"color,omitempty"`
+
+	// 継承元か、tables が返す線種の公開 ID
+	LineType *LineTypeChange `json:"line_type,omitempty"`
+
+	// 要素自身の線種の倍率。文書や配置の倍率を掛けない
+	LineTypeScale *float64 `json:"line_type_scale,omitempty"`
+
+	// 線幅の指定。元の形式から読めていなければ持たない
+	LineWeight *LineWeightChange `json:"line_weight,omitempty"`
+
+	// 透過性の指定
+	Transparency *EntityTransparency `json:"transparency,omitempty"`
+}
+
+// EntityTransparency: 透過性。inherit または alpha の一方を返す
+type EntityTransparency struct {
+	// 継承元
+	Inherit *Inherit `json:"inherit,omitempty"`
+
+	// 不透明度。0 は透明、255 は不透明
+	Alpha *int64 `json:"alpha,omitempty"`
+}
+
+// EntityExtension: 要素に付く形式固有の情報。元の順序を保ち、失効した値も current を偽にして返す。書き戻す操作ではない
+type EntityExtension struct {
+	// 値の型を定める名前空間
+	Namespace *string `json:"namespace,omitempty"`
+
+	// 元の名前。翻訳しない
+	Name *string `json:"name,omitempty"`
+
+	// 元の形式のバージョン。不明なら持たない
+	Version *string `json:"version,omitempty"`
+
+	// 名前空間の値の型のバージョン
+	Schema *int64 `json:"schema,omitempty"`
+
+	// 拡張が依存する元の要素のハッシュ。要素に依存するハッシュがなければ持たない
+	Basis *string `json:"basis,omitempty"`
+
+	// basis が現在の要素のハッシュと一致する
+	Current *bool `json:"current,omitempty"`
+
+	// 元の順序と型を保つフィールド
+	Fields []EntityExtensionField `json:"fields,omitempty"`
+
+	// 拡張の出所
+	Source *Source `json:"source,omitempty"`
+}
+
+// EntityExtensionField: 拡張のフィールド。同じキーの重複と並びを保つ
+type EntityExtensionField struct {
+	// 元のキー
+	Key *string `json:"key,omitempty"`
+
+	// 元の形式の値の番号。番号がなければ持たない
+	Code *int64 `json:"code,omitempty"`
+
+	// 型付きの値
+	Value EntityExtensionValue `json:"value,omitempty"`
+}
+
+// EntityExtensionValue: 拡張の値。整数・ハンドル・バイト列は文字列で正確に返し、実数と点は有限値だけを返す
+//
+// 読んだ JSON をそのまま持つ。形は As で始まるメソッドで読み、EntityExtensionValueOf で作る。
+type EntityExtensionValue json.RawMessage
+
+// EntityExtensionValueOf は、形の値を JSON にして EntityExtensionValue にする。
+func EntityExtensionValueOf(value any) (EntityExtensionValue, error) {
+	data, err := json.Marshal(value)
+	return EntityExtensionValue(data), err
+}
+
+// MarshalJSON は、持っている JSON をそのまま書く。
+func (u EntityExtensionValue) MarshalJSON() ([]byte, error) {
+	return rawJSON(u), nil
+}
+
+// UnmarshalJSON は、読んだ JSON をそのまま持つ。
+func (u *EntityExtensionValue) UnmarshalJSON(data []byte) error {
+	*u = append((*u)[:0], data...)
+	return nil
+}
+
+// AsEntityExtensionText は、kind が text の形なら、その型で読む。違えば nil。
+func (u EntityExtensionValue) AsEntityExtensionText() *EntityExtensionText {
+	return asTagged[EntityExtensionText](u, "kind", "text")
+}
+
+// AsEntityExtensionInteger は、kind が integer の形なら、その型で読む。違えば nil。
+func (u EntityExtensionValue) AsEntityExtensionInteger() *EntityExtensionInteger {
+	return asTagged[EntityExtensionInteger](u, "kind", "integer")
+}
+
+// AsEntityExtensionReal は、kind が real の形なら、その型で読む。違えば nil。
+func (u EntityExtensionValue) AsEntityExtensionReal() *EntityExtensionReal {
+	return asTagged[EntityExtensionReal](u, "kind", "real")
+}
+
+// AsEntityExtensionPoint は、kind が point の形なら、その型で読む。違えば nil。
+func (u EntityExtensionValue) AsEntityExtensionPoint() *EntityExtensionPoint {
+	return asTagged[EntityExtensionPoint](u, "kind", "point")
+}
+
+// AsEntityExtensionHandle は、kind が handle の形なら、その型で読む。違えば nil。
+func (u EntityExtensionValue) AsEntityExtensionHandle() *EntityExtensionHandle {
+	return asTagged[EntityExtensionHandle](u, "kind", "handle")
+}
+
+// AsEntityExtensionBytes は、kind が bytes の形なら、その型で読む。違えば nil。
+func (u EntityExtensionValue) AsEntityExtensionBytes() *EntityExtensionBytes {
+	return asTagged[EntityExtensionBytes](u, "kind", "bytes")
+}
+
+// EntityExtensionText: 元の文字列
+type EntityExtensionText struct {
+	// 値の型
+	Kind string `json:"kind,omitempty"`
+
+	// 文字列
+	Value *string `json:"value,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m EntityExtensionText) MarshalJSON() ([]byte, error) {
+	type plain EntityExtensionText
+	m.Kind = "text"
+	return json.Marshal(plain(m))
+}
+
+// EntityExtensionInteger: 符号付き 64 bit 整数
+type EntityExtensionInteger struct {
+	// 値の型
+	Kind string `json:"kind,omitempty"`
+
+	// 10 進の文字列。負数以外には符号を付けず、先頭の 0 を付けない
+	Value *string `json:"value,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m EntityExtensionInteger) MarshalJSON() ([]byte, error) {
+	type plain EntityExtensionInteger
+	m.Kind = "integer"
+	return json.Marshal(plain(m))
+}
+
+// EntityExtensionReal: 有限の実数
+type EntityExtensionReal struct {
+	// 値の型
+	Kind string `json:"kind,omitempty"`
+
+	// 実数
+	Value *float64 `json:"value,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m EntityExtensionReal) MarshalJSON() ([]byte, error) {
+	type plain EntityExtensionReal
+	m.Kind = "real"
+	return json.Marshal(plain(m))
+}
+
+// EntityExtensionPoint: 3 次元の点やベクトル。単位と空間は名前空間が定める
+type EntityExtensionPoint struct {
+	// 値の型
+	Kind string `json:"kind,omitempty"`
+
+	// [X, Y, Z] の有限値
+	Value []float64 `json:"value,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m EntityExtensionPoint) MarshalJSON() ([]byte, error) {
+	type plain EntityExtensionPoint
+	m.Kind = "point"
+	return json.Marshal(plain(m))
+}
+
+// EntityExtensionHandle: 元の形式のオブジェクトを指す符号なし 64 bit の値
+type EntityExtensionHandle struct {
+	// 値の型
+	Kind string `json:"kind,omitempty"`
+
+	// 大文字の 16 進の文字列。接頭辞と先頭の 0 を付けない
+	Value *string `json:"value,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m EntityExtensionHandle) MarshalJSON() ([]byte, error) {
+	type plain EntityExtensionHandle
+	m.Kind = "handle"
+	return json.Marshal(plain(m))
+}
+
+// EntityExtensionBytes: 元のバイト列
+type EntityExtensionBytes struct {
+	// 値の型
+	Kind string `json:"kind,omitempty"`
+
+	// 1 バイトを小文字の 16 進 2 桁にした文字列。空も保つ
+	Value *string `json:"value,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m EntityExtensionBytes) MarshalJSON() ([]byte, error) {
+	type plain EntityExtensionBytes
+	m.Kind = "bytes"
+	return json.Marshal(plain(m))
+}
 
 // Geometry: 形の値。点は要素の空間か用紙の座標、長さは同じ単位（実寸の空間は文書の単位、用紙は mm）、角度は度で反時計回り。shape の値で形が決まる
 //

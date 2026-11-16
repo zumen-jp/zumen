@@ -1947,6 +1947,18 @@ public struct Entity: Message {
         get { readField("geometry") }
         set { writeField("geometry", newValue) }
     }
+
+    /// 要素自身のスタイル。fields に style を指定したときだけ返す。マイナーバージョン 79 から
+    public var style: EntityStyle? {
+        get { readField("style") }
+        set { writeField("style", newValue) }
+    }
+
+    /// 要素に付く拡張の一覧。fields に extensions を指定したときだけ返し、拡張がなければ空の一覧。マイナーバージョン 79 から
+    public var extensions: [EntityExtension]? {
+        get { readField("extensions") }
+        set { writeField("extensions", newValue) }
+    }
 }
 
 /// entities で返す要素のフィールド（決定 0118）
@@ -1960,6 +1972,389 @@ public enum EntityField {
     public static let bbox = "bbox"
     public static let hash = "hash"
     public static let geometry = "geometry"
+    public static let style = "style"
+    public static let extensions = "extensions"
+}
+
+/// 要素自身が持つスタイル。継承は解かず、色表の RGB も補わない。色・線種・線幅の形は restyle と同じ。透過性は読むだけで、restyle の指定には含めない
+public struct EntityStyle: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 色の符号・図面内 RGB、または継承元
+    public var color: ColorChange? {
+        get { readField("color") }
+        set { writeField("color", newValue) }
+    }
+
+    /// 継承元か、tables が返す線種の公開 ID
+    public var lineType: LineTypeChange? {
+        get { readField("line_type") }
+        set { writeField("line_type", newValue) }
+    }
+
+    /// 要素自身の線種の倍率。文書や配置の倍率を掛けない
+    public var lineTypeScale: Double? {
+        get { readField("line_type_scale") }
+        set { writeField("line_type_scale", newValue) }
+    }
+
+    /// 線幅の指定。元の形式から読めていなければ持たない
+    public var lineWeight: LineWeightChange? {
+        get { readField("line_weight") }
+        set { writeField("line_weight", newValue) }
+    }
+
+    /// 透過性の指定
+    public var transparency: EntityTransparency? {
+        get { readField("transparency") }
+        set { writeField("transparency", newValue) }
+    }
+}
+
+/// 透過性。inherit または alpha の一方を返す
+public struct EntityTransparency: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 継承元
+    public var inherit: String? {
+        get { readField("inherit") }
+        set { writeField("inherit", newValue) }
+    }
+
+    /// 不透明度。0 は透明、255 は不透明
+    public var alpha: Int64? {
+        get { readField("alpha") }
+        set { writeField("alpha", newValue) }
+    }
+}
+
+/// 要素に付く形式固有の情報。元の順序を保ち、失効した値も current を偽にして返す。書き戻す操作ではない
+public struct EntityExtension: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 値の型を定める名前空間
+    public var namespace: String? {
+        get { readField("namespace") }
+        set { writeField("namespace", newValue) }
+    }
+
+    /// 元の名前。翻訳しない
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 元の形式のバージョン。不明なら持たない
+    public var version: String? {
+        get { readField("version") }
+        set { writeField("version", newValue) }
+    }
+
+    /// 名前空間の値の型のバージョン
+    public var schema: Int64? {
+        get { readField("schema") }
+        set { writeField("schema", newValue) }
+    }
+
+    /// 拡張が依存する元の要素のハッシュ。要素に依存するハッシュがなければ持たない
+    public var basis: String? {
+        get { readField("basis") }
+        set { writeField("basis", newValue) }
+    }
+
+    /// basis が現在の要素のハッシュと一致する
+    public var current: Bool? {
+        get { readField("current") }
+        set { writeField("current", newValue) }
+    }
+
+    /// 元の順序と型を保つフィールド
+    public var fields: [EntityExtensionField]? {
+        get { readField("fields") }
+        set { writeField("fields", newValue) }
+    }
+
+    /// 拡張の出所
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 拡張のフィールド。同じキーの重複と並びを保つ
+public struct EntityExtensionField: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元のキー
+    public var key: String? {
+        get { readField("key") }
+        set { writeField("key", newValue) }
+    }
+
+    /// 元の形式の値の番号。番号がなければ持たない
+    public var code: Int64? {
+        get { readField("code") }
+        set { writeField("code", newValue) }
+    }
+
+    /// 型付きの値
+    public var value: EntityExtensionValue? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+}
+
+/// 拡張の値。整数・ハンドル・バイト列は文字列で正確に返し、実数と点は有限値だけを返す
+public struct EntityExtensionValue: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// kind が text の形なら、そのビュー。違えば nil
+    public var asEntityExtensionText: EntityExtensionText? {
+        taggedView("kind", "text")
+    }
+
+    /// kind が integer の形なら、そのビュー。違えば nil
+    public var asEntityExtensionInteger: EntityExtensionInteger? {
+        taggedView("kind", "integer")
+    }
+
+    /// kind が real の形なら、そのビュー。違えば nil
+    public var asEntityExtensionReal: EntityExtensionReal? {
+        taggedView("kind", "real")
+    }
+
+    /// kind が point の形なら、そのビュー。違えば nil
+    public var asEntityExtensionPoint: EntityExtensionPoint? {
+        taggedView("kind", "point")
+    }
+
+    /// kind が handle の形なら、そのビュー。違えば nil
+    public var asEntityExtensionHandle: EntityExtensionHandle? {
+        taggedView("kind", "handle")
+    }
+
+    /// kind が bytes の形なら、そのビュー。違えば nil
+    public var asEntityExtensionBytes: EntityExtensionBytes? {
+        taggedView("kind", "bytes")
+    }
+}
+
+/// 元の文字列
+public struct EntityExtensionText: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("text")]
+    }
+
+    /// 値の型
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 文字列
+    public var value: String? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+}
+
+/// 符号付き 64 bit 整数
+public struct EntityExtensionInteger: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("integer")]
+    }
+
+    /// 値の型
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 10 進の文字列。負数以外には符号を付けず、先頭の 0 を付けない
+    public var value: String? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+}
+
+/// 有限の実数
+public struct EntityExtensionReal: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("real")]
+    }
+
+    /// 値の型
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 実数
+    public var value: Double? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+}
+
+/// 3 次元の点やベクトル。単位と空間は名前空間が定める
+public struct EntityExtensionPoint: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("point")]
+    }
+
+    /// 値の型
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// [X, Y, Z] の有限値
+    public var value: [Double]? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+}
+
+/// 元の形式のオブジェクトを指す符号なし 64 bit の値
+public struct EntityExtensionHandle: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("handle")]
+    }
+
+    /// 値の型
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 大文字の 16 進の文字列。接頭辞と先頭の 0 を付けない
+    public var value: String? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+}
+
+/// 元のバイト列
+public struct EntityExtensionBytes: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("bytes")]
+    }
+
+    /// 値の型
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 1 バイトを小文字の 16 進 2 桁にした文字列。空も保つ
+    public var value: String? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
 }
 
 /// 形の値。点は要素の空間か用紙の座標、長さは同じ単位（実寸の空間は文書の単位、用紙は mm）、角度は度で反時計回り。shape の値で形が決まる

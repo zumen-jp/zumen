@@ -1247,6 +1247,14 @@ class Entity extends Message {
   /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
   Geometry? get geometry => readField('geometry', objectOf(Geometry.fromJson));
   set geometry(Geometry? value) => writeField('geometry', value);
+
+  /// 要素自身のスタイル。fields に style を指定したときだけ返す。マイナーバージョン 79 から
+  EntityStyle? get style => readField('style', objectOf(EntityStyle.fromJson));
+  set style(EntityStyle? value) => writeField('style', value);
+
+  /// 要素に付く拡張の一覧。fields に extensions を指定したときだけ返し、拡張がなければ空の一覧。マイナーバージョン 79 から
+  List<EntityExtension>? get extensions => readField('extensions', listOf(objectOf(EntityExtension.fromJson)));
+  set extensions(List<EntityExtension>? value) => writeField('extensions', value);
 }
 
 /// entities で返す要素のフィールド（決定 0118）
@@ -1260,6 +1268,245 @@ abstract final class EntityField {
   static const bbox = 'bbox';
   static const hash = 'hash';
   static const geometry = 'geometry';
+  static const style = 'style';
+  static const extensions = 'extensions';
+}
+
+/// 要素自身が持つスタイル。継承は解かず、色表の RGB も補わない。色・線種・線幅の形は restyle と同じ。透過性は読むだけで、restyle の指定には含めない
+class EntityStyle extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntityStyle.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  EntityStyle() : super({});
+
+  /// 色の符号・図面内 RGB、または継承元
+  ColorChange? get color => readField('color', objectOf(ColorChange.fromJson));
+  set color(ColorChange? value) => writeField('color', value);
+
+  /// 継承元か、tables が返す線種の公開 ID
+  LineTypeChange? get lineType => readField('line_type', objectOf(LineTypeChange.fromJson));
+  set lineType(LineTypeChange? value) => writeField('line_type', value);
+
+  /// 要素自身の線種の倍率。文書や配置の倍率を掛けない
+  double? get lineTypeScale => readField('line_type_scale', asDouble);
+  set lineTypeScale(double? value) => writeField('line_type_scale', value);
+
+  /// 線幅の指定。元の形式から読めていなければ持たない
+  LineWeightChange? get lineWeight => readField('line_weight', objectOf(LineWeightChange.fromJson));
+  set lineWeight(LineWeightChange? value) => writeField('line_weight', value);
+
+  /// 透過性の指定
+  EntityTransparency? get transparency => readField('transparency', objectOf(EntityTransparency.fromJson));
+  set transparency(EntityTransparency? value) => writeField('transparency', value);
+}
+
+/// 透過性。inherit または alpha の一方を返す
+class EntityTransparency extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntityTransparency.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  EntityTransparency() : super({});
+
+  /// 継承元
+  String? get inherit => readField('inherit', asString);
+  set inherit(String? value) => writeField('inherit', value);
+
+  /// 不透明度。0 は透明、255 は不透明
+  int? get alpha => readField('alpha', asInt);
+  set alpha(int? value) => writeField('alpha', value);
+}
+
+/// 要素に付く形式固有の情報。元の順序を保ち、失効した値も current を偽にして返す。書き戻す操作ではない
+class EntityExtension extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntityExtension.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  EntityExtension() : super({});
+
+  /// 値の型を定める名前空間
+  String? get namespace => readField('namespace', asString);
+  set namespace(String? value) => writeField('namespace', value);
+
+  /// 元の名前。翻訳しない
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 元の形式のバージョン。不明なら持たない
+  String? get version => readField('version', asString);
+  set version(String? value) => writeField('version', value);
+
+  /// 名前空間の値の型のバージョン
+  int? get schema => readField('schema', asInt);
+  set schema(int? value) => writeField('schema', value);
+
+  /// 拡張が依存する元の要素のハッシュ。要素に依存するハッシュがなければ持たない
+  String? get basis => readField('basis', asString);
+  set basis(String? value) => writeField('basis', value);
+
+  /// basis が現在の要素のハッシュと一致する
+  bool? get current => readField('current', asBool);
+  set current(bool? value) => writeField('current', value);
+
+  /// 元の順序と型を保つフィールド
+  List<EntityExtensionField>? get fields => readField('fields', listOf(objectOf(EntityExtensionField.fromJson)));
+  set fields(List<EntityExtensionField>? value) => writeField('fields', value);
+
+  /// 拡張の出所
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+}
+
+/// 拡張のフィールド。同じキーの重複と並びを保つ
+class EntityExtensionField extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntityExtensionField.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  EntityExtensionField() : super({});
+
+  /// 元のキー
+  String? get key => readField('key', asString);
+  set key(String? value) => writeField('key', value);
+
+  /// 元の形式の値の番号。番号がなければ持たない
+  int? get code => readField('code', asInt);
+  set code(int? value) => writeField('code', value);
+
+  /// 型付きの値
+  EntityExtensionValue? get value => readField('value', objectOf(EntityExtensionValue.fromJson));
+  set value(EntityExtensionValue? value) => writeField('value', value);
+}
+
+/// 拡張の値。整数・ハンドル・バイト列は文字列で正確に返し、実数と点は有限値だけを返す
+class EntityExtensionValue extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntityExtensionValue.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  EntityExtensionValue() : super({});
+
+  /// kind が text の形なら、そのビュー。違えば null
+  EntityExtensionText? get asEntityExtensionText => taggedView('kind', 'text', EntityExtensionText.fromJson);
+
+  /// kind が integer の形なら、そのビュー。違えば null
+  EntityExtensionInteger? get asEntityExtensionInteger => taggedView('kind', 'integer', EntityExtensionInteger.fromJson);
+
+  /// kind が real の形なら、そのビュー。違えば null
+  EntityExtensionReal? get asEntityExtensionReal => taggedView('kind', 'real', EntityExtensionReal.fromJson);
+
+  /// kind が point の形なら、そのビュー。違えば null
+  EntityExtensionPoint? get asEntityExtensionPoint => taggedView('kind', 'point', EntityExtensionPoint.fromJson);
+
+  /// kind が handle の形なら、そのビュー。違えば null
+  EntityExtensionHandle? get asEntityExtensionHandle => taggedView('kind', 'handle', EntityExtensionHandle.fromJson);
+
+  /// kind が bytes の形なら、そのビュー。違えば null
+  EntityExtensionBytes? get asEntityExtensionBytes => taggedView('kind', 'bytes', EntityExtensionBytes.fromJson);
+}
+
+/// 元の文字列
+class EntityExtensionText extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntityExtensionText.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  EntityExtensionText() : super({'kind': 'text'});
+
+  /// 値の型
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 文字列
+  String? get value => readField('value', asString);
+  set value(String? value) => writeField('value', value);
+}
+
+/// 符号付き 64 bit 整数
+class EntityExtensionInteger extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntityExtensionInteger.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  EntityExtensionInteger() : super({'kind': 'integer'});
+
+  /// 値の型
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 10 進の文字列。負数以外には符号を付けず、先頭の 0 を付けない
+  String? get value => readField('value', asString);
+  set value(String? value) => writeField('value', value);
+}
+
+/// 有限の実数
+class EntityExtensionReal extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntityExtensionReal.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  EntityExtensionReal() : super({'kind': 'real'});
+
+  /// 値の型
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 実数
+  double? get value => readField('value', asDouble);
+  set value(double? value) => writeField('value', value);
+}
+
+/// 3 次元の点やベクトル。単位と空間は名前空間が定める
+class EntityExtensionPoint extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntityExtensionPoint.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  EntityExtensionPoint() : super({'kind': 'point'});
+
+  /// 値の型
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// [X, Y, Z] の有限値
+  List<double>? get value => readField('value', listOf(asDouble));
+  set value(List<double>? value) => writeField('value', value);
+}
+
+/// 元の形式のオブジェクトを指す符号なし 64 bit の値
+class EntityExtensionHandle extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntityExtensionHandle.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  EntityExtensionHandle() : super({'kind': 'handle'});
+
+  /// 値の型
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 大文字の 16 進の文字列。接頭辞と先頭の 0 を付けない
+  String? get value => readField('value', asString);
+  set value(String? value) => writeField('value', value);
+}
+
+/// 元のバイト列
+class EntityExtensionBytes extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntityExtensionBytes.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  EntityExtensionBytes() : super({'kind': 'bytes'});
+
+  /// 値の型
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 1 バイトを小文字の 16 進 2 桁にした文字列。空も保つ
+  String? get value => readField('value', asString);
+  set value(String? value) => writeField('value', value);
 }
 
 /// 形の値。点は要素の空間か用紙の座標、長さは同じ単位（実寸の空間は文書の単位、用紙は mm）、角度は度で反時計回り。shape の値で形が決まる

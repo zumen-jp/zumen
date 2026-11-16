@@ -932,6 +932,10 @@ _EntityOptional = TypedDict(
         "hash": str,
         # 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
         "geometry": "Geometry",
+        # 要素自身のスタイル。fields に style を指定したときだけ返す。マイナーバージョン 79 から
+        "style": "EntityStyle",
+        # 要素に付く拡張の一覧。fields に extensions を指定したときだけ返し、拡張がなければ空の一覧。マイナーバージョン 79 から
+        "extensions": List["EntityExtension"],
     },
     total=False,
 )
@@ -950,9 +954,192 @@ EntityField = Union[
         "bbox",
         "hash",
         "geometry",
+        "style",
+        "extensions",
     ],
     str,
 ]
+
+
+# 要素自身が持つスタイル。継承は解かず、色表の RGB も補わない。色・線種・線幅の形は restyle と同じ。透過性は読むだけで、restyle の指定には含めない
+_EntityStyleRequired = TypedDict(
+    "_EntityStyleRequired",
+    {
+        # 色の符号・図面内 RGB、または継承元
+        "color": "ColorChange",
+        # 継承元か、tables が返す線種の公開 ID
+        "line_type": "LineTypeChange",
+        # 要素自身の線種の倍率。文書や配置の倍率を掛けない
+        "line_type_scale": float,
+        # 透過性の指定
+        "transparency": "EntityTransparency",
+    },
+)
+_EntityStyleOptional = TypedDict(
+    "_EntityStyleOptional",
+    {
+        # 線幅の指定。元の形式から読めていなければ持たない
+        "line_weight": "LineWeightChange",
+    },
+    total=False,
+)
+
+
+class EntityStyle(_EntityStyleRequired, _EntityStyleOptional):
+    "要素自身が持つスタイル。継承は解かず、色表の RGB も補わない。色・線種・線幅の形は restyle と同じ。透過性は読むだけで、restyle の指定には含めない"
+
+
+# 透過性。inherit または alpha の一方を返す
+EntityTransparency = TypedDict(
+    "EntityTransparency",
+    {
+        # 継承元
+        "inherit": "Inherit",
+        # 不透明度。0 は透明、255 は不透明
+        "alpha": int,
+    },
+    total=False,
+)
+
+
+# 要素に付く形式固有の情報。元の順序を保ち、失効した値も current を偽にして返す。書き戻す操作ではない
+_EntityExtensionRequired = TypedDict(
+    "_EntityExtensionRequired",
+    {
+        # 値の型を定める名前空間
+        "namespace": str,
+        # 元の名前。翻訳しない
+        "name": str,
+        # 名前空間の値の型のバージョン
+        "schema": int,
+        # basis が現在の要素のハッシュと一致する
+        "current": bool,
+        # 元の順序と型を保つフィールド
+        "fields": List["EntityExtensionField"],
+        # 拡張の出所
+        "source": "Source",
+    },
+)
+_EntityExtensionOptional = TypedDict(
+    "_EntityExtensionOptional",
+    {
+        # 元の形式のバージョン。不明なら持たない
+        "version": str,
+        # 拡張が依存する元の要素のハッシュ。要素に依存するハッシュがなければ持たない
+        "basis": str,
+    },
+    total=False,
+)
+
+
+class EntityExtension(_EntityExtensionRequired, _EntityExtensionOptional):
+    "要素に付く形式固有の情報。元の順序を保ち、失効した値も current を偽にして返す。書き戻す操作ではない"
+
+
+# 拡張のフィールド。同じキーの重複と並びを保つ
+_EntityExtensionFieldRequired = TypedDict(
+    "_EntityExtensionFieldRequired",
+    {
+        # 元のキー
+        "key": str,
+        # 型付きの値
+        "value": "EntityExtensionValue",
+    },
+)
+_EntityExtensionFieldOptional = TypedDict(
+    "_EntityExtensionFieldOptional",
+    {
+        # 元の形式の値の番号。番号がなければ持たない
+        "code": int,
+    },
+    total=False,
+)
+
+
+class EntityExtensionField(_EntityExtensionFieldRequired, _EntityExtensionFieldOptional):
+    "拡張のフィールド。同じキーの重複と並びを保つ"
+
+# 拡張の値。整数・ハンドル・バイト列は文字列で正確に返し、実数と点は有限値だけを返す
+EntityExtensionValue = Union[
+    "EntityExtensionText",
+    "EntityExtensionInteger",
+    "EntityExtensionReal",
+    "EntityExtensionPoint",
+    "EntityExtensionHandle",
+    "EntityExtensionBytes",
+]
+
+
+# 元の文字列
+EntityExtensionText = TypedDict(
+    "EntityExtensionText",
+    {
+        # 値の型
+        "kind": Literal["text"],
+        # 文字列
+        "value": str,
+    },
+)
+
+
+# 符号付き 64 bit 整数
+EntityExtensionInteger = TypedDict(
+    "EntityExtensionInteger",
+    {
+        # 値の型
+        "kind": Literal["integer"],
+        # 10 進の文字列。負数以外には符号を付けず、先頭の 0 を付けない
+        "value": str,
+    },
+)
+
+
+# 有限の実数
+EntityExtensionReal = TypedDict(
+    "EntityExtensionReal",
+    {
+        # 値の型
+        "kind": Literal["real"],
+        # 実数
+        "value": float,
+    },
+)
+
+
+# 3 次元の点やベクトル。単位と空間は名前空間が定める
+EntityExtensionPoint = TypedDict(
+    "EntityExtensionPoint",
+    {
+        # 値の型
+        "kind": Literal["point"],
+        # [X, Y, Z] の有限値
+        "value": List[float],
+    },
+)
+
+
+# 元の形式のオブジェクトを指す符号なし 64 bit の値
+EntityExtensionHandle = TypedDict(
+    "EntityExtensionHandle",
+    {
+        # 値の型
+        "kind": Literal["handle"],
+        # 大文字の 16 進の文字列。接頭辞と先頭の 0 を付けない
+        "value": str,
+    },
+)
+
+
+# 元のバイト列
+EntityExtensionBytes = TypedDict(
+    "EntityExtensionBytes",
+    {
+        # 値の型
+        "kind": Literal["bytes"],
+        # 1 バイトを小文字の 16 進 2 桁にした文字列。空も保つ
+        "value": str,
+    },
+)
 
 # 形の値。点は要素の空間か用紙の座標、長さは同じ単位（実寸の空間は文書の単位、用紙は mm）、角度は度で反時計回り。shape の値で形が決まる
 Geometry = Union[

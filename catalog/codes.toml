@@ -1904,6 +1904,14 @@ group-by = ["id", "reason"]
 since = "0.2.0"
 status = "active"
 
+[codes."drawing.entity-details.failed"]
+description = "要素のスタイルか拡張の値を応答の型で表せず、または複製する領域を確保できず、指定したフィールドを返せなかった"
+severity = "error"
+params = { id = "text", reason = "key" }
+group-by = ["id", "reason"]
+since = "0.3.0"
+status = "active"
+
 [codes."drawing.element-measurement.failed"]
 description = "モデル空間の要素または点の計測を完了できなかった。id は対象の公開 ID、quantity は求めた値、reason は失敗の理由"
 severity = "error"

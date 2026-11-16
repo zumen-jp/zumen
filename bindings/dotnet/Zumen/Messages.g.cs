@@ -1516,6 +1516,18 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("geometry")]
         public JsonAny? Geometry { get; init; }
+
+        /// <summary>
+        /// 要素自身のスタイル。fields に style を指定したときだけ返す。マイナーバージョン 79 から
+        /// </summary>
+        [JsonPropertyName("style")]
+        public EntityStyle? Style { get; init; }
+
+        /// <summary>
+        /// 要素に付く拡張の一覧。fields に extensions を指定したときだけ返し、拡張がなければ空の一覧。マイナーバージョン 79 から
+        /// </summary>
+        [JsonPropertyName("extensions")]
+        public IReadOnlyList<EntityExtension>? Extensions { get; init; }
     }
 
     /// <summary>
@@ -1537,6 +1549,270 @@ namespace Zumen.Messages
         public const string Hash = "hash";
         /// <summary>geometry</summary>
         public const string Geometry = "geometry";
+        /// <summary>style</summary>
+        public const string Style = "style";
+        /// <summary>extensions</summary>
+        public const string Extensions = "extensions";
+    }
+
+    /// <summary>
+    /// 要素自身が持つスタイル。継承は解かず、色表の RGB も補わない。色・線種・線幅の形は restyle と同じ。透過性は読むだけで、restyle の指定には含めない
+    /// </summary>
+    public sealed record EntityStyle
+    {
+        /// <summary>
+        /// 色の符号・図面内 RGB、または継承元
+        /// </summary>
+        [JsonPropertyName("color")]
+        public ColorChange Color { get; init; } = default!;
+
+        /// <summary>
+        /// 継承元か、tables が返す線種の公開 ID
+        /// </summary>
+        [JsonPropertyName("line_type")]
+        public LineTypeChange LineType { get; init; } = default!;
+
+        /// <summary>
+        /// 要素自身の線種の倍率。文書や配置の倍率を掛けない
+        /// </summary>
+        [JsonPropertyName("line_type_scale")]
+        public double LineTypeScale { get; init; }
+
+        /// <summary>
+        /// 線幅の指定。元の形式から読めていなければ持たない
+        /// </summary>
+        [JsonPropertyName("line_weight")]
+        public LineWeightChange? LineWeight { get; init; }
+
+        /// <summary>
+        /// 透過性の指定
+        /// </summary>
+        [JsonPropertyName("transparency")]
+        public EntityTransparency Transparency { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 透過性。inherit または alpha の一方を返す
+    /// </summary>
+    public sealed record EntityTransparency
+    {
+        /// <summary>
+        /// 継承元
+        /// </summary>
+        [JsonPropertyName("inherit")]
+        public string? Inherit { get; init; }
+
+        /// <summary>
+        /// 不透明度。0 は透明、255 は不透明
+        /// </summary>
+        [JsonPropertyName("alpha")]
+        public uint? Alpha { get; init; }
+    }
+
+    /// <summary>
+    /// 要素に付く形式固有の情報。元の順序を保ち、失効した値も current を偽にして返す。書き戻す操作ではない
+    /// </summary>
+    public sealed record EntityExtension
+    {
+        /// <summary>
+        /// 値の型を定める名前空間
+        /// </summary>
+        [JsonPropertyName("namespace")]
+        public string Namespace { get; init; } = default!;
+
+        /// <summary>
+        /// 元の名前。翻訳しない
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 元の形式のバージョン。不明なら持たない
+        /// </summary>
+        [JsonPropertyName("version")]
+        public string? Version { get; init; }
+
+        /// <summary>
+        /// 名前空間の値の型のバージョン
+        /// </summary>
+        [JsonPropertyName("schema")]
+        public ulong Schema { get; init; }
+
+        /// <summary>
+        /// 拡張が依存する元の要素のハッシュ。要素に依存するハッシュがなければ持たない
+        /// </summary>
+        [JsonPropertyName("basis")]
+        public string? Basis { get; init; }
+
+        /// <summary>
+        /// basis が現在の要素のハッシュと一致する
+        /// </summary>
+        [JsonPropertyName("current")]
+        public bool Current { get; init; }
+
+        /// <summary>
+        /// 元の順序と型を保つフィールド
+        /// </summary>
+        [JsonPropertyName("fields")]
+        public IReadOnlyList<EntityExtensionField> Fields { get; init; } = default!;
+
+        /// <summary>
+        /// 拡張の出所
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 拡張のフィールド。同じキーの重複と並びを保つ
+    /// </summary>
+    public sealed record EntityExtensionField
+    {
+        /// <summary>
+        /// 元のキー
+        /// </summary>
+        [JsonPropertyName("key")]
+        public string Key { get; init; } = default!;
+
+        /// <summary>
+        /// 元の形式の値の番号。番号がなければ持たない
+        /// </summary>
+        [JsonPropertyName("code")]
+        public int? Code { get; init; }
+
+        /// <summary>
+        /// 型付きの値
+        /// </summary>
+        [JsonPropertyName("value")]
+        public JsonAny Value { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 拡張の値。整数・ハンドル・バイト列は文字列で正確に返し、実数と点は有限値だけを返す
+    /// </summary>
+    public static class EntityExtensionValue
+    {
+        /// <summary>タグのフィールドの名前</summary>
+        public const string Tag = "kind";
+
+        /// <summary>タグの値と、その形の型</summary>
+        public static readonly IReadOnlyDictionary<string, global::System.Type> Variants = new Dictionary<string, global::System.Type>
+        {
+            ["text"] = typeof(EntityExtensionText),
+            ["integer"] = typeof(EntityExtensionInteger),
+            ["real"] = typeof(EntityExtensionReal),
+            ["point"] = typeof(EntityExtensionPoint),
+            ["handle"] = typeof(EntityExtensionHandle),
+            ["bytes"] = typeof(EntityExtensionBytes),
+        };
+    }
+
+    /// <summary>
+    /// 元の文字列
+    /// </summary>
+    public sealed record EntityExtensionText
+    {
+        /// <summary>
+        /// 値の型
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "text";
+
+        /// <summary>
+        /// 文字列
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string Value { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 符号付き 64 bit 整数
+    /// </summary>
+    public sealed record EntityExtensionInteger
+    {
+        /// <summary>
+        /// 値の型
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "integer";
+
+        /// <summary>
+        /// 10 進の文字列。負数以外には符号を付けず、先頭の 0 を付けない
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string Value { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 有限の実数
+    /// </summary>
+    public sealed record EntityExtensionReal
+    {
+        /// <summary>
+        /// 値の型
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "real";
+
+        /// <summary>
+        /// 実数
+        /// </summary>
+        [JsonPropertyName("value")]
+        public double Value { get; init; }
+    }
+
+    /// <summary>
+    /// 3 次元の点やベクトル。単位と空間は名前空間が定める
+    /// </summary>
+    public sealed record EntityExtensionPoint
+    {
+        /// <summary>
+        /// 値の型
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "point";
+
+        /// <summary>
+        /// [X, Y, Z] の有限値
+        /// </summary>
+        [JsonPropertyName("value")]
+        public IReadOnlyList<double> Value { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 元の形式のオブジェクトを指す符号なし 64 bit の値
+    /// </summary>
+    public sealed record EntityExtensionHandle
+    {
+        /// <summary>
+        /// 値の型
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "handle";
+
+        /// <summary>
+        /// 大文字の 16 進の文字列。接頭辞と先頭の 0 を付けない
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string Value { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 元のバイト列
+    /// </summary>
+    public sealed record EntityExtensionBytes
+    {
+        /// <summary>
+        /// 値の型
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "bytes";
+
+        /// <summary>
+        /// 1 バイトを小文字の 16 進 2 桁にした文字列。空も保つ
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string Value { get; init; } = default!;
     }
 
     /// <summary>

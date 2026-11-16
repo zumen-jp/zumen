@@ -1,0 +1,47 @@
+{
+  "description": "要素のスタイル、重複する出所と線種の ID、拡張の全型・順序・有効性、ページ分け、予算停止。entity_details_case.rs から生成する",
+  "module": "drawing",
+  "steps": [
+    { "push": { "name": "details", "hex": "$HEX" } },
+    { "call": { "v": 1, "op": "open", "input": "details" }, "expect": { "/result/format": "test-entity-details" } },
+    { "call": { "v": 1, "op": "entities", "doc": "details" }, "expect": { "/result/total": 3 }, "absent": ["/result/items/0/style", "/result/items/0/extensions"] },
+    { "call": { "v": 1, "op": "tables", "doc": "details" }, "expect": { "/result/line_types/0/id": "line-type/h20", "/result/line_types/1/id": "line-type/h20/1" } },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["style", "hash", "extensions"], "limit": 1 }, "expect": {
+      "/result/items/0/id": "space/0/h1", "/result/next_offset": 1,
+      "/result/items/0/style/color": { "aci": 1, "rgb": [12, 34, 56] },
+      "/result/items/0/style/line_type": { "id": "line-type/h20/1" },
+      "/result/items/0/style/line_type_scale": 2.5,
+      "/result/items/0/style/line_weight": { "mm": 0.35 },
+      "/result/items/0/style/transparency": { "alpha": 128 },
+      "/result/items/0/extensions/0/name": "z-first", "/result/items/0/extensions/0/current": true,
+      "/result/items/0/extensions/0/fields/0/value": { "kind": "text", "value": "文字\n値" },
+      "/result/items/0/extensions/0/fields/1/value": { "kind": "integer", "value": "9223372036854775807" },
+      "/result/items/0/extensions/0/fields/2/value": { "kind": "integer", "value": "-9223372036854775808" },
+      "/result/items/0/extensions/0/fields/2/code": -32768,
+      "/result/items/0/extensions/0/fields/3/value": { "kind": "real", "value": -0.125 },
+      "/result/items/0/extensions/0/fields/4/value": { "kind": "point", "value": [1, 2, 3] },
+      "/result/items/0/extensions/0/fields/5/value": { "kind": "handle", "value": "FFFFFFFFFFFFFFFF" },
+      "/result/items/0/extensions/0/fields/6/value": { "kind": "bytes", "value": "000f80ff" },
+      "/result/items/0/extensions/0/fields/7/value": { "kind": "bytes", "value": "" },
+      "/result/items/0/extensions/0/source": { "record": 17, "handle": "FF" },
+      "/result/items/0/extensions/1/name": "a-stale", "/result/items/0/extensions/1/current": false
+    } },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["style", "extensions"], "offset": 1, "limit": 1 }, "expect": {
+      "/result/items/0/id": "space/0/h1/1", "/result/next_offset": 2,
+      "/result/items/0/style/color": { "inherit": "layer" },
+      "/result/items/0/style/line_type": { "inherit": "block" },
+      "/result/items/0/style/transparency": { "inherit": "layer" },
+      "/result/items/0/extensions/0/name": "second", "/result/items/0/extensions/0/current": true
+    }, "absent": ["/result/items/0/style/line_weight"] },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["style", "extensions"], "offset": 2 }, "expect": {
+      "/result/items/0/style/color": { "inherit": "block" }, "/result/items/0/style/line_weight": { "default": true },
+      "/result/items/0/extensions": []
+    } },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["extensions"], "place": "space/h30" }, "expect": {
+      "/result/items/0/id": "space/h30/r30", "/result/items/0/extensions/0/name": "symbol", "/result/items/0/extensions/0/current": true
+    }, "absent": ["/result/items/0/style"] },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["style", "extensions"], "budget": { "work": 0 } }, "status": "failed", "expect": { "/diagnostics/0/code": "budget.work.exceeded" }, "absent": ["/result"] },
+    { "call": { "v": 1, "op": "entities", "doc": "details", "fields": ["style", "extensions"] }, "expect": { "/result/total": 3, "/result/items/0/extensions/0/current": true } },
+    { "call": { "v": 1, "op": "drawing", "doc": "details" }, "expect": { "/result/hash": "v2:55555555555555555555555555555555" } }
+  ]
+}

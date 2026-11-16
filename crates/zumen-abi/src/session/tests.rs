@@ -194,6 +194,7 @@ fn geometry_copies_obey_work_budget() {
             position: 0,
             items: vec![],
             style_ids: None,
+            details: None,
         };
         let mut diagnostics = Diagnostics::new();
         let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(10)));
@@ -300,6 +301,7 @@ fn spline_geometry_obeys_work_budget() {
         position: 0,
         items: vec![],
         style_ids: None,
+        details: None,
     };
     let mut diagnostics = Diagnostics::new();
     let cancel = CancelToken::new();
@@ -321,7 +323,7 @@ fn answers_capabilities() {
     let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
     assert_eq!(reply.status, Status::Ok);
     let expected = format!(
-        r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":78}},"ops":["capabilities","open","close","describe","drawing","entities","calibrations","measure_distance","measure","apply","convert","convert_estimate","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","boring","building_apply","lift","render","raster"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"sima","family":"sima","read":true,"write":true,"id_rules":1}},{{"id":"tiff","family":"tiff","read":true,"write":false,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"geojson","family":"geojson","read":true,"write":true,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+        r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":79}},"ops":["capabilities","open","close","describe","drawing","entities","calibrations","measure_distance","measure","apply","convert","convert_estimate","tables","scene","check","validate","review_carry","review_adopt","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","photo","boring","building_apply","lift","render","raster"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"id_rules":1}},{{"id":"sima","family":"sima","read":true,"write":true,"id_rules":1}},{{"id":"tiff","family":"tiff","read":true,"write":false,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"id_rules":1}},{{"id":"geojson","family":"geojson","read":true,"write":true,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
         env!("CARGO_PKG_VERSION")
     );
     assert_eq!(String::from_utf8(reply.response).unwrap(), expected);
@@ -4604,6 +4606,7 @@ fn numbers_elements_that_share_a_source() {
         position: 0,
         items: Vec::new(),
         style_ids: None,
+        details: None,
     };
     let at = |x: f64| zumen_drawing::PaperPoint {
         sheet: zumen_drawing::SheetId(3),
@@ -5097,6 +5100,7 @@ fn returning_fit_points_obeys_the_work_budget() {
         position: 0,
         items: Vec::new(),
         style_ids: None,
+        details: None,
     };
     let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
     let mut diagnostics = Diagnostics::new();

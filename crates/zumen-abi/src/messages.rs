@@ -2513,6 +2513,10 @@ pub struct Entity {
     pub hash: Option<String>,
     /// 形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から
     pub geometry: Option<Geometry>,
+    /// 要素自身のスタイル。fields に style を指定したときだけ返す。マイナーバージョン 79 から
+    pub style: Option<EntityStyle>,
+    /// 要素に付く拡張の一覧。fields に extensions を指定したときだけ返し、拡張がなければ空の一覧。マイナーバージョン 79 から
+    pub extensions: Option<Vec<EntityExtension>>,
 }
 
 impl Entity {
@@ -2524,6 +2528,10 @@ impl Entity {
         let bbox = object.optional("bbox", Extent::from_json)?;
         let hash = object.optional("hash", json::string)?;
         let geometry = object.optional("geometry", Geometry::from_json)?;
+        let style = object.optional("style", EntityStyle::from_json)?;
+        let extensions = object.optional("extensions", |value| {
+            json::array(value, EntityExtension::from_json)
+        })?;
         Ok(Self {
             id,
             kind,
@@ -2532,6 +2540,8 @@ impl Entity {
             bbox,
             hash,
             geometry,
+            style,
+            extensions,
         })
     }
 
@@ -2561,6 +2571,14 @@ impl Entity {
         if let Some(value) = &self.geometry {
             out.key("geometry");
             value.to_json(out);
+        }
+        if let Some(value) = &self.style {
+            out.key("style");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.extensions {
+            out.key("extensions");
+            out.array(value, |out, item| item.to_json(out));
         }
     }
 }
@@ -2599,6 +2617,10 @@ pub enum EntityField {
     Hash,
     /// `geometry`
     Geometry,
+    /// `style`
+    Style,
+    /// `extensions`
+    Extensions,
 }
 
 impl EntityField {
@@ -2611,6 +2633,8 @@ impl EntityField {
         Self::Bbox,
         Self::Hash,
         Self::Geometry,
+        Self::Style,
+        Self::Extensions,
     ];
 
     /// JSON での名前
@@ -2623,6 +2647,8 @@ impl EntityField {
             Self::Bbox => "bbox",
             Self::Hash => "hash",
             Self::Geometry => "geometry",
+            Self::Style => "style",
+            Self::Extensions => "extensions",
         }
     }
 
@@ -2636,6 +2662,8 @@ impl EntityField {
             "bbox" => Some(Self::Bbox),
             "hash" => Some(Self::Hash),
             "geometry" => Some(Self::Geometry),
+            "style" => Some(Self::Style),
+            "extensions" => Some(Self::Extensions),
             _ => None,
         }
     }
@@ -2650,6 +2678,548 @@ impl FromJson for EntityField {
 impl ToJson for EntityField {
     fn to_json(&self, out: &mut Writer) {
         out.string(self.name());
+    }
+}
+
+/// 要素自身が持つスタイル。継承は解かず、色表の RGB も補わない。色・線種・線幅の形は restyle と同じ。透過性は読むだけで、restyle の指定には含めない
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityStyle {
+    /// 色の符号・図面内 RGB、または継承元
+    pub color: ColorChange,
+    /// 継承元か、tables が返す線種の公開 ID
+    pub line_type: LineTypeChange,
+    /// 要素自身の線種の倍率。文書や配置の倍率を掛けない
+    pub line_type_scale: f64,
+    /// 線幅の指定。元の形式から読めていなければ持たない
+    pub line_weight: Option<LineWeightChange>,
+    /// 透過性の指定
+    pub transparency: EntityTransparency,
+}
+
+impl EntityStyle {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let color = object.required("color", ColorChange::from_json)?;
+        let line_type = object.required("line_type", LineTypeChange::from_json)?;
+        let line_type_scale = object.required("line_type_scale", json::number)?;
+        let line_weight = object.optional("line_weight", LineWeightChange::from_json)?;
+        let transparency = object.required("transparency", EntityTransparency::from_json)?;
+        Ok(Self {
+            color,
+            line_type,
+            line_type_scale,
+            line_weight,
+            transparency,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("color");
+        self.color.to_json(out);
+        out.key("line_type");
+        self.line_type.to_json(out);
+        out.key("line_type_scale");
+        out.float(self.line_type_scale);
+        if let Some(value) = &self.line_weight {
+            out.key("line_weight");
+            value.to_json(out);
+        }
+        out.key("transparency");
+        self.transparency.to_json(out);
+    }
+}
+
+impl FromJson for EntityStyle {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntityStyle {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 透過性。inherit または alpha の一方を返す
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EntityTransparency {
+    /// 継承元
+    pub inherit: Option<Inherit>,
+    /// 不透明度。0 は透明、255 は不透明
+    pub alpha: Option<u64>,
+}
+
+impl EntityTransparency {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let inherit = object.optional("inherit", Inherit::from_json)?;
+        let alpha = object.optional("alpha", |value| json::uint(value, 0, 255))?;
+        Ok(Self { inherit, alpha })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.inherit {
+            out.key("inherit");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.alpha {
+            out.key("alpha");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for EntityTransparency {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntityTransparency {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素に付く形式固有の情報。元の順序を保ち、失効した値も current を偽にして返す。書き戻す操作ではない
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityExtension {
+    /// 値の型を定める名前空間
+    pub namespace: String,
+    /// 元の名前。翻訳しない
+    pub name: String,
+    /// 元の形式のバージョン。不明なら持たない
+    pub version: Option<String>,
+    /// 名前空間の値の型のバージョン
+    pub schema: u64,
+    /// 拡張が依存する元の要素のハッシュ。要素に依存するハッシュがなければ持たない
+    pub basis: Option<String>,
+    /// basis が現在の要素のハッシュと一致する
+    pub current: bool,
+    /// 元の順序と型を保つフィールド
+    pub fields: Vec<EntityExtensionField>,
+    /// 拡張の出所
+    pub source: Source,
+}
+
+impl EntityExtension {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let namespace = object.required("namespace", json::string)?;
+        let name = object.required("name", json::string)?;
+        let version = object.optional("version", json::string)?;
+        let schema = object.required("schema", |value| json::uint(value, 0, 9007199254740991))?;
+        let basis = object.optional("basis", json::string)?;
+        let current = object.required("current", json::boolean)?;
+        let fields = object.required("fields", |value| {
+            json::array(value, EntityExtensionField::from_json)
+        })?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            namespace,
+            name,
+            version,
+            schema,
+            basis,
+            current,
+            fields,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("namespace");
+        out.string(&self.namespace);
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.version {
+            out.key("version");
+            out.string(value);
+        }
+        out.key("schema");
+        out.uint(self.schema);
+        if let Some(value) = &self.basis {
+            out.key("basis");
+            out.string(value);
+        }
+        out.key("current");
+        out.bool(self.current);
+        out.key("fields");
+        out.array(&self.fields, |out, item| item.to_json(out));
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for EntityExtension {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntityExtension {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 拡張のフィールド。同じキーの重複と並びを保つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityExtensionField {
+    /// 元のキー
+    pub key: String,
+    /// 元の形式の値の番号。番号がなければ持たない
+    pub code: Option<i64>,
+    /// 型付きの値
+    pub value: EntityExtensionValue,
+}
+
+impl EntityExtensionField {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let key = object.required("key", json::string)?;
+        let code = object.optional("code", |value| json::int(value, -32768, 32767))?;
+        let value = object.required("value", EntityExtensionValue::from_json)?;
+        Ok(Self { key, code, value })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("key");
+        out.string(&self.key);
+        if let Some(value) = &self.code {
+            out.key("code");
+            out.int(*value);
+        }
+        out.key("value");
+        self.value.to_json(out);
+    }
+}
+
+impl FromJson for EntityExtensionField {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntityExtensionField {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 拡張の値。整数・ハンドル・バイト列は文字列で正確に返し、実数と点は有限値だけを返す
+#[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum EntityExtensionValue {
+    /// 元の文字列
+    Text(EntityExtensionText),
+    /// 符号付き 64 bit 整数
+    Integer(EntityExtensionInteger),
+    /// 有限の実数
+    Real(EntityExtensionReal),
+    /// 3 次元の点やベクトル。単位と空間は名前空間が定める
+    Point(EntityExtensionPoint),
+    /// 元の形式のオブジェクトを指す符号なし 64 bit の値
+    Handle(EntityExtensionHandle),
+    /// 元のバイト列
+    Bytes(EntityExtensionBytes),
+}
+
+impl EntityExtensionValue {
+    /// タグのフィールド（`kind`）の値（スキーマの順）
+    pub const TAGS: &[&str] = &["text", "integer", "real", "point", "handle", "bytes"];
+
+    /// タグのフィールド（`kind`）の値
+    pub const fn tag(&self) -> &'static str {
+        match self {
+            Self::Text(_) => "text",
+            Self::Integer(_) => "integer",
+            Self::Real(_) => "real",
+            Self::Point(_) => "point",
+            Self::Handle(_) => "handle",
+            Self::Bytes(_) => "bytes",
+        }
+    }
+}
+
+impl FromJson for EntityExtensionValue {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = match object.tag("kind")? {
+            "text" => Self::Text(EntityExtensionText::read_fields(&mut object)?),
+            "integer" => Self::Integer(EntityExtensionInteger::read_fields(&mut object)?),
+            "real" => Self::Real(EntityExtensionReal::read_fields(&mut object)?),
+            "point" => Self::Point(EntityExtensionPoint::read_fields(&mut object)?),
+            "handle" => Self::Handle(EntityExtensionHandle::read_fields(&mut object)?),
+            "bytes" => Self::Bytes(EntityExtensionBytes::read_fields(&mut object)?),
+            other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
+        };
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntityExtensionValue {
+    fn to_json(&self, out: &mut Writer) {
+        match self {
+            Self::Text(value) => value.to_json(out),
+            Self::Integer(value) => value.to_json(out),
+            Self::Real(value) => value.to_json(out),
+            Self::Point(value) => value.to_json(out),
+            Self::Handle(value) => value.to_json(out),
+            Self::Bytes(value) => value.to_json(out),
+        }
+    }
+}
+
+/// 元の文字列
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityExtensionText {
+    /// 文字列
+    pub value: String,
+}
+
+impl EntityExtensionText {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "text")?;
+        let value = object.required("value", json::string)?;
+        Ok(Self { value })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("text");
+        out.key("value");
+        out.string(&self.value);
+    }
+}
+
+impl FromJson for EntityExtensionText {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntityExtensionText {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 符号付き 64 bit 整数
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityExtensionInteger {
+    /// 10 進の文字列。負数以外には符号を付けず、先頭の 0 を付けない
+    pub value: String,
+}
+
+impl EntityExtensionInteger {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "integer")?;
+        let value = object.required("value", json::string)?;
+        Ok(Self { value })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("integer");
+        out.key("value");
+        out.string(&self.value);
+    }
+}
+
+impl FromJson for EntityExtensionInteger {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntityExtensionInteger {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 有限の実数
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityExtensionReal {
+    /// 実数
+    pub value: f64,
+}
+
+impl EntityExtensionReal {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "real")?;
+        let value = object.required("value", json::number)?;
+        Ok(Self { value })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("real");
+        out.key("value");
+        out.float(self.value);
+    }
+}
+
+impl FromJson for EntityExtensionReal {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntityExtensionReal {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 3 次元の点やベクトル。単位と空間は名前空間が定める
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityExtensionPoint {
+    /// [X, Y, Z] の有限値
+    pub value: Vec<f64>,
+}
+
+impl EntityExtensionPoint {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "point")?;
+        let value = object.required("value", |value| json::array(value, json::number))?;
+        Ok(Self { value })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("point");
+        out.key("value");
+        out.array(&self.value, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for EntityExtensionPoint {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntityExtensionPoint {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 元の形式のオブジェクトを指す符号なし 64 bit の値
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityExtensionHandle {
+    /// 大文字の 16 進の文字列。接頭辞と先頭の 0 を付けない
+    pub value: String,
+}
+
+impl EntityExtensionHandle {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "handle")?;
+        let value = object.required("value", json::string)?;
+        Ok(Self { value })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("handle");
+        out.key("value");
+        out.string(&self.value);
+    }
+}
+
+impl FromJson for EntityExtensionHandle {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntityExtensionHandle {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 元のバイト列
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityExtensionBytes {
+    /// 1 バイトを小文字の 16 進 2 桁にした文字列。空も保つ
+    pub value: String,
+}
+
+impl EntityExtensionBytes {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "bytes")?;
+        let value = object.required("value", json::string)?;
+        Ok(Self { value })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("bytes");
+        out.key("value");
+        out.string(&self.value);
+    }
+}
+
+impl FromJson for EntityExtensionBytes {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntityExtensionBytes {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
     }
 }
 

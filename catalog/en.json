@@ -100,6 +100,7 @@
     "drawing.calibration.invalid": "Did not use calibration \"{id}\" because it is invalid (reason: {reason}; {count}).",
     "drawing.element-measurement.approximated": "Measured {quantity} for \"{id}\" using a polyline approximation with subdivision target {tolerance} ({count}).",
     "drawing.element-measurement.failed": "Could not measure {quantity} for \"{id}\" (reason: {reason}; {count}).",
+    "drawing.entity-details.failed": "Could not return the requested fields of element \"{id}\" (reason: {reason}; {count}).",
     "drawing.mark-height.dropped": "Omitted the height of text in line type \"{name}\" because it cannot be represented as a finite number ({count}).",
     "drawing.measurement.failed": "Could not measure distance with calibration \"{id}\" (reason: {reason}; {count}).",
     "drawing.placement.invalid": "Did not walk into the symbol placement \"{id}\", because it places the same definition as an outer placement and forms a cycle ({count}).",

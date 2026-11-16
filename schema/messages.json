@@ -662,7 +662,9 @@
         "geometry": {
           "description": "形の値。線分・円・円弧・楕円・幅を持たない折れ線・1 点か 2 点の間に置く文字・書式つきの文字・ブロックの記号・制御点かフィット点で決まるスプライン・寸法・引出線（LEADER）・点・引出線つきの注記・表（ACAD_TABLE）だけが持つ。apply の replace と add に渡せる形（決定 0139）。マイナーバージョン 10 から",
           "$ref": "#/$defs/geometry"
-        }
+        },
+        "style": { "description": "要素自身のスタイル。fields に style を指定したときだけ返す。マイナーバージョン 79 から", "$ref": "#/$defs/entity_style" },
+        "extensions": { "description": "要素に付く拡張の一覧。fields に extensions を指定したときだけ返し、拡張がなければ空の一覧。マイナーバージョン 79 から", "type": "array", "items": { "$ref": "#/$defs/entity_extension" } }
       },
       "required": ["id"],
       "additionalProperties": false
@@ -670,7 +672,97 @@
     "entity_field": {
       "description": "entities で返す要素のフィールド（決定 0118）",
       "type": "string",
-      "enum": ["id", "kind", "layer", "source", "bbox", "hash", "geometry"]
+      "enum": ["id", "kind", "layer", "source", "bbox", "hash", "geometry", "style", "extensions"]
+    },
+    "entity_style": {
+      "description": "要素自身が持つスタイル。継承は解かず、色表の RGB も補わない。色・線種・線幅の形は restyle と同じ。透過性は読むだけで、restyle の指定には含めない",
+      "type": "object",
+      "properties": {
+        "color": { "description": "色の符号・図面内 RGB、または継承元", "$ref": "#/$defs/color_change" },
+        "line_type": { "description": "継承元か、tables が返す線種の公開 ID", "$ref": "#/$defs/line_type_change" },
+        "line_type_scale": { "description": "要素自身の線種の倍率。文書や配置の倍率を掛けない", "type": "number" },
+        "line_weight": { "description": "線幅の指定。元の形式から読めていなければ持たない", "$ref": "#/$defs/line_weight_change" },
+        "transparency": { "description": "透過性の指定", "$ref": "#/$defs/entity_transparency" }
+      },
+      "required": ["color", "line_type", "line_type_scale", "transparency"],
+      "additionalProperties": false
+    },
+    "entity_transparency": {
+      "description": "透過性。inherit または alpha の一方を返す",
+      "type": "object",
+      "properties": {
+        "inherit": { "description": "継承元", "$ref": "#/$defs/inherit" },
+        "alpha": { "description": "不透明度。0 は透明、255 は不透明", "type": "integer", "minimum": 0, "maximum": 255 }
+      },
+      "additionalProperties": false
+    },
+    "entity_extension": {
+      "description": "要素に付く形式固有の情報。元の順序を保ち、失効した値も current を偽にして返す。書き戻す操作ではない",
+      "type": "object",
+      "properties": {
+        "namespace": { "description": "値の型を定める名前空間", "type": "string" },
+        "name": { "description": "元の名前。翻訳しない", "type": "string" },
+        "version": { "description": "元の形式のバージョン。不明なら持たない", "type": "string" },
+        "schema": { "description": "名前空間の値の型のバージョン", "type": "integer", "minimum": 0 },
+        "basis": { "description": "拡張が依存する元の要素のハッシュ。要素に依存するハッシュがなければ持たない", "type": "string" },
+        "current": { "description": "basis が現在の要素のハッシュと一致する", "type": "boolean" },
+        "fields": { "description": "元の順序と型を保つフィールド", "type": "array", "items": { "$ref": "#/$defs/entity_extension_field" } },
+        "source": { "description": "拡張の出所", "$ref": "#/$defs/source" }
+      },
+      "required": ["namespace", "name", "schema", "current", "fields", "source"],
+      "additionalProperties": false
+    },
+    "entity_extension_field": {
+      "description": "拡張のフィールド。同じキーの重複と並びを保つ",
+      "type": "object",
+      "properties": {
+        "key": { "description": "元のキー", "type": "string" },
+        "code": { "description": "元の形式の値の番号。番号がなければ持たない", "type": "integer", "minimum": -32768, "maximum": 32767 },
+        "value": { "description": "型付きの値", "$ref": "#/$defs/entity_extension_value" }
+      },
+      "required": ["key", "value"],
+      "additionalProperties": false
+    },
+    "entity_extension_value": {
+      "description": "拡張の値。整数・ハンドル・バイト列は文字列で正確に返し、実数と点は有限値だけを返す",
+      "oneOf": [
+        { "$ref": "#/$defs/entity_extension_text" },
+        { "$ref": "#/$defs/entity_extension_integer" },
+        { "$ref": "#/$defs/entity_extension_real" },
+        { "$ref": "#/$defs/entity_extension_point" },
+        { "$ref": "#/$defs/entity_extension_handle" },
+        { "$ref": "#/$defs/entity_extension_bytes" }
+      ]
+    },
+    "entity_extension_text": {
+      "description": "元の文字列", "type": "object",
+      "properties": { "kind": { "description": "値の型", "const": "text" }, "value": { "description": "文字列", "type": "string" } },
+      "required": ["kind", "value"], "additionalProperties": false
+    },
+    "entity_extension_integer": {
+      "description": "符号付き 64 bit 整数", "type": "object",
+      "properties": { "kind": { "description": "値の型", "const": "integer" }, "value": { "description": "10 進の文字列。負数以外には符号を付けず、先頭の 0 を付けない", "type": "string" } },
+      "required": ["kind", "value"], "additionalProperties": false
+    },
+    "entity_extension_real": {
+      "description": "有限の実数", "type": "object",
+      "properties": { "kind": { "description": "値の型", "const": "real" }, "value": { "description": "実数", "type": "number" } },
+      "required": ["kind", "value"], "additionalProperties": false
+    },
+    "entity_extension_point": {
+      "description": "3 次元の点やベクトル。単位と空間は名前空間が定める", "type": "object",
+      "properties": { "kind": { "description": "値の型", "const": "point" }, "value": { "description": "[X, Y, Z] の有限値", "type": "array", "items": { "type": "number" } } },
+      "required": ["kind", "value"], "additionalProperties": false
+    },
+    "entity_extension_handle": {
+      "description": "元の形式のオブジェクトを指す符号なし 64 bit の値", "type": "object",
+      "properties": { "kind": { "description": "値の型", "const": "handle" }, "value": { "description": "大文字の 16 進の文字列。接頭辞と先頭の 0 を付けない", "type": "string" } },
+      "required": ["kind", "value"], "additionalProperties": false
+    },
+    "entity_extension_bytes": {
+      "description": "元のバイト列", "type": "object",
+      "properties": { "kind": { "description": "値の型", "const": "bytes" }, "value": { "description": "1 バイトを小文字の 16 進 2 桁にした文字列。空も保つ", "type": "string" } },
+      "required": ["kind", "value"], "additionalProperties": false
     },
     "geometry": {
       "description": "形の値。点は要素の空間か用紙の座標、長さは同じ単位（実寸の空間は文書の単位、用紙は mm）、角度は度で反時計回り。shape の値で形が決まる",

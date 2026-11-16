@@ -7,6 +7,8 @@ use zumen_jww::Jww;
 use zumen_sdk::Lift;
 use zumen_sxf::Sxf;
 
+mod details;
+
 impl Session {
     pub(super) fn drawing(
         &self,
@@ -58,6 +60,7 @@ impl Session {
             position: 0,
             items: Vec::new(),
             style_ids: None,
+            details: None,
         };
         // 空間か用紙を指せば、その要素だけを返す。記号の定義の空間は、指したときだけ返す（決定 0177）
         let wanted = |place: &str| {
@@ -422,6 +425,8 @@ pub(super) struct Page {
     pub(super) items: Vec<Entity>,
     /// 形の値に書くスタイルの ID。形の値を返すときに作る
     pub(super) style_ids: Option<StyleIds>,
+    /// 指定されたときだけ作る、スタイルと拡張の参照の索引。
+    pub(super) details: Option<details::Index>,
 }
 
 impl Page {
@@ -465,18 +470,53 @@ impl Page {
             }
             cx.check(Kind::Work, 1).map_err(|stop| stop_at(cx, stop))?;
             let has = |field| self.fields.contains(&field);
+            if self.details.is_none() && (has(EntityField::Style) || has(EntityField::Extensions)) {
+                self.details = Some(
+                    details::Index::new(
+                        drawing,
+                        has(EntityField::Style),
+                        has(EntityField::Extensions),
+                        cx,
+                    )
+                    .map_err(|error| details::failed(error, &id, &element.source, cx))?,
+                );
+            }
+            let extension_range = self
+                .details
+                .as_ref()
+                .filter(|_| has(EntityField::Extensions))
+                .map(|index| index.extension_range(drawing, &id, cx))
+                .transpose()
+                .map_err(|error| details::failed(error, &id, &element.source, cx))?;
             if has(EntityField::Bbox) && self.region.is_none() {
                 bbox = bounds::bbox(&element.shape);
             }
-            let hash = if has(EntityField::Hash) {
-                Some(
-                    Hash::element_checked(element, cx)
-                        .map_err(|stop| stop_at(cx, stop))?
-                        .to_string(),
-                )
+            let hash_value = if has(EntityField::Hash)
+                || extension_range
+                    .as_ref()
+                    .is_some_and(|range| !range.is_empty())
+            {
+                Some(Hash::element_checked(element, cx).map_err(|stop| stop_at(cx, stop))?)
             } else {
                 None
             };
+            let hash = hash_value
+                .filter(|_| has(EntityField::Hash))
+                .map(|hash| hash.to_string());
+            let style = self
+                .details
+                .as_ref()
+                .filter(|_| has(EntityField::Style))
+                .map(|index| index.style(&element.style, cx))
+                .transpose()
+                .map_err(|error| details::failed(error, &id, &element.source, cx))?;
+            let extensions = self
+                .details
+                .as_ref()
+                .zip(extension_range)
+                .map(|(index, range)| index.extensions(drawing, range, hash_value, cx))
+                .transpose()
+                .map_err(|error| details::failed(error, &id, &element.source, cx))?;
             // 形の値に複製する頂点と文字列の大きさを数える
             let geometry = if has(EntityField::Geometry) {
                 if let Shape::Hatch(hatch) = &element.shape {
@@ -570,6 +610,8 @@ impl Page {
                 bbox: bbox.filter(|_| has(EntityField::Bbox)),
                 hash,
                 geometry,
+                style,
+                extensions,
             });
         }
         Ok(())

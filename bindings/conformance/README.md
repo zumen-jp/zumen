@@ -62,6 +62,12 @@ cargo run -p zumen-conformance -- --write
 
 `apply_dwg_table.json` は、[自作の表](../../crates/zumen-acad/tests/fixtures/README.md)を持つ R2010・R2013・R2018 の DWG で、位置だけの `replace` と `transform` を確かめます。ID・セル・表示用ブロックの参照と未変更要素のハッシュを保ち、セルの変更・回転・予算停止で変更が残らないことを比べます。形式の照合は、検証キットで ACadSharp と別に行います。
 
+### 要素のスタイルと拡張
+
+`entity_details.json` は、要素自身のスタイル、重複する出所と線種の公開 ID、拡張の全型・順序・有効性、ページ分け、記号定義の中の要素、予算停止後の再利用を確かめます。64 bit 整数・ハンドルの上限、空のバイト列も含みます。`cargo run -p zumen-abi --example entity_details_case` で合成の図面モデルから生成します。
+
+`entity_details_formats.json` は、DXF・DWG・JWW・SXF で `restyle` した色を `style` で読み、書き戻したファイルを新しいセッションで読み直します。`cargo run -p zumen-abi --example entity_details_formats` で既存の合成入力から生成します。生成時と ABI のテストで、編集後と再読後のスタイル・拡張・ハッシュの全応答が一致することも確かめます。両方の生成コマンドに `-- --check` を付けると、生成元との一致を検査できます。
+
 ### 色表と非表示
 
 `palette.json` は、ACI・JWW・SXF の符号と図面内 RGB を持つ合成の図面モデルで、組み込み色表を使う `scene`・`render`・`check` の応答を照らします。SVG・PNG での非表示、未知のレイヤ・色表、予算停止後の再利用、元のハッシュの保持も含みます。`cargo run -p zumen-abi --example palette_case` で生成し、末尾に `-- --check` を足すと生成元との一致を確かめられます。数値の正しさは、ABI の色と画素の期待値、および[外部実装による全符号の照合](../../xtask/verify/README.md#既定の色表を照らす)で別に確かめます。
