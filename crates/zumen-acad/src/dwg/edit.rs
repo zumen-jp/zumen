@@ -525,6 +525,7 @@ fn push_object_map(out: &mut Vec<u8>, entries: &[super::Entry]) {
 }
 
 /// 保存時と同じ区切りと可変長符号で、マップの大きさだけを数える。
+#[cfg(any(feature = "drawing", test))]
 pub(super) fn object_map_len(entries: &[super::Entry]) -> Option<usize> {
     let mut len = Some(0_usize);
     object_map_sections(entries, |body| {

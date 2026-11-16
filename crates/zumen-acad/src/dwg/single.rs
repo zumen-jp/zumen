@@ -30,6 +30,7 @@ pub type EncodedBorn = (Vec<(u64, Vec<u8>)>, u64);
 pub type UpdatedDwgRecord = (u64, Section, Vec<u8>, Vec<Value>, Vec<Value>);
 
 /// 書き戻したオブジェクトのハンドルと出所のバイト範囲。
+#[cfg(any(feature = "drawing", test))]
 pub(crate) type DwgSourceSpans = BTreeMap<u64, Range<usize>>;
 
 /// 保存と出所の位置計算へ渡す、1 回分の変更。
@@ -137,6 +138,7 @@ impl FastStepTarget for DwgFile {
 }
 
 /// 保存前の保持モデルに付ける出所の位置。元のバイト列は借用し、変更したデータだけを持つ。
+#[cfg(any(feature = "drawing", test))]
 pub(crate) struct DwgSourceLayout<'a> {
     base: &'a DwgFile,
     entries: Vec<Entry>,
@@ -146,6 +148,7 @@ pub(crate) struct DwgSourceLayout<'a> {
     cursor: usize,
 }
 
+#[cfg(any(feature = "drawing", test))]
 impl<'a> DwgSourceLayout<'a> {
     pub fn new(base: &'a DwgFile, cx: &mut Cx<'_>) -> Result<Self, Error> {
         let count = base.entries.len() as u64;
@@ -188,6 +191,7 @@ impl<'a> DwgSourceLayout<'a> {
     }
 }
 
+#[cfg(any(feature = "drawing", test))]
 fn layout_check(cx: &mut Cx<'_>, work: u64, bytes: u64) -> Result<(), Error> {
     cx.check(Kind::Work, work)
         .map_err(|stop| stopped(cx, stop))?;
@@ -195,6 +199,7 @@ fn layout_check(cx: &mut Cx<'_>, work: u64, bytes: u64) -> Result<(), Error> {
         .map_err(|stop| stopped(cx, stop))
 }
 
+#[cfg(any(feature = "drawing", test))]
 impl FastStepTarget for DwgSourceLayout<'_> {
     fn prepare_step(&self, step: &DwgFastStep<'_>, cx: &mut Cx<'_>) -> Result<(), Error> {
         let count = self.entries.len() as u64;
@@ -1659,6 +1664,7 @@ impl DwgSingle {
     }
 
     /// 全体のバイト列を作らず、保存時のオブジェクトの位置へ変更を当てる。
+    #[cfg(any(feature = "drawing", test))]
     pub(crate) fn apply_layout_step(
         &self,
         layout: &mut DwgSourceLayout<'_>,
