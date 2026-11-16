@@ -545,6 +545,7 @@ pub(crate) fn lift_civil(data: &SimaData, cx: &mut Cx) -> Result<CivilModel, Err
             },
             cross_sections: Vec::new(),
             source: route.source.clone(),
+            ..Alignment::default()
         });
     }
 
@@ -600,6 +601,7 @@ pub(crate) fn lift_civil(data: &SimaData, cx: &mut Cx) -> Result<CivilModel, Err
                 stations: Stationing::default(),
                 cross_sections: Vec::new(),
                 source: parcel.source.clone(),
+                ..Alignment::default()
             });
         }
     }
@@ -610,6 +612,7 @@ pub(crate) fn lift_civil(data: &SimaData, cx: &mut Cx) -> Result<CivilModel, Err
         crs: data.crs,
         height_datum: None,
         realization: data.realization,
+        ..CivilModel::default()
     })
 }
 

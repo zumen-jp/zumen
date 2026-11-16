@@ -16000,6 +16000,8 @@ impl ToJson for Engine {
 pub struct CivilRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
+    /// doc の座標点・高さ基準と、選んだ線形の IP・地盤縦断・片勾配・横断の値を返す。複数の線形があれば id が必要。省略は false。マイナーバージョン 87 から
+    pub details: Option<bool>,
     /// 線形。doc と一緒には書かない
     pub alignment: Option<CivilAlignment>,
     /// open で開いた J-LandXML・IFC4.3・SIMA の文書の名前。マイナーバージョン 47 から
@@ -16021,6 +16023,7 @@ pub struct CivilRequest {
 impl CivilRequest {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let request_common = RequestCommon::read_fields(object)?;
+        let details = object.optional("details", json::boolean)?;
         object.constant("op", "civil")?;
         let alignment = object.optional("alignment", CivilAlignment::from_json)?;
         let doc = object.optional("doc", json::string)?;
@@ -16032,6 +16035,7 @@ impl CivilRequest {
         let digits = object.optional("digits", |value| json::uint(value, 0, 9))?;
         Ok(Self {
             request_common,
+            details,
             alignment,
             doc,
             id,
@@ -16045,6 +16049,10 @@ impl CivilRequest {
 
     fn write_fields(&self, out: &mut Writer) {
         self.request_common.write_fields(out);
+        if let Some(value) = &self.details {
+            out.key("details");
+            out.bool(*value);
+        }
         out.key("op");
         out.string("civil");
         if let Some(value) = &self.alignment {
@@ -16557,6 +16565,8 @@ impl ToJson for CivilStationBreak {
 /// 線形の上の所
 #[derive(Clone, Debug, PartialEq)]
 pub struct CivilResult {
+    /// details を求めた場合の保持値。マイナーバージョン 87 から
+    pub details: Option<CivilDetails>,
     /// 平面線形の長さ（メートル）
     pub length: f64,
     /// 求めた所
@@ -16573,6 +16583,7 @@ pub struct CivilResult {
 
 impl CivilResult {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let details = object.optional("details", CivilDetails::from_json)?;
         let length = object.required("length", json::number)?;
         let positions = object.required("positions", |value| {
             json::array(value, CivilPosition::from_json)
@@ -16586,6 +16597,7 @@ impl CivilResult {
         })?;
         let crs = object.optional("crs", |value| json::uint(value, 0, 9007199254740991))?;
         Ok(Self {
+            details,
             length,
             positions,
             alignment,
@@ -16596,6 +16608,10 @@ impl CivilResult {
     }
 
     fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.details {
+            out.key("details");
+            value.to_json(out);
+        }
         out.key("length");
         out.float(self.length);
         out.key("positions");
@@ -16629,6 +16645,721 @@ impl FromJson for CivilResult {
 }
 
 impl ToJson for CivilResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 土木モデルの保持値。スキーマ 1.87 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilDetails {
+    /// 選んだ線形の値。線形がなければ書かない
+    pub alignment: Option<CivilAlignmentValues>,
+    /// 文書の座標点セット
+    pub point_sets: Vec<CivilPointSet>,
+    /// 文書の高さの基準。値は自動で T.P. に直さない
+    pub height_reference: Option<CivilHeightReference>,
+}
+
+impl CivilDetails {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let alignment = object.optional("alignment", CivilAlignmentValues::from_json)?;
+        let point_sets = object.required("point_sets", |value| {
+            json::array(value, CivilPointSet::from_json)
+        })?;
+        let height_reference =
+            object.optional("height_reference", CivilHeightReference::from_json)?;
+        Ok(Self {
+            alignment,
+            point_sets,
+            height_reference,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.alignment {
+            out.key("alignment");
+            value.to_json(out);
+        }
+        out.key("point_sets");
+        out.array(&self.point_sets, |out, item| item.to_json(out));
+        if let Some(value) = &self.height_reference {
+            out.key("height_reference");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for CivilDetails {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilDetails {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 元の高さの基準
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilHeightReference {
+    /// 元の基準名
+    pub name: Option<String>,
+    /// 元の高さに足すと T.P. の高さになる差（メートル）。不明なら書かない
+    pub tokyo_bay_offset: Option<f64>,
+    /// 元の位置
+    pub source: Source,
+}
+
+impl CivilHeightReference {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.optional("name", json::string)?;
+        let tokyo_bay_offset = object.optional("tokyo_bay_offset", json::number)?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            name,
+            tokyo_bay_offset,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.tokyo_bay_offset {
+            out.key("tokyo_bay_offset");
+            out.float(*value);
+        }
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for CivilHeightReference {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilHeightReference {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 線形の付随する値。元の順序を保つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilAlignmentValues {
+    /// 同じ名前の縦断が複数あり、名前で参照先を一意に定められない
+    pub vertical_name_ambiguous: bool,
+    /// 選んだ線形の ID
+    pub id: String,
+    /// 保持した縦断線形の元の名前
+    pub vertical_name: Option<String>,
+    /// IP の列。始点・終点を含む
+    pub intersection_points: Vec<CivilSurveyPoint>,
+    /// 地盤の縦断の折れ線
+    pub ground_profiles: Vec<CivilGroundProfile>,
+    /// 片勾配とカントの区間
+    pub cant: Vec<CivilCant>,
+    /// 横断の線と点
+    pub cross_sections: Vec<CivilCrossSection>,
+}
+
+impl CivilAlignmentValues {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let vertical_name_ambiguous = object.required("vertical_name_ambiguous", json::boolean)?;
+        let id = object.required("id", json::string)?;
+        let vertical_name = object.optional("vertical_name", json::string)?;
+        let intersection_points = object.required("intersection_points", |value| {
+            json::array(value, CivilSurveyPoint::from_json)
+        })?;
+        let ground_profiles = object.required("ground_profiles", |value| {
+            json::array(value, CivilGroundProfile::from_json)
+        })?;
+        let cant = object.required("cant", |value| json::array(value, CivilCant::from_json))?;
+        let cross_sections = object.required("cross_sections", |value| {
+            json::array(value, CivilCrossSection::from_json)
+        })?;
+        Ok(Self {
+            vertical_name_ambiguous,
+            id,
+            vertical_name,
+            intersection_points,
+            ground_profiles,
+            cant,
+            cross_sections,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("vertical_name_ambiguous");
+        out.bool(self.vertical_name_ambiguous);
+        out.key("id");
+        out.string(&self.id);
+        if let Some(value) = &self.vertical_name {
+            out.key("vertical_name");
+            out.string(value);
+        }
+        out.key("intersection_points");
+        out.array(&self.intersection_points, |out, item| item.to_json(out));
+        out.key("ground_profiles");
+        out.array(&self.ground_profiles, |out, item| item.to_json(out));
+        out.key("cant");
+        out.array(&self.cant, |out, item| item.to_json(out));
+        out.key("cross_sections");
+        out.array(&self.cross_sections, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for CivilAlignmentValues {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilAlignmentValues {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// IP・基準点などの座標点
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilSurveyPoint {
+    /// 元の名前。永続 ID と同一視しない
+    pub name: Option<String>,
+    /// 注記
+    pub description: Option<String>,
+    /// 北の座標（メートル）
+    pub northing: f64,
+    /// 東の座標（メートル）
+    pub easting: f64,
+    /// 文書の基準での標高（メートル）。省略は 0 にしない
+    pub height: Option<f64>,
+    /// 基準点・水準点の種類
+    pub class: Option<String>,
+    /// 元の位置
+    pub source: Source,
+}
+
+impl CivilSurveyPoint {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.optional("name", json::string)?;
+        let description = object.optional("description", json::string)?;
+        let northing = object.required("northing", json::number)?;
+        let easting = object.required("easting", json::number)?;
+        let height = object.optional("height", json::number)?;
+        let class = object.optional("class", json::string)?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            name,
+            description,
+            northing,
+            easting,
+            height,
+            class,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.description {
+            out.key("description");
+            out.string(value);
+        }
+        out.key("northing");
+        out.float(self.northing);
+        out.key("easting");
+        out.float(self.easting);
+        if let Some(value) = &self.height {
+            out.key("height");
+            out.float(*value);
+        }
+        if let Some(value) = &self.class {
+            out.key("class");
+            out.string(value);
+        }
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for CivilSurveyPoint {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilSurveyPoint {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 元の順序を持つ座標点セット
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilPointSet {
+    /// 元の名前
+    pub name: Option<String>,
+    /// 注記
+    pub description: Option<String>,
+    /// 点
+    pub points: Vec<CivilSurveyPoint>,
+    /// 元の位置
+    pub source: Source,
+}
+
+impl CivilPointSet {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.optional("name", json::string)?;
+        let description = object.optional("description", json::string)?;
+        let points = object.required("points", |value| {
+            json::array(value, CivilSurveyPoint::from_json)
+        })?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            name,
+            description,
+            points,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.description {
+            out.key("description");
+            out.string(value);
+        }
+        out.key("points");
+        out.array(&self.points, |out, item| item.to_json(out));
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for CivilPointSet {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilPointSet {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地盤の縦断線
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilGroundProfile {
+    /// 元の名前
+    pub name: Option<String>,
+    /// 注記
+    pub description: Option<String>,
+    /// 追加距離と高さ
+    pub points: Vec<CivilProfilePoint>,
+    /// 元の位置
+    pub source: Source,
+}
+
+impl CivilGroundProfile {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.optional("name", json::string)?;
+        let description = object.optional("description", json::string)?;
+        let points = object.required("points", |value| {
+            json::array(value, CivilProfilePoint::from_json)
+        })?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            name,
+            description,
+            points,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.description {
+            out.key("description");
+            out.string(value);
+        }
+        out.key("points");
+        out.array(&self.points, |out, item| item.to_json(out));
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for CivilGroundProfile {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilGroundProfile {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地盤縦断の点
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilProfilePoint {
+    /// 線形の初めからの追加距離（メートル）
+    pub distance: f64,
+    /// 文書の基準での標高（メートル）
+    pub height: f64,
+}
+
+impl CivilProfilePoint {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let distance = object.required("distance", json::number)?;
+        let height = object.required("height", json::number)?;
+        Ok(Self { distance, height })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("distance");
+        out.float(self.distance);
+        out.key("height");
+        out.float(self.height);
+    }
+}
+
+impl FromJson for CivilProfilePoint {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilProfilePoint {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 片勾配またはカントの区間
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilCant {
+    /// 初めの追加距離（メートル）
+    pub start_distance: f64,
+    /// 区間の長さ（メートル）
+    pub length: f64,
+    /// superelevation は道路の左右の勾配（%）、rail は鉄道の左右の高さの差（mm）
+    pub kind: String,
+    /// 初めの左と右
+    pub start: Vec<f64>,
+    /// 終わりの左と右
+    pub end: Vec<f64>,
+    /// 鉄道の軌間（mm）。不明なら書かない
+    pub gauge: Option<f64>,
+    /// 変わり方。元の値
+    pub transition: Option<String>,
+    /// 元の位置
+    pub source: Source,
+}
+
+impl CivilCant {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let start_distance = object.required("start_distance", json::number)?;
+        let length = object.required("length", json::number)?;
+        let kind = object.required("kind", json::string)?;
+        let start = object.required("start", |value| json::array(value, json::number))?;
+        let end = object.required("end", |value| json::array(value, json::number))?;
+        let gauge = object.optional("gauge", json::number)?;
+        let transition = object.optional("transition", json::string)?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            start_distance,
+            length,
+            kind,
+            start,
+            end,
+            gauge,
+            transition,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("start_distance");
+        out.float(self.start_distance);
+        out.key("length");
+        out.float(self.length);
+        out.key("kind");
+        out.string(&self.kind);
+        out.key("start");
+        out.array(&self.start, |out, item| out.float(*item));
+        out.key("end");
+        out.array(&self.end, |out, item| out.float(*item));
+        if let Some(value) = &self.gauge {
+            out.key("gauge");
+            out.float(*value);
+        }
+        if let Some(value) = &self.transition {
+            out.key("transition");
+            out.string(value);
+        }
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for CivilCant {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilCant {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 横断
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilCrossSection {
+    /// 追加距離（メートル）
+    pub distance: f64,
+    /// 名前
+    pub name: Option<String>,
+    /// 参照する縦断線形の元の名前
+    pub profile: Option<String>,
+    /// 横断の線
+    pub lines: Vec<CivilCrossSectionLine>,
+    /// 元の位置
+    pub source: Source,
+}
+
+impl CivilCrossSection {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let distance = object.required("distance", json::number)?;
+        let name = object.optional("name", json::string)?;
+        let profile = object.optional("profile", json::string)?;
+        let lines = object.required("lines", |value| {
+            json::array(value, CivilCrossSectionLine::from_json)
+        })?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            distance,
+            name,
+            profile,
+            lines,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("distance");
+        out.float(self.distance);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.profile {
+            out.key("profile");
+            out.string(value);
+        }
+        out.key("lines");
+        out.array(&self.lines, |out, item| item.to_json(out));
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for CivilCrossSection {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilCrossSection {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 横断の線。点の元の値を保つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilCrossSectionLine {
+    /// 名前
+    pub name: Option<String>,
+    /// 注記
+    pub description: Option<String>,
+    /// 幅員中心から見た側。元の値。離れの符号は変えない
+    pub side: Option<String>,
+    /// existing、design または元の値
+    pub role: String,
+    /// elevation は文書の標高、formation_offset はその所の計画高からの差
+    pub height_reference: String,
+    /// 離れと元の高さ
+    pub points: Vec<CivilCrossSectionPoint>,
+    /// 元の位置
+    pub source: Source,
+}
+
+impl CivilCrossSectionLine {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.optional("name", json::string)?;
+        let description = object.optional("description", json::string)?;
+        let side = object.optional("side", json::string)?;
+        let role = object.required("role", json::string)?;
+        let height_reference = object.required("height_reference", json::string)?;
+        let points = object.required("points", |value| {
+            json::array(value, CivilCrossSectionPoint::from_json)
+        })?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            name,
+            description,
+            side,
+            role,
+            height_reference,
+            points,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.description {
+            out.key("description");
+            out.string(value);
+        }
+        if let Some(value) = &self.side {
+            out.key("side");
+            out.string(value);
+        }
+        out.key("role");
+        out.string(&self.role);
+        out.key("height_reference");
+        out.string(&self.height_reference);
+        out.key("points");
+        out.array(&self.points, |out, item| item.to_json(out));
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for CivilCrossSectionLine {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilCrossSectionLine {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 横断の点
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivilCrossSectionPoint {
+    /// 中心線からの離れ（右を正、メートル）
+    pub offset: f64,
+    /// 線の height_reference に従う高さ（メートル）
+    pub height: f64,
+}
+
+impl CivilCrossSectionPoint {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let offset = object.required("offset", json::number)?;
+        let height = object.required("height", json::number)?;
+        Ok(Self { offset, height })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("offset");
+        out.float(self.offset);
+        out.key("height");
+        out.float(self.height);
+    }
+}
+
+impl FromJson for CivilCrossSectionPoint {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CivilCrossSectionPoint {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

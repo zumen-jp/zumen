@@ -5581,6 +5581,8 @@ _CivilRequestOptional = TypedDict(
         "max_places": int,
         # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         "time_limit_ms": int,
+        # doc の座標点・高さ基準と、選んだ線形の IP・地盤縦断・片勾配・横断の値を返す。複数の線形があれば id が必要。省略は false。マイナーバージョン 87 から
+        "details": bool,
         # 線形。doc と一緒には書かない
         "alignment": "CivilAlignment",
         # open で開いた J-LandXML・IFC4.3・SIMA の文書の名前。マイナーバージョン 47 から
@@ -5761,6 +5763,8 @@ _CivilResultRequired = TypedDict(
 _CivilResultOptional = TypedDict(
     "_CivilResultOptional",
     {
+        # details を求めた場合の保持値。マイナーバージョン 87 から
+        "details": "CivilDetails",
         # 所を求めた doc の線形の ID。マイナーバージョン 47 から
         "alignment": str,
         # doc の線形の要約。doc を渡したときに返す。マイナーバージョン 47 から
@@ -5776,6 +5780,288 @@ _CivilResultOptional = TypedDict(
 
 class CivilResult(_CivilResultRequired, _CivilResultOptional):
     "線形の上の所"
+
+
+# 土木モデルの保持値。スキーマ 1.87 から
+_CivilDetailsRequired = TypedDict(
+    "_CivilDetailsRequired",
+    {
+        # 文書の座標点セット
+        "point_sets": List["CivilPointSet"],
+    },
+)
+_CivilDetailsOptional = TypedDict(
+    "_CivilDetailsOptional",
+    {
+        # 選んだ線形の値。線形がなければ書かない
+        "alignment": "CivilAlignmentValues",
+        # 文書の高さの基準。値は自動で T.P. に直さない
+        "height_reference": "CivilHeightReference",
+    },
+    total=False,
+)
+
+
+class CivilDetails(_CivilDetailsRequired, _CivilDetailsOptional):
+    "土木モデルの保持値。スキーマ 1.87 から"
+
+
+# 元の高さの基準
+_CivilHeightReferenceRequired = TypedDict(
+    "_CivilHeightReferenceRequired",
+    {
+        # 元の位置
+        "source": "Source",
+    },
+)
+_CivilHeightReferenceOptional = TypedDict(
+    "_CivilHeightReferenceOptional",
+    {
+        # 元の基準名
+        "name": str,
+        # 元の高さに足すと T.P. の高さになる差（メートル）。不明なら書かない
+        "tokyo_bay_offset": float,
+    },
+    total=False,
+)
+
+
+class CivilHeightReference(_CivilHeightReferenceRequired, _CivilHeightReferenceOptional):
+    "元の高さの基準"
+
+
+# 線形の付随する値。元の順序を保つ
+_CivilAlignmentValuesRequired = TypedDict(
+    "_CivilAlignmentValuesRequired",
+    {
+        # 同じ名前の縦断が複数あり、名前で参照先を一意に定められない
+        "vertical_name_ambiguous": bool,
+        # 選んだ線形の ID
+        "id": str,
+        # IP の列。始点・終点を含む
+        "intersection_points": List["CivilSurveyPoint"],
+        # 地盤の縦断の折れ線
+        "ground_profiles": List["CivilGroundProfile"],
+        # 片勾配とカントの区間
+        "cant": List["CivilCant"],
+        # 横断の線と点
+        "cross_sections": List["CivilCrossSection"],
+    },
+)
+_CivilAlignmentValuesOptional = TypedDict(
+    "_CivilAlignmentValuesOptional",
+    {
+        # 保持した縦断線形の元の名前
+        "vertical_name": str,
+    },
+    total=False,
+)
+
+
+class CivilAlignmentValues(_CivilAlignmentValuesRequired, _CivilAlignmentValuesOptional):
+    "線形の付随する値。元の順序を保つ"
+
+
+# IP・基準点などの座標点
+_CivilSurveyPointRequired = TypedDict(
+    "_CivilSurveyPointRequired",
+    {
+        # 北の座標（メートル）
+        "northing": float,
+        # 東の座標（メートル）
+        "easting": float,
+        # 元の位置
+        "source": "Source",
+    },
+)
+_CivilSurveyPointOptional = TypedDict(
+    "_CivilSurveyPointOptional",
+    {
+        # 元の名前。永続 ID と同一視しない
+        "name": str,
+        # 注記
+        "description": str,
+        # 文書の基準での標高（メートル）。省略は 0 にしない
+        "height": float,
+        # 基準点・水準点の種類
+        "class": str,
+    },
+    total=False,
+)
+
+
+class CivilSurveyPoint(_CivilSurveyPointRequired, _CivilSurveyPointOptional):
+    "IP・基準点などの座標点"
+
+
+# 元の順序を持つ座標点セット
+_CivilPointSetRequired = TypedDict(
+    "_CivilPointSetRequired",
+    {
+        # 点
+        "points": List["CivilSurveyPoint"],
+        # 元の位置
+        "source": "Source",
+    },
+)
+_CivilPointSetOptional = TypedDict(
+    "_CivilPointSetOptional",
+    {
+        # 元の名前
+        "name": str,
+        # 注記
+        "description": str,
+    },
+    total=False,
+)
+
+
+class CivilPointSet(_CivilPointSetRequired, _CivilPointSetOptional):
+    "元の順序を持つ座標点セット"
+
+
+# 地盤の縦断線
+_CivilGroundProfileRequired = TypedDict(
+    "_CivilGroundProfileRequired",
+    {
+        # 追加距離と高さ
+        "points": List["CivilProfilePoint"],
+        # 元の位置
+        "source": "Source",
+    },
+)
+_CivilGroundProfileOptional = TypedDict(
+    "_CivilGroundProfileOptional",
+    {
+        # 元の名前
+        "name": str,
+        # 注記
+        "description": str,
+    },
+    total=False,
+)
+
+
+class CivilGroundProfile(_CivilGroundProfileRequired, _CivilGroundProfileOptional):
+    "地盤の縦断線"
+
+
+# 地盤縦断の点
+CivilProfilePoint = TypedDict(
+    "CivilProfilePoint",
+    {
+        # 線形の初めからの追加距離（メートル）
+        "distance": float,
+        # 文書の基準での標高（メートル）
+        "height": float,
+    },
+)
+
+
+# 片勾配またはカントの区間
+_CivilCantRequired = TypedDict(
+    "_CivilCantRequired",
+    {
+        # 初めの追加距離（メートル）
+        "start_distance": float,
+        # 区間の長さ（メートル）
+        "length": float,
+        # superelevation は道路の左右の勾配（%）、rail は鉄道の左右の高さの差（mm）
+        "kind": str,
+        # 初めの左と右
+        "start": List[float],
+        # 終わりの左と右
+        "end": List[float],
+        # 元の位置
+        "source": "Source",
+    },
+)
+_CivilCantOptional = TypedDict(
+    "_CivilCantOptional",
+    {
+        # 鉄道の軌間（mm）。不明なら書かない
+        "gauge": float,
+        # 変わり方。元の値
+        "transition": str,
+    },
+    total=False,
+)
+
+
+class CivilCant(_CivilCantRequired, _CivilCantOptional):
+    "片勾配またはカントの区間"
+
+
+# 横断
+_CivilCrossSectionRequired = TypedDict(
+    "_CivilCrossSectionRequired",
+    {
+        # 追加距離（メートル）
+        "distance": float,
+        # 横断の線
+        "lines": List["CivilCrossSectionLine"],
+        # 元の位置
+        "source": "Source",
+    },
+)
+_CivilCrossSectionOptional = TypedDict(
+    "_CivilCrossSectionOptional",
+    {
+        # 名前
+        "name": str,
+        # 参照する縦断線形の元の名前
+        "profile": str,
+    },
+    total=False,
+)
+
+
+class CivilCrossSection(_CivilCrossSectionRequired, _CivilCrossSectionOptional):
+    "横断"
+
+
+# 横断の線。点の元の値を保つ
+_CivilCrossSectionLineRequired = TypedDict(
+    "_CivilCrossSectionLineRequired",
+    {
+        # existing、design または元の値
+        "role": str,
+        # elevation は文書の標高、formation_offset はその所の計画高からの差
+        "height_reference": str,
+        # 離れと元の高さ
+        "points": List["CivilCrossSectionPoint"],
+        # 元の位置
+        "source": "Source",
+    },
+)
+_CivilCrossSectionLineOptional = TypedDict(
+    "_CivilCrossSectionLineOptional",
+    {
+        # 名前
+        "name": str,
+        # 注記
+        "description": str,
+        # 幅員中心から見た側。元の値。離れの符号は変えない
+        "side": str,
+    },
+    total=False,
+)
+
+
+class CivilCrossSectionLine(_CivilCrossSectionLineRequired, _CivilCrossSectionLineOptional):
+    "横断の線。点の元の値を保つ"
+
+
+# 横断の点
+CivilCrossSectionPoint = TypedDict(
+    "CivilCrossSectionPoint",
+    {
+        # 中心線からの離れ（右を正、メートル）
+        "offset": float,
+        # 線の height_reference に従う高さ（メートル）
+        "height": float,
+    },
+)
 
 
 # 線形の要約

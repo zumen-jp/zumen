@@ -170,7 +170,7 @@ fn alignments_move_with_their_segments_stations_and_coordinate_system() {
     };
     assert_eq!((at.distance, at.back, at.ahead), (150.0, 1150.0, 1140.0));
     assert_eq!(alignment.stations.value(160.0), 1150.0);
-    // 移さなかった要素を知らせる
+    // 座標点と地盤縦断を保持するので、未対応とは知らせない
     let unsupported: Vec<String> = diag
         .iter()
         .filter(|d| d.code() == codes::LANDXML_ELEMENT_UNSUPPORTED)
@@ -178,7 +178,7 @@ fn alignments_move_with_their_segments_stations_and_coordinate_system() {
         .collect();
     for element in ["CgPoints", "ProfSurf"] {
         assert!(
-            unsupported.iter().any(|d| d.contains(element)),
+            !unsupported.iter().any(|d| d.contains(element)),
             "{element} {unsupported:?}"
         );
     }
@@ -475,11 +475,13 @@ fn cross_sections_and_surfaces_keep_their_points() {
         lines,
         [
             (Some("Carriageway"), &SurfaceRole::Design, 2),
+            (Some("SubGrade"), &SurfaceRole::Design, 1),
             (Some("ExistingGround"), &SurfaceRole::Existing, 3),
         ]
     );
     assert!(
-        diag.iter()
+        !diag
+            .iter()
             .any(|d| d.code() == codes::LANDXML_CROSS_SECTION_LINE_UNSUPPORTED)
     );
     let [tin] = model.surfaces.as_slice() else {

@@ -71,15 +71,24 @@ fn alignment() -> Alignment {
     let section = |distance: f64, ground: f64| CrossSection {
         distance,
         name: None,
+        profile: None,
         lines: vec![
             CrossSectionLine {
                 name: None,
                 role: SurfaceRole::Existing,
+                description: None,
+                side: None,
+                height_reference: zumen_civil::CrossSectionHeight::Elevation,
+                source: Ref::default(),
                 points: vec![[-10.0, ground - 0.5], [10.0, ground + 0.5]],
             },
             CrossSectionLine {
                 name: None,
                 role: SurfaceRole::Design,
+                description: None,
+                side: None,
+                height_reference: zumen_civil::CrossSectionHeight::Elevation,
+                source: Ref::default(),
                 points: vec![
                     [-3.5, ground + 0.93],
                     [0.0, ground + 1.0],
@@ -126,6 +135,54 @@ fn surface() -> Tin {
         boundaries: Vec::new(),
         breaklines: Vec::new(),
         source: Ref::default(),
+    }
+}
+
+#[test]
+fn relative_cross_section_heights_are_evaluated_or_diagnosed() {
+    for matched in [true, false] {
+        let mut line = alignment();
+        line.vertical_name = Some("design".into());
+        let section = &mut line.cross_sections[0];
+        section.profile = Some(if matched { "design" } else { "missing" }.into());
+        section.lines.truncate(1);
+        let cross = &mut section.lines[0];
+        cross.role = SurfaceRole::Design;
+        cross.height_reference = zumen_civil::CrossSectionHeight::FormationOffset;
+        cross.points = vec![[-2.0, -0.5], [3.0, 0.75]];
+        cross.source = Ref::at_bytes(100, 200);
+        let mut diag = Diagnostics::new();
+        let out = drawing(
+            &CivilModel::default(),
+            &line,
+            &Options::default(),
+            &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        let section = out.spaces.iter().find(|s| s.id == SpaceId(2)).unwrap();
+        let polys: Vec<_> = section
+            .elements
+            .iter()
+            .filter_map(|element| match &element.shape {
+                Shape::Polyline(poly) => Some(
+                    poly.vertices
+                        .iter()
+                        .map(|v| [v.point.x, v.point.y])
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            })
+            .collect();
+        if matched {
+            // 追加距離 20 m の計画高は 50 + 0.02 × 20 = 50.4 m。
+            assert_eq!(polys, [vec![[-2.0, 49.9], [3.0, 51.15]]]);
+        } else {
+            assert!(polys.is_empty());
+            assert!(diag.iter().any(
+                |d| d.code() == codes::CIVIL_CROSS_SECTION_HEIGHT_UNSUPPORTED
+                    && d.places().contains(&Ref::at_bytes(100, 200))
+            ));
+        }
     }
 }
 

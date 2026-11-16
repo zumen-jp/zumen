@@ -2946,6 +2946,23 @@ params = { distance = "float" }
 since = "0.2.0"
 status = "active"
 
+[codes."civil.cross-section-height.unsupported"]
+description = "横断の計画高を求められないため、相対高さを標高へ移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { distance = "float", profile = "text" }
+since = "0.3.0"
+status = "active"
+
+[codes."civil.value.dropped"]
+description = "土木モデルの値を派生出力に表せないため、出力から除いた"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "key", target = "key" }
+group-by = ["kind", "target"]
+since = "0.3.0"
+status = "active"
+
 [codes."civil.station.invalid"]
 description = "測点の表記を読めない"
 severity = "warning"

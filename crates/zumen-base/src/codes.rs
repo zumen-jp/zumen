@@ -769,6 +769,20 @@ pub const CITYGML_VALUE_INVALID: Code = Code::new(
     &["element", "field"],
 );
 
+/// 横断の計画高を求められないため、相対高さを標高へ移さなかった
+///
+/// `civil.cross-section-height.unsupported`（0.3.0 から）
+pub const CIVIL_CROSS_SECTION_HEIGHT_UNSUPPORTED: Code = Code::new(
+    "civil.cross-section-height.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("distance", ParamType::Float),
+        Param::new("profile", ParamType::Text),
+    ],
+    &[],
+);
+
 /// 図面モデルの形のない緩和曲線を、許容差の内の折れ線にして図に出した（決定 0231）。curve は種類の名前
 ///
 /// `civil.curve.approximated`（0.2.0 から）
@@ -913,6 +927,20 @@ pub const CIVIL_TRIANGLE_INVALID: Code = Code::new(
         Param::new("triangle", ParamType::UInt),
     ],
     &["surface"],
+);
+
+/// 土木モデルの値を派生出力に表せないため、出力から除いた
+///
+/// `civil.value.dropped`（0.3.0 から）
+pub const CIVIL_VALUE_DROPPED: Code = Code::new(
+    "civil.value.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("kind", ParamType::Key),
+        Param::new("target", ParamType::Key),
+    ],
+    &["kind", "target"],
 );
 
 /// 別の形式に書くとき、記号の属性を、記号から離した文字として書いた（決定 0206）
@@ -5975,6 +6003,7 @@ pub const ALL: &[Code] = &[
     CITYGML_ELEMENT_UNSUPPORTED,
     CITYGML_REFERENCE_UNSUPPORTED,
     CITYGML_VALUE_INVALID,
+    CIVIL_CROSS_SECTION_HEIGHT_UNSUPPORTED,
     CIVIL_CURVE_APPROXIMATED,
     CIVIL_CURVE_UNSUPPORTED,
     CIVIL_DISTANCE_MISSING,
@@ -5986,6 +6015,7 @@ pub const ALL: &[Code] = &[
     CIVIL_STATION_INVALID,
     CIVIL_STATION_MISSING,
     CIVIL_TRIANGLE_INVALID,
+    CIVIL_VALUE_DROPPED,
     CONVERT_ATTRIBUTE_DRAWN,
     CONVERT_ELEMENT_UNSUPPORTED,
     CONVERT_FORMAT_UNSUPPORTED,

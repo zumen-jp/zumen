@@ -1,0 +1,97 @@
+{
+  "description": "自作 J-LandXML の IP・基準点・地盤縦断・横断属性・片勾配を civil の詳細から取得し、値と高さの基準・元の位置・予算停止後の再利用を照合する。",
+  "module": "civil",
+  "steps": [
+    {
+      "push": {
+        "text": "<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\">\n  <CoordinateSystem horizontalDatum=\"JGD2024\" verticalDatum=\"local\" horizontalCoordinateSystemName=\"9(X,Y)\">\n    <Feature><Property label=\"differTP\" value=\"-1.25\"/></Feature>\n  </CoordinateSystem>\n  <CgPoints name=\"ControlPnts\" desc=\"合成の基準点\">\n    <CgPoint name=\"survey-a\" desc=\"高さあり\" featureRef=\"class-a\">123 456 42.5</CgPoint>\n    <CgPoint name=\"survey-b\" desc=\"高さなし\">124 457</CgPoint>\n    <Feature name=\"class-a\"><Property label=\"class\" value=\"3級基準点\"/></Feature>\n  </CgPoints>\n  <Alignments>\n    <Alignment name=\"road\" staStart=\"1000\" length=\"100\">\n      <CoordGeom><Line><Start>123 456</Start><End>223 456</End></Line></CoordGeom>\n      <AlignPIs>\n        <AlignPI><PI name=\"begin\">123 456</PI></AlignPI>\n        <AlignPI><PI name=\"ip-a\" desc=\"交点\">180 470</PI></AlignPI>\n        <AlignPI><PI name=\"end\">223 456</PI></AlignPI>\n      </AlignPIs>\n      <CrossSects>\n        <CrossSect name=\"section-a\" sta=\"1025\">\n          <DesignCrossSectSurf name=\"road-surface\" desc=\"道路面\" side=\"left\">\n            <CrossSectPnt>-2 -0.5</CrossSectPnt><CrossSectPnt>3 0.75</CrossSectPnt>\n            <Feature><Property label=\"heightType\" value=\"fhOffset\"/></Feature>\n          </DesignCrossSectSurf>\n          <CrossSectSurf name=\"ExistingGround\" desc=\"地形\">\n            <PntList2D>-4 43 4 44</PntList2D>\n          </CrossSectSurf>\n        </CrossSect>\n        <Feature><Property label=\"profAlignRefs\" value=\"design-a\"/></Feature>\n      </CrossSects>\n      <Profile>\n        <ProfAlign name=\"design-a\"><PVI>1000 40</PVI><PVI>1100 60</PVI></ProfAlign>\n        <ProfSurf name=\"ground-a\" desc=\"地盤の縦断\">\n          <PntList2D>1000 39 1025 43 1100 59</PntList2D>\n          <PntList2D>1010 38 1030 42</PntList2D>\n        </ProfSurf>\n      </Profile>\n      <Feature name=\"SlopeList\">\n        <Property label=\"slopeValue\" value=\"1000 -2 2\"/>\n        <Property label=\"slopeValue\" value=\"1100 4 4\"/>\n      </Feature>\n    </Alignment>\n  </Alignments>\n</LandXML>\n",
+        "name": "road.xml"
+      }
+    },
+    {
+      "call": {
+        "op": "open",
+        "v": 1,
+        "input": "road.xml"
+      },
+      "expect": {
+        "/result/format": "landxml"
+      }
+    },
+    {
+      "call": {
+        "distances": [
+          25
+        ],
+        "op": "civil",
+        "details": true,
+        "v": 1,
+        "doc": "road.xml"
+      },
+      "expect": {
+        "/result/details/alignment/cross_sections/0/lines/0/height_reference": "formation_offset",
+        "/result/details/point_sets/0/points/0/class": "3級基準点",
+        "/result/details/alignment/ground_profiles/0/points/1": {
+          "distance": 25,
+          "height": 43
+        },
+        "/result/details/alignment/cant/0/end": [
+          4,
+          4
+        ],
+        "/result/details/alignment/cross_sections/0/lines/0/points/0": {
+          "height": -0.5,
+          "offset": -2
+        },
+        "/result/alignment": "road",
+        "/result/details/height_reference/tokyo_bay_offset": -1.25,
+        "/result/positions/0/height": 45,
+        "/result/details/alignment/cant/0/start": [
+          -2,
+          2
+        ]
+      }
+    },
+    {
+      "status": "failed",
+      "call": {
+        "budget": {
+          "work": 1
+        },
+        "op": "civil",
+        "details": true,
+        "v": 1,
+        "doc": "road.xml"
+      }
+    },
+    {
+      "status": "failed",
+      "call": {
+        "budget": {
+          "decoded_bytes": 4096
+        },
+        "op": "civil",
+        "details": true,
+        "v": 1,
+        "doc": "road.xml"
+      }
+    },
+    {
+      "call": {
+        "op": "civil",
+        "details": false,
+        "v": 1,
+        "doc": "road.xml"
+      }
+    },
+    {
+      "call": {
+        "id": "road",
+        "op": "civil",
+        "details": true,
+        "v": 1,
+        "doc": "road.xml"
+      }
+    }
+  ]
+}

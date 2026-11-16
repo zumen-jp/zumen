@@ -88,7 +88,9 @@
         "/result/options/text_height": 3.5,
         "/result/options/station_pitch": 100,
         "/result/profile/0/id": "civil-test",
-        "/diagnostics/0/code": "convert.view.approximated"
+        "/diagnostics/0/code": "civil.value.dropped",
+        "/diagnostics/0/params/kind": "height_reference",
+        "/diagnostics/1/code": "convert.view.approximated"
       }
     },
     {
@@ -155,8 +157,9 @@
       },
       "status": "failed",
       "expect": {
-        "/diagnostics/0/code": "call.value.invalid",
-        "/diagnostics/0/params/pointer": "/sheet"
+        "/diagnostics/0/code": "civil.value.dropped",
+        "/diagnostics/1/code": "call.value.invalid",
+        "/diagnostics/1/params/pointer": "/sheet"
       }
     }
   ]

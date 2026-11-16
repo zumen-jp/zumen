@@ -93,6 +93,20 @@ pub fn drawing(
     options: &Options,
     cx: &mut Cx<'_>,
 ) -> Result<Drawing2D, Stop> {
+    for set in &model.point_sets {
+        for value in &set.points {
+            omitted_value("survey_point", &value.source, cx)?;
+        }
+    }
+    for value in &alignment.intersection_points {
+        omitted_value("intersection_point", &value.source, cx)?;
+    }
+    for value in &alignment.ground_profiles {
+        omitted_value("ground_profile", &value.source, cx)?;
+    }
+    if let Some(value) = &model.height_reference {
+        omitted_value("height_reference", &value.source, cx)?;
+    }
     let mut drawing = Drawing2D {
         layers: LAYERS
             .iter()
@@ -116,10 +130,21 @@ pub fn drawing(
     }
     for (index, section) in alignment.cross_sections.iter().enumerate() {
         let id = u32::try_from(index).map_or(u32::MAX, |index| index.saturating_add(2));
-        let sheet = cross_section(section, SpaceId(id), SheetId(id), options, cx)?;
+        let sheet = cross_section(alignment, section, SpaceId(id), SheetId(id), options, cx)?;
         push(&mut drawing, sheet);
     }
     Ok(drawing)
+}
+
+fn omitted_value(kind: &'static str, source: &Ref, cx: &mut Cx<'_>) -> Result<(), Stop> {
+    cx.check(Kind::Work, 1)?;
+    cx.report(
+        Diagnostic::new(codes::CIVIL_VALUE_DROPPED)
+            .with("kind", kind)
+            .with("target", "civil_drawing")
+            .at(source.clone()),
+    );
+    Ok(())
 }
 
 /// 1 つの図。空間と、それを置いた用紙
@@ -629,10 +654,10 @@ fn ground(alignment: &Alignment) -> Vec<(f64, f64)> {
         .cross_sections
         .iter()
         .filter_map(|section| {
-            let line = section
-                .lines
-                .iter()
-                .find(|line| line.role == SurfaceRole::Existing)?;
+            let line = section.lines.iter().find(|line| {
+                line.role == SurfaceRole::Existing
+                    && line.height_reference == zumen_civil::CrossSectionHeight::Elevation
+            })?;
             line.points.windows(2).find_map(|pair| {
                 let [[o0, h0], [o1, h1]] = pair else {
                     return None;
@@ -860,6 +885,7 @@ fn interpolate(points: &[(f64, f64)], distance: f64) -> Option<f64> {
 }
 
 fn cross_section(
+    alignment: &Alignment,
     section: &CrossSection,
     id: SpaceId,
     sheet_id: SheetId,
@@ -871,16 +897,40 @@ fn cross_section(
     let mut corners = Vec::new();
     for line in &section.lines {
         cx.check(Kind::Elements, line.points.len() as u64)?;
+        let offset = match zumen_civil::cross_section_height_offset(alignment, section, line, cx)? {
+            Ok(offset) => offset,
+            Err(diagnostic) => {
+                cx.report(*diagnostic);
+                continue;
+            }
+        };
+        cx.check(Kind::Work, line.points.len() as u64)?;
+        if line
+            .points
+            .iter()
+            .any(|[x, y]| !x.is_finite() || !(y + offset).is_finite())
+        {
+            cx.report(
+                Diagnostic::new(codes::CIVIL_CROSS_SECTION_HEIGHT_UNSUPPORTED)
+                    .with("distance", section.distance)
+                    .with("profile", section.profile.as_deref().unwrap_or_default())
+                    .at(line.source.clone()),
+            );
+            continue;
+        }
         let layer = if line.role == SurfaceRole::Existing {
             GROUND
         } else {
             DESIGN
         };
-        corners.extend(line.points.iter().copied());
+        corners.extend(line.points.iter().map(|[x, y]| [*x, y + offset]));
         elements.push(element(
             layer,
             polyline(
-                line.points.iter().map(|[x, y]| point(*x, *y)).collect(),
+                line.points
+                    .iter()
+                    .map(|[x, y]| point(*x, y + offset))
+                    .collect(),
                 false,
             ),
             &section.source,

@@ -7149,6 +7149,10 @@ class CivilRequest extends Message {
   core.int? get timeLimitMs => readField('time_limit_ms', asInt);
   set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
+  /// doc の座標点・高さ基準と、選んだ線形の IP・地盤縦断・片勾配・横断の値を返す。複数の線形があれば id が必要。省略は false。マイナーバージョン 87 から
+  core.bool? get details => readField('details', asBool);
+  set details(core.bool? value) => writeField('details', value);
+
   /// op の名前
   String? get op => readField('op', asString);
   set op(String? value) => writeField('op', value);
@@ -7353,6 +7357,10 @@ class CivilResult extends Message {
   /// 空のオブジェクトから作る
   CivilResult() : super({});
 
+  /// details を求めた場合の保持値。マイナーバージョン 87 から
+  CivilDetails? get details => readField('details', objectOf(CivilDetails.fromJson));
+  set details(CivilDetails? value) => writeField('details', value);
+
   /// 平面線形の長さ（メートル）
   core.double? get length => readField('length', asDouble);
   set length(core.double? value) => writeField('length', value);
@@ -7376,6 +7384,313 @@ class CivilResult extends Message {
   /// doc の水平の座標系の EPSG のコード。分からなければ書かない。マイナーバージョン 47 から
   core.int? get crs => readField('crs', asInt);
   set crs(core.int? value) => writeField('crs', value);
+}
+
+/// 土木モデルの保持値。スキーマ 1.87 から
+class CivilDetails extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilDetails.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilDetails() : super({});
+
+  /// 選んだ線形の値。線形がなければ書かない
+  CivilAlignmentValues? get alignment => readField('alignment', objectOf(CivilAlignmentValues.fromJson));
+  set alignment(CivilAlignmentValues? value) => writeField('alignment', value);
+
+  /// 文書の座標点セット
+  List<CivilPointSet>? get pointSets => readField('point_sets', listOf(objectOf(CivilPointSet.fromJson)));
+  set pointSets(List<CivilPointSet>? value) => writeField('point_sets', value);
+
+  /// 文書の高さの基準。値は自動で T.P. に直さない
+  CivilHeightReference? get heightReference => readField('height_reference', objectOf(CivilHeightReference.fromJson));
+  set heightReference(CivilHeightReference? value) => writeField('height_reference', value);
+}
+
+/// 元の高さの基準
+class CivilHeightReference extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilHeightReference.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilHeightReference() : super({});
+
+  /// 元の基準名
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 元の高さに足すと T.P. の高さになる差（メートル）。不明なら書かない
+  core.double? get tokyoBayOffset => readField('tokyo_bay_offset', asDouble);
+  set tokyoBayOffset(core.double? value) => writeField('tokyo_bay_offset', value);
+
+  /// 元の位置
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+}
+
+/// 線形の付随する値。元の順序を保つ
+class CivilAlignmentValues extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilAlignmentValues.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilAlignmentValues() : super({});
+
+  /// 同じ名前の縦断が複数あり、名前で参照先を一意に定められない
+  core.bool? get verticalNameAmbiguous => readField('vertical_name_ambiguous', asBool);
+  set verticalNameAmbiguous(core.bool? value) => writeField('vertical_name_ambiguous', value);
+
+  /// 選んだ線形の ID
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 保持した縦断線形の元の名前
+  String? get verticalName => readField('vertical_name', asString);
+  set verticalName(String? value) => writeField('vertical_name', value);
+
+  /// IP の列。始点・終点を含む
+  List<CivilSurveyPoint>? get intersectionPoints => readField('intersection_points', listOf(objectOf(CivilSurveyPoint.fromJson)));
+  set intersectionPoints(List<CivilSurveyPoint>? value) => writeField('intersection_points', value);
+
+  /// 地盤の縦断の折れ線
+  List<CivilGroundProfile>? get groundProfiles => readField('ground_profiles', listOf(objectOf(CivilGroundProfile.fromJson)));
+  set groundProfiles(List<CivilGroundProfile>? value) => writeField('ground_profiles', value);
+
+  /// 片勾配とカントの区間
+  List<CivilCant>? get cant => readField('cant', listOf(objectOf(CivilCant.fromJson)));
+  set cant(List<CivilCant>? value) => writeField('cant', value);
+
+  /// 横断の線と点
+  List<CivilCrossSection>? get crossSections => readField('cross_sections', listOf(objectOf(CivilCrossSection.fromJson)));
+  set crossSections(List<CivilCrossSection>? value) => writeField('cross_sections', value);
+}
+
+/// IP・基準点などの座標点
+class CivilSurveyPoint extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilSurveyPoint.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilSurveyPoint() : super({});
+
+  /// 元の名前。永続 ID と同一視しない
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 注記
+  String? get description => readField('description', asString);
+  set description(String? value) => writeField('description', value);
+
+  /// 北の座標（メートル）
+  core.double? get northing => readField('northing', asDouble);
+  set northing(core.double? value) => writeField('northing', value);
+
+  /// 東の座標（メートル）
+  core.double? get easting => readField('easting', asDouble);
+  set easting(core.double? value) => writeField('easting', value);
+
+  /// 文書の基準での標高（メートル）。省略は 0 にしない
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
+
+  /// 基準点・水準点の種類
+  String? get classField => readField('class', asString);
+  set classField(String? value) => writeField('class', value);
+
+  /// 元の位置
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+}
+
+/// 元の順序を持つ座標点セット
+class CivilPointSet extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilPointSet.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilPointSet() : super({});
+
+  /// 元の名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 注記
+  String? get description => readField('description', asString);
+  set description(String? value) => writeField('description', value);
+
+  /// 点
+  List<CivilSurveyPoint>? get points => readField('points', listOf(objectOf(CivilSurveyPoint.fromJson)));
+  set points(List<CivilSurveyPoint>? value) => writeField('points', value);
+
+  /// 元の位置
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+}
+
+/// 地盤の縦断線
+class CivilGroundProfile extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilGroundProfile.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilGroundProfile() : super({});
+
+  /// 元の名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 注記
+  String? get description => readField('description', asString);
+  set description(String? value) => writeField('description', value);
+
+  /// 追加距離と高さ
+  List<CivilProfilePoint>? get points => readField('points', listOf(objectOf(CivilProfilePoint.fromJson)));
+  set points(List<CivilProfilePoint>? value) => writeField('points', value);
+
+  /// 元の位置
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+}
+
+/// 地盤縦断の点
+class CivilProfilePoint extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilProfilePoint.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilProfilePoint() : super({});
+
+  /// 線形の初めからの追加距離（メートル）
+  core.double? get distance => readField('distance', asDouble);
+  set distance(core.double? value) => writeField('distance', value);
+
+  /// 文書の基準での標高（メートル）
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
+}
+
+/// 片勾配またはカントの区間
+class CivilCant extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilCant.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilCant() : super({});
+
+  /// 初めの追加距離（メートル）
+  core.double? get startDistance => readField('start_distance', asDouble);
+  set startDistance(core.double? value) => writeField('start_distance', value);
+
+  /// 区間の長さ（メートル）
+  core.double? get length => readField('length', asDouble);
+  set length(core.double? value) => writeField('length', value);
+
+  /// superelevation は道路の左右の勾配（%）、rail は鉄道の左右の高さの差（mm）
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 初めの左と右
+  List<core.double>? get start => readField('start', listOf(asDouble));
+  set start(List<core.double>? value) => writeField('start', value);
+
+  /// 終わりの左と右
+  List<core.double>? get end => readField('end', listOf(asDouble));
+  set end(List<core.double>? value) => writeField('end', value);
+
+  /// 鉄道の軌間（mm）。不明なら書かない
+  core.double? get gauge => readField('gauge', asDouble);
+  set gauge(core.double? value) => writeField('gauge', value);
+
+  /// 変わり方。元の値
+  String? get transition => readField('transition', asString);
+  set transition(String? value) => writeField('transition', value);
+
+  /// 元の位置
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+}
+
+/// 横断
+class CivilCrossSection extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilCrossSection.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilCrossSection() : super({});
+
+  /// 追加距離（メートル）
+  core.double? get distance => readField('distance', asDouble);
+  set distance(core.double? value) => writeField('distance', value);
+
+  /// 名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 参照する縦断線形の元の名前
+  String? get profile => readField('profile', asString);
+  set profile(String? value) => writeField('profile', value);
+
+  /// 横断の線
+  List<CivilCrossSectionLine>? get lines => readField('lines', listOf(objectOf(CivilCrossSectionLine.fromJson)));
+  set lines(List<CivilCrossSectionLine>? value) => writeField('lines', value);
+
+  /// 元の位置
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+}
+
+/// 横断の線。点の元の値を保つ
+class CivilCrossSectionLine extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilCrossSectionLine.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilCrossSectionLine() : super({});
+
+  /// 名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 注記
+  String? get description => readField('description', asString);
+  set description(String? value) => writeField('description', value);
+
+  /// 幅員中心から見た側。元の値。離れの符号は変えない
+  String? get side => readField('side', asString);
+  set side(String? value) => writeField('side', value);
+
+  /// existing、design または元の値
+  String? get role => readField('role', asString);
+  set role(String? value) => writeField('role', value);
+
+  /// elevation は文書の標高、formation_offset はその所の計画高からの差
+  String? get heightReference => readField('height_reference', asString);
+  set heightReference(String? value) => writeField('height_reference', value);
+
+  /// 離れと元の高さ
+  List<CivilCrossSectionPoint>? get points => readField('points', listOf(objectOf(CivilCrossSectionPoint.fromJson)));
+  set points(List<CivilCrossSectionPoint>? value) => writeField('points', value);
+
+  /// 元の位置
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+}
+
+/// 横断の点
+class CivilCrossSectionPoint extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CivilCrossSectionPoint.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CivilCrossSectionPoint() : super({});
+
+  /// 中心線からの離れ（右を正、メートル）
+  core.double? get offset => readField('offset', asDouble);
+  set offset(core.double? value) => writeField('offset', value);
+
+  /// 線の height_reference に従う高さ（メートル）
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
 }
 
 /// 線形の要約

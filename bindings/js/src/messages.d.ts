@@ -3253,6 +3253,8 @@ export type Engine =
 
 /** 線形（決定 0230）の上の所を、追加距離か測点の表記から求め、点・方向角・高さ・勾配を返す。線形は、要求に書く（alignment）か、open で開いた J-LandXML・IFC4.3・SIMA の文書（doc）の線形を id で指す。distances・stations・interval の所を、この順に並べて返す。求められない所は、理由を診断して除く。doc を渡せば、文書の線形と地表面の要約も返す。図面・BIM・土木地理・点群のモジュールに置く（決定 0253）。マイナーバージョン 46 から（doc と id はマイナーバージョン 47 から） */
 export interface CivilRequest extends RequestCommon {
+  /** doc の座標点・高さ基準と、選んだ線形の IP・地盤縦断・片勾配・横断の値を返す。複数の線形があれば id が必要。省略は false。マイナーバージョン 87 から */
+  details?: boolean;
   /** op の名前 */
   op: "civil";
   /** 線形。doc と一緒には書かない */
@@ -3362,6 +3364,8 @@ export interface CivilStationBreak {
 
 /** 線形の上の所 */
 export interface CivilResult {
+  /** details を求めた場合の保持値。マイナーバージョン 87 から */
+  details?: CivilDetails;
   /** 平面線形の長さ（メートル） */
   length: number;
   /** 求めた所 */
@@ -3374,6 +3378,154 @@ export interface CivilResult {
   surfaces?: CivilSurfaceSummary[];
   /** doc の水平の座標系の EPSG のコード。分からなければ書かない。マイナーバージョン 47 から */
   crs?: number;
+}
+
+/** 土木モデルの保持値。スキーマ 1.87 から */
+export interface CivilDetails {
+  /** 選んだ線形の値。線形がなければ書かない */
+  alignment?: CivilAlignmentValues;
+  /** 文書の座標点セット */
+  point_sets: CivilPointSet[];
+  /** 文書の高さの基準。値は自動で T.P. に直さない */
+  height_reference?: CivilHeightReference;
+}
+
+/** 元の高さの基準 */
+export interface CivilHeightReference {
+  /** 元の基準名 */
+  name?: string;
+  /** 元の高さに足すと T.P. の高さになる差（メートル）。不明なら書かない */
+  tokyo_bay_offset?: number;
+  /** 元の位置 */
+  source: Source;
+}
+
+/** 線形の付随する値。元の順序を保つ */
+export interface CivilAlignmentValues {
+  /** 同じ名前の縦断が複数あり、名前で参照先を一意に定められない */
+  vertical_name_ambiguous: boolean;
+  /** 選んだ線形の ID */
+  id: string;
+  /** 保持した縦断線形の元の名前 */
+  vertical_name?: string;
+  /** IP の列。始点・終点を含む */
+  intersection_points: CivilSurveyPoint[];
+  /** 地盤の縦断の折れ線 */
+  ground_profiles: CivilGroundProfile[];
+  /** 片勾配とカントの区間 */
+  cant: CivilCant[];
+  /** 横断の線と点 */
+  cross_sections: CivilCrossSection[];
+}
+
+/** IP・基準点などの座標点 */
+export interface CivilSurveyPoint {
+  /** 元の名前。永続 ID と同一視しない */
+  name?: string;
+  /** 注記 */
+  description?: string;
+  /** 北の座標（メートル） */
+  northing: number;
+  /** 東の座標（メートル） */
+  easting: number;
+  /** 文書の基準での標高（メートル）。省略は 0 にしない */
+  height?: number;
+  /** 基準点・水準点の種類 */
+  class?: string;
+  /** 元の位置 */
+  source: Source;
+}
+
+/** 元の順序を持つ座標点セット */
+export interface CivilPointSet {
+  /** 元の名前 */
+  name?: string;
+  /** 注記 */
+  description?: string;
+  /** 点 */
+  points: CivilSurveyPoint[];
+  /** 元の位置 */
+  source: Source;
+}
+
+/** 地盤の縦断線 */
+export interface CivilGroundProfile {
+  /** 元の名前 */
+  name?: string;
+  /** 注記 */
+  description?: string;
+  /** 追加距離と高さ */
+  points: CivilProfilePoint[];
+  /** 元の位置 */
+  source: Source;
+}
+
+/** 地盤縦断の点 */
+export interface CivilProfilePoint {
+  /** 線形の初めからの追加距離（メートル） */
+  distance: number;
+  /** 文書の基準での標高（メートル） */
+  height: number;
+}
+
+/** 片勾配またはカントの区間 */
+export interface CivilCant {
+  /** 初めの追加距離（メートル） */
+  start_distance: number;
+  /** 区間の長さ（メートル） */
+  length: number;
+  /** superelevation は道路の左右の勾配（%）、rail は鉄道の左右の高さの差（mm） */
+  kind: string;
+  /** 初めの左と右 */
+  start: number[];
+  /** 終わりの左と右 */
+  end: number[];
+  /** 鉄道の軌間（mm）。不明なら書かない */
+  gauge?: number;
+  /** 変わり方。元の値 */
+  transition?: string;
+  /** 元の位置 */
+  source: Source;
+}
+
+/** 横断 */
+export interface CivilCrossSection {
+  /** 追加距離（メートル） */
+  distance: number;
+  /** 名前 */
+  name?: string;
+  /** 参照する縦断線形の元の名前 */
+  profile?: string;
+  /** 横断の線 */
+  lines: CivilCrossSectionLine[];
+  /** 元の位置 */
+  source: Source;
+}
+
+/** 横断の線。点の元の値を保つ */
+export interface CivilCrossSectionLine {
+  /** 名前 */
+  name?: string;
+  /** 注記 */
+  description?: string;
+  /** 幅員中心から見た側。元の値。離れの符号は変えない */
+  side?: string;
+  /** existing、design または元の値 */
+  role: string;
+  /** elevation は文書の標高、formation_offset はその所の計画高からの差 */
+  height_reference: string;
+  /** 離れと元の高さ */
+  points: CivilCrossSectionPoint[];
+  /** 元の位置 */
+  source: Source;
+}
+
+/** 横断の点 */
+export interface CivilCrossSectionPoint {
+  /** 中心線からの離れ（右を正、メートル） */
+  offset: number;
+  /** 線の height_reference に従う高さ（メートル） */
+  height: number;
 }
 
 /** 線形の要約 */

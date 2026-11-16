@@ -11010,6 +11010,12 @@ public struct CivilRequest: Message {
         set { writeField("time_limit_ms", newValue) }
     }
 
+    /// doc の座標点・高さ基準と、選んだ線形の IP・地盤縦断・片勾配・横断の値を返す。複数の線形があれば id が必要。省略は false。マイナーバージョン 87 から
+    public var details: Bool? {
+        get { readField("details") }
+        set { writeField("details", newValue) }
+    }
+
     /// op の名前
     public var op: String? {
         get { readField("op") }
@@ -11313,6 +11319,12 @@ public struct CivilResult: Message {
         json = [:]
     }
 
+    /// details を求めた場合の保持値。マイナーバージョン 87 から
+    public var details: CivilDetails? {
+        get { readField("details") }
+        set { writeField("details", newValue) }
+    }
+
     /// 平面線形の長さ（メートル）
     public var length: Double? {
         get { readField("length") }
@@ -11347,6 +11359,494 @@ public struct CivilResult: Message {
     public var crs: Int64? {
         get { readField("crs") }
         set { writeField("crs", newValue) }
+    }
+}
+
+/// 土木モデルの保持値。スキーマ 1.87 から
+public struct CivilDetails: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 選んだ線形の値。線形がなければ書かない
+    public var alignment: CivilAlignmentValues? {
+        get { readField("alignment") }
+        set { writeField("alignment", newValue) }
+    }
+
+    /// 文書の座標点セット
+    public var pointSets: [CivilPointSet]? {
+        get { readField("point_sets") }
+        set { writeField("point_sets", newValue) }
+    }
+
+    /// 文書の高さの基準。値は自動で T.P. に直さない
+    public var heightReference: CivilHeightReference? {
+        get { readField("height_reference") }
+        set { writeField("height_reference", newValue) }
+    }
+}
+
+/// 元の高さの基準
+public struct CivilHeightReference: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の基準名
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 元の高さに足すと T.P. の高さになる差（メートル）。不明なら書かない
+    public var tokyoBayOffset: Double? {
+        get { readField("tokyo_bay_offset") }
+        set { writeField("tokyo_bay_offset", newValue) }
+    }
+
+    /// 元の位置
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 線形の付随する値。元の順序を保つ
+public struct CivilAlignmentValues: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 同じ名前の縦断が複数あり、名前で参照先を一意に定められない
+    public var verticalNameAmbiguous: Bool? {
+        get { readField("vertical_name_ambiguous") }
+        set { writeField("vertical_name_ambiguous", newValue) }
+    }
+
+    /// 選んだ線形の ID
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 保持した縦断線形の元の名前
+    public var verticalName: String? {
+        get { readField("vertical_name") }
+        set { writeField("vertical_name", newValue) }
+    }
+
+    /// IP の列。始点・終点を含む
+    public var intersectionPoints: [CivilSurveyPoint]? {
+        get { readField("intersection_points") }
+        set { writeField("intersection_points", newValue) }
+    }
+
+    /// 地盤の縦断の折れ線
+    public var groundProfiles: [CivilGroundProfile]? {
+        get { readField("ground_profiles") }
+        set { writeField("ground_profiles", newValue) }
+    }
+
+    /// 片勾配とカントの区間
+    public var cant: [CivilCant]? {
+        get { readField("cant") }
+        set { writeField("cant", newValue) }
+    }
+
+    /// 横断の線と点
+    public var crossSections: [CivilCrossSection]? {
+        get { readField("cross_sections") }
+        set { writeField("cross_sections", newValue) }
+    }
+}
+
+/// IP・基準点などの座標点
+public struct CivilSurveyPoint: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の名前。永続 ID と同一視しない
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 注記
+    public var description: String? {
+        get { readField("description") }
+        set { writeField("description", newValue) }
+    }
+
+    /// 北の座標（メートル）
+    public var northing: Double? {
+        get { readField("northing") }
+        set { writeField("northing", newValue) }
+    }
+
+    /// 東の座標（メートル）
+    public var easting: Double? {
+        get { readField("easting") }
+        set { writeField("easting", newValue) }
+    }
+
+    /// 文書の基準での標高（メートル）。省略は 0 にしない
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 基準点・水準点の種類
+    public var `class`: String? {
+        get { readField("class") }
+        set { writeField("class", newValue) }
+    }
+
+    /// 元の位置
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 元の順序を持つ座標点セット
+public struct CivilPointSet: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 注記
+    public var description: String? {
+        get { readField("description") }
+        set { writeField("description", newValue) }
+    }
+
+    /// 点
+    public var points: [CivilSurveyPoint]? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+
+    /// 元の位置
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 地盤の縦断線
+public struct CivilGroundProfile: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 注記
+    public var description: String? {
+        get { readField("description") }
+        set { writeField("description", newValue) }
+    }
+
+    /// 追加距離と高さ
+    public var points: [CivilProfilePoint]? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+
+    /// 元の位置
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 地盤縦断の点
+public struct CivilProfilePoint: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 線形の初めからの追加距離（メートル）
+    public var distance: Double? {
+        get { readField("distance") }
+        set { writeField("distance", newValue) }
+    }
+
+    /// 文書の基準での標高（メートル）
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+}
+
+/// 片勾配またはカントの区間
+public struct CivilCant: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 初めの追加距離（メートル）
+    public var startDistance: Double? {
+        get { readField("start_distance") }
+        set { writeField("start_distance", newValue) }
+    }
+
+    /// 区間の長さ（メートル）
+    public var length: Double? {
+        get { readField("length") }
+        set { writeField("length", newValue) }
+    }
+
+    /// superelevation は道路の左右の勾配（%）、rail は鉄道の左右の高さの差（mm）
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 初めの左と右
+    public var start: [Double]? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 終わりの左と右
+    public var end: [Double]? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+
+    /// 鉄道の軌間（mm）。不明なら書かない
+    public var gauge: Double? {
+        get { readField("gauge") }
+        set { writeField("gauge", newValue) }
+    }
+
+    /// 変わり方。元の値
+    public var transition: String? {
+        get { readField("transition") }
+        set { writeField("transition", newValue) }
+    }
+
+    /// 元の位置
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 横断
+public struct CivilCrossSection: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 追加距離（メートル）
+    public var distance: Double? {
+        get { readField("distance") }
+        set { writeField("distance", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 参照する縦断線形の元の名前
+    public var profile: String? {
+        get { readField("profile") }
+        set { writeField("profile", newValue) }
+    }
+
+    /// 横断の線
+    public var lines: [CivilCrossSectionLine]? {
+        get { readField("lines") }
+        set { writeField("lines", newValue) }
+    }
+
+    /// 元の位置
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 横断の線。点の元の値を保つ
+public struct CivilCrossSectionLine: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 注記
+    public var description: String? {
+        get { readField("description") }
+        set { writeField("description", newValue) }
+    }
+
+    /// 幅員中心から見た側。元の値。離れの符号は変えない
+    public var side: String? {
+        get { readField("side") }
+        set { writeField("side", newValue) }
+    }
+
+    /// existing、design または元の値
+    public var role: String? {
+        get { readField("role") }
+        set { writeField("role", newValue) }
+    }
+
+    /// elevation は文書の標高、formation_offset はその所の計画高からの差
+    public var heightReference: String? {
+        get { readField("height_reference") }
+        set { writeField("height_reference", newValue) }
+    }
+
+    /// 離れと元の高さ
+    public var points: [CivilCrossSectionPoint]? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+
+    /// 元の位置
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 横断の点
+public struct CivilCrossSectionPoint: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 中心線からの離れ（右を正、メートル）
+    public var offset: Double? {
+        get { readField("offset") }
+        set { writeField("offset", newValue) }
+    }
+
+    /// 線の height_reference に従う高さ（メートル）
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
     }
 }
 

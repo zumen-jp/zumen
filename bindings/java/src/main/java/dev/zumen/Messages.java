@@ -17841,6 +17841,17 @@ public final class Messages {
             return this;
         }
 
+        /** doc の座標点・高さ基準と、選んだ線形の IP・地盤縦断・片勾配・横断の値を返す。複数の線形があれば id が必要。省略は false。マイナーバージョン 87 から */
+        public Boolean getDetails() {
+            return Json.read(json.get("details"), Json::bool);
+        }
+
+        /** {@link #getDetails()} を書く。null ならフィールドを除く */
+        public CivilRequest withDetails(Boolean value) {
+            put("details", value);
+            return this;
+        }
+
         /** op の名前 */
         public String getOp() {
             return Json.read(json.get("op"), Json::string);
@@ -18341,6 +18352,17 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
+        /** details を求めた場合の保持値。マイナーバージョン 87 から */
+        public CivilDetails getDetails() {
+            return Json.read(json.get("details"), CivilDetails::of);
+        }
+
+        /** {@link #getDetails()} を書く。null ならフィールドを除く */
+        public CivilResult withDetails(CivilDetails value) {
+            put("details", value);
+            return this;
+        }
+
         /** 平面線形の長さ（メートル） */
         public Double getLength() {
             return Json.read(json.get("length"), Json::number);
@@ -18404,6 +18426,787 @@ public final class Messages {
         /** {@link #getCrs()} を書く。null ならフィールドを除く */
         public CivilResult withCrs(Long value) {
             put("crs", value);
+            return this;
+        }
+    }
+
+    /** 土木モデルの保持値。スキーマ 1.87 から */
+    public static final class CivilDetails extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilDetails(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilDetails of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilDetails(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilDetails() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 選んだ線形の値。線形がなければ書かない */
+        public CivilAlignmentValues getAlignment() {
+            return Json.read(json.get("alignment"), CivilAlignmentValues::of);
+        }
+
+        /** {@link #getAlignment()} を書く。null ならフィールドを除く */
+        public CivilDetails withAlignment(CivilAlignmentValues value) {
+            put("alignment", value);
+            return this;
+        }
+
+        /** 文書の座標点セット */
+        public List<CivilPointSet> getPointSets() {
+            return Json.read(json.get("point_sets"), v0 -> Json.list(v0, CivilPointSet::of));
+        }
+
+        /** {@link #getPointSets()} を書く。null ならフィールドを除く */
+        public CivilDetails withPointSets(List<CivilPointSet> value) {
+            put("point_sets", value);
+            return this;
+        }
+
+        /** 文書の高さの基準。値は自動で T.P. に直さない */
+        public CivilHeightReference getHeightReference() {
+            return Json.read(json.get("height_reference"), CivilHeightReference::of);
+        }
+
+        /** {@link #getHeightReference()} を書く。null ならフィールドを除く */
+        public CivilDetails withHeightReference(CivilHeightReference value) {
+            put("height_reference", value);
+            return this;
+        }
+    }
+
+    /** 元の高さの基準 */
+    public static final class CivilHeightReference extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilHeightReference(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilHeightReference of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilHeightReference(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilHeightReference() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の基準名 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public CivilHeightReference withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 元の高さに足すと T.P. の高さになる差（メートル）。不明なら書かない */
+        public Double getTokyoBayOffset() {
+            return Json.read(json.get("tokyo_bay_offset"), Json::number);
+        }
+
+        /** {@link #getTokyoBayOffset()} を書く。null ならフィールドを除く */
+        public CivilHeightReference withTokyoBayOffset(Double value) {
+            put("tokyo_bay_offset", value);
+            return this;
+        }
+
+        /** 元の位置 */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public CivilHeightReference withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 線形の付随する値。元の順序を保つ */
+    public static final class CivilAlignmentValues extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilAlignmentValues(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilAlignmentValues of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilAlignmentValues(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilAlignmentValues() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 同じ名前の縦断が複数あり、名前で参照先を一意に定められない */
+        public Boolean getVerticalNameAmbiguous() {
+            return Json.read(json.get("vertical_name_ambiguous"), Json::bool);
+        }
+
+        /** {@link #getVerticalNameAmbiguous()} を書く。null ならフィールドを除く */
+        public CivilAlignmentValues withVerticalNameAmbiguous(Boolean value) {
+            put("vertical_name_ambiguous", value);
+            return this;
+        }
+
+        /** 選んだ線形の ID */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public CivilAlignmentValues withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 保持した縦断線形の元の名前 */
+        public String getVerticalName() {
+            return Json.read(json.get("vertical_name"), Json::string);
+        }
+
+        /** {@link #getVerticalName()} を書く。null ならフィールドを除く */
+        public CivilAlignmentValues withVerticalName(String value) {
+            put("vertical_name", value);
+            return this;
+        }
+
+        /** IP の列。始点・終点を含む */
+        public List<CivilSurveyPoint> getIntersectionPoints() {
+            return Json.read(json.get("intersection_points"), v0 -> Json.list(v0, CivilSurveyPoint::of));
+        }
+
+        /** {@link #getIntersectionPoints()} を書く。null ならフィールドを除く */
+        public CivilAlignmentValues withIntersectionPoints(List<CivilSurveyPoint> value) {
+            put("intersection_points", value);
+            return this;
+        }
+
+        /** 地盤の縦断の折れ線 */
+        public List<CivilGroundProfile> getGroundProfiles() {
+            return Json.read(json.get("ground_profiles"), v0 -> Json.list(v0, CivilGroundProfile::of));
+        }
+
+        /** {@link #getGroundProfiles()} を書く。null ならフィールドを除く */
+        public CivilAlignmentValues withGroundProfiles(List<CivilGroundProfile> value) {
+            put("ground_profiles", value);
+            return this;
+        }
+
+        /** 片勾配とカントの区間 */
+        public List<CivilCant> getCant() {
+            return Json.read(json.get("cant"), v0 -> Json.list(v0, CivilCant::of));
+        }
+
+        /** {@link #getCant()} を書く。null ならフィールドを除く */
+        public CivilAlignmentValues withCant(List<CivilCant> value) {
+            put("cant", value);
+            return this;
+        }
+
+        /** 横断の線と点 */
+        public List<CivilCrossSection> getCrossSections() {
+            return Json.read(json.get("cross_sections"), v0 -> Json.list(v0, CivilCrossSection::of));
+        }
+
+        /** {@link #getCrossSections()} を書く。null ならフィールドを除く */
+        public CivilAlignmentValues withCrossSections(List<CivilCrossSection> value) {
+            put("cross_sections", value);
+            return this;
+        }
+    }
+
+    /** IP・基準点などの座標点 */
+    public static final class CivilSurveyPoint extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilSurveyPoint(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilSurveyPoint of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilSurveyPoint(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilSurveyPoint() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の名前。永続 ID と同一視しない */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public CivilSurveyPoint withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 注記 */
+        public String getDescription() {
+            return Json.read(json.get("description"), Json::string);
+        }
+
+        /** {@link #getDescription()} を書く。null ならフィールドを除く */
+        public CivilSurveyPoint withDescription(String value) {
+            put("description", value);
+            return this;
+        }
+
+        /** 北の座標（メートル） */
+        public Double getNorthing() {
+            return Json.read(json.get("northing"), Json::number);
+        }
+
+        /** {@link #getNorthing()} を書く。null ならフィールドを除く */
+        public CivilSurveyPoint withNorthing(Double value) {
+            put("northing", value);
+            return this;
+        }
+
+        /** 東の座標（メートル） */
+        public Double getEasting() {
+            return Json.read(json.get("easting"), Json::number);
+        }
+
+        /** {@link #getEasting()} を書く。null ならフィールドを除く */
+        public CivilSurveyPoint withEasting(Double value) {
+            put("easting", value);
+            return this;
+        }
+
+        /** 文書の基準での標高（メートル）。省略は 0 にしない */
+        public Double getHeight() {
+            return Json.read(json.get("height"), Json::number);
+        }
+
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
+        public CivilSurveyPoint withHeight(Double value) {
+            put("height", value);
+            return this;
+        }
+
+        /** 基準点・水準点の種類 */
+        public String getClassValue() {
+            return Json.read(json.get("class"), Json::string);
+        }
+
+        /** {@link #getClassValue()} を書く。null ならフィールドを除く */
+        public CivilSurveyPoint withClassValue(String value) {
+            put("class", value);
+            return this;
+        }
+
+        /** 元の位置 */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public CivilSurveyPoint withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 元の順序を持つ座標点セット */
+    public static final class CivilPointSet extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilPointSet(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilPointSet of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilPointSet(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilPointSet() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public CivilPointSet withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 注記 */
+        public String getDescription() {
+            return Json.read(json.get("description"), Json::string);
+        }
+
+        /** {@link #getDescription()} を書く。null ならフィールドを除く */
+        public CivilPointSet withDescription(String value) {
+            put("description", value);
+            return this;
+        }
+
+        /** 点 */
+        public List<CivilSurveyPoint> getPoints() {
+            return Json.read(json.get("points"), v0 -> Json.list(v0, CivilSurveyPoint::of));
+        }
+
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
+        public CivilPointSet withPoints(List<CivilSurveyPoint> value) {
+            put("points", value);
+            return this;
+        }
+
+        /** 元の位置 */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public CivilPointSet withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 地盤の縦断線 */
+    public static final class CivilGroundProfile extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilGroundProfile(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilGroundProfile of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilGroundProfile(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilGroundProfile() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public CivilGroundProfile withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 注記 */
+        public String getDescription() {
+            return Json.read(json.get("description"), Json::string);
+        }
+
+        /** {@link #getDescription()} を書く。null ならフィールドを除く */
+        public CivilGroundProfile withDescription(String value) {
+            put("description", value);
+            return this;
+        }
+
+        /** 追加距離と高さ */
+        public List<CivilProfilePoint> getPoints() {
+            return Json.read(json.get("points"), v0 -> Json.list(v0, CivilProfilePoint::of));
+        }
+
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
+        public CivilGroundProfile withPoints(List<CivilProfilePoint> value) {
+            put("points", value);
+            return this;
+        }
+
+        /** 元の位置 */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public CivilGroundProfile withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 地盤縦断の点 */
+    public static final class CivilProfilePoint extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilProfilePoint(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilProfilePoint of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilProfilePoint(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilProfilePoint() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 線形の初めからの追加距離（メートル） */
+        public Double getDistance() {
+            return Json.read(json.get("distance"), Json::number);
+        }
+
+        /** {@link #getDistance()} を書く。null ならフィールドを除く */
+        public CivilProfilePoint withDistance(Double value) {
+            put("distance", value);
+            return this;
+        }
+
+        /** 文書の基準での標高（メートル） */
+        public Double getHeight() {
+            return Json.read(json.get("height"), Json::number);
+        }
+
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
+        public CivilProfilePoint withHeight(Double value) {
+            put("height", value);
+            return this;
+        }
+    }
+
+    /** 片勾配またはカントの区間 */
+    public static final class CivilCant extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilCant(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilCant of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilCant(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilCant() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 初めの追加距離（メートル） */
+        public Double getStartDistance() {
+            return Json.read(json.get("start_distance"), Json::number);
+        }
+
+        /** {@link #getStartDistance()} を書く。null ならフィールドを除く */
+        public CivilCant withStartDistance(Double value) {
+            put("start_distance", value);
+            return this;
+        }
+
+        /** 区間の長さ（メートル） */
+        public Double getLength() {
+            return Json.read(json.get("length"), Json::number);
+        }
+
+        /** {@link #getLength()} を書く。null ならフィールドを除く */
+        public CivilCant withLength(Double value) {
+            put("length", value);
+            return this;
+        }
+
+        /** superelevation は道路の左右の勾配（%）、rail は鉄道の左右の高さの差（mm） */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public CivilCant withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 初めの左と右 */
+        public List<Double> getStart() {
+            return Json.read(json.get("start"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
+        public CivilCant withStart(List<Double> value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 終わりの左と右 */
+        public List<Double> getEnd() {
+            return Json.read(json.get("end"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
+        public CivilCant withEnd(List<Double> value) {
+            put("end", value);
+            return this;
+        }
+
+        /** 鉄道の軌間（mm）。不明なら書かない */
+        public Double getGauge() {
+            return Json.read(json.get("gauge"), Json::number);
+        }
+
+        /** {@link #getGauge()} を書く。null ならフィールドを除く */
+        public CivilCant withGauge(Double value) {
+            put("gauge", value);
+            return this;
+        }
+
+        /** 変わり方。元の値 */
+        public String getTransition() {
+            return Json.read(json.get("transition"), Json::string);
+        }
+
+        /** {@link #getTransition()} を書く。null ならフィールドを除く */
+        public CivilCant withTransition(String value) {
+            put("transition", value);
+            return this;
+        }
+
+        /** 元の位置 */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public CivilCant withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 横断 */
+    public static final class CivilCrossSection extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilCrossSection(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilCrossSection of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilCrossSection(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilCrossSection() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 追加距離（メートル） */
+        public Double getDistance() {
+            return Json.read(json.get("distance"), Json::number);
+        }
+
+        /** {@link #getDistance()} を書く。null ならフィールドを除く */
+        public CivilCrossSection withDistance(Double value) {
+            put("distance", value);
+            return this;
+        }
+
+        /** 名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public CivilCrossSection withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 参照する縦断線形の元の名前 */
+        public String getProfile() {
+            return Json.read(json.get("profile"), Json::string);
+        }
+
+        /** {@link #getProfile()} を書く。null ならフィールドを除く */
+        public CivilCrossSection withProfile(String value) {
+            put("profile", value);
+            return this;
+        }
+
+        /** 横断の線 */
+        public List<CivilCrossSectionLine> getLines() {
+            return Json.read(json.get("lines"), v0 -> Json.list(v0, CivilCrossSectionLine::of));
+        }
+
+        /** {@link #getLines()} を書く。null ならフィールドを除く */
+        public CivilCrossSection withLines(List<CivilCrossSectionLine> value) {
+            put("lines", value);
+            return this;
+        }
+
+        /** 元の位置 */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public CivilCrossSection withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 横断の線。点の元の値を保つ */
+    public static final class CivilCrossSectionLine extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilCrossSectionLine(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilCrossSectionLine of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilCrossSectionLine(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilCrossSectionLine() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public CivilCrossSectionLine withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 注記 */
+        public String getDescription() {
+            return Json.read(json.get("description"), Json::string);
+        }
+
+        /** {@link #getDescription()} を書く。null ならフィールドを除く */
+        public CivilCrossSectionLine withDescription(String value) {
+            put("description", value);
+            return this;
+        }
+
+        /** 幅員中心から見た側。元の値。離れの符号は変えない */
+        public String getSide() {
+            return Json.read(json.get("side"), Json::string);
+        }
+
+        /** {@link #getSide()} を書く。null ならフィールドを除く */
+        public CivilCrossSectionLine withSide(String value) {
+            put("side", value);
+            return this;
+        }
+
+        /** existing、design または元の値 */
+        public String getRole() {
+            return Json.read(json.get("role"), Json::string);
+        }
+
+        /** {@link #getRole()} を書く。null ならフィールドを除く */
+        public CivilCrossSectionLine withRole(String value) {
+            put("role", value);
+            return this;
+        }
+
+        /** elevation は文書の標高、formation_offset はその所の計画高からの差 */
+        public String getHeightReference() {
+            return Json.read(json.get("height_reference"), Json::string);
+        }
+
+        /** {@link #getHeightReference()} を書く。null ならフィールドを除く */
+        public CivilCrossSectionLine withHeightReference(String value) {
+            put("height_reference", value);
+            return this;
+        }
+
+        /** 離れと元の高さ */
+        public List<CivilCrossSectionPoint> getPoints() {
+            return Json.read(json.get("points"), v0 -> Json.list(v0, CivilCrossSectionPoint::of));
+        }
+
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
+        public CivilCrossSectionLine withPoints(List<CivilCrossSectionPoint> value) {
+            put("points", value);
+            return this;
+        }
+
+        /** 元の位置 */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public CivilCrossSectionLine withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 横断の点 */
+    public static final class CivilCrossSectionPoint extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CivilCrossSectionPoint(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CivilCrossSectionPoint of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CivilCrossSectionPoint(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CivilCrossSectionPoint() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 中心線からの離れ（右を正、メートル） */
+        public Double getOffset() {
+            return Json.read(json.get("offset"), Json::number);
+        }
+
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
+        public CivilCrossSectionPoint withOffset(Double value) {
+            put("offset", value);
+            return this;
+        }
+
+        /** 線の height_reference に従う高さ（メートル） */
+        public Double getHeight() {
+            return Json.read(json.get("height"), Json::number);
+        }
+
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
+        public CivilCrossSectionPoint withHeight(Double value) {
+            put("height", value);
             return this;
         }
     }

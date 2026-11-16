@@ -1,6 +1,6 @@
-# J-LandXML の片勾配の実行環境間の比較
+# J-LandXML の保持値の実行環境間の比較
 
-`Superelevation` の一定区間・すりつけと `SlopeList` について、Rust のネイティブと `wasm32-wasip1` で同じ合成入力を読み、土木の領域モデルへ移します（#468）。
+片勾配と IP・基準点・地盤縦断・横断の属性・高さ基準について、Rust のネイティブと `wasm32-wasip1` で同じ合成入力を読み、土木の領域モデルへ移します（#468）。
 
 ## 実行
 
@@ -10,10 +10,11 @@
 rustup target add wasm32-wasip1
 $env:CARGO_TARGET_DIR = 'target/landxml-portability-468'
 cargo test --locked -p zumen-landxml --test superelevation_contract
+cargo test --locked -p zumen-landxml --test values_contract
 node xtask/verify/landxml/compare_superelevation.mjs
 ```
 
-`compare_superelevation.mjs` は、`rustc -vV` が返すネイティブの対象と `wasm32-wasip1` の example をビルドし、それぞれを 2 回実行します。`CARGO_TARGET_DIR` を指定しなければ、`target/landxml-superelevation-contract` を使います。ビルド・起動・probe 内の検査・出力の比較が失敗したら、コマンドも失敗します。
+`compare_superelevation.mjs` は、`rustc -vV` が返すネイティブの対象と `wasm32-wasip1` の `superelevation_probe`・`values_probe` をビルドし、それぞれを 2 回実行します。`CARGO_TARGET_DIR` を指定しなければ、`target/landxml-superelevation-contract` を使います。ビルド・起動・probe 内の検査・出力の比較が失敗したら、コマンドも失敗します。
 
 ## 入力と比較するもの
 
@@ -29,5 +30,7 @@ node xtask/verify/landxml/compare_superelevation.mjs
 出力は、片勾配の全浮動小数を `f64::to_bits` にした値、線形の識別子、出所、診断の順・code・件数・値・場所・仕様参照、全 `Kind` の使用量、停止理由と上限です。この出力全体をバイト単位で比較します。テスト内でも繰り返しの結果を比較します。
 
 ## 確認の範囲
+
+`values_contract.rs` と `values_probe.rs` は、IP・基準点・地盤縦断・横断の属性・高さ基準を別の自作入力で検査します。元の値・参照する縦断・省略された高さ・元の位置と、全予算の境界・中断を記録し、全バイトを環境間で照らします。相対高さの計画高への評価、壊れた点列をつながないこと、重複や欠落した参照を推測しないことも検査します。
 
 この検査は、コアを直接呼ぶネイティブと 32 bit の wasm の比較です。配布する `wasm32-unknown-unknown` の API・バインディングの適合テストや、外部の実装との値の照合とは分けます。基準になるアプリとの一致と、書き出しは検査しません。合成入力の補間と `SlopeList` の値の解釈は、仕様から定めた期待値との検査です。

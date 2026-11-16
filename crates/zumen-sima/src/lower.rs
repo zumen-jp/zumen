@@ -955,6 +955,34 @@ fn resolve_geo_loc(
 pub fn lower_civil_to_sima(model: &CivilModel, cx: &mut Cx) -> Result<LoweredSima, Error> {
     check_planar_crs(model.crs, cx)?;
 
+    let mut omitted = |kind: &'static str, source: &Ref| -> Result<(), Error> {
+        cx.check(Kind::Work, 1)
+            .map_err(|s| stopped(cx, s, Some(source.clone())))?;
+        cx.report(
+            Diagnostic::new(codes::CIVIL_VALUE_DROPPED)
+                .with("kind", kind)
+                .with("target", "sima")
+                .at(source.clone()),
+        );
+        Ok(())
+    };
+    for set in &model.point_sets {
+        for point in &set.points {
+            omitted("survey_point", &point.source)?;
+        }
+    }
+    for alignment in &model.alignments {
+        for point in &alignment.intersection_points {
+            omitted("intersection_point", &point.source)?;
+        }
+        for profile in &alignment.ground_profiles {
+            omitted("ground_profile", &profile.source)?;
+        }
+    }
+    if let Some(reference) = &model.height_reference {
+        omitted("height_reference", &reference.source)?;
+    }
+
     let mut points = PointTable::default();
     let parcels = Vec::new();
     let mut routes = Vec::new();

@@ -54,6 +54,8 @@ cargo run -p zumen-conformance -- --write
 
 ## テストの組の書き方
 
+`civil_values.json` は、自作 J-LandXML の IP・基準点・地盤縦断・片勾配・横断の属性・高さ基準を `civil` の `details` で取得します。既知値・元の位置・省略された高さ・失敗後の再利用を照合します。`civil_drawing.json` では高さ基準を出力へ持たせられない診断も確認します。形式の外部照合とは分け、[保持値の実行環境間の比較](../../xtask/verify/landxml/README.md)でも予算を照らします。
+
 `render.json` は、空間と用紙からの SVG、範囲と余白、未描画の元の ID、不正な設定と予算による停止・失敗後の再利用を確かめます。`render_fonts.json` は `scene_fonts.json` と同じ合成の TrueType を使い、フォントと高さの指定から字形の輪郭を描く出力・診断を照合します。どちらも図面のモジュールで、画像は `image` blob として同じハッシュになります。API の中断は zumen-abi、描画部品の中断と予算は zumen-render の契約テストでも確かめています（[シーンの描画](../../docs/render.md)）。
 
 `render_png.json` と `render_fonts_png.json` は同じ図面・フォントを PNG で描き、画像の全バイト列と診断を照らします。大きすぎる寸法、描画と符号化の予算停止、停止後の再利用も含みます（[シーンの描画](../../docs/render.md)）。

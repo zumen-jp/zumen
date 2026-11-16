@@ -9012,6 +9012,12 @@ namespace Zumen.Messages
         public ulong? TimeLimitMs { get; init; }
 
         /// <summary>
+        /// doc の座標点・高さ基準と、選んだ線形の IP・地盤縦断・片勾配・横断の値を返す。複数の線形があれば id が必要。省略は false。マイナーバージョン 87 から
+        /// </summary>
+        [JsonPropertyName("details")]
+        public bool? Details { get; init; }
+
+        /// <summary>
         /// op の名前
         /// </summary>
         [JsonPropertyName("op")]
@@ -9281,6 +9287,12 @@ namespace Zumen.Messages
     public sealed record CivilResult
     {
         /// <summary>
+        /// details を求めた場合の保持値。マイナーバージョン 87 から
+        /// </summary>
+        [JsonPropertyName("details")]
+        public CivilDetails? Details { get; init; }
+
+        /// <summary>
         /// 平面線形の長さ（メートル）
         /// </summary>
         [JsonPropertyName("length")]
@@ -9315,6 +9327,384 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("crs")]
         public ulong? Crs { get; init; }
+    }
+
+    /// <summary>
+    /// 土木モデルの保持値。スキーマ 1.87 から
+    /// </summary>
+    public sealed record CivilDetails
+    {
+        /// <summary>
+        /// 選んだ線形の値。線形がなければ書かない
+        /// </summary>
+        [JsonPropertyName("alignment")]
+        public CivilAlignmentValues? Alignment { get; init; }
+
+        /// <summary>
+        /// 文書の座標点セット
+        /// </summary>
+        [JsonPropertyName("point_sets")]
+        public IReadOnlyList<CivilPointSet> PointSets { get; init; } = default!;
+
+        /// <summary>
+        /// 文書の高さの基準。値は自動で T.P. に直さない
+        /// </summary>
+        [JsonPropertyName("height_reference")]
+        public CivilHeightReference? HeightReference { get; init; }
+    }
+
+    /// <summary>
+    /// 元の高さの基準
+    /// </summary>
+    public sealed record CivilHeightReference
+    {
+        /// <summary>
+        /// 元の基準名
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 元の高さに足すと T.P. の高さになる差（メートル）。不明なら書かない
+        /// </summary>
+        [JsonPropertyName("tokyo_bay_offset")]
+        public double? TokyoBayOffset { get; init; }
+
+        /// <summary>
+        /// 元の位置
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 線形の付随する値。元の順序を保つ
+    /// </summary>
+    public sealed record CivilAlignmentValues
+    {
+        /// <summary>
+        /// 同じ名前の縦断が複数あり、名前で参照先を一意に定められない
+        /// </summary>
+        [JsonPropertyName("vertical_name_ambiguous")]
+        public bool VerticalNameAmbiguous { get; init; }
+
+        /// <summary>
+        /// 選んだ線形の ID
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 保持した縦断線形の元の名前
+        /// </summary>
+        [JsonPropertyName("vertical_name")]
+        public string? VerticalName { get; init; }
+
+        /// <summary>
+        /// IP の列。始点・終点を含む
+        /// </summary>
+        [JsonPropertyName("intersection_points")]
+        public IReadOnlyList<CivilSurveyPoint> IntersectionPoints { get; init; } = default!;
+
+        /// <summary>
+        /// 地盤の縦断の折れ線
+        /// </summary>
+        [JsonPropertyName("ground_profiles")]
+        public IReadOnlyList<CivilGroundProfile> GroundProfiles { get; init; } = default!;
+
+        /// <summary>
+        /// 片勾配とカントの区間
+        /// </summary>
+        [JsonPropertyName("cant")]
+        public IReadOnlyList<CivilCant> Cant { get; init; } = default!;
+
+        /// <summary>
+        /// 横断の線と点
+        /// </summary>
+        [JsonPropertyName("cross_sections")]
+        public IReadOnlyList<CivilCrossSection> CrossSections { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// IP・基準点などの座標点
+    /// </summary>
+    public sealed record CivilSurveyPoint
+    {
+        /// <summary>
+        /// 元の名前。永続 ID と同一視しない
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 注記
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; init; }
+
+        /// <summary>
+        /// 北の座標（メートル）
+        /// </summary>
+        [JsonPropertyName("northing")]
+        public double Northing { get; init; }
+
+        /// <summary>
+        /// 東の座標（メートル）
+        /// </summary>
+        [JsonPropertyName("easting")]
+        public double Easting { get; init; }
+
+        /// <summary>
+        /// 文書の基準での標高（メートル）。省略は 0 にしない
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double? Height { get; init; }
+
+        /// <summary>
+        /// 基準点・水準点の種類
+        /// </summary>
+        [JsonPropertyName("class")]
+        public string? Class { get; init; }
+
+        /// <summary>
+        /// 元の位置
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 元の順序を持つ座標点セット
+    /// </summary>
+    public sealed record CivilPointSet
+    {
+        /// <summary>
+        /// 元の名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 注記
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; init; }
+
+        /// <summary>
+        /// 点
+        /// </summary>
+        [JsonPropertyName("points")]
+        public IReadOnlyList<CivilSurveyPoint> Points { get; init; } = default!;
+
+        /// <summary>
+        /// 元の位置
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 地盤の縦断線
+    /// </summary>
+    public sealed record CivilGroundProfile
+    {
+        /// <summary>
+        /// 元の名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 注記
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; init; }
+
+        /// <summary>
+        /// 追加距離と高さ
+        /// </summary>
+        [JsonPropertyName("points")]
+        public IReadOnlyList<CivilProfilePoint> Points { get; init; } = default!;
+
+        /// <summary>
+        /// 元の位置
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 地盤縦断の点
+    /// </summary>
+    public sealed record CivilProfilePoint
+    {
+        /// <summary>
+        /// 線形の初めからの追加距離（メートル）
+        /// </summary>
+        [JsonPropertyName("distance")]
+        public double Distance { get; init; }
+
+        /// <summary>
+        /// 文書の基準での標高（メートル）
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double Height { get; init; }
+    }
+
+    /// <summary>
+    /// 片勾配またはカントの区間
+    /// </summary>
+    public sealed record CivilCant
+    {
+        /// <summary>
+        /// 初めの追加距離（メートル）
+        /// </summary>
+        [JsonPropertyName("start_distance")]
+        public double StartDistance { get; init; }
+
+        /// <summary>
+        /// 区間の長さ（メートル）
+        /// </summary>
+        [JsonPropertyName("length")]
+        public double Length { get; init; }
+
+        /// <summary>
+        /// superelevation は道路の左右の勾配（%）、rail は鉄道の左右の高さの差（mm）
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 初めの左と右
+        /// </summary>
+        [JsonPropertyName("start")]
+        public IReadOnlyList<double> Start { get; init; } = default!;
+
+        /// <summary>
+        /// 終わりの左と右
+        /// </summary>
+        [JsonPropertyName("end")]
+        public IReadOnlyList<double> End { get; init; } = default!;
+
+        /// <summary>
+        /// 鉄道の軌間（mm）。不明なら書かない
+        /// </summary>
+        [JsonPropertyName("gauge")]
+        public double? Gauge { get; init; }
+
+        /// <summary>
+        /// 変わり方。元の値
+        /// </summary>
+        [JsonPropertyName("transition")]
+        public string? Transition { get; init; }
+
+        /// <summary>
+        /// 元の位置
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 横断
+    /// </summary>
+    public sealed record CivilCrossSection
+    {
+        /// <summary>
+        /// 追加距離（メートル）
+        /// </summary>
+        [JsonPropertyName("distance")]
+        public double Distance { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 参照する縦断線形の元の名前
+        /// </summary>
+        [JsonPropertyName("profile")]
+        public string? Profile { get; init; }
+
+        /// <summary>
+        /// 横断の線
+        /// </summary>
+        [JsonPropertyName("lines")]
+        public IReadOnlyList<CivilCrossSectionLine> Lines { get; init; } = default!;
+
+        /// <summary>
+        /// 元の位置
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 横断の線。点の元の値を保つ
+    /// </summary>
+    public sealed record CivilCrossSectionLine
+    {
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 注記
+        /// </summary>
+        [JsonPropertyName("description")]
+        public string? Description { get; init; }
+
+        /// <summary>
+        /// 幅員中心から見た側。元の値。離れの符号は変えない
+        /// </summary>
+        [JsonPropertyName("side")]
+        public string? Side { get; init; }
+
+        /// <summary>
+        /// existing、design または元の値
+        /// </summary>
+        [JsonPropertyName("role")]
+        public string Role { get; init; } = default!;
+
+        /// <summary>
+        /// elevation は文書の標高、formation_offset はその所の計画高からの差
+        /// </summary>
+        [JsonPropertyName("height_reference")]
+        public string HeightReference { get; init; } = default!;
+
+        /// <summary>
+        /// 離れと元の高さ
+        /// </summary>
+        [JsonPropertyName("points")]
+        public IReadOnlyList<CivilCrossSectionPoint> Points { get; init; } = default!;
+
+        /// <summary>
+        /// 元の位置
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 横断の点
+    /// </summary>
+    public sealed record CivilCrossSectionPoint
+    {
+        /// <summary>
+        /// 中心線からの離れ（右を正、メートル）
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public double Offset { get; init; }
+
+        /// <summary>
+        /// 線の height_reference に従う高さ（メートル）
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double Height { get; init; }
     }
 
     /// <summary>

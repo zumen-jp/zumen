@@ -11,8 +11,8 @@ mod position;
 pub mod station;
 
 pub use position::{
-    Found, Placement, check, check_within, curvature, elevation, elevation_within, length, place,
-    place_within, place_work,
+    Found, Placement, check, check_within, cross_section_height_offset, curvature, elevation,
+    elevation_within, length, place, place_within, place_work,
 };
 pub use station::{StationBreak, Stationing};
 
@@ -29,6 +29,64 @@ pub struct CivilModel {
     pub height_datum: Option<HeightDatum>,
     /// 標高の成果。分からなければ `None`
     pub realization: Option<Realization>,
+    /// 元の高さの基準名と T.P. との差。高さの値自体はこの基準のまま持つ
+    pub height_reference: Option<HeightReference>,
+    /// 基準点・水準点などの座標点セット
+    pub point_sets: Vec<SurveyPointSet>,
+}
+
+/// 高さの基準。地図の水平の座標系とは独立して持つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeightReference {
+    /// 元の基準名
+    pub name: Option<String>,
+    /// 元の高さに足す差（メートル）。T.P. の高さ = 元の高さ + この値
+    pub tokyo_bay_offset: Option<f64>,
+    /// 出所
+    pub source: Ref,
+}
+
+/// 測量の座標点。IP にも使い、名前を永続 ID と同一視しない
+#[derive(Clone, Debug, PartialEq)]
+pub struct SurveyPoint {
+    /// 名前
+    pub name: Option<String>,
+    /// 注記
+    pub description: Option<String>,
+    /// 水平の座標（北・東、メートル）
+    pub point: MapPoint,
+    /// 元の基準での標高（メートル）。省略は 0 にしない
+    pub height: Option<f64>,
+    /// 基準点・水準点の種類。元の値を持つ
+    pub class: Option<String>,
+    /// 出所
+    pub source: Ref,
+}
+
+/// 基準点・水準点など、元の順序を持つ座標点の集合
+#[derive(Clone, Debug, PartialEq)]
+pub struct SurveyPointSet {
+    /// 名前
+    pub name: Option<String>,
+    /// 注記
+    pub description: Option<String>,
+    /// 点
+    pub points: Vec<SurveyPoint>,
+    /// 出所
+    pub source: Ref,
+}
+
+/// 線形に沿った地盤の高さ。折れ線を点の順のまま持つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroundProfile {
+    /// 名前
+    pub name: Option<String>,
+    /// 注記
+    pub description: Option<String>,
+    /// 追加距離と元の基準での標高（メートル）
+    pub points: Vec<[f64; 2]>,
+    /// 出所
+    pub source: Ref,
 }
 
 /// 道路・鉄道の中心の線
@@ -44,6 +102,14 @@ pub struct Alignment {
     pub horizontal: Vec<Horizontal>,
     /// 縦断線形の区間。なければ空
     pub vertical: Vec<Vertical>,
+    /// 縦断線形の元の名前。横断の参照先との照合に使う
+    pub vertical_name: Option<String>,
+    /// 同じ名前の縦断が複数あり、名前で参照先を一意に定められない
+    pub vertical_name_ambiguous: bool,
+    /// IP の列。始点・終点を含み、平面線形の再計算には使わない
+    pub intersection_points: Vec<SurveyPoint>,
+    /// 地盤の縦断の折れ線
+    pub ground_profiles: Vec<GroundProfile>,
     /// 片勾配とカントの区間。なければ空
     pub cant: Vec<Cant>,
     /// 測点の定め
@@ -195,21 +261,41 @@ pub struct CrossSection {
     pub distance: f64,
     /// 名前
     pub name: Option<String>,
+    /// 参照する縦断線形の元の名前。指定がなければ線形の縦断を使う
+    pub profile: Option<String>,
     /// 横断の線
     pub lines: Vec<CrossSectionLine>,
     /// 出所
     pub source: Ref,
 }
 
-/// 横断の線。点は、線形の中心からの離れ（右を正、メートル）と高さ（メートル）
+/// 横断の線。点は、線形の中心からの離れ（右を正）と `height_reference` に従う高さ（メートル）
 #[derive(Clone, Debug, PartialEq)]
 pub struct CrossSectionLine {
     /// 名前
     pub name: Option<String>,
+    /// 注記
+    pub description: Option<String>,
+    /// 幅員中心から見た側。元の値を持ち、点の離れの符号を変えない
+    pub side: Option<String>,
+    /// 点の高さの基準
+    pub height_reference: CrossSectionHeight,
     /// 役割
     pub role: SurfaceRole,
     /// 点
     pub points: Vec<[f64; 2]>,
+    /// 出所
+    pub source: Ref,
+}
+
+/// 横断の点の高さが表すもの
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CrossSectionHeight {
+    /// 文書の高さの基準での標高
+    #[default]
+    Elevation,
+    /// その追加距離での計画高からの差。上を正にする
+    FormationOffset,
 }
 
 /// 地表面と横断の線の役割

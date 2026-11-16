@@ -26,17 +26,20 @@ if (process.argv[2] === "--wasm") {
   }
   const host = /^host: (.+)$/m.exec(run("rustc", ["-vV"]).toString())?.[1];
   assert.ok(host, "rustc の host がない");
-  for (const targetName of [host, "wasm32-wasip1"]) {
-    run("cargo", ["build", "--locked", "-p", "zumen-landxml", "--example", "superelevation_probe", "--target", targetName]);
+  for (const probe of ["superelevation_probe", "values_probe"]) {
+    for (const targetName of [host, "wasm32-wasip1"]) {
+      run("cargo", ["build", "--locked", "-p", "zumen-landxml", "--example", probe, "--target", targetName]);
+    }
+    const executable = path.join(target, host, `debug/examples/${probe}`) + (process.platform === "win32" ? ".exe" : "");
+    const native = run(executable, []);
+    assert.ok(native.length > 0, "probe の出力が空");
+    assert.deepEqual(run(executable, []), native, "ネイティブの繰り返しが違う");
+    const wasm = path.join(target, `wasm32-wasip1/debug/examples/${probe}.wasm`);
+    for (let repeat = 0; repeat < 2; repeat++) {
+      const actual = run(process.execPath, ["--disable-warning=ExperimentalWarning", fileURLToPath(import.meta.url), "--wasm", wasm]);
+      assert.deepEqual(actual, native, "ネイティブと wasm のビット列・診断・予算が違う");
+    }
+    const { createHash } = await import("node:crypto");
+    console.log(`J-LandXML ${probe}: native / wasm32-wasip1 が一致（各 2 回、${native.length} バイト、SHA-256 ${createHash("sha256").update(native).digest("hex")}）`);
   }
-  const executable = path.join(target, host, "debug/examples/superelevation_probe") + (process.platform === "win32" ? ".exe" : "");
-  const native = run(executable, []);
-  assert.ok(native.length > 0, "probe の出力が空");
-  assert.deepEqual(run(executable, []), native, "ネイティブの繰り返しが違う");
-  const wasm = path.join(target, "wasm32-wasip1/debug/examples/superelevation_probe.wasm");
-  for (let repeat = 0; repeat < 2; repeat++) {
-    const actual = run(process.execPath, ["--disable-warning=ExperimentalWarning", fileURLToPath(import.meta.url), "--wasm", wasm]);
-    assert.deepEqual(actual, native, "ネイティブと wasm のビット列・診断・予算が違う");
-  }
-  console.log(`J-LandXML Superelevation: native / wasm32-wasip1 が一致（各 2 回、${native.length} バイト）`);
 }

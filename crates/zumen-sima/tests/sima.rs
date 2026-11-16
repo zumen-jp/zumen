@@ -31,6 +31,59 @@ fn read_sima(src: &[u8]) -> (Result<SimaFile, Error>, Diagnostics) {
     (res, diags)
 }
 
+#[test]
+fn civil_values_that_sima_does_not_write_have_sources_and_counts() {
+    use zumen_civil::{GroundProfile, HeightReference, SurveyPoint, SurveyPointSet};
+    let point = SurveyPoint {
+        name: Some("p".into()),
+        description: None,
+        point: MapPoint {
+            northing: 1.0,
+            easting: 2.0,
+        },
+        height: Some(3.0),
+        class: None,
+        source: Ref::at_bytes(10, 20),
+    };
+    let model = CivilModel {
+        crs: Some(Crs::Plane(Zone::new(9).unwrap())),
+        point_sets: vec![SurveyPointSet {
+            name: None,
+            description: None,
+            points: vec![point.clone(), point.clone()],
+            source: Ref::default(),
+        }],
+        height_reference: Some(HeightReference {
+            name: Some("local".into()),
+            tokyo_bay_offset: Some(-1.25),
+            source: Ref::at_bytes(1, 9),
+        }),
+        alignments: vec![Alignment {
+            intersection_points: vec![point],
+            ground_profiles: vec![GroundProfile {
+                name: None,
+                description: None,
+                points: vec![[0.0, 1.0]],
+                source: Ref::at_bytes(30, 40),
+            }],
+            ..Alignment::default()
+        }],
+        ..CivilModel::default()
+    };
+    let mut diag = Diagnostics::new();
+    lower_civil_to_sima(
+        &model,
+        &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    let dropped: Vec<_> = diag
+        .iter()
+        .filter(|d| d.code() == codes::CIVIL_VALUE_DROPPED)
+        .collect();
+    assert_eq!(dropped.iter().map(|d| d.count()).sum::<u64>(), 5);
+    assert!(dropped.iter().all(|d| !d.places().is_empty()));
+}
+
 fn lift_all(
     src: &[u8],
 ) -> (
@@ -793,11 +846,13 @@ fn preserves_clothoids_major_arcs_circles_axes_and_rejects_nonplanar_crs() {
             },
             cross_sections: Vec::new(),
             source: Ref::default(),
+            ..Alignment::default()
         }],
         surfaces: Vec::new(),
         crs: Some(Crs::Plane(Zone::new(9).unwrap())),
         height_datum: None,
         realization: Some(Realization::Survey2011),
+        ..CivilModel::default()
     };
 
     let mut budget = Budget::default();

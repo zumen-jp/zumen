@@ -4060,6 +4060,7 @@
         { "$ref": "#/$defs/request_common" }
       ],
       "properties": {
+        "details": { "description": "doc の座標点・高さ基準と、選んだ線形の IP・地盤縦断・片勾配・横断の値を返す。複数の線形があれば id が必要。省略は false。マイナーバージョン 87 から", "type": "boolean" },
         "op": {
           "description": "op の名前",
           "const": "civil"
@@ -4202,6 +4203,7 @@
       "description": "線形の上の所",
       "type": "object",
       "properties": {
+        "details": { "description": "details を求めた場合の保持値。マイナーバージョン 87 から", "$ref": "#/$defs/civil_details" },
         "length": {
           "description": "平面線形の長さ（メートル）",
           "type": "number"
@@ -4232,6 +4234,375 @@
         }
       },
       "required": ["length", "positions"],
+      "additionalProperties": false
+    },
+    "civil_details": {
+      "description": "土木モデルの保持値。スキーマ 1.87 から",
+      "type": "object",
+      "properties": {
+        "alignment": {
+          "description": "選んだ線形の値。線形がなければ書かない",
+          "$ref": "#/$defs/civil_alignment_values"
+        },
+        "point_sets": {
+          "description": "文書の座標点セット",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/civil_point_set"
+          }
+        },
+        "height_reference": {
+          "description": "文書の高さの基準。値は自動で T.P. に直さない",
+          "$ref": "#/$defs/civil_height_reference"
+        }
+      },
+      "required": [
+        "point_sets"
+      ],
+      "additionalProperties": false
+    },
+    "civil_height_reference": {
+      "description": "元の高さの基準",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "元の基準名",
+          "type": "string"
+        },
+        "tokyo_bay_offset": {
+          "description": "元の高さに足すと T.P. の高さになる差（メートル）。不明なら書かない",
+          "type": "number"
+        },
+        "source": {
+          "description": "元の位置",
+          "$ref": "#/$defs/source"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "civil_alignment_values": {
+      "description": "線形の付随する値。元の順序を保つ",
+      "type": "object",
+      "properties": {
+        "vertical_name_ambiguous": { "description": "同じ名前の縦断が複数あり、名前で参照先を一意に定められない", "type": "boolean" },
+        "id": {
+          "description": "選んだ線形の ID",
+          "type": "string"
+        },
+        "vertical_name": {
+          "description": "保持した縦断線形の元の名前",
+          "type": "string"
+        },
+        "intersection_points": {
+          "description": "IP の列。始点・終点を含む",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/civil_survey_point"
+          }
+        },
+        "ground_profiles": {
+          "description": "地盤の縦断の折れ線",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/civil_ground_profile"
+          }
+        },
+        "cant": {
+          "description": "片勾配とカントの区間",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/civil_cant"
+          }
+        },
+        "cross_sections": {
+          "description": "横断の線と点",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/civil_cross_section"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "vertical_name_ambiguous",
+        "intersection_points",
+        "ground_profiles",
+        "cant",
+        "cross_sections"
+      ],
+      "additionalProperties": false
+    },
+    "civil_survey_point": {
+      "description": "IP・基準点などの座標点",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "元の名前。永続 ID と同一視しない",
+          "type": "string"
+        },
+        "description": {
+          "description": "注記",
+          "type": "string"
+        },
+        "northing": {
+          "description": "北の座標（メートル）",
+          "type": "number"
+        },
+        "easting": {
+          "description": "東の座標（メートル）",
+          "type": "number"
+        },
+        "height": {
+          "description": "文書の基準での標高（メートル）。省略は 0 にしない",
+          "type": "number"
+        },
+        "class": {
+          "description": "基準点・水準点の種類",
+          "type": "string"
+        },
+        "source": {
+          "description": "元の位置",
+          "$ref": "#/$defs/source"
+        }
+      },
+      "required": [
+        "northing",
+        "easting",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "civil_point_set": {
+      "description": "元の順序を持つ座標点セット",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "元の名前",
+          "type": "string"
+        },
+        "description": {
+          "description": "注記",
+          "type": "string"
+        },
+        "points": {
+          "description": "点",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/civil_survey_point"
+          }
+        },
+        "source": {
+          "description": "元の位置",
+          "$ref": "#/$defs/source"
+        }
+      },
+      "required": [
+        "points",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "civil_ground_profile": {
+      "description": "地盤の縦断線",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "元の名前",
+          "type": "string"
+        },
+        "description": {
+          "description": "注記",
+          "type": "string"
+        },
+        "points": {
+          "description": "追加距離と高さ",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/civil_profile_point"
+          }
+        },
+        "source": {
+          "description": "元の位置",
+          "$ref": "#/$defs/source"
+        }
+      },
+      "required": [
+        "points",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "civil_profile_point": {
+      "description": "地盤縦断の点",
+      "type": "object",
+      "properties": {
+        "distance": {
+          "description": "線形の初めからの追加距離（メートル）",
+          "type": "number"
+        },
+        "height": {
+          "description": "文書の基準での標高（メートル）",
+          "type": "number"
+        }
+      },
+      "required": [
+        "distance",
+        "height"
+      ],
+      "additionalProperties": false
+    },
+    "civil_cant": {
+      "description": "片勾配またはカントの区間",
+      "type": "object",
+      "properties": {
+        "start_distance": {
+          "description": "初めの追加距離（メートル）",
+          "type": "number"
+        },
+        "length": {
+          "description": "区間の長さ（メートル）",
+          "type": "number"
+        },
+        "kind": {
+          "description": "superelevation は道路の左右の勾配（%）、rail は鉄道の左右の高さの差（mm）",
+          "type": "string"
+        },
+        "start": {
+          "description": "初めの左と右",
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "end": {
+          "description": "終わりの左と右",
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "gauge": {
+          "description": "鉄道の軌間（mm）。不明なら書かない",
+          "type": "number"
+        },
+        "transition": {
+          "description": "変わり方。元の値",
+          "type": "string"
+        },
+        "source": {
+          "description": "元の位置",
+          "$ref": "#/$defs/source"
+        }
+      },
+      "required": [
+        "start_distance",
+        "length",
+        "kind",
+        "start",
+        "end",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "civil_cross_section": {
+      "description": "横断",
+      "type": "object",
+      "properties": {
+        "distance": {
+          "description": "追加距離（メートル）",
+          "type": "number"
+        },
+        "name": {
+          "description": "名前",
+          "type": "string"
+        },
+        "profile": {
+          "description": "参照する縦断線形の元の名前",
+          "type": "string"
+        },
+        "lines": {
+          "description": "横断の線",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/civil_cross_section_line"
+          }
+        },
+        "source": {
+          "description": "元の位置",
+          "$ref": "#/$defs/source"
+        }
+      },
+      "required": [
+        "distance",
+        "lines",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "civil_cross_section_line": {
+      "description": "横断の線。点の元の値を保つ",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "名前",
+          "type": "string"
+        },
+        "description": {
+          "description": "注記",
+          "type": "string"
+        },
+        "side": {
+          "description": "幅員中心から見た側。元の値。離れの符号は変えない",
+          "type": "string"
+        },
+        "role": {
+          "description": "existing、design または元の値",
+          "type": "string"
+        },
+        "height_reference": {
+          "description": "elevation は文書の標高、formation_offset はその所の計画高からの差",
+          "type": "string"
+        },
+        "points": {
+          "description": "離れと元の高さ",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/civil_cross_section_point"
+          }
+        },
+        "source": {
+          "description": "元の位置",
+          "$ref": "#/$defs/source"
+        }
+      },
+      "required": [
+        "role",
+        "height_reference",
+        "points",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "civil_cross_section_point": {
+      "description": "横断の点",
+      "type": "object",
+      "properties": {
+        "offset": {
+          "description": "中心線からの離れ（右を正、メートル）",
+          "type": "number"
+        },
+        "height": {
+          "description": "線の height_reference に従う高さ（メートル）",
+          "type": "number"
+        }
+      },
+      "required": [
+        "offset",
+        "height"
+      ],
       "additionalProperties": false
     },
     "civil_alignment_summary": {

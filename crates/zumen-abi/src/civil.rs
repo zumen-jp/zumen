@@ -1,5 +1,6 @@
 //! `civil` の op（決定 0230）。要求に書くか、J-LandXML・IFC4.3 から開いた線形の上の所を、追加距離か測点の表記から求める。
 
+use std::borrow::Cow;
 use zumen_base::{Cx, Kind};
 use zumen_civil::station::{self, Notation};
 use zumen_civil::{
@@ -21,6 +22,8 @@ use crate::messages::{
     CivilSurfaceSummary, CivilTransitionCurve, CivilVerticalKind,
 };
 use crate::session::{Failed, fail, invalid_value, stopped};
+
+mod values;
 
 /// J-LandXML なら読み、土木の領域モデルに移す。ほかの形式なら `None`
 pub(crate) fn read(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<CivilModel, Failed>> {
@@ -60,10 +63,16 @@ pub(crate) fn civil(
     model: Option<&CivilModel>,
     cx: &mut Cx<'_>,
 ) -> Result<CivilResult, Failed> {
-    let asks =
-        request.distances.is_some() || request.stations.is_some() || request.interval.is_some();
+    let details = request.details.unwrap_or(false);
+    if details && model.is_none() {
+        return Err(fail(cx, invalid_value("/details")));
+    }
+    let asks = details
+        || request.distances.is_some()
+        || request.stations.is_some()
+        || request.interval.is_some();
     let (alignment, summary) = match (&request.alignment, model) {
-        (Some(written), None) => (Some(alignment(written, cx)?), None),
+        (Some(written), None) => (Some(Cow::Owned(alignment(written, cx)?)), None),
         (None, Some(model)) => {
             let chosen = match &request.id {
                 Some(id) => Some(
@@ -80,7 +89,7 @@ pub(crate) fn civil(
                     _ => None,
                 },
             };
-            (chosen.cloned(), Some(model))
+            (chosen.map(Cow::Borrowed), Some(model))
         }
         // 線形の書き方は、要求に書くか doc で選ぶかのどちらか 1 つ
         _ => return Err(fail(cx, invalid_value("/alignment"))),
@@ -90,6 +99,13 @@ pub(crate) fn civil(
         None => (0.0, Vec::new()),
     };
     Ok(CivilResult {
+        details: if details {
+            summary
+                .map(|model| values::details(model, alignment.as_deref(), cx))
+                .transpose()?
+        } else {
+            None
+        },
         length,
         positions,
         alignment: summary

@@ -1,0 +1,43 @@
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+  <CoordinateSystem horizontalDatum="JGD2024" verticalDatum="local" horizontalCoordinateSystemName="9(X,Y)">
+    <Feature><Property label="differTP" value="-1.25"/></Feature>
+  </CoordinateSystem>
+  <CgPoints name="ControlPnts" desc="合成の基準点">
+    <CgPoint name="survey-a" desc="高さあり" featureRef="class-a">123 456 42.5</CgPoint>
+    <CgPoint name="survey-b" desc="高さなし">124 457</CgPoint>
+    <Feature name="class-a"><Property label="class" value="3級基準点"/></Feature>
+  </CgPoints>
+  <Alignments>
+    <Alignment name="road" staStart="1000" length="100">
+      <CoordGeom><Line><Start>123 456</Start><End>223 456</End></Line></CoordGeom>
+      <AlignPIs>
+        <AlignPI><PI name="begin">123 456</PI></AlignPI>
+        <AlignPI><PI name="ip-a" desc="交点">180 470</PI></AlignPI>
+        <AlignPI><PI name="end">223 456</PI></AlignPI>
+      </AlignPIs>
+      <CrossSects>
+        <CrossSect name="section-a" sta="1025">
+          <DesignCrossSectSurf name="road-surface" desc="道路面" side="left">
+            <CrossSectPnt>-2 -0.5</CrossSectPnt><CrossSectPnt>3 0.75</CrossSectPnt>
+            <Feature><Property label="heightType" value="fhOffset"/></Feature>
+          </DesignCrossSectSurf>
+          <CrossSectSurf name="ExistingGround" desc="地形">
+            <PntList2D>-4 43 4 44</PntList2D>
+          </CrossSectSurf>
+        </CrossSect>
+        <Feature><Property label="profAlignRefs" value="design-a"/></Feature>
+      </CrossSects>
+      <Profile>
+        <ProfAlign name="design-a"><PVI>1000 40</PVI><PVI>1100 60</PVI></ProfAlign>
+        <ProfSurf name="ground-a" desc="地盤の縦断">
+          <PntList2D>1000 39 1025 43 1100 59</PntList2D>
+          <PntList2D>1010 38 1030 42</PntList2D>
+        </ProfSurf>
+      </Profile>
+      <Feature name="SlopeList">
+        <Property label="slopeValue" value="1000 -2 2"/>
+        <Property label="slopeValue" value="1100 4 4"/>
+      </Feature>
+    </Alignment>
+  </Alignments>
+</LandXML>

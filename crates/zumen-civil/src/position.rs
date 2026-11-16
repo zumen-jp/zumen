@@ -1,12 +1,58 @@
 //! 追加距離での位置・方向角・高さ（決定 0230）。
 
-use crate::{Alignment, Horizontal, HorizontalKind, TransitionCurve, Vertical, VerticalKind};
+use crate::{
+    Alignment, CrossSection, CrossSectionHeight, CrossSectionLine, Horizontal, HorizontalKind,
+    TransitionCurve, Vertical, VerticalKind,
+};
 use zumen_base::{Cx, Diagnostic, Kind, Stop, codes};
 use zumen_crs::MapPoint;
 use zumen_geom2d::Ramp;
 
 /// 求めた値か、求められない理由の診断
 pub type Found<T> = Result<T, Box<Diagnostic>>;
+
+/// 横断の点の高さに足す値。標高は 0、計画高からの差は参照する縦断の高さを返す。
+/// 参照する縦断がないか、高さを求められないときは診断を返す。走査と評価を予算に数える。
+pub fn cross_section_height_offset(
+    alignment: &Alignment,
+    section: &CrossSection,
+    line: &CrossSectionLine,
+    cx: &mut Cx<'_>,
+) -> Result<Found<f64>, Stop> {
+    if line.height_reference == CrossSectionHeight::Elevation {
+        return Ok(Ok(0.0));
+    }
+    let reference_bytes = section.profile.as_ref().map_or(0, |name| name.len() as u64);
+    let vertical_bytes = alignment
+        .vertical_name
+        .as_ref()
+        .map_or(0, |name| name.len() as u64);
+    cx.check(Kind::Work, reference_bytes.saturating_add(vertical_bytes))?;
+    cx.check(
+        Kind::DecodedBytes,
+        reference_bytes.saturating_mul(3).saturating_add(512),
+    )?;
+    let missing = || {
+        Box::new(
+            Diagnostic::new(codes::CIVIL_CROSS_SECTION_HEIGHT_UNSUPPORTED)
+                .with("distance", section.distance)
+                .with("profile", section.profile.as_deref().unwrap_or_default())
+                .at(line.source.clone()),
+        )
+    };
+    cx.check(Kind::Work, alignment.vertical.len() as u64 + 1)?;
+    if section.profile.as_ref().is_some_and(|name| {
+        name.is_empty()
+            || alignment.vertical_name_ambiguous
+            || Some(name) != alignment.vertical_name.as_ref()
+    }) {
+        return Ok(Err(missing()));
+    }
+    Ok(match height(&alignment.vertical, section.distance, cx)? {
+        Ok(Some((value, _))) if value.is_finite() => Ok(value),
+        _ => Err(missing()),
+    })
+}
 
 /// 線形の上の 1 つの所
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -8,15 +8,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Diagnostic, Kind, Ref, Stop, codes};
 use zumen_civil::{
-    Alignment, Cant, CantKind, CivilModel, CrossSection, CrossSectionLine, Horizontal,
-    HorizontalKind, StationBreak, Stationing, SurfaceRole, Tin, TransitionCurve, Vertical,
-    VerticalKind,
+    Alignment, Cant, CantKind, CivilModel, CrossSection, CrossSectionHeight, CrossSectionLine,
+    GroundProfile, HeightReference, Horizontal, HorizontalKind, StationBreak, Stationing,
+    SurfaceRole, SurveyPoint, SurveyPointSet, Tin, TransitionCurve, Vertical, VerticalKind,
 };
 use zumen_crs::{Crs, HeightDatum, MapPoint, Realization, Zone};
 use zumen_sdk::{Cx, Error};
 use zumen_xml::{Document, Element, Node};
 
 mod cant;
+mod values;
 
 pub(crate) fn lift(doc: &Document, cx: &mut Cx) -> Result<CivilModel, Error> {
     let mut reader = Reader { doc, cx };
@@ -43,8 +44,11 @@ impl<'d> Reader<'d, '_, '_> {
             match self.local(child) {
                 b"CoordinateSystem" => {
                     crs = true;
+                    self.reserve_values(child)?;
                     self.coordinate_system(child, &mut model);
+                    model.height_reference = Some(self.height_reference(child));
                 }
+                b"CgPoints" => model.point_sets.push(self.point_set(child)?),
                 b"Alignments" => {
                     for alignment in self.named(child, b"Alignment") {
                         let alignment = self.alignment(alignment, &mut seen)?;
@@ -150,20 +154,41 @@ impl<'d> Reader<'d, '_, '_> {
                     for profile in self.children(child) {
                         if self.local(profile) == b"ProfAlign" && !profiled {
                             profiled = true;
+                            alignment.vertical_name = self.copy_attribute(profile, b"name")?;
                             alignment.vertical = self.profile(profile, start)?;
+                        } else if self.local(profile) == b"ProfSurf" {
+                            alignment
+                                .ground_profiles
+                                .extend(self.ground_profiles(profile, start)?);
                         } else {
-                            // 2 つ目からの縦断線形と、縦断地盤線
+                            // 2 つ目からの縦断線形
+                            if self.local(profile) == b"ProfAlign" {
+                                let name = self.copy_attribute(profile, b"name")?;
+                                if name.is_some() && name == alignment.vertical_name {
+                                    alignment.vertical_name_ambiguous = true;
+                                    self.invalid(profile, "name");
+                                }
+                            }
                             self.unsupported(profile);
                         }
                     }
                 }
                 b"CrossSects" => {
+                    self.reserve_values(child)?;
+                    let profile = self.cross_profile(child);
                     for section in self.named(child, b"CrossSect") {
                         if let Some(section) = self.cross_section(section, start)? {
-                            alignment.cross_sections.push(section);
+                            self.reserve_text(child, profile.as_ref().map_or(0, String::len))?;
+                            alignment.cross_sections.push(CrossSection {
+                                profile: profile.clone(),
+                                ..section
+                            });
                         }
                     }
                 }
+                b"AlignPIs" => alignment
+                    .intersection_points
+                    .extend(self.intersection_points(child)?),
                 b"Feature" => {
                     if matches!(
                         self.attribute(child, b"name").as_deref(),
@@ -632,6 +657,10 @@ impl<'d> Reader<'d, '_, '_> {
             return Ok(None);
         };
         let distance = sta - start;
+        if !distance.is_finite() {
+            self.invalid(element, "sta");
+            return Ok(None);
+        }
         let mut lines = Vec::new();
         for child in self.children(element) {
             match self.local(child) {
@@ -651,53 +680,48 @@ impl<'d> Reader<'d, '_, '_> {
                             b"PntList2D" => {
                                 let values = numbers(&self.text(list));
                                 self.spend(list, values.len() as u64 / 2)?;
+                                self.reserve_text(
+                                    list,
+                                    name.as_ref().map_or(0, String::len).saturating_mul(2),
+                                )?;
                                 match pairs(&values) {
                                     Some(points) => lines.push(CrossSectionLine {
                                         name: name.clone(),
                                         role: role.clone(),
                                         points,
+                                        description: self.copy_attribute(child, b"desc")?,
+                                        side: self.copy_attribute(child, b"side")?,
+                                        height_reference: CrossSectionHeight::Elevation,
+                                        source: self.at(list),
                                     }),
                                     None => self.invalid(list, "text"),
                                 }
                             }
-                            b"Feature" => {}
+                            b"Feature" => self.unsupported(list),
                             _ => self.unsupported(list),
                         }
                     }
                 }
-                b"Feature" => {}
+                b"Feature" => self.unsupported(child),
                 _ => self.unsupported(child),
             }
         }
         Ok(Some(CrossSection {
             distance,
             name: self.attribute(element, b"name"),
+            profile: None,
             lines,
             source: self.at(element),
         }))
     }
 
-    /// 計画の横断の線。点は、中心線からの離れと標高（`OffsetElevation`）で書いたものだけを移す
+    /// 4-3-41・42。中心線からの離れと、標高か計画高からの差を元の基準のまま移す
     fn design_line(&mut self, element: &Element) -> Result<Option<CrossSectionLine>, Error> {
         let name = self.attribute(element, b"name");
         let label = name.clone().unwrap_or_default();
-        for feature in self.named(element, b"Feature") {
-            for property in self.named(feature, b"Property") {
-                let label_of = self.attribute(property, b"label");
-                let value = self.attribute(property, b"value");
-                if label_of.as_deref().map(str::trim) == Some("heightType")
-                    && value.as_deref().map(str::trim) == Some("fhOffset")
-                {
-                    self.cx.report(
-                        Diagnostic::new(codes::LANDXML_CROSS_SECTION_LINE_UNSUPPORTED)
-                            .with("name", label.as_str())
-                            .with("form", "fhOffset")
-                            .at(self.at(element)),
-                    );
-                    return Ok(None);
-                }
-            }
-        }
+        let Some(height_reference) = self.cross_height(element) else {
+            return Ok(None);
+        };
         let mut points = Vec::new();
         for point in self.named(element, b"CrossSectPnt") {
             self.spend(point, 1)?;
@@ -723,6 +747,10 @@ impl<'d> Reader<'d, '_, '_> {
             name,
             role: SurfaceRole::Design,
             points,
+            description: self.attribute(element, b"desc"),
+            side: self.attribute(element, b"side"),
+            height_reference,
+            source: self.at(element),
         }))
     }
 

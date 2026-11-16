@@ -13,6 +13,18 @@
 
 VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenNative.bas` にネイティブの宣言・ABI の型・バージョン・状態コード・シーンの配置を生成します。メッセージは UTF-8 の JSON のまま受け渡します。所有権と型の対応は [VBA のバインディング](../bindings/vba/README.md) にあります。
 
+## 土木モデルの保持値
+
+スキーマ 1.87 から、`civil` に `doc` と `details: true` を渡すと、座標点セット・元の高さの基準と、選んだ線形の IP・地盤縦断・片勾配・横断の線と点を `result.details` で取得できます。線形が複数ある場合は `id` が必要です。`alignment` に直接書いた線形では `details: true` を受け付けません。省略または `false` の場合は従来の要約と位置だけを返します。
+
+```json
+{"v":1,"op":"civil","doc":"road.xml","id":"road","details":true,"distances":[25]}
+```
+
+距離・北と東・高さはメートルです。片勾配の `kind` が `superelevation` なら左右の値は %、`rail` なら左右の高さの差と `gauge` は mm です。横断の点の `height` は `height_reference` が `elevation` なら文書の標高、`formation_offset` なら計画高からの差です。`side` で離れの符号を変えません。文書の `tokyo_bay_offset` を高さへ自動で足さず、名前・出所・省略された高さを保持します。点の名前を永続 ID と同一視しません。
+
+返す値の複写前に、行ごとに作業量 1 と確保量 512 バイト、文字列の長さを追加の確保量として数えます。予算停止では部分結果を返さず、文書を変更しません。読み取りの対応範囲、参照の評価と Rust の移行は [J-LandXML の規則](../docs/formats/landxml.md)にあります。
+
 ## 空の図面を作る
 
 スキーマ 1.83 から、入力のファイルを渡さずに `create` で空の文書を作れます。`format` は `capabilities.formats` の `create` が `true` の形式、`to` はまだ登録していない文書名です。今は図面のモジュールで `dxf` を指定できます。`write` は既存の文書の書き戻し、`create` は入力なしの作成を示します。

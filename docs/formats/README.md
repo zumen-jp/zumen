@@ -907,7 +907,7 @@
 - 照合に使う候補: 国土交通省の基準に対応した 3 次元設計データの閲覧ソフト（iLEX など。手元でだけ使う）
 - サンプルの出どころ: 再配布を認める公開サンプルは見つかっていない。テストの中で小さな J-LandXML を作る
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-16）
-- 読みの確かめた範囲: J-LandXML Ver.1.8 の文書と、テストの中で作った J-LandXML（crates/zumen-landxml/tests）で確かめた。片勾配は最大区間・基本型と連続曲線のすりつけ・任意横断勾配を Rust の L2 モデルへ移す。再配布できる公開サンプルは見つかっていない（#368・#504）
+- 読みの確かめた範囲: J-LandXML Ver.1.8 と自作の入力で、片勾配の最大区間・すりつけ・任意横断勾配、IP・基準点・地盤縦断・横断属性・高さ基準を L2 と civil の詳細へ移すことを確かめた。保持値・出所・予算と native/wasm の応答を比べる。再配布できる公開サンプルは見つかっていない（#368・#504）
 - issue: [zumen-jp/zumen#366](https://github.com/zumen-jp/zumen/issues/366)
 - issue: [zumen-jp/zumen#368](https://github.com/zumen-jp/zumen/issues/368)
 - 形式の文書: [docs/formats/landxml.md](../../docs/formats/landxml.md)

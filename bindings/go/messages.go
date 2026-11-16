@@ -5900,6 +5900,9 @@ type CivilRequest struct {
 	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
 	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
 
+	// doc の座標点・高さ基準と、選んだ線形の IP・地盤縦断・片勾配・横断の値を返す。複数の線形があれば id が必要。省略は false。マイナーバージョン 87 から
+	Details *bool `json:"details,omitempty"`
+
 	// op の名前
 	Op string `json:"op,omitempty"`
 
@@ -6072,6 +6075,9 @@ type CivilStationBreak struct {
 
 // CivilResult: 線形の上の所
 type CivilResult struct {
+	// details を求めた場合の保持値。マイナーバージョン 87 から
+	Details *CivilDetails `json:"details,omitempty"`
+
 	// 平面線形の長さ（メートル）
 	Length *float64 `json:"length,omitempty"`
 
@@ -6089,6 +6095,195 @@ type CivilResult struct {
 
 	// doc の水平の座標系の EPSG のコード。分からなければ書かない。マイナーバージョン 47 から
 	Crs *int64 `json:"crs,omitempty"`
+}
+
+// CivilDetails: 土木モデルの保持値。スキーマ 1.87 から
+type CivilDetails struct {
+	// 選んだ線形の値。線形がなければ書かない
+	Alignment *CivilAlignmentValues `json:"alignment,omitempty"`
+
+	// 文書の座標点セット
+	PointSets []CivilPointSet `json:"point_sets,omitempty"`
+
+	// 文書の高さの基準。値は自動で T.P. に直さない
+	HeightReference *CivilHeightReference `json:"height_reference,omitempty"`
+}
+
+// CivilHeightReference: 元の高さの基準
+type CivilHeightReference struct {
+	// 元の基準名
+	Name *string `json:"name,omitempty"`
+
+	// 元の高さに足すと T.P. の高さになる差（メートル）。不明なら書かない
+	TokyoBayOffset *float64 `json:"tokyo_bay_offset,omitempty"`
+
+	// 元の位置
+	Source *Source `json:"source,omitempty"`
+}
+
+// CivilAlignmentValues: 線形の付随する値。元の順序を保つ
+type CivilAlignmentValues struct {
+	// 同じ名前の縦断が複数あり、名前で参照先を一意に定められない
+	VerticalNameAmbiguous *bool `json:"vertical_name_ambiguous,omitempty"`
+
+	// 選んだ線形の ID
+	Id *string `json:"id,omitempty"`
+
+	// 保持した縦断線形の元の名前
+	VerticalName *string `json:"vertical_name,omitempty"`
+
+	// IP の列。始点・終点を含む
+	IntersectionPoints []CivilSurveyPoint `json:"intersection_points,omitempty"`
+
+	// 地盤の縦断の折れ線
+	GroundProfiles []CivilGroundProfile `json:"ground_profiles,omitempty"`
+
+	// 片勾配とカントの区間
+	Cant []CivilCant `json:"cant,omitempty"`
+
+	// 横断の線と点
+	CrossSections []CivilCrossSection `json:"cross_sections,omitempty"`
+}
+
+// CivilSurveyPoint: IP・基準点などの座標点
+type CivilSurveyPoint struct {
+	// 元の名前。永続 ID と同一視しない
+	Name *string `json:"name,omitempty"`
+
+	// 注記
+	Description *string `json:"description,omitempty"`
+
+	// 北の座標（メートル）
+	Northing *float64 `json:"northing,omitempty"`
+
+	// 東の座標（メートル）
+	Easting *float64 `json:"easting,omitempty"`
+
+	// 文書の基準での標高（メートル）。省略は 0 にしない
+	Height *float64 `json:"height,omitempty"`
+
+	// 基準点・水準点の種類
+	Class *string `json:"class,omitempty"`
+
+	// 元の位置
+	Source *Source `json:"source,omitempty"`
+}
+
+// CivilPointSet: 元の順序を持つ座標点セット
+type CivilPointSet struct {
+	// 元の名前
+	Name *string `json:"name,omitempty"`
+
+	// 注記
+	Description *string `json:"description,omitempty"`
+
+	// 点
+	Points []CivilSurveyPoint `json:"points,omitempty"`
+
+	// 元の位置
+	Source *Source `json:"source,omitempty"`
+}
+
+// CivilGroundProfile: 地盤の縦断線
+type CivilGroundProfile struct {
+	// 元の名前
+	Name *string `json:"name,omitempty"`
+
+	// 注記
+	Description *string `json:"description,omitempty"`
+
+	// 追加距離と高さ
+	Points []CivilProfilePoint `json:"points,omitempty"`
+
+	// 元の位置
+	Source *Source `json:"source,omitempty"`
+}
+
+// CivilProfilePoint: 地盤縦断の点
+type CivilProfilePoint struct {
+	// 線形の初めからの追加距離（メートル）
+	Distance *float64 `json:"distance,omitempty"`
+
+	// 文書の基準での標高（メートル）
+	Height *float64 `json:"height,omitempty"`
+}
+
+// CivilCant: 片勾配またはカントの区間
+type CivilCant struct {
+	// 初めの追加距離（メートル）
+	StartDistance *float64 `json:"start_distance,omitempty"`
+
+	// 区間の長さ（メートル）
+	Length *float64 `json:"length,omitempty"`
+
+	// superelevation は道路の左右の勾配（%）、rail は鉄道の左右の高さの差（mm）
+	Kind *string `json:"kind,omitempty"`
+
+	// 初めの左と右
+	Start []float64 `json:"start,omitempty"`
+
+	// 終わりの左と右
+	End []float64 `json:"end,omitempty"`
+
+	// 鉄道の軌間（mm）。不明なら書かない
+	Gauge *float64 `json:"gauge,omitempty"`
+
+	// 変わり方。元の値
+	Transition *string `json:"transition,omitempty"`
+
+	// 元の位置
+	Source *Source `json:"source,omitempty"`
+}
+
+// CivilCrossSection: 横断
+type CivilCrossSection struct {
+	// 追加距離（メートル）
+	Distance *float64 `json:"distance,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// 参照する縦断線形の元の名前
+	Profile *string `json:"profile,omitempty"`
+
+	// 横断の線
+	Lines []CivilCrossSectionLine `json:"lines,omitempty"`
+
+	// 元の位置
+	Source *Source `json:"source,omitempty"`
+}
+
+// CivilCrossSectionLine: 横断の線。点の元の値を保つ
+type CivilCrossSectionLine struct {
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// 注記
+	Description *string `json:"description,omitempty"`
+
+	// 幅員中心から見た側。元の値。離れの符号は変えない
+	Side *string `json:"side,omitempty"`
+
+	// existing、design または元の値
+	Role *string `json:"role,omitempty"`
+
+	// elevation は文書の標高、formation_offset はその所の計画高からの差
+	HeightReference *string `json:"height_reference,omitempty"`
+
+	// 離れと元の高さ
+	Points []CivilCrossSectionPoint `json:"points,omitempty"`
+
+	// 元の位置
+	Source *Source `json:"source,omitempty"`
+}
+
+// CivilCrossSectionPoint: 横断の点
+type CivilCrossSectionPoint struct {
+	// 中心線からの離れ（右を正、メートル）
+	Offset *float64 `json:"offset,omitempty"`
+
+	// 線の height_reference に従う高さ（メートル）
+	Height *float64 `json:"height,omitempty"`
 }
 
 // CivilAlignmentSummary: 線形の要約
