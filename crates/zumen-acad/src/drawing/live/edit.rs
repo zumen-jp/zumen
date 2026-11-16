@@ -9,9 +9,12 @@
 //!   [`DwgFile::apply`](crate::DwgFile) を通して常駐状態を更新し、同じ履歴列（[`LiveJournal`]）に積むことで、
 //!   高速経路と構造経路を自由に行き来しても `undo`・`redo`・`save`・診断が 100% 一致する。
 
+#[cfg(test)]
+mod tests;
+
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Key, Kind, Ref, codes};
+use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Kind, Ref, codes};
 use zumen_drawing::{
     Applied, Changes, Edit, Element, Hash, Inherit, LayerId, Length, LineTypeId, ModelLength,
     ModelPoint, Placed, PointMark, PointSize, PointStyle, Seen, Shape, SpaceId,
@@ -549,6 +552,31 @@ fn has_ext_or_paper(values: &[Value]) -> bool {
 /// 1 つのモデル空間図形（と従属レコード）を `StagedLifted` に持ち上げる（`state` は変更しない）
 type FollowerRecordData = (u32, Origin, Option<u64>, Vec<u8>, Vec<Value>);
 
+fn check_lift_values(values: &[Value], cx: &mut Cx<'_>) -> Result<(), Error> {
+    let checked = |cx: &mut Cx<'_>, kind, amount| {
+        cx.check(kind, amount).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })
+    };
+    checked(cx, Kind::Work, (values.len() as u64).saturating_add(1))?;
+    let payload = values.iter().fold(0_u64, |bytes, value| {
+        bytes.saturating_add(match &value.data {
+            Data::Text(value) | Data::Binary(value) => value.len() as u64,
+            _ => 0,
+        })
+    });
+    checked(cx, Kind::Work, payload)?;
+    // 値の一時コピーと復号した文字列を、ポインター幅によらない量で数える。
+    checked(
+        cx,
+        Kind::DecodedBytes,
+        (values.len() as u64)
+            .saturating_mul(96)
+            .saturating_add(payload.saturating_mul(4)),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn stage_lift_model_entity(
     state: &LiveState,
@@ -560,7 +588,12 @@ fn stage_lift_model_entity(
     kind: &[u8],
     values: Vec<Value>,
     followers: &[FollowerRecordData],
-) -> Option<(StagedLifted, Element<ModelPoint>)> {
+    cx: &mut Cx<'_>,
+) -> Result<Option<(StagedLifted, Element<ModelPoint>)>, Error> {
+    check_lift_values(&values, cx)?;
+    for (_, _, _, _, values) in followers {
+        check_lift_values(values, cx)?;
+    }
     let is_plain_kind = matches!(
         kind,
         b"LINE" | b"CIRCLE" | b"ARC" | b"LWPOLYLINE" | b"TEXT" | b"INSERT"
@@ -621,15 +654,17 @@ fn stage_lift_model_entity(
                     born,
                     &state.block_defs_by_lower,
                 );
-                let el = temp_shapes.to_element(&temp_row, &temp_cat)?;
-                return Some((
+                let Some(el) = temp_shapes.to_element(&temp_row, &temp_cat) else {
+                    return Ok(None);
+                };
+                return Ok(Some((
                     StagedLifted::Plain {
                         item: plain,
                         unique_handle,
                         born,
                     },
                     el,
-                ));
+                )));
             }
         }
     }
@@ -648,7 +683,7 @@ fn stage_lift_model_entity(
                 | b"DGNUNDERLAY"
         )
     {
-        return None;
+        return Ok(None);
     }
 
     let mut lookup_db = AcadDb::default();
@@ -740,29 +775,30 @@ fn stage_lift_model_entity(
         .collect();
     let child_refs: Vec<&Object> = child_objs.iter().map(|(_, o)| o).collect();
 
-    let mut budget = Budget::default();
     let mut diag = Diagnostics::new();
-    let cancel = CancelToken::new();
-    let mut local_cx = Cx::new(&mut budget, &mut diag, &cancel);
-    if lifter
-        .entity(
-            &lookup_db,
-            &main_obj,
-            src_ref,
-            &child_refs,
-            &mut out,
-            &mut local_cx,
-        )
-        .is_err()
-        || !diag.is_empty()
-    {
-        return None;
+    let mut local_cx = Cx::new(cx.budget, &mut diag, cx.cancel);
+    let lifted = lifter.entity(
+        &lookup_db,
+        &main_obj,
+        src_ref,
+        &child_refs,
+        &mut out,
+        &mut local_cx,
+    );
+    local_cx.check(Kind::Work, 0).map_err(|stop| {
+        cx.report(stop.to_diagnostic());
+        Error::Stopped(stop)
+    })?;
+    if lifted.is_err() || !diag.is_empty() {
+        return Ok(None);
     }
     // 新しい暗黙画層・線種を増やす変更は構造経路に任せる
     if out.layers.len() != init_layer_len || out.line_types.len() != init_lt_len {
-        return None;
+        return Ok(None);
     }
-    let el = out.model.pop()?;
+    let Some(el) = out.model.pop() else {
+        return Ok(None);
+    };
     let drafts = out.extensions;
     let follower_records: Vec<u32> = followers.iter().map(|(r, ..)| *r).collect();
     let raw_attrib_count = if kind == b"INSERT" {
@@ -770,7 +806,7 @@ fn stage_lift_model_entity(
     } else {
         0
     };
-    Some((
+    Ok(Some((
         StagedLifted::General {
             record,
             origin,
@@ -787,10 +823,11 @@ fn stage_lift_model_entity(
             raw_line_types: out.line_types,
         },
         el,
-    ))
+    )))
 }
 
 /// ブロック定義（`Section::Blocks`）内の 1 要素を空間 `space` の `Element<ModelPoint>` に持ち上げる
+#[allow(clippy::too_many_arguments)]
 fn stage_lift_block_element(
     state: &LiveState,
     space: SpaceId,
@@ -799,7 +836,9 @@ fn stage_lift_block_element(
     was_shape: &Shape<ModelPoint>,
     kind: &[u8],
     values: Vec<Value>,
-) -> Option<Element<ModelPoint>> {
+    cx: &mut Cx<'_>,
+) -> Result<Option<Element<ModelPoint>>, Error> {
+    check_lift_values(&values, cx)?;
     if state.catalog.has_implicit
         || values
             .iter()
@@ -818,7 +857,7 @@ fn stage_lift_block_element(
                 | b"VIEWPORT"
         )
     {
-        return None;
+        return Ok(None);
     }
     let empty_db = AcadDb::default();
     let empty_layouts = BTreeMap::new();
@@ -860,25 +899,28 @@ fn stage_lift_block_element(
     };
     let point = |x: f64, y: f64| ModelPoint { space, x, y };
     let length = |value: f64| Length::Model(ModelLength { space, value });
-    let mut budget = Budget::default();
     let mut diag = Diagnostics::new();
-    let cancel = CancelToken::new();
-    let mut local_cx = Cx::new(&mut budget, &mut diag, &cancel);
-    let el = lifter
-        .element(
-            &empty_db,
-            &obj,
-            source_ref,
-            &[],
-            point,
-            length,
-            &mut out,
-            &mut local_cx,
-        )
-        .ok()?;
+    let mut local_cx = Cx::new(cx.budget, &mut diag, cx.cancel);
+    let lifted = lifter.element(
+        &empty_db,
+        &obj,
+        source_ref,
+        &[],
+        point,
+        length,
+        &mut out,
+        &mut local_cx,
+    );
+    local_cx.check(Kind::Work, 0).map_err(|stop| {
+        cx.report(stop.to_diagnostic());
+        Error::Stopped(stop)
+    })?;
+    let Ok(el) = lifted else {
+        return Ok(None);
+    };
     if !diag.is_empty() || out.layers.len() != init_layer_len || out.line_types.len() != init_lt_len
     {
-        return None;
+        return Ok(None);
     }
     // 入れ子ブロック参照の名前変更は循環検査を通すため構造経路へ回す
     if let Shape::Symbol(now_sym) = &el.shape {
@@ -886,12 +928,12 @@ fn stage_lift_block_element(
             Shape::Symbol(prev_sym) if prev_sym.key == now_sym.key => {}
             _ => {
                 if now_sym.key.namespace == BLOCK {
-                    return None;
+                    return Ok(None);
                 }
             }
         }
     }
-    Some(el)
+    Ok(Some(el))
 }
 
 fn commit_staged_lifted(state: &mut LiveState, staged: StagedLifted) -> LiveRow {
@@ -1037,6 +1079,10 @@ fn check_target_seen(
     let Some(row) = state.table.row(row_id).copied() else {
         return Ok(Err(FastAttempt::Fallback));
     };
+    state.shapes.check_element_copy(&row, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(row.source_ref()));
+        Error::Stopped(stop)
+    })?;
     let Some(was) = state.shapes.to_element(&row, &state.catalog) else {
         return Ok(Err(FastAttempt::Fallback));
     };
@@ -1075,10 +1121,11 @@ fn check_block_element_seen(
     let Some(sym) = state.symbols.get(def_idx as usize) else {
         return Ok(Err(FastAttempt::Fallback));
     };
-    let Some(was) = sym.space.elements.get(elem_idx as usize).cloned() else {
+    let Some(was) = sym.space.elements.get(elem_idx as usize) else {
         return Ok(Err(FastAttempt::Fallback));
     };
-    let cur_hash = Hash::element_checked(&was, cx).map_err(|stop| {
+    let work_before_hash = cx.budget.used(Kind::Work);
+    let cur_hash = Hash::element_checked(was, cx).map_err(|stop| {
         cx.report(stop.to_diagnostic().at(was.source.clone()));
         Error::Stopped(stop)
     })?;
@@ -1105,7 +1152,17 @@ fn check_block_element_seen(
     if handle == 0 {
         return Ok(Err(FastAttempt::Fallback));
     }
-    Ok(Ok((def_idx, elem_idx, sym.space.id, handle, was)))
+    let copied_bytes = cx
+        .budget
+        .used(Kind::Work)
+        .saturating_sub(work_before_hash)
+        .saturating_mul(1024)
+        .saturating_add(512);
+    cx.check(Kind::DecodedBytes, copied_bytes).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(was.source.clone()));
+        Error::Stopped(stop)
+    })?;
+    Ok(Ok((def_idx, elem_idx, sym.space.id, handle, was.clone())))
 }
 
 fn compute_block_element_values(
@@ -1229,7 +1286,9 @@ fn stage_block_element_dxf(
         &was.shape,
         &kind_vec,
         new_vals,
-    ) else {
+        cx,
+    )?
+    else {
         return Ok(Err(FastAttempt::Fallback));
     };
     let hash = Hash::element_checked(&after_el, cx).map_err(|stop| {
@@ -1308,7 +1367,9 @@ fn stage_block_element_dwg(
         &was.shape,
         &kind_vec,
         settled_vals.clone(),
-    ) else {
+        cx,
+    )?
+    else {
         return Ok(Err(FastAttempt::Fallback));
     };
     let hash = Hash::element_checked(&after_el, cx).map_err(|stop| {
@@ -1574,7 +1635,7 @@ fn try_apply_fast(
                             follower_tuples.push((f_rec, fo, fh, b"ATTRIB".to_vec(), new_fv));
                         }
 
-                        let Some((lifted, after_el)) = stage_lift_model_entity(
+                        let (lifted, after_el) = match stage_lift_model_entity(
                             state,
                             row.record,
                             row_origin(&row),
@@ -1584,8 +1645,11 @@ fn try_apply_fast(
                             &kind_vec,
                             new_vals,
                             &follower_tuples,
-                        ) else {
-                            return FastAttempt::Fallback;
+                            cx,
+                        ) {
+                            Ok(Some(lifted)) => lifted,
+                            Ok(None) => return FastAttempt::Fallback,
+                            Err(error) => return FastAttempt::Err(error),
                         };
                         let ap = match build_applied(&row, &after_el, cx) {
                             Ok(ap) => ap,
@@ -1680,7 +1744,7 @@ fn try_apply_fast(
                             };
                             follower_tuples.push((f_rec, fo, fh, fk, fv));
                         }
-                        let Some((lifted, after_el)) = stage_lift_model_entity(
+                        let (lifted, after_el) = match stage_lift_model_entity(
                             state,
                             row.record,
                             row_origin(&row),
@@ -1690,8 +1754,11 @@ fn try_apply_fast(
                             &kind_vec,
                             new_vals,
                             &follower_tuples,
-                        ) else {
-                            return FastAttempt::Fallback;
+                            cx,
+                        ) {
+                            Ok(Some(lifted)) => lifted,
+                            Ok(None) => return FastAttempt::Fallback,
+                            Err(error) => return FastAttempt::Err(error),
                         };
                         let ap = match build_applied(&row, &after_el, cx) {
                             Ok(ap) => ap,
@@ -1786,7 +1853,7 @@ fn try_apply_fast(
                             follower_tuples.push((f_rec, fo, fh, b"ATTRIB".to_vec(), final_fv));
                         }
 
-                        let Some((lifted, after_el)) = stage_lift_model_entity(
+                        let (lifted, after_el) = match stage_lift_model_entity(
                             state,
                             row.record,
                             row_origin(&row),
@@ -1796,8 +1863,11 @@ fn try_apply_fast(
                             &kind_vec,
                             new_vals,
                             &follower_tuples,
-                        ) else {
-                            return FastAttempt::Fallback;
+                            cx,
+                        ) {
+                            Ok(Some(lifted)) => lifted,
+                            Ok(None) => return FastAttempt::Fallback,
+                            Err(error) => return FastAttempt::Err(error),
                         };
                         let ap = match build_applied(&row, &after_el, cx) {
                             Ok(ap) => ap,
@@ -1864,7 +1934,7 @@ fn try_apply_fast(
                         }
                         cur_max_h = Some(cur_max_h.map_or(last_h, |m| m.max(last_h)));
 
-                        let Some((lifted, after_el)) = stage_lift_model_entity(
+                        let (lifted, after_el) = match stage_lift_model_entity(
                             state,
                             main_rec_id,
                             Origin::New,
@@ -1874,8 +1944,11 @@ fn try_apply_fast(
                             main_kind,
                             main_vals,
                             &follower_tuples,
-                        ) else {
-                            return FastAttempt::Fallback;
+                            cx,
+                        ) {
+                            Ok(Some(lifted)) => lifted,
+                            Ok(None) => return FastAttempt::Fallback,
+                            Err(error) => return FastAttempt::Err(error),
                         };
                         let hash = match Hash::element_checked(&after_el, cx) {
                             Ok(h) => h,
@@ -2219,7 +2292,7 @@ fn try_apply_fast(
                             ));
                         }
 
-                        let Some((lifted, after_el)) = stage_lift_model_entity(
+                        let (lifted, after_el) = match stage_lift_model_entity(
                             state,
                             row.record,
                             row_origin(&row),
@@ -2229,8 +2302,11 @@ fn try_apply_fast(
                             &kind_vec,
                             settled_vals,
                             &follower_tuples,
-                        ) else {
-                            return FastAttempt::Fallback;
+                            cx,
+                        ) {
+                            Ok(Some(lifted)) => lifted,
+                            Ok(None) => return FastAttempt::Fallback,
+                            Err(error) => return FastAttempt::Err(error),
                         };
                         let ap = match build_applied(&row, &after_el, cx) {
                             Ok(ap) => ap,
@@ -2351,7 +2427,7 @@ fn try_apply_fast(
                             let fo = dwg_follower_origin(dwg, f_rec);
                             follower_tuples.push((f_rec, fo, fh, fk, fv));
                         }
-                        let Some((lifted, after_el)) = stage_lift_model_entity(
+                        let (lifted, after_el) = match stage_lift_model_entity(
                             state,
                             row.record,
                             row_origin(&row),
@@ -2361,8 +2437,11 @@ fn try_apply_fast(
                             &kind_vec,
                             settled_vals,
                             &follower_tuples,
-                        ) else {
-                            return FastAttempt::Fallback;
+                            cx,
+                        ) {
+                            Ok(Some(lifted)) => lifted,
+                            Ok(None) => return FastAttempt::Fallback,
+                            Err(error) => return FastAttempt::Err(error),
                         };
                         let ap = match build_applied(&row, &after_el, cx) {
                             Ok(ap) => ap,
@@ -2519,7 +2598,7 @@ fn try_apply_fast(
                             ));
                         }
 
-                        let Some((lifted, after_el)) = stage_lift_model_entity(
+                        let (lifted, after_el) = match stage_lift_model_entity(
                             state,
                             row.record,
                             row_origin(&row),
@@ -2529,8 +2608,11 @@ fn try_apply_fast(
                             &kind_vec,
                             settled_vals,
                             &follower_tuples,
-                        ) else {
-                            return FastAttempt::Fallback;
+                            cx,
+                        ) {
+                            Ok(Some(lifted)) => lifted,
+                            Ok(None) => return FastAttempt::Fallback,
+                            Err(error) => return FastAttempt::Err(error),
                         };
                         let ap = match build_applied(&row, &after_el, cx) {
                             Ok(ap) => ap,
@@ -2621,7 +2703,7 @@ fn try_apply_fast(
                         let Some((main_rec_id, main_h, main_kind, main_vals)) = main_settled else {
                             return FastAttempt::Fallback;
                         };
-                        let Some((lifted, after_el)) = stage_lift_model_entity(
+                        let (lifted, after_el) = match stage_lift_model_entity(
                             state,
                             main_rec_id,
                             Origin::New,
@@ -2631,8 +2713,11 @@ fn try_apply_fast(
                             main_kind,
                             main_vals,
                             &follower_tuples,
-                        ) else {
-                            return FastAttempt::Fallback;
+                            cx,
+                        ) {
+                            Ok(Some(lifted)) => lifted,
+                            Ok(None) => return FastAttempt::Fallback,
+                            Err(error) => return FastAttempt::Err(error),
                         };
                         let hash = match Hash::element_checked(&after_el, cx) {
                             Ok(h) => h,

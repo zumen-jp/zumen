@@ -78,6 +78,40 @@ pub struct DxfStepPatch {
     pub after_max_handle: Option<u64>,
 }
 
+const TAG_LOGICAL_BYTES: usize = {
+    assert!(core::mem::size_of::<OTag>() <= 64);
+    64
+};
+const TAG_OP_LOGICAL_BYTES: usize = {
+    assert!(core::mem::size_of::<AppliedTagOp>() <= 128);
+    128
+};
+
+fn tag_payload_bytes(tag: &OTag) -> usize {
+    tag.edited.as_ref().map_or(0, Vec::len)
+}
+
+fn tag_op_logical_bytes(operation: &AppliedTagOp) -> usize {
+    TAG_OP_LOGICAL_BYTES.saturating_add(match operation {
+        AppliedTagOp::Set { before, after, .. } => before
+            .as_ref()
+            .map_or(0, Vec::len)
+            .saturating_add(after.len()),
+        AppliedTagOp::Remove { removed, .. } => tag_payload_bytes(removed),
+        AppliedTagOp::Insert { inserted, .. } => tag_payload_bytes(inserted),
+    })
+}
+
+fn overlay_logical_bytes(overlay: &OverlayRecord) -> usize {
+    overlay.tags.iter().fold(
+        overlay
+            .raw
+            .len()
+            .saturating_add(overlay.tags.len().saturating_mul(TAG_LOGICAL_BYTES)),
+        |bytes, tag| bytes.saturating_add(tag_payload_bytes(tag)),
+    )
+}
+
 impl DxfStepPatch {
     /// 履歴予算用の概算バイト数
     pub fn approx_bytes(&self) -> usize {
@@ -85,7 +119,7 @@ impl DxfStepPatch {
             .record_ops
             .iter()
             .map(|(_, ops, b, a, _)| {
-                32 + ops.iter().map(AppliedTagOp::bytes).sum::<usize>()
+                32 + ops.iter().map(tag_op_logical_bytes).sum::<usize>()
                     + b.as_ref().map_or(0, |v| v.len() * 24)
                     + a.len() * 24
             })
@@ -93,7 +127,7 @@ impl DxfStepPatch {
         let born_bytes: usize = self
             .born_added
             .iter()
-            .map(|(_, ov, vals)| 24 + ov.heap_bytes() + vals.len() * 24)
+            .map(|(_, ov, vals)| 24 + overlay_logical_bytes(ov) + vals.len() * 24)
             .sum();
         ops_bytes + born_bytes + self.removed_records.len() * 4 + 128
     }
@@ -1063,5 +1097,60 @@ impl LiveBacking {
             return Err(Error::Unsupported);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn patch_with_capacity(capacity: usize) -> DxfStepPatch {
+        let bytes = || {
+            let mut value = Vec::with_capacity(capacity);
+            value.extend_from_slice(b"value");
+            value
+        };
+        let tag = || OTag::added(1, bytes());
+        let mut tags = Vec::with_capacity(capacity);
+        tags.push(tag());
+        DxfStepPatch {
+            record_ops: vec![(
+                0,
+                vec![
+                    AppliedTagOp::Set {
+                        at: 0,
+                        before: Some(bytes()),
+                        after: bytes(),
+                    },
+                    AppliedTagOp::Remove {
+                        at: 1,
+                        removed: tag(),
+                    },
+                    AppliedTagOp::Insert {
+                        at: 2,
+                        inserted: tag(),
+                    },
+                ],
+                None,
+                Vec::new(),
+                false,
+            )],
+            born_added: vec![(1, OverlayRecord::born(tags), Vec::new())],
+            removed_records: Vec::new(),
+            before_header: DxfHeaderValues::default(),
+            after_header: DxfHeaderValues::default(),
+            before_max_handle: None,
+            after_max_handle: None,
+        }
+    }
+
+    #[test]
+    fn history_budget_is_independent_of_allocation_capacity() {
+        let compact = patch_with_capacity(5);
+        let reserved = patch_with_capacity(4096);
+        assert_eq!(compact.record_ops, reserved.record_ops);
+        assert_eq!(compact.born_added, reserved.born_added);
+        assert_eq!(compact.approx_bytes(), reserved.approx_bytes());
+        assert_eq!(reserved.approx_bytes(), reserved.clone().approx_bytes());
     }
 }

@@ -114,6 +114,94 @@ where
         actual.unwrap()
     }
 
+    #[expect(clippy::print_stdout, reason = "ネイティブと WASI の比較記録")]
+    fn apply_with_budgets(&mut self, edit: Edit) -> Vec<Applied> {
+        let original = self.live.clone();
+        let before = fresh_cx(|cx| original.drawing(cx)).0.unwrap();
+        let before_bytes = fresh_cx(|cx| original.save(cx)).0.unwrap();
+        let history = (
+            original.state_id(),
+            original.undo_len(),
+            original.redo_len(),
+        );
+        let changes = Changes {
+            document: None,
+            edits: vec![edit.clone()],
+        };
+        let expected = self.apply(edit);
+        let after = fresh_cx(|cx| self.live.drawing(cx)).0.unwrap();
+        let after_bytes = fresh_cx(|cx| self.live.save(cx)).0.unwrap();
+        let mut live = original.clone();
+        let mut measured = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        assert_eq!(
+            live.apply(
+                &changes,
+                &mut Cx::new(&mut measured, &mut diagnostics, &cancel)
+            )
+            .unwrap(),
+            expected
+        );
+        let expected_diagnostics = diagnostics.into_vec();
+        let mut boundary_record = String::new();
+        for kind in [Kind::Work, Kind::DecodedBytes] {
+            let needed = measured.used(kind);
+            assert!(needed > 0);
+            for available in [0, needed / 2, needed - 1, needed] {
+                let mut live = original.clone();
+                let mut budget =
+                    Budget::new(Limits::default().with(kind, Limit::Finite(available + 11)));
+                budget.spend(kind, 11).unwrap();
+                let mut diagnostics = Diagnostics::new();
+                let actual = live.apply(
+                    &changes,
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                );
+                boundary_record.push_str(&format!(
+                    "{kind:?} {available} {actual:?} {:?} {:?} {}\n",
+                    Kind::ALL.map(|kind| budget.used(kind)),
+                    diagnostics.iter().collect::<Vec<_>>(),
+                    live.history_bytes()
+                ));
+                if available < needed {
+                    assert!(matches!(actual, Err(Error::Stopped(_))));
+                    assert_eq!((live.state_id(), live.undo_len(), live.redo_len()), history);
+                    assert_eq!(fresh_cx(|cx| live.drawing(cx)).0.unwrap(), before);
+                    assert_eq!(fresh_cx(|cx| live.save(cx)).0.unwrap(), before_bytes);
+                } else {
+                    assert_eq!(actual.unwrap(), expected);
+                    assert_eq!(diagnostics.into_vec(), expected_diagnostics);
+                    assert_eq!(budget.used(kind), needed + 11);
+                    assert_eq!(fresh_cx(|cx| live.drawing(cx)).0.unwrap(), after);
+                    assert_eq!(fresh_cx(|cx| live.save(cx)).0.unwrap(), after_bytes);
+                }
+            }
+        }
+        let mut live = original;
+        cancel.cancel();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        assert!(matches!(
+            live.apply(
+                &changes,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!((live.state_id(), live.undo_len(), live.redo_len()), history);
+        assert_eq!(fresh_cx(|cx| live.drawing(cx)).0.unwrap(), before);
+        assert_eq!(fresh_cx(|cx| live.save(cx)).0.unwrap(), before_bytes);
+        println!(
+            "live-edit-budget hash={:?} used={:?} history={} boundaries={:?}",
+            Hash::document(&after_bytes),
+            Kind::ALL.map(|kind| measured.used(kind)),
+            self.live.history_bytes(),
+            Hash::document(boundary_record.as_bytes())
+        );
+        expected
+    }
+
     fn reject(&mut self, edit: Edit) {
         let before = fresh_cx(|cx| self.live.drawing(cx)).0.unwrap();
         let bytes = fresh_cx(|cx| self.live.save(cx)).0.unwrap();
@@ -207,6 +295,77 @@ where
         assert_eq!(fresh_cx(|cx| self.live.drawing(cx)).0.unwrap(), before);
         assert_eq!(fresh_cx(|cx| self.live.save(cx)).0.unwrap(), bytes);
     }
+}
+
+#[test]
+fn added_and_replaced_elements_share_budget_and_cancellation() {
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&shared_budget_mtext_dxf(), threads);
+        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+        let element = model.spaces[0]
+            .elements
+            .iter()
+            .find(|element| element.source.key() == Some(Key::Handle(0x120)))
+            .unwrap()
+            .clone();
+        let added = pair
+            .apply_with_budgets(Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(element.clone())),
+            })
+            .pop()
+            .unwrap();
+        let mut replacement = element;
+        replacement.shape =
+            transform::transform(&replacement.shape, &Affine::translation(2.0, 3.0)).unwrap();
+        let replaced = pair
+            .apply_with_budgets(Edit::Replace {
+                target: Seen {
+                    id: added.id.unwrap(),
+                    hash: added.hash.unwrap(),
+                },
+                element: Box::new(Placed::Model(replacement)),
+            })
+            .pop()
+            .unwrap();
+        pair.apply_with_budgets(Edit::Remove {
+            target: Seen {
+                id: replaced.id.unwrap(),
+                hash: replaced.hash.unwrap(),
+            },
+        });
+    }
+}
+
+#[test]
+fn model_and_block_edits_share_budget_and_cancellation() {
+    for (input, handles) in [
+        (synthetic_rich_dxf(), vec![0x101, 0x55]),
+        (shared_budget_mtext_dxf(), vec![0x120]),
+    ] {
+        for threads in [1, 4] {
+            let mut pair = DxfPair::open(&input, threads);
+            for handle in &handles {
+                pair.apply_with_budgets(Edit::Transform {
+                    target: pair.seen(*handle),
+                    transform: Affine::translation(2.0, 3.0),
+                });
+            }
+        }
+    }
+}
+
+pub(super) fn shared_budget_mtext_dxf() -> Vec<u8> {
+    let mut input = String::from_utf8(synthetic_rich_dxf()).unwrap();
+    let at = input.rfind("  0\nENDSEC\n").unwrap();
+    let content = "NOTE \\C1;red\\P".repeat(64);
+    input.insert_str(
+        at,
+        &format!(
+            "0\nMTEXT\n5\n120\n330\n41\n100\nAcDbEntity\n8\n0\n100\nAcDbMText\n10\n50\n20\n25\n30\n0\n40\n2.5\n41\n20\n71\n1\n72\n5\n1\n{content}\n7\nStandard\n"
+        ),
+    );
+    input.into_bytes()
 }
 
 #[test]
