@@ -106,7 +106,71 @@ pub fn all() -> Vec<Case> {
     )
     .unwrap_or(Transform::IDENTITY);
     let s2 = core::f64::consts::FRAC_1_SQRT_2;
+    let mut t_faces = cube_faces();
+    if let Some(top) = t_faces.get_mut(1) {
+        top.outer.insert(1, [0.5, 0.0, 1.0]);
+    }
+    let mut degenerate = cube_faces();
+    degenerate.push(Face {
+        outer: vec![[0.0; 3], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        holes: vec![],
+    });
+    let mut three_openings = cuboid([0.0; 3], [8.0, 0.2, 3.0]);
+    for x in [1.0, 3.0, 5.0] {
+        three_openings = boolean(
+            BooleanOp::Difference,
+            three_openings,
+            cuboid([x, -1.6e-16, 0.0], [x + 1.0, 0.2 + 1.6e-16, 2.0]),
+        );
+    }
     vec![
+        Case {
+            name: "face_set_t_junction",
+            shape: Shape::FaceSet {
+                faces: t_faces,
+                closed: true,
+            },
+            expect: solid(1.0, FLAT, [0.0; 3], [1.0; 3]),
+        },
+        Case {
+            name: "three_near_coplanar_openings",
+            shape: three_openings,
+            expect: solid(3.6, FLAT, [0.0; 3], [8.0, 0.2, 3.0]),
+        },
+        Case {
+            name: "edge_touching_components",
+            shape: Shape::Group(vec![
+                cuboid([0.0; 3], [1.0; 3]),
+                cuboid([1.0, 1.0, 0.0], [2.0, 2.0, 1.0]),
+            ]),
+            expect: solid(2.0, FLAT, [0.0; 3], [2.0, 2.0, 1.0]),
+        },
+        Case {
+            name: "face_set_degenerate_face",
+            shape: Shape::FaceSet {
+                faces: degenerate,
+                closed: true,
+            },
+            expect: solid(1.0, FLAT, [0.0; 3], [1.0; 3]),
+        },
+        Case {
+            name: "polygon_retraced_edge",
+            shape: Shape::Extrusion {
+                profile: profile(Curve::Polygon(vec![
+                    [0.0, 0.0],
+                    [2.0, 0.0],
+                    [2.0, 2.0],
+                    [1.0, 2.0],
+                    [1.0, 1.0],
+                    [1.0, 2.0],
+                    [0.0, 2.0],
+                ])),
+                position: Transform::IDENTITY,
+                direction: [0.0, 0.0, 1.0],
+                depth: 1.0,
+            },
+            expect: solid(4.0, FLAT, [0.0; 3], [2.0, 2.0, 1.0]),
+        },
         Case {
             name: "extrusion_rectangle",
             shape: Shape::Extrusion {

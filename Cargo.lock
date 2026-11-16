@@ -9,6 +9,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
+name = "autocfg"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -87,6 +93,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "clipper2-rust"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "210e9ea90a5f6c731c23bf642383ad7c006d8b24803c5c33afd5aaeae5a33f66"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "constant_time_eq"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -108,6 +123,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashu-base"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a64b04cdfc4c8533100fe00304eb9687173bda47b1f1dac8af12ba13712ed49d"
+
+[[package]]
+name = "dashu-int"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6ee98721d5d223e5b64b642dd9588b79d9ef415554b13720308b77d628c3be6"
+dependencies = [
+ "cfg-if",
+ "dashu-base",
+ "num-modular",
+ "num-traits",
+ "rustversion",
+ "static_assertions",
+]
+
+[[package]]
+name = "dashu-ratio"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "727613e0312d442301147d9e45eb2e7c2797230fc6d223a2c51ecf0e98dfeb5e"
+dependencies = [
+ "dashu-base",
+ "dashu-int",
+ "num-traits",
+ "rustversion",
+]
+
+[[package]]
 name = "e57"
 version = "0.11.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -115,6 +162,22 @@ checksum = "fcfee41a50fbd70278c70cc477b8671ffe03951cba028cc2c057777a9ee6a3cc"
 dependencies = [
  "roxmltree",
 ]
+
+[[package]]
+name = "earcutr"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "afc28d89ac6cb489f679fcf51aaa62b4667bb0fb73a30f1d4d23949069707c07"
+dependencies = [
+ "itertools",
+ "num-traits",
+]
+
+[[package]]
+name = "either"
+version = "1.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
 name = "encoding_rs"
@@ -243,6 +306,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -279,6 +351,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
+name = "manifold-rust"
+version = "0.19.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a60322b26d00d2868b7adde93b823900b0ff5320fd9107498947a913b986b977"
+dependencies = [
+ "clipper2-rust",
+ "dashu-int",
+ "dashu-ratio",
+ "num-traits",
+ "rustc-hash",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -289,6 +374,21 @@ name = "multiversion_no_op"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
+
+[[package]]
+name = "num-modular"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd8e500409e6cd603b03e477c26a6caecdc27ac58979a53e881c75eafc079f44"
+
+[[package]]
+name = "num-traits"
+version = "0.2.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
+dependencies = [
+ "autocfg",
+]
 
 [[package]]
 name = "once_cell"
@@ -378,6 +478,12 @@ checksum = "9da7f59328b09405b181fee1018925fad50f157afb43c0c0f5c522c256dd5907"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "rustc-hash"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
 
 [[package]]
 name = "rustix"
@@ -501,6 +607,12 @@ dependencies = [
  "tempfile",
  "walkdir",
 ]
+
+[[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "syn"
@@ -756,7 +868,9 @@ name = "zumen-building"
 version = "0.2.0"
 dependencies = [
  "blake3",
+ "libm",
  "zumen-base",
+ "zumen-geom3d",
 ]
 
 [[package]]
@@ -944,7 +1058,9 @@ dependencies = [
 name = "zumen-geom3d"
 version = "0.2.0"
 dependencies = [
+ "earcutr",
  "libm",
+ "manifold-rust",
  "zumen-base",
  "zumen-geom2d",
 ]
@@ -969,6 +1085,7 @@ dependencies = [
  "zumen-building",
  "zumen-civil",
  "zumen-crs",
+ "zumen-geom3d",
  "zumen-ids",
  "zumen-json",
  "zumen-landxml",

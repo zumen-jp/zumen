@@ -45,13 +45,14 @@ impl Mesh {
         Some([p(t[0])?, p(t[1])?, p(t[2])?])
     }
 
-    /// 符号つきの体積。閉じた外向きのメッシュなら正
+    /// 符号つきの体積。閉じた外向きのメッシュなら正。最初の点からの差で桁落ちを減らす
     pub fn volume(&self) -> f64 {
+        let origin = self.positions.first().copied().unwrap_or_default();
         let sum: f64 = self
             .triangles
             .iter()
             .filter_map(|t| self.triangle(*t))
-            .map(|[a, b, c]| dot(a, cross(b, c)))
+            .map(|[a, b, c]| dot(sub(a, origin), cross(sub(b, origin), sub(c, origin))))
             .sum();
         sum / 6.0
     }

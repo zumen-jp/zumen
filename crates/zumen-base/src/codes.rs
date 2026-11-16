@@ -278,6 +278,20 @@ pub const BUDGET_WORK_EXCEEDED: Code = Code::new(
     &[],
 );
 
+/// 集合演算に失敗し使える直前の形を残した
+///
+/// `building.boolean.failed`（0.3.0 から）
+pub const BUILDING_BOOLEAN_FAILED: Code = Code::new(
+    "building.boolean.failed",
+    Severity::Warning,
+    Some(Fidelity::Drawn),
+    &[
+        Param::new("kind", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["kind", "reason"],
+);
+
 /// 同じ GlobalId がもうあるので、後の要素はインスタンスの番号で ID を作った
 ///
 /// `building.global-id.exists`（0.2.0 から）
@@ -342,6 +356,20 @@ pub const BUILDING_PLACEMENT_UNSUPPORTED: Code = Code::new(
     Some(Fidelity::Dropped),
     &[Param::new("kind", ParamType::Text)],
     &[],
+);
+
+/// 未対応または無効な形の項目を評価結果から除いた
+///
+/// `building.shape.dropped`（0.3.0 から）
+pub const BUILDING_SHAPE_DROPPED: Code = Code::new(
+    "building.shape.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("kind", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["kind", "reason"],
 );
 
 /// 開く文書の名前が、もう使われている
@@ -2348,6 +2376,50 @@ pub const GEOJSON_TYPE_UNSUPPORTED: Code = Code::new(
     Some(Fidelity::Dropped),
     &[Param::new("kind", ParamType::Text)],
     &["kind"],
+);
+
+/// 曲線や回転面を弦の誤差で分割してメッシュにした
+///
+/// `geom3d.curve.approximated`（0.3.0 から）
+pub const GEOM3D_CURVE_APPROXIMATED: Code = Code::new(
+    "geom3d.curve.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[Param::new("chord", ParamType::Float)],
+    &["chord"],
+);
+
+/// 面の境界にある T 字の継ぎ目を分けて同じ形のメッシュにした
+///
+/// `geom3d.edge.equivalent`（0.3.0 から）
+pub const GEOM3D_EDGE_EQUIVALENT: Code = Code::new(
+    "geom3d.edge.equivalent",
+    Severity::Info,
+    Some(Fidelity::Equivalent),
+    &[],
+    &[],
+);
+
+/// 面積のない多角形または三角形を評価したメッシュから除いた
+///
+/// `geom3d.face.dropped`（0.3.0 から）
+pub const GEOM3D_FACE_DROPPED: Code = Code::new(
+    "geom3d.face.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// ブーリアンの前に点を局所の格子へ移した
+///
+/// `geom3d.grid.approximated`（0.3.0 から）
+pub const GEOM3D_GRID_APPROXIMATED: Code = Code::new(
+    "geom3d.grid.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[Param::new("spacing", ParamType::Float)],
+    &["spacing"],
 );
 
 /// 禁じる仕様の、適用の条件に合う要素がある（指摘）
@@ -5384,12 +5456,14 @@ pub const ALL: &[Code] = &[
     BUDGET_SEGMENTS_EXCEEDED,
     BUDGET_TIME_EXCEEDED,
     BUDGET_WORK_EXCEEDED,
+    BUILDING_BOOLEAN_FAILED,
     BUILDING_GLOBAL_ID_EXISTS,
     BUILDING_GLOBAL_ID_INVALID,
     BUILDING_ID_EXISTS,
     BUILDING_PLACEMENT_INVALID,
     BUILDING_PLACEMENT_MISSING,
     BUILDING_PLACEMENT_UNSUPPORTED,
+    BUILDING_SHAPE_DROPPED,
     CALL_DOCUMENT_EXISTS,
     CALL_DOCUMENT_MISSING,
     CALL_DOCUMENT_UNSUPPORTED,
@@ -5561,6 +5635,10 @@ pub const ALL: &[Code] = &[
     GEOJSON_PROPERTY_DROPPED,
     GEOJSON_SOLID_APPROXIMATED,
     GEOJSON_TYPE_UNSUPPORTED,
+    GEOM3D_CURVE_APPROXIMATED,
+    GEOM3D_EDGE_EQUIVALENT,
+    GEOM3D_FACE_DROPPED,
+    GEOM3D_GRID_APPROXIMATED,
     IDS_APPLICABILITY_EXISTS,
     IDS_APPLICABILITY_MISSING,
     IDS_APPLICABILITY_UNSUPPORTED,

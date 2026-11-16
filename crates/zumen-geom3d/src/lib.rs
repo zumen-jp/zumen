@@ -10,12 +10,14 @@
 
 pub mod cases;
 mod kernel;
+mod manifold;
 mod mesh;
 mod section;
 mod shape;
 mod transform;
 
 pub use kernel::{Failure, Kernel, Section, Tolerance};
+pub use manifold::{EvaluatedMesh, ManifoldKernel, MeshChanges};
 pub use mesh::{Mesh, Part};
 pub use section::MeshSection;
 pub use shape::{BooleanOp, Curve, Face, Profile, Shape};

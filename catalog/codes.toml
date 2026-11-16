@@ -23,6 +23,56 @@ exists = "名指しした名前が、もう使われている"
 stale = "読んだときと今とで、名指ししたものが違う"
 mixed = "基準・成果の違う値を一緒に使った"
 
+[codes."geom3d.face.dropped"]
+description = "面積のない多角形または三角形を評価したメッシュから除いた"
+severity = "warning"
+fidelity = "dropped"
+since = "0.3.0"
+status = "active"
+
+[codes."building.shape.dropped"]
+description = "未対応または無効な形の項目を評価結果から除いた"
+severity = "warning"
+fidelity = "dropped"
+params = { kind = "text", reason = "text" }
+group-by = ["kind", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."building.boolean.failed"]
+description = "集合演算に失敗し使える直前の形を残した"
+severity = "warning"
+fidelity = "drawn"
+params = { kind = "text", reason = "text" }
+group-by = ["kind", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."geom3d.edge.equivalent"]
+description = "面の境界にある T 字の継ぎ目を分けて同じ形のメッシュにした"
+severity = "info"
+fidelity = "equivalent"
+since = "0.3.0"
+status = "active"
+
+[codes."geom3d.grid.approximated"]
+description = "ブーリアンの前に点を局所の格子へ移した"
+severity = "info"
+fidelity = "approximated"
+params = { spacing = "float" }
+group-by = ["spacing"]
+since = "0.3.0"
+status = "active"
+
+[codes."geom3d.curve.approximated"]
+description = "曲線や回転面を弦の誤差で分割してメッシュにした"
+severity = "info"
+fidelity = "approximated"
+params = { chord = "float" }
+group-by = ["chord"]
+since = "0.3.0"
+status = "active"
+
 # 予算（決定 0010）
 
 [codes."budget.input-bytes.exceeded"]

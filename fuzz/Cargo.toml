@@ -31,6 +31,7 @@ zumen-extdm = { path = "../crates/zumen-extdm" }
 zumen-fgd = { path = "../crates/zumen-fgd" }
 zumen-geo = { path = "../crates/zumen-geo" }
 zumen-geojson = { path = "../crates/zumen-geojson" }
+zumen-geom3d = { path = "../crates/zumen-geom3d" }
 zumen-geology = { path = "../crates/zumen-geology" }
 zumen-ids = { path = "../crates/zumen-ids" }
 zumen-ifc = { path = "../crates/zumen-ifc" }
@@ -55,6 +56,13 @@ zumen-zip = { path = "../crates/zumen-zip" }
 
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "geom3d"
+path = "fuzz_targets/geom3d.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "live_dxf"

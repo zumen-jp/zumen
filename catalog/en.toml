@@ -7,6 +7,12 @@ group-separator = ","
 decimal-separator = "."
 
 [codes]
+"building.shape.dropped" = "Could not evaluate shape item \"{kind}\" ({reason}); omitted it from the result ({count})."
+"building.boolean.failed" = "Boolean operation \"{kind}\" failed ({reason}); retained the last available geometry ({count})."
+"geom3d.face.dropped" = "Removed zero-area faces from the evaluated mesh ({count} faces)."
+"geom3d.edge.equivalent" = "Split edges at T-junctions while preserving the shape ({count} edges)."
+"geom3d.grid.approximated" = "Moved vertices to a local grid with spacing {spacing} before Boolean operations ({count} moves)."
+"geom3d.curve.approximated" = "Tessellated curves or surfaces of revolution with chord tolerance {chord} ({count})."
 "render.section.dropped" = "Unknown scene section {section} was not used to render the image."
 "render.scene.invalid" = "The scene columns, references, or numeric values are invalid; image was not produced."
 "render.options.invalid" = "The settings or coordinate transformation are out of range; image was not produced."

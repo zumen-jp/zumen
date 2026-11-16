@@ -41,7 +41,12 @@ workspace = true
 name = "local_metadata_audit"
 required-features = ["building"]
 
+[[example]]
+name = "mesh_audit"
+required-features = ["building"]
+
 [dev-dependencies]
+zumen-geom3d = { path = "../zumen-geom3d" }
 # 公開サンプルの要素の値を、IfcOpenShell と照らす JSON に書く
 zumen-json = { path = "../zumen-json" }
 # SXF のコーデックが IFC を読まないことを確かめる

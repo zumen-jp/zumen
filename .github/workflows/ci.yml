@@ -232,6 +232,11 @@ jobs:
         run: |
           cargo build --package zumen-geom2d --example topology_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
           python crates/zumen-geom2d/tests/check_topology.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/topology_contract"
+      - name: 建物の形と開口・診断・予算停止を同じバイト列で照らす（#420）
+        shell: bash
+        run: |
+          cargo build --package zumen-building --example evaluation_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          python crates/zumen-building/tests/check_evaluation.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/evaluation_contract"
       - name: .NET のラッパーの適合テストに使う .NET の SDK を入れる
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -319,6 +324,11 @@ jobs:
           rustup target add wasm32-wasip1
           cargo build --package zumen-geom2d --example topology_contract --target wasm32-wasip1 --locked
           python3 crates/zumen-geom2d/tests/check_topology.py --wasm target/wasm32-wasip1/debug/examples/topology_contract.wasm
+      - name: 建物の形と開口・診断・予算停止を wasm で照らす（#420）
+        if: env.TEST_CORE == 'true'
+        run: |
+          cargo build --package zumen-building --example evaluation_contract --target wasm32-wasip1 --locked
+          python3 crates/zumen-building/tests/check_evaluation.py --wasm target/wasm32-wasip1/debug/examples/evaluation_contract.wasm
       - name: シーンからの SVG・PNG のバイト列・診断・予算・停止が wasm とネイティブで同じことを確かめる（決定 0272・0277）
         if: env.TEST_CORE == 'true'
         run: |

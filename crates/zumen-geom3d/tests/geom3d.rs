@@ -44,8 +44,16 @@ impl Kernel for Faces {
             Shape::FaceSet { faces, .. } => {
                 let mut mesh = Mesh::default();
                 for face in faces {
-                    if !face.holes.is_empty() {
+                    // この trait 用の最小カーネルは三角形と四角形だけを受ける。
+                    // 継ぎ目・退化・重なる辺の手当ては manifold.rs で確かめる。
+                    if !face.holes.is_empty() || !(3..=4).contains(&face.outer.len()) {
                         return Err(Failure::Unsupported("face_set"));
+                    }
+                    let [a, b, c, ..] = face.outer.as_slice() else {
+                        return Err(Failure::Unsupported("face_set"));
+                    };
+                    if length(cross(zumen_geom3d::sub(*b, *a), zumen_geom3d::sub(*c, *a))) == 0.0 {
+                        return Err(Failure::Unsupported("degenerate_face"));
                     }
                     let base = mesh.positions.len() as u32;
                     mesh.positions.extend_from_slice(&face.outer);

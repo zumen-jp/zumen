@@ -9,6 +9,8 @@ publish = true
 
 [dependencies]
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
+libm = { version = "0.2.16", default-features = false }
 # 要素のハッシュ（決定 0156）。C と asm を使わない pure の機能だけを使う
 blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
 

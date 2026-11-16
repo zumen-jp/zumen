@@ -7,6 +7,12 @@ group-separator = ","
 decimal-separator = "."
 
 [codes]
+"building.shape.dropped" = "形の項目「{kind}」を評価できないため（{reason}）、結果から除きました（{count} 件）。"
+"building.boolean.failed" = "「{kind}」の集合演算に失敗したため（{reason}）、使える直前の形を残しました（{count} 件）。"
+"geom3d.face.dropped" = "面積のない面を、評価したメッシュから除きました（{count} 面）。"
+"geom3d.edge.equivalent" = "T 字の継ぎ目で辺を分け、同じ形を保ちました（{count} 辺）。"
+"geom3d.grid.approximated" = "ブーリアンの前に、点を間隔 {spacing} の局所の格子へ移しました（{count} 回）。"
+"geom3d.curve.approximated" = "曲線や回転面を弦の誤差 {chord} で分割し、メッシュにしました（{count} 件）。"
 "render.section.dropped" = "シーンの知らないセクション {section} を、画像の描画に使いませんでした。"
 "render.scene.invalid" = "シーンの列・参照・数値が契約に合わないため、画像を作れません。"
 "render.options.invalid" = "設定か座標変換の計算が有効な範囲に収まらないため、画像を作れません。"

@@ -10,6 +10,7 @@ use zumen_base::{Cx, Diagnostic, Ref, codes};
 mod boolean;
 mod component;
 mod curve;
+pub mod evaluation;
 mod extrusion;
 mod faces;
 mod geometry;

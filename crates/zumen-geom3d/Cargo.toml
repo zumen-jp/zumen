@@ -12,6 +12,9 @@ zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
 # 三角関数（決定 0007）。どの対象でも同じ値にする
 libm = { version = "0.2.16", default-features = false }
+# 採用条件と呼び出す前の制限は docs/architecture.md「幾何と許容差」。
+manifold-rust = { version = "=0.19.1", default-features = false }
+earcutr = "=0.5.0"
 
 [lints]
 workspace = true
