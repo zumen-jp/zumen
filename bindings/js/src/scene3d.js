@@ -1,8 +1,8 @@
 // ZMS3 の読み手。GPU へ渡す前に列と参照を検査する。blob と列は呼び出し側で変更しない。
 import { SCENE3D_MAGIC, SCENE3D_MAJOR, SCENE3D_NONE, SCENE3D_SECTIONS } from "./scene3d-layout.js";
 
-const arrays = { u8: Uint8Array, u32: Uint32Array, f32: Float32Array, f64: Float64Array };
-const getters = { u8: "getUint8", u32: "getUint32", f32: "getFloat32", f64: "getFloat64" };
+const arrays = { u8: Uint8Array, u16: Uint16Array, u32: Uint32Array, f32: Float32Array, f64: Float64Array };
+const getters = { u8: "getUint8", u16: "getUint16", u32: "getUint32", f32: "getFloat32", f64: "getFloat64" };
 const littleEndian = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 const definitions = new Map(SCENE3D_SECTIONS.map(s => [s.name, s]));
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
@@ -79,6 +79,13 @@ export class Scene3D {
     const c = this.columns;
     return { origin: c.chunk_origins.subarray(row * 3, row * 3 + 3), bounds: c.chunk_bounds.subarray(row * 6, row * 6 + 6), begin: c.chunk_instances[row], end: c.chunk_instances[row + 1] ?? this.rows("instance_meshes") };
   }
+  points(row) {
+    index(row, this.chunks);
+    const c = this.columns, begin = c.chunk_points[row] ?? 0, end = c.chunk_points[row + 1] ?? this.rows("point_xyz");
+    const node = c.chunk_nodes.length === 0 || c.chunk_nodes[row * 4] === SCENE3D_NONE ? null : c.chunk_nodes.subarray(row * 4, row * 4 + 4);
+    const slice = (values, width) => values.subarray(begin * width, end * width);
+    return { node, begin, end, positions: slice(c.point_xyz, 3), rgba: slice(c.point_rgba, 4), intensity: slice(c.point_intensity, 1), classification: slice(c.point_classification, 1) };
+  }
 }
 
 function validate(scene, budget, ids) {
@@ -91,6 +98,30 @@ function validate(scene, budget, ids) {
   equal(["instance_elements", "instance_colors", "instance_transforms"], instances);
   equal(["element_classes", "element_names", "element_storeys"], elements);
   equal(["color_flags"], colors);
+  if (scene.sections > 20) {
+    equal(["chunk_points", "chunk_nodes"], scene.chunks);
+    const points = rows("point_xyz"), starts = c.chunk_points, nodes = new Set();
+    if ((starts.length === 0 && points !== 0) || (starts.length > 0 && starts[0] !== 0)) bad("点の開始位置");
+    let previous = 0;
+    for (const start of starts) { budget.work(1); if (start < previous || start > points) bad("点の開始位置"); previous = start; }
+    for (const name of ["point_rgba", "point_intensity", "point_classification"]) if (rows(name) !== 0 && rows(name) !== points) bad("点の属性の行数");
+    for (let row = 0; row < scene.chunks; row++) {
+      budget.work(32);
+      const view = scene.points(row), chunk = scene.chunk(row);
+      if (view.node === null) {
+        if (view.end !== view.begin || c.chunk_nodes.subarray(row * 4, row * 4 + 4).some(v => v !== SCENE3D_NONE)) bad("点の節の参照");
+      } else {
+        const [level, x, y, z] = view.node;
+        if (view.begin === view.end || level > 20 || [x, y, z].some(v => v >= 2 ** level)) bad("点の節の参照");
+        budget.allocate(128);
+        const key = `${level}/${x}/${y}/${z}`;
+        if (nodes.has(key)) bad("点の節の重複");
+        nodes.add(key);
+      }
+      budget.work(view.positions.length);
+      for (let i = 0; i < view.positions.length; i++) if (view.positions[i] < chunk.bounds[i % 3] || view.positions[i] > chunk.bounds[i % 3 + 3]) bad("点の範囲");
+    }
+  }
   for (const s of SCENE3D_SECTIONS) {
     budget.work(c[s.name].length);
     if (s.type === "f32" || s.type === "f64") for (const v of c[s.name]) if (!Number.isFinite(v)) bad("有限でない値");
@@ -154,9 +185,9 @@ export function readScene3D(input, options = {}) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (bytes.length < 16 || decoder.decode(bytes.subarray(0, 4)) !== SCENE3D_MAGIC) bad("ZMS3 のヘッダー");
   const major = view.getUint16(4, true), minor = view.getUint16(6, true), chunks = view.getUint32(8, true), sections = view.getUint32(12, true);
-  if (major !== SCENE3D_MAJOR || sections < SCENE3D_SECTIONS.length || 16 + 8 * sections > bytes.length) bad("版かセクションの表");
+  if (major !== SCENE3D_MAJOR || sections < 20 || (sections > 20 && sections < SCENE3D_SECTIONS.length) || 16 + 8 * sections > bytes.length) bad("版かセクションの表");
   budget.work(sections);
-  const columns = {};
+  const columns = Object.fromEntries(SCENE3D_SECTIONS.map(s => [s.name, new arrays[s.type](0)]));
   let previous = 16 + sections * 8;
   for (let i = 0; i < sections; i++) {
     const start = view.getUint32(16 + i * 8, true), length = view.getUint32(20 + i * 8, true);

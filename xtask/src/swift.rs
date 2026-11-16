@@ -482,7 +482,7 @@ pub fn render_constants(
         "\n    /// シーンのメジャーバージョン。セクションの意味を変えるときに上げる\n    public static let sceneMajor: UInt16 = {}\n\n    /// シーンのマイナーバージョン。セクションか値を足すたびに上げる\n    public static let sceneMinor: UInt16 = {}\n\n    /// 番号の「なし」（u32 の最大）\n    public static let sceneNone = UInt32.max",
         scene.versions.major, scene.versions.minor
     );
-    out.push_str("\n    /// シーンのセクションの値の型\n    public enum ColumnType: Sendable {\n        case u8, u32, f32, f64\n\n        /// 値のバイト数\n        public var size: Int {\n            switch self {\n            case .u8: return 1\n            case .u32, .f32: return 4\n            case .f64: return 8\n            }\n        }\n    }\n");
+    out.push_str("\n    /// シーンのセクションの値の型\n    public enum ColumnType: Sendable {\n        case u8, u32, f32, f64, u16\n\n        /// 値のバイト数\n        public var size: Int {\n            switch self {\n            case .u8: return 1\n            case .u16: return 2\n            case .u32, .f32: return 4\n            case .f64: return 8\n            }\n        }\n    }\n");
     out.push_str("\n    /// シーンのセクションの定義\n    public struct SceneSection: Sendable {\n        /// 名前\n        public let name: String\n        /// 値の型\n        public let type: ColumnType\n        /// 行ごとの値の数\n        public let width: Int\n    }\n");
     out.push_str("\n    /// シーンのセクションの定義。番号の順\n    public static let sceneSections: [SceneSection] = [\n");
     for section in &scene.sections {

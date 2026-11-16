@@ -5,7 +5,7 @@ package dev.zumen;
 public final class Scene3DLayout {
     private Scene3DLayout() {}
     public static final int MAJOR = 1;
-    public static final int MINOR = 0;
+    public static final int MINOR = 1;
     public static final int NONE = -1;
     public static final Constants.SceneSection[] SECTIONS = {
         // 塊の原点。プロジェクト空間の文書単位の X・Y・Z
@@ -48,6 +48,18 @@ public final class Scene3DLayout {
         new Constants.SceneSection("color_flags", Constants.ColumnType.U8, 1),
         // ID・クラス・名前の UTF-8 のバイト列
         new Constants.SceneSection("strings", Constants.ColumnType.U8, 1),
+        // 塊の点の始まり。point_xyz の行。点を含むシーンで塊ごとに持つ
+        new Constants.SceneSection("chunk_points", Constants.ColumnType.U32, 1),
+        // 元の八分木のノード。段・北の位置・東の位置・高さの位置。段は0〜20。点のない塊は4値ともなし
+        new Constants.SceneSection("chunk_nodes", Constants.ColumnType.U32, 4),
+        // 塊の原点からの点の東・北・高さ。メートル
+        new Constants.SceneSection("point_xyz", Constants.ColumnType.F32, 3),
+        // 点の赤・緑・青・不透明度。0〜65535。元の16ビットの色を保つ。属性がなければ空の列
+        new Constants.SceneSection("point_rgba", Constants.ColumnType.U16, 4),
+        // 点の元の強度。属性がなければ空の列
+        new Constants.SceneSection("point_intensity", Constants.ColumnType.U16, 1),
+        // 点の元の分類。属性がなければ空の列
+        new Constants.SceneSection("point_classification", Constants.ColumnType.U8, 1),
     };
     public static final int COLOR_FLAG_UNRESOLVED = 1;
 }

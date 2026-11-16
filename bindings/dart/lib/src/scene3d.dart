@@ -45,7 +45,7 @@ final class Scene3D {
     if (_header + _entry * sections > blob.length) {
       throw const FormatException('セクションの表が blob に収まらない');
     }
-    if (sections < Scene3DLayout.sections.length) throw const FormatException('3D シーンの基本列がない');
+    if (sections < 20) throw const FormatException('3D シーンの基本列がない');
     var previous = _header + _entry * sections;
     for (var i = 0; i < sections; i++) {
       final start = view.getUint32(_header + _entry*i, Endian.little);
@@ -130,6 +130,12 @@ final class Scene3D {
   Float32List f32(String name) {
     final data = ByteData.sublistView(_column(name, ColumnType.f32));
     return Float32List.fromList([for (var i = 0; i < data.lengthInBytes; i += 4) data.getFloat32(i, Endian.little)]);
+  }
+
+  /// u16 のセクションの値（写す）
+  Uint16List u16(String name) {
+    final data = ByteData.sublistView(_column(name, ColumnType.u16));
+    return Uint16List.fromList(List<int>.generate(data.lengthInBytes ~/ 2, (i) => data.getUint16(i * 2, Endian.little)));
   }
 
   /// f64 のセクションの値（写す）

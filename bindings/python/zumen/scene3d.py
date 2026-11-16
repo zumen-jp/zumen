@@ -110,7 +110,7 @@ def read_scene3d(blob: Union[bytes, bytearray, memoryview]) -> Scene3D:
         raise ValueError(f"シーンのメジャーバージョンが {major}（このラッパーは {SCENE3D_MAJOR}）")
     if _HEADER.size + _ENTRY.size * sections > len(view):
         raise ValueError("セクションの表が blob に収まらない")
-    if sections < len(SCENE3D_SECTIONS):
+    if sections < 20:
         raise ValueError("3D シーンの基本列がない")
     previous = _HEADER.size + _ENTRY.size * sections
     for index in range(sections):

@@ -9,8 +9,8 @@ mod selection;
 mod write;
 
 pub use building::{Bounds, Options, Scene, build};
-pub use read::{Column, ElementView, MeshView, Reader, read};
-pub use write::encode;
+pub use read::{Column, ElementView, MeshView, PointView, Reader, read};
+pub use write::{encode, encode_with_points};
 use zumen_base::Stop;
 
 /// メッシュ。頂点の番号は、このメッシュの中の番号。
@@ -83,6 +83,30 @@ pub struct Data {
     pub elements: Vec<Element>,
     /// 色
     pub colors: Vec<Color>,
+}
+
+/// 塊に属する点と元の八分木の節。点の番号は、このシーンだけの行番号。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PointChunk {
+    /// 点の始まり。終わりは次の塊か全体の終わり
+    pub start: u32,
+    /// 元の節の段・北・東・高さの位置。点を持たない塊だけ None
+    pub node: Option<[u32; 4]>,
+}
+
+/// ZMS3 1.1 の点の列。既存のメッシュの Data と分け、点がなければ旧版の出力を保つ。
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PointData {
+    /// Data.chunks と同じ数の、点と節への参照
+    pub chunks: Vec<PointChunk>,
+    /// 塊の原点からの東・北・高さ、メートル
+    pub positions: Vec<[f32; 3]>,
+    /// 元の 16 ビットの RGB と不透明度。元が持たなければ None
+    pub rgba: Option<Vec<[u16; 4]>>,
+    /// 元の強度
+    pub intensity: Option<Vec<u16>>,
+    /// 元の分類
+    pub classification: Option<Vec<u8>>,
 }
 
 /// 読み書きで止めた理由。

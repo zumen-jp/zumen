@@ -3,7 +3,7 @@
 /// 3D シーンの配置
 public enum Scene3DLayout {
     public static let major: UInt16 = 1
-    public static let minor: UInt16 = 0
+    public static let minor: UInt16 = 1
     public static let none = UInt32.max
     public static let sections: [Constants.SceneSection] = [
         // 塊の原点。プロジェクト空間の文書単位の X・Y・Z
@@ -46,6 +46,18 @@ public enum Scene3DLayout {
         Constants.SceneSection(name: "color_flags", type: .u8, width: 1),
         // ID・クラス・名前の UTF-8 のバイト列
         Constants.SceneSection(name: "strings", type: .u8, width: 1),
+        // 塊の点の始まり。point_xyz の行。点を含むシーンで塊ごとに持つ
+        Constants.SceneSection(name: "chunk_points", type: .u32, width: 1),
+        // 元の八分木のノード。段・北の位置・東の位置・高さの位置。段は0〜20。点のない塊は4値ともなし
+        Constants.SceneSection(name: "chunk_nodes", type: .u32, width: 4),
+        // 塊の原点からの点の東・北・高さ。メートル
+        Constants.SceneSection(name: "point_xyz", type: .f32, width: 3),
+        // 点の赤・緑・青・不透明度。0〜65535。元の16ビットの色を保つ。属性がなければ空の列
+        Constants.SceneSection(name: "point_rgba", type: .u16, width: 4),
+        // 点の元の強度。属性がなければ空の列
+        Constants.SceneSection(name: "point_intensity", type: .u16, width: 1),
+        // 点の元の分類。属性がなければ空の列
+        Constants.SceneSection(name: "point_classification", type: .u8, width: 1),
     ]
     public static let color_flag_unresolved: UInt32 = 1
 }

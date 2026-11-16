@@ -5,7 +5,7 @@ from .constants import SceneSection
 
 SCENE3D_MAGIC = b"ZMS3"
 SCENE3D_MAJOR = 1
-SCENE3D_MINOR = 0
+SCENE3D_MINOR = 1
 SCENE3D_NONE = 4294967295
 
 SCENE3D_SECTIONS = (
@@ -49,6 +49,18 @@ SCENE3D_SECTIONS = (
     SceneSection("color_flags", "u8", "B", 1),
     # ID・クラス・名前の UTF-8 のバイト列
     SceneSection("strings", "u8", "B", 1),
+    # 塊の点の始まり。point_xyz の行。点を含むシーンで塊ごとに持つ
+    SceneSection("chunk_points", "u32", "I", 1),
+    # 元の八分木のノード。段・北の位置・東の位置・高さの位置。段は0〜20。点のない塊は4値ともなし
+    SceneSection("chunk_nodes", "u32", "I", 4),
+    # 塊の原点からの点の東・北・高さ。メートル
+    SceneSection("point_xyz", "f32", "f", 3),
+    # 点の赤・緑・青・不透明度。0〜65535。元の16ビットの色を保つ。属性がなければ空の列
+    SceneSection("point_rgba", "u16", "H", 4),
+    # 点の元の強度。属性がなければ空の列
+    SceneSection("point_intensity", "u16", "H", 1),
+    # 点の元の分類。属性がなければ空の列
+    SceneSection("point_classification", "u8", "B", 1),
 )
 
 SCENE3D_VALUES = MappingProxyType({

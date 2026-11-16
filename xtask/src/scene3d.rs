@@ -63,6 +63,7 @@ fn dotnet(model: &Scene) -> String {
     for (i, s) in model.sections.iter().enumerate() {
         let ty = match s.ty.as_str() {
             "u8" => "byte",
+            "u16" => "ushort",
             "u32" => "uint",
             "f32" => "float",
             _ => "double",
@@ -292,7 +293,7 @@ fn typescript(model: &Scene) -> String {
     for s in &model.sections {
         let _ = writeln!(out, "  | \"{}\"", s.name);
     }
-    out.push_str(";\n\nexport interface Scene3DSection {\n  readonly name: Scene3DSectionName;\n  readonly type: \"u8\" | \"u32\" | \"f32\" | \"f64\";\n  readonly width: number;\n}\n\nexport declare const SCENE3D_SECTIONS: readonly Scene3DSection[];\nexport declare const SCENE3D_VALUES: {\n");
+    out.push_str(";\n\nexport interface Scene3DSection {\n  readonly name: Scene3DSectionName;\n  readonly type: \"u8\" | \"u16\" | \"u32\" | \"f32\" | \"f64\";\n  readonly width: number;\n}\n\nexport declare const SCENE3D_SECTIONS: readonly Scene3DSection[];\nexport declare const SCENE3D_VALUES: {\n");
     for values in &model.values {
         let _ = writeln!(out, "  readonly {}: {{", values.name);
         for item in &values.items {
@@ -316,6 +317,7 @@ fn python(model: &Scene) -> String {
     for s in &model.sections {
         let format = match s.ty.as_str() {
             "u8" => "B",
+            "u16" => "H",
             "u32" => "I",
             "f32" => "f",
             "f64" => "d",

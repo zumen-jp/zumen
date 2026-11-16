@@ -242,6 +242,12 @@ template <> struct SceneType<float> {
         return value;
     }
 };
+template <> struct SceneType<std::uint16_t> {
+    static constexpr std::int32_t code = ZM_SCENE3D_TYPE_U16;
+    static std::uint16_t read(const std::uint8_t *p) noexcept {
+        return static_cast<std::uint16_t>(p[0]) | static_cast<std::uint16_t>(p[1]) << 8;
+    }
+};
 template <> struct SceneType<double> {
     static constexpr std::int32_t code = ZM_SCENE_TYPE_F64;
     static double read(const std::uint8_t *p) noexcept {
@@ -402,7 +408,7 @@ public:
         if (static_cast<std::uint64_t>(scene.sections_) * 8 > size - header) {
             throw SceneError("zumen: セクションの表が blob に収まらない");
         }
-        if (scene.sections_ < ZM_SCENE3D_SECTION_COUNT) throw SceneError("zumen: 3D シーンの基本列がない");
+        if (scene.sections_ < ZM_SCENE3D_SECTION_STRINGS + 1) throw SceneError("zumen: 3D シーンの基本列がない");
         std::uint64_t previous = header + static_cast<std::uint64_t>(scene.sections_) * 8;
         for (std::uint32_t i = 0; i < scene.sections_; ++i) {
             auto start = detail::u32_le(data + header + 8 * i);

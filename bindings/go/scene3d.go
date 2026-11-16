@@ -54,7 +54,7 @@ func ReadScene3D(blob []byte) (*Scene3D, error) {
 	if uint64(scene3DHeader)+uint64(scene3DEntry)*uint64(scene.Sections) > uint64(len(blob)) {
 		return nil, errors.New("セクションの表が blob に収まらない")
 	}
-	if scene.Sections < uint32(len(Scene3DSections)) {
+	if scene.Sections < 20 {
 		return nil, errors.New("3D シーンの基本列がない")
 	}
 	previous := uint64(scene3DHeader) + uint64(scene3DEntry)*uint64(scene.Sections)
@@ -124,6 +124,19 @@ func (s *Scene3D) Rows(name string) (int, error) {
 // U8 は、u8 のセクションの値（写さない）。
 func (s *Scene3D) U8(name string) ([]byte, error) {
 	return s.column(name, ColumnU8)
+}
+
+// U16 は、u16 のセクションの値。
+func (s *Scene3D) U16(name string) ([]uint16, error) {
+	data, err := s.column(name, ColumnU16)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]uint16, len(data)/2)
+	for i := range out {
+		out[i] = binary.LittleEndian.Uint16(data[2*i:])
+	}
+	return out, nil
 }
 
 // U32 は、u32 のセクションの値。

@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）のメジャーバージョン。要求と応答の v
 schema-major = 1
 # メッセージのスキーマのマイナーバージョン。op・フィールド・列挙の値を足すたびに上げる
-schema-minor = 87
+schema-minor = 88
 
 # 状態コード。理由は応答の診断で返す
 
@@ -191,7 +191,7 @@ ops = ["capabilities", "open", "close", "describe", "convert", "civil", "geo", "
 name = "pointcloud"
 description = "点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）と、設計の TIN（J-LandXML）との差"
 formats = ["las", "ply", "xyz", "e57", "tiff", "landxml"]
-ops = ["capabilities", "open", "close", "describe", "civil", "pointcloud", "deviation"]
+ops = ["capabilities", "open", "close", "describe", "civil", "pointcloud", "deviation", "scene3d"]
 
 # プラグインのモジュールの土台（決定 0247）。プラグインの crate と一緒に作り、コアの形式は持たない。読んだ図面は、
 # lift で図面モデルのバイナリにして、図面のモジュールの open に渡す

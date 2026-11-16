@@ -37,6 +37,7 @@ const COLUMNS: &[(&str, &str)] = &[
     ("u32", "ColumnU32"),
     ("f32", "ColumnF32"),
     ("f64", "ColumnF64"),
+    ("u16", "ColumnU16"),
 ];
 
 /// 説明をコメントにする。gofmt が書き換える形（字下げ・箇条書きの記号）を避け、各行を段落の文にする
@@ -449,7 +450,7 @@ pub fn render_constants(
             "\n// {name} は {ty}。\nconst {name} ColumnType = {index}"
         );
     }
-    out.push_str("\n// Size は、値のバイト数。\nfunc (t ColumnType) Size() int {\n\tswitch t {\n\tcase ColumnU8:\n\t\treturn 1\n\tcase ColumnF64:\n\t\treturn 8\n\t}\n\treturn 4\n}\n");
+    out.push_str("\n// Size は、値のバイト数。\nfunc (t ColumnType) Size() int {\n\tswitch t {\n\tcase ColumnU8:\n\t\treturn 1\n\tcase ColumnU16:\n\t\treturn 2\n\tcase ColumnF64:\n\t\treturn 8\n\t}\n\treturn 4\n}\n");
     out.push_str("\n// SceneSection は、シーンのセクションの定義。\ntype SceneSection struct {\n\t// Name は、名前。\n\tName string\n\n\t// Type は、値の型。\n\tType ColumnType\n\n\t// Width は、行ごとの値の数。\n\tWidth int\n}\n");
     out.push_str("\n// SceneSections は、シーンのセクションの定義。番号の順。書き換えない。\nvar SceneSections = []SceneSection{\n");
     for (index, section) in scene.sections.iter().enumerate() {

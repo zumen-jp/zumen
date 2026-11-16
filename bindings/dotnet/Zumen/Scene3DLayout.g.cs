@@ -10,7 +10,7 @@ namespace Zumen {
         /// <summary>メジャーバージョン</summary>
         public const int Major = 1;
         /// <summary>マイナーバージョン</summary>
-        public const int Minor = 0;
+        public const int Minor = 1;
         /// <summary>参照なし</summary>
         public const uint None = 0xffffffff;
         /// <summary>セクションの定義</summary>
@@ -55,6 +55,18 @@ namespace Zumen {
             new SceneSection(18, "color_flags", typeof(byte), 1),
             // ID・クラス・名前の UTF-8 のバイト列
             new SceneSection(19, "strings", typeof(byte), 1),
+            // 塊の点の始まり。point_xyz の行。点を含むシーンで塊ごとに持つ
+            new SceneSection(20, "chunk_points", typeof(uint), 1),
+            // 元の八分木のノード。段・北の位置・東の位置・高さの位置。段は0〜20。点のない塊は4値ともなし
+            new SceneSection(21, "chunk_nodes", typeof(uint), 4),
+            // 塊の原点からの点の東・北・高さ。メートル
+            new SceneSection(22, "point_xyz", typeof(float), 3),
+            // 点の赤・緑・青・不透明度。0〜65535。元の16ビットの色を保つ。属性がなければ空の列
+            new SceneSection(23, "point_rgba", typeof(ushort), 4),
+            // 点の元の強度。属性がなければ空の列
+            new SceneSection(24, "point_intensity", typeof(ushort), 1),
+            // 点の元の分類。属性がなければ空の列
+            new SceneSection(25, "point_classification", typeof(byte), 1),
         });
         /// <summary>色が未解決。読み手が代替色を決める</summary>
         public const uint ColorFlagUnresolved = 1;

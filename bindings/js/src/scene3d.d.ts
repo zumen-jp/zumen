@@ -15,6 +15,7 @@ export interface Scene3DInstance { readonly mesh: number; readonly element: numb
 export interface Scene3DMesh { readonly vertices: Float32Array; readonly triangles: Uint32Array; readonly edges: Uint32Array; }
 export interface Scene3DColor { readonly rgba: Float32Array; readonly unresolved: boolean; }
 export interface Scene3DChunk { readonly origin: Float64Array; readonly bounds: Float32Array; readonly begin: number; readonly end: number; }
+export interface Scene3DPoints { readonly node: Uint32Array | null; readonly begin: number; readonly end: number; readonly positions: Float32Array; readonly rgba: Uint16Array; readonly intensity: Uint16Array; readonly classification: Uint8Array; }
 export type Scene3DColumns = {
   readonly chunk_origins: Float64Array; readonly chunk_bounds: Float32Array; readonly chunk_instances: Uint32Array;
   readonly mesh_vertices: Uint32Array; readonly mesh_triangles: Uint32Array; readonly mesh_edges: Uint32Array;
@@ -22,6 +23,8 @@ export type Scene3DColumns = {
   readonly instance_meshes: Uint32Array; readonly instance_elements: Uint32Array; readonly instance_colors: Uint32Array; readonly instance_transforms: Float32Array;
   readonly element_ids: Uint32Array; readonly element_classes: Uint32Array; readonly element_names: Uint32Array; readonly element_storeys: Uint32Array;
   readonly color_rgba: Float32Array; readonly color_flags: Uint8Array; readonly strings: Uint8Array;
+  readonly chunk_points: Uint32Array; readonly chunk_nodes: Uint32Array; readonly point_xyz: Float32Array;
+  readonly point_rgba: Uint16Array; readonly point_intensity: Uint16Array; readonly point_classification: Uint8Array;
 };
 /** 検査済みの列。参照中の blob・型付き配列は変更・転送しない。 */
 export declare class Scene3D {
@@ -37,5 +40,6 @@ export declare class Scene3D {
   mesh(row: number): Scene3DMesh;
   color(row: number): Scene3DColor;
   chunk(row: number): Scene3DChunk;
+  points(row: number): Scene3DPoints;
 }
 export declare function readScene3D(input: Bytes, limits?: Scene3DReadLimits): Scene3D;

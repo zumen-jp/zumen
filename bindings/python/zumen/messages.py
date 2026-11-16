@@ -3142,7 +3142,7 @@ class SceneRequest(_SceneRequestRequired, _SceneRequestOptional):
     "開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から"
 
 
-# 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+# 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。マイナーバージョン 82 から
 _Scene3dRequestRequired = TypedDict(
     "_Scene3dRequestRequired",
     {
@@ -3150,7 +3150,7 @@ _Scene3dRequestRequired = TypedDict(
         "v": int,
         # op の名前
         "op": Literal["scene3d"],
-        # open で作った建物か地物の文書名
+        # open で作った建物・地物・点群の文書名。点群は 88 から
         "doc": str,
     },
 )
@@ -3165,11 +3165,11 @@ _Scene3dRequestOptional = TypedDict(
         "max_places": int,
         # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         "time_limit_ms": int,
-        # 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物には指定できない
+        # 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物と点群には指定できない
         "storeys": List[str],
-        # 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない
+        # 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない。点群には指定できない
         "classes": List[str],
-        # 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す
+        # 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す。点群には指定できない
         "ids": List[str],
         # 地物だけに指定する投影先の平面直角座標系の系（1〜19）。省略時は元の系、経緯度では範囲の中心から計算用の系を仮定して診断する。86 から
         "zone": int,
@@ -3177,7 +3177,9 @@ _Scene3dRequestOptional = TypedDict(
         "lod": int,
         # プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う
         "box": "Scene3dBox",
-        # 文書単位の正の有限値。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
+        # 点群だけに指定する返す点の数の上限。省略時は選んだすべての点。88 から
+        "limit": int,
+        # 文書単位の正の有限値。点群では点の間隔（メートル）で、これより細かい段の節を選ばない。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
         "tolerance": float,
     },
     total=False,
@@ -3185,10 +3187,10 @@ _Scene3dRequestOptional = TypedDict(
 
 
 class Scene3dRequest(_Scene3dRequestRequired, _Scene3dRequestOptional):
-    "建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から"
+    "建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。マイナーバージョン 82 から"
 
 
-# 建物ではプロジェクト空間の文書単位、地物では投影先の東・北・高さのメートルの箱。Z が上
+# 建物ではプロジェクト空間の文書単位、地物では投影先の、点群では元の座標系の東・北・高さのメートルの箱。Z が上
 Scene3dBox = TypedDict(
     "Scene3dBox",
     {
@@ -3233,8 +3235,8 @@ class Scene3dMap(_Scene3dMapRequired, _Scene3dMapOptional):
 
 
 # 返した 3D シーンの列の行数。共有するメッシュの点と面は 1 回だけ数える
-Scene3dCounts = TypedDict(
-    "Scene3dCounts",
+_Scene3dCountsRequired = TypedDict(
+    "_Scene3dCountsRequired",
     {
         # 塊
         "chunks": int,
@@ -3254,6 +3256,18 @@ Scene3dCounts = TypedDict(
         "edges": int,
     },
 )
+_Scene3dCountsOptional = TypedDict(
+    "_Scene3dCountsOptional",
+    {
+        # 点群の点。点群のシーンだけが持つ。88 から
+        "points": int,
+    },
+    total=False,
+)
+
+
+class Scene3dCounts(_Scene3dCountsRequired, _Scene3dCountsOptional):
+    "返した 3D シーンの列の行数。共有するメッシュの点と面は 1 回だけ数える"
 
 
 # 3D シーンの座標・許容差・行数と blob の番号
@@ -3264,7 +3278,7 @@ _Scene3dResultRequired = TypedDict(
         "doc": str,
         # シーンの座標と許容差の長さの単位
         "unit": "BuildingUnit",
-        # 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。丸めのずれは別の診断で返す
+        # 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。点群では要求の点の間隔、省略時は返したもっとも深い段の点の間隔。丸めのずれは別の診断で返す
         "tolerance": float,
         # シーンの行数
         "counts": "Scene3dCounts",
@@ -3281,6 +3295,8 @@ _Scene3dResultOptional = TypedDict(
         "height_crs": int,
         # 地物で選択した LOD。LOD のない形だけなら持たない。86 から
         "lod": int,
+        # 点群で上限のために返さなかった点がある。点群のシーンだけが持つ。88 から
+        "truncated": bool,
         # 要求の断面の箱。なければ持たない
         "box": "Scene3dBox",
         # 返した塊の文書単位の範囲。形がなければ持たない

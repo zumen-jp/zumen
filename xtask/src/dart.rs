@@ -560,7 +560,7 @@ pub fn render_constants(
     }
     out.push_str("        _ => 'unknown($code)',\n      };\n}\n");
 
-    out.push_str("\n/// シーンのセクションの値の型\nenum ColumnType {\n  u8(1),\n  u32(4),\n  f32(4),\n  f64(8);\n\n  const ColumnType(this.size);\n\n  /// 値のバイト数\n  final int size;\n}\n");
+    out.push_str("\n/// シーンのセクションの値の型\nenum ColumnType {\n  u8(1),\n  u32(4),\n  f32(4),\n  f64(8),\n  u16(2);\n\n  const ColumnType(this.size);\n\n  /// 値のバイト数\n  final int size;\n}\n");
     out.push_str("\n/// シーンのセクションの定義\nfinal class SceneSection {\n  const SceneSection(this.name, this.type, this.width);\n\n  /// 名前\n  final String name;\n\n  /// 値の型\n  final ColumnType type;\n\n  /// 行ごとの値の数\n  final int width;\n}\n");
     Ok(out)
 }

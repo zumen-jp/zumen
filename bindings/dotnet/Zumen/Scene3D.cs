@@ -68,7 +68,7 @@ namespace Zumen
             {
                 throw new FormatException("セクションの表が blob に収まらない");
             }
-            if (sections < Scene3DLayout.Sections.Count) throw new FormatException("3D シーンの基本列がない");
+            if (sections < 20) throw new FormatException("3D シーンの基本列がない");
             ulong previous = header + (ulong)entry * sections;
             for (uint i = 0; i < sections; i++) {
                 var start = U32(blob, header + entry * (int)i);

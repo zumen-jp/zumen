@@ -21,7 +21,7 @@ public final class Constants {
     public static final int SCHEMA_MAJOR = 1;
 
     /** メッセージのスキーマのマイナーバージョン */
-    public static final int SCHEMA_MINOR = 87;
+    public static final int SCHEMA_MINOR = 88;
 
     /** 状態コード */
     public static final class Status {
@@ -79,7 +79,9 @@ public final class Constants {
         /** f32 */
         F32(4),
         /** f64 */
-        F64(8);
+        F64(8),
+        /** u16 */
+        U16(2);
 
         /** 値のバイト数 */
         public final int size;

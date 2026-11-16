@@ -30,7 +30,7 @@ Public Sub Read(ByRef data() As Byte)
     mSections = ZmReadU32(mData, 12)
     tableEnd = 16# + 8# * mSections
     If tableEnd > size Then Err.Raise 5, "Zumen", "Scene table outside buffer"
-    If mSections < ZM_SCENE3D_SECTION_COUNT Then Err.Raise 5, "Zumen", "Missing 3D scene sections"
+    If mSections < 20 Then Err.Raise 5, "Zumen", "Missing 3D scene sections"
     Dim previous As Double
     previous = tableEnd
     For index = 0 To CLng(mSections) - 1
@@ -85,6 +85,7 @@ Public Function Value(ByVal sectionName As String, ByVal row As Long, Optional B
     position = mStarts(index) + row * RowSize(index) + component * size
     Select Case ZmScene3DSectionType(index)
         Case "u8": Value = mData(LBound(mData) + position)
+        Case "u16": Value = ReadU16(position)
         Case "u32": Value = ZmReadU32(mData, position)
         Case Else: Value = ZmReadFloat(mData, position, size)
     End Select
@@ -114,6 +115,7 @@ End Function
 Private Function ItemSize(ByVal index As Long) As Long
     Select Case ZmScene3DSectionType(index)
         Case "u8": ItemSize = 1
+        Case "u16": ItemSize = 2
         Case "u32", "f32": ItemSize = 4
         Case "f64": ItemSize = 8
     End Select

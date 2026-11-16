@@ -17,7 +17,7 @@ const ABIVersion uint32 = 1
 const SchemaMajor int64 = 1
 
 // SchemaMinor は、メッセージのスキーマのマイナーバージョン。
-const SchemaMinor int64 = 87
+const SchemaMinor int64 = 88
 
 // StatusOk: 成功した
 const StatusOk int32 = 0
@@ -75,11 +75,16 @@ const ColumnF32 ColumnType = 2
 // ColumnF64 は f64。
 const ColumnF64 ColumnType = 3
 
+// ColumnU16 は u16。
+const ColumnU16 ColumnType = 4
+
 // Size は、値のバイト数。
 func (t ColumnType) Size() int {
 	switch t {
 	case ColumnU8:
 		return 1
+	case ColumnU16:
+		return 2
 	case ColumnF64:
 		return 8
 	}

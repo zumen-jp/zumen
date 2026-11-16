@@ -13,7 +13,7 @@ abstract final class Constants {
   static const schemaMajor = 1;
 
   /// メッセージのスキーマのマイナーバージョン
-  static const schemaMinor = 87;
+  static const schemaMinor = 88;
 
   /// シーンのメジャーバージョン。セクションの意味を変えるときに上げる
   static const sceneMajor = 1;
@@ -291,7 +291,8 @@ enum ColumnType {
   u8(1),
   u32(4),
   f32(4),
-  f64(8);
+  f64(8),
+  u16(2);
 
   const ColumnType(this.size);
 

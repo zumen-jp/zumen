@@ -2,7 +2,7 @@
 package zumen
 
 const Scene3DMajor uint16 = 1
-const Scene3DMinor uint16 = 0
+const Scene3DMinor uint16 = 1
 const Scene3DNone uint32 = 0xffffffff
 
 var Scene3DSections = []SceneSection{
@@ -46,6 +46,18 @@ var Scene3DSections = []SceneSection{
 	{Name: "color_flags", Type: ColumnU8, Width: 1},
 	// ID・クラス・名前の UTF-8 のバイト列
 	{Name: "strings", Type: ColumnU8, Width: 1},
+	// 塊の点の始まり。point_xyz の行。点を含むシーンで塊ごとに持つ
+	{Name: "chunk_points", Type: ColumnU32, Width: 1},
+	// 元の八分木のノード。段・北の位置・東の位置・高さの位置。段は0〜20。点のない塊は4値ともなし
+	{Name: "chunk_nodes", Type: ColumnU32, Width: 4},
+	// 塊の原点からの点の東・北・高さ。メートル
+	{Name: "point_xyz", Type: ColumnF32, Width: 3},
+	// 点の赤・緑・青・不透明度。0〜65535。元の16ビットの色を保つ。属性がなければ空の列
+	{Name: "point_rgba", Type: ColumnU16, Width: 4},
+	// 点の元の強度。属性がなければ空の列
+	{Name: "point_intensity", Type: ColumnU16, Width: 1},
+	// 点の元の分類。属性がなければ空の列
+	{Name: "point_classification", Type: ColumnU8, Width: 1},
 }
 
 const Scene3DColorFlagUnresolved uint32 = 1

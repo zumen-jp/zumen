@@ -31,7 +31,7 @@ static inline uint32_t zm_scene3d_u32_le(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
-/* 正常なら 1。失敗では out を変えない。基本列・範囲・幅を検査する。 */
+/* 正常なら 1。失敗では out を変えない。基本列・範囲・幅を検査する。点のない 1.0 は 20 列、点を持つ 1.1 以降は全列を持つ。 */
 static inline int zm_scene3d_read(const uint8_t *data, size_t size, zm_scene3d_reader *out) {
     zm_scene3d_reader result;
     uint32_t i;
@@ -43,7 +43,7 @@ static inline int zm_scene3d_read(const uint8_t *data, size_t size, zm_scene3d_r
     result.chunks = zm_scene3d_u32_le(data + 8);
     result.sections = zm_scene3d_u32_le(data + 12);
     previous = 16 + (uint64_t)result.sections * 8;
-    if (result.major != ZM_SCENE3D_MAJOR || result.sections < ZM_SCENE3D_SECTION_COUNT || previous > size) return 0;
+    if (result.major != ZM_SCENE3D_MAJOR || (result.sections != ZM_SCENE3D_SECTION_STRINGS + 1 && result.sections < ZM_SCENE3D_SECTION_COUNT) || previous > size) return 0;
     for (i = 0; i < result.sections; ++i) {
         uint32_t start = zm_scene3d_u32_le(data + 16 + (size_t)i * 8);
         uint32_t length = zm_scene3d_u32_le(data + 20 + (size_t)i * 8);
@@ -78,6 +78,13 @@ static inline int zm_scene3d_u32_at(const zm_scene3d_reader *scene, uint32_t sec
     const uint8_t *p = zm_scene3d_value_at(scene, section, row, component, ZM_SCENE3D_TYPE_U32);
     if (p == NULL || out == NULL) return 0;
     *out = zm_scene3d_u32_le(p);
+    return 1;
+}
+
+static inline int zm_scene3d_u16_at(const zm_scene3d_reader *scene, uint32_t section, uint32_t row, uint32_t component, uint16_t *out) {
+    const uint8_t *p = zm_scene3d_value_at(scene, section, row, component, ZM_SCENE3D_TYPE_U16);
+    if (p == NULL || out == NULL) return 0;
+    *out = zm_scene3d_u16_le(p);
     return 1;
 }
 

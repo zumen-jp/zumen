@@ -60,7 +60,17 @@ const TYPES: &[(&str, &str, &str, u32)] = &[
     ("u32", "u32", "U32", 4),
     ("f32", "f32", "F32", 4),
     ("f64", "f64", "F64", 8),
+    ("u16", "u16", "U16", 2),
 ];
+
+// 既存の型の番号を保ち、u16 はそれを使う配置だけへ加える。
+fn types(
+    scene: &Scene,
+) -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str, u32)> + '_ {
+    TYPES
+        .iter()
+        .filter(|(ty, ..)| *ty != "u16" || scene.sections.iter().any(|s| s.ty == "u16"))
+}
 
 fn is_snake(text: &str) -> bool {
     !text.is_empty()
@@ -183,11 +193,11 @@ pub fn render_rust_for(scene: &Scene, source: &str, description: &str, magic: &s
     out.push_str(
         "/// セクションの値の型\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum Type {\n",
     );
-    for (_, rust, variant, _) in TYPES {
+    for (_, rust, variant, _) in types(scene) {
         let _ = writeln!(out, "    /// `{rust}`\n    {variant},");
     }
     out.push_str("}\n\nimpl Type {\n    /// 値のバイト数\n    pub const fn size(self) -> usize {\n        match self {\n");
-    for (_, _, variant, size) in TYPES {
+    for (_, _, variant, size) in types(scene) {
         let _ = writeln!(out, "            Self::{variant} => {size},");
     }
     out.push_str("        }\n    }\n}\n\n");
@@ -279,7 +289,7 @@ pub fn render_c_header(scene: &Scene) -> String {
     );
     out.push_str("/* 番号の「なし」 */\n#define ZM_SCENE_NONE UINT32_C(4294967295)\n\n");
     out.push_str("/* セクションの値の型 */\n");
-    for (index, (ty, ..)) in TYPES.iter().enumerate() {
+    for (index, (ty, ..)) in types(scene).enumerate() {
         let _ = writeln!(
             out,
             "#define ZM_SCENE_TYPE_{} {index}",
@@ -350,7 +360,7 @@ pub fn render_c_header(scene: &Scene) -> String {
         "static inline uint32_t zm_scene_type_size(int32_t type) {\n",
         "    switch (type) {\n",
     ));
-    for (index, (_, _, _, size)) in TYPES.iter().enumerate() {
+    for (index, (_, _, _, size)) in types(scene).enumerate() {
         let _ = writeln!(out, "    case {index}:\n        return {size};");
     }
     out.push_str(concat!(

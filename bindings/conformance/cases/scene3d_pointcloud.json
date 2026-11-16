@@ -1,0 +1,217 @@
+{
+  "description": "自作の形式 2 の LAS（色・強度・分類を持つ 12 点。同じ位置を重ねて 3 段の節を作る）を点群のモジュールで開き、scene3d で八分木の節ごとの点の区画を持つ ZMS3 1.1 を得る。範囲と件数で絞り、不正な指定・予算停止の後にも再利用できる（#475）",
+  "module": "pointcloud",
+  "steps": [
+    {
+      "push": {
+        "name": "c.las",
+        "hex": "4c415346000000000000000000000000000000000000000001020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e3003101000001000000021a000c0000000c000000000000000000000000000000000000007b14ae47e17a843f7b14ae47e17a843f7b14ae47e17a843f0000000000408f400000000000409f4000000000000000000000000000548f400000000000488f409a999999994b9f400000000000489f40000000000000f03f000000000000000000004c4153465f50726f6a656374696f6e00af87180000000000000000000000000000000000000000000000000000000000000000000100010000000200000c00000100151a001000000100271a64000000c8000000000000000a000901000000000000ffff001096000000e6000000640000000b0009020000000088139bff0110c800000004010000000000000c00090300000000102737ff0210fa00000022010000640000000d00090100000000983ad3fe031064000000c8000000000000000e00090200000000204e6ffe041096000000e6000000640000000f00090300000000a8610bfe0510c8000000040100000000000010000901000000003075a7fd0610fa00000022010000640000001100090200000000b88843fd071064000000c8000000000000001200090300000000409cdffc081096000000e6000000640000001300090100000000c8af7bfc0910c80000000401000000000000140009020000000050c317fc0a10fa00000022010000640000001500090300000000d8d6b3fb0b10"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "c.las"
+      },
+      "expect": {
+        "/result/format": "las"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las"
+      },
+      "expect": {
+        "/result/unit/name": "METRE",
+        "/result/map/crs_name": "EPSG:6677",
+        "/result/height_crs": 6695,
+        "/result/truncated": false,
+        "/result/counts/points": 12,
+        "/result/counts/chunks": 9,
+        "/result/counts/meshes": 0,
+        "/result/counts/elements": 0,
+        "/result/extent/min": [
+          1001,
+          2002,
+          0
+        ],
+        "/result/extent/max": [
+          1002.5,
+          2002.9,
+          1
+        ],
+        "/blobs/0/kind": "scene3d"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las",
+        "box": {
+          "min": [
+            1001.4,
+            2002,
+            0
+          ],
+          "max": [
+            1003,
+            2003,
+            1
+          ]
+        }
+      },
+      "expect": {
+        "/result/counts/points": 9,
+        "/result/truncated": false,
+        "/result/box/min": [
+          1001.4,
+          2002,
+          0
+        ]
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las",
+        "limit": 5
+      },
+      "expect": {
+        "/result/counts/points": 5,
+        "/result/truncated": true
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las",
+        "ids": []
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las",
+        "classes": []
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las",
+        "storeys": []
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las",
+        "zone": 9
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las",
+        "tolerance": 0
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las",
+        "budget": {
+          "work": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las",
+        "budget": {
+          "decoded_bytes": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las",
+        "budget": {
+          "elements": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "c.las",
+        "limit": 0
+      },
+      "expect": {
+        "/result/counts/points": 0,
+        "/result/counts/chunks": 0,
+        "/result/truncated": true
+      }
+    },
+    {
+      "take": 0
+    }
+  ]
+}

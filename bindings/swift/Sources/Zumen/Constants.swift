@@ -13,7 +13,7 @@ public enum Constants {
     public static let schemaMajor: Int64 = 1
 
     /// メッセージのスキーマのマイナーバージョン
-    public static let schemaMinor: Int64 = 87
+    public static let schemaMinor: Int64 = 88
 
     /// 状態コード
     public enum Status {
@@ -56,12 +56,13 @@ public enum Constants {
 
     /// シーンのセクションの値の型
     public enum ColumnType: Sendable {
-        case u8, u32, f32, f64
+        case u8, u32, f32, f64, u16
 
         /// 値のバイト数
         public var size: Int {
             switch self {
             case .u8: return 1
+            case .u16: return 2
             case .u32, .f32: return 4
             case .f64: return 8
             }

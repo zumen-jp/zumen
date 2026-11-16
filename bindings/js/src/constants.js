@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマのメジャーバージョン（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマのマイナーバージョン */
-export const SCHEMA_MINOR = 87;
+export const SCHEMA_MINOR = 88;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({
@@ -54,7 +54,7 @@ export const MODULES = Object.freeze({
   pointcloud: Object.freeze({
     description: "点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）と、設計の TIN（J-LandXML）との差",
     formats: Object.freeze(["las", "ply", "xyz", "e57", "tiff", "landxml"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "civil", "pointcloud", "deviation"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "civil", "pointcloud", "deviation", "scene3d"]),
   }),
   plugin: Object.freeze({
     description: "プラグインの図面の形式を読み、図面モデルのバイナリにする",

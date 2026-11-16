@@ -26,11 +26,17 @@ export type Scene3DSectionName =
   | "color_rgba"
   | "color_flags"
   | "strings"
+  | "chunk_points"
+  | "chunk_nodes"
+  | "point_xyz"
+  | "point_rgba"
+  | "point_intensity"
+  | "point_classification"
 ;
 
 export interface Scene3DSection {
   readonly name: Scene3DSectionName;
-  readonly type: "u8" | "u32" | "f32" | "f64";
+  readonly type: "u8" | "u16" | "u32" | "f32" | "f64";
   readonly width: number;
 }
 

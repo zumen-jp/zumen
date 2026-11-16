@@ -4,7 +4,7 @@ import 'constants.dart';
 /// 3D シーンの配置
 abstract final class Scene3DLayout {
   static const major = 1;
-  static const minor = 0;
+  static const minor = 1;
   static const none = 0xffffffff;
   static const sections = <SceneSection>[
     // 塊の原点。プロジェクト空間の文書単位の X・Y・Z
@@ -47,6 +47,18 @@ abstract final class Scene3DLayout {
     SceneSection('color_flags', ColumnType.u8, 1),
     // ID・クラス・名前の UTF-8 のバイト列
     SceneSection('strings', ColumnType.u8, 1),
+    // 塊の点の始まり。point_xyz の行。点を含むシーンで塊ごとに持つ
+    SceneSection('chunk_points', ColumnType.u32, 1),
+    // 元の八分木のノード。段・北の位置・東の位置・高さの位置。段は0〜20。点のない塊は4値ともなし
+    SceneSection('chunk_nodes', ColumnType.u32, 4),
+    // 塊の原点からの点の東・北・高さ。メートル
+    SceneSection('point_xyz', ColumnType.f32, 3),
+    // 点の赤・緑・青・不透明度。0〜65535。元の16ビットの色を保つ。属性がなければ空の列
+    SceneSection('point_rgba', ColumnType.u16, 4),
+    // 点の元の強度。属性がなければ空の列
+    SceneSection('point_intensity', ColumnType.u16, 1),
+    // 点の元の分類。属性がなければ空の列
+    SceneSection('point_classification', ColumnType.u8, 1),
   ];
   static const colorFlagUnresolved = 1;
 }

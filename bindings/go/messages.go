@@ -3651,7 +3651,7 @@ func (m SceneRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// Scene3dRequest: 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+// Scene3dRequest: 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。マイナーバージョン 82 から
 type Scene3dRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -3671,16 +3671,16 @@ type Scene3dRequest struct {
 	// op の名前
 	Op string `json:"op,omitempty"`
 
-	// open で作った建物か地物の文書名
+	// open で作った建物・地物・点群の文書名。点群は 88 から
 	Doc *string `json:"doc,omitempty"`
 
-	// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物には指定できない
+	// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物と点群には指定できない
 	Storeys []string `json:"storeys,omitempty"`
 
-	// 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない
+	// 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない。点群には指定できない
 	Classes []string `json:"classes,omitempty"`
 
-	// 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す
+	// 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す。点群には指定できない
 	Ids []string `json:"ids,omitempty"`
 
 	// 地物だけに指定する投影先の平面直角座標系の系（1〜19）。省略時は元の系、経緯度では範囲の中心から計算用の系を仮定して診断する。86 から
@@ -3692,7 +3692,10 @@ type Scene3dRequest struct {
 	// プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う
 	Box *Scene3dBox `json:"box,omitempty"`
 
-	// 文書単位の正の有限値。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
+	// 点群だけに指定する返す点の数の上限。省略時は選んだすべての点。88 から
+	Limit *int64 `json:"limit,omitempty"`
+
+	// 文書単位の正の有限値。点群では点の間隔（メートル）で、これより細かい段の節を選ばない。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
 	Tolerance *float64 `json:"tolerance,omitempty"`
 }
 
@@ -3703,7 +3706,7 @@ func (m Scene3dRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// Scene3dBox: 建物ではプロジェクト空間の文書単位、地物では投影先の東・北・高さのメートルの箱。Z が上
+// Scene3dBox: 建物ではプロジェクト空間の文書単位、地物では投影先の、点群では元の座標系の東・北・高さのメートルの箱。Z が上
 type Scene3dBox struct {
 	// 最小の X・Y・Z の 3 値
 	Min []float64 `json:"min,omitempty"`
@@ -3761,6 +3764,9 @@ type Scene3dCounts struct {
 
 	// 形の稜線
 	Edges *int64 `json:"edges,omitempty"`
+
+	// 点群の点。点群のシーンだけが持つ。88 から
+	Points *int64 `json:"points,omitempty"`
 }
 
 // Scene3dResult: 3D シーンの座標・許容差・行数と blob の番号
@@ -3780,8 +3786,11 @@ type Scene3dResult struct {
 	// 地物で選択した LOD。LOD のない形だけなら持たない。86 から
 	Lod *int64 `json:"lod,omitempty"`
 
-	// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。丸めのずれは別の診断で返す
+	// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。点群では要求の点の間隔、省略時は返したもっとも深い段の点の間隔。丸めのずれは別の診断で返す
 	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 点群で上限のために返さなかった点がある。点群のシーンだけが持つ。88 から
+	Truncated *bool `json:"truncated,omitempty"`
 
 	// 要求の断面の箱。なければ持たない
 	Box *Scene3dBox `json:"box,omitempty"`

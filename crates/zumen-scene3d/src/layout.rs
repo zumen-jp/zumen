@@ -8,7 +8,7 @@ pub const MAGIC: [u8; 4] = *b"ZMS3";
 /// メジャーバージョン。セクションの意味を変えるときに上げる
 pub const MAJOR: u16 = 1;
 /// マイナーバージョン。セクションか値を足すたびに上げる
-pub const MINOR: u16 = 0;
+pub const MINOR: u16 = 1;
 /// 番号の「なし」
 pub const NONE: u32 = u32::MAX;
 
@@ -23,6 +23,8 @@ pub enum Type {
     F32,
     /// `f64`
     F64,
+    /// `u16`
+    U16,
 }
 
 impl Type {
@@ -33,6 +35,7 @@ impl Type {
             Self::U32 => 4,
             Self::F32 => 4,
             Self::F64 => 8,
+            Self::U16 => 2,
         }
     }
 }
@@ -88,9 +91,21 @@ pub const COLOR_RGBA: usize = 17;
 pub const COLOR_FLAGS: usize = 18;
 /// ID・クラス・名前の UTF-8 のバイト列
 pub const STRINGS: usize = 19;
+/// 塊の点の始まり。point_xyz の行。点を含むシーンで塊ごとに持つ
+pub const CHUNK_POINTS: usize = 20;
+/// 元の八分木のノード。段・北の位置・東の位置・高さの位置。段は0〜20。点のない塊は4値ともなし
+pub const CHUNK_NODES: usize = 21;
+/// 塊の原点からの点の東・北・高さ。メートル
+pub const POINT_XYZ: usize = 22;
+/// 点の赤・緑・青・不透明度。0〜65535。元の16ビットの色を保つ。属性がなければ空の列
+pub const POINT_RGBA: usize = 23;
+/// 点の元の強度。属性がなければ空の列
+pub const POINT_INTENSITY: usize = 24;
+/// 点の元の分類。属性がなければ空の列
+pub const POINT_CLASSIFICATION: usize = 25;
 
 /// セクションの定義。番号の順
-pub const SECTIONS: [Section; 20] = [
+pub const SECTIONS: [Section; 26] = [
     Section {
         name: "chunk_origins",
         ty: Type::F64,
@@ -188,6 +203,36 @@ pub const SECTIONS: [Section; 20] = [
     },
     Section {
         name: "strings",
+        ty: Type::U8,
+        width: 1,
+    },
+    Section {
+        name: "chunk_points",
+        ty: Type::U32,
+        width: 1,
+    },
+    Section {
+        name: "chunk_nodes",
+        ty: Type::U32,
+        width: 4,
+    },
+    Section {
+        name: "point_xyz",
+        ty: Type::F32,
+        width: 3,
+    },
+    Section {
+        name: "point_rgba",
+        ty: Type::U16,
+        width: 4,
+    },
+    Section {
+        name: "point_intensity",
+        ty: Type::U16,
+        width: 1,
+    },
+    Section {
+        name: "point_classification",
         ty: Type::U8,
         width: 1,
     },

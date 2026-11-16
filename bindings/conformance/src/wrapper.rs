@@ -71,6 +71,19 @@ impl Wrapper {
                 failures.push(format!("3D のシーンの {name} の数が合わない"));
             }
         }
+        // 点群のシーンは塊ごとの点の区画を足し合わせて点の数と比べる
+        if counts.pointer("/points").is_some() {
+            let total: u64 = (0..u64::from(scene.chunks))
+                .map(|chunk| {
+                    scene
+                        .points(chunk)
+                        .map_or(u64::MAX, |points| points.positions.rows())
+                })
+                .fold(0, u64::saturating_add);
+            if total != count(counts, "points") as u64 {
+                failures.push("3D のシーンの points の数が合わない".into());
+            }
+        }
         for row in 0..count(counts, "instances") {
             let instance = scene.instance(row as u64).expect("検査済みのインスタンス");
             assert!(

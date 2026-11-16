@@ -1,5 +1,5 @@
 //! 型を持つ値を、列のバッファーへ詰める。
-use crate::{Data, Error, MAX_BYTES, layout as l};
+use crate::{Data, Error, MAX_BYTES, PointData, layout as l};
 use std::ops::Range;
 use zumen_base::{Cx, Kind};
 
@@ -16,7 +16,7 @@ fn count(size: usize) -> Result<u32, Error> {
     u32::try_from(size).map_err(|_| Error::Invalid("size"))
 }
 
-fn lengths(data: &Data) -> Result<[u64; l::SECTIONS.len()], Error> {
+fn lengths(data: &Data, points: Option<&PointData>) -> Result<[u64; l::SECTIONS.len()], Error> {
     let vertices = sum(data.meshes.iter().map(|m| m.vertices.len()))?;
     let triangles = sum(data.meshes.iter().map(|m| m.triangles.len()))?;
     let edges = sum(data.meshes.iter().map(|m| m.edges.len()))?;
@@ -57,6 +57,24 @@ fn lengths(data: &Data) -> Result<[u64; l::SECTIONS.len()], Error> {
         (l::STRINGS, strings),
     ] {
         *rows.get_mut(index).ok_or(Error::Invalid("layout"))? = value;
+    }
+    if let Some(points) = points {
+        for (index, value) in [
+            (l::CHUNK_POINTS, points.chunks.len()),
+            (l::CHUNK_NODES, points.chunks.len()),
+            (l::POINT_XYZ, points.positions.len()),
+            (l::POINT_RGBA, points.rgba.as_ref().map_or(0, Vec::len)),
+            (
+                l::POINT_INTENSITY,
+                points.intensity.as_ref().map_or(0, Vec::len),
+            ),
+            (
+                l::POINT_CLASSIFICATION,
+                points.classification.as_ref().map_or(0, Vec::len),
+            ),
+        ] {
+            *rows.get_mut(index).ok_or(Error::Invalid("layout"))? = value as u64;
+        }
     }
     for (rows, definition) in rows.iter_mut().zip(l::SECTIONS) {
         *rows = rows
@@ -101,14 +119,29 @@ impl Writer {
 
 /// 型を持つシーンを ZMS3 にする。値と参照を検査し、失敗ではバッファーを返さない。
 pub fn encode(data: &Data, cx: &mut Cx) -> Result<Vec<u8>, Error> {
+    encode_inner(data, None, cx)
+}
+
+/// 元の節への参照を持つ点の列を加え、ZMS3 1.1 を書く。
+pub fn encode_with_points(data: &Data, points: &PointData, cx: &mut Cx) -> Result<Vec<u8>, Error> {
+    encode_inner(data, Some(points), cx)
+}
+
+fn encode_inner(data: &Data, points: Option<&PointData>, cx: &mut Cx) -> Result<Vec<u8>, Error> {
     cx.check(
         Kind::Work,
         (data.meshes.len() as u64 + data.elements.len() as u64) * 4 + 1,
     )?;
-    let lengths = lengths(data)?;
-    let mut end = 16 + l::SECTIONS.len() as u64 * 8;
+    let lengths = lengths(data, points)?;
+    let sections = if points.is_some() {
+        l::SECTIONS.len()
+    } else {
+        l::STRINGS + 1
+    };
+    let minor = if points.is_some() { l::MINOR } else { 0 };
+    let mut end = 16 + sections as u64 * 8;
     let mut ranges = std::array::from_fn(|_| 0..0);
-    for (length, range) in lengths.into_iter().zip(&mut ranges) {
+    for (length, range) in lengths.into_iter().zip(&mut ranges).take(sections) {
         let start = (end + 7) & !7;
         end = start
             .checked_add(length)
@@ -134,7 +167,7 @@ pub fn encode(data: &Data, cx: &mut Cx) -> Result<Vec<u8>, Error> {
     header
         .get_mut(6..8)
         .ok_or(Error::Invalid("size"))?
-        .copy_from_slice(&l::MINOR.to_le_bytes());
+        .copy_from_slice(&minor.to_le_bytes());
     header
         .get_mut(8..12)
         .ok_or(Error::Invalid("size"))?
@@ -142,8 +175,8 @@ pub fn encode(data: &Data, cx: &mut Cx) -> Result<Vec<u8>, Error> {
     header
         .get_mut(12..16)
         .ok_or(Error::Invalid("size"))?
-        .copy_from_slice(&count(l::SECTIONS.len())?.to_le_bytes());
-    for (index, range) in writer.ranges.iter().enumerate() {
+        .copy_from_slice(&count(sections)?.to_le_bytes());
+    for (index, range) in writer.ranges.iter().enumerate().take(sections) {
         let entry = writer
             .bytes
             .get_mut(16 + index * 8..24 + index * 8)
@@ -298,6 +331,52 @@ pub fn encode(data: &Data, cx: &mut Cx) -> Result<Vec<u8>, Error> {
             .flat_map(|s| s.as_bytes())
             .map(|&b| [b]),
     )?;
+    if let Some(points) = points {
+        writer.values(
+            l::CHUNK_POINTS,
+            points.chunks.iter().map(|c| c.start.to_le_bytes()),
+        )?;
+        writer.values(
+            l::CHUNK_NODES,
+            points
+                .chunks
+                .iter()
+                .flat_map(|c| c.node.unwrap_or([l::NONE; 4]))
+                .map(u32::to_le_bytes),
+        )?;
+        writer.values(
+            l::POINT_XYZ,
+            points
+                .positions
+                .iter()
+                .flatten()
+                .copied()
+                .map(f32::to_le_bytes),
+        )?;
+        writer.values(
+            l::POINT_RGBA,
+            points
+                .rgba
+                .iter()
+                .flatten()
+                .flatten()
+                .copied()
+                .map(u16::to_le_bytes),
+        )?;
+        writer.values(
+            l::POINT_INTENSITY,
+            points
+                .intensity
+                .iter()
+                .flatten()
+                .copied()
+                .map(u16::to_le_bytes),
+        )?;
+        writer.values(
+            l::POINT_CLASSIFICATION,
+            points.classification.iter().flatten().map(|&v| [v]),
+        )?;
+    }
     crate::read::read_inner(&writer.bytes, cx)?;
     Ok(writer.bytes)
 }

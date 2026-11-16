@@ -5164,7 +5164,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+    /// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。マイナーバージョン 82 から
     /// </summary>
     public sealed record Scene3dRequest
     {
@@ -5205,25 +5205,25 @@ namespace Zumen.Messages
         public string Op { get; init; } = "scene3d";
 
         /// <summary>
-        /// open で作った建物か地物の文書名
+        /// open で作った建物・地物・点群の文書名。点群は 88 から
         /// </summary>
         [JsonPropertyName("doc")]
         public string Doc { get; init; } = default!;
 
         /// <summary>
-        /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物には指定できない
+        /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物と点群には指定できない
         /// </summary>
         [JsonPropertyName("storeys")]
         public IReadOnlyList<string>? Storeys { get; init; }
 
         /// <summary>
-        /// 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない
+        /// 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない。点群には指定できない
         /// </summary>
         [JsonPropertyName("classes")]
         public IReadOnlyList<string>? Classes { get; init; }
 
         /// <summary>
-        /// 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す
+        /// 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す。点群には指定できない
         /// </summary>
         [JsonPropertyName("ids")]
         public IReadOnlyList<string>? Ids { get; init; }
@@ -5247,14 +5247,20 @@ namespace Zumen.Messages
         public Scene3dBox? Box { get; init; }
 
         /// <summary>
-        /// 文書単位の正の有限値。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
+        /// 点群だけに指定する返す点の数の上限。省略時は選んだすべての点。88 から
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public ulong? Limit { get; init; }
+
+        /// <summary>
+        /// 文書単位の正の有限値。点群では点の間隔（メートル）で、これより細かい段の節を選ばない。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
         /// </summary>
         [JsonPropertyName("tolerance")]
         public double? Tolerance { get; init; }
     }
 
     /// <summary>
-    /// 建物ではプロジェクト空間の文書単位、地物では投影先の東・北・高さのメートルの箱。Z が上
+    /// 建物ではプロジェクト空間の文書単位、地物では投影先の、点群では元の座標系の東・北・高さのメートルの箱。Z が上
     /// </summary>
     public sealed record Scene3dBox
     {
@@ -5371,6 +5377,12 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("edges")]
         public ulong Edges { get; init; }
+
+        /// <summary>
+        /// 点群の点。点群のシーンだけが持つ。88 から
+        /// </summary>
+        [JsonPropertyName("points")]
+        public ulong? Points { get; init; }
     }
 
     /// <summary>
@@ -5409,10 +5421,16 @@ namespace Zumen.Messages
         public uint? Lod { get; init; }
 
         /// <summary>
-        /// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。丸めのずれは別の診断で返す
+        /// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。点群では要求の点の間隔、省略時は返したもっとも深い段の点の間隔。丸めのずれは別の診断で返す
         /// </summary>
         [JsonPropertyName("tolerance")]
         public double Tolerance { get; init; }
+
+        /// <summary>
+        /// 点群で上限のために返さなかった点がある。点群のシーンだけが持つ。88 から
+        /// </summary>
+        [JsonPropertyName("truncated")]
+        public bool? Truncated { get; init; }
 
         /// <summary>
         /// 要求の断面の箱。なければ持たない

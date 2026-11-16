@@ -32,6 +32,11 @@ impl<'a> Column<'a> {
         (self.definition.ty == l::Type::U32).then(|| self.value(index).map(u32::from_le_bytes))?
     }
 
+    /// u16 の値。行内の値も続けて数える
+    pub fn u16(self, index: u64) -> Option<u16> {
+        (self.definition.ty == l::Type::U16).then(|| self.value(index).map(u16::from_le_bytes))?
+    }
+
     /// f32 の値。行内の値も続けて数える
     pub fn f32(self, index: u64) -> Option<f32> {
         (self.definition.ty == l::Type::F32).then(|| self.value(index).map(f32::from_le_bytes))?
@@ -64,6 +69,21 @@ pub struct MeshView<'a> {
     pub triangles: Column<'a>,
     /// このメッシュの中の頂点番号
     pub edges: Column<'a>,
+}
+
+/// 1 つの塊の点の列と元の節のキー。属性のない列は空。
+#[derive(Clone, Copy, Debug)]
+pub struct PointView<'a> {
+    /// 段・北・東・高さの位置。点を持たない塊は None
+    pub node: Option<[u32; 4]>,
+    /// 塊の原点からの座標
+    pub positions: Column<'a>,
+    /// 16 ビットの色と不透明度
+    pub rgba: Column<'a>,
+    /// 強度
+    pub intensity: Column<'a>,
+    /// 分類
+    pub classification: Column<'a>,
 }
 
 /// 要素の文字列と階への参照。
@@ -178,6 +198,45 @@ impl<'a> Reader<'a> {
             edges: self.mesh_column(row, l::MESH_EDGES, l::EDGE_VERTICES)?,
         })
     }
+
+    /// 塊に属する点を、元の列を借用して返す。旧版と点のない塊は空の列。
+    pub fn points(&self, chunk: u64) -> Result<PointView<'a>, Error> {
+        if chunk >= u64::from(self.chunks) {
+            return Err(Error::Invalid("chunk"));
+        }
+        let starts = self.col(l::CHUNK_POINTS)?;
+        let begin = u64::from(starts.u32(chunk).unwrap_or(0));
+        let end = starts
+            .u32(chunk + 1)
+            .map(u64::from)
+            .unwrap_or(self.col(l::POINT_XYZ)?.rows());
+        let slice = |index| {
+            let column = self.col(index)?;
+            if column.rows() == 0 {
+                Ok(column)
+            } else {
+                column.slice(begin, end)
+            }
+        };
+        let nodes = self.col(l::CHUNK_NODES)?;
+        let node = if nodes.rows() == 0 || nodes.u32(chunk * 4) == Some(l::NONE) {
+            None
+        } else {
+            Some([
+                required(nodes.u32(chunk * 4))?,
+                required(nodes.u32(chunk * 4 + 1))?,
+                required(nodes.u32(chunk * 4 + 2))?,
+                required(nodes.u32(chunk * 4 + 3))?,
+            ])
+        };
+        Ok(PointView {
+            node,
+            positions: slice(l::POINT_XYZ)?,
+            rgba: slice(l::POINT_RGBA)?,
+            intensity: slice(l::POINT_INTENSITY)?,
+            classification: slice(l::POINT_CLASSIFICATION)?,
+        })
+    }
 }
 
 fn required<T>(value: Option<T>) -> Result<T, Error> {
@@ -210,7 +269,10 @@ pub(crate) fn read_inner<'a>(bytes: &'a [u8], cx: &mut Cx) -> Result<Reader<'a>,
     let chunks = u32::from_le_bytes(number(bytes, 8)?);
     let sections = u32::from_le_bytes(number(bytes, 12)?);
     let table_end = 16 + u64::from(sections) * 8;
-    if table_end > bytes.len() as u64 || (sections as usize) < l::SECTIONS.len() {
+    if table_end > bytes.len() as u64
+        || (sections as usize) < l::STRINGS + 1
+        || (sections as usize > l::STRINGS + 1 && (sections as usize) < l::SECTIONS.len())
+    {
         return Err(Error::Invalid("sections"));
     }
     cx.check(Kind::Work, u64::from(sections))?;
@@ -297,6 +359,7 @@ impl Reader<'_> {
             elements,
         )?;
         self.same_rows(&[l::COLOR_FLAGS], colors)?;
+        self.validate_points(cx)?;
         for column in &self.columns {
             cx.check(
                 Kind::Work,
@@ -411,6 +474,58 @@ impl Reader<'_> {
             }
         }
         cx.check(Kind::Work, 0)?;
+        Ok(())
+    }
+
+    fn validate_points(&self, cx: &mut Cx) -> Result<(), Error> {
+        if self.sections as usize <= l::STRINGS + 1 {
+            return Ok(());
+        }
+        self.same_rows(&[l::CHUNK_POINTS, l::CHUNK_NODES], u64::from(self.chunks))?;
+        let count = self.col(l::POINT_XYZ)?.rows();
+        starts(self.col(l::CHUNK_POINTS)?, count, cx)?;
+        for index in [l::POINT_RGBA, l::POINT_INTENSITY, l::POINT_CLASSIFICATION] {
+            let rows = self.col(index)?.rows();
+            if rows != 0 && rows != count {
+                return Err(Error::Invalid("point_attribute"));
+            }
+        }
+        let mut keys = BTreeSet::new();
+        for chunk in 0..u64::from(self.chunks) {
+            cx.check(Kind::Work, 32)?;
+            let points = self.points(chunk)?;
+            let nodes = self.col(l::CHUNK_NODES)?;
+            match (points.node, points.positions.rows()) {
+                (None, 0) => {
+                    if (0..4).any(|i| nodes.u32(chunk * 4 + i) != Some(l::NONE)) {
+                        return Err(Error::Invalid("point_node"));
+                    }
+                }
+                (Some([level, x, y, z]), n) if n != 0 && level <= 20 => {
+                    let side = 1_u32 << level;
+                    if x >= side || y >= side || z >= side {
+                        return Err(Error::Invalid("point_node"));
+                    }
+                    cx.check(Kind::DecodedBytes, 128)?;
+                    if !keys.insert([level, x, y, z]) {
+                        return Err(Error::Invalid("point_node"));
+                    }
+                }
+                _ => return Err(Error::Invalid("point_node")),
+            }
+            let bounds = self.col(l::CHUNK_BOUNDS)?;
+            cx.check(Kind::Work, points.positions.rows().saturating_mul(3))?;
+            for row in 0..points.positions.rows() {
+                for axis in 0..3 {
+                    let value = required(points.positions.f32(row * 3 + axis))?;
+                    if value < required(bounds.f32(chunk * 6 + axis))?
+                        || value > required(bounds.f32(chunk * 6 + axis + 3))?
+                    {
+                        return Err(Error::Invalid("point_bounds"));
+                    }
+                }
+            }
+        }
         Ok(())
     }
 }

@@ -60,7 +60,7 @@ int32_t zumen_c_read_scene3d(const uint8_t *blob, size_t len, uint64_t *out) {
     const uint32_t sections[] = {ZM_SCENE3D_SECTION_CHUNK_ORIGINS, ZM_SCENE3D_SECTION_MESH_VERTICES, ZM_SCENE3D_SECTION_INSTANCE_MESHES, ZM_SCENE3D_SECTION_ELEMENT_IDS, ZM_SCENE3D_SECTION_COLOR_RGBA, ZM_SCENE3D_SECTION_VERTEX_XYZ, ZM_SCENE3D_SECTION_TRIANGLE_VERTICES, ZM_SCENE3D_SECTION_EDGE_VERTICES};
     uint32_t row, column;
     if (!zm_scene3d_read(blob, len, &scene)) return 1;
-    if (scene.major != ZM_SCENE3D_MAJOR || scene.sections != ZM_SCENE3D_SECTION_COUNT) return 1;
+    if (scene.major != ZM_SCENE3D_MAJOR || (scene.sections != ZM_SCENE3D_SECTION_STRINGS + 1 && scene.sections != ZM_SCENE3D_SECTION_COUNT)) return 1;
     for (column = 0; column < 8; ++column) out[column] = zm_scene3d_rows(&scene, sections[column]);
     if (scene.chunks != out[0]) return 1;
     for (row = 0; row < out[2]; ++row) {
@@ -75,6 +75,8 @@ int32_t zumen_c_read_scene3d(const uint8_t *blob, size_t len, uint64_t *out) {
             double f64;
             float f32;
             uint32_t u32;
+            uint16_t u16;
+            if (definition->type == ZM_SCENE3D_TYPE_U16 && !zm_scene3d_u16_at(&scene, column, 0, 0, &u16)) return 1;
             if (definition->type == ZM_SCENE3D_TYPE_F64 && !zm_scene3d_f64_at(&scene, column, 0, 0, &f64)) return 1;
             if (definition->type == ZM_SCENE3D_TYPE_F32 && !zm_scene3d_f32_at(&scene, column, 0, 0, &f32)) return 1;
             if (definition->type == ZM_SCENE3D_TYPE_U32 && !zm_scene3d_u32_at(&scene, column, 0, 0, &u32)) return 1;

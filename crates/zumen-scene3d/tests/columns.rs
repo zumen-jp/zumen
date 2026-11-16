@@ -1,7 +1,8 @@
 //! 最小の列から、型・参照・大きな原点・破損・予算停止を確かめる。
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Stop};
 use zumen_scene3d::{
-    Chunk, Color, Data, Element, Error, Instance, Mesh, encode, layout as l, read,
+    Chunk, Color, Data, Element, Error, Instance, Mesh, PointChunk, PointData, encode,
+    encode_with_points, layout as l, read,
 };
 
 fn with_cx<T>(limits: Limits, operation: impl FnOnce(&mut Cx) -> T) -> T {
@@ -94,6 +95,22 @@ fn scene() -> Data {
 #[expect(clippy::unwrap_used, reason = "合成した正常な入力だけを符号化する")]
 fn bytes() -> Vec<u8> {
     with_cx(Limits::default(), |cx| encode(&scene(), cx).unwrap())
+}
+
+/// 点の列を持つ 1.1。点のない塊は節を持たない
+#[expect(clippy::unwrap_used, reason = "合成した正常な入力だけを符号化する")]
+fn bytes_with_points() -> Vec<u8> {
+    let empty = PointChunk {
+        start: 0,
+        node: None,
+    };
+    let points = PointData {
+        chunks: vec![empty, empty],
+        ..PointData::default()
+    };
+    with_cx(Limits::default(), |cx| {
+        encode_with_points(&scene(), &points, cx).unwrap()
+    })
 }
 
 #[test]
@@ -230,14 +247,14 @@ fn malformed_headers_columns_references_and_nonfinite_values_are_rejected() {
 
 #[test]
 fn a_later_minor_can_append_an_unknown_section() {
-    let original = bytes();
+    let original = bytes_with_points();
     let count = l::SECTIONS.len();
     let old_table_end = 16 + count * 8;
     let extra_start = (original.len() + 8 + 7) & !7;
     let mut extended = vec![0; extra_start + 3];
     extended[..old_table_end].copy_from_slice(&original[..old_table_end]);
     extended[old_table_end + 8..original.len() + 8].copy_from_slice(&original[old_table_end..]);
-    extended[6] = 1;
+    extended[6] = 2;
     put_u32(&mut extended, 12, count as u32 + 1);
     for index in 0..count {
         put_u32(
@@ -252,7 +269,7 @@ fn a_later_minor_can_append_an_unknown_section() {
     with_cx(Limits::default(), |cx| {
         let view = read(&extended, cx).unwrap();
         assert_eq!(view.sections, count as u32 + 1);
-        assert_eq!(view.minor, 1);
+        assert_eq!(view.minor, 2);
         assert_eq!(view.element(0).unwrap().name, "壁");
         assert_eq!(view.instance(2).unwrap().mesh, 1);
     });
@@ -298,4 +315,74 @@ fn encoding_validation_and_budgets_return_no_partial_buffer() {
         assert_eq!(view.chunks, 0);
         assert_eq!(view.column(l::ELEMENT_IDS).unwrap().rows(), 0);
     });
+}
+
+fn point_data() -> PointData {
+    PointData {
+        chunks: vec![
+            PointChunk {
+                start: 0,
+                node: Some([1, 0, 1, 0]),
+            },
+            PointChunk {
+                start: 2,
+                node: None,
+            },
+        ],
+        positions: vec![[0., 0., 0.], [3., 1., 0.]],
+        rgba: Some(vec![[0, 65535, 256, 65535], [1, 2, 3, 65535]]),
+        intensity: Some(vec![7, 8]),
+        classification: None,
+    }
+}
+
+#[test]
+fn points_round_trip_and_bad_point_columns_are_rejected() {
+    with_cx(Limits::default(), |cx| {
+        let bytes = encode_with_points(&scene(), &point_data(), cx).unwrap();
+        let view = read(&bytes, cx).unwrap();
+        assert_eq!((view.minor, view.sections as usize), (1, l::SECTIONS.len()));
+        let first = view.points(0).unwrap();
+        assert_eq!(first.node, Some([1, 0, 1, 0]));
+        assert_eq!(first.positions.f32(3), Some(3.));
+        assert_eq!(first.rgba.u16(5), Some(2));
+        assert_eq!(first.intensity.u16(1), Some(8));
+        assert_eq!(first.classification.rows(), 0);
+        let second = view.points(1).unwrap();
+        assert_eq!((second.node, second.positions.rows()), (None, 0));
+        assert!(view.points(2).is_err());
+        // 点のない古い書き方は 1.0 の 20 列のまま
+        let old = encode(&scene(), cx).unwrap();
+        let old = read(&old, cx).unwrap();
+        assert_eq!((old.minor, old.sections), (0, 20));
+        assert_eq!(old.points(0).unwrap().positions.rows(), 0);
+    });
+    let mutations: Vec<fn(&mut PointData)> = vec![
+        |p| p.chunks[0].node = None,
+        |p| p.chunks[1].node = Some([0, 0, 0, 0]),
+        |p| p.chunks[0].node = Some([21, 0, 0, 0]),
+        |p| p.chunks[0].node = Some([1, 2, 0, 0]),
+        |p| p.chunks[0].start = 1,
+        |p| p.chunks[1].start = 3,
+        |p| p.chunks.truncate(1),
+        |p| p.positions[1] = [3.5, 1., 0.],
+        |p| p.positions[0] = [f32::NAN, 0., 0.],
+        |p| p.intensity = Some(vec![7]),
+        |p| p.classification = Some(vec![1, 2, 3]),
+    ];
+    for mutate in mutations {
+        let mut points = point_data();
+        mutate(&mut points);
+        assert!(with_cx(Limits::default(), |cx| matches!(
+            encode_with_points(&scene(), &points, cx),
+            Err(Error::Invalid(_))
+        )));
+    }
+    let mut duplicated = point_data();
+    duplicated.chunks[1] = duplicated.chunks[0];
+    duplicated.chunks[1].start = 1;
+    assert!(with_cx(Limits::default(), |cx| matches!(
+        encode_with_points(&scene(), &duplicated, cx),
+        Err(Error::Invalid("point_node"))
+    )));
 }

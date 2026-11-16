@@ -10,6 +10,8 @@ use zumen_scene3d::{Bounds, Error};
 
 #[cfg(feature = "civil")]
 mod geo;
+#[cfg(feature = "pointcloud")]
+mod points;
 
 fn scene_error(cx: &mut Cx, error: Error) -> Failed {
     match error {
@@ -83,6 +85,13 @@ impl Session {
         if !name::is_safe(&request.doc) {
             return Err(fail(cx, invalid_value("/doc")));
         }
+        #[cfg(feature = "pointcloud")]
+        if self.is_cloud(&request.doc) {
+            return self.cloud_scene3d(request, cx);
+        }
+        if request.limit.is_some() {
+            return Err(fail(cx, invalid_value("/limit")));
+        }
         #[cfg(feature = "civil")]
         if !matches!(self.document(&request.doc, cx)?, Document::Building { .. }) {
             return self.geo_scene3d(request, cx);
@@ -99,6 +108,8 @@ impl Session {
         }
         #[cfg(not(feature = "bim"))]
         {
+            // 点群か地物でなければ、この組み立てでは扱わない。文書がなければ名前の診断を返す
+            self.document(&request.doc, cx)?;
             Err(fail(cx, unsupported(&request.doc, "scene3d")))
         }
     }
@@ -195,6 +206,7 @@ impl Session {
             vertices: data.meshes.iter().map(|m| m.vertices.len() as u64).sum(),
             triangles: data.meshes.iter().map(|m| m.triangles.len() as u64).sum(),
             edges: data.meshes.iter().map(|m| m.edges.len() as u64).sum(),
+            points: None,
         };
         let bytes = zumen_scene3d::encode(data, cx).map_err(|e| scene_error(cx, e))?;
         let result = Scene3dResult {
@@ -209,6 +221,7 @@ impl Session {
             height_crs: None,
             lod: None,
             tolerance: scene.tolerance,
+            truncated: None,
             r#box: region.map(output_box),
             extent: scene.extent.map(output_box),
             counts,

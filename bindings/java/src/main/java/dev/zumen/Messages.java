@@ -10312,7 +10312,7 @@ public final class Messages {
         }
     }
 
-    /** 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から */
+    /** 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。マイナーバージョン 82 から */
     public static final class Scene3dRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public Scene3dRequest(Map<String, Object> json) {
@@ -10397,7 +10397,7 @@ public final class Messages {
             return this;
         }
 
-        /** open で作った建物か地物の文書名 */
+        /** open で作った建物・地物・点群の文書名。点群は 88 から */
         public String getDoc() {
             return Json.read(json.get("doc"), Json::string);
         }
@@ -10408,7 +10408,7 @@ public final class Messages {
             return this;
         }
 
-        /** 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物には指定できない */
+        /** 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物と点群には指定できない */
         public List<String> getStoreys() {
             return Json.read(json.get("storeys"), v0 -> Json.list(v0, Json::string));
         }
@@ -10419,7 +10419,7 @@ public final class Messages {
             return this;
         }
 
-        /** 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない */
+        /** 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない。点群には指定できない */
         public List<String> getClasses() {
             return Json.read(json.get("classes"), v0 -> Json.list(v0, Json::string));
         }
@@ -10430,7 +10430,7 @@ public final class Messages {
             return this;
         }
 
-        /** 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す */
+        /** 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す。点群には指定できない */
         public List<String> getIds() {
             return Json.read(json.get("ids"), v0 -> Json.list(v0, Json::string));
         }
@@ -10474,7 +10474,18 @@ public final class Messages {
             return this;
         }
 
-        /** 文書単位の正の有限値。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める */
+        /** 点群だけに指定する返す点の数の上限。省略時は選んだすべての点。88 から */
+        public Long getLimit() {
+            return Json.read(json.get("limit"), Json::integer);
+        }
+
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withLimit(Long value) {
+            put("limit", value);
+            return this;
+        }
+
+        /** 文書単位の正の有限値。点群では点の間隔（メートル）で、これより細かい段の節を選ばない。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める */
         public Double getTolerance() {
             return Json.read(json.get("tolerance"), Json::number);
         }
@@ -10486,7 +10497,7 @@ public final class Messages {
         }
     }
 
-    /** 建物ではプロジェクト空間の文書単位、地物では投影先の東・北・高さのメートルの箱。Z が上 */
+    /** 建物ではプロジェクト空間の文書単位、地物では投影先の、点群では元の座標系の東・北・高さのメートルの箱。Z が上 */
     public static final class Scene3dBox extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public Scene3dBox(Map<String, Object> json) {
@@ -10728,6 +10739,17 @@ public final class Messages {
             put("edges", value);
             return this;
         }
+
+        /** 点群の点。点群のシーンだけが持つ。88 から */
+        public Long getPoints() {
+            return Json.read(json.get("points"), Json::integer);
+        }
+
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
+        public Scene3dCounts withPoints(Long value) {
+            put("points", value);
+            return this;
+        }
     }
 
     /** 3D シーンの座標・許容差・行数と blob の番号 */
@@ -10803,7 +10825,7 @@ public final class Messages {
             return this;
         }
 
-        /** 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。丸めのずれは別の診断で返す */
+        /** 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。点群では要求の点の間隔、省略時は返したもっとも深い段の点の間隔。丸めのずれは別の診断で返す */
         public Double getTolerance() {
             return Json.read(json.get("tolerance"), Json::number);
         }
@@ -10811,6 +10833,17 @@ public final class Messages {
         /** {@link #getTolerance()} を書く。null ならフィールドを除く */
         public Scene3dResult withTolerance(Double value) {
             put("tolerance", value);
+            return this;
+        }
+
+        /** 点群で上限のために返さなかった点がある。点群のシーンだけが持つ。88 から */
+        public Boolean getTruncated() {
+            return Json.read(json.get("truncated"), Json::bool);
+        }
+
+        /** {@link #getTruncated()} を書く。null ならフィールドを除く */
+        public Scene3dResult withTruncated(Boolean value) {
+            put("truncated", value);
             return this;
         }
 

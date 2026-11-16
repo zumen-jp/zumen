@@ -31,7 +31,7 @@ namespace Zumen
         /// <summary>名前</summary>
         public string Name { get; }
 
-        /// <summary>値の型（byte・uint・float・double）</summary>
+        /// <summary>値の型（byte・ushort・uint・float・double）</summary>
         public Type Type { get; }
 
         /// <summary>行ごとの値の数</summary>
@@ -39,7 +39,7 @@ namespace Zumen
 
         /// <summary>値 1 つのバイト数</summary>
         public int Size =>
-            Type == typeof(byte) ? 1 : Type == typeof(double) ? 8 : 4;
+            Type == typeof(byte) ? 1 : Type == typeof(ushort) ? 2 : Type == typeof(double) ? 8 : 4;
     }
 
     /// <summary>読んだシーン。列は blob のバイト列を共有するので、blob を書き換えない</summary>

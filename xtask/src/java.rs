@@ -444,7 +444,7 @@ pub fn render_constants(
     );
     out.push_str("\n    /** 番号の「なし」（u32 の最大）を int で読んだ値 */\n    public static final int SCENE_NONE = -1;\n");
 
-    out.push_str("\n    /** シーンのセクションの値の型 */\n    public enum ColumnType {\n        /** u8 */\n        U8(1),\n        /** u32 */\n        U32(4),\n        /** f32 */\n        F32(4),\n        /** f64 */\n        F64(8);\n\n        /** 値のバイト数 */\n        public final int size;\n\n        ColumnType(int size) {\n            this.size = size;\n        }\n    }\n");
+    out.push_str("\n    /** シーンのセクションの値の型 */\n    public enum ColumnType {\n        /** u8 */\n        U8(1),\n        /** u32 */\n        U32(4),\n        /** f32 */\n        F32(4),\n        /** f64 */\n        F64(8),\n        /** u16 */\n        U16(2);\n\n        /** 値のバイト数 */\n        public final int size;\n\n        ColumnType(int size) {\n            this.size = size;\n        }\n    }\n");
     out.push_str("\n    /** シーンのセクションの定義 */\n    public static final class SceneSection {\n        /** 名前 */\n        public final String name;\n        /** 値の型 */\n        public final ColumnType type;\n        /** 行ごとの値の数 */\n        public final int width;\n\n        SceneSection(String name, ColumnType type, int width) {\n            this.name = name;\n            this.type = type;\n            this.width = width;\n        }\n    }\n");
     out.push_str("\n    /** シーンのセクションの定義。番号の順。書き換えない */\n    public static final SceneSection[] SCENE_SECTIONS = {\n");
     for section in &scene.sections {

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readScene3D, SCENE3D_SECTIONS } from "../src/index.js";
 
-function fixture(future = false, empty = false, name = "壁") {
+function fixture(future = false, empty = false, name = "壁", points = future) {
   const text = [];
   function string(value) {
     const bytes = new TextEncoder().encode(value), start = text.length;
@@ -19,17 +19,20 @@ function fixture(future = false, empty = false, name = "壁") {
     element_classes: [...string("IfcWall"), ...string("IfcBuildingStorey")],
     element_names: [...string(name), ...string("1階")], element_storeys: [1, 0xffffffff],
     color_rgba: [0.25, 0.5, 1, 0.75], color_flags: [0], strings: text,
+    chunk_points: [0], chunk_nodes: [1, 0, 1, 0], point_xyz: [0, 0, 0, 1001, 1, 0],
+    point_rgba: [0, 65535, 256, 65535, 1, 2, 3, 65535], point_intensity: [7, 8], point_classification: [2, 6],
   };
-  const definitions = [...SCENE3D_SECTIONS];
+  // 点のない 1.0 は既知の 20 列。点を持つ 1.1 は 26 列
+  const definitions = points ? [...SCENE3D_SECTIONS] : SCENE3D_SECTIONS.slice(0, 20);
   if (future) { definitions.push({ name: "future", type: "u8", width: 1 }); c.future = [1, 2, 3]; }
-  const sizes = { u8: 1, u32: 4, f32: 4, f64: 8 };
-  const setters = { u8: "setUint8", u32: "setUint32", f32: "setFloat32", f64: "setFloat64" };
+  const sizes = { u8: 1, u16: 2, u32: 4, f32: 4, f64: 8 };
+  const setters = { u8: "setUint8", u16: "setUint16", u32: "setUint32", f32: "setFloat32", f64: "setFloat64" };
   let end = 16 + definitions.length * 8;
   const starts = {};
   for (const s of definitions) { end = Math.ceil(end / 8) * 8; starts[s.name] = end; end += empty ? 0 : c[s.name].length * sizes[s.type]; }
   const bytes = new Uint8Array(end), view = new DataView(bytes.buffer);
   bytes.set([0x5a, 0x4d, 0x53, 0x33]);
-  view.setUint16(4, 1, true); view.setUint16(6, future ? 1 : 0, true);
+  view.setUint16(4, 1, true); view.setUint16(6, future ? 2 : points ? 1 : 0, true);
   view.setUint32(8, empty ? 0 : 1, true); view.setUint32(12, definitions.length, true);
   for (const [i, s] of definitions.entries()) {
     const values = empty ? [] : c[s.name];
@@ -50,7 +53,17 @@ assert.equal(scene.elementById("wall"), 0);
 assert.equal(scene.elementById("missing"), undefined);
 assert.equal(scene.mesh(scene.instance(1).mesh).vertices.length, 9);
 assert.deepEqual([...scene.color(0).rgba], [0.25, 0.5, 1, 0.75]);
-assert.equal(readScene3D(fixture(true).bytes).sections, 21);
+assert.equal(readScene3D(fixture(true).bytes).sections, SCENE3D_SECTIONS.length + 1);
+assert.equal(scene.points(0).positions.length, 0);
+assert.equal(scene.points(0).node, null);
+const withPoints = readScene3D(fixture(false, false, "壁", true).bytes);
+assert.equal(withPoints.sections, SCENE3D_SECTIONS.length);
+assert.deepEqual([...withPoints.points(0).node], [1, 0, 1, 0]);
+assert.deepEqual([...withPoints.points(0).positions], [0, 0, 0, 1001, 1, 0]);
+assert.deepEqual([...withPoints.points(0).rgba], [0, 65535, 256, 65535, 1, 2, 3, 65535]);
+assert.deepEqual([...withPoints.points(0).intensity], [7, 8]);
+assert.deepEqual([...withPoints.points(0).classification], [2, 6]);
+assert.equal(readScene3D(fixture(false, true, "壁", true).bytes).rows("point_xyz"), 0);
 assert.equal(readScene3D(fixture(false, true).bytes).rows("element_ids"), 0);
 const unaligned = new Uint8Array(bytes.length + 1); unaligned.set(bytes, 1);
 assert.equal(readScene3D(unaligned.subarray(1)).element(0).name, "壁");
@@ -71,6 +84,23 @@ for (const mutate of [
   ({ view, starts }) => view.setFloat32(starts.chunk_bounds, 2000, true),
 ]) {
   const changed = fixture(); mutate(changed); assert.throws(() => readScene3D(changed.bytes));
+}
+// 1.0 の 20 列に足りない点の列を途中まで足した表は断る
+{
+  const changed = fixture(false, false, "壁", true);
+  changed.view.setUint32(12, 21, true);
+  assert.throws(() => readScene3D(changed.bytes));
+}
+for (const mutate of [
+  ({ view, starts }) => view.setUint32(starts.chunk_points, 1, true),
+  ({ view, starts }) => view.setUint32(starts.chunk_nodes, 21, true),
+  ({ view, starts }) => view.setUint32(starts.chunk_nodes + 4, 2, true),
+  ({ view, starts }) => view.setUint32(starts.chunk_nodes, 0xffffffff, true),
+  ({ view, starts }) => view.setFloat32(starts.point_xyz + 12, 1002, true),
+  ({ view, starts }) => view.setFloat32(starts.point_xyz, NaN, true),
+  ({ view }) => view.setUint32(16 + 24 * 8 + 4, 2, true),
+]) {
+  const changed = fixture(false, false, "壁", true); mutate(changed); assert.throws(() => readScene3D(changed.bytes));
 }
 for (const options of [{ maxBytes: 0 }, { maxWork: 0 }, { maxAllocatedBytes: 0 }, { maxWork: -1 }, { unknown: 1 }]) {
   assert.throws(() => readScene3D(bytes, options));

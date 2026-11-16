@@ -62,6 +62,7 @@ impl Session {
             vertices: data.meshes.iter().map(|m| m.vertices.len() as u64).sum(),
             triangles: data.meshes.iter().map(|m| m.triangles.len() as u64).sum(),
             edges: data.meshes.iter().map(|m| m.edges.len() as u64).sum(),
+            points: None,
         };
         let bytes = zumen_scene3d::encode(data, cx).map_err(|e| scene_error(cx, e))?;
         let result = Scene3dResult {
@@ -84,6 +85,7 @@ impl Session {
             height_crs: output.height.map(|h| u64::from(h.epsg())),
             lod: output.lod.map(u64::from),
             tolerance: scene.tolerance,
+            truncated: None,
             r#box: region.map(output_box),
             extent: scene.extent.map(output_box),
             counts,

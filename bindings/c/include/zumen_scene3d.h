@@ -25,7 +25,7 @@ extern "C" {
 /* メジャーバージョン。セクションの意味を変えるときに上げる */
 #define ZM_SCENE3D_MAJOR 1
 /* マイナーバージョン。セクションか値を足すたびに上げる */
-#define ZM_SCENE3D_MINOR 0
+#define ZM_SCENE3D_MINOR 1
 /* 番号の「なし」 */
 #define ZM_SCENE3D_NONE UINT32_C(4294967295)
 
@@ -34,9 +34,10 @@ extern "C" {
 #define ZM_SCENE3D_TYPE_U32 1
 #define ZM_SCENE3D_TYPE_F32 2
 #define ZM_SCENE3D_TYPE_F64 3
+#define ZM_SCENE3D_TYPE_U16 4
 
 /* セクションの数 */
-#define ZM_SCENE3D_SECTION_COUNT 20
+#define ZM_SCENE3D_SECTION_COUNT 26
 
 /* セクションの番号 */
 /* 塊の原点。プロジェクト空間の文書単位の X・Y・Z（f64 × 3） */
@@ -79,6 +80,18 @@ extern "C" {
 #define ZM_SCENE3D_SECTION_COLOR_FLAGS 18
 /* ID・クラス・名前の UTF-8 のバイト列（u8 × 1） */
 #define ZM_SCENE3D_SECTION_STRINGS 19
+/* 塊の点の始まり。point_xyz の行。点を含むシーンで塊ごとに持つ（u32 × 1） */
+#define ZM_SCENE3D_SECTION_CHUNK_POINTS 20
+/* 元の八分木のノード。段・北の位置・東の位置・高さの位置。段は0〜20。点のない塊は4値ともなし（u32 × 4） */
+#define ZM_SCENE3D_SECTION_CHUNK_NODES 21
+/* 塊の原点からの点の東・北・高さ。メートル（f32 × 3） */
+#define ZM_SCENE3D_SECTION_POINT_XYZ 22
+/* 点の赤・緑・青・不透明度。0〜65535。元の16ビットの色を保つ。属性がなければ空の列（u16 × 4） */
+#define ZM_SCENE3D_SECTION_POINT_RGBA 23
+/* 点の元の強度。属性がなければ空の列（u16 × 1） */
+#define ZM_SCENE3D_SECTION_POINT_INTENSITY 24
+/* 点の元の分類。属性がなければ空の列（u8 × 1） */
+#define ZM_SCENE3D_SECTION_POINT_CLASSIFICATION 25
 
 /* 色の状態（u8） */
 /* 色が未解決。読み手が代替色を決める */
@@ -96,7 +109,7 @@ typedef struct zm_scene3d_section {
 
 /* セクションの定義を番号から引く。知らない番号なら NULL */
 static inline const zm_scene3d_section *zm_scene3d_section_at(uint32_t index) {
-    static const zm_scene3d_section sections[20] = {
+    static const zm_scene3d_section sections[26] = {
         {"chunk_origins", ZM_SCENE3D_TYPE_F64, 3},
         {"chunk_bounds", ZM_SCENE3D_TYPE_F32, 6},
         {"chunk_instances", ZM_SCENE3D_TYPE_U32, 1},
@@ -117,6 +130,12 @@ static inline const zm_scene3d_section *zm_scene3d_section_at(uint32_t index) {
         {"color_rgba", ZM_SCENE3D_TYPE_F32, 4},
         {"color_flags", ZM_SCENE3D_TYPE_U8, 1},
         {"strings", ZM_SCENE3D_TYPE_U8, 1},
+        {"chunk_points", ZM_SCENE3D_TYPE_U32, 1},
+        {"chunk_nodes", ZM_SCENE3D_TYPE_U32, 4},
+        {"point_xyz", ZM_SCENE3D_TYPE_F32, 3},
+        {"point_rgba", ZM_SCENE3D_TYPE_U16, 4},
+        {"point_intensity", ZM_SCENE3D_TYPE_U16, 1},
+        {"point_classification", ZM_SCENE3D_TYPE_U8, 1},
     };
     return index < ZM_SCENE3D_SECTION_COUNT ? &sections[index] : NULL;
 }
@@ -132,6 +151,8 @@ static inline uint32_t zm_scene3d_type_size(int32_t type) {
         return 4;
     case 3:
         return 8;
+    case 4:
+        return 2;
     default:
         return 0;
     }

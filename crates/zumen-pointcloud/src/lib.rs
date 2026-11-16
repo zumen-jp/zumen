@@ -8,6 +8,9 @@ use std::collections::BTreeSet;
 use zumen_base::{Cx, Kind, Ref, Stop};
 use zumen_crs::{Crs, VerticalCrs};
 
+#[cfg(feature = "scene3d")]
+pub mod scene3d;
+
 /// 点群
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PointCloud {

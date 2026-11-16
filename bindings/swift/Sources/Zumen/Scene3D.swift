@@ -42,7 +42,7 @@ public struct Scene3D: Sendable {
         guard UInt64(Scene3D.header) + UInt64(Scene3D.entry) * UInt64(sections) <= UInt64(bytes.count) else {
             throw JSONError("セクションの表が blob に収まらない")
         }
-        guard UInt64(sections) >= UInt64(Scene3DLayout.sections.count) else { throw JSONError("3D シーンの基本列がない") }
+        guard sections >= 20 else { throw JSONError("3D シーンの基本列がない") }
         var previous = Scene3D.header + Scene3D.entry * Int(sections)
         for i in 0..<Int(sections) {
             let start = Int(u32(Scene3D.header + Scene3D.entry * i))
@@ -142,6 +142,13 @@ public struct Scene3D: Sendable {
     public func f32(_ name: String) throws -> [Float] {
         try values(name, .f32) {
             Float(bitPattern: UInt32(littleEndian: $0.loadUnaligned(fromByteOffset: $1, as: UInt32.self)))
+        }
+    }
+
+    /// u16 のセクションの値
+    public func u16(_ name: String) throws -> [UInt16] {
+        try values(name, .u16) {
+            UInt16(littleEndian: $0.loadUnaligned(fromByteOffset: $1, as: UInt16.self))
         }
     }
 

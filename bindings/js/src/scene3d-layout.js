@@ -2,7 +2,7 @@
 
 export const SCENE3D_MAGIC = "ZMS3";
 export const SCENE3D_MAJOR = 1;
-export const SCENE3D_MINOR = 0;
+export const SCENE3D_MINOR = 1;
 export const SCENE3D_NONE = 4294967295;
 
 export const SCENE3D_SECTIONS = Object.freeze([
@@ -46,6 +46,18 @@ export const SCENE3D_SECTIONS = Object.freeze([
   Object.freeze({ name: "color_flags", type: "u8", width: 1 }),
   // ID・クラス・名前の UTF-8 のバイト列
   Object.freeze({ name: "strings", type: "u8", width: 1 }),
+  // 塊の点の始まり。point_xyz の行。点を含むシーンで塊ごとに持つ
+  Object.freeze({ name: "chunk_points", type: "u32", width: 1 }),
+  // 元の八分木のノード。段・北の位置・東の位置・高さの位置。段は0〜20。点のない塊は4値ともなし
+  Object.freeze({ name: "chunk_nodes", type: "u32", width: 4 }),
+  // 塊の原点からの点の東・北・高さ。メートル
+  Object.freeze({ name: "point_xyz", type: "f32", width: 3 }),
+  // 点の赤・緑・青・不透明度。0〜65535。元の16ビットの色を保つ。属性がなければ空の列
+  Object.freeze({ name: "point_rgba", type: "u16", width: 4 }),
+  // 点の元の強度。属性がなければ空の列
+  Object.freeze({ name: "point_intensity", type: "u16", width: 1 }),
+  // 点の元の分類。属性がなければ空の列
+  Object.freeze({ name: "point_classification", type: "u8", width: 1 }),
 ]);
 
 export const SCENE3D_VALUES = Object.freeze({

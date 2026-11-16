@@ -41,7 +41,7 @@ pub enum Request {
     Tables(TablesRequest),
     /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から
     Scene(SceneRequest),
-    /// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+    /// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。マイナーバージョン 82 から
     Scene3d(Scene3dRequest),
     /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。マイナーバージョン 34 から
     Check(CheckRequest),
@@ -9347,18 +9347,18 @@ impl ToJson for SceneRequest {
     }
 }
 
-/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。マイナーバージョン 82 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scene3dRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
-    /// open で作った建物か地物の文書名
+    /// open で作った建物・地物・点群の文書名。点群は 88 から
     pub doc: String,
-    /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物には指定できない
+    /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物と点群には指定できない
     pub storeys: Option<Vec<String>>,
-    /// 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない
+    /// 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない。点群には指定できない
     pub classes: Option<Vec<String>>,
-    /// 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す
+    /// 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す。点群には指定できない
     pub ids: Option<Vec<String>>,
     /// 地物だけに指定する投影先の平面直角座標系の系（1〜19）。省略時は元の系、経緯度では範囲の中心から計算用の系を仮定して診断する。86 から
     pub zone: Option<u64>,
@@ -9366,7 +9366,9 @@ pub struct Scene3dRequest {
     pub lod: Option<u64>,
     /// プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う
     pub r#box: Option<Scene3dBox>,
-    /// 文書単位の正の有限値。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
+    /// 点群だけに指定する返す点の数の上限。省略時は選んだすべての点。88 から
+    pub limit: Option<u64>,
+    /// 文書単位の正の有限値。点群では点の間隔（メートル）で、これより細かい段の節を選ばない。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
     pub tolerance: Option<f64>,
 }
 
@@ -9381,6 +9383,7 @@ impl Scene3dRequest {
         let zone = object.optional("zone", |value| json::uint(value, 1, 19))?;
         let lod = object.optional("lod", |value| json::uint(value, 0, 4))?;
         let r#box = object.optional("box", Scene3dBox::from_json)?;
+        let limit = object.optional("limit", |value| json::uint(value, 0, 9007199254740991))?;
         let tolerance = object.optional("tolerance", json::number)?;
         Ok(Self {
             request_common,
@@ -9391,6 +9394,7 @@ impl Scene3dRequest {
             zone,
             lod,
             r#box,
+            limit,
             tolerance,
         })
     }
@@ -9425,6 +9429,10 @@ impl Scene3dRequest {
             out.key("box");
             value.to_json(out);
         }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
         if let Some(value) = &self.tolerance {
             out.key("tolerance");
             out.float(*value);
@@ -9449,7 +9457,7 @@ impl ToJson for Scene3dRequest {
     }
 }
 
-/// 建物ではプロジェクト空間の文書単位、地物では投影先の東・北・高さのメートルの箱。Z が上
+/// 建物ではプロジェクト空間の文書単位、地物では投影先の、点群では元の座標系の東・北・高さのメートルの箱。Z が上
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scene3dBox {
     /// 最小の X・Y・Z の 3 値
@@ -9591,6 +9599,8 @@ pub struct Scene3dCounts {
     pub triangles: u64,
     /// 形の稜線
     pub edges: u64,
+    /// 点群の点。点群のシーンだけが持つ。88 から
+    pub points: Option<u64>,
 }
 
 impl Scene3dCounts {
@@ -9607,6 +9617,7 @@ impl Scene3dCounts {
         let triangles =
             object.required("triangles", |value| json::uint(value, 0, 9007199254740991))?;
         let edges = object.required("edges", |value| json::uint(value, 0, 9007199254740991))?;
+        let points = object.optional("points", |value| json::uint(value, 0, 9007199254740991))?;
         Ok(Self {
             chunks,
             meshes,
@@ -9616,6 +9627,7 @@ impl Scene3dCounts {
             vertices,
             triangles,
             edges,
+            points,
         })
     }
 
@@ -9636,6 +9648,10 @@ impl Scene3dCounts {
         out.uint(self.triangles);
         out.key("edges");
         out.uint(self.edges);
+        if let Some(value) = &self.points {
+            out.key("points");
+            out.uint(*value);
+        }
     }
 }
 
@@ -9669,8 +9685,10 @@ pub struct Scene3dResult {
     pub height_crs: Option<u64>,
     /// 地物で選択した LOD。LOD のない形だけなら持たない。86 から
     pub lod: Option<u64>,
-    /// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。丸めのずれは別の診断で返す
+    /// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。点群では要求の点の間隔、省略時は返したもっとも深い段の点の間隔。丸めのずれは別の診断で返す
     pub tolerance: f64,
+    /// 点群で上限のために返さなかった点がある。点群のシーンだけが持つ。88 から
+    pub truncated: Option<bool>,
     /// 要求の断面の箱。なければ持たない
     pub r#box: Option<Scene3dBox>,
     /// 返した塊の文書単位の範囲。形がなければ持たない
@@ -9690,6 +9708,7 @@ impl Scene3dResult {
             object.optional("height_crs", |value| json::uint(value, 0, 9007199254740991))?;
         let lod = object.optional("lod", |value| json::uint(value, 0, 4))?;
         let tolerance = object.required("tolerance", json::number)?;
+        let truncated = object.optional("truncated", json::boolean)?;
         let r#box = object.optional("box", Scene3dBox::from_json)?;
         let extent = object.optional("extent", Scene3dBox::from_json)?;
         let counts = object.required("counts", Scene3dCounts::from_json)?;
@@ -9701,6 +9720,7 @@ impl Scene3dResult {
             height_crs,
             lod,
             tolerance,
+            truncated,
             r#box,
             extent,
             counts,
@@ -9727,6 +9747,10 @@ impl Scene3dResult {
         }
         out.key("tolerance");
         out.float(self.tolerance);
+        if let Some(value) = &self.truncated {
+            out.key("truncated");
+            out.bool(*value);
+        }
         if let Some(value) = &self.r#box {
             out.key("box");
             value.to_json(out);

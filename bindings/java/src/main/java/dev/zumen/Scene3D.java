@@ -62,7 +62,7 @@ public final class Scene3D {
         if (HEADER + ENTRY * sections > blob.length) {
             throw new IllegalArgumentException("セクションの表が blob に収まらない");
         }
-        if (sections < Scene3DLayout.SECTIONS.length) throw new IllegalArgumentException("3D シーンの基本列がない");
+        if (sections < 20) throw new IllegalArgumentException("3D シーンの基本列がない");
         long previous = HEADER + ENTRY * sections;
         for (int i = 0; i < sections; i++) {
             long start = view.getInt(HEADER + ENTRY*i) & 0xffffffffL;
@@ -159,6 +159,14 @@ public final class Scene3D {
         ByteBuffer column = column(name, Constants.ColumnType.F32);
         float[] out = new float[column.remaining() / 4];
         column.asFloatBuffer().get(out);
+        return out;
+    }
+
+    /** u16 のセクションの値（符号なしの int の写し） */
+    public int[] u16(String name) {
+        ByteBuffer column = column(name, Constants.ColumnType.U16);
+        int[] out = new int[column.remaining() / 2];
+        for (int i = 0; i < out.length; i++) out[i] = column.getShort() & 0xffff;
         return out;
     }
 
