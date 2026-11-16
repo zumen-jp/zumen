@@ -62,6 +62,10 @@ cargo run -p zumen-conformance -- --write
 
 `apply_dwg_table.json` は、[自作の表](../../crates/zumen-acad/tests/fixtures/README.md)を持つ R2010・R2013・R2018 の DWG で、位置だけの `replace` と `transform` を確かめます。ID・セル・表示用ブロックの参照と未変更要素のハッシュを保ち、セルの変更・回転・予算停止で変更が残らないことを比べます。形式の照合は、検証キットで ACadSharp と別に行います。
 
+### 色表と非表示
+
+`palette.json` は、ACI・JWW・SXF の符号と図面内 RGB を持つ合成の図面モデルで、組み込み色表を使う `scene`・`render`・`check` の応答を照らします。SVG・PNG での非表示、未知のレイヤ・色表、予算停止後の再利用、元のハッシュの保持も含みます。`cargo run -p zumen-abi --example palette_case` で生成し、末尾に `-- --check` を足すと生成元との一致を確かめられます。数値の正しさは、ABI の色と画素の期待値、および[外部実装による全符号の照合](../../xtask/verify/README.md#既定の色表を照らす)で別に確かめます。
+
 ### 計測
 
 `measure.json` は、線分・円・円弧・膨らみのない折れ線・楕円・制御点とフィット点のスプライン・クロソイド・点を持つ合成の図面モデルで、`measure` の値と全応答のハッシュを照らします。同じ出所が重なる公開 ID、単位不明、未対応の形、閉じていない面積、予算停止と再利用も含みます。生成元は `crates/zumen-abi/examples/measurement_case.rs` と隣の JSON です。

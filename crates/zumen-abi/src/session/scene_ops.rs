@@ -153,6 +153,10 @@ impl Session {
         let Some(name) = name else {
             return Ok(zumen_scene::Palette::default());
         };
+        if name == "builtin:cad-v1" {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            return Ok(zumen_scene::Palette::cad());
+        }
         if !name::is_safe(name) {
             return Err(fail(cx, invalid_value("/palette")));
         }

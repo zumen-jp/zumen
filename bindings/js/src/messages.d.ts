@@ -1636,7 +1636,7 @@ export interface SceneRequest extends RequestCommon {
   tolerance?: number;
   /** true なら印刷する要素を、書かないか false なら表示する要素を描く */
   print?: boolean;
-  /** 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる */
+  /** 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる */
   palette?: string;
   /** 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形のセクションに形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。マイナーバージョン 37 から */
   fonts?: SceneFont[];
@@ -1672,7 +1672,9 @@ export interface RenderRequest extends RequestCommon {
   tolerance?: number;
   /** scene と同じ指定。true は印刷する要素、書かないか false は表示する要素を描く */
   print?: boolean;
-  /** scene と同じ色の表の入力の名前。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる */
+  /** 隠すレイヤの公開 ID の一覧。scene の layer_ids と同じ値で描画単位を除く。未知の ID は失敗、省略または空なら従来どおり描く */
+  hidden_layers?: string[];
+  /** scene と同じ色の表の入力の名前、または組み込みの表 builtin:cad-v1。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる */
   palette?: string;
   /** scene と同じフォントの指定。名前を合わせ、なければ名前のないフォントを使う。字形の輪郭を作るため、zm_push でフォントのバイト列を渡す。OS のフォントは探索しない */
   fonts?: SceneFont[];
@@ -1812,7 +1814,7 @@ export interface CheckRequest extends RequestCommon {
   offset?: number;
   /** 返す指摘の数の上限。書かなければ 1000 */
   limit?: number;
-  /** 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く */
+  /** 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く */
   palette?: string;
 }
 
@@ -1965,7 +1967,7 @@ export interface ReviewAdoptRequest extends RequestCommon {
   view?: number;
   /** 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から */
   file_name?: string;
-  /** 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く */
+  /** 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く */
   palette?: string;
   /** 足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す */
   review?: string;

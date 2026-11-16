@@ -15,6 +15,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `check_ezjww.py` | キットの JWW を ezjww で読み、zumen の読みと照らす |
 | `check_ezsxf.py` | キットの SFC・P21 を ezsxf で読み、zumen の読みと照らす |
 | `check_text_apply.py` | 文字とレイヤを編集する 5 形式の適合テストを流し、保存後の再読と ezjww・ezsxf の値を照らす |
+| `check_palette.py` | 組み込みの色表の全符号を ezdxf・ezjww・ezsxf の固定版と照らす |
 | `test_ezsxf.py` | 合成 P21 の追加点のレイヤ所属と、同じ番号を持つ合成 SFC の各要素の形・種類・レイヤ・出所・欠落を個別に変え、`check_ezsxf.py` が食い違いを検出することを確かめる。合成 P21 の画像枠と折れ線の取り違え、枠のない画像の作図グループの診断の欠落、引数の中にコメントを持つ文の実体のレイヤの違いも検出することを確かめる |
 | `test_source_kinds.py` | キットの読みの要素の種類を変え、`check_ezdxf.py`・`check_acadsharp.py`・`check_ezjww.py` が、形を返さない要素の種類の違いを検出することを確かめる。JWW では、文字と画像の範囲の取り違え、描かない文字を要素にした読み、診断の欠落も検出することを確かめる。DWG は `acadsharp-dump.json` があるときだけ確かめる |
 | `pdfjs/` | `@zumen-jp/view2d` の PDF アンダーレイのブラウザーテストが使う固定版の pdf.js。手順は [README](pdfjs/README.md) |
@@ -179,3 +180,15 @@ python -I -m unittest discover -s xtask/verify -p 'test_check_autocad.py'
 
 - LibreDWG などの GPL の実装。ソースも読みません（`AGENTS.md`）。
 - ODA File Converter・DWG TrueView など、使うのに規約への同意が要るツール。入れること自体が、利用者を待つもの（[開発の進め方](../../docs/work.md)）。
+
+## 既定の色表を照らす
+
+`builtin:cad-v1` の ACI 255 色・SXF 16 色・JWW 26 色を、MIT の ezdxf 1.4.5・ezsxf 0.3.7・ezjww 0.7.6 と照らします。バージョンと全符号の一致を確認し、符号の不足や余分な解決も失敗にします。JWW は新しい文書の画面色だけを取り出し、テンプレートのファイルを保存しません。Autodesk の付属ファイルは使いません。出所と同梱する許諾は [`zumen-drawing/NOTICE`](../../crates/zumen-drawing/NOTICE) にあります。
+
+```powershell
+cargo run -p zumen-drawing --example palette > "$env:TEMP/zumen-palette.txt"
+$env:UV_PYTHON_DOWNLOADS = 'never'
+uv run --no-project --python 3.14 --with ezdxf==1.4.5 --with ezjww==0.7.6 --with ezsxf==0.3.7 python -X utf8 xtask/verify/check_palette.py "$env:TEMP/zumen-palette.txt"
+```
+
+ネイティブと wasm の応答の一致は、別に適合テストの `palette.json` で確かめます。ここでの比較は、固定した色表の数値の一致であり、利用者が変えた画面色やアプリの描画結果の一致を意味しません。

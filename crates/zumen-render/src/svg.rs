@@ -3,7 +3,7 @@
 use zumen_base::{Cx, Kind};
 use zumen_scene::layout as l;
 
-use crate::{Error, Options, order, paint, scene::Scene, writer::Writer};
+use crate::{Error, Options, order, paint, scene::Scene, visibility::Visibility, writer::Writer};
 
 pub(crate) struct Camera {
     pub scale: f64,
@@ -63,17 +63,25 @@ impl Camera {
 
 struct Render<'s, 'c, 'a> {
     scene: Scene<'s>,
+    visibility: Visibility,
     options: &'s Options,
     camera: Camera,
     out: Writer<'c, 'a>,
 }
 
-pub(crate) fn render(bytes: &[u8], options: &Options, cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
+pub(crate) fn render(
+    bytes: &[u8],
+    options: &Options,
+    hidden_layers: &[String],
+    cx: &mut Cx<'_>,
+) -> Result<Vec<u8>, Error> {
     cx.check(Kind::Work, 1)?;
     let camera = Camera::new(options)?;
     let scene = Scene::read(bytes, cx)?;
+    let visibility = Visibility::new(&scene, hidden_layers, cx)?;
     let mut renderer = Render {
         scene,
+        visibility,
         options,
         camera,
         out: Writer::new(cx),
@@ -123,6 +131,9 @@ impl Render<'_, '_, '_> {
             self.out.cx.check(Kind::Work, 1)?;
             let origin = self.scene.xy(l::CHUNK_ORIGINS, chunk)?;
             for [unit, kind, row] in order::build(&self.scene, chunk, self.out.cx)? {
+                if !self.visibility.visible(&self.scene, unit as usize)? {
+                    continue;
+                }
                 self.primitive(kind as usize, row as usize, unit as usize, origin)?;
             }
         }

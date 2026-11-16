@@ -8077,7 +8077,7 @@ pub struct SceneRequest {
     pub tolerance: Option<f64>,
     /// true なら印刷する要素を、書かないか false なら表示する要素を描く
     pub print: Option<bool>,
-    /// 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる
+    /// 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる
     pub palette: Option<String>,
     /// 文字を置くフォント（決定 0188）。書けば、文字を字形で置き、シーンの字形のセクションに形と変換を返す。文字スタイルと書式の区間のフォントの名前（シーンの font_names）で引き、同じ名前、なければ ASCII の大文字と小文字を区別しない名前で合わせる。合うものがなければ名前のないフォントで置く。マイナーバージョン 37 から
     pub fonts: Option<Vec<SceneFont>>,
@@ -8199,7 +8199,9 @@ pub struct RenderRequest {
     pub tolerance: Option<f64>,
     /// scene と同じ指定。true は印刷する要素、書かないか false は表示する要素を描く
     pub print: Option<bool>,
-    /// scene と同じ色の表の入力の名前。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる
+    /// 隠すレイヤの公開 ID の一覧。scene の layer_ids と同じ値で描画単位を除く。未知の ID は失敗、省略または空なら従来どおり描く
+    pub hidden_layers: Option<Vec<String>>,
+    /// scene と同じ色の表の入力の名前、または組み込みの表 builtin:cad-v1。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる
     pub palette: Option<String>,
     /// scene と同じフォントの指定。名前を合わせ、なければ名前のないフォントを使う。字形の輪郭を作るため、zm_push でフォントのバイト列を渡す。OS のフォントは探索しない
     pub fonts: Option<Vec<SceneFont>>,
@@ -8227,6 +8229,8 @@ impl RenderRequest {
         })?;
         let tolerance = object.optional("tolerance", json::number)?;
         let print = object.optional("print", json::boolean)?;
+        let hidden_layers =
+            object.optional("hidden_layers", |value| json::array(value, json::string))?;
         let palette = object.optional("palette", json::string)?;
         let fonts = object.optional("fonts", |value| json::array(value, SceneFont::from_json))?;
         let heights = object.optional("heights", |value| {
@@ -8246,6 +8250,7 @@ impl RenderRequest {
             foreground,
             tolerance,
             print,
+            hidden_layers,
             palette,
             fonts,
             heights,
@@ -8285,6 +8290,10 @@ impl RenderRequest {
         if let Some(value) = &self.print {
             out.key("print");
             out.bool(*value);
+        }
+        if let Some(value) = &self.hidden_layers {
+            out.key("hidden_layers");
+            out.array(value, |out, item| out.string(item));
         }
         if let Some(value) = &self.palette {
             out.key("palette");
@@ -8862,7 +8871,7 @@ pub struct CheckRequest {
     pub offset: Option<u64>,
     /// 返す指摘の数の上限。書かなければ 1000
     pub limit: Option<u64>,
-    /// 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
+    /// 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
     pub palette: Option<String>,
 }
 
@@ -9621,7 +9630,7 @@ pub struct ReviewAdoptRequest {
     pub view: Option<u64>,
     /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から
     pub file_name: Option<String>,
-    /// 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
+    /// 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
     pub palette: Option<String>,
     /// 足す先のレビューの文書の入力の名前（zm_push で渡した JSON）。書かなければ空の文書に足す
     pub review: Option<String>,

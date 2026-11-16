@@ -9,6 +9,7 @@ use crate::{
     raster::{self, Buffer, Path, Point, Shape, Surface},
     scene::Scene,
     svg::Camera,
+    visibility::Visibility,
 };
 
 struct Render<'s, 'c, 'a> {
@@ -19,10 +20,16 @@ struct Render<'s, 'c, 'a> {
     cx: &'c mut Cx<'a>,
 }
 
-pub(crate) fn render(bytes: &[u8], options: &Options, cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
+pub(crate) fn render(
+    bytes: &[u8],
+    options: &Options,
+    hidden_layers: &[String],
+    cx: &mut Cx<'_>,
+) -> Result<Vec<u8>, Error> {
     cx.check(Kind::Work, 1)?;
     let camera = Camera::new(options)?;
     let scene = Scene::read(bytes, cx)?;
+    let visibility = Visibility::new(&scene, hidden_layers, cx)?;
     // 完成した PNG の容量も、画素を初期化する前に検査する。
     let encoder = Encoder::new(options, cx)?;
     let surface = Surface::new(options, &camera, cx)?;
@@ -37,6 +44,9 @@ pub(crate) fn render(bytes: &[u8], options: &Options, cx: &mut Cx<'_>) -> Result
         render.cx.check(Kind::Work, 1)?;
         let origin = render.scene.xy(l::CHUNK_ORIGINS, chunk)?;
         for [unit, kind, row] in order::build(&render.scene, chunk, render.cx)? {
+            if !visibility.visible(&render.scene, unit as usize)? {
+                continue;
+            }
             render.primitive(kind as usize, row as usize, unit as usize, origin)?;
         }
     }

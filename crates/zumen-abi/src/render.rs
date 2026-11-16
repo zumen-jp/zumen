@@ -70,9 +70,10 @@ pub(crate) fn render(
     bytes: &[u8],
     cx: &mut Cx<'_>,
 ) -> Result<(RenderResult, Vec<u8>), Failed> {
+    let hidden = request.hidden_layers.as_deref().unwrap_or_default();
     let output = match request.format {
-        RenderFormat::Svg => zumen_render::svg(bytes, options, cx),
-        RenderFormat::Png => zumen_render::png(bytes, options, cx),
+        RenderFormat::Svg => zumen_render::svg_with_hidden_layers(bytes, options, hidden, cx),
+        RenderFormat::Png => zumen_render::png_with_hidden_layers(bytes, options, hidden, cx),
     }
     .map_err(|_| Failed)?; // 描画部品が、停止を含む失敗の診断を返す。
     Ok((
@@ -145,6 +146,7 @@ mod tests {
                     "dpi",
                     "background",
                     "foreground",
+                    "hidden_layers",
                 ]
                 .contains(key)
             })

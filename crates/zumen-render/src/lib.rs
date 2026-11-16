@@ -8,6 +8,7 @@ mod png_render;
 mod raster;
 mod scene;
 mod svg;
+mod visibility;
 mod writer;
 
 use zumen_base::{Cx, Diagnostic, Stop, codes};
@@ -67,7 +68,18 @@ impl Error {
 /// シーンを別のモデルに写さず、借りた列を検査して読む。描かないもの・色の代替と、失敗の理由は `cx.diag` に残す。
 /// 文字はシーンの字形の輪郭だけを書く。出力の字形と ID の規則は変えない。
 pub fn svg(bytes: &[u8], options: &Options, cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
-    let result = svg::render(bytes, options, cx);
+    svg_with_hidden_layers(bytes, options, &[], cx)
+}
+
+/// 公開レイヤ ID で指定した描画単位を除いて SVG を作る。ID と元のシーンは変えない。
+/// 未知の ID は設定の誤りにする。空の一覧は [`svg`] と同じ応答・予算を使う。
+pub fn svg_with_hidden_layers(
+    bytes: &[u8],
+    options: &Options,
+    hidden_layers: &[String],
+    cx: &mut Cx<'_>,
+) -> Result<Vec<u8>, Error> {
+    let result = svg::render(bytes, options, hidden_layers, cx);
     if let Err(error) = result {
         cx.report(error.diagnostic());
     }
@@ -79,7 +91,18 @@ pub fn svg(bytes: &[u8], options: &Options, cx: &mut Cx<'_>) -> Result<Vec<u8>, 
 /// RGBA8・固定の 4×4 サンプル・非圧縮 DEFLATE を使う。最大 16,777,216 画素。
 /// 色・描画順・クリップ・資源の診断は SVG と共通。変換後の座標は絶対値 2^31 ピクセル以内。
 pub fn png(bytes: &[u8], options: &Options, cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
-    let result = png_render::render(bytes, options, cx);
+    png_with_hidden_layers(bytes, options, &[], cx)
+}
+
+/// 公開レイヤ ID で指定した描画単位を除いて PNG を作る。除外は SVG と同じ規則で行う。
+/// 未知の ID は設定の誤りにする。空の一覧は [`png`] と同じ応答・予算を使う。
+pub fn png_with_hidden_layers(
+    bytes: &[u8],
+    options: &Options,
+    hidden_layers: &[String],
+    cx: &mut Cx<'_>,
+) -> Result<Vec<u8>, Error> {
+    let result = png_render::render(bytes, options, hidden_layers, cx);
     if let Err(error) = result {
         cx.report(error.diagnostic());
     }

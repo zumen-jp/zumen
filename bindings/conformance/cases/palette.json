@@ -1,0 +1,710 @@
+{
+  "description": "組み込みの ACI・JWW・SXF 色表、図面内 RGB の優先、SVG・PNG の公開レイヤ非表示、未定義色、予算停止と再利用。palette_case.rs から再生成する",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "colors",
+        "hex": "5a4d445201000000090000000200000020000000260000004800000008030000250c746573742d70616c657474650764726177696e67444444444444444444444444444444440000860601cd05000000094c0700010000010001001c0205010200010001000000000000f03f01020000000000000000400100241100000000000000244000000000000024401100000000000080564000000000000024404c0700010100010002001c0205010201040001000000000000f03f01020000000000000000400100241100000000000000244000000000000034401100000000000080564000000000000034404c0700010200010003001c0205010202010001000000000000f03f0102000000000000000040010024110000000000000024400000000000003e40110000000000008056400000000000003e404f0700010300010004001f020801020001010c223801000000000000f03f01020000000000000000400100241100000000000000244000000000000044401100000000000080564000000000000044404f0700010400010005001f0208010201040122384e01000000000000f03f01020000000000000000400100241100000000000000244000000000000049401100000000000080564000000000000049404f0700010500010006001f02080102020101384e5a01000000000000f03f0102000000000000000040010024110000000000000024400000000000004e40110000000000008056400000000000004e404d0700010600010007011d0206010302c8010001000000000000f03f01020000000000000000400100241100000000000000244000000000008051401100000000000080564000000000008051404c0700010700010008001c0205010200070001000000000000f03f01020000000000000000400100241100000000000000244000000000000054401100000000000080564000000000000054404c0700010800010009001c0205010202660001000000000000f03f0102000000000000000040010024110000000000000024400000000000805640110000000000008056400000000000805640090001020304050607080002130005636f6c6f72000000000700011400010020140106637573746f6d0000000007000115000100210000000000000000000000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "colors"
+      },
+      "expect": {
+        "/result/format": "test-palette"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "scene"
+      },
+      "expect": {
+        "/result/counts/lines": 9
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "scene",
+        "palette": "builtin:cad-v1"
+      },
+      "expect": {
+        "/result/counts/lines": 9
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "svg",
+        "palette": "builtin:cad-v1"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "svg",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "svg",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": [
+          "layer/h21"
+        ]
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "svg",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": [
+          "layer/h20",
+          "layer/h21"
+        ]
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "svg",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": [
+          "layer/h21",
+          "layer/h21"
+        ]
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "svg",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": [
+          "missing"
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "render.options.invalid"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "png",
+        "palette": "builtin:cad-v1"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "png",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "png",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": [
+          "layer/h21"
+        ]
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "png",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": [
+          "layer/h20",
+          "layer/h21"
+        ]
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "png",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": [
+          "layer/h21",
+          "layer/h21"
+        ]
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "png",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": [
+          "missing"
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "render.options.invalid"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "push": {
+        "name": "profile.json",
+        "text": "{\"format\":\"0.1\",\"id\":\"base\",\"edition\":\"1\",\"revision\":1,\"vocabularies\":{\"color\":{\"values\":[{\"name\":\"0\",\"rgb\":\"#ff0000\"},{\"name\":\"1\",\"rgb\":\"#0000ff\"},{\"name\":\"2\",\"rgb\":\"#00c0c0\"},{\"name\":\"3\",\"rgb\":\"#ffffff\"},{\"name\":\"4\",\"rgb\":\"#0c2238\"},{\"name\":\"5\",\"rgb\":\"#22384e\"},{\"name\":\"6\",\"rgb\":\"#384e5a\"}]}},\"rules\":[{\"id\":\"color\",\"check\":\"color\",\"level\":\"warning\",\"vocabulary\":\"color\"}]}"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "check",
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "base",
+          "edition": "1"
+        }
+      },
+      "expect": {
+        "/result/rules/0/findings": 0,
+        "/result/rules/0/unsupported": 6
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "check",
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "base",
+          "edition": "1"
+        },
+        "palette": "builtin:cad-v1"
+      },
+      "expect": {
+        "/result/rules/0/findings": 0,
+        "/result/rules/0/unsupported": 1
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "scene",
+        "palette": "builtin:unknown"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/params/pointer": "/palette"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "svg",
+        "palette": "builtin:unknown"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/params/pointer": "/palette"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "check",
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "base",
+          "edition": "1"
+        },
+        "palette": "builtin:unknown"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/params/pointer": "/palette"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "svg",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": [
+          "layer/h21"
+        ],
+        "budget": {
+          "work": 0
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "doc": "colors",
+        "from": "space/0",
+        "op": "render",
+        "width": 100,
+        "height": 100,
+        "region": [
+          0,
+          0,
+          100,
+          100
+        ],
+        "dpi": 25.4,
+        "background": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "foreground": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "format": "svg",
+        "palette": "builtin:cad-v1",
+        "hidden_layers": [
+          "layer/h21"
+        ]
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "colors"
+      },
+      "expect": {
+        "/result/hash": "v2:44444444444444444444444444444444"
+      }
+    }
+  ]
+}

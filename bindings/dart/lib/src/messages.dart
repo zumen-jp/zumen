@@ -3582,7 +3582,7 @@ class SceneRequest extends Message {
   bool? get print => readField('print', asBool);
   set print(bool? value) => writeField('print', value);
 
-  /// 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる
+  /// 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる
   String? get palette => readField('palette', asString);
   set palette(String? value) => writeField('palette', value);
 
@@ -3675,7 +3675,11 @@ class RenderRequest extends Message {
   bool? get print => readField('print', asBool);
   set print(bool? value) => writeField('print', value);
 
-  /// scene と同じ色の表の入力の名前。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる
+  /// 隠すレイヤの公開 ID の一覧。scene の layer_ids と同じ値で描画単位を除く。未知の ID は失敗、省略または空なら従来どおり描く
+  List<String>? get hiddenLayers => readField('hidden_layers', listOf(asString));
+  set hiddenLayers(List<String>? value) => writeField('hidden_layers', value);
+
+  /// scene と同じ色の表の入力の名前、または組み込みの表 builtin:cad-v1。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる
   String? get palette => readField('palette', asString);
   set palette(String? value) => writeField('palette', value);
 
@@ -3992,7 +3996,7 @@ class CheckRequest extends Message {
   int? get limit => readField('limit', asInt);
   set limit(int? value) => writeField('limit', value);
 
-  /// 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
+  /// 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
   String? get palette => readField('palette', asString);
   set palette(String? value) => writeField('palette', value);
 }
@@ -4364,7 +4368,7 @@ class ReviewAdoptRequest extends Message {
   String? get fileName => readField('file_name', asString);
   set fileName(String? value) => writeField('file_name', value);
 
-  /// 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
+  /// 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
   String? get palette => readField('palette', asString);
   set palette(String? value) => writeField('palette', value);
 

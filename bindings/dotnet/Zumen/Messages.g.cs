@@ -4452,7 +4452,7 @@ namespace Zumen.Messages
         public bool? Print { get; init; }
 
         /// <summary>
-        /// 色の表の入力の名前（zm_push で渡したもの）。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる
+        /// 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる
         /// </summary>
         [JsonPropertyName("palette")]
         public string? Palette { get; init; }
@@ -4584,7 +4584,13 @@ namespace Zumen.Messages
         public bool? Print { get; init; }
 
         /// <summary>
-        /// scene と同じ色の表の入力の名前。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる
+        /// 隠すレイヤの公開 ID の一覧。scene の layer_ids と同じ値で描画単位を除く。未知の ID は失敗、省略または空なら従来どおり描く
+        /// </summary>
+        [JsonPropertyName("hidden_layers")]
+        public IReadOnlyList<string>? HiddenLayers { get; init; }
+
+        /// <summary>
+        /// scene と同じ色の表の入力の名前、または組み込みの表 builtin:cad-v1。zm_push で渡した JSON の values に rgb と aci・sxf・jww の符号を並べる
         /// </summary>
         [JsonPropertyName("palette")]
         public string? Palette { get; init; }
@@ -5006,7 +5012,7 @@ namespace Zumen.Messages
         public uint? Limit { get; init; }
 
         /// <summary>
-        /// 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
+        /// 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
         /// </summary>
         [JsonPropertyName("palette")]
         public string? Palette { get; init; }
@@ -5481,7 +5487,7 @@ namespace Zumen.Messages
         public string? FileName { get; init; }
 
         /// <summary>
-        /// 色の表の入力の名前（zm_push で渡したもの）。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
+        /// 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
         /// </summary>
         [JsonPropertyName("palette")]
         public string? Palette { get; init; }
