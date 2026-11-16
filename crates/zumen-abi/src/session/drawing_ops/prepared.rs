@@ -21,7 +21,7 @@ impl Session {
     ) -> Result<ApplyResult, Failed> {
         let (original, original_hash) = self.drawing_file(&request.doc, cx)?;
         let mut bytes = Vec::new();
-        let (prepared, applied, shifted) = match original {
+        let (prepared, applied, shifted) = match &**original {
             DrawingFile::Dxf(file) => {
                 let (updated, applied, shifted) = batch::run(
                     request,
@@ -110,7 +110,7 @@ impl Session {
                 Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", request.doc.as_str()),
             ));
         };
-        match (file.as_mut(), prepared) {
+        match (file.file_mut(), prepared) {
             (DrawingFile::Dxf(file), Prepared::Dxf(updated)) => *file = updated,
             (DrawingFile::Dwg(file), Prepared::Dwg(updated)) => *file = updated,
             (DrawingFile::Sxf(file, ..), Prepared::Sxf(updated)) => *file = updated,

@@ -12,6 +12,7 @@ mod drawing_ops;
 #[cfg(feature = "drawing")]
 mod measurement_ops;
 mod pointcloud_ops;
+mod resident;
 mod review_ops;
 #[cfg(any(feature = "bim", feature = "civil", feature = "pointcloud"))]
 mod scene3d_ops;
@@ -75,6 +76,7 @@ use crate::tables::{
     StyleIds, dimension_style_item, layer_item, line_type_item, table_id, text_style_item,
 };
 use crate::validate;
+use resident::Resident;
 
 /// entities の op で、limit を書かなかったときに返す要素の数（決定 0117）
 const ENTITIES_LIMIT: u64 = 1000;
@@ -108,8 +110,9 @@ pub struct Session {
 /// 一つの元文書。IFC から読んだ線形は、その建物と一緒に登録・更新・破棄する。
 #[derive(Debug)]
 enum Document {
+    /// 図面。ファイルモデルと、読み取りのたびに作り直さないよう常駐させる図面モデル（`docs/live.md`）
     Drawing {
-        file: Box<DrawingFile>,
+        file: Resident,
         hash: Hash,
     },
     Building {
@@ -138,7 +141,10 @@ impl Document {
 impl From<formats::ReadDocument> for Document {
     fn from(document: formats::ReadDocument) -> Self {
         match document {
-            formats::ReadDocument::Drawing { file, hash } => Self::Drawing { file, hash },
+            formats::ReadDocument::Drawing { file, hash } => Self::Drawing {
+                file: Resident::new(file),
+                hash,
+            },
             formats::ReadDocument::Building { model, civil } => Self::Building { model, civil },
             formats::ReadDocument::Civil(model) => Self::Civil(model),
             formats::ReadDocument::Geo(model) => Self::Geo(model),

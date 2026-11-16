@@ -55,7 +55,7 @@ impl Session {
         self.docs.insert(
             request.to.clone(),
             Document::Drawing {
-                file: Box::new(converted.file),
+                file: Resident::new(Box::new(converted.file)),
                 hash,
             },
         );

@@ -146,7 +146,7 @@ impl Session {
         self.docs.insert(
             to.clone(),
             Document::Drawing {
-                file: Box::new(converted.file),
+                file: Resident::new(Box::new(converted.file)),
                 hash,
             },
         );

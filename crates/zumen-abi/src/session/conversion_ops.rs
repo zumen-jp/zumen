@@ -40,7 +40,7 @@ impl Session {
             self.docs.insert(
                 request.to.clone(),
                 Document::Drawing {
-                    file: Box::new(converted.file),
+                    file: Resident::new(Box::new(converted.file)),
                     hash,
                 },
             );
@@ -215,7 +215,7 @@ impl Session {
         self.docs.insert(
             request.to.clone(),
             Document::Drawing {
-                file: Box::new(DrawingFile::Sima(reopened)),
+                file: Resident::new(Box::new(DrawingFile::Sima(reopened))),
                 hash,
             },
         );
@@ -307,7 +307,7 @@ impl Session {
         }
         let converted = in_input_order(cx, |cx| {
             let (source, _) = self.drawing_file(doc, cx)?;
-            if let DrawingFile::Dwg(file) = source
+            if let DrawingFile::Dwg(file) = &**source
                 && file.version() == b"AC1018"
                 && format == Dxf::FORMAT
             {

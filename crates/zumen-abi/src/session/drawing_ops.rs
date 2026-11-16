@@ -183,13 +183,46 @@ impl Session {
     }
 
     /// 変更の一覧を文書に当てて書き戻し、書き戻したファイルを blob で返す（決定 0139）
+    ///
+    /// 当てる前の図面モデルは、常駐させたものを移して使う。失敗したときは文書を変えないので、そのまま戻す
     #[cfg(feature = "drawing")]
     pub(super) fn apply(
         &mut self,
         request: &ApplyRequest,
         cx: &mut Cx<'_>,
     ) -> Result<ApplyResult, Failed> {
-        let drawing = self.lift(&request.doc, cx)?;
+        if !name::is_safe(&request.doc) {
+            return Err(fail(cx, invalid_value("/doc")));
+        }
+        let (drawing, replay) = match self.docs.get_mut(&request.doc) {
+            Some(Document::Drawing { file, .. }) => file.take_lift(cx).map_err(|_| Failed)?,
+            Some(_) => return Err(fail(cx, unsupported(&request.doc, self.op))),
+            None => {
+                return Err(fail(
+                    cx,
+                    Diagnostic::new(codes::CALL_DOCUMENT_MISSING)
+                        .with("name", request.doc.as_str()),
+                ));
+            }
+        };
+        let result = self.apply_lifted(request, &drawing, cx);
+        if result.is_err()
+            && let Some(replay) = replay
+            && let Some(Document::Drawing { file, .. }) = self.docs.get_mut(&request.doc)
+        {
+            file.restore(drawing, replay);
+        }
+        result
+    }
+
+    /// 当てる前の図面モデル `drawing` で、変更の一覧を当てる。失敗したときは文書を変えない
+    #[cfg(feature = "drawing")]
+    fn apply_lifted(
+        &mut self,
+        request: &ApplyRequest,
+        drawing: &Drawing2D,
+        cx: &mut Cx<'_>,
+    ) -> Result<ApplyResult, Failed> {
         // 移せなかった ATTDEF は図面モデルの定義に現れない。どの定義の属性かを API で判定できないため、
         // 安全に属性を作れない記号の追加は拒否する。
         let mut symbol_add = None;
@@ -216,9 +249,9 @@ impl Session {
             }
         }
         if batch::needed(request, cx)? {
-            return self.apply_with_tables(request, &drawing, cx);
+            return self.apply_with_tables(request, drawing, cx);
         }
-        let changes = changes(request, &drawing, cx)?;
+        let changes = changes(request, drawing, cx)?;
         let Some(Document::Drawing {
             file,
             hash: current_hash,
@@ -232,7 +265,7 @@ impl Session {
         // 書き出しが予算や中断で止まっても、元の文書は変更しない。
         let mut bytes = Vec::new();
         let mut ids_shifted = false;
-        let (applied, hash) = match file.as_mut() {
+        let (applied, hash) = match file.file_mut() {
             // プラグインの文書・図面モデルのバイナリ・SIMA・TIFF は、apply では書き戻せない（決定 0243・0247・#374・#877）
             DrawingFile::Plugin(..)
             | DrawingFile::Lifted(..)
@@ -246,7 +279,7 @@ impl Session {
                 Dxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
                 let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
                 // ハンドルを持たない DXF（R12 など）の要素の ID は、レコードの番号で決まる（決定 0156、#722）
-                if keyless(&drawing, cx)? {
+                if keyless(drawing, cx)? {
                     // 作り直しの診断は、書き戻しの診断と重なるので返さない。失敗したときだけ返す
                     let mut quiet = Diagnostics::new();
                     let lifted = updated.lift(&mut Cx::new(cx.budget, &mut quiet, cx.cancel));
@@ -259,7 +292,7 @@ impl Session {
                             Failed
                         }
                     })?;
-                    ids_shifted = record_ids_shifted(&drawing, &after, &changes, cx)?;
+                    ids_shifted = record_ids_shifted(drawing, &after, &changes, cx)?;
                 }
                 *file = updated;
                 (applied, hash)
@@ -342,17 +375,17 @@ impl Session {
         Ok(LiftResult { blob })
     }
 
-    /// 名前の文書を、図面モデルに変換する
-    pub(super) fn lift(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Drawing2D, Failed> {
+    /// 名前の文書の図面モデルを借りる。常駐させたものがあれば、変換し直さずに貸す（`docs/live.md`）
+    pub(super) fn lift(&self, doc: &str, cx: &mut Cx<'_>) -> Result<Cow<'_, Drawing2D>, Failed> {
         let (file, _) = self.drawing_file(doc, cx)?;
-        file.lift(cx).map(Cow::into_owned).map_err(|_| Failed)
+        file.lift(cx).map_err(|_| Failed)
     }
 
     pub(super) fn drawing_file(
         &self,
         doc: &str,
         cx: &mut Cx<'_>,
-    ) -> Result<(&DrawingFile, Hash), Failed> {
+    ) -> Result<(&Resident, Hash), Failed> {
         if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value("/doc")));
         }

@@ -1,6 +1,6 @@
 //! 予算・診断・中断の合図を運ぶ文脈（決定 0008）。
 
-use crate::budget::{Budget, Exceeded, Kind};
+use crate::budget::{Budget, Exceeded, Kind, Limit};
 use crate::cancel::CancelToken;
 use crate::codes;
 use crate::diag::{Diagnostic, DiagnosticEvents, Diagnostics, EventCapture};
@@ -184,6 +184,128 @@ impl<'a> Cx<'a> {
             Some(stop) => Err(stop.into()),
             None => result,
         }
+    }
+}
+
+/// 一度最後まで通した処理が、予算と診断に及ぼした作用の記録（`docs/live.md`）。
+///
+/// [`Cx::record`] で作り、[`Cx::replay`] で、同じ処理をもう一度通したときと同じ作用を当てる。
+/// 常駐させた結果を使い回しても、使った予算と届く診断を、毎回作り直したときとそろえるために使う。
+/// 持つのは、単位ごとに使った量・深さの余裕・集約した診断で、処理の大きさではなく診断の種類の数に比例する。
+#[derive(Clone, Debug)]
+pub struct Replay {
+    /// 単位ごとに使った量（[`Kind::ALL`] の順）。深さは出入りが釣り合ったときだけ記録するので 0 になる
+    spent: [u64; Kind::ALL.len()],
+    /// 記録したときの深さの余裕。上限がなかったときは `None`。途中の最も深い所は数えないので、
+    /// 当てるときにこれ以上の余裕があれば、同じ処理が深さの上限で止まらないと分かる
+    depth_room: Option<u64>,
+    /// 処理が届けた診断。届いた順にまとめ、場所は記録したときの `max_places` 件まで持つ
+    diagnostics: Diagnostics,
+}
+
+/// 単位の残り。上限がなければ `None`
+fn room(budget: &Budget, kind: Kind) -> Option<u64> {
+    match budget.limits().get(kind) {
+        Limit::Finite(limit) => Some(limit.saturating_sub(budget.used(kind))),
+        Limit::Unlimited => None,
+    }
+}
+
+impl Cx<'_> {
+    /// 診断を、届いた順にそのまままとめる収集先か。入力順の収集と明細の捕捉は、予算の使い方が収集先で変わる
+    fn plain(&self) -> bool {
+        !self.diag.is_collecting_in_record_order() && self.diag.events.is_none()
+    }
+
+    /// 処理を通し、最後まで通せたら、その作用を [`Replay`] に記録する。
+    ///
+    /// 処理は同じ予算と中断の合図で、空の別の収集先（`max_places` は同じ）に診断を集め、終わったら成否によらず
+    /// 届いた順に `diag` へ移す。届いた順にまとめる収集先では、まとめたものを移しても、元の報告を 1 件ずつ
+    /// 足したのと同じ件数・場所・値・順になる。移すのに予算は使わない（そのような収集先への報告は予算を使わない）。
+    ///
+    /// 記録は、処理が成功し、予算が止まっておらず、深さの出入りが釣り合い、使った量が上限の値で飽和して
+    /// いないときだけ返す。入力順の収集や明細の捕捉の中では記録せず、処理をそのまま通す。
+    /// 記録する処理は、予算の残りや収集先の中身を読んで動きを変えないものに限る。
+    pub fn record<T, E>(
+        &mut self,
+        operation: impl FnOnce(&mut Cx<'_>) -> Result<T, E>,
+    ) -> (Result<T, E>, Option<Replay>) {
+        if !self.plain() {
+            return (operation(self), None);
+        }
+        let before = Kind::ALL.map(|kind| self.budget.used(kind));
+        let depth_room = room(self.budget, Kind::Depth);
+        let mut diagnostics = Diagnostics::with_max_places(self.diag.max_places());
+        let result = operation(&mut Cx::new(self.budget, &mut diagnostics, self.cancel));
+        for diagnostic in diagnostics.iter() {
+            self.diag.report(diagnostic.clone());
+        }
+        let after = Kind::ALL.map(|kind| self.budget.used(kind));
+        let mut spent = [0; Kind::ALL.len()];
+        let mut recordable = result.is_ok() && self.budget.exceeded().is_none();
+        for (index, kind) in Kind::ALL.into_iter().enumerate() {
+            let (Some(&before), Some(&after), Some(slot)) =
+                (before.get(index), after.get(index), spent.get_mut(index))
+            else {
+                recordable = false;
+                break;
+            };
+            if after < before || after == u64::MAX || (kind == Kind::Depth && after != before) {
+                recordable = false;
+                break;
+            }
+            *slot = after - before;
+        }
+        let replay = recordable.then_some(Replay {
+            spent,
+            depth_room,
+            diagnostics,
+        });
+        (result, replay)
+    }
+
+    /// 記録した作用を当てる。当てたら `true`、当てられなければ何も変えずに `false` を返す。
+    ///
+    /// 同じ処理がこの予算で最後まで通ると分かるときだけ当てる。単位ごとの残りが使った量以上で、深さの余裕が
+    /// 記録したとき以上で、予算がまだ止まっておらず、中断の合図がなく、収集先が届いた順にまとめる同じ
+    /// `max_places` のものであることが条件。当てると、単位ごとに使った量を一度に使い、記録した診断を届いた順に足す。
+    /// 処理を通したときと同じ量を使い、同じ診断が届く。
+    ///
+    /// `false` のときは、呼び出す側が処理をそのまま通す。予算が足りないときの止まる所と、止まる前の診断は、
+    /// そうして処理を通したときのものになる。中断の合図は当てる前に一度だけ確かめる。
+    pub fn replay(&mut self, replay: &Replay) -> bool {
+        if !self.plain()
+            || self.diag.max_places() != replay.diagnostics.max_places()
+            || self.cancel.stop().is_some()
+            || self.budget.exceeded().is_some()
+        {
+            return false;
+        }
+        let depth = match (replay.depth_room, room(self.budget, Kind::Depth)) {
+            (Some(recorded), Some(now)) => now >= recorded,
+            (_, None) => true,
+            (None, Some(_)) => false,
+        };
+        if !depth {
+            return false;
+        }
+        let fits = Kind::ALL
+            .into_iter()
+            .zip(replay.spent)
+            .all(|(kind, spent)| room(self.budget, kind).is_none_or(|room| spent <= room));
+        if !fits {
+            return false;
+        }
+        for (kind, spent) in Kind::ALL.into_iter().zip(replay.spent) {
+            if spent > 0 && self.budget.spend(kind, spent).is_err() {
+                // 上で残りを確かめたので、ここには来ない。来ても、使った量は処理を通した場合を超えない
+                return false;
+            }
+        }
+        for diagnostic in replay.diagnostics.iter() {
+            self.diag.report(diagnostic.clone());
+        }
+        true
     }
 }
 
@@ -923,5 +1045,175 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// 記録と当て直しを試す処理。入れ子・入力順の収集・別の収集先・場所の多い診断を混ぜる
+    fn mixed(cx: &mut Cx<'_>) -> Result<u32, Stop> {
+        cx.report(event_at(7));
+        for record in 0..5 {
+            cx.check(Kind::Records, 1)?;
+            cx.report(Diagnostic::new(codes::SXF_CODE_MISSING).at(Ref::at_record(record)));
+        }
+        cx.enter()?;
+        cx.enter()?;
+        cx.check(Kind::Work, 3)?;
+        cx.leave();
+        cx.leave();
+        cx.with_diagnostics_in_record_order(|cx| {
+            cx.report(event_at(9));
+            cx.check(Kind::Work, 2)?;
+            cx.report(event_at(1));
+            Ok::<(), Stop>(())
+        })?;
+        let mut quiet = Diagnostics::new();
+        let mut inner = Cx::new(cx.budget, &mut quiet, cx.cancel);
+        inner.check(Kind::Elements, 4)?;
+        inner.report(event_at(2));
+        cx.check(Kind::DecodedBytes, 10)?;
+        Ok(42)
+    }
+
+    /// 前の報告と予算の使用がある、呼び出しの初めの状態
+    fn started(limits: Limits, max_places: usize) -> (Budget, Diagnostics) {
+        let mut budget = Budget::new(limits);
+        budget.spend(Kind::Work, 5).unwrap();
+        let mut diag = Diagnostics::with_max_places(max_places);
+        diag.report(Diagnostic::new(codes::SXF_CODE_MISSING).at(Ref::at_record(100)));
+        diag.report(event_at(3));
+        (budget, diag)
+    }
+
+    fn recorded(max_places: usize) -> Replay {
+        let (mut budget, mut diag) = started(Limits::default(), max_places);
+        let cancel = CancelToken::new();
+        let (result, replay) = Cx::new(&mut budget, &mut diag, &cancel).record(mixed);
+        assert_eq!(result, Ok(42));
+        replay.unwrap()
+    }
+
+    #[test]
+    fn recording_and_replaying_match_running_the_operation_again() {
+        for max_places in [0, 2, Diagnostics::DEFAULT_MAX_PLACES] {
+            let cancel = CancelToken::new();
+            let (mut budget, mut diag) = started(Limits::default(), max_places);
+            assert_eq!(mixed(&mut Cx::new(&mut budget, &mut diag, &cancel)), Ok(42));
+            let expected = (budget, diag.into_vec());
+
+            let (mut budget, mut diag) = started(Limits::default(), max_places);
+            let (result, replay) = Cx::new(&mut budget, &mut diag, &cancel).record(mixed);
+            assert_eq!(result, Ok(42));
+            assert_eq!((budget, diag.into_vec()), expected);
+
+            let replay = replay.unwrap();
+            let (mut budget, mut diag) = started(Limits::default(), max_places);
+            assert!(Cx::new(&mut budget, &mut diag, &cancel).replay(&replay));
+            assert_eq!((budget.clone(), diag.clone().into_vec()), expected);
+            // 続けて当てても、続けて通したのと同じになる
+            let (mut twice_budget, mut twice_diag) = started(Limits::default(), max_places);
+            for _ in 0..2 {
+                let mut cx = Cx::new(&mut twice_budget, &mut twice_diag, &cancel);
+                assert_eq!(mixed(&mut cx), Ok(42));
+            }
+            assert!(Cx::new(&mut budget, &mut diag, &cancel).replay(&replay));
+            assert_eq!(
+                (budget, diag.into_vec()),
+                (twice_budget, twice_diag.into_vec())
+            );
+        }
+    }
+
+    #[test]
+    fn replay_refuses_budgets_that_would_stop_the_operation_and_changes_nothing() {
+        let replay = recorded(Diagnostics::DEFAULT_MAX_PLACES);
+        let cancel = CancelToken::new();
+        // 処理を通して使う量を測る。入力順の収集の分も work に入る。深さは 2 まで
+        let (mut budget, mut diag) = started(Limits::default(), 16);
+        let used = Kind::ALL.map(|kind| budget.used(kind));
+        mixed(&mut Cx::new(&mut budget, &mut diag, &cancel)).unwrap();
+        assert!(budget.used(Kind::Work) > 5 + 5);
+        for (kind, used) in Kind::ALL.into_iter().zip(used) {
+            let spent = budget.used(kind) - used;
+            if spent == 0 {
+                continue;
+            }
+            for (limit, accepted) in [(used + spent - 1, false), (used + spent, true)] {
+                let limits = Limits::default().with(kind, Limit::Finite(limit));
+                let (mut budget, mut diag) = started(limits, 16);
+                let before = (budget.clone(), diag.clone().into_vec());
+                let replayed = Cx::new(&mut budget, &mut diag, &cancel).replay(&replay);
+                assert_eq!(replayed, accepted, "{kind:?} {limit}");
+                if !accepted {
+                    assert_eq!((budget, diag.into_vec()), before);
+                    // 処理を通すと、その単位で止まる
+                    let (mut budget, mut diag) = started(limits, 16);
+                    let stop = mixed(&mut Cx::new(&mut budget, &mut diag, &cancel));
+                    assert!(matches!(stop, Err(Stop::Exceeded(e)) if e.kind == kind));
+                }
+            }
+        }
+        // 深さは、記録したとき（既定の上限）より余裕が少なければ当てない
+        for (limit, accepted) in [
+            (Limit::Finite(255), false),
+            (Limit::Finite(256), true),
+            (Limit::Unlimited, true),
+        ] {
+            let (mut budget, mut diag) = started(Limits::default().with(Kind::Depth, limit), 16);
+            let replayed = Cx::new(&mut budget, &mut diag, &cancel).replay(&replay);
+            assert_eq!(replayed, accepted, "{limit:?}");
+        }
+        // 中断の合図・止まった予算・違う max_places では当てない
+        let cancelled = CancelToken::new();
+        cancelled.cancel();
+        let (mut budget, mut diag) = started(Limits::default(), 16);
+        assert!(!Cx::new(&mut budget, &mut diag, &cancelled).replay(&replay));
+        assert_eq!(budget.used(Kind::Records), 0);
+        let (mut budget, mut diag) = started(Limits::default(), 16);
+        assert!(budget.spend(Kind::Work, u64::MAX).is_err());
+        assert!(!Cx::new(&mut budget, &mut diag, &cancel).replay(&replay));
+        let (mut budget, mut diag) = started(Limits::default(), 15);
+        assert!(!Cx::new(&mut budget, &mut diag, &cancel).replay(&replay));
+        assert_eq!(diag.len(), 2);
+    }
+
+    #[test]
+    fn replay_and_record_step_aside_inside_ordered_or_captured_collection() {
+        let replay = recorded(Diagnostics::DEFAULT_MAX_PLACES);
+        let cancel = CancelToken::new();
+        let (mut budget, mut diag) = started(Limits::default(), 16);
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        cx.with_diagnostics_in_record_order(|cx| {
+            assert!(!cx.replay(&replay));
+            let (result, recorded) = cx.record(mixed);
+            assert_eq!(result, Ok(42));
+            assert!(recorded.is_none());
+            Ok::<(), Stop>(())
+        })
+        .unwrap();
+        cx.with_diagnostic_events(4, |cx| {
+            assert!(!cx.replay(&replay));
+            assert!(cx.record(mixed).1.is_none());
+            Ok::<(), Stop>(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn record_keeps_only_operations_that_finish_with_balanced_depth() {
+        let cancel = CancelToken::new();
+        // 止まった処理は記録せず、診断と使った量は通したときと同じになる
+        for work in 5..12 {
+            let limits = Limits::default().with(Kind::Work, Limit::Finite(work));
+            let (mut budget, mut diag) = started(limits, 2);
+            let result = mixed(&mut Cx::new(&mut budget, &mut diag, &cancel));
+            let expected = (result, budget, diag.into_vec());
+            let (mut budget, mut diag) = started(limits, 2);
+            let (result, replay) = Cx::new(&mut budget, &mut diag, &cancel).record(mixed);
+            assert_eq!(replay.is_some(), result.is_ok());
+            assert_eq!((result, budget, diag.into_vec()), expected);
+        }
+        let (mut budget, mut diag) = started(Limits::default(), 2);
+        let (result, replay) = Cx::new(&mut budget, &mut diag, &cancel).record(|cx| cx.enter());
+        assert_eq!(result, Ok(()));
+        assert!(replay.is_none());
     }
 }
