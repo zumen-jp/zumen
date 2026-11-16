@@ -57,7 +57,7 @@ J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準、台�
 
 - `Surfaces` の `Surface` を TIN にする。ID は `name` で作る。`desc` の `ExistingGround` を現況、`FinishedGrade` を計画、ほかを元の値の役割にする。
 - `Definition`（`surfType` が `TIN`。交換標準の本文の `SurfType` も読む）の `Pnts` の `P`（`id` と「X Y Z」）を点に、`Faces` の `F`（3 つの点の `id`）を三角形にする。見えない面（`i` が `1`）は移さず、数を `landxml.face.dropped` で返す。
-- `Feature`（`AreaPnts`）の `areaList` を境界線にする。
+- `Feature`（`AreaPnts`）の `areaList` を記載順の境界線にする。読めない点番号があれば、その `Property` の入力位置と `areaList` を `landxml.value.invalid` で知らせ、境界線全体を作らない。未定義の点番号でも境界線を作らない。どちらの場合も、正しく読める地表面の点と三角形は保つ。
 - 知らない点を指す面、重なる `id` の点があれば、その地表面を移さずに `landxml.value.invalid` を返す。
 
 ## 移さない要素

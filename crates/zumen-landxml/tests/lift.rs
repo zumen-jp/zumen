@@ -497,6 +497,61 @@ fn cross_sections_and_surfaces_keep_their_points() {
 }
 
 #[test]
+fn unreadable_boundary_point_numbers_preserve_the_surface_but_not_a_partial_boundary() {
+    for value in [
+        "1 4 bad 3 2",
+        "bad 1 4 3 2",
+        "1 4 3 2 bad",
+        "1 4 -1 3 2",
+        "1 4 18446744073709551616 3 2",
+    ] {
+        let property = format!(r#"<Property label="areaList" value="{value}"/>"#);
+        let source =
+            ALIGNMENT.replace(r#"<Property label="areaList" value="1 4 3 2"/>"#, &property);
+        let (model, diag) = read(&source).unwrap();
+        let [tin] = model.surfaces.as_slice() else {
+            panic!()
+        };
+        assert_eq!(tin.points.len(), 4);
+        assert_eq!(tin.triangles, [[0, 1, 2], [0, 2, 3]]);
+        assert!(tin.boundaries.is_empty());
+        let invalid: Vec<_> = diag
+            .iter()
+            .filter(|d| d.code() == codes::LANDXML_VALUE_INVALID)
+            .collect();
+        assert_eq!(invalid.len(), 1, "{diag:?}");
+        let diagnostic = invalid[0];
+        assert!(
+            diagnostic
+                .params()
+                .iter()
+                .any(|(key, value)| *key == "field" && *value == Value::Text("areaList".into()))
+        );
+        let span = diagnostic.places()[0].bytes().unwrap();
+        let start = source.find(&property).unwrap() as u64;
+        assert_eq!(
+            (span.start, span.end),
+            (start, start + property.len() as u64)
+        );
+    }
+    // 別の Property に正常な続きがあっても、不正な部分を捨てて結び直さない。
+    let source = ALIGNMENT.replace(
+        r#"<Property label="areaList" value="1 4 3 2"/>"#,
+        r#"<Property label="areaList" value="1 bad"/><Property label="areaList" value="4 3 2"/>"#,
+    );
+    assert!(read(&source).unwrap().0.surfaces[0].boundaries.is_empty());
+    let source = ALIGNMENT.replace("1 4 3 2", "1 4 99 3 2");
+    let (model, diag) = read(&source).unwrap();
+    assert!(model.surfaces[0].boundaries.is_empty());
+    assert!(diag.iter().any(|d| {
+        d.code() == codes::LANDXML_VALUE_INVALID
+            && d.params()
+                .iter()
+                .any(|(key, value)| *key == "field" && *value == Value::Text("areaList".into()))
+    }));
+}
+
+#[test]
 fn missing_coordinate_systems_and_broken_values_are_reported() {
     let src = r#"<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
       <Alignments><Alignment name="a" length="10" staStart="0"><CoordGeom>

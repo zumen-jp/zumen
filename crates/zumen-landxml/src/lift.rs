@@ -742,6 +742,7 @@ impl<'d> Reader<'d, '_, '_> {
         };
         let mut ids: BTreeMap<u64, u32> = BTreeMap::new();
         let mut area: Vec<u64> = Vec::new();
+        let mut area_valid = true;
         let mut defined = false;
         for child in self.children(element) {
             match self.local(child) {
@@ -766,11 +767,16 @@ impl<'d> Reader<'d, '_, '_> {
                                 == Some("areaList")
                             {
                                 let value = self.attribute(property, b"value").unwrap_or_default();
-                                area.extend(
-                                    value
-                                        .split_whitespace()
-                                        .filter_map(|id| id.parse::<u64>().ok()),
-                                );
+                                for id in value.split_whitespace() {
+                                    match id.parse::<u64>() {
+                                        Ok(id) => area.push(id),
+                                        Err(_) => {
+                                            self.invalid(property, "areaList");
+                                            area_valid = false;
+                                            break;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -778,7 +784,7 @@ impl<'d> Reader<'d, '_, '_> {
                 _ => self.unsupported(child),
             }
         }
-        if !area.is_empty() {
+        if area_valid && !area.is_empty() {
             match area
                 .iter()
                 .map(|id| ids.get(id).copied())
