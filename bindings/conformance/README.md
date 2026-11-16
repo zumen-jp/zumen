@@ -62,6 +62,10 @@ cargo run -p zumen-conformance -- --write
 
 `apply_dwg_table.json` は、[自作の表](../../crates/zumen-acad/tests/fixtures/README.md)を持つ R2010・R2013・R2018 の DWG で、位置だけの `replace` と `transform` を確かめます。ID・セル・表示用ブロックの参照と未変更要素のハッシュを保ち、セルの変更・回転・予算停止で変更が残らないことを比べます。形式の照合は、検証キットで ACadSharp と別に行います。
 
+### 空の文書の作成
+
+`create.json` は空の DXF を全 6 種類の単位と省略時の mm で作り、線・円・文字・レイヤの追加と再読を照らします。予算の最後の検査による停止と再利用、重複名・未対応形式・不正な名前も含みます。`cargo run -p zumen-abi --example create_case` で生成し、`-- --check` で生成元との一致を検査します。単位と既定の表は ABI の固定した期待値でも確認し、形式は [ezdxf で別に照合](../../xtask/verify/README.md#空の-dxf-を照らす)します。
+
 ### 同じ apply 内の表の参照
 
 `apply_batch_tables.json` は DXF・DWG（R2000・R2004・R2018）・JWW・SFC・P21 で、先に追加したレイヤとスタイルの名前を使い、書き戻しと再読を照らします。キーを持たない要素の番号の移動、前方参照の拒否、最後の作業量の検査による停止と再利用も含みます。`cargo run -p zumen-abi --example apply_batch_tables_case` で生成し、`-- --check` で生成元との一致を検査します。ABI のテストでは同名・二重変更・古いハッシュ・展開量の停止と中断も確認します。

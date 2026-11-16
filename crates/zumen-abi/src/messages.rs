@@ -31,6 +31,8 @@ pub enum Request {
     Measure(MeasureRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
+    /// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+    Create(CreateRequest),
     /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
     Convert(ConvertRequest),
     /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
@@ -100,6 +102,7 @@ impl Request {
         "measure_distance",
         "measure",
         "apply",
+        "create",
         "convert",
         "convert_estimate",
         "tables",
@@ -142,6 +145,7 @@ impl Request {
             Self::MeasureDistance(_) => "measure_distance",
             Self::Measure(_) => "measure",
             Self::Apply(_) => "apply",
+            Self::Create(_) => "create",
             Self::Convert(_) => "convert",
             Self::ConvertEstimate(_) => "convert_estimate",
             Self::Tables(_) => "tables",
@@ -189,6 +193,7 @@ impl FromJson for Request {
             }
             "measure" => Self::Measure(MeasureRequest::read_fields(&mut object)?),
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
+            "create" => Self::Create(CreateRequest::read_fields(&mut object)?),
             "convert" => Self::Convert(ConvertRequest::read_fields(&mut object)?),
             "convert_estimate" => {
                 Self::ConvertEstimate(ConvertEstimateRequest::read_fields(&mut object)?)
@@ -246,6 +251,7 @@ impl ToJson for Request {
             Self::MeasureDistance(value) => value.to_json(out),
             Self::Measure(value) => value.to_json(out),
             Self::Apply(value) => value.to_json(out),
+            Self::Create(value) => value.to_json(out),
             Self::Convert(value) => value.to_json(out),
             Self::ConvertEstimate(value) => value.to_json(out),
             Self::Tables(value) => value.to_json(out),
@@ -604,6 +610,8 @@ pub struct Format {
     pub read: bool,
     /// 書けるか
     pub write: bool,
+    /// create で空の文書を作れるか。マイナーバージョン 83 から
+    pub create: bool,
     /// この形式の ID の規則のバージョン（決定 0015）
     pub id_rules: u64,
 }
@@ -614,6 +622,7 @@ impl Format {
         let family = object.required("family", json::string)?;
         let read = object.required("read", json::boolean)?;
         let write = object.required("write", json::boolean)?;
+        let create = object.required("create", json::boolean)?;
         let id_rules =
             object.required("id_rules", |value| json::uint(value, 1, 9007199254740991))?;
         Ok(Self {
@@ -621,6 +630,7 @@ impl Format {
             family,
             read,
             write,
+            create,
             id_rules,
         })
     }
@@ -634,6 +644,8 @@ impl Format {
         out.bool(self.read);
         out.key("write");
         out.bool(self.write);
+        out.key("create");
+        out.bool(self.create);
         out.key("id_rules");
         out.uint(self.id_rules);
     }
@@ -6371,6 +6383,123 @@ impl FromJson for ApplyResult {
 }
 
 impl ToJson for ApplyResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct CreateRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+    pub format: String,
+    /// 作る文書の名前。既存の文書と重ねない
+    pub to: String,
+    /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+    pub unit: Option<Unit>,
+}
+
+impl CreateRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "create")?;
+        let format = object.required("format", json::string)?;
+        let to = object.required("to", json::string)?;
+        let unit = object.optional("unit", Unit::from_json)?;
+        Ok(Self {
+            request_common,
+            format,
+            to,
+            unit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("create");
+        out.key("format");
+        out.string(&self.format);
+        out.key("to");
+        out.string(&self.to);
+        if let Some(value) = &self.unit {
+            out.key("unit");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for CreateRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CreateRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 作った空の文書。書いたファイルは blobs の file で返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct CreateResult {
+    /// 作った文書の名前
+    pub doc: String,
+    /// 書いた形式の名前
+    pub format: String,
+    /// 書いたファイルのハッシュ。apply の前提条件に使う
+    pub hash: String,
+    /// 書いた要素の数。空なので 0
+    pub elements: u64,
+}
+
+impl CreateResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let doc = object.required("doc", json::string)?;
+        let format = object.required("format", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let elements =
+            object.required("elements", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            doc,
+            format,
+            hash,
+            elements,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("format");
+        out.string(&self.format);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("elements");
+        out.uint(self.elements);
+    }
+}
+
+impl FromJson for CreateResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CreateResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

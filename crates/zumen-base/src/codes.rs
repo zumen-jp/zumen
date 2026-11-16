@@ -907,6 +907,17 @@ pub const CONVERT_VIEW_APPROXIMATED: Code = Code::new(
     &[],
 );
 
+/// この形式には、まだ空の文書を作れない（#857）
+///
+/// `create.format.unsupported`（0.0.0 から）
+pub const CREATE_FORMAT_UNSUPPORTED: Code = Code::new(
+    "create.format.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("format", ParamType::Text)],
+    &[],
+);
+
 /// 渡された測地系の変換のパラメーター（TKY2JGD・PatchJGD の形）の行が壊れていて読めない
 ///
 /// `crs.datum-grid.invalid`（0.2.0 から）
@@ -5600,6 +5611,7 @@ pub const ALL: &[Code] = &[
     CONVERT_FORMAT_UNSUPPORTED,
     CONVERT_LAYER_FIELD_DROPPED,
     CONVERT_VIEW_APPROXIMATED,
+    CREATE_FORMAT_UNSUPPORTED,
     CRS_DATUM_GRID_INVALID,
     CRS_DATUM_GRID_MISSING,
     CRS_DATUM_GRID_UNSUPPORTED,

@@ -49,6 +49,9 @@ class Request extends Message {
   /// op が apply の形なら、そのビュー。違えば null
   ApplyRequest? get asApplyRequest => taggedView('op', 'apply', ApplyRequest.fromJson);
 
+  /// op が create の形なら、そのビュー。違えば null
+  CreateRequest? get asCreateRequest => taggedView('op', 'create', CreateRequest.fromJson);
+
   /// op が convert の形なら、そのビュー。違えば null
   ConvertRequest? get asConvertRequest => taggedView('op', 'convert', ConvertRequest.fromJson);
 
@@ -299,6 +302,10 @@ class Format extends Message {
   /// 書けるか
   core.bool? get write => readField('write', asBool);
   set write(core.bool? value) => writeField('write', value);
+
+  /// create で空の文書を作れるか。マイナーバージョン 83 から
+  core.bool? get create => readField('create', asBool);
+  set create(core.bool? value) => writeField('create', value);
 
   /// この形式の ID の規則のバージョン（決定 0015）
   core.int? get idRules => readField('id_rules', asInt);
@@ -2773,6 +2780,76 @@ class ApplyResult extends Message {
   /// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）か、ハンドルを持たない DXF（R12 など）で、前の図形か表のレコードを除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
   core.bool? get idsShifted => readField('ids_shifted', asBool);
   set idsShifted(core.bool? value) => writeField('ids_shifted', value);
+}
+
+/// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+class CreateRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CreateRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  CreateRequest() : super({'op': 'create'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
+
+  /// 作る文書の名前。既存の文書と重ねない
+  String? get to => readField('to', asString);
+  set to(String? value) => writeField('to', value);
+
+  /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+}
+
+/// 作った空の文書。書いたファイルは blobs の file で返す
+class CreateResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CreateResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  CreateResult() : super({});
+
+  /// 作った文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 書いた形式の名前
+  String? get format => readField('format', asString);
+  set format(String? value) => writeField('format', value);
+
+  /// 書いたファイルのハッシュ。apply の前提条件に使う
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 書いた要素の数。空なので 0
+  core.int? get elements => readField('elements', asInt);
+  set elements(core.int? value) => writeField('elements', value);
 }
 
 /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
@@ -8691,6 +8768,7 @@ abstract final class Operations {
   static const measureDistance = 'measure_distance';
   static const measure = 'measure';
   static const apply = 'apply';
+  static const create = 'create';
   static const convert = 'convert';
   static const convertEstimate = 'convert_estimate';
   static const tables = 'tables';

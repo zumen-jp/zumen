@@ -329,6 +329,13 @@ group-by = ["field"]
 since = "0.2.0"
 status = "active"
 
+[codes."create.format.unsupported"]
+description = "この形式には、まだ空の文書を作れない（#857）"
+severity = "error"
+params = { format = "text" }
+since = "0.0.0"
+status = "active"
+
 [codes."convert.format.unsupported"]
 description = "この形式には、まだ別の形式から書けない（決定 0206）"
 severity = "error"

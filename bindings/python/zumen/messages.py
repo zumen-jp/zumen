@@ -19,6 +19,7 @@ Request = Union[
     "MeasureDistanceRequest",
     "MeasureRequest",
     "ApplyRequest",
+    "CreateRequest",
     "ConvertRequest",
     "ConvertEstimateRequest",
     "TablesRequest",
@@ -180,6 +181,8 @@ Format = TypedDict(
         "read": bool,
         # 書けるか
         "write": bool,
+        # create で空の文書を作れるか。マイナーバージョン 83 から
+        "create": bool,
         # この形式の ID の規則のバージョン（決定 0015）
         "id_rules": int,
     },
@@ -2098,6 +2101,58 @@ _ApplyResultOptional = TypedDict(
 
 class ApplyResult(_ApplyResultRequired, _ApplyResultOptional):
     "当てた変更の結果。書き戻したファイルは blobs の file で返す"
+
+
+# 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+_CreateRequestRequired = TypedDict(
+    "_CreateRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["create"],
+        # 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+        "format": str,
+        # 作る文書の名前。既存の文書と重ねない
+        "to": str,
+    },
+)
+_CreateRequestOptional = TypedDict(
+    "_CreateRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+        "unit": "Unit",
+    },
+    total=False,
+)
+
+
+class CreateRequest(_CreateRequestRequired, _CreateRequestOptional):
+    "入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から"
+
+
+# 作った空の文書。書いたファイルは blobs の file で返す
+CreateResult = TypedDict(
+    "CreateResult",
+    {
+        # 作った文書の名前
+        "doc": str,
+        # 書いた形式の名前
+        "format": str,
+        # 書いたファイルのハッシュ。apply の前提条件に使う
+        "hash": str,
+        # 書いた要素の数。空なので 0
+        "elements": int,
+    },
+)
 
 
 # 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
@@ -6861,6 +6916,7 @@ Operation = Literal[
     "measure_distance",
     "measure",
     "apply",
+    "create",
     "convert",
     "convert_estimate",
     "tables",
@@ -6902,6 +6958,7 @@ OPERATIONS: Dict[str, Any] = {
     "measure_distance": ("MeasureDistanceRequest", "MeasureDistanceResult"),
     "measure": ("MeasureRequest", "MeasureResult"),
     "apply": ("ApplyRequest", "ApplyResult"),
+    "create": ("CreateRequest", "CreateResult"),
     "convert": ("ConvertRequest", "ConvertResult"),
     "convert_estimate": ("ConvertEstimateRequest", "ConvertEstimateResult"),
     "tables": ("TablesRequest", "TablesResult"),

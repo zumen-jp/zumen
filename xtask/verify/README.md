@@ -207,3 +207,14 @@ uv run --no-project --python 3.14 --with ezdxf==1.4.5 --with ezjww==0.7.6 --with
 `apply_batch_tables_case` に `-- --output <出力先>` でリポジトリ外のフォルダーを指定すると、DXF・DWG・JWW・SFC・P21 の合成出力も保存します。DWG 3 件を `manifest.json` の `files` に `format: "dwg"` と `path` で列挙し、上の ACadSharp のツールを流してから、`python -I xtask/verify/check_batch_tables.py <出力先>` で照らします。ezdxf は 1.4.5 を使います。
 
 DXF では線種のパターン・新しいレイヤと線種への参照・TEXT の文字スタイルの置き換え・LEADER の寸法スタイルを検査します。DWG の R2000・R2004・R2018 では、新しいレイヤ・線種・文字スタイルへの参照を ACadSharp の読みと照らします。Jw_cad・SXF ブラウザ・AutoCAD での表示確認はこの検査に含めません。
+
+## 空の DXF を照らす
+
+`create` の既定値と全単位、そこへ `apply` で線・円・文字・レイヤを追加した出力を、ezdxf 1.4.5 で照らします（#857）。出力先はリポジトリ外に置きます。
+
+```sh
+cargo run -p zumen-abi --example create_case -- --output <出力先>
+uv run --no-project --python 3.13 --with ezdxf==1.4.5 python -I xtask/verify/check_create.py <出力先>
+```
+
+書いたバージョン・単位・既定の表、レイアウトの参照、図形の種類と座標・文字・レイヤを比べ、監査の誤りと修復がないことを確かめます。この照合は、適合テストによるネイティブと wasm のバイト列の一致とは別です。AutoCAD での表示はこの手順に含めません。

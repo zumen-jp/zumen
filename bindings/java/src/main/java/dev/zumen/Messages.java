@@ -112,6 +112,11 @@ public final class Messages {
             return "apply".equals(json.get("op")) ? new ApplyRequest(json) : null;
         }
 
+        /** op が create の形なら、そのビュー。違えば null */
+        public CreateRequest asCreateRequest() {
+            return "create".equals(json.get("op")) ? new CreateRequest(json) : null;
+        }
+
         /** op が convert の形なら、そのビュー。違えば null */
         public ConvertRequest asConvertRequest() {
             return "convert".equals(json.get("op")) ? new ConvertRequest(json) : null;
@@ -678,6 +683,17 @@ public final class Messages {
         /** {@link #getWrite()} を書く。null ならフィールドを除く */
         public Format withWrite(Boolean value) {
             put("write", value);
+            return this;
+        }
+
+        /** create で空の文書を作れるか。マイナーバージョン 83 から */
+        public Boolean getCreate() {
+            return Json.read(json.get("create"), Json::bool);
+        }
+
+        /** {@link #getCreate()} を書く。null ならフィールドを除く */
+        public Format withCreate(Boolean value) {
+            put("create", value);
             return this;
         }
 
@@ -6811,6 +6827,188 @@ public final class Messages {
         /** {@link #getIdsShifted()} を書く。null ならフィールドを除く */
         public ApplyResult withIdsShifted(Boolean value) {
             put("ids_shifted", value);
+            return this;
+        }
+    }
+
+    /** 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から */
+    public static final class CreateRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CreateRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CreateRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CreateRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public CreateRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "create");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public CreateRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public CreateRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public CreateRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public CreateRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public CreateRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public CreateRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 作る形式の名前。capabilities.formats の create が true の id。今は dxf */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
+        public CreateRequest withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** 作る文書の名前。既存の文書と重ねない */
+        public String getTo() {
+            return Json.read(json.get("to"), Json::string);
+        }
+
+        /** {@link #getTo()} を書く。null ならフィールドを除く */
+        public CreateRequest withTo(String value) {
+            put("to", value);
+            return this;
+        }
+
+        /** 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public CreateRequest withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+    }
+
+    /** 作った空の文書。書いたファイルは blobs の file で返す */
+    public static final class CreateResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CreateResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CreateResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CreateResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public CreateResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 作った文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public CreateResult withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 書いた形式の名前 */
+        public String getFormat() {
+            return Json.read(json.get("format"), Json::string);
+        }
+
+        /** {@link #getFormat()} を書く。null ならフィールドを除く */
+        public CreateResult withFormat(String value) {
+            put("format", value);
+            return this;
+        }
+
+        /** 書いたファイルのハッシュ。apply の前提条件に使う */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public CreateResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 書いた要素の数。空なので 0 */
+        public Long getElements() {
+            return Json.read(json.get("elements"), Json::integer);
+        }
+
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
+        public CreateResult withElements(Long value) {
+            put("elements", value);
             return this;
         }
     }
@@ -21756,6 +21954,8 @@ public final class Messages {
         public static final String MEASURE = "measure";
 
         public static final String APPLY = "apply";
+
+        public static final String CREATE = "create";
 
         public static final String CONVERT = "convert";
 

@@ -80,6 +80,11 @@ func (u Request) AsApplyRequest() *ApplyRequest {
 	return asTagged[ApplyRequest](u, "op", "apply")
 }
 
+// AsCreateRequest は、op が create の形なら、その型で読む。違えば nil。
+func (u Request) AsCreateRequest() *CreateRequest {
+	return asTagged[CreateRequest](u, "op", "create")
+}
+
 // AsConvertRequest は、op が convert の形なら、その型で読む。違えば nil。
 func (u Request) AsConvertRequest() *ConvertRequest {
 	return asTagged[ConvertRequest](u, "op", "convert")
@@ -325,6 +330,9 @@ type Format struct {
 
 	// 書けるか
 	Write *bool `json:"write,omitempty"`
+
+	// create で空の文書を作れるか。マイナーバージョン 83 から
+	Create *bool `json:"create,omitempty"`
 
 	// この形式の ID の規則のバージョン（決定 0015）
 	IdRules *int64 `json:"id_rules,omitempty"`
@@ -2488,6 +2496,58 @@ type ApplyResult struct {
 
 	// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）か、ハンドルを持たない DXF（R12 など）で、前の図形か表のレコードを除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
 	IdsShifted *bool `json:"ids_shifted,omitempty"`
+}
+
+// CreateRequest: 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+type CreateRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+	Format *string `json:"format,omitempty"`
+
+	// 作る文書の名前。既存の文書と重ねない
+	To *string `json:"to,omitempty"`
+
+	// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+	Unit *Unit `json:"unit,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m CreateRequest) MarshalJSON() ([]byte, error) {
+	type plain CreateRequest
+	m.Op = "create"
+	return json.Marshal(plain(m))
+}
+
+// CreateResult: 作った空の文書。書いたファイルは blobs の file で返す
+type CreateResult struct {
+	// 作った文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 書いた形式の名前
+	Format *string `json:"format,omitempty"`
+
+	// 書いたファイルのハッシュ。apply の前提条件に使う
+	Hash *string `json:"hash,omitempty"`
+
+	// 書いた要素の数。空なので 0
+	Elements *int64 `json:"elements,omitempty"`
 }
 
 // ConvertRequest: 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
@@ -7041,6 +7101,9 @@ const OpMeasure = "measure"
 
 // OpApply は、op の名前 apply。
 const OpApply = "apply"
+
+// OpCreate は、op の名前 create。
+const OpCreate = "create"
 
 // OpConvert は、op の名前 convert。
 const OpConvert = "convert"

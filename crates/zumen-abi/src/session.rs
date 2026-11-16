@@ -5,6 +5,8 @@ mod building_ops;
 mod calibration_ops;
 mod civil_ops;
 mod conversion_ops;
+#[cfg(feature = "drawing")]
+mod creation_ops;
 mod delivery_ops;
 mod drawing_ops;
 #[cfg(feature = "drawing")]
@@ -405,6 +407,8 @@ impl Session {
             Request::Entities(request) => self.entities(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Apply(request) => self.apply(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
+            Request::Create(request) => self.create(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(any(feature = "drawing", feature = "civil"))]
             Request::Convert(request) => self.convert(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
@@ -648,6 +652,7 @@ fn capabilities() -> CapabilitiesResult {
                 family: registration.family.to_string(),
                 read: true,
                 write: registration.write,
+                create: cfg!(feature = "drawing") && registration.format == "dxf",
                 id_rules: registration.id_rules,
             })
             .collect(),
@@ -674,6 +679,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Drawing(request) => &request.request_common,
         Request::Entities(request) => &request.request_common,
         Request::Apply(request) => &request.request_common,
+        Request::Create(request) => &request.request_common,
         Request::Convert(request) => &request.request_common,
         Request::ConvertEstimate(request) => &request.request_common,
         Request::Tables(request) => &request.request_common,

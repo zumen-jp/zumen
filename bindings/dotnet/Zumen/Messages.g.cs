@@ -50,6 +50,7 @@ namespace Zumen.Messages
             ["measure_distance"] = typeof(MeasureDistanceRequest),
             ["measure"] = typeof(MeasureRequest),
             ["apply"] = typeof(ApplyRequest),
+            ["create"] = typeof(CreateRequest),
             ["convert"] = typeof(ConvertRequest),
             ["convert_estimate"] = typeof(ConvertEstimateRequest),
             ["tables"] = typeof(TablesRequest),
@@ -301,6 +302,12 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("write")]
         public bool Write { get; init; }
+
+        /// <summary>
+        /// create で空の文書を作れるか。マイナーバージョン 83 から
+        /// </summary>
+        [JsonPropertyName("create")]
+        public bool Create { get; init; }
 
         /// <summary>
         /// この形式の ID の規則のバージョン（決定 0015）
@@ -3439,6 +3446,96 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("ids_shifted")]
         public bool? IdsShifted { get; init; }
+    }
+
+    /// <summary>
+    /// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+    /// </summary>
+    public sealed record CreateRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "create";
+
+        /// <summary>
+        /// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string Format { get; init; } = default!;
+
+        /// <summary>
+        /// 作る文書の名前。既存の文書と重ねない
+        /// </summary>
+        [JsonPropertyName("to")]
+        public string To { get; init; } = default!;
+
+        /// <summary>
+        /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string? Unit { get; init; }
+    }
+
+    /// <summary>
+    /// 作った空の文書。書いたファイルは blobs の file で返す
+    /// </summary>
+    public sealed record CreateResult
+    {
+        /// <summary>
+        /// 作った文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 書いた形式の名前
+        /// </summary>
+        [JsonPropertyName("format")]
+        public string Format { get; init; } = default!;
+
+        /// <summary>
+        /// 書いたファイルのハッシュ。apply の前提条件に使う
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 書いた要素の数。空なので 0
+        /// </summary>
+        [JsonPropertyName("elements")]
+        public ulong Elements { get; init; }
     }
 
     /// <summary>
@@ -11015,6 +11112,7 @@ namespace Zumen.Messages
                 ["measure_distance"] = (typeof(MeasureDistanceRequest), typeof(MeasureDistanceResult)),
                 ["measure"] = (typeof(MeasureRequest), typeof(MeasureResult)),
                 ["apply"] = (typeof(ApplyRequest), typeof(ApplyResult)),
+                ["create"] = (typeof(CreateRequest), typeof(CreateResult)),
                 ["convert"] = (typeof(ConvertRequest), typeof(ConvertResult)),
                 ["convert_estimate"] = (typeof(ConvertEstimateRequest), typeof(ConvertEstimateResult)),
                 ["tables"] = (typeof(TablesRequest), typeof(TablesResult)),

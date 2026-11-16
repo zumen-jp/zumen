@@ -13,6 +13,18 @@
 
 VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenNative.bas` にネイティブの宣言・ABI の型・バージョン・状態コード・シーンの配置を生成します。メッセージは UTF-8 の JSON のまま受け渡します。所有権と型の対応は [VBA のバインディング](../bindings/vba/README.md) にあります。
 
+## 空の図面を作る
+
+スキーマ 1.83 から、入力のファイルを渡さずに `create` で空の文書を作れます。`format` は `capabilities.formats` の `create` が `true` の形式、`to` はまだ登録していない文書名です。今は図面のモジュールで `dxf` を指定できます。`write` は既存の文書の書き戻し、`create` は入力なしの作成を示します。
+
+```json
+{"v":1,"op":"create","format":"dxf","to":"new.dxf","unit":"millimeter"}
+```
+
+`unit` は `millimeter`・`centimeter`・`meter`・`inch`・`foot`・`unknown` です。省略すると `millimeter`、`unknown` は単位なしにします。結果は `doc`・`format`・`hash`・`elements`（0）と、空のファイルの `file` blob を返します。作った文書には、すぐに `apply` で図形や表を追加できます。`hash` は通常の編集の前提条件に使えます。名前はファイルシステムのパスではなく、セッション内の名前です。
+
+DXF のバージョン・既定の表・空間と用紙は、[新規作成の規則](../docs/formats/dxf.md#空の-dxf-を作る)に従います。既存の文書は上書きしません。未対応形式は `create.format.unsupported`、不正な名前は `call.value.invalid`、既存の名前は `call.document.exists` で拒否します。予算停止・中断・失敗で文書や blob は残りません。入力を登録してある同名の名前は変更せず、文書名とは別に扱います。
+
 ## 図面の詳細
 
 スキーマ 1.81 から `tables.symbols` は記号の定義を元の順で返します。未配置の定義も含め、`id` は `entities.place` と同じです。`namespace` と `name` は定義を識別するキーで、JWW の `name` はブロック番号の文字列です。基点・属性のタグと既定値・入力の指定・無名の区別・外部参照名・出所も返します。外部の参照先は開きません。属性の配置と書式は元の定義に保ち、一覧には含めません。複数行の属性の元の文字列は `formatted_value` で読むために返します。

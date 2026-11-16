@@ -64,6 +64,11 @@ public struct Request: Message {
         taggedView("op", "apply")
     }
 
+    /// op が create の形なら、そのビュー。違えば nil
+    public var asCreateRequest: CreateRequest? {
+        taggedView("op", "create")
+    }
+
     /// op が convert の形なら、そのビュー。違えば nil
     public var asConvertRequest: ConvertRequest? {
         taggedView("op", "convert")
@@ -467,6 +472,12 @@ public struct Format: Message {
     public var write: Bool? {
         get { readField("write") }
         set { writeField("write", newValue) }
+    }
+
+    /// create で空の文書を作れるか。マイナーバージョン 83 から
+    public var create: Bool? {
+        get { readField("create") }
+        set { writeField("create", newValue) }
     }
 
     /// この形式の ID の規則のバージョン（決定 0015）
@@ -4249,6 +4260,116 @@ public struct ApplyResult: Message {
     public var idsShifted: Bool? {
         get { readField("ids_shifted") }
         set { writeField("ids_shifted", newValue) }
+    }
+}
+
+/// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+public struct CreateRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("create")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
+
+    /// 作る文書の名前。既存の文書と重ねない
+    public var to: String? {
+        get { readField("to") }
+        set { writeField("to", newValue) }
+    }
+
+    /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+}
+
+/// 作った空の文書。書いたファイルは blobs の file で返す
+public struct CreateResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 作った文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 書いた形式の名前
+    public var format: String? {
+        get { readField("format") }
+        set { writeField("format", newValue) }
+    }
+
+    /// 書いたファイルのハッシュ。apply の前提条件に使う
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 書いた要素の数。空なので 0
+    public var elements: Int64? {
+        get { readField("elements") }
+        set { writeField("elements", newValue) }
     }
 }
 
@@ -13380,6 +13501,7 @@ public enum Operations {
     public static let measureDistance = "measure_distance"
     public static let measure = "measure"
     public static let apply = "apply"
+    public static let create = "create"
     public static let convert = "convert"
     public static let convertEstimate = "convert_estimate"
     public static let tables = "tables"

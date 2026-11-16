@@ -12,6 +12,7 @@ use zumen_citygml::CityGml;
 use zumen_e57::E57;
 use zumen_fgd::Fgd;
 use zumen_ifc::{Ifc, IfcZip};
+use zumen_json::Value;
 use zumen_jww::Jww;
 use zumen_landxml::LandXml;
 use zumen_las::Las;
@@ -95,6 +96,10 @@ fn answers_only_the_ops_of_the_modules_it_has() {
     let mut session = Session::new(b"").unwrap();
     let (status, capabilities) = call(&mut session, r#"{"v":1,"op":"capabilities"}"#);
     assert_eq!(status, Status::Ok);
+    let value = zumen_json::parse(capabilities.as_bytes()).unwrap();
+    let Some(Value::Array(ops)) = value.pointer("/result/ops") else {
+        panic!("op の一覧がない: {capabilities}");
+    };
     for module in MODULES {
         for op in module.ops {
             let expected = MODULES
@@ -102,7 +107,7 @@ fn answers_only_the_ops_of_the_modules_it_has() {
                 .any(|m| enabled(m.name) && m.ops.contains(op));
             assert_eq!(has_op(op), expected, "{op}");
             assert_eq!(
-                capabilities.contains(&format!(r#""{op}""#)),
+                ops.contains(&Value::String((*op).to_string())),
                 expected,
                 "{op}"
             );
