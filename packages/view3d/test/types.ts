@@ -1,4 +1,5 @@
 import type { Scene3dResult } from "@zumen-jp/zumen";
+import { attachGround2D, type View2DLike } from "../src/ground2d.js";
 import { THREE_REVISION, View3D, View3DError, type Hit3D, type ReviewApplyResult, type ReviewExport, type Scene3DReport, type Snapshot3D, type View3DState, type View3DView } from "../src/index.js";
 
 declare const blob: Uint8Array;
@@ -36,6 +37,14 @@ viewer.cancelInput();
 detach();
 const offPick = viewer.on("pick", (event) => event.hits[0]?.kind === "geometry" ? event.hits[0].part : event.view);
 offPick();
+declare const real2d: import("../../view2d/src/index.js").View2D;
+const view2d: View2DLike = real2d;
+const ground = attachGround2D(viewer, { id: "ground", view2d, canvas, plane: { origin: [0, 0, 0], xAxis: [1, 0, 0], yAxis: [0, 1, 0] },
+  link: { document: document3d, to3d: (ref) => [ref.id], to2d: () => [] } });
+const groundHit = ground.hitTest("main", { x: 1, y: 2 });
+const groundElements: number = groundHit.status === "hit" ? groundHit.elements.length : 0;
+const groundScale: number | null = ground.getReport().scale;
+ground.remove();
 const hits: readonly Hit3D[] = viewer.hitTest("main", { x: 1, y: 2 }, { limit: 10 }).hits;
 const ray = viewer.getRay("main", { x: 1, y: 2 });
 const state: View3DState = viewer.getState();
@@ -47,4 +56,4 @@ off(); offRender();
 viewer.destroy();
 const revision: "187" = THREE_REVISION;
 try { viewer.render(); } catch (error) { if (error instanceof View3DError) error.reason satisfies string; }
-void [report, none, hits, ray, state, drawn, revision, applied, shot, clipCount, parts, handled, state.objects.length];
+void [report, none, hits, ray, state, drawn, revision, applied, shot, clipCount, parts, handled, state.objects.length, groundElements, groundScale];

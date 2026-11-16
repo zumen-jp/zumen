@@ -59,7 +59,7 @@ React は表示部品の依存にしません。React の任意のフックは `
 
 状態は three.js のオブジェクトそのものではなく、文書識別、ビュー ID、位置・方向・上方向、縦の視野角または平行投影の幅と縦横比、切断面、要素の参照による表示・選択・色を持ちます。入力値は有限で、方向・上方向が 0 でなく平行でもなく、投影の範囲と縦横比が有効であることを検査します。状態の取得・差し替え・購読は View2D と同じく明示し、保存先・自動送信・文言を持ちません。
 
-次は表示部品の操作の設計です。Rust の API の op やメッセージを追加するものではありません。[#813](https://github.com/zumen-jp/zumen/issues/813) で `new View3D`・`setScene`・`setViews`・`getState`・`subscribe`・`on`・`select`・`setHidden`・`fit`・`getRay`・`hitTest`・`invalidate`・`render`・`destroy` を実装し、[#814](https://github.com/zumen-jp/zumen/issues/814) でビューごとの選択・非表示・色、切断面と切断の箱、`setColors`・`toReviewPlace`・`applyReviewPlace`・`snapshot` を足し、[#815](https://github.com/zumen-jp/zumen/issues/815) で追加描画の `addObject`・`addGeometry` と入力の `attachInput`・`setInputOptions`・`handleInput`・`cancelInput` を足しました。使い方と確認した範囲は[パッケージの案内](../packages/view3d/README.md)にあります。ほかの操作は後続の issue で足します。
+次は表示部品の操作の設計です。Rust の API の op やメッセージを追加するものではありません。[#813](https://github.com/zumen-jp/zumen/issues/813) で `new View3D`・`setScene`・`setViews`・`getState`・`subscribe`・`on`・`select`・`setHidden`・`fit`・`getRay`・`hitTest`・`invalidate`・`render`・`destroy` を実装し、[#814](https://github.com/zumen-jp/zumen/issues/814) でビューごとの選択・非表示・色、切断面と切断の箱、`setColors`・`toReviewPlace`・`applyReviewPlace`・`snapshot` を足し、[#815](https://github.com/zumen-jp/zumen/issues/815) で追加描画の `addObject`・`addGeometry` と入力の `attachInput`・`setInputOptions`・`handleInput`・`cancelInput` を足し、[#816](https://github.com/zumen-jp/zumen/issues/816) で地面の 2D の `attachGround2D`（`@zumen-jp/view3d/ground2d`）を足しました。使い方と確認した範囲は[パッケージの案内](../packages/view3d/README.md)にあります。ほかの操作は後続の issue で足します。
 
 | 操作 | 入力・返すもの・寿命 |
 | --- | --- |

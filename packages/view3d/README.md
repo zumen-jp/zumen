@@ -69,7 +69,27 @@ if (hits.length > 0) viewer.select({ doc, format: "ifc", hash }, [hits[0].id]);
 - 選択の結果は `pick`、操作の始まり・終わり・中断は `input` で通知します。通知の中から `handleInput` を呼ぶと `reentrant` の例外です。
 - `touch-action`・フォーカスの扱い・ポインターの見た目は利用側が CSS で決めます。
 
-地面の 2D（#816）、地物と点群（#817）は後続の issue で足します。
+## 地面の 2D
+
+`@zumen-jp/view3d/ground2d` の `attachGround2D(viewer, options)` は、利用側が作った View2D と、その Canvas を 3D の平面に敷きます。表示部品の入口はこのアダプターと View2D を読み込みません。2D の線・塗り・文字・切り抜きは View2D が描いたものを texture にし、列や描画を作り直しません。
+
+```js
+import { attachGround2D } from "@zumen-jp/view3d/ground2d";
+
+const ground = attachGround2D(viewer, {
+  id: "plan", view2d, canvas: canvas2d,
+  plane: { origin: [x, y, z], xAxis: [1, 0, 0], yAxis: [0, 1, 0], anchor: { x: 0, y: 0 } },
+});
+```
+
+- `plane` は 2D の起点の座標 `anchor` を 3D の `origin` に置き、2D の +x・+y を直交する `xAxis`・`yAxis` に写します。尺度は 2D の単位（millimeter・centimeter・meter・inch・foot）と 3D の長さの単位から決めます。`scale` を渡すと 2D の 1 単位あたりの 3D の文書単位として使い、単位から決まる値と食い違えば `unit-mismatch` で重ねません。
+- 用紙とビューの 2D（`paper`）、記号定義の中（`definition`）、単位の分からない組（`unit-unknown`）は重ねず、`getReport()` と当たり判定で理由を返します。2D・3D のシーンの差し替えで判定し直します。
+- `hitTest(viewId, point)` は光線と平面の交点を、2D の原点と相対座標・View2D の CSS px に戻し、View2D の `hitTest` へ渡します。手前の 3D の要素に隠れれば `occluded`、Canvas の枠の外・切断面の外・`side: "front"` の裏は `miss` と理由を返します。背景が透明な View2D では、透明な部分の奥の 3D の要素が見えます。
+- `getReport()` は texture の画素数、1 画素の 2D と 3D での長さ（解像度による近似の目安）、元の View2D の `issues` を返します。texture は Canvas の画素をそのまま使い、`maxPixels`（既定 16,777,216）・`maxSide`（既定 4096）を超えれば `limit` で重ねません。View2D の状態の変化ごとに次の 3D の描画で 1 回だけ転送します。状態を変えずに View2D の `render()` を呼んだときは `update()` を呼びます。
+- `link` に `{ document, to3d, to2d, view? }` を渡すと、2D と 3D の選択を連動します。同じ建物から切り出した図面の要素の対応は利用側が渡し、同じ名前の ID を自動では結びません。2D にない参照は数えて捨てます。
+- 解除・3D のシーンの差し替え（`scope: "scene"`）・単位の違うシーン・破棄で外し、購読を外して texture・geometry・material を解放します。View2D と Canvas は利用側が持ち続けます。
+
+地物と点群（#817）は後続の issue で足します。
 
 ## 検査
 
@@ -77,7 +97,7 @@ if (hits.length > 0) viewer.select({ doc, format: "ifc", hash }, [hits[0].id]);
 node bindings/js/test/browser/view3d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
-合成の ZMS3 で画素・ID・位置・当たり・ビューごとの状態・切断面・pixel ratio・レビューの場所の往復・追加描画の位置と当たりの順と後始末・入力の操作と中断・不正な入力・上限・context loss・破棄を確かめ、コアが作った IFC のシーンで列の数・要素 ID・描画と当たりの一致を確かめ、m の IFC で BCF 2.1・3.0 の透視・平行投影の視点が `bcf_write`・`bcf_read` を通って同じ場所に戻ることを確かめます。外部の BCF の実装で view3d の出力を読むことは確かめていません。CPU の時間、`readPixels` までの時間、確定したバイト数、取れる環境での JS ヒープを別々に記録します。GPU に依存する画素はコアのビット一致の保証に含めません。
+合成の ZMS3 で画素・ID・位置・当たり・ビューごとの状態・切断面・pixel ratio・レビューの場所の往復・追加描画の位置と当たりの順と後始末・入力の操作と中断・地面の 2D の座標と ID と画素と寿命・不正な入力・上限・context loss・破棄を確かめ、コアが作った IFC のシーンで列の数・要素 ID・描画と当たりの一致を確かめ、m の IFC で BCF 2.1・3.0 の透視・平行投影の視点が `bcf_write`・`bcf_read` を通って同じ場所に戻ることを確かめます。外部の BCF の実装で view3d の出力を読むことは確かめていません。CPU の時間、`readPixels` までの時間、確定したバイト数、取れる環境での JS ヒープを別々に記録します。GPU に依存する画素はコアのビット一致の保証に含めません。
 
 2026-11-17 に Playwright 1.64.1 の Chromium 156・Firefox 157・WebKit 27.2 で検査を通しました。CI は Chromium で流します。[対応するブラウザー](../../docs/support.md)の下限の製品そのものでは確かめていません。表示部品の本体は `Object.hasOwn`・`Array.at` に依存しないことだけを、これらを外して確かめます。
 

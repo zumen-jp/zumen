@@ -25,7 +25,7 @@ try {
     if (path === "zumen_abi1.wasm") return route.fulfill({ contentType: "application/wasm", body: readFileSync(wasmPath) });
     let file = null;
     if (path.startsWith("three/build/")) file = join(here, "node_modules", path);
-    else if (["bindings/js/src/", "packages/view3d/src/", "packages/view3d/test/"].some((prefix) => path.startsWith(prefix))) file = join(root, path);
+    else if (["bindings/js/src/", "packages/view3d/src/", "packages/view3d/test/", "packages/view2d/src/", "packages/view2d/test/fixtures.mjs"].some((prefix) => path.startsWith(prefix))) file = join(root, path);
     if (file === null) return route.fulfill({ status: 404, body: "" });
     const contentType = [".js", ".mjs"].includes(extname(path)) ? "text/javascript" : "application/octet-stream";
     return route.fulfill({ contentType, body: readFileSync(file) });

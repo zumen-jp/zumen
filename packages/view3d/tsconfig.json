@@ -10,5 +10,5 @@
     "skipLibCheck": false,
     "paths": { "@zumen-jp/zumen": ["../../bindings/js/src/index.d.ts"] }
   },
-  "files": ["src/index.d.ts", "test/types.ts"]
+  "files": ["src/index.d.ts", "src/ground2d.d.ts", "test/types.ts"]
 }

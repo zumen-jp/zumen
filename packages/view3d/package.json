@@ -6,7 +6,8 @@
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "exports": {
-    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" }
+    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" },
+    "./ground2d": { "types": "./src/ground2d.d.ts", "default": "./src/ground2d.js" }
   },
   "files": ["src", "README.md"],
   "sideEffects": false,
