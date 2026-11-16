@@ -214,11 +214,31 @@ where
             fresh_cx(|cx| C::read(&saved, cx).and_then(|file| file.lift(cx)));
         assert_eq!(reloaded.unwrap(), actual);
         assert_eq!(diagnostics, expected_diag);
+        let model = &expected.spaces[0];
+        let mut namer = id::Namer::new("space/0");
+        let expected_targets: Vec<_> = model
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| Seen {
+                id: namer.next(index, element),
+                hash: Hash::element(element),
+            })
+            .collect();
         for index in 0..self.live.table().len() {
             let row = RowId::from_index(index).unwrap();
             if !self.live.table().is_alive(row) {
+                assert_eq!(
+                    fresh_cx(|cx| self.live.seen_of_row(row, cx)).0.unwrap(),
+                    None
+                );
                 continue;
             }
+            let seen = fresh_cx(|cx| self.live.seen_of_row(row, cx))
+                .0
+                .unwrap()
+                .unwrap();
+            assert!(expected_targets.contains(&seen), "row={index}: {seen:?}");
             let element = fresh_cx(|cx| self.live.element_with_source(row, cx))
                 .0
                 .unwrap()

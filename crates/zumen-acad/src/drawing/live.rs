@@ -9,10 +9,11 @@ mod edit;
 #[cfg(test)]
 mod equivalence;
 mod open;
+mod query;
 mod shape;
 
 use zumen_base::Cx;
-use zumen_drawing::{Applied, Changes, Drawing2D, Element, ModelPoint};
+use zumen_drawing::{Applied, Changes, Drawing2D, Element, ModelPoint, Seen};
 use zumen_live::display::Display;
 use zumen_live::{DepGraph, Revision, RowId, SpatialGrid, VersionedTable};
 use zumen_sdk::Error;
@@ -239,6 +240,15 @@ impl AcadLive {
     /// DWG の出所は保持時の位置。保存結果と照らす場合は [`Self::element_with_source`] を使う。
     pub fn element_of_row(&self, row: RowId) -> Option<Element<ModelPoint>> {
         self.state.element_of_row(row)
+    }
+
+    /// 表示の行から、現在の正規 ID とハッシュを共有予算で取得する。
+    ///
+    /// 行番号は現在の版だけで使う。全体を作り直す編集や履歴の復元をまたぐ呼び出しでは、
+    /// 呼び出す側が [`Self::revision`] を確認する。削除済み・範囲外の行は `None`。
+    /// 出所の位置はハッシュに含まれないため、保存位置の全体対応表は作らない。
+    pub fn seen_of_row(&self, row: RowId, cx: &mut Cx<'_>) -> Result<Option<Seen>, Error> {
+        self.state.seen_of_row(row, cx)
     }
 
     /// 保存後と同じ出所を持つ要素を、共有予算で復元する。

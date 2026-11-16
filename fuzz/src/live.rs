@@ -322,6 +322,30 @@ impl Trace {
         )
     }
 
+    fn row_targets(&mut self, engine: &Engine, seed: u64) {
+        let Engine::Acad(live) = engine else {
+            return;
+        };
+        let rows = [0, (seed % live.row_count().max(1) as u64) as u32, u32::MAX];
+        let work = self.limits.with(Kind::Work, Limit::Finite(0));
+        let bytes = self.limits.with(Kind::DecodedBytes, Limit::Finite(0));
+        for row in rows {
+            for (limits, cancel) in [
+                (self.limits, false),
+                (work, false),
+                (bytes, false),
+                (self.limits, true),
+            ] {
+                if let Ok(result) = self.call(limits, cancel, |cx| {
+                    let target = live.seen_of_row(zumen_live::RowId(row), cx)?;
+                    bounded_debug(&target, cx)
+                }) {
+                    self.bytes.push(result);
+                }
+            }
+        }
+    }
+
     fn stopped_history(&mut self, engine: &mut Engine, redo: bool) {
         let before_state = engine.state();
         let before = self.snapshot(engine);
@@ -378,6 +402,7 @@ pub fn run(data: &[u8], format: Format, limits: Limits, threads: usize) -> Vec<V
     for mode in 0..4 {
         let before_state = engine.state();
         let before = trace.snapshot(&engine);
+        trace.row_targets(&engine, seed);
         let edit_limits = if mode == 2 {
             limits.with(Kind::Work, Limit::Finite(seed % 128))
         } else {
@@ -392,6 +417,7 @@ pub fn run(data: &[u8], format: Format, limits: Limits, threads: usize) -> Vec<V
         }
         let after_state = engine.state();
         let after = trace.snapshot(&engine);
+        trace.row_targets(&engine, seed);
         trace
             .bytes
             .push(format!("{before_state:?}\n{after_state:?}").into_bytes());
