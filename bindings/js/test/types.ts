@@ -24,7 +24,7 @@ function checkScene3DTypes(blob: Uint8Array, result: Scene3dResult): string | un
   return result.counts.instances > 0 && chunk.length === 3 && mesh.length > 0 && row !== undefined ? id : undefined;
 }
 void checkScene3DTypes;
-import { loadBundled } from "../src/node.js";
+import { loadBundled, openProcess, ProcessError, type ProcessLimits } from "../src/node.js";
 import { wasmUrls } from "../src/wasm.js";
 
 export async function server(bytes: Uint8Array): Promise<string | undefined> {
@@ -45,6 +45,25 @@ export async function server(bytes: Uint8Array): Promise<string | undefined> {
   } finally {
     session.close();
   }
+}
+
+export async function processServer(executable: string, bytes: Uint8Array): Promise<string | undefined> {
+  const error: ProcessError = new ProcessError("io", "通信の失敗", new Error("原因"));
+  void error;
+  const limits: ProcessLimits = { timeoutMs: 60_000, maxMessageBytes: 8 * 1024 * 1024 };
+  const session = await openProcess(executable, { v: SCHEMA_MAJOR }, limits);
+  try {
+    await session.push("input", bytes);
+    const opened = await session.call({ v: SCHEMA_MAJOR, op: "open", input: "input" });
+    const result: OpenResult | undefined = opened.result;
+    const blob: Uint8Array = await session.take(0);
+    void blob;
+    await session.cancel();
+    return result?.format;
+  } catch (error) {
+    if (error instanceof ProcessError) console.log(error.code, session.broken);
+    throw error;
+  } finally { await session.close(); }
 }
 
 export async function modules(bytes: Uint8Array): Promise<void> {

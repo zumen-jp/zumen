@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import { load } from "./index.js";
 
 export * from "./index.js";
+export { openProcess, ProcessError, ProcessSession } from "./process.js";
 
 /** コンパイルしたモジュール。失敗したら捨て、次に呼んだときにやり直す */
 let compiled;

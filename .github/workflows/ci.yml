@@ -217,6 +217,17 @@ jobs:
         run: |
           read -ra packages <<< "$CARGO_ARGS"
           cargo test --locked "${packages[@]}" ${TARGET:+--target "$TARGET"}
+      - name: 子プロセスのラッパーに使う Node.js を入れる
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Node.js の子プロセスの寿命・通信と適合ハッシュを確かめる（#358）
+        shell: bash
+        run: |
+          cargo build --package zumen-cli --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          executable="target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/zumen${{ runner.os == 'Windows' && '.exe' || '' }}"
+          node bindings/js/test/process.mjs "$executable"
+          node bindings/js/test/process-conformance.mjs "$executable"
       - name: Python のラッパーの適合テストに使う Python を入れる
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:

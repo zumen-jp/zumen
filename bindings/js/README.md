@@ -1,6 +1,6 @@
 # TypeScript・JavaScript のラッパー
 
-wasm のモジュール（`zumen_abi1.wasm`）を、ブラウザーと Node.js（22 以降）から呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。
+wasm のモジュール（`zumen_abi1.wasm`）をブラウザーと Node.js（22 以降）から呼び、Node.js ではネイティブの CLI を子プロセスとしても使えるラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。
 
 - npm の `@zumen-jp/zumen` で配ります（[コアの設計](../../docs/architecture.md)・[配布の手順](../../xtask/release/README.md)）。パッケージには全体版と 4 つの分割版の wasm を入れます。依存のライセンスの文は `THIRD_PARTY_LICENSES` にあります。
 - 素の ESM の JavaScript で書き、ビルドも npm の依存もありません。型は `.d.ts` にあります。
@@ -43,6 +43,42 @@ try {
 | `Zumen.broken` | wasm の中で trap が起き、もう使えないか |
 | `Session.push`・`call`・`callBytes`・`take`・`cancel`・`close` | API の関数（`zm_push`・`zm_call`・`zm_take`・`zm_cancel`・`zm_session_close`）。状態が `ok` でなければ `ZumenError` を投げる |
 | `readScene` | シーンの blob を、セクションごとの型付き配列で読む（`schema/scene.toml`） |
+
+### Node.js の子プロセス
+
+`@zumen-jp/zumen/node` の `openProcess` に、別に導入した [CLI](../cli/README.md) の実行ファイルの道筋を渡します。セッションごとに `serve --stdio` で起動し、閉じるまで同じプロセスに文書を保ちます。デスクトップでは 64 bit の CLI を使います。Node.js のメソッドは非同期で、処理中もイベントループは動きます（#358）。
+
+```js
+import { openProcess } from "@zumen-jp/zumen/node";
+
+const session = await openProcess("/path/to/zumen", { v: 1 }, { timeoutMs: 60_000 });
+try {
+  await session.push("input.dxf", bytes);
+  const opened = await session.call({ v: 1, op: "open", input: "input.dxf", budget: { input_bytes: 50_000_000 } });
+  const response = await session.call({ v: 1, op: "drawing", doc: opened.result.doc });
+  console.log(response.result);
+} finally {
+  await session.close();
+}
+```
+
+- `push`・`call`・`callBytes`・`take`・`cancel`・`close` は Promise を返します。コアの応答と blob は、そのままのバイト列で返します。返したバッファーは Node.js の共有プールと分けて持ち、転送できます。
+- `push`・`call`・`take` は、一度に 1 つだけ呼べます。先の呼び出しや中断の応答を待つ間の重複は、`busy` の `ZumenError` になります。コアが返すほかの失敗も、wasm と同じ `ZumenError` です。
+- 処理中の `call` は、別のイベントやタイマーから `await session.cancel()` で中断できます。中断しても 1 秒以内に応答しない場合は子プロセスを終了します。`close` は処理中も呼べ、残る呼び出しを失敗にして、プロセスの終了まで待ちます。
+- 起動・通信の失敗や上限の超過は `ProcessError` です。`code` は `spawn`・`io`・`protocol`・`closed`・`timeout`・`limit` です。`broken` になったセッションは、閉じてから開き直します。送信前のサイズ検査で止まった場合は、そのセッションを引き続き使えます。
+- 第 3 引数の `timeoutMs` は 1 つの応答を待つ上限で、既定は 30 秒です。`maxMessageBytes` は送受信する JSON-RPC の 1 行の上限で、既定は 64 MiB、最大は 1 GiB です。base64 の分だけ送信する量が増えるため、大きい入力は `push` に分けて渡します。期限や受信上限で止めた場合は、プロセスを終了します。
+- 第 2 引数はセッションの設定で、値・JSON の文字列・バイト列を CLI にそのまま渡します。通常は省略するか `engine: "native"` にします。`engine: "process"` を渡すと、その CLI がさらに子プロセスを起こします。
+- この入口は CLI を直接起動し、OS のメモリ上限は設定しません。コアの作業量と確保量は要求の `budget` で制限します。OS による制限が必要な場合は、CLI の起動環境で設定します。
+
+全適合ケースと、子プロセスの終了・通信の失敗・中断・同時呼び出しを検査できます。
+
+```sh
+cargo build -p zumen-cli
+node bindings/js/test/process.mjs target/debug/zumen
+node bindings/js/test/process-conformance.mjs target/debug/zumen
+```
+
+Windows の実行ファイルは `target/debug/zumen.exe` です。64 要素ブロックの差分表示を送るバイナリ IPC と、その性能の検査は [文書エンジンの残件](../../docs/live.md)です。
 
 ### trap のあと
 
@@ -111,7 +147,7 @@ const { response, blob } = await result;
 - この例は、要求ごとに worker を作り、`result` は worker が終了してから成功か失敗になります。サーバーでは、実行中の worker 数と待ち行列の長さに上限を付けます。頻繁な小さい要求では、worker のプールで起動の費用を減らせます。その場合も、インスタンスは要求ごとに作り直します。
 - wasm が同期処理をしている間は、その worker のイベントループも止まります。`cancel` を呼ぶメッセージを送るだけでは処理中に届かないため、この例は AbortSignal で worker 自体を `terminate()` します。中断した要求の入力は転送済みなので、再試行には入力を再び用意します。
 - API の失敗は、状態・操作・診断を持つ Error として返します。スレッドを越えるため、`instanceof ZumenError` では判断せず、`error.status` と `error.response` を見ます。worker の異常終了や転送の失敗も Promise の失敗になり、worker を残しません。
-- worker は同じプロセスの中で動きます。[`resourceLimits` の対象](https://nodejs.org/download/release/latest-v22.x/docs/api/worker_threads.html#new-workerfilename-options)は JavaScript のエンジンで、ArrayBuffer や wasm のメモリの上限にはなりません。入力の大きさと API の `budget`、同時実行数で量を制限します。OS でメモリを制限したい場合や、ネイティブの CLI を別のプロセスとして動かしたい場合は、子プロセスのエンジン（#358）の用途になります。#358 の Node.js 用ラッパーはまだありません。
+- worker は同じプロセスの中で動きます。[`resourceLimits` の対象](https://nodejs.org/download/release/latest-v22.x/docs/api/worker_threads.html#new-workerfilename-options)は JavaScript のエンジンで、ArrayBuffer や wasm のメモリの上限にはなりません。入力の大きさと API の `budget`、同時実行数で量を制限します。ネイティブの CLI を別のプロセスとして動かす場合は、[子プロセスの入口](#nodejs-の子プロセス)を使えます。OS のメモリ制限は、別に設定します。
 - この例は素の Node.js で確かめています。Next.js などで組むときは、worker のファイルと、そのファイルから解決できる npm パッケージをサーバーの出力に含めます。上の同期の API ルートの例に対する bundler のテストは、worker の配布までを確認するものではありません。
 
 リポジトリでは、作った wasm のパスを渡して実行できます。

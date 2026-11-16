@@ -59,7 +59,12 @@ def checks_for(path):
     if path.startswith("packages/"):
         return WASM | {"site"}
     if path.startswith("bindings/js/"):
-        return {"site", "wasm", "view2d", "react", "codegen"}
+        checks = {"site", "wasm", "view2d", "react", "codegen"}
+        if path.startswith(("bindings/js/src/", "bindings/js/test/process", "bindings/js/test/fixtures/process")) or path in {
+            "bindings/js/test/run.mjs", "bindings/js/test/types.ts",
+        }:
+            checks.add("native")
+        return checks
     if path.startswith("bindings/go/"):
         if path in {"bindings/go/constants.go", "bindings/go/messages.go"}:
             return {"go", "codegen"}
