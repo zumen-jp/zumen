@@ -1194,6 +1194,28 @@ def partial_arc_steps(_fmt):
     return [moved]
 
 
+def table_cell_steps(_fmt):
+    """#684: 旧版 DWG の単純な表で文字のセルを変え、表示用ブロックも作り直す。"""
+    def replaced(reading):
+        edits = []
+        for table in model(reading, "table"):
+            g = dict(table["geometry"])
+            cells = [dict(cell) for cell in g["cells"]]
+            for cell, value in zip(cells, ["CHANGED", "x" * 251, ""], strict=False):
+                cell["content"] = "text" if value else "empty"
+                cell.pop("text", None)
+                if value:
+                    cell["text"] = value
+            g["cells"] = cells
+            edit = replace(table, g)
+            edit["_part"] = {"kind": "table", "prefix": "*T", "position": g["position"],
+                             "direction": g["direction"], "lines": 6, "rotation": 0,
+                             "texts": [c["text"] for c in cells if c["content"] == "text"]}
+            edits.append(edit)
+        return edits
+    return [replaced]
+
+
 def table_position_steps(moved):
     """#684: 表の挿入点だけを変え、セル・書式と表示用ブロックを保つ。"""
     def placed(reading):
@@ -1225,6 +1247,7 @@ RECIPES = [
     ("partial-arc-moved", 684, lambda name, fmt: fmt in ("dxf", "dwg") and "-arcdim-" in name, partial_arc_steps),
     ("table-moved", 684, lambda name, fmt: fmt == "dwg" and "apply_dwg_table-" in name, lambda _: table_position_steps(True)),
     ("table-placed", 684, lambda name, fmt: fmt == "dwg" and "apply_dwg_table-" in name, lambda _: table_position_steps(False)),
+    ("table-cells", 684, lambda name, fmt: fmt == "dwg" and name in ("apply_dwg_table-table-r2000.dwg", "apply_dwg_table-table-r2004.dwg"), table_cell_steps),
 ]
 # 記号の定義の中の要素も読む組（read の definitions）。定義の中に足した要素を、書いたファイルの読みに残す
 INSIDE = {"added"}

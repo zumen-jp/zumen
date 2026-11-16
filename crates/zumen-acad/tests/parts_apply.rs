@@ -1459,6 +1459,125 @@ fn partial_arc_translation_rejects_unmapped_auxiliary_points_and_leaders_atomica
 }
 
 #[test]
+fn replaces_plain_legacy_table_cells_and_rebuilds_cache() {
+    for name in ["table-r2000.dwg", "table-r2004.dwg"] {
+        let raw = std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name),
+        )
+        .unwrap();
+        let mut file = testkit::read::<Dwg>(&raw).0.unwrap();
+        let original = file.clone();
+        let db = cx_run(|cx| file.objects(cx).unwrap()).0;
+        let block = db
+            .objects()
+            .iter()
+            .find(|o| {
+                o.kind == b"BLOCK_RECORD"
+                    && o.values
+                        .iter()
+                        .any(|v| v.code == 2 && matches!(&v.data, Data::Text(t) if t == b"*T1"))
+            })
+            .unwrap()
+            .handle()
+            .unwrap();
+        let table_handle = db
+            .objects()
+            .iter()
+            .find(|o| o.kind == b"ACAD_TABLE")
+            .unwrap()
+            .handle()
+            .unwrap();
+        let before = cx_run(|cx| file.lift(cx).unwrap()).0;
+        let (target, mut element) = seen_model(&before, 0);
+        let Shape::Table(mut table) = element.shape.clone() else {
+            panic!()
+        };
+        for (index, content) in ["CHANGED".to_owned(), "x".repeat(251), "".to_owned()]
+            .into_iter()
+            .enumerate()
+        {
+            table.cells[index].content = if content.is_empty() {
+                CellContent::Empty
+            } else {
+                CellContent::Text {
+                    content,
+                    spans: Vec::new(),
+                }
+            };
+        }
+        let expected = table.clone();
+        element.shape = Shape::Table(table);
+        let (result, diagnostics) = cx_run(|cx| {
+            file.apply(
+                &Changes {
+                    document: None,
+                    edits: vec![Edit::Replace {
+                        target: target.clone(),
+                        element: Box::new(Placed::Model(element)),
+                    }],
+                },
+                cx,
+            )
+        });
+        assert!(result.is_ok(), "{name}: {diagnostics:?}");
+        let bytes = testkit::write::<Dwg>(&file).unwrap();
+        let again = testkit::read::<Dwg>(&bytes).0.unwrap();
+        let after = cx_run(|cx| again.lift(cx).unwrap()).0;
+        let (seen, changed) = seen_model(&after, 0);
+        assert_eq!(seen.id, target.id);
+        let Shape::Table(mut table) = changed.shape else {
+            panic!()
+        };
+        // 読み手が作る文字の区間は、渡した文字列から別に検査する。
+        for cell in &mut table.cells {
+            if let CellContent::Text { spans, .. } = &mut cell.content {
+                spans.clear();
+            }
+        }
+        let mut expected = expected;
+        for cell in &mut expected.cells {
+            if let CellContent::Text { spans, .. } = &mut cell.content {
+                spans.clear();
+            }
+        }
+        assert_eq!(table, expected, "{name}");
+        assert_eq!(seen_model(&after, 1).0, seen_model(&before, 1).0);
+        for index in 0..original.entry_count() {
+            let handle = original.entry_summary(index).unwrap().0;
+            if handle == table_handle
+                || handle == block
+                || db.get(handle).is_some_and(|o| o.owner() == Some(block))
+            {
+                continue;
+            }
+            let found = (0..again.entry_count())
+                .find(|&i| again.entry_summary(i).unwrap().0 == handle)
+                .unwrap();
+            assert_eq!(
+                original.object_data(index),
+                again.object_data(found),
+                "{name}: {handle:X}"
+            );
+        }
+        let parts = symbol_elements(&after, &table.drawn.unwrap().name);
+        assert!(
+            parts
+                .iter()
+                .any(|e| matches!(&e.shape, Shape::Formatted(t) if t.content == "CHANGED")),
+            "{name}"
+        );
+        assert!(
+            parts
+                .iter()
+                .any(|e| matches!(&e.shape, Shape::Formatted(t) if t.content == "x".repeat(251))),
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn moves_dwg_tables_without_rebuilding_cells_or_cache() {
     for name in [
         "table-r2000.dwg",
@@ -1576,6 +1695,9 @@ fn moves_dwg_tables_without_rebuilding_cells_or_cache() {
                 panic!()
             };
             match change {
+                0 if name == "table-r2000.dwg" || name == "table-r2004.dwg" => {
+                    table.cells[0].rotation = 10.0;
+                }
                 0 => table.cells[0].content = CellContent::Empty,
                 1 => table.column_widths[0] = mlen(99.0),
                 _ => table.direction = [0.0, 1.0],

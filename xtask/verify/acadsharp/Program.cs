@@ -192,6 +192,8 @@ static class Dwg
                 break;
             case TableEntity table:
                 d["table_geometry"] = TableGeometry(table);
+                d["table_part"] = new JsonObject { ["block"] = table.Block?.Name,
+                    ["position"] = Xy(table.InsertPoint), ["direction"] = Xy(table.HorizontalDirection) };
                 break;
             case Insert insert:
                 d["name"] = insert.Block?.Name;

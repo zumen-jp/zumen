@@ -14,11 +14,20 @@ pub(super) fn encode(
 ) -> Option<Vec<u8>> {
     // MINSERT も、表では INSERT とする。VERTEX と POLYLINE も、型でフィールドが分かれる
     let type_code = u16::try_from(Bits::with_release(data, Release::R2000).bs()?).ok()?;
-    let own = own_codes(&new.kind, type_code);
+    let own = if new.kind == b"ACAD_TABLE" {
+        &[10, 20, 30, 1, 2][..]
+    } else {
+        own_codes(&new.kind, type_code)
+    };
     if release == Release::R2004 && !R2004_KINDS.contains(&new.kind.as_slice()) {
         return None;
     }
-    unchanged_table_body(old, new)?;
+    let table_texts = if new.kind == b"ACAD_TABLE" && unchanged_table_body(old, new).is_none() {
+        Some(legacy_table_texts(old, new)?)
+    } else {
+        unchanged_table_body(old, new)?;
+        None
+    };
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
         object
             .values
@@ -48,14 +57,18 @@ pub(super) fn encode(
         fields.copy(data, start..handles_at)?;
         fields
     } else if new.kind == b"ACAD_TABLE" {
-        moved_table_fields(
-            BitWriter::default(),
-            data,
-            [start, handles_at],
-            old,
-            new,
-            release,
-        )?
+        if let Some(texts) = table_texts {
+            legacy_table_text_fields(data, [start, handles_at], old, &texts, release)?
+        } else {
+            moved_table_fields(
+                BitWriter::default(),
+                data,
+                [start, handles_at],
+                old,
+                new,
+                release,
+            )?
+        }
     } else if release == Release::R2004 && new.kind == b"HATCH" {
         // R2004 の初めのグラデーションのフィールド（表では 450〜470）は、元のビットを写す（決定 0074）
         let mut bits = Bits::with_release(data, release);
@@ -244,6 +257,148 @@ fn unchanged_table_body(old: &Object, new: &Object) -> Option<()> {
         (old.values.get(marker(old)?..)? == new.values.get(marker(new)?..)?).then_some(())?;
     }
     Some(())
+}
+
+/// R2004 までの文字セル。末尾の 2 は表示用ブロックなので、セルの文字と分けて保つ。
+fn legacy_table_texts(old: &Object, new: &Object) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+    let split = |object: &Object| {
+        let marker = object
+            .values
+            .iter()
+            .position(|v| matches!(v.code, 342 | 11 | 90))?;
+        let first = object.values.iter().position(|v| v.code == 171)?;
+        let block = object.values.iter().rposition(|v| v.code == 2)?;
+        (marker < first && first < block).then_some((marker, first, block))
+    };
+    let (old_start, old_first, old_block) = split(old)?;
+    let (new_start, new_first, new_block) = split(new)?;
+    if old.values.get(old_start..old_first)? != new.values.get(new_start..new_first)?
+        || old.values.get(old_block..)? != new.values.get(new_block..)?
+    {
+        return None;
+    }
+    // 文字の変更と位置の変更は、この経路では同時に扱わない。
+    for code in [10, 20, 30] {
+        if real(old, code)?? != real(new, code)?? {
+            return None;
+        }
+    }
+    let before: Vec<_> = old
+        .values
+        .get(old_first..old_block)?
+        .chunk_by(|_, next| next.code != 171)
+        .collect();
+    let after: Vec<_> = new
+        .values
+        .get(new_first..new_block)?
+        .chunk_by(|_, next| next.code != 171)
+        .collect();
+    if before.len() != after.len() {
+        return None;
+    }
+    let text = |cell: &[Value]| -> Option<Vec<u8>> {
+        if cell.first()?.data != Data::Int(1) || cell.iter().filter(|v| v.code == 1).count() != 1 {
+            return None;
+        }
+        let mut bytes = Vec::new();
+        for value in cell.iter().filter(|v| matches!(v.code, 1 | 2)) {
+            let Data::Text(chunk) = &value.data else {
+                return None;
+            };
+            if chunk.contains(&0) {
+                return None;
+            }
+            bytes.extend_from_slice(chunk);
+        }
+        Some(bytes)
+    };
+    before
+        .into_iter()
+        .zip(after)
+        .map(|(old, new)| {
+            if !old
+                .iter()
+                .filter(|v| !matches!(v.code, 1 | 2))
+                .eq(new.iter().filter(|v| !matches!(v.code, 1 | 2)))
+            {
+                return None;
+            }
+            Some((text(old)?, text(new)?))
+        })
+        .collect()
+}
+
+/// ODS 5.4.1 の 20.4.96.1: 書式の上書きも結合もない文字セルの TV だけを差し替える。
+/// 文字の前後とハンドルのストリームは元のビットを保つ。
+fn legacy_table_text_fields(
+    data: &[u8],
+    [start, handles_at]: [usize; 2],
+    object: &Object,
+    texts: &[(Vec<u8>, Vec<u8>)],
+    release: Release,
+) -> Option<BitWriter> {
+    let mut bits = Bits::with_release(data, release);
+    bits.seek(start);
+    for code in [10, 20, 30] {
+        (bits.bd()?.to_bits() == real(object, code)??.to_bits()).then_some(())?;
+    }
+    // 尺度 1・回転 0・上向きで、属性のない挿入だけを扱う。
+    if bits.bb()? != 3 || bits.bd()? != 0.0 {
+        return None;
+    }
+    for expected in [0.0, 0.0, 1.0] {
+        (bits.bd()? == expected).then_some(())?;
+    }
+    if bits.bit()? || bits.bs()? != 0 {
+        return None;
+    }
+    for _ in 0..3 {
+        bits.bd()?;
+    } // 表の横の向き
+    let columns = usize::try_from(bits.bl()?).ok()?;
+    let rows = usize::try_from(bits.bl()?).ok()?;
+    if rows == 0 || columns == 0 || rows.checked_mul(columns)? != texts.len() {
+        return None;
+    }
+    for _ in 0..rows.checked_add(columns)? {
+        bits.bd()?;
+    }
+    let mut out = BitWriter::default();
+    let mut copied = start;
+    for (before, after) in texts {
+        if bits.bs()? != 1
+            || bits.rc()? != 0
+            || bits.bit()?
+            || bits.bit()?
+            || bits.bl()? != 1
+            || bits.bl()? != 1
+            || bits.bd()? != 0.0
+        {
+            return None;
+        }
+        let text_at = bits.pos();
+        if bits.text()?.as_slice() != before.as_slice() {
+            return None;
+        }
+        if before != after {
+            out.copy(data, copied..text_at)?;
+            out.bs(i16::try_from(after.len().checked_add(1)?).ok()?);
+            out.raw(after);
+            out.rc(0);
+            copied = bits.pos();
+        }
+        if bits.bit()? {
+            return None;
+        } // セルの書式の上書き
+    }
+    for _ in 0..4 {
+        if bits.bit()? {
+            return None;
+        }
+    } // 表と枠の書式の上書き
+    (bits.pos() == handles_at).then_some(())?;
+    out.copy(data, copied..handles_at)?;
+    Some(out)
 }
 
 /// ODS 5.4.1 の 20.4.96.1・20.4.96.2: 表は INSERT の挿入点（3BD）から始まる。

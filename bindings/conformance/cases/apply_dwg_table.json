@@ -1,5 +1,5 @@
 {
-  "description": "自作の表を持つ R2000・R2004・R2010・R2013・R2018 の DWG。位置の置き換えと平行移動で、セル・大きさと既存 ID を保つ。セルの変更・回転・作業量の停止は原子的に拒む。入力の生成元は xtask/verify/acadsharp/TableFixtures.cs と crates/zumen-acad/examples/legacy_table_fixture.rs。",
+  "description": "自作の表を持つ R2000・R2004・R2010・R2013・R2018 の DWG。位置の置き換えと平行移動で、セル・大きさと既存 ID を保つ。未対応のセルの変更・回転・作業量の停止は原子的に拒む。入力の生成元は xtask/verify/acadsharp/TableFixtures.cs と crates/zumen-acad/examples/legacy_table_fixture.rs。",
   "steps": [
     {
       "push": {
@@ -71,7 +71,8 @@
               "cells": [
                 {
                   "content": "text",
-                  "text": "changed"
+                  "text": "A00",
+                  "rotation": 10
                 },
                 {
                   "content": "text",
@@ -677,7 +678,8 @@
               "cells": [
                 {
                   "content": "text",
-                  "text": "changed"
+                  "text": "A00",
+                  "rotation": 10
                 },
                 {
                   "content": "text",

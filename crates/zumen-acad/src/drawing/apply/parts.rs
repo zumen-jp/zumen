@@ -331,19 +331,24 @@ fn apply_parts<P: Copy + PartialEq>(
         if !current.born.since(b"AC1015") {
             return Ok(None);
         }
-        count_transform_values(object, &was.source, cx)?;
-        let Some(mut values) = moved_table_values(object, old, new, frame) else {
-            return Ok(None);
-        };
-        if let Some((affine, model)) = transformed
-            && moving_xdata(object).is_some()
-            && (!model || carried(&mut values, &frame.affine(affine)).is_none())
-        {
+        if old.cells == new.cells {
+            count_transform_values(object, &was.source, cx)?;
+            let Some(mut values) = moved_table_values(object, old, new, frame) else {
+                return Ok(None);
+            };
+            if let Some((affine, model)) = transformed
+                && moving_xdata(object).is_some()
+                && (!model || carried(&mut values, &frame.affine(affine)).is_none())
+            {
+                return Ok(None);
+            }
+            plan.touched.insert(position);
+            plan.replaced.push((position, values));
+            return Ok(Some(()));
+        }
+        if transformed.is_some() || current.born.since(b"AC1021") {
             return Ok(None);
         }
-        plan.touched.insert(position);
-        plan.replaced.push((position, values));
-        return Ok(Some(()));
     }
     if plan.blocks.is_none() {
         plan.blocks = Some(BlockIndex::new(current.db, current.charset, cx)?);
@@ -1609,7 +1614,7 @@ fn insert_after_codes(values: &mut Vec<Value>, value: Value, after: &[i16]) -> O
     Some(())
 }
 
-/// DXF の `ACAD_TABLE` の書き直しと `*T<n>` の部品生成
+/// `ACAD_TABLE` の書き直しと `*T<n>` の部品生成。旧版 DWG は単純な文字セルの変更だけ。
 #[allow(clippy::too_many_arguments)]
 fn plan_table<P: Copy + PartialEq>(
     current: &Current<'_>,
@@ -1623,8 +1628,28 @@ fn plan_table<P: Copy + PartialEq>(
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<Option<Rebuilt>, Error> {
-    if current.target != Target::Dxf
-        || object.kind != b"ACAD_TABLE"
+    let dwg = matches!(current.target, Target::Dwg(_));
+    if dwg
+        && (current.born.since(b"AC1021")
+            || table.position != was.position
+            || table.direction != was.direction
+            || table.row_heights != was.row_heights
+            || table.column_widths != was.column_widths
+            || was.style.is_some()
+            || was.formats.is_some()
+            || was.cells.iter().zip(&table.cells).any(|(old, new)| {
+                old.span != [1, 1]
+                    || old.covered
+                    || old.rotation != 0.0
+                    || new.rotation != 0.0
+                    || old.value.is_some()
+                    || new.value.is_some()
+                    || old.format != Default::default()
+            }))
+    {
+        return Ok(None);
+    }
+    if object.kind != b"ACAD_TABLE"
         || table.style != was.style
         || table.drawn != was.drawn
         || table.formats != was.formats
@@ -1661,8 +1686,13 @@ fn update_table_values<P: PartialEq>(
     frame: &impl Frame<P>,
     encoder: &Encoder,
 ) -> Option<Vec<Value>> {
+    let dwg = matches!(object.origin, crate::Origin::Dwg { .. });
     let marker = object.values.iter().position(|v| {
-        v.code == 100 && matches!(&v.data, Data::Text(t) if t.as_slice() == b"AcDbTable")
+        if dwg {
+            matches!(v.code, 342 | 11 | 90)
+        } else {
+            v.code == 100 && matches!(&v.data, Data::Text(t) if t.as_slice() == b"AcDbTable")
+        }
     })?;
     let xdata_at = object
         .values
@@ -1677,7 +1707,17 @@ fn update_table_values<P: PartialEq>(
     let xdata_slice = object.values.get(xdata_at..)?;
 
     let first_cell = table_slice.iter().position(|v| v.code == 171)?;
-    let (head_slice, body_slice) = table_slice.split_at_checked(first_cell)?;
+    let (head_slice, mut body_slice) = table_slice.split_at_checked(first_cell)?;
+    let block = if dwg {
+        let (block, cells) = body_slice.split_last()?;
+        if block.code != 2 || !matches!(block.data, Data::Text(_)) {
+            return None;
+        }
+        body_slice = cells;
+        Some(block)
+    } else {
+        None
+    };
 
     // 1. 挿入点（10・20・30）
     let mut reference = ref_slice.to_vec();
@@ -1731,6 +1771,7 @@ fn update_table_values<P: PartialEq>(
         }
         out.extend(update_cell_values(raw, old_cell, new_cell, encoder)?);
     }
+    out.extend(block.cloned());
     out.extend_from_slice(xdata_slice);
     Some(out)
 }

@@ -178,7 +178,9 @@ def view(dump):
             return None
         # owner は、図形を持つブロックの名前（記号の定義の中の要素を、定義の名前と照らす）
         out = {"type": d["type"], "layer": d["layer"], "color": d["color"], "line_type": d["line_type"], "owner": d["owner"], "geometry": geometry(d)}
-        if "block" in d:
+        if "table_part" in d:
+            out["part"] = d["table_part"]
+        elif "block" in d:
             out["part"] = {
                 "block": d["block"] or "",
                 "measurement": d["measurement"],
