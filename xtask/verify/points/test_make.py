@@ -70,7 +70,7 @@ class KitTests(unittest.TestCase):
                     make.compare_case(KIT, before, entry)
 
     def test_jww_rejects_wrong_marker_and_pen(self):
-        before, original = self.pair("conformance-open_jww-a.points.jww")
+        before, original = self.pair("made-points.points.jww")
         for field in ("code", "color"):
             with self.subTest(field=field):
                 entry = deepcopy(original)
@@ -81,6 +81,45 @@ class KitTests(unittest.TestCase):
                     want["color"]["jww"] = 6
                 with self.assertRaisesRegex(ValueError, "外部実装との不一致"):
                     make.compare_case(KIT, before, entry)
+
+    def test_jww_display_settings_are_read_by_external_implementation_and_kept(self):
+        before, after = self.pair("made-points.points.jww")
+        found = make.compare_case(KIT, before, after)
+        self.assertTrue(found["headerPreserved"])
+        self.assertEqual(found["display"]["pointRadiusMm"], 0.2)
+        for entry in (before, after):
+            doc = make.check_ezjww.ezjww.read_document(str(KIT / entry["path"]))
+            self.assertEqual(doc["header"]["paper_size"], 3)
+            self.assertEqual(doc["header"]["layer_groups"][0]["scale"], 100.0)
+            self.assertEqual(doc["header"]["palette"]["pen_colors"][2], 0)
+            self.assertEqual(doc["header"]["pens"]["screen_widths"], [1] * 10)
+        data = (KIT / before["path"]).read_bytes()
+        self.assertEqual(data, make.fixtures.jww())
+        original = make.check_ezjww.ezjww.read_document(str(KIT / before["path"]))
+        self.assertEqual(len(original["entities"]), 1)
+        line = original["entities"][0]
+        self.assertEqual(line["type"], "LINE")
+        self.assertEqual([line[key] for key in ("start_x", "start_y", "end_x", "end_y")], [0.0, 0.0, 100.0, 50.0])
+        self.assertEqual([line["base"][key] for key in ("pen_color", "pen_style", "layer", "layer_group")], [1, 1, 0, 0])
+
+    def test_jww_zero_width_invisible_pen_and_bad_point_radius_are_rejected(self):
+        before, _ = self.pair("made-points.points.jww")
+        original = make.check_ezjww.ezjww.read_document(str(KIT / before["path"]))["header"]
+        for field in ("screen_width", "printer_width", "radius", "background", "dpi"):
+            with self.subTest(field=field):
+                header = deepcopy(original)
+                if field == "screen_width":
+                    header["pens"]["screen_widths"][2] = 0
+                elif field == "printer_width":
+                    header["pens"]["printer"][2]["width"] = 0
+                elif field == "radius":
+                    header["pens"]["printer"][2]["point_radius"] = 0.0
+                elif field == "background":
+                    header["palette"]["pen_colors"][0] = 0
+                else:
+                    header["pens"]["printer_dpi"] = None
+                with self.assertRaises(ValueError):
+                    make.jww_display(header)
 
     def test_non_target_values_ids_hashes_and_missing_elements_are_rejected(self):
         before_entry, entry = self.pair("made-features.points.sfc")
