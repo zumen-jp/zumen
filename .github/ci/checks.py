@@ -8,7 +8,7 @@ import sys
 import tomllib
 
 
-WASM = {"wasm", "view2d", "react", "go"}
+WASM = {"wasm", "view2d", "view3d", "react", "go"}
 CORE = WASM | {"rust", "native", "abi", "acc", "codegen"}
 ALL = CORE | {"site", "deny", "workflows", "selector", "text"}
 NATIVE = {"zumen-abi", "zumen-c", "zumen-cli", "zumen-conformance"}
@@ -21,7 +21,7 @@ CODE_EXTENSIONS = (".rs", ".toml", ".yml")
 # パッケージに同梱して照合する bindings/js や、キットに写す acc の README は個別に扱う。
 PROSE_READMES = {
     "catalog/README.md", "formats/README.md", "fuzz/README.md", "profiles/README.md", "schema/README.md",
-    "packages/react/README.md", "packages/view2d/README.md", "playground/README.md", "site/README.md",
+    "packages/react/README.md", "packages/view2d/README.md", "packages/view3d/README.md", "playground/README.md", "site/README.md",
     "xtask/release/README.md", "xtask/verify/README.md",
     "xtask/verify/pdfjs/README.md",
 }
@@ -51,6 +51,12 @@ def checks_for(path):
         return {"view2d"}
     if path.startswith("packages/view2d/"):
         return {"site", "view2d", "react"}  # React とサイトも表示部品を使う。
+    if path == "bindings/js/test/browser/view3d.mjs" or path.startswith("packages/view3d/test/"):
+        return {"view3d"}
+    if path.startswith("packages/view3d/"):
+        return {"site", "view3d"}  # サイトの検査で型を確かめる。
+    if path in {"bindings/js/test/browser/package.json", "bindings/js/test/browser/package-lock.json"}:
+        return {"wasm", "view2d", "view3d", "react"}  # 固定した Playwright と three.js を使う検査。
     if path in {"bindings/js/test/browser/react.mjs", "bindings/js/test/browser/react-interactions.mjs",
                 "bindings/js/test/browser/react-resize.mjs"} or path.startswith("playground/test/"):
         return {"react"}
@@ -59,7 +65,7 @@ def checks_for(path):
     if path.startswith("packages/"):
         return WASM | {"site"}
     if path.startswith("bindings/js/"):
-        checks = {"site", "wasm", "view2d", "react", "codegen"}
+        checks = {"site", "wasm", "view2d", "view3d", "react", "codegen"}
         if path.startswith(("bindings/js/src/", "bindings/js/test/process", "bindings/js/test/fixtures/process",
                             "bindings/js/test/live", "bindings/js/test/fixtures/live")) or path in {
             "bindings/js/test/run.mjs", "bindings/js/test/types.ts",
@@ -171,8 +177,8 @@ def select(paths, event):
     return {
         "checks": sorted(checks),
         "wasm_modules": modules,
-        "wasm_full": bool(checks & {"wasm", "view2d", "go"}),
-        "wasm_browser": bool(checks & {"wasm", "view2d", "react"}),
+        "wasm_full": bool(checks & {"wasm", "view2d", "view3d", "go"}),
+        "wasm_browser": bool(checks & {"wasm", "view2d", "view3d", "react"}),
         "cargo_args": "--workspace" if packages is None else cargo_args(packages),
         "codecs": " ".join(sorted(codecs)),
         "native_args": "--workspace" if full_run else cargo_args(NATIVE),

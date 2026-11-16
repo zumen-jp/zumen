@@ -157,6 +157,8 @@ jobs:
         run: npx --no-install tsc -p ../packages/view2d/tsconfig.json
       - name: React のフックの型を確かめる（決定 0267）
         run: npx --no-install tsc -p ../packages/react/tsconfig.json
+      - name: 3D の表示部品の型を確かめる（docs/view3d.md）
+        run: npx --no-install tsc -p ../packages/view3d/tsconfig.json
       - name: zumen.dev のページを作る
         run: npm run build
       - name: サイトのビューアーを Chromium で確かめる（決定 0296）
@@ -334,6 +336,7 @@ jobs:
     env:
       TEST_CORE: ${{ contains(fromJSON(needs.checks.outputs.plan).checks, 'wasm') }}
       TEST_VIEW2D: ${{ contains(fromJSON(needs.checks.outputs.plan).checks, 'view2d') }}
+      TEST_VIEW3D: ${{ contains(fromJSON(needs.checks.outputs.plan).checks, 'view3d') }}
       TEST_REACT: ${{ contains(fromJSON(needs.checks.outputs.plan).checks, 'react') }}
       TEST_GO: ${{ contains(fromJSON(needs.checks.outputs.plan).checks, 'go') }}
       TEST_BROWSER: ${{ fromJSON(needs.checks.outputs.plan).wasm_browser }}
@@ -457,6 +460,9 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
           node bindings/js/test/browser/view2d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+      - name: 3D の表示部品を、固定した three.js と Chromium の WebGL2 で確かめる（docs/view3d.md）
+        if: env.TEST_VIEW3D == 'true'
+        run: node bindings/js/test/browser/view3d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: React のフックの寿命とプレイグラウンドの操作・通信を Chromium で確かめる
         if: env.TEST_REACT == 'true'
         run: |

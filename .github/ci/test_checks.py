@@ -20,7 +20,7 @@ class SelectionTest(unittest.TestCase):
     def test_shared_inputs_and_required_pr_checks(self):
         for path in ["crates/zumen-render/tests/fixtures/mod.rs", "bindings/c/include/zumen.h"]:
             self.assertIn("wasm", select([path], "push")["checks"])
-        docs = ["CONTRIBUTING.md", "packages/view2d/README.md", "fuzz/README.md", "xtask/release/README.md"]
+        docs = ["CONTRIBUTING.md", "packages/view2d/README.md", "packages/view3d/README.md", "fuzz/README.md", "xtask/release/README.md"]
         self.assertEqual(select(docs, "push")["checks"], ["text"])
         self.assertIn("site", select([*docs, "packages/view2d/src/index.js"], "push")["checks"])
         pr = select(["CONTRIBUTING.md"], "pull_request")
@@ -43,12 +43,15 @@ class SelectionTest(unittest.TestCase):
             (["packages/view2d/src/raster.js"], {"view2d", "react", "site"}),
             (["packages/react/src/client.js", "playground/src/playground.jsx"], {"react", "site"}),
             (["playground/test/lifecycle.jsx", "bindings/js/test/browser/react.mjs"], {"react"}),
-            (["bindings/js/src/index.js"], {"wasm", "view2d", "react", "site", "codegen", "native"}),
-            (["bindings/js/test/process.mjs"], {"wasm", "view2d", "react", "site", "codegen", "native"}),
-            (["bindings/js/test/fixtures/process-child.mjs"], {"wasm", "view2d", "react", "site", "codegen", "native"}),
-            (["bindings/js/test/live.mjs"], {"wasm", "view2d", "react", "site", "codegen", "native"}),
-            (["bindings/js/test/fixtures/live-child.mjs"], {"wasm", "view2d", "react", "site", "codegen", "native"}),
+            (["bindings/js/src/index.js"], {"wasm", "view2d", "view3d", "react", "site", "codegen", "native"}),
+            (["bindings/js/test/process.mjs"], {"wasm", "view2d", "view3d", "react", "site", "codegen", "native"}),
+            (["bindings/js/test/fixtures/process-child.mjs"], {"wasm", "view2d", "view3d", "react", "site", "codegen", "native"}),
+            (["bindings/js/test/live.mjs"], {"wasm", "view2d", "view3d", "react", "site", "codegen", "native"}),
+            (["bindings/js/test/fixtures/live-child.mjs"], {"wasm", "view2d", "view3d", "react", "site", "codegen", "native"}),
             (["bindings/go/input_test.go", "playground/test/lifecycle.jsx"], {"go", "react"}),
+            (["bindings/js/test/browser/view3d.mjs", "packages/view3d/test/browser.mjs"], {"view3d"}),
+            (["packages/view3d/src/index.js"], {"view3d", "site"}),
+            (["bindings/js/test/browser/package-lock.json"], {"wasm", "view2d", "view3d", "react"}),
         ]
         for paths, expected in cases:
             with self.subTest(paths=paths):
@@ -61,6 +64,7 @@ class SelectionTest(unittest.TestCase):
             (["CONTRIBUTING.md"], "push", "", False, False),
             (["bindings/go/input_test.go"], "push", "", True, False),
             (["packages/view2d/test/browser.mjs"], "push", "", True, True),
+            (["packages/view3d/test/browser.mjs"], "push", "", True, True),
             (["playground/src/main.jsx"], "push", "drawing", False, True),
             (["bindings/go/input_test.go", "playground/src/main.jsx"], "push", "drawing", True, True),
             (["CONTRIBUTING.md"], "pull_request", all_modules, True, True),
