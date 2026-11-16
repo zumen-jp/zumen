@@ -20,6 +20,8 @@ use zumen_base::{Kind, Limit, Limits};
 pub mod live;
 pub mod geom3d;
 pub mod building_drawing;
+/// 建物の数量・境界の推定・丸めを、合成入力と小さい予算で照らす。
+pub mod building_measure;
 
 /// 要求の予算のフィールドの名前。単位の名前（`decoded-bytes`）の `-` を `_` にしたもの（`schema/messages.json` の
 /// `budget`）

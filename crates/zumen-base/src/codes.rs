@@ -369,6 +369,31 @@ pub const BUILDING_LINE_DROPPED: Code = Code::new(
     &[],
 );
 
+/// 計測の境界を整数格子へ移した。間隔と移した点数を残す
+///
+/// `building.measure.approximated`（0.3.0 から）
+pub const BUILDING_MEASURE_APPROXIMATED: Code = Code::new(
+    "building.measure.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[
+        Param::new("points", ParamType::UInt),
+        Param::new("spacing", ParamType::Float),
+    ],
+    &["spacing", "points"],
+);
+
+/// 形または計測条件から数量を計算できなかった。記録済みの数量では補わない
+///
+/// `building.measure.failed`（0.3.0 から）
+pub const BUILDING_MEASURE_FAILED: Code = Code::new(
+    "building.measure.failed",
+    Severity::Warning,
+    None,
+    &[Param::new("reason", ParamType::Text)],
+    &["reason"],
+);
+
 /// 配置の連鎖が循環するので、配置なしにした
 ///
 /// `building.placement.invalid`（0.2.0 から）
@@ -5727,6 +5752,8 @@ pub const ALL: &[Code] = &[
     BUILDING_ID_EXISTS,
     BUILDING_JOINERY_DRAWN,
     BUILDING_LINE_DROPPED,
+    BUILDING_MEASURE_APPROXIMATED,
+    BUILDING_MEASURE_FAILED,
     BUILDING_PLACEMENT_INVALID,
     BUILDING_PLACEMENT_MISSING,
     BUILDING_PLACEMENT_UNSUPPORTED,

@@ -35,6 +35,8 @@ ids = ["building", "dep:zumen-ids"]
 civil = ["building", "dep:zumen-civil", "dep:zumen-crs"]
 # 建物から平断面・断面・立面を切り出す検査用の入口。
 drawing = ["building", "zumen-building/drawing"]
+# 数量の計測を公開サンプルと照らす検査用の入口。
+measure = ["building", "zumen-building/measure"]
 
 [lints]
 workspace = true
@@ -50,6 +52,10 @@ required-features = ["building"]
 [[example]]
 name = "building_drawing"
 required-features = ["drawing"]
+
+[[example]]
+name = "building_measure"
+required-features = ["measure"]
 
 [dev-dependencies]
 zumen-drawing = { path = "../zumen-drawing" }

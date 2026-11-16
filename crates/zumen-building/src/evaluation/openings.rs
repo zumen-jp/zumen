@@ -41,6 +41,7 @@ fn targets(
 pub(super) fn apply(
     building: &Building,
     elements: &mut [ElementMesh],
+    include: impl Fn(ElementRef) -> bool,
     cx: &mut Cx,
 ) -> Result<(), Failure> {
     if building.components.opening.is_empty() {
@@ -61,6 +62,10 @@ pub(super) fn apply(
         }
     }
     for (opening, relation) in building.components.opening.iter() {
+        if !include(opening) {
+            cx.check(Kind::Work, 1)?;
+            continue;
+        }
         let Opening::Voids(host) = relation else {
             continue;
         };

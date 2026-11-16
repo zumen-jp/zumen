@@ -19,7 +19,7 @@ zumen = { path = "../crates/zumen" }
 zumen-acad = { path = "../crates/zumen-acad" }
 zumen-base = { path = "../crates/zumen-base" }
 zumen-bcf = { path = "../crates/zumen-bcf" }
-zumen-building = { path = "../crates/zumen-building", features = ["drawing"] }
+zumen-building = { path = "../crates/zumen-building", features = ["drawing", "measure"] }
 zumen-citygml = { path = "../crates/zumen-citygml" }
 zumen-civil = { path = "../crates/zumen-civil" }
 zumen-crs = { path = "../crates/zumen-crs" }
@@ -61,6 +61,13 @@ members = ["."]
 [[bin]]
 name = "building_drawing"
 path = "fuzz_targets/building_drawing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "building_measure"
+path = "fuzz_targets/building_measure.rs"
 test = false
 doc = false
 bench = false

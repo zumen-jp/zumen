@@ -890,6 +890,49 @@ cargo run -p zumen-ifc --features drawing --release --example building_drawing -
 
 この PDF の比較は公開された設計図との照合です。IFC は公開元が保存し直したもので、元の Revit ファイルと同一設定で出した平面図は入手していません。書き出したソフトとの同条件の照合は #422 の残件とし、公開設計図との一致で代用しません。環境間の決定性は、これと別に `drawing_contract` の 547,929 バイト（SHA-256 `147fe7fc8c0ca856c7f0bc6cdfa899b7dd8c945dc3d67844ecb907f3044521c7`）で照合します。
 
+## 建物の数量を照らす
+
+`lift_geometry` の建物を `zumen-building::measure` へ渡します。Rust の `zumen-ifc` の例では `measure` feature を有効にします。境界・単位・丸め・出所・許容差・失敗の契約は、[建物の数量](../architecture.md#建物の数量)にあります。ファイルの `IfcElementQuantity` は計算へ足さず、比較先として別に読みます。
+
+`building_measure` の例は、`ZUMEN_SAMPLES` 内の相対パス、GlobalId、文書単位の原点の XYZ、求める境界（`shape`・`center`・`inside`）、元の形の解釈（`auto`・`center`・`inside`）を受けます。メートルの許容差は 0.000001、弦の誤差は 0.001、面積の出力は平方メートル、丸めは合計の小数点以下 3 桁で四捨五入と明示しています。入力は 512 MiB、作業量は 1,000 億、論理確保量は 64 GiB までです。出力は計算値と件数だけで、入力のファイル名・要素名・記録された数量を混ぜません。
+
+この例では属性を `Lift<Building>` で移し、計測する要素と壁、および部品の分解と開口でつながる形を `owned_geometry` で取得します。階などの空間構造の集約へは広げません。対象外の通り芯などの不正で、室の比較まで止めないためです。全体を取得する `lift_geometry` の検証規則と、失敗したときに部分結果を返さない契約は変えません。
+
+公開サンプル 12 件を調べ、BIM Whale の 11 室に `BaseQuantities` の `GrossFloorArea`・`NetFloorArea` がありました。両者の値はこの入力では同じです。`tests/ifcopenshell/measure.py` は IfcOpenShell 0.9.0.post1 の実行だけで記録済みの値を読み、室の形の範囲から高さを選びます。その高さの形のままの断面積を、zumen の例から別に求めます。2026-11-16 の比較は次のとおりです。
+
+| 公開入力 | 室 | 計算面積の合計（m²） | 記録済み面積の合計（m²） | 1 室の最大絶対差（m²） |
+| --- | ---: | ---: | ---: | ---: |
+| BIM Whale LargeBuilding | 8 | 299.48 | 299.4800000000007 | 2.99 × 10⁻¹³ |
+| BIM Whale TallBuilding | 3 | 58.519999999999996 | 58.520000000000195 | 2.03 × 10⁻¹³ |
+
+11/11 室が 0.00001 m² 以内で一致します。残った差は浮動小数点の計算と表現の範囲です。この比較は IFC の保存済みの数量との照合であり、書き出し元の画面や PDF の面積表との照合とは分けます。
+
+```sh
+cargo build -p zumen-ifc --features measure --example building_measure
+python crates/zumen-ifc/tests/ifcopenshell/measure.py target/debug/examples/building_measure
+```
+
+作成元の面積表は、[BLCJ の公開サンプル](https://blcj.or.jp/archive_index/samplemodel/)の GLOOBE 標準モデルの IFC・PDF の組で別に照らしました。2026-11-16 に取得した ZIP の SHA-256 は `b0d8ca7799a041de777d754f392b1538b70d529f128da553007f5015503ee0a9`、IFC は `0f674223f596c483c5abea0b58fe6c05ef3c68692409c977782040ffa501cca4`、PDF は `cba13db9f83a5b0f90e6adc07b06888e1132f8f62c6e2c3b0b53dde319ad63c9` です。元のモデル・PDF・抽出した図や照合条件はリポジトリ外に置き、同梱しません。
+
+PDF の 18 ページ（A-15）の 2 階の 4 室を、床から 1 m の水平面、形のままの境界で計測しました。高さで断面が変わらない室なので、IfcOpenShell の `get_footprint_area` の Z 方向の投影面積も独立に求めました。次の差は丸め前の計算値から PDF の合計値を引いた値です。
+
+| PDF の求積符号 | 計算面積（m²） | PDF の合計（m²） | 差（m²） |
+| --- | ---: | ---: | ---: |
+| A1 | 96.96 | 96.96 | 0 |
+| A2〜A4 | 77.770876 | 77.71 | +0.060876 |
+| A5 | 8.559524 | 8.54 | +0.019524 |
+| A6 | 8.6196 | 8.62 | −0.0004 |
+
+4/4 室で外部実装の形から求めた面積との差は 0.00001 m² 未満です。PDF との最大差は 0.060876 m² で、四捨五入で小数点以下 2 桁にしても 2/4 室だけが一致します。差の大きい室では、IFC の元の寸法と PDF の式の寸法が違います。たとえば A2〜A4 に対応する形は `9.6 × 3.4 + 6.688 × 6.7 + 2.612 × 0.123` で計算値を再現でき、PDF の式では一部の辺が小数点以下 2 桁です。差をメッシュ化の誤差や浮動小数点の誤差として扱わず、求積表の寸法・集計条件との差として残します。
+
+PDF の 2 ページには申請用の集計段階で小数点以下 2 桁へ切り捨てる説明があります。ただし、この説明だけで居室表の全行の丸める段を再現できるとは判断しません。PDF の表示式の積と表示合計が異なる行もあります。元のソフトの内部の集計順や非表示の桁は未確認であり、計測側で丸め方を推定して一致させません。
+
+再照合には `tests/ifcopenshell/exporter_measure.py` を使います。比較条件の JSON に、`ifc`・`pdf`（`ZUMEN_SAMPLES` からの相対パス）、`ifc_sha256`・`pdf_sha256`、`cases` の各項目に `global_id`・`origin_doc`（文書単位の XYZ）・`table_m2` を外部で用意します。スクリプトはファイルのハッシュを確かめ、外部の形との一致を検査し、表との差は修正せず出力します。
+
+```sh
+python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/examples/building_measure "$ZUMEN_SAMPLES/quantity-reference.json"
+```
+
 ## 書き出し
 
 - 変えずに書くと、IFC-SPF は元のバイト列と一致する。ifcZIP は、元のアーカイブのバイト列をそのまま書く。

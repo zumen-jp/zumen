@@ -8,6 +8,8 @@ decimal-separator = "."
 
 [codes]
 "building.shape.dropped" = "Could not evaluate shape item \"{kind}\" ({reason}); omitted it from the result ({count})."
+"building.measure.failed" = "Could not calculate a quantity from the geometry or measurement conditions ({reason}; {count})."
+"building.measure.approximated" = "Moved {points} boundary points to an integer grid with spacing {spacing} for measurement ({count})."
 "building.drawing.dropped" = "Omitted shapes that could not be sectioned or projected ({reason}) from the drawing ({count})."
 "building.grid.approximated" = "Moved drawing points to an integer grid with spacing {spacing} ({count})."
 "building.line.dropped" = "Omitted edges or contours that collapsed to points on the drawing grid ({count})."

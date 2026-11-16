@@ -8,6 +8,8 @@ decimal-separator = "."
 
 [codes]
 "building.shape.dropped" = "形の項目「{kind}」を評価できないため（{reason}）、結果から除きました（{count} 件）。"
+"building.measure.failed" = "形または計測条件から数量を計算できませんでした（{reason}、{count} 件）。"
+"building.measure.approximated" = "計測の境界の {points} 点を間隔 {spacing} の整数格子へ移しました（{count} 件）。"
 "building.drawing.dropped" = "切断または投影できない形（{reason}）を図面から除きました（{count} 件）。"
 "building.grid.approximated" = "切り出す図面の点を間隔 {spacing} の格子へ移しました（{count} 件）。"
 "building.line.dropped" = "図面の格子上で点に縮んだ辺または輪郭を除きました（{count} 件）。"

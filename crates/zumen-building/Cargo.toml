@@ -10,6 +10,7 @@ publish = true
 [features]
 default = []
 drawing = ["dep:zumen-drawing", "dep:zumen-geom2d", "dep:zumen-crs"]
+measure = ["dep:zumen-geom2d", "dep:zumen-crs"]
 
 [dependencies]
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
@@ -27,3 +28,7 @@ workspace = true
 [[example]]
 name = "drawing_contract"
 required-features = ["drawing"]
+
+[[example]]
+name = "measure_contract"
+required-features = ["measure"]

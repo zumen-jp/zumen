@@ -480,6 +480,16 @@ pub(crate) fn evaluate_selected(
     include: impl Fn(ElementRef) -> bool,
     cx: &mut Cx,
 ) -> Result<Vec<ElementMesh>, Failure> {
+    evaluate_filtered(building, options, include, |_| true, cx)
+}
+
+pub(crate) fn evaluate_filtered(
+    building: &Building,
+    options: Options,
+    include: impl Fn(ElementRef) -> bool,
+    include_opening: impl Fn(ElementRef) -> bool,
+    cx: &mut Cx,
+) -> Result<Vec<ElementMesh>, Failure> {
     if !options.chord.is_finite() || options.chord <= 0.0 {
         return Err(Failure::Invalid("chord"));
     }
@@ -512,7 +522,7 @@ pub(crate) fn evaluate_selected(
         elements.push(value);
     }
     if options.openings {
-        openings::apply(building, &mut elements, cx)?;
+        openings::apply(building, &mut elements, include_opening, cx)?;
     }
     cx.check(Kind::Work, 0)?;
     Ok(elements)

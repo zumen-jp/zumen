@@ -23,6 +23,8 @@ mod hash;
 mod id;
 mod indexed_faces;
 mod mapping;
+#[cfg(feature = "measure")]
+pub mod measure;
 mod placement;
 mod presentation_layer;
 mod property_details;

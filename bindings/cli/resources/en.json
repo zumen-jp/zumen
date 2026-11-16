@@ -34,6 +34,8 @@
     "building.id.exists": "An element with the ID \"{id}\" already exists, so the element was not added ({count}).",
     "building.joinery.drawn": "Drew section geometry because neither a joinery plan representation nor a profile symbol could be used ({reason}; {count}).",
     "building.line.dropped": "Omitted edges or contours that collapsed to points on the drawing grid ({count}).",
+    "building.measure.approximated": "Moved {points} boundary points to an integer grid with spacing {spacing} for measurement ({count}).",
+    "building.measure.failed": "Could not calculate a quantity from the geometry or measurement conditions ({reason}; {count}).",
     "building.placement.invalid": "The placement chain forms a cycle, so the element was left without a placement ({count}).",
     "building.placement.missing": "The parent element \"{id}\" of the placement has no placement, so the element was left without a placement ({count}).",
     "building.placement.unsupported": "The placement chain contains the placement \"{kind}\" that cannot be resolved, so the element was left without a placement ({count}).",

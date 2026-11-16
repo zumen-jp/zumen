@@ -57,6 +57,23 @@ group-by = ["reason"]
 since = "0.3.0"
 status = "active"
 
+[codes."building.measure.failed"]
+description = "形または計測条件から数量を計算できなかった。記録済みの数量では補わない"
+severity = "warning"
+params = { reason = "text" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."building.measure.approximated"]
+description = "計測の境界を整数格子へ移した。間隔と移した点数を残す"
+severity = "info"
+fidelity = "approximated"
+params = { spacing = "float", points = "uint" }
+group-by = ["spacing", "points"]
+since = "0.3.0"
+status = "active"
+
 [codes."building.grid.approximated"]
 description = "図面への切り出しで点または交点を整数の格子へ移した"
 severity = "info"
