@@ -233,7 +233,11 @@ static class Dwg
         foreach (var row in table.Rows)
             foreach (var cell in row.Cells)
             {
-                if (cell.Contents.Count != 1 || cell.Content.ContentType != TableEntity.TableCellContentType.Value
+                if (cell.Contents.Count != 1) return null;
+                // 旧版の読み手は、文字の値を String として返し、内容の種類を Unknown のままにする。
+                bool legacyText = table.Document != null && table.Document.Header.Version < ACadVersion.AC1024
+                    && cell.Type == TableEntity.CellType.Text && cell.Content.ContentType == TableEntity.TableCellContentType.Unknown;
+                if ((!legacyText && cell.Content.ContentType != TableEntity.TableCellContentType.Value)
                     || cell.Content.CadValue.ValueType != CadValueType.String) return null;
                 var value = cell.Content.CadValue;
                 string text = string.IsNullOrEmpty(value.FormattedValue) ? value.Value?.ToString() ?? "" : value.FormattedValue;

@@ -1262,7 +1262,13 @@ where
 
 #[test]
 fn moves_dwg_tables_without_rebuilding_cells_or_cache() {
-    for name in ["table-r2010.dwg", "table-r2013.dwg", "table-r2018.dwg"] {
+    for name in [
+        "table-r2000.dwg",
+        "table-r2004.dwg",
+        "table-r2010.dwg",
+        "table-r2013.dwg",
+        "table-r2018.dwg",
+    ] {
         let raw = std::fs::read(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures")

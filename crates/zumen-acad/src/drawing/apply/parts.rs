@@ -328,7 +328,7 @@ fn apply_parts<P: Copy + PartialEq>(
     if matches!(current.target, Target::Dwg(_))
         && let (Shape::Table(old), Shape::Table(new)) = (&was.shape, new_shape)
     {
-        if !current.born.since(b"AC1024") {
+        if !current.born.since(b"AC1015") {
             return Ok(None);
         }
         count_transform_values(object, &was.source, cx)?;

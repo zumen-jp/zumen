@@ -40,6 +40,7 @@ pub(super) const R2010_KINDS: &[&[u8]] = &[
 ];
 
 pub(super) const R2004_KINDS: &[&[u8]] = &[
+    b"ACAD_TABLE",
     b"LINE",
     b"CIRCLE",
     b"ARC",

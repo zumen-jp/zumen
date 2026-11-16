@@ -18,6 +18,7 @@ pub(super) fn encode(
     if release == Release::R2004 && !R2004_KINDS.contains(&new.kind.as_slice()) {
         return None;
     }
+    unchanged_table_body(old, new)?;
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
         object
             .values
@@ -46,6 +47,15 @@ pub(super) fn encode(
         let mut fields = BitWriter::default();
         fields.copy(data, start..handles_at)?;
         fields
+    } else if new.kind == b"ACAD_TABLE" {
+        moved_table_fields(
+            BitWriter::default(),
+            data,
+            [start, handles_at],
+            old,
+            new,
+            release,
+        )?
     } else if release == Release::R2004 && new.kind == b"HATCH" {
         // R2004 の初めのグラデーションのフィールド（表では 450〜470）は、元のビットを写す（決定 0074）
         let mut bits = Bits::with_release(data, release);
@@ -163,16 +173,7 @@ pub(super) fn encode_r2010(
         return None;
     }
     let (old, new) = (&old.0, &new.0);
-    if new.kind == b"ACAD_TABLE" {
-        // セルの色などにも共通のグループ・コードがある。表の本体はコードで分けず、並びごと保つ。
-        let marker = |object: &Object| {
-            object
-                .values
-                .iter()
-                .position(|v| matches!(v.code, 342 | 11 | 90))
-        };
-        (old.values.get(marker(old)?..)? == new.values.get(marker(new)?..)?).then_some(())?;
-    }
+    unchanged_table_body(old, new)?;
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
         object
             .values
@@ -210,15 +211,7 @@ pub(super) fn encode_r2010(
         out.copy(&rewritten.into_bytes(), 0..len)?;
         handles
     } else if new.kind == b"ACAD_TABLE" {
-        // ODS 5.4.1 の 20.4.96.2: 表は INSERT の挿入点（3BD）から始まる。
-        // セル・書式・表示用ブロックの値と、文字列のストリームをビットのまま保つ。
-        let mut bits = Bits::with_release(data, release);
-        bits.seek(start);
-        for code in [10, 20, 30] {
-            (bits.bd()?.to_bits() == real(old, code)??.to_bits()).then_some(())?;
-        }
-        point3(&mut out, new, 10)?;
-        out.copy(data, bits.pos()..handles_at)?;
+        out = moved_table_fields(out, data, [start, handles_at], old, new, release)?;
         let handles = out.len();
         let rewritten = restyle.handles(data, handles_at, &slots)?;
         let len = rewritten.len();
@@ -237,6 +230,40 @@ pub(super) fn encode_r2010(
         return r2010_assemble(out, fields, restyle.handles(data, handles_at, &slots)?);
     };
     with_modular_size(out, handles)
+}
+
+/// セルの色などにも共通のグループ・コードがある。表の本体はコードで分けず、並びごと保つ。
+fn unchanged_table_body(old: &Object, new: &Object) -> Option<()> {
+    if new.kind == b"ACAD_TABLE" {
+        let marker = |object: &Object| {
+            object
+                .values
+                .iter()
+                .position(|v| matches!(v.code, 342 | 11 | 90))
+        };
+        (old.values.get(marker(old)?..)? == new.values.get(marker(new)?..)?).then_some(())?;
+    }
+    Some(())
+}
+
+/// ODS 5.4.1 の 20.4.96.1・20.4.96.2: 表は INSERT の挿入点（3BD）から始まる。
+/// セル・書式・表示用ブロックの値と、R2010 からの文字列のストリームをビットのまま保つ。
+fn moved_table_fields(
+    mut out: BitWriter,
+    data: &[u8],
+    [start, handles_at]: [usize; 2],
+    old: &Object,
+    new: &Object,
+    release: Release,
+) -> Option<BitWriter> {
+    let mut bits = Bits::with_release(data, release);
+    bits.seek(start);
+    for code in [10, 20, 30] {
+        (bits.bd()?.to_bits() == real(old, code)??.to_bits()).then_some(())?;
+    }
+    point3(&mut out, new, 10)?;
+    out.copy(data, bits.pos()..handles_at)?;
+    Some(out)
 }
 
 /// MTEXT `object` から、埋め込みのオブジェクトのマーカー（101）と後の値を除いたものと、除いた値。MTEXT でなければ

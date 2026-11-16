@@ -58,6 +58,8 @@ CASES = [
     ("open_sxf.json", "a.sfc"),
     ("open_sxf.json", "c.p21"),
     ("apply_p21_raw.json", "raw-layer.p21"),
+    ("apply_dwg_table.json", "table-r2000.dwg"),
+    ("apply_dwg_table.json", "table-r2004.dwg"),
     ("apply_dwg_table.json", "table-r2010.dwg"),
     ("apply_dwg_table.json", "table-r2013.dwg"),
     ("apply_dwg_table.json", "table-r2018.dwg"),

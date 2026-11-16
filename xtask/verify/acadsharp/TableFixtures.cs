@@ -13,6 +13,8 @@ static class TableFixtures
     {
         Directory.CreateDirectory(folder);
         foreach (var (version, name) in new[] {
+            (ACadVersion.AC1015, "table-r2000.dwg"),
+            (ACadVersion.AC1018, "table-r2004.dwg"),
             (ACadVersion.AC1024, "table-r2010.dwg"),
             (ACadVersion.AC1027, "table-r2013.dwg"),
             (ACadVersion.AC1032, "table-r2018.dwg") })
@@ -43,7 +45,7 @@ static class TableFixtures
                 var row = new TableEntity.Row { Height = 10 + r * 5 };
                 for (int c = 0; c < 2; c++)
                 {
-                    string text = $"表{r}{c}";
+                    string text = version < ACadVersion.AC1024 ? $"A{r}{c}" : $"表{r}{c}";
                     var cell = new TableEntity.Cell { Type = TableEntity.CellType.Text };
                     var content = new TableEntity.CellContent { ContentType = TableEntity.TableCellContentType.Value };
                     content.CadValue.SetValue(text, CadValueType.String);
@@ -55,8 +57,22 @@ static class TableFixtures
                 table.Rows.Add(row);
             }
             doc.Entities.Add(table);
+            Line? placeholder = null;
+            if (version < ACadVersion.AC1024)
+            {
+                // ACadSharp 3.8.0 は旧版の表を書かない。自作の Rust の生成器が、この線を表のレコードに置き換える。
+                placeholder = new Line(new XYZ(10, 20, 0), new XYZ(11, 20, 0));
+                doc.Entities.Add(placeholder);
+            }
             doc.Entities.Add(new Line(new XYZ(-20, -20, 0), new XYZ(-10, -10, 0)));
             DwgWriter.Write(Path.Combine(folder, name), doc);
+            if (placeholder != null)
+            {
+                File.WriteAllLines(Path.Combine(folder, name + ".meta"), new[] {
+                    doc.Classes.GetByName("ACAD_TABLE").ClassNumber.ToString(),
+                    placeholder.Handle.ToString(), block.Handle.ToString(),
+                    doc.Layers["0"].Handle.ToString() });
+            }
             Console.WriteLine(name);
         }
     }
