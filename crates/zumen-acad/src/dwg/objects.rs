@@ -456,6 +456,22 @@ impl Fields {
         cx: &mut Cx,
         at: &Ref,
     ) -> (Vec<Value>, Vec<Value>) {
+        match self.place_in(names, books, entry, cx, at, &mut unmetered_copy) {
+            Ok(values) => values,
+            Err(never) => match never {},
+        }
+    }
+
+    /// 表から値をコピーする直前に検査する。配置と診断の順序は従来経路と共有する。
+    pub(super) fn place_in<E>(
+        self,
+        names: &BTreeMap<u64, (u16, Vec<u8>)>,
+        books: &BTreeMap<u64, Vec<Value>>,
+        entry: &Entry,
+        cx: &mut Cx,
+        at: &Ref,
+        before_copy: &mut impl FnMut(u64, u64, &mut Cx) -> Result<(), E>,
+    ) -> Result<(Vec<Value>, Vec<Value>), E> {
         let mut values = Vec::new();
         // 拡張辞書は、DXF と同じく所有者の前に組で置く
         if let Some(xdic) = self.xdic {
@@ -474,10 +490,13 @@ impl Fields {
         }
         if let Some(layer) = self.layer {
             match names.get(&layer).filter(|(record, _)| *record == LAYER) {
-                Some((_, name)) => values.push(Value {
-                    code: 8,
-                    data: Data::Text(name.clone()),
-                }),
+                Some((_, name)) => {
+                    before_copy(1, name.len() as u64, cx)?;
+                    values.push(Value {
+                        code: 8,
+                        data: Data::Text(name.clone()),
+                    });
+                }
                 None => cx.report(
                     Diagnostic::new(codes::DWG_LAYER_MISSING)
                         .with("type", i64::from(entry.type_code))
@@ -489,6 +508,7 @@ impl Fields {
         let mut own = self.values;
         // 色見本帳の色は、DXF と同じく DBCOLOR の RGB の値（420）と名前（430）を色の番号の後に置く
         if let Some(book) = self.book.and_then(|handle| books.get(&handle)) {
+            check_values_copy(book, cx, before_copy)?;
             let at = own.iter().position(|v| v.code == 62).map_or(0, |at| at + 1);
             own.splice(at..at, book.iter().cloned());
         }
@@ -502,10 +522,13 @@ impl Fields {
                 Some((_, name))
                     if (r.code == 6 && name.eq_ignore_ascii_case(b"ByLayer"))
                         || (r.code == 7 && name.eq_ignore_ascii_case(b"Standard")) => {}
-                Some((_, name)) => values.push(Value {
-                    code: r.code,
-                    data: Data::Text(name.clone()),
-                }),
+                Some((_, name)) => {
+                    before_copy(1, name.len() as u64, cx)?;
+                    values.push(Value {
+                        code: r.code,
+                        data: Data::Text(name.clone()),
+                    });
+                }
                 None => cx.report(
                     Diagnostic::new(codes::DWG_RECORD_MISSING)
                         .with("type", i64::from(entry.type_code))
@@ -528,15 +551,17 @@ impl Fields {
                 );
                 continue;
             };
-            let name = |handle: u64, record: u16| {
-                names
-                    .get(&handle)
-                    .filter(|(found, _)| *found == record)
-                    .map(|(_, name)| name.clone())
+            let mut name = |handle: u64, record: u16| {
+                let Some((_, name)) = names.get(&handle).filter(|(found, _)| *found == record)
+                else {
+                    return Ok(None);
+                };
+                before_copy(1, name.len() as u64, cx)?;
+                Ok(Some(name.clone()))
             };
             let mut group = Vec::with_capacity(items.len() + 1);
             let mut missing = None;
-            match name(app, APPID) {
+            match name(app, APPID)? {
                 Some(name) => group.push(Value {
                     code: 1001,
                     data: Data::Text(name),
@@ -546,7 +571,7 @@ impl Fields {
             for item in items {
                 match item {
                     Xdata::Value(value) => group.push(value),
-                    Xdata::Layer(handle) => match name(handle, LAYER) {
+                    Xdata::Layer(handle) => match name(handle, LAYER)? {
                         Some(name) => group.push(Value {
                             code: 1003,
                             data: Data::Text(name),
@@ -566,8 +591,38 @@ impl Fields {
                 ),
             }
         }
-        (values, xdata)
+        Ok((values, xdata))
     }
+}
+
+pub(super) fn unmetered_copy(_: u64, _: u64, _: &mut Cx) -> Result<(), core::convert::Infallible> {
+    Ok(())
+}
+
+/// コピーする値の数と可変長部分を、確保容量によらない共通の単位で数える。
+#[cfg(any(feature = "drawing", test))]
+pub(super) fn check_copy(rows: u64, payload: u64, cx: &mut Cx) -> Result<(), Error> {
+    cx.check(Kind::Work, rows.saturating_add(payload))
+        .map_err(|stop| super::stopped(cx, stop))?;
+    cx.check(
+        Kind::DecodedBytes,
+        rows.saturating_mul(64).saturating_add(payload),
+    )
+    .map_err(|stop| super::stopped(cx, stop))
+}
+
+pub(super) fn check_values_copy<E>(
+    values: &[Value],
+    cx: &mut Cx,
+    before_copy: &mut impl FnMut(u64, u64, &mut Cx) -> Result<(), E>,
+) -> Result<(), E> {
+    before_copy(values.len() as u64, 0, cx)?;
+    for value in values {
+        if let Data::Text(bytes) | Data::Binary(bytes) = &value.data {
+            before_copy(0, bytes.len() as u64, cx)?;
+        }
+    }
+    Ok(())
 }
 
 /// 図形の共通のフィールドのうち、型ごとのフィールドとハンドルの並びを読むのに要るもの
@@ -1307,5 +1362,237 @@ fn real(code: i16, value: f64) -> Value {
     Value {
         code,
         data: Data::Real(value),
+    }
+}
+
+#[cfg(test)]
+mod copy_tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits, Stop};
+
+    fn fields() -> Fields {
+        Fields {
+            owner: Some(1),
+            xdic: Some(2),
+            layer: Some(10),
+            values: vec![int(62, 7), real(10, 2.0)],
+            records: vec![
+                RecordRef {
+                    code: 6,
+                    record: LTYPE,
+                    handle: 99,
+                },
+                RecordRef {
+                    code: 6,
+                    record: LTYPE,
+                    handle: 11,
+                },
+                RecordRef {
+                    code: 7,
+                    record: STYLE,
+                    handle: 12,
+                },
+                RecordRef {
+                    code: 3,
+                    record: DIMSTYLE,
+                    handle: 13,
+                },
+                RecordRef {
+                    code: 7,
+                    record: STYLE,
+                    handle: 14,
+                },
+            ],
+            xdata: vec![
+                (20, None),
+                (
+                    21,
+                    Some(vec![
+                        Xdata::Layer(10),
+                        Xdata::Value(text_value(1000, b"value")),
+                    ]),
+                ),
+                (22, Some(vec![Xdata::Layer(99), Xdata::Layer(10)])),
+            ],
+            book: Some(15),
+        }
+    }
+
+    fn names() -> BTreeMap<u64, (u16, Vec<u8>)> {
+        BTreeMap::from([
+            (10, (LAYER, b"Layer".to_vec())),
+            (11, (LTYPE, b"ByLayer".to_vec())),
+            (12, (STYLE, b"Standard".to_vec())),
+            (13, (DIMSTYLE, b"Dimension".to_vec())),
+            (14, (STYLE, b"Title".to_vec())),
+            (21, (APPID, b"Application".to_vec())),
+        ])
+    }
+
+    fn books() -> BTreeMap<u64, Vec<Value>> {
+        BTreeMap::from([(15, vec![int(420, 0x123456), text_value(430, b"Book$Color")])])
+    }
+
+    fn entry() -> Entry {
+        Entry {
+            handle: 100,
+            span: 0..0,
+            data: 0..0,
+            handles: None,
+            type_code: LINE,
+        }
+    }
+
+    #[test]
+    #[expect(clippy::print_stdout, reason = "ネイティブと WASI の比較記録")]
+    fn table_copies_share_budget_and_preserve_values_and_diagnostics() {
+        let (mut names, mut books) = (names(), books());
+        let entry = entry();
+        let at = Ref::at_bytes(20, 40);
+        let cancel = CancelToken::new();
+        let mut legacy_budget = Budget::new(
+            Limits::default()
+                .with(Kind::Work, Limit::Finite(0))
+                .with(Kind::DecodedBytes, Limit::Finite(0)),
+        );
+        let mut expected_diagnostics = Diagnostics::new();
+        let expected = fields().place(
+            &names,
+            &books,
+            &entry,
+            &mut Cx::new(&mut legacy_budget, &mut expected_diagnostics, &cancel),
+            &at,
+        );
+        assert_eq!(legacy_budget.used(Kind::Work), 0);
+        assert_eq!(legacy_budget.used(Kind::DecodedBytes), 0);
+        let expected_diagnostics = expected_diagnostics.iter().cloned().collect::<Vec<_>>();
+        assert_eq!(
+            expected_diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code())
+                .collect::<Vec<_>>(),
+            [
+                codes::DWG_RECORD_MISSING,
+                codes::DWG_XDATA_INVALID,
+                codes::DWG_RECORD_MISSING
+            ],
+        );
+        let mut measured = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        assert_eq!(
+            fields()
+                .place_in(
+                    &names,
+                    &books,
+                    &entry,
+                    &mut Cx::new(&mut measured, &mut diagnostics, &cancel),
+                    &at,
+                    &mut check_copy
+                )
+                .unwrap(),
+            expected,
+        );
+        assert_eq!(
+            diagnostics.iter().cloned().collect::<Vec<_>>(),
+            expected_diagnostics
+        );
+
+        // 未参照の表と既存文字列の余分な容量は、作業量にもコピー量にも含めない。
+        names.insert(1000, (LAYER, vec![b'x'; 65_536]));
+        books.insert(1001, vec![text_value(430, &vec![b'y'; 65_536])]);
+        names.get_mut(&10).unwrap().1.reserve(32_768);
+        for kind in [Kind::Work, Kind::DecodedBytes] {
+            let needed = measured.used(kind);
+            assert!(needed > 0);
+            for available in [0, needed / 2, needed - 1, needed] {
+                let mut budget =
+                    Budget::new(Limits::default().with(kind, Limit::Finite(available + 11)));
+                budget.spend(kind, 11).unwrap();
+                let mut diagnostics = Diagnostics::new();
+                let result = fields().place_in(
+                    &names,
+                    &books,
+                    &entry,
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                    &at,
+                    &mut check_copy,
+                );
+                if available < needed {
+                    assert!(matches!(result, Err(Error::Stopped(_))));
+                    assert!(
+                        diagnostics
+                            .iter()
+                            .any(|diagnostic| diagnostic.code() == kind.exceeded_code())
+                    );
+                } else {
+                    assert_eq!(result.unwrap(), expected);
+                    assert_eq!(budget.used(kind), needed + 11);
+                    assert_eq!(
+                        diagnostics.iter().cloned().collect::<Vec<_>>(),
+                        expected_diagnostics
+                    );
+                }
+            }
+        }
+        cancel.cancel();
+        let mut budget = Budget::default();
+        assert_eq!(
+            fields().place_in(
+                &names,
+                &books,
+                &entry,
+                &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel),
+                &at,
+                &mut check_copy
+            ),
+            Err(Error::Stopped(Stop::Cancelled))
+        );
+        assert_eq!(budget.used(Kind::Work), 0);
+        assert_eq!(budget.used(Kind::DecodedBytes), 0);
+        println!(
+            "dwg-table-copies work={} decoded={}",
+            measured.used(Kind::Work),
+            measured.used(Kind::DecodedBytes)
+        );
+    }
+
+    #[test]
+    fn omitted_defaults_and_missing_references_do_not_copy_table_values() {
+        let (names, books) = (names(), books());
+        let mut fields = fields();
+        fields.layer = None;
+        fields.book = None;
+        fields
+            .records
+            .retain(|record| matches!(record.handle, 11 | 12 | 99));
+        fields.xdata.clear();
+        let mut budget = Budget::new(
+            Limits::default()
+                .with(Kind::Work, Limit::Finite(0))
+                .with(Kind::DecodedBytes, Limit::Finite(0)),
+        );
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let (values, xdata) = fields
+            .place_in(
+                &names,
+                &books,
+                &entry(),
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                &Ref::default(),
+                &mut check_copy,
+            )
+            .unwrap();
+        assert!(values.iter().all(|value| !matches!(value.code, 6..=8)));
+        assert!(xdata.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code())
+                .collect::<Vec<_>>(),
+            [codes::DWG_RECORD_MISSING]
+        );
+        assert_eq!(budget.used(Kind::Work), 0);
+        assert_eq!(budget.used(Kind::DecodedBytes), 0);
     }
 }

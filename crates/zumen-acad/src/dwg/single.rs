@@ -14,9 +14,11 @@ use super::header::{self, Header};
 use super::kinds::{
     BLOCK, BLOCK_RECORD, DICTIONARY, DIMSTYLE, LAYER, LTYPE, MLINESTYLE, STYLE, VIEWPORT,
 };
+#[cfg(any(feature = "drawing", test))]
+use super::objects::check_copy;
 use super::objects::{
-    BLOCK_FIELDS, COMMON_ENTITY, Fields, code_page_name, is_table_record, kind as builtin_kind,
-    number_anonymous, read as read_fields,
+    BLOCK_FIELDS, COMMON_ENTITY, Fields, check_values_copy, code_page_name, is_table_record,
+    kind as builtin_kind, number_anonymous, read as read_fields, unmetered_copy,
 };
 use super::objects::{entity_data_entmode, skip_extended_data};
 use super::write_back::{can_unlink_single, encode_born_entities, encode_single_entity};
@@ -37,7 +39,7 @@ fn check_decode_input(bytes: usize, cx: &mut Cx<'_>) -> Result<(), Error> {
     let bytes = bytes as u64;
     cx.check(Kind::Work, bytes.saturating_mul(8).saturating_add(1))
         .map_err(|stop| stopped(cx, stop))?;
-    // ビット列から作る値と一時領域の論理サイズ。表から補う文字列は復号後にも数える。
+    // ビット列から作る値と一時領域の論理サイズ。表から補う値はコピー前にも検査する。
     cx.check(
         Kind::DecodedBytes,
         bytes.saturating_mul(128).saturating_add(1024),
@@ -59,6 +61,14 @@ fn check_decoded_values(kind: &[u8], values: &[Value], cx: &mut Cx<'_>) -> Resul
         .map_err(|stop| stopped(cx, stop))?;
     cx.check(Kind::DecodedBytes, payload)
         .map_err(|stop| stopped(cx, stop))
+}
+
+#[cfg(any(feature = "drawing", test))]
+fn report_decode_error(error: Error, cx: &mut Cx<'_>) -> Error {
+    match error {
+        Error::Stopped(stop) => stopped(cx, stop),
+        other => other,
+    }
 }
 
 /// 書き戻したオブジェクトのハンドルと出所のバイト範囲。
@@ -1184,13 +1194,42 @@ impl DwgSingle {
 
     /// `record` 番目のレコードを `DwgFile::objects` と同じ規則で 1 件だけ復号する（スレッド安全）
     pub fn decode_record(&self, file: &DwgFile, record: usize, cx: &mut Cx<'_>) -> Option<Object> {
-        let entry = file.entries.get(record)?;
+        match self.decode_record_in(file, record, cx, &mut unmetered_copy) {
+            Ok(object) => object,
+            Err(never) => match never {},
+        }
+    }
+
+    fn decode_kind_in<E>(
+        &self,
+        type_code: u16,
+        cx: &mut Cx<'_>,
+        before_copy: &mut impl FnMut(u64, u64, &mut Cx) -> Result<(), E>,
+    ) -> Result<Option<(&[u8], Section)>, E> {
+        if let Some(kind) = builtin_kind(type_code) {
+            return Ok(Some(kind));
+        }
+        let Some((kind, section)) = self.classes.get(&type_code) else {
+            return Ok(None);
+        };
+        if let Section::Other(name) = section {
+            before_copy(1, name.len() as u64, cx)?;
+        }
+        Ok(Some((kind, section.clone())))
+    }
+
+    fn decode_record_in<E>(
+        &self,
+        file: &DwgFile,
+        record: usize,
+        cx: &mut Cx<'_>,
+        before_copy: &mut impl FnMut(u64, u64, &mut Cx) -> Result<(), E>,
+    ) -> Result<Option<Object>, E> {
+        let Some(entry) = file.entries.get(record) else {
+            return Ok(None);
+        };
         let at = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
-        let resolved = builtin_kind(entry.type_code).or_else(|| {
-            self.classes
-                .get(&entry.type_code)
-                .map(|(k, s)| (k.as_slice(), s.clone()))
-        });
+        let resolved = self.decode_kind_in(entry.type_code, cx, before_copy)?;
         let handle_code = if entry.type_code == DIMSTYLE { 105 } else { 5 };
         let mut values = vec![Value {
             code: handle_code,
@@ -1215,12 +1254,14 @@ impl DwgSingle {
                     && let Some((_, numbered)) = self.names.get(&entry.handle)
                     && let Some(v2) = f.values.iter_mut().find(|v| v.code == 2)
                 {
+                    before_copy(1, numbered.len() as u64, cx)?;
                     v2.data = Data::Text(numbered.clone());
                 }
                 match fields {
                     Some(f) => {
                         let direct_owner = f.owner;
-                        let (mut own, xdata) = f.place(&self.names, &self.books, entry, cx, &at);
+                        let (mut own, xdata) =
+                            f.place_in(&self.names, &self.books, entry, cx, &at, before_copy)?;
                         if entry.type_code == BLOCK_RECORD {
                             let mut seen_70 = false;
                             own.retain(|val| {
@@ -1234,6 +1275,7 @@ impl DwgSingle {
                             && let Some(owner) = direct_owner
                             && let Some(moved) = self.block_fields.get(&owner)
                         {
+                            check_values_copy(moved, cx, before_copy)?;
                             values.extend(moved.iter().cloned());
                         }
                         extra = xdata;
@@ -1245,6 +1287,7 @@ impl DwgSingle {
                             .cite(if entity { COMMON_ENTITY } else { COMMON_OBJECT }),
                     ),
                 }
+                before_copy(1, kname.len() as u64, cx)?;
                 (kname.to_vec(), sec)
             }
             None => {
@@ -1272,7 +1315,7 @@ impl DwgSingle {
             }
         }
         values.extend(extra);
-        Some(Object {
+        Ok(Some(Object {
             kind: kind_vec,
             section,
             values,
@@ -1280,7 +1323,7 @@ impl DwgSingle {
                 offset: entry.span.start,
                 end: entry.span.end,
             },
-        })
+        }))
     }
 
     /// 編集対象の元レコードを共有予算で復号する。変換診断は開いたときに報告済み。
@@ -1297,8 +1340,14 @@ impl DwgSingle {
         };
         check_decode_input(file.data(entry).len(), cx)?;
         let mut quiet = zumen_base::Diagnostics::new();
-        let result =
-            self.decode_record(file, record, &mut Cx::new(cx.budget, &mut quiet, cx.cancel));
+        let result = self
+            .decode_record_in(
+                file,
+                record,
+                &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+                &mut check_copy,
+            )
+            .map_err(|error| report_decode_error(error, cx))?;
         cx.check(Kind::Work, 0).map_err(|stop| stopped(cx, stop))?;
         if let Some(object) = &result {
             check_decoded_values(&object.kind, &object.values, cx)?;
@@ -1327,11 +1376,15 @@ impl DwgSingle {
         let mut budget = zumen_base::Budget::default();
         let mut diag = zumen_base::Diagnostics::new();
         let cancel = zumen_base::CancelToken::new();
-        self.decode_encoded_in(
+        match self.decode_encoded_in(
             handle,
             encoded,
             &mut Cx::new(&mut budget, &mut diag, &cancel),
-        )
+            &mut unmetered_copy,
+        ) {
+            Ok(record) => record,
+            Err(never) => match never {},
+        }
     }
 
     /// 編集後のレコードを、呼び出し元の予算と中断を使って復号する。
@@ -1344,11 +1397,14 @@ impl DwgSingle {
     ) -> Result<Option<DecodedRecord>, Error> {
         check_decode_input(encoded.len(), cx)?;
         let mut quiet = zumen_base::Diagnostics::new();
-        let result = self.decode_encoded_in(
-            handle,
-            encoded,
-            &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
-        );
+        let result = self
+            .decode_encoded_in(
+                handle,
+                encoded,
+                &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+                &mut check_copy,
+            )
+            .map_err(|error| report_decode_error(error, cx))?;
         cx.check(Kind::Work, 0).map_err(|stop| stopped(cx, stop))?;
         if let Some((kind, _, values)) = &result {
             check_decoded_values(kind, values, cx)?;
@@ -1356,28 +1412,32 @@ impl DwgSingle {
         Ok(result)
     }
 
-    fn decode_encoded_in(
+    fn decode_encoded_in<E>(
         &self,
         handle: u64,
         encoded: &[u8],
         cx: &mut Cx<'_>,
-    ) -> Option<DecodedRecord> {
-        let (raw_data, handles, type_code) = if self.release >= Release::R2010 {
-            let mut skip = 0;
-            let bits = usize::try_from(modular_char(encoded, &mut skip, false)?).ok()?;
-            let data = encoded.get(skip..)?;
-            let at = data.len().checked_mul(8)?.checked_sub(bits)?;
-            let code = u16::try_from(Bits::new(data).bot()?).ok()?;
-            (data, Some(at), code)
-        } else {
-            let code = u16::try_from(Bits::new(encoded).bs()?).ok()?;
-            (encoded, None, code)
+        before_copy: &mut impl FnMut(u64, u64, &mut Cx) -> Result<(), E>,
+    ) -> Result<Option<DecodedRecord>, E> {
+        let parts = || {
+            if self.release >= Release::R2010 {
+                let mut skip = 0;
+                let bits = usize::try_from(modular_char(encoded, &mut skip, false)?).ok()?;
+                let data = encoded.get(skip..)?;
+                let at = data.len().checked_mul(8)?.checked_sub(bits)?;
+                let code = u16::try_from(Bits::new(data).bot()?).ok()?;
+                Some((data, Some(at), code))
+            } else {
+                let code = u16::try_from(Bits::new(encoded).bs()?).ok()?;
+                Some((encoded, None, code))
+            }
         };
-        let (kname, sec) = builtin_kind(type_code).or_else(|| {
-            self.classes
-                .get(&type_code)
-                .map(|(k, s)| (k.as_slice(), s.clone()))
-        })?;
+        let Some((raw_data, handles, type_code)) = parts() else {
+            return Ok(None);
+        };
+        let Some((kname, sec)) = self.decode_kind_in(type_code, cx, before_copy)? else {
+            return Ok(None);
+        };
         let entity = matches!(sec, Section::Entities | Section::Blocks);
         let entry = Entry {
             handle,
@@ -1386,9 +1446,13 @@ impl DwgSingle {
             handles,
             type_code,
         };
-        let fields = read_fields(raw_data, self.release, &entry, kname, entity, self.header)?;
+        let Some(fields) = read_fields(raw_data, self.release, &entry, kname, entity, self.header)
+        else {
+            return Ok(None);
+        };
         let at = Ref::default();
-        let (own, xdata) = fields.place(&self.names, &self.books, &entry, cx, &at);
+        let (own, xdata) =
+            fields.place_in(&self.names, &self.books, &entry, cx, &at, before_copy)?;
         let handle_code = if type_code == DIMSTYLE { 105 } else { 5 };
         let mut values = vec![Value {
             code: handle_code,
@@ -1396,7 +1460,8 @@ impl DwgSingle {
         }];
         values.extend(own);
         values.extend(xdata);
-        Some((kname.to_vec(), sec, values))
+        before_copy(1, kname.len() as u64, cx)?;
+        Ok(Some((kname.to_vec(), sec, values)))
     }
 
     /// 1 図形の変更を符号化し直す
@@ -2068,6 +2133,71 @@ mod tests {
                     single.decode_encoded(1, bytes)
                 );
             }
+        }
+    }
+
+    #[test]
+    fn table_payloads_use_shared_limits_in_source_and_encoded_records() {
+        for bytes in [
+            include_bytes!("../../../../samples/dwg/zumen-layout-r2000.dwg").as_slice(),
+            include_bytes!("../../../../samples/dwg/zumen-layout-r2004.dwg").as_slice(),
+            include_bytes!("../../../../samples/dwg/zumen-layout-r2018.dwg").as_slice(),
+        ] {
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            let file = Dwg::read(bytes, &mut cx).unwrap();
+            let mut single = DwgSingle::from_file(&file, &mut cx).unwrap();
+            let (record, entry) = file
+                .entries
+                .iter()
+                .enumerate()
+                .find(|(record, _)| {
+                    single
+                        .decode_record(&file, *record, &mut cx)
+                        .is_some_and(|object| {
+                            object.section == crate::db::Section::Entities
+                                && object.values.iter().any(|value| value.code == 8)
+                        })
+                })
+                .unwrap();
+            let encoded = single.base_encoded(&file, record).unwrap();
+            for (kind, name) in single.names.values_mut() {
+                if *kind == super::LAYER {
+                    *name = vec![b'L'; 131_072];
+                }
+            }
+            let expected = single.decode_record(&file, record, &mut cx).unwrap();
+            assert!(expected.values.iter().any(|value| value.code == 8
+                && matches!(&value.data, crate::db::Data::Text(name) if name.len() == 131_072)));
+            shared_decode(Some(expected), |cx| {
+                single.decode_record_with_cx(&file, record, cx)
+            });
+            shared_decode(single.decode_encoded(entry.handle, &encoded), |cx| {
+                single.decode_encoded_with_cx(entry.handle, &encoded, cx)
+            });
+
+            // クラス名とは別に、出所のセクション名もコピー前に検査する。
+            single.classes.insert(
+                65_000,
+                (
+                    b"CUSTOM".to_vec(),
+                    crate::db::Section::Other(vec![b'S'; 131_072]),
+                ),
+            );
+            let mut budget =
+                Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(131_071)));
+            let mut diagnostics = Diagnostics::new();
+            assert!(matches!(
+                single.decode_kind_in(
+                    65_000,
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                    &mut super::check_copy
+                ),
+                Err(Error::Stopped(_))
+            ));
+            assert_eq!(budget.used(Kind::DecodedBytes), 0);
         }
     }
 
