@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマのメジャーバージョン（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマのマイナーバージョン */
-export const SCHEMA_MINOR = 85;
+export const SCHEMA_MINOR = 86;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({
@@ -49,7 +49,7 @@ export const MODULES = Object.freeze({
   civil: Object.freeze({
     description: "土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）",
     formats: Object.freeze(["landxml", "citygml", "fgd", "extdm", "geojson", "sima", "tiff"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "convert", "civil", "geo"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "convert", "civil", "geo", "scene3d"]),
   }),
   pointcloud: Object.freeze({
     description: "点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）と、設計の TIN（J-LandXML）との差",

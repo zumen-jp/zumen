@@ -64,43 +64,53 @@ impl Session {
         request: &messages::GeoRequest,
         cx: &mut Cx<'_>,
     ) -> Result<messages::GeoResult, Failed> {
-        let doc = &request.doc;
+        let model = self.geo_model(&request.doc, "geo", cx)?;
+        geo::geo(request, &model, cx)
+    }
+
+    #[cfg(feature = "civil")]
+    pub(super) fn geo_model<'a>(
+        &'a self,
+        doc: &str,
+        op: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<Cow<'a, zumen_geo::GeoModel>, Failed> {
         if !name::is_safe(doc) {
             return Err(fail(cx, invalid_value("/doc")));
         }
         match self.document(doc, cx)? {
-            Document::Geo(model) => geo::geo(request, model, cx),
+            Document::Geo(model) => Ok(Cow::Borrowed(model)),
             #[cfg(feature = "drawing")]
             Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Sima(_)) => {
                 let DrawingFile::Sima(sima) = file.as_ref() else {
-                    return Err(fail(cx, unsupported(doc, "geo")));
+                    return Err(fail(cx, unsupported(doc, op)));
                 };
                 let model: zumen_geo::GeoModel =
                     zumen_sdk::Lift::lift(sima, cx).map_err(|_| Failed)?;
-                geo::geo(request, &model, cx)
+                Ok(Cow::Owned(model))
             }
             #[cfg(feature = "drawing")]
             Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Tiff(_)) => {
                 let DrawingFile::Tiff(tiff) = file.as_ref() else {
-                    return Err(fail(cx, unsupported(doc, "geo")));
+                    return Err(fail(cx, unsupported(doc, op)));
                 };
                 let model: zumen_geo::GeoModel =
                     zumen_sdk::Lift::lift(tiff, cx).map_err(|_| Failed)?;
-                geo::geo(request, &model, cx)
+                Ok(Cow::Owned(model))
             }
             #[cfg(all(feature = "civil", not(feature = "drawing")))]
             Document::Sima(sima) => {
                 let model: zumen_geo::GeoModel =
                     zumen_sdk::Lift::lift(sima.as_ref(), cx).map_err(|_| Failed)?;
-                geo::geo(request, &model, cx)
+                Ok(Cow::Owned(model))
             }
             #[cfg(all(feature = "civil", not(feature = "drawing")))]
             Document::Tiff(tiff) => {
                 let model: zumen_geo::GeoModel =
                     zumen_sdk::Lift::lift(tiff.as_ref(), cx).map_err(|_| Failed)?;
-                geo::geo(request, &model, cx)
+                Ok(Cow::Owned(model))
             }
-            _ => Err(fail(cx, unsupported(doc, "geo"))),
+            _ => Err(fail(cx, unsupported(doc, op))),
         }
     }
 

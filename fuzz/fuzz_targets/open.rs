@@ -75,6 +75,13 @@ fn read(calls: &mut Calls, doc: &str, depth: Depth) {
     }
     let geo = calls.call("geo", |out| field(out, "doc", doc));
     if geo.ok && depth == Depth::Source {
+        calls.call("scene3d", |out| {
+            field(out, "doc", doc);
+            out.key("zone");
+            out.uint(9);
+            out.key("tolerance");
+            out.float(0.001);
+        });
         let to = format!("{doc}.geojson");
         if calls
             .call("convert", |out| {

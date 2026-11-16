@@ -219,6 +219,15 @@ impl Calls {
                 {
                     panic!("コアが作ったシーンの blob {id} を読めない: {error}");
                 }
+                if kind == "scene3d" {
+                    let mut budget = zumen_base::Budget::default();
+                    let mut diagnostics = zumen_base::Diagnostics::new();
+                    let cancel = CancelToken::new();
+                    let mut cx = zumen_base::Cx::new(&mut budget, &mut diagnostics, &cancel);
+                    if let Err(error) = zumen::scene3d::read(&bytes, &mut cx) {
+                        panic!("コアが作った 3D シーンの blob {id} を読めない: {error:?}");
+                    }
+                }
                 self.replies.push(bytes.clone());
                 blobs.push((kind.to_string(), bytes));
             }

@@ -7,10 +7,20 @@ license.workspace = true
 repository.workspace = true
 publish = true
 
+[features]
+drawing = ["dep:zumen-drawing"]
+scene3d = ["dep:zumen-scene3d"]
+
+[[example]]
+name = "visual_contract"
+required-features = ["drawing", "scene3d"]
+
 [dependencies]
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
 zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
+zumen-drawing = { version = "0.2.0", path = "../zumen-drawing", optional = true }
+zumen-scene3d = { version = "0.2.0", path = "../zumen-scene3d", optional = true }
 
 [lints]
 workspace = true

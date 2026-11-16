@@ -1029,7 +1029,9 @@ version = "0.2.0"
 dependencies = [
  "zumen-base",
  "zumen-crs",
+ "zumen-drawing",
  "zumen-geom3d",
+ "zumen-scene3d",
 ]
 
 [[package]]

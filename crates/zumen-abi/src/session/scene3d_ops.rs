@@ -1,10 +1,15 @@
-//! 建物の 3D シーン。列をすべて作れた場合だけ blob を登録する。
+//! 建物と地物の 3D シーン。列をすべて作れた場合だけ blob を登録する。
 
 use super::*;
 use messages::{
     BuildingUnit, Scene3dBox, Scene3dCounts, Scene3dMap, Scene3dRequest, Scene3dResult,
 };
-use zumen_scene3d::{Bounds, Error, Options};
+#[cfg(feature = "bim")]
+use zumen_scene3d::Options;
+use zumen_scene3d::{Bounds, Error};
+
+#[cfg(feature = "civil")]
+mod geo;
 
 fn scene_error(cx: &mut Cx, error: Error) -> Failed {
     match error {
@@ -16,6 +21,7 @@ fn scene_error(cx: &mut Cx, error: Error) -> Failed {
     }
 }
 
+#[cfg(feature = "bim")]
 fn ids(
     values: Option<&[String]>,
     path: &str,
@@ -70,6 +76,35 @@ fn output_box([min, max]: Bounds) -> Scene3dBox {
 
 impl Session {
     pub(super) fn scene3d(
+        &mut self,
+        request: &Scene3dRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<Scene3dResult, Failed> {
+        if !name::is_safe(&request.doc) {
+            return Err(fail(cx, invalid_value("/doc")));
+        }
+        #[cfg(feature = "civil")]
+        if !matches!(self.document(&request.doc, cx)?, Document::Building { .. }) {
+            return self.geo_scene3d(request, cx);
+        }
+        if request.zone.is_some() {
+            return Err(fail(cx, invalid_value("/zone")));
+        }
+        if request.lod.is_some() {
+            return Err(fail(cx, invalid_value("/lod")));
+        }
+        #[cfg(feature = "bim")]
+        {
+            self.building_scene3d(request, cx)
+        }
+        #[cfg(not(feature = "bim"))]
+        {
+            Err(fail(cx, unsupported(&request.doc, "scene3d")))
+        }
+    }
+
+    #[cfg(feature = "bim")]
+    fn building_scene3d(
         &mut self,
         request: &Scene3dRequest,
         cx: &mut Cx<'_>,
@@ -171,6 +206,8 @@ impl Session {
                 scale: unit.scale,
             },
             map,
+            height_crs: None,
+            lod: None,
             tolerance: scene.tolerance,
             r#box: region.map(output_box),
             extent: scene.extent.map(output_box),

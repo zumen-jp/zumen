@@ -15,6 +15,8 @@
 
 形式別のリーダーは `zumen-landxml` など各形式の crate、納品・写真・ボーリングは `zumen-delivery`・`zumen-photo`・`zumen-geology` にあります。共通部品は `zumen-base`・`zumen-json`・`zumen-crs`・`zumen-geom3d`・`zumen-live`、入口は `zumen`（Rust）・`zumen-abi`（C ABI・wasm）・`zumen-sdk`（形式・プラグインの開発）です。
 
+地物の図面化と 3D シーン化は `zumen-geo` の任意の feature `drawing`・`scene3d` に置き、既定の領域モデルの依存へ図面・シーンを加えません。モデルからの派生処理で座標を投影し、元の地物 ID と出所を保ちます。投影・レイヤの語彙・LOD・予算と検査は[地物の図面とシーン](../schema/README.md#地物の図面とシーン)に従います。
+
 XML の原本位置・文字コード・名前の比較と予算は、[XML の原本と文字コード](formats/xml.md)にあります。
 
 表示部品はコアのシーンを受け取り、利用側の Canvas・入力・状態と資源を管理します。[2D の表示部品](view2d.md) と [3D の表示部品の設計](view3d.md) に、読み取りと描画の責務、文書と ID、利用側の描画と破棄の契約があります。3D のシーンは zumen-scene3d が作り、表示本体は #681 で追います。

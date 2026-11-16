@@ -13,7 +13,7 @@ mod drawing_ops;
 mod measurement_ops;
 mod pointcloud_ops;
 mod review_ops;
-#[cfg(feature = "bim")]
+#[cfg(any(feature = "bim", feature = "civil"))]
 mod scene3d_ops;
 mod scene_ops;
 
@@ -429,7 +429,7 @@ impl Session {
             Request::Measure(request) => self.measure(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
-            #[cfg(feature = "bim")]
+            #[cfg(any(feature = "bim", feature = "civil"))]
             Request::Scene3d(request) => self.scene3d(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Render(request) => self.render(request, &mut cx).map(|r| Box::new(r) as _),

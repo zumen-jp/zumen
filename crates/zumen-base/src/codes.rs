@@ -2414,6 +2414,45 @@ pub const FGD_VALUE_INVALID: Code = Code::new(
     &["element", "field"],
 );
 
+/// 地物の形を図面か 3D シーンへ移せず、その形を除いた。元の地物の ID と入力位置を保つ
+///
+/// `geo.geometry.unsupported`（0.3.0 から）
+pub const GEO_GEOMETRY_UNSUPPORTED: Code = Code::new(
+    "geo.geometry.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("form", ParamType::Key),
+        Param::new("reason", ParamType::Key),
+    ],
+    &["form", "reason"],
+);
+
+/// 地物の頂点を投影し、その間を直線で結んだ。辺を細分化しておらず、投影による辺全体の誤差の上限は示さない。source と target は EPSG のコード
+///
+/// `geo.projection.approximated`（0.3.0 から）
+pub const GEO_PROJECTION_APPROXIMATED: Code = Code::new(
+    "geo.projection.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[
+        Param::new("source", ParamType::UInt),
+        Param::new("target", ParamType::UInt),
+    ],
+    &["source", "target"],
+);
+
+/// 経緯度の範囲の中心を投影した原点からの距離が最小の系を、計算用の平面直角座標系として仮定した。行政界による適用地域の判定ではない
+///
+/// `geo.zone.assumed`（0.3.0 から）
+pub const GEO_ZONE_ASSUMED: Code = Code::new(
+    "geo.zone.assumed",
+    Severity::Info,
+    None,
+    &[Param::new("zone", ParamType::UInt)],
+    &["zone"],
+);
+
 /// 地理の領域モデルの属性の値（有限でない実数など）が JSON の数値で表せないので、書き出さなかった
 ///
 /// `geojson.attribute.dropped`（0.3.0 から）
@@ -6074,6 +6113,9 @@ pub const ALL: &[Code] = &[
     FGD_POINT_KIND_DROPPED,
     FGD_REFERENCE_UNSUPPORTED,
     FGD_VALUE_INVALID,
+    GEO_GEOMETRY_UNSUPPORTED,
+    GEO_PROJECTION_APPROXIMATED,
+    GEO_ZONE_ASSUMED,
     GEOJSON_ATTRIBUTE_DROPPED,
     GEOJSON_CRS_DROPPED,
     GEOJSON_CRS_MISSING,

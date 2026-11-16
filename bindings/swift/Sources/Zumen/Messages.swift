@@ -6413,7 +6413,7 @@ public struct SceneRequest: Message {
     }
 }
 
-/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
 public struct Scene3dRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -6464,28 +6464,40 @@ public struct Scene3dRequest: Message {
         set { writeField("op", newValue) }
     }
 
-    /// open で作った建物の文書名
+    /// open で作った建物か地物の文書名
     public var doc: String? {
         get { readField("doc") }
         set { writeField("doc", newValue) }
     }
 
-    /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない
+    /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物には指定できない
     public var storeys: [String]? {
         get { readField("storeys") }
         set { writeField("storeys", newValue) }
     }
 
-    /// クラス名。大文字・小文字を区別する。省略は全クラス、空の配列は何も選ばない
+    /// 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない
     public var classes: [String]? {
         get { readField("classes") }
         set { writeField("classes", newValue) }
     }
 
-    /// 建物の要素の ID。省略は全要素、空の配列は何も選ばない。参照する階の行も返す
+    /// 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す
     public var ids: [String]? {
         get { readField("ids") }
         set { writeField("ids", newValue) }
+    }
+
+    /// 地物だけに指定する投影先の平面直角座標系の系（1〜19）。省略時は元の系、経緯度では範囲の中心から計算用の系を仮定して診断する。86 から
+    public var zone: Int64? {
+        get { readField("zone") }
+        set { writeField("zone", newValue) }
+    }
+
+    /// 地物だけに指定する LOD（0〜4）。省略時は選択した地物にある最大の LOD を 1 段選ぶ。LOD のない形は含める。86 から
+    public var lod: Int64? {
+        get { readField("lod") }
+        set { writeField("lod", newValue) }
     }
 
     /// プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う
@@ -6494,14 +6506,14 @@ public struct Scene3dRequest: Message {
         set { writeField("box", newValue) }
     }
 
-    /// 曲線を分ける弦の誤差。文書単位の正の有限値。省略時は 1 mm の予備評価による対象範囲の対角線の 1/50000。空か点だけなら 1 mm 相当
+    /// 文書単位の正の有限値。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
     public var tolerance: Double? {
         get { readField("tolerance") }
         set { writeField("tolerance", newValue) }
     }
 }
 
-/// プロジェクト空間の文書単位の箱。Z が上。地図への変換を掛けない
+/// 建物ではプロジェクト空間の文書単位、地物では投影先の東・北・高さのメートルの箱。Z が上
 public struct Scene3dBox: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -6529,7 +6541,7 @@ public struct Scene3dBox: Message {
     }
 }
 
-/// 建物の文書が持つ地図への変換の元値。シーンの座標へは適用していない
+/// 建物では文書が持つ地図への変換の元値で、シーンの座標へ適用していない。地物では投影先の EPSG 名と恒等変換を返し、シーンの X・Y は既に東・北のメートル
 public struct Scene3dMap: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -6666,7 +6678,7 @@ public struct Scene3dResult: Message {
         json = [:]
     }
 
-    /// 元の建物の文書名
+    /// 元の建物か地物の文書名
     public var doc: String? {
         get { readField("doc") }
         set { writeField("doc", newValue) }
@@ -6684,7 +6696,19 @@ public struct Scene3dResult: Message {
         set { writeField("map", newValue) }
     }
 
-    /// 曲線の評価へ渡した文書単位の弦の誤差。f32 への丸めのずれは別の診断で返す
+    /// 地物の高さの基準と成果を表す EPSG。元が不明なら持たない。86 から
+    public var heightCrs: Int64? {
+        get { readField("height_crs") }
+        set { writeField("height_crs", newValue) }
+    }
+
+    /// 地物で選択した LOD。LOD のない形だけなら持たない。86 から
+    public var lod: Int64? {
+        get { readField("lod") }
+        set { writeField("lod", newValue) }
+    }
+
+    /// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。丸めのずれは別の診断で返す
     public var tolerance: Double? {
         get { readField("tolerance") }
         set { writeField("tolerance", newValue) }

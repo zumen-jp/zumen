@@ -1,0 +1,165 @@
+{
+  "description": "自作の CityGML の面を scene3d へ渡し、東・北・高さと元の地物 ID を持つ共通 ZMS3 を得る。選択と予算停止・不正な指定の後にも再利用できる。",
+  "module": "civil",
+  "steps": [
+    {
+      "push": {
+        "name": "geo.gml",
+        "text": "<core:CityModel xmlns:core=\"http://www.opengis.net/citygml/2.0\" xmlns:gml=\"http://www.opengis.net/gml\" xmlns:bldg=\"http://www.opengis.net/citygml/building/2.0\"><gml:boundedBy><gml:Envelope srsName=\"EPSG:6677\" srsDimension=\"3\"><gml:lowerCorner>200 100 12</gml:lowerCorner><gml:upperCorner>210 110 12</gml:upperCorner></gml:Envelope></gml:boundedBy><core:cityObjectMember><bldg:Building gml:id=\"area\"><gml:name>面</gml:name><bldg:lod2MultiSurface><gml:MultiSurface><gml:surfaceMember><gml:Polygon><gml:exterior><gml:LinearRing><gml:posList>200 100 12 200 110 12 210 110 12 210 100 12 200 100 12</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon></gml:surfaceMember></gml:MultiSurface></bldg:lod2MultiSurface></bldg:Building></core:cityObjectMember></core:CityModel>"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "geo.gml"
+      },
+      "expect": {
+        "/result/format": "citygml"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "geo.gml",
+        "zone": 9,
+        "lod": 2,
+        "ids": [
+          "area"
+        ],
+        "classes": [
+          "bldg:Building"
+        ],
+        "tolerance": 0.001
+      },
+      "expect": {
+        "/result/unit/name": "METRE",
+        "/result/map/crs_name": "EPSG:6677",
+        "/result/lod": 2,
+        "/result/counts/elements": 1,
+        "/result/counts/triangles": 2,
+        "/result/extent/min": [
+          100,
+          200,
+          12
+        ],
+        "/result/extent/max": [
+          110,
+          210,
+          12
+        ],
+        "/blobs/0/kind": "scene3d"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "geo.gml",
+        "zone": 20
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "geo.gml",
+        "lod": 5
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "geo.gml",
+        "storeys": []
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "geo.gml",
+        "budget": {
+          "work": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "geo.gml",
+        "budget": {
+          "decoded_bytes": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "geo.gml",
+        "budget": {
+          "segments": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "geo.gml"
+      },
+      "expect": {
+        "/result/counts/triangles": 2
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "geo.gml",
+        "ids": []
+      },
+      "expect": {
+        "/result/counts/elements": 0,
+        "/result/counts/triangles": 0
+      }
+    },
+    {
+      "take": 0
+    }
+  ]
+}

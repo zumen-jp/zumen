@@ -7,6 +7,9 @@ group-separator = ","
 decimal-separator = "."
 
 [codes]
+"geo.projection.approximated" = "Projected feature vertices from EPSG:{source} to EPSG:{target} and joined them with straight edges; the error along entire edges has not been evaluated ({count})."
+"geo.zone.assumed" = "Assumed Japan Plane Rectangular CS zone {zone} for calculation from the center of the geographic extent."
+"geo.geometry.unsupported" = "Could not output geographic geometry \"{form}\" ({reason}); omitted the geometry ({count})."
 "building.shape.dropped" = "Could not evaluate shape item \"{kind}\" ({reason}); omitted it from the result ({count})."
 "building.measure.failed" = "Could not calculate a quantity from the geometry or measurement conditions ({reason}; {count})."
 "building.measure.approximated" = "Moved {points} boundary points to an integer grid with spacing {spacing} for measurement ({count})."

@@ -7,6 +7,9 @@ group-separator = ","
 decimal-separator = "."
 
 [codes]
+"geo.projection.approximated" = "地物の頂点を EPSG:{source} から EPSG:{target} へ投影し、頂点の間を直線で結びました。辺全体の誤差は評価していません（{count} 件）。"
+"geo.zone.assumed" = "経緯度の範囲の中心から、計算用の平面直角座標系を第 {zone} 系と仮定しました。"
+"geo.geometry.unsupported" = "地物の形「{form}」を出力できないため（{reason}）、その形を除きました（{count} 件）。"
 "building.shape.dropped" = "形の項目「{kind}」を評価できないため（{reason}）、結果から除きました（{count} 件）。"
 "building.measure.failed" = "形または計測条件から数量を計算できませんでした（{reason}、{count} 件）。"
 "building.measure.approximated" = "計測の境界の {points} 点を間隔 {spacing} の整数格子へ移しました（{count} 件）。"

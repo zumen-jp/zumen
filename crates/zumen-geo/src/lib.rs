@@ -10,6 +10,15 @@ use zumen_base::Ref;
 use zumen_crs::{Crs, GeoPoint, MapPoint, VerticalCrs};
 use zumen_geom3d::Shape;
 
+#[cfg(feature = "drawing")]
+pub mod drawing;
+#[cfg(feature = "scene3d")]
+pub mod scene3d;
+#[cfg(any(feature = "drawing", feature = "scene3d"))]
+mod visual;
+#[cfg(any(feature = "drawing", feature = "scene3d"))]
+pub use visual::Selection;
+
 /// 地理の領域モデル
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GeoModel {

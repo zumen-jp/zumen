@@ -3946,3 +3946,29 @@ params = { kind = "text", reason = "text" }
 group-by = ["kind", "reason"]
 since = "0.3.0"
 status = "active"
+
+[codes."geo.zone.assumed"]
+description = "経緯度の範囲の中心を投影した原点からの距離が最小の系を、計算用の平面直角座標系として仮定した。行政界による適用地域の判定ではない"
+severity = "info"
+params = { zone = "uint" }
+group-by = ["zone"]
+since = "0.3.0"
+status = "active"
+
+[codes."geo.geometry.unsupported"]
+description = "地物の形を図面か 3D シーンへ移せず、その形を除いた。元の地物の ID と入力位置を保つ"
+severity = "warning"
+fidelity = "dropped"
+params = { form = "key", reason = "key" }
+group-by = ["form", "reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."geo.projection.approximated"]
+description = "地物の頂点を投影し、その間を直線で結んだ。辺を細分化しておらず、投影による辺全体の誤差の上限は示さない。source と target は EPSG のコード"
+severity = "info"
+fidelity = "approximated"
+params = { source = "uint", target = "uint" }
+group-by = ["source", "target"]
+since = "0.3.0"
+status = "active"

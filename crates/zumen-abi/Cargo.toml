@@ -19,7 +19,7 @@ default = ["drawing", "bim", "civil", "pointcloud"]
 drawing = []
 bim = ["dep:zumen-scene3d"]
 # 土木・地理と点群のモジュール（決定 0253）
-civil = []
+civil = ["dep:zumen-scene3d", "zumen-geo/scene3d"]
 pointcloud = []
 # プラグインのモジュールの土台（決定 0247）。プラグインの形式だけを読み、lift で図面モデルのバイナリにする
 plugin = []

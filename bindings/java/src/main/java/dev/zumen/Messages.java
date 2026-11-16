@@ -10312,7 +10312,7 @@ public final class Messages {
         }
     }
 
-    /** 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から */
+    /** 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から */
     public static final class Scene3dRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public Scene3dRequest(Map<String, Object> json) {
@@ -10397,7 +10397,7 @@ public final class Messages {
             return this;
         }
 
-        /** open で作った建物の文書名 */
+        /** open で作った建物か地物の文書名 */
         public String getDoc() {
             return Json.read(json.get("doc"), Json::string);
         }
@@ -10408,7 +10408,7 @@ public final class Messages {
             return this;
         }
 
-        /** 所属する階の要素の ID。省略は全階、空の配列は何も選ばない */
+        /** 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物には指定できない */
         public List<String> getStoreys() {
             return Json.read(json.get("storeys"), v0 -> Json.list(v0, Json::string));
         }
@@ -10419,7 +10419,7 @@ public final class Messages {
             return this;
         }
 
-        /** クラス名。大文字・小文字を区別する。省略は全クラス、空の配列は何も選ばない */
+        /** 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない */
         public List<String> getClasses() {
             return Json.read(json.get("classes"), v0 -> Json.list(v0, Json::string));
         }
@@ -10430,7 +10430,7 @@ public final class Messages {
             return this;
         }
 
-        /** 建物の要素の ID。省略は全要素、空の配列は何も選ばない。参照する階の行も返す */
+        /** 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す */
         public List<String> getIds() {
             return Json.read(json.get("ids"), v0 -> Json.list(v0, Json::string));
         }
@@ -10438,6 +10438,28 @@ public final class Messages {
         /** {@link #getIds()} を書く。null ならフィールドを除く */
         public Scene3dRequest withIds(List<String> value) {
             put("ids", value);
+            return this;
+        }
+
+        /** 地物だけに指定する投影先の平面直角座標系の系（1〜19）。省略時は元の系、経緯度では範囲の中心から計算用の系を仮定して診断する。86 から */
+        public Long getZone() {
+            return Json.read(json.get("zone"), Json::integer);
+        }
+
+        /** {@link #getZone()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withZone(Long value) {
+            put("zone", value);
+            return this;
+        }
+
+        /** 地物だけに指定する LOD（0〜4）。省略時は選択した地物にある最大の LOD を 1 段選ぶ。LOD のない形は含める。86 から */
+        public Long getLod() {
+            return Json.read(json.get("lod"), Json::integer);
+        }
+
+        /** {@link #getLod()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withLod(Long value) {
+            put("lod", value);
             return this;
         }
 
@@ -10452,7 +10474,7 @@ public final class Messages {
             return this;
         }
 
-        /** 曲線を分ける弦の誤差。文書単位の正の有限値。省略時は 1 mm の予備評価による対象範囲の対角線の 1/50000。空か点だけなら 1 mm 相当 */
+        /** 文書単位の正の有限値。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める */
         public Double getTolerance() {
             return Json.read(json.get("tolerance"), Json::number);
         }
@@ -10464,7 +10486,7 @@ public final class Messages {
         }
     }
 
-    /** プロジェクト空間の文書単位の箱。Z が上。地図への変換を掛けない */
+    /** 建物ではプロジェクト空間の文書単位、地物では投影先の東・北・高さのメートルの箱。Z が上 */
     public static final class Scene3dBox extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public Scene3dBox(Map<String, Object> json) {
@@ -10505,7 +10527,7 @@ public final class Messages {
         }
     }
 
-    /** 建物の文書が持つ地図への変換の元値。シーンの座標へは適用していない */
+    /** 建物では文書が持つ地図への変換の元値で、シーンの座標へ適用していない。地物では投影先の EPSG 名と恒等変換を返し、シーンの X・Y は既に東・北のメートル */
     public static final class Scene3dMap extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public Scene3dMap(Map<String, Object> json) {
@@ -10726,7 +10748,7 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** 元の建物の文書名 */
+        /** 元の建物か地物の文書名 */
         public String getDoc() {
             return Json.read(json.get("doc"), Json::string);
         }
@@ -10759,7 +10781,29 @@ public final class Messages {
             return this;
         }
 
-        /** 曲線の評価へ渡した文書単位の弦の誤差。f32 への丸めのずれは別の診断で返す */
+        /** 地物の高さの基準と成果を表す EPSG。元が不明なら持たない。86 から */
+        public Long getHeightCrs() {
+            return Json.read(json.get("height_crs"), Json::integer);
+        }
+
+        /** {@link #getHeightCrs()} を書く。null ならフィールドを除く */
+        public Scene3dResult withHeightCrs(Long value) {
+            put("height_crs", value);
+            return this;
+        }
+
+        /** 地物で選択した LOD。LOD のない形だけなら持たない。86 から */
+        public Long getLod() {
+            return Json.read(json.get("lod"), Json::integer);
+        }
+
+        /** {@link #getLod()} を書く。null ならフィールドを除く */
+        public Scene3dResult withLod(Long value) {
+            put("lod", value);
+            return this;
+        }
+
+        /** 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。丸めのずれは別の診断で返す */
         public Double getTolerance() {
             return Json.read(json.get("tolerance"), Json::number);
         }

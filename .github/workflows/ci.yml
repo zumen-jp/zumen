@@ -273,6 +273,13 @@ jobs:
           python crates/zumen-profile/tests/check_building.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/building_contract"
           cargo build --package zumen-profile --features building-drawing --example drawing_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
           python crates/zumen-profile/tests/check_building.py --kind drawing "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/drawing_contract"
+      - name: 地物の図面・3D シーン・出所・予算停止を同じバイト列で照らす（#472）
+        shell: bash
+        run: |
+          cargo clippy --package zumen-geo --all-features --all-targets --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }} -- -D warnings
+          cargo test --package zumen-geo --all-features --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          cargo build --package zumen-geo --all-features --example visual_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          python crates/zumen-geo/tests/check_visual.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/visual_contract"
       - name: .NET のラッパーの適合テストに使う .NET の SDK を入れる
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -382,6 +389,11 @@ jobs:
           python3 crates/zumen-profile/tests/check_building.py --wasm target/wasm32-wasip1/debug/examples/building_contract.wasm
           cargo build --package zumen-profile --features building-drawing --example drawing_contract --target wasm32-wasip1 --locked
           python3 crates/zumen-profile/tests/check_building.py --kind drawing --wasm target/wasm32-wasip1/debug/examples/drawing_contract.wasm
+      - name: 地物の図面・3D シーン・出所・予算停止を wasm で照らす（#472）
+        if: env.TEST_CORE == 'true'
+        run: |
+          cargo build --package zumen-geo --all-features --example visual_contract --target wasm32-wasip1 --locked
+          python3 crates/zumen-geo/tests/check_visual.py --wasm target/wasm32-wasip1/debug/examples/visual_contract.wasm
       - name: シーンからの SVG・PNG のバイト列・診断・予算・停止が wasm とネイティブで同じことを確かめる（決定 0272・0277）
         if: env.TEST_CORE == 'true'
         run: |

@@ -41,7 +41,7 @@ pub enum Request {
     Tables(TablesRequest),
     /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から
     Scene(SceneRequest),
-    /// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+    /// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
     Scene3d(Scene3dRequest),
     /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。マイナーバージョン 34 から
     Check(CheckRequest),
@@ -9347,22 +9347,26 @@ impl ToJson for SceneRequest {
     }
 }
 
-/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scene3dRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
-    /// open で作った建物の文書名
+    /// open で作った建物か地物の文書名
     pub doc: String,
-    /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない
+    /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない。地物には指定できない
     pub storeys: Option<Vec<String>>,
-    /// クラス名。大文字・小文字を区別する。省略は全クラス、空の配列は何も選ばない
+    /// 建物のクラス名か地物の型。大文字・小文字を区別する。省略は全種類、空の配列は何も選ばない
     pub classes: Option<Vec<String>>,
-    /// 建物の要素の ID。省略は全要素、空の配列は何も選ばない。参照する階の行も返す
+    /// 建物の要素か元の地物の ID。省略は全要素、空の配列は何も選ばない。建物では参照する階の行も返す
     pub ids: Option<Vec<String>>,
+    /// 地物だけに指定する投影先の平面直角座標系の系（1〜19）。省略時は元の系、経緯度では範囲の中心から計算用の系を仮定して診断する。86 から
+    pub zone: Option<u64>,
+    /// 地物だけに指定する LOD（0〜4）。省略時は選択した地物にある最大の LOD を 1 段選ぶ。LOD のない形は含める。86 から
+    pub lod: Option<u64>,
     /// プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う
     pub r#box: Option<Scene3dBox>,
-    /// 曲線を分ける弦の誤差。文書単位の正の有限値。省略時は 1 mm の予備評価による対象範囲の対角線の 1/50000。空か点だけなら 1 mm 相当
+    /// 文書単位の正の有限値。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
     pub tolerance: Option<f64>,
 }
 
@@ -9374,6 +9378,8 @@ impl Scene3dRequest {
         let storeys = object.optional("storeys", |value| json::array(value, json::string))?;
         let classes = object.optional("classes", |value| json::array(value, json::string))?;
         let ids = object.optional("ids", |value| json::array(value, json::string))?;
+        let zone = object.optional("zone", |value| json::uint(value, 1, 19))?;
+        let lod = object.optional("lod", |value| json::uint(value, 0, 4))?;
         let r#box = object.optional("box", Scene3dBox::from_json)?;
         let tolerance = object.optional("tolerance", json::number)?;
         Ok(Self {
@@ -9382,6 +9388,8 @@ impl Scene3dRequest {
             storeys,
             classes,
             ids,
+            zone,
+            lod,
             r#box,
             tolerance,
         })
@@ -9404,6 +9412,14 @@ impl Scene3dRequest {
         if let Some(value) = &self.ids {
             out.key("ids");
             out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.zone {
+            out.key("zone");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.lod {
+            out.key("lod");
+            out.uint(*value);
         }
         if let Some(value) = &self.r#box {
             out.key("box");
@@ -9433,7 +9449,7 @@ impl ToJson for Scene3dRequest {
     }
 }
 
-/// プロジェクト空間の文書単位の箱。Z が上。地図への変換を掛けない
+/// 建物ではプロジェクト空間の文書単位、地物では投影先の東・北・高さのメートルの箱。Z が上
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scene3dBox {
     /// 最小の X・Y・Z の 3 値
@@ -9474,7 +9490,7 @@ impl ToJson for Scene3dBox {
     }
 }
 
-/// 建物の文書が持つ地図への変換の元値。シーンの座標へは適用していない
+/// 建物では文書が持つ地図への変換の元値で、シーンの座標へ適用していない。地物では投影先の EPSG 名と恒等変換を返し、シーンの X・Y は既に東・北のメートル
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scene3dMap {
     /// 地図の座標系の名前。未指定なら持たない
@@ -9643,13 +9659,17 @@ impl ToJson for Scene3dCounts {
 /// 3D シーンの座標・許容差・行数と blob の番号
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scene3dResult {
-    /// 元の建物の文書名
+    /// 元の建物か地物の文書名
     pub doc: String,
     /// シーンの座標と許容差の長さの単位
     pub unit: BuildingUnit,
     /// 文書の地図への変換。なければ持たない
     pub map: Option<Scene3dMap>,
-    /// 曲線の評価へ渡した文書単位の弦の誤差。f32 への丸めのずれは別の診断で返す
+    /// 地物の高さの基準と成果を表す EPSG。元が不明なら持たない。86 から
+    pub height_crs: Option<u64>,
+    /// 地物で選択した LOD。LOD のない形だけなら持たない。86 から
+    pub lod: Option<u64>,
+    /// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。丸めのずれは別の診断で返す
     pub tolerance: f64,
     /// 要求の断面の箱。なければ持たない
     pub r#box: Option<Scene3dBox>,
@@ -9666,6 +9686,9 @@ impl Scene3dResult {
         let doc = object.required("doc", json::string)?;
         let unit = object.required("unit", BuildingUnit::from_json)?;
         let map = object.optional("map", Scene3dMap::from_json)?;
+        let height_crs =
+            object.optional("height_crs", |value| json::uint(value, 0, 9007199254740991))?;
+        let lod = object.optional("lod", |value| json::uint(value, 0, 4))?;
         let tolerance = object.required("tolerance", json::number)?;
         let r#box = object.optional("box", Scene3dBox::from_json)?;
         let extent = object.optional("extent", Scene3dBox::from_json)?;
@@ -9675,6 +9698,8 @@ impl Scene3dResult {
             doc,
             unit,
             map,
+            height_crs,
+            lod,
             tolerance,
             r#box,
             extent,
@@ -9691,6 +9716,14 @@ impl Scene3dResult {
         if let Some(value) = &self.map {
             out.key("map");
             value.to_json(out);
+        }
+        if let Some(value) = &self.height_crs {
+            out.key("height_crs");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.lod {
+            out.key("lod");
+            out.uint(*value);
         }
         out.key("tolerance");
         out.float(self.tolerance);

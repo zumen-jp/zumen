@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマのメジャーバージョン。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマのマイナーバージョン。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 85;
+pub const SCHEMA_MINOR: u64 = 86;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,6 +170,7 @@ pub const MODULES: &[Module] = &[
             "convert",
             "civil",
             "geo",
+            "scene3d",
         ],
     },
     // 点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）と、設計の TIN（J-LandXML）との差
@@ -249,7 +250,14 @@ pub fn has_op(op: &str) -> bool {
         || (cfg!(feature = "civil")
             && matches!(
                 op,
-                "capabilities" | "open" | "close" | "describe" | "convert" | "civil" | "geo"
+                "capabilities"
+                    | "open"
+                    | "close"
+                    | "describe"
+                    | "convert"
+                    | "civil"
+                    | "geo"
+                    | "scene3d"
             ))
         || (cfg!(feature = "pointcloud")
             && matches!(
