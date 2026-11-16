@@ -19,6 +19,8 @@ fuzz_target!(|data: &[u8]| {
     let survived = zumen_sdk::testkit::survives_calls(|limits| {
         let mut calls = Calls::new(limits);
         zumen_fuzz::open_fixtures(&mut calls);
+        // 管理 XML の変更要求も、経路の解決から書き戻しまで通す。
+        calls.push("out/INDEX_C.XML", b"<package xmlns:p='urn:test'><title>old</title><entry><file>ONE.P21</file></entry><entry><file>TWO.P21</file></entry><empty/></package>");
         calls.push("colors.json", data);
         calls.call("scene", |out| {
             field(out, "doc", "a.dxf");

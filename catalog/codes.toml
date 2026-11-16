@@ -1141,6 +1141,64 @@ severity = "info"
 since = "0.2.0"
 status = "active"
 
+[codes."xml.edit-target.missing"]
+description = "指定した XML の要素がない（#866）"
+severity = "error"
+params = { index = "uint" }
+since = "0.0.0"
+status = "active"
+
+[codes."xml.edit-range.invalid"]
+description = "同じ要素や重なる範囲への変更が競合する（#866）"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
+[codes."xml.edit-children.unsupported"]
+description = "子の要素を持つ項目の文字全体は置き換えない（#866）"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
+[codes."xml.edit-name.invalid"]
+description = "追加する XML の名前が QName ではない（#866）"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
+[codes."xml.edit-character.invalid"]
+description = "XML 1.0 の文字ではない値を書こうとした（#866）"
+severity = "error"
+params = { code = "uint" }
+since = "0.0.0"
+status = "active"
+
+[codes."xml.edit-encoding.failed"]
+description = "元の文字コードで値を同じ文字に戻せない（#866）"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
+[codes."xml.edit-namespace.missing"]
+description = "追加する要素の名前空間の接頭辞が宣言されていない（#866）"
+severity = "error"
+params = { prefix = "text" }
+since = "0.0.0"
+status = "active"
+
+[codes."delivery.edit-path.missing"]
+description = "管理項目の変更先の経路に合う要素がない（#866）"
+severity = "error"
+params = { index = "uint", step = "uint" }
+since = "0.0.0"
+status = "active"
+
+[codes."delivery.edit-hash.stale"]
+description = "管理 XML の変更の前提となるハッシュが現在の入力と違う（#866）"
+severity = "error"
+since = "0.0.0"
+status = "active"
+
 # IFC の L1（決定 0207・0211）
 
 [codes."ifc.file.invalid"]
@@ -3732,4 +3790,10 @@ severity = "error"
 params = { reason = "key" }
 group-by = ["reason"]
 since = "0.3.0"
+status = "active"
+
+[codes."xml.write.failed"]
+description = "XML の出力の長さを扱えないか、出力の領域を確保できない（#866）"
+severity = "error"
+since = "0.0.0"
 status = "active"

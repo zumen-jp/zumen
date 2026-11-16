@@ -1237,6 +1237,11 @@ title = "国土交通省 電子納品に関する要領・基準の「リンク�
 url = "https://www.cals-ed.go.jp/copyright/"
 checked = "2026-11-01"
 
+[formats.delivery.write]
+level = "synthetic"
+scope = "既存の管理 XML の文字の更新と記録の追加。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合したが、電子納品要領の外部検証や DTD による検証はしていない。公開サンプルの条件は読みと同じ"
+checked = "2026-11-16"
+
 [formats.saf]
 name = "SXF の属性ファイル（SAF）"
 family = "sxf"

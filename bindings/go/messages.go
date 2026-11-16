@@ -190,6 +190,11 @@ func (u Request) AsDeliveryCheckRequest() *DeliveryCheckRequest {
 	return asTagged[DeliveryCheckRequest](u, "op", "delivery_check")
 }
 
+// AsDeliveryApplyRequest は、op が delivery_apply の形なら、その型で読む。違えば nil。
+func (u Request) AsDeliveryApplyRequest() *DeliveryApplyRequest {
+	return asTagged[DeliveryApplyRequest](u, "op", "delivery_apply")
+}
+
 // AsPhotoRequest は、op が photo の形なら、その型で読む。違えば nil。
 func (u Request) AsPhotoRequest() *PhotoRequest {
 	return asTagged[PhotoRequest](u, "op", "photo")
@@ -6243,6 +6248,146 @@ type PointcloudPoints struct {
 	Level *int64 `json:"level,omitempty"`
 }
 
+// DeliveryApplyRequest: 管理 XML の項目を変更し、file blob を返す。入力は変更しない。すべての経路は元の文書で解き、失敗時は結果を返さない。図面のモジュールに置く。マイナーバージョン 84 から
+type DeliveryApplyRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 管理 XML の入力の名前
+	Input *string `json:"input,omitempty"`
+
+	// 元の XML の文書ハッシュ。違えば変更しない。省略すれば検査しない
+	Hash *string `json:"hash,omitempty"`
+
+	// 指定する順の変更。同じ親への追加は順序を保つ
+	Edits []DeliveryEdit `json:"edits,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m DeliveryApplyRequest) MarshalJSON() ([]byte, error) {
+	type plain DeliveryApplyRequest
+	m.Op = "delivery_apply"
+	return json.Marshal(plain(m))
+}
+
+// DeliveryApplyResult: 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない
+type DeliveryApplyResult struct {
+	// 元の入力の名前
+	Input *string `json:"input,omitempty"`
+
+	// 変更後のバイト列の文書ハッシュ
+	Hash *string `json:"hash,omitempty"`
+
+	// 適用した変更の数
+	Applied *int64 `json:"applied,omitempty"`
+}
+
+// DeliveryPathStep: 根からたどる子。接頭辞を含む名前で区別する
+type DeliveryPathStep struct {
+	// 接頭辞を含む元の要素名
+	Name *string `json:"name,omitempty"`
+
+	// 同名の兄弟の中の位置。0 から数え、省略すると 0
+	Index *int64 `json:"index,omitempty"`
+}
+
+// DeliveryNewElement: 親の名前空間を引き継ぐ追加要素。属性と名前空間宣言は追加しない
+type DeliveryNewElement struct {
+	// 接頭辞を含む要素名。接頭辞は親で宣言済みのものに限る
+	Name *string `json:"name,omitempty"`
+
+	// 子の前に書く文字。文字参照にする前の値
+	Value *string `json:"value,omitempty"`
+
+	// 子の要素。書く順。省略すると空
+	Children []DeliveryNewElement `json:"children,omitempty"`
+}
+
+// DeliveryEdit: 元の文書の項目の更新か、子の記録の追加。空の path は根を指す。同じ項目の更新を重ねたり、更新と追加を混ぜたりしない
+//
+// 読んだ JSON をそのまま持つ。形は As で始まるメソッドで読み、DeliveryEditOf で作る。
+type DeliveryEdit json.RawMessage
+
+// DeliveryEditOf は、形の値を JSON にして DeliveryEdit にする。
+func DeliveryEditOf(value any) (DeliveryEdit, error) {
+	data, err := json.Marshal(value)
+	return DeliveryEdit(data), err
+}
+
+// MarshalJSON は、持っている JSON をそのまま書く。
+func (u DeliveryEdit) MarshalJSON() ([]byte, error) {
+	return rawJSON(u), nil
+}
+
+// UnmarshalJSON は、読んだ JSON をそのまま持つ。
+func (u *DeliveryEdit) UnmarshalJSON(data []byte) error {
+	*u = append((*u)[:0], data...)
+	return nil
+}
+
+// AsDeliverySetText は、kind が set_text の形なら、その型で読む。違えば nil。
+func (u DeliveryEdit) AsDeliverySetText() *DeliverySetText {
+	return asTagged[DeliverySetText](u, "kind", "set_text")
+}
+
+// AsDeliveryAppend は、kind が append の形なら、その型で読む。違えば nil。
+func (u DeliveryEdit) AsDeliveryAppend() *DeliveryAppend {
+	return asTagged[DeliveryAppend](u, "kind", "append")
+}
+
+// DeliverySetText: 子の要素を持たない項目の文字を置き換える。注記と処理命令は保つ
+type DeliverySetText struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 根からの経路
+	Path []DeliveryPathStep `json:"path,omitempty"`
+
+	// 文字参照にする前の値
+	Value *string `json:"value,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m DeliverySetText) MarshalJSON() ([]byte, error) {
+	type plain DeliverySetText
+	m.Kind = "set_text"
+	return json.Marshal(plain(m))
+}
+
+// DeliveryAppend: 親の末尾に子の記録を足す。名前・文字コード・予算を検査する
+type DeliveryAppend struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 親の根からの経路
+	Path []DeliveryPathStep `json:"path,omitempty"`
+
+	// 追加する記録の木
+	Child *DeliveryNewElement `json:"child,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m DeliveryAppend) MarshalJSON() ([]byte, error) {
+	type plain DeliveryAppend
+	m.Kind = "append"
+	return json.Marshal(plain(m))
+}
+
 // DeliveryCheckRequest: 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
 type DeliveryCheckRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
@@ -7167,6 +7312,9 @@ const OpGeo = "geo"
 
 // OpDeliveryCheck は、op の名前 delivery_check。
 const OpDeliveryCheck = "delivery_check"
+
+// OpDeliveryApply は、op の名前 delivery_apply。
+const OpDeliveryApply = "delivery_apply"
 
 // OpPhoto は、op の名前 photo。
 const OpPhoto = "photo"

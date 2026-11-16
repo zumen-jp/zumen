@@ -62,6 +62,10 @@ cargo run -p zumen-conformance -- --write
 
 `apply_dwg_table.json` は、[自作の表](../../crates/zumen-acad/tests/fixtures/README.md)を持つ R2010・R2013・R2018 の DWG で、位置だけの `replace` と `transform` を確かめます。ID・セル・表示用ブロックの参照と未変更要素のハッシュを保ち、セルの変更・回転・予算停止で変更が残らないことを比べます。形式の照合は、検証キットで ACadSharp と別に行います。
 
+### 管理 XML の変更
+
+`delivery_apply.json` は項目の更新と木の追加、符号化・BOM の 7 通り、DTD・名前空間・未変更の項目と元の入力の保持、`delivery_check` での参照とプロファイルの再照合を検査します。古いハッシュ、元の文書にない経路、書けない値、予算境界と停止後の再利用も含みます。`cargo run -p zumen-abi --example delivery_apply_case` で作り、`-- --check` で生成元との一致を検査します。XML 自体は [Python と Expat で別に照合](../../xtask/verify/README.md#管理-xml-の書き戻しを照らす)します。
+
 ### 空の文書の作成
 
 `create.json` は空の DXF を全 6 種類の単位と省略時の mm で作り、線・円・文字・レイヤの追加と再読を照らします。予算の最後の検査による停止と再利用、重複名・未対応形式・不正な名前も含みます。`cargo run -p zumen-abi --example create_case` で生成し、`-- --check` で生成元との一致を検査します。単位と既定の表は ABI の固定した期待値でも確認し、形式は [ezdxf で別に照合](../../xtask/verify/README.md#空の-dxf-を照らす)します。

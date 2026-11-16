@@ -501,6 +501,10 @@ impl Session {
                 .delivery_check(request, &mut cx)
                 .map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
+            Request::DeliveryApply(request) => self
+                .delivery_apply(request, &mut cx)
+                .map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Photo(request) => self
                 .input(&request.input, "/input", &mut cx)
                 .and_then(|bytes| photo::photo(bytes, &mut cx))
@@ -707,6 +711,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::CivilDrawing(request) => &request.request_common,
         Request::Geo(request) => &request.request_common,
         Request::DeliveryCheck(request) => &request.request_common,
+        Request::DeliveryApply(request) => &request.request_common,
         Request::Photo(request) => &request.request_common,
         Request::Boring(request) => &request.request_common,
         Request::Lift(request) => &request.request_common,

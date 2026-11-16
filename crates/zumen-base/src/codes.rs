@@ -1068,6 +1068,26 @@ pub const CSV_QUOTE_INVALID: Code = Code::new(
     &[],
 );
 
+/// 管理 XML の変更の前提となるハッシュが現在の入力と違う（#866）
+///
+/// `delivery.edit-hash.stale`（0.0.0 から）
+pub const DELIVERY_EDIT_HASH_STALE: Code =
+    Code::new("delivery.edit-hash.stale", Severity::Error, None, &[], &[]);
+
+/// 管理項目の変更先の経路に合う要素がない（#866）
+///
+/// `delivery.edit-path.missing`（0.0.0 から）
+pub const DELIVERY_EDIT_PATH_MISSING: Code = Code::new(
+    "delivery.edit-path.missing",
+    Severity::Error,
+    None,
+    &[
+        Param::new("index", ParamType::UInt),
+        Param::new("step", ParamType::UInt),
+    ],
+    &[],
+);
+
 /// 管理ファイルを XML として読めないので、管理ファイルの記録に移さなかった
 ///
 /// `delivery.file.invalid`（0.2.0 から）
@@ -5362,6 +5382,68 @@ pub const XML_DOCUMENT_INVALID: Code =
 /// `xml.dtd.dropped`（0.2.0 から）
 pub const XML_DTD_DROPPED: Code = Code::new("xml.dtd.dropped", Severity::Info, None, &[], &[]);
 
+/// XML 1.0 の文字ではない値を書こうとした（#866）
+///
+/// `xml.edit-character.invalid`（0.0.0 から）
+pub const XML_EDIT_CHARACTER_INVALID: Code = Code::new(
+    "xml.edit-character.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("code", ParamType::UInt)],
+    &[],
+);
+
+/// 子の要素を持つ項目の文字全体は置き換えない（#866）
+///
+/// `xml.edit-children.unsupported`（0.0.0 から）
+pub const XML_EDIT_CHILDREN_UNSUPPORTED: Code = Code::new(
+    "xml.edit-children.unsupported",
+    Severity::Error,
+    None,
+    &[],
+    &[],
+);
+
+/// 元の文字コードで値を同じ文字に戻せない（#866）
+///
+/// `xml.edit-encoding.failed`（0.0.0 から）
+pub const XML_EDIT_ENCODING_FAILED: Code =
+    Code::new("xml.edit-encoding.failed", Severity::Error, None, &[], &[]);
+
+/// 追加する XML の名前が QName ではない（#866）
+///
+/// `xml.edit-name.invalid`（0.0.0 から）
+pub const XML_EDIT_NAME_INVALID: Code =
+    Code::new("xml.edit-name.invalid", Severity::Error, None, &[], &[]);
+
+/// 追加する要素の名前空間の接頭辞が宣言されていない（#866）
+///
+/// `xml.edit-namespace.missing`（0.0.0 から）
+pub const XML_EDIT_NAMESPACE_MISSING: Code = Code::new(
+    "xml.edit-namespace.missing",
+    Severity::Error,
+    None,
+    &[Param::new("prefix", ParamType::Text)],
+    &[],
+);
+
+/// 同じ要素や重なる範囲への変更が競合する（#866）
+///
+/// `xml.edit-range.invalid`（0.0.0 から）
+pub const XML_EDIT_RANGE_INVALID: Code =
+    Code::new("xml.edit-range.invalid", Severity::Error, None, &[], &[]);
+
+/// 指定した XML の要素がない（#866）
+///
+/// `xml.edit-target.missing`（0.0.0 から）
+pub const XML_EDIT_TARGET_MISSING: Code = Code::new(
+    "xml.edit-target.missing",
+    Severity::Error,
+    None,
+    &[Param::new("index", ParamType::UInt)],
+    &[],
+);
+
 /// UTF-8 と Shift_JIS のほかの文字コードなので、読まなかった
 ///
 /// `xml.encoding.unsupported`（0.2.0 から）
@@ -5394,6 +5476,11 @@ pub const XML_NAMESPACE_MISSING: Code = Code::new(
     &[Param::new("prefix", ParamType::Text)],
     &["prefix"],
 );
+
+/// XML の出力の長さを扱えないか、出力の領域を確保できない（#866）
+///
+/// `xml.write.failed`（0.0.0 から）
+pub const XML_WRITE_FAILED: Code = Code::new("xml.write.failed", Severity::Error, None, &[], &[]);
 
 /// 列の数から属性を推定できないので、4 列目からを移さなかった
 ///
@@ -5624,6 +5711,8 @@ pub const ALL: &[Code] = &[
     CRS_PROJECTION_UNSUPPORTED,
     CSV_ENCODING_INVALID,
     CSV_QUOTE_INVALID,
+    DELIVERY_EDIT_HASH_STALE,
+    DELIVERY_EDIT_PATH_MISSING,
     DELIVERY_FILE_INVALID,
     DELIVERY_NAME_UNSAFE,
     DEVIATION_CRS_MIXED,
@@ -6003,9 +6092,17 @@ pub const ALL: &[Code] = &[
     XLSX_SHEET_UNSUPPORTED,
     XML_DOCUMENT_INVALID,
     XML_DTD_DROPPED,
+    XML_EDIT_CHARACTER_INVALID,
+    XML_EDIT_CHILDREN_UNSUPPORTED,
+    XML_EDIT_ENCODING_FAILED,
+    XML_EDIT_NAME_INVALID,
+    XML_EDIT_NAMESPACE_MISSING,
+    XML_EDIT_RANGE_INVALID,
+    XML_EDIT_TARGET_MISSING,
     XML_ENCODING_UNSUPPORTED,
     XML_ENTITY_UNSUPPORTED,
     XML_NAMESPACE_MISSING,
+    XML_WRITE_FAILED,
     XYZ_COLUMN_DROPPED,
     XYZ_CRS_MISSING,
     XYZ_FILE_INVALID,

@@ -115,6 +115,9 @@ class Request extends Message {
   /// op が delivery_check の形なら、そのビュー。違えば null
   DeliveryCheckRequest? get asDeliveryCheckRequest => taggedView('op', 'delivery_check', DeliveryCheckRequest.fromJson);
 
+  /// op が delivery_apply の形なら、そのビュー。違えば null
+  DeliveryApplyRequest? get asDeliveryApplyRequest => taggedView('op', 'delivery_apply', DeliveryApplyRequest.fromJson);
+
   /// op が photo の形なら、そのビュー。違えば null
   PhotoRequest? get asPhotoRequest => taggedView('op', 'photo', PhotoRequest.fromJson);
 
@@ -7610,6 +7613,167 @@ class PointcloudPoints extends Message {
   set level(core.int? value) => writeField('level', value);
 }
 
+/// 管理 XML の項目を変更し、file blob を返す。入力は変更しない。すべての経路は元の文書で解き、失敗時は結果を返さない。図面のモジュールに置く。マイナーバージョン 84 から
+class DeliveryApplyRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliveryApplyRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  DeliveryApplyRequest() : super({'op': 'delivery_apply'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 管理 XML の入力の名前
+  String? get input => readField('input', asString);
+  set input(String? value) => writeField('input', value);
+
+  /// 元の XML の文書ハッシュ。違えば変更しない。省略すれば検査しない
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 指定する順の変更。同じ親への追加は順序を保つ
+  List<DeliveryEdit>? get edits => readField('edits', listOf(objectOf(DeliveryEdit.fromJson)));
+  set edits(List<DeliveryEdit>? value) => writeField('edits', value);
+}
+
+/// 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない
+class DeliveryApplyResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliveryApplyResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeliveryApplyResult() : super({});
+
+  /// 元の入力の名前
+  String? get input => readField('input', asString);
+  set input(String? value) => writeField('input', value);
+
+  /// 変更後のバイト列の文書ハッシュ
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 適用した変更の数
+  core.int? get applied => readField('applied', asInt);
+  set applied(core.int? value) => writeField('applied', value);
+}
+
+/// 根からたどる子。接頭辞を含む名前で区別する
+class DeliveryPathStep extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliveryPathStep.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeliveryPathStep() : super({});
+
+  /// 接頭辞を含む元の要素名
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 同名の兄弟の中の位置。0 から数え、省略すると 0
+  core.int? get index => readField('index', asInt);
+  set index(core.int? value) => writeField('index', value);
+}
+
+/// 親の名前空間を引き継ぐ追加要素。属性と名前空間宣言は追加しない
+class DeliveryNewElement extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliveryNewElement.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeliveryNewElement() : super({});
+
+  /// 接頭辞を含む要素名。接頭辞は親で宣言済みのものに限る
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 子の前に書く文字。文字参照にする前の値
+  String? get value => readField('value', asString);
+  set value(String? value) => writeField('value', value);
+
+  /// 子の要素。書く順。省略すると空
+  List<DeliveryNewElement>? get children => readField('children', listOf(objectOf(DeliveryNewElement.fromJson)));
+  set children(List<DeliveryNewElement>? value) => writeField('children', value);
+}
+
+/// 元の文書の項目の更新か、子の記録の追加。空の path は根を指す。同じ項目の更新を重ねたり、更新と追加を混ぜたりしない
+class DeliveryEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliveryEdit.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeliveryEdit() : super({});
+
+  /// kind が set_text の形なら、そのビュー。違えば null
+  DeliverySetText? get asDeliverySetText => taggedView('kind', 'set_text', DeliverySetText.fromJson);
+
+  /// kind が append の形なら、そのビュー。違えば null
+  DeliveryAppend? get asDeliveryAppend => taggedView('kind', 'append', DeliveryAppend.fromJson);
+}
+
+/// 子の要素を持たない項目の文字を置き換える。注記と処理命令は保つ
+class DeliverySetText extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliverySetText.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  DeliverySetText() : super({'kind': 'set_text'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 根からの経路
+  List<DeliveryPathStep>? get path => readField('path', listOf(objectOf(DeliveryPathStep.fromJson)));
+  set path(List<DeliveryPathStep>? value) => writeField('path', value);
+
+  /// 文字参照にする前の値
+  String? get value => readField('value', asString);
+  set value(String? value) => writeField('value', value);
+}
+
+/// 親の末尾に子の記録を足す。名前・文字コード・予算を検査する
+class DeliveryAppend extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliveryAppend.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  DeliveryAppend() : super({'kind': 'append'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 親の根からの経路
+  List<DeliveryPathStep>? get path => readField('path', listOf(objectOf(DeliveryPathStep.fromJson)));
+  set path(List<DeliveryPathStep>? value) => writeField('path', value);
+
+  /// 追加する記録の木
+  DeliveryNewElement? get child => readField('child', objectOf(DeliveryNewElement.fromJson));
+  set child(DeliveryNewElement? value) => writeField('child', value);
+}
+
 /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
 class DeliveryCheckRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -8790,6 +8954,7 @@ abstract final class Operations {
   static const civilDrawing = 'civil_drawing';
   static const geo = 'geo';
   static const deliveryCheck = 'delivery_check';
+  static const deliveryApply = 'delivery_apply';
   static const photo = 'photo';
   static const boring = 'boring';
   static const buildingApply = 'building_apply';

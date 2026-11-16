@@ -174,6 +174,11 @@ public struct Request: Message {
         taggedView("op", "delivery_check")
     }
 
+    /// op が delivery_apply の形なら、そのビュー。違えば nil
+    public var asDeliveryApplyRequest: DeliveryApplyRequest? {
+        taggedView("op", "delivery_apply")
+    }
+
     /// op が photo の形なら、そのビュー。違えば nil
     public var asPhotoRequest: PhotoRequest? {
         taggedView("op", "photo")
@@ -11715,6 +11720,261 @@ public struct PointcloudPoints: Message {
     }
 }
 
+/// 管理 XML の項目を変更し、file blob を返す。入力は変更しない。すべての経路は元の文書で解き、失敗時は結果を返さない。図面のモジュールに置く。マイナーバージョン 84 から
+public struct DeliveryApplyRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("delivery_apply")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 管理 XML の入力の名前
+    public var input: String? {
+        get { readField("input") }
+        set { writeField("input", newValue) }
+    }
+
+    /// 元の XML の文書ハッシュ。違えば変更しない。省略すれば検査しない
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 指定する順の変更。同じ親への追加は順序を保つ
+    public var edits: [DeliveryEdit]? {
+        get { readField("edits") }
+        set { writeField("edits", newValue) }
+    }
+}
+
+/// 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない
+public struct DeliveryApplyResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の入力の名前
+    public var input: String? {
+        get { readField("input") }
+        set { writeField("input", newValue) }
+    }
+
+    /// 変更後のバイト列の文書ハッシュ
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 適用した変更の数
+    public var applied: Int64? {
+        get { readField("applied") }
+        set { writeField("applied", newValue) }
+    }
+}
+
+/// 根からたどる子。接頭辞を含む名前で区別する
+public struct DeliveryPathStep: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 接頭辞を含む元の要素名
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 同名の兄弟の中の位置。0 から数え、省略すると 0
+    public var index: Int64? {
+        get { readField("index") }
+        set { writeField("index", newValue) }
+    }
+}
+
+/// 親の名前空間を引き継ぐ追加要素。属性と名前空間宣言は追加しない
+public struct DeliveryNewElement: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 接頭辞を含む要素名。接頭辞は親で宣言済みのものに限る
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 子の前に書く文字。文字参照にする前の値
+    public var value: String? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+
+    /// 子の要素。書く順。省略すると空
+    public var children: [DeliveryNewElement]? {
+        get { readField("children") }
+        set { writeField("children", newValue) }
+    }
+}
+
+/// 元の文書の項目の更新か、子の記録の追加。空の path は根を指す。同じ項目の更新を重ねたり、更新と追加を混ぜたりしない
+public struct DeliveryEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// kind が set_text の形なら、そのビュー。違えば nil
+    public var asDeliverySetText: DeliverySetText? {
+        taggedView("kind", "set_text")
+    }
+
+    /// kind が append の形なら、そのビュー。違えば nil
+    public var asDeliveryAppend: DeliveryAppend? {
+        taggedView("kind", "append")
+    }
+}
+
+/// 子の要素を持たない項目の文字を置き換える。注記と処理命令は保つ
+public struct DeliverySetText: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("set_text")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 根からの経路
+    public var path: [DeliveryPathStep]? {
+        get { readField("path") }
+        set { writeField("path", newValue) }
+    }
+
+    /// 文字参照にする前の値
+    public var value: String? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+}
+
+/// 親の末尾に子の記録を足す。名前・文字コード・予算を検査する
+public struct DeliveryAppend: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("append")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 親の根からの経路
+    public var path: [DeliveryPathStep]? {
+        get { readField("path") }
+        set { writeField("path", newValue) }
+    }
+
+    /// 追加する記録の木
+    public var child: DeliveryNewElement? {
+        get { readField("child") }
+        set { writeField("child", newValue) }
+    }
+}
+
 /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
 public struct DeliveryCheckRequest: Message {
     /// 包んでいる JSON のオブジェクト
@@ -13523,6 +13783,7 @@ public enum Operations {
     public static let civilDrawing = "civil_drawing"
     public static let geo = "geo"
     public static let deliveryCheck = "delivery_check"
+    public static let deliveryApply = "delivery_apply"
     public static let photo = "photo"
     public static let boring = "boring"
     public static let buildingApply = "building_apply"

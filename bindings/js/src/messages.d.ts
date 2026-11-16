@@ -38,6 +38,7 @@ export type Request =
   | CivilDrawingRequest
   | GeoRequest
   | DeliveryCheckRequest
+  | DeliveryApplyRequest
   | PhotoRequest
   | BoringRequest
   | BuildingApplyRequest
@@ -3479,6 +3480,71 @@ export interface PointcloudPoints {
   level: number;
 }
 
+/** 管理 XML の項目を変更し、file blob を返す。入力は変更しない。すべての経路は元の文書で解き、失敗時は結果を返さない。図面のモジュールに置く。マイナーバージョン 84 から */
+export interface DeliveryApplyRequest extends RequestCommon {
+  /** op の名前 */
+  op: "delivery_apply";
+  /** 管理 XML の入力の名前 */
+  input: string;
+  /** 元の XML の文書ハッシュ。違えば変更しない。省略すれば検査しない */
+  hash?: string;
+  /** 指定する順の変更。同じ親への追加は順序を保つ */
+  edits: DeliveryEdit[];
+}
+
+/** 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない */
+export interface DeliveryApplyResult {
+  /** 元の入力の名前 */
+  input: string;
+  /** 変更後のバイト列の文書ハッシュ */
+  hash: string;
+  /** 適用した変更の数 */
+  applied: number;
+}
+
+/** 根からたどる子。接頭辞を含む名前で区別する */
+export interface DeliveryPathStep {
+  /** 接頭辞を含む元の要素名 */
+  name: string;
+  /** 同名の兄弟の中の位置。0 から数え、省略すると 0 */
+  index?: number;
+}
+
+/** 親の名前空間を引き継ぐ追加要素。属性と名前空間宣言は追加しない */
+export interface DeliveryNewElement {
+  /** 接頭辞を含む要素名。接頭辞は親で宣言済みのものに限る */
+  name: string;
+  /** 子の前に書く文字。文字参照にする前の値 */
+  value?: string;
+  /** 子の要素。書く順。省略すると空 */
+  children?: DeliveryNewElement[];
+}
+
+/** 元の文書の項目の更新か、子の記録の追加。空の path は根を指す。同じ項目の更新を重ねたり、更新と追加を混ぜたりしない */
+export type DeliveryEdit =
+  | DeliverySetText
+  | DeliveryAppend;
+
+/** 子の要素を持たない項目の文字を置き換える。注記と処理命令は保つ */
+export interface DeliverySetText {
+  /** 変更の種類 */
+  kind: "set_text";
+  /** 根からの経路 */
+  path: DeliveryPathStep[];
+  /** 文字参照にする前の値 */
+  value: string;
+}
+
+/** 親の末尾に子の記録を足す。名前・文字コード・予算を検査する */
+export interface DeliveryAppend {
+  /** 変更の種類 */
+  kind: "append";
+  /** 親の根からの経路 */
+  path: DeliveryPathStep[];
+  /** 追加する記録の木 */
+  child: DeliveryNewElement;
+}
+
 /** 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から */
 export interface DeliveryCheckRequest extends RequestCommon {
   /** op の名前 */
@@ -4025,6 +4091,7 @@ export interface Operations {
   civil_drawing: { request: CivilDrawingRequest; result: CivilDrawingResult };
   geo: { request: GeoRequest; result: GeoResult };
   delivery_check: { request: DeliveryCheckRequest; result: DeliveryCheckResult };
+  delivery_apply: { request: DeliveryApplyRequest; result: DeliveryApplyResult };
   photo: { request: PhotoRequest; result: PhotoResult };
   boring: { request: BoringRequest; result: BoringResult };
   building_apply: { request: BuildingApplyRequest; result: BuildingApplyResult };

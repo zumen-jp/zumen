@@ -4,7 +4,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use zumen_xml::Node;
+use zumen_xml::{Edit, NewElement, Node};
 
 fuzz_target!(|data: &[u8]| {
     let read = zumen_sdk::testkit::survives_with(data, |src, cx| {
@@ -33,6 +33,26 @@ fuzz_target!(|data: &[u8]| {
             "{} バイトの文書から、{decoded} バイトの文字を戻した",
             src.len()
         );
+        let child = NewElement {
+            name: "added".into(),
+            value: Some("<&>\n\r".into()),
+            children: Vec::new(),
+        };
+        let element =
+            u64::from(src.last().copied().unwrap_or(0)) % (doc.elements().len() as u64 + 1);
+        let edit = if src.len() % 2 == 0 {
+            Edit::Append {
+                element,
+                child: &child,
+            }
+        } else {
+            Edit::SetText {
+                element,
+                value: "<&>\n\r",
+            }
+        };
+        let bytes = zumen_xml::write(&doc, &[edit], cx)?;
+        zumen_xml::read(&bytes, cx)?;
         Ok(())
     });
     if let Err(message) = read {

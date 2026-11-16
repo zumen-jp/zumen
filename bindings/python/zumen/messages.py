@@ -41,6 +41,7 @@ Request = Union[
     "CivilDrawingRequest",
     "GeoRequest",
     "DeliveryCheckRequest",
+    "DeliveryApplyRequest",
     "PhotoRequest",
     "BoringRequest",
     "BuildingApplyRequest",
@@ -5979,6 +5980,136 @@ class PointcloudPoints(_PointcloudPointsRequired, _PointcloudPointsOptional):
     "選んだ点。どの列も、選んだ点の順で同じ長さにする"
 
 
+# 管理 XML の項目を変更し、file blob を返す。入力は変更しない。すべての経路は元の文書で解き、失敗時は結果を返さない。図面のモジュールに置く。マイナーバージョン 84 から
+_DeliveryApplyRequestRequired = TypedDict(
+    "_DeliveryApplyRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["delivery_apply"],
+        # 管理 XML の入力の名前
+        "input": str,
+        # 指定する順の変更。同じ親への追加は順序を保つ
+        "edits": List["DeliveryEdit"],
+    },
+)
+_DeliveryApplyRequestOptional = TypedDict(
+    "_DeliveryApplyRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 元の XML の文書ハッシュ。違えば変更しない。省略すれば検査しない
+        "hash": str,
+    },
+    total=False,
+)
+
+
+class DeliveryApplyRequest(_DeliveryApplyRequestRequired, _DeliveryApplyRequestOptional):
+    "管理 XML の項目を変更し、file blob を返す。入力は変更しない。すべての経路は元の文書で解き、失敗時は結果を返さない。図面のモジュールに置く。マイナーバージョン 84 から"
+
+
+# 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない
+DeliveryApplyResult = TypedDict(
+    "DeliveryApplyResult",
+    {
+        # 元の入力の名前
+        "input": str,
+        # 変更後のバイト列の文書ハッシュ
+        "hash": str,
+        # 適用した変更の数
+        "applied": int,
+    },
+)
+
+
+# 根からたどる子。接頭辞を含む名前で区別する
+_DeliveryPathStepRequired = TypedDict(
+    "_DeliveryPathStepRequired",
+    {
+        # 接頭辞を含む元の要素名
+        "name": str,
+    },
+)
+_DeliveryPathStepOptional = TypedDict(
+    "_DeliveryPathStepOptional",
+    {
+        # 同名の兄弟の中の位置。0 から数え、省略すると 0
+        "index": int,
+    },
+    total=False,
+)
+
+
+class DeliveryPathStep(_DeliveryPathStepRequired, _DeliveryPathStepOptional):
+    "根からたどる子。接頭辞を含む名前で区別する"
+
+
+# 親の名前空間を引き継ぐ追加要素。属性と名前空間宣言は追加しない
+_DeliveryNewElementRequired = TypedDict(
+    "_DeliveryNewElementRequired",
+    {
+        # 接頭辞を含む要素名。接頭辞は親で宣言済みのものに限る
+        "name": str,
+    },
+)
+_DeliveryNewElementOptional = TypedDict(
+    "_DeliveryNewElementOptional",
+    {
+        # 子の前に書く文字。文字参照にする前の値
+        "value": str,
+        # 子の要素。書く順。省略すると空
+        "children": List["DeliveryNewElement"],
+    },
+    total=False,
+)
+
+
+class DeliveryNewElement(_DeliveryNewElementRequired, _DeliveryNewElementOptional):
+    "親の名前空間を引き継ぐ追加要素。属性と名前空間宣言は追加しない"
+
+# 元の文書の項目の更新か、子の記録の追加。空の path は根を指す。同じ項目の更新を重ねたり、更新と追加を混ぜたりしない
+DeliveryEdit = Union[
+    "DeliverySetText",
+    "DeliveryAppend",
+]
+
+
+# 子の要素を持たない項目の文字を置き換える。注記と処理命令は保つ
+DeliverySetText = TypedDict(
+    "DeliverySetText",
+    {
+        # 変更の種類
+        "kind": Literal["set_text"],
+        # 根からの経路
+        "path": List["DeliveryPathStep"],
+        # 文字参照にする前の値
+        "value": str,
+    },
+)
+
+
+# 親の末尾に子の記録を足す。名前・文字コード・予算を検査する
+DeliveryAppend = TypedDict(
+    "DeliveryAppend",
+    {
+        # 変更の種類
+        "kind": Literal["append"],
+        # 親の根からの経路
+        "path": List["DeliveryPathStep"],
+        # 追加する記録の木
+        "child": "DeliveryNewElement",
+    },
+)
+
+
 # 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
 _DeliveryCheckRequestRequired = TypedDict(
     "_DeliveryCheckRequestRequired",
@@ -6938,6 +7069,7 @@ Operation = Literal[
     "civil_drawing",
     "geo",
     "delivery_check",
+    "delivery_apply",
     "photo",
     "boring",
     "building_apply",
@@ -6980,6 +7112,7 @@ OPERATIONS: Dict[str, Any] = {
     "civil_drawing": ("CivilDrawingRequest", "CivilDrawingResult"),
     "geo": ("GeoRequest", "GeoResult"),
     "delivery_check": ("DeliveryCheckRequest", "DeliveryCheckResult"),
+    "delivery_apply": ("DeliveryApplyRequest", "DeliveryApplyResult"),
     "photo": ("PhotoRequest", "PhotoResult"),
     "boring": ("BoringRequest", "BoringResult"),
     "building_apply": ("BuildingApplyRequest", "BuildingApplyResult"),

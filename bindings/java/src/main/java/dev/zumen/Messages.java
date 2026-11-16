@@ -222,6 +222,11 @@ public final class Messages {
             return "delivery_check".equals(json.get("op")) ? new DeliveryCheckRequest(json) : null;
         }
 
+        /** op が delivery_apply の形なら、そのビュー。違えば null */
+        public DeliveryApplyRequest asDeliveryApplyRequest() {
+            return "delivery_apply".equals(json.get("op")) ? new DeliveryApplyRequest(json) : null;
+        }
+
         /** op が photo の形なら、そのビュー。違えば null */
         public PhotoRequest asPhotoRequest() {
             return "photo".equals(json.get("op")) ? new PhotoRequest(json) : null;
@@ -19010,6 +19015,400 @@ public final class Messages {
         }
     }
 
+    /** 管理 XML の項目を変更し、file blob を返す。入力は変更しない。すべての経路は元の文書で解き、失敗時は結果を返さない。図面のモジュールに置く。マイナーバージョン 84 から */
+    public static final class DeliveryApplyRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliveryApplyRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliveryApplyRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliveryApplyRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public DeliveryApplyRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "delivery_apply");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public DeliveryApplyRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public DeliveryApplyRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public DeliveryApplyRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public DeliveryApplyRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public DeliveryApplyRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public DeliveryApplyRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 管理 XML の入力の名前 */
+        public String getInput() {
+            return Json.read(json.get("input"), Json::string);
+        }
+
+        /** {@link #getInput()} を書く。null ならフィールドを除く */
+        public DeliveryApplyRequest withInput(String value) {
+            put("input", value);
+            return this;
+        }
+
+        /** 元の XML の文書ハッシュ。違えば変更しない。省略すれば検査しない */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public DeliveryApplyRequest withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 指定する順の変更。同じ親への追加は順序を保つ */
+        public List<DeliveryEdit> getEdits() {
+            return Json.read(json.get("edits"), v0 -> Json.list(v0, DeliveryEdit::of));
+        }
+
+        /** {@link #getEdits()} を書く。null ならフィールドを除く */
+        public DeliveryApplyRequest withEdits(List<DeliveryEdit> value) {
+            put("edits", value);
+            return this;
+        }
+    }
+
+    /** 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない */
+    public static final class DeliveryApplyResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliveryApplyResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliveryApplyResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliveryApplyResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeliveryApplyResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の入力の名前 */
+        public String getInput() {
+            return Json.read(json.get("input"), Json::string);
+        }
+
+        /** {@link #getInput()} を書く。null ならフィールドを除く */
+        public DeliveryApplyResult withInput(String value) {
+            put("input", value);
+            return this;
+        }
+
+        /** 変更後のバイト列の文書ハッシュ */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public DeliveryApplyResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 適用した変更の数 */
+        public Long getApplied() {
+            return Json.read(json.get("applied"), Json::integer);
+        }
+
+        /** {@link #getApplied()} を書く。null ならフィールドを除く */
+        public DeliveryApplyResult withApplied(Long value) {
+            put("applied", value);
+            return this;
+        }
+    }
+
+    /** 根からたどる子。接頭辞を含む名前で区別する */
+    public static final class DeliveryPathStep extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliveryPathStep(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliveryPathStep of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliveryPathStep(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeliveryPathStep() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 接頭辞を含む元の要素名 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public DeliveryPathStep withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 同名の兄弟の中の位置。0 から数え、省略すると 0 */
+        public Long getIndex() {
+            return Json.read(json.get("index"), Json::integer);
+        }
+
+        /** {@link #getIndex()} を書く。null ならフィールドを除く */
+        public DeliveryPathStep withIndex(Long value) {
+            put("index", value);
+            return this;
+        }
+    }
+
+    /** 親の名前空間を引き継ぐ追加要素。属性と名前空間宣言は追加しない */
+    public static final class DeliveryNewElement extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliveryNewElement(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliveryNewElement of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliveryNewElement(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeliveryNewElement() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 接頭辞を含む要素名。接頭辞は親で宣言済みのものに限る */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public DeliveryNewElement withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 子の前に書く文字。文字参照にする前の値 */
+        public String getValue() {
+            return Json.read(json.get("value"), Json::string);
+        }
+
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
+        public DeliveryNewElement withValue(String value) {
+            put("value", value);
+            return this;
+        }
+
+        /** 子の要素。書く順。省略すると空 */
+        public List<DeliveryNewElement> getChildren() {
+            return Json.read(json.get("children"), v0 -> Json.list(v0, DeliveryNewElement::of));
+        }
+
+        /** {@link #getChildren()} を書く。null ならフィールドを除く */
+        public DeliveryNewElement withChildren(List<DeliveryNewElement> value) {
+            put("children", value);
+            return this;
+        }
+    }
+
+    /** 元の文書の項目の更新か、子の記録の追加。空の path は根を指す。同じ項目の更新を重ねたり、更新と追加を混ぜたりしない */
+    public static final class DeliveryEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliveryEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliveryEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliveryEdit(json);
+        }
+
+        /** kind が set_text の形なら、そのビュー。違えば null */
+        public DeliverySetText asDeliverySetText() {
+            return "set_text".equals(json.get("kind")) ? new DeliverySetText(json) : null;
+        }
+
+        /** kind が append の形なら、そのビュー。違えば null */
+        public DeliveryAppend asDeliveryAppend() {
+            return "append".equals(json.get("kind")) ? new DeliveryAppend(json) : null;
+        }
+    }
+
+    /** 子の要素を持たない項目の文字を置き換える。注記と処理命令は保つ */
+    public static final class DeliverySetText extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliverySetText(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliverySetText of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliverySetText(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public DeliverySetText() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "set_text");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public DeliverySetText withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 根からの経路 */
+        public List<DeliveryPathStep> getPath() {
+            return Json.read(json.get("path"), v0 -> Json.list(v0, DeliveryPathStep::of));
+        }
+
+        /** {@link #getPath()} を書く。null ならフィールドを除く */
+        public DeliverySetText withPath(List<DeliveryPathStep> value) {
+            put("path", value);
+            return this;
+        }
+
+        /** 文字参照にする前の値 */
+        public String getValue() {
+            return Json.read(json.get("value"), Json::string);
+        }
+
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
+        public DeliverySetText withValue(String value) {
+            put("value", value);
+            return this;
+        }
+    }
+
+    /** 親の末尾に子の記録を足す。名前・文字コード・予算を検査する */
+    public static final class DeliveryAppend extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliveryAppend(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliveryAppend of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliveryAppend(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public DeliveryAppend() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "append");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public DeliveryAppend withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 親の根からの経路 */
+        public List<DeliveryPathStep> getPath() {
+            return Json.read(json.get("path"), v0 -> Json.list(v0, DeliveryPathStep::of));
+        }
+
+        /** {@link #getPath()} を書く。null ならフィールドを除く */
+        public DeliveryAppend withPath(List<DeliveryPathStep> value) {
+            put("path", value);
+            return this;
+        }
+
+        /** 追加する記録の木 */
+        public DeliveryNewElement getChild() {
+            return Json.read(json.get("child"), DeliveryNewElement::of);
+        }
+
+        /** {@link #getChild()} を書く。null ならフィールドを除く */
+        public DeliveryAppend withChild(DeliveryNewElement value) {
+            put("child", value);
+            return this;
+        }
+    }
+
     /** 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から */
     public static final class DeliveryCheckRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -21998,6 +22397,8 @@ public final class Messages {
         public static final String GEO = "geo";
 
         public static final String DELIVERY_CHECK = "delivery_check";
+
+        public static final String DELIVERY_APPLY = "delivery_apply";
 
         public static final String PHOTO = "photo";
 

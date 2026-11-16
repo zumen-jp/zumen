@@ -75,6 +75,8 @@ pub enum Request {
     Geo(GeoRequest),
     /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
     DeliveryCheck(DeliveryCheckRequest),
+    /// 管理 XML の項目を変更し、file blob を返す。入力は変更しない。すべての経路は元の文書で解き、失敗時は結果を返さない。図面のモジュールに置く。マイナーバージョン 84 から
+    DeliveryApply(DeliveryApplyRequest),
     /// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。マイナーバージョン 55 から
     Photo(PhotoRequest),
     /// 地質・土質調査のボーリング交換用データ（BED0500.DTD の XML）を読み、ボーリングの位置・標高と、地層・色調・観察記事・標準貫入試験・孔内水位を返す（#390）。ほかの試験と判定表は読まない。図面のモジュールに置く。マイナーバージョン 57 から
@@ -124,6 +126,7 @@ impl Request {
         "civil_drawing",
         "geo",
         "delivery_check",
+        "delivery_apply",
         "photo",
         "boring",
         "building_apply",
@@ -167,6 +170,7 @@ impl Request {
             Self::CivilDrawing(_) => "civil_drawing",
             Self::Geo(_) => "geo",
             Self::DeliveryCheck(_) => "delivery_check",
+            Self::DeliveryApply(_) => "delivery_apply",
             Self::Photo(_) => "photo",
             Self::Boring(_) => "boring",
             Self::BuildingApply(_) => "building_apply",
@@ -223,6 +227,9 @@ impl FromJson for Request {
             "delivery_check" => {
                 Self::DeliveryCheck(DeliveryCheckRequest::read_fields(&mut object)?)
             }
+            "delivery_apply" => {
+                Self::DeliveryApply(DeliveryApplyRequest::read_fields(&mut object)?)
+            }
             "photo" => Self::Photo(PhotoRequest::read_fields(&mut object)?),
             "boring" => Self::Boring(BoringRequest::read_fields(&mut object)?),
             "building_apply" => {
@@ -273,6 +280,7 @@ impl ToJson for Request {
             Self::CivilDrawing(value) => value.to_json(out),
             Self::Geo(value) => value.to_json(out),
             Self::DeliveryCheck(value) => value.to_json(out),
+            Self::DeliveryApply(value) => value.to_json(out),
             Self::Photo(value) => value.to_json(out),
             Self::Boring(value) => value.to_json(out),
             Self::BuildingApply(value) => value.to_json(out),
@@ -17113,6 +17121,353 @@ impl FromJson for PointcloudPoints {
 }
 
 impl ToJson for PointcloudPoints {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 管理 XML の項目を変更し、file blob を返す。入力は変更しない。すべての経路は元の文書で解き、失敗時は結果を返さない。図面のモジュールに置く。マイナーバージョン 84 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliveryApplyRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 管理 XML の入力の名前
+    pub input: String,
+    /// 元の XML の文書ハッシュ。違えば変更しない。省略すれば検査しない
+    pub hash: Option<String>,
+    /// 指定する順の変更。同じ親への追加は順序を保つ
+    pub edits: Vec<DeliveryEdit>,
+}
+
+impl DeliveryApplyRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "delivery_apply")?;
+        let input = object.required("input", json::string)?;
+        let hash = object.optional("hash", json::string)?;
+        let edits =
+            object.required("edits", |value| json::array(value, DeliveryEdit::from_json))?;
+        Ok(Self {
+            request_common,
+            input,
+            hash,
+            edits,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("delivery_apply");
+        out.key("input");
+        out.string(&self.input);
+        if let Some(value) = &self.hash {
+            out.key("hash");
+            out.string(value);
+        }
+        out.key("edits");
+        out.array(&self.edits, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for DeliveryApplyRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliveryApplyRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliveryApplyResult {
+    /// 元の入力の名前
+    pub input: String,
+    /// 変更後のバイト列の文書ハッシュ
+    pub hash: String,
+    /// 適用した変更の数
+    pub applied: u64,
+}
+
+impl DeliveryApplyResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let input = object.required("input", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let applied = object.required("applied", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            input,
+            hash,
+            applied,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("input");
+        out.string(&self.input);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("applied");
+        out.uint(self.applied);
+    }
+}
+
+impl FromJson for DeliveryApplyResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliveryApplyResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 根からたどる子。接頭辞を含む名前で区別する
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliveryPathStep {
+    /// 接頭辞を含む元の要素名
+    pub name: String,
+    /// 同名の兄弟の中の位置。0 から数え、省略すると 0
+    pub index: Option<u64>,
+}
+
+impl DeliveryPathStep {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let index = object.optional("index", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self { name, index })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.index {
+            out.key("index");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for DeliveryPathStep {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliveryPathStep {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 親の名前空間を引き継ぐ追加要素。属性と名前空間宣言は追加しない
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliveryNewElement {
+    /// 接頭辞を含む要素名。接頭辞は親で宣言済みのものに限る
+    pub name: String,
+    /// 子の前に書く文字。文字参照にする前の値
+    pub value: Option<String>,
+    /// 子の要素。書く順。省略すると空
+    pub children: Option<Vec<DeliveryNewElement>>,
+}
+
+impl DeliveryNewElement {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let name = object.required("name", json::string)?;
+        let value = object.optional("value", json::string)?;
+        let children = object.optional("children", |value| {
+            json::array(value, DeliveryNewElement::from_json)
+        })?;
+        Ok(Self {
+            name,
+            value,
+            children,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.value {
+            out.key("value");
+            out.string(value);
+        }
+        if let Some(value) = &self.children {
+            out.key("children");
+            out.array(value, |out, item| item.to_json(out));
+        }
+    }
+}
+
+impl FromJson for DeliveryNewElement {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliveryNewElement {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 元の文書の項目の更新か、子の記録の追加。空の path は根を指す。同じ項目の更新を重ねたり、更新と追加を混ぜたりしない
+#[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum DeliveryEdit {
+    /// 子の要素を持たない項目の文字を置き換える。注記と処理命令は保つ
+    SetText(DeliverySetText),
+    /// 親の末尾に子の記録を足す。名前・文字コード・予算を検査する
+    Append(DeliveryAppend),
+}
+
+impl DeliveryEdit {
+    /// タグのフィールド（`kind`）の値（スキーマの順）
+    pub const TAGS: &[&str] = &["set_text", "append"];
+
+    /// タグのフィールド（`kind`）の値
+    pub const fn tag(&self) -> &'static str {
+        match self {
+            Self::SetText(_) => "set_text",
+            Self::Append(_) => "append",
+        }
+    }
+}
+
+impl FromJson for DeliveryEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = match object.tag("kind")? {
+            "set_text" => Self::SetText(DeliverySetText::read_fields(&mut object)?),
+            "append" => Self::Append(DeliveryAppend::read_fields(&mut object)?),
+            other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
+        };
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliveryEdit {
+    fn to_json(&self, out: &mut Writer) {
+        match self {
+            Self::SetText(value) => value.to_json(out),
+            Self::Append(value) => value.to_json(out),
+        }
+    }
+}
+
+/// 子の要素を持たない項目の文字を置き換える。注記と処理命令は保つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliverySetText {
+    /// 根からの経路
+    pub path: Vec<DeliveryPathStep>,
+    /// 文字参照にする前の値
+    pub value: String,
+}
+
+impl DeliverySetText {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "set_text")?;
+        let path = object.required("path", |value| {
+            json::array(value, DeliveryPathStep::from_json)
+        })?;
+        let value = object.required("value", json::string)?;
+        Ok(Self { path, value })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("set_text");
+        out.key("path");
+        out.array(&self.path, |out, item| item.to_json(out));
+        out.key("value");
+        out.string(&self.value);
+    }
+}
+
+impl FromJson for DeliverySetText {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliverySetText {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 親の末尾に子の記録を足す。名前・文字コード・予算を検査する
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliveryAppend {
+    /// 親の根からの経路
+    pub path: Vec<DeliveryPathStep>,
+    /// 追加する記録の木
+    pub child: DeliveryNewElement,
+}
+
+impl DeliveryAppend {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "append")?;
+        let path = object.required("path", |value| {
+            json::array(value, DeliveryPathStep::from_json)
+        })?;
+        let child = object.required("child", DeliveryNewElement::from_json)?;
+        Ok(Self { path, child })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("append");
+        out.key("path");
+        out.array(&self.path, |out, item| item.to_json(out));
+        out.key("child");
+        self.child.to_json(out);
+    }
+}
+
+impl FromJson for DeliveryAppend {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliveryAppend {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

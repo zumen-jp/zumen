@@ -33,6 +33,17 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `test_check_autocad.py` | `check_autocad.py` の、流すスクリプトの組み立て、コンソールの出力と書き出しの読み、形の値への直し、寸法と表の部品の比べ方を、合成の入力で確かめる。AutoCAD がなくても流せる |
 | `dump.lsp` | AutoCAD で開いた図面の画層・線種・文字スタイルの表と図形を、ハンドルごとに 1 行で書き出す。`check_autocad.py` がスクリプトに埋めて流す。キットの README の手順でも使う |
 
+## 管理 XML の書き戻しを照らす
+
+要領の作成例を使わずに組み立てた管理 XML を、公開操作の `delivery_apply` で更新します。7 組の符号化・BOM と LF・CRLF・CR を対象に、Python の文字コード変換と Expat で、指定箇所以外のバイト列、宣言、属性、注記・処理命令、名前空間、文字とファイル参照を照らします。新しい依存は不要です。外部 DTD は取得せず、電子納品要領の適合性の外部検証には数えません。
+
+```bash
+cargo run -p zumen-abi --example delivery_apply_case -- --output target/verify-delivery
+python xtask/verify/check_delivery_apply.py target/verify-delivery
+```
+
+2026-11-16 に Python 3.14・Expat 2.8.5 で 7 組が一致しました。Shift_JIS は Python の `cp932` で復号してから XML を読みます。再読した値・ファイル参照・DTD の名前を `delivery_check` と自作プロファイルで照らす検査は、ABI のテストと適合入力にも含めています。
+
 ## 使い方
 
 ```bash

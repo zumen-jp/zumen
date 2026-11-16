@@ -25,6 +25,20 @@ VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenN
 
 DXF のバージョン・既定の表・空間と用紙は、[新規作成の規則](../docs/formats/dxf.md#空の-dxf-を作る)に従います。既存の文書は上書きしません。未対応形式は `create.format.unsupported`、不正な名前は `call.value.invalid`、既存の名前は `call.document.exists` で拒否します。予算停止・中断・失敗で文書や blob は残りません。入力を登録してある同名の名前は変更せず、文書名とは別に扱います。
 
+## 管理 XML の変更
+
+スキーマ 1.84 から、図面のモジュールで `delivery_apply` を使えます。`zm_push` した管理 XML の `input` と `edits` を渡すと、変更後の XML を 1 個の `file` blob で返します。結果は `input`・変更後の `hash`・変更数の `applied` です。入力の登録内容は変えません。blob を取り出し、`close` の `inputs` で元の登録を捨ててから同じ名前で `zm_push` し、`delivery_check` で成果品全体を照らせます。
+
+```json
+{"v":1,"op":"delivery_apply","input":"納品/INDEX_C.XML","edits":[{"kind":"set_text","path":[{"name":"基礎情報"},{"name":"工事名称"}],"value":"道路改良工事"},{"kind":"append","path":[{"name":"基礎情報"}],"child":{"name":"備考","value":"確認済み"}}]}
+```
+
+`path` は根からたどる子の列で、空なら根を指します。`name` は接頭辞を含む元の名前、`index` は同名の兄弟の中の 0 始まりの位置（省略時は 0）です。すべての経路を変更前の XML で解きます。同じ要求で追加した項目は経路で指さず、`child.children` にまとめます。同じ親への `append` は指定した順に書きます。
+
+`set_text` は子要素を持たない項目に使い、注記と処理命令を保ちます。`append.child` は `name`・任意の `value`・任意の `children` を持つ木です。属性や名前空間宣言は追加せず、親で宣言済みの接頭辞を使います。`value` は文字参照にする前の文字で、`children` があればその前に書きます。
+
+任意の `hash` は元の XML の文書ハッシュです。`edits: []` で元のバイト列とハッシュを得られます。古いハッシュ、存在しない経路、同じ項目への複数の更新、更新と追加の重複、表せない文字・名前は拒否します。予算停止・中断・失敗では結果も blob も返さず、`partial: true` でも一部だけは適用しません。保持する書式・診断・未対応範囲は[管理 XML の書き戻し](../docs/formats/delivery.md#管理-xml-の書き戻し)にあります。
+
 ## 図面の詳細
 
 スキーマ 1.81 から `tables.symbols` は記号の定義を元の順で返します。未配置の定義も含め、`id` は `entities.place` と同じです。`namespace` と `name` は定義を識別するキーで、JWW の `name` はブロック番号の文字列です。基点・属性のタグと既定値・入力の指定・無名の区別・外部参照名・出所も返します。外部の参照先は開きません。属性の配置と書式は元の定義に保ち、一覧には含めません。複数行の属性の元の文字列は `formatted_value` で読むために返します。

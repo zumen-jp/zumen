@@ -19,7 +19,7 @@
 | [cedxm](#format-cedxm) | CEDXM | cedxm | building | `permission` | `none` |  |  |
 | [citygml](#format-citygml) | CityGML（PLATEAU の 3D 都市モデルと i-UR を含む） | citygml | geo | `public` | `core` | `synthetic` |  |
 | [csv](#format-csv) | CSV | csv | delivery | `public` | `none` |  |  |
-| [delivery](#format-delivery) | 電子納品の管理ファイル（INDEX\_C.XML・PHOTO.XML など） | delivery | delivery | `public` | `core` | `synthetic` |  |
+| [delivery](#format-delivery) | 電子納品の管理ファイル（INDEX\_C.XML・PHOTO.XML など） | delivery | delivery | `public` | `core` | `synthetic` | `synthetic` |
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` | `application` | `application` |
 | [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` | `application` | `application` |
 | [e57](#format-e57) | E57（ASTM E2807） | e57 | pointcloud | `public` | `core` | `external` |  |
@@ -654,6 +654,8 @@
 - サンプルの出どころ: 再配布を認める公開サンプルは見つかっていない。国土交通省の作成例は転載が禁じられているので、テストの中で作る
 - 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
 - 読みの確かめた範囲: 要領・基準と、テストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。DTD での検証と、公開サンプルとの照合はまだ（#505）
+- 書きの確かめた度合い: `synthetic`（確認日: 2026-11-16）
+- 書きの確かめた範囲: 既存の管理 XML の文字の更新と記録の追加。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合したが、電子納品要領の外部検証や DTD による検証はしていない。公開サンプルの条件は読みと同じ
 - issue: [zumen-jp/zumen#383](https://github.com/zumen-jp/zumen/issues/383)
 - issue: [zumen-jp/zumen#384](https://github.com/zumen-jp/zumen/issues/384)
 - issue: [zumen-jp/zumen#388](https://github.com/zumen-jp/zumen/issues/388)

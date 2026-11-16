@@ -72,6 +72,7 @@ namespace Zumen.Messages
             ["civil_drawing"] = typeof(CivilDrawingRequest),
             ["geo"] = typeof(GeoRequest),
             ["delivery_check"] = typeof(DeliveryCheckRequest),
+            ["delivery_apply"] = typeof(DeliveryApplyRequest),
             ["photo"] = typeof(PhotoRequest),
             ["boring"] = typeof(BoringRequest),
             ["building_apply"] = typeof(BuildingApplyRequest),
@@ -9617,6 +9618,196 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 管理 XML の項目を変更し、file blob を返す。入力は変更しない。すべての経路は元の文書で解き、失敗時は結果を返さない。図面のモジュールに置く。マイナーバージョン 84 から
+    /// </summary>
+    public sealed record DeliveryApplyRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "delivery_apply";
+
+        /// <summary>
+        /// 管理 XML の入力の名前
+        /// </summary>
+        [JsonPropertyName("input")]
+        public string Input { get; init; } = default!;
+
+        /// <summary>
+        /// 元の XML の文書ハッシュ。違えば変更しない。省略すれば検査しない
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string? Hash { get; init; }
+
+        /// <summary>
+        /// 指定する順の変更。同じ親への追加は順序を保つ
+        /// </summary>
+        [JsonPropertyName("edits")]
+        public IReadOnlyList<JsonAny> Edits { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない
+    /// </summary>
+    public sealed record DeliveryApplyResult
+    {
+        /// <summary>
+        /// 元の入力の名前
+        /// </summary>
+        [JsonPropertyName("input")]
+        public string Input { get; init; } = default!;
+
+        /// <summary>
+        /// 変更後のバイト列の文書ハッシュ
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 適用した変更の数
+        /// </summary>
+        [JsonPropertyName("applied")]
+        public ulong Applied { get; init; }
+    }
+
+    /// <summary>
+    /// 根からたどる子。接頭辞を含む名前で区別する
+    /// </summary>
+    public sealed record DeliveryPathStep
+    {
+        /// <summary>
+        /// 接頭辞を含む元の要素名
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 同名の兄弟の中の位置。0 から数え、省略すると 0
+        /// </summary>
+        [JsonPropertyName("index")]
+        public ulong? Index { get; init; }
+    }
+
+    /// <summary>
+    /// 親の名前空間を引き継ぐ追加要素。属性と名前空間宣言は追加しない
+    /// </summary>
+    public sealed record DeliveryNewElement
+    {
+        /// <summary>
+        /// 接頭辞を含む要素名。接頭辞は親で宣言済みのものに限る
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 子の前に書く文字。文字参照にする前の値
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string? Value { get; init; }
+
+        /// <summary>
+        /// 子の要素。書く順。省略すると空
+        /// </summary>
+        [JsonPropertyName("children")]
+        public IReadOnlyList<DeliveryNewElement>? Children { get; init; }
+    }
+
+    /// <summary>
+    /// 元の文書の項目の更新か、子の記録の追加。空の path は根を指す。同じ項目の更新を重ねたり、更新と追加を混ぜたりしない
+    /// </summary>
+    public static class DeliveryEdit
+    {
+        /// <summary>タグのフィールドの名前</summary>
+        public const string Tag = "kind";
+
+        /// <summary>タグの値と、その形の型</summary>
+        public static readonly IReadOnlyDictionary<string, global::System.Type> Variants = new Dictionary<string, global::System.Type>
+        {
+            ["set_text"] = typeof(DeliverySetText),
+            ["append"] = typeof(DeliveryAppend),
+        };
+    }
+
+    /// <summary>
+    /// 子の要素を持たない項目の文字を置き換える。注記と処理命令は保つ
+    /// </summary>
+    public sealed record DeliverySetText
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "set_text";
+
+        /// <summary>
+        /// 根からの経路
+        /// </summary>
+        [JsonPropertyName("path")]
+        public IReadOnlyList<DeliveryPathStep> Path { get; init; } = default!;
+
+        /// <summary>
+        /// 文字参照にする前の値
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string Value { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 親の末尾に子の記録を足す。名前・文字コード・予算を検査する
+    /// </summary>
+    public sealed record DeliveryAppend
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "append";
+
+        /// <summary>
+        /// 親の根からの経路
+        /// </summary>
+        [JsonPropertyName("path")]
+        public IReadOnlyList<DeliveryPathStep> Path { get; init; } = default!;
+
+        /// <summary>
+        /// 追加する記録の木
+        /// </summary>
+        [JsonPropertyName("child")]
+        public DeliveryNewElement Child { get; init; } = default!;
+    }
+
+    /// <summary>
     /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
     /// </summary>
     public sealed record DeliveryCheckRequest
@@ -11134,6 +11325,7 @@ namespace Zumen.Messages
                 ["civil_drawing"] = (typeof(CivilDrawingRequest), typeof(CivilDrawingResult)),
                 ["geo"] = (typeof(GeoRequest), typeof(GeoResult)),
                 ["delivery_check"] = (typeof(DeliveryCheckRequest), typeof(DeliveryCheckResult)),
+                ["delivery_apply"] = (typeof(DeliveryApplyRequest), typeof(DeliveryApplyResult)),
                 ["photo"] = (typeof(PhotoRequest), typeof(PhotoResult)),
                 ["boring"] = (typeof(BoringRequest), typeof(BoringResult)),
                 ["building_apply"] = (typeof(BuildingApplyRequest), typeof(BuildingApplyResult)),

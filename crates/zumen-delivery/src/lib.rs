@@ -12,8 +12,10 @@ use zumen_sdk::Error;
 use zumen_xml::{Document, Element, Node};
 
 mod check;
+mod write;
 
 pub use check::{Report, check};
+pub use write::{Edit, NewElement, PathStep, write_xml};
 
 /// 成果品
 #[derive(Clone, Debug, Default, PartialEq)]

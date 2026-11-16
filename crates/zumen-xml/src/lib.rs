@@ -11,11 +11,13 @@ mod name;
 mod parse;
 mod text;
 mod utf16;
+mod write;
 
 use core::ops::Range;
 use std::borrow::Cow;
 
 pub use parse::read;
+pub use write::{Edit, NewElement, write};
 
 /// 文書の文字コード
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
