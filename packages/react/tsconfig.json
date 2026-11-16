@@ -3,8 +3,9 @@
   "compilerOptions": {
     "paths": {
       "@zumen-jp/zumen": ["../../bindings/js/src/index.d.ts"],
-      "@zumen-jp/view2d": ["../view2d/src/index.d.ts"]
+      "@zumen-jp/view2d": ["../view2d/src/index.d.ts"],
+      "@zumen-jp/view3d": ["../view3d/src/index.d.ts"]
     }
   },
-  "files": ["src/index.d.ts", "test/types.ts"]
+  "files": ["src/index.d.ts", "src/view3d.d.ts", "test/types.ts"]
 }

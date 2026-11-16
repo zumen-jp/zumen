@@ -463,11 +463,12 @@ jobs:
       - name: 3D の表示部品を、固定した three.js と Chromium の WebGL2 で確かめる（docs/view3d.md）
         if: env.TEST_VIEW3D == 'true'
         run: node bindings/js/test/browser/view3d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
-      - name: React のフックの寿命とプレイグラウンドの操作・通信を Chromium で確かめる
+      - name: React のフックの寿命とプレイグラウンドの操作・通信を Chromium で確かめる（3D は #818）
         if: env.TEST_REACT == 'true'
         run: |
           npm ci --ignore-scripts --no-audit --no-fund --prefix playground
           node bindings/js/test/browser/react.mjs chromium modules/zumen_abi1_drawing.wasm
+          node bindings/js/test/browser/react3d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: npm のパッケージを Vite で組み、必要な wasm だけをブラウザーで読み込むことを確かめる（決定 0268）
         if: env.TEST_CORE == 'true'
         run: node bindings/js/test/browser/bundle.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm

@@ -56,6 +56,30 @@ const { bytes, result, diagnostics } = await opened.convert(preview);
 
 Activity・Suspense が表示を切り離すときも、Worker を終了してその結果を消します。同じ入力で表示を再開すると、新しい読み込みの間は `loading` を返します。利用側の effect は、再び `ready` を受け取ってから新しいセッションへ出所を問い合わせられます。
 
+## 3D の表示
+
+3D のフックは `@zumen-jp/react/view3d` から読み込みます（[#818](https://github.com/zumen-jp/zumen/issues/818)）。表示部品は `@zumen-jp/view3d` と three.js 0.187 で、どちらも 3D を使うときだけ要る peer dependency です。2D だけを使う利用側は、この入口を読まない限り three.js を読みません。
+
+`useView3D(canvas, options?)` は Canvas の接続後に `View3D` を返し、Canvas・設定の差し替えとアンマウントで破棄します。GPU の資源と RAF も一緒に放します。`useView3DInput(viewer, element, options?)` は `attachInput` を要素につなぎ、差し替えとアンマウントで外します。`useView3DState` と `useView3DEvent` は 2D の `useViewerState`・`useViewerEvent` と同じ購読です。
+
+`useScene3D(file, { loadModule, catalog?, tolerance? })` は、入力の先頭のバイト列で形式を判定し、その形式の `scene3d` を持つモジュール（`bim`・`civil`・`pointcloud`）の名前で `loadModule(name, signal)` を呼びます。どのモジュールにもない形式は `NotSupportedError`（`scene3d.format.unsupported`、`format` 付き）で拒みます。入力は 256 MiB までで、入力ごとに module Worker を専有し、`open`・`scene3d` を呼んでシーンのバッファーを転送します。
+
+```jsx
+const opened = useScene3D(file, { loadModule });
+const viewer = useView3D(canvas, options);
+useLayoutEffect(() => {
+  if (!viewer) return;
+  viewer.setScene(opened.status === "ready" ? opened.input : null);
+  if (opened.status === "ready") viewer.fit();
+}, [viewer, opened]);
+```
+
+`ready` の `kind` は `building`（IFC）・`feature`（CityGML など）・`pointcloud` です。`elements` はシーンの行の順で最初の 1000 件の ID・クラス・名前、`total` は総数、`bounds` は塊の原点と範囲から求めた文書の座標の範囲です。範囲は視点や追加描画の位置の目安で、要素の厳密な範囲ではありません。点群は `@zumen-jp/view3d/pointcloud` の `attachPointCloud` に同じ `input` を渡して描きます。
+
+IFC では、`await opened.getElement(id)` が `building_elements` の名前・クラス・空間・親・プロパティを返します。`opened.writeBcf({ title, place, author, date, version })` は `toReviewPlace` の場所を開いたモデルへの指摘にした BCF 2.1・3.0 のバイト列を返し、`opened.readBcf(bytes)` は BCF を開いたモデルに当てて読み、`applyReviewPlace` に渡せる場所を返します。保存とファイル選択は利用側の明示操作で行います。IFC 以外ではどれも `null` です。
+
+入力・設定の差し替え、Activity・Suspense の切り離し、アンマウントでは、前の読み込みを中断して Worker を終了します。未完了の問い合わせは `AbortError` になります。
+
 ## 依存と確認
 
 React は利用側が渡す peer dependency です。プレイグラウンドでは既存の Next.js の検査と同じ React・React DOM 19.3.1（MIT）を固定します。React DOM の scheduler も MIT です。コアと同じ図面用 wasm を使い、ネイティブと共通のシーンを既存のリーダーで読みます。

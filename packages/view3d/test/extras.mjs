@@ -160,9 +160,7 @@ export async function testExtras() {
 
     // 幾何の記述の資源は部品が所有し、解除で解放する
     const label = new ImageData(new Uint8ClampedArray(Array.from({ length: 16 }, () => [0, 0, 255, 255]).flat()), 4, 4);
-    // Sprite の geometry は three.js が共有し、部品は解放しない。先に一度描いてから数える
-    const warm = viewer.addGeometry([{ kind: "label", position: [0, 0, 0], image: label, width: 1, height: 1 }], { id: "warm", origin: ORIGIN, unit: METRE });
-    viewer.render(); warm.remove(); viewer.render();
+    viewer.render();
     const baseline = viewer.getStats();
     const drawing = viewer.addGeometry([
       { kind: "line", points: [[-8.95, -9, 0], [-8.95, -5, 0]], color: "#000000" },
@@ -184,6 +182,20 @@ export async function testExtras() {
     viewer.render();
     const freed = viewer.getStats();
     assert(freed.geometries === baseline.geometries && freed.textures === baseline.textures, `解除で解放する: ${JSON.stringify(freed)} / ${JSON.stringify(baseline)}`);
+    // three.js が共有する Sprite の geometry は、最後のラベルを外すときに GPU の写しを解放し、次に描くときに転送し直す
+    const tag = [{ kind: "label", position: [5, -6, 0], image: label, width: 20, height: 10, anchor: [0, 0] }];
+    const first = viewer.addGeometry(tag, { id: "tag-1", origin: ORIGIN, unit: METRE }), second = viewer.addGeometry(tag, { id: "tag-2", origin: ORIGIN, unit: METRE });
+    viewer.render();
+    const both = viewer.getStats();
+    first.remove(); viewer.render();
+    assert(viewer.getStats().geometries === both.geometries, "ほかのラベルが残る間は共有の geometry を残す");
+    pixel(155, 155, BLUE, "残したラベル");
+    second.remove(); viewer.render();
+    assert(viewer.getStats().geometries === baseline.geometries, `最後のラベルで共有の geometry を解放する: ${JSON.stringify(viewer.getStats())}`);
+    const third = viewer.addGeometry(tag, { id: "tag-3", origin: ORIGIN, unit: METRE });
+    viewer.render();
+    pixel(155, 155, BLUE, "解放の後のラベル");
+    third.remove(); viewer.render();
 
     // 不正な登録は状態を変えない
     const kept = viewer.getState();

@@ -50,7 +50,8 @@ class SelectionTest(unittest.TestCase):
             (["bindings/js/test/fixtures/live-child.mjs"], {"wasm", "view2d", "view3d", "react", "site", "codegen", "native"}),
             (["bindings/go/input_test.go", "playground/test/lifecycle.jsx"], {"go", "react"}),
             (["bindings/js/test/browser/view3d.mjs", "packages/view3d/test/browser.mjs"], {"view3d"}),
-            (["packages/view3d/src/index.js"], {"view3d", "site"}),
+            (["packages/view3d/src/index.js"], {"view3d", "site", "react"}),
+            (["bindings/js/test/browser/react3d.mjs", "playground/test/lifecycle3d.jsx"], {"react"}),
             (["bindings/js/test/browser/package-lock.json"], {"wasm", "view2d", "view3d", "react"}),
         ]
         for paths, expected in cases:
@@ -65,7 +66,7 @@ class SelectionTest(unittest.TestCase):
             (["bindings/go/input_test.go"], "push", "", True, False),
             (["packages/view2d/test/browser.mjs"], "push", "", True, True),
             (["packages/view3d/test/browser.mjs"], "push", "", True, True),
-            (["playground/src/main.jsx"], "push", "drawing", False, True),
+            (["playground/src/main.jsx"], "push", "drawing", True, True),
             (["bindings/go/input_test.go", "playground/src/main.jsx"], "push", "drawing", True, True),
             (["CONTRIBUTING.md"], "pull_request", all_modules, True, True),
             (["unknown"], "push", all_modules, True, True),

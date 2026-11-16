@@ -1,0 +1,6 @@
+/* 3D のページ（view3d.html）だけで使う。共通の部品は viewer.css にある。 */
+.view3d-canvas { display: block; width: 100%; height: auto; aspect-ratio: 5 / 3; touch-action: none; }
+.ground-source { position: absolute; left: -10000px; top: 0; width: 512px; height: 512px; }
+.notices { list-style: none; padding: 0; }
+.notices li { padding: .3rem 0; border-top: 1px solid var(--line-soft); overflow-wrap: anywhere; }
+.camera { font-family: var(--font-mono); font-size: 14px; color: var(--ink-sub); }

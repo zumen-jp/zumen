@@ -54,11 +54,11 @@ def checks_for(path):
     if path == "bindings/js/test/browser/view3d.mjs" or path.startswith("packages/view3d/test/"):
         return {"view3d"}
     if path.startswith("packages/view3d/"):
-        return {"site", "view3d"}  # サイトの検査で型を確かめる。
+        return {"site", "view3d", "react"}  # サイトの検査で型を確かめる。React の 3D のフックも使う。
     if path in {"bindings/js/test/browser/package.json", "bindings/js/test/browser/package-lock.json"}:
         return {"wasm", "view2d", "view3d", "react"}  # 固定した Playwright と three.js を使う検査。
     if path in {"bindings/js/test/browser/react.mjs", "bindings/js/test/browser/react-interactions.mjs",
-                "bindings/js/test/browser/react-resize.mjs"} or path.startswith("playground/test/"):
+                "bindings/js/test/browser/react-resize.mjs", "bindings/js/test/browser/react3d.mjs"} or path.startswith("playground/test/"):
         return {"react"}
     if path.startswith(("playground/", "packages/react/")):
         return {"site", "react"}
@@ -177,7 +177,7 @@ def select(paths, event):
     return {
         "checks": sorted(checks),
         "wasm_modules": modules,
-        "wasm_full": bool(checks & {"wasm", "view2d", "view3d", "go"}),
+        "wasm_full": bool(checks & {"wasm", "view2d", "view3d", "react", "go"}),  # React の 3D のページは全部入りを使う
         "wasm_browser": bool(checks & {"wasm", "view2d", "view3d", "react"}),
         "cargo_args": "--workspace" if packages is None else cargo_args(packages),
         "codecs": " ".join(sorted(codecs)),

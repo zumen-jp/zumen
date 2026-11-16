@@ -162,7 +162,7 @@ function readLabel(value, position, owned, context) {
   owned.textures.push(texture);
   owned.bytes += copy.width * copy.height * 4;
   const material = owned.material(new THREE.SpriteMaterial({ map: texture, sizeAttenuation: false, transparent: true }));
-  // Sprite の geometry は three.js が共有するので解放しない
+  // Sprite の geometry は three.js が共有する。最後のラベルを外すときに GPU の写しだけを解放する（remove）
   const sprite = new THREE.Sprite(material);
   sprite.center.set(anchor[0], anchor[1]);
   sprite.position.set(position[0], position[1], position[2]);
@@ -346,7 +346,12 @@ export class Extras {
     if (entry.kind === "object") {
       tasks.push(() => { entry.wrapper.remove(entry.root); });
       if (entry.dispose !== null) tasks.push(() => { if (!entry.disposed) { entry.disposed = true; entry.dispose(); } });
-    } else tasks.push(() => entry.owned.dispose());
+    } else {
+      tasks.push(() => entry.owned.dispose());
+      // 共有の geometry の dispose は GPU の写しを消すだけで、次にラベルを描くときに three.js が転送し直す
+      const shared = entry.labels[0]?.sprite.geometry;
+      if (shared && ![...this.#entries.values()].some((other) => other.labels?.length > 0)) tasks.push(() => shared.dispose());
+    }
     tasks.push(() => entry.controller.abort(reason));
     return tasks;
   }

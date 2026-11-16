@@ -32,6 +32,16 @@ CSS は作成したファイルをそのままコピーし、ビルド後のバ�
 
 保存の操作は、使っている wasm が `convert_estimate` に対応するときだけ表示します。サイトが使う公開済み v0.2.0 の wasm は未対応のため、保存の操作を表示しません。
 
+## 3D のページ
+
+`view3d.html` は IFC・CityGML・点群（LAS など）の、`scene3d` を持つ形式を 3D で表示します（[#818](https://github.com/zumen-jp/zumen/issues/818)）。3D の形式は図面用 wasm にないため、全部入りの wasm（`--no-default-features --features drawing` を付けないビルド）を `ZUMEN_SCENE3D_WASM` に指定してから `npm run build` します。指定がなければ図面用と同じ wasm を使います。
+
+1. 「3D ファイル」でモデルを選びます。要素の一覧のボタンで選び、「選んだ要素」で IFC の属性（`building_elements`）を読めます。
+2. 「重ねる点群」で点群を同じ座標に重ね、「地面の図面」で DXF などの 2D の図面を地面に置きます。地図の変換が確かめられないときは通知に理由を出します。
+3. 図面にフォーカスを置くと、矢印で回し、`+`・`-` で寄せ引きし、Home で全体を表示します。「幅の寸法を表示」で利用側の追加描画を試せます。
+4. IFC では「BCF 3.0 で保存」「BCF 2.1 で保存」で今の視点を指摘にして保存し、「BCF を読む」で視点を戻します。
+5. 「表示の資源」で GPU の資源の数を見られます。「閉じる」で、開く前と同じ数に戻ります。
+
 ## ブラウザーでの検査
 
 `bindings/js/test/browser` で `npm ci --ignore-scripts` と `npx --no-install playwright install --only-shell chromium` を実行します。上の手順で wasm と `playground` の依存を用意してから、ルートで次を実行します。
@@ -41,6 +51,14 @@ node bindings/js/test/browser/react.mjs chromium target/wasm32-unknown-unknown/r
 ```
 
 合成した DXF・JWW・SXF と、公開サンプルの DWG（R2000・R2004・R2018）と本番用ビルドで、ファイル選択・用紙・レイヤ・キーボード・出所・診断を操作します。「DXF で保存」は、適合テストの `convert_playground.json` と同じ合成の DWG・JWW・SFC・P21 と公開サンプルの DWG で保存し、保存したバイト列の SHA-256 が、ネイティブの `convert` が書いたもの（`hashes.txt` の blob の行）と、Node.js で同じ wasm が書いたものに一致することを確かめます。見積もりと実変換のハッシュ・要素数・診断、画面の忠実度ごとの件数を照らし、見積もりだけではダウンロードせず、図面の切り替えで前の見積もりが消えることも確かめます。変換の診断の件数と code は、画面と応答で比べます。保存した DXF は開き直してもう一度変換し、同じ数の要素を書き、新しい診断の code が出ないことを確かめます。ネットワークではローカル配布物を取得する GET だけを認めます。本番用 React と開発用 StrictMode の両方で Activity・Suspense の表示を再開し、読み込みを保留した間と新しい Worker の準備後に、利用側の effect が受け取る状態と出所を確かめます。遅い読み込みの差し替え、アンマウント後の Worker・購読と未完了の問い合わせも検査します。`chromium` の代わりに `firefox`・`webkit`、インストール済みの製品版を使う `chrome`・`msedge` も指定できます。
+
+3D のページは、全部入りの wasm で次を実行します。
+
+```sh
+node bindings/js/test/browser/react3d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+```
+
+適合テストの IFC・CityGML・LAS で、描いた画素・要素の一覧・属性・キーボードの視点・寸法の追加描画、点群と地面の図面の重ね、BCF 2.1・3.0 の保存と読み戻しを操作します。3D に対応しない形式の理由、「閉じる」で GPU の資源と Worker が開く前に戻ること、本番用 React と StrictMode での中断・アンマウントの後始末も確かめます。
 
 ResizeObserver の通知中に Canvas の寸法を書き換えず、次のフレームにまとめることも検査します。本番用 React と StrictMode で、詳細パネルが並んだ初回の表示範囲を確かめ、viewport の変更後は 8 フレーム以内に CSS/backing 寸法・描画・通知が収束することを検査します。リサイズ後の移動と全体表示、通知直後のアンマウントで予約したフレーム・observer・入力・Worker・購読を片づけること、再マウント後の後始末も確かめます。未処理エラーの収集は維持し、失敗時だけ直前の操作と寸法をログに残します。
 

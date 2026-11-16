@@ -12,9 +12,11 @@
   "dependencies": {
     "@zumen-jp/react": "file:../packages/react",
     "@zumen-jp/view2d": "file:../packages/view2d",
+    "@zumen-jp/view3d": "file:../packages/view3d",
     "@zumen-jp/zumen": "file:../bindings/js",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "three": "0.187.0"
   },
   "devDependencies": { "vite": "8.3.5" }
 }

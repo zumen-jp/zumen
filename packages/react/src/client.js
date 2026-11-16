@@ -1,6 +1,11 @@
-/** 1 回の読み込みに属する Worker。wasm の実行中でも terminate で専用のメモリとセッションを解放する。 */
-export function connectWorker() {
-  const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+const drawingWorker = () => new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+
+/**
+ * 1 回の読み込みに属する Worker。wasm の実行中でも terminate で専用のメモリとセッションを解放する。
+ * create は module Worker を作る。束ねるツールが Worker の URL を見つけられるよう、呼び出し側で new URL を書く。
+ */
+export function connectWorker(create = drawingWorker) {
+  const worker = create();
   const pending = new Map();
   let closed = false;
   let serial = 0;
