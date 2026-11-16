@@ -55,7 +55,19 @@
               "unit": "unknown",
               "elements": {
                 "lines": 1,
-                "texts": 0
+                "texts": 0,
+                "circles": 0,
+                "curves": 0,
+                "polylines": 0,
+                "formatted_texts": 0,
+                "dimensions": 0,
+                "leaders": 0,
+                "callouts": 0,
+                "tables": 0,
+                "underlays": 0,
+                "symbols": 0,
+                "hatches": 0,
+                "points": 0
               },
               "extent": {
                 "min_x": 1.5,

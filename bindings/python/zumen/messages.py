@@ -780,6 +780,8 @@ _SheetSummaryRequired = TypedDict(
         "elements": "ElementCounts",
         # ビューの数
         "views": int,
+        # ビューの詳細。元の順に返す。マイナーバージョン 81 から
+        "view_details": List["ViewDetail"],
     },
 )
 _SheetSummaryOptional = TypedDict(
@@ -823,8 +825,70 @@ ElementCounts = TypedDict(
         "lines": int,
         # 文字
         "texts": int,
+        # 円。マイナーバージョン 81 から
+        "circles": int,
+        # 円弧・楕円弧・スプラインなどの曲線。マイナーバージョン 81 から
+        "curves": int,
+        # 折れ線。マイナーバージョン 81 から
+        "polylines": int,
+        # 書式つきの文字。マイナーバージョン 81 から
+        "formatted_texts": int,
+        # 寸法。マイナーバージョン 81 から
+        "dimensions": int,
+        # 引出線。マイナーバージョン 81 から
+        "leaders": int,
+        # 引出線つきの注記。マイナーバージョン 81 から
+        "callouts": int,
+        # 表。マイナーバージョン 81 から
+        "tables": int,
+        # アンダーレイ。マイナーバージョン 81 から
+        "underlays": int,
+        # 記号の配置。中の要素を展開しない。マイナーバージョン 81 から
+        "symbols": int,
+        # ハッチング。マイナーバージョン 81 から
+        "hatches": int,
+        # 点。マイナーバージョン 81 から
+        "points": int,
     },
 )
+
+
+# 2D のビュー。変換行列と切り抜きを保ち、尺度・向き・見えるモデル範囲を決定的に求める
+_ViewDetailRequired = TypedDict(
+    "_ViewDetailRequired",
+    {
+        # 対象の実寸の空間の公開 ID
+        "space": str,
+        # モデル座標から用紙の mm への [a,b,c,d,e,f]。点を (ax+by+c,dx+ey+f) に写す
+        "matrix": List[float],
+        # モデルの X 軸・Y 軸の 1 単位に対応する用紙の長さ [SX,SY]（mm）。回転・せん断・反転でも各軸の正の長さを返す
+        "scale": List[float],
+        # 用紙の X 軸から見たモデルの X 軸の向き。度、反時計回り、-180〜180
+        "rotation": float,
+        # 変換が向きを反転する
+        "mirrored": bool,
+        # 用紙の mm での切り抜きの頂点。元の順を保ち、空なら切り抜かない
+        "clip": List["Point2"],
+        # 同じ頂点を逆変換したモデル座標。元の順を保つ
+        "model_clip": List["Point2"],
+        # ビューの出所
+        "source": "Source",
+    },
+)
+_ViewDetailOptional = TypedDict(
+    "_ViewDetailOptional",
+    {
+        # モデル単位を mm に直した、各軸の縮尺の比 [SX,SY]。1:100 なら 0.01。単位不明なら持たない
+        "ratio": List[float],
+        # model_clip を囲む範囲。切り抜きが空なら持たない。モデルの単位
+        "extent": "Extent",
+    },
+    total=False,
+)
+
+
+class ViewDetail(_ViewDetailRequired, _ViewDetailOptional):
+    "2D のビュー。変換行列と切り抜きを保ち、尺度・向き・見えるモデル範囲を決定的に求める"
 
 
 # 点を囲む、軸に沿った長方形
@@ -2897,8 +2961,80 @@ TablesResult = TypedDict(
         "dimension_styles": List["DimensionStyleItem"],
         # 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義のフィールドを持たない項目として後ろに並ぶ。マイナーバージョン 20 から
         "text_styles": List["TextStyleItem"],
+        # 記号の定義。配置されていないものも含む。マイナーバージョン 81 から
+        "symbols": List["SymbolDefinitionItem"],
     },
 )
+
+
+# 記号の定義。要素と属性の配置や書式は元の定義に保ち、名前と属性の既定値を一覧にする
+_SymbolDefinitionItemRequired = TypedDict(
+    "_SymbolDefinitionItemRequired",
+    {
+        # 定義の空間の公開 ID。entities.place と同じ
+        "id": str,
+        # 定義を識別する名前空間
+        "namespace": str,
+        # 元の名前。add の記号の name に使う
+        "name": str,
+        # 属性のタグ・既定値・入力の指定。元の順を保つ
+        "attributes": List["SymbolAttributeDefinition"],
+        # 寸法などが作った無名の定義である
+        "anonymous": bool,
+        # 定義の出所
+        "source": "Source",
+    },
+)
+_SymbolDefinitionItemOptional = TypedDict(
+    "_SymbolDefinitionItemOptional",
+    {
+        # 定義の基点。定義の空間の座標と単位。不明なら持たない
+        "base": "Point2",
+        # 外部参照の元のパス。参照先を開かない。外部参照でなければ持たない
+        "external": str,
+    },
+    total=False,
+)
+
+
+class SymbolDefinitionItem(_SymbolDefinitionItemRequired, _SymbolDefinitionItemOptional):
+    "記号の定義。要素と属性の配置や書式は元の定義に保ち、名前と属性の既定値を一覧にする"
+
+
+# 記号の属性の定義。タグと値は翻訳しない。配置・書式・スタイルは一覧には含めない
+_SymbolAttributeDefinitionRequired = TypedDict(
+    "_SymbolAttributeDefinitionRequired",
+    {
+        # 元のタグ
+        "tag": str,
+        # 既定の 1 行の値
+        "value": str,
+        # 値を尋ねる文
+        "prompt": str,
+        # 値が決まっていて、配置ごとに変えない
+        "constant": bool,
+        # 入力した値を確かめる指定
+        "verify": bool,
+        # 尋ねずに既定の値を使う指定
+        "preset": bool,
+        # 属性を表示しない
+        "hidden": bool,
+        # 属性の出所
+        "source": "Source",
+    },
+)
+_SymbolAttributeDefinitionOptional = TypedDict(
+    "_SymbolAttributeDefinitionOptional",
+    {
+        # 複数行の値があるとき、その元の書式つきの文字列。読むための値
+        "formatted_value": str,
+    },
+    total=False,
+)
+
+
+class SymbolAttributeDefinition(_SymbolAttributeDefinitionRequired, _SymbolAttributeDefinitionOptional):
+    "記号の属性の定義。タグと値は翻訳しない。配置・書式・スタイルは一覧には含めない"
 
 
 # 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から

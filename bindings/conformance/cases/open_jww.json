@@ -42,7 +42,19 @@
               "unit": "millimeter",
               "elements": {
                 "lines": 1,
-                "texts": 0
+                "texts": 0,
+                "circles": 0,
+                "curves": 0,
+                "polylines": 0,
+                "formatted_texts": 0,
+                "dimensions": 0,
+                "leaders": 0,
+                "callouts": 0,
+                "tables": 0,
+                "underlays": 0,
+                "symbols": 0,
+                "hatches": 0,
+                "points": 0
               },
               "extent": {
                 "min_x": 0,
@@ -61,9 +73,49 @@
               ],
               "elements": {
                 "lines": 0,
-                "texts": 0
+                "texts": 0,
+                "circles": 0,
+                "curves": 0,
+                "polylines": 0,
+                "formatted_texts": 0,
+                "dimensions": 0,
+                "leaders": 0,
+                "callouts": 0,
+                "tables": 0,
+                "underlays": 0,
+                "symbols": 0,
+                "hatches": 0,
+                "points": 0
               },
-              "views": 1
+              "views": 1,
+              "view_details": [
+                {
+                  "space": "space/0",
+                  "matrix": [
+                    0.01,
+                    0,
+                    210,
+                    0,
+                    0.01,
+                    148.5
+                  ],
+                  "scale": [
+                    0.01,
+                    0.01
+                  ],
+                  "ratio": [
+                    0.01,
+                    0.01
+                  ],
+                  "rotation": 0,
+                  "mirrored": false,
+                  "clip": [],
+                  "model_clip": [],
+                  "source": {
+                    "record": 0
+                  }
+                }
+              ]
             }
           ]
         },

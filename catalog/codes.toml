@@ -1954,6 +1954,14 @@ group-by = ["id", "reason"]
 since = "0.2.0"
 status = "active"
 
+[codes."drawing.metadata.failed"]
+description = "図面の記号定義かビューの詳細を応答の型で表せず、または複製する領域を確保できなかった。id は定義か用紙の公開 ID、reason は失敗の理由"
+severity = "error"
+params = { id = "text", reason = "key" }
+group-by = ["id", "reason"]
+since = "0.3.0"
+status = "active"
+
 [codes."drawing.entity-details.failed"]
 description = "要素のスタイルか拡張の値を応答の型で表せず、または複製する領域を確保できず、指定したフィールドを返せなかった"
 severity = "error"

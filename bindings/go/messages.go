@@ -922,6 +922,9 @@ type SheetSummary struct {
 	// ビューの数
 	Views *int64 `json:"views,omitempty"`
 
+	// ビューの詳細。元の順に返す。マイナーバージョン 81 から
+	ViewDetails []ViewDetail `json:"view_details,omitempty"`
+
 	// 線分の端点と文字の基点を囲む範囲。用紙の mm。要素がなければ持たない
 	Extent *Extent `json:"extent,omitempty"`
 }
@@ -956,6 +959,75 @@ type ElementCounts struct {
 
 	// 文字
 	Texts *int64 `json:"texts,omitempty"`
+
+	// 円。マイナーバージョン 81 から
+	Circles *int64 `json:"circles,omitempty"`
+
+	// 円弧・楕円弧・スプラインなどの曲線。マイナーバージョン 81 から
+	Curves *int64 `json:"curves,omitempty"`
+
+	// 折れ線。マイナーバージョン 81 から
+	Polylines *int64 `json:"polylines,omitempty"`
+
+	// 書式つきの文字。マイナーバージョン 81 から
+	FormattedTexts *int64 `json:"formatted_texts,omitempty"`
+
+	// 寸法。マイナーバージョン 81 から
+	Dimensions *int64 `json:"dimensions,omitempty"`
+
+	// 引出線。マイナーバージョン 81 から
+	Leaders *int64 `json:"leaders,omitempty"`
+
+	// 引出線つきの注記。マイナーバージョン 81 から
+	Callouts *int64 `json:"callouts,omitempty"`
+
+	// 表。マイナーバージョン 81 から
+	Tables *int64 `json:"tables,omitempty"`
+
+	// アンダーレイ。マイナーバージョン 81 から
+	Underlays *int64 `json:"underlays,omitempty"`
+
+	// 記号の配置。中の要素を展開しない。マイナーバージョン 81 から
+	Symbols *int64 `json:"symbols,omitempty"`
+
+	// ハッチング。マイナーバージョン 81 から
+	Hatches *int64 `json:"hatches,omitempty"`
+
+	// 点。マイナーバージョン 81 から
+	Points *int64 `json:"points,omitempty"`
+}
+
+// ViewDetail: 2D のビュー。変換行列と切り抜きを保ち、尺度・向き・見えるモデル範囲を決定的に求める
+type ViewDetail struct {
+	// 対象の実寸の空間の公開 ID
+	Space *string `json:"space,omitempty"`
+
+	// モデル座標から用紙の mm への [a,b,c,d,e,f]。点を (ax+by+c,dx+ey+f) に写す
+	Matrix []float64 `json:"matrix,omitempty"`
+
+	// モデルの X 軸・Y 軸の 1 単位に対応する用紙の長さ [SX,SY]（mm）。回転・せん断・反転でも各軸の正の長さを返す
+	Scale []float64 `json:"scale,omitempty"`
+
+	// モデル単位を mm に直した、各軸の縮尺の比 [SX,SY]。1:100 なら 0.01。単位不明なら持たない
+	Ratio []float64 `json:"ratio,omitempty"`
+
+	// 用紙の X 軸から見たモデルの X 軸の向き。度、反時計回り、-180〜180
+	Rotation *float64 `json:"rotation,omitempty"`
+
+	// 変換が向きを反転する
+	Mirrored *bool `json:"mirrored,omitempty"`
+
+	// 用紙の mm での切り抜きの頂点。元の順を保ち、空なら切り抜かない
+	Clip []Point2 `json:"clip,omitempty"`
+
+	// 同じ頂点を逆変換したモデル座標。元の順を保つ
+	ModelClip []Point2 `json:"model_clip,omitempty"`
+
+	// model_clip を囲む範囲。切り抜きが空なら持たない。モデルの単位
+	Extent *Extent `json:"extent,omitempty"`
+
+	// ビューの出所
+	Source *Source `json:"source,omitempty"`
 }
 
 // Extent: 点を囲む、軸に沿った長方形
@@ -3392,6 +3464,66 @@ type TablesResult struct {
 
 	// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義のフィールドを持たない項目として後ろに並ぶ。マイナーバージョン 20 から
 	TextStyles []TextStyleItem `json:"text_styles,omitempty"`
+
+	// 記号の定義。配置されていないものも含む。マイナーバージョン 81 から
+	Symbols []SymbolDefinitionItem `json:"symbols,omitempty"`
+}
+
+// SymbolDefinitionItem: 記号の定義。要素と属性の配置や書式は元の定義に保ち、名前と属性の既定値を一覧にする
+type SymbolDefinitionItem struct {
+	// 定義の空間の公開 ID。entities.place と同じ
+	Id *string `json:"id,omitempty"`
+
+	// 定義を識別する名前空間
+	Namespace *string `json:"namespace,omitempty"`
+
+	// 元の名前。add の記号の name に使う
+	Name *string `json:"name,omitempty"`
+
+	// 定義の基点。定義の空間の座標と単位。不明なら持たない
+	Base *Point2 `json:"base,omitempty"`
+
+	// 属性のタグ・既定値・入力の指定。元の順を保つ
+	Attributes []SymbolAttributeDefinition `json:"attributes,omitempty"`
+
+	// 寸法などが作った無名の定義である
+	Anonymous *bool `json:"anonymous,omitempty"`
+
+	// 外部参照の元のパス。参照先を開かない。外部参照でなければ持たない
+	External *string `json:"external,omitempty"`
+
+	// 定義の出所
+	Source *Source `json:"source,omitempty"`
+}
+
+// SymbolAttributeDefinition: 記号の属性の定義。タグと値は翻訳しない。配置・書式・スタイルは一覧には含めない
+type SymbolAttributeDefinition struct {
+	// 元のタグ
+	Tag *string `json:"tag,omitempty"`
+
+	// 既定の 1 行の値
+	Value *string `json:"value,omitempty"`
+
+	// 複数行の値があるとき、その元の書式つきの文字列。読むための値
+	FormattedValue *string `json:"formatted_value,omitempty"`
+
+	// 値を尋ねる文
+	Prompt *string `json:"prompt,omitempty"`
+
+	// 値が決まっていて、配置ごとに変えない
+	Constant *bool `json:"constant,omitempty"`
+
+	// 入力した値を確かめる指定
+	Verify *bool `json:"verify,omitempty"`
+
+	// 尋ねずに既定の値を使う指定
+	Preset *bool `json:"preset,omitempty"`
+
+	// 属性を表示しない
+	Hidden *bool `json:"hidden,omitempty"`
+
+	// 属性の出所
+	Source *Source `json:"source,omitempty"`
 }
 
 // SceneRequest: 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から

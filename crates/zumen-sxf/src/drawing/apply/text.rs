@@ -264,7 +264,9 @@ pub(super) fn sfc_string(value: &str) -> Option<Vec<u8>> {
 }
 
 pub(super) fn is_string(args: &Arguments, at: usize) -> bool {
-    (args.name == NAME && at == 3) || (matches!(args.name, "layer" | "text_font") && at == 0)
+    (args.name == NAME && at == 3)
+        || (matches!(args.name, "layer" | "text_font") && at == 0)
+        || (args.name == "sfig_locate" && at == 1)
 }
 
 /// P21 の文字列は ASCII と UTF-16 の X2 エスケープで環境によらず書く。

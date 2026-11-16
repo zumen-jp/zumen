@@ -1075,6 +1075,10 @@ class SheetSummary extends Message {
   int? get views => readField('views', asInt);
   set views(int? value) => writeField('views', value);
 
+  /// ビューの詳細。元の順に返す。マイナーバージョン 81 から
+  List<ViewDetail>? get viewDetails => readField('view_details', listOf(objectOf(ViewDetail.fromJson)));
+  set viewDetails(List<ViewDetail>? value) => writeField('view_details', value);
+
   /// 線分の端点と文字の基点を囲む範囲。用紙の mm。要素がなければ持たない
   Extent? get extent => readField('extent', objectOf(Extent.fromJson));
   set extent(Extent? value) => writeField('extent', value);
@@ -1107,6 +1111,103 @@ class ElementCounts extends Message {
   /// 文字
   int? get texts => readField('texts', asInt);
   set texts(int? value) => writeField('texts', value);
+
+  /// 円。マイナーバージョン 81 から
+  int? get circles => readField('circles', asInt);
+  set circles(int? value) => writeField('circles', value);
+
+  /// 円弧・楕円弧・スプラインなどの曲線。マイナーバージョン 81 から
+  int? get curves => readField('curves', asInt);
+  set curves(int? value) => writeField('curves', value);
+
+  /// 折れ線。マイナーバージョン 81 から
+  int? get polylines => readField('polylines', asInt);
+  set polylines(int? value) => writeField('polylines', value);
+
+  /// 書式つきの文字。マイナーバージョン 81 から
+  int? get formattedTexts => readField('formatted_texts', asInt);
+  set formattedTexts(int? value) => writeField('formatted_texts', value);
+
+  /// 寸法。マイナーバージョン 81 から
+  int? get dimensions => readField('dimensions', asInt);
+  set dimensions(int? value) => writeField('dimensions', value);
+
+  /// 引出線。マイナーバージョン 81 から
+  int? get leaders => readField('leaders', asInt);
+  set leaders(int? value) => writeField('leaders', value);
+
+  /// 引出線つきの注記。マイナーバージョン 81 から
+  int? get callouts => readField('callouts', asInt);
+  set callouts(int? value) => writeField('callouts', value);
+
+  /// 表。マイナーバージョン 81 から
+  int? get tables => readField('tables', asInt);
+  set tables(int? value) => writeField('tables', value);
+
+  /// アンダーレイ。マイナーバージョン 81 から
+  int? get underlays => readField('underlays', asInt);
+  set underlays(int? value) => writeField('underlays', value);
+
+  /// 記号の配置。中の要素を展開しない。マイナーバージョン 81 から
+  int? get symbols => readField('symbols', asInt);
+  set symbols(int? value) => writeField('symbols', value);
+
+  /// ハッチング。マイナーバージョン 81 から
+  int? get hatches => readField('hatches', asInt);
+  set hatches(int? value) => writeField('hatches', value);
+
+  /// 点。マイナーバージョン 81 から
+  int? get points => readField('points', asInt);
+  set points(int? value) => writeField('points', value);
+}
+
+/// 2D のビュー。変換行列と切り抜きを保ち、尺度・向き・見えるモデル範囲を決定的に求める
+class ViewDetail extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ViewDetail.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ViewDetail() : super({});
+
+  /// 対象の実寸の空間の公開 ID
+  String? get space => readField('space', asString);
+  set space(String? value) => writeField('space', value);
+
+  /// モデル座標から用紙の mm への [a,b,c,d,e,f]。点を (ax+by+c,dx+ey+f) に写す
+  List<double>? get matrix => readField('matrix', listOf(asDouble));
+  set matrix(List<double>? value) => writeField('matrix', value);
+
+  /// モデルの X 軸・Y 軸の 1 単位に対応する用紙の長さ [SX,SY]（mm）。回転・せん断・反転でも各軸の正の長さを返す
+  List<double>? get scale => readField('scale', listOf(asDouble));
+  set scale(List<double>? value) => writeField('scale', value);
+
+  /// モデル単位を mm に直した、各軸の縮尺の比 [SX,SY]。1:100 なら 0.01。単位不明なら持たない
+  List<double>? get ratio => readField('ratio', listOf(asDouble));
+  set ratio(List<double>? value) => writeField('ratio', value);
+
+  /// 用紙の X 軸から見たモデルの X 軸の向き。度、反時計回り、-180〜180
+  double? get rotation => readField('rotation', asDouble);
+  set rotation(double? value) => writeField('rotation', value);
+
+  /// 変換が向きを反転する
+  bool? get mirrored => readField('mirrored', asBool);
+  set mirrored(bool? value) => writeField('mirrored', value);
+
+  /// 用紙の mm での切り抜きの頂点。元の順を保ち、空なら切り抜かない
+  List<Point2>? get clip => readField('clip', listOf(objectOf(Point2.fromJson)));
+  set clip(List<Point2>? value) => writeField('clip', value);
+
+  /// 同じ頂点を逆変換したモデル座標。元の順を保つ
+  List<Point2>? get modelClip => readField('model_clip', listOf(objectOf(Point2.fromJson)));
+  set modelClip(List<Point2>? value) => writeField('model_clip', value);
+
+  /// model_clip を囲む範囲。切り抜きが空なら持たない。モデルの単位
+  Extent? get extent => readField('extent', objectOf(Extent.fromJson));
+  set extent(Extent? value) => writeField('extent', value);
+
+  /// ビューの出所
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
 }
 
 /// 点を囲む、軸に沿った長方形
@@ -3812,6 +3913,96 @@ class TablesResult extends Message {
   /// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義のフィールドを持たない項目として後ろに並ぶ。マイナーバージョン 20 から
   List<TextStyleItem>? get textStyles => readField('text_styles', listOf(objectOf(TextStyleItem.fromJson)));
   set textStyles(List<TextStyleItem>? value) => writeField('text_styles', value);
+
+  /// 記号の定義。配置されていないものも含む。マイナーバージョン 81 から
+  List<SymbolDefinitionItem>? get symbols => readField('symbols', listOf(objectOf(SymbolDefinitionItem.fromJson)));
+  set symbols(List<SymbolDefinitionItem>? value) => writeField('symbols', value);
+}
+
+/// 記号の定義。要素と属性の配置や書式は元の定義に保ち、名前と属性の既定値を一覧にする
+class SymbolDefinitionItem extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  SymbolDefinitionItem.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  SymbolDefinitionItem() : super({});
+
+  /// 定義の空間の公開 ID。entities.place と同じ
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 定義を識別する名前空間
+  String? get namespace => readField('namespace', asString);
+  set namespace(String? value) => writeField('namespace', value);
+
+  /// 元の名前。add の記号の name に使う
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 定義の基点。定義の空間の座標と単位。不明なら持たない
+  Point2? get baseField => readField('base', objectOf(Point2.fromJson));
+  set baseField(Point2? value) => writeField('base', value);
+
+  /// 属性のタグ・既定値・入力の指定。元の順を保つ
+  List<SymbolAttributeDefinition>? get attributes => readField('attributes', listOf(objectOf(SymbolAttributeDefinition.fromJson)));
+  set attributes(List<SymbolAttributeDefinition>? value) => writeField('attributes', value);
+
+  /// 寸法などが作った無名の定義である
+  bool? get anonymous => readField('anonymous', asBool);
+  set anonymous(bool? value) => writeField('anonymous', value);
+
+  /// 外部参照の元のパス。参照先を開かない。外部参照でなければ持たない
+  String? get externalField => readField('external', asString);
+  set externalField(String? value) => writeField('external', value);
+
+  /// 定義の出所
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
+}
+
+/// 記号の属性の定義。タグと値は翻訳しない。配置・書式・スタイルは一覧には含めない
+class SymbolAttributeDefinition extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  SymbolAttributeDefinition.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  SymbolAttributeDefinition() : super({});
+
+  /// 元のタグ
+  String? get tag => readField('tag', asString);
+  set tag(String? value) => writeField('tag', value);
+
+  /// 既定の 1 行の値
+  String? get value => readField('value', asString);
+  set value(String? value) => writeField('value', value);
+
+  /// 複数行の値があるとき、その元の書式つきの文字列。読むための値
+  String? get formattedValue => readField('formatted_value', asString);
+  set formattedValue(String? value) => writeField('formatted_value', value);
+
+  /// 値を尋ねる文
+  String? get prompt => readField('prompt', asString);
+  set prompt(String? value) => writeField('prompt', value);
+
+  /// 値が決まっていて、配置ごとに変えない
+  bool? get constant => readField('constant', asBool);
+  set constant(bool? value) => writeField('constant', value);
+
+  /// 入力した値を確かめる指定
+  bool? get verify => readField('verify', asBool);
+  set verify(bool? value) => writeField('verify', value);
+
+  /// 尋ねずに既定の値を使う指定
+  bool? get preset => readField('preset', asBool);
+  set preset(bool? value) => writeField('preset', value);
+
+  /// 属性を表示しない
+  bool? get hidden => readField('hidden', asBool);
+  set hidden(bool? value) => writeField('hidden', value);
+
+  /// 属性の出所
+  Source? get source => readField('source', objectOf(Source.fromJson));
+  set source(Source? value) => writeField('source', value);
 }
 
 /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から

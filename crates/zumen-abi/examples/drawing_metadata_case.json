@@ -1,0 +1,15 @@
+{
+  "description": "全種類の件数・属性定義・回転とせん断と反転・単位・予算停止。drawing_metadata_case.rs から生成する",
+  "module": "drawing",
+  "steps": [
+    {"push":{"name":"a","hex":"$HEX"}},
+    {"call":{"v":1,"op":"open","input":"a"}},
+    {"call":{"v":1,"op":"tables","doc":"a"},"expect":{"/result/symbols/0/id":"space/h30","/result/symbols/1/id":"space/h30/1","/result/symbols/0/attributes/0/value":"既定値","/result/symbols/0/attributes/0/constant":true}},
+    {"call":{"v":1,"op":"drawing","doc":"a"},"expect":{"/result/spaces/0/elements":{"lines":1,"texts":1,"circles":1,"curves":1,"polylines":1,"formatted_texts":1,"dimensions":1,"leaders":1,"callouts":1,"tables":1,"underlays":1,"symbols":1,"hatches":1,"points":1},"/result/sheets/0/views":3,"/result/sheets/0/view_details/0/ratio":[0.002,0.002],"/result/sheets/0/view_details/0/rotation":90,"/result/sheets/0/view_details/0/extent":{"min_x":0,"min_y":0,"max_x":2,"max_y":2},"/result/sheets/0/view_details/1/mirrored":true}},
+    {"call":{"v":1,"op":"entities","doc":"a","place":"space/h30/1","fields":["id"]},"expect":{"/result/total":0}},
+    {"call":{"v":1,"op":"tables","doc":"a","budget":{"work":1}},"status":"failed"},
+    {"call":{"v":1,"op":"drawing","doc":"a","budget":{"decoded_bytes":0}},"status":"failed"},
+    {"call":{"v":1,"op":"tables","doc":"a"}},
+    {"call":{"v":1,"op":"drawing","doc":"a"}}
+  ]
+}

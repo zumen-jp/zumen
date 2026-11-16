@@ -1247,6 +1247,20 @@ pub const DRAWING_MEASUREMENT_FAILED: Code = Code::new(
     &["id", "reason"],
 );
 
+/// 図面の記号定義かビューの詳細を応答の型で表せず、または複製する領域を確保できなかった。id は定義か用紙の公開 ID、reason は失敗の理由
+///
+/// `drawing.metadata.failed`（0.3.0 から）
+pub const DRAWING_METADATA_FAILED: Code = Code::new(
+    "drawing.metadata.failed",
+    Severity::Error,
+    None,
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("reason", ParamType::Key),
+    ],
+    &["id", "reason"],
+);
+
 /// 記号の配置が、道筋の外側の配置と同じ定義を置く（循環）ので、中をたどらなかった
 ///
 /// `drawing.placement.invalid`（0.0.0 から）
@@ -5535,6 +5549,7 @@ pub const ALL: &[Code] = &[
     DRAWING_ENTITY_DETAILS_FAILED,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_MEASUREMENT_FAILED,
+    DRAWING_METADATA_FAILED,
     DRAWING_PLACEMENT_INVALID,
     DWG_CHANGE_UNSUPPORTED,
     DWG_CRC_INVALID,

@@ -930,6 +930,29 @@ impl Writer for P21<'_> {
         Ok(self.add_inner(args))
     }
 
+    fn add_symbol(
+        &mut self,
+        args: &Arguments,
+        definition: &Ref,
+        cx: &mut Cx,
+    ) -> Result<Option<u64>, Error> {
+        count_arguments(args, cx)?;
+        work(cx, 32, definition)?;
+        if let Some((_, slot)) = self.first_sheet {
+            self.count_part_search(slot.0, cx)?;
+            self.count_list(slot, cx)?;
+        }
+        let Some(layer) = args
+            .values
+            .first()
+            .and_then(|value| value.parse::<i64>().ok())
+        else {
+            return Ok(None);
+        };
+        self.count_codes(usize::MAX, &[(0, layer)], cx)?;
+        Ok(self.add_symbol_inner(args, definition, layer))
+    }
+
     fn bytes(mut self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
         self.collect_garbage(cx)?;
         self.finish(src, cx)
@@ -1245,6 +1268,47 @@ impl P21<'_> {
         self.lists.insert(sheet, items);
         self.layer(id, layer)?;
         Some(id)
+    }
+
+    /// STEP AP202 サブセットの作図部品を既存の表現へ結び、配置だけを新しくする。
+    fn add_symbol_inner(&mut self, args: &Arguments, definition: &Ref, layer: i64) -> Option<u64> {
+        let record = usize::try_from(definition.record()?).ok()?;
+        self.part(record, "DRAUGHTING_SUBFIGURE_REPRESENTATION")?;
+        let id = match definition.key()? {
+            zumen_base::Key::Instance(id) => id,
+            _ => return None,
+        };
+        if self.instances.get(id) != Some(record) {
+            return None;
+        }
+        let (_, sheet) = self.first_sheet?;
+        let value = |at: usize| args.values.get(at)?.parse::<f64>().ok();
+        let (x, y, angle, sx, sy) = (value(2)?, value(3)?, value(4)?, value(5)?, value(6)?);
+        let origin = self.point(0.0, 0.0)?;
+        let x_axis = self.instance("DIRECTION(' ',(1.,0.))")?;
+        let base = self.instance(format!("AXIS2_PLACEMENT_2D(' ',#{origin},#{x_axis})"))?;
+        let map = self.instance(format!("SYMBOL_REPRESENTATION_MAP(#{base},#{id})"))?;
+        let point = self.point(x, y)?;
+        let radians = angle.to_radians();
+        let direction = self.instance(format!(
+            "DIRECTION(' ',({},{}))",
+            real(libm::cos(radians))?,
+            real(libm::sin(radians))?
+        ))?;
+        let placement = self.instance(format!("AXIS2_PLACEMENT_2D(' ',#{point},#{direction})"))?;
+        let target = self.instance(format!(
+            "SYMBOL_TARGET(' ',#{placement},{},{})",
+            real(sx)?,
+            real(sy)?
+        ))?;
+        let mapped = self.instance(format!("(ANNOTATION_SYMBOL()GEOMETRIC_REPRESENTATION_ITEM()MAPPED_ITEM(#{map},#{target})REPRESENTATION_ITEM(' '))"))?;
+        let style = self.instance("PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)))")?;
+        let occurrence = self.instance(format!("(ANNOTATION_OCCURRENCE()ANNOTATION_SUBFIGURE_OCCURRENCE()ANNOTATION_SYMBOL_OCCURRENCE()DRAUGHTING_ANNOTATION_OCCURRENCE()GEOMETRIC_REPRESENTATION_ITEM()REPRESENTATION_ITEM(' ')STYLED_ITEM((#{style}),#{mapped}))"))?;
+        let mut items = self.list(sheet)?;
+        items.push(occurrence);
+        self.lists.insert(sheet, items);
+        self.layer(occurrence, layer)?;
+        Some(occurrence)
     }
 
     fn finish(&self, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {

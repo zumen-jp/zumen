@@ -2129,6 +2129,8 @@ pub struct SheetSummary {
     pub elements: ElementCounts,
     /// ビューの数
     pub views: u64,
+    /// ビューの詳細。元の順に返す。マイナーバージョン 81 から
+    pub view_details: Vec<ViewDetail>,
     /// 線分の端点と文字の基点を囲む範囲。用紙の mm。要素がなければ持たない
     pub extent: Option<Extent>,
 }
@@ -2140,6 +2142,9 @@ impl SheetSummary {
         let size = object.optional("size", |value| json::array(value, json::number))?;
         let elements = object.required("elements", ElementCounts::from_json)?;
         let views = object.required("views", |value| json::uint(value, 0, 9007199254740991))?;
+        let view_details = object.required("view_details", |value| {
+            json::array(value, ViewDetail::from_json)
+        })?;
         let extent = object.optional("extent", Extent::from_json)?;
         Ok(Self {
             id,
@@ -2147,6 +2152,7 @@ impl SheetSummary {
             size,
             elements,
             views,
+            view_details,
             extent,
         })
     }
@@ -2168,6 +2174,8 @@ impl SheetSummary {
         self.elements.to_json(out);
         out.key("views");
         out.uint(self.views);
+        out.key("view_details");
+        out.array(&self.view_details, |out, item| item.to_json(out));
         if let Some(value) = &self.extent {
             out.key("extent");
             value.to_json(out);
@@ -2265,13 +2273,70 @@ pub struct ElementCounts {
     pub lines: u64,
     /// 文字
     pub texts: u64,
+    /// 円。マイナーバージョン 81 から
+    pub circles: u64,
+    /// 円弧・楕円弧・スプラインなどの曲線。マイナーバージョン 81 から
+    pub curves: u64,
+    /// 折れ線。マイナーバージョン 81 から
+    pub polylines: u64,
+    /// 書式つきの文字。マイナーバージョン 81 から
+    pub formatted_texts: u64,
+    /// 寸法。マイナーバージョン 81 から
+    pub dimensions: u64,
+    /// 引出線。マイナーバージョン 81 から
+    pub leaders: u64,
+    /// 引出線つきの注記。マイナーバージョン 81 から
+    pub callouts: u64,
+    /// 表。マイナーバージョン 81 から
+    pub tables: u64,
+    /// アンダーレイ。マイナーバージョン 81 から
+    pub underlays: u64,
+    /// 記号の配置。中の要素を展開しない。マイナーバージョン 81 から
+    pub symbols: u64,
+    /// ハッチング。マイナーバージョン 81 から
+    pub hatches: u64,
+    /// 点。マイナーバージョン 81 から
+    pub points: u64,
 }
 
 impl ElementCounts {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let lines = object.required("lines", |value| json::uint(value, 0, 9007199254740991))?;
         let texts = object.required("texts", |value| json::uint(value, 0, 9007199254740991))?;
-        Ok(Self { lines, texts })
+        let circles = object.required("circles", |value| json::uint(value, 0, 9007199254740991))?;
+        let curves = object.required("curves", |value| json::uint(value, 0, 9007199254740991))?;
+        let polylines =
+            object.required("polylines", |value| json::uint(value, 0, 9007199254740991))?;
+        let formatted_texts = object.required("formatted_texts", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        let dimensions =
+            object.required("dimensions", |value| json::uint(value, 0, 9007199254740991))?;
+        let leaders = object.required("leaders", |value| json::uint(value, 0, 9007199254740991))?;
+        let callouts =
+            object.required("callouts", |value| json::uint(value, 0, 9007199254740991))?;
+        let tables = object.required("tables", |value| json::uint(value, 0, 9007199254740991))?;
+        let underlays =
+            object.required("underlays", |value| json::uint(value, 0, 9007199254740991))?;
+        let symbols = object.required("symbols", |value| json::uint(value, 0, 9007199254740991))?;
+        let hatches = object.required("hatches", |value| json::uint(value, 0, 9007199254740991))?;
+        let points = object.required("points", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            lines,
+            texts,
+            circles,
+            curves,
+            polylines,
+            formatted_texts,
+            dimensions,
+            leaders,
+            callouts,
+            tables,
+            underlays,
+            symbols,
+            hatches,
+            points,
+        })
     }
 
     fn write_fields(&self, out: &mut Writer) {
@@ -2279,6 +2344,30 @@ impl ElementCounts {
         out.uint(self.lines);
         out.key("texts");
         out.uint(self.texts);
+        out.key("circles");
+        out.uint(self.circles);
+        out.key("curves");
+        out.uint(self.curves);
+        out.key("polylines");
+        out.uint(self.polylines);
+        out.key("formatted_texts");
+        out.uint(self.formatted_texts);
+        out.key("dimensions");
+        out.uint(self.dimensions);
+        out.key("leaders");
+        out.uint(self.leaders);
+        out.key("callouts");
+        out.uint(self.callouts);
+        out.key("tables");
+        out.uint(self.tables);
+        out.key("underlays");
+        out.uint(self.underlays);
+        out.key("symbols");
+        out.uint(self.symbols);
+        out.key("hatches");
+        out.uint(self.hatches);
+        out.key("points");
+        out.uint(self.points);
     }
 }
 
@@ -2292,6 +2381,103 @@ impl FromJson for ElementCounts {
 }
 
 impl ToJson for ElementCounts {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 2D のビュー。変換行列と切り抜きを保ち、尺度・向き・見えるモデル範囲を決定的に求める
+#[derive(Clone, Debug, PartialEq)]
+pub struct ViewDetail {
+    /// 対象の実寸の空間の公開 ID
+    pub space: String,
+    /// モデル座標から用紙の mm への [a,b,c,d,e,f]。点を (ax+by+c,dx+ey+f) に写す
+    pub matrix: Vec<f64>,
+    /// モデルの X 軸・Y 軸の 1 単位に対応する用紙の長さ [SX,SY]（mm）。回転・せん断・反転でも各軸の正の長さを返す
+    pub scale: Vec<f64>,
+    /// モデル単位を mm に直した、各軸の縮尺の比 [SX,SY]。1:100 なら 0.01。単位不明なら持たない
+    pub ratio: Option<Vec<f64>>,
+    /// 用紙の X 軸から見たモデルの X 軸の向き。度、反時計回り、-180〜180
+    pub rotation: f64,
+    /// 変換が向きを反転する
+    pub mirrored: bool,
+    /// 用紙の mm での切り抜きの頂点。元の順を保ち、空なら切り抜かない
+    pub clip: Vec<Point2>,
+    /// 同じ頂点を逆変換したモデル座標。元の順を保つ
+    pub model_clip: Vec<Point2>,
+    /// model_clip を囲む範囲。切り抜きが空なら持たない。モデルの単位
+    pub extent: Option<Extent>,
+    /// ビューの出所
+    pub source: Source,
+}
+
+impl ViewDetail {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let space = object.required("space", json::string)?;
+        let matrix = object.required("matrix", |value| json::array(value, json::number))?;
+        let scale = object.required("scale", |value| json::array(value, json::number))?;
+        let ratio = object.optional("ratio", |value| json::array(value, json::number))?;
+        let rotation = object.required("rotation", json::number)?;
+        let mirrored = object.required("mirrored", json::boolean)?;
+        let clip = object.required("clip", |value| json::array(value, Point2::from_json))?;
+        let model_clip =
+            object.required("model_clip", |value| json::array(value, Point2::from_json))?;
+        let extent = object.optional("extent", Extent::from_json)?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            space,
+            matrix,
+            scale,
+            ratio,
+            rotation,
+            mirrored,
+            clip,
+            model_clip,
+            extent,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("space");
+        out.string(&self.space);
+        out.key("matrix");
+        out.array(&self.matrix, |out, item| out.float(*item));
+        out.key("scale");
+        out.array(&self.scale, |out, item| out.float(*item));
+        if let Some(value) = &self.ratio {
+            out.key("ratio");
+            out.array(value, |out, item| out.float(*item));
+        }
+        out.key("rotation");
+        out.float(self.rotation);
+        out.key("mirrored");
+        out.bool(self.mirrored);
+        out.key("clip");
+        out.array(&self.clip, |out, item| item.to_json(out));
+        out.key("model_clip");
+        out.array(&self.model_clip, |out, item| item.to_json(out));
+        if let Some(value) = &self.extent {
+            out.key("extent");
+            value.to_json(out);
+        }
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for ViewDetail {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ViewDetail {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
@@ -8675,6 +8861,8 @@ pub struct TablesResult {
     pub dimension_styles: Vec<DimensionStyleItem>,
     /// 文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義のフィールドを持たない項目として後ろに並ぶ。マイナーバージョン 20 から
     pub text_styles: Vec<TextStyleItem>,
+    /// 記号の定義。配置されていないものも含む。マイナーバージョン 81 から
+    pub symbols: Vec<SymbolDefinitionItem>,
 }
 
 impl TablesResult {
@@ -8689,11 +8877,15 @@ impl TablesResult {
         let text_styles = object.required("text_styles", |value| {
             json::array(value, TextStyleItem::from_json)
         })?;
+        let symbols = object.required("symbols", |value| {
+            json::array(value, SymbolDefinitionItem::from_json)
+        })?;
         Ok(Self {
             layers,
             line_types,
             dimension_styles,
             text_styles,
+            symbols,
         })
     }
 
@@ -8706,6 +8898,8 @@ impl TablesResult {
         out.array(&self.dimension_styles, |out, item| item.to_json(out));
         out.key("text_styles");
         out.array(&self.text_styles, |out, item| item.to_json(out));
+        out.key("symbols");
+        out.array(&self.symbols, |out, item| item.to_json(out));
     }
 }
 
@@ -8719,6 +8913,180 @@ impl FromJson for TablesResult {
 }
 
 impl ToJson for TablesResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 記号の定義。要素と属性の配置や書式は元の定義に保ち、名前と属性の既定値を一覧にする
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymbolDefinitionItem {
+    /// 定義の空間の公開 ID。entities.place と同じ
+    pub id: String,
+    /// 定義を識別する名前空間
+    pub namespace: String,
+    /// 元の名前。add の記号の name に使う
+    pub name: String,
+    /// 定義の基点。定義の空間の座標と単位。不明なら持たない
+    pub base: Option<Point2>,
+    /// 属性のタグ・既定値・入力の指定。元の順を保つ
+    pub attributes: Vec<SymbolAttributeDefinition>,
+    /// 寸法などが作った無名の定義である
+    pub anonymous: bool,
+    /// 外部参照の元のパス。参照先を開かない。外部参照でなければ持たない
+    pub external: Option<String>,
+    /// 定義の出所
+    pub source: Source,
+}
+
+impl SymbolDefinitionItem {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let namespace = object.required("namespace", json::string)?;
+        let name = object.required("name", json::string)?;
+        let base = object.optional("base", Point2::from_json)?;
+        let attributes = object.required("attributes", |value| {
+            json::array(value, SymbolAttributeDefinition::from_json)
+        })?;
+        let anonymous = object.required("anonymous", json::boolean)?;
+        let external = object.optional("external", json::string)?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            id,
+            namespace,
+            name,
+            base,
+            attributes,
+            anonymous,
+            external,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("namespace");
+        out.string(&self.namespace);
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.base {
+            out.key("base");
+            value.to_json(out);
+        }
+        out.key("attributes");
+        out.array(&self.attributes, |out, item| item.to_json(out));
+        out.key("anonymous");
+        out.bool(self.anonymous);
+        if let Some(value) = &self.external {
+            out.key("external");
+            out.string(value);
+        }
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for SymbolDefinitionItem {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SymbolDefinitionItem {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 記号の属性の定義。タグと値は翻訳しない。配置・書式・スタイルは一覧には含めない
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymbolAttributeDefinition {
+    /// 元のタグ
+    pub tag: String,
+    /// 既定の 1 行の値
+    pub value: String,
+    /// 複数行の値があるとき、その元の書式つきの文字列。読むための値
+    pub formatted_value: Option<String>,
+    /// 値を尋ねる文
+    pub prompt: String,
+    /// 値が決まっていて、配置ごとに変えない
+    pub constant: bool,
+    /// 入力した値を確かめる指定
+    pub verify: bool,
+    /// 尋ねずに既定の値を使う指定
+    pub preset: bool,
+    /// 属性を表示しない
+    pub hidden: bool,
+    /// 属性の出所
+    pub source: Source,
+}
+
+impl SymbolAttributeDefinition {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let tag = object.required("tag", json::string)?;
+        let value = object.required("value", json::string)?;
+        let formatted_value = object.optional("formatted_value", json::string)?;
+        let prompt = object.required("prompt", json::string)?;
+        let constant = object.required("constant", json::boolean)?;
+        let verify = object.required("verify", json::boolean)?;
+        let preset = object.required("preset", json::boolean)?;
+        let hidden = object.required("hidden", json::boolean)?;
+        let source = object.required("source", Source::from_json)?;
+        Ok(Self {
+            tag,
+            value,
+            formatted_value,
+            prompt,
+            constant,
+            verify,
+            preset,
+            hidden,
+            source,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("tag");
+        out.string(&self.tag);
+        out.key("value");
+        out.string(&self.value);
+        if let Some(value) = &self.formatted_value {
+            out.key("formatted_value");
+            out.string(value);
+        }
+        out.key("prompt");
+        out.string(&self.prompt);
+        out.key("constant");
+        out.bool(self.constant);
+        out.key("verify");
+        out.bool(self.verify);
+        out.key("preset");
+        out.bool(self.preset);
+        out.key("hidden");
+        out.bool(self.hidden);
+        out.key("source");
+        self.source.to_json(out);
+    }
+}
+
+impl FromJson for SymbolAttributeDefinition {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SymbolAttributeDefinition {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

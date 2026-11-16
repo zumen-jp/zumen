@@ -550,12 +550,13 @@
         },
         "elements": { "description": "要素の数", "$ref": "#/$defs/element_counts" },
         "views": { "description": "ビューの数", "type": "integer", "minimum": 0 },
+        "view_details": { "description": "ビューの詳細。元の順に返す。マイナーバージョン 81 から", "type": "array", "items": { "$ref": "#/$defs/view_detail" } },
         "extent": {
           "description": "線分の端点と文字の基点を囲む範囲。用紙の mm。要素がなければ持たない",
           "$ref": "#/$defs/extent"
         }
       },
-      "required": ["elements", "views"],
+      "required": ["elements", "views", "view_details"],
       "additionalProperties": false
     },
     "unit": {
@@ -568,9 +569,39 @@
       "type": "object",
       "properties": {
         "lines": { "description": "線分", "type": "integer", "minimum": 0 },
-        "texts": { "description": "文字", "type": "integer", "minimum": 0 }
+        "texts": { "description": "文字", "type": "integer", "minimum": 0 },
+        "circles": { "description": "円。マイナーバージョン 81 から", "type": "integer", "minimum": 0 },
+        "curves": { "description": "円弧・楕円弧・スプラインなどの曲線。マイナーバージョン 81 から", "type": "integer", "minimum": 0 },
+        "polylines": { "description": "折れ線。マイナーバージョン 81 から", "type": "integer", "minimum": 0 },
+        "formatted_texts": { "description": "書式つきの文字。マイナーバージョン 81 から", "type": "integer", "minimum": 0 },
+        "dimensions": { "description": "寸法。マイナーバージョン 81 から", "type": "integer", "minimum": 0 },
+        "leaders": { "description": "引出線。マイナーバージョン 81 から", "type": "integer", "minimum": 0 },
+        "callouts": { "description": "引出線つきの注記。マイナーバージョン 81 から", "type": "integer", "minimum": 0 },
+        "tables": { "description": "表。マイナーバージョン 81 から", "type": "integer", "minimum": 0 },
+        "underlays": { "description": "アンダーレイ。マイナーバージョン 81 から", "type": "integer", "minimum": 0 },
+        "symbols": { "description": "記号の配置。中の要素を展開しない。マイナーバージョン 81 から", "type": "integer", "minimum": 0 },
+        "hatches": { "description": "ハッチング。マイナーバージョン 81 から", "type": "integer", "minimum": 0 },
+        "points": { "description": "点。マイナーバージョン 81 から", "type": "integer", "minimum": 0 }
       },
-      "required": ["lines", "texts"],
+      "required": ["lines", "texts", "circles", "curves", "polylines", "formatted_texts", "dimensions", "leaders", "callouts", "tables", "underlays", "symbols", "hatches", "points"],
+      "additionalProperties": false
+    },
+    "view_detail": {
+      "description": "2D のビュー。変換行列と切り抜きを保ち、尺度・向き・見えるモデル範囲を決定的に求める",
+      "type": "object",
+      "properties": {
+        "space": { "description": "対象の実寸の空間の公開 ID", "type": "string" },
+        "matrix": { "description": "モデル座標から用紙の mm への [a,b,c,d,e,f]。点を (ax+by+c,dx+ey+f) に写す", "type": "array", "items": { "type": "number" } },
+        "scale": { "description": "モデルの X 軸・Y 軸の 1 単位に対応する用紙の長さ [SX,SY]（mm）。回転・せん断・反転でも各軸の正の長さを返す", "type": "array", "items": { "type": "number" } },
+        "ratio": { "description": "モデル単位を mm に直した、各軸の縮尺の比 [SX,SY]。1:100 なら 0.01。単位不明なら持たない", "type": "array", "items": { "type": "number" } },
+        "rotation": { "description": "用紙の X 軸から見たモデルの X 軸の向き。度、反時計回り、-180〜180", "type": "number" },
+        "mirrored": { "description": "変換が向きを反転する", "type": "boolean" },
+        "clip": { "description": "用紙の mm での切り抜きの頂点。元の順を保ち、空なら切り抜かない", "type": "array", "items": { "$ref": "#/$defs/point2" } },
+        "model_clip": { "description": "同じ頂点を逆変換したモデル座標。元の順を保つ", "type": "array", "items": { "$ref": "#/$defs/point2" } },
+        "extent": { "description": "model_clip を囲む範囲。切り抜きが空なら持たない。モデルの単位", "$ref": "#/$defs/extent" },
+        "source": { "description": "ビューの出所", "$ref": "#/$defs/source" }
+      },
+      "required": ["space", "matrix", "scale", "rotation", "mirrored", "clip", "model_clip", "source"],
       "additionalProperties": false
     },
     "extent": {
@@ -1861,9 +1892,43 @@
           "description": "文字スタイル（決定 0158）。要素が名前で指すだけで、ファイルに定義がないものは、定義のフィールドを持たない項目として後ろに並ぶ。マイナーバージョン 20 から",
           "type": "array",
           "items": { "$ref": "#/$defs/text_style_item" }
-        }
+        },
+        "symbols": { "description": "記号の定義。配置されていないものも含む。マイナーバージョン 81 から", "type": "array", "items": { "$ref": "#/$defs/symbol_definition_item" } }
       },
-      "required": ["layers", "line_types", "dimension_styles", "text_styles"],
+      "required": ["layers", "line_types", "dimension_styles", "text_styles", "symbols"],
+      "additionalProperties": false
+    },
+    "symbol_definition_item": {
+      "description": "記号の定義。要素と属性の配置や書式は元の定義に保ち、名前と属性の既定値を一覧にする",
+      "type": "object",
+      "properties": {
+        "id": { "description": "定義の空間の公開 ID。entities.place と同じ", "type": "string" },
+        "namespace": { "description": "定義を識別する名前空間", "type": "string" },
+        "name": { "description": "元の名前。add の記号の name に使う", "type": "string" },
+        "base": { "description": "定義の基点。定義の空間の座標と単位。不明なら持たない", "$ref": "#/$defs/point2" },
+        "attributes": { "description": "属性のタグ・既定値・入力の指定。元の順を保つ", "type": "array", "items": { "$ref": "#/$defs/symbol_attribute_definition" } },
+        "anonymous": { "description": "寸法などが作った無名の定義である", "type": "boolean" },
+        "external": { "description": "外部参照の元のパス。参照先を開かない。外部参照でなければ持たない", "type": "string" },
+        "source": { "description": "定義の出所", "$ref": "#/$defs/source" }
+      },
+      "required": ["id", "namespace", "name", "attributes", "anonymous", "source"],
+      "additionalProperties": false
+    },
+    "symbol_attribute_definition": {
+      "description": "記号の属性の定義。タグと値は翻訳しない。配置・書式・スタイルは一覧には含めない",
+      "type": "object",
+      "properties": {
+        "tag": { "description": "元のタグ", "type": "string" },
+        "value": { "description": "既定の 1 行の値", "type": "string" },
+        "formatted_value": { "description": "複数行の値があるとき、その元の書式つきの文字列。読むための値", "type": "string" },
+        "prompt": { "description": "値を尋ねる文", "type": "string" },
+        "constant": { "description": "値が決まっていて、配置ごとに変えない", "type": "boolean" },
+        "verify": { "description": "入力した値を確かめる指定", "type": "boolean" },
+        "preset": { "description": "尋ねずに既定の値を使う指定", "type": "boolean" },
+        "hidden": { "description": "属性を表示しない", "type": "boolean" },
+        "source": { "description": "属性の出所", "$ref": "#/$defs/source" }
+      },
+      "required": ["tag", "value", "prompt", "constant", "verify", "preset", "hidden", "source"],
       "additionalProperties": false
     },
     "scene_request": {

@@ -281,7 +281,24 @@ impl SxfFile {
                             if before.sheets.get(place) == Some(&element.shape_sheet()) =>
                         {
                             work(cx, tables.style_work(&element.style, None), &Ref::default())?;
-                            plan.add(element, &tables, &mut unset, cx)?
+                            if let Shape::Symbol(symbol) = &element.shape {
+                                work(
+                                    cx,
+                                    drawing.symbols.len() as u64 + symbol.key.name.len() as u64,
+                                    &Ref::default(),
+                                )?;
+                                if let Some(definition) = drawing
+                                    .symbols
+                                    .iter()
+                                    .find(|definition| definition.key == symbol.key)
+                                {
+                                    plan.add_symbol(element, &tables, &definition.source, cx)?
+                                } else {
+                                    None
+                                }
+                            } else {
+                                plan.add(element, &tables, &mut unset, cx)?
+                            }
                         }
                         _ => None,
                     };
@@ -672,6 +689,15 @@ impl<'a> Any<'a> {
                         && angle(a.rotation, b.rotation)
                 }
                 (Shape::Formatted(a), Shape::Formatted(b)) => text::near(a, b),
+                (Shape::Symbol(a), Shape::Symbol(b)) => {
+                    a.key == b.key
+                        && a.position == b.position
+                        && a.scale == b.scale
+                        && angle(a.rotation, b.rotation)
+                        && a.grid == b.grid
+                        && a.attributes == b.attributes
+                        && a.clip == b.clip
+                }
                 (a, b) => a == b,
             };
             a.layer == b.layer && a.style == b.style && shape
@@ -1166,6 +1192,15 @@ trait Writer {
     fn remove(&mut self, record: usize, cx: &mut Cx) -> Result<Option<()>, Error>;
     /// 用紙に要素を足し、足したインスタンスの番号を返す。引数は、レイヤ・色・線種・線幅のコードも持つ
     fn add(&mut self, args: &Arguments, cx: &mut Cx) -> Result<Option<u64>, Error>;
+    /// 既存の作図部品を置く。P21 は定義の実体を、SFC は名前を参照する。
+    fn add_symbol(
+        &mut self,
+        args: &Arguments,
+        _definition: &Ref,
+        cx: &mut Cx,
+    ) -> Result<Option<u64>, Error> {
+        self.add(args, cx)
+    }
     /// 書き直したバイト列
     fn bytes(self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error>;
     /// 点マーカーを書き直し、足せるか
@@ -1411,6 +1446,59 @@ impl<'f> Plan<'f> {
             Some(error) => Err(error),
             None => Ok(computed),
         }
+    }
+
+    /// 既存の作図部品を用紙へ置く。部品の中身の色・線種・線幅を配置で上書きしない。
+    fn add_symbol(
+        &mut self,
+        element: &Element<PaperPoint>,
+        tables: &Tables,
+        definition: &Ref,
+        cx: &mut Cx,
+    ) -> Result<Option<(u64, Element<PaperPoint>)>, Error> {
+        count_element_copy(element, cx, 2)?;
+        let Shape::Symbol(symbol) = &element.shape else {
+            return Ok(None);
+        };
+        let style = Style {
+            color: Inherit::Layer,
+            line_type: Inherit::Layer,
+            line_type_scale: 1.0,
+            line_weight: None,
+            transparency: Inherit::Layer,
+        };
+        if symbol.key.namespace != "sxf.sfig"
+            || symbol.grid.is_some()
+            || !symbol.attributes.is_empty()
+            || symbol.clip.is_some()
+            || element.style != style
+            || !text::valid_string(&symbol.key.name)
+            || symbol.scale.contains(&0.0)
+        {
+            return Ok(None);
+        }
+        let values = [
+            symbol.position.x,
+            symbol.position.y,
+            symbol.rotation,
+            symbol.scale[0],
+            symbol.scale[1],
+        ];
+        if values.iter().any(|value| !value.is_finite()) {
+            return Ok(None);
+        }
+        let Some(layer) = tables.layer(element.layer) else {
+            return Ok(None);
+        };
+        let mut args = Arguments {
+            name: "sfig_locate",
+            values: vec![layer.to_string(), symbol.key.name.clone()],
+        };
+        args.values.extend(values.iter().map(ToString::to_string));
+        Ok(self
+            .writer
+            .add_symbol(&args, definition, cx)?
+            .map(|instance| (instance, element.clone())))
     }
 
     fn shape_arguments(

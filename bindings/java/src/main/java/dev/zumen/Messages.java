@@ -2663,6 +2663,17 @@ public final class Messages {
             return this;
         }
 
+        /** ビューの詳細。元の順に返す。マイナーバージョン 81 から */
+        public List<ViewDetail> getViewDetails() {
+            return Json.read(json.get("view_details"), v0 -> Json.list(v0, ViewDetail::of));
+        }
+
+        /** {@link #getViewDetails()} を書く。null ならフィールドを除く */
+        public SheetSummary withViewDetails(List<ViewDetail> value) {
+            put("view_details", value);
+            return this;
+        }
+
         /** 線分の端点と文字の基点を囲む範囲。用紙の mm。要素がなければ持たない */
         public Extent getExtent() {
             return Json.read(json.get("extent"), Extent::of);
@@ -2733,6 +2744,267 @@ public final class Messages {
         /** {@link #getTexts()} を書く。null ならフィールドを除く */
         public ElementCounts withTexts(Long value) {
             put("texts", value);
+            return this;
+        }
+
+        /** 円。マイナーバージョン 81 から */
+        public Long getCircles() {
+            return Json.read(json.get("circles"), Json::integer);
+        }
+
+        /** {@link #getCircles()} を書く。null ならフィールドを除く */
+        public ElementCounts withCircles(Long value) {
+            put("circles", value);
+            return this;
+        }
+
+        /** 円弧・楕円弧・スプラインなどの曲線。マイナーバージョン 81 から */
+        public Long getCurves() {
+            return Json.read(json.get("curves"), Json::integer);
+        }
+
+        /** {@link #getCurves()} を書く。null ならフィールドを除く */
+        public ElementCounts withCurves(Long value) {
+            put("curves", value);
+            return this;
+        }
+
+        /** 折れ線。マイナーバージョン 81 から */
+        public Long getPolylines() {
+            return Json.read(json.get("polylines"), Json::integer);
+        }
+
+        /** {@link #getPolylines()} を書く。null ならフィールドを除く */
+        public ElementCounts withPolylines(Long value) {
+            put("polylines", value);
+            return this;
+        }
+
+        /** 書式つきの文字。マイナーバージョン 81 から */
+        public Long getFormattedTexts() {
+            return Json.read(json.get("formatted_texts"), Json::integer);
+        }
+
+        /** {@link #getFormattedTexts()} を書く。null ならフィールドを除く */
+        public ElementCounts withFormattedTexts(Long value) {
+            put("formatted_texts", value);
+            return this;
+        }
+
+        /** 寸法。マイナーバージョン 81 から */
+        public Long getDimensions() {
+            return Json.read(json.get("dimensions"), Json::integer);
+        }
+
+        /** {@link #getDimensions()} を書く。null ならフィールドを除く */
+        public ElementCounts withDimensions(Long value) {
+            put("dimensions", value);
+            return this;
+        }
+
+        /** 引出線。マイナーバージョン 81 から */
+        public Long getLeaders() {
+            return Json.read(json.get("leaders"), Json::integer);
+        }
+
+        /** {@link #getLeaders()} を書く。null ならフィールドを除く */
+        public ElementCounts withLeaders(Long value) {
+            put("leaders", value);
+            return this;
+        }
+
+        /** 引出線つきの注記。マイナーバージョン 81 から */
+        public Long getCallouts() {
+            return Json.read(json.get("callouts"), Json::integer);
+        }
+
+        /** {@link #getCallouts()} を書く。null ならフィールドを除く */
+        public ElementCounts withCallouts(Long value) {
+            put("callouts", value);
+            return this;
+        }
+
+        /** 表。マイナーバージョン 81 から */
+        public Long getTables() {
+            return Json.read(json.get("tables"), Json::integer);
+        }
+
+        /** {@link #getTables()} を書く。null ならフィールドを除く */
+        public ElementCounts withTables(Long value) {
+            put("tables", value);
+            return this;
+        }
+
+        /** アンダーレイ。マイナーバージョン 81 から */
+        public Long getUnderlays() {
+            return Json.read(json.get("underlays"), Json::integer);
+        }
+
+        /** {@link #getUnderlays()} を書く。null ならフィールドを除く */
+        public ElementCounts withUnderlays(Long value) {
+            put("underlays", value);
+            return this;
+        }
+
+        /** 記号の配置。中の要素を展開しない。マイナーバージョン 81 から */
+        public Long getSymbols() {
+            return Json.read(json.get("symbols"), Json::integer);
+        }
+
+        /** {@link #getSymbols()} を書く。null ならフィールドを除く */
+        public ElementCounts withSymbols(Long value) {
+            put("symbols", value);
+            return this;
+        }
+
+        /** ハッチング。マイナーバージョン 81 から */
+        public Long getHatches() {
+            return Json.read(json.get("hatches"), Json::integer);
+        }
+
+        /** {@link #getHatches()} を書く。null ならフィールドを除く */
+        public ElementCounts withHatches(Long value) {
+            put("hatches", value);
+            return this;
+        }
+
+        /** 点。マイナーバージョン 81 から */
+        public Long getPoints() {
+            return Json.read(json.get("points"), Json::integer);
+        }
+
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
+        public ElementCounts withPoints(Long value) {
+            put("points", value);
+            return this;
+        }
+    }
+
+    /** 2D のビュー。変換行列と切り抜きを保ち、尺度・向き・見えるモデル範囲を決定的に求める */
+    public static final class ViewDetail extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ViewDetail(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ViewDetail of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ViewDetail(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ViewDetail() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 対象の実寸の空間の公開 ID */
+        public String getSpace() {
+            return Json.read(json.get("space"), Json::string);
+        }
+
+        /** {@link #getSpace()} を書く。null ならフィールドを除く */
+        public ViewDetail withSpace(String value) {
+            put("space", value);
+            return this;
+        }
+
+        /** モデル座標から用紙の mm への [a,b,c,d,e,f]。点を (ax+by+c,dx+ey+f) に写す */
+        public List<Double> getMatrix() {
+            return Json.read(json.get("matrix"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getMatrix()} を書く。null ならフィールドを除く */
+        public ViewDetail withMatrix(List<Double> value) {
+            put("matrix", value);
+            return this;
+        }
+
+        /** モデルの X 軸・Y 軸の 1 単位に対応する用紙の長さ [SX,SY]（mm）。回転・せん断・反転でも各軸の正の長さを返す */
+        public List<Double> getScale() {
+            return Json.read(json.get("scale"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
+        public ViewDetail withScale(List<Double> value) {
+            put("scale", value);
+            return this;
+        }
+
+        /** モデル単位を mm に直した、各軸の縮尺の比 [SX,SY]。1:100 なら 0.01。単位不明なら持たない */
+        public List<Double> getRatio() {
+            return Json.read(json.get("ratio"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getRatio()} を書く。null ならフィールドを除く */
+        public ViewDetail withRatio(List<Double> value) {
+            put("ratio", value);
+            return this;
+        }
+
+        /** 用紙の X 軸から見たモデルの X 軸の向き。度、反時計回り、-180〜180 */
+        public Double getRotation() {
+            return Json.read(json.get("rotation"), Json::number);
+        }
+
+        /** {@link #getRotation()} を書く。null ならフィールドを除く */
+        public ViewDetail withRotation(Double value) {
+            put("rotation", value);
+            return this;
+        }
+
+        /** 変換が向きを反転する */
+        public Boolean getMirrored() {
+            return Json.read(json.get("mirrored"), Json::bool);
+        }
+
+        /** {@link #getMirrored()} を書く。null ならフィールドを除く */
+        public ViewDetail withMirrored(Boolean value) {
+            put("mirrored", value);
+            return this;
+        }
+
+        /** 用紙の mm での切り抜きの頂点。元の順を保ち、空なら切り抜かない */
+        public List<Point2> getClip() {
+            return Json.read(json.get("clip"), v0 -> Json.list(v0, Point2::of));
+        }
+
+        /** {@link #getClip()} を書く。null ならフィールドを除く */
+        public ViewDetail withClip(List<Point2> value) {
+            put("clip", value);
+            return this;
+        }
+
+        /** 同じ頂点を逆変換したモデル座標。元の順を保つ */
+        public List<Point2> getModelClip() {
+            return Json.read(json.get("model_clip"), v0 -> Json.list(v0, Point2::of));
+        }
+
+        /** {@link #getModelClip()} を書く。null ならフィールドを除く */
+        public ViewDetail withModelClip(List<Point2> value) {
+            put("model_clip", value);
+            return this;
+        }
+
+        /** model_clip を囲む範囲。切り抜きが空なら持たない。モデルの単位 */
+        public Extent getExtent() {
+            return Json.read(json.get("extent"), Extent::of);
+        }
+
+        /** {@link #getExtent()} を書く。null ならフィールドを除く */
+        public ViewDetail withExtent(Extent value) {
+            put("extent", value);
+            return this;
+        }
+
+        /** ビューの出所 */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public ViewDetail withSource(Source value) {
+            put("source", value);
             return this;
         }
     }
@@ -9407,6 +9679,242 @@ public final class Messages {
         /** {@link #getTextStyles()} を書く。null ならフィールドを除く */
         public TablesResult withTextStyles(List<TextStyleItem> value) {
             put("text_styles", value);
+            return this;
+        }
+
+        /** 記号の定義。配置されていないものも含む。マイナーバージョン 81 から */
+        public List<SymbolDefinitionItem> getSymbols() {
+            return Json.read(json.get("symbols"), v0 -> Json.list(v0, SymbolDefinitionItem::of));
+        }
+
+        /** {@link #getSymbols()} を書く。null ならフィールドを除く */
+        public TablesResult withSymbols(List<SymbolDefinitionItem> value) {
+            put("symbols", value);
+            return this;
+        }
+    }
+
+    /** 記号の定義。要素と属性の配置や書式は元の定義に保ち、名前と属性の既定値を一覧にする */
+    public static final class SymbolDefinitionItem extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public SymbolDefinitionItem(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static SymbolDefinitionItem of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new SymbolDefinitionItem(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public SymbolDefinitionItem() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 定義の空間の公開 ID。entities.place と同じ */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public SymbolDefinitionItem withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 定義を識別する名前空間 */
+        public String getNamespace() {
+            return Json.read(json.get("namespace"), Json::string);
+        }
+
+        /** {@link #getNamespace()} を書く。null ならフィールドを除く */
+        public SymbolDefinitionItem withNamespace(String value) {
+            put("namespace", value);
+            return this;
+        }
+
+        /** 元の名前。add の記号の name に使う */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public SymbolDefinitionItem withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 定義の基点。定義の空間の座標と単位。不明なら持たない */
+        public Point2 getBase() {
+            return Json.read(json.get("base"), Point2::of);
+        }
+
+        /** {@link #getBase()} を書く。null ならフィールドを除く */
+        public SymbolDefinitionItem withBase(Point2 value) {
+            put("base", value);
+            return this;
+        }
+
+        /** 属性のタグ・既定値・入力の指定。元の順を保つ */
+        public List<SymbolAttributeDefinition> getAttributes() {
+            return Json.read(json.get("attributes"), v0 -> Json.list(v0, SymbolAttributeDefinition::of));
+        }
+
+        /** {@link #getAttributes()} を書く。null ならフィールドを除く */
+        public SymbolDefinitionItem withAttributes(List<SymbolAttributeDefinition> value) {
+            put("attributes", value);
+            return this;
+        }
+
+        /** 寸法などが作った無名の定義である */
+        public Boolean getAnonymous() {
+            return Json.read(json.get("anonymous"), Json::bool);
+        }
+
+        /** {@link #getAnonymous()} を書く。null ならフィールドを除く */
+        public SymbolDefinitionItem withAnonymous(Boolean value) {
+            put("anonymous", value);
+            return this;
+        }
+
+        /** 外部参照の元のパス。参照先を開かない。外部参照でなければ持たない */
+        public String getExternal() {
+            return Json.read(json.get("external"), Json::string);
+        }
+
+        /** {@link #getExternal()} を書く。null ならフィールドを除く */
+        public SymbolDefinitionItem withExternal(String value) {
+            put("external", value);
+            return this;
+        }
+
+        /** 定義の出所 */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public SymbolDefinitionItem withSource(Source value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 記号の属性の定義。タグと値は翻訳しない。配置・書式・スタイルは一覧には含めない */
+    public static final class SymbolAttributeDefinition extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public SymbolAttributeDefinition(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static SymbolAttributeDefinition of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new SymbolAttributeDefinition(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public SymbolAttributeDefinition() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元のタグ */
+        public String getTag() {
+            return Json.read(json.get("tag"), Json::string);
+        }
+
+        /** {@link #getTag()} を書く。null ならフィールドを除く */
+        public SymbolAttributeDefinition withTag(String value) {
+            put("tag", value);
+            return this;
+        }
+
+        /** 既定の 1 行の値 */
+        public String getValue() {
+            return Json.read(json.get("value"), Json::string);
+        }
+
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
+        public SymbolAttributeDefinition withValue(String value) {
+            put("value", value);
+            return this;
+        }
+
+        /** 複数行の値があるとき、その元の書式つきの文字列。読むための値 */
+        public String getFormattedValue() {
+            return Json.read(json.get("formatted_value"), Json::string);
+        }
+
+        /** {@link #getFormattedValue()} を書く。null ならフィールドを除く */
+        public SymbolAttributeDefinition withFormattedValue(String value) {
+            put("formatted_value", value);
+            return this;
+        }
+
+        /** 値を尋ねる文 */
+        public String getPrompt() {
+            return Json.read(json.get("prompt"), Json::string);
+        }
+
+        /** {@link #getPrompt()} を書く。null ならフィールドを除く */
+        public SymbolAttributeDefinition withPrompt(String value) {
+            put("prompt", value);
+            return this;
+        }
+
+        /** 値が決まっていて、配置ごとに変えない */
+        public Boolean getConstant() {
+            return Json.read(json.get("constant"), Json::bool);
+        }
+
+        /** {@link #getConstant()} を書く。null ならフィールドを除く */
+        public SymbolAttributeDefinition withConstant(Boolean value) {
+            put("constant", value);
+            return this;
+        }
+
+        /** 入力した値を確かめる指定 */
+        public Boolean getVerify() {
+            return Json.read(json.get("verify"), Json::bool);
+        }
+
+        /** {@link #getVerify()} を書く。null ならフィールドを除く */
+        public SymbolAttributeDefinition withVerify(Boolean value) {
+            put("verify", value);
+            return this;
+        }
+
+        /** 尋ねずに既定の値を使う指定 */
+        public Boolean getPreset() {
+            return Json.read(json.get("preset"), Json::bool);
+        }
+
+        /** {@link #getPreset()} を書く。null ならフィールドを除く */
+        public SymbolAttributeDefinition withPreset(Boolean value) {
+            put("preset", value);
+            return this;
+        }
+
+        /** 属性を表示しない */
+        public Boolean getHidden() {
+            return Json.read(json.get("hidden"), Json::bool);
+        }
+
+        /** {@link #getHidden()} を書く。null ならフィールドを除く */
+        public SymbolAttributeDefinition withHidden(Boolean value) {
+            put("hidden", value);
+            return this;
+        }
+
+        /** 属性の出所 */
+        public Source getSource() {
+            return Json.read(json.get("source"), Source::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public SymbolAttributeDefinition withSource(Source value) {
+            put("source", value);
             return this;
         }
     }

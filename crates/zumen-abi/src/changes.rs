@@ -38,7 +38,7 @@ pub(crate) fn changes(
     let mut tables = None;
     let mut elements = None;
     let mut places = None;
-    let mut definitions: Option<BTreeMap<String, &zumen_drawing::SymbolDefinition>> = None;
+    let mut definitions = None;
     for (index, edit) in request.edits.iter().enumerate() {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         let at = |field: &str| format!("/edits/{index}/{field}");
@@ -512,25 +512,39 @@ pub(crate) fn changes(
                 };
                 let definition = if let messages::Geometry::Symbol(symbol) = &edit.geometry {
                     if definitions.is_none() {
-                        let mut found = BTreeMap::new();
+                        let mut exact = BTreeMap::new();
+                        let mut folded = BTreeMap::new();
                         for definition in &drawing.symbols {
                             let work = definition.key.name.len().saturating_add(1);
                             cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
                                 .map_err(|stop| stopped(cx, stop))?;
+                            cx.check(Kind::DecodedBytes, (work as u64).saturating_add(256))
+                                .map_err(|stop| stopped(cx, stop))?;
                             if definition.key.namespace == "dxf.block" {
-                                found
+                                folded
                                     .entry(definition.key.name.to_ascii_lowercase())
                                     .or_insert(definition);
+                            } else if matches!(
+                                definition.key.namespace.as_ref(),
+                                "jww.block" | "sxf.sfig"
+                            ) {
+                                // これらの名前は大文字と小文字を区別する。同名の別定義は推測しない。
+                                exact
+                                    .entry(definition.key.name.clone())
+                                    .and_modify(|value| *value = None)
+                                    .or_insert(Some(definition));
                             }
                         }
-                        definitions = Some(found);
+                        definitions = Some((exact, folded));
                     }
                     let work = symbol.name.len();
                     cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
                         .map_err(|stop| stopped(cx, stop))?;
-                    let found = definitions
-                        .as_ref()
-                        .and_then(|items| items.get(&symbol.name.to_ascii_lowercase()).copied());
+                    let found = definitions.as_ref().and_then(|(exact, folded)| {
+                        exact.get(&symbol.name).copied().unwrap_or_else(|| {
+                            folded.get(&symbol.name.to_ascii_lowercase()).copied()
+                        })
+                    });
                     if let Some(definition) = found {
                         for item in &definition.attributes {
                             let attr = &item.attribute;
@@ -1142,7 +1156,7 @@ fn added(
         None => layer_of(Some("0"), None, tables)?.ok_or("layer")?,
     };
     // 書かない色・線種・線幅は、レイヤに従う
-    let style = Style {
+    let mut style = Style {
         color: match &edit.color {
             Some(change) => color_change(change).map_err(|()| "color")?,
             None => Inherit::Layer,
@@ -1158,6 +1172,21 @@ fn added(
         }),
         transparency: Inherit::Layer,
     };
+    if let Some(definition) = definition {
+        if definition.key.namespace == "jww.block" {
+            if edit.color.is_none() {
+                style.color = Inherit::Block;
+            }
+            if edit.line_type.is_none() {
+                style.line_type = Inherit::Block;
+            }
+        }
+        if matches!(definition.key.namespace.as_ref(), "jww.block" | "sxf.sfig")
+            && edit.line_weight.is_none()
+        {
+            style.line_weight = None;
+        }
+    }
     if let Some(&origin) = places.spaces.get(&edit.place) {
         return Ok(Placed::Model(Element {
             source: Ref::default(),
@@ -1193,6 +1222,9 @@ fn attributed<P: geometry::Spot>(
 ) -> Result<Shape<P>, String> {
     match (shape, &edit.geometry) {
         (Shape::Symbol(mut symbol), messages::Geometry::Symbol(given)) => {
+            if let Some(definition) = definition {
+                symbol.key = definition.key.clone();
+            }
             symbol.attributes =
                 geometry::attributes_of(definition, &symbol, given.attributes.as_deref())?;
             Ok(Shape::Symbol(symbol))

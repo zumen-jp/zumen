@@ -9,6 +9,8 @@ use zumen_sxf::Sxf;
 
 mod details;
 mod filters;
+mod metadata;
+use metadata::summary;
 
 impl Session {
     pub(super) fn drawing(
@@ -172,6 +174,7 @@ impl Session {
             line_types,
             dimension_styles,
             text_styles,
+            symbols: metadata::symbols(&drawing, cx)?,
         })
     }
 
@@ -351,45 +354,6 @@ impl Session {
             _ => Err(fail(cx, unsupported(doc, self.op))),
         }
     }
-}
-
-/// 図面モデルの要約。空間と用紙は、モデルの順に並べる
-fn summary(
-    drawing: &Drawing2D,
-    hash: Option<String>,
-    cx: &mut Cx<'_>,
-) -> Result<DrawingResult, Failed> {
-    let mut sheet_names = id::SheetNamer::default();
-    Ok(DrawingResult {
-        hash,
-        spaces: drawing
-            .spaces
-            .iter()
-            .map(|space| SpaceSummary {
-                id: Some(id::space(space.id)),
-                unit: unit_of(space.unit),
-                elements: counts(&space.elements),
-                extent: extent(&space.elements, |p| (p.x, p.y)),
-            })
-            .collect(),
-        sheets: drawing
-            .sheets
-            .iter()
-            .map(|sheet| {
-                cx.check(Kind::Work, 1)
-                    .map_err(|stop| fail(cx, stop.to_diagnostic()))?;
-                Ok(SheetSummary {
-                    id: Some(sheet_names.next(sheet)),
-                    name: sheet.name.clone(),
-                    size: sheet.size.map(|size| size.iter().map(|l| l.0).collect()),
-                    elements: counts(&sheet.elements),
-                    views: sheet.views.len() as u64,
-                    extent: extent(&sheet.elements, |p| (p.x, p.y)),
-                })
-            })
-            .collect::<Result<_, Failed>>()?,
-        point_style: drawing.point_style.map(point_style_summary),
-    })
 }
 
 /// 文書の点の表し方の要約（決定 0193）
@@ -646,15 +610,6 @@ fn kind_of<P>(shape: &Shape<P>) -> EntityKind {
         Shape::Symbol(_) => EntityKind::Symbol,
         Shape::Hatch(_) => EntityKind::Hatch,
         Shape::Point(_) => EntityKind::Point,
-    }
-}
-
-fn counts<P>(elements: &[Element<P>]) -> ElementCounts {
-    // 書式つきの文字・寸法・引出線・引出線つきの注記・記号・ハッチングは、要約のフィールドがまだないので数えない（#66）
-    let count = |is: fn(&Shape<P>) -> bool| elements.iter().filter(|e| is(&e.shape)).count() as u64;
-    ElementCounts {
-        lines: count(|shape| matches!(shape, Shape::Line { .. })),
-        texts: count(|shape| matches!(shape, Shape::Text(_))),
     }
 }
 

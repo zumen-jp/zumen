@@ -59,7 +59,19 @@
               "unit": "millimeter",
               "elements": {
                 "lines": 1,
-                "texts": 1
+                "texts": 1,
+                "circles": 0,
+                "curves": 0,
+                "polylines": 0,
+                "formatted_texts": 0,
+                "dimensions": 0,
+                "leaders": 0,
+                "callouts": 0,
+                "tables": 0,
+                "underlays": 0,
+                "symbols": 0,
+                "hatches": 0,
+                "points": 0
               },
               "extent": {
                 "min_x": -3,
@@ -78,7 +90,19 @@
               ],
               "elements": {
                 "lines": 1,
-                "texts": 0
+                "texts": 0,
+                "circles": 0,
+                "curves": 0,
+                "polylines": 0,
+                "formatted_texts": 0,
+                "dimensions": 0,
+                "leaders": 0,
+                "callouts": 0,
+                "tables": 0,
+                "underlays": 0,
+                "symbols": 0,
+                "hatches": 0,
+                "points": 0
               },
               "views": 0,
               "extent": {
@@ -86,7 +110,8 @@
                 "min_y": 10,
                 "max_x": 410,
                 "max_y": 287
-              }
+              },
+              "view_details": []
             }
           ]
         },
@@ -139,7 +164,7 @@
         "op": "drawing",
         "doc": "a.dxf",
         "budget": {
-          "work": 35
+          "work": 1000
         }
       },
       "expect": {

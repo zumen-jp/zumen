@@ -15,6 +15,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `check_ezjww.py` | キットの JWW を ezjww で読み、zumen の読みと照らす |
 | `check_ezsxf.py` | キットの SFC・P21 を ezsxf で読み、zumen の読みと照らす |
 | `check_text_apply.py` | 文字とレイヤを編集する 5 形式の適合テストを流し、保存後の再読と ezjww・ezsxf の値を照らす |
+| `check_symbol_apply.py` | 一覧から選んだ既存定義を配置した JWW・SFC・P21 の適合入力を、ezjww・ezsxf の参照・位置・倍率・回転・所属と照らす |
 | `check_palette.py` | 組み込みの色表の全符号を ezdxf・ezjww・ezsxf の固定版と照らす |
 | `test_ezsxf.py` | 合成 P21 の追加点のレイヤ所属と、同じ番号を持つ合成 SFC の各要素の形・種類・レイヤ・出所・欠落を個別に変え、`check_ezsxf.py` が食い違いを検出することを確かめる。合成 P21 の画像枠と折れ線の取り違え、枠のない画像の作図グループの診断の欠落、引数の中にコメントを持つ文の実体のレイヤの違いも検出することを確かめる |
 | `test_source_kinds.py` | キットの読みの要素の種類を変え、`check_ezdxf.py`・`check_acadsharp.py`・`check_ezjww.py` が、形を返さない要素の種類の違いを検出することを確かめる。JWW では、文字と画像の範囲の取り違え、描かない文字を要素にした読み、診断の欠落も検出することを確かめる。DWG は `acadsharp-dump.json` があるときだけ確かめる |
@@ -72,6 +73,14 @@ python -I xtask/verify/check_text_apply.py target/debug/libzumen_abi1.so ../zume
 ```
 
 Windows はライブラリを `target/debug/zumen_abi1.dll`、macOS は `target/debug/libzumen_abi1.dylib` に替えます。外部実装の導入は上の「使い方」と同じです。
+
+## 記号定義の配置を照らす
+
+合成の適合テスト `drawing_metadata_formats` で、`tables` の名前を使って既存定義を配置します。書き戻した JWW・SFC・P21 のバイト列を ezjww 0.7.6・ezsxf 0.3.7 で読み、定義の参照・位置・倍率・回転・所属と、未変更の要素を照らします。P21 は実体の参照をたどります。SFC の入力は未配置の部品の警告だけを許し、配置後は警告がないことを確かめます。表示ソフトによる照合とは分けます。
+
+```bash
+python -I xtask/verify/check_symbol_apply.py bindings/conformance/cases/drawing_metadata_formats.json ../zumen-symbol-verify
+```
 
 ## AutoCAD で開いて照らす
 

@@ -178,6 +178,21 @@ impl Apply<Changes> for JwwFile {
                 Edit::Add { place, element } => {
                     if let Placed::Model(element) = element.as_ref() {
                         text::count(&element.shape, cx)?;
+                        if let Shape::Symbol(symbol) = &element.shape {
+                            work(
+                                cx,
+                                drawing.symbols.len() as u64 + symbol.key.name.len() as u64,
+                            )?;
+                            if !drawing
+                                .symbols
+                                .iter()
+                                .any(|definition| definition.key == symbol.key)
+                            {
+                                cx.report(unsupported("add", "symbol_definition"));
+                                rejected = true;
+                                continue;
+                            }
+                        }
                     }
                     let unset = match element.as_ref() {
                         Placed::Model(element) => unset(element),
@@ -420,6 +435,15 @@ pub(super) fn unset(element: &Element<ModelPoint>) -> Option<&'static str> {
 
 /// 足す要素のクラスの名前
 pub(super) fn kind_of(element: &Placed) -> &'static str {
+    if matches!(
+        element,
+        Placed::Model(Element {
+            shape: Shape::Symbol(_),
+            ..
+        })
+    ) {
+        return "CDataBlock";
+    }
     let shape = match element {
         Placed::Model(element) => writable_class(&element.shape),
         Placed::Paper(_) => None,
@@ -521,6 +545,16 @@ pub(super) fn near(a: &Shape<ModelPoint>, b: &Shape<ModelPoint>) -> bool {
                 && a.construction == b.construction
         }
         (Shape::Text(a), Shape::Text(b)) => text::near(a, b),
+        (Shape::Symbol(a), Shape::Symbol(b)) => {
+            a.key == b.key
+                && point(&a.position, &b.position)
+                && value(a.scale[0], b.scale[0])
+                && value(a.scale[1], b.scale[1])
+                && angle(a.rotation, b.rotation)
+                && a.grid == b.grid
+                && a.attributes == b.attributes
+                && a.clip == b.clip
+        }
         _ => a == b,
     }
 }
@@ -1103,6 +1137,9 @@ impl Plan<'_> {
         space: SpaceId,
         element: &Element<ModelPoint>,
     ) -> Option<(LayerId, Style, Shape<ModelPoint>)> {
+        if let Shape::Symbol(symbol) = &element.shape {
+            return self.add_symbol(space, element, symbol);
+        }
         let group = u16::try_from(space.0).ok().filter(|group| *group < 16)?;
         let class = writable_class(&element.shape)?;
         let n = element.layer.0.checked_sub(1)?;
@@ -1159,6 +1196,64 @@ impl Plan<'_> {
         self.file.classes().first()?;
         self.added.push((class, bytes));
         Some((base.layer(), self.style(&base, class), shape))
+    }
+
+    /// 既存のブロックを配置する。CDataBlock の共通属性は描画に使わず、定義内の図形がスタイルを持つ。
+    fn add_symbol(
+        &mut self,
+        space: SpaceId,
+        element: &Element<ModelPoint>,
+        symbol: &zumen_drawing::Symbol<ModelPoint>,
+    ) -> Option<(LayerId, Style, Shape<ModelPoint>)> {
+        let group = u16::try_from(space.0).ok().filter(|group| *group < 16)?;
+        let n = element.layer.0.checked_sub(1)?;
+        let style = Style {
+            color: Inherit::Block,
+            line_type: Inherit::Block,
+            line_type_scale: 1.0,
+            line_weight: None,
+            transparency: Inherit::Layer,
+        };
+        if n / 16 != u32::from(group)
+            || element.style != style
+            || symbol.position.space != space
+            || symbol.key.namespace != "jww.block"
+            || symbol.grid.is_some()
+            || !symbol.attributes.is_empty()
+            || symbol.clip.is_some()
+        {
+            return None;
+        }
+        let number = symbol.key.name.parse::<u32>().ok()?;
+        if number.to_string() != symbol.key.name {
+            return None;
+        }
+        let scale = self.scale(group, false);
+        let values = [
+            symbol.position.x / scale,
+            symbol.position.y / scale,
+            symbol.scale[0] / scale,
+            symbol.scale[1] / scale,
+            symbol.rotation.to_radians(),
+        ];
+        if values.iter().any(|value| !value.is_finite()) || symbol.scale.contains(&0.0) {
+            return None;
+        }
+        let base = Base {
+            curve: 0,
+            pen_style: 1,
+            pen_color: 1,
+            pen_width: 0,
+            layer: u16::try_from(n % 16).ok()?,
+            group,
+            flag: 0,
+        };
+        let mut bytes = base.bytes(self.version());
+        bytes.extend(values.iter().flat_map(|value| value.to_le_bytes()));
+        bytes.extend(number.to_le_bytes());
+        self.file.classes().first()?;
+        self.added.push((b"CDataBlock", bytes));
+        Some((base.layer(), style, element.shape.clone()))
     }
 
     /// 書き直したバイト列。一覧を読めなければ `None`

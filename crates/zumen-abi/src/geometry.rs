@@ -294,7 +294,10 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
 
 /// 記号の名前空間と格子間隔の座標の系を確かめ、形の値の格子にする。固定のフィールドだけを調べる
 pub(crate) fn symbol_grid<P: Spot>(symbol: &Symbol<P>) -> Option<Option<SymbolGrid>> {
-    if symbol.key.namespace != BLOCK {
+    if !matches!(
+        symbol.key.namespace.as_ref(),
+        BLOCK | "jww.block" | "sxf.sfig"
+    ) {
         return None;
     }
     Some(match &symbol.grid {

@@ -41,7 +41,12 @@ pub(super) fn failed(error: Error, id: &str, source: &Ref, cx: &mut Cx<'_>) -> F
     fail(cx, diagnostic.at(source.clone()))
 }
 
-fn reserve<T>(values: &mut Vec<T>, count: usize, slot: u64, cx: &mut Cx<'_>) -> Result<(), Error> {
+pub(super) fn reserve<T>(
+    values: &mut Vec<T>,
+    count: usize,
+    slot: u64,
+    cx: &mut Cx<'_>,
+) -> Result<(), Error> {
     let bytes = (count as u64)
         .checked_mul(slot)
         .ok_or(Error::Invalid("allocation"))?;
@@ -54,7 +59,7 @@ fn reserve<T>(values: &mut Vec<T>, count: usize, slot: u64, cx: &mut Cx<'_>) -> 
         .map_err(|_| Error::Invalid("allocation"))
 }
 
-fn copied(value: &str, cx: &mut Cx<'_>) -> Result<String, Error> {
+pub(super) fn copied(value: &str, cx: &mut Cx<'_>) -> Result<String, Error> {
     let bytes = value.len() as u64;
     cx.check(Kind::Work, bytes)?;
     cx.check(Kind::DecodedBytes, bytes)?;
@@ -357,7 +362,7 @@ fn field_value(value: &FieldValue, cx: &mut Cx<'_>) -> Result<m::EntityExtension
     })
 }
 
-fn source(value: &Ref) -> m::Source {
+pub(super) fn source(value: &Ref) -> m::Source {
     m::Source {
         record: value.record(),
         bytes: value.bytes().map(|bytes| m::ByteRange {

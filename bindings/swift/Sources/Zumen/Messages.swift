@@ -1682,6 +1682,12 @@ public struct SheetSummary: Message {
         set { writeField("views", newValue) }
     }
 
+    /// ビューの詳細。元の順に返す。マイナーバージョン 81 から
+    public var viewDetails: [ViewDetail]? {
+        get { readField("view_details") }
+        set { writeField("view_details", newValue) }
+    }
+
     /// 線分の端点と文字の基点を囲む範囲。用紙の mm。要素がなければ持たない
     public var extent: Extent? {
         get { readField("extent") }
@@ -1726,6 +1732,154 @@ public struct ElementCounts: Message {
     public var texts: Int64? {
         get { readField("texts") }
         set { writeField("texts", newValue) }
+    }
+
+    /// 円。マイナーバージョン 81 から
+    public var circles: Int64? {
+        get { readField("circles") }
+        set { writeField("circles", newValue) }
+    }
+
+    /// 円弧・楕円弧・スプラインなどの曲線。マイナーバージョン 81 から
+    public var curves: Int64? {
+        get { readField("curves") }
+        set { writeField("curves", newValue) }
+    }
+
+    /// 折れ線。マイナーバージョン 81 から
+    public var polylines: Int64? {
+        get { readField("polylines") }
+        set { writeField("polylines", newValue) }
+    }
+
+    /// 書式つきの文字。マイナーバージョン 81 から
+    public var formattedTexts: Int64? {
+        get { readField("formatted_texts") }
+        set { writeField("formatted_texts", newValue) }
+    }
+
+    /// 寸法。マイナーバージョン 81 から
+    public var dimensions: Int64? {
+        get { readField("dimensions") }
+        set { writeField("dimensions", newValue) }
+    }
+
+    /// 引出線。マイナーバージョン 81 から
+    public var leaders: Int64? {
+        get { readField("leaders") }
+        set { writeField("leaders", newValue) }
+    }
+
+    /// 引出線つきの注記。マイナーバージョン 81 から
+    public var callouts: Int64? {
+        get { readField("callouts") }
+        set { writeField("callouts", newValue) }
+    }
+
+    /// 表。マイナーバージョン 81 から
+    public var tables: Int64? {
+        get { readField("tables") }
+        set { writeField("tables", newValue) }
+    }
+
+    /// アンダーレイ。マイナーバージョン 81 から
+    public var underlays: Int64? {
+        get { readField("underlays") }
+        set { writeField("underlays", newValue) }
+    }
+
+    /// 記号の配置。中の要素を展開しない。マイナーバージョン 81 から
+    public var symbols: Int64? {
+        get { readField("symbols") }
+        set { writeField("symbols", newValue) }
+    }
+
+    /// ハッチング。マイナーバージョン 81 から
+    public var hatches: Int64? {
+        get { readField("hatches") }
+        set { writeField("hatches", newValue) }
+    }
+
+    /// 点。マイナーバージョン 81 から
+    public var points: Int64? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+}
+
+/// 2D のビュー。変換行列と切り抜きを保ち、尺度・向き・見えるモデル範囲を決定的に求める
+public struct ViewDetail: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 対象の実寸の空間の公開 ID
+    public var space: String? {
+        get { readField("space") }
+        set { writeField("space", newValue) }
+    }
+
+    /// モデル座標から用紙の mm への [a,b,c,d,e,f]。点を (ax+by+c,dx+ey+f) に写す
+    public var matrix: [Double]? {
+        get { readField("matrix") }
+        set { writeField("matrix", newValue) }
+    }
+
+    /// モデルの X 軸・Y 軸の 1 単位に対応する用紙の長さ [SX,SY]（mm）。回転・せん断・反転でも各軸の正の長さを返す
+    public var scale: [Double]? {
+        get { readField("scale") }
+        set { writeField("scale", newValue) }
+    }
+
+    /// モデル単位を mm に直した、各軸の縮尺の比 [SX,SY]。1:100 なら 0.01。単位不明なら持たない
+    public var ratio: [Double]? {
+        get { readField("ratio") }
+        set { writeField("ratio", newValue) }
+    }
+
+    /// 用紙の X 軸から見たモデルの X 軸の向き。度、反時計回り、-180〜180
+    public var rotation: Double? {
+        get { readField("rotation") }
+        set { writeField("rotation", newValue) }
+    }
+
+    /// 変換が向きを反転する
+    public var mirrored: Bool? {
+        get { readField("mirrored") }
+        set { writeField("mirrored", newValue) }
+    }
+
+    /// 用紙の mm での切り抜きの頂点。元の順を保ち、空なら切り抜かない
+    public var clip: [Point2]? {
+        get { readField("clip") }
+        set { writeField("clip", newValue) }
+    }
+
+    /// 同じ頂点を逆変換したモデル座標。元の順を保つ
+    public var modelClip: [Point2]? {
+        get { readField("model_clip") }
+        set { writeField("model_clip", newValue) }
+    }
+
+    /// model_clip を囲む範囲。切り抜きが空なら持たない。モデルの単位
+    public var extent: Extent? {
+        get { readField("extent") }
+        set { writeField("extent", newValue) }
+    }
+
+    /// ビューの出所
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
     }
 }
 
@@ -5879,6 +6033,146 @@ public struct TablesResult: Message {
     public var textStyles: [TextStyleItem]? {
         get { readField("text_styles") }
         set { writeField("text_styles", newValue) }
+    }
+
+    /// 記号の定義。配置されていないものも含む。マイナーバージョン 81 から
+    public var symbols: [SymbolDefinitionItem]? {
+        get { readField("symbols") }
+        set { writeField("symbols", newValue) }
+    }
+}
+
+/// 記号の定義。要素と属性の配置や書式は元の定義に保ち、名前と属性の既定値を一覧にする
+public struct SymbolDefinitionItem: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 定義の空間の公開 ID。entities.place と同じ
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 定義を識別する名前空間
+    public var namespace: String? {
+        get { readField("namespace") }
+        set { writeField("namespace", newValue) }
+    }
+
+    /// 元の名前。add の記号の name に使う
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 定義の基点。定義の空間の座標と単位。不明なら持たない
+    public var base: Point2? {
+        get { readField("base") }
+        set { writeField("base", newValue) }
+    }
+
+    /// 属性のタグ・既定値・入力の指定。元の順を保つ
+    public var attributes: [SymbolAttributeDefinition]? {
+        get { readField("attributes") }
+        set { writeField("attributes", newValue) }
+    }
+
+    /// 寸法などが作った無名の定義である
+    public var anonymous: Bool? {
+        get { readField("anonymous") }
+        set { writeField("anonymous", newValue) }
+    }
+
+    /// 外部参照の元のパス。参照先を開かない。外部参照でなければ持たない
+    public var external: String? {
+        get { readField("external") }
+        set { writeField("external", newValue) }
+    }
+
+    /// 定義の出所
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 記号の属性の定義。タグと値は翻訳しない。配置・書式・スタイルは一覧には含めない
+public struct SymbolAttributeDefinition: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元のタグ
+    public var tag: String? {
+        get { readField("tag") }
+        set { writeField("tag", newValue) }
+    }
+
+    /// 既定の 1 行の値
+    public var value: String? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+
+    /// 複数行の値があるとき、その元の書式つきの文字列。読むための値
+    public var formattedValue: String? {
+        get { readField("formatted_value") }
+        set { writeField("formatted_value", newValue) }
+    }
+
+    /// 値を尋ねる文
+    public var prompt: String? {
+        get { readField("prompt") }
+        set { writeField("prompt", newValue) }
+    }
+
+    /// 値が決まっていて、配置ごとに変えない
+    public var constant: Bool? {
+        get { readField("constant") }
+        set { writeField("constant", newValue) }
+    }
+
+    /// 入力した値を確かめる指定
+    public var verify: Bool? {
+        get { readField("verify") }
+        set { writeField("verify", newValue) }
+    }
+
+    /// 尋ねずに既定の値を使う指定
+    public var preset: Bool? {
+        get { readField("preset") }
+        set { writeField("preset", newValue) }
+    }
+
+    /// 属性を表示しない
+    public var hidden: Bool? {
+        get { readField("hidden") }
+        set { writeField("hidden", newValue) }
+    }
+
+    /// 属性の出所
+    public var source: Source? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
     }
 }
 

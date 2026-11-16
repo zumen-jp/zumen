@@ -52,7 +52,19 @@
               ],
               "elements": {
                 "lines": 1,
-                "texts": 0
+                "texts": 0,
+                "circles": 0,
+                "curves": 0,
+                "polylines": 0,
+                "formatted_texts": 0,
+                "dimensions": 0,
+                "leaders": 0,
+                "callouts": 0,
+                "tables": 0,
+                "underlays": 0,
+                "symbols": 0,
+                "hatches": 0,
+                "points": 0
               },
               "views": 0,
               "extent": {
@@ -60,7 +72,8 @@
                 "min_y": 0,
                 "max_x": 100,
                 "max_y": 50
-              }
+              },
+              "view_details": []
             }
           ]
         },
@@ -100,7 +113,19 @@
               ],
               "elements": {
                 "lines": 1,
-                "texts": 0
+                "texts": 0,
+                "circles": 0,
+                "curves": 0,
+                "polylines": 0,
+                "formatted_texts": 0,
+                "dimensions": 0,
+                "leaders": 0,
+                "callouts": 0,
+                "tables": 0,
+                "underlays": 0,
+                "symbols": 0,
+                "hatches": 0,
+                "points": 0
               },
               "views": 0,
               "extent": {
@@ -108,7 +133,8 @@
                 "min_y": 0,
                 "max_x": 100,
                 "max_y": 50
-              }
+              },
+              "view_details": []
             }
           ]
         },

@@ -27,7 +27,19 @@
         "/result/spaces/0/unit": "meter",
         "/result/spaces/0/elements": {
           "lines": 10,
-          "texts": 16
+          "texts": 16,
+          "circles": 32,
+          "curves": 0,
+          "polylines": 0,
+          "formatted_texts": 0,
+          "dimensions": 0,
+          "leaders": 0,
+          "callouts": 0,
+          "tables": 0,
+          "underlays": 0,
+          "symbols": 0,
+          "hatches": 0,
+          "points": 0
         },
         "/result/spaces/0/extent": {
           "min_x": 0,
@@ -38,7 +50,19 @@
         "/result/sheets/0/name": "Layout1",
         "/result/sheets/0/elements": {
           "lines": 0,
-          "texts": 0
+          "texts": 0,
+          "circles": 0,
+          "curves": 0,
+          "polylines": 0,
+          "formatted_texts": 0,
+          "dimensions": 0,
+          "leaders": 0,
+          "callouts": 0,
+          "tables": 0,
+          "underlays": 0,
+          "symbols": 0,
+          "hatches": 0,
+          "points": 0
         },
         "/diagnostics": []
       },

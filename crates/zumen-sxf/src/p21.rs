@@ -147,6 +147,23 @@ pub(crate) fn records_and_codes(
     builder.tables(cx)?;
     let mut out = core::mem::take(&mut builder.out);
     builder.sheet(cx)?;
+    // 配置から読んだ定義を先に保つ。まだ置かれていない作図部品だけを後ろへ足すので、既存の空間の ID は変えない。
+    for index in 0..builder.instances.sorted.len() {
+        let Some(&(id, instance)) = builder.instances.sorted.get(index) else {
+            break;
+        };
+        work(cx, 1, &Ref::at_record(instance.record as u64))?;
+        if builder.subfigures.contains_key(&id) {
+            continue;
+        }
+        if let Some(args) = builder.part(instance, "DRAUGHTING_SUBFIGURE_REPRESENTATION")
+            && builder
+                .text(args.first())
+                .is_some_and(|name| name.starts_with("$$SXF_P_"))
+        {
+            builder.definition(id);
+        }
+    }
     out.append(&mut builder.definitions);
     out.append(&mut builder.front);
     out.append(&mut builder.out);

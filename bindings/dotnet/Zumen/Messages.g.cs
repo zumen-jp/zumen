@@ -1295,6 +1295,12 @@ namespace Zumen.Messages
         public ulong Views { get; init; }
 
         /// <summary>
+        /// ビューの詳細。元の順に返す。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("view_details")]
+        public IReadOnlyList<ViewDetail> ViewDetails { get; init; } = default!;
+
+        /// <summary>
         /// 線分の端点と文字の基点を囲む範囲。用紙の mm。要素がなければ持たない
         /// </summary>
         [JsonPropertyName("extent")]
@@ -1336,6 +1342,144 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("texts")]
         public ulong Texts { get; init; }
+
+        /// <summary>
+        /// 円。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("circles")]
+        public ulong Circles { get; init; }
+
+        /// <summary>
+        /// 円弧・楕円弧・スプラインなどの曲線。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("curves")]
+        public ulong Curves { get; init; }
+
+        /// <summary>
+        /// 折れ線。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("polylines")]
+        public ulong Polylines { get; init; }
+
+        /// <summary>
+        /// 書式つきの文字。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("formatted_texts")]
+        public ulong FormattedTexts { get; init; }
+
+        /// <summary>
+        /// 寸法。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("dimensions")]
+        public ulong Dimensions { get; init; }
+
+        /// <summary>
+        /// 引出線。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("leaders")]
+        public ulong Leaders { get; init; }
+
+        /// <summary>
+        /// 引出線つきの注記。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("callouts")]
+        public ulong Callouts { get; init; }
+
+        /// <summary>
+        /// 表。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("tables")]
+        public ulong Tables { get; init; }
+
+        /// <summary>
+        /// アンダーレイ。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("underlays")]
+        public ulong Underlays { get; init; }
+
+        /// <summary>
+        /// 記号の配置。中の要素を展開しない。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("symbols")]
+        public ulong Symbols { get; init; }
+
+        /// <summary>
+        /// ハッチング。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("hatches")]
+        public ulong Hatches { get; init; }
+
+        /// <summary>
+        /// 点。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("points")]
+        public ulong Points { get; init; }
+    }
+
+    /// <summary>
+    /// 2D のビュー。変換行列と切り抜きを保ち、尺度・向き・見えるモデル範囲を決定的に求める
+    /// </summary>
+    public sealed record ViewDetail
+    {
+        /// <summary>
+        /// 対象の実寸の空間の公開 ID
+        /// </summary>
+        [JsonPropertyName("space")]
+        public string Space { get; init; } = default!;
+
+        /// <summary>
+        /// モデル座標から用紙の mm への [a,b,c,d,e,f]。点を (ax+by+c,dx+ey+f) に写す
+        /// </summary>
+        [JsonPropertyName("matrix")]
+        public IReadOnlyList<double> Matrix { get; init; } = default!;
+
+        /// <summary>
+        /// モデルの X 軸・Y 軸の 1 単位に対応する用紙の長さ [SX,SY]（mm）。回転・せん断・反転でも各軸の正の長さを返す
+        /// </summary>
+        [JsonPropertyName("scale")]
+        public IReadOnlyList<double> Scale { get; init; } = default!;
+
+        /// <summary>
+        /// モデル単位を mm に直した、各軸の縮尺の比 [SX,SY]。1:100 なら 0.01。単位不明なら持たない
+        /// </summary>
+        [JsonPropertyName("ratio")]
+        public IReadOnlyList<double>? Ratio { get; init; }
+
+        /// <summary>
+        /// 用紙の X 軸から見たモデルの X 軸の向き。度、反時計回り、-180〜180
+        /// </summary>
+        [JsonPropertyName("rotation")]
+        public double Rotation { get; init; }
+
+        /// <summary>
+        /// 変換が向きを反転する
+        /// </summary>
+        [JsonPropertyName("mirrored")]
+        public bool Mirrored { get; init; }
+
+        /// <summary>
+        /// 用紙の mm での切り抜きの頂点。元の順を保ち、空なら切り抜かない
+        /// </summary>
+        [JsonPropertyName("clip")]
+        public IReadOnlyList<Point2> Clip { get; init; } = default!;
+
+        /// <summary>
+        /// 同じ頂点を逆変換したモデル座標。元の順を保つ
+        /// </summary>
+        [JsonPropertyName("model_clip")]
+        public IReadOnlyList<Point2> ModelClip { get; init; } = default!;
+
+        /// <summary>
+        /// model_clip を囲む範囲。切り抜きが空なら持たない。モデルの単位
+        /// </summary>
+        [JsonPropertyName("extent")]
+        public Extent? Extent { get; init; }
+
+        /// <summary>
+        /// ビューの出所
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
     }
 
     /// <summary>
@@ -4702,6 +4846,126 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("text_styles")]
         public IReadOnlyList<TextStyleItem> TextStyles { get; init; } = default!;
+
+        /// <summary>
+        /// 記号の定義。配置されていないものも含む。マイナーバージョン 81 から
+        /// </summary>
+        [JsonPropertyName("symbols")]
+        public IReadOnlyList<SymbolDefinitionItem> Symbols { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 記号の定義。要素と属性の配置や書式は元の定義に保ち、名前と属性の既定値を一覧にする
+    /// </summary>
+    public sealed record SymbolDefinitionItem
+    {
+        /// <summary>
+        /// 定義の空間の公開 ID。entities.place と同じ
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 定義を識別する名前空間
+        /// </summary>
+        [JsonPropertyName("namespace")]
+        public string Namespace { get; init; } = default!;
+
+        /// <summary>
+        /// 元の名前。add の記号の name に使う
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 定義の基点。定義の空間の座標と単位。不明なら持たない
+        /// </summary>
+        [JsonPropertyName("base")]
+        public Point2? Base { get; init; }
+
+        /// <summary>
+        /// 属性のタグ・既定値・入力の指定。元の順を保つ
+        /// </summary>
+        [JsonPropertyName("attributes")]
+        public IReadOnlyList<SymbolAttributeDefinition> Attributes { get; init; } = default!;
+
+        /// <summary>
+        /// 寸法などが作った無名の定義である
+        /// </summary>
+        [JsonPropertyName("anonymous")]
+        public bool Anonymous { get; init; }
+
+        /// <summary>
+        /// 外部参照の元のパス。参照先を開かない。外部参照でなければ持たない
+        /// </summary>
+        [JsonPropertyName("external")]
+        public string? External { get; init; }
+
+        /// <summary>
+        /// 定義の出所
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 記号の属性の定義。タグと値は翻訳しない。配置・書式・スタイルは一覧には含めない
+    /// </summary>
+    public sealed record SymbolAttributeDefinition
+    {
+        /// <summary>
+        /// 元のタグ
+        /// </summary>
+        [JsonPropertyName("tag")]
+        public string Tag { get; init; } = default!;
+
+        /// <summary>
+        /// 既定の 1 行の値
+        /// </summary>
+        [JsonPropertyName("value")]
+        public string Value { get; init; } = default!;
+
+        /// <summary>
+        /// 複数行の値があるとき、その元の書式つきの文字列。読むための値
+        /// </summary>
+        [JsonPropertyName("formatted_value")]
+        public string? FormattedValue { get; init; }
+
+        /// <summary>
+        /// 値を尋ねる文
+        /// </summary>
+        [JsonPropertyName("prompt")]
+        public string Prompt { get; init; } = default!;
+
+        /// <summary>
+        /// 値が決まっていて、配置ごとに変えない
+        /// </summary>
+        [JsonPropertyName("constant")]
+        public bool Constant { get; init; }
+
+        /// <summary>
+        /// 入力した値を確かめる指定
+        /// </summary>
+        [JsonPropertyName("verify")]
+        public bool Verify { get; init; }
+
+        /// <summary>
+        /// 尋ねずに既定の値を使う指定
+        /// </summary>
+        [JsonPropertyName("preset")]
+        public bool Preset { get; init; }
+
+        /// <summary>
+        /// 属性を表示しない
+        /// </summary>
+        [JsonPropertyName("hidden")]
+        public bool Hidden { get; init; }
+
+        /// <summary>
+        /// 属性の出所
+        /// </summary>
+        [JsonPropertyName("source")]
+        public Source Source { get; init; } = default!;
     }
 
     /// <summary>
