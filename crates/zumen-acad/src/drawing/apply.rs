@@ -88,7 +88,10 @@ impl Apply<Changes> for DwgFile {
         // DWG は角度をラジアンで持つので、表の度の値は、書いて読み直すと末の桁がずれうる。ハッシュは、
         // 書き戻したファイルから作り直した表で求める
         let mut quiet = Diagnostics::new();
-        let written = updated.objects(&mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
+        let written = super::report_quiet_stop(
+            updated.objects(&mut Cx::new(cx.budget, &mut quiet, cx.cancel)),
+            cx,
+        )?;
         let result = settled(&written, ids, cx)?;
         *self = updated;
         Ok(result)
@@ -395,7 +398,10 @@ fn edit(
     let positions = object_positions(db, cx)?;
     // 今の図面モデル。変換の診断は、書き戻しの診断に混ぜない
     let mut quiet = Diagnostics::new();
-    let (drawing, frames) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
+    let (drawing, frames) = super::report_quiet_stop(
+        framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel)),
+        cx,
+    )?;
     let index = Index::new(&drawing, cx)?;
     // 2007 からのバージョンは文字を UTF-8 で持つ。それより前は、ヘッダーのコード・ページで符号化する（読む側と同じ、
     // 決定 0192）
@@ -1427,7 +1433,10 @@ fn attribute_counts_for(
 /// 書き戻した表から図面モデルを作り直し、置き換えた要素と足した要素の ID とハッシュを求める
 fn settled(db: &AcadDb, targets: Vec<ResultTarget>, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
     let mut quiet = Diagnostics::new();
-    let (after, _) = framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
+    let (after, _) = super::report_quiet_stop(
+        framed(db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel)),
+        cx,
+    )?;
     let after = Index::new(&after, cx)?;
     targets
         .into_iter()

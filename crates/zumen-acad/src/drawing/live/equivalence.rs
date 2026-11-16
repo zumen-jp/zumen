@@ -453,7 +453,7 @@ where
                     live.history_bytes()
                 ));
                 if available < needed {
-                    assert!(matches!(actual, Err(Error::Stopped(_))));
+                    assert_stop_reported(&actual, &diagnostics);
                     assert_eq!((live.state_id(), live.undo_len(), live.redo_len()), history);
                     assert!(!live.display().has_dirty());
                     assert!(live.dirty_symbols().is_empty());
@@ -472,13 +472,11 @@ where
         cancel.cancel();
         let mut budget = Budget::default();
         let mut diagnostics = Diagnostics::new();
-        assert!(matches!(
-            live.apply(
-                &changes,
-                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
-            ),
-            Err(Error::Stopped(_))
-        ));
+        let actual = live.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        );
+        assert_stop_reported(&actual, &diagnostics);
         assert_eq!((live.state_id(), live.undo_len(), live.redo_len()), history);
         assert!(!live.display().has_dirty());
         assert!(live.dirty_symbols().is_empty());
@@ -548,10 +546,7 @@ where
                     &mut Cx::new(&mut limited, &mut diagnostics, &cancel),
                 );
                 if available < needed {
-                    assert!(
-                        matches!(result, Err(Error::Stopped(_))),
-                        "{kind:?} available={available}: {result:?}"
-                    );
+                    assert_stop_reported(&result, &diagnostics);
                 } else {
                     assert_eq!(result, Err(Error::Rejected));
                 }
@@ -569,13 +564,11 @@ where
         cancel.cancel();
         let mut budget = Budget::default();
         let mut diagnostics = Diagnostics::new();
-        assert!(matches!(
-            self.live.apply(
-                &changes,
-                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
-            ),
-            Err(Error::Stopped(_))
-        ));
+        let result = self.live.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        );
+        assert_stop_reported(&result, &diagnostics);
         assert_eq!(
             (
                 self.live.state_id(),
@@ -587,6 +580,21 @@ where
         assert_eq!(fresh_cx(|cx| self.live.drawing(cx)).0.unwrap(), before);
         assert_eq!(fresh_cx(|cx| self.live.save(cx)).0.unwrap(), bytes);
     }
+}
+
+/// 止まった `apply` は、止まった理由の診断を呼び出し元へ報告する。保存したバイト列を読み直す経路は
+/// 変換の診断を捨てる収集先で読むので、そこで止まっても理由が呼び出し元に届くことを確かめる
+#[track_caller]
+fn assert_stop_reported<T: std::fmt::Debug>(result: &Result<T, Error>, diagnostics: &Diagnostics) {
+    let Err(Error::Stopped(stop)) = result else {
+        panic!("止まるはずが {result:?}");
+    };
+    let code = stop.to_diagnostic().code();
+    assert!(
+        diagnostics.iter().any(|item| item.code() == code),
+        "{stop:?} の診断がない: {:?}",
+        diagnostics.iter().collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -799,6 +807,88 @@ fn dwg_block_edits_share_budget_and_cancellation() {
                 target: pair.seen(handle),
                 element: Box::new(Placed::Model(replacement)),
             });
+        }
+    }
+}
+
+/// 属性を持つ挿入を動かしてから、属性の値を変えて置き換える。置き換えは保存したバイト列を読み直す経路に入り、
+/// 読み直しと作り直しの途中で予算が尽きても、止まった理由の診断を呼び出し元へ返す（#878 への独立レビューの報告）
+#[test]
+fn dwg_attributed_symbol_replace_reports_stops_while_rereading() {
+    for bytes in [
+        include_bytes!("../../../../../samples/dwg/zumen-minsert-r2000.dwg").as_slice(),
+        include_bytes!("../../../../../samples/dwg/zumen-minsert-r2018.dwg").as_slice(),
+    ] {
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(bytes, threads);
+            let drawing = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let handle = drawing.spaces[0]
+                .elements
+                .iter()
+                .find_map(|element| match (&element.shape, element.source.key()) {
+                    (Shape::Symbol(symbol), Some(Key::Handle(handle)))
+                        if !symbol.attributes.is_empty() =>
+                    {
+                        Some(handle)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            pair.apply(Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine::translation(2.0, 3.0),
+            });
+            let current = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let mut replacement = current.spaces[0]
+                .elements
+                .iter()
+                .find(|element| element.source.key() == Some(Key::Handle(handle)))
+                .unwrap()
+                .clone();
+            let Shape::Symbol(symbol) = &mut replacement.shape else {
+                panic!("symbol required");
+            };
+            for attribute in &mut symbol.attributes {
+                attribute.text.content.push_str("-edited");
+            }
+            let edit = Edit::Replace {
+                target: pair.seen(handle),
+                element: Box::new(Placed::Model(replacement)),
+            };
+            // 書き戻しの参照（今までの `Session` の経路）も、変換し直す途中で止まった理由を返す
+            let changes = Changes {
+                document: None,
+                edits: vec![edit.clone()],
+            };
+            let cancel = CancelToken::new();
+            let mut measured = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            pair.reference
+                .clone()
+                .apply(
+                    &changes,
+                    &mut Cx::new(&mut measured, &mut diagnostics, &cancel),
+                )
+                .unwrap();
+            for kind in [Kind::Work, Kind::DecodedBytes] {
+                let needed = measured.used(kind);
+                if needed == 0 {
+                    continue;
+                }
+                for step in 0..64 {
+                    let available = needed * step / 64;
+                    let mut file = pair.reference.clone();
+                    let mut budget =
+                        Budget::new(Limits::default().with(kind, Limit::Finite(available)));
+                    let mut diagnostics = Diagnostics::new();
+                    let result = file.apply(
+                        &changes,
+                        &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                    );
+                    assert_stop_reported(&result, &diagnostics);
+                }
+            }
+            pair.apply_with_budgets(edit);
         }
     }
 }

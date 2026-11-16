@@ -4039,48 +4039,68 @@ fn apply_structural(
     let (applied, mut after_state, approx_bytes) = match format {
         LiveFormat::AsciiDxf => {
             let mut quiet = Diagnostics::new();
-            let mut file = Dxf::read(
-                &before_bytes,
-                &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+            let mut file = crate::drawing::report_quiet_stop(
+                Dxf::read(
+                    &before_bytes,
+                    &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+                ),
+                cx,
             )?;
             let applied = Apply::apply(&mut file, changes, cx)?;
             let mut out = Vec::with_capacity(before_bytes.len() + 256);
-            Dxf::write(
-                &file,
-                &mut out,
-                &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+            crate::drawing::report_quiet_stop(
+                Dxf::write(
+                    &file,
+                    &mut out,
+                    &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+                ),
+                cx,
             )?;
-            let reopened = open_dxf(
-                &out,
-                threads,
-                &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+            let reopened = crate::drawing::report_quiet_stop(
+                open_dxf(
+                    &out,
+                    threads,
+                    &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+                ),
+                cx,
             )?;
             let approx = before_bytes.len().saturating_add(out.len()).max(4096);
             (applied, reopened, approx)
         }
         LiveFormat::BinaryDxf => {
             let mut quiet = Diagnostics::new();
-            let mut file = Dxf::read(
-                &before_bytes,
-                &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+            let mut file = crate::drawing::report_quiet_stop(
+                Dxf::read(
+                    &before_bytes,
+                    &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+                ),
+                cx,
             )?;
             let applied = Apply::apply(&mut file, changes, cx)?;
-            let reopened =
-                open_from_dxf_file(file, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))?;
+            let reopened = crate::drawing::report_quiet_stop(
+                open_from_dxf_file(file, &mut Cx::new(cx.budget, &mut quiet, cx.cancel)),
+                cx,
+            )?;
             let approx = before_bytes.len().saturating_mul(2).max(4096);
             (applied, reopened, approx)
         }
         LiveFormat::Dwg => {
             let mut quiet = Diagnostics::new();
-            let mut file = Dwg::read(
-                &before_bytes,
-                &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+            let mut file = crate::drawing::report_quiet_stop(
+                Dwg::read(
+                    &before_bytes,
+                    &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+                ),
+                cx,
             )?;
             let applied = Apply::apply(&mut file, changes, cx)?;
-            let reopened = open_from_dwg_file(
-                file,
-                threads,
-                &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+            let reopened = crate::drawing::report_quiet_stop(
+                open_from_dwg_file(
+                    file,
+                    threads,
+                    &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+                ),
+                cx,
             )?;
             let approx = before_bytes.len().saturating_mul(2).max(4096);
             (applied, reopened, approx)

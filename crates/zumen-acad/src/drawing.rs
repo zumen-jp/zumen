@@ -133,6 +133,16 @@ pub(crate) struct Home {
     pub(crate) paper: bool,
 }
 
+/// 診断を捨てる収集先で読み直した・作り直した結果を、呼び出し元へ渡す。変換の診断は先に返したので捨てるが、
+/// 予算か中断で止まったときは、止まった理由の診断を呼び出し元へ報告する。捨てる収集先に報告した診断は届かない
+pub(crate) fn report_quiet_stop<T>(result: Result<T, Error>, cx: &mut Cx<'_>) -> Result<T, Error> {
+    result.inspect_err(|err| {
+        if let Error::Stopped(stop) = err {
+            cx.report(stop.to_diagnostic());
+        }
+    })
+}
+
 /// 図面モデルと、用紙ごとの座標の対応。中身のない用紙は、LAYOUT のブロックのレコードがあり、単位が
 /// 分かるものだけが持つ
 fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, PaperFrame>), Error> {
