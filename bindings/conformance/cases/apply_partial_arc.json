@@ -1,0 +1,1098 @@
+{
+  "description": "公開自作の R2004・R2018 の DXF・DWG の部分弧寸法を平行移動する。定義点・文字位置だけを移し、測定値・未変更要素の ID とハッシュを保つ。回転と予算超過は原子的に拒む。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "zumen-arcdim-r2004.dwg",
+        "file": "samples/dwg/zumen-arcdim-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "zumen-arcdim-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2004.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h2DA",
+            "hash": "v2:401cc064b8d21410f56866eb692c6c65",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          },
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:2be318d5f013e38763130e4aaf946645",
+            "matrix": [
+              0,
+              -1,
+              0,
+              1,
+              0,
+              0
+            ]
+          }
+        ],
+        "doc": "zumen-arcdim-r2004.dwg"
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ],
+      "expect": {
+        "/diagnostics/3/code": "change.edit.unsupported"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2004.dwg"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:401cc064b8d21410f56866eb692c6c65",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/hash": "v2:2be318d5f013e38763130e4aaf946645",
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:2be318d5f013e38763130e4aaf946645",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          }
+        ],
+        "budget": {
+          "work": 2
+        },
+        "doc": "zumen-arcdim-r2004.dwg"
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ],
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2004.dwg"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:401cc064b8d21410f56866eb692c6c65",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/hash": "v2:2be318d5f013e38763130e4aaf946645",
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:2be318d5f013e38763130e4aaf946645",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          }
+        ],
+        "doc": "zumen-arcdim-r2004.dwg"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2004.dwg"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:401cc064b8d21410f56866eb692c6c65",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/geometry": {
+          "shape": "dimension",
+          "kind": "arc_length",
+          "first": [
+            45.0,
+            -125.35898384862246
+          ],
+          "second": [
+            59.64101615137755,
+            -140
+          ],
+          "arc": [
+            66.26660811614778,
+            -123.63975997620084
+          ],
+          "center": [
+            25,
+            -160
+          ],
+          "label": "measurement",
+          "measurement": 20.943951023931934,
+          "measurement_key": "dxf.DIMENSION.42",
+          "text_position": [
+            65.3951630565463,
+            -119.6048369434537
+          ],
+          "style": "ISO-25",
+          "style_id": "dimension-style/h27"
+        },
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9"
+      }
+    },
+    {
+      "push": {
+        "name": "zumen-arcdim-r2004_ascii.dxf",
+        "file": "samples/dwg/zumen-arcdim-r2004_ascii.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "zumen-arcdim-r2004_ascii.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2004_ascii.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h2DA",
+            "hash": "v2:29e204700bbc970569e8012e29a57073",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          },
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:91a1273febe755fde05e7b41018dd0d8",
+            "matrix": [
+              0,
+              -1,
+              0,
+              1,
+              0,
+              0
+            ]
+          }
+        ],
+        "doc": "zumen-arcdim-r2004_ascii.dxf"
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ],
+      "expect": {
+        "/diagnostics/3/code": "change.edit.unsupported"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2004_ascii.dxf"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:43d6957b83e5366dbfe83cd18248d737",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:29e204700bbc970569e8012e29a57073",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:64159a84ba4cfa273310ecf69bba7e16",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:a48931cc44283f04f4b32f7aebec4349",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:f2faa840bf4fbfbdaa4c8f7cbd309b6a",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9a0c504539fff2f9bf4adb5df64c92fc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/hash": "v2:91a1273febe755fde05e7b41018dd0d8",
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:5e783e716221da1a625bfdec21f60865",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:898bd0a490931390dcfc27cecf1b34cc",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:3b404ddeefac54bebb9cd5ea55b18fb7"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:91a1273febe755fde05e7b41018dd0d8",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          }
+        ],
+        "budget": {
+          "work": 2
+        },
+        "doc": "zumen-arcdim-r2004_ascii.dxf"
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ],
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2004_ascii.dxf"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:43d6957b83e5366dbfe83cd18248d737",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:29e204700bbc970569e8012e29a57073",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:64159a84ba4cfa273310ecf69bba7e16",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:a48931cc44283f04f4b32f7aebec4349",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:f2faa840bf4fbfbdaa4c8f7cbd309b6a",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9a0c504539fff2f9bf4adb5df64c92fc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/hash": "v2:91a1273febe755fde05e7b41018dd0d8",
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:5e783e716221da1a625bfdec21f60865",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:898bd0a490931390dcfc27cecf1b34cc",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:3b404ddeefac54bebb9cd5ea55b18fb7"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:91a1273febe755fde05e7b41018dd0d8",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          }
+        ],
+        "doc": "zumen-arcdim-r2004_ascii.dxf"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2004_ascii.dxf"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:43d6957b83e5366dbfe83cd18248d737",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:29e204700bbc970569e8012e29a57073",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:64159a84ba4cfa273310ecf69bba7e16",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:a48931cc44283f04f4b32f7aebec4349",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:f2faa840bf4fbfbdaa4c8f7cbd309b6a",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9a0c504539fff2f9bf4adb5df64c92fc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/geometry": {
+          "shape": "dimension",
+          "kind": "arc_length",
+          "first": [
+            45,
+            -125.3589838486224
+          ],
+          "second": [
+            59.64101615137755,
+            -140
+          ],
+          "arc": [
+            66.26660811614778,
+            -123.6397599762008
+          ],
+          "center": [
+            25,
+            -160
+          ],
+          "label": "measurement",
+          "measurement": 20.94395102393193,
+          "measurement_key": "dxf.DIMENSION.42",
+          "text_position": [
+            65.3951630565463,
+            -119.6048369434537
+          ],
+          "style": "ISO-25",
+          "style_id": "dimension-style/h27"
+        },
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:5e783e716221da1a625bfdec21f60865",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:898bd0a490931390dcfc27cecf1b34cc",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:3b404ddeefac54bebb9cd5ea55b18fb7"
+      }
+    },
+    {
+      "push": {
+        "name": "zumen-arcdim-r2018.dwg",
+        "file": "samples/dwg/zumen-arcdim-r2018.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "zumen-arcdim-r2018.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2018.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h2DA",
+            "hash": "v2:401cc064b8d21410f56866eb692c6c65",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          },
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:2be318d5f013e38763130e4aaf946645",
+            "matrix": [
+              0,
+              -1,
+              0,
+              1,
+              0,
+              0
+            ]
+          }
+        ],
+        "doc": "zumen-arcdim-r2018.dwg"
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ],
+      "expect": {
+        "/diagnostics/2/code": "change.edit.unsupported"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2018.dwg"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:401cc064b8d21410f56866eb692c6c65",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/hash": "v2:2be318d5f013e38763130e4aaf946645",
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:2be318d5f013e38763130e4aaf946645",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          }
+        ],
+        "budget": {
+          "work": 2
+        },
+        "doc": "zumen-arcdim-r2018.dwg"
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ],
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2018.dwg"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:401cc064b8d21410f56866eb692c6c65",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/hash": "v2:2be318d5f013e38763130e4aaf946645",
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:2be318d5f013e38763130e4aaf946645",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          }
+        ],
+        "doc": "zumen-arcdim-r2018.dwg"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2018.dwg"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:30db63521cf577435539d8fa98d8f17e",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:401cc064b8d21410f56866eb692c6c65",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:a24ed296304ebbe367381c6481241827",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:f07ede96ab90fe4068356d21b0b1a8ed",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:ee4c51b84765bcbf6100a66c845118fc",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9dfd97a30f3e694edeb4d98425df7bcc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/geometry": {
+          "shape": "dimension",
+          "kind": "arc_length",
+          "first": [
+            45.0,
+            -125.35898384862246
+          ],
+          "second": [
+            59.64101615137755,
+            -140
+          ],
+          "arc": [
+            66.26660811614778,
+            -123.63975997620084
+          ],
+          "center": [
+            25,
+            -160
+          ],
+          "label": "measurement",
+          "measurement": 20.943951023931934,
+          "measurement_key": "dxf.DIMENSION.42",
+          "text_position": [
+            65.3951630565463,
+            -119.6048369434537
+          ],
+          "style": "ISO-25",
+          "style_id": "dimension-style/h27"
+        },
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:8b5d33c2930d29f77ecb6814569ced46",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:5981bd4bb7e6704667a1cbf5e0d5e773",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:1a66931d55aba74120a7e0a3830c83d9"
+      }
+    },
+    {
+      "push": {
+        "name": "zumen-arcdim-r2018_ascii.dxf",
+        "file": "samples/dwg/zumen-arcdim-r2018_ascii.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "zumen-arcdim-r2018_ascii.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2018_ascii.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h2DA",
+            "hash": "v2:29e204700bbc970569e8012e29a57073",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          },
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:91a1273febe755fde05e7b41018dd0d8",
+            "matrix": [
+              0,
+              -1,
+              0,
+              1,
+              0,
+              0
+            ]
+          }
+        ],
+        "doc": "zumen-arcdim-r2018_ascii.dxf"
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ],
+      "expect": {
+        "/diagnostics/2/code": "change.edit.unsupported"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2018_ascii.dxf"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:43d6957b83e5366dbfe83cd18248d737",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:29e204700bbc970569e8012e29a57073",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:64159a84ba4cfa273310ecf69bba7e16",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:a48931cc44283f04f4b32f7aebec4349",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:f2faa840bf4fbfbdaa4c8f7cbd309b6a",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9a0c504539fff2f9bf4adb5df64c92fc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/hash": "v2:91a1273febe755fde05e7b41018dd0d8",
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:5e783e716221da1a625bfdec21f60865",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:898bd0a490931390dcfc27cecf1b34cc",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:3b404ddeefac54bebb9cd5ea55b18fb7"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:91a1273febe755fde05e7b41018dd0d8",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          }
+        ],
+        "budget": {
+          "work": 2
+        },
+        "doc": "zumen-arcdim-r2018_ascii.dxf"
+      },
+      "status": "failed",
+      "absent": [
+        "/result"
+      ],
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2018_ascii.dxf"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:43d6957b83e5366dbfe83cd18248d737",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:29e204700bbc970569e8012e29a57073",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:64159a84ba4cfa273310ecf69bba7e16",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:a48931cc44283f04f4b32f7aebec4349",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:f2faa840bf4fbfbdaa4c8f7cbd309b6a",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9a0c504539fff2f9bf4adb5df64c92fc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/hash": "v2:91a1273febe755fde05e7b41018dd0d8",
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:5e783e716221da1a625bfdec21f60865",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:898bd0a490931390dcfc27cecf1b34cc",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:3b404ddeefac54bebb9cd5ea55b18fb7"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "transform",
+            "id": "space/0/h331",
+            "hash": "v2:91a1273febe755fde05e7b41018dd0d8",
+            "matrix": [
+              1,
+              0,
+              25,
+              0,
+              1,
+              -10
+            ]
+          }
+        ],
+        "doc": "zumen-arcdim-r2018_ascii.dxf"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "hash",
+          "geometry"
+        ],
+        "doc": "zumen-arcdim-r2018_ascii.dxf"
+      },
+      "expect": {
+        "/result/total": 12,
+        "/result/items/0/id": "space/0/h2D9",
+        "/result/items/0/hash": "v2:43d6957b83e5366dbfe83cd18248d737",
+        "/result/items/1/id": "space/0/h2DA",
+        "/result/items/1/hash": "v2:29e204700bbc970569e8012e29a57073",
+        "/result/items/2/id": "space/0/h2F8",
+        "/result/items/2/hash": "v2:64159a84ba4cfa273310ecf69bba7e16",
+        "/result/items/3/id": "space/0/h2F9",
+        "/result/items/3/hash": "v2:a48931cc44283f04f4b32f7aebec4349",
+        "/result/items/4/id": "space/0/h315",
+        "/result/items/4/hash": "v2:f2faa840bf4fbfbdaa4c8f7cbd309b6a",
+        "/result/items/5/id": "space/0/h316",
+        "/result/items/5/hash": "v2:9a0c504539fff2f9bf4adb5df64c92fc",
+        "/result/items/6/id": "space/0/h330",
+        "/result/items/6/hash": "v2:0133986b96aca9b34621deca4ca78f58",
+        "/result/items/7/id": "space/0/h331",
+        "/result/items/7/geometry": {
+          "shape": "dimension",
+          "kind": "arc_length",
+          "first": [
+            45,
+            -125.3589838486224
+          ],
+          "second": [
+            59.64101615137755,
+            -140
+          ],
+          "arc": [
+            66.26660811614778,
+            -123.6397599762008
+          ],
+          "center": [
+            25,
+            -160
+          ],
+          "label": "measurement",
+          "measurement": 20.94395102393193,
+          "measurement_key": "dxf.DIMENSION.42",
+          "text_position": [
+            65.3951630565463,
+            -119.6048369434537
+          ],
+          "style": "ISO-25",
+          "style_id": "dimension-style/h27"
+        },
+        "/result/items/8/id": "space/0/h34D",
+        "/result/items/8/hash": "v2:5e783e716221da1a625bfdec21f60865",
+        "/result/items/9/id": "space/0/h34E",
+        "/result/items/9/hash": "v2:898bd0a490931390dcfc27cecf1b34cc",
+        "/result/items/10/id": "space/0/h36E",
+        "/result/items/10/hash": "v2:001e00ae0f828d4b18de3b3a5b000413",
+        "/result/items/11/id": "space/0/h36F",
+        "/result/items/11/hash": "v2:3b404ddeefac54bebb9cd5ea55b18fb7"
+      }
+    }
+  ]
+}

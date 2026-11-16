@@ -27,7 +27,7 @@ from ezdxf import recover
 from ezdxf.math import Vec2, Vec3
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from compare import ATTACHMENTS, check_handles, close, diagnostics, lifted_away_records, run, told, usage  # noqa: E402
+from compare import ATTACHMENTS, check_handles, close, diagnostics, differences, lifted_away_records, run, told, usage  # noqa: E402
 
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す。当たる数が
 # 変わったら失敗にする（直ったものと、同じ形で新たに食い違うものを知らせる）
@@ -352,6 +352,34 @@ def check_arc_dimensions(folder, entry, path, doc, reading, counts):
     return failures
 
 
+def check_partial_arc(folder, entry, doc):
+    """#684: 外部実装が読んだ元の部分弧へ平行移動を当て、書き戻した値と照らす。"""
+    source = ezdxf.readfile(folder / entry["from"])
+    failures = []
+    for step in entry["steps"]:
+        for edit in step["edits"]:
+            handle = edit["id"].rsplit("/h", 1)[-1]
+            before, after = source.entitydb.get(handle), doc.entitydb.get(handle)
+            if before is None or after is None or before.dxftype() != "ARC_DIMENSION" or after.dxftype() != "ARC_DIMENSION":
+                failures.append(f"{edit['id']}: 元か出力の部分弧寸法がない")
+                continue
+            left, right = before.dxf.all_existing_dxf_attribs(), after.dxf.all_existing_dxf_attribs()
+            points = {"defpoint", "defpoint2", "defpoint3", "defpoint4", "text_midpoint", "leader_point1", "leader_point2"}
+            kept = {"is_partial", "has_leader", "start_angle", "end_angle", "actual_measurement"}
+            if not (points | kept) <= left.keys() or not (points | kept) <= right.keys():
+                failures.append(f"{edit['id']}: 部分弧の点・角度・測定値がない")
+                continue
+            expected = {key: [left[key].x + 25, left[key].y - 10, left[key].z] for key in sorted(points)}
+            actual = {key: list(right[key]) for key in sorted(points)}
+            failures += differences(expected, actual, f"{edit['id']}/partial_translation")
+            for key in sorted(kept):
+                if left[key] != right[key]:
+                    failures.append(f"{edit['id']}: 部分弧の平行移動で {key} が変わった")
+            if right["is_partial"] != 1 or right["has_leader"] != 0:
+                failures.append(f"{edit['id']}: 引出線のない部分弧ではない")
+    return failures
+
+
 def check_file(folder, entry, reading, baseline, counts):
     """1 つの DXF のファイルの食い違い。比べた数を counts に足す"""
     path = folder / entry["path"]
@@ -360,6 +388,8 @@ def check_file(folder, entry, reading, baseline, counts):
     except Exception as error:  # noqa: BLE001 ezdxf が読めないことそのものを結果にする
         return [f"ezdxf が読めない: {type(error).__name__}: {error}"], None
     failures = []
+    if entry.get("recipe") == "partial-arc-moved":
+        failures += check_partial_arc(folder, entry, doc)
     # recover.readfile は読む中で監査を流し、直せない誤り（errors）と直した誤り（fixes）を残す。直した後の文書に
     # もう一度監査を流しても、直した誤りは出ない
     audit = {

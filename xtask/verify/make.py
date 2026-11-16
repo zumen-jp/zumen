@@ -1044,7 +1044,7 @@ def part_curves_min(sub):
 
 
 def editable_dimensions(reading):
-    """書き戻せる寸法を選ぶ。zumen-arcdim-* の 4・5 件目（部分の弧・引出線つき）は断る対象なので、弧長寸法は先頭 3 件まで"""
+    """置き換えと回転ができる寸法を選ぶ。zumen-arcdim-* の部分弧と引出線つきは除き、弧長寸法は先頭 3 件まで"""
     out = []
     arc_seen = 0
     for d in model(reading, "dimension"):
@@ -1180,6 +1180,20 @@ def parts_turned_steps(fmt):
     return [turned]
 
 
+def partial_arc_steps(_fmt):
+    """#684: 公開サンプルの 4 件目の部分弧を平行移動し、角度・測定値・部分フラグを保つ。"""
+    def moved(reading):
+        arcs = [e for e in model(reading, "dimension") if e["geometry"]["kind"] == "arc_length"]
+        if len(arcs) < 4:
+            return []
+        element = arcs[3]
+        geometry = element["geometry"]
+        return [{"kind": "transform", "id": element["id"], "hash": element["hash"], "matrix": [1, 0, 25, 0, 1, -10],
+                 "_part": {"kind": "dimension", "prefix": "*D", "measurement": geometry["measurement"],
+                           "override": "", "curves": 3, "hidden": False}}]
+    return [moved]
+
+
 def table_position_steps(moved):
     """#684: 表の挿入点だけを変え、セル・書式と表示用ブロックを保つ。"""
     def placed(reading):
@@ -1208,6 +1222,7 @@ RECIPES = [
     ("added", 683, lambda name, fmt: fmt in ("dxf", "dwg") and ("-minsert-" in name or "-xclip-r2013" in name), added_steps),
     ("parts", 314, lambda name, fmt: fmt in ("dxf", "dwg") and ("-parts-" in name or "-arcdim-" in name), parts_steps),
     ("parts-turned", 314, lambda name, fmt: fmt in ("dxf", "dwg") and ("-parts-" in name or "-arcdim-" in name), parts_turned_steps),
+    ("partial-arc-moved", 684, lambda name, fmt: fmt in ("dxf", "dwg") and "-arcdim-" in name, partial_arc_steps),
     ("table-moved", 684, lambda name, fmt: fmt == "dwg" and "apply_dwg_table-" in name, lambda _: table_position_steps(True)),
     ("table-placed", 684, lambda name, fmt: fmt == "dwg" and "apply_dwg_table-" in name, lambda _: table_position_steps(False)),
 ]

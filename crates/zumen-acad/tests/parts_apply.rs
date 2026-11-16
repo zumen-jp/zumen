@@ -1236,7 +1236,7 @@ where
             "{name}: {parts1:?}"
         );
 
-        // 部分（4 つ目）と引出線つき（5 つ目）は安全に拒む
+        // 部分（4 つ目）の回転と、引出線つき（5 つ目）の移動は安全に拒む
         for &unsupported_idx in &arc_indices[3..5] {
             let mut copy = testkit::read::<C>(&raw).0.unwrap();
             let (t_bad, _) = seen_model(&before, unsupported_idx);
@@ -1245,7 +1245,11 @@ where
                 edits: vec![Edit::Transform {
                     target: t_bad,
                     transform: Affine {
-                        m: [1.0, 0.0, 5.0, 0.0, 1.0, 0.0],
+                        m: if unsupported_idx == arc_indices[3] {
+                            [0.0, -1.0, 0.0, 1.0, 0.0, 0.0]
+                        } else {
+                            [1.0, 0.0, 5.0, 0.0, 1.0, 0.0]
+                        },
                     },
                 }],
             };
@@ -1256,6 +1260,200 @@ where
                 codes::CHANGE_EDIT_UNSUPPORTED
             );
             assert_eq!(testkit::write::<C>(&copy).unwrap(), raw);
+        }
+    }
+}
+
+#[test]
+fn translates_partial_arc_dimensions_and_keeps_angles_and_measurement() {
+    check_partial_arc::<Dxf>(
+        &[
+            "zumen-arcdim-r2004_ascii.dxf",
+            "zumen-arcdim-r2018_ascii.dxf",
+        ],
+        |file| cx_run(|cx| file.objects(cx).unwrap()).0,
+    );
+    check_partial_arc::<Dwg>(
+        &["zumen-arcdim-r2004.dwg", "zumen-arcdim-r2018.dwg"],
+        |file| cx_run(|cx| file.objects(cx).unwrap()).0,
+    );
+}
+
+#[cfg(test)]
+fn check_partial_arc<C: Codec>(names: &[&str], objects: impl Fn(&C::File) -> zumen_acad::AcadDb)
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<zumen_drawing::Applied>>,
+{
+    let partial = |object: &&zumen_acad::Object| {
+        object.kind == b"ARC_DIMENSION"
+            && object
+                .values
+                .iter()
+                .filter(|v| v.code == 70)
+                .nth(1)
+                .is_some_and(|v| v.data == Data::Int(1))
+    };
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg");
+    for name in names {
+        let raw = std::fs::read(dir.join(name)).unwrap();
+        let mut file = testkit::read::<C>(&raw).0.unwrap();
+        let before = cx_run(|cx| file.lift(cx).unwrap()).0;
+        let db = objects(&file);
+        let original = db.objects().iter().find(partial).unwrap();
+        let index = before.spaces[0].elements.iter().enumerate()
+            .filter(|(_, e)| matches!(&e.shape, Shape::Dimension(d) if matches!(d.kind, DimensionKind::ArcLength { .. })))
+            .nth(3).unwrap().0;
+        let (target, old) = seen_model(&before, index);
+        cx_run(|cx| {
+            file.apply(
+                &Changes {
+                    document: None,
+                    edits: vec![Edit::Transform {
+                        target: target.clone(),
+                        transform: Affine {
+                            m: [1.0, 0.0, 25.0, 0.0, 1.0, -10.0],
+                        },
+                    }],
+                },
+                cx,
+            )
+            .unwrap()
+        });
+        let output = testkit::write::<C>(&file).unwrap();
+        let again = testkit::read::<C>(&output).0.unwrap();
+        let after = cx_run(|cx| again.lift(cx).unwrap()).0;
+        let (seen, changed) = seen_model(&after, index);
+        assert_eq!(seen.id, target.id, "{name}");
+        let (Shape::Dimension(old), Shape::Dimension(changed)) = (&old.shape, &changed.shape)
+        else {
+            panic!()
+        };
+        let points = |kind| match kind {
+            DimensionKind::ArcLength {
+                center,
+                first,
+                second,
+                arc,
+            } => [center, first, second, arc],
+            _ => panic!(),
+        };
+        for (old, new) in points(old.kind).into_iter().zip(points(changed.kind)) {
+            assert_eq!(new, mpt(old.x + 25.0, old.y - 10.0), "{name}");
+        }
+        assert_eq!(changed.measurement, old.measurement, "{name}");
+        assert_eq!(
+            after.spaces[0].elements.len(),
+            before.spaces[0].elements.len()
+        );
+        for i in 0..before.spaces[0].elements.len() {
+            if i != index {
+                assert_eq!(
+                    seen_model(&after, i).0,
+                    seen_model(&before, i).0,
+                    "{name}: {i}"
+                );
+            }
+        }
+        let new_db = objects(&again);
+        let updated = new_db.objects().iter().find(partial).unwrap();
+        for code in [40, 41, 42, 70, 71] {
+            let values = |object: &zumen_acad::Object| -> Vec<_> {
+                object
+                    .values
+                    .iter()
+                    .filter(|v| v.code == code)
+                    .map(|v| match &v.data {
+                        Data::Real(v) => v.to_bits(),
+                        Data::Int(v) => *v as u64,
+                        _ => panic!(),
+                    })
+                    .collect()
+            };
+            assert_eq!(values(updated), values(original), "{name}: {code}");
+        }
+        for (code, delta) in [(16, 25.0), (17, 25.0), (26, -10.0), (27, -10.0)] {
+            assert_eq!(
+                updated.real(code).unwrap().unwrap(),
+                original.real(code).unwrap().unwrap() + delta,
+                "{name}: {code}"
+            );
+        }
+    }
+}
+
+#[test]
+fn partial_arc_translation_rejects_unmapped_auxiliary_points_and_leaders_atomically() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../samples/dwg");
+    for name in ["zumen-arcdim-r2004.dwg", "zumen-arcdim-r2018.dwg"] {
+        let original = testkit::read::<Dwg>(&std::fs::read(dir.join(name)).unwrap())
+            .0
+            .unwrap();
+        for code in [16, 36, 71] {
+            let mut file = original.clone();
+            let mut db = cx_run(|cx| file.objects(cx).unwrap()).0;
+            let at = db
+                .objects()
+                .iter()
+                .position(|object| {
+                    object.kind == b"ARC_DIMENSION"
+                        && object
+                            .values
+                            .iter()
+                            .filter(|v| v.code == 70)
+                            .nth(1)
+                            .is_some_and(|v| v.data == Data::Int(1))
+                })
+                .unwrap();
+            let value = db
+                .object_mut(at)
+                .unwrap()
+                .values
+                .iter_mut()
+                .rev()
+                .find(|v| v.code == code)
+                .unwrap();
+            match &mut value.data {
+                Data::Real(value) => *value += 1.0,
+                Data::Int(value) if code == 71 => *value = 1,
+                _ => panic!(),
+            }
+            cx_run(|cx| file.write_back(&db, cx).unwrap());
+            let bytes = testkit::write::<Dwg>(&file).unwrap();
+            let before = cx_run(|cx| file.lift(cx).unwrap()).0;
+            let index = before.spaces[0].elements.iter().enumerate()
+                .filter(|(_, e)| matches!(&e.shape, Shape::Dimension(d) if matches!(d.kind, DimensionKind::ArcLength { .. })))
+                .nth(3).unwrap().0;
+            let target = seen_model(&before, index).0;
+            let (result, diagnostics) = cx_run(|cx| {
+                file.apply(
+                    &Changes {
+                        document: None,
+                        edits: vec![Edit::Transform {
+                            target,
+                            transform: Affine {
+                                m: if code == 71 {
+                                    // 部分弧の引出線は、動かない変換でも部品を作り直さない。
+                                    [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+                                } else {
+                                    [1.0, 0.0, 25.0, 0.0, 1.0, -10.0]
+                                },
+                            },
+                        }],
+                    },
+                    cx,
+                )
+            });
+            assert!(matches!(result, Err(Error::Rejected)), "{name}: {code}");
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+            );
+            assert_eq!(
+                testkit::write::<Dwg>(&file).unwrap(),
+                bytes,
+                "{name}: {code}"
+            );
         }
     }
 }

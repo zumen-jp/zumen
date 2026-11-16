@@ -234,6 +234,28 @@ def check_file(dumps, entry, reading, baseline, counts):
             continue
         expected = {key: geometry[key] for key in ("center", "first", "second", "arc")}
         failures += differences(expected, actual, f"{element['id']}/arc_dimension")
+        if entry.get("recipe") == "partial-arc-moved":
+            edited = {edit["id"] for step in entry["steps"] for edit in step["edits"]}
+            if element["id"] in edited:
+                original = dumps.get(entry["from"], {}).get("entities", {}).get(handle_of(element), {})
+                before = original.get("arc_dimension", {})
+                points = {"center", "first", "second", "arc", "leader_first", "leader_second"}
+                kept = {"partial", "has_leader", "start_angle", "end_angle"}
+                required = points | kept
+                if not required <= before.keys() or "measurement" not in original:
+                    failures.append(f"{element['id']}: 部分弧の元の点・角度・測定値がない")
+                    continue
+                # zumen の読みとは別に、外部実装が読んだ元の点へ平行移動を当てて比べる。
+                expected = {key: [before[key][0] + 25, before[key][1] - 10] for key in sorted(points)}
+                expected.update(partial=True, has_leader=False)
+                for key in ("start_angle", "end_angle"):
+                    expected[key] = before[key]
+                failures += differences(expected, actual, f"{element['id']}/partial_translation")
+                for key in sorted(kept):
+                    if before[key] != actual.get(key):
+                        failures.append(f"{element['id']}: 部分弧の平行移動で {key} が変わった")
+                # ACadSharp の Measurement は保存値でなく、点から計算し直した長さ。
+                failures += differences(original["measurement"], dump["entities"][handle_of(element)].get("measurement"), f"{element['id']}/measurement")
 
     # HANDSEED の大きさ（バイト）が増える数の図形を足したファイル（#701）では、ファイルの HANDSEED（ACadSharp でヘッダー
     # だけを読んだ値）が、足した最後の図形の次になる。HANDSEED より後ろに書く変数（AFTER_SEED）は入力のまま

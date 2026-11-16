@@ -406,7 +406,7 @@ fn apply_parts<P: Copy + PartialEq>(
             new_dim,
             record_handle,
             frame,
-            transformed.is_some(),
+            transformed.map(|(affine, _)| affine),
             plan.added_records,
             cx,
             &was.source,
@@ -721,7 +721,7 @@ fn plan_dimension<P: Copy + PartialEq>(
     dimension: &Dimension<P>,
     record_handle: u64,
     frame: &impl Frame<P>,
-    transformed: bool,
+    transformed: Option<&Affine>,
     base_index: u64,
     cx: &mut Cx,
     place: &Ref,
@@ -742,7 +742,7 @@ fn plan_dimension<P: Copy + PartialEq>(
         return Ok(None);
     };
 
-    let text_pos = if transformed {
+    let text_pos = if transformed.is_some() {
         match &dimension.text.position {
             Some(pos) => {
                 let Some(pt) = frame.point(pos) else {
@@ -792,6 +792,7 @@ fn plan_dimension<P: Copy + PartialEq>(
             text_pos,
             frame,
             current.encoder,
+            transformed,
         ),
         _ => None,
     };
@@ -1265,6 +1266,7 @@ fn update_dimension_values<P: PartialEq>(
 }
 
 /// `ARC_DIMENSION` の共通のフィールドと、弧長固有のフィールドを分けて書き直す。
+#[allow(clippy::too_many_arguments)]
 fn update_arc_dimension_values<P: PartialEq>(
     object: &Object,
     was: &Dimension<P>,
@@ -1273,6 +1275,7 @@ fn update_arc_dimension_values<P: PartialEq>(
     text_pos: [f64; 2],
     frame: &impl Frame<P>,
     encoder: &Encoder,
+    transformed: Option<&Affine>,
 ) -> Option<Vec<Value>> {
     let (
         DimensionKind::ArcLength {
@@ -1318,12 +1321,29 @@ fn update_arc_dimension_values<P: PartialEq>(
             return None;
         }
     }
-    // 部分のフラグ（AcDbArcDimension の 70）が 0 でないものは扱わない
-    if arc_slice
-        .iter()
-        .any(|v| v.code == 70 && !matches!(v.data, Data::Int(0)))
-    {
-        return None;
+    let partial = match arc_slice.iter().find(|v| v.code == 70).map(|v| &v.data) {
+        None | Some(Data::Int(0)) => false,
+        Some(Data::Int(1)) => true,
+        _ => return None,
+    };
+    if partial {
+        let Affine {
+            m: [a, b, _, d, e, _],
+        } = transformed?;
+        if (*a, *b, *d, *e) != (1.0, 0.0, 0.0, 1.0) {
+            return None;
+        }
+        // 公開サンプルの部分弧は、13・14 が部分の両端で、16・17 も同じ点を持つ。
+        // この形の平行移動だけを受け付け、部分の角度と測定値を元のまま保つ。
+        for (code, point) in [(16, was_first), (17, was_second)] {
+            let [x, y] = frame.point(point)?;
+            for (at, expected) in [(code, x), (code + 10, y), (code + 20, 0.0)] {
+                match arc_slice.iter().find(|v| v.code == at).map(|v| &v.data) {
+                    Some(Data::Real(value)) if *value == expected => {}
+                    _ => return None,
+                }
+            }
+        }
     }
     let has_leader = arc_slice
         .iter()
@@ -1333,7 +1353,7 @@ fn update_arc_dimension_values<P: PartialEq>(
         })
         .unwrap_or(false);
     let endpoints_changed = center != was_center || first != was_first || second != was_second;
-    if has_leader && endpoints_changed {
+    if has_leader && (partial || endpoints_changed) {
         return None;
     }
 
@@ -1346,7 +1366,7 @@ fn update_arc_dimension_values<P: PartialEq>(
     set_int(&mut common, 70, new_flags)?;
     set_point3(&mut common, 10, frame.point(arc)?, &[2])?;
     set_point3(&mut common, 11, text_pos, &[30, 20, 10])?;
-    if dimension.kind != was.kind {
+    if dimension.kind != was.kind && !partial {
         if common.iter().any(|v| v.code == 42) {
             set_real_existing(&mut common, 42, drawn.raw_measurement)?;
         } else {
@@ -1375,14 +1395,16 @@ fn update_arc_dimension_values<P: PartialEq>(
     set_point3(&mut arc_part, 14, p_second, &[33])?;
     set_point3(&mut arc_part, 15, p_center, &[34])?;
     if endpoints_changed && let Some(DimensionCurve::Arc { start, sweep, .. }) = drawn.curve {
-        let start_rad = start.rem_euclid(360.0).to_radians();
-        let end_rad = if sweep >= 360.0 && start_rad == 0.0 {
-            core::f64::consts::TAU
-        } else {
-            (start + sweep).rem_euclid(360.0).to_radians()
-        };
-        set_subtype_real(&mut arc_part, 40, start_rad, &[70, 35])?;
-        set_subtype_real(&mut arc_part, 41, end_rad, &[40])?;
+        if !partial {
+            let start_rad = start.rem_euclid(360.0).to_radians();
+            let end_rad = if sweep >= 360.0 && start_rad == 0.0 {
+                core::f64::consts::TAU
+            } else {
+                (start + sweep).rem_euclid(360.0).to_radians()
+            };
+            set_subtype_real(&mut arc_part, 40, start_rad, &[70, 35])?;
+            set_subtype_real(&mut arc_part, 41, end_rad, &[40])?;
+        }
         if !has_leader {
             if arc_part.iter().any(|v| v.code == 16) {
                 set_point3(&mut arc_part, 16, p_first, &[71])?;
