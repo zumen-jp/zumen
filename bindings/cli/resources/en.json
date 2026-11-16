@@ -344,6 +344,7 @@
     "ply.file.invalid": "The PLY header or body cannot be read.",
     "ply.property.dropped": "The point property \"{property}\" was not moved to the point cloud model.",
     "profile.building-area.unsupported": "The exclusion ({reason}) under rule \"{rule}\" has not been checked for the building area of group \"{group}\".",
+    "profile.building-drawing.unsupported": "A value or boundary required for {kind} could not be verified; no pattern or symbol was added ({reason}).",
     "profile.characters.invalid": "Rule \"{rule}\": the character {character} is in the ranges of the vocabulary \"{vocabulary}\".",
     "profile.color.invalid": "Rule \"{rule}\": the color {color} is not in the vocabulary \"{vocabulary}\".",
     "profile.color.unsupported": "Rule \"{rule}\": could not check the color, because it cannot be determined.",

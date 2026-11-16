@@ -9,6 +9,7 @@
 | `mlit-delivery-const` | [2026-02](mlit-delivery-const/2026-02/profile.toml) | 工事完成図書の電子納品等要領（令和 8 年 2 月、`delivery_check` の op） |
 | `mlit-delivery-design` | [2026-02](mlit-delivery-design/2026-02/profile.toml) | 土木設計業務等の電子納品要領（令和 8 年 2 月、`delivery_check` の op） |
 | `mlit-bim-drawing` | [2026-03](mlit-bim-drawing/2026-03/profile.toml) | BIM 図面審査の申請前のチェックと面積の測り方（Rust の `zumen_profile::building`） |
+| `zumen-building-drawing` | [2026-11](zumen-building-drawing/2026-11/README.md) | 建物の線・模様・建具と通り芯の記号・階名・切断高さ（Rust の `zumen_profile::building_drawing`） |
 
 ## 直し方
 
@@ -20,6 +21,12 @@
 ## ライセンス
 
 このフォルダーのデータは [CC BY 4.0](LICENSE.md) です。
+
+## 建物の作図プロファイル
+
+`zumen-profile` の `building-drawing` feature で `DrawingProfile::load` を使います。`cut` は切る面・許容差・弦の誤差と任意の用紙を受け取り、建具の記号を選んで切り出し、線の見た目と模様・通り芯の記号を足します。すでに切り出した未編集の結果には `apply` で見た目を当てられます。階の基点から既定の高さで切る面は `default_plan`、元の階名から種類への対応は `level_kind` で得ます。
+
+`Drawing` は元の線の対応を `output.lines` に保ち、追加した図形の対応を `decorations` に持ちます。図面にはプロファイルの ID・版・revision の鎖とハッシュ、追加した図形の元要素を拡張として残します。値と制限、出典の条件は[初版の記録](zumen-building-drawing/2026-11/README.md)を参照してください。
 
 ## 確認申請のプロファイル
 

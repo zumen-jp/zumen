@@ -837,7 +837,7 @@ cargo test -p zumen-ifc --locked --test curves --target wasm32-wasip1 -- --test-
 次の値を建物モデルに写す。属性の位置は、台帳の IFC2X3 TC1・IFC4 ADD2 TC1・IFC4.3 ADD2 の各実体の「属性」の節による。
 
 - `level`: `IfcBuildingStorey` の `Name` と `Elevation` を、文書の長さの単位で持つ。所属の親をたどって建物が見つかり、その `ElevationOfRefHeight` があれば、`datum` にその建物の ID を持つ。基準の値と単位は、その建物の `spatial.elevation` から引ける。敷地と建物の標高から `level` は作らない。高さがないか有限の数でなければ、成分を作らず `ifc.attribute.invalid` を返す。
-- 階の種類の語彙は #423 のプロファイルで足すため、今は `level.kind` を持たない。`1FL` のような名前も、そのまま持ち、コードで種類を推定しない。語彙から推定する処理と、その推定の出所は #423 に残る。
+- `1FL` のような階の名前をそのまま持ち、lift では `level.kind` や高さを補わない。種類への対応は、[作図の慣習](../../profiles/zumen-building-drawing/2026-11/README.md)の `level_kind` で明示した語彙から得る。元の名前・高さ・種類は変更しない。
 - `zone`: `IfcZone` と、IFC4 以降の `IfcSpatialZone` に付ける。`IfcZone` は `IfcRelAssignsToGroup`、`IfcSpatialZone` は `IfcRelReferencedInSpatialStructure` の、室と区域の直接の参照を、関係と並びの順で持つ。区域の中の区域を展開しない。物理の要素への空間の参照は、従来の `parent.referenced_in` に持つ。語彙がないので `zone.kind` は持たず、IFC の `PredefinedType` と `ObjectType` は `class` に残す。境界の形は #419 で扱う。
 - `classification`: `IfcRelAssociatesClassification` の対象に、`IfcClassificationReference` のコード（IFC2X3 の `ItemReference`、IFC4 以降の `Identification`）と名前を付ける。`ReferencedSource` から `IfcClassification` の名前と版を引く。IFC4 以降は参照の階層をたどり、体系そのものの関連づけも持つ。体系のない軽い分類は、コードと名前だけを持つ。循環、欠けた参照、対応していない種類は、成分を付けず `ifc.attribute.invalid` を返す。
 - 出所は、階と区域の元の要素のインスタンス、所属と分類の関係のインスタンス・GlobalId・並びの位置を持つ。区域の成分を付けた関係は区域の側にも残すので、L1 の値までたどれる。参照の連鎖と親の探索は深さと手間を数え、成分と出所を写す前に展開のバイトを数える。
@@ -847,7 +847,11 @@ cargo test -p zumen-ifc --locked --test curves --target wasm32-wasip1 -- --test-
 
 IFC の `lift_geometry` で所有する建物を作り、`zumen-building::drawing::cut` へ渡します。Rust の `zumen-ifc` では `drawing` feature を有効にします。切断面・見る深さ・許容差・縮尺・派生 ID・出所・診断の契約は、[建物から図面への切り出し](../architecture.md#建物から図面への切り出し)にあります。共通 API の op とファイルへの lower は、この Rust の入口とは別です。
 
-建具の Plan の文脈があれば、その曲線を優先します。記号を選ぶ `JoinerySymbol` は、要素、または直接の型が持つプロパティセット名・プロパティ名・列挙型名・値を照合します。要素の値を型の値で上書きしません。複数の記号が一致したら診断し、推測で選びません。現在の lift が持つ DoorPanelProperties の `PanelOperation`、WindowPanelProperties の `OperationType` などを使えます。扉・窓そのものの `OperationType`・`PartitioningType` をこのプロパティと同一視しません。これらの属性から記号を選ぶ接続は、作図の慣習を扱う #423 に残ります。幅・開く側・線幅などもこの切り出しで補いません。
+建具の Plan の文脈があれば、その曲線を優先します。記号を選ぶ `JoinerySymbol` は、要素、または直接の型が持つプロパティセット名・プロパティ名・列挙型名・値を照合します。要素の値を型の値で上書きしません。複数の記号が一致したら診断し、推測で選びません。現在の lift が持つ DoorPanelProperties の `PanelOperation`、WindowPanelProperties の `OperationType` などを使えます。扉・窓そのものの `OperationType`・`PartitioningType` をこのプロパティと同一視しません。幅・開く側・線幅などを切り出しのコアでは補いません。
+
+形状付きの `lift_geometry` は、扉・窓の `OverallWidth`・`OverallHeight`、扉・扉の型・旧 Style の `OperationType`、窓・窓の型の `PartitioningType`、旧 WindowStyle の `OperationType` を、元の要素の `extension` に `ifc.attribute` の名前空間で保持します。名前と列挙型名は元の属性のまま、寸法は文書の長さの単位です。通常の `Lift<Building>` と常駐編集の成分には、この追加を混ぜません。
+
+`zumen_profile::building_drawing::DrawingProfile::cut` は、この拡張属性を `AttributeSymbol` へ接続します。扉の型がある場合はその開閉形式を採り、不明でも要素の値へ戻りません。幅の省略を形から補わず、窓の分割形式を開閉形式へ読み替えません。既定の記号、出典、未知の材料・境界・軸の診断は[作図プロファイル](../../profiles/zumen-building-drawing/2026-11/README.md)に記録しています。
 
 ### 公開 IFC の代表階と出所
 

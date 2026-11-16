@@ -42,7 +42,7 @@ zumen-las = { path = "../crates/zumen-las" }
 zumen-photo = { path = "../crates/zumen-photo" }
 zumen-ply = { path = "../crates/zumen-ply" }
 zumen-pointcloud = { path = "../crates/zumen-pointcloud" }
-zumen-profile = { path = "../crates/zumen-profile", features = ["building"] }
+zumen-profile = { path = "../crates/zumen-profile", features = ["building-drawing"] }
 zumen-sdk = { path = "../crates/zumen-sdk" }
 zumen-render = { path = "../crates/zumen-render" }
 zumen-review = { path = "../crates/zumen-review" }
@@ -407,6 +407,13 @@ bench = false
 [[bin]]
 name = "png"
 path = "fuzz_targets/png.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "drawing_profile"
+path = "fuzz_targets/drawing_profile.rs"
 test = false
 doc = false
 bench = false

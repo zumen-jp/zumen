@@ -37,7 +37,7 @@ impl From<Stop> for Error {
 /// 継承を解いたプロファイル。入力を借用せず、採用した鎖と規則のハッシュを保つ。
 #[derive(Clone, Debug)]
 pub struct BuildingProfile {
-    resolved: Resolved,
+    pub(super) resolved: Resolved,
     hash: [u8; 32],
     size: u64,
 }
@@ -123,7 +123,7 @@ impl BuildingProfile {
         area::measure(self, building, groups, tolerance, cx)
     }
 
-    fn owned_chain(&self, cx: &mut Cx<'_>) -> Result<Vec<Identity>, Error> {
+    pub(super) fn owned_chain(&self, cx: &mut Cx<'_>) -> Result<Vec<Identity>, Error> {
         let mut out = Vec::new();
         reserve(&mut out, self.chain().len(), 64, cx)?;
         for identity in self.chain() {
@@ -137,14 +137,14 @@ impl BuildingProfile {
         Ok(out)
     }
 
-    fn plan_work(&self, cx: &mut Cx<'_>) -> Result<(), Error> {
+    pub(super) fn plan_work(&self, cx: &mut Cx<'_>) -> Result<(), Error> {
         // 語彙・規則のフィールド探索と、文字列の配列の検査を入力長から先に数える。
         cx.check(Kind::Work, self.size * 64)?;
         Ok(())
     }
 }
 
-fn reserve<T>(
+pub(super) fn reserve<T>(
     values: &mut Vec<T>,
     additional: usize,
     slot: u64,
@@ -215,7 +215,7 @@ fn json_depth(bytes: &[u8], cx: &mut Cx<'_>) -> Result<(), Error> {
     result
 }
 
-fn vocabulary_error(vocabulary: &str, field: &str) -> Error {
+pub(super) fn vocabulary_error(vocabulary: &str, field: &str) -> Error {
     Error::Profile(crate::Error::Profile(Box::new(
         Diagnostic::new(codes::PROFILE_VOCABULARY_INVALID)
             .with("vocabulary", vocabulary)

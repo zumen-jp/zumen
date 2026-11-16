@@ -10,6 +10,7 @@ publish = true
 [features]
 default = []
 building = ["dep:zumen-building", "dep:zumen-crs", "dep:zumen-geom3d", "dep:blake3"]
+building-drawing = ["building", "zumen-building/drawing", "dep:zumen-geom2d"]
 
 [dependencies]
 # 縮尺の分母を仮数と 10 の累乗に分ける対数（決定 0007）。どの対象でも同じ値にする
@@ -20,6 +21,7 @@ zumen-json = { version = "0.2.0", path = "../zumen-json" }
 zumen-building = { version = "0.2.0", path = "../zumen-building", features = ["measure"], optional = true }
 zumen-crs = { version = "0.2.0", path = "../zumen-crs", optional = true }
 zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d", optional = true }
+zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d", optional = true }
 blake3 = { version = "1.8.2", default-features = false, features = ["pure"], optional = true }
 
 [lints]
@@ -28,3 +30,7 @@ workspace = true
 [[example]]
 name = "building_contract"
 required-features = ["building"]
+
+[[example]]
+name = "drawing_contract"
+required-features = ["building-drawing"]

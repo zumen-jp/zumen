@@ -26,6 +26,7 @@ mod faces;
 mod geometry;
 mod grid;
 mod indexed_faces;
+mod joinery;
 mod metadata;
 
 pub(crate) use metadata::predefined_property_fields;
@@ -702,6 +703,7 @@ impl<'f> Lifter<'f> {
         self.report_unmapped_relations(cx)?;
         if geometry {
             self.own_shapes(cx)?;
+            self.joinery_attributes(cx)?;
         }
         for &id in &ids {
             if self.used.contains(&id) {

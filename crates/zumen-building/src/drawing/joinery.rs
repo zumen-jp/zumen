@@ -37,6 +37,31 @@ pub struct JoinerySymbol<'a> {
     pub curves: &'a [CurveGraph],
 }
 
+/// プロパティではない、要素か割り当てた型の拡張属性に対応する記号。
+/// 値の選択・優先順位・寸法はプロファイルが決め、ここでは参照と型付きの値の一致を確かめる。
+#[derive(Clone, Debug, PartialEq)]
+pub struct AttributeSymbol<'a> {
+    /// 描く建具の ID。
+    pub element: Id,
+    /// 属性を持つ要素。建具そのものか、その type の参照先に限る。
+    pub owner: ElementRef,
+    /// 拡張属性の名前空間。
+    pub namespace: &'a str,
+    /// 属性の名前。
+    pub attribute: &'a str,
+    /// 列挙の型名。
+    pub type_name: &'a str,
+    /// 明記された開き方。空と NOTDEFINED は使わない。
+    pub operation: &'a str,
+    /// 建具の局所の座標で用意した実寸の曲線。
+    pub curves: &'a [CurveGraph],
+}
+
+struct Rules<'a> {
+    properties: &'a [JoinerySymbol<'a>],
+    attributes: &'a [AttributeSymbol<'a>],
+}
+
 #[derive(Default)]
 pub(super) struct Prepared {
     pub replaced: BTreeSet<ElementRef>,
@@ -86,6 +111,7 @@ pub(super) fn is_joinery(building: &Building, at: ElementRef) -> bool {
 pub(super) fn prepare(
     building: &Building,
     options: Options<'_>,
+    attributes: &[AttributeSymbol<'_>],
     frame: Frame,
     grid: Grid,
     units: f64,
@@ -128,7 +154,17 @@ pub(super) fn prepare(
             work(cx, 0)?;
         }
         if result.strokes.len() == original_strokes {
-            let symbols = symbol(building, at, options.symbols, settings, &mut result, cx);
+            let symbols = symbol(
+                building,
+                at,
+                Rules {
+                    properties: options.symbols,
+                    attributes,
+                },
+                settings,
+                &mut result,
+                cx,
+            );
             if let Err(error) = symbols {
                 if matches!(error, Failure::Stopped(_)) {
                     return Err(error);
@@ -328,13 +364,13 @@ impl Walker<'_, '_> {
 fn symbol(
     building: &Building,
     at: ElementRef,
-    rules: &[JoinerySymbol<'_>],
+    rules: Rules<'_>,
     settings: Settings,
     out: &mut Prepared,
     cx: &mut Cx<'_>,
 ) -> Result<(), Failure> {
     let mut selected = None;
-    for rule in rules {
+    for rule in rules.properties {
         work(cx, 1)?;
         if rule.element.is_some_and(|id| Some(id) != building.id(at))
             || rule.operation.is_empty()
@@ -377,14 +413,43 @@ fn symbol(
             && values
                 .iter()
                 .all(|v| matches!(v, Some(Literal::Enumeration(value)) if value == rule.operation))
-            && selected.replace(rule).is_some()
+            && selected.replace(rule.curves).is_some()
         {
             return Err(Failure::Invalid("joinery_symbol_ambiguous"));
         }
     }
-    if let Some(rule) = selected {
+    for rule in rules.attributes {
+        work(cx, 1)?;
+        if Some(rule.element) != building.id(at)
+            || rule.operation.is_empty()
+            || rule.operation == "NOTDEFINED"
+        {
+            continue;
+        }
+        if rule.owner != at
+            && building.components.r#type.get(at).map(|v| v.target) != Some(rule.owner)
+        {
+            return Err(Failure::Invalid("joinery_symbol_owner"));
+        }
+        let mut count = 0;
+        let mut matches = true;
+        if let Some(extension) = building.components.extension.get(rule.owner) {
+            for attribute in &extension.values {
+                work(cx, 1)?;
+                if attribute.namespace == rule.namespace && attribute.name == rule.attribute {
+                    count += 1;
+                    matches &= attribute.value.type_name.as_deref() == Some(rule.type_name)
+                        && matches!(&attribute.value.value, Literal::Enumeration(v) if v == rule.operation);
+                }
+            }
+        }
+        if count == 1 && matches && selected.replace(rule.curves).is_some() {
+            return Err(Failure::Invalid("joinery_symbol_ambiguous"));
+        }
+    }
+    if let Some(curves) = selected {
         let placement = world(building, at, settings.units, cx)?;
-        for graph in rule.curves {
+        for graph in curves {
             let source = super::source(building, at, None, cx)?;
             draw_curve(
                 graph,

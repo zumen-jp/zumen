@@ -61,6 +61,60 @@ fn doors(version: usize) -> String {
     src
 }
 
+#[test]
+fn geometry_lift_keeps_joinery_attributes_outside_property_sets() {
+    for version in 0..3 {
+        let file = read(&doors(version));
+        let (plain, _, _) = with(Limits::default(), |cx| Lift::<Building>::lift(&file, cx));
+        assert!(plain.unwrap().components.extension.is_empty());
+        let (model, _, _) = with(Limits::default(), |cx| file.lift_geometry(cx));
+        let model = model.unwrap();
+        let get = |id, name| {
+            model
+                .components
+                .extension
+                .get(at(&model, id))
+                .unwrap()
+                .values
+                .iter()
+                .find(|v| v.name == name)
+                .unwrap()
+        };
+        assert_eq!(get(100, "OverallWidth").value.value, Literal::Real(900.0));
+        assert_eq!(get(101, "OverallHeight").value.value, Literal::Real(1000.0));
+        let operation = get(110, "OperationType");
+        assert_eq!(operation.namespace, "ifc.attribute");
+        assert_eq!(
+            operation.value.value,
+            Literal::Enumeration("SINGLE_SWING_LEFT".into())
+        );
+        assert_eq!(
+            operation.value.type_name.as_deref(),
+            Some(if version == 0 {
+                "IfcDoorStyleOperationEnum"
+            } else {
+                "IfcDoorTypeOperationEnum"
+            })
+        );
+        if version > 0 {
+            assert_eq!(
+                get(101, "PartitioningType").value.value,
+                Literal::Enumeration("SINGLE_PANEL".into())
+            );
+            assert!(
+                model
+                    .components
+                    .extension
+                    .get(at(&model, 101))
+                    .unwrap()
+                    .values
+                    .iter()
+                    .all(|v| v.name != "OperationType")
+            );
+        }
+    }
+}
+
 fn materials(version: usize) -> String {
     let material_extra = if version == 0 { "" } else { ",$,$" };
     let layer_extra = if version == 0 { "" } else { ",'Layer',$,$,$" };

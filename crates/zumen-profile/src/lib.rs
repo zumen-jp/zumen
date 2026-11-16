@@ -6,6 +6,8 @@
 
 #[cfg(feature = "building")]
 pub mod building;
+#[cfg(feature = "building-drawing")]
+pub mod building_drawing;
 mod civil;
 mod profile;
 

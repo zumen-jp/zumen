@@ -1,0 +1,90 @@
+# 国土交通省の公開資料の数値を参照し、線の割り当てと記号は zumen が選ぶ。
+# 表・図・JIS の記号は写さない。権利の確認は同じディレクトリの README.md に記録する。
+format = "0.1"
+id = "zumen-building-drawing"
+edition = "2026-11"
+revision = 1
+title = "建物の切り出しに用いる作図の慣習"
+license = "CC-BY-4.0"
+
+[sources.drafting]
+title = "建築工事設計図書作成基準"
+publisher = "国土交通省 大臣官房官庁営繕部"
+version = "令和2年改定（令和2年9月30日）"
+url = "https://www.mlit.go.jp/common/001157950.pdf"
+checked = "2026-11-16"
+
+[sources.door]
+title = "IfcDoor と IfcDoorTypeOperationEnum の自然文の説明"
+publisher = "buildingSMART International"
+version = "IFC 4.3 ADD2"
+url = "https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcDoorTypeOperationEnum.htm"
+checked = "2026-11-16"
+
+[sources.samples]
+title = "公開サンプルから確認した建物の項目"
+publisher = "zumen"
+version = "決定 0260（移行前）"
+url = "https://github.com/zumen-jp/zumen/blob/f6d038e54e49997c8e2f6644688f634cdd0e6104/docs/decisions/0260-kernel-and-building-items-from-samples.md"
+checked = "2026-11-16"
+
+[vocabularies.drawing-styles]
+source = { document = "drafting", section = "3.3(2) 組合せ2・4.1(7)", basis = "chosen" }
+values = [
+  { role = "cut", classes = [], width = 0.5, line = "solid", color = [0, 0, 0], layer = "A-CUT" },
+  { role = "cut", classes = ["IfcDoor", "IfcDoorStandardCase", "IfcWindow", "IfcWindowStandardCase"], width = 0.25, line = "solid", color = [0, 0, 0], layer = "A-JOINERY" },
+  { role = "visible", classes = [], width = 0.25, line = "solid", color = [0, 0, 0], layer = "A-VISIBLE" },
+  { role = "hidden", classes = [], width = 0.13, line = "dashed", color = [0, 0, 0], layer = "A-HIDDEN" },
+  { role = "grid", classes = [], width = 0.13, line = "center", color = [0, 0, 0], layer = "A-GRID" },
+  { role = "annotation", classes = [], width = 0.13, line = "solid", color = [0, 0, 0], layer = "A-ANNOTATION" },
+  { role = "hatch", classes = [], width = 0.13, line = "solid", color = [0, 0, 0], layer = "A-HATCH" },
+]
+
+# 線の分類だけを参照する。線分と間の紙上 mm は独自に選んだ値。
+[vocabularies.drawing-line-types]
+source = { document = "drafting", section = "3.3(1)・3.5(6)", basis = "chosen" }
+values = [
+  { name = "solid", pattern = [] },
+  { name = "dashed", pattern = [3.0, -1.5] },
+  { name = "center", pattern = [8.0, -1.5, 0.0, -1.5] },
+]
+
+# 細線の幅の 3 倍（交差する線は 4 倍）以上の間隔を使う。材料名の完全一致だけで選ぶ。
+# 材料の記号表は転載せず、角度・間隔・対応名はこのプロファイルの選択とする。
+[vocabularies.drawing-hatches]
+source = { document = "drafting", section = "3.3(3)", basis = "chosen" }
+values = [
+  { name = "zumen-concrete", materials = ["Concrete", "CONCRETE", "コンクリート"], angles = [45.0], pitch = 3.0 },
+  { name = "zumen-steel", materials = ["Steel", "STEEL", "鋼材"], angles = [45.0, 135.0], pitch = 2.0 },
+  { name = "zumen-wood", materials = ["Wood", "WOOD", "木材"], angles = [45.0], pitch = 4.0 },
+]
+
+[vocabularies.drawing-grid-symbol]
+source = { document = "drafting", section = "3.2・3.5(7)", basis = "chosen" }
+values = [{ radius = 4.0, text_height = 4.0, offset = 6.0 }]
+
+# 原点は呼び出し側が渡す。高さと深さは m、用紙の大きさは mm。
+[vocabularies.drawing-cut-defaults]
+source = { document = "drafting", section = "3.4", basis = "chosen" }
+values = [{ height = 1.2, depth = 3.0, denominator = 100.0, paper = [841.0, 594.0] }]
+
+# 名前の対応で高さを補わない。number は prefix と suffix の間の符号付き整数だけに一致する。
+[vocabularies.drawing-level-kinds]
+source = { document = "samples", section = "3", basis = "chosen" }
+values = [
+  { kind = "ground", names = ["設計GL"], number = [] },
+  { kind = "floor", names = ["UG", "EG", "Ground Floor"], number = [{ prefix = "", suffix = "FL" }, { prefix = "", suffix = ". OG" }, { prefix = "", suffix = ". Story" }, { prefix = "Level ", suffix = "" }] },
+  { kind = "roof", names = ["RFL"], number = [] },
+  { kind = "maximum-height", names = ["最高高さ"], number = [] },
+]
+
+# 幅を 1 とする局所座標。閉じた戸の範囲は x=0..1、開く側は +y。
+# 図は写さず、ヒンジと動く方向の意味から単純な線と 90 度の弧を作る。
+[vocabularies.drawing-door-symbols]
+source = { document = "door", section = "Items・IfcDoor Attributes", basis = "chosen" }
+values = [
+  { operation = "SINGLE_SWING_LEFT", types = ["IfcDoorTypeOperationEnum", "IfcDoorStyleOperationEnum"], lines = [[[0.0, 0.0], [0.0, 1.0]]], arcs = [{ center = [0.0, 0.0], radius = 1.0, start = 0.0, end = 90.0 }] },
+  { operation = "SINGLE_SWING_RIGHT", types = ["IfcDoorTypeOperationEnum", "IfcDoorStyleOperationEnum"], lines = [[[1.0, 0.0], [1.0, 1.0]]], arcs = [{ center = [1.0, 0.0], radius = 1.0, start = 90.0, end = 180.0 }] },
+  { operation = "SLIDING_TO_LEFT", types = ["IfcDoorTypeOperationEnum", "IfcDoorStyleOperationEnum"], lines = [[[0.0, 0.05], [1.0, 0.05]], [[0.75, 0.2], [0.25, 0.2]], [[0.25, 0.2], [0.35, 0.3]], [[0.25, 0.2], [0.35, 0.1]]], arcs = [] },
+  { operation = "SLIDING_TO_RIGHT", types = ["IfcDoorTypeOperationEnum", "IfcDoorStyleOperationEnum"], lines = [[[0.0, 0.05], [1.0, 0.05]], [[0.25, 0.2], [0.75, 0.2]], [[0.75, 0.2], [0.65, 0.3]], [[0.75, 0.2], [0.65, 0.1]]], arcs = [] },
+]

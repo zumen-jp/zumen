@@ -3938,3 +3938,11 @@ params = { rule = "text", group = "text", reason = "text" }
 group-by = ["rule", "group", "reason"]
 since = "0.3.0"
 status = "active"
+
+[codes."profile.building-drawing.unsupported"]
+description = "作図の慣習が必要とする属性・境界を確かめられず模様や記号を補わなかった"
+severity = "info"
+params = { kind = "text", reason = "text" }
+group-by = ["kind", "reason"]
+since = "0.3.0"
+status = "active"

@@ -24,6 +24,8 @@ pub mod building_drawing;
 pub mod building_measure;
 /// 建物プロファイルの属性・配置・面積と、読めない設定・小さい予算を照らす。
 pub mod building_profile;
+/// 作図プロファイルの語彙・建具・模様・通り芯と予算停止を照らす。
+pub mod drawing_profile;
 
 /// 要求の予算のフィールドの名前。単位の名前（`decoded-bytes`）の `-` を `_` にしたもの（`schema/messages.json` の
 /// `budget`）

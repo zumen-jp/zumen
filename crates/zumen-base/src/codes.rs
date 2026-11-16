@@ -3886,6 +3886,20 @@ pub const PROFILE_BUILDING_AREA_UNSUPPORTED: Code = Code::new(
     &["rule", "group", "reason"],
 );
 
+/// 作図の慣習が必要とする属性・境界を確かめられず模様や記号を補わなかった
+///
+/// `profile.building-drawing.unsupported`（0.3.0 から）
+pub const PROFILE_BUILDING_DRAWING_UNSUPPORTED: Code = Code::new(
+    "profile.building-drawing.unsupported",
+    Severity::Info,
+    None,
+    &[
+        Param::new("kind", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["kind", "reason"],
+);
+
 /// 文字の内容が、語彙の範囲の文字を含む（指摘）。character は U+XXXX の形
 ///
 /// `profile.characters.invalid`（0.0.0 から）
@@ -6197,6 +6211,7 @@ pub const ALL: &[Code] = &[
     PLY_FILE_INVALID,
     PLY_PROPERTY_DROPPED,
     PROFILE_BUILDING_AREA_UNSUPPORTED,
+    PROFILE_BUILDING_DRAWING_UNSUPPORTED,
     PROFILE_CHARACTERS_INVALID,
     PROFILE_COLOR_INVALID,
     PROFILE_COLOR_UNSUPPORTED,

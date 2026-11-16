@@ -1,0 +1,312 @@
+{
+  "edition": "2026-11",
+  "format": "0.1",
+  "id": "zumen-building-drawing",
+  "license": "CC-BY-4.0",
+  "revision": 1,
+  "sources": {
+    "door": {
+      "checked": "2026-11-16",
+      "publisher": "buildingSMART International",
+      "title": "IfcDoor と IfcDoorTypeOperationEnum の自然文の説明",
+      "url": "https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcDoorTypeOperationEnum.htm",
+      "version": "IFC 4.3 ADD2"
+    },
+    "drafting": {
+      "checked": "2026-11-16",
+      "publisher": "国土交通省 大臣官房官庁営繕部",
+      "title": "建築工事設計図書作成基準",
+      "url": "https://www.mlit.go.jp/common/001157950.pdf",
+      "version": "令和2年改定（令和2年9月30日）"
+    },
+    "samples": {
+      "checked": "2026-11-16",
+      "publisher": "zumen",
+      "title": "公開サンプルから確認した建物の項目",
+      "url": "https://github.com/zumen-jp/zumen/blob/f6d038e54e49997c8e2f6644688f634cdd0e6104/docs/decisions/0260-kernel-and-building-items-from-samples.md",
+      "version": "決定 0260（移行前）"
+    }
+  },
+  "title": "建物の切り出しに用いる作図の慣習",
+  "vocabularies": {
+    "drawing-cut-defaults": {
+      "source": {
+        "basis": "chosen",
+        "document": "drafting",
+        "section": "3.4"
+      },
+      "values": [
+        {
+          "denominator": 100,
+          "depth": 3,
+          "height": 1.2,
+          "paper": [841, 594]
+        }
+      ]
+    },
+    "drawing-door-symbols": {
+      "source": {
+        "basis": "chosen",
+        "document": "door",
+        "section": "Items・IfcDoor Attributes"
+      },
+      "values": [
+        {
+          "arcs": [
+            {
+              "center": [0, 0],
+              "end": 90,
+              "radius": 1,
+              "start": 0
+            }
+          ],
+          "lines": [
+            [
+              [0, 0],
+              [0, 1]
+            ]
+          ],
+          "operation": "SINGLE_SWING_LEFT",
+          "types": ["IfcDoorTypeOperationEnum", "IfcDoorStyleOperationEnum"]
+        },
+        {
+          "arcs": [
+            {
+              "center": [1, 0],
+              "end": 180,
+              "radius": 1,
+              "start": 90
+            }
+          ],
+          "lines": [
+            [
+              [1, 0],
+              [1, 1]
+            ]
+          ],
+          "operation": "SINGLE_SWING_RIGHT",
+          "types": ["IfcDoorTypeOperationEnum", "IfcDoorStyleOperationEnum"]
+        },
+        {
+          "arcs": [],
+          "lines": [
+            [
+              [0, 0.05],
+              [1, 0.05]
+            ],
+            [
+              [0.75, 0.2],
+              [0.25, 0.2]
+            ],
+            [
+              [0.25, 0.2],
+              [0.35, 0.3]
+            ],
+            [
+              [0.25, 0.2],
+              [0.35, 0.1]
+            ]
+          ],
+          "operation": "SLIDING_TO_LEFT",
+          "types": ["IfcDoorTypeOperationEnum", "IfcDoorStyleOperationEnum"]
+        },
+        {
+          "arcs": [],
+          "lines": [
+            [
+              [0, 0.05],
+              [1, 0.05]
+            ],
+            [
+              [0.25, 0.2],
+              [0.75, 0.2]
+            ],
+            [
+              [0.75, 0.2],
+              [0.65, 0.3]
+            ],
+            [
+              [0.75, 0.2],
+              [0.65, 0.1]
+            ]
+          ],
+          "operation": "SLIDING_TO_RIGHT",
+          "types": ["IfcDoorTypeOperationEnum", "IfcDoorStyleOperationEnum"]
+        }
+      ]
+    },
+    "drawing-grid-symbol": {
+      "source": {
+        "basis": "chosen",
+        "document": "drafting",
+        "section": "3.2・3.5(7)"
+      },
+      "values": [
+        {
+          "offset": 6,
+          "radius": 4,
+          "text_height": 4
+        }
+      ]
+    },
+    "drawing-hatches": {
+      "source": {
+        "basis": "chosen",
+        "document": "drafting",
+        "section": "3.3(3)"
+      },
+      "values": [
+        {
+          "angles": [45],
+          "materials": ["Concrete", "CONCRETE", "コンクリート"],
+          "name": "zumen-concrete",
+          "pitch": 3
+        },
+        {
+          "angles": [45, 135],
+          "materials": ["Steel", "STEEL", "鋼材"],
+          "name": "zumen-steel",
+          "pitch": 2
+        },
+        {
+          "angles": [45],
+          "materials": ["Wood", "WOOD", "木材"],
+          "name": "zumen-wood",
+          "pitch": 4
+        }
+      ]
+    },
+    "drawing-level-kinds": {
+      "source": {
+        "basis": "chosen",
+        "document": "samples",
+        "section": "3"
+      },
+      "values": [
+        {
+          "kind": "ground",
+          "names": ["設計GL"],
+          "number": []
+        },
+        {
+          "kind": "floor",
+          "names": ["UG", "EG", "Ground Floor"],
+          "number": [
+            {
+              "prefix": "",
+              "suffix": "FL"
+            },
+            {
+              "prefix": "",
+              "suffix": ". OG"
+            },
+            {
+              "prefix": "",
+              "suffix": ". Story"
+            },
+            {
+              "prefix": "Level ",
+              "suffix": ""
+            }
+          ]
+        },
+        {
+          "kind": "roof",
+          "names": ["RFL"],
+          "number": []
+        },
+        {
+          "kind": "maximum-height",
+          "names": ["最高高さ"],
+          "number": []
+        }
+      ]
+    },
+    "drawing-line-types": {
+      "source": {
+        "basis": "chosen",
+        "document": "drafting",
+        "section": "3.3(1)・3.5(6)"
+      },
+      "values": [
+        {
+          "name": "solid",
+          "pattern": []
+        },
+        {
+          "name": "dashed",
+          "pattern": [3, -1.5]
+        },
+        {
+          "name": "center",
+          "pattern": [8, -1.5, 0, -1.5]
+        }
+      ]
+    },
+    "drawing-styles": {
+      "source": {
+        "basis": "chosen",
+        "document": "drafting",
+        "section": "3.3(2) 組合せ2・4.1(7)"
+      },
+      "values": [
+        {
+          "classes": [],
+          "color": [0, 0, 0],
+          "layer": "A-CUT",
+          "line": "solid",
+          "role": "cut",
+          "width": 0.5
+        },
+        {
+          "classes": ["IfcDoor", "IfcDoorStandardCase", "IfcWindow", "IfcWindowStandardCase"],
+          "color": [0, 0, 0],
+          "layer": "A-JOINERY",
+          "line": "solid",
+          "role": "cut",
+          "width": 0.25
+        },
+        {
+          "classes": [],
+          "color": [0, 0, 0],
+          "layer": "A-VISIBLE",
+          "line": "solid",
+          "role": "visible",
+          "width": 0.25
+        },
+        {
+          "classes": [],
+          "color": [0, 0, 0],
+          "layer": "A-HIDDEN",
+          "line": "dashed",
+          "role": "hidden",
+          "width": 0.13
+        },
+        {
+          "classes": [],
+          "color": [0, 0, 0],
+          "layer": "A-GRID",
+          "line": "center",
+          "role": "grid",
+          "width": 0.13
+        },
+        {
+          "classes": [],
+          "color": [0, 0, 0],
+          "layer": "A-ANNOTATION",
+          "line": "solid",
+          "role": "annotation",
+          "width": 0.13
+        },
+        {
+          "classes": [],
+          "color": [0, 0, 0],
+          "layer": "A-HATCH",
+          "line": "solid",
+          "role": "hatch",
+          "width": 0.13
+        }
+      ]
+    }
+  }
+}

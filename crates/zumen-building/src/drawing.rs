@@ -13,7 +13,7 @@ mod project;
 mod visibility;
 
 pub use grid::GridView;
-pub use joinery::JoinerySymbol;
+pub use joinery::{AttributeSymbol, JoinerySymbol};
 pub use output::{Line, Output, Paper, Role, Source, Statistics};
 pub use plane::{Frame, Side, View};
 
@@ -135,6 +135,16 @@ fn drawing_unit(
 /// 開口は母体から引き、開口そのものを重ねて描かない。未対応の形は出所付きで診断し、
 /// 予算停止と中断では部分結果を返さない。元の建物の値と ID は変更しない。
 pub fn cut(building: &Building, options: Options<'_>, cx: &mut Cx<'_>) -> Result<Output, Failure> {
+    cut_with_attribute_symbols(building, options, &[], cx)
+}
+
+/// 型付きの拡張属性に対応する記号も渡して切り出す。既存のプロパティによる記号と競合すれば診断する。
+pub fn cut_with_attribute_symbols(
+    building: &Building,
+    options: Options<'_>,
+    symbols: &[AttributeSymbol<'_>],
+    cx: &mut Cx<'_>,
+) -> Result<Output, Failure> {
     let frame = options.view.frame()?;
     let grid = Grid::new([0.0, 0.0], options.tolerance)
         .map_err(|_| Failure::Invalid("drawing_tolerance"))?;
@@ -143,7 +153,7 @@ pub fn cut(building: &Building, options: Options<'_>, cx: &mut Cx<'_>) -> Result
     if !options.chord.is_finite() || options.chord <= 0.0 || !(options.chord * units).is_finite() {
         return Err(Failure::Invalid("drawing_chord"));
     }
-    let mut prepared = joinery::prepare(building, options, frame, grid, units, cx)?;
+    let mut prepared = joinery::prepare(building, options, symbols, frame, grid, units, cx)?;
     grid::draw(
         building,
         joinery::Settings {
