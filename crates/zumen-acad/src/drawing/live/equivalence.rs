@@ -2535,3 +2535,89 @@ fn source_query_counts_other_dxf_insertions_and_removals() {
     }
     assert_eq!(fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap(), before);
 }
+
+#[test]
+fn fast_entry_above_structural_entry_survives_undo_and_redo_of_both() {
+    let lines = [(0x10, "A", None), (0x11, "B", None)];
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&implicit_dxf(BLOCK_ONLY_LAYER, &lines), threads);
+        let mut element = pair.element(0x11);
+        element.layer = pair.new_zero_layer();
+        pair.apply_edits(vec![Edit::Add {
+            place: "space/0".to_owned(),
+            element: Box::new(Placed::Model(element)),
+        }]);
+        assert_eq!(pair.live.journal.last_is_fast(), Some(false));
+        let mut element = pair.element(0x10);
+        element.layer = pair.layer_id("B");
+        pair.apply_edits(vec![Edit::Add {
+            place: "space/0".to_owned(),
+            element: Box::new(Placed::Model(element)),
+        }]);
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+        let top = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+        let top_bytes = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+        for _ in 0..2 {
+            assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+        }
+        for _ in 0..2 {
+            assert!(fresh_cx(|cx| pair.live.redo(cx)).0.unwrap());
+        }
+        assert_eq!(fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap(), top);
+        assert_eq!(fresh_cx(|cx| pair.live.save(cx)).0.unwrap(), top_bytes);
+        pair.assert_model();
+        pair.assert_display_matches_reopen();
+    }
+}
+
+/// 構造経路の記録（画層の追加）の上に、線分を動かす高速な記録を積み、両方を取り消してやり直す
+fn check_fast_entry_above_layer_table_change<C: Codec>(mut pair: AcadPair<C>)
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+{
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let mut layer = model.layers[0].clone();
+    layer.name = "LIVE_NEW".to_owned();
+    pair.apply(Edit::AddLayer {
+        layer: Box::new(layer),
+    });
+    assert_eq!(pair.live.journal.last_is_fast(), Some(false));
+    let handle = model.spaces[0]
+        .elements
+        .iter()
+        .find_map(|element| match (&element.shape, element.source.key()) {
+            (Shape::Line { .. } | Shape::Circle { .. }, Some(Key::Handle(handle))) => Some(handle),
+            _ => None,
+        })
+        .unwrap();
+    pair.apply(Edit::Transform {
+        target: pair.seen(handle),
+        transform: Affine::translation(3.0, 4.0),
+    });
+    assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+    let top = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+    let top_bytes = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+    for _ in 0..2 {
+        assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+    }
+    for _ in 0..2 {
+        assert!(fresh_cx(|cx| pair.live.redo(cx)).0.unwrap());
+    }
+    assert_eq!(fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap(), top);
+    assert_eq!(fresh_cx(|cx| pair.live.save(cx)).0.unwrap(), top_bytes);
+    pair.assert_model();
+}
+
+#[test]
+fn fast_entry_above_layer_table_change_survives_undo_and_redo() {
+    for threads in [1, 4] {
+        check_fast_entry_above_layer_table_change(DxfPair::open(&synthetic_rich_dxf(), threads));
+        for name in [
+            "zumen-layout-r2000.dwg",
+            "zumen-layout-r2004.dwg",
+            "zumen-layout-r2018.dwg",
+        ] {
+            check_fast_entry_above_layer_table_change(DwgPair::open(&dwg_sample(name), threads));
+        }
+    }
+}

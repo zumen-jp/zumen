@@ -289,7 +289,16 @@ impl LiveJournal {
                 restored.display.mark_all_dirty();
                 let sym_len = restored.symbols.len() as u32;
                 restored.dirty_symbols.extend(0..sym_len);
-                *state = restored;
+                let left = std::mem::replace(state, restored);
+                // 上に積んだ高速な記録は取り消し済みで、やり直すと構造の記録のあとの
+                // 状態に当て直す。図形のプールは追記だけ、DWG の段階の列は位置だけを
+                // 戻すので、その記録が足した項目を含む今のものを残す。
+                st.after_state.shapes = left.shapes;
+                if let (LiveBacking::Dwg(after), LiveBacking::Dwg(now)) =
+                    (&mut st.after_state.backing, left.backing)
+                {
+                    after.steps = now.steps;
+                }
             }
         }
         self.redo_stack.push(entry);
