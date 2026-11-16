@@ -472,7 +472,7 @@ export interface EntitiesRequest extends RequestCommon {
   op: "entities";
   /** 文書の名前。open で作ったもの */
   doc: string;
-  /** 返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0 */
+  /** すべての条件で絞った後の、返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0 */
   offset?: number;
   /** 返す要素の数の上限。書かなければ 1000 */
   limit?: number;
@@ -482,6 +482,26 @@ export interface EntitiesRequest extends RequestCommon {
   region?: number[];
   /** 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。マイナーバージョン 31 から（決定 0177） */
   place?: string;
+  /** 要素の公開 ID の一覧。いずれかに一致する要素だけを返す。空なら要素を返さず、ない ID は無視する。重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から */
+  ids?: string[];
+  /** tables.layers の公開 ID の一覧。名前ではない。いずれかのレイヤの要素だけを返す。空なら要素を返さず、ない ID は無視する。ほかの条件とも合わせる。マイナーバージョン 80 から */
+  layers?: string[];
+  /** 要素の種類の一覧。いずれかの種類だけを返す。空なら要素を返さず、重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から */
+  kinds?: EntityKind[];
+  /** 出所の条件。指定したすべての項目を満たす要素だけを返す。ほかの条件とも合わせる。マイナーバージョン 80 から */
+  source?: EntitySourceFilter;
+}
+
+/** 元の要素の出所による条件。空のオブジェクトなら制限しない。出所を持たない要素は指定した条件を満たさない */
+export interface EntitySourceFilter {
+  /** L1 のレコード番号と完全に一致する */
+  record?: number;
+  /** L1 のバイト範囲との重なり。start を含み end を含まない、空でない範囲。境界が接するだけなら一致しない */
+  bytes?: ByteRange;
+  /** AutoCAD のハンドル。接頭辞なし、1〜16 桁の 16 進の文字列。大文字と小文字を区別せず、数値で比べる。instance とは同時に指定できない */
+  handle?: string;
+  /** SXF のインスタンス番号。1〜20 桁の符号なし 64 bit 整数の 10 進文字列。数値で比べる。handle とは同時に指定できない */
+  instance?: string;
 }
 
 /** 要素の一覧の一部。移さなかった図形と値は、診断で返す */

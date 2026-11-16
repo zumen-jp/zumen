@@ -996,7 +996,7 @@ type EntitiesRequest struct {
 	// 文書の名前。open で作ったもの
 	Doc *string `json:"doc,omitempty"`
 
-	// 返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
+	// すべての条件で絞った後の、返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
 	Offset *int64 `json:"offset,omitempty"`
 
 	// 返す要素の数の上限。書かなければ 1000
@@ -1010,6 +1010,18 @@ type EntitiesRequest struct {
 
 	// 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。マイナーバージョン 31 から（決定 0177）
 	Place *string `json:"place,omitempty"`
+
+	// 要素の公開 ID の一覧。いずれかに一致する要素だけを返す。空なら要素を返さず、ない ID は無視する。重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+	Ids []string `json:"ids,omitempty"`
+
+	// tables.layers の公開 ID の一覧。名前ではない。いずれかのレイヤの要素だけを返す。空なら要素を返さず、ない ID は無視する。ほかの条件とも合わせる。マイナーバージョン 80 から
+	Layers []string `json:"layers,omitempty"`
+
+	// 要素の種類の一覧。いずれかの種類だけを返す。空なら要素を返さず、重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+	Kinds []EntityKind `json:"kinds,omitempty"`
+
+	// 出所の条件。指定したすべての項目を満たす要素だけを返す。ほかの条件とも合わせる。マイナーバージョン 80 から
+	Source *EntitySourceFilter `json:"source,omitempty"`
 }
 
 // MarshalJSON は、タグのフィールドを入れて書く。
@@ -1017,6 +1029,21 @@ func (m EntitiesRequest) MarshalJSON() ([]byte, error) {
 	type plain EntitiesRequest
 	m.Op = "entities"
 	return json.Marshal(plain(m))
+}
+
+// EntitySourceFilter: 元の要素の出所による条件。空のオブジェクトなら制限しない。出所を持たない要素は指定した条件を満たさない
+type EntitySourceFilter struct {
+	// L1 のレコード番号と完全に一致する
+	Record *int64 `json:"record,omitempty"`
+
+	// L1 のバイト範囲との重なり。start を含み end を含まない、空でない範囲。境界が接するだけなら一致しない
+	Bytes *ByteRange `json:"bytes,omitempty"`
+
+	// AutoCAD のハンドル。接頭辞なし、1〜16 桁の 16 進の文字列。大文字と小文字を区別せず、数値で比べる。instance とは同時に指定できない
+	Handle *string `json:"handle,omitempty"`
+
+	// SXF のインスタンス番号。1〜20 桁の符号なし 64 bit 整数の 10 進文字列。数値で比べる。handle とは同時に指定できない
+	Instance *string `json:"instance,omitempty"`
 }
 
 // EntitiesResult: 要素の一覧の一部。移さなかった図形と値は、診断で返す

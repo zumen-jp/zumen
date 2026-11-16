@@ -1,0 +1,956 @@
+{
+  "description": "ID・レイヤ・種類・出所での絞り込み、順序とページ、同じ出所、モデル・用紙・記号定義、無効な条件と停止後の再利用。entity_query_case.rs から生成する",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "query",
+        "hex": "5a4d4452010000000600000002000000200000002b000000500000003e0400002a11746573742d656e746974792d71756572790764726177696e67555555555555555555555555555555550000000000bc0801950200000004550a00010001020a1401000a0a22020801020001010c223802080000000000000440010200666666666666d63f02018000241100000000000000000000000000000000001100000000000000244000000000000000003f0a0001010102141e01000a140c0001000000000000f03f0000002411000000000000000000000000000000f03f11000000000000002440000000000000f03f3a0a00010201021e28010114140e0101000000000000f03f01020101011d110000000000000000000000000000000040010900000000000000f03f3a0400000000630d0101000000000000f03f01010100241100000000000000000000000000000008401100000000000000244000000000000008400400010203015801010573686565740001400a00010a01020a1401000a0a0d0101000000000000f03f01010100241101000000000000000000000000000000001101000000000000244000000000000000000001000008000114000100f00102120a0473616d65000000000700010a0001001012140473616d650000000007000114000100100210070566697273740007000107000100201108067365636f6e640007000108000100200000000000000176110b746573742e73796d626f6c04706172745701000001500500011e00000022020801020001010c223802080000000000000440010200666666666666d63f02018000241101000000000000000000000000000000001101000000000000f03f00000000000000000100000000000700011f0001003006df010b746573742e76616c756573077a2d666972737401013103010a73706163652f302f683101aa5e191fab467e8a562fa8edfab9eced08140473616d6501d00f000ae69687e5ad970ae580a4130473616d6501de1001feffffffffffffffff0113036d696e01ffff0301ffffffffffffffffff010f047265616c0002000000000000c0bf2205706f696e7401e40f03000000000000f03f00000000000000400000000000000840150668616e646c6501da0f04ffffffffffffffffff010f05627974657301d80f0504000f80ff0905656d70747900050008000111000100ff01250b746573742e76616c75657308646f63756d656e740101310300000008000111000100ff01400b746573742e76616c756573067365636f6e6401013103010c73706163652f302f68312f3101ada276be4f04effb32493e8f9dff27770008000111000100ff013f0b746573742e76616c75657307612d7374616c6501013103010a73706163652f302f683101000000000000000000000000000000000008000111000100ff01330b746573742e76616c756573066f727068616e01013103010f73706163652f302f6d697373696e67000008000111000100ff01410b746573742e76616c7565730673796d626f6c01013103010d73706163652f6833302f7233300174b20dd2cd310180a1291bfaf2fc096c0008000111000100ff010000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "query"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ]
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA"
+          },
+          {
+            "id": "space/0/hA/1"
+          },
+          {
+            "id": "space/0/i20"
+          },
+          {
+            "id": "space/0/e3"
+          },
+          {
+            "id": "sheet/hF0/hA"
+          }
+        ],
+        "/result/total": 5
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {}
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA"
+          },
+          {
+            "id": "space/0/hA/1"
+          },
+          {
+            "id": "space/0/i20"
+          },
+          {
+            "id": "space/0/e3"
+          },
+          {
+            "id": "sheet/hF0/hA"
+          }
+        ],
+        "/result/total": 5
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "ids": [
+          "space/0/hA/1",
+          "missing",
+          "space/0/hA",
+          "space/0/hA"
+        ]
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA"
+          },
+          {
+            "id": "space/0/hA/1"
+          }
+        ],
+        "/result/total": 2
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "ids": [
+          "missing"
+        ]
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [],
+        "/result/total": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "ids": []
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [],
+        "/result/total": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "layers": []
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [],
+        "/result/total": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "kinds": []
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [],
+        "/result/total": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "layers": [
+          "layer/h10",
+          "layer/h10"
+        ]
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA"
+          },
+          {
+            "id": "sheet/hF0/hA"
+          }
+        ],
+        "/result/total": 2
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "layers": [
+          "layer/h10/1"
+        ]
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA/1"
+          },
+          {
+            "id": "space/0/i20"
+          }
+        ],
+        "/result/total": 2
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "layers": [
+          "same"
+        ]
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [],
+        "/result/total": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "layers": [
+          "missing"
+        ]
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [],
+        "/result/total": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "kinds": [
+          "line",
+          "line"
+        ]
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA"
+          },
+          {
+            "id": "space/0/hA/1"
+          },
+          {
+            "id": "space/0/e3"
+          },
+          {
+            "id": "sheet/hF0/hA"
+          }
+        ],
+        "/result/total": 4
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "ids": [
+          "space/0/hA",
+          "space/0/hA/1",
+          "space/0/i20",
+          "space/0/e3",
+          "sheet/hF0/hA"
+        ],
+        "layers": [
+          "layer/h10/1"
+        ],
+        "kinds": [
+          "line"
+        ],
+        "region": [
+          0,
+          0,
+          1,
+          1
+        ]
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA/1"
+          }
+        ],
+        "/result/total": 1
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "handle": "0a"
+        },
+        "offset": 1,
+        "limit": 1
+      },
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA/1"
+          }
+        ],
+        "/result/total": 3,
+        "/result/next_offset": 2
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "handle": "a"
+        },
+        "offset": 2,
+        "limit": 1
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "sheet/hF0/hA"
+          }
+        ],
+        "/result/total": 3
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "handle": "A"
+        },
+        "offset": 9
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [],
+        "/result/total": 3
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "record": 1
+        }
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA/1"
+          }
+        ],
+        "/result/total": 1
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "instance": "00020"
+        }
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/i20"
+          }
+        ],
+        "/result/total": 1
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "bytes": {
+            "start": 10,
+            "end": 20
+          }
+        }
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA"
+          },
+          {
+            "id": "sheet/hF0/hA"
+          }
+        ],
+        "/result/total": 2
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "bytes": {
+            "start": 20,
+            "end": 30
+          }
+        }
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA/1"
+          }
+        ],
+        "/result/total": 1
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "bytes": {
+            "start": 19,
+            "end": 21
+          }
+        }
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA"
+          },
+          {
+            "id": "space/0/hA/1"
+          },
+          {
+            "id": "sheet/hF0/hA"
+          }
+        ],
+        "/result/total": 3
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "record": 1,
+          "handle": "A",
+          "bytes": {
+            "start": 20,
+            "end": 21
+          }
+        }
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA/1"
+          }
+        ],
+        "/result/total": 1
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "record": 1,
+          "handle": "B"
+        }
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [],
+        "/result/total": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "handle": "FFFFFFFFFFFFFFFF"
+        }
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [],
+        "/result/total": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "instance": "18446744073709551615"
+        }
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [],
+        "/result/total": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "ids": [
+          "space/h30/r30"
+        ]
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [],
+        "/result/total": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "place": "space/h30",
+        "ids": [
+          "space/h30/r30"
+        ],
+        "kinds": [
+          "line"
+        ],
+        "source": {
+          "record": 30
+        }
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/h30/r30"
+          }
+        ],
+        "/result/total": 1
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "place": "sheet/hF0",
+        "layers": [
+          "layer/h10"
+        ],
+        "source": {
+          "handle": "A"
+        }
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "sheet/hF0/hA"
+          }
+        ],
+        "/result/total": 1
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "bytes": {
+            "start": 20,
+            "end": 20
+          }
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/source/bytes"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "bytes": {
+            "start": 30,
+            "end": 20
+          }
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/source/bytes"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "handle": "0xA"
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/source/handle"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "handle": ""
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/source/handle"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "handle": "10000000000000000"
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/source/handle"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "instance": "-1"
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/source/instance"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "instance": "18446744073709551616"
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/source/instance"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "source": {
+          "handle": "A",
+          "instance": "10"
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/source"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "ids": [
+          "space/0/hA"
+        ],
+        "budget": {
+          "work": 0
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "query",
+        "fields": [
+          "id"
+        ],
+        "ids": [
+          "space/0/hA"
+        ]
+      },
+      "absent": [
+        "/result/next_offset"
+      ],
+      "expect": {
+        "/result/items": [
+          {
+            "id": "space/0/hA"
+          }
+        ],
+        "/result/total": 1
+      }
+    }
+  ]
+}

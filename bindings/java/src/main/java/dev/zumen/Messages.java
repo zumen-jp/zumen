@@ -2896,7 +2896,7 @@ public final class Messages {
             return this;
         }
 
-        /** 返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0 */
+        /** すべての条件で絞った後の、返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0 */
         public Long getOffset() {
             return Json.read(json.get("offset"), Json::integer);
         }
@@ -2948,6 +2948,113 @@ public final class Messages {
         /** {@link #getPlace()} を書く。null ならフィールドを除く */
         public EntitiesRequest withPlace(String value) {
             put("place", value);
+            return this;
+        }
+
+        /** 要素の公開 ID の一覧。いずれかに一致する要素だけを返す。空なら要素を返さず、ない ID は無視する。重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から */
+        public List<String> getIds() {
+            return Json.read(json.get("ids"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getIds()} を書く。null ならフィールドを除く */
+        public EntitiesRequest withIds(List<String> value) {
+            put("ids", value);
+            return this;
+        }
+
+        /** tables.layers の公開 ID の一覧。名前ではない。いずれかのレイヤの要素だけを返す。空なら要素を返さず、ない ID は無視する。ほかの条件とも合わせる。マイナーバージョン 80 から */
+        public List<String> getLayers() {
+            return Json.read(json.get("layers"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getLayers()} を書く。null ならフィールドを除く */
+        public EntitiesRequest withLayers(List<String> value) {
+            put("layers", value);
+            return this;
+        }
+
+        /** 要素の種類の一覧。いずれかの種類だけを返す。空なら要素を返さず、重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から */
+        public List<String> getKinds() {
+            return Json.read(json.get("kinds"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getKinds()} を書く。null ならフィールドを除く */
+        public EntitiesRequest withKinds(List<String> value) {
+            put("kinds", value);
+            return this;
+        }
+
+        /** 出所の条件。指定したすべての項目を満たす要素だけを返す。ほかの条件とも合わせる。マイナーバージョン 80 から */
+        public EntitySourceFilter getSource() {
+            return Json.read(json.get("source"), EntitySourceFilter::of);
+        }
+
+        /** {@link #getSource()} を書く。null ならフィールドを除く */
+        public EntitiesRequest withSource(EntitySourceFilter value) {
+            put("source", value);
+            return this;
+        }
+    }
+
+    /** 元の要素の出所による条件。空のオブジェクトなら制限しない。出所を持たない要素は指定した条件を満たさない */
+    public static final class EntitySourceFilter extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public EntitySourceFilter(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static EntitySourceFilter of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new EntitySourceFilter(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public EntitySourceFilter() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** L1 のレコード番号と完全に一致する */
+        public Long getRecord() {
+            return Json.read(json.get("record"), Json::integer);
+        }
+
+        /** {@link #getRecord()} を書く。null ならフィールドを除く */
+        public EntitySourceFilter withRecord(Long value) {
+            put("record", value);
+            return this;
+        }
+
+        /** L1 のバイト範囲との重なり。start を含み end を含まない、空でない範囲。境界が接するだけなら一致しない */
+        public ByteRange getBytes() {
+            return Json.read(json.get("bytes"), ByteRange::of);
+        }
+
+        /** {@link #getBytes()} を書く。null ならフィールドを除く */
+        public EntitySourceFilter withBytes(ByteRange value) {
+            put("bytes", value);
+            return this;
+        }
+
+        /** AutoCAD のハンドル。接頭辞なし、1〜16 桁の 16 進の文字列。大文字と小文字を区別せず、数値で比べる。instance とは同時に指定できない */
+        public String getHandle() {
+            return Json.read(json.get("handle"), Json::string);
+        }
+
+        /** {@link #getHandle()} を書く。null ならフィールドを除く */
+        public EntitySourceFilter withHandle(String value) {
+            put("handle", value);
+            return this;
+        }
+
+        /** SXF のインスタンス番号。1〜20 桁の符号なし 64 bit 整数の 10 進文字列。数値で比べる。handle とは同時に指定できない */
+        public String getInstance() {
+            return Json.read(json.get("instance"), Json::string);
+        }
+
+        /** {@link #getInstance()} を書く。null ならフィールドを除く */
+        public EntitySourceFilter withInstance(String value) {
+            put("instance", value);
             return this;
         }
     }

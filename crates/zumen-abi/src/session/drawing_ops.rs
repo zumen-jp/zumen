@@ -8,6 +8,7 @@ use zumen_sdk::Lift;
 use zumen_sxf::Sxf;
 
 mod details;
+mod filters;
 
 impl Session {
     pub(super) fn drawing(
@@ -50,6 +51,7 @@ impl Session {
             Some(_) => return Err(fail(cx, invalid_value("/region"))),
         };
         let drawing = self.lift(&request.doc, cx)?;
+        let filters = filters::Filters::new(request, &drawing, cx)?;
         let offset = request.offset.unwrap_or(0);
         let limit = request.limit.unwrap_or(ENTITIES_LIMIT);
         let mut page = Page {
@@ -61,6 +63,7 @@ impl Session {
             items: Vec::new(),
             style_ids: None,
             details: None,
+            filters,
         };
         // 空間か用紙を指せば、その要素だけを返す。記号の定義の空間は、指したときだけ返す（決定 0177）
         let wanted = |place: &str| {
@@ -427,6 +430,8 @@ pub(super) struct Page {
     pub(super) style_ids: Option<StyleIds>,
     /// 指定されたときだけ作る、スタイルと拡張の参照の索引。
     pub(super) details: Option<details::Index>,
+    /// 指定されたときだけ使う、ID・レイヤ・種類・出所の条件。
+    pub(super) filters: Option<filters::Filters>,
 }
 
 impl Page {
@@ -453,6 +458,13 @@ impl Page {
                 }
                 fail(cx, diagnostic)
             };
+            if let Some(filters) = &self.filters
+                && !filters
+                    .matches(&id, element, cx)
+                    .map_err(|stop| stop_at(cx, stop))?
+            {
+                continue;
+            }
             if let Some(region) = &self.region {
                 cx.check(Kind::Work, 1).map_err(|stop| stop_at(cx, stop))?;
                 bbox = bounds::bbox(&element.shape);

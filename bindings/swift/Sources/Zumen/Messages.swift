@@ -1826,7 +1826,7 @@ public struct EntitiesRequest: Message {
         set { writeField("doc", newValue) }
     }
 
-    /// 返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
+    /// すべての条件で絞った後の、返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
     public var offset: Int64? {
         get { readField("offset") }
         set { writeField("offset", newValue) }
@@ -1854,6 +1854,70 @@ public struct EntitiesRequest: Message {
     public var place: String? {
         get { readField("place") }
         set { writeField("place", newValue) }
+    }
+
+    /// 要素の公開 ID の一覧。いずれかに一致する要素だけを返す。空なら要素を返さず、ない ID は無視する。重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+    public var ids: [String]? {
+        get { readField("ids") }
+        set { writeField("ids", newValue) }
+    }
+
+    /// tables.layers の公開 ID の一覧。名前ではない。いずれかのレイヤの要素だけを返す。空なら要素を返さず、ない ID は無視する。ほかの条件とも合わせる。マイナーバージョン 80 から
+    public var layers: [String]? {
+        get { readField("layers") }
+        set { writeField("layers", newValue) }
+    }
+
+    /// 要素の種類の一覧。いずれかの種類だけを返す。空なら要素を返さず、重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+    public var kinds: [String]? {
+        get { readField("kinds") }
+        set { writeField("kinds", newValue) }
+    }
+
+    /// 出所の条件。指定したすべての項目を満たす要素だけを返す。ほかの条件とも合わせる。マイナーバージョン 80 から
+    public var source: EntitySourceFilter? {
+        get { readField("source") }
+        set { writeField("source", newValue) }
+    }
+}
+
+/// 元の要素の出所による条件。空のオブジェクトなら制限しない。出所を持たない要素は指定した条件を満たさない
+public struct EntitySourceFilter: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// L1 のレコード番号と完全に一致する
+    public var record: Int64? {
+        get { readField("record") }
+        set { writeField("record", newValue) }
+    }
+
+    /// L1 のバイト範囲との重なり。start を含み end を含まない、空でない範囲。境界が接するだけなら一致しない
+    public var bytes: ByteRange? {
+        get { readField("bytes") }
+        set { writeField("bytes", newValue) }
+    }
+
+    /// AutoCAD のハンドル。接頭辞なし、1〜16 桁の 16 進の文字列。大文字と小文字を区別せず、数値で比べる。instance とは同時に指定できない
+    public var handle: String? {
+        get { readField("handle") }
+        set { writeField("handle", newValue) }
+    }
+
+    /// SXF のインスタンス番号。1〜20 桁の符号なし 64 bit 整数の 10 進文字列。数値で比べる。handle とは同時に指定できない
+    public var instance: String? {
+        get { readField("instance") }
+        set { writeField("instance", newValue) }
     }
 }
 

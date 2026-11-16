@@ -866,7 +866,7 @@ _EntitiesRequestOptional = TypedDict(
         "max_places": int,
         # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         "time_limit_ms": int,
-        # 返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
+        # すべての条件で絞った後の、返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
         "offset": int,
         # 返す要素の数の上限。書かなければ 1000
         "limit": int,
@@ -876,6 +876,14 @@ _EntitiesRequestOptional = TypedDict(
         "region": List[float],
         # 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。マイナーバージョン 31 から（決定 0177）
         "place": str,
+        # 要素の公開 ID の一覧。いずれかに一致する要素だけを返す。空なら要素を返さず、ない ID は無視する。重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+        "ids": List[str],
+        # tables.layers の公開 ID の一覧。名前ではない。いずれかのレイヤの要素だけを返す。空なら要素を返さず、ない ID は無視する。ほかの条件とも合わせる。マイナーバージョン 80 から
+        "layers": List[str],
+        # 要素の種類の一覧。いずれかの種類だけを返す。空なら要素を返さず、重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+        "kinds": List["EntityKind"],
+        # 出所の条件。指定したすべての項目を満たす要素だけを返す。ほかの条件とも合わせる。マイナーバージョン 80 から
+        "source": "EntitySourceFilter",
     },
     total=False,
 )
@@ -883,6 +891,23 @@ _EntitiesRequestOptional = TypedDict(
 
 class EntitiesRequest(_EntitiesRequestRequired, _EntitiesRequestOptional):
     "開いた文書を図面モデル（L2、決定 0022）に変換し、要素の一覧を返す。実寸の空間、用紙の順に、それぞれの要素を入力の順に並べる（決定 0117）"
+
+
+# 元の要素の出所による条件。空のオブジェクトなら制限しない。出所を持たない要素は指定した条件を満たさない
+EntitySourceFilter = TypedDict(
+    "EntitySourceFilter",
+    {
+        # L1 のレコード番号と完全に一致する
+        "record": int,
+        # L1 のバイト範囲との重なり。start を含み end を含まない、空でない範囲。境界が接するだけなら一致しない
+        "bytes": "ByteRange",
+        # AutoCAD のハンドル。接頭辞なし、1〜16 桁の 16 進の文字列。大文字と小文字を区別せず、数値で比べる。instance とは同時に指定できない
+        "handle": str,
+        # SXF のインスタンス番号。1〜20 桁の符号なし 64 bit 整数の 10 進文字列。数値で比べる。handle とは同時に指定できない
+        "instance": str,
+    },
+    total=False,
+)
 
 
 # 要素の一覧の一部。移さなかった図形と値は、診断で返す

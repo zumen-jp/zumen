@@ -2362,7 +2362,7 @@ pub struct EntitiesRequest {
     pub request_common: RequestCommon,
     /// 文書の名前。open で作ったもの
     pub doc: String,
-    /// 返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
+    /// すべての条件で絞った後の、返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
     pub offset: Option<u64>,
     /// 返す要素の数の上限。書かなければ 1000
     pub limit: Option<u64>,
@@ -2372,6 +2372,14 @@ pub struct EntitiesRequest {
     pub region: Option<Vec<f64>>,
     /// 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。マイナーバージョン 31 から（決定 0177）
     pub place: Option<String>,
+    /// 要素の公開 ID の一覧。いずれかに一致する要素だけを返す。空なら要素を返さず、ない ID は無視する。重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+    pub ids: Option<Vec<String>>,
+    /// tables.layers の公開 ID の一覧。名前ではない。いずれかのレイヤの要素だけを返す。空なら要素を返さず、ない ID は無視する。ほかの条件とも合わせる。マイナーバージョン 80 から
+    pub layers: Option<Vec<String>>,
+    /// 要素の種類の一覧。いずれかの種類だけを返す。空なら要素を返さず、重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+    pub kinds: Option<Vec<EntityKind>>,
+    /// 出所の条件。指定したすべての項目を満たす要素だけを返す。ほかの条件とも合わせる。マイナーバージョン 80 から
+    pub source: Option<EntitySourceFilter>,
 }
 
 impl EntitiesRequest {
@@ -2385,6 +2393,10 @@ impl EntitiesRequest {
             object.optional("fields", |value| json::array(value, EntityField::from_json))?;
         let region = object.optional("region", |value| json::array(value, json::number))?;
         let place = object.optional("place", json::string)?;
+        let ids = object.optional("ids", |value| json::array(value, json::string))?;
+        let layers = object.optional("layers", |value| json::array(value, json::string))?;
+        let kinds = object.optional("kinds", |value| json::array(value, EntityKind::from_json))?;
+        let source = object.optional("source", EntitySourceFilter::from_json)?;
         Ok(Self {
             request_common,
             doc,
@@ -2393,6 +2405,10 @@ impl EntitiesRequest {
             fields,
             region,
             place,
+            ids,
+            layers,
+            kinds,
+            source,
         })
     }
 
@@ -2422,6 +2438,22 @@ impl EntitiesRequest {
             out.key("place");
             out.string(value);
         }
+        if let Some(value) = &self.ids {
+            out.key("ids");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.layers {
+            out.key("layers");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.kinds {
+            out.key("kinds");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.source {
+            out.key("source");
+            value.to_json(out);
+        }
     }
 }
 
@@ -2435,6 +2467,70 @@ impl FromJson for EntitiesRequest {
 }
 
 impl ToJson for EntitiesRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 元の要素の出所による条件。空のオブジェクトなら制限しない。出所を持たない要素は指定した条件を満たさない
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EntitySourceFilter {
+    /// L1 のレコード番号と完全に一致する
+    pub record: Option<u64>,
+    /// L1 のバイト範囲との重なり。start を含み end を含まない、空でない範囲。境界が接するだけなら一致しない
+    pub bytes: Option<ByteRange>,
+    /// AutoCAD のハンドル。接頭辞なし、1〜16 桁の 16 進の文字列。大文字と小文字を区別せず、数値で比べる。instance とは同時に指定できない
+    pub handle: Option<String>,
+    /// SXF のインスタンス番号。1〜20 桁の符号なし 64 bit 整数の 10 進文字列。数値で比べる。handle とは同時に指定できない
+    pub instance: Option<String>,
+}
+
+impl EntitySourceFilter {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let record = object.optional("record", |value| json::uint(value, 0, 9007199254740991))?;
+        let bytes = object.optional("bytes", ByteRange::from_json)?;
+        let handle = object.optional("handle", json::string)?;
+        let instance = object.optional("instance", json::string)?;
+        Ok(Self {
+            record,
+            bytes,
+            handle,
+            instance,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.record {
+            out.key("record");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.bytes {
+            out.key("bytes");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.handle {
+            out.key("handle");
+            out.string(value);
+        }
+        if let Some(value) = &self.instance {
+            out.key("instance");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for EntitySourceFilter {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for EntitySourceFilter {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

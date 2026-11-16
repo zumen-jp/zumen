@@ -1170,7 +1170,7 @@ class EntitiesRequest extends Message {
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
-  /// 返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
+  /// すべての条件で絞った後の、返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
   int? get offset => readField('offset', asInt);
   set offset(int? value) => writeField('offset', value);
 
@@ -1189,6 +1189,47 @@ class EntitiesRequest extends Message {
   /// 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。マイナーバージョン 31 から（決定 0177）
   String? get place => readField('place', asString);
   set place(String? value) => writeField('place', value);
+
+  /// 要素の公開 ID の一覧。いずれかに一致する要素だけを返す。空なら要素を返さず、ない ID は無視する。重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+  List<String>? get ids => readField('ids', listOf(asString));
+  set ids(List<String>? value) => writeField('ids', value);
+
+  /// tables.layers の公開 ID の一覧。名前ではない。いずれかのレイヤの要素だけを返す。空なら要素を返さず、ない ID は無視する。ほかの条件とも合わせる。マイナーバージョン 80 から
+  List<String>? get layers => readField('layers', listOf(asString));
+  set layers(List<String>? value) => writeField('layers', value);
+
+  /// 要素の種類の一覧。いずれかの種類だけを返す。空なら要素を返さず、重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+  List<String>? get kinds => readField('kinds', listOf(asString));
+  set kinds(List<String>? value) => writeField('kinds', value);
+
+  /// 出所の条件。指定したすべての項目を満たす要素だけを返す。ほかの条件とも合わせる。マイナーバージョン 80 から
+  EntitySourceFilter? get source => readField('source', objectOf(EntitySourceFilter.fromJson));
+  set source(EntitySourceFilter? value) => writeField('source', value);
+}
+
+/// 元の要素の出所による条件。空のオブジェクトなら制限しない。出所を持たない要素は指定した条件を満たさない
+class EntitySourceFilter extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  EntitySourceFilter.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  EntitySourceFilter() : super({});
+
+  /// L1 のレコード番号と完全に一致する
+  int? get record => readField('record', asInt);
+  set record(int? value) => writeField('record', value);
+
+  /// L1 のバイト範囲との重なり。start を含み end を含まない、空でない範囲。境界が接するだけなら一致しない
+  ByteRange? get bytes => readField('bytes', objectOf(ByteRange.fromJson));
+  set bytes(ByteRange? value) => writeField('bytes', value);
+
+  /// AutoCAD のハンドル。接頭辞なし、1〜16 桁の 16 進の文字列。大文字と小文字を区別せず、数値で比べる。instance とは同時に指定できない
+  String? get handle => readField('handle', asString);
+  set handle(String? value) => writeField('handle', value);
+
+  /// SXF のインスタンス番号。1〜20 桁の符号なし 64 bit 整数の 10 進文字列。数値で比べる。handle とは同時に指定できない
+  String? get instance => readField('instance', asString);
+  set instance(String? value) => writeField('instance', value);
 }
 
 /// 要素の一覧の一部。移さなかった図形と値は、診断で返す

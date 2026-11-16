@@ -1416,7 +1416,7 @@ namespace Zumen.Messages
         public string Doc { get; init; } = default!;
 
         /// <summary>
-        /// 返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
+        /// すべての条件で絞った後の、返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
         /// </summary>
         [JsonPropertyName("offset")]
         public ulong? Offset { get; init; }
@@ -1444,6 +1444,60 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("place")]
         public string? Place { get; init; }
+
+        /// <summary>
+        /// 要素の公開 ID の一覧。いずれかに一致する要素だけを返す。空なら要素を返さず、ない ID は無視する。重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+        /// </summary>
+        [JsonPropertyName("ids")]
+        public IReadOnlyList<string>? Ids { get; init; }
+
+        /// <summary>
+        /// tables.layers の公開 ID の一覧。名前ではない。いずれかのレイヤの要素だけを返す。空なら要素を返さず、ない ID は無視する。ほかの条件とも合わせる。マイナーバージョン 80 から
+        /// </summary>
+        [JsonPropertyName("layers")]
+        public IReadOnlyList<string>? Layers { get; init; }
+
+        /// <summary>
+        /// 要素の種類の一覧。いずれかの種類だけを返す。空なら要素を返さず、重複しても要素を増やさない。ほかの条件とも合わせる。マイナーバージョン 80 から
+        /// </summary>
+        [JsonPropertyName("kinds")]
+        public IReadOnlyList<string>? Kinds { get; init; }
+
+        /// <summary>
+        /// 出所の条件。指定したすべての項目を満たす要素だけを返す。ほかの条件とも合わせる。マイナーバージョン 80 から
+        /// </summary>
+        [JsonPropertyName("source")]
+        public EntitySourceFilter? Source { get; init; }
+    }
+
+    /// <summary>
+    /// 元の要素の出所による条件。空のオブジェクトなら制限しない。出所を持たない要素は指定した条件を満たさない
+    /// </summary>
+    public sealed record EntitySourceFilter
+    {
+        /// <summary>
+        /// L1 のレコード番号と完全に一致する
+        /// </summary>
+        [JsonPropertyName("record")]
+        public ulong? Record { get; init; }
+
+        /// <summary>
+        /// L1 のバイト範囲との重なり。start を含み end を含まない、空でない範囲。境界が接するだけなら一致しない
+        /// </summary>
+        [JsonPropertyName("bytes")]
+        public ByteRange? Bytes { get; init; }
+
+        /// <summary>
+        /// AutoCAD のハンドル。接頭辞なし、1〜16 桁の 16 進の文字列。大文字と小文字を区別せず、数値で比べる。instance とは同時に指定できない
+        /// </summary>
+        [JsonPropertyName("handle")]
+        public string? Handle { get; init; }
+
+        /// <summary>
+        /// SXF のインスタンス番号。1〜20 桁の符号なし 64 bit 整数の 10 進文字列。数値で比べる。handle とは同時に指定できない
+        /// </summary>
+        [JsonPropertyName("instance")]
+        public string? Instance { get; init; }
     }
 
     /// <summary>

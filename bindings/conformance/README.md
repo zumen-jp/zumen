@@ -62,6 +62,10 @@ cargo run -p zumen-conformance -- --write
 
 `apply_dwg_table.json` は、[自作の表](../../crates/zumen-acad/tests/fixtures/README.md)を持つ R2010・R2013・R2018 の DWG で、位置だけの `replace` と `transform` を確かめます。ID・セル・表示用ブロックの参照と未変更要素のハッシュを保ち、セルの変更・回転・予算停止で変更が残らないことを比べます。形式の照合は、検証キットで ACadSharp と別に行います。
 
+### 要素の絞り込み
+
+`entity_query.json` は、同名で出所も重なるレイヤ、同じ出所の要素、出所を持たない要素、モデル・用紙・記号定義を持つ合成図面です。`ids`・`layers`・`kinds`・`source`・`region`・`place` の組み合わせ、空や重複した指定、選択後のページ位置、半開区間の重なり、不正な条件と予算停止後の再利用を確かめます。`cargo run -p zumen-abi --example entity_query_case` で生成し、`-- --check` を付けると生成元と照らせます。ABI のテストでは、手で定めた集合の積との比較、選ばない要素の属性を複製しないこと、条件の複製・並べ替え・検索の予算の境界も確認します。
+
 ### 要素のスタイルと拡張
 
 `entity_details.json` は、要素自身のスタイル、重複する出所と線種の公開 ID、拡張の全型・順序・有効性、ページ分け、記号定義の中の要素、予算停止後の再利用を確かめます。64 bit 整数・ハンドルの上限、空のバイト列も含みます。`cargo run -p zumen-abi --example entity_details_case` で合成の図面モデルから生成します。
