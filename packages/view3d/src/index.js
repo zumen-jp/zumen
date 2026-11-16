@@ -13,6 +13,7 @@ const DEFAULT_LIMITS = Object.freeze({
   canvasPixels: 16777216,
   stateItems: 100000,
   views: 16,
+  clips: 16,
   hits: 1000,
   issues: 10000,
   readBytes: 536870912,
@@ -103,13 +104,61 @@ function readCamera(value) {
   return invalid("projection は perspective か orthographic");
 }
 
+/** 面の点と法線。法線の向きの半空間を取り除く。 */
+function readPlane(value, message) {
+  if (!isObject(value)) invalid(`${message}は { point, normal }`);
+  for (const key of Object.keys(value)) if (key !== "point" && key !== "normal") invalid(`${message}の未知の項目: ${key}`);
+  const point = vector(value.point, `${message}の point は有限の 3 値`);
+  const normal = vector(value.normal, `${message}の normal は有限の 3 値`);
+  const n = length(normal);
+  if (!(n > 0) || !Number.isFinite(n)) invalid(`${message}の法線は 0 でない`);
+  return Object.freeze({ point: Object.freeze(point), normal: Object.freeze(normal) });
+}
+
+/** 画面で切る箱。外側を取り除く 6 面と同じ。要素を絞る箱ではない。 */
+function readBox(value) {
+  if (value === undefined || value === null) return null;
+  if (!isObject(value)) invalid("box は { min, max }");
+  for (const key of Object.keys(value)) if (key !== "min" && key !== "max") invalid(`box の未知の項目: ${key}`);
+  const min = vector(value.min, "box.min は有限の 3 値"), max = vector(value.max, "box.max は有限の 3 値");
+  if (min.some((v, k) => !(v <= max[k]))) invalid("box の min は max 以下");
+  return Object.freeze({ min: Object.freeze(min), max: Object.freeze(max) });
+}
+
+function boxPlanes(box) {
+  if (box === null) return [];
+  const planes = [];
+  for (let k = 0; k < 3; k++) {
+    const plus = [0, 0, 0], minus = [0, 0, 0];
+    plus[k] = 1; minus[k] = -1;
+    planes.push(Object.freeze({ point: box.max, normal: Object.freeze(plus) }), Object.freeze({ point: box.min, normal: Object.freeze(minus) }));
+  }
+  return planes;
+}
+
+/** レビュー文書と同じ #RRGGBB か #AARRGGBB。透明度は保つが描かない。 */
+function reviewColor(value, message) {
+  if (typeof value !== "string" || !/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(value)) invalid(message);
+  return value.toUpperCase();
+}
+
+function idList(value, message) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) invalid(`${message}は要素の ID の配列`);
+  for (const id of value) if (typeof id !== "string") invalid(`${message}の要素の ID は文字列`);
+  return value;
+}
+
+const VIEW_KEYS = ["id", "rect", "camera", "clips", "box", "selected", "visible", "exceptions", "colored"];
+
+/** ビューの形を検査する。要素の ID はシーンと照らす前の値のまま返す。 */
 function readViews(values, limits) {
   if (!Array.isArray(values)) invalid("views は配列");
   if (values.length > limits.views) fail("limit", "ビューの数の上限");
   const ids = new Set(), views = [];
   for (const value of values) {
     if (!isObject(value)) invalid("ビューはオブジェクト");
-    for (const key of Object.keys(value)) if (!["id", "rect", "camera"].includes(key)) invalid(`ビューの未知の項目: ${key}`);
+    for (const key of Object.keys(value)) if (!VIEW_KEYS.includes(key)) invalid(`ビューの未知の項目: ${key}`);
     if (typeof value.id !== "string" || value.id === "" || ids.has(value.id)) invalid("ビューの ID は重ならない空でない文字列");
     ids.add(value.id);
     if (!isObject(value.rect)) invalid("rect は CSS px の四角");
@@ -117,7 +166,21 @@ function readViews(values, limits) {
       x: finite(value.rect.x, "rect.x は有限値"), y: finite(value.rect.y, "rect.y は有限値"),
       width: positive(value.rect.width, "rect.width は正の有限値"), height: positive(value.rect.height, "rect.height は正の有限値"),
     });
-    views.push(Object.freeze({ id: value.id, rect, camera: readCamera(value.camera) }));
+    if (value.clips !== undefined && !Array.isArray(value.clips)) invalid("clips は切断面の配列");
+    const clips = Object.freeze((value.clips ?? []).map((plane, i) => readPlane(plane, `clips[${i}]`)));
+    const box = readBox(value.box);
+    if (clips.length + (box === null ? 0 : 6) > limits.clips) fail("limit", "切断面の数の上限");
+    if (value.visible !== undefined && typeof value.visible !== "boolean") invalid("visible は真偽値");
+    if (value.colored !== undefined && !Array.isArray(value.colored)) invalid("colored は { color, ids } の配列");
+    const colored = (value.colored ?? []).map((entry, i) => {
+      if (!isObject(entry)) invalid(`colored[${i}] は { color, ids }`);
+      for (const key of Object.keys(entry)) if (key !== "color" && key !== "ids") invalid(`colored[${i}] の未知の項目: ${key}`);
+      return { color: reviewColor(entry.color, `colored[${i}].color は #RRGGBB か #AARRGGBB`), ids: idList(entry.ids, `colored[${i}].ids `) };
+    });
+    views.push({
+      id: value.id, rect, camera: readCamera(value.camera), clips, box,
+      selected: idList(value.selected, "selected "), visible: value.visible ?? true, exceptions: idList(value.exceptions, "exceptions "), colored,
+    });
   }
   for (let i = 0; i < views.length; i++) {
     for (let j = i + 1; j < views.length; j++) {
@@ -125,8 +188,13 @@ function readViews(values, limits) {
       if (a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height) invalid("ビューの枠は重ならない");
     }
   }
-  return Object.freeze(views);
+  return views;
 }
+
+/** 選択・非表示・色を持たないビューの表示の状態。 */
+const PLAIN = Object.freeze({ selected: new Set(), visible: true, exceptions: new Set(), colors: new Map(), key: "v:" });
+const isHidden = (display, element) => (display.visible ? display.exceptions.has(element) : !display.exceptions.has(element));
+const ANGLE = Math.PI / 180;
 
 /** 行優先の 3 行 4 列が、まとめ描きで保てる相似（反転なし・一様な尺度）か。 */
 function similarity(t) {
@@ -161,8 +229,8 @@ export class View3D {
   #scene = null;
   #views = Object.freeze([]);
   #cameras = new Map();
-  #selected = new Set();
-  #hidden = new Set();
+  /** ビュー ID から、行に解決した選択・非表示・色と切断面 */
+  #displays = new Map();
   #subscribers = new Set();
   #listeners = { render: new Set(), contextlost: new Set(), contextrestored: new Set() };
   #frame = 0;
@@ -190,7 +258,7 @@ export class View3D {
       edge: color(options.edgeColor ?? "#202020", "edgeColor は #rrggbb"),
       shading, edges: options.edges ?? true,
     });
-    const views = options.views === undefined ? this.#views : readViews(options.views, this.#limits);
+    const views = options.views === undefined ? null : this.#resolveViews(readViews(options.views, this.#limits));
     const context = canvas.getContext("webgl2", { antialias: options.antialias ?? true, alpha: false, depth: true, stencil: false, preserveDrawingBuffer: false });
     if (!context) fail("webgl2-unavailable", "WebGL2 を使えない");
     try {
@@ -199,7 +267,7 @@ export class View3D {
       fail("webgl2-unavailable", "WebGL2 の描画を始められない", error);
     }
     this.#canvas = canvas;
-    this.#views = views;
+    if (views !== null) { this.#views = views.views; this.#displays = views.displays; }
     this.#renderer.autoClear = false;
     this.#renderer.setPixelRatio(this.#size.pixelRatio);
     this.#renderer.setSize(this.#size.width, this.#size.height, false);
@@ -246,13 +314,10 @@ export class View3D {
   getState() {
     if (this.#state !== null) return this.#state;
     const scene = this.#scene;
-    const ids = (rows) => Object.freeze([...rows].sort((a, b) => a - b).map((row) => scene.data.element(row).id));
     this.#state = Object.freeze({
       document: scene?.document ?? null,
       scene: scene === null ? null : Object.freeze({ unit: scene.result.unit, tolerance: scene.result.tolerance, counts: scene.counts }),
       views: this.#views,
-      selection: scene === null ? Object.freeze([]) : ids(this.#selected),
-      hidden: scene === null ? Object.freeze([]) : ids(this.#hidden),
       size: this.#size,
       contextLost: this.#lost,
       destroyed: this.#destroyed,
@@ -288,13 +353,67 @@ export class View3D {
     this.invalidate();
   }
 
-  /** ID・CSS px の枠・カメラを一括で検査し、成功時だけ置き換える。 */
+  /** ID・CSS px の枠・カメラ・切断面・要素の状態を一括で検査し、成功時だけ置き換える。 */
   setViews(views) {
     this.#alive();
-    this.#views = readViews(views, this.#limits);
+    this.#commitViews(this.#resolveViews(readViews(views, this.#limits)));
+  }
+
+  /** 要素の ID を表示中のシーンの行に解決する。シーンがなければ ID を持てない。 */
+  #resolveViews(views, scene = this.#scene) {
+    const displays = new Map(), snapshots = [];
+    for (const view of views) {
+      const items = view.selected.length + view.exceptions.length + view.colored.reduce((n, entry) => n + entry.ids.length, 0);
+      if (items > this.#limits.stateItems) fail("limit", "状態の件数の上限");
+      if (items > 0 && scene === null) fail("no-scene", "シーンがないビューに要素を指定した");
+      const rows = (ids) => {
+        const out = new Set();
+        for (const id of ids) {
+          const row = scene.data.elementById(id);
+          if (row === undefined) fail("unknown-element", `シーンにない要素: ${id}`);
+          out.add(row);
+        }
+        return out;
+      };
+      const sorted = (set) => [...set].sort((a, b) => a - b);
+      const selected = rows(view.selected), exceptions = rows(view.exceptions), colors = new Map(), groups = new Map();
+      for (const entry of view.colored) {
+        const paint = new THREE.Color(Number.parseInt(entry.color.slice(-6), 16));
+        for (const row of rows(entry.ids)) {
+          if (colors.has(row)) invalid(`同じ要素に 2 つの色: ${scene.data.element(row).id}`);
+          colors.set(row, paint);
+          let group = groups.get(entry.color);
+          if (group === undefined) groups.set(entry.color, (group = []));
+          group.push(row);
+        }
+      }
+      const idOf = (row) => scene.data.element(row).id;
+      const key = `${view.visible ? "v" : "h"}:${sorted(exceptions).join(",")}`;
+      const planes = [...view.clips, ...boxPlanes(view.box)].map((plane) => ({ point: plane.point, normal: normalize(plane.normal) }));
+      displays.set(view.id, Object.freeze({ selected, visible: view.visible, exceptions, colors, key, planes }));
+      snapshots.push(Object.freeze({
+        id: view.id, rect: view.rect, camera: view.camera, clips: view.clips, box: view.box,
+        selected: Object.freeze(sorted(selected).map(idOf)), visible: view.visible, exceptions: Object.freeze(sorted(exceptions).map(idOf)),
+        colored: Object.freeze([...groups].map(([color, members]) => Object.freeze({ color, ids: Object.freeze(sorted(members).map(idOf)) }))),
+      }));
+    }
+    return { views: Object.freeze(snapshots), displays };
+  }
+
+  /** 稜線を先に用意し、成功したときだけビューを置き換える。 */
+  #commitViews(resolved) {
+    if (this.#scene !== null) this.#prepareEdges(this.#scene, resolved.displays);
+    this.#views = resolved.views;
+    this.#displays = resolved.displays;
     this.#cameras.clear();
+    if (this.#scene !== null) this.#pruneEdges(this.#scene);
     this.#changed();
     this.invalidate();
+  }
+
+  /** 要素の状態を消したビュー。シーンを差し替えたときに使う。 */
+  #plainViews() {
+    return this.#views.map((view) => ({ ...view, selected: [], visible: true, exceptions: [], colored: [] }));
   }
 
   /**
@@ -306,7 +425,8 @@ export class View3D {
     if (input === null) {
       const old = this.#scene;
       this.#scene = null;
-      this.#selected = new Set(); this.#hidden = new Set();
+      const resolved = this.#resolveViews(this.#plainViews(), null);
+      this.#views = resolved.views; this.#displays = resolved.displays;
       if (old !== null) this.#dispose(old);
       this.#changed();
       this.invalidate();
@@ -314,8 +434,9 @@ export class View3D {
     }
     const built = this.#build(input);
     const old = this.#scene;
+    const resolved = this.#resolveViews(this.#plainViews(), built);
     this.#scene = built;
-    this.#selected = new Set(); this.#hidden = new Set();
+    this.#views = resolved.views; this.#displays = resolved.displays;
     try {
       if (old !== null) this.#dispose(old);
     } finally {
@@ -407,7 +528,8 @@ export class View3D {
     // ここから資源を作る。失敗したら作った分を解放し、前のシーンを保つ
     const built = {
       data, result, document, counts, colors, batchOf, slotOf: new Uint32Array(counts.instances),
-      batches: [], geometries: new Map(), materials: new Map(), chunks: [], edges: [], bounds: new Map(),
+      batches: [], geometries: new Map(), materials: new Map(), chunks: [], bounds: new Map(),
+      edgeSets: new Map(), edgeMaterial: null, edgeBytes: 0, applied: PLAIN,
       elementInstances: null, extent: null, report: null,
     };
     try {
@@ -483,7 +605,12 @@ export class View3D {
         const center = [0, 1, 2].map((k) => min[k] + (max[k] - min[k]) / 2);
         built.extent = { min, max, center, radius: Math.max(length(sub(max, min)) / 2, 1e-9) };
       }
-      if (options.edges) for (let chunk = 0; chunk < data.chunks; chunk++) built.edges.push(this.#edges(built, chunk, null));
+      if (options.edges) {
+        built.edgeMaterial = new THREE.LineBasicMaterial({ color: options.edge });
+        const lines = [];
+        built.edgeSets.set(PLAIN.key, lines);
+        for (let chunk = 0; chunk < data.chunks; chunk++) lines.push(this.#edges(built, chunk, PLAIN));
+      }
       const issues = [];
       let issueCount = 0;
       const issue = (value) => { issueCount++; if (issues.length < limits.issues) issues.push(Object.freeze(value)); };
@@ -505,19 +632,65 @@ export class View3D {
     }
   }
 
+  /** 非表示の状態で描く稜線の数。 */
+  #edgeRows(built, display) {
+    const c = built.data.columns;
+    let rows = 0;
+    for (let row = 0; row < built.counts.instances; row++) {
+      if (built.batchOf[row] < 0 || isHidden(display, c.instance_elements[row])) continue;
+      const mesh = c.instance_meshes[row];
+      rows += (c.mesh_edges[mesh + 1] ?? built.counts.edges) - c.mesh_edges[mesh];
+    }
+    return rows;
+  }
+
+  /** ビューが使う非表示の状態ごとの稜線を用意する。資源を作る前にバイト数を数える。 */
+  #prepareEdges(scene, displays) {
+    if (!this.#options.edges) return;
+    const missing = new Map();
+    for (const display of displays.values()) if (!scene.edgeSets.has(display.key)) missing.set(display.key, display);
+    let bytes = scene.report.gpuBytes;
+    for (const [key, lines] of scene.edgeSets) if (key !== PLAIN.key) for (const line of lines) bytes += line.geometry.attributes.position.array.byteLength;
+    for (const display of missing.values()) bytes += this.#edgeRows(scene, display) * 24;
+    if (bytes > this.#limits.gpuBytes) fail("limit", "GPU へ渡すバイト数の上限（ビューごとの稜線）");
+    const made = [];
+    try {
+      for (const [key, display] of missing) {
+        const lines = [];
+        made.push(lines);
+        for (let chunk = 0; chunk < scene.chunks.length; chunk++) lines.push(this.#edges(scene, chunk, display));
+        scene.edgeSets.set(key, lines);
+      }
+    } catch (error) {
+      for (const [key] of missing) scene.edgeSets.delete(key);
+      for (const lines of made) for (const line of lines) { line.removeFromParent(); line.geometry.dispose(); }
+      throw error;
+    }
+  }
+
+  /** どのビューも使わない稜線を解放する。非表示のない稜線は残す。 */
+  #pruneEdges(scene) {
+    const used = new Set([PLAIN.key, ...[...this.#displays.values()].map((d) => d.key)]);
+    for (const [key, lines] of scene.edgeSets) {
+      if (used.has(key)) continue;
+      scene.edgeSets.delete(key);
+      for (const line of lines) { line.removeFromParent(); line.geometry.dispose(); }
+    }
+  }
+
   /** 塊の稜線を、描く配置だけから塊の原点に対する f32 の座標へ展開する。 */
-  #edges(built, chunk, previous) {
+  #edges(built, chunk, display) {
     const { data } = built, c = data.columns;
     const begin = c.chunk_instances[chunk], end = c.chunk_instances[chunk + 1] ?? built.counts.instances;
     let rows = 0;
     for (let row = begin; row < end; row++) {
-      if (built.batchOf[row] < 0 || this.#hidden.has(c.instance_elements[row])) continue;
+      if (built.batchOf[row] < 0 || isHidden(display, c.instance_elements[row])) continue;
       rows += data.mesh(c.instance_meshes[row]).edges.length / 2;
     }
     const positions = new Float32Array(rows * 6);
     let at = 0;
     for (let row = begin; row < end; row++) {
-      if (built.batchOf[row] < 0 || this.#hidden.has(c.instance_elements[row])) continue;
+      if (built.batchOf[row] < 0 || isHidden(display, c.instance_elements[row])) continue;
       const mesh = data.mesh(c.instance_meshes[row]), t = c.instance_transforms.subarray(row * 12, row * 12 + 12);
       for (const vertex of mesh.edges) {
         const x = mesh.vertices[vertex * 3], y = mesh.vertices[vertex * 3 + 1], z = mesh.vertices[vertex * 3 + 2];
@@ -528,14 +701,9 @@ export class View3D {
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    let material = previous?.material;
-    if (material === undefined) material = new THREE.LineBasicMaterial({ color: this.#options.edge });
-    const lines = new THREE.LineSegments(geometry, material);
+    const lines = new THREE.LineSegments(geometry, built.edgeMaterial);
     lines.frustumCulled = false;
-    if (previous !== null) {
-      built.chunks[chunk].remove(previous);
-      previous.geometry.dispose();
-    }
+    lines.visible = false;
     built.chunks[chunk].add(lines);
     return lines;
   }
@@ -545,45 +713,49 @@ export class View3D {
     for (const geometry of built.geometries.values()) tasks.push(() => geometry.dispose());
     for (const material of built.materials.values()) tasks.push(() => material.dispose());
     for (const batch of built.batches) tasks.push(() => batch.mesh.dispose());
-    for (const lines of built.edges) tasks.push(() => { lines.geometry.dispose(); lines.material.dispose(); });
+    for (const lines of built.edgeSets.values()) for (const line of lines) tasks.push(() => line.geometry.dispose());
+    const edgeMaterial = built.edgeMaterial;
+    if (edgeMaterial !== null) tasks.push(() => edgeMaterial.dispose());
     for (const group of built.chunks) tasks.push(() => { if (group.parent !== null) group.parent.remove(group); });
-    built.batches = []; built.edges = []; built.geometries = new Map(); built.materials = new Map(); built.chunks = [];
+    built.batches = []; built.edgeSets = new Map(); built.edgeMaterial = null; built.geometries = new Map(); built.materials = new Map(); built.chunks = [];
     runAll(tasks);
   }
 
-  #rows(document, ids) {
-    const scene = this.#scene;
-    if (scene === null) fail("no-scene", "シーンがない");
-    const identity = readDocument(document);
-    if (!sameDocument(identity, scene.document)) fail("other-document", "表示中と別の文書の参照");
-    if (!Array.isArray(ids)) invalid("要素の ID は配列");
-    if (ids.length > this.#limits.stateItems) fail("limit", "状態の件数の上限");
-    const rows = new Set();
-    for (const id of ids) {
-      if (typeof id !== "string") invalid("要素の ID は文字列");
-      const row = scene.data.elementById(id);
-      if (row === undefined) fail("unknown-element", `シーンにない要素: ${id}`);
-      rows.add(row);
+  /** 表示の状態を GPU の配置へ当てる。前に当てた状態との差の要素だけを塗り直す。 */
+  #apply(scene, display) {
+    const before = scene.applied;
+    if (before === display) return;
+    let changed = null;
+    if (before.visible === display.visible) {
+      changed = new Set();
+      for (const row of before.exceptions) if (!display.exceptions.has(row)) changed.add(row);
+      for (const row of display.exceptions) if (!before.exceptions.has(row)) changed.add(row);
+      for (const row of before.selected) if (!display.selected.has(row)) changed.add(row);
+      for (const row of display.selected) if (!before.selected.has(row)) changed.add(row);
+      for (const [row, paint] of before.colors) if (display.colors.get(row) !== paint) changed.add(row);
+      for (const row of display.colors.keys()) if (!before.colors.has(row)) changed.add(row);
     }
-    return rows;
+    this.#repaint(scene, changed, display);
+    scene.applied = display;
   }
 
-  /** 要素の配置を、選択・非表示の状態に合わせて塗り直す。 */
-  #repaint(rows, edges) {
-    const scene = this.#scene, { starts, order } = scene.elementInstances, c = scene.data.columns;
-    const paint = new THREE.Color(), touched = new Set(), chunks = new Set();
-    for (const element of rows) {
+  /** 要素の配置を、選択・非表示・色の状態に合わせて塗り直す。rows が null なら全部。 */
+  #repaint(scene, rows, display) {
+    const { starts, order } = scene.elementInstances, c = scene.data.columns;
+    const paint = new THREE.Color(), touched = new Set();
+    const elements = rows ?? Array.from({ length: scene.counts.elements }, (_, e) => e);
+    for (const element of elements) {
+      const hidden = isHidden(display, element);
       for (let i = starts[element]; i < starts[element + 1]; i++) {
         const row = order[i], batch = scene.batchOf[row];
         if (batch < 0) continue;
-        const { mesh, shared, chunk } = scene.batches[batch], slot = scene.slotOf[row];
-        chunks.add(chunk);
-        const hidden = this.#hidden.has(element);
+        const { mesh, shared } = scene.batches[batch], slot = scene.slotOf[row];
         if (shared) {
           if (hidden) mesh.instanceMatrix.array.set(ZERO, slot * 16);
           else columnMajor(c.instance_transforms.subarray(row * 12, row * 12 + 12), mesh.instanceMatrix.array, slot * 16);
         } else mesh.visible = !hidden;
-        if (this.#selected.has(element)) paint.copy(this.#options.selection);
+        if (display.selected.has(element)) paint.copy(this.#options.selection);
+        else if (display.colors.has(element)) paint.copy(display.colors.get(element));
         else {
           const colorRow = c.instance_colors[row];
           paint.setRGB(scene.colors[colorRow * 4], scene.colors[colorRow * 4 + 1], scene.colors[colorRow * 4 + 2]);
@@ -596,29 +768,41 @@ export class View3D {
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor !== null) mesh.instanceColor.needsUpdate = true;
     }
-    if (edges && this.#options.edges) for (const chunk of chunks) scene.edges[chunk] = this.#edges(scene, chunk, scene.edges[chunk]);
+  }
+
+  /** 対象のビュー。view を省けばすべて。 */
+  #targets(options) {
+    if (!isObject(options)) invalid("options はオブジェクト");
+    for (const key of Object.keys(options)) if (key !== "view") invalid(`未知の設定: ${key}`);
+    if (options.view === undefined) return null;
+    return this.#view(options.view).id;
+  }
+
+  #update(document, options, change) {
+    const scene = this.#scene;
+    if (scene === null) fail("no-scene", "シーンがない");
+    if (!sameDocument(readDocument(document), scene.document)) fail("other-document", "表示中と別の文書の参照");
+    const target = this.#targets(options);
+    const views = this.#views.map((view) => (target === null || view.id === target ? { ...view, ...change } : view));
+    this.#commitViews(this.#resolveViews(readViews(views, this.#limits)));
   }
 
   /** 表示中の文書の要素 ID で選ぶ。別文書・未知の ID は読み替えずに断り、状態を変えない。 */
-  select(document, ids) {
+  select(document, ids, options = {}) {
     this.#alive();
-    const rows = this.#rows(document, ids);
-    const before = this.#selected;
-    this.#selected = rows;
-    this.#repaint(new Set([...before, ...rows]), false);
-    this.#changed();
-    this.invalidate();
+    this.#update(document, options, { selected: idList(ids, "選択") });
   }
 
   /** 非表示の要素。非表示の要素は描画からも当たり判定からも除く。 */
-  setHidden(document, ids) {
+  setHidden(document, ids, options = {}) {
     this.#alive();
-    const rows = this.#rows(document, ids);
-    const before = this.#hidden;
-    this.#hidden = rows;
-    this.#repaint(new Set([...before, ...rows]), true);
-    this.#changed();
-    this.invalidate();
+    this.#update(document, options, { visible: true, exceptions: idList(ids, "非表示") });
+  }
+
+  /** 要素の色。#RRGGBB か #AARRGGBB で、透明度は保つが描かない。選択の色が優先する。 */
+  setColors(document, colored, options = {}) {
+    this.#alive();
+    this.#update(document, options, { colored });
   }
 
   #view(viewId) {
@@ -644,7 +828,7 @@ export class View3D {
       const distance = extent.radius * 2 * margin;
       next = { ...camera, position: sub(extent.center, scale(forward, distance)), width: 2 * extent.radius * margin * Math.max(1, aspect) };
     }
-    this.setViews(this.#views.map((v) => (v.id === viewId ? { id: v.id, rect: v.rect, camera: next } : v)));
+    this.setViews(this.#views.map((v) => (v.id === viewId ? { ...v, camera: next } : v)));
   }
 
   #basis(camera) {
@@ -715,12 +899,21 @@ export class View3D {
           group.updateMatrix();
         }
       }
+      const display = this.#displays.get(view.id) ?? PLAIN;
+      if (scene !== null) {
+        this.#apply(scene, display);
+        for (const [key, lines] of scene.edgeSets) for (const line of lines) line.visible = key === display.key;
+      }
+      // 切断面は表示原点からの相対座標で渡す。three.js は符号付き距離が負の側を切るので法線を反転する
+      renderer.clippingPlanes = display.planes.map(({ point, normal }) => new THREE.Plane(
+        new THREE.Vector3(-normal[0], -normal[1], -normal[2]), dot(normal, sub(point, origin))));
       const y = size.height - rect.y - rect.height;
       renderer.setViewport(rect.x, y, rect.width, rect.height);
       renderer.setScissor(rect.x, y, rect.width, rect.height);
       renderer.clear(true, true, false);
       renderer.render(this.#root, this.#cameraFor(view));
     }
+    renderer.clippingPlanes = [];
     renderer.setScissorTest(false);
     this.#emit("render", { type: "render", views: this.#views.length });
     return true;
@@ -759,6 +952,10 @@ export class View3D {
     if (scene === null) return Object.freeze({ hits: Object.freeze([]), truncated: false });
     const { data } = scene, c = data.columns, d = ray.direction;
     const { near } = this.#clipRange(this.#view(viewId).camera);
+    const display = this.#displays.get(viewId) ?? PLAIN;
+    // 切断面で除く条件 n · (q + o - p0) > 0 を、光線の係数 t の一次式 a + b t にする（f64）
+    const cuts = display.planes.map(({ point, normal }) => [dot(normal, sub(ray.origin, point)) + dot(normal, ray.offset), dot(normal, d)]);
+    const accept = (t) => cuts.every(([a, b]) => !(a + b * t > 0));
     let work = 0;
     const spend = (n) => { work += n; if (work > this.#limits.work) fail("limit", "当たり判定の作業量の上限"); };
     const best = new Map();
@@ -769,7 +966,7 @@ export class View3D {
       for (let row = begin; row < end; row++) {
         spend(1);
         const element = c.instance_elements[row];
-        if (scene.batchOf[row] < 0 || this.#hidden.has(element)) continue;
+        if (scene.batchOf[row] < 0 || isHidden(display, element)) continue;
         const t = c.instance_transforms.subarray(row * 12, row * 12 + 12);
         const inverse = invert(t);
         const p = sub(relative, [t[3], t[7], t[11]]);
@@ -778,7 +975,7 @@ export class View3D {
         const box = this.#meshBounds(scene, mesh, spend);
         if (!rayBox(localOrigin, localDirection, box)) continue;
         const view = data.mesh(mesh);
-        const hit = nearest(view, localOrigin, localDirection, near, spend);
+        const hit = nearest(view, localOrigin, localDirection, near, accept, spend);
         if (hit === null) continue;
         const previous = best.get(element);
         if (previous === undefined || hit < previous.distance || (hit === previous.distance && row < previous.instance)) {
@@ -811,6 +1008,165 @@ export class View3D {
       scene.bounds.set(mesh, box);
     }
     return box;
+  }
+
+  /** 文書単位が m か。BCF の厳密な往復はこの場合に限る。 */
+  #metreIssues(scene) {
+    const unit = scene.result.unit;
+    if (isObject(unit) && unit.name === "METRE" && unit.prefix === undefined && unit.scale === undefined) return [];
+    return [Object.freeze({ reason: "unit-not-metre", disposition: "kept", unit: Object.freeze({ ...unit }) })];
+  }
+
+  /**
+   * ビューをレビュー文書の 3D の場所（kind が 3d の Place）にする。BCF の互換枠は 1:1 で、縦横比が違う枠は
+   * frame: "contain" を指定したときだけ、枠を含む正方形へ広げて調整した値を返す。保存先・作者・時刻は持たない。
+   */
+  toReviewPlace(viewId, options = {}) {
+    this.#alive();
+    const view = this.#view(viewId), scene = this.#scene;
+    if (scene === null) fail("no-scene", "シーンがない");
+    if (!isObject(options)) invalid("options はオブジェクト");
+    for (const key of Object.keys(options)) if (key !== "frame" && key !== "hashes") invalid(`未知の設定: ${key}`);
+    const frame = options.frame ?? "exact";
+    if (frame !== "exact" && frame !== "contain") invalid("frame は exact か contain");
+    const hashes = readHashes(options.hashes);
+    const { camera, rect } = view, aspect = rect.width / rect.height, adjustments = [];
+    const projection = camera.projection === "perspective"
+      ? { projection: "perspective", field_of_view: camera.fov }
+      : { projection: "orthographic", width: camera.width };
+    if (Math.abs(aspect - 1) > 1e-9) {
+      if (frame === "exact") fail("aspect-ratio", "BCF の互換枠は 1:1。縦横比の違う枠は frame を contain にして広げる");
+      if (camera.projection === "perspective") {
+        const half = Math.tan((camera.fov * ANGLE) / 2), fov = (2 * Math.atan(Math.max(half, half * aspect))) / ANGLE;
+        projection.field_of_view = fov;
+        adjustments.push(Object.freeze({ field: "camera.field_of_view", from: camera.fov, to: fov, reason: "square-frame" }));
+      } else {
+        const width = Math.max(camera.width, camera.width / aspect);
+        projection.width = width;
+        adjustments.push(Object.freeze({ field: "camera.width", from: camera.width, to: width, reason: "square-frame" }));
+      }
+    }
+    const reference = (id) => { const hash = hashes?.get(id); return Object.freeze(hash === undefined ? { id } : { id, hash }); };
+    const place = Object.freeze({
+      kind: "3d",
+      camera: Object.freeze({ ...projection, position: camera.position, direction: camera.direction, up: camera.up }),
+      selected: Object.freeze(view.selected.map(reference)),
+      visible: view.visible,
+      exceptions: Object.freeze(view.exceptions.map(reference)),
+      colored: Object.freeze(view.colored.map((entry) => Object.freeze({ color: entry.color, elements: Object.freeze(entry.ids.map(reference)) }))),
+      clips: Object.freeze([...view.clips, ...boxPlanes(view.box)].map((plane) => Object.freeze({ point: plane.point, normal: plane.normal }))),
+    });
+    const issues = Object.freeze(this.#metreIssues(scene));
+    return Object.freeze({ place, strict: issues.length === 0 && adjustments.length === 0, adjustments: Object.freeze(adjustments), issues });
+  }
+
+  /**
+   * レビュー文書の 3D の場所をビューへ当てる。別文書は断り、見つからない要素・ハッシュの違う要素は採用せずに報告する。
+   * 1:1 のカメラは枠の中の正方形（frame）に収め、縦横比が違えば調整した値を返す。元のレビュー文書には書かない。
+   */
+  applyReviewPlace(viewId, document, place, options = {}) {
+    this.#alive();
+    const view = this.#view(viewId), scene = this.#scene;
+    if (scene === null) fail("no-scene", "シーンがない");
+    if (!sameDocument(readDocument(document), scene.document)) fail("other-document", "表示中と別の文書の場所");
+    if (!isObject(place) || place.kind !== "3d") invalid("place は kind が 3d のレビューの場所");
+    if (!isObject(options)) invalid("options はオブジェクト");
+    for (const key of Object.keys(options)) if (key !== "hashes") invalid(`未知の設定: ${key}`);
+    const hashes = readHashes(options.hashes), limits = this.#limits;
+    const missing = [], changed = [];
+    let unchecked = 0, items = 0, overridden = 0;
+    const references = (value, message) => {
+      if (value === undefined) return [];
+      if (!Array.isArray(value)) invalid(`${message}は参照の配列`);
+      items += value.length;
+      if (items > limits.stateItems) fail("limit", "状態の件数の上限");
+      const ids = [];
+      for (const reference of value) {
+        if (!isObject(reference) || typeof reference.id !== "string") invalid(`${message}の参照は { id, hash? }`);
+        if (reference.hash !== undefined && typeof reference.hash !== "string") invalid(`${message}の hash は文字列`);
+        if (scene.data.elementById(reference.id) === undefined) { missing.push(reference.id); continue; }
+        if (reference.hash !== undefined) {
+          if (hashes === undefined) unchecked++;
+          else if (hashes.get(reference.id) !== reference.hash) { changed.push(reference.id); continue; }
+        }
+        ids.push(reference.id);
+      }
+      return ids;
+    };
+    const { rect } = view, aspect = rect.width / rect.height, adjustments = [];
+    let camera = view.camera;
+    if (place.camera !== undefined) {
+      const value = place.camera;
+      if (!isObject(value)) invalid("camera はオブジェクト");
+      const base = { position: value.position, direction: value.direction, up: value.up };
+      if (value.projection === "perspective") {
+        const f = finite(value.field_of_view, "field_of_view は有限値");
+        let fov = f;
+        if (aspect < 1 - 1e-9) {
+          fov = (2 * Math.atan(Math.tan((f * ANGLE) / 2) / aspect)) / ANGLE;
+          adjustments.push(Object.freeze({ field: "camera.fov", from: f, to: fov, reason: "square-frame" }));
+        }
+        camera = readCamera({ projection: "perspective", ...base, fov });
+      } else if (value.projection === "orthographic") {
+        const w = positive(value.width, "平行投影の width は正の有限値");
+        let width = w;
+        if (aspect > 1 + 1e-9) {
+          width = w * aspect;
+          adjustments.push(Object.freeze({ field: "camera.width", from: w, to: width, reason: "square-frame" }));
+        }
+        camera = readCamera({ projection: "orthographic", ...base, width });
+      } else invalid("projection は perspective か orthographic");
+    }
+    if (place.clips !== undefined && !Array.isArray(place.clips)) invalid("clips は切断面の配列");
+    const clips = (place.clips ?? []).map((plane, i) => readPlane(plane, `clips[${i}]`));
+    if (place.visible !== undefined && typeof place.visible !== "boolean") invalid("visible は真偽値");
+    if (place.colored !== undefined && !Array.isArray(place.colored)) invalid("colored は配列");
+    // 同じ要素の色が重なれば後のものを採る
+    const colorOf = new Map();
+    for (const [i, entry] of (place.colored ?? []).entries()) {
+      if (!isObject(entry)) invalid(`colored[${i}] は { color, elements }`);
+      const color = reviewColor(entry.color, `colored[${i}].color は #RRGGBB か #AARRGGBB`);
+      for (const id of references(entry.elements, `colored[${i}].elements `)) {
+        if (colorOf.has(id)) { overridden++; colorOf.delete(id); }
+        colorOf.set(id, color);
+      }
+    }
+    const groups = new Map();
+    for (const [id, color] of colorOf) { if (!groups.has(color)) groups.set(color, []); groups.get(color).push(id); }
+    const next = {
+      ...view, camera, clips, box: null,
+      selected: references(place.selected, "selected "), visible: place.visible ?? true, exceptions: references(place.exceptions, "exceptions "),
+      colored: [...groups].map(([color, ids]) => ({ color, ids })),
+    };
+    this.#commitViews(this.#resolveViews(readViews(this.#views.map((v) => (v.id === view.id ? next : v)), limits)));
+    const issues = [...this.#metreIssues(scene)];
+    const sample = (ids) => Object.freeze(ids.slice(0, limits.issues));
+    if (missing.length > 0) issues.push(Object.freeze({ reason: "element-missing", disposition: "omitted", count: missing.length, elements: sample(missing) }));
+    if (changed.length > 0) issues.push(Object.freeze({ reason: "element-changed", disposition: "omitted", count: changed.length, elements: sample(changed) }));
+    if (unchecked > 0) issues.push(Object.freeze({ reason: "hash-unchecked", disposition: "kept", count: unchecked }));
+    if (overridden > 0) issues.push(Object.freeze({ reason: "color-overridden", disposition: "substituted", count: overridden }));
+    const side = Math.min(rect.width, rect.height);
+    const square = Object.freeze({ x: rect.x + (rect.width - side) / 2, y: rect.y + (rect.height - side) / 2, width: side, height: side });
+    return Object.freeze({
+      strict: issues.length === 0 && adjustments.length === 0, adjustments: Object.freeze(adjustments), issues: Object.freeze(issues), frame: square,
+    });
+  }
+
+  /** 利用側の明示した要求で、ビューの枠を描いて RGBA の画素（上の行から）を返す。保存・送信はしない。 */
+  snapshot(viewId) {
+    this.#alive();
+    const view = this.#view(viewId);
+    if (this.#lost) fail("context-lost", "context を失っている");
+    const ratio = this.#size.pixelRatio, { rect } = view;
+    const x = Math.round(rect.x * ratio), y = Math.round((this.#size.height - rect.y - rect.height) * ratio);
+    const width = Math.round(rect.width * ratio), height = Math.round(rect.height * ratio);
+    if (width * height > this.#limits.canvasPixels) fail("limit", "Canvas の画素数の上限");
+    this.render();
+    const gl = this.#renderer.getContext(), raw = new Uint8Array(width * height * 4);
+    gl.readPixels(x, y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+    const pixels = new Uint8Array(raw.length), stride = width * 4;
+    for (let row = 0; row < height; row++) pixels.set(raw.subarray((height - 1 - row) * stride, (height - row) * stride), row * stride);
+    return Object.freeze({ view: view.id, rect, pixelRatio: ratio, width, height, pixels });
   }
 
   /** 観測用の数。GPU の実際の使用量ではなく、three.js が持つ資源の件数。 */
@@ -850,6 +1206,13 @@ export class View3D {
   }
 }
 
+/** 要素 ID から要素のハッシュへの Map。省けばハッシュを付けず、照らさない。 */
+function readHashes(value) {
+  if (value === undefined) return undefined;
+  if (!(value instanceof Map)) invalid("hashes は要素 ID から要素のハッシュへの Map");
+  return value;
+}
+
 /** 行優先の 3 行 4 列の線形部分の逆行列（行優先の 3 行 3 列）。 */
 function invert(t) {
   const [a, b, c, , d, e, f, , g, h, i] = t;
@@ -872,7 +1235,7 @@ function rayBox(o, d, box) {
   return high >= Math.max(low, 0);
 }
 /** 両面の三角形とのもっとも近い交点の光線の係数。局所の光線は元の光線と同じ係数を持つ。 */
-function nearest(mesh, o, d, near, spend) {
+function nearest(mesh, o, d, near, accept, spend) {
   const v = mesh.vertices, tri = mesh.triangles;
   spend(tri.length / 3);
   let best = null;
@@ -887,7 +1250,7 @@ function nearest(mesh, o, d, near, spend) {
     const q = cross(s, e1), w = dot(d, q) / det;
     if (w < 0 || u + w > 1) continue;
     const t = dot(e2, q) / det;
-    if (t >= near && (best === null || t < best)) best = t;
+    if (t >= near && (best === null || t < best) && accept(t)) best = t;
   }
   return best;
 }

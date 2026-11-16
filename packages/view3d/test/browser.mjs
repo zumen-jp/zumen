@@ -3,7 +3,7 @@ import { load, readScene3D } from "@zumen-jp/zumen";
 import { View3D, View3DError } from "../src/index.js";
 import { document, encode, ORIGIN, result, synthetic, topView } from "./fixture.mjs";
 
-const RED = [255, 0, 0], SELECTED = [255, 136, 0], GREEN = [0, 255, 0], WHITE = [255, 255, 255], HALF = [128, 128, 255];
+const RED = [255, 0, 0], SELECTED = [255, 136, 0], GREEN = [0, 255, 0], WHITE = [255, 255, 255], HALF = [128, 128, 255], BLUE = [0, 0, 255];
 
 export async function testView3D(wasmPath, ifc) {
   let assertions = 0;
@@ -89,7 +89,7 @@ export async function testView3D(wasmPath, ifc) {
   let notified = 0;
   const off = viewer.subscribe(() => { notified++; });
   viewer.select(document, ["red"]);
-  assert(viewer.getState().selection.length === 1 && viewer.getState().selection[0] === "red" && notified === 1, "選択の状態と通知");
+  assert(viewer.getState().views[0].selected.length === 1 && viewer.getState().views[0].selected[0] === "red" && notified === 1, "選択の状態と通知");
   viewer.render();
   pixel(30, 70, SELECTED, "選択の色");
   pixel(30, 130, SELECTED, "同じ要素のすべての配置");
@@ -138,6 +138,96 @@ export async function testView3D(wasmPath, ifc) {
   viewer.fit("top");
   const fitted = viewer.getState().views[0].camera;
   assert(fitted.position[2] > 0 && fitted.width > 15, "範囲に合わせる");
+  viewer.setViews([topView()]);
+
+  // ビューごとの選択・非表示・色。左右とも red の中心を見る
+  const onRed = (id, x) => ({ id, rect: { x, y: 0, width: 100, height: 200 },
+    camera: { projection: "orthographic", position: [ORIGIN[0] - 7, ORIGIN[1] + 3, 10], direction: [0, 0, -1], up: [0, 1, 0], width: 10 } });
+  viewer.setViews([onRed("left", 0), onRed("right", 100)]);
+  viewer.select(document, ["red"], { view: "left" });
+  viewer.render();
+  pixel(50, 100, SELECTED, "左だけ選ぶ");
+  pixel(150, 100, RED, "右は選ばない");
+  viewer.setHidden(document, ["red"], { view: "right" });
+  viewer.render();
+  pixel(50, 100, SELECTED, "左は隠さない");
+  pixel(150, 100, WHITE, "右だけ隠す");
+  assert(viewer.hitTest("left", { x: 50, y: 100 }).hits[0]?.id === "red" && viewer.hitTest("right", { x: 150, y: 100 }).hits.length === 0, "当たりもビューごと");
+  rejects(() => viewer.hitTest("left", { x: 150, y: 100 }), "outside-view", "別の枠の点は受けない");
+  viewer.setHidden(document, [], { view: "right" });
+  viewer.setColors(document, [{ color: "#0000ff", ids: ["red"] }], { view: "right" });
+  viewer.render();
+  pixel(150, 100, BLUE, "右だけ色を変える");
+  pixel(50, 100, SELECTED, "選択の色が優先する");
+  const perView = viewer.getState().views;
+  assert(perView[0].selected[0] === "red" && perView[1].selected.length === 0 && perView[1].colored[0].color === "#0000FF" && perView[1].colored[0].ids[0] === "red", "ビューごとの状態");
+  rejects(() => viewer.setColors(document, [{ color: "blue", ids: ["red"] }]), "invalid-input", "色の書式");
+  rejects(() => viewer.setColors(document, [{ color: "#000000", ids: ["red"] }, { color: "#ffffff", ids: ["red"] }]), "invalid-input", "同じ要素に 2 つの色");
+  rejects(() => viewer.select(document, ["red"], { view: "none" }), "unknown-view", "未知のビュー");
+  assert(viewer.getState().views === perView, "断った操作はビューを変えない");
+  // pixel ratio 2 の画素は snapshot で読み、CSS px の位置と照らす
+  viewer.setSize(200, 200, 2);
+  const shot = viewer.snapshot("right");
+  assert(shot.width === 200 && shot.height === 400 && shot.pixelRatio === 2, `snapshot の寸法: ${shot.width}x${shot.height}`);
+  const at = (x, y) => [...shot.pixels.subarray((y * shot.width + x) * 4, (y * shot.width + x) * 4 + 3)];
+  assert(at(100, 200).every((v, i) => Math.abs(v - BLUE[i]) <= 3), `pixel ratio 2 の右の枠: ${at(100, 200)}`);
+  assert(at(5, 5).every((v) => v >= 252), "pixel ratio 2 の背景");
+  assert(viewer.hitTest("right", { x: 150, y: 100 }).hits[0]?.id === "red", "pixel ratio を変えても CSS px で当てる");
+  viewer.setSize(200, 200, 1);
+
+  // 切断面。法線の向きを除き、描画と当たり判定で同じ条件
+  viewer.setViews([{ ...topView(), clips: [{ point: [ORIGIN[0] - 7, ORIGIN[1], 0], normal: [1, 0, 0] }] }]);
+  viewer.render();
+  pixel(25, 70, RED, "切断面の残す側");
+  pixel(35, 70, WHITE, "切断面の除く側");
+  pixel(150, 70, WHITE, "除く側の別の要素");
+  assert(viewer.hitTest("top", { x: 25, y: 70 }).hits[0]?.id === "red", "残す側の当たり");
+  assert(viewer.hitTest("top", { x: 35, y: 70 }).hits.length === 0 && viewer.hitTest("top", { x: 150, y: 70 }).hits.length === 0, "除く側は当たらない");
+  assert(viewer.hitTest("top", { x: 30, y: 70 }).hits[0]?.id === "red", "面の上は残す");
+  viewer.setViews([{ ...topView(), box: { min: [ORIGIN[0] - 0.5, ORIGIN[1] - 5, -1], max: [ORIGIN[0] + 5, ORIGIN[1] + 5, 1] } }]);
+  viewer.render();
+  pixel(100, 100, HALF, "箱の中");
+  pixel(92, 100, WHITE, "箱の外");
+  pixel(30, 70, WHITE, "箱の外の要素");
+  assert(viewer.hitTest("top", { x: 100, y: 100 }).hits[0]?.id === "half" && viewer.hitTest("top", { x: 92, y: 100 }).hits.length === 0, "箱の当たり");
+  rejects(() => viewer.setViews([{ ...topView(), clips: [{ point: [0, 0, 0], normal: [0, 0, 0] }] }]), "invalid-input", "0 の法線");
+  rejects(() => viewer.setViews([{ ...topView(), box: { min: [1, 0, 0], max: [0, 1, 1] } }]), "invalid-input", "逆の箱");
+  rejects(() => viewer.setViews([{ ...topView(), clips: Array.from({ length: 11 }, () => ({ point: [0, 0, 0], normal: [0, 0, 1] })), box: { min: [0, 0, 0], max: [1, 1, 1] } }]), "limit", "切断面の数");
+
+  // レビュー文書の 3D の場所との往復。m・1:1 は厳密、縦横比の違う枠は明示した調整だけ
+  const reviewed = { ...topView(), camera: { projection: "perspective", position: [ORIGIN[0], ORIGIN[1], 30], direction: [0, 0.1, -1], up: [0, 1, 0], fov: 50 },
+    clips: [{ point: [ORIGIN[0] - 7, ORIGIN[1], 0], normal: [1, 0, 0] }], box: { min: [ORIGIN[0] - 9, ORIGIN[1] - 9, -1], max: [ORIGIN[0] + 9, ORIGIN[1] + 9, 1] },
+    selected: ["mirror"], visible: true, exceptions: ["stretch"], colored: [{ color: "#80FF0000", ids: ["half"] }] };
+  viewer.setViews([reviewed]);
+  const exported = viewer.toReviewPlace("top");
+  assert(exported.strict && exported.adjustments.length === 0 && exported.issues.length === 0, "m・1:1 は厳密");
+  assert(exported.place.camera.field_of_view === 50 && exported.place.clips.length === 7 && exported.place.colored[0].color === "#80FF0000", "カメラ・切断面・色");
+  const json = JSON.parse(JSON.stringify(exported.place));
+  viewer.setViews([topView()]);
+  const applied = viewer.applyReviewPlace("top", document, json);
+  assert(applied.strict && applied.frame.width === 200, `当てた結果: ${JSON.stringify(applied)}`);
+  assert(JSON.stringify(viewer.toReviewPlace("top").place) === JSON.stringify(exported.place), "レビューの場所を往復する");
+  viewer.setViews([{ ...topView(), selected: ["mirror"] }]);
+  viewer.render();
+  pixel(150, 70, SELECTED, "要素の状態を持つビュー");
+  const missing = viewer.applyReviewPlace("top", document, { kind: "3d", selected: [{ id: "red" }, { id: "nope" }], colored: [{ color: "#00FF00", elements: [{ id: "red" }] }, { color: "#0000FF", elements: [{ id: "red" }] }] });
+  const reasons = missing.issues.map((i) => i.reason).join(",");
+  assert(!missing.strict && reasons === "element-missing,color-overridden" && missing.issues[0].elements[0] === "nope", `見つからない要素と重なる色: ${reasons}`);
+  assert(viewer.getState().views[0].selected.join() === "red" && viewer.getState().views[0].colored[0].color === "#0000FF", "見つかった要素だけ採る");
+  const hashed = viewer.applyReviewPlace("top", document, { kind: "3d", selected: [{ id: "red", hash: "a" }, { id: "mirror", hash: "b" }] }, { hashes: new Map([["red", "a"], ["mirror", "c"]]) });
+  assert(hashed.issues[0].reason === "element-changed" && viewer.getState().views[0].selected.join() === "red", "ハッシュの違う要素は採らない");
+  rejects(() => viewer.applyReviewPlace("top", { ...document, doc: "other.ifc" }, json), "other-document", "別文書の場所");
+  rejects(() => viewer.applyReviewPlace("top", document, { ...json, camera: { ...json.camera, up: [0, 0.1, -1] } }), "invalid-input", "平行な方向");
+  rejects(() => viewer.applyReviewPlace("top", document, { ...json, camera: { ...json.camera, projection: "fisheye" } }), "invalid-input", "未知の投影");
+  rejects(() => viewer.applyReviewPlace("top", document, { kind: "2d" }), "invalid-input", "2D の場所");
+  viewer.setViews([{ ...topView("wide", { x: 0, y: 50, width: 200, height: 100 }), camera: { ...reviewed.camera } }]);
+  rejects(() => viewer.toReviewPlace("wide"), "aspect-ratio", "1:1 でない枠");
+  const contained = viewer.toReviewPlace("wide", { frame: "contain" });
+  const widened = (2 * Math.atan(Math.tan((50 * Math.PI) / 360) * 2) * 180) / Math.PI;
+  near(contained.place.camera.field_of_view, widened, "枠を含む正方形の視野角", 1e-9);
+  assert(!contained.strict && contained.adjustments[0].reason === "square-frame", "調整を返す");
+  const tall = viewer.applyReviewPlace("wide", document, { kind: "3d", camera: { projection: "orthographic", width: 4, position: [0, 0, 1], direction: [0, 0, -1], up: [0, 1, 0] } });
+  assert(tall.adjustments[0].field === "camera.width" && tall.adjustments[0].to === 8 && tall.frame.width === 100 && tall.frame.x === 50, "正方形を枠に収める");
   viewer.setViews([topView()]);
 
   // 不正な列・参照・非有限値・応答の食い違いは、前のシーンを保つ
@@ -232,7 +322,8 @@ export async function testView3D(wasmPath, ifc) {
       for (const key of Object.keys(response.counts)) assert(counts[key] === response.counts[key], `コアの列の数 ${key}`);
       const ids = Array.from({ length: scene.rows("element_ids") }, (_, row) => scene.element(row).id);
       coreViewer.select(coreDocument, ids);
-      assert(coreViewer.getState().selection.length === ids.length, "コアの要素 ID をすべて選べる");
+      assert(coreViewer.getState().views[0].selected.length === ids.length, "コアの要素 ID をすべて選べる");
+      assert(coreViewer.toReviewPlace("iso").issues[0]?.reason === "unit-not-metre", "mm の文書は厳密な往復の対象外");
       coreViewer.select(coreDocument, []);
       coreViewer.fit("iso");
       start = performance.now();
@@ -253,6 +344,57 @@ export async function testView3D(wasmPath, ifc) {
       core = { elements: ids.length, instances: scene.rows("instance_meshes"), meshes: scene.rows("mesh_vertices"), bytes: bytes.length,
         gpuBytes: coreReport.gpuBytes, setSceneMs, renderMs, grid: { drawn, hit, agree, elements: found.size } };
     } finally { coreViewer.destroy(); }
+
+    // m・プロジェクト空間・1:1 の枠で、コアの bcf_write と bcf_read を通して BCF 2.1・3.0 を往復する
+    const metre = ifc.text.replace("IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.)", "IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)");
+    assert(metre !== ifc.text, "m の IFC を作る");
+    session.push("m.ifc", metre);
+    session.call({ v: 1, op: "open", input: "m.ifc" });
+    const metreHash = session.call({ v: 1, op: "building", doc: "m.ifc" }).result.hash;
+    const metreScene = session.call({ v: 1, op: "scene3d", doc: "m.ifc", tolerance: 0.001 }).result;
+    const metreDocument = { doc: "m.ifc", format: "ifc", hash: metreHash };
+    const bcfViewer = new View3D(canvas, { width: 200, height: 200, views: [{ id: "bcf", rect: { x: 0, y: 0, width: 200, height: 200 }, camera: { projection: "perspective", position: [0, 0, 0], direction: [1, 1, -1], up: [0, 0, 1], fov: 45 } }] });
+    const bcf = {};
+    try {
+      bcfViewer.setScene({ blob: session.take(metreScene.blob), result: metreScene, document: metreDocument });
+      bcfViewer.fit("bcf");
+      const [wallA, wallB, column] = ["0000000000000000000050", "0000000000000000000060", "0000000000000000000070"];
+      const fittedView = bcfViewer.getState().views[0];
+      bcfViewer.setViews([{ ...fittedView, clips: [{ point: [1e9, 3, 0.5], normal: [0, 0, 1] }],
+        selected: [wallA], visible: true, exceptions: [column], colored: [{ color: "#FF00FF", ids: [wallB] }] }]);
+      const before = bcfViewer.toReviewPlace("bcf");
+      assert(before.strict, `m・1:1 の場所は厳密: ${JSON.stringify(before.issues)}`);
+      // push は同じ名前に足していくので、入力ごとに名前を変える
+      const review = (place) => JSON.stringify({ format: "zumen-review", version: 1, targets: [{ id: "model", format: "ifc", hash: metreHash, name: "m.ifc" }],
+        topics: [{ id: "t-1", title: "3D", status: "open", locations: [{ id: "t-1/l1", target: "model", ...place }] }] });
+      for (const projection of ["perspective", "orthographic"]) {
+        if (projection === "orthographic") {
+          const v = bcfViewer.getState().views[0];
+          bcfViewer.setViews([{ ...v, camera: { projection: "orthographic", position: v.camera.position, direction: v.camera.direction, up: v.camera.up, width: 12.5 } }]);
+        }
+        const expected = bcfViewer.toReviewPlace("bcf").place;
+        session.push(`review-${projection}.json`, review(expected));
+        for (const version of ["2.1", "3.0"]) {
+          const name = `view-${version}-${projection}.bcf`;
+          const written = session.call({ v: 1, op: "bcf_write", review: `review-${projection}.json`, target: "model", kind: "Issue", author: "a", date: "2026-11-17T00:00:00Z", version });
+          session.push(name, session.take(written.blobs.find((b) => b.kind === "file").id));
+          const read = session.call({ v: 1, op: "bcf_read", doc: "m.ifc", input: name, target: "model" });
+          const text = new TextDecoder().decode(session.take(read.blobs.find((b) => b.kind === "file").id));
+          const location = JSON.parse(text).topics[0].locations[0];
+          const other = bcfViewer.getState().views[0];
+          bcfViewer.setViews([{ ...other, camera: { projection: "perspective", position: [0, 0, 0], direction: [0, 1, 0], up: [0, 0, 1], fov: 30 }, clips: [], selected: [], exceptions: [], colored: [] }]);
+          const applied = bcfViewer.applyReviewPlace("bcf", metreDocument, location);
+          assert(applied.adjustments.length === 0 && applied.issues.every((i) => i.reason === "hash-unchecked"), `BCF ${version} を当てた報告: ${JSON.stringify(applied.issues)}`);
+          const after = bcfViewer.toReviewPlace("bcf").place;
+          const plain = (place) => JSON.stringify({ ...place, selected: place.selected.map((r) => r.id), exceptions: place.exceptions.map((r) => r.id),
+            colored: place.colored.map((c) => ({ color: c.color, ids: c.elements.map((r) => r.id) })) });
+          assert(plain(after) === plain(expected), `BCF ${version}・${projection} の往復: ${plain(after)} / ${plain(expected)}`);
+          bcf[`${version}/${projection}`] = applied.issues.find((i) => i.reason === "hash-unchecked")?.count ?? 0;
+        }
+      }
+      bcfViewer.render();
+    } finally { bcfViewer.destroy(); }
+    core.bcf = bcf;
   } finally { session.close(); }
 
   canvas.remove();
