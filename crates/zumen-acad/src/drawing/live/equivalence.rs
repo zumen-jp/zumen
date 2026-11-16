@@ -369,6 +369,149 @@ pub(super) fn shared_budget_mtext_dxf() -> Vec<u8> {
 }
 
 #[test]
+fn dwg_model_edits_share_budget_and_cancellation() {
+    let text_model: Drawing2D =
+        fresh_cx(|cx| Dxf::read(&shared_budget_mtext_dxf(), cx).and_then(|file| file.lift(cx)))
+            .0
+            .unwrap();
+    let original_text = text_model.spaces[0]
+        .elements
+        .iter()
+        .find(|element| element.source.key() == Some(Key::Handle(0x120)))
+        .unwrap();
+    for bytes in [
+        include_bytes!("../../../../../samples/dwg/zumen-layout-r2000.dwg").as_slice(),
+        include_bytes!("../../../../../samples/dwg/zumen-layout-r2004.dwg").as_slice(),
+        include_bytes!("../../../../../samples/dwg/zumen-layout-r2018.dwg").as_slice(),
+    ] {
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(bytes, threads);
+            let drawing = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let original = drawing.spaces[0]
+                .elements
+                .iter()
+                .find(|element| matches!(element.shape, Shape::Line { .. } | Shape::Circle { .. }))
+                .unwrap();
+            let Some(Key::Handle(handle)) = original.source.key() else {
+                panic!("handle required");
+            };
+            pair.apply_with_budgets(Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine::translation(2.0, 3.0),
+            });
+            pair.apply_with_budgets(Edit::Restyle {
+                target: pair.seen(handle),
+                style: Restyle {
+                    line_type_scale: Some(2.0),
+                    ..Restyle::default()
+                },
+            });
+            let current = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let mut replacement = current.spaces[0]
+                .elements
+                .iter()
+                .find(|element| element.source.key() == Some(Key::Handle(handle)))
+                .unwrap()
+                .clone();
+            replacement.shape =
+                transform::transform(&replacement.shape, &Affine::translation(-3.0, 4.0)).unwrap();
+            pair.apply_with_budgets(Edit::Replace {
+                target: pair.seen(handle),
+                element: Box::new(Placed::Model(replacement)),
+            });
+            let mut text = original_text.clone();
+            text.layer = drawing.layers[0].id;
+            text.style = original.style;
+            let added = pair
+                .apply_with_budgets(Edit::Add {
+                    place: "space/0".to_owned(),
+                    element: Box::new(Placed::Model(text.clone())),
+                })
+                .pop()
+                .unwrap();
+            let moved = pair
+                .apply_with_budgets(Edit::Transform {
+                    target: Seen {
+                        id: added.id.unwrap(),
+                        hash: added.hash.unwrap(),
+                    },
+                    transform: Affine::translation(2.0, 3.0),
+                })
+                .pop()
+                .unwrap();
+            let current = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let mut text = current.spaces[0].elements.last().unwrap().clone();
+            text.shape =
+                transform::transform(&text.shape, &Affine::translation(-3.0, 4.0)).unwrap();
+            let replaced = pair
+                .apply_with_budgets(Edit::Replace {
+                    target: Seen {
+                        id: moved.id.unwrap(),
+                        hash: moved.hash.unwrap(),
+                    },
+                    element: Box::new(Placed::Model(text)),
+                })
+                .pop()
+                .unwrap();
+            pair.apply_with_budgets(Edit::Remove {
+                target: Seen {
+                    id: replaced.id.unwrap(),
+                    hash: replaced.hash.unwrap(),
+                },
+            });
+        }
+    }
+}
+
+#[test]
+fn dwg_block_edits_share_budget_and_cancellation() {
+    for bytes in [
+        include_bytes!("../../../../../samples/dwg/zumen-minsert-r2000.dwg").as_slice(),
+        include_bytes!("../../../../../samples/dwg/zumen-minsert-r2004.dwg").as_slice(),
+        include_bytes!("../../../../../samples/dwg/zumen-minsert-r2018.dwg").as_slice(),
+    ] {
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(bytes, threads);
+            let drawing = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let element = drawing
+                .symbols
+                .iter()
+                .flat_map(|symbol| &symbol.space.elements)
+                .find(|element| matches!(element.shape, Shape::Polyline(_)))
+                .unwrap();
+            let Some(Key::Handle(handle)) = element.source.key() else {
+                panic!("handle required");
+            };
+            pair.apply_with_budgets(Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine::translation(2.0, 3.0),
+            });
+            pair.apply_with_budgets(Edit::Restyle {
+                target: pair.seen(handle),
+                style: Restyle {
+                    line_type_scale: Some(2.0),
+                    ..Restyle::default()
+                },
+            });
+            let current = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let mut replacement = current
+                .symbols
+                .iter()
+                .flat_map(|symbol| &symbol.space.elements)
+                .find(|element| element.source.key() == Some(Key::Handle(handle)))
+                .unwrap()
+                .clone();
+            replacement.shape =
+                transform::transform(&replacement.shape, &Affine::translation(-3.0, 4.0)).unwrap();
+            pair.apply_with_budgets(Edit::Replace {
+                target: pair.seen(handle),
+                element: Box::new(Placed::Model(replacement)),
+            });
+        }
+    }
+}
+
+#[test]
 fn implicit_layer_removal_preserves_ids_hashes_and_undo() {
     let mut input =
         "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n"

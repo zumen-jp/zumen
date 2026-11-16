@@ -29,6 +29,9 @@ pub type EncodedBorn = (Vec<(u64, Vec<u8>)>, u64);
 /// 差分書き戻しで更新する 1 レコードの `(handle, section, kind, old_values, new_values)`
 pub type UpdatedDwgRecord = (u64, Section, Vec<u8>, Vec<Value>, Vec<Value>);
 
+/// 復号した 1 レコードの種類・セクション・値。
+type DecodedRecord = (Vec<u8>, Section, Vec<Value>);
+
 /// 書き戻したオブジェクトのハンドルと出所のバイト範囲。
 #[cfg(any(feature = "drawing", test))]
 pub(crate) type DwgSourceSpans = BTreeMap<u64, Range<usize>>;
@@ -1268,11 +1271,64 @@ impl DwgSingle {
     }
 
     /// `DwgTxn::set_data` / `DwgTxn::add` と同じ形の符号化済みバイト列を 1 件だけ復号する
-    pub fn decode_encoded(
+    pub fn decode_encoded(&self, handle: u64, encoded: &[u8]) -> Option<DecodedRecord> {
+        let mut budget = zumen_base::Budget::default();
+        let mut diag = zumen_base::Diagnostics::new();
+        let cancel = zumen_base::CancelToken::new();
+        self.decode_encoded_in(
+            handle,
+            encoded,
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+    }
+
+    /// 編集後のレコードを、呼び出し元の予算と中断を使って復号する。
+    #[cfg(any(feature = "drawing", test))]
+    pub(crate) fn decode_encoded_with_cx(
         &self,
         handle: u64,
         encoded: &[u8],
-    ) -> Option<(Vec<u8>, Section, Vec<Value>)> {
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<DecodedRecord>, Error> {
+        let bytes = encoded.len() as u64;
+        cx.check(Kind::Work, bytes.saturating_mul(8).saturating_add(1))
+            .map_err(|stop| stopped(cx, stop))?;
+        // ビット列から作る値と一時領域の論理サイズ。表から補う文字列は復号後にも数える。
+        cx.check(
+            Kind::DecodedBytes,
+            bytes.saturating_mul(128).saturating_add(1024),
+        )
+        .map_err(|stop| stopped(cx, stop))?;
+        let mut quiet = zumen_base::Diagnostics::new();
+        let result = self.decode_encoded_in(
+            handle,
+            encoded,
+            &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
+        );
+        cx.check(Kind::Work, 0).map_err(|stop| stopped(cx, stop))?;
+        if let Some((kind, _, values)) = &result {
+            cx.check(Kind::Work, values.len() as u64)
+                .map_err(|stop| stopped(cx, stop))?;
+            let payload = values.iter().fold(kind.len() as u64, |size, value| {
+                size.saturating_add(match &value.data {
+                    Data::Text(bytes) | Data::Binary(bytes) => bytes.len() as u64,
+                    _ => 0,
+                })
+            });
+            cx.check(Kind::Work, payload)
+                .map_err(|stop| stopped(cx, stop))?;
+            cx.check(Kind::DecodedBytes, payload)
+                .map_err(|stop| stopped(cx, stop))?;
+        }
+        Ok(result)
+    }
+
+    fn decode_encoded_in(
+        &self,
+        handle: u64,
+        encoded: &[u8],
+        cx: &mut Cx<'_>,
+    ) -> Option<DecodedRecord> {
         let (raw_data, handles, type_code) = if self.release >= Release::R2010 {
             let mut skip = 0;
             let bits = usize::try_from(modular_char(encoded, &mut skip, false)?).ok()?;
@@ -1298,12 +1354,8 @@ impl DwgSingle {
             type_code,
         };
         let fields = read_fields(raw_data, self.release, &entry, kname, entity, self.header)?;
-        let mut budget = zumen_base::Budget::default();
-        let mut diag = zumen_base::Diagnostics::new();
-        let cancel = zumen_base::CancelToken::new();
-        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
         let at = Ref::default();
-        let (own, xdata) = fields.place(&self.names, &self.books, &entry, &mut cx, &at);
+        let (own, xdata) = fields.place(&self.names, &self.books, &entry, cx, &at);
         let handle_code = if type_code == DIMSTYLE { 105 } else { 5 };
         let mut values = vec![Value {
             code: handle_code,
@@ -1829,11 +1881,95 @@ impl DwgSingle {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
-    use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Limits};
-    use zumen_sdk::{Codec, FileModel};
+    use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Stop};
+    use zumen_sdk::{Codec, Error, FileModel};
 
     use super::{DwgFastStep, DwgSingle, DwgSourceLayout, bit_get};
     use crate::Dwg;
+
+    #[test]
+    fn encoded_records_share_budget_and_cancellation() {
+        for bytes in [
+            include_bytes!("../../../../samples/dwg/zumen-layout-r2000.dwg").as_slice(),
+            include_bytes!("../../../../samples/dwg/zumen-layout-r2004.dwg").as_slice(),
+            include_bytes!("../../../../samples/dwg/zumen-layout-r2018.dwg").as_slice(),
+        ] {
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            let file = Dwg::read(bytes, &mut cx).unwrap();
+            let single = DwgSingle::from_file(&file, &mut cx).unwrap();
+            for (record, entry) in file.entries.iter().enumerate() {
+                let encoded = single.base_encoded(&file, record).unwrap();
+                let expected = single.decode_encoded(entry.handle, &encoded);
+                let mut measured = Budget::default();
+                let mut diagnostics = Diagnostics::new();
+                assert_eq!(
+                    single
+                        .decode_encoded_with_cx(
+                            entry.handle,
+                            &encoded,
+                            &mut Cx::new(&mut measured, &mut diagnostics, &cancel),
+                        )
+                        .unwrap(),
+                    expected
+                );
+                assert!(diagnostics.is_empty());
+                for kind in [Kind::Work, Kind::DecodedBytes] {
+                    let needed = measured.used(kind);
+                    assert!(needed > 0);
+                    for available in [0, needed / 2, needed - 1, needed] {
+                        let mut budget = Budget::new(
+                            Limits::default().with(kind, Limit::Finite(available + 11)),
+                        );
+                        budget.spend(kind, 11).unwrap();
+                        let mut diagnostics = Diagnostics::new();
+                        let result = single.decode_encoded_with_cx(
+                            entry.handle,
+                            &encoded,
+                            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                        );
+                        if available < needed {
+                            assert!(matches!(result, Err(Error::Stopped(_))));
+                            assert!(diagnostics.iter().any(|d| d.code() == kind.exceeded_code()));
+                        } else {
+                            assert_eq!(result.unwrap(), expected);
+                            assert_eq!(budget.used(kind), needed + 11);
+                        }
+                    }
+                }
+                let cancelled = CancelToken::new();
+                cancelled.cancel();
+                let mut budget = Budget::default();
+                let mut diagnostics = Diagnostics::new();
+                assert_eq!(
+                    single.decode_encoded_with_cx(
+                        entry.handle,
+                        &encoded,
+                        &mut Cx::new(&mut budget, &mut diagnostics, &cancelled),
+                    ),
+                    Err(Error::Stopped(Stop::Cancelled))
+                );
+                assert_eq!(budget.used(Kind::Work), 0);
+                assert_eq!(budget.used(Kind::DecodedBytes), 0);
+            }
+            for bytes in [b"".as_slice(), &[0], &[255; 32]] {
+                let mut budget = Budget::default();
+                let mut diagnostics = Diagnostics::new();
+                assert_eq!(
+                    single
+                        .decode_encoded_with_cx(
+                            1,
+                            bytes,
+                            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                        )
+                        .unwrap(),
+                    single.decode_encoded(1, bytes)
+                );
+            }
+        }
+    }
 
     #[test]
     fn source_layout_matches_saved_offsets_with_handle_reuse_and_header_growth() {

@@ -1349,7 +1349,8 @@ fn stage_block_element_dwg(
     ) else {
         return Ok(Err(FastAttempt::Fallback));
     };
-    let Some((_, _, settled_vals)) = dwg.single.decode_encoded(handle, &new_enc) else {
+    let Some((_, _, settled_vals)) = dwg.single.decode_encoded_with_cx(handle, &new_enc, cx)?
+    else {
         return Ok(Err(FastAttempt::Fallback));
     };
     let origin = match was.source.bytes() {
@@ -2226,11 +2227,12 @@ fn try_apply_fast(
                         ) else {
                             return FastAttempt::Fallback;
                         };
-                        let Some((_, _, settled_vals)) =
-                            dwg.single.decode_encoded(row.handle, &new_enc)
-                        else {
-                            return FastAttempt::Fallback;
-                        };
+                        let (_, _, settled_vals) =
+                            match dwg.single.decode_encoded_with_cx(row.handle, &new_enc, cx) {
+                                Ok(Some(record)) => record,
+                                Ok(None) => return FastAttempt::Fallback,
+                                Err(error) => return FastAttempt::Err(error),
+                            };
                         step_updated.push((
                             row.handle,
                             sec.clone(),
@@ -2260,10 +2262,12 @@ fn try_apply_fast(
                             else {
                                 return FastAttempt::Fallback;
                             };
-                            let Some((_, _, f_settled)) = dwg.single.decode_encoded(fh, &f_new_enc)
-                            else {
-                                return FastAttempt::Fallback;
-                            };
+                            let (_, _, f_settled) =
+                                match dwg.single.decode_encoded_with_cx(fh, &f_new_enc, cx) {
+                                    Ok(Some(record)) => record,
+                                    Ok(None) => return FastAttempt::Fallback,
+                                    Err(error) => return FastAttempt::Err(error),
+                                };
                             step_updated.push((
                                 fh,
                                 fs.clone(),
@@ -2391,11 +2395,12 @@ fn try_apply_fast(
                         ) else {
                             return FastAttempt::Fallback;
                         };
-                        let Some((_, _, settled_vals)) =
-                            dwg.single.decode_encoded(row.handle, &new_enc)
-                        else {
-                            return FastAttempt::Fallback;
-                        };
+                        let (_, _, settled_vals) =
+                            match dwg.single.decode_encoded_with_cx(row.handle, &new_enc, cx) {
+                                Ok(Some(record)) => record,
+                                Ok(None) => return FastAttempt::Fallback,
+                                Err(error) => return FastAttempt::Err(error),
+                            };
                         step_updated.push((
                             row.handle,
                             sec.clone(),
@@ -2522,11 +2527,12 @@ fn try_apply_fast(
                         ) else {
                             return FastAttempt::Fallback;
                         };
-                        let Some((_, _, settled_vals)) =
-                            dwg.single.decode_encoded(row.handle, &new_enc)
-                        else {
-                            return FastAttempt::Fallback;
-                        };
+                        let (_, _, settled_vals) =
+                            match dwg.single.decode_encoded_with_cx(row.handle, &new_enc, cx) {
+                                Ok(Some(record)) => record,
+                                Ok(None) => return FastAttempt::Fallback,
+                                Err(error) => return FastAttempt::Err(error),
+                            };
                         step_updated.push((
                             row.handle,
                             sec.clone(),
@@ -2561,11 +2567,12 @@ fn try_apply_fast(
                                 ) else {
                                     return FastAttempt::Fallback;
                                 };
-                                let Some((_, _, f_settled)) =
-                                    dwg.single.decode_encoded(fh, &f_new_enc)
-                                else {
-                                    return FastAttempt::Fallback;
-                                };
+                                let (_, _, f_settled) =
+                                    match dwg.single.decode_encoded_with_cx(fh, &f_new_enc, cx) {
+                                        Ok(Some(record)) => record,
+                                        Ok(None) => return FastAttempt::Fallback,
+                                        Err(error) => return FastAttempt::Err(error),
+                                    };
                                 step_updated.push((
                                     fh,
                                     fs.clone(),
@@ -2668,9 +2675,12 @@ fn try_apply_fast(
                         for (idx, ((b_kind, _), (bh, benc))) in
                             born_recs.into_iter().zip(encoded_list).enumerate()
                         {
-                            let Some((_, _, b_vals)) = dwg.single.decode_encoded(bh, &benc) else {
-                                return FastAttempt::Fallback;
-                            };
+                            let (_, _, b_vals) =
+                                match dwg.single.decode_encoded_with_cx(bh, &benc, cx) {
+                                    Ok(Some(record)) => record,
+                                    Ok(None) => return FastAttempt::Fallback,
+                                    Err(error) => return FastAttempt::Err(error),
+                                };
                             let in_model = idx == 0;
                             let rec_id = next_born_rec;
                             next_born_rec = next_born_rec.saturating_add(1);
