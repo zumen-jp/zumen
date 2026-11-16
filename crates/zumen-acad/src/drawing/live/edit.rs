@@ -3235,7 +3235,7 @@ fn stages_new_names(catalog: &SlotCatalog, row_actions: &[StagedRowAction]) -> b
 
 #[cfg(test)]
 thread_local! {
-    /// 試験用：`plan_implicit` を呼んだ回数
+    /// `plan_implicit` を呼んだ回数（試験用）
     pub static PLAN_IMPLICIT_CALLS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
 }
 

@@ -1175,14 +1175,14 @@ fn names_left_by_dropped_block_entities_keep_their_position() {
     );
     for threads in [1, 4] {
         let mut pair = DxfPair::open(&input, threads);
-        // モデル空間の参照が残る間は先頭がわかる
+        // モデル空間の参照が残る間は先頭が分かる
         pair.apply_implicit(
             vec![Edit::Remove {
                 target: pair.seen(0x12),
             }],
             true,
         );
-        // 最後のモデル空間の参照が消えると、ブロック定義の中の位置はわからない
+        // 最後のモデル空間の参照が消えると、ブロック定義の中の位置は分からない
         pair.apply_implicit(
             vec![Edit::Remove {
                 target: pair.seen(0x10),
