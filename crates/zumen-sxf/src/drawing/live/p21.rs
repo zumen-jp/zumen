@@ -572,13 +572,25 @@ impl P21State {
         self.removed.contains(&stmt) || tx.removed.contains(&stmt)
     }
 
+    /// 部分の名前の範囲だけを読む。所属の一覧のような長い文でも、
+    /// 文全体のページを展開しない。
     fn part(&self, stmt: usize, name: &str) -> Option<usize> {
-        self.with_stmt_bytes(stmt, |rs, rec| {
+        let base_len = self.base_records.len();
+        if stmt < base_len {
+            let rec = self.base_records.get(stmt)?;
             rec.parts().iter().position(|p| {
-                slice_in(rs, p.name()).is_some_and(|n| n.eq_ignore_ascii_case(name.as_bytes()))
+                self.src.with_range(p.name(), |rs| {
+                    slice_in(rs, p.name()).is_some_and(|n| n.eq_ignore_ascii_case(name.as_bytes()))
+                })
             })
-        })
-        .flatten()
+        } else {
+            self.with_stmt_bytes(stmt, |rs, rec| {
+                rec.parts().iter().position(|p| {
+                    slice_in(rs, p.name()).is_some_and(|n| n.eq_ignore_ascii_case(name.as_bytes()))
+                })
+            })
+            .flatten()
+        }
     }
 
     fn value_ref(&self, (stmt, part, at): Slot) -> Option<&Value> {
