@@ -55,6 +55,8 @@ target/debug/zumen call --input a.dxf=samples/dxf/text_alignments.dxf request.js
 
 ## 子プロセスの形態
 
+文書エンジンを常駐させる `zumen live --stdio` は、DXF・DWG の移動と表示の差分を固定幅のバイナリで運びます。Node.js と Electron main の `openLiveProcess`、版の確認、予算・中断と残件は[文書の IPC](live.md)にあります。
+
 ネイティブのライブラリは、セッションの設定を `{"v":1,"engine":"process"}` にすると、この CLI を `serve --stdio` で子プロセスとして起こし、同じメッセージを送ります。実行ファイルは `process_path` で渡すか、ライブラリと同じフォルダーに置きます。子プロセスのメモリには 8 GiB の上限を付けます（Linux と Windows。macOS では付けられません）。
 
 ## MCP

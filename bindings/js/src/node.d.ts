@@ -4,6 +4,7 @@ import type { Zumen } from "./index.js";
 
 export * from "./index.js";
 export { openProcess, ProcessError, ProcessSession, type ProcessLimits } from "./process.js";
+export * from "./live.js";
 
 /** パッケージに入れた wasm（zumen_abi1.wasm）を読み込む。コンパイルは 1 度だけにし、呼ぶたびに新しいインスタンスを返す */
 export declare function loadBundled(): Promise<Zumen>;

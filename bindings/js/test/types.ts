@@ -24,7 +24,29 @@ function checkScene3DTypes(blob: Uint8Array, result: Scene3dResult): string | un
   return result.counts.instances > 0 && chunk.length === 3 && mesh.length > 0 && row !== undefined ? id : undefined;
 }
 void checkScene3DTypes;
-import { loadBundled, openProcess, ProcessError, type ProcessLimits } from "../src/node.js";
+import { loadBundled, openProcess, openLiveProcess, ProcessError, type ProcessLimits, type LiveReply } from "../src/node.js";
+
+export async function liveDocument(executable: string, input: Uint8Array): Promise<bigint | null> {
+  const live = await openLiveProcess(executable);
+  try {
+    const opened: LiveReply = await live.open(input, { threads: 4, budget: { work: 100000n } });
+    if (opened.revision !== null && opened.display) {
+      for (const column of opened.display.columns) {
+        for (const block of column.blocks()) {
+          const bytes: Uint8Array = block.bytes;
+          void bytes;
+        }
+      }
+      live.acknowledge(opened.revision);
+      const changed = await live.transform({ revision: opened.revision, rows: [0], matrix: [1, 0, 5, 0, 1, -2] });
+      if (changed.revision !== null) await live.undo(changed.revision);
+      const target: string | undefined = (await live.target(0, live.revision!)).target?.id;
+      void target;
+      await live.diagnostics(changed.requestId, { budget: { decodedBytes: null } });
+    }
+    return live.revision;
+  } finally { await live.close(); }
+}
 import { wasmUrls } from "../src/wasm.js";
 
 export async function server(bytes: Uint8Array): Promise<string | undefined> {

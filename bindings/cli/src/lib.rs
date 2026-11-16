@@ -5,6 +5,7 @@
 //! - `zumen call`: 要求の JSON をそのまま渡す
 //! - `zumen <op> [ファイル]`: よく使う op の短い形。ファイルを入力にして open し、その文書で op を呼ぶ
 //! - `zumen serve --stdio`: API の関数を、標準入出力の JSON-RPC で出す（`serve.rs`）
+//! - `zumen live --stdio`: 文書エンジンを保持し、バイナリで編集と表示を運ぶ（`live.rs`）
 //! - `zumen serve --http`: 同じ JSON-RPC を HTTP で受ける（`http.rs`）
 //! - `zumen mcp`: MCP のサーバー（標準入出力と `--http`。`mcp.rs`）
 //! - `zumen scene-info`: シーンの blob のセクションを要約する（`scene.rs`）
@@ -13,6 +14,7 @@
 
 mod host;
 mod http;
+mod live;
 mod mcp;
 mod rpc;
 mod scene;
@@ -34,13 +36,15 @@ const USAGE: &str = "\
   zumen call [--input 名前=ファイル]... [--options 設定の JSON] [--blobs フォルダー] <要求の JSON のファイル | ->
   zumen <op> [ファイル] [--フィールド 値]... [--blobs フォルダー]
   zumen serve --stdio
+  zumen live --stdio
   zumen serve --http [--listen アドレス:ポート]
   zumen mcp [--stdio] [--root フォルダー]
   zumen mcp --http [--listen アドレス:ポート] [--root フォルダー]
   zumen scene-info <シーンの blob のファイル | ->
   zumen --version
 
-応答の JSON を標準出力に書く。終了コードは API の状態（0 ok・1 failed・2 invalid・3 busy・4 panicked）で、
+live --stdio はバイナリの文書 IPC、それ以外は応答の JSON を標準出力に書く。
+終了コードは API の状態（0 ok・1 failed・2 invalid・3 busy・4 panicked）で、
 引数とファイルの誤りは 64。
 <op> の短い形は、ファイルを入力にして open し、その文書を doc に入れて op を呼ぶ。open と capabilities は
 それだけを呼ぶ。--フィールド の値は JSON として読み、読めなければ文字列にする。v は 1 にする。
@@ -90,6 +94,13 @@ fn dispatch(args: &[String]) -> Result<u8, String> {
             }
             [flag, listen, address] if flag == "--http" && listen == "--listen" => {
                 http::serve(address, http::Limits::default())?;
+                Ok(0)
+            }
+            _ => Err(USAGE.to_string()),
+        },
+        "live" => match rest {
+            [flag] if flag == "--stdio" => {
+                live::serve()?;
                 Ok(0)
             }
             _ => Err(USAGE.to_string()),

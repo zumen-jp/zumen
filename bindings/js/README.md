@@ -78,7 +78,41 @@ node bindings/js/test/process.mjs target/debug/zumen
 node bindings/js/test/process-conformance.mjs target/debug/zumen
 ```
 
-Windows の実行ファイルは `target/debug/zumen.exe` です。64 要素ブロックの差分表示を送るバイナリ IPC と、その性能の検査は [文書エンジンの残件](../../docs/live.md)です。
+Windows の実行ファイルは `target/debug/zumen.exe` です。
+
+### Node.js の常駐文書
+
+`openLiveProcess` は `live --stdio` で `AcadLive` を保持し、64 要素ブロックの表示差分と移動をバイナリで往復させます。DXF・DWG の入口です。コアの成否は `status`、表示生成の成否は `displayStatus` に分けて返します。
+
+```js
+import { openLiveProcess } from "@zumen-jp/zumen/node";
+
+const live = await openLiveProcess("/path/to/zumen");
+try {
+  const opened = await live.open(bytes, { threads: 4 });
+  if (opened.status === "ok" && opened.displayStatus === "ok") {
+    // 表示の列を手元へ適用してから、受領した版を確認する。
+    applyDisplay(opened);
+    live.acknowledge(opened.revision);
+    const changed = await live.transform({
+      revision: opened.revision, rows: [0], matrix: [1, 0, 5, 0, 1, -2],
+    });
+    if (changed.status === "ok" && changed.displayStatus === "ok") applyDisplay(changed);
+    if (changed.diagnosticCount) {
+      const diagnostics = await live.diagnostics(changed.requestId);
+      console.log(new TextDecoder().decode(diagnostics.data));
+    }
+  }
+} finally { await live.close(); }
+```
+
+`applyDisplay` はアプリ側の処理です。全列の長さと `column.blocks()` の塊を反映します。差分では手元の表示の版と `reply.base` が一致することを確かめ、違う場合は `live.display({ full: true })` を取得します。バイト列は応答を借りるため、使っている間は書き換えません。`transform`・`target`・`undo`・`redo` には対象の版を明示します。
+
+診断は次の通常要求の前に、明示した予算で別途取得します。表示だけが停止したときの扱い、通信上限、中断・終了は[文書の IPC](../cli/live.md)にあります。残りの形式、描画順・画層・文字・記号の定義、移動以外の編集、Electron の表示への組み込みと性能の検査は[文書エンジンの残件](../../docs/live.md)です。
+
+```sh
+node bindings/js/test/live.mjs target/debug/zumen
+```
 
 ### trap のあと
 

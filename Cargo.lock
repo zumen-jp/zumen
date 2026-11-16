@@ -931,9 +931,12 @@ name = "zumen-cli"
 version = "0.2.0"
 dependencies = [
  "zumen-abi",
+ "zumen-acad",
  "zumen-base",
  "zumen-conformance",
+ "zumen-drawing",
  "zumen-json",
+ "zumen-live",
  "zumen-scene",
 ]
 

@@ -46,6 +46,8 @@ class SelectionTest(unittest.TestCase):
             (["bindings/js/src/index.js"], {"wasm", "view2d", "react", "site", "codegen", "native"}),
             (["bindings/js/test/process.mjs"], {"wasm", "view2d", "react", "site", "codegen", "native"}),
             (["bindings/js/test/fixtures/process-child.mjs"], {"wasm", "view2d", "react", "site", "codegen", "native"}),
+            (["bindings/js/test/live.mjs"], {"wasm", "view2d", "react", "site", "codegen", "native"}),
+            (["bindings/js/test/fixtures/live-child.mjs"], {"wasm", "view2d", "react", "site", "codegen", "native"}),
             (["bindings/go/input_test.go", "playground/test/lifecycle.jsx"], {"go", "react"}),
         ]
         for paths, expected in cases:

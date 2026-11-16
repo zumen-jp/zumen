@@ -228,6 +228,7 @@ jobs:
           executable="target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/zumen${{ runner.os == 'Windows' && '.exe' || '' }}"
           node bindings/js/test/process.mjs "$executable"
           node bindings/js/test/process-conformance.mjs "$executable"
+          node bindings/js/test/live.mjs "$executable"
       - name: Python のラッパーの適合テストに使う Python を入れる
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
