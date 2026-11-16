@@ -122,7 +122,7 @@ class Contract(unittest.TestCase):
                         hashes += 1
                     else:
                         self.assertFalse(received)
-                    scenes += received.startswith(b"ZMSC")
+                    scenes += received.startswith((b"ZMSC", b"ZMS3"))
                 finally:
                     library.zm_free(c.byref(buffer))
                     self.assertEqual((buffer.ptr, buffer.length), (None, 0))

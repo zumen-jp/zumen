@@ -142,7 +142,28 @@ final class Conformance {
     }
 
     /// シーンの blob をリーダーで読み、応答の数と合うかを確かめる
+    func checkScene3D(_ at: String, _ blob: Data, _ result: JSON) {
+        do {
+            let scene = try Scene3D(blob)
+            let pairs = [("chunks", "chunk_origins"), ("meshes", "mesh_vertices"), ("instances", "instance_meshes"), ("elements", "element_ids"), ("colors", "color_rgba"), ("vertices", "vertex_xyz"), ("triangles", "triangle_vertices"), ("edges", "edge_vertices")]
+            for (name, column) in pairs {
+                if Int64(try scene.rows(column)) != result["counts"]?[name]?.integerValue {
+                    failures.append("\(at): 3D の \(name) の数が合わない")
+                }
+            }
+            for row in 0..<(try scene.rows("instance_meshes")) {
+                let element = try scene.instanceElement(row)
+                if try scene.elementID(Int(element)).isEmpty { failures.append("\(at): 空の要素 ID") }
+                _ = try scene.instanceMesh(row)
+                _ = try scene.instanceColor(row)
+            }
+        } catch {
+            failures.append("\(at): 3D のシーンを読めない: \(error)")
+        }
+    }
+
     func checkScene(_ at: String, _ blob: Data, _ result: JSON) {
+        if blob.starts(with: [0x5a, 0x4d, 0x53, 0x33]) { checkScene3D(at, blob, result); return }
         do {
             let scene = try Scene(blob)
             let counts = result["counts"]
@@ -251,7 +272,7 @@ final class Conformance {
                 checkResponse(at, step, response)
                 lastScene = nil
                 if let result = response["result"], result.objectValue != nil,
-                   let blob = response["blobs"]?.arrayValue?.first(where: { $0["kind"] == .string("scene") }),
+                   let blob = response["blobs"]?.arrayValue?.first(where: { $0["kind"] == .string("scene") || $0["kind"] == .string("scene3d") }),
                    let id = blob["id"]?.integerValue {
                     lastScene = (id, result)
                 }

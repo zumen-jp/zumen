@@ -40,6 +40,50 @@ fn count(counts: &Value, key: &str) -> usize {
 }
 
 impl Wrapper {
+    fn check_scene3d(&self, blob: &[u8], counts: &Value) {
+        use zumen::scene3d::{layout as l, read};
+        use zumen_base::{Budget, Cx, Diagnostics, Limits};
+        let mut budget = Budget::new(Limits::default());
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let mut failures = self.failures.borrow_mut();
+        let scene = match read(blob, &mut cx) {
+            Ok(scene) => scene,
+            Err(error) => {
+                failures.push(format!("3D のシーンを読めない: {error:?}"));
+                return;
+            }
+        };
+        *self.scenes.borrow_mut() += 1;
+        for (name, column) in [
+            ("chunks", l::CHUNK_ORIGINS),
+            ("meshes", l::MESH_VERTICES),
+            ("instances", l::INSTANCE_MESHES),
+            ("elements", l::ELEMENT_IDS),
+            ("colors", l::COLOR_RGBA),
+            ("vertices", l::VERTEX_XYZ),
+            ("triangles", l::TRIANGLE_VERTICES),
+            ("edges", l::EDGE_VERTICES),
+        ] {
+            let actual = scene.column(column).map(|column| column.rows());
+            if actual != Some(count(counts, name) as u64) {
+                failures.push(format!("3D のシーンの {name} の数が合わない"));
+            }
+        }
+        for row in 0..count(counts, "instances") {
+            let instance = scene.instance(row as u64).expect("検査済みのインスタンス");
+            assert!(
+                !scene
+                    .element(u64::from(instance.element))
+                    .expect("検査済みの要素")
+                    .id
+                    .is_empty()
+            );
+            assert!(scene.mesh(u64::from(instance.mesh)).is_ok());
+        }
+    }
+
     /// 確かめた数と違いを、この形と分け合う新しい形を作る
     pub fn sharing(&self) -> Self {
         Self {
@@ -51,6 +95,10 @@ impl Wrapper {
 
     /// シーンの blob をリーダーで読み、応答の数と合うかを確かめる
     fn check_scene(&self, blob: &[u8], counts: &Value) {
+        if blob.starts_with(b"ZMS3") {
+            self.check_scene3d(blob, counts);
+            return;
+        }
         let mut failures = self.failures.borrow_mut();
         let scene = match read_scene(blob) {
             Ok(scene) => scene,
@@ -150,10 +198,12 @@ impl Engine for Wrapper {
             Err(error) => (error.status, error.data),
         };
         if let Some(response) = data.as_deref().and_then(|data| Response::parse(data).ok()) {
-            let blob = response
-                .blobs
-                .iter()
-                .find(|blob| blob.kind == zumen::messages::BlobKind::Scene);
+            let blob = response.blobs.iter().find(|blob| {
+                matches!(
+                    blob.kind,
+                    zumen::messages::BlobKind::Scene | zumen::messages::BlobKind::Scene3d
+                )
+            });
             let counts = response
                 .result
                 .as_ref()

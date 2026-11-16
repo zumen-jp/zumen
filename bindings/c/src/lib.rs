@@ -67,6 +67,10 @@ unsafe extern "C" {
     pub fn zumen_cpp_engine_output(engine: *const c_void, ptr: *mut *const u8, len: *mut usize);
     /// シーンの blob を C++ のリーダー（`zumen::Scene`）で読んで数える。読めたら 0
     pub fn zumen_cpp_read_scene(blob: *const u8, len: usize, out: *mut SceneCounts) -> i32;
+    /// C の読み手で 3D のシーンを読み、8 種の行数と参照を調べる。成功なら 0
+    pub fn zumen_c_read_scene3d(blob: *const u8, len: usize, counts: *mut u64) -> i32;
+    /// C++ のリーダーで同じ列と参照を調べる。成功なら 0
+    pub fn zumen_cpp_read_scene3d(blob: *const u8, len: usize, counts: *mut u64) -> i32;
 }
 
 /// C++ のリーダーでシーンを読んで数えたもの（`tests/conformance.cpp` の `zumen_cpp_scene_counts`）

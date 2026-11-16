@@ -14,6 +14,7 @@ zumen-abi = { version = "0.2.0", path = "../zumen-abi" }
 zumen-base = { version = "0.2.0", path = "../zumen-base" }
 zumen-json = { version = "0.2.0", path = "../zumen-json" }
 zumen-scene = { version = "0.2.0", path = "../zumen-scene" }
+zumen-scene3d = { version = "0.2.0", path = "../zumen-scene3d" }
 
 [lints]
 workspace = true

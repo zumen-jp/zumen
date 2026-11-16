@@ -4808,6 +4808,72 @@ pub const SCENE_UNDERLAY_DROPPED: Code = Code::new(
     &[],
 );
 
+/// 要素の面の色か透明度が取得できないため、読み手が代替色を決める未解決の色にした
+///
+/// `scene3d.color.missing`（0.3.0 から）
+pub const SCENE3D_COLOR_MISSING: Code = Code::new(
+    "scene3d.color.missing",
+    Severity::Info,
+    Some(Fidelity::Drawn),
+    &[],
+    &[],
+);
+
+/// 3D シーンの局所座標と変換を f32 へ丸めた。error は文書単位の頂点のずれの最大値
+///
+/// `scene3d.coordinate.approximated`（0.3.0 から）
+pub const SCENE3D_COORDINATE_APPROXIMATED: Code = Code::new(
+    "scene3d.coordinate.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[Param::new("error", ParamType::Float)],
+    &["error"],
+);
+
+/// 3D シーンの列で表せない形を除き、元の要素の ID は保った
+///
+/// `scene3d.shape.dropped`（0.3.0 から）
+pub const SCENE3D_SHAPE_DROPPED: Code = Code::new(
+    "scene3d.shape.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
+/// 所属先に循環か不正な参照があるため、3D シーンの階を不明にした
+///
+/// `scene3d.storey.invalid`（0.3.0 から）
+pub const SCENE3D_STOREY_INVALID: Code = Code::new(
+    "scene3d.storey.invalid",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[],
+    &[],
+);
+
+/// 建物の 3D シーンの曲線を、この文書単位の弦の誤差で評価した
+///
+/// `scene3d.tolerance.approximated`（0.3.0 から）
+pub const SCENE3D_TOLERANCE_APPROXIMATED: Code = Code::new(
+    "scene3d.tolerance.approximated",
+    Severity::Info,
+    Some(Fidelity::Approximated),
+    &[Param::new("tolerance", ParamType::Float)],
+    &["tolerance"],
+);
+
+/// 3D シーンの生成に必要な値を解けないため、シーンを返さなかった
+///
+/// `scene3d.value.invalid`（0.3.0 から）
+pub const SCENE3D_VALUE_INVALID: Code = Code::new(
+    "scene3d.value.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
 /// 座標系の記述がないので、座標系を不明にし、地理の領域モデルには幾何を持たせなかった
 ///
 /// `sima.crs.missing`（0.3.0 から）
@@ -5874,6 +5940,12 @@ pub const ALL: &[Code] = &[
     SCENE_TEXT_LAYOUT_UNSUPPORTED,
     SCENE_UNDERLAY_CLIP_DROPPED,
     SCENE_UNDERLAY_DROPPED,
+    SCENE3D_COLOR_MISSING,
+    SCENE3D_COORDINATE_APPROXIMATED,
+    SCENE3D_SHAPE_DROPPED,
+    SCENE3D_STOREY_INVALID,
+    SCENE3D_TOLERANCE_APPROXIMATED,
+    SCENE3D_VALUE_INVALID,
     SIMA_CRS_MISSING,
     SIMA_CRS_UNSUPPORTED,
     SIMA_CURVE_APPROXIMATED,

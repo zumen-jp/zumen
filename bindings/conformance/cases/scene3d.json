@@ -1,0 +1,226 @@
+{
+  "description": "自作の IFC の建物から ZMS3 を作る。写像・開口・大きな座標・文書単位・地図の元値・選択・階の参照・空のシーン・不正な値・予算停止を、各環境の全バイトと各言語の読み手で照らす。",
+  "steps": [
+    {
+      "push": {
+        "name": "scene.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('Synthetic'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Synthetic',$,$,$,$,(#10),#11);\n#10=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,0.001,#20,$);\n#11=IFCUNITASSIGNMENT((#12));\n#12=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n#20=IFCAXIS2PLACEMENT3D(#21,$,$);\n#21=IFCCARTESIANPOINT((0.,0.,0.));\n#30=IFCBUILDINGSTOREY('0000000000000000000030',$,'1F',$,$,$,$,$,.ELEMENT.,0.);\n#40=IFCLOCALPLACEMENT($,#41);\n#41=IFCAXIS2PLACEMENT3D(#42,$,$);\n#42=IFCCARTESIANPOINT((1000000000000.,2000.,0.));\n#44=IFCLOCALPLACEMENT($,#45);\n#45=IFCAXIS2PLACEMENT3D(#46,$,$);\n#46=IFCCARTESIANPOINT((1000000005000.,2000.,0.));\n#47=IFCLOCALPLACEMENT($,#48);\n#48=IFCAXIS2PLACEMENT3D(#49,$,$);\n#49=IFCCARTESIANPOINT((1000000000000.,4000.,0.));\n#50=IFCWALL('0000000000000000000050',$,'Wall A',$,$,#40,#100,$,.NOTDEFINED.);\n#60=IFCWALL('0000000000000000000060',$,'Wall B',$,$,#44,#100,$,.NOTDEFINED.);\n#70=IFCCOLUMN('0000000000000000000070',$,'Column',$,$,#47,#170,$,.NOTDEFINED.);\n#80=IFCOPENINGELEMENT('0000000000000000000080',$,'Opening',$,$,#40,#180,$,.OPENING.);\n#90=IFCBUILDINGELEMENTPROXY('0000000000000000000090',$,'No geometry',$,$,$,$,$,.NOTDEFINED.);\n#100=IFCPRODUCTDEFINITIONSHAPE($,$,(#101));\n#101=IFCSHAPEREPRESENTATION(#10,'Body','MappedRepresentation',(#110,#111));\n#110=IFCMAPPEDITEM(#120,#130);\n#111=IFCMAPPEDITEM(#120,#131);\n#120=IFCREPRESENTATIONMAP(#20,#121);\n#121=IFCSHAPEREPRESENTATION(#10,'Body','SweptSolid',(#140));\n#130=IFCCARTESIANTRANSFORMATIONOPERATOR3D($,$,#21,1.,$);\n#131=IFCCARTESIANTRANSFORMATIONOPERATOR3D($,$,#132,1.,$);\n#132=IFCCARTESIANPOINT((2000.,0.,0.));\n#140=IFCEXTRUDEDAREASOLID(#141,#20,#142,1000.);\n#141=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,1000.,200.);\n#142=IFCDIRECTION((0.,0.,1.));\n#170=IFCPRODUCTDEFINITIONSHAPE($,$,(#171));\n#171=IFCSHAPEREPRESENTATION(#10,'Body','SweptSolid',(#172));\n#172=IFCEXTRUDEDAREASOLID(#173,#20,#142,1000.);\n#173=IFCCIRCLEPROFILEDEF(.AREA.,$,$,500.);\n#180=IFCPRODUCTDEFINITIONSHAPE($,$,(#181));\n#181=IFCSHAPEREPRESENTATION(#10,'Body','SweptSolid',(#182));\n#182=IFCEXTRUDEDAREASOLID(#183,#20,#142,1000.);\n#183=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,500.,400.);\n#200=IFCCOLOURRGB($,0.25,0.5,1.);\n#201=IFCSURFACESTYLESHADING(#200,0.25);\n#202=IFCSURFACESTYLE($,.BOTH.,(#201));\n#203=IFCSTYLEDITEM(#140,(#202),$);\n#215=IFCRELCONTAINEDINSPATIALSTRUCTURE('0000000000000000000215',$,$,$,(#50,#60,#70,#80),#30);\n#216=IFCRELVOIDSELEMENT('0000000000000000000216',$,$,$,#50,#80);\n#300=IFCPROJECTEDCRS('EPSG:6677',$,$,$,$,$,#301);\n#301=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n#302=IFCMAPCONVERSION(#10,#300,500000.,-100000.,5.,1.,0.,0.001);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "scene.ifc"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "scene.ifc",
+        "tolerance": 1.0
+      },
+      "expect": {
+        "/result/unit/kind": "LENGTHUNIT",
+        "/result/unit/prefix": "MILLI",
+        "/result/tolerance": 1.0,
+        "/result/map/crs_name": "EPSG:6677",
+        "/result/map/scale": 0.001,
+        "/result/counts/elements": 7,
+        "/result/counts/instances": 5,
+        "/blobs/0/kind": "scene3d"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "scene.ifc",
+        "ids": [
+          "0000000000000000000050"
+        ],
+        "storeys": [
+          "0000000000000000000030"
+        ],
+        "classes": [
+          "IfcWall"
+        ],
+        "box": {
+          "min": [
+            999999999900.0,
+            1900.0,
+            0.0
+          ],
+          "max": [
+            1000000000100.0,
+            2100.0,
+            1000.0
+          ]
+        }
+      },
+      "expect": {
+        "/result/counts/elements": 2,
+        "/result/counts/instances": 2,
+        "/result/unit/prefix": "MILLI"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "scene.ifc",
+        "classes": [],
+        "tolerance": 1.0
+      },
+      "expect": {
+        "/result/counts/elements": 0,
+        "/result/counts/instances": 0,
+        "/result/counts/chunks": 0
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "scene.ifc",
+        "box": {
+          "min": [
+            0.0,
+            0.0
+          ],
+          "max": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid"
+      },
+      "status": "failed"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "scene.ifc",
+        "tolerance": 0.0
+      },
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid"
+      },
+      "status": "failed"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "scene.ifc",
+        "ids": [
+          ""
+        ]
+      },
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid"
+      },
+      "status": "failed"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "scene.ifc",
+        "tolerance": 1.0,
+        "budget": {
+          "work": 0
+        },
+        "partial": true
+      },
+      "status": "failed"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "scene.ifc",
+        "tolerance": 1.0,
+        "budget": {
+          "decoded_bytes": 0
+        },
+        "partial": true
+      },
+      "status": "failed"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "scene.ifc",
+        "tolerance": 1.0,
+        "budget": {
+          "segments": 0
+        },
+        "partial": true
+      },
+      "status": "failed"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "scene.ifc",
+        "tolerance": 1.0,
+        "budget": {
+          "elements": 0
+        },
+        "partial": true
+      },
+      "status": "failed"
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "scene.ifc",
+        "tolerance": 1.0
+      },
+      "expect": {
+        "/result/counts/instances": 5
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "scene.ifc",
+        "ids": [
+          "0000000000000000000050"
+        ],
+        "components": [
+          "class",
+          "identity"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/id": "0000000000000000000050"
+      }
+    }
+  ]
+}

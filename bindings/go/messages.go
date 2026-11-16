@@ -100,6 +100,11 @@ func (u Request) AsSceneRequest() *SceneRequest {
 	return asTagged[SceneRequest](u, "op", "scene")
 }
 
+// AsScene3dRequest は、op が scene3d の形なら、その型で読む。違えば nil。
+func (u Request) AsScene3dRequest() *Scene3dRequest {
+	return asTagged[Scene3dRequest](u, "op", "scene3d")
+}
+
 // AsCheckRequest は、op が check の形なら、その型で読む。違えば nil。
 func (u Request) AsCheckRequest() *CheckRequest {
 	return asTagged[CheckRequest](u, "op", "check")
@@ -3581,6 +3586,139 @@ func (m SceneRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
+// Scene3dRequest: 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+type Scene3dRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// open で作った建物の文書名
+	Doc *string `json:"doc,omitempty"`
+
+	// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない
+	Storeys []string `json:"storeys,omitempty"`
+
+	// クラス名。大文字・小文字を区別する。省略は全クラス、空の配列は何も選ばない
+	Classes []string `json:"classes,omitempty"`
+
+	// 建物の要素の ID。省略は全要素、空の配列は何も選ばない。参照する階の行も返す
+	Ids []string `json:"ids,omitempty"`
+
+	// プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う
+	Box *Scene3dBox `json:"box,omitempty"`
+
+	// 曲線を分ける弦の誤差。文書単位の正の有限値。省略時は 1 mm の予備評価による対象範囲の対角線の 1/50000。空か点だけなら 1 mm 相当
+	Tolerance *float64 `json:"tolerance,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m Scene3dRequest) MarshalJSON() ([]byte, error) {
+	type plain Scene3dRequest
+	m.Op = "scene3d"
+	return json.Marshal(plain(m))
+}
+
+// Scene3dBox: プロジェクト空間の文書単位の箱。Z が上。地図への変換を掛けない
+type Scene3dBox struct {
+	// 最小の X・Y・Z の 3 値
+	Min []float64 `json:"min,omitempty"`
+
+	// 最大の X・Y・Z の 3 値
+	Max []float64 `json:"max,omitempty"`
+}
+
+// Scene3dMap: 建物の文書が持つ地図への変換の元値。シーンの座標へは適用していない
+type Scene3dMap struct {
+	// 地図の座標系の名前。未指定なら持たない
+	CrsName *string `json:"crs_name,omitempty"`
+
+	// 東への移動
+	Eastings *float64 `json:"eastings,omitempty"`
+
+	// 北への移動
+	Northings *float64 `json:"northings,omitempty"`
+
+	// 高さの移動
+	Height *float64 `json:"height,omitempty"`
+
+	// 地図の X 軸の横の成分の元値
+	XAxisAbscissa *float64 `json:"x_axis_abscissa,omitempty"`
+
+	// 地図の X 軸の縦の成分の元値
+	XAxisOrdinate *float64 `json:"x_axis_ordinate,omitempty"`
+
+	// 地図への尺度の元値
+	Scale *float64 `json:"scale,omitempty"`
+}
+
+// Scene3dCounts: 返した 3D シーンの列の行数。共有するメッシュの点と面は 1 回だけ数える
+type Scene3dCounts struct {
+	// 塊
+	Chunks *int64 `json:"chunks,omitempty"`
+
+	// 共有するメッシュ
+	Meshes *int64 `json:"meshes,omitempty"`
+
+	// メッシュの配置
+	Instances *int64 `json:"instances,omitempty"`
+
+	// 要素と参照先の階。形のない行も含む
+	Elements *int64 `json:"elements,omitempty"`
+
+	// 色
+	Colors *int64 `json:"colors,omitempty"`
+
+	// 局所の頂点
+	Vertices *int64 `json:"vertices,omitempty"`
+
+	// 三角形
+	Triangles *int64 `json:"triangles,omitempty"`
+
+	// 形の稜線
+	Edges *int64 `json:"edges,omitempty"`
+}
+
+// Scene3dResult: 3D シーンの座標・許容差・行数と blob の番号
+type Scene3dResult struct {
+	// 元の建物の文書名
+	Doc *string `json:"doc,omitempty"`
+
+	// シーンの座標と許容差の長さの単位
+	Unit *BuildingUnit `json:"unit,omitempty"`
+
+	// 文書の地図への変換。なければ持たない
+	Map *Scene3dMap `json:"map,omitempty"`
+
+	// 曲線の評価へ渡した文書単位の弦の誤差。f32 への丸めのずれは別の診断で返す
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 要求の断面の箱。なければ持たない
+	Box *Scene3dBox `json:"box,omitempty"`
+
+	// 返した塊の文書単位の範囲。形がなければ持たない
+	Extent *Scene3dBox `json:"extent,omitempty"`
+
+	// シーンの行数
+	Counts *Scene3dCounts `json:"counts,omitempty"`
+
+	// 種類が scene3d の blob の番号。zm_take で取り出す
+	Blob *int64 `json:"blob,omitempty"`
+}
+
 // RenderRequest: 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から
 type RenderRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
@@ -5619,7 +5757,7 @@ type Blob struct {
 	Size *int64 `json:"size,omitempty"`
 }
 
-// BlobKind: バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
+// BlobKind: バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、scene3d は 3D のシーン（schema/scene3d.toml の配置）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
 //
 // 列挙の値。知らない値も受け取る。
 type BlobKind string
@@ -5638,6 +5776,9 @@ const BlobKindArrow BlobKind = "arrow"
 
 // BlobKindDrawing は drawing。
 const BlobKindDrawing BlobKind = "drawing"
+
+// BlobKindScene3d は scene3d。
+const BlobKindScene3d BlobKind = "scene3d"
 
 // SessionOptions: zm_session_new に渡す設定。渡さなければ既定の設定
 type SessionOptions struct {
@@ -6912,6 +7053,9 @@ const OpTables = "tables"
 
 // OpScene は、op の名前 scene。
 const OpScene = "scene"
+
+// OpScene3d は、op の名前 scene3d。
+const OpScene3d = "scene3d"
 
 // OpCheck は、op の名前 check。
 const OpCheck = "check"

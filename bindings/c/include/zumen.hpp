@@ -21,6 +21,7 @@
 
 #include "zumen.h"
 #include "zumen_scene.h"
+#include "zumen_scene3d.h"
 
 namespace zumen {
 
@@ -278,7 +279,7 @@ public:
     T operator[](std::size_t i) const noexcept { return detail::SceneType<T>::read(data_ + i * sizeof(T)); }
     /// row 行の column 番目の値
     T at(std::size_t row, std::uint32_t column) const {
-        if (column >= width_) {
+        if (column >= width_ || row >= rows()) {
             throw std::out_of_range("zumen: 行の幅の外を指す");
         }
         return at(row * width_ + column);
@@ -378,6 +379,122 @@ private:
     std::uint32_t chunks_ = 0;
     std::uint32_t sections_ = 0;
     Part parts_[ZM_SCENE_SECTION_COUNT];
+};
+
+/// 読んだシーン（決定 0213・0178）。blob を写さずに見るので、blob を生かしておき、書き換えない
+class Scene3D {
+public:
+    /// シーンの blob を読む。知らないセクションは読み飛ばし、ないセクションは空の列にする。メジャーバージョンが違えば読まない
+    static Scene3D read(const std::uint8_t *data, std::size_t size) {
+        if (size > 536870912) throw SceneError("zumen: 3D シーンのバイト数の上限");
+        constexpr std::size_t header = 16;
+        if (data == nullptr || size < header || std::memcmp(data, ZM_SCENE3D_MAGIC, 4) != 0) {
+            throw SceneError("zumen: シーンの blob でない");
+        }
+        Scene3D scene;
+        scene.major_ = detail::u16_le(data + 4);
+        scene.minor_ = detail::u16_le(data + 6);
+        scene.chunks_ = detail::u32_le(data + 8);
+        scene.sections_ = detail::u32_le(data + 12);
+        if (scene.major_ != ZM_SCENE3D_MAJOR) {
+            throw SceneError("zumen: シーンのメジャーバージョンが違う");
+        }
+        if (static_cast<std::uint64_t>(scene.sections_) * 8 > size - header) {
+            throw SceneError("zumen: セクションの表が blob に収まらない");
+        }
+        if (scene.sections_ < ZM_SCENE3D_SECTION_COUNT) throw SceneError("zumen: 3D シーンの基本列がない");
+        std::uint64_t previous = header + static_cast<std::uint64_t>(scene.sections_) * 8;
+        for (std::uint32_t i = 0; i < scene.sections_; ++i) {
+            auto start = detail::u32_le(data + header + 8 * i);
+            auto length = detail::u32_le(data + header + 8 * i + 4);
+            if (start % 8 != 0 || start < previous || static_cast<std::uint64_t>(start) + length > size)
+                throw SceneError("zumen: 3D シーンのセクションの範囲");
+            previous = static_cast<std::uint64_t>(start) + length;
+        }
+        for (std::uint32_t index = 0; index < ZM_SCENE3D_SECTION_COUNT && index < scene.sections_; ++index) {
+            const zm_scene3d_section *section = zm_scene3d_section_at(index);
+            std::uint32_t start = detail::u32_le(data + header + 8 * index);
+            std::uint32_t length = detail::u32_le(data + header + 8 * index + 4);
+            std::uint64_t row = static_cast<std::uint64_t>(zm_scene3d_type_size(section->type)) * section->width;
+            if (static_cast<std::uint64_t>(start) + length > size || row == 0 || length % row != 0) {
+                throw SceneError(std::string("zumen: セクション ") + section->name + " の始まりか長さが合わない");
+            }
+            scene.parts_[index] = Part{data + start, length};
+        }
+        return scene;
+    }
+    /// Bytes から読む。bytes を生かしておく
+    static Scene3D read(const Bytes &bytes) { return read(bytes.data(), bytes.size()); }
+
+    /// メジャーバージョン
+    std::uint16_t major() const noexcept { return major_; }
+    /// マイナーバージョン
+    std::uint16_t minor() const noexcept { return minor_; }
+    /// 塊の数
+    std::uint32_t chunks() const noexcept { return chunks_; }
+    /// blob にあるセクションの数。このラッパーが知らないセクションも数える
+    std::uint32_t sections() const noexcept { return sections_; }
+
+    /// セクション（ZM_SCENE3D_SECTION_*）の列。T はセクションの型（std::uint8_t・std::uint32_t・float・double）にする
+    template <class T> Column<T> column(std::uint32_t section) const {
+        const zm_scene3d_section *definition = zm_scene3d_section_at(section);
+        if (definition == nullptr) {
+            throw std::out_of_range("zumen: 知らないセクション");
+        }
+        if (definition->type != detail::SceneType<T>::code) {
+            throw std::invalid_argument(std::string("zumen: セクション ") + definition->name + " の型と合わない");
+        }
+        const Part &part = parts_[section];
+        return Column<T>(part.data, part.length / sizeof(T), definition->width);
+    }
+
+    /// セクションの行の数
+    std::size_t rows(std::uint32_t section) const {
+        const zm_scene3d_section *definition = zm_scene3d_section_at(section);
+        if (definition == nullptr) {
+            throw std::out_of_range("zumen: 知らないセクション");
+        }
+        return parts_[section].length / (zm_scene3d_type_size(definition->type) * definition->width);
+    }
+
+    /// strings のセクションから、始まりと長さ（バイト）で文字列（UTF-8）を引く
+    std::string_view text(std::uint32_t start, std::uint32_t length) const {
+        const Part &strings = parts_[ZM_SCENE3D_SECTION_STRINGS];
+        if (static_cast<std::uint64_t>(start) + length > strings.length) {
+            throw std::out_of_range("zumen: strings のセクションの外を指す");
+        }
+        return std::string_view(reinterpret_cast<const char *>(strings.data) + start, length);
+    }
+
+    /// 元の建物の要素 ID
+    std::string_view element_id(std::size_t row) const {
+        if (row >= rows(ZM_SCENE3D_SECTION_ELEMENT_IDS)) throw std::out_of_range("zumen: 3D シーンの要素");
+        auto ids = column<std::uint32_t>(ZM_SCENE3D_SECTION_ELEMENT_IDS);
+        return text(ids.at(row, 0), ids.at(row, 1));
+    }
+    /// インスタンスが指すメッシュの行
+    std::uint32_t instance_mesh(std::size_t row) const { return reference(ZM_SCENE3D_SECTION_INSTANCE_MESHES, ZM_SCENE3D_SECTION_MESH_VERTICES, row); }
+    /// インスタンスが指す要素の行
+    std::uint32_t instance_element(std::size_t row) const { return reference(ZM_SCENE3D_SECTION_INSTANCE_ELEMENTS, ZM_SCENE3D_SECTION_ELEMENT_IDS, row); }
+    /// インスタンスが指す色の行
+    std::uint32_t instance_color(std::size_t row) const { return reference(ZM_SCENE3D_SECTION_INSTANCE_COLORS, ZM_SCENE3D_SECTION_COLOR_RGBA, row); }
+
+private:
+    std::uint32_t reference(std::uint32_t section, std::uint32_t target, std::size_t row) const {
+        auto value = column<std::uint32_t>(section).at(row);
+        if (value >= rows(target)) throw std::out_of_range("zumen: 3D シーンの参照");
+        return value;
+    }
+    struct Part {
+        const std::uint8_t *data = nullptr;
+        std::size_t length = 0;
+    };
+
+    std::uint16_t major_ = 0;
+    std::uint16_t minor_ = 0;
+    std::uint32_t chunks_ = 0;
+    std::uint32_t sections_ = 0;
+    Part parts_[ZM_SCENE3D_SECTION_COUNT];
 };
 
 } // namespace zumen

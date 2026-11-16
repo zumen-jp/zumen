@@ -751,6 +751,7 @@ dependencies = [
  "zumen-render",
  "zumen-review",
  "zumen-scene",
+ "zumen-scene3d",
  "zumen-sdk",
  "zumen-zip",
 ]
@@ -769,6 +770,7 @@ dependencies = [
  "zumen-base",
  "zumen-json",
  "zumen-scene",
+ "zumen-scene3d",
 ]
 
 [[package]]
@@ -808,6 +810,7 @@ dependencies = [
  "zumen-render",
  "zumen-review",
  "zumen-scene",
+ "zumen-scene3d",
  "zumen-sdk",
  "zumen-sima",
  "zumen-sxf",
@@ -1233,6 +1236,19 @@ dependencies = [
  "zumen-review",
  "zumen-sdk",
  "zumen-text",
+]
+
+[[package]]
+name = "zumen-scene3d"
+version = "0.2.0"
+dependencies = [
+ "blake3",
+ "libm",
+ "zumen-base",
+ "zumen-building",
+ "zumen-geom3d",
+ "zumen-ifc",
+ "zumen-sdk",
 ]
 
 [[package]]

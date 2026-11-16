@@ -140,7 +140,25 @@ void checkResponse(String at, Map step, Object? response) {
 }
 
 /// シーンの blob をリーダーで読み、応答の数と合うかを確かめる
+void checkScene3D(String at, Uint8List blob, Map result) {
+  try {
+    final scene = Scene3D.read(blob);
+    final pairs = <(String, String)>[('chunks', 'chunk_origins'), ('meshes', 'mesh_vertices'), ('instances', 'instance_meshes'), ('elements', 'element_ids'), ('colors', 'color_rgba'), ('vertices', 'vertex_xyz'), ('triangles', 'triangle_vertices'), ('edges', 'edge_vertices')];
+    for (final (name, column) in pairs) {
+      if (scene.rows(column) != (result['counts'] as Map)[name]) throw FormatException('$name count mismatch');
+    }
+    for (var row = 0; row < scene.rows('instance_meshes'); row++) {
+      if (scene.elementId(scene.instanceElement(row)).isEmpty) throw const FormatException('Empty element ID');
+      scene.instanceMesh(row);
+      scene.instanceColor(row);
+    }
+  } on Object catch (error) {
+    failures.add('$at: 3D のシーンを読めない: $error');
+  }
+}
+
 void checkScene(String at, Uint8List blob, Map result) {
+  if (blob.length >= 4 && blob[3] == 0x33) { checkScene3D(at, blob, result); return; }
   final Scene scene;
   try {
     scene = Scene.read(blob);
@@ -252,7 +270,7 @@ void runCase(Zumen zumen, String repository, String name, List steps) {
     final blobs = response['blobs'];
     if (result is Map && blobs is List) {
       for (final blob in blobs) {
-        if (blob is Map && blob['kind'] == 'scene') {
+        if (blob is Map && (blob['kind'] == 'scene' || blob['kind'] == 'scene3d')) {
           lastScene = result;
           lastBlob = blob['id'] as int;
           break;
@@ -342,6 +360,21 @@ String findRepository(List<String> args) {
   }
 }
 
+void checkScene3DStrings() {
+  const value = '\uFEFF\uFEFF壁';
+  final text = utf8.encode(value);
+  const start = 16 + 20 * 8;
+  final bytes = Uint8List(start + text.length);
+  final view = ByteData.sublistView(bytes);
+  view.setUint32(0, 0x33534d5a, Endian.little);
+  view.setUint16(4, 1, Endian.little);
+  view.setUint32(12, 20, Endian.little);
+  for (var i = 0; i < 20; i++) { view.setUint32(16 + i * 8, start, Endian.little); }
+  view.setUint32(20 + 19 * 8, text.length, Endian.little);
+  bytes.setRange(start, bytes.length, text);
+  if (Scene3D.read(bytes).text(0, text.length) != value) failures.add('3D の文字列が先頭の BOM を保たない');
+}
+
 Future<void> main(List<String> args) async {
   if (args.isEmpty || args.length > 2) {
     stderr.writeln('使い方: dart run tool/conformance.dart <ネイティブのライブラリ> [リポジトリの根]');
@@ -363,6 +396,7 @@ Future<void> main(List<String> args) async {
   }
   compareHashes(conformance);
   await checkTypedCalls(zumen);
+  checkScene3DStrings();
   final summary = 'ラッパーを通したテストの組 ${files.length} 件、ハッシュ ${hashes.length} 件、読んだシーン $scenes 件';
   stdout.writeln(summary);
   final stepSummary = Platform.environment['GITHUB_STEP_SUMMARY'];

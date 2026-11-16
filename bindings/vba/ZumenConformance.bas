@@ -42,6 +42,9 @@ Public Sub ZumenConformance(ByVal fixturePath As String)
             If ZmReadU32(response, 0) = &H43534D5A Then
                 CheckScene response
                 scenes = scenes + 1
+            ElseIf ZmReadU32(response, 0) = &H33534D5A Then
+                CheckScene3D response
+                scenes = scenes + 1
             End If
         End If
         steps = steps + 1
@@ -87,6 +90,25 @@ Private Function Sha256(ByRef data() As Byte) As String
     Next index
     Sha256 = result
 End Function
+
+Private Sub CheckScene3D(ByRef data() As Byte)
+    Dim scene As ZumenScene3D, index As Long, name As String, value As Double
+    Set scene = New ZumenScene3D
+    scene.Read data
+    Require scene.Chunks = scene.Rows("chunk_origins"), "3D scene chunk count mismatch"
+    For index = 0 To ZM_SCENE3D_SECTION_COUNT - 1
+        name = ZmScene3DSectionName(index)
+        If scene.Rows(name) > 0 Then
+            value = scene.Value(name, 0)
+            value = scene.Value(name, scene.Rows(name) - 1, ZmScene3DSectionWidth(index) - 1)
+        End If
+    Next index
+    For index = 0 To scene.Rows("instance_meshes") - 1
+        Require Len(scene.ElementId(scene.InstanceElement(index))) > 0, "Empty element ID"
+        value = scene.InstanceMesh(index)
+        value = scene.InstanceColor(index)
+    Next index
+End Sub
 
 Private Sub CheckScene(ByRef data() As Byte)
     Dim scene As ZumenScene, index As Long, name As String, value As Double

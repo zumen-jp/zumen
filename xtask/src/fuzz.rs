@@ -25,6 +25,7 @@ use crate::boundary::Boundary;
 use crate::sha256;
 
 mod scene;
+mod scene3d;
 
 /// fuzz の crate のフォルダー
 const DIR: &str = "fuzz";
@@ -193,6 +194,7 @@ pub fn seeds(root: &Path) -> Result<(), String> {
         .chain(std::iter::once(ifc_grid()))
         .chain(std::iter::once(ifc_profiles()))
         .chain(std::iter::once(scene::seed()))
+        .chain(std::iter::once(scene3d::seed()?))
     {
         seeds.insert(sha256::hex(&data), data);
     }

@@ -261,7 +261,27 @@ public final class Conformance {
     }
 
     /** シーンの blob をリーダーで読み、応答の数と合うかを確かめる */
+    void checkScene3D(String at, byte[] blob, Map<String, Object> result) {
+        try {
+            Scene3D scene = Scene3D.read(blob);
+            Map<String, Object> counts = Json.object(result.get("counts"));
+            String[][] pairs = {{"chunks", "chunk_origins"}, {"meshes", "mesh_vertices"}, {"instances", "instance_meshes"}, {"elements", "element_ids"}, {"colors", "color_rgba"}, {"vertices", "vertex_xyz"}, {"triangles", "triangle_vertices"}, {"edges", "edge_vertices"}};
+            for (String[] pair : pairs)
+                if (scene.rows(pair[1]) != Json.integer(counts.get(pair[0])))
+                    throw new IllegalArgumentException(pair[0] + " count mismatch");
+            for (int row = 0; row < scene.rows("instance_meshes"); row++) {
+                if (scene.elementId((int)scene.instanceElement(row)).isEmpty())
+                    throw new IllegalArgumentException("Empty element ID");
+                scene.instanceMesh(row);
+                scene.instanceColor(row);
+            }
+        } catch (RuntimeException e) {
+            failures.add(at + ": 3D のシーンを読めない: " + e.getMessage());
+        }
+    }
+
     void checkScene(String at, byte[] blob, Map<String, Object> result) {
+        if (blob.length >= 4 && blob[3] == 0x33) { checkScene3D(at, blob, result); return; }
         Scene scene;
         try {
             scene = Scene.read(blob);
@@ -412,7 +432,7 @@ public final class Conformance {
                 if (blobs != null && result != null) {
                     for (Object entry : blobs) {
                         Map<String, Object> blob = Json.object(entry);
-                        if (blob != null && "scene".equals(blob.get("kind"))) {
+                        if (blob != null && ("scene".equals(blob.get("kind")) || "scene3d".equals(blob.get("kind")))) {
                             lastScene = result;
                             lastBlob = Json.integer(blob.get("id"));
                             break;
@@ -427,6 +447,7 @@ public final class Conformance {
 
         compareHashes();
         checkTypedCalls(zumen);
+        checkScene3DStrings();
 
         String summary = "ラッパーを通したテストの組 " + files.size() + " 件、ハッシュ " + hashes.size() + " 件、読んだシーン "
                 + scenes + " 件";
@@ -481,6 +502,29 @@ public final class Conformance {
     }
 
     /** 型を渡す call と、失敗した call と、閉じたあとの呼び出し */
+    void checkScene3DStrings() {
+        String value = "\uFEFF\uFEFF壁";
+        byte[] text = value.getBytes(StandardCharsets.UTF_8);
+        int start = 16 + 20 * 8;
+        java.nio.ByteBuffer bytes = java.nio.ByteBuffer.allocate(start + text.length)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        bytes.putInt(0, 0x33534d5a);
+        bytes.putShort(4, (short) 1);
+        bytes.putInt(12, 20);
+        for (int i = 0; i < 20; i++) bytes.putInt(16 + i * 8, start);
+        bytes.putInt(20 + 19 * 8, text.length);
+        bytes.position(start);
+        bytes.put(text);
+        Scene3D scene = Scene3D.read(bytes.array());
+        if (!value.equals(scene.text(0, text.length))) failures.add("3D の文字列が先頭の BOM を保たない");
+        try {
+            scene.text(Long.MAX_VALUE, Long.MAX_VALUE);
+            failures.add("3D の文字列の範囲を超える指定を受け付けた");
+        } catch (IndexOutOfBoundsException expected) {
+            // 範囲外の指定は確保する前に拒む。
+        }
+    }
+
     void checkTypedCalls(Zumen zumen) {
         final Session session = zumen.open(new Messages.SessionOptions().withV((long) Constants.SCHEMA_MAJOR));
         try {

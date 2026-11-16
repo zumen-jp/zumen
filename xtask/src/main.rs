@@ -27,6 +27,7 @@ mod python;
 mod release;
 mod samples;
 mod scene;
+mod scene3d;
 mod schema;
 mod swift;
 mod vba;
@@ -182,6 +183,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
     }
 
     let profiles = profiles::generate(&root)?;
+    let scene3d = scene3d::generate(&root)?;
     let drawing = drawing::generate(&root)?;
     samples::check(&root)?;
     fuzz::check(&root, &boundary)?;
@@ -263,6 +265,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
     ];
     let outputs: Vec<(&str, String)> = outputs
         .into_iter()
+        .chain(scene3d)
         .chain(
             profiles
                 .iter()

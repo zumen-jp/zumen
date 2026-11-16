@@ -84,6 +84,11 @@ public struct Request: Message {
         taggedView("op", "scene")
     }
 
+    /// op が scene3d の形なら、そのビュー。違えば nil
+    public var asScene3dRequest: Scene3dRequest? {
+        taggedView("op", "scene3d")
+    }
+
     /// op が check の形なら、そのビュー。違えば nil
     public var asCheckRequest: CheckRequest? {
         taggedView("op", "check")
@@ -6282,6 +6287,308 @@ public struct SceneRequest: Message {
     }
 }
 
+/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+public struct Scene3dRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("scene3d")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// open で作った建物の文書名
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない
+    public var storeys: [String]? {
+        get { readField("storeys") }
+        set { writeField("storeys", newValue) }
+    }
+
+    /// クラス名。大文字・小文字を区別する。省略は全クラス、空の配列は何も選ばない
+    public var classes: [String]? {
+        get { readField("classes") }
+        set { writeField("classes", newValue) }
+    }
+
+    /// 建物の要素の ID。省略は全要素、空の配列は何も選ばない。参照する階の行も返す
+    public var ids: [String]? {
+        get { readField("ids") }
+        set { writeField("ids", newValue) }
+    }
+
+    /// プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う
+    public var box: Scene3dBox? {
+        get { readField("box") }
+        set { writeField("box", newValue) }
+    }
+
+    /// 曲線を分ける弦の誤差。文書単位の正の有限値。省略時は 1 mm の予備評価による対象範囲の対角線の 1/50000。空か点だけなら 1 mm 相当
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+}
+
+/// プロジェクト空間の文書単位の箱。Z が上。地図への変換を掛けない
+public struct Scene3dBox: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 最小の X・Y・Z の 3 値
+    public var min: [Double]? {
+        get { readField("min") }
+        set { writeField("min", newValue) }
+    }
+
+    /// 最大の X・Y・Z の 3 値
+    public var max: [Double]? {
+        get { readField("max") }
+        set { writeField("max", newValue) }
+    }
+}
+
+/// 建物の文書が持つ地図への変換の元値。シーンの座標へは適用していない
+public struct Scene3dMap: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 地図の座標系の名前。未指定なら持たない
+    public var crsName: String? {
+        get { readField("crs_name") }
+        set { writeField("crs_name", newValue) }
+    }
+
+    /// 東への移動
+    public var eastings: Double? {
+        get { readField("eastings") }
+        set { writeField("eastings", newValue) }
+    }
+
+    /// 北への移動
+    public var northings: Double? {
+        get { readField("northings") }
+        set { writeField("northings", newValue) }
+    }
+
+    /// 高さの移動
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 地図の X 軸の横の成分の元値
+    public var xAxisAbscissa: Double? {
+        get { readField("x_axis_abscissa") }
+        set { writeField("x_axis_abscissa", newValue) }
+    }
+
+    /// 地図の X 軸の縦の成分の元値
+    public var xAxisOrdinate: Double? {
+        get { readField("x_axis_ordinate") }
+        set { writeField("x_axis_ordinate", newValue) }
+    }
+
+    /// 地図への尺度の元値
+    public var scale: Double? {
+        get { readField("scale") }
+        set { writeField("scale", newValue) }
+    }
+}
+
+/// 返した 3D シーンの列の行数。共有するメッシュの点と面は 1 回だけ数える
+public struct Scene3dCounts: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 塊
+    public var chunks: Int64? {
+        get { readField("chunks") }
+        set { writeField("chunks", newValue) }
+    }
+
+    /// 共有するメッシュ
+    public var meshes: Int64? {
+        get { readField("meshes") }
+        set { writeField("meshes", newValue) }
+    }
+
+    /// メッシュの配置
+    public var instances: Int64? {
+        get { readField("instances") }
+        set { writeField("instances", newValue) }
+    }
+
+    /// 要素と参照先の階。形のない行も含む
+    public var elements: Int64? {
+        get { readField("elements") }
+        set { writeField("elements", newValue) }
+    }
+
+    /// 色
+    public var colors: Int64? {
+        get { readField("colors") }
+        set { writeField("colors", newValue) }
+    }
+
+    /// 局所の頂点
+    public var vertices: Int64? {
+        get { readField("vertices") }
+        set { writeField("vertices", newValue) }
+    }
+
+    /// 三角形
+    public var triangles: Int64? {
+        get { readField("triangles") }
+        set { writeField("triangles", newValue) }
+    }
+
+    /// 形の稜線
+    public var edges: Int64? {
+        get { readField("edges") }
+        set { writeField("edges", newValue) }
+    }
+}
+
+/// 3D シーンの座標・許容差・行数と blob の番号
+public struct Scene3dResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の建物の文書名
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// シーンの座標と許容差の長さの単位
+    public var unit: BuildingUnit? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// 文書の地図への変換。なければ持たない
+    public var map: Scene3dMap? {
+        get { readField("map") }
+        set { writeField("map", newValue) }
+    }
+
+    /// 曲線の評価へ渡した文書単位の弦の誤差。f32 への丸めのずれは別の診断で返す
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 要求の断面の箱。なければ持たない
+    public var box: Scene3dBox? {
+        get { readField("box") }
+        set { writeField("box", newValue) }
+    }
+
+    /// 返した塊の文書単位の範囲。形がなければ持たない
+    public var extent: Scene3dBox? {
+        get { readField("extent") }
+        set { writeField("extent", newValue) }
+    }
+
+    /// シーンの行数
+    public var counts: Scene3dCounts? {
+        get { readField("counts") }
+        set { writeField("counts", newValue) }
+    }
+
+    /// 種類が scene3d の blob の番号。zm_take で取り出す
+    public var blob: Int64? {
+        get { readField("blob") }
+        set { writeField("blob", newValue) }
+    }
+}
+
 /// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から
 public struct RenderRequest: Message {
     /// 包んでいる JSON のオブジェクト
@@ -10453,7 +10760,7 @@ public struct Blob: Message {
     }
 }
 
-/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
+/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、scene3d は 3D のシーン（schema/scene3d.toml の配置）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
 ///
 /// 列挙の値。知らない値も受け取る
 public enum BlobKind {
@@ -10462,6 +10769,7 @@ public enum BlobKind {
     public static let scene = "scene"
     public static let arrow = "arrow"
     public static let drawing = "drawing"
+    public static let scene3d = "scene3d"
 }
 
 /// zm_session_new に渡す設定。渡さなければ既定の設定
@@ -13076,6 +13384,7 @@ public enum Operations {
     public static let convertEstimate = "convert_estimate"
     public static let tables = "tables"
     public static let scene = "scene"
+    public static let scene3d = "scene3d"
     public static let check = "check"
     public static let validate = "validate"
     public static let reviewCarry = "review_carry"

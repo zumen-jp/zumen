@@ -223,7 +223,44 @@ func (c *conformance) checkResponse(at string, step map[string]any, response any
 }
 
 // checkScene は、シーンの blob をリーダーで読み、応答の数と合うかを確かめる。
+func (c *conformance) checkScene3D(at string, blob []byte, result map[string]any) {
+	scene, err := ReadScene3D(blob)
+	if err != nil {
+		c.fail("%s: 3D のシーンを読めない: %v", at, err)
+		return
+	}
+	counts, _ := result["counts"].(map[string]any)
+	pairs := [][2]string{{"chunks", "chunk_origins"}, {"meshes", "mesh_vertices"}, {"instances", "instance_meshes"}, {"elements", "element_ids"}, {"colors", "color_rgba"}, {"vertices", "vertex_xyz"}, {"triangles", "triangle_vertices"}, {"edges", "edge_vertices"}}
+	for _, pair := range pairs {
+		n, err := scene.Rows(pair[1])
+		if err != nil || int64(n) != integer(counts[pair[0]]) {
+			c.fail("%s: 3D の %s の数が合わない: %v", at, pair[0], err)
+		}
+	}
+	n, _ := scene.Rows("instance_meshes")
+	for row := 0; row < n; row++ {
+		element, err := scene.InstanceElement(row)
+		if err != nil {
+			c.fail("%s: %v", at, err)
+			continue
+		}
+		if id, err := scene.ElementID(int(element)); err != nil || id == "" {
+			c.fail("%s: 要素 ID を引けない: %v", at, err)
+		}
+		if _, err := scene.InstanceMesh(row); err != nil {
+			c.fail("%s: %v", at, err)
+		}
+		if _, err := scene.InstanceColor(row); err != nil {
+			c.fail("%s: %v", at, err)
+		}
+	}
+}
+
 func (c *conformance) checkScene(at string, blob []byte, result map[string]any) {
+	if len(blob) >= 4 && blob[3] == 0x33 {
+		c.checkScene3D(at, blob, result)
+		return
+	}
 	scene, err := ReadScene(blob)
 	if err != nil {
 		c.fail("%s: シーンを読めない: %v", at, err)
@@ -402,7 +439,7 @@ func (c *conformance) runCase(ctx context.Context, core *Core, name string, step
 		}
 		for _, entry := range blobs {
 			blob, _ := entry.(map[string]any)
-			if blob["kind"] == "scene" {
+			if blob["kind"] == "scene" || blob["kind"] == "scene3d" {
 				lastScene, lastBlob = result, integer(blob["id"])
 				break
 			}

@@ -19,6 +19,8 @@ use std::fmt;
 use zumen_json::{FromJson, Invalid, ObjectReader, ToJson, Value, Writer};
 
 pub mod scene;
+/// 3D の列の読み手。借用する blob と予算の寿命を呼び出し側で保つ。
+pub use zumen_scene3d as scene3d;
 
 pub use zumen_abi1::Status;
 pub use zumen_abi1::messages;

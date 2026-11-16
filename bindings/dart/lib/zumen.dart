@@ -8,4 +8,6 @@ export 'src/constants.dart';
 export 'src/message.dart' show Message;
 export 'src/messages.dart';
 export 'src/scene.dart';
+export 'src/scene3d.dart';
+export 'src/scene3d_layout.dart';
 export 'src/session.dart';

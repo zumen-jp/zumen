@@ -20,6 +20,7 @@ export type Request =
   | ConvertEstimateRequest
   | TablesRequest
   | SceneRequest
+  | Scene3dRequest
   | CheckRequest
   | ValidateRequest
   | ReviewCarryRequest
@@ -1873,6 +1874,90 @@ export interface SceneRequest extends RequestCommon {
   heights?: Record<string, HeightReference>;
 }
 
+/** 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から */
+export interface Scene3dRequest extends RequestCommon {
+  /** op の名前 */
+  op: "scene3d";
+  /** open で作った建物の文書名 */
+  doc: string;
+  /** 所属する階の要素の ID。省略は全階、空の配列は何も選ばない */
+  storeys?: string[];
+  /** クラス名。大文字・小文字を区別する。省略は全クラス、空の配列は何も選ばない */
+  classes?: string[];
+  /** 建物の要素の ID。省略は全要素、空の配列は何も選ばない。参照する階の行も返す */
+  ids?: string[];
+  /** プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う */
+  box?: Scene3dBox;
+  /** 曲線を分ける弦の誤差。文書単位の正の有限値。省略時は 1 mm の予備評価による対象範囲の対角線の 1/50000。空か点だけなら 1 mm 相当 */
+  tolerance?: number;
+}
+
+/** プロジェクト空間の文書単位の箱。Z が上。地図への変換を掛けない */
+export interface Scene3dBox {
+  /** 最小の X・Y・Z の 3 値 */
+  min: number[];
+  /** 最大の X・Y・Z の 3 値 */
+  max: number[];
+}
+
+/** 建物の文書が持つ地図への変換の元値。シーンの座標へは適用していない */
+export interface Scene3dMap {
+  /** 地図の座標系の名前。未指定なら持たない */
+  crs_name?: string;
+  /** 東への移動 */
+  eastings: number;
+  /** 北への移動 */
+  northings: number;
+  /** 高さの移動 */
+  height: number;
+  /** 地図の X 軸の横の成分の元値 */
+  x_axis_abscissa?: number;
+  /** 地図の X 軸の縦の成分の元値 */
+  x_axis_ordinate?: number;
+  /** 地図への尺度の元値 */
+  scale?: number;
+}
+
+/** 返した 3D シーンの列の行数。共有するメッシュの点と面は 1 回だけ数える */
+export interface Scene3dCounts {
+  /** 塊 */
+  chunks: number;
+  /** 共有するメッシュ */
+  meshes: number;
+  /** メッシュの配置 */
+  instances: number;
+  /** 要素と参照先の階。形のない行も含む */
+  elements: number;
+  /** 色 */
+  colors: number;
+  /** 局所の頂点 */
+  vertices: number;
+  /** 三角形 */
+  triangles: number;
+  /** 形の稜線 */
+  edges: number;
+}
+
+/** 3D シーンの座標・許容差・行数と blob の番号 */
+export interface Scene3dResult {
+  /** 元の建物の文書名 */
+  doc: string;
+  /** シーンの座標と許容差の長さの単位 */
+  unit: BuildingUnit;
+  /** 文書の地図への変換。なければ持たない */
+  map?: Scene3dMap;
+  /** 曲線の評価へ渡した文書単位の弦の誤差。f32 への丸めのずれは別の診断で返す */
+  tolerance: number;
+  /** 要求の断面の箱。なければ持たない */
+  box?: Scene3dBox;
+  /** 返した塊の文書単位の範囲。形がなければ持たない */
+  extent?: Scene3dBox;
+  /** シーンの行数 */
+  counts: Scene3dCounts;
+  /** 種類が scene3d の blob の番号。zm_take で取り出す */
+  blob: number;
+}
+
 /** 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から */
 export interface RenderRequest extends RequestCommon {
   /** op の名前 */
@@ -3103,13 +3188,14 @@ export interface Blob {
   size: number;
 }
 
-/** バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から） */
+/** バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、scene3d は 3D のシーン（schema/scene3d.toml の配置）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から） */
 export type BlobKind =
   | "file"
   | "image"
   | "scene"
   | "arrow"
   | "drawing"
+  | "scene3d"
   | (string & {});
 
 /** zm_session_new に渡す設定。渡さなければ既定の設定 */
@@ -3894,6 +3980,7 @@ export interface Operations {
   convert_estimate: { request: ConvertEstimateRequest; result: ConvertEstimateResult };
   tables: { request: TablesRequest; result: TablesResult };
   scene: { request: SceneRequest; result: SceneResult };
+  scene3d: { request: Scene3dRequest; result: Scene3dResult };
   check: { request: CheckRequest; result: CheckResult };
   validate: { request: ValidateRequest; result: ValidateResult };
   review_carry: { request: ReviewCarryRequest; result: ReviewCarryResult };

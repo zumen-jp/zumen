@@ -72,6 +72,11 @@ fn is_snake(text: &str) -> bool {
 
 /// 定義の誤りを返す
 pub fn check(scene: &Scene) -> Vec<String> {
+    check_with_width(scene, 4)
+}
+
+/// 3D の 3 行 4 列も受け付ける。2D の上限は既存の入口で保つ。
+pub fn check_with_width(scene: &Scene, max_width: u32) -> Vec<String> {
     let mut errors = Vec::new();
     if scene.versions.major == 0 {
         errors.push("versions.major は 1 から".to_string());
@@ -93,8 +98,8 @@ pub fn check(scene: &Scene) -> Vec<String> {
                 section.ty
             ));
         }
-        if !(1..=4).contains(&section.width) {
-            errors.push(format!("セクション `{name}`: width は 1〜4"));
+        if !(1..=max_width).contains(&section.width) {
+            errors.push(format!("セクション `{name}`: width は 1〜{max_width}"));
         }
         if section.description.trim().is_empty() {
             errors.push(format!("セクション `{name}`: 説明がない"));
@@ -143,11 +148,27 @@ pub fn check(scene: &Scene) -> Vec<String> {
 
 /// `crates/zumen-scene/src/layout.rs` の中身を作る。rustfmt で整える前のもの。
 pub fn render_rust(scene: &Scene) -> String {
+    render_rust_for(
+        scene,
+        "schema/scene.toml",
+        "2D のシーンの配置（決定 0137・0172・0178）。",
+        "ZMSC",
+    )
+}
+
+/// 同じコンテナーの別の種類の配置を、別のモジュールに作る。
+pub fn render_rust_for(scene: &Scene, source: &str, description: &str, magic: &str) -> String {
     let mut out = String::new();
     out.push_str("// 生成したファイル。手で直さない。\n");
-    out.push_str("// 元は schema/scene.toml で、`cargo xtask codegen` で作り直す。\n\n");
-    out.push_str("//! 2D のシーンの配置（決定 0137・0172・0178）。\n\n");
-    out.push_str("/// ヘッダーの始まりの 4 バイト\npub const MAGIC: [u8; 4] = *b\"ZMSC\";\n");
+    let _ = write!(
+        out,
+        "// 元は {source} で、`cargo xtask codegen` で作り直す。\n\n"
+    );
+    let _ = write!(out, "//! {description}\n\n");
+    let _ = writeln!(
+        out,
+        "/// ヘッダーの始まりの 4 バイト\npub const MAGIC: [u8; 4] = *b\"{magic}\";"
+    );
     let _ = writeln!(
         out,
         "/// メジャーバージョン。セクションの意味を変えるときに上げる\npub const MAJOR: u16 = {};",

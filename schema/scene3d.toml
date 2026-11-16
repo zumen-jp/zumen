@@ -1,0 +1,139 @@
+# 3D のシーンの配置（#417・#421）。ZMS3 の独立した blob。
+# 数はリトルエンディアン。16 バイトのヘッダーの後に開始位置・長さ（各 u32）の表を置く。
+# セクションは 8 バイト境界。始まりの列の終わりは次の行、最後は参照先の行数。
+# 番号の「なし」は u32 の最大。未知のセクションは読み飛ばし、追加は末尾に限る。
+# 座標は Z が上で、地図への変換を掛けない。細かさはシーンごとに 1 段。
+
+[versions]
+major = 1
+minor = 0
+
+[[sections]]
+name = "chunk_origins"
+type = "f64"
+width = 3
+description = "塊の原点。プロジェクト空間の文書単位の X・Y・Z"
+
+[[sections]]
+name = "chunk_bounds"
+type = "f32"
+width = 6
+description = "塊の原点からの範囲。X・Y・Z の最小、X・Y・Z の最大"
+
+[[sections]]
+name = "chunk_instances"
+type = "u32"
+width = 1
+description = "塊のインスタンスの始まり。1 要素を複数の塊に分けない"
+
+[[sections]]
+name = "mesh_vertices"
+type = "u32"
+width = 1
+description = "メッシュの頂点の始まり。vertex_xyz の行"
+
+[[sections]]
+name = "mesh_triangles"
+type = "u32"
+width = 1
+description = "メッシュの三角形の始まり。triangle_vertices の行"
+
+[[sections]]
+name = "mesh_edges"
+type = "u32"
+width = 1
+description = "メッシュの稜線の始まり。edge_vertices の行"
+
+[[sections]]
+name = "vertex_xyz"
+type = "f32"
+width = 3
+description = "メッシュの局所座標。文書単位の X・Y・Z"
+
+[[sections]]
+name = "triangle_vertices"
+type = "u32"
+width = 3
+description = "三角形の頂点。所属するメッシュの中の頂点番号"
+
+[[sections]]
+name = "edge_vertices"
+type = "u32"
+width = 2
+description = "稜線の頂点。所属するメッシュの中の頂点番号。三角形の分け目は含めない"
+
+[[sections]]
+name = "instance_meshes"
+type = "u32"
+width = 1
+description = "配置するメッシュ。mesh_vertices の行"
+
+[[sections]]
+name = "instance_elements"
+type = "u32"
+width = 1
+description = "配置の元の要素。element_ids の行"
+
+[[sections]]
+name = "instance_colors"
+type = "u32"
+width = 1
+description = "配置の色。color_rgba の行"
+
+[[sections]]
+name = "instance_transforms"
+type = "f32"
+width = 12
+description = "メッシュから塊の原点に対する座標への変換。行優先の 3 行 4 列"
+
+[[sections]]
+name = "element_ids"
+type = "u32"
+width = 2
+description = "建物モデルの要素の ID。strings の始まりと長さ"
+
+[[sections]]
+name = "element_classes"
+type = "u32"
+width = 2
+description = "要素のクラス。strings の始まりと長さ"
+
+[[sections]]
+name = "element_names"
+type = "u32"
+width = 2
+description = "要素の名前。strings の始まりと長さ。名前がなければ長さ 0"
+
+[[sections]]
+name = "element_storeys"
+type = "u32"
+width = 1
+description = "所属する階。element_ids の行。なければ番号の「なし」"
+
+[[sections]]
+name = "color_rgba"
+type = "f32"
+width = 4
+description = "色の赤・緑・青・不透明度。0〜1。未解決の RGB は 0"
+
+[[sections]]
+name = "color_flags"
+type = "u8"
+width = 1
+description = "色のフラグ。color_flag の値の和"
+
+[[sections]]
+name = "strings"
+type = "u8"
+width = 1
+description = "ID・クラス・名前の UTF-8 のバイト列"
+
+[[values]]
+name = "color_flag"
+type = "u8"
+description = "色の状態"
+
+[[values.items]]
+name = "unresolved"
+value = 1
+description = "色が未解決。読み手が代替色を決める"

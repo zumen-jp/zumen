@@ -61,3 +61,9 @@ cargo test -p zumen-c
 ```
 
 32 bit の Windows では、ヘッダーの呼び出し規約がコアと合わないと、リンクできません。CI は、`i686-pc-windows-msvc` でもこのテストを流し、DLL が飾りのない名前（`zm_call` など）で関数を出すことも確かめます。
+
+## 3D のシーン
+
+C では zumen_scene3d_reader.h の zm_scene3d_read、C++ では zumen::Scene3D::read で ZMS3 を読みます。C の zm_scene3d_instance_at と zm_scene3d_element_id、C++ の instance_element と element_id で建物の要素 ID を引けます。列と文字列は元の blob を借用します。
+
+同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](../../schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。

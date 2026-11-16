@@ -39,6 +39,8 @@ pub enum Request {
     Tables(TablesRequest),
     /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から
     Scene(SceneRequest),
+    /// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+    Scene3d(Scene3dRequest),
     /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。マイナーバージョン 34 から
     Check(CheckRequest),
     /// zm_push で渡した IFC（IFC-SPF か ifcZIP）を、zm_push で渡した EXPRESS のスキーマに照らしてチェックする（決定 0207・0216）。インスタンスの実体の名前・抽象・属性の数・値の型・省略を見る。WHERE・UNIQUE・RULE の規則は評価せず、数を返す。zumen は EXPRESS を同梱しない。マイナーバージョン 42 から
@@ -102,6 +104,7 @@ impl Request {
         "convert_estimate",
         "tables",
         "scene",
+        "scene3d",
         "check",
         "validate",
         "review_carry",
@@ -143,6 +146,7 @@ impl Request {
             Self::ConvertEstimate(_) => "convert_estimate",
             Self::Tables(_) => "tables",
             Self::Scene(_) => "scene",
+            Self::Scene3d(_) => "scene3d",
             Self::Check(_) => "check",
             Self::Validate(_) => "validate",
             Self::ReviewCarry(_) => "review_carry",
@@ -191,6 +195,7 @@ impl FromJson for Request {
             }
             "tables" => Self::Tables(TablesRequest::read_fields(&mut object)?),
             "scene" => Self::Scene(SceneRequest::read_fields(&mut object)?),
+            "scene3d" => Self::Scene3d(Scene3dRequest::read_fields(&mut object)?),
             "check" => Self::Check(CheckRequest::read_fields(&mut object)?),
             "validate" => Self::Validate(ValidateRequest::read_fields(&mut object)?),
             "review_carry" => Self::ReviewCarry(ReviewCarryRequest::read_fields(&mut object)?),
@@ -245,6 +250,7 @@ impl ToJson for Request {
             Self::ConvertEstimate(value) => value.to_json(out),
             Self::Tables(value) => value.to_json(out),
             Self::Scene(value) => value.to_json(out),
+            Self::Scene3d(value) => value.to_json(out),
             Self::Check(value) => value.to_json(out),
             Self::Validate(value) => value.to_json(out),
             Self::ReviewCarry(value) => value.to_json(out),
@@ -9204,6 +9210,385 @@ impl ToJson for SceneRequest {
     }
 }
 
+/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scene3dRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// open で作った建物の文書名
+    pub doc: String,
+    /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない
+    pub storeys: Option<Vec<String>>,
+    /// クラス名。大文字・小文字を区別する。省略は全クラス、空の配列は何も選ばない
+    pub classes: Option<Vec<String>>,
+    /// 建物の要素の ID。省略は全要素、空の配列は何も選ばない。参照する階の行も返す
+    pub ids: Option<Vec<String>>,
+    /// プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う
+    pub r#box: Option<Scene3dBox>,
+    /// 曲線を分ける弦の誤差。文書単位の正の有限値。省略時は 1 mm の予備評価による対象範囲の対角線の 1/50000。空か点だけなら 1 mm 相当
+    pub tolerance: Option<f64>,
+}
+
+impl Scene3dRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "scene3d")?;
+        let doc = object.required("doc", json::string)?;
+        let storeys = object.optional("storeys", |value| json::array(value, json::string))?;
+        let classes = object.optional("classes", |value| json::array(value, json::string))?;
+        let ids = object.optional("ids", |value| json::array(value, json::string))?;
+        let r#box = object.optional("box", Scene3dBox::from_json)?;
+        let tolerance = object.optional("tolerance", json::number)?;
+        Ok(Self {
+            request_common,
+            doc,
+            storeys,
+            classes,
+            ids,
+            r#box,
+            tolerance,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("scene3d");
+        out.key("doc");
+        out.string(&self.doc);
+        if let Some(value) = &self.storeys {
+            out.key("storeys");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.classes {
+            out.key("classes");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.ids {
+            out.key("ids");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.r#box {
+            out.key("box");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.tolerance {
+            out.key("tolerance");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for Scene3dRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Scene3dRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// プロジェクト空間の文書単位の箱。Z が上。地図への変換を掛けない
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scene3dBox {
+    /// 最小の X・Y・Z の 3 値
+    pub min: Vec<f64>,
+    /// 最大の X・Y・Z の 3 値
+    pub max: Vec<f64>,
+}
+
+impl Scene3dBox {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let min = object.required("min", |value| json::array(value, json::number))?;
+        let max = object.required("max", |value| json::array(value, json::number))?;
+        Ok(Self { min, max })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("min");
+        out.array(&self.min, |out, item| out.float(*item));
+        out.key("max");
+        out.array(&self.max, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for Scene3dBox {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Scene3dBox {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 建物の文書が持つ地図への変換の元値。シーンの座標へは適用していない
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scene3dMap {
+    /// 地図の座標系の名前。未指定なら持たない
+    pub crs_name: Option<String>,
+    /// 東への移動
+    pub eastings: f64,
+    /// 北への移動
+    pub northings: f64,
+    /// 高さの移動
+    pub height: f64,
+    /// 地図の X 軸の横の成分の元値
+    pub x_axis_abscissa: Option<f64>,
+    /// 地図の X 軸の縦の成分の元値
+    pub x_axis_ordinate: Option<f64>,
+    /// 地図への尺度の元値
+    pub scale: Option<f64>,
+}
+
+impl Scene3dMap {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let crs_name = object.optional("crs_name", json::string)?;
+        let eastings = object.required("eastings", json::number)?;
+        let northings = object.required("northings", json::number)?;
+        let height = object.required("height", json::number)?;
+        let x_axis_abscissa = object.optional("x_axis_abscissa", json::number)?;
+        let x_axis_ordinate = object.optional("x_axis_ordinate", json::number)?;
+        let scale = object.optional("scale", json::number)?;
+        Ok(Self {
+            crs_name,
+            eastings,
+            northings,
+            height,
+            x_axis_abscissa,
+            x_axis_ordinate,
+            scale,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.crs_name {
+            out.key("crs_name");
+            out.string(value);
+        }
+        out.key("eastings");
+        out.float(self.eastings);
+        out.key("northings");
+        out.float(self.northings);
+        out.key("height");
+        out.float(self.height);
+        if let Some(value) = &self.x_axis_abscissa {
+            out.key("x_axis_abscissa");
+            out.float(*value);
+        }
+        if let Some(value) = &self.x_axis_ordinate {
+            out.key("x_axis_ordinate");
+            out.float(*value);
+        }
+        if let Some(value) = &self.scale {
+            out.key("scale");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for Scene3dMap {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Scene3dMap {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 返した 3D シーンの列の行数。共有するメッシュの点と面は 1 回だけ数える
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scene3dCounts {
+    /// 塊
+    pub chunks: u64,
+    /// 共有するメッシュ
+    pub meshes: u64,
+    /// メッシュの配置
+    pub instances: u64,
+    /// 要素と参照先の階。形のない行も含む
+    pub elements: u64,
+    /// 色
+    pub colors: u64,
+    /// 局所の頂点
+    pub vertices: u64,
+    /// 三角形
+    pub triangles: u64,
+    /// 形の稜線
+    pub edges: u64,
+}
+
+impl Scene3dCounts {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let chunks = object.required("chunks", |value| json::uint(value, 0, 9007199254740991))?;
+        let meshes = object.required("meshes", |value| json::uint(value, 0, 9007199254740991))?;
+        let instances =
+            object.required("instances", |value| json::uint(value, 0, 9007199254740991))?;
+        let elements =
+            object.required("elements", |value| json::uint(value, 0, 9007199254740991))?;
+        let colors = object.required("colors", |value| json::uint(value, 0, 9007199254740991))?;
+        let vertices =
+            object.required("vertices", |value| json::uint(value, 0, 9007199254740991))?;
+        let triangles =
+            object.required("triangles", |value| json::uint(value, 0, 9007199254740991))?;
+        let edges = object.required("edges", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            chunks,
+            meshes,
+            instances,
+            elements,
+            colors,
+            vertices,
+            triangles,
+            edges,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("chunks");
+        out.uint(self.chunks);
+        out.key("meshes");
+        out.uint(self.meshes);
+        out.key("instances");
+        out.uint(self.instances);
+        out.key("elements");
+        out.uint(self.elements);
+        out.key("colors");
+        out.uint(self.colors);
+        out.key("vertices");
+        out.uint(self.vertices);
+        out.key("triangles");
+        out.uint(self.triangles);
+        out.key("edges");
+        out.uint(self.edges);
+    }
+}
+
+impl FromJson for Scene3dCounts {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Scene3dCounts {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 3D シーンの座標・許容差・行数と blob の番号
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scene3dResult {
+    /// 元の建物の文書名
+    pub doc: String,
+    /// シーンの座標と許容差の長さの単位
+    pub unit: BuildingUnit,
+    /// 文書の地図への変換。なければ持たない
+    pub map: Option<Scene3dMap>,
+    /// 曲線の評価へ渡した文書単位の弦の誤差。f32 への丸めのずれは別の診断で返す
+    pub tolerance: f64,
+    /// 要求の断面の箱。なければ持たない
+    pub r#box: Option<Scene3dBox>,
+    /// 返した塊の文書単位の範囲。形がなければ持たない
+    pub extent: Option<Scene3dBox>,
+    /// シーンの行数
+    pub counts: Scene3dCounts,
+    /// 種類が scene3d の blob の番号。zm_take で取り出す
+    pub blob: u64,
+}
+
+impl Scene3dResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let doc = object.required("doc", json::string)?;
+        let unit = object.required("unit", BuildingUnit::from_json)?;
+        let map = object.optional("map", Scene3dMap::from_json)?;
+        let tolerance = object.required("tolerance", json::number)?;
+        let r#box = object.optional("box", Scene3dBox::from_json)?;
+        let extent = object.optional("extent", Scene3dBox::from_json)?;
+        let counts = object.required("counts", Scene3dCounts::from_json)?;
+        let blob = object.required("blob", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            doc,
+            unit,
+            map,
+            tolerance,
+            r#box,
+            extent,
+            counts,
+            blob,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("unit");
+        self.unit.to_json(out);
+        if let Some(value) = &self.map {
+            out.key("map");
+            value.to_json(out);
+        }
+        out.key("tolerance");
+        out.float(self.tolerance);
+        if let Some(value) = &self.r#box {
+            out.key("box");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.extent {
+            out.key("extent");
+            value.to_json(out);
+        }
+        out.key("counts");
+        self.counts.to_json(out);
+        out.key("blob");
+        out.uint(self.blob);
+    }
+}
+
+impl FromJson for Scene3dResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Scene3dResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
 /// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderRequest {
@@ -15273,7 +15658,7 @@ impl ToJson for Blob {
     }
 }
 
-/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
+/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、scene3d は 3D のシーン（schema/scene3d.toml の配置）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BlobKind {
     /// `file`
@@ -15286,6 +15671,8 @@ pub enum BlobKind {
     Arrow,
     /// `drawing`
     Drawing,
+    /// `scene3d`
+    Scene3d,
 }
 
 impl BlobKind {
@@ -15296,6 +15683,7 @@ impl BlobKind {
         Self::Scene,
         Self::Arrow,
         Self::Drawing,
+        Self::Scene3d,
     ];
 
     /// JSON での名前
@@ -15306,6 +15694,7 @@ impl BlobKind {
             Self::Scene => "scene",
             Self::Arrow => "arrow",
             Self::Drawing => "drawing",
+            Self::Scene3d => "scene3d",
         }
     }
 
@@ -15317,6 +15706,7 @@ impl BlobKind {
             "scene" => Some(Self::Scene),
             "arrow" => Some(Self::Arrow),
             "drawing" => Some(Self::Drawing),
+            "scene3d" => Some(Self::Scene3d),
             _ => None,
         }
     }

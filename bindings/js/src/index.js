@@ -9,6 +9,8 @@ import { ABI_VERSION, STATUS, WASM_EXPORTS } from "./constants.js";
 
 export * from "./constants.js";
 export { Scene, readScene } from "./scene.js";
+export { Scene3D, readScene3D } from "./scene3d.js";
+export * from "./scene3d-layout.js";
 export { detect, modulesWith } from "./modules.js";
 
 import { Modules } from "./modules.js";

@@ -4,7 +4,7 @@
 // 引数で受け取る。組の手順の状態と応答の値を確かめ、ハッシュの一覧を返す。一覧を hashes.txt と比べるのは呼んだ側。
 
 import { ACTIONS, bytesOf, checkResponse, pushOf, requestOf } from "../../conformance/steps.mjs";
-import { SCENE_MAJOR, SCENE_SECTIONS, SCHEMA_MAJOR, ZumenError, readScene } from "../src/index.js";
+import { SCENE_MAJOR, SCENE_SECTIONS, SCHEMA_MAJOR, ZumenError, readScene, readScene3D } from "../src/index.js";
 
 /** API の関数を呼び、状態の名前と、書かれたバイト列を返す */
 function attempt(fn) {
@@ -19,7 +19,26 @@ function attempt(fn) {
 }
 
 /** シーンの blob をリーダーで読み、応答の数と合うかを確かめる */
+function checkScene3D(at, blob, result, failures) {
+  try {
+    const scene = readScene3D(blob);
+    for (const [name, column] of [["chunks", "chunk_origins"], ["meshes", "mesh_vertices"], ["instances", "instance_meshes"], ["elements", "element_ids"], ["colors", "color_rgba"], ["vertices", "vertex_xyz"], ["triangles", "triangle_vertices"], ["edges", "edge_vertices"]]) {
+      if (scene.rows(column) !== result.counts[name]) throw new Error(name + " count mismatch");
+    }
+    for (let row = 0; row < scene.rows("instance_meshes"); row += 1) {
+      const instance = scene.instance(row);
+      const element = scene.element(instance.element);
+      if (scene.elementById(element.id) !== instance.element) throw new Error("element ID mismatch");
+      scene.mesh(instance.mesh);
+      scene.color(instance.color);
+    }
+  } catch (error) {
+    failures.push(at + ": 3D のシーンを読めない: " + error.message);
+  }
+}
+
 function checkScene(at, blob, result, failures) {
+  if (blob[3] === 0x33) return checkScene3D(at, blob, result, failures);
   let scene;
   try {
     scene = readScene(blob);
@@ -122,7 +141,7 @@ export async function runConformance({ zumen: base, cases, readSample, sha256, p
       }
       const response = JSON.parse(new TextDecoder().decode(data));
       checkResponse(at, step, response, failures);
-      const blob = response.blobs?.find((entry) => entry.kind === "scene");
+      const blob = response.blobs?.find((entry) => ["scene", "scene3d"].includes(entry.kind));
       lastScene = blob && response.result ? { ...response.result, blob: blob.id } : null;
     }
     // 動いている呼び出しがないので、何もしない

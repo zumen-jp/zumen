@@ -3677,3 +3677,52 @@ params = { reason = "key" }
 group-by = ["reason"]
 since = "0.3.0"
 status = "active"
+
+[codes."scene3d.tolerance.approximated"]
+description = "建物の 3D シーンの曲線を、この文書単位の弦の誤差で評価した"
+severity = "info"
+fidelity = "approximated"
+params = { tolerance = "float" }
+group-by = ["tolerance"]
+since = "0.3.0"
+status = "active"
+
+[codes."scene3d.coordinate.approximated"]
+description = "3D シーンの局所座標と変換を f32 へ丸めた。error は文書単位の頂点のずれの最大値"
+severity = "info"
+fidelity = "approximated"
+params = { error = "float" }
+group-by = ["error"]
+since = "0.3.0"
+status = "active"
+
+[codes."scene3d.color.missing"]
+description = "要素の面の色か透明度が取得できないため、読み手が代替色を決める未解決の色にした"
+severity = "info"
+fidelity = "drawn"
+since = "0.3.0"
+status = "active"
+
+[codes."scene3d.shape.dropped"]
+description = "3D シーンの列で表せない形を除き、元の要素の ID は保った"
+severity = "warning"
+fidelity = "dropped"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."scene3d.storey.invalid"]
+description = "所属先に循環か不正な参照があるため、3D シーンの階を不明にした"
+severity = "warning"
+fidelity = "dropped"
+since = "0.3.0"
+status = "active"
+
+[codes."scene3d.value.invalid"]
+description = "3D シーンの生成に必要な値を解けないため、シーンを返さなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"

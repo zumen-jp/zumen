@@ -346,7 +346,8 @@ impl Building {
         self.element(element).map(Element::id)
     }
 
-    pub(crate) fn place(&self, element: ElementRef) -> Ref {
+    /// 診断に付ける要素の ID。呼び出し側で文書名や元の項目の位置を加えられる。
+    pub fn place(&self, element: ElementRef) -> Ref {
         match self.id(element) {
             Some(id) => Ref::default().with_id(id.to_string()),
             None => Ref::default(),

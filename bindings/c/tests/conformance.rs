@@ -23,6 +23,7 @@ struct Side {
     call: unsafe extern "C" fn(*mut c_void, *const u8, usize) -> i32,
     take: unsafe extern "C" fn(*mut c_void, u32) -> i32,
     output: unsafe extern "C" fn(*const c_void, *mut *const u8, *mut usize),
+    read3d: unsafe extern "C" fn(*const u8, usize, *mut u64) -> i32,
 }
 
 const C: Side = Side {
@@ -33,6 +34,7 @@ const C: Side = Side {
     call: zumen_c::zumen_c_engine_call,
     take: zumen_c::zumen_c_engine_take,
     output: zumen_c::zumen_c_engine_output,
+    read3d: zumen_c::zumen_c_read_scene3d,
 };
 
 const CPP: Side = Side {
@@ -43,6 +45,7 @@ const CPP: Side = Side {
     call: zumen_c::zumen_cpp_engine_call,
     take: zumen_c::zumen_cpp_engine_take,
     output: zumen_c::zumen_cpp_engine_output,
+    read3d: zumen_c::zumen_cpp_read_scene3d,
 };
 
 /// 直前の応答が返したシーンの blob の番号と数
@@ -91,6 +94,43 @@ impl Native {
     }
 
     fn check_scene(&self, scenes: &mut Scenes, last: &LastScene, blob: &[u8]) {
+        if blob.starts_with(b"ZMS3") {
+            let mut counts = [0_u64; 8];
+            let status =
+                unsafe { (self.side.read3d)(blob.as_ptr(), blob.len(), counts.as_mut_ptr()) };
+            if status != 0 {
+                scenes
+                    .failures
+                    .push("3D のシーンの列か参照を引けない".into());
+                return;
+            }
+            scenes.read += 1;
+            for (name, actual) in [
+                "chunks",
+                "meshes",
+                "instances",
+                "elements",
+                "colors",
+                "vertices",
+                "triangles",
+                "edges",
+            ]
+            .into_iter()
+            .zip(counts)
+            {
+                let expected = match last.counts.pointer(&format!("/{name}")) {
+                    Some(Value::Number(n)) => n.to_safe_integer(),
+                    _ => None,
+                };
+                if expected != i64::try_from(actual).ok() {
+                    scenes.failures.push(format!("3D の {name} の数が合わない"));
+                }
+            }
+            return;
+        }
+        if std::ptr::eq(self.side, &C) {
+            return;
+        }
         let mut counts = SceneCounts::default();
         if unsafe { zumen_c::zumen_cpp_read_scene(blob.as_ptr(), blob.len(), &mut counts) } != 0 {
             scenes
@@ -176,7 +216,9 @@ impl Engine for Native {
                 };
                 let blob = blobs.iter().find_map(|blob| {
                     match (blob.pointer("/kind"), blob.pointer("/id")) {
-                        (Some(Value::String(kind)), Some(Value::Number(id))) if kind == "scene" => {
+                        (Some(Value::String(kind)), Some(Value::Number(id)))
+                            if kind == "scene" || kind == "scene3d" =>
+                        {
                             id.to_safe_integer().and_then(|id| u32::try_from(id).ok())
                         }
                         _ => None,
@@ -217,9 +259,14 @@ fn check(report: Report) {
 
 #[test]
 fn c_runs_the_cases_through_the_header() {
-    check(run(&cases().unwrap(), || {
-        Box::new(Native::new(&C, None)) as Box<dyn Engine>
+    let scenes = Rc::new(RefCell::new(Scenes::default()));
+    let shared = scenes.clone();
+    check(run(&cases().unwrap(), move || {
+        Box::new(Native::new(&C, Some(shared.clone()))) as Box<dyn Engine>
     }));
+    let scenes = scenes.borrow();
+    assert!(scenes.failures.is_empty(), "{:?}", scenes.failures);
+    assert!(scenes.read > 0, "3D のシーンを読んでいない");
 }
 
 #[test]

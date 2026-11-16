@@ -132,6 +132,11 @@ public final class Messages {
             return "scene".equals(json.get("op")) ? new SceneRequest(json) : null;
         }
 
+        /** op が scene3d の形なら、そのビュー。違えば null */
+        public Scene3dRequest asScene3dRequest() {
+            return "scene3d".equals(json.get("op")) ? new Scene3dRequest(json) : null;
+        }
+
         /** op が check の形なら、そのビュー。違えば null */
         public CheckRequest asCheckRequest() {
             return "check".equals(json.get("op")) ? new CheckRequest(json) : null;
@@ -10104,6 +10109,509 @@ public final class Messages {
         }
     }
 
+    /** 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から */
+    public static final class Scene3dRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public Scene3dRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static Scene3dRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new Scene3dRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public Scene3dRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "scene3d");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** open で作った建物の文書名 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 所属する階の要素の ID。省略は全階、空の配列は何も選ばない */
+        public List<String> getStoreys() {
+            return Json.read(json.get("storeys"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getStoreys()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withStoreys(List<String> value) {
+            put("storeys", value);
+            return this;
+        }
+
+        /** クラス名。大文字・小文字を区別する。省略は全クラス、空の配列は何も選ばない */
+        public List<String> getClasses() {
+            return Json.read(json.get("classes"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getClasses()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withClasses(List<String> value) {
+            put("classes", value);
+            return this;
+        }
+
+        /** 建物の要素の ID。省略は全要素、空の配列は何も選ばない。参照する階の行も返す */
+        public List<String> getIds() {
+            return Json.read(json.get("ids"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getIds()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withIds(List<String> value) {
+            put("ids", value);
+            return this;
+        }
+
+        /** プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う */
+        public Scene3dBox getBox() {
+            return Json.read(json.get("box"), Scene3dBox::of);
+        }
+
+        /** {@link #getBox()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withBox(Scene3dBox value) {
+            put("box", value);
+            return this;
+        }
+
+        /** 曲線を分ける弦の誤差。文書単位の正の有限値。省略時は 1 mm の予備評価による対象範囲の対角線の 1/50000。空か点だけなら 1 mm 相当 */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public Scene3dRequest withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+    }
+
+    /** プロジェクト空間の文書単位の箱。Z が上。地図への変換を掛けない */
+    public static final class Scene3dBox extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public Scene3dBox(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static Scene3dBox of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new Scene3dBox(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public Scene3dBox() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 最小の X・Y・Z の 3 値 */
+        public List<Double> getMin() {
+            return Json.read(json.get("min"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getMin()} を書く。null ならフィールドを除く */
+        public Scene3dBox withMin(List<Double> value) {
+            put("min", value);
+            return this;
+        }
+
+        /** 最大の X・Y・Z の 3 値 */
+        public List<Double> getMax() {
+            return Json.read(json.get("max"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getMax()} を書く。null ならフィールドを除く */
+        public Scene3dBox withMax(List<Double> value) {
+            put("max", value);
+            return this;
+        }
+    }
+
+    /** 建物の文書が持つ地図への変換の元値。シーンの座標へは適用していない */
+    public static final class Scene3dMap extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public Scene3dMap(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static Scene3dMap of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new Scene3dMap(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public Scene3dMap() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 地図の座標系の名前。未指定なら持たない */
+        public String getCrsName() {
+            return Json.read(json.get("crs_name"), Json::string);
+        }
+
+        /** {@link #getCrsName()} を書く。null ならフィールドを除く */
+        public Scene3dMap withCrsName(String value) {
+            put("crs_name", value);
+            return this;
+        }
+
+        /** 東への移動 */
+        public Double getEastings() {
+            return Json.read(json.get("eastings"), Json::number);
+        }
+
+        /** {@link #getEastings()} を書く。null ならフィールドを除く */
+        public Scene3dMap withEastings(Double value) {
+            put("eastings", value);
+            return this;
+        }
+
+        /** 北への移動 */
+        public Double getNorthings() {
+            return Json.read(json.get("northings"), Json::number);
+        }
+
+        /** {@link #getNorthings()} を書く。null ならフィールドを除く */
+        public Scene3dMap withNorthings(Double value) {
+            put("northings", value);
+            return this;
+        }
+
+        /** 高さの移動 */
+        public Double getHeight() {
+            return Json.read(json.get("height"), Json::number);
+        }
+
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
+        public Scene3dMap withHeight(Double value) {
+            put("height", value);
+            return this;
+        }
+
+        /** 地図の X 軸の横の成分の元値 */
+        public Double getXAxisAbscissa() {
+            return Json.read(json.get("x_axis_abscissa"), Json::number);
+        }
+
+        /** {@link #getXAxisAbscissa()} を書く。null ならフィールドを除く */
+        public Scene3dMap withXAxisAbscissa(Double value) {
+            put("x_axis_abscissa", value);
+            return this;
+        }
+
+        /** 地図の X 軸の縦の成分の元値 */
+        public Double getXAxisOrdinate() {
+            return Json.read(json.get("x_axis_ordinate"), Json::number);
+        }
+
+        /** {@link #getXAxisOrdinate()} を書く。null ならフィールドを除く */
+        public Scene3dMap withXAxisOrdinate(Double value) {
+            put("x_axis_ordinate", value);
+            return this;
+        }
+
+        /** 地図への尺度の元値 */
+        public Double getScale() {
+            return Json.read(json.get("scale"), Json::number);
+        }
+
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
+        public Scene3dMap withScale(Double value) {
+            put("scale", value);
+            return this;
+        }
+    }
+
+    /** 返した 3D シーンの列の行数。共有するメッシュの点と面は 1 回だけ数える */
+    public static final class Scene3dCounts extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public Scene3dCounts(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static Scene3dCounts of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new Scene3dCounts(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public Scene3dCounts() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 塊 */
+        public Long getChunks() {
+            return Json.read(json.get("chunks"), Json::integer);
+        }
+
+        /** {@link #getChunks()} を書く。null ならフィールドを除く */
+        public Scene3dCounts withChunks(Long value) {
+            put("chunks", value);
+            return this;
+        }
+
+        /** 共有するメッシュ */
+        public Long getMeshes() {
+            return Json.read(json.get("meshes"), Json::integer);
+        }
+
+        /** {@link #getMeshes()} を書く。null ならフィールドを除く */
+        public Scene3dCounts withMeshes(Long value) {
+            put("meshes", value);
+            return this;
+        }
+
+        /** メッシュの配置 */
+        public Long getInstances() {
+            return Json.read(json.get("instances"), Json::integer);
+        }
+
+        /** {@link #getInstances()} を書く。null ならフィールドを除く */
+        public Scene3dCounts withInstances(Long value) {
+            put("instances", value);
+            return this;
+        }
+
+        /** 要素と参照先の階。形のない行も含む */
+        public Long getElements() {
+            return Json.read(json.get("elements"), Json::integer);
+        }
+
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
+        public Scene3dCounts withElements(Long value) {
+            put("elements", value);
+            return this;
+        }
+
+        /** 色 */
+        public Long getColors() {
+            return Json.read(json.get("colors"), Json::integer);
+        }
+
+        /** {@link #getColors()} を書く。null ならフィールドを除く */
+        public Scene3dCounts withColors(Long value) {
+            put("colors", value);
+            return this;
+        }
+
+        /** 局所の頂点 */
+        public Long getVertices() {
+            return Json.read(json.get("vertices"), Json::integer);
+        }
+
+        /** {@link #getVertices()} を書く。null ならフィールドを除く */
+        public Scene3dCounts withVertices(Long value) {
+            put("vertices", value);
+            return this;
+        }
+
+        /** 三角形 */
+        public Long getTriangles() {
+            return Json.read(json.get("triangles"), Json::integer);
+        }
+
+        /** {@link #getTriangles()} を書く。null ならフィールドを除く */
+        public Scene3dCounts withTriangles(Long value) {
+            put("triangles", value);
+            return this;
+        }
+
+        /** 形の稜線 */
+        public Long getEdges() {
+            return Json.read(json.get("edges"), Json::integer);
+        }
+
+        /** {@link #getEdges()} を書く。null ならフィールドを除く */
+        public Scene3dCounts withEdges(Long value) {
+            put("edges", value);
+            return this;
+        }
+    }
+
+    /** 3D シーンの座標・許容差・行数と blob の番号 */
+    public static final class Scene3dResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public Scene3dResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static Scene3dResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new Scene3dResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public Scene3dResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の建物の文書名 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public Scene3dResult withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** シーンの座標と許容差の長さの単位 */
+        public BuildingUnit getUnit() {
+            return Json.read(json.get("unit"), BuildingUnit::of);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public Scene3dResult withUnit(BuildingUnit value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** 文書の地図への変換。なければ持たない */
+        public Scene3dMap getMap() {
+            return Json.read(json.get("map"), Scene3dMap::of);
+        }
+
+        /** {@link #getMap()} を書く。null ならフィールドを除く */
+        public Scene3dResult withMap(Scene3dMap value) {
+            put("map", value);
+            return this;
+        }
+
+        /** 曲線の評価へ渡した文書単位の弦の誤差。f32 への丸めのずれは別の診断で返す */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public Scene3dResult withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 要求の断面の箱。なければ持たない */
+        public Scene3dBox getBox() {
+            return Json.read(json.get("box"), Scene3dBox::of);
+        }
+
+        /** {@link #getBox()} を書く。null ならフィールドを除く */
+        public Scene3dResult withBox(Scene3dBox value) {
+            put("box", value);
+            return this;
+        }
+
+        /** 返した塊の文書単位の範囲。形がなければ持たない */
+        public Scene3dBox getExtent() {
+            return Json.read(json.get("extent"), Scene3dBox::of);
+        }
+
+        /** {@link #getExtent()} を書く。null ならフィールドを除く */
+        public Scene3dResult withExtent(Scene3dBox value) {
+            put("extent", value);
+            return this;
+        }
+
+        /** シーンの行数 */
+        public Scene3dCounts getCounts() {
+            return Json.read(json.get("counts"), Scene3dCounts::of);
+        }
+
+        /** {@link #getCounts()} を書く。null ならフィールドを除く */
+        public Scene3dResult withCounts(Scene3dCounts value) {
+            put("counts", value);
+            return this;
+        }
+
+        /** 種類が scene3d の blob の番号。zm_take で取り出す */
+        public Long getBlob() {
+            return Json.read(json.get("blob"), Json::integer);
+        }
+
+        /** {@link #getBlob()} を書く。null ならフィールドを除く */
+        public Scene3dResult withBlob(Long value) {
+            put("blob", value);
+            return this;
+        }
+    }
+
     /** 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から */
     public static final class RenderRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -16925,7 +17433,7 @@ public final class Messages {
     }
 
     /**
-     * バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
+     * バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、scene3d は 3D のシーン（schema/scene3d.toml の配置）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
      *
      * 列挙の値。知らない値も受け取る
      */
@@ -16941,6 +17449,8 @@ public final class Messages {
         public static final String ARROW = "arrow";
 
         public static final String DRAWING = "drawing";
+
+        public static final String SCENE3D = "scene3d";
     }
 
     /** zm_session_new に渡す設定。渡さなければ既定の設定 */
@@ -21254,6 +21764,8 @@ public final class Messages {
         public static final String TABLES = "tables";
 
         public static final String SCENE = "scene";
+
+        public static final String SCENE3D = "scene3d";
 
         public static final String CHECK = "check";
 

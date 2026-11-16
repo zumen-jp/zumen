@@ -29,6 +29,7 @@ from zumen import (
     ZumenError,
     load,
     read_scene,
+    read_scene3d,
 )
 
 REPOSITORY = HERE.parent.parent.parent
@@ -159,8 +160,23 @@ def attempt(fn: Callable[[], Any]) -> Tuple[str, Any]:
         return error.status, error.data
 
 
+def check_scene3d(at: str, blob: bytes, result: dict, failures: List[str]) -> None:
+    try:
+        scene = read_scene3d(blob)
+        for name, column in [('chunks', 'chunk_origins'), ('meshes', 'mesh_vertices'), ('instances', 'instance_meshes'), ('elements', 'element_ids'), ('colors', 'color_rgba'), ('vertices', 'vertex_xyz'), ('triangles', 'triangle_vertices'), ('edges', 'edge_vertices')]:
+            assert scene.rows(column) == result["counts"][name], name
+        for row in range(scene.rows("instance_meshes")):
+            assert scene.element_id(scene.instance_element(row))
+            scene.instance_mesh(row)
+            scene.instance_color(row)
+    except (ValueError, IndexError, AssertionError) as error:
+        failures.append(f"{at}: 3D のシーンを読めない: {error}")
+
+
 def check_scene(at: str, blob: bytes, result: dict, failures: List[str]) -> None:
     """シーンの blob をリーダーで読み、応答の数と合うかを確かめる"""
+    if blob[:4] == b"ZMS3":
+        return check_scene3d(at, blob, result, failures)
     try:
         scene = read_scene(blob)
     except ValueError as error:
@@ -240,7 +256,7 @@ def main() -> int:
                 continue
             response = json.loads(data)
             check_response(at, step, response, failures)
-            blob = next((entry for entry in response.get("blobs", []) if entry.get("kind") == "scene"), None)
+            blob = next((entry for entry in response.get("blobs", []) if entry.get("kind") in ("scene", "scene3d")), None)
             last_scene = dict(response["result"], blob=blob["id"]) if blob and response.get("result") else None
         # 動いている呼び出しがないので、何もしない
         session.cancel()

@@ -72,3 +72,9 @@ dart run tool/test_async.dart ../../target/debug/libzumen_abi1.so
 `tool/conformance.dart` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。毎晩（`nightly.yml`）、Linux x64 で Dart 3.0 と安定版、macOS arm64 と Windows x64 で安定版を流します。
 `tool/test_collections.dart` は、メッセージの配列・辞書の読み書きを確かめます。
 `tool/test_async.dart` は、取り消しとライブラリの相対パスを確かめます。
+
+## 3D のシーン
+
+Scene3D.read(blob) で ZMS3 を読みます。instanceElement と elementId で建物の要素 ID を引けます。u8 は元のバッファーを共有し、u32・f32・f64 は配列へコピーします。
+
+同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](../../schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。

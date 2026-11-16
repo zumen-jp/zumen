@@ -13,7 +13,7 @@ const DIALECT: &str = "https://json-schema.org/draft/2020-12/schema";
 /// 生成せず、コアが手で書く定義
 const HANDWRITTEN: &[&str] = &["response"];
 
-/// Rust の予約語。フィールドの名前に使わない
+/// Rust の予約語。採用済みの 3D の box だけは raw identifier にする。
 const KEYWORDS: &[&str] = &[
     "as", "async", "await", "box", "break", "const", "continue", "crate", "do", "dyn", "else",
     "enum", "extern", "false", "final", "fn", "for", "gen", "if", "impl", "in", "let", "loop",
@@ -442,7 +442,7 @@ impl Reader {
             Some(Value::Object(properties)) => {
                 for (name, schema) in properties.iter() {
                     let field_at = format!("{at}/properties/{name}");
-                    if !is_snake(name) || KEYWORDS.contains(&name) {
+                    if !is_snake(name) || (name != "box" && KEYWORDS.contains(&name)) {
                         self.error(
                             &field_at,
                             "フィールドの名前は英小文字・数字・_ にし、Rust の予約語にしない",
@@ -876,9 +876,9 @@ fn render_object(out: &mut String, def: &Def, fields: &[Field], compose: &[Strin
         doc(out, "    ", &field.description);
         let ty = rust_type(&field.ty);
         if field.required {
-            let _ = writeln!(out, "    pub {}: {ty},", field.name);
+            let _ = writeln!(out, "    pub {}: {ty},", rust_field(&field.name));
         } else {
-            let _ = writeln!(out, "    pub {}: Option<{ty}>,", field.name);
+            let _ = writeln!(out, "    pub {}: Option<{ty}>,", rust_field(&field.name));
         }
     }
     out.push_str("}\n\n");
@@ -918,7 +918,7 @@ fn render_object(out: &mut String, def: &Def, fields: &[Field], compose: &[Strin
                 let _ = writeln!(
                     out,
                     "        let {} = object.{method}(\"{}\", {})?;",
-                    field.name,
+                    rust_field(&field.name),
                     field.name,
                     reader(ty)
                 );
@@ -928,7 +928,7 @@ fn render_object(out: &mut String, def: &Def, fields: &[Field], compose: &[Strin
     let names: Vec<&str> = compose
         .iter()
         .map(String::as_str)
-        .chain(data.iter().map(|field| field.name.as_str()))
+        .chain(data.iter().map(|field| rust_field(&field.name)))
         .collect();
     let _ = writeln!(out, "        Ok(Self {{ {} }})\n    }}\n", names.join(", "));
     let out_name = if compose.is_empty() && fields.is_empty() {
@@ -957,14 +957,14 @@ fn render_object(out: &mut String, def: &Def, fields: &[Field], compose: &[Strin
                     out,
                     "        out.key(\"{}\");\n        {};",
                     field.name,
-                    writer(ty, &format!("self.{}", field.name), false)
+                    writer(ty, &format!("self.{}", rust_field(&field.name)), false)
                 );
             }
             ty => {
                 let _ = writeln!(
                     out,
                     "        if let Some(value) = &self.{} {{\n            out.key(\"{}\");\n            {};\n        }}",
-                    field.name,
+                    rust_field(&field.name),
                     field.name,
                     writer(ty, "value", true)
                 );
@@ -983,6 +983,10 @@ fn render_object(out: &mut String, def: &Def, fields: &[Field], compose: &[Strin
             "impl ToJson for {name} {{\n    fn to_json(&self, out: &mut Writer) {{\n        out.begin_object();\n        self.write_fields(out);\n        out.end_object();\n    }}\n}}\n"
         );
     }
+}
+
+fn rust_field(name: &str) -> &str {
+    if name == "box" { "r#box" } else { name }
 }
 
 fn render_enum(out: &mut String, def: &Def, values: &[String]) {
@@ -1278,6 +1282,17 @@ mod tests {
         )
         .unwrap_err();
         assert!(errors.iter().any(|e| e.contains("`pattern`")), "{errors:?}");
+    }
+
+    #[test]
+    fn box_uses_a_raw_rust_identifier_but_keeps_the_wire_name() {
+        let model = schema(r##""region": {"description":"範囲", "type":"object", "properties":{"box":{"description":"箱", "type":"string"}}, "required":["box"], "additionalProperties":false}"##).unwrap();
+        let source = render(&model);
+        assert!(source.contains("pub r#box: String"));
+        assert!(source.contains("let r#box ="));
+        assert!(source.contains("self.r#box"));
+        assert!(source.contains("\"box\""));
+        assert!(!source.contains("\"r#box\""));
     }
 
     #[test]

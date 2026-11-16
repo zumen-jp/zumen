@@ -251,8 +251,30 @@ namespace Zumen.Conformance
         private static long Count(object? counts, string name) => ((JsonNumber)((JsonObject)counts!)[name]!).ToInt64();
 
         /// <summary>シーンの blob をリーダーで読み、応答の数と合うかを確かめる</summary>
+        private static void CheckScene3D(string at, byte[] blob, JsonObject result, List<string> failures)
+        {
+            try
+            {
+                var scene = Scene3D.Read(blob);
+                var pairs = new (string Name, string Column)[] { ("chunks", "chunk_origins"), ("meshes", "mesh_vertices"), ("instances", "instance_meshes"), ("elements", "element_ids"), ("colors", "color_rgba"), ("vertices", "vertex_xyz"), ("triangles", "triangle_vertices"), ("edges", "edge_vertices") };
+                foreach (var (name, column) in pairs)
+                    if (scene.Rows(column) != Count(result["counts"], name)) throw new FormatException(name + " count mismatch");
+                for (var row = 0; row < scene.Rows("instance_meshes"); row++)
+                {
+                    if (scene.ElementId(checked((int)scene.InstanceElement(row))).Length == 0) throw new FormatException("Empty element ID");
+                    scene.InstanceMesh(row);
+                    scene.InstanceColor(row);
+                }
+            }
+            catch (Exception error)
+            {
+                failures.Add(at + ": 3D のシーンを読めない: " + error.Message);
+            }
+        }
+
         private static void CheckScene(string at, byte[] blob, JsonObject result, List<string> failures)
         {
+            if (blob.Length >= 4 && blob[3] == 0x33) { CheckScene3D(at, blob, result, failures); return; }
             Scene scene;
             try
             {
@@ -398,7 +420,7 @@ namespace Zumen.Conformance
                         && result is JsonObject resultMembers)
                     {
                         var scene = ((List<object?>)blobs!).OfType<JsonObject>()
-                            .FirstOrDefault(entry => entry.TryGet("kind", out var kind) && kind as string == "scene");
+                            .FirstOrDefault(entry => entry.TryGet("kind", out var kind) && (kind as string == "scene" || kind as string == "scene3d"));
                         if (scene != null)
                         {
                             lastScene = (((JsonNumber)scene["id"]!).ToInt64(), resultMembers);

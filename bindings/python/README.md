@@ -44,3 +44,9 @@ python3 bindings/python/tests/conformance.py target/debug/libzumen_abi1.so
 ```
 
 `tests/conformance.py` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。CI は、テストの行列（Linux x64・macOS arm64・Windows x64・Windows x86）で、Python 3.9 と最新を分けて流します。
+
+## 3D のシーン
+
+read_scene3d(session.take(response['result']['blob'])) で ZMS3 を読みます。scene.element_id(scene.instance_element(0)) から建物の要素 ID を引けます。columns と rows で型付きの列を読み、リトルエンディアンでは元の blob を共有します。
+
+同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](../../schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。

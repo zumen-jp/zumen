@@ -232,3 +232,9 @@ node bindings/js/test/browser/bundle.mjs target/wasm32-unknown-unknown/release/z
 ```
 
 この検査の前に、各 feature を `cargo build -p zumen-abi --target wasm32-unknown-unknown --release --no-default-features --features drawing` などで作り、出力を上の名前で保存します。最後に全体版を既定の feature で作ります。
+
+## 3D のシーン
+
+readScene3D(session.take(response.result.blob)) で ZMS3 を読みます。scene.element(scene.instance(0).element).id から建物の要素 ID を引けます。既定の確保量 256 MiB と作業量 100,000,000 は、第二引数の maxAllocatedBytes・maxWork で指定できます。列は可能なら元の blob を共有し、未整列の場合はコピーします。
+
+同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](../../schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。

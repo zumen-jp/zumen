@@ -11,7 +11,19 @@ import {
   load,
   loadModules,
   readScene,
+  readScene3D,
+  type Scene3dResult,
 } from "../src/index.js";
+
+function checkScene3DTypes(blob: Uint8Array, result: Scene3dResult): string | undefined {
+  const scene = readScene3D(blob, { maxAllocatedBytes: 1024 * 1024, maxWork: 100000 });
+  const chunk: Float64Array = scene.chunk(0).origin;
+  const mesh: Uint32Array = scene.mesh(0).triangles;
+  const id: string = scene.element(scene.instance(0).element).id;
+  const row: number | undefined = scene.elementById(id);
+  return result.counts.instances > 0 && chunk.length === 3 && mesh.length > 0 && row !== undefined ? id : undefined;
+}
+void checkScene3DTypes;
 import { loadBundled } from "../src/node.js";
 import { wasmUrls } from "../src/wasm.js";
 

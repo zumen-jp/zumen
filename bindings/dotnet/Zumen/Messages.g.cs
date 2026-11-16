@@ -54,6 +54,7 @@ namespace Zumen.Messages
             ["convert_estimate"] = typeof(ConvertEstimateRequest),
             ["tables"] = typeof(TablesRequest),
             ["scene"] = typeof(SceneRequest),
+            ["scene3d"] = typeof(Scene3dRequest),
             ["check"] = typeof(CheckRequest),
             ["validate"] = typeof(ValidateRequest),
             ["review_carry"] = typeof(ReviewCarryRequest),
@@ -5065,6 +5066,258 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+    /// </summary>
+    public sealed record Scene3dRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "scene3d";
+
+        /// <summary>
+        /// open で作った建物の文書名
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない
+        /// </summary>
+        [JsonPropertyName("storeys")]
+        public IReadOnlyList<string>? Storeys { get; init; }
+
+        /// <summary>
+        /// クラス名。大文字・小文字を区別する。省略は全クラス、空の配列は何も選ばない
+        /// </summary>
+        [JsonPropertyName("classes")]
+        public IReadOnlyList<string>? Classes { get; init; }
+
+        /// <summary>
+        /// 建物の要素の ID。省略は全要素、空の配列は何も選ばない。参照する階の行も返す
+        /// </summary>
+        [JsonPropertyName("ids")]
+        public IReadOnlyList<string>? Ids { get; init; }
+
+        /// <summary>
+        /// プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う
+        /// </summary>
+        [JsonPropertyName("box")]
+        public Scene3dBox? Box { get; init; }
+
+        /// <summary>
+        /// 曲線を分ける弦の誤差。文書単位の正の有限値。省略時は 1 mm の予備評価による対象範囲の対角線の 1/50000。空か点だけなら 1 mm 相当
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double? Tolerance { get; init; }
+    }
+
+    /// <summary>
+    /// プロジェクト空間の文書単位の箱。Z が上。地図への変換を掛けない
+    /// </summary>
+    public sealed record Scene3dBox
+    {
+        /// <summary>
+        /// 最小の X・Y・Z の 3 値
+        /// </summary>
+        [JsonPropertyName("min")]
+        public IReadOnlyList<double> Min { get; init; } = default!;
+
+        /// <summary>
+        /// 最大の X・Y・Z の 3 値
+        /// </summary>
+        [JsonPropertyName("max")]
+        public IReadOnlyList<double> Max { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 建物の文書が持つ地図への変換の元値。シーンの座標へは適用していない
+    /// </summary>
+    public sealed record Scene3dMap
+    {
+        /// <summary>
+        /// 地図の座標系の名前。未指定なら持たない
+        /// </summary>
+        [JsonPropertyName("crs_name")]
+        public string? CrsName { get; init; }
+
+        /// <summary>
+        /// 東への移動
+        /// </summary>
+        [JsonPropertyName("eastings")]
+        public double Eastings { get; init; }
+
+        /// <summary>
+        /// 北への移動
+        /// </summary>
+        [JsonPropertyName("northings")]
+        public double Northings { get; init; }
+
+        /// <summary>
+        /// 高さの移動
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double Height { get; init; }
+
+        /// <summary>
+        /// 地図の X 軸の横の成分の元値
+        /// </summary>
+        [JsonPropertyName("x_axis_abscissa")]
+        public double? XAxisAbscissa { get; init; }
+
+        /// <summary>
+        /// 地図の X 軸の縦の成分の元値
+        /// </summary>
+        [JsonPropertyName("x_axis_ordinate")]
+        public double? XAxisOrdinate { get; init; }
+
+        /// <summary>
+        /// 地図への尺度の元値
+        /// </summary>
+        [JsonPropertyName("scale")]
+        public double? Scale { get; init; }
+    }
+
+    /// <summary>
+    /// 返した 3D シーンの列の行数。共有するメッシュの点と面は 1 回だけ数える
+    /// </summary>
+    public sealed record Scene3dCounts
+    {
+        /// <summary>
+        /// 塊
+        /// </summary>
+        [JsonPropertyName("chunks")]
+        public ulong Chunks { get; init; }
+
+        /// <summary>
+        /// 共有するメッシュ
+        /// </summary>
+        [JsonPropertyName("meshes")]
+        public ulong Meshes { get; init; }
+
+        /// <summary>
+        /// メッシュの配置
+        /// </summary>
+        [JsonPropertyName("instances")]
+        public ulong Instances { get; init; }
+
+        /// <summary>
+        /// 要素と参照先の階。形のない行も含む
+        /// </summary>
+        [JsonPropertyName("elements")]
+        public ulong Elements { get; init; }
+
+        /// <summary>
+        /// 色
+        /// </summary>
+        [JsonPropertyName("colors")]
+        public ulong Colors { get; init; }
+
+        /// <summary>
+        /// 局所の頂点
+        /// </summary>
+        [JsonPropertyName("vertices")]
+        public ulong Vertices { get; init; }
+
+        /// <summary>
+        /// 三角形
+        /// </summary>
+        [JsonPropertyName("triangles")]
+        public ulong Triangles { get; init; }
+
+        /// <summary>
+        /// 形の稜線
+        /// </summary>
+        [JsonPropertyName("edges")]
+        public ulong Edges { get; init; }
+    }
+
+    /// <summary>
+    /// 3D シーンの座標・許容差・行数と blob の番号
+    /// </summary>
+    public sealed record Scene3dResult
+    {
+        /// <summary>
+        /// 元の建物の文書名
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// シーンの座標と許容差の長さの単位
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public BuildingUnit Unit { get; init; } = default!;
+
+        /// <summary>
+        /// 文書の地図への変換。なければ持たない
+        /// </summary>
+        [JsonPropertyName("map")]
+        public Scene3dMap? Map { get; init; }
+
+        /// <summary>
+        /// 曲線の評価へ渡した文書単位の弦の誤差。f32 への丸めのずれは別の診断で返す
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double Tolerance { get; init; }
+
+        /// <summary>
+        /// 要求の断面の箱。なければ持たない
+        /// </summary>
+        [JsonPropertyName("box")]
+        public Scene3dBox? Box { get; init; }
+
+        /// <summary>
+        /// 返した塊の文書単位の範囲。形がなければ持たない
+        /// </summary>
+        [JsonPropertyName("extent")]
+        public Scene3dBox? Extent { get; init; }
+
+        /// <summary>
+        /// シーンの行数
+        /// </summary>
+        [JsonPropertyName("counts")]
+        public Scene3dCounts Counts { get; init; } = default!;
+
+        /// <summary>
+        /// 種類が scene3d の blob の番号。zm_take で取り出す
+        /// </summary>
+        [JsonPropertyName("blob")]
+        public ulong Blob { get; init; }
+    }
+
+    /// <summary>
     /// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から
     /// </summary>
     public sealed record RenderRequest
@@ -8546,7 +8799,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
+    /// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、scene3d は 3D のシーン（schema/scene3d.toml の配置）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
     /// </summary>
     public static class BlobKind
     {
@@ -8560,6 +8813,8 @@ namespace Zumen.Messages
         public const string Arrow = "arrow";
         /// <summary>drawing</summary>
         public const string Drawing = "drawing";
+        /// <summary>scene3d</summary>
+        public const string Scene3d = "scene3d";
     }
 
     /// <summary>
@@ -10764,6 +11019,7 @@ namespace Zumen.Messages
                 ["convert_estimate"] = (typeof(ConvertEstimateRequest), typeof(ConvertEstimateResult)),
                 ["tables"] = (typeof(TablesRequest), typeof(TablesResult)),
                 ["scene"] = (typeof(SceneRequest), typeof(SceneResult)),
+                ["scene3d"] = (typeof(Scene3dRequest), typeof(Scene3dResult)),
                 ["check"] = (typeof(CheckRequest), typeof(CheckResult)),
                 ["validate"] = (typeof(ValidateRequest), typeof(ValidateResult)),
                 ["review_carry"] = (typeof(ReviewCarryRequest), typeof(ReviewCarryResult)),

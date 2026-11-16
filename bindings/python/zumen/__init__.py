@@ -28,6 +28,8 @@ from .constants import (
     Buf,
 )
 from .scene import Scene, read_scene
+from .scene3d import Scene3D, read_scene3d
+from .scene3d_layout import SCENE3D_MAJOR, SCENE3D_MINOR, SCENE3D_SECTIONS, SCENE3D_VALUES
 
 __all__ = [
     "ABI_VERSION",
@@ -45,6 +47,12 @@ __all__ = [
     "ZumenError",
     "load",
     "read_scene",
+    "Scene3D",
+    "read_scene3d",
+    "SCENE3D_MAJOR",
+    "SCENE3D_MINOR",
+    "SCENE3D_SECTIONS",
+    "SCENE3D_VALUES",
 ]
 
 BytesLike = Union[str, bytes, bytearray, memoryview, None]

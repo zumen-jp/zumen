@@ -1,0 +1,24 @@
+[package]
+name = "zumen-scene3d"
+description = "建物モデルから 3D のシーンを作り、メッシュと配置を列のバッファーで渡す"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[dependencies]
+# 長さの計算を各環境でそろえる。
+libm = { version = "0.2.16", default-features = false }
+# 既存の建物モデルと同じ純 Rust の BLAKE3。共有候補を引き、衝突は列の全体で確かめる。
+blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
+zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-building = { version = "0.2.0", path = "../zumen-building" }
+zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zumen-ifc = { path = "../zumen-ifc", default-features = false, features = ["building"] }
+zumen-sdk = { path = "../zumen-sdk" }

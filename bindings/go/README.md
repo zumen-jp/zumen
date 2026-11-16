@@ -67,3 +67,9 @@ cd bindings/go && go test ./...
 ```
 
 `conformance_test.go` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。`input_test.go` は、新旧の関数の経路、空の入力と追記、失敗時の解放、32 MiB の入力を渡したときのメモリの削減と中断を確かめます。PR ごとに Go 1.26、毎晩（`nightly.yml`）に Go 1.26 と 1.27 を Linux で流します。
+
+## 3D のシーン
+
+ReadScene3D(blob) で ZMS3 を読みます。InstanceElement と ElementID で建物の要素 ID を引けます。U8 は元の blob を共有し、U32・F32・F64 は配列へコピーします。
+
+同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](../../schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。

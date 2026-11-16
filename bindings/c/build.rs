@@ -7,6 +7,8 @@ fn main() {
     for path in [
         "include/zumen.h",
         "include/zumen_scene.h",
+        "include/zumen_scene3d.h",
+        "include/zumen_scene3d_reader.h",
         "include/zumen.hpp",
         "tests/smoke.c",
         "tests/smoke.cpp",

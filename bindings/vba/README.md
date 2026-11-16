@@ -19,6 +19,7 @@ VBE の「ファイル」→「ファイルのインポート」で、次の 4 �
 - `ZumenRuntime.bas`: UTF-8・バイト列・TSV の変換
 - `ZumenSession.cls`: セッションとバッファーの管理
 - `ZumenScene.cls`: 2D のシーンの読み取り
+- `ZumenScene3DLayout.bas`・`ZumenScene3D.cls`: 3D の列と読み取り
 
 ```vb
 Dim session As ZumenSession
@@ -84,3 +85,9 @@ ZumenConformance.ZumenConformance "C:\work\zumen\target\vba-conformance.tsv"
 - [Microsoft: WideCharToMultiByte](https://learn.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-widechartomultibyte)・[MultiByteToWideChar](https://learn.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-multibytetowidechar)
 - [Microsoft: BCryptHash](https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcrypthash)・[BCryptOpenAlgorithmProvider](https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptopenalgorithmprovider)
 - [Microsoft: Line Input # の改行](https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/line-inputstatement)・[モジュールと手続きが同名の場合の修飾](https://learn.microsoft.com/en-us/office/vba/access/concepts/error-codes/scoping-and-object-naming-compatibility)
+
+## 3D のシーン
+
+ZumenScene3DLayout.bas と ZumenScene3D.cls を追加して読み込み、ZumenScene3D.Read に Byte() を渡します。InstanceElement と ElementId で建物の要素 ID を引けます。配列はクラス内へコピーし、各列の値は Value で取得します。
+
+同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](../../schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。

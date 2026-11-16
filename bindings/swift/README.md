@@ -54,3 +54,9 @@ sh bindings/swift/test-simulator.sh
 ```
 
 `test-simulator.sh` は、ラッパーとテストを `swiftc` で iOS 15 のシミュレーターに向けて作り、使える iPhone のシミュレーターの 1 つめで `xcrun simctl spawn` で流します。シミュレーターの名前か UDID を引数で選べます。
+
+## 3D のシーン
+
+Scene3D(blob) で ZMS3 を読みます。instanceElement と elementID で建物の要素 ID を引けます。列の取得は Swift の配列へコピーします。
+
+同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](../../schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。

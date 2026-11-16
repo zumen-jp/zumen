@@ -12,6 +12,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { compareHashes, loadCases, readSample } from "../../conformance/cases.mjs";
 import { load, loadSync } from "../src/index.js";
 import { runConformance } from "./run.mjs";
+import "./scene3d.mjs";
 
 const [wasmPath] = process.argv.slice(2);
 if (!wasmPath) {

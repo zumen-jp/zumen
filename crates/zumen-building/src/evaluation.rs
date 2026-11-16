@@ -36,6 +36,11 @@ impl Default for Options {
     }
 }
 
+/// 文書の長さ 1 単位をメートルへ換算する倍率。単位不明をメートルとはみなさない。
+pub fn length_scale(unit: &crate::Unit) -> Result<f64, Failure> {
+    values::unit(Some(unit), "LENGTHUNIT")
+}
+
 /// 1 つの部品。写像だけが違う同じ項目はメッシュを共有する。
 #[derive(Clone, Debug, PartialEq)]
 pub struct MeshPart {

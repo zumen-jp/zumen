@@ -100,3 +100,29 @@ extern "C" std::int32_t zumen_cpp_read_scene(const std::uint8_t *blob, std::size
         return 1;
     }
 }
+
+extern "C" std::int32_t zumen_cpp_read_scene3d(const std::uint8_t *blob, std::size_t len, std::uint64_t *out) {
+    try {
+        const auto scene = zumen::Scene3D::read(blob, len);
+        const std::uint32_t sections[] = {ZM_SCENE3D_SECTION_CHUNK_ORIGINS, ZM_SCENE3D_SECTION_MESH_VERTICES, ZM_SCENE3D_SECTION_INSTANCE_MESHES, ZM_SCENE3D_SECTION_ELEMENT_IDS, ZM_SCENE3D_SECTION_COLOR_RGBA, ZM_SCENE3D_SECTION_VERTEX_XYZ, ZM_SCENE3D_SECTION_TRIANGLE_VERTICES, ZM_SCENE3D_SECTION_EDGE_VERTICES};
+        if (scene.major() != ZM_SCENE3D_MAJOR || scene.sections() != ZM_SCENE3D_SECTION_COUNT) return 1;
+        for (std::size_t column = 0; column < 8; ++column) out[column] = scene.rows(sections[column]);
+        if (scene.chunks() != out[0]) return 1;
+        for (std::size_t row = 0; row < out[2]; ++row) {
+            if (scene.element_id(scene.instance_element(row)).empty()) return 1;
+            scene.instance_mesh(row);
+            scene.instance_color(row);
+        }
+        for (std::uint32_t column = 0; column < ZM_SCENE3D_SECTION_COUNT; ++column) {
+            const auto *definition = zm_scene3d_section_at(column);
+            if (scene.rows(column) == 0) continue;
+            if (definition->type == ZM_SCENE3D_TYPE_F64) scene.column<double>(column).at(0);
+            if (definition->type == ZM_SCENE3D_TYPE_F32) scene.column<float>(column).at(0);
+            if (definition->type == ZM_SCENE3D_TYPE_U32) scene.column<std::uint32_t>(column).at(0);
+            if (definition->type == ZM_SCENE3D_TYPE_U8) scene.column<std::uint8_t>(column).at(0);
+        }
+        try { scene.column<float>(ZM_SCENE3D_SECTION_CHUNK_ORIGINS); return 1; }
+        catch (const std::invalid_argument &) {}
+        return 0;
+    } catch (const std::exception &) { return 1; }
+}

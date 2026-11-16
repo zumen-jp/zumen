@@ -45,6 +45,7 @@ zumen-sdk = { path = "../crates/zumen-sdk" }
 zumen-render = { path = "../crates/zumen-render" }
 zumen-review = { path = "../crates/zumen-review" }
 zumen-scene = { path = "../crates/zumen-scene" }
+zumen-scene3d = { path = "../crates/zumen-scene3d" }
 zumen-sima = { path = "../crates/zumen-sima" }
 zumen-step = { path = "../crates/zumen-step" }
 zumen-sxf = { path = "../crates/zumen-sxf" }
@@ -56,6 +57,13 @@ zumen-zip = { path = "../crates/zumen-zip" }
 
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "scene3d"
+path = "fuzz_targets/scene3d.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "geom3d"

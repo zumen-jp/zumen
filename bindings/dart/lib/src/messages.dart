@@ -58,6 +58,9 @@ class Request extends Message {
   /// op が scene の形なら、そのビュー。違えば null
   SceneRequest? get asSceneRequest => taggedView('op', 'scene', SceneRequest.fromJson);
 
+  /// op が scene3d の形なら、そのビュー。違えば null
+  Scene3dRequest? get asScene3dRequest => taggedView('op', 'scene3d', Scene3dRequest.fromJson);
+
   /// op が check の形なら、そのビュー。違えば null
   CheckRequest? get asCheckRequest => taggedView('op', 'check', CheckRequest.fromJson);
 
@@ -4074,6 +4077,199 @@ class SceneRequest extends Message {
   set heights(Map<String, String>? value) => writeField('heights', value);
 }
 
+/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。マイナーバージョン 82 から
+class Scene3dRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  Scene3dRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  Scene3dRequest() : super({'op': 'scene3d'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// open で作った建物の文書名
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 所属する階の要素の ID。省略は全階、空の配列は何も選ばない
+  List<String>? get storeys => readField('storeys', listOf(asString));
+  set storeys(List<String>? value) => writeField('storeys', value);
+
+  /// クラス名。大文字・小文字を区別する。省略は全クラス、空の配列は何も選ばない
+  List<String>? get classes => readField('classes', listOf(asString));
+  set classes(List<String>? value) => writeField('classes', value);
+
+  /// 建物の要素の ID。省略は全要素、空の配列は何も選ばない。参照する階の行も返す
+  List<String>? get ids => readField('ids', listOf(asString));
+  set ids(List<String>? value) => writeField('ids', value);
+
+  /// プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う
+  Scene3dBox? get box => readField('box', objectOf(Scene3dBox.fromJson));
+  set box(Scene3dBox? value) => writeField('box', value);
+
+  /// 曲線を分ける弦の誤差。文書単位の正の有限値。省略時は 1 mm の予備評価による対象範囲の対角線の 1/50000。空か点だけなら 1 mm 相当
+  double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(double? value) => writeField('tolerance', value);
+}
+
+/// プロジェクト空間の文書単位の箱。Z が上。地図への変換を掛けない
+class Scene3dBox extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  Scene3dBox.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  Scene3dBox() : super({});
+
+  /// 最小の X・Y・Z の 3 値
+  List<double>? get min => readField('min', listOf(asDouble));
+  set min(List<double>? value) => writeField('min', value);
+
+  /// 最大の X・Y・Z の 3 値
+  List<double>? get max => readField('max', listOf(asDouble));
+  set max(List<double>? value) => writeField('max', value);
+}
+
+/// 建物の文書が持つ地図への変換の元値。シーンの座標へは適用していない
+class Scene3dMap extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  Scene3dMap.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  Scene3dMap() : super({});
+
+  /// 地図の座標系の名前。未指定なら持たない
+  String? get crsName => readField('crs_name', asString);
+  set crsName(String? value) => writeField('crs_name', value);
+
+  /// 東への移動
+  double? get eastings => readField('eastings', asDouble);
+  set eastings(double? value) => writeField('eastings', value);
+
+  /// 北への移動
+  double? get northings => readField('northings', asDouble);
+  set northings(double? value) => writeField('northings', value);
+
+  /// 高さの移動
+  double? get height => readField('height', asDouble);
+  set height(double? value) => writeField('height', value);
+
+  /// 地図の X 軸の横の成分の元値
+  double? get xAxisAbscissa => readField('x_axis_abscissa', asDouble);
+  set xAxisAbscissa(double? value) => writeField('x_axis_abscissa', value);
+
+  /// 地図の X 軸の縦の成分の元値
+  double? get xAxisOrdinate => readField('x_axis_ordinate', asDouble);
+  set xAxisOrdinate(double? value) => writeField('x_axis_ordinate', value);
+
+  /// 地図への尺度の元値
+  double? get scale => readField('scale', asDouble);
+  set scale(double? value) => writeField('scale', value);
+}
+
+/// 返した 3D シーンの列の行数。共有するメッシュの点と面は 1 回だけ数える
+class Scene3dCounts extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  Scene3dCounts.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  Scene3dCounts() : super({});
+
+  /// 塊
+  int? get chunks => readField('chunks', asInt);
+  set chunks(int? value) => writeField('chunks', value);
+
+  /// 共有するメッシュ
+  int? get meshes => readField('meshes', asInt);
+  set meshes(int? value) => writeField('meshes', value);
+
+  /// メッシュの配置
+  int? get instances => readField('instances', asInt);
+  set instances(int? value) => writeField('instances', value);
+
+  /// 要素と参照先の階。形のない行も含む
+  int? get elements => readField('elements', asInt);
+  set elements(int? value) => writeField('elements', value);
+
+  /// 色
+  int? get colors => readField('colors', asInt);
+  set colors(int? value) => writeField('colors', value);
+
+  /// 局所の頂点
+  int? get vertices => readField('vertices', asInt);
+  set vertices(int? value) => writeField('vertices', value);
+
+  /// 三角形
+  int? get triangles => readField('triangles', asInt);
+  set triangles(int? value) => writeField('triangles', value);
+
+  /// 形の稜線
+  int? get edges => readField('edges', asInt);
+  set edges(int? value) => writeField('edges', value);
+}
+
+/// 3D シーンの座標・許容差・行数と blob の番号
+class Scene3dResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  Scene3dResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  Scene3dResult() : super({});
+
+  /// 元の建物の文書名
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// シーンの座標と許容差の長さの単位
+  BuildingUnit? get unit => readField('unit', objectOf(BuildingUnit.fromJson));
+  set unit(BuildingUnit? value) => writeField('unit', value);
+
+  /// 文書の地図への変換。なければ持たない
+  Scene3dMap? get map => readField('map', objectOf(Scene3dMap.fromJson));
+  set map(Scene3dMap? value) => writeField('map', value);
+
+  /// 曲線の評価へ渡した文書単位の弦の誤差。f32 への丸めのずれは別の診断で返す
+  double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(double? value) => writeField('tolerance', value);
+
+  /// 要求の断面の箱。なければ持たない
+  Scene3dBox? get box => readField('box', objectOf(Scene3dBox.fromJson));
+  set box(Scene3dBox? value) => writeField('box', value);
+
+  /// 返した塊の文書単位の範囲。形がなければ持たない
+  Scene3dBox? get extent => readField('extent', objectOf(Scene3dBox.fromJson));
+  set extent(Scene3dBox? value) => writeField('extent', value);
+
+  /// シーンの行数
+  Scene3dCounts? get counts => readField('counts', objectOf(Scene3dCounts.fromJson));
+  set counts(Scene3dCounts? value) => writeField('counts', value);
+
+  /// 種類が scene3d の blob の番号。zm_take で取り出す
+  int? get blob => readField('blob', asInt);
+  set blob(int? value) => writeField('blob', value);
+}
+
 /// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から
 class RenderRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -6784,7 +6980,7 @@ class Blob extends Message {
   set size(int? value) => writeField('size', value);
 }
 
-/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
+/// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、scene3d は 3D のシーン（schema/scene3d.toml の配置）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
 ///
 /// 列挙の値。知らない値も受け取る
 abstract final class BlobKind {
@@ -6793,6 +6989,7 @@ abstract final class BlobKind {
   static const scene = 'scene';
   static const arrow = 'arrow';
   static const drawing = 'drawing';
+  static const scene3d = 'scene3d';
 }
 
 /// zm_session_new に渡す設定。渡さなければ既定の設定
@@ -8495,6 +8692,7 @@ abstract final class Operations {
   static const convertEstimate = 'convert_estimate';
   static const tables = 'tables';
   static const scene = 'scene';
+  static const scene3d = 'scene3d';
   static const check = 'check';
   static const validate = 'validate';
   static const reviewCarry = 'review_carry';

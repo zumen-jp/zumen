@@ -48,3 +48,9 @@ java -cp target/java:target/jna/jna.jar dev.zumen.Conformance target/debug/libzu
 ```
 
 `dev.zumen.Conformance` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。毎晩（`nightly.yml`）、Java 8 で Linux x64・macOS arm64・Windows x64・Windows x86 を流します。Android のエミュレーター（API 24、x86_64）でも、同じクラスを d8 で dex にし、`app_process` で流します（`android/run.sh`）。
+
+## 3D のシーン
+
+Scene3D.read(blob) で ZMS3 を読みます。scene.elementId((int)scene.instanceElement(0)) から建物の要素 ID を引けます。列のビューは元の ByteBuffer を共有し、配列への取得はコピーします。
+
+同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](../../schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。

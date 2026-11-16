@@ -20,6 +20,8 @@ zumen-profile = { path = "../crates/zumen-profile" }
 zumen-zip = { path = "../crates/zumen-zip" }
 # SVG の fuzz の合成シーンを、生成した列の配置で作る（#602）
 zumen-scene = { path = "../crates/zumen-scene" }
+# ZMS3 の列と参照を持つ fuzz の合成入力を作る。
+zumen-scene3d = { path = "../crates/zumen-scene3d" }
 # 旧版の赤入れを移すとき、実際の図面のハッシュと現行のレビュー文書の読み書きを使う（決定 0282）
 zumen-drawing = { path = "../crates/zumen-drawing" }
 zumen-review = { path = "../crates/zumen-review" }

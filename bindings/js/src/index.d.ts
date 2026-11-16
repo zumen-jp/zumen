@@ -6,6 +6,8 @@ import type { OpenRequest, Operations, Request, Response, SessionOptions } from 
 export * from "./constants.js";
 export type * from "./messages.js";
 export { Scene, readScene } from "./scene.js";
+export * from "./scene3d.js";
+export * from "./scene3d-layout.js";
 
 /** バイト列 */
 export type Bytes = ArrayBuffer | ArrayBufferView;
