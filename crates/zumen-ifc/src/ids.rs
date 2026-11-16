@@ -7,7 +7,7 @@ use zumen_building::{Building, ElementRef, Literal, Measured, Unit};
 use zumen_ids::{AttributeValue, Lookup, Missing};
 use zumen_sdk::{Cx, Stop};
 
-use crate::building::{MEASURES, decode};
+use crate::building::MEASURES;
 use crate::express::{Base, Layouts};
 use crate::{Express, IfcFile, Value};
 
@@ -43,11 +43,39 @@ pub(crate) fn attributes_from_record_slice(
     slice: &[u8],
     cx: &mut Cx,
 ) -> Result<Option<Vec<(String, AttributeValue)>>, Stop> {
+    attributes_from_text_slice(
+        layouts,
+        building,
+        record,
+        TextSlice {
+            base,
+            slice,
+            shift_jis: false,
+        },
+        cx,
+    )
+}
+
+#[derive(Clone, Copy)]
+struct TextSlice<'a> {
+    base: usize,
+    slice: &'a [u8],
+    shift_jis: bool,
+}
+
+fn attributes_from_text_slice(
+    layouts: &RefCell<Layouts<'_>>,
+    building: &Building,
+    record: &crate::Record,
+    text: TextSlice<'_>,
+    cx: &mut Cx,
+) -> Result<Option<Vec<(String, AttributeValue)>>, Stop> {
     // 複合のインスタンスは、属性の名前が部分ごとに分かれる。まだ引かない
     let [part] = record.parts() else {
         return Ok(None);
     };
-    let kind = String::from_utf8_lossy(slice_at(base, slice, part.name())).to_ascii_uppercase();
+    let kind =
+        String::from_utf8_lossy(slice_at(text.base, text.slice, part.name())).to_ascii_uppercase();
     // 並びは実体ごとに 1 度だけ作り、作る手順をチェックと同じく work で数える
     let (schema, slots) = {
         let Ok(mut layouts) = layouts.try_borrow_mut() else {
@@ -79,8 +107,7 @@ pub(crate) fn attributes_from_record_slice(
             schema.type_name(slot),
             schema.base(slot),
             value,
-            base,
-            slice,
+            text,
             cx,
         )?;
         list.push((name.to_owned(), value));
@@ -105,11 +132,10 @@ fn typed_from_slice(
     type_name: Option<&str>,
     base_kind: Base,
     value: &Value,
-    base: usize,
-    slice: &[u8],
+    text: TextSlice<'_>,
     cx: &mut Cx,
 ) -> Result<AttributeValue, Stop> {
-    let bytes = |range: &core::ops::Range<usize>| slice_at(base, slice, range.clone());
+    let bytes = |range: &core::ops::Range<usize>| slice_at(text.base, text.slice, range.clone());
     Ok(match value {
         Value::Null | Value::Derived => AttributeValue::Null,
         Value::Ref(_) => AttributeValue::Reference,
@@ -126,7 +152,9 @@ fn typed_from_slice(
                 _ => Literal::Enumeration(name),
             })
         }
-        Value::Text { raw, .. } => AttributeValue::Literal(Literal::Text(decode(bytes(raw)).0)),
+        Value::Text { raw, .. } => AttributeValue::Literal(Literal::Text(
+            crate::text::decode(bytes(raw), text.shift_jis).text,
+        )),
         Value::Number(range) => {
             let Ok(text) = core::str::from_utf8(bytes(range)) else {
                 return Ok(AttributeValue::Reference);
@@ -157,19 +185,17 @@ fn typed_from_slice(
             }
         }
         Value::Typed(part) => {
-            let name =
-                String::from_utf8_lossy(slice_at(base, slice, part.name())).to_ascii_uppercase();
+            let name = String::from_utf8_lossy(slice_at(text.base, text.slice, part.name()))
+                .to_ascii_uppercase();
             match part.args() {
-                [inner] => {
-                    typed_from_slice(building, Some(&name), Base::Other, inner, base, slice, cx)?
-                }
+                [inner] => typed_from_slice(building, Some(&name), Base::Other, inner, text, cx)?,
                 _ => AttributeValue::Reference,
             }
         }
         Value::List(items) => {
             let mut literals = Vec::with_capacity(items.len());
             for item in items {
-                match typed_from_slice(building, type_name, base_kind, item, base, slice, cx)? {
+                match typed_from_slice(building, type_name, base_kind, item, text, cx)? {
                     AttributeValue::Literal(literal) => literals.push(literal),
                     AttributeValue::Measured(measured) => {
                         literals.push(Literal::Real(measured.value))
@@ -217,7 +243,17 @@ impl Lookup for IdsLookup<'_> {
         else {
             return Ok(None);
         };
-        attributes_from_record_slice(layouts, building, record, 0, self.file.source(), cx)
+        attributes_from_text_slice(
+            layouts,
+            building,
+            record,
+            TextSlice {
+                base: 0,
+                slice: self.file.source(),
+                shift_jis: self.file.shift_jis(),
+            },
+            cx,
+        )
     }
 }
 

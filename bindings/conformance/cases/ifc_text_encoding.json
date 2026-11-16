@@ -1,0 +1,329 @@
+{
+  "description": "IFC の文字コードは auto が既定で、iso_8859_1 と shift_jis を明示できる。指定と ID を building_apply の読み直し後にも保つ。元のバイト列・値・診断を各言語と wasm で照らす。入力は自作の IFC4（#540）。",
+  "module": "bim",
+  "steps": [
+    {
+      "push": {
+        "name": "hint.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=IFCWALL('0000000000000000000001',$,'\\X\\83\\X\\65\\X\\83\\X\\58\\X\\83\\X\\67',$,$,$,$,$,.NOTDEFINED.);\n#2=IFCWALL('0000000000000000000002',$,'\\X\\B0',$,$,$,$,$,.NOTDEFINED.);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "push": {
+        "name": "plain.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=IFCWALL('0000000000000000000001',$,'\\X\\B0',$,$,$,$,$,.NOTDEFINED.);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "hint.ifc",
+        "doc": "default"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "default",
+        "components": [
+          "identity"
+        ]
+      },
+      "expect": {
+        "/result/elements/1/identity/name": "ｰ",
+        "/result/elements/1/id": "0000000000000000000002",
+        "/result/elements/0/identity/name": "テスト"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "default",
+        "edits": []
+      },
+      "expect": {
+        "/result/applied": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "default",
+        "components": [
+          "identity"
+        ]
+      },
+      "expect": {
+        "/result/elements/1/identity/name": "ｰ",
+        "/result/elements/1/id": "0000000000000000000002",
+        "/result/elements/0/identity/name": "テスト"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "hint.ifc",
+        "doc": "auto",
+        "ifc_text_encoding": "auto"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "auto",
+        "components": [
+          "identity"
+        ]
+      },
+      "expect": {
+        "/result/elements/1/identity/name": "ｰ",
+        "/result/elements/1/id": "0000000000000000000002",
+        "/result/elements/0/identity/name": "テスト"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "auto",
+        "edits": []
+      },
+      "expect": {
+        "/result/applied": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "auto",
+        "components": [
+          "identity"
+        ]
+      },
+      "expect": {
+        "/result/elements/1/identity/name": "ｰ",
+        "/result/elements/1/id": "0000000000000000000002",
+        "/result/elements/0/identity/name": "テスト"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "hint.ifc",
+        "doc": "iso",
+        "ifc_text_encoding": "iso_8859_1"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "iso",
+        "components": [
+          "identity"
+        ]
+      },
+      "expect": {
+        "/result/elements/1/identity/name": "°",
+        "/result/elements/1/id": "0000000000000000000002"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "iso",
+        "edits": []
+      },
+      "expect": {
+        "/result/applied": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "iso",
+        "components": [
+          "identity"
+        ]
+      },
+      "expect": {
+        "/result/elements/1/identity/name": "°",
+        "/result/elements/1/id": "0000000000000000000002"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "plain.ifc",
+        "doc": "shift",
+        "ifc_text_encoding": "shift_jis"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "shift",
+        "components": [
+          "identity"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/identity/name": "ｰ",
+        "/result/elements/0/id": "0000000000000000000001"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "shift",
+        "edits": []
+      },
+      "expect": {
+        "/result/applied": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "shift",
+        "components": [
+          "identity"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/identity/name": "ｰ",
+        "/result/elements/0/id": "0000000000000000000001"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "plain.ifc",
+        "doc": "no_hint",
+        "ifc_text_encoding": "auto"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "no_hint",
+        "components": [
+          "identity"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/identity/name": "°",
+        "/result/elements/0/id": "0000000000000000000001"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "no_hint",
+        "edits": []
+      },
+      "expect": {
+        "/result/applied": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "no_hint",
+        "components": [
+          "identity"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/identity/name": "°",
+        "/result/elements/0/id": "0000000000000000000001"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "hint.ifc",
+        "ifc_text_encoding": "latin1"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/ifc_text_encoding"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "push": {
+        "name": "other",
+        "text": "not IFC"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "other",
+        "ifc_text_encoding": "auto"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/ifc_text_encoding"
+      },
+      "absent": [
+        "/result"
+      ]
+    }
+  ]
+}

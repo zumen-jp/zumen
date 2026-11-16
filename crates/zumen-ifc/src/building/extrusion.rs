@@ -11,7 +11,7 @@ use zumen_building::{
     CurveGraph, CurveKind, CurveRef, Extrusion, IndexedSegment, Measured, ProfileExtrusion, Unit,
 };
 
-use super::{Version, arg, curve::parallel, decode, reference};
+use super::{Version, arg, curve::parallel, reference};
 use crate::{
     Cx, Diagnostic, Error, IfcFile, Kind, Record, ShapeNode, Value, at_bytes, codes, stopped,
 };
@@ -993,7 +993,7 @@ impl<'f> Reader<'f, '_, '_> {
             Some(Value::Text { raw, .. }) => {
                 self.check(Kind::Work, raw.len() as u64)?;
                 self.alloc(raw.len(), 12)?;
-                let (name, invalid) = decode(self.file.bytes(raw.clone()));
+                let (name, invalid) = self.file.decode_text(self.file.bytes(raw.clone()));
                 if invalid {
                     self.cx.report(
                         Diagnostic::new(codes::IFC_TEXT_INVALID).at(at_bytes(record.span())),

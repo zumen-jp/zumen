@@ -6,7 +6,7 @@ use zumen_building::{
     ContextPlacement, GeometricContext, RepresentationContext, SubContext, TargetView, Unit,
 };
 
-use super::{Reader, Version, arg, decode, face_length_unit};
+use super::{Reader, Version, arg, face_length_unit};
 use crate::{Cx, Diagnostic, Error, IfcFile, Kind, Record, Value, at_bytes, codes};
 
 /// 表現の文脈の元値と単位。意味値と L1 の出所を分ける
@@ -78,7 +78,7 @@ impl<'f> Reader<'f, '_, '_> {
             Some(Value::Text { raw, .. }) => {
                 self.check(Kind::Work, raw.len() as u64)?;
                 self.alloc(raw.len(), 12)?;
-                let (text, invalid) = decode(self.file.bytes(raw.clone()));
+                let (text, invalid) = self.file.decode_text(self.file.bytes(raw.clone()));
                 if invalid {
                     self.cx.report(
                         Diagnostic::new(codes::IFC_TEXT_INVALID).at(at_bytes(record.span())),

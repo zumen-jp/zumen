@@ -224,8 +224,16 @@ pub(crate) fn read(
     // IFC-SPF は SXF と同じ始まりなので先に、ifcZIP は ZIP なので最後に試す（決定 0219）。モジュールには、
     // 持つ形式の判定だけを入れる（決定 0221）
     #[cfg(feature = "bim")]
-    if let Some(model) = building::read_spf(bytes, cx) {
+    if let Some(model) = building::read_spf(bytes, request.ifc_text_encoding.as_ref(), cx) {
         return Opened::building(name, model?, cx);
+    }
+    // 明示した IFC の文字コードを、ほかの形式で黙って捨てない。指定があれば ZIP も IFC として試す（#540）。
+    if request.ifc_text_encoding.is_some() {
+        #[cfg(feature = "bim")]
+        if let Some(model) = building::read_zip(bytes, request.ifc_text_encoding.as_ref(), cx) {
+            return Opened::building(name, model?, cx);
+        }
+        return Err(fail(cx, invalid_value("/ifc_text_encoding")));
     }
     // 名指せる形式は、見分けるマーカーのない xyz（点群のモジュール）と extdm・geojson（土木・地理のモジュール）だけ。
     // ほかの形式は入力から判定する
@@ -370,7 +378,7 @@ pub(crate) fn read(
         ));
     }
     #[cfg(feature = "bim")]
-    if let Some(model) = building::read_zip(bytes, cx) {
+    if let Some(model) = building::read_zip(bytes, request.ifc_text_encoding.as_ref(), cx) {
         return Opened::building(name, model?, cx);
     }
     // コアのどの形式でもなければ、登録した建物の形式のプラグインを順に試す

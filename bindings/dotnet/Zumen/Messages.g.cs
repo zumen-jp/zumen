@@ -377,6 +377,25 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("saf")]
         public string? Saf { get; init; }
+
+        /// <summary>
+        /// IFC-SPF・ifcZIP の 8 ビットのエスケープを読む文字コード。省略時は auto。文書の building_apply 後も指定を保つ。IFC 以外の入力には使えない。マイナーバージョン 76 から
+        /// </summary>
+        [JsonPropertyName("ifc_text_encoding")]
+        public string? IfcTextEncoding { get; init; }
+    }
+
+    /// <summary>
+    /// IFC の文字列の読み方。auto はファイル内に CP932 の手がかりがあれば読み替える。iso_8859_1 は従来の ISO 8859-1 と Unicode、shift_jis は手がかりなしでも CP932 として読める文字列を読み替える。どの指定も元のバイト列を保つ
+    /// </summary>
+    public static class IfcTextEncoding
+    {
+        /// <summary>auto</summary>
+        public const string Auto = "auto";
+        /// <summary>iso_8859_1</summary>
+        public const string Iso88591 = "iso_8859_1";
+        /// <summary>shift_jis</summary>
+        public const string ShiftJis = "shift_jis";
     }
 
     /// <summary>

@@ -4,7 +4,7 @@ use zumen_building::{CurveGraph, Element};
 
 mod owned;
 
-use super::{arg, decode};
+use super::arg;
 use crate::{
     ContextGeometry, Cx, Diagnostic, Error, FacetedFaces, GridAxes, HalfSpaceGeometry, IfcFile,
     ItemPresentation, Kind, MappedShape3, ProductShape, ProfiledExtrusion, Record, RevolvedArea,
@@ -113,7 +113,7 @@ impl IfcFile {
                     Kind::DecodedBytes,
                     (raw.len() as u64).saturating_mul(12).saturating_add(32),
                 )?;
-                let (actual, _) = decode(self.bytes(raw.clone()));
+                let (actual, _) = self.decode_text(self.bytes(raw.clone()));
                 if actual != expected {
                     return Err(invalid(cx, Some(record), "element-source"));
                 }

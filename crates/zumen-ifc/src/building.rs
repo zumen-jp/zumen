@@ -645,6 +645,7 @@ impl<'f> Lifter<'f> {
         cx: &mut Cx,
         geometry: bool,
     ) -> Result<(Building, BTreeMap<u64, Option<Unit>>), Error> {
+        self.file.report_text_encoding(cx)?;
         self.building.document.header = self.header(cx);
         let project = self.find(b"IFCPROJECT");
         if let Some(project) = project {
@@ -739,7 +740,13 @@ impl<'f> Lifter<'f> {
         let Some(Value::Text { raw, .. }) = value else {
             return None;
         };
-        let (text, replaced) = decode(self.file.bytes(raw.clone()));
+        if self.file.shift_jis()
+            && (!self.charge(cx, Kind::Work, raw.len() as u64)
+                || !self.copied(cx, (raw.len() as u64).saturating_mul(12)))
+        {
+            return None;
+        }
+        let (text, replaced) = self.file.decode_text(self.file.bytes(raw.clone()));
         if replaced {
             cx.report(Diagnostic::new(codes::IFC_TEXT_INVALID).at(at_bytes(place.span())));
         }
@@ -1557,7 +1564,9 @@ impl<'f> Lifter<'f> {
             return;
         }
         let global_id = match arg(record, 1) {
-            Some(Value::Text { raw, .. }) => Some(decode(self.file.bytes(raw.clone())).0),
+            Some(Value::Text { raw, .. }) => {
+                Some(self.file.decode_text(self.file.bytes(raw.clone())).0)
+            }
             _ => None,
         };
         if let Some(source) = self.building.source_mut(element) {
@@ -2254,22 +2263,7 @@ pub(crate) fn refs(value: Option<&Value>) -> Vec<u64> {
 
 /// 文字列を戻す。置き換えの文字を使ったかも返す
 pub(crate) fn decode(raw: &[u8]) -> (String, bool) {
-    let mut invalid = false;
-    let mut written = 0usize;
-    let text = zumen_step::decode(raw, |rest| {
-        for len in 2..=4 {
-            if let Some(text) = rest.get(..len).and_then(|b| core::str::from_utf8(b).ok()) {
-                if text == "\u{FFFD}" {
-                    written += 1;
-                }
-                return (text.to_owned(), len);
-            }
-        }
-        invalid = true;
-        (char::REPLACEMENT_CHARACTER.to_string(), 1)
-    });
-    let replaced = text.matches(char::REPLACEMENT_CHARACTER).count() > written;
-    (text, invalid || replaced)
+    crate::text::standard(raw)
 }
 
 /// SI の接頭辞の倍率。面積と体積の単位は、接頭辞を 2 乗・3 乗する

@@ -17,7 +17,7 @@ use zumen_building::{
     SurfaceShading, SurfaceSide, SurfaceStyle,
 };
 
-use super::{Version, arg, decode, reference};
+use super::{Version, arg, reference};
 use crate::{
     Cx, Diagnostic, Error, IfcFile, Kind, Record, ShapeNode, Value, at_bytes, codes, stopped,
 };
@@ -227,7 +227,7 @@ impl<'f> Reader<'f, '_, '_> {
                 self.check(Kind::Work, raw.len() as u64)?;
                 self.alloc(raw.len(), 12)?;
                 self.alloc(1, 32)?;
-                let (name, invalid) = decode(self.file.bytes(raw.clone()));
+                let (name, invalid) = self.file.decode_text(self.file.bytes(raw.clone()));
                 if invalid {
                     self.cx.report(
                         Diagnostic::new(codes::IFC_TEXT_INVALID).at(at_bytes(record.span())),

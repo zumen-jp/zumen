@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use zumen_building::BooleanOperation;
 
-use super::{Category, Version, arg, category, decode, reference};
+use super::{Category, Version, arg, category, reference};
 use crate::{Cx, Diagnostic, Error, IfcFile, Kind, Record, Value, at_bytes, codes, stopped};
 
 /// 取得した ProductShape の nodes 内だけの参照。STEP 番号・要素の ID・意味値ではない。
@@ -272,7 +272,7 @@ impl<'f> Reader<'f, '_, '_> {
         self.check(Kind::Work, raw.len() as u64)?;
         // 置換の文字とエスケープの展開を含め、decode の確保より先に予約する
         self.alloc(raw.len(), 12)?;
-        let (text, invalid) = decode(self.file.bytes(raw));
+        let (text, invalid) = self.file.decode_text(self.file.bytes(raw));
         if invalid {
             self.cx
                 .report(Diagnostic::new(codes::IFC_TEXT_INVALID).at(self.place()));

@@ -1,6 +1,6 @@
 //! IFC2X3 TC1 / IFC4 ADD2 TC1 / IFC4.3 ADD2 の IfcGrid と IfcGridAxis の属性、
 //! unique list、AxisCurve.Dim = 2 と単一の grid への所属を読む。配置・向き・幾何は評価しない。
-use super::{Version, arg, decode, reference};
+use super::{Version, arg, reference};
 use crate::{Cx, Diagnostic, Error, IfcFile, Kind, Record, Value, at_bytes, codes, stopped};
 use std::collections::BTreeSet;
 use zumen_building::{CurveGraph, CurveKind, CurveTrim, GridAxisDefinition, GridLayout, GridSet};
@@ -152,7 +152,7 @@ impl<'f> Reader<'f, '_, '_> {
                 self.check(Kind::Work, raw.len() as u64)?;
                 self.alloc(raw.len(), 12)?;
                 self.alloc(1, 32)?;
-                let (text, invalid) = decode(self.file.bytes(raw.clone()));
+                let (text, invalid) = self.file.decode_text(self.file.bytes(raw.clone()));
                 if invalid {
                     self.cx.report(
                         Diagnostic::new(codes::IFC_TEXT_INVALID).at(at_bytes(self.current.span())),

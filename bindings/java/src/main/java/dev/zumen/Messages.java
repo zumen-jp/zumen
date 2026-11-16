@@ -822,6 +822,32 @@ public final class Messages {
             put("saf", value);
             return this;
         }
+
+        /** IFC-SPF・ifcZIP の 8 ビットのエスケープを読む文字コード。省略時は auto。文書の building_apply 後も指定を保つ。IFC 以外の入力には使えない。マイナーバージョン 76 から */
+        public String getIfcTextEncoding() {
+            return Json.read(json.get("ifc_text_encoding"), Json::string);
+        }
+
+        /** {@link #getIfcTextEncoding()} を書く。null ならフィールドを除く */
+        public OpenRequest withIfcTextEncoding(String value) {
+            put("ifc_text_encoding", value);
+            return this;
+        }
+    }
+
+    /**
+     * IFC の文字列の読み方。auto はファイル内に CP932 の手がかりがあれば読み替える。iso_8859_1 は従来の ISO 8859-1 と Unicode、shift_jis は手がかりなしでも CP932 として読める文字列を読み替える。どの指定も元のバイト列を保つ
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class IfcTextEncoding {
+        private IfcTextEncoding() {}
+
+        public static final String AUTO = "auto";
+
+        public static final String ISO_8859_1 = "iso_8859_1";
+
+        public static final String SHIFT_JIS = "shift_jis";
     }
 
     /** 作った文書 */

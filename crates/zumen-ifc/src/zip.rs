@@ -27,6 +27,12 @@ impl IfcZipFile {
         &self.ifc
     }
 
+    /// 中の IFC-SPF のエスケープの文字コードを指定する。元のアーカイブは変えない。
+    #[cfg(feature = "building")]
+    pub fn set_text_encoding(&mut self, encoding: crate::TextEncoding) {
+        self.ifc.set_text_encoding(encoding);
+    }
+
     #[cfg(feature = "building")]
     pub(crate) fn into_parts(self) -> (Vec<u8>, String, IfcFile) {
         (self.src, self.name, self.ifc)

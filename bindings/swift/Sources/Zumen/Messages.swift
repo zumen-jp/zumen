@@ -546,6 +546,21 @@ public struct OpenRequest: Message {
         get { readField("saf") }
         set { writeField("saf", newValue) }
     }
+
+    /// IFC-SPF・ifcZIP の 8 ビットのエスケープを読む文字コード。省略時は auto。文書の building_apply 後も指定を保つ。IFC 以外の入力には使えない。マイナーバージョン 76 から
+    public var ifcTextEncoding: String? {
+        get { readField("ifc_text_encoding") }
+        set { writeField("ifc_text_encoding", newValue) }
+    }
+}
+
+/// IFC の文字列の読み方。auto はファイル内に CP932 の手がかりがあれば読み替える。iso_8859_1 は従来の ISO 8859-1 と Unicode、shift_jis は手がかりなしでも CP932 として読める文字列を読み替える。どの指定も元のバイト列を保つ
+///
+/// 列挙の値。知らない値も受け取る
+public enum IfcTextEncoding {
+    public static let auto = "auto"
+    public static let iso88591 = "iso_8859_1"
+    public static let shiftJis = "shift_jis"
 }
 
 /// 作った文書

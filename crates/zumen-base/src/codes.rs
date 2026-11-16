@@ -2751,6 +2751,17 @@ pub const IFC_TEXT_INVALID: Code = Code::new(
     &[],
 );
 
+/// IFC のエスケープの 8 ビット値を CP932 として読んだ
+///
+/// `ifc.text.repaired`（0.3.0 から）
+pub const IFC_TEXT_REPAIRED: Code = Code::new(
+    "ifc.text.repaired",
+    Severity::Warning,
+    Some(Fidelity::Equivalent),
+    &[],
+    &[],
+);
+
 /// SI 単位の定義か次元を確認できないので、単位を採用しなかった
 ///
 /// `ifc.unit.invalid`（0.3.0 から）
@@ -5545,6 +5556,7 @@ pub const ALL: &[Code] = &[
     IFC_STYLE_INVALID,
     IFC_STYLE_UNSUPPORTED,
     IFC_TEXT_INVALID,
+    IFC_TEXT_REPAIRED,
     IFC_UNIT_INVALID,
     IFC_UNIT_MISSING,
     IFC_VERSION_UNSUPPORTED,

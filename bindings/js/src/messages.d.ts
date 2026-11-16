@@ -137,7 +137,16 @@ export interface OpenRequest extends RequestCommon {
   format?: string;
   /** SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から */
   saf?: string;
+  /** IFC-SPF・ifcZIP の 8 ビットのエスケープを読む文字コード。省略時は auto。文書の building_apply 後も指定を保つ。IFC 以外の入力には使えない。マイナーバージョン 76 から */
+  ifc_text_encoding?: IfcTextEncoding;
 }
+
+/** IFC の文字列の読み方。auto はファイル内に CP932 の手がかりがあれば読み替える。iso_8859_1 は従来の ISO 8859-1 と Unicode、shift_jis は手がかりなしでも CP932 として読める文字列を読み替える。どの指定も元のバイト列を保つ */
+export type IfcTextEncoding =
+  | "auto"
+  | "iso_8859_1"
+  | "shift_jis"
+  | (string & {});
 
 /** 作った文書 */
 export interface OpenResult {

@@ -9,7 +9,7 @@ use zumen_building::{
     QuantityKind, Relations, SpatialKind, TypedValue, Unit,
 };
 use zumen_ids::{Ids, Report};
-use zumen_ifc::{Edit, Ifc, IfcFile, IfcZip, NewLiteral, NewValue, RootAttribute};
+use zumen_ifc::{Edit, Ifc, IfcFile, IfcZip, NewLiteral, NewValue, RootAttribute, TextEncoding};
 use zumen_sdk::{Codec, Lift};
 
 use crate::messages::{
@@ -46,19 +46,27 @@ pub(crate) struct Model {
 }
 
 /// IFC-SPF なら読む。IFC-SPF でなければ `None`
-pub(crate) fn read_spf(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<Model, Failed>> {
+pub(crate) fn read_spf(
+    bytes: &[u8],
+    encoding: Option<&messages::IfcTextEncoding>,
+    cx: &mut Cx<'_>,
+) -> Option<Result<Model, Failed>> {
     if !Ifc::SIGNATURES.iter().any(|s| s.matches(bytes)) {
         return None;
     }
     Some(
         Ifc::read(bytes, cx)
             .map_err(|_| Failed)
-            .and_then(|file| model(file, bytes, None, cx)),
+            .and_then(|file| model(file, bytes, None, encoding, cx)),
     )
 }
 
 /// ifcZIP なら読む。ZIP でなければ `None`。ZIP の署名はほかの形式とも重なるので、最後に試す
-pub(crate) fn read_zip(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<Model, Failed>> {
+pub(crate) fn read_zip(
+    bytes: &[u8],
+    encoding: Option<&messages::IfcTextEncoding>,
+    cx: &mut Cx<'_>,
+) -> Option<Result<Model, Failed>> {
     if !IfcZip::SIGNATURES.iter().any(|s| s.matches(bytes)) {
         return None;
     }
@@ -67,17 +75,23 @@ pub(crate) fn read_zip(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<Model, Fa
             .map_err(|_| Failed)
             .and_then(|zipped| {
                 let entry = Some(zipped.name().to_owned());
-                model(zipped.ifc().clone(), bytes, entry, cx)
+                model(zipped.ifc().clone(), bytes, entry, encoding, cx)
             }),
     )
 }
 
 fn model(
-    file: IfcFile,
+    mut file: IfcFile,
     bytes: &[u8],
     entry: Option<String>,
+    encoding: Option<&messages::IfcTextEncoding>,
     cx: &mut Cx<'_>,
 ) -> Result<Model, Failed> {
+    file.set_text_encoding(match encoding {
+        None | Some(messages::IfcTextEncoding::Auto) => TextEncoding::Auto,
+        Some(messages::IfcTextEncoding::Iso88591) => TextEncoding::Iso8859_1,
+        Some(messages::IfcTextEncoding::ShiftJis) => TextEncoding::ShiftJis,
+    });
     let building = file.lift(cx).map_err(|_| Failed)?;
     let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
     Ok(Model {
@@ -203,8 +217,10 @@ pub(crate) fn apply(
             diag: &mut scratch,
             cancel: cx.cancel,
         };
-        Ifc::read(&applied.bytes, &mut inner)
-            .and_then(|file| file.lift(&mut inner).map(|building| (file, building)))
+        Ifc::read(&applied.bytes, &mut inner).and_then(|mut file| {
+            file.set_text_encoding(source.text_encoding());
+            file.lift(&mut inner).map(|building| (file, building))
+        })
     };
     let (file, building) = match reread {
         Ok(read) => read,

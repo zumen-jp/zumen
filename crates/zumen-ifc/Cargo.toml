@@ -22,11 +22,13 @@ zumen-civil = { version = "0.2.0", path = "../zumen-civil", optional = true }
 zumen-crs = { version = "0.2.0", path = "../zumen-crs", optional = true }
 # 配置の軸の長さ。std の数学の関数は環境で値が違いうる（決定 0007）
 libm = { version = "0.2.16", default-features = false, optional = true }
+# SXF・JWW と同じ CP932 の表。Rust の実装で OS の文字コードに依存しない。
+encoding_rs = { version = "0.8.35", optional = true }
 
 [features]
 default = ["building", "ids", "civil"]
 # 建物モデル（L2）への変換と常駐の文書エンジン。L1 だけを使うなら外せる
-building = ["dep:zumen-building", "dep:zumen-live", "dep:libm"]
+building = ["dep:zumen-building", "dep:zumen-live", "dep:libm", "dep:encoding_rs"]
 # IDS の照合に、L1 の属性を EXPRESS の名前で渡す（決定 0217）
 ids = ["building", "dep:zumen-ids"]
 # IFC4.3 の線形を、土木の領域モデル（L2、決定 0230）に移す
@@ -34,6 +36,10 @@ civil = ["building", "dep:zumen-civil", "dep:zumen-crs"]
 
 [lints]
 workspace = true
+
+[[example]]
+name = "local_metadata_audit"
+required-features = ["building"]
 
 [dev-dependencies]
 # 公開サンプルの要素の値を、IfcOpenShell と照らす JSON に書く

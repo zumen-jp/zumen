@@ -243,6 +243,14 @@ struct Draft<'f> {
 }
 
 impl<'f> Draft<'f> {
+    fn text_of(&self, item: &Item) -> Option<String> {
+        let Item::Raw(bytes) = item else {
+            return None;
+        };
+        let inner = bytes.strip_prefix(b"'")?.strip_suffix(b"'")?;
+        Some(self.file.decode_text(inner).0)
+    }
+
     fn new(file: &'f IfcFile, seed: &[u8], cx: &mut Cx) -> Result<Self, Error> {
         let inverse = file.inverse(cx)?;
         let mut referrers: BTreeMap<u64, BTreeSet<u64>> = BTreeMap::new();
@@ -450,7 +458,7 @@ impl<'f> Draft<'f> {
         self.kind(pset) == b"IFCPROPERTYSET"
             && self
                 .stmt(pset)
-                .and_then(|stmt| text_of(stmt.arg(3)?))
+                .and_then(|stmt| self.text_of(stmt.arg(3)?))
                 .is_some_and(|name| name == set)
     }
 
@@ -570,7 +578,7 @@ impl<'f> Draft<'f> {
                 .map_err(|stop| stopped(cx, stop, None))?;
             let named = self
                 .stmt(property)
-                .and_then(|stmt| text_of(stmt.arg(1)?))
+                .and_then(|stmt| self.text_of(stmt.arg(1)?))
                 .is_some_and(|text| text == name);
             if named {
                 found = Some(property);

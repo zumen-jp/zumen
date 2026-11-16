@@ -1151,6 +1151,13 @@ fidelity = "approximated"
 since = "0.2.0"
 status = "active"
 
+[codes."ifc.text.repaired"]
+description = "IFC のエスケープの 8 ビット値を CP932 として読んだ"
+severity = "warning"
+fidelity = "equivalent"
+since = "0.3.0"
+status = "active"
+
 [codes."ifc.unit.missing"]
 description = "値の単位が解けないので、単位なしにした"
 severity = "warning"

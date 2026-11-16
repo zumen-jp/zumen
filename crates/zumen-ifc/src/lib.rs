@@ -27,6 +27,8 @@ mod express;
 mod ids;
 #[cfg(feature = "building")]
 mod live;
+#[cfg(feature = "building")]
+mod text;
 mod zip;
 
 #[cfg(feature = "building")]
@@ -49,6 +51,8 @@ pub use ids::IdsLookup;
 pub use live::LiveIdsLookup;
 #[cfg(feature = "building")]
 pub use live::{IfcElementRow, IfcLive};
+#[cfg(feature = "building")]
+pub use text::TextEncoding;
 pub use zip::{IfcZip, IfcZipFile};
 
 /// IFC-SPF のコーデック
@@ -62,6 +66,10 @@ pub struct IfcFile {
     schema: Range<usize>,
     /// インスタンスの番号から、レコードの番号。同じ番号は初めのもの
     index: BTreeMap<u64, usize>,
+    #[cfg(feature = "building")]
+    text_hint: bool,
+    #[cfg(feature = "building")]
+    text_encoding: TextEncoding,
 }
 
 /// 逆向きの参照。インスタンスの番号から、それを参照するインスタンスの番号
@@ -240,11 +248,17 @@ impl Codec for Ifc {
                 }
             }
         }
+        #[cfg(feature = "building")]
+        let text_hint = text::hint(&read.records, src, cx)?;
         let file = IfcFile {
             src: src.to_vec(),
             records: read.records,
             schema,
             index,
+            #[cfg(feature = "building")]
+            text_hint,
+            #[cfg(feature = "building")]
+            text_encoding: TextEncoding::Auto,
         };
         for record in &file.records {
             let references = file.references(record);

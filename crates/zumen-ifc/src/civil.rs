@@ -13,7 +13,7 @@ use zumen_civil::{
 use zumen_crs::{Crs, HeightDatum, MapPoint, Realization, VerticalCrs};
 use zumen_sdk::{Cx, Error, Lift};
 
-use crate::building::{arg, decode, reference, refs};
+use crate::building::{arg, reference, refs};
 use crate::{IfcFile, IfcZipFile, Inverse, Record, Value, at_bytes, stopped};
 
 /// 配置の連鎖をたどる深さの上限
@@ -36,6 +36,7 @@ impl Lift<CivilModel> for IfcFile {
             ));
             return Err(Error::Unsupported);
         }
+        self.report_text_encoding(cx)?;
         let inverse = self.inverse(cx)?;
         let mut lifter = Lifter {
             file: self,
@@ -206,7 +207,7 @@ impl<'f> Lifter<'f> {
         let Some(Value::Text { raw, .. }) = value else {
             return None;
         };
-        let (text, replaced) = decode(self.file.bytes(raw.clone()));
+        let (text, replaced) = self.file.decode_text(self.file.bytes(raw.clone()));
         if replaced {
             cx.report(Diagnostic::new(codes::IFC_TEXT_INVALID).at(at_bytes(place.span())));
         }

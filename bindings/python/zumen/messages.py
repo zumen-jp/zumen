@@ -215,6 +215,8 @@ _OpenRequestOptional = TypedDict(
         "format": str,
         # SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から
         "saf": str,
+        # IFC-SPF・ifcZIP の 8 ビットのエスケープを読む文字コード。省略時は auto。文書の building_apply 後も指定を保つ。IFC 以外の入力には使えない。マイナーバージョン 76 から
+        "ifc_text_encoding": "IfcTextEncoding",
     },
     total=False,
 )
@@ -222,6 +224,16 @@ _OpenRequestOptional = TypedDict(
 
 class OpenRequest(_OpenRequestRequired, _OpenRequestOptional):
     "入力を読んで、文書を作る。形式は入力から判定する"
+
+# IFC の文字列の読み方。auto はファイル内に CP932 の手がかりがあれば読み替える。iso_8859_1 は従来の ISO 8859-1 と Unicode、shift_jis は手がかりなしでも CP932 として読める文字列を読み替える。どの指定も元のバイト列を保つ
+IfcTextEncoding = Union[
+    Literal[
+        "auto",
+        "iso_8859_1",
+        "shift_jis",
+    ],
+    str,
+]
 
 
 # 作った文書

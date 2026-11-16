@@ -659,6 +659,8 @@ pub struct OpenRequest {
     pub format: Option<String>,
     /// SXF の属性ファイル（SAF）を入れた入力の名前。zm_push で渡したもの。属性ファイル用の属性付加機構（$$ATRF$$）の要素に、属性を sxf.saf の拡張で結ぶ（決定 0249）。書かなければ、P2Z・SFZ の中の、図面と同じ名前の SAF を使う。SXF でない入力には使えない。マイナーバージョン 63 から
     pub saf: Option<String>,
+    /// IFC-SPF・ifcZIP の 8 ビットのエスケープを読む文字コード。省略時は auto。文書の building_apply 後も指定を保つ。IFC 以外の入力には使えない。マイナーバージョン 76 から
+    pub ifc_text_encoding: Option<IfcTextEncoding>,
 }
 
 impl OpenRequest {
@@ -670,6 +672,7 @@ impl OpenRequest {
         let size = object.optional("size", |value| json::uint(value, 0, 9007199254740991))?;
         let format = object.optional("format", json::string)?;
         let saf = object.optional("saf", json::string)?;
+        let ifc_text_encoding = object.optional("ifc_text_encoding", IfcTextEncoding::from_json)?;
         Ok(Self {
             request_common,
             input,
@@ -677,6 +680,7 @@ impl OpenRequest {
             size,
             format,
             saf,
+            ifc_text_encoding,
         })
     }
 
@@ -702,6 +706,10 @@ impl OpenRequest {
             out.key("saf");
             out.string(value);
         }
+        if let Some(value) = &self.ifc_text_encoding {
+            out.key("ifc_text_encoding");
+            value.to_json(out);
+        }
     }
 }
 
@@ -719,6 +727,53 @@ impl ToJson for OpenRequest {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// IFC の文字列の読み方。auto はファイル内に CP932 の手がかりがあれば読み替える。iso_8859_1 は従来の ISO 8859-1 と Unicode、shift_jis は手がかりなしでも CP932 として読める文字列を読み替える。どの指定も元のバイト列を保つ
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IfcTextEncoding {
+    /// `auto`
+    Auto,
+    /// `iso_8859_1`
+    Iso88591,
+    /// `shift_jis`
+    ShiftJis,
+}
+
+impl IfcTextEncoding {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Auto, Self::Iso88591, Self::ShiftJis];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Iso88591 => "iso_8859_1",
+            Self::ShiftJis => "shift_jis",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "auto" => Some(Self::Auto),
+            "iso_8859_1" => Some(Self::Iso88591),
+            "shift_jis" => Some(Self::ShiftJis),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for IfcTextEncoding {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for IfcTextEncoding {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 
