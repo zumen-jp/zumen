@@ -10,7 +10,7 @@
   zumen が読めないと言った文とコメント（sxf.record.invalid の範囲）は数えない（「壊れた所」）。
 - zumen の要素の種類（kind）と形が、出所のフィーチャ（SFC）か実体（P21）の種類に合う。P21 の曲線の要素は、出所の
   曲線の実体（トリムした曲線は基の曲線）で決まる種類と形を持つ。
-- SFC: 要素の出所のフィーチャを ezsxf が型で読み、レイヤと、線・円・点マーカーでは形の値が同じ。形のフィールドは両向きに
+- SFC: 要素の出所のフィーチャを ezsxf が型で読み、レイヤと、線・円・点マーカー・作図部品の配置では形の値が同じ。形のフィールドは両向きに
   比べ、ezsxf の読みにレイヤや形があれば、zumen の要素も持つ。用紙の要素は、ezsxf の用紙（drawing_sheet_feature）か、
   そこに置いた作図グループの中にあるか、ezsxf の読みで表示する複合曲線の曲線（ezsxf は複合曲線を置かず、ハッチングの
   境界の定義として持つ。sheet_members）。ezsxf がフィーチャを型で読まない SFC（マーカーが `/*SXF3` など）は、種類
@@ -80,6 +80,7 @@ SHAPES = {
     "spline": {"spline_feature"},
     "point": {"point_marker_feature"},
     "formatted_text": {"text_string_feature"},
+    "symbol": {"sfig_locate_feature"},
     "dimension": FEATURES["dimension"],
     "callout": FEATURES["callout"],
     "hatch": FEATURES["hatch"],
@@ -366,6 +367,14 @@ def feature_geometry(f):
             "position": xy(f["position"]),
             "rotation": f["rotation_angle_deg"],
             "marker": {"namespace": "sxf.marker", "code": str(f["marker_code"]), "scale": f["scale"]},
+        }
+    if f["kind"] == "sfig_locate":
+        return {
+            "shape": "symbol",
+            "name": f["name"],
+            "position": xy(f["position"]),
+            "scale": [f["ratio_x"], f["ratio_y"]],
+            "rotation": f["angle_deg"],
         }
     return None
 

@@ -132,6 +132,72 @@ def check_header_features(folder):
     print("ezsxf がヘッダーから回復したフィーチャを DATA 節の 2 要素の出所にしないことを確認した")
 
 
+def check_symbol_features(folder):
+    """作図部品の名前・配置の全フィールドと、その欠落を外部の型付きの値で検査する。"""
+    paths = [
+        ("input/ezsxf-writer-all-features.sfc", "sheet/0/i17", "部品", [10, 20], [2, 0.5], 30),
+        ("342/ezsxf-writer-all-features.points.sfc", "sheet/0/i17", "部品", [10, 20], [2, 0.5], 30),
+        ("input/made-structure.sfc", "sheet/0/i160", "P", [20, 20], [1, 1], 0),
+    ]
+    mutations = 0
+    for path, where, name, position, scale, rotation in paths:
+        entry, original = kit_case(folder, path)
+        symbols = [e for e in original["entities"] if e["kind"] == "symbol"]
+        expected = {"shape": "symbol", "name": name, "position": position, "scale": scale, "rotation": rotation}
+        if len(symbols) != 1 or symbols[0]["id"] != where or symbols[0].get("geometry") != expected:
+            raise AssertionError(f"{path}: 合成 SFC の作図部品が変わった")
+        index = original["entities"].index(symbols[0])
+
+        def compare(reading, expected_text=None):
+            counts = Counter()
+            failures, _ = check_file(folder, entry, reading, None, counts)
+            if expected_text is None:
+                if failures or counts["shapes"] == 0:
+                    raise AssertionError(f"{path}: 元の作図部品を照合できなかった: {failures}")
+            elif not failures or not any(expected_text in failure for failure in failures):
+                raise AssertionError(f"{path}: {expected_text} の違いを検出できなかった: {failures}")
+
+        compare(original)
+        # X/Y 別の倍率と回転、参照する部品名を独立に変える。値の比較を省いても通る検査にはしない。
+        for field, component in [("name", None), ("position", 0), ("position", 1), ("scale", 0), ("scale", 1), ("rotation", None)]:
+            reading = deepcopy(original)
+            geometry = reading["entities"][index]["geometry"]
+            if component is not None:
+                geometry[field][component] += 1
+            else:
+                geometry[field] = "OTHER" if field == "name" else geometry[field] + 1
+            compare(reading, f"{where}（sfig_locate #{symbols[0]['source']['instance']}）/{field}")
+            mutations += 1
+        for field in expected:
+            reading = deepcopy(original)
+            del reading["entities"][index]["geometry"][field]
+            compare(reading, f"/{field}: zumen の読みにない")
+            mutations += 1
+        for field, expected_text in [("geometry", "要素が形を持たない"), ("layer", "レイヤが")]:
+            reading = deepcopy(original)
+            del reading["entities"][index][field]
+            compare(reading, expected_text)
+            mutations += 1
+        reading = deepcopy(original)
+        reading["entities"][index]["kind"] = "point"
+        compare(reading, "要素の種類 point・形 symbol の出所が sfig_locate_feature")
+        mutations += 1
+        reading = deepcopy(original)
+        reading["entities"][index]["geometry"]["shape"] = "point"
+        compare(reading, "要素の種類 symbol・形 point の出所が sfig_locate_feature")
+        mutations += 1
+        for field in ("instance", "record"):
+            reading = deepcopy(original)
+            del reading["entities"][index]["source"][field]
+            compare(reading, "要素にならず、移さなかったことを言う診断もないフィーチャ")
+            mutations += 1
+        reading = deepcopy(original)
+        del reading["entities"][index]
+        compare(reading, "要素にならず、移さなかったことを言う診断もないフィーチャ")
+        mutations += 1
+    print(f"SFC の作図部品 3 件は食い違い 0 件。形・名前・配置・レイヤ・出所・欠落の改変 {mutations} 件を検出した")
+
+
 def check_raster_frames(folder):
     entry, original = kit_case(folder, "input/made-structure.p21")
 
@@ -175,4 +241,5 @@ if __name__ == "__main__":
     check_missing_layers(kit)
     check_duplicate_features(kit)
     check_header_features(kit)
+    check_symbol_features(kit)
     check_raster_frames(kit)
