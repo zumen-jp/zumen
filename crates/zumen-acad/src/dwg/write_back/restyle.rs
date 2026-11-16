@@ -9,6 +9,8 @@ pub(super) struct Restyle {
     pub(super) layer: Option<u64>,
     /// 線種のフラグとハンドル（フラグが 3 のときだけ使う）
     pub(super) ltype: Option<(u8, u64)>,
+    /// TEXT・MTEXT が指す文字スタイル
+    pub(super) text_style: Option<u64>,
 }
 
 impl Restyle {
@@ -32,7 +34,18 @@ impl Restyle {
         } else {
             Some(ltype_ref(db, new)?)
         };
-        Some(Self { layer, ltype })
+        let text_style = if matches!(new.kind.as_slice(), b"TEXT" | b"MTEXT")
+            && codes(old, 7) != codes(new, 7)
+        {
+            Some(record_handle(db, b"STYLE", text_of(new, 7)?)?)
+        } else {
+            None
+        };
+        Some(Self {
+            layer,
+            ltype,
+            text_style,
+        })
     }
 
     /// `old` から `new` に変えた LAYER のレコードの線種（#723）。名前（変えたとき）かハンドル（元のまま）で持つ
@@ -50,11 +63,15 @@ impl Restyle {
             Some(Data::Handle(handle)) => Some((3, handle)),
             _ => return None,
         };
-        Some(Self { layer: None, ltype })
+        Some(Self {
+            layer: None,
+            ltype,
+            text_style: None,
+        })
     }
 
     pub(super) fn is_empty(self) -> bool {
-        self.layer.is_none() && self.ltype.is_none()
+        self.layer.is_none() && self.ltype.is_none() && self.text_style.is_none()
     }
 
     /// 元のデータ `data` のハンドルのストリーム（`handles_at` から終わりまで）を、画層と線種のハンドルを書き直して写したもの。
@@ -84,6 +101,14 @@ impl Restyle {
             (Some((3, handle)), _) => out.handle(5, handle),
             _ => {}
         }
+        let after = if let Some(style) = self.text_style {
+            let slot = slots.text_style.as_ref()?;
+            out.copy(data, after..slot.start)?;
+            out.handle(5, style);
+            slot.end
+        } else {
+            after
+        };
         out.copy(data, after..data.len() * 8)?;
         Some(out)
     }

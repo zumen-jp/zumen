@@ -81,6 +81,8 @@ pub(in crate::dwg) struct StyleHandles {
     pub(in crate::dwg) layer: Range<usize>,
     /// 線種のハンドル。線種のフラグが 3 でなければ `None`
     pub(in crate::dwg) ltype: Option<Range<usize>>,
+    /// TEXT・MTEXT の文字スタイルのハンドル
+    pub(in crate::dwg) text_style: Option<Range<usize>>,
     /// 色を DBCOLOR のハンドルで指すか（R2004 から）
     pub(in crate::dwg) color_handle: bool,
 }
@@ -94,15 +96,15 @@ pub(in crate::dwg) fn style_handles(
     handles_at: Option<usize>,
 ) -> Option<StyleHandles> {
     let mut bits = Bits::with_release(data, release);
-    let handles_at = match handles_at {
+    let (type_code, handles_at) = match handles_at {
         Some(at) => {
-            bits.bot()?;
+            let kind = u16::try_from(bits.bot()?).ok()?;
             bits.split_strings(at)?;
-            at
+            (kind, at)
         }
         None => {
-            bits.bs()?;
-            usize::try_from(bits.rl()?).ok()?
+            let kind = u16::try_from(bits.bs()?).ok()?;
+            (kind, usize::try_from(bits.rl()?).ok()?)
         }
     };
     bits.handle()?;
@@ -135,9 +137,24 @@ pub(in crate::dwg) fn style_handles(
     } else {
         None
     };
+    // ODS 5.4.1 の 20.4.1 と TEXT・MTEXT: 共通の印刷・表示スタイルの後に STYLE を指す。
+    let text_style = if matches!(type_code, TEXT | MTEXT) {
+        if common.plotstyle_handle {
+            bits.handle()?;
+        }
+        for _ in 0..common.styles {
+            bits.handle()?;
+        }
+        let start = bits.pos();
+        bits.handle()?;
+        Some(start..bits.pos())
+    } else {
+        None
+    };
     Some(StyleHandles {
         layer,
         ltype,
+        text_style,
         color_handle: common.color_handle,
     })
 }

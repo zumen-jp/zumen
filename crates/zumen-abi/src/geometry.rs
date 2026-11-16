@@ -1216,16 +1216,8 @@ pub(crate) fn shape_of<P: Spot>(
                 style: text.style.clone().unwrap_or_else(|| "Standard".to_string()),
             })
         }
-        // 置き換える文字は、高さの意味・位置合わせ・文字スタイルを元の文字から受け継ぐ
+        // 置き換える文字は、高さの意味と位置合わせを元の文字から受け継ぐ。文字スタイルの参照は書き戻す側が確かめる
         (Geometry::Text(text), Some(Shape::Text(old))) => {
-            // 文字スタイルの名前は、大文字と小文字を区別せずに比べる（図面モデルが引くのと同じ）
-            if text
-                .style
-                .as_ref()
-                .is_some_and(|style| !style.eq_ignore_ascii_case(&old.style))
-            {
-                return Err("geometry/style".to_string());
-            }
             // 1 点に置く文字と 2 点の間に合わせる文字は、入れ替えない
             let placement = match (old.placement, between(text)?) {
                 (
@@ -1292,7 +1284,12 @@ pub(crate) fn shape_of<P: Spot>(
                 },
                 backward: text.backward.unwrap_or(old.backward),
                 upside_down: text.upside_down.unwrap_or(old.upside_down),
-                style: old.style.clone(),
+                style: text
+                    .style
+                    .as_ref()
+                    .filter(|style| !style.eq_ignore_ascii_case(&old.style))
+                    .cloned()
+                    .unwrap_or_else(|| old.style.clone()),
             })
         }
         (Geometry::FormattedText(text), was) => {
@@ -1301,11 +1298,6 @@ pub(crate) fn shape_of<P: Spot>(
                 Some(Shape::Formatted(old)) => Some(old),
                 Some(_) => return mismatch(),
             };
-            if let (Some(style), Some(old)) = (&text.style, was)
-                && !style.eq_ignore_ascii_case(&old.style)
-            {
-                return Err("geometry/style".to_string());
-            }
             // MTEXT の改行は \P で書く。生の改行は、書き戻すファイルの行を壊す
             if text.content.contains(['\n', '\r']) {
                 return Err("geometry/content".to_string());
@@ -1363,7 +1355,12 @@ pub(crate) fn shape_of<P: Spot>(
                     flow: old.flow,
                     line_spacing: old.line_spacing,
                     background: old.background,
-                    style: old.style.clone(),
+                    style: text
+                        .style
+                        .as_ref()
+                        .filter(|style| !style.eq_ignore_ascii_case(&old.style))
+                        .cloned()
+                        .unwrap_or_else(|| old.style.clone()),
                 },
                 None => FormattedText {
                     content: text.content.clone(),

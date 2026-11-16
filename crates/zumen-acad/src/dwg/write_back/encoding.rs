@@ -26,7 +26,12 @@ pub(super) fn encode(
             .cloned()
             .collect()
     };
-    let rest = |object| only(&[COMMON, STYLED, own].concat(), object, false);
+    let pointed = if restyle.text_style.is_some() {
+        &[7][..]
+    } else {
+        &[]
+    };
+    let rest = |object| only(&[COMMON, STYLED, own, pointed].concat(), object, false);
     if rest(old) != rest(new) {
         return None;
     }
@@ -176,7 +181,12 @@ pub(super) fn encode_r2010(
             .cloned()
             .collect()
     };
-    let rest = |object| only(&[COMMON, STYLED, own].concat(), object, false);
+    let pointed = if restyle.text_style.is_some() {
+        &[7][..]
+    } else {
+        &[]
+    };
+    let rest = |object| only(&[COMMON, STYLED, own, pointed].concat(), object, false);
     if rest(old) != rest(new) {
         return None;
     }

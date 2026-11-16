@@ -11,6 +11,29 @@ pub(crate) fn replacement<P: PartialEq>(
     encoder: &Encoder,
     frame: &impl Frame<P>,
 ) -> Option<Vec<Value>> {
+    replacement_in(original, element, object, encoder, frame, None)
+}
+
+/// 既存の文字スタイルへの指し替えも、表で存在を確かめてから書く。
+pub(super) fn replacement_with_tables<P: PartialEq>(
+    original: &Element<P>,
+    element: &Element<P>,
+    object: &Object,
+    encoder: &Encoder,
+    frame: &impl Frame<P>,
+    tables: &Born,
+) -> Option<Vec<Value>> {
+    replacement_in(original, element, object, encoder, frame, Some(tables))
+}
+
+fn replacement_in<P: PartialEq>(
+    original: &Element<P>,
+    element: &Element<P>,
+    object: &Object,
+    encoder: &Encoder,
+    frame: &impl Frame<P>,
+    tables: Option<&Born>,
+) -> Option<Vec<Value>> {
     if element.layer != original.layer || element.style != original.style {
         return None;
     }
@@ -101,10 +124,24 @@ pub(crate) fn replacement<P: PartialEq>(
             values = lwpolyline(&values, line, was, frame)?;
         }
         (Shape::Text(text), Shape::Text(was), b"TEXT") => {
-            lettering(&mut values, text, was, frame, encoder, 73)?;
+            let changed = text.style != was.style;
+            let style = if changed {
+                Some(tables?.named(7, b"STYLE", &text.style)?)
+            } else {
+                None
+            };
+            lettering_in(&mut values, text, was, frame, encoder, 73, changed)?;
+            set_style(&mut values, style);
         }
         (Shape::Formatted(text), Shape::Formatted(was), b"MTEXT") => {
-            formatting(&mut values, text, was, frame, encoder)?;
+            let changed = text.style != was.style;
+            let style = if changed {
+                Some(tables?.named(7, b"STYLE", &text.style)?)
+            } else {
+                None
+            };
+            formatting(&mut values, text, was, frame, encoder, changed)?;
+            set_style(&mut values, style);
         }
         (Shape::Symbol(symbol), Shape::Symbol(was), b"INSERT") => {
             placing(&mut values, symbol, was, frame)?;
@@ -121,6 +158,21 @@ pub(crate) fn replacement<P: PartialEq>(
         _ => return None,
     }
     Some(values)
+}
+
+fn set_style(values: &mut Vec<Value>, style: Option<Value>) {
+    let Some(style) = style else {
+        return;
+    };
+    if let Some(value) = values.iter_mut().find(|value| value.code == 7) {
+        *value = style;
+    } else {
+        let after = values
+            .iter()
+            .rposition(|value| value.code == 1)
+            .map_or(values.len(), |index| index + 1);
+        values.insert(after, style);
+    }
 }
 
 /// POINT（DXF Reference「POINT」）の位置（10・20）と X 軸の角度（50）を直す。見え方は文書の点の表し方
@@ -334,7 +386,19 @@ pub(super) fn lettering<P: PartialEq>(
     encoder: &Encoder,
     vertical_code: i16,
 ) -> Option<()> {
-    if text.style != was.style || text.height.meaning != was.height.meaning {
+    lettering_in(values, text, was, frame, encoder, vertical_code, false)
+}
+
+fn lettering_in<P: PartialEq>(
+    values: &mut Vec<Value>,
+    text: &Text<P>,
+    was: &Text<P>,
+    frame: &impl Frame<P>,
+    encoder: &Encoder,
+    vertical_code: i16,
+    allow_style: bool,
+) -> Option<()> {
+    if (!allow_style && text.style != was.style) || text.height.meaning != was.height.meaning {
         return None;
     }
     match (&text.placement, &was.placement) {
@@ -415,7 +479,7 @@ pub(super) fn lettering<P: PartialEq>(
 
 /// MTEXT（DXF Reference「MTEXT」）のフィールドを直す。内容（250 バイトずつの 3 と、最後の 1）・基点（10）・高さ（40）・
 /// 向き（50 のラジアンか、11・21 の向き）・枠の幅（41）と高さ（46）・位置合わせ（71）・行送り（44・73）を書く。
-/// 文字スタイル・書き進める向き・背景・高さの意味は変えられない。向きは、元と同じ形（角度か向き）のときだけ
+/// 書き進める向き・背景・高さの意味は変えられない。文字スタイルは表で検査した場合だけ変える。向きは、元と同じ形（角度か向き）のときだけ
 /// 書く。省いたフィールドは、DXF Reference の並び（内容の後に 50・73・44）で足す。区間は内容から決まるので、内容を解釈し直した区間と合わなければ受け付けない
 fn formatting<P: PartialEq>(
     values: &mut Vec<Value>,
@@ -423,8 +487,9 @@ fn formatting<P: PartialEq>(
     was: &FormattedText<P>,
     frame: &impl Frame<P>,
     encoder: &Encoder,
+    allow_style: bool,
 ) -> Option<()> {
-    if text.style != was.style
+    if (!allow_style && text.style != was.style)
         || text.flow != was.flow
         || text.background != was.background
         || text.height.meaning != was.height.meaning

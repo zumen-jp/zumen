@@ -1677,7 +1677,11 @@ pub(super) fn encode_single_entity(
         };
         Some(lt)
     };
-    let restyle = Restyle { layer, ltype };
+    let restyle = Restyle {
+        layer,
+        ltype,
+        ..Restyle::default()
+    };
     let encoded = if old.values == object.values {
         current_encoded.to_vec()
     } else if !r2010 && object.kind == b"MULTILEADER" {

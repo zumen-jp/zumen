@@ -7,9 +7,13 @@ use zumen_jww::Jww;
 use zumen_sdk::Lift;
 use zumen_sxf::Sxf;
 
+#[cfg(feature = "drawing")]
+mod batch;
 mod details;
 mod filters;
 mod metadata;
+#[cfg(feature = "drawing")]
+mod prepared;
 use metadata::summary;
 
 impl Session {
@@ -210,6 +214,9 @@ impl Session {
                     invalid_value(format!("/edits/{index}/geometry/attributes")),
                 ));
             }
+        }
+        if batch::needed(request, cx)? {
+            return self.apply_with_tables(request, &drawing, cx);
         }
         let changes = changes(request, &drawing, cx)?;
         let Some(Document::Drawing {

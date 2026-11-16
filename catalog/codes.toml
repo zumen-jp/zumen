@@ -1954,6 +1954,14 @@ group-by = ["id", "reason"]
 since = "0.2.0"
 status = "active"
 
+[codes."change.references.failed"]
+description = "同じ変更で足した表への参照を解く際に、要素の同一性を保てず、または作業領域を確保できず、変更を当てなかった"
+severity = "error"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
 [codes."drawing.metadata.failed"]
 description = "図面の記号定義かビューの詳細を応答の型で表せず、または複製する領域を確保できなかった。id は定義か用紙の公開 ID、reason は失敗の理由"
 severity = "error"

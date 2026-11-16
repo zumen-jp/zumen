@@ -1457,7 +1457,7 @@ class PolylineGeometry(_PolylineGeometryRequired, _PolylineGeometryOptional):
     "頂点を結んだ折れ線。幅は持たない"
 
 
-# 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
+# 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 _TextGeometryRequired = TypedDict(
     "_TextGeometryRequired",
     {
@@ -1492,7 +1492,7 @@ _TextGeometryOptional = TypedDict(
         "backward": bool,
         # 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
         "upside_down": bool,
-        # 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
+        # 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、省けば元の名前を保ち、DXF・DWG は定義のある別の文字スタイルも受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
         "style": str,
         # 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
         "style_id": str,
@@ -1502,7 +1502,7 @@ _TextGeometryOptional = TypedDict(
 
 
 class TextGeometry(_TextGeometryRequired, _TextGeometryOptional):
-    "1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする"
+    "1 点か 2 点の間に置く文字。置き換えるときは、位置合わせを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする"
 
 # 1 点に置く文字の水平の位置合わせ。middle は水平と垂直の両方を外形の中央に合わせる（DXF の 72 = 4）
 TextHorizontal = Union[
@@ -1536,7 +1536,7 @@ TextFit = Union[
 ]
 
 
-# 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から
+# 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味を元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から
 _FormattedTextGeometryRequired = TypedDict(
     "_FormattedTextGeometryRequired",
     {
@@ -1559,7 +1559,7 @@ _FormattedTextGeometryOptional = TypedDict(
         "attachment": "Attachment",
         # 折り返す枠の幅。0 より大きい。書かなければ折り返さない
         "width": float,
-        # 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す
+        # 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、省けば元の名前を保ち、DXF・DWG は定義のある別の文字スタイルも受ける。style_id と一緒に書くなら、同じ文字スタイルを指す
         "style": str,
         # 文字スタイルの ID。tables が返したもの。entities は、名前で引いた文字スタイルの ID を返す。足す・置き換えるときは、名前の代わりに書ける（名前より先に使う）。同じ名前（大文字と小文字を区別しない）の項目が複数あれば書き戻せない。マイナーバージョン 23 から
         "style_id": str,
@@ -1569,7 +1569,7 @@ _FormattedTextGeometryOptional = TypedDict(
 
 
 class FormattedTextGeometry(_FormattedTextGeometryRequired, _FormattedTextGeometryOptional):
-    "書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から"
+    "書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味を元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から"
 
 
 # スプライン（NURBS）。制御点で決まるもの（マイナーバージョン 15 から）と、フィット点で決まるもの（マイナーバージョン 18 から）がある。フィット点で決まるものは、ノットと制御点を空にし、フィット点（fit）と、あれば両端の接線を持つ。元の図形に制御点やノットもあるときは形の値を返さず、置き換えない。置き換えでは、制御点で決まるものとフィット点で決まるものを入れ替えない
@@ -2422,7 +2422,7 @@ RemoveEdit = TypedDict(
 )
 
 
-# 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。マイナーバージョン 10 から
+# 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤと線のスタイルは変えない。DXF・DWG の文字と書式つきの文字は、定義のある文字スタイルへ指し替えられる。マイナーバージョン 10 から
 ReplaceEdit = TypedDict(
     "ReplaceEdit",
     {
@@ -2568,7 +2568,7 @@ class TextStyleEdit(_TextStyleEditRequired, _TextStyleEditOptional):
     "文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。マイナーバージョン 25 から"
 
 
-# 文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。マイナーバージョン 25 から
+# 文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の後ろの文字の追加・置き換えから、足した文字スタイルを名前で指せる。マイナーバージョン 25 から
 _AddTextStyleEditRequired = TypedDict(
     "_AddTextStyleEditRequired",
     {
@@ -2603,7 +2603,7 @@ _AddTextStyleEditOptional = TypedDict(
 
 
 class AddTextStyleEdit(_AddTextStyleEditRequired, _AddTextStyleEditOptional):
-    "文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。マイナーバージョン 25 から"
+    "文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の後ろの文字の追加・置き換えから、足した文字スタイルを名前で指せる。マイナーバージョン 25 から"
 
 
 # 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 25 から
@@ -2650,7 +2650,7 @@ class LineTypeEdit(_LineTypeEditRequired, _LineTypeEditOptional):
     "線種の名前・説明・線と間の長さの列のうち、書いたものだけを変える（決定 0164）。DXF は、名前を変えると、要素・レイヤと今の線種（$CELTYPE）も新しい名前で指す。マルチラインスタイルなどの図形でないオブジェクトが名前で指す線種の名前は変えられない。形か文字を添える線種と DWG の線種は、列の要素の数を変えられない。マイナーバージョン 26 から"
 
 
-# 線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。マイナーバージョン 26 から
+# 線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の後ろの要素とレイヤの変更から、足した線種を名前で指せる。マイナーバージョン 26 から
 _AddLineTypeEditRequired = TypedDict(
     "_AddLineTypeEditRequired",
     {
@@ -2673,7 +2673,7 @@ _AddLineTypeEditOptional = TypedDict(
 
 
 class AddLineTypeEdit(_AddLineTypeEditRequired, _AddLineTypeEditOptional):
-    "線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。マイナーバージョン 26 から"
+    "線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の後ろの要素とレイヤの変更から、足した線種を名前で指せる。マイナーバージョン 26 から"
 
 
 # 線種を除く（決定 0164）。要素・レイヤ・マルチラインスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。マイナーバージョン 26 から
@@ -2726,7 +2726,7 @@ class DimensionStyleEdit(_DimensionStyleEditRequired, _DimensionStyleEditOptiona
     "寸法スタイルの名前・端部記号・その大きさ・斜線・倍率のうち、書いたものだけを変える（決定 0165）。DXF は、名前を変えると、寸法・引出線・公差と今の寸法スタイル（$DIMSTYLE）も新しい名前で指す。図形でないオブジェクトが名前で指す寸法スタイルの名前は変えられない。マイナーバージョン 27 から"
 
 
-# 寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。マイナーバージョン 27 から
+# 寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の後ろの要素の追加から、足した寸法スタイルを名前で指せる。マイナーバージョン 27 から
 _AddDimensionStyleEditRequired = TypedDict(
     "_AddDimensionStyleEditRequired",
     {
@@ -2755,7 +2755,7 @@ _AddDimensionStyleEditOptional = TypedDict(
 
 
 class AddDimensionStyleEdit(_AddDimensionStyleEditRequired, _AddDimensionStyleEditOptional):
-    "寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。マイナーバージョン 27 から"
+    "寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の後ろの要素の追加から、足した寸法スタイルを名前で指せる。マイナーバージョン 27 から"
 
 
 # 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 27 から
@@ -2823,7 +2823,7 @@ PointSizeKind = Union[
 ]
 
 
-# レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。マイナーバージョン 22 から
+# レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の後ろの要素の変更から、足したレイヤを名前で指せる。マイナーバージョン 22 から
 _AddLayerEditRequired = TypedDict(
     "_AddLayerEditRequired",
     {
@@ -2856,7 +2856,7 @@ _AddLayerEditOptional = TypedDict(
 
 
 class AddLayerEdit(_AddLayerEditRequired, _AddLayerEditOptional):
-    "レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。マイナーバージョン 22 から"
+    "レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の後ろの要素の変更から、足したレイヤを名前で指せる。マイナーバージョン 22 から"
 
 # 値を継承する先。layer はレイヤから、block は要素を置いた記号の配置から
 Inherit = Union[

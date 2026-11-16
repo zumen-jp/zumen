@@ -1987,7 +1987,7 @@ class PolylineGeometry extends Message {
   set closed(bool? value) => writeField('closed', value);
 }
 
-/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせ・文字スタイルを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
+/// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
 class TextGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   TextGeometry.fromJson(super.json);
@@ -2047,7 +2047,7 @@ class TextGeometry extends Message {
   bool? get upsideDown => readField('upside_down', asBool);
   set upsideDown(bool? value) => writeField('upside_down', value);
 
-  /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
+  /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、省けば元の名前を保ち、DXF・DWG は定義のある別の文字スタイルも受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
   String? get style => readField('style', asString);
   set style(String? value) => writeField('style', value);
 
@@ -2084,7 +2084,7 @@ abstract final class TextFit {
   static const fit = 'fit';
 }
 
-/// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味・文字スタイルを元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から
+/// 書式つきの文字（DXF の MTEXT）。置き換えるときは、枠の高さ・書き進める向き・行送り・背景・高さの意味を元の値のままにする。足すときは、枠の高さなし・左から右・行送り 1 倍・背景なしにする。マイナーバージョン 13 から
 class FormattedTextGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   FormattedTextGeometry.fromJson(super.json);
@@ -2120,7 +2120,7 @@ class FormattedTextGeometry extends Message {
   double? get width => readField('width', asDouble);
   set width(double? value) => writeField('width', value);
 
-  /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、元と同じ名前だけを受ける。style_id と一緒に書くなら、同じ文字スタイルを指す
+  /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、省けば元の名前を保ち、DXF・DWG は定義のある別の文字スタイルも受ける。style_id と一緒に書くなら、同じ文字スタイルを指す
   String? get style => readField('style', asString);
   set style(String? value) => writeField('style', value);
 
@@ -3228,7 +3228,7 @@ class RemoveEdit extends Message {
   set hash(String? value) => writeField('hash', value);
 }
 
-/// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤとスタイルは変えない。マイナーバージョン 10 から
+/// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤと線のスタイルは変えない。DXF・DWG の文字と書式つきの文字は、定義のある文字スタイルへ指し替えられる。マイナーバージョン 10 から
 class ReplaceEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ReplaceEdit.fromJson(super.json);
@@ -3425,7 +3425,7 @@ class TextStyleEdit extends Message {
   set vertical(bool? value) => writeField('vertical', value);
 }
 
-/// 文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した文字スタイルを指せない。マイナーバージョン 25 から
+/// 文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の後ろの文字の追加・置き換えから、足した文字スタイルを名前で指せる。マイナーバージョン 25 から
 class AddTextStyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   AddTextStyleEdit.fromJson(super.json);
@@ -3528,7 +3528,7 @@ class LineTypeEdit extends Message {
   set pattern(List<double>? value) => writeField('pattern', value);
 }
 
-/// 線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の要素とレイヤは、足した線種を指せない。マイナーバージョン 26 から
+/// 線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の後ろの要素とレイヤの変更から、足した線種を名前で指せる。マイナーバージョン 26 から
 class AddLineTypeEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   AddLineTypeEdit.fromJson(super.json);
@@ -3619,7 +3619,7 @@ class DimensionStyleEdit extends Message {
   set scale(double? value) => writeField('scale', value);
 }
 
-/// 寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の要素は、足した寸法スタイルを指せない。マイナーバージョン 27 から
+/// 寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の後ろの要素の追加から、足した寸法スタイルを名前で指せる。マイナーバージョン 27 から
 class AddDimensionStyleEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   AddDimensionStyleEdit.fromJson(super.json);
@@ -3729,7 +3729,7 @@ abstract final class PointSizeKind {
   static const screen = 'screen';
 }
 
-/// レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の要素は、足したレイヤを指せない。マイナーバージョン 22 から
+/// レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の後ろの要素の変更から、足したレイヤを名前で指せる。マイナーバージョン 22 から
 class AddLayerEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   AddLayerEdit.fromJson(super.json);

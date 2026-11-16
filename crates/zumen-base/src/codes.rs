@@ -600,6 +600,17 @@ pub const CHANGE_HATCH_UNSUPPORTED: Code = Code::new(
     &["edit", "field", "value", "format"],
 );
 
+/// 同じ変更で足した表への参照を解く際に、要素の同一性を保てず、または作業領域を確保できず、変更を当てなかった
+///
+/// `change.references.failed`（0.3.0 から）
+pub const CHANGE_REFERENCES_FAILED: Code = Code::new(
+    "change.references.failed",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
 /// 足す要素の色・線種・線幅を書いていない（レイヤかブロックに従う）が、元の形式の図形はそれを自分で持ち、レイヤかブロックに従う値を持たないので、書き戻せない。JWW の add は、色（点と線・円・円弧）と線種（線・円・円弧）を書き、ブロックに従う線幅も断る。SXF（SFC・P21）の add は、色（点マーカーと線分・折線・円・円弧）と、線種と線幅（線分・折線・円・円弧）を書く（決定 0290・0292）
 ///
 /// `change.style.unsupported`（0.2.0 から）
@@ -5499,6 +5510,7 @@ pub const ALL: &[Code] = &[
     CHANGE_ELEMENT_STALE,
     CHANGE_FORMAT_UNSUPPORTED,
     CHANGE_HATCH_UNSUPPORTED,
+    CHANGE_REFERENCES_FAILED,
     CHANGE_STYLE_UNSUPPORTED,
     CHANGE_SYMBOL_CYCLE_INVALID,
     CHANGE_XDATA_UNSUPPORTED,

@@ -2566,23 +2566,23 @@ fn texts_refer_to_text_styles_by_their_ids() {
             "/edits/0/geometry/style_id"
         );
     }
-    // entities が返した形の値は、そのまま置き換えに戻せる。ほかの文字スタイルの ID には置き換えない
+    // entities の形をそのまま戻せる。別の定義済みの文字スタイルの ID にも置き換えられる。
     let (id, hash) = seen(&mut session, "a.dxf")[1].clone();
     let replace = |geometry: &str| {
         format!(
             r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"replace","id":"{id}","hash":"{hash}","geometry":{geometry}}}]}}"#
         )
     };
+    let (status, response) = call(&mut session, &replace(&shapes_before[1]));
+    assert_eq!(status, Status::Ok, "{response:?}");
     let other = shapes_before[1].replace("text-style/h12", "text-style/h11");
     let other = other.replace(r#""style":"GOTHIC","#, "");
     let (status, response) = call(&mut session, &replace(&other));
-    assert_eq!(status, Status::Failed);
-    assert_eq!(
-        text(&error(&response), "/params/pointer"),
-        "/edits/0/geometry/style"
-    );
-    let (status, response) = call(&mut session, &replace(&shapes_before[1]));
     assert_eq!(status, Status::Ok, "{response:?}");
+    assert!(
+        shapes(&mut session, "a.dxf")[1]
+            .ends_with(r#""style":"Standard","style_id":"text-style/h11"}"#)
+    );
 }
 
 #[test]

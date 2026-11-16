@@ -1060,7 +1060,9 @@ fn change_element<'e>(
                         let frame = InSpace(anchor.space);
                         let (written, followers) =
                             revalued(db, positions, was, element, encoder, &frame)?;
-                        let values = replacement(was, &written, object, encoder, &frame)?;
+                        let values = replace::replacement_with_tables(
+                            was, &written, object, encoder, &frame, born,
+                        )?;
                         Some((values, followers))
                     })
                     .map(|(values, followers)| {
@@ -1091,7 +1093,9 @@ fn change_element<'e>(
                         let frame = OnSheet(anchor.sheet, *frames.get(&anchor.sheet)?);
                         let (written, followers) =
                             revalued(db, positions, was, element, encoder, &frame)?;
-                        let values = replacement(was, &written, object, encoder, &frame)?;
+                        let values = replace::replacement_with_tables(
+                            was, &written, object, encoder, &frame, born,
+                        )?;
                         Some((values, followers))
                     })
                     .map(|(values, followers)| {

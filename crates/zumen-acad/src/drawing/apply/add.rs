@@ -226,7 +226,7 @@ impl Born {
     /// 表の `table` の、名前 `name` の定義を指す値。名前は大文字と小文字を区別せずに引き、定義の名前を書く。
     /// 定義がなければ `None`。DXF で定義がないときは名前だけで指すが、文字スタイルと寸法スタイルは既定の
     /// Standard に限る
-    fn named(&self, code: i16, table: &[u8], name: &str) -> Option<Value> {
+    pub(super) fn named(&self, code: i16, table: &[u8], name: &str) -> Option<Value> {
         let name = match self.names.get(table) {
             Some(names) => names.get(&name.to_lowercase())?,
             None if self.target == Target::Dxf

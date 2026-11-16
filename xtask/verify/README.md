@@ -201,3 +201,9 @@ uv run --no-project --python 3.14 --with ezdxf==1.4.5 --with ezjww==0.7.6 --with
 ```
 
 ネイティブと wasm の応答の一致は、別に適合テストの `palette.json` で確かめます。ここでの比較は、固定した色表の数値の一致であり、利用者が変えた画面色やアプリの描画結果の一致を意味しません。
+
+### 同じ apply 内の表の参照
+
+`apply_batch_tables_case` に `-- --output <出力先>` でリポジトリ外のフォルダーを指定すると、DXF・DWG・JWW・SFC・P21 の合成出力も保存します。DWG 3 件を `manifest.json` の `files` に `format: "dwg"` と `path` で列挙し、上の ACadSharp のツールを流してから、`python -I xtask/verify/check_batch_tables.py <出力先>` で照らします。ezdxf は 1.4.5 を使います。
+
+DXF では線種のパターン・新しいレイヤと線種への参照・TEXT の文字スタイルの置き換え・LEADER の寸法スタイルを検査します。DWG の R2000・R2004・R2018 では、新しいレイヤ・線種・文字スタイルへの参照を ACadSharp の読みと照らします。Jw_cad・SXF ブラウザ・AutoCAD での表示確認はこの検査に含めません。

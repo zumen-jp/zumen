@@ -26,20 +26,40 @@ pub(crate) fn changes(
     drawing: &Drawing2D,
     cx: &mut Cx<'_>,
 ) -> Result<Changes, Failed> {
+    changes_at(
+        &request.edits,
+        request.hash.as_deref(),
+        drawing,
+        drawing,
+        0,
+        cx,
+    )
+}
+
+/// 表の追加を準備した図面から名前を引き、変更する要素は呼び出し前の図面から引く。
+pub(crate) fn changes_at(
+    requested: &[messages::Edit],
+    document: Option<&str>,
+    drawing: &Drawing2D,
+    table_drawing: &Drawing2D,
+    offset: usize,
+    cx: &mut Cx<'_>,
+) -> Result<Changes, Failed> {
     let hash = |text: &str, pointer: String, cx: &mut Cx<'_>| {
         text.parse::<Hash>()
             .map_err(|()| fail(cx, invalid_value(pointer)))
     };
-    let document = match &request.hash {
+    let document = match document {
         Some(text) => Some(hash(text, "/hash".to_string(), cx)?),
         None => None,
     };
-    let mut edits = Vec::with_capacity(request.edits.len());
+    let mut edits = Vec::with_capacity(requested.len());
     let mut tables = None;
     let mut elements = None;
     let mut places = None;
     let mut definitions = None;
-    for (index, edit) in request.edits.iter().enumerate() {
+    for (index, edit) in requested.iter().enumerate() {
+        let index = index + offset;
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         let at = |field: &str| format!("/edits/{index}/{field}");
         let seen = |id: &str, text: &str, cx: &mut Cx<'_>| {
@@ -180,7 +200,7 @@ pub(crate) fn changes(
             messages::Edit::Restyle(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
                 if tables.is_none() {
-                    tables = Some(TableLookup::new(drawing, cx)?);
+                    tables = Some(TableLookup::new(table_drawing, cx)?);
                 }
                 let Some(tables) = &tables else {
                     return Err(Failed);
@@ -216,7 +236,7 @@ pub(crate) fn changes(
             messages::Edit::TextStyle(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
                 if tables.is_none() {
-                    tables = Some(TableLookup::new(drawing, cx)?);
+                    tables = Some(TableLookup::new(table_drawing, cx)?);
                 }
                 let Some(tables) = &tables else {
                     return Err(Failed);
@@ -257,7 +277,7 @@ pub(crate) fn changes(
                 )
                 .map_err(|stop| stopped(cx, stop))?;
                 // 書かないフィールドは、Standard と同じにする
-                let standard = drawing.text_styles.iter().find(|style| {
+                let standard = table_drawing.text_styles.iter().find(|style| {
                     style.name.eq_ignore_ascii_case("Standard") && style.definition.is_some()
                 });
                 let base = TextStyle {
@@ -291,7 +311,7 @@ pub(crate) fn changes(
             messages::Edit::DimensionStyle(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
                 if tables.is_none() {
-                    tables = Some(TableLookup::new(drawing, cx)?);
+                    tables = Some(TableLookup::new(table_drawing, cx)?);
                 }
                 let Some(tables) = &tables else {
                     return Err(Failed);
@@ -332,7 +352,7 @@ pub(crate) fn changes(
                     .map_err(|stop| stopped(cx, stop))?;
                 // 書かないフィールドは、Standard と同じにする。なければ初めの子でない寸法スタイル、それもなければ DXF の
                 // 既定の値。apply が写すレコードと同じ
-                let styles = &drawing.dimension_styles;
+                let styles = &table_drawing.dimension_styles;
                 let standard = styles
                     .iter()
                     .find(|style| style.name.eq_ignore_ascii_case("Standard"))
@@ -362,7 +382,7 @@ pub(crate) fn changes(
             messages::Edit::LineType(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
                 if tables.is_none() {
-                    tables = Some(TableLookup::new(drawing, cx)?);
+                    tables = Some(TableLookup::new(table_drawing, cx)?);
                 }
                 let Some(tables) = &tables else {
                     return Err(Failed);
@@ -405,7 +425,7 @@ pub(crate) fn changes(
                 )
                 .map_err(|stop| stopped(cx, stop))?;
                 // 書かないフィールドは、Continuous と同じにする
-                let continuous = drawing.line_types.iter().find(|line_type| {
+                let continuous = table_drawing.line_types.iter().find(|line_type| {
                     line_type.name.eq_ignore_ascii_case("Continuous")
                         && line_type.definition.is_some()
                 });
@@ -430,10 +450,10 @@ pub(crate) fn changes(
                 let target = seen(&edit.id, &edit.hash, cx)?;
                 count_formatted_geometry(&edit.geometry, cx)?;
                 if elements.is_none() {
-                    elements = Some(ElementLookup::new(drawing, cx)?);
+                    elements = Some(ElementLookup::with_base(drawing, table_drawing, cx)?);
                 }
                 if tables.is_none() && has_style_id(&edit.geometry) {
-                    tables = Some(TableLookup::new(drawing, cx)?);
+                    tables = Some(TableLookup::new(table_drawing, cx)?);
                 }
                 let geometry = named_style(&edit.geometry, tables.as_ref())
                     .map_err(|field| fail(cx, invalid_value(at(field))))?;
@@ -473,10 +493,20 @@ pub(crate) fn changes(
                 let element = match elements.as_ref().and_then(|index| index.get(&edit.id)) {
                     Some(FoundElement::Model(element)) => {
                         count_old_element(element, cx)?;
+                        if !replacement_style_valid(&element.shape, &geometry, table_drawing, cx)
+                            .map_err(|stop| stopped(cx, stop))?
+                        {
+                            return Err(fail(cx, invalid_value(at("geometry/style"))));
+                        }
                         reshaped(element, &geometry).map(Placed::Model)
                     }
                     Some(FoundElement::Paper(element)) => {
                         count_old_element(element, cx)?;
+                        if !replacement_style_valid(&element.shape, &geometry, table_drawing, cx)
+                            .map_err(|stop| stopped(cx, stop))?
+                        {
+                            return Err(fail(cx, invalid_value(at("geometry/style"))));
+                        }
                         reshaped(element, &geometry).map(Placed::Paper)
                     }
                     None => {
@@ -499,7 +529,7 @@ pub(crate) fn changes(
                 .map_err(|stop| stopped(cx, stop))?;
                 count_formatted_geometry(&edit.geometry, cx)?;
                 if tables.is_none() {
-                    tables = Some(TableLookup::new(drawing, cx)?);
+                    tables = Some(TableLookup::new(table_drawing, cx)?);
                 }
                 let Some(tables) = &tables else {
                     return Err(Failed);
@@ -514,7 +544,7 @@ pub(crate) fn changes(
                     if definitions.is_none() {
                         let mut exact = BTreeMap::new();
                         let mut folded = BTreeMap::new();
-                        for definition in &drawing.symbols {
+                        for definition in &table_drawing.symbols {
                             let work = definition.key.name.len().saturating_add(1);
                             cx.check(Kind::Work, u64::try_from(work).unwrap_or(u64::MAX))
                                 .map_err(|stop| stopped(cx, stop))?;
@@ -567,7 +597,7 @@ pub(crate) fn changes(
                 let (geometry, annotation) = match &*geometry {
                     messages::Geometry::Leader(leader) if leader.annotation.is_some() => {
                         if elements.is_none() {
-                            elements = Some(ElementLookup::new(drawing, cx)?);
+                            elements = Some(ElementLookup::with_base(drawing, table_drawing, cx)?);
                         }
                         let source = leader
                             .annotation
@@ -607,7 +637,7 @@ pub(crate) fn changes(
             messages::Edit::Layer(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
                 if tables.is_none() {
-                    tables = Some(TableLookup::new(drawing, cx)?);
+                    tables = Some(TableLookup::new(table_drawing, cx)?);
                 }
                 let Some(tables) = &tables else {
                     return Err(Failed);
@@ -623,7 +653,7 @@ pub(crate) fn changes(
                     .get(&edit.id)
                     .copied()
                     .flatten()
-                    .and_then(|(_, layer)| drawing.layer(layer))
+                    .and_then(|(_, layer)| table_drawing.layer(layer))
                 else {
                     let missing =
                         Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", edit.id.as_str());
@@ -648,7 +678,7 @@ pub(crate) fn changes(
             }
             messages::Edit::AddLayer(edit) => {
                 if tables.is_none() {
-                    tables = Some(TableLookup::new(drawing, cx)?);
+                    tables = Some(TableLookup::new(table_drawing, cx)?);
                 }
                 let Some(tables) = &tables else {
                     return Err(Failed);
@@ -662,7 +692,7 @@ pub(crate) fn changes(
                     .get("0")
                     .copied()
                     .flatten()
-                    .and_then(|layer| drawing.layer(layer));
+                    .and_then(|layer| table_drawing.layer(layer));
                 let base = Layer {
                     id: LayerId(u32::MAX),
                     name: String::new(),
@@ -705,6 +735,66 @@ pub(crate) enum FoundElement<'a> {
 pub(crate) struct ElementLookup<'a>(BTreeMap<String, FoundElement<'a>>);
 
 impl<'a> ElementLookup<'a> {
+    /// 表を足す前の公開 ID から、作業用の図面の要素と出所を引く。位置と値が一致する場合に限る。
+    fn with_base(
+        before: &Drawing2D,
+        after: &'a Drawing2D,
+        cx: &mut Cx<'_>,
+    ) -> Result<Self, Failed> {
+        if std::ptr::eq(before, after) {
+            return Self::new(after, cx);
+        }
+        let invalid = |cx: &mut Cx<'_>| {
+            fail(
+                cx,
+                Diagnostic::new(codes::CHANGE_REFERENCES_FAILED).with("reason", "element-identity"),
+            )
+        };
+        let mut positions = BTreeMap::new();
+        id::each_element(before, |position, name, element| {
+            cx.check(Kind::Work, 256)
+                .and_then(|()| cx.check(Kind::DecodedBytes, 512))
+                .map_err(|stop| stopped(cx, stop))?;
+            let hash = element.hash_checked(cx).map_err(|stop| stopped(cx, stop))?;
+            let source = match element {
+                id::Found::Model(element) => &element.source,
+                id::Found::Paper(element) => &element.source,
+            };
+            if positions
+                .insert(position, (name, hash, source.key()))
+                .is_some()
+            {
+                return Err(invalid(cx));
+            }
+            Ok(())
+        })?;
+        let mut found = BTreeMap::new();
+        id::each_element(after, |position, _, element| {
+            cx.check(Kind::Work, 256)
+                .and_then(|()| cx.check(Kind::DecodedBytes, 512))
+                .map_err(|stop| stopped(cx, stop))?;
+            let Some((name, hash, key)) = positions.remove(&position) else {
+                return Err(invalid(cx));
+            };
+            if element.hash_checked(cx).map_err(|stop| stopped(cx, stop))? != hash {
+                return Err(invalid(cx));
+            }
+            let (current_key, element) = match element {
+                id::Found::Model(element) => (element.source.key(), FoundElement::Model(element)),
+                id::Found::Paper(element) => (element.source.key(), FoundElement::Paper(element)),
+            };
+            if current_key != key {
+                return Err(invalid(cx));
+            }
+            found.insert(name, element);
+            Ok(())
+        })?;
+        if !positions.is_empty() {
+            return Err(invalid(cx));
+        }
+        Ok(Self(found))
+    }
+
     pub(crate) fn new(drawing: &'a Drawing2D, cx: &mut Cx<'_>) -> Result<Self, Failed> {
         let mut found = BTreeMap::new();
         for space in &drawing.spaces {
@@ -940,6 +1030,40 @@ fn has_style_id(geometry: &messages::Geometry) -> bool {
         messages::Geometry::Dimension(dimension) => dimension.style_id.is_some(),
         _ => false,
     }
+}
+
+/// 文字スタイルの指し替えは、定義のある名前が 1 つに決まる場合だけ受ける。未指定なら元を保つ。
+fn replacement_style_valid<P>(
+    was: &Shape<P>,
+    geometry: &messages::Geometry,
+    drawing: &Drawing2D,
+    cx: &mut Cx<'_>,
+) -> Result<bool, zumen_base::Stop> {
+    let (was, given) = match (was, geometry) {
+        (Shape::Text(was), messages::Geometry::Text(given)) => (&was.style, given.style.as_deref()),
+        (Shape::Formatted(was), messages::Geometry::FormattedText(given)) => {
+            (&was.style, given.style.as_deref())
+        }
+        _ => return Ok(true),
+    };
+    let Some(given) = given.filter(|given| !given.eq_ignore_ascii_case(was)) else {
+        return Ok(true);
+    };
+    let mut count = 0;
+    let mut defined = false;
+    for style in &drawing.text_styles {
+        cx.check(
+            Kind::Work,
+            (given.len() as u64)
+                .saturating_add(style.name.len() as u64)
+                .saturating_add(1),
+        )?;
+        if given.eq_ignore_ascii_case(&style.name) {
+            count += 1;
+            defined |= style.definition.is_some();
+        }
+    }
+    Ok(count == 1 && defined)
 }
 
 /// 文字スタイルや寸法スタイルを ID で指した形の値を、名前で指す形の値にする。合わなければ、そのフィールドの名前を返す
