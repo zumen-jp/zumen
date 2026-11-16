@@ -30,13 +30,14 @@ use super::super::{BLOCK, FIT_DATA, Lifter, Out, SHEET, TABLE_CONTENT, work};
 use super::backing::{
     DwgBornRecord, DwgRecordPatch, DwgStepPatch, DxfStepPatch, LiveBacking, LiveFormat,
 };
+use super::implicit::{INACTIVE, RefDelta};
 use super::open::{
     LiveState, collect_row_dep_sources, open_dxf, open_from_dwg_file, open_from_dxf_file,
 };
 use super::shape::{
-    GeneralRow, LiveKind, LiveRow, PlainLifted, ROW_BORN, ROW_DWG_ORIGIN, ROW_HAS_102_OR_360,
-    ROW_HAS_HANDLE, ROW_UNIQUE_HANDLE, general_from_element, try_lift_plain_attrib,
-    try_lift_plain_entity,
+    GeneralRow, LiveKind, LiveRow, LiveShapes, PlainGeom, PlainLifted, PlainLineType, PlainStyle,
+    ROW_BORN, ROW_DWG_ORIGIN, ROW_HAS_102_OR_360, ROW_HAS_HANDLE, ROW_UNIQUE_HANDLE, SlotCatalog,
+    display_style, general_from_element, try_lift_plain_attrib, try_lift_plain_entity,
 };
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::dwg::Dwg;
@@ -77,7 +78,27 @@ pub struct FastEntry {
     dirty_symbols: Vec<u32>,
     before_point_style: Option<PointStyle>,
     after_point_style: Option<PointStyle>,
+    implicit: Option<Box<ImplicitStep>>,
     approx_bytes: usize,
+}
+
+/// 暗黙の画層・線種の並びを変えた高速編集の、カタログの前後と参照の増減
+#[derive(Clone)]
+struct ImplicitStep {
+    before: SlotCatalog,
+    after: SlotCatalog,
+    deltas: Vec<RefDelta>,
+    layer_shift: bool,
+}
+
+impl ImplicitStep {
+    fn bytes(&self) -> usize {
+        let catalog = |c: &SlotCatalog| {
+            (c.layers.len() + c.line_types.len()) * 160
+                + (c.layer_remap.len() + c.line_type_remap.len()) * 8
+        };
+        catalog(&self.before) + catalog(&self.after) + self.deltas.len() * 24 + 64
+    }
 }
 
 /// 構造編集 1 段階の履歴項目
@@ -170,6 +191,14 @@ impl LiveJournal {
         self.redo_stack.clear();
     }
 
+    /// 直前の履歴項目が高速経路のものか（履歴が空なら `None`）
+    #[cfg(test)]
+    pub fn last_is_fast(&self) -> Option<bool> {
+        self.undo_stack
+            .last()
+            .map(|entry| matches!(entry, JournalEntry::Fast(_)))
+    }
+
     fn push_entry(&mut self, entry: JournalEntry) {
         self.redo_stack.clear();
         self.undo_stack.push(entry);
@@ -188,6 +217,7 @@ impl LiveJournal {
                 Error::Stopped(stop)
             })?;
         }
+        check_layer_shift(self.undo_stack.last(), state, cx)?;
         let Some(mut entry) = self.undo_stack.pop() else {
             return Ok(false);
         };
@@ -221,7 +251,16 @@ impl LiveJournal {
                         return Err(Error::Stopped(stop));
                     }
                 };
+                if let Some(step) = &fast.implicit {
+                    state.catalog = step.before.clone();
+                    state.implicit.apply(&step.deltas, false);
+                }
                 revert_display_for_txn(state, committed);
+                if let Some(step) = &fast.implicit
+                    && step.layer_shift
+                {
+                    refresh_layer_display(state, &step.after.layer_remap);
+                }
                 for patch in committed.patches().iter().rev() {
                     match (&mut state.backing, patch) {
                         (LiveBacking::AsciiDxf(dxf), FastBackendPatch::Dxf(p)) => {
@@ -265,6 +304,7 @@ impl LiveJournal {
                 Error::Stopped(stop)
             })?;
         }
+        check_layer_shift(self.redo_stack.last(), state, cx)?;
         let Some(mut entry) = self.redo_stack.pop() else {
             return Ok(false);
         };
@@ -298,7 +338,16 @@ impl LiveJournal {
                         return Err(Error::Stopped(stop));
                     }
                 };
+                if let Some(step) = &fast.implicit {
+                    state.catalog = step.after.clone();
+                    state.implicit.apply(&step.deltas, true);
+                }
                 reapply_display_for_txn(state, committed);
+                if let Some(step) = &fast.implicit
+                    && step.layer_shift
+                {
+                    refresh_layer_display(state, &step.before.layer_remap);
+                }
                 for patch in committed.patches() {
                     match (&mut state.backing, patch) {
                         (LiveBacking::AsciiDxf(dxf), FastBackendPatch::Dxf(p)) => {
@@ -351,11 +400,12 @@ fn revert_display_for_txn(
                 row, before_row, ..
             } => {
                 let counts = state.shapes.display_counts(before_row, &state.symbols);
-                let style = [before_row.layer_slot, before_row.color];
+                let layer_ids = &state.catalog.layer_remap;
+                let style = display_style(layer_ids, before_row);
                 let shapes = &state.shapes;
                 let symbols = &state.symbols;
                 state.display.update_with(row.0, counts, style, |w| {
-                    shapes.write_display(before_row, symbols, w)
+                    shapes.write_display(before_row, symbols, layer_ids, w)
                 });
             }
         }
@@ -370,11 +420,12 @@ fn reapply_display_for_txn(
         match diff {
             ExistingRowDiff::Updated { row, after_row, .. } => {
                 let counts = state.shapes.display_counts(after_row, &state.symbols);
-                let style = [after_row.layer_slot, after_row.color];
+                let layer_ids = &state.catalog.layer_remap;
+                let style = display_style(layer_ids, after_row);
                 let shapes = &state.shapes;
                 let symbols = &state.symbols;
                 state.display.update_with(row.0, counts, style, |w| {
-                    shapes.write_display(after_row, symbols, w)
+                    shapes.write_display(after_row, symbols, layer_ids, w)
                 });
             }
             ExistingRowDiff::Removed { row, .. } => {
@@ -384,13 +435,68 @@ fn reapply_display_for_txn(
     }
     for born in committed.born() {
         let counts = state.shapes.display_counts(&born.after_row, &state.symbols);
-        let style = [born.after_row.layer_slot, born.after_row.color];
+        let layer_ids = &state.catalog.layer_remap;
+        let style = display_style(layer_ids, &born.after_row);
         let shapes = &state.shapes;
         let symbols = &state.symbols;
         state.display.push_with(counts, style, |w| {
-            shapes.write_display(&born.after_row, symbols, w);
+            shapes.write_display(&born.after_row, symbols, layer_ids, w);
         });
     }
+}
+
+/// 画層の正規番号が `old_remap` から変わった行の表示スタイルを書き直す
+fn refresh_layer_display(state: &mut LiveState, old_remap: &[LayerId]) {
+    let changed: Vec<bool> = state
+        .catalog
+        .layer_remap
+        .iter()
+        .enumerate()
+        .map(|(slot, id)| id.0 != INACTIVE && old_remap.get(slot).is_none_or(|old| old != id))
+        .collect();
+    if !changed.contains(&true) {
+        return;
+    }
+    let mut layers = Vec::new();
+    let mut line_types = Vec::new();
+    let mut rows = Vec::new();
+    for (row_id, row) in state.table.iter_live() {
+        state.shapes.slot_refs(row, &mut layers, &mut line_types);
+        if layers
+            .iter()
+            .any(|&slot| changed.get(slot as usize).copied().unwrap_or(false))
+        {
+            rows.push((row_id, *row));
+        }
+    }
+    for (row_id, row) in rows {
+        let counts = state.shapes.display_counts(&row, &state.symbols);
+        let layer_ids = &state.catalog.layer_remap;
+        let style = display_style(layer_ids, &row);
+        let shapes = &state.shapes;
+        let symbols = &state.symbols;
+        state.display.update_with(row_id.0, counts, style, |w| {
+            shapes.write_display(&row, symbols, layer_ids, w)
+        });
+    }
+}
+
+/// 画層の正規番号を動かす高速編集の取り消し・やり直しは、書き直す行の数を先に予算へ数える
+fn check_layer_shift(
+    entry: Option<&JournalEntry>,
+    state: &LiveState,
+    cx: &mut Cx<'_>,
+) -> Result<(), Error> {
+    if let Some(JournalEntry::Fast(fast)) = entry
+        && fast.implicit.as_ref().is_some_and(|step| step.layer_shift)
+    {
+        cx.check(Kind::Work, u64::from(state.table.live_count()))
+            .map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+    }
+    Ok(())
 }
 
 enum FastAttempt {
@@ -423,6 +529,7 @@ pub fn apply_changes(
 }
 
 #[allow(clippy::large_enum_variant)]
+#[derive(Clone)]
 enum StagedLifted {
     Plain {
         item: PlainLifted,
@@ -937,18 +1044,26 @@ fn stage_lift_block_element(
 }
 
 fn commit_staged_lifted(state: &mut LiveState, staged: StagedLifted) -> LiveRow {
+    materialize_staged(
+        &mut state.shapes,
+        &mut state.catalog,
+        &state.block_defs_by_lower,
+        staged,
+    )
+}
+
+fn materialize_staged(
+    shapes: &mut LiveShapes,
+    catalog: &mut SlotCatalog,
+    block_defs_by_lower: &BTreeMap<String, u32>,
+    staged: StagedLifted,
+) -> LiveRow {
     match staged {
         StagedLifted::Plain {
             item,
             unique_handle,
             born,
-        } => state.shapes.push_plain(
-            item,
-            &mut state.catalog,
-            unique_handle,
-            born,
-            &state.block_defs_by_lower,
-        ),
+        } => shapes.push_plain(item, catalog, unique_handle, born, block_defs_by_lower),
         StagedLifted::General {
             record,
             origin,
@@ -968,13 +1083,13 @@ fn commit_staged_lifted(state: &mut LiveState, staged: StagedLifted) -> LiveRow 
                 element,
                 &raw_layers,
                 &raw_line_types,
-                &mut state.catalog,
+                catalog,
                 &dxf_kind,
                 follower_records,
                 raw_attrib_count,
                 drafts,
             );
-            state.shapes.push_general(
+            shapes.push_general(
                 record,
                 origin,
                 handle,
@@ -1432,6 +1547,8 @@ fn try_apply_fast(
     }
 
     let single_edit = changes.edits.len() == 1;
+    // DWG は暗黙の画層・線種の並びを差分で持たないので、参照を動かす変更を構造経路に任せる
+    let dwg_gate = !matches!(state.backing, LiveBacking::AsciiDxf(_));
     let mut seen_targets: BTreeSet<&str> = BTreeSet::new();
     let mut row_actions: Vec<StagedRowAction> = Vec::with_capacity(changes.edits.len());
     let mut symbol_edits: Vec<StagedSymbolEdit> = Vec::new();
@@ -1519,7 +1636,7 @@ fn try_apply_fast(
                                 Ok(Err(fb)) => return fb,
                                 Err(e) => return FastAttempt::Err(e),
                             };
-                        if state.catalog.has_implicit
+                        if (dwg_gate && state.catalog.has_implicit)
                             || !state.non_unique_model_ids.is_empty()
                             || (row.flags & ROW_HAS_102_OR_360 != 0)
                             || (row.flags & (ROW_HAS_HANDLE | ROW_UNIQUE_HANDLE)
@@ -1657,7 +1774,9 @@ fn try_apply_fast(
                         applied_out.push(ap);
                     }
                     Edit::Restyle { target, style } => {
-                        if !seen_targets.insert(target.id.as_str()) || state.catalog.has_implicit {
+                        if !seen_targets.insert(target.id.as_str())
+                            || (dwg_gate && state.catalog.has_implicit)
+                        {
                             return FastAttempt::Fallback;
                         }
                         let (row_id, row, was) =
@@ -1766,7 +1885,9 @@ fn try_apply_fast(
                         applied_out.push(ap);
                     }
                     Edit::Replace { target, element } => {
-                        if !seen_targets.insert(target.id.as_str()) || state.catalog.has_implicit {
+                        if !seen_targets.insert(target.id.as_str())
+                            || (dwg_gate && state.catalog.has_implicit)
+                        {
                             return FastAttempt::Fallback;
                         }
                         let Placed::Model(now_el) = element.as_ref() else {
@@ -2097,7 +2218,7 @@ fn try_apply_fast(
                                 Ok(Err(fb)) => return fb,
                                 Err(e) => return FastAttempt::Err(e),
                             };
-                        if state.catalog.has_implicit
+                        if (dwg_gate && state.catalog.has_implicit)
                             || !state.non_unique_model_ids.is_empty()
                             || (row.flags & ROW_HAS_102_OR_360 != 0)
                             || (row.flags & (ROW_HAS_HANDLE | ROW_UNIQUE_HANDLE)
@@ -2314,7 +2435,9 @@ fn try_apply_fast(
                         applied_out.push(ap);
                     }
                     Edit::Restyle { target, style } => {
-                        if !seen_targets.insert(target.id.as_str()) || state.catalog.has_implicit {
+                        if !seen_targets.insert(target.id.as_str())
+                            || (dwg_gate && state.catalog.has_implicit)
+                        {
                             return FastAttempt::Fallback;
                         }
                         let (row_id, row, was) =
@@ -2448,7 +2571,9 @@ fn try_apply_fast(
                         applied_out.push(ap);
                     }
                     Edit::Replace { target, element } => {
-                        if !seen_targets.insert(target.id.as_str()) || state.catalog.has_implicit {
+                        if !seen_targets.insert(target.id.as_str())
+                            || (dwg_gate && state.catalog.has_implicit)
+                        {
                             return FastAttempt::Fallback;
                         }
                         let Placed::Model(now_el) = element.as_ref() else {
@@ -2774,6 +2899,27 @@ fn try_apply_fast(
         }
     };
 
+    // 暗黙の画層・線種の並びを、変更後の参照から作り直す（ハッシュも変更後の番号で計算し直す）
+    // 暗黙の名前がなく、新しい名前も足さない文書では何もしない（手間・予算・診断は従来のまま）
+    let implicit_step = if dwg_gate
+        || !(state.catalog.has_implicit || stages_new_names(&state.catalog, &row_actions))
+    {
+        None
+    } else {
+        match plan_implicit(state, &row_actions, &mut applied_out, cx) {
+            Ok(Some(step)) => step,
+            Ok(None) => return FastAttempt::Fallback,
+            Err(error) => return FastAttempt::Err(error),
+        }
+    };
+    if let Some(step) = &implicit_step
+        && step.layer_shift
+        && let Err(stop) = cx.check(Kind::Work, u64::from(state.table.live_count()))
+    {
+        cx.report(stop.to_diagnostic());
+        return FastAttempt::Err(Error::Stopped(stop));
+    }
+
     // 反映前の予算検査（ここで止まれば `state` も `journal` も 1 ビットも変わらない）
     let affected_count = row_actions
         .len()
@@ -2842,6 +2988,8 @@ fn try_apply_fast(
             .len()
             .saturating_add(affected_from_symbols.len()),
     );
+    // 名前を足す途中で止まったら、カタログを元に戻す
+    let catalog_before = state.catalog.clone();
     for action in row_actions {
         match action {
             StagedRowAction::Update { row_id, lifted } => {
@@ -2944,6 +3092,7 @@ fn try_apply_fast(
                     *slot = before_el.clone();
                 }
             }
+            state.catalog = catalog_before;
             cx.report(stop.to_diagnostic());
             return FastAttempt::Err(Error::Stopped(stop));
         }
@@ -2955,8 +3104,14 @@ fn try_apply_fast(
                     *slot = before_el.clone();
                 }
             }
+            state.catalog = catalog_before;
             return FastAttempt::Fallback;
         }
+    }
+    drop(catalog_before);
+    if let Some(step) = &implicit_step {
+        state.catalog = step.after.clone();
+        state.implicit.apply(&step.deltas, true);
     }
 
     // 表示バッファー・形式別バックエンド・点スタイルを同期し、履歴へ積む
@@ -2985,19 +3140,258 @@ fn try_apply_fast(
     state.dirty_symbols.extend(dirty_symbols.iter().copied());
 
     sync_display_from_step_history(state, &step_history);
+    if let Some(step) = &implicit_step
+        && step.layer_shift
+    {
+        refresh_layer_display(state, &step.before.layer_remap);
+    }
 
-    let approx_bytes =
-        step_history.bytes() + symbol_edits.len() * 256 + dirty_symbols.len() * 4 + 64;
+    let approx_bytes = step_history.bytes()
+        + symbol_edits.len() * 256
+        + dirty_symbols.len() * 4
+        + implicit_step.as_ref().map_or(0, ImplicitStep::bytes)
+        + 64;
     journal.push_entry(JournalEntry::Fast(FastEntry {
         step: step_history,
         symbol_edits,
         dirty_symbols,
         before_point_style,
         after_point_style: new_point_style,
+        implicit: implicit_step.map(Box::new),
         approx_bytes,
     }));
 
     FastAttempt::Applied(applied_out)
+}
+
+/// 行の参照を暗黙スロットの増減として積む（表のスロットは並びが動かないので積まない）
+fn push_slot_deltas(
+    shapes: &LiveShapes,
+    row: &LiveRow,
+    count: i32,
+    [layer_table, line_type_table]: [u32; 2],
+    scratch: &mut [Vec<u32>; 2],
+    deltas: &mut Vec<RefDelta>,
+) {
+    let [layers, line_types] = scratch;
+    shapes.slot_refs(row, layers, line_types);
+    for (line_type, slots, table) in [
+        (false, &*layers, layer_table),
+        (true, &*line_types, line_type_table),
+    ] {
+        for (order, &slot) in slots.iter().enumerate() {
+            if slot >= table {
+                deltas.push(RefDelta {
+                    line_type,
+                    slot,
+                    key: (row.record, order as u32),
+                    count,
+                });
+            }
+        }
+    }
+}
+
+/// 段階の行が、カタログにない画層・線種の名前を足しうるか（足すなら真。真でも足さないことはある）
+fn stages_new_names(catalog: &SlotCatalog, row_actions: &[StagedRowAction]) -> bool {
+    let layer = |name: &str| {
+        !catalog
+            .by_layer_lower
+            .contains_key(&name.to_ascii_lowercase())
+    };
+    let line_type = |name: &str| {
+        !catalog
+            .by_line_type_lower
+            .contains_key(&name.to_ascii_lowercase())
+    };
+    let plain = |style: &PlainStyle| {
+        layer(&style.layer)
+            || matches!(&style.line_type, PlainLineType::Own(name) if line_type(name))
+    };
+    row_actions.iter().any(|action| {
+        let lifted = match action {
+            StagedRowAction::Update { lifted, .. } | StagedRowAction::Born { lifted } => lifted,
+            StagedRowAction::Remove { .. } => return false,
+        };
+        match lifted {
+            StagedLifted::Plain { item, .. } => {
+                plain(&item.style)
+                    || matches!(&item.geom, PlainGeom::Insert { attribs, .. }
+                        if attribs.iter().any(|attrib| plain(&attrib.style)))
+            }
+            // 画層の番号が名前の一覧の外なら「0」とする（`general_from_element`）
+            StagedLifted::General {
+                raw_layers,
+                raw_line_types,
+                ..
+            } => {
+                layer("0")
+                    || raw_layers.iter().any(|l| layer(&l.name))
+                    || raw_line_types.iter().any(|l| line_type(&l.name))
+            }
+        }
+    })
+}
+
+#[cfg(test)]
+thread_local! {
+    /// 試験用：`plan_implicit` を呼んだ回数
+    pub static PLAN_IMPLICIT_CALLS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+}
+
+/// 高速経路の変更で暗黙の画層・線種の並びがどう変わるかを、`state` を変えずに求める
+///
+/// 戻り値は、並びが変わらなければ `Ok(Some(None))`、構造経路に任せるなら `Ok(None)`。並びや番号が
+/// 動くときは、`applied` のハッシュを変更後の番号で計算し直す。
+fn plan_implicit(
+    state: &LiveState,
+    row_actions: &[StagedRowAction],
+    applied: &mut [Applied],
+    cx: &mut Cx<'_>,
+) -> Result<Option<Option<ImplicitStep>>, Error> {
+    #[cfg(test)]
+    PLAN_IMPLICIT_CALLS.with(|calls| calls.set(calls.get() + 1));
+    let checked = |cx: &mut Cx<'_>, amount: usize| {
+        cx.check(Kind::Work, amount as u64).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })
+    };
+    let tables = [state.implicit.layers.table, state.implicit.line_types.table];
+    let mut shapes = LiveShapes::default();
+    let mut catalog = state.catalog.clone();
+    let mut deltas = Vec::new();
+    let mut scratch = [Vec::new(), Vec::new()];
+    let mut rows = Vec::new();
+    checked(
+        cx,
+        row_actions.len() + state.catalog.layers.len() + state.catalog.line_types.len(),
+    )?;
+    for action in row_actions {
+        match action {
+            StagedRowAction::Update { row_id, lifted } => {
+                let Some(old) = state.table.row(*row_id) else {
+                    return Ok(None);
+                };
+                push_slot_deltas(&state.shapes, old, -1, tables, &mut scratch, &mut deltas);
+                let row = materialize_staged(
+                    &mut shapes,
+                    &mut catalog,
+                    &state.block_defs_by_lower,
+                    lifted.clone(),
+                );
+                push_slot_deltas(&shapes, &row, 1, tables, &mut scratch, &mut deltas);
+                rows.push(row);
+            }
+            StagedRowAction::Remove { row_id } => {
+                let Some(old) = state.table.row(*row_id) else {
+                    return Ok(None);
+                };
+                push_slot_deltas(&state.shapes, old, -1, tables, &mut scratch, &mut deltas);
+            }
+            StagedRowAction::Born { lifted } => {
+                let row = materialize_staged(
+                    &mut shapes,
+                    &mut catalog,
+                    &state.block_defs_by_lower,
+                    lifted.clone(),
+                );
+                push_slot_deltas(&shapes, &row, 1, tables, &mut scratch, &mut deltas);
+                rows.push(row);
+            }
+        }
+    }
+    checked(cx, deltas.len())?;
+    let grew = catalog.layers.len() > state.catalog.layers.len()
+        || catalog.line_types.len() > state.catalog.line_types.len();
+    if !grew
+        && super::implicit::net_deltas(&deltas, false).is_empty()
+        && super::implicit::net_deltas(&deltas, true).is_empty()
+    {
+        return Ok(Some(None));
+    }
+    let LiveBacking::AsciiDxf(dxf) = &state.backing else {
+        return Ok(None);
+    };
+    let Some(projection) =
+        state
+            .implicit
+            .project(&state.catalog, &catalog, &deltas, dxf.next_born_record)
+    else {
+        return Ok(None);
+    };
+    // 用紙・ブロック定義の要素は開いたときの番号を持つので、その番号が動く変更は構造経路に任せる
+    for (slot, entry) in state.catalog.layers.iter().enumerate() {
+        if entry.pinned_outside_model
+            && state.catalog.layer_remap.get(slot) != projection.layer_remap.get(slot)
+        {
+            return Ok(None);
+        }
+    }
+    for (slot, entry) in state.catalog.line_types.iter().enumerate() {
+        if entry.pinned_outside_model
+            && state.catalog.line_type_remap.get(slot) != projection.line_type_remap.get(slot)
+        {
+            return Ok(None);
+        }
+    }
+    if let Some(slot) = state.default_line_type_slot
+        && projection
+            .line_type_remap
+            .get(slot as usize)
+            .is_none_or(|id| id.0 == INACTIVE)
+    {
+        return Ok(None);
+    }
+    catalog.active_layer_slots = projection.active_layer_slots;
+    catalog.layer_remap = projection.layer_remap;
+    catalog.active_line_type_slots = projection.active_line_type_slots;
+    catalog.line_type_remap = projection.line_type_remap;
+
+    let layer_shift = state
+        .catalog
+        .layer_remap
+        .iter()
+        .zip(&catalog.layer_remap)
+        .any(|(old, new)| old.0 != INACTIVE && new.0 != INACTIVE && old != new);
+    let moved = grew
+        || catalog.layer_remap.get(..state.catalog.layer_remap.len())
+            != Some(state.catalog.layer_remap.as_slice())
+        || catalog
+            .line_type_remap
+            .get(..state.catalog.line_type_remap.len())
+            != Some(state.catalog.line_type_remap.as_slice());
+    if moved {
+        checked(cx, rows.len())?;
+        for row in &rows {
+            if row.flags & (ROW_HAS_HANDLE | ROW_UNIQUE_HANDLE)
+                != (ROW_HAS_HANDLE | ROW_UNIQUE_HANDLE)
+            {
+                continue;
+            }
+            let Some(element) = shapes.to_element(row, &catalog) else {
+                return Ok(None);
+            };
+            let id = format!("space/0/h{:X}", row.handle);
+            let Some(entry) = applied
+                .iter_mut()
+                .find(|entry| entry.id.as_deref() == Some(id.as_str()))
+            else {
+                continue;
+            };
+            let hash = Hash::element_checked(&element, cx).map_err(|stop| {
+                cx.report(stop.to_diagnostic().at(element.source.clone()));
+                Error::Stopped(stop)
+            })?;
+            entry.hash = Some(hash);
+        }
+    }
+    Ok(Some(Some(ImplicitStep {
+        before: state.catalog.clone(),
+        after: catalog,
+        deltas,
+        layer_shift,
+    })))
 }
 
 fn sync_display_from_step_history(

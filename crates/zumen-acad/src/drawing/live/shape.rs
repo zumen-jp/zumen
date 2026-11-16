@@ -466,6 +466,8 @@ pub struct LayerSlotEntry {
     pub pinned_outside_model: bool,
     /// 生きているモデル空間要素（属性を含む）からの参照件数
     pub model_refs: u32,
+    /// 表示名と大文字・小文字だけ違う綴りの参照があったか（先頭の参照が変わると名前が変わりうる）
+    pub spelled_otherwise: bool,
 }
 
 /// 線種スロットの 1 項目
@@ -481,6 +483,8 @@ pub struct LineTypeSlotEntry {
     pub pinned_outside_model: bool,
     /// 生きているモデル空間要素からの参照件数
     pub model_refs: u32,
+    /// 表示名と大文字・小文字だけ違う綴りの参照があったか
+    pub spelled_otherwise: bool,
 }
 
 /// 画層・線種の内部スロットと正規の [`LayerId`]・[`LineTypeId`] の対応表
@@ -522,6 +526,7 @@ impl SlotCatalog {
                 drafts: Vec::new(),
                 pinned_outside_model: true,
                 model_refs: 0,
+                spelled_otherwise: false,
             });
             cat.line_type_remap.push(LineTypeId(slot));
             cat.active_line_type_slots.push(slot);
@@ -537,6 +542,7 @@ impl SlotCatalog {
                 drafts: Vec::new(),
                 pinned_outside_model: true,
                 model_refs: 0,
+                spelled_otherwise: false,
             });
             cat.layer_remap.push(LayerId(slot));
             cat.active_layer_slots.push(slot);
@@ -548,6 +554,11 @@ impl SlotCatalog {
     pub fn intern_layer(&mut self, name: &str) -> u32 {
         let lower = name.to_ascii_lowercase();
         if let Some(&slot) = self.by_layer_lower.get(&lower) {
+            if let Some(entry) = self.layers.get_mut(slot as usize)
+                && entry.name != name
+            {
+                entry.spelled_otherwise = true;
+            }
             return slot;
         }
         let slot = self.layers.len() as u32;
@@ -558,6 +569,7 @@ impl SlotCatalog {
             drafts: Vec::new(),
             pinned_outside_model: false,
             model_refs: 0,
+            spelled_otherwise: false,
         });
         self.layer_remap.push(LayerId(slot));
         self.active_layer_slots.push(slot);
@@ -569,6 +581,11 @@ impl SlotCatalog {
     pub fn intern_line_type(&mut self, name: &str) -> u32 {
         let lower = name.to_ascii_lowercase();
         if let Some(&slot) = self.by_line_type_lower.get(&lower) {
+            if let Some(entry) = self.line_types.get_mut(slot as usize)
+                && entry.name != name
+            {
+                entry.spelled_otherwise = true;
+            }
             return slot;
         }
         let slot = self.line_types.len() as u32;
@@ -579,6 +596,7 @@ impl SlotCatalog {
             drafts: Vec::new(),
             pinned_outside_model: false,
             model_refs: 0,
+            spelled_otherwise: false,
         });
         self.line_type_remap.push(LineTypeId(slot));
         self.active_line_type_slots.push(slot);
@@ -1353,6 +1371,59 @@ impl LiveShapes {
         }
     }
 
+    /// 行が参照する画層スロットと線種スロットを、読み込みで名前を足す順に返す
+    ///
+    /// 画層は `[図形, 属性…]`、線種は `[図形, 引出線, 属性…]` の順。`Lifter` は図形の線種・画層・
+    /// 引出線・属性の順に名前を足すので、同じ図形の中の並びもこの順で決まる。
+    pub fn slot_refs(&self, row: &LiveRow, layers: &mut Vec<u32>, line_types: &mut Vec<u32>) {
+        layers.clear();
+        line_types.clear();
+        layers.push(row.layer_slot);
+        let extra_line_type = |extra: u32| {
+            if extra == u32::MAX {
+                return None;
+            }
+            match self.pools.extras.get(extra as usize)?.line_type {
+                LineTypeSlotRef::Own(slot) => Some(slot),
+                LineTypeSlotRef::Layer | LineTypeSlotRef::Block => None,
+            }
+        };
+        match row.kind {
+            LiveKind::General => {
+                let Some(g) = self.generals.get(row.shape as usize) else {
+                    return;
+                };
+                if let Inherit::Own(lt) = g.element.style.line_type {
+                    line_types.push(lt.0);
+                }
+                if let LineTypeSlotRef::Own(slot) = g.callout_line_type_slot
+                    && matches!(g.element.shape, Shape::Callout(_))
+                {
+                    line_types.push(slot);
+                }
+                for &(a_layer, a_lt) in &g.attrib_slots {
+                    layers.push(a_layer);
+                    if let LineTypeSlotRef::Own(slot) = a_lt {
+                        line_types.push(slot);
+                    }
+                }
+            }
+            LiveKind::Insert => {
+                line_types.extend(extra_line_type(row.extra));
+                let Some(g) = self.inserts.get(row.shape as usize) else {
+                    return;
+                };
+                for i in 0..g.attrib_count {
+                    if let Some(attr) = self.pools.attribs.get((g.attrib_start + i) as usize) {
+                        layers.push(attr.layer_slot);
+                        line_types.extend(extra_line_type(attr.extra));
+                    }
+                }
+            }
+            _ => line_types.extend(extra_line_type(row.extra)),
+        }
+    }
+
     /// 行から [`Element<ModelPoint>`] を組み立てる（画層・線種 ID は正規番号に写す）
     pub fn to_element(&self, row: &LiveRow, catalog: &SlotCatalog) -> Option<Element<ModelPoint>> {
         let source = row.source_ref();
@@ -1842,11 +1913,12 @@ impl LiveShapes {
         [0, 0, texts, 1]
     }
 
-    /// 行の幾何を [`DisplayWriter`] に書き出す
+    /// 行の幾何を [`DisplayWriter`] に書き出す（属性の画層は `layer_ids` で正規番号に写す）
     pub fn write_display(
         &self,
         row: &LiveRow,
         symbols: &[SymbolDefinition],
+        layer_ids: &[LayerId],
         w: &mut DisplayWriter<'_>,
     ) {
         match row.kind {
@@ -1877,12 +1949,19 @@ impl LiveShapes {
             }
             LiveKind::Insert => {
                 if let Some(g) = self.inserts.get(row.shape as usize) {
-                    self.write_insert_display(g, w);
+                    self.write_insert_display(g, layer_ids, w);
                 }
             }
             LiveKind::General => {
                 if let Some(g) = self.generals.get(row.shape as usize) {
-                    write_shape_display(&g.element.shape, symbols, &Xform::IDENTITY, 0, w);
+                    write_shape_display(
+                        &g.element.shape,
+                        symbols,
+                        layer_ids,
+                        &Xform::IDENTITY,
+                        0,
+                        w,
+                    );
                 }
             }
         }
@@ -1919,7 +1998,12 @@ impl LiveShapes {
         }
     }
 
-    fn write_insert_display(&self, g: &InsertGeom, w: &mut DisplayWriter<'_>) {
+    fn write_insert_display(
+        &self,
+        g: &InsertGeom,
+        layer_ids: &[LayerId],
+        w: &mut DisplayWriter<'_>,
+    ) {
         for i in 0..g.attrib_count {
             if let Some(attr) = self.pools.attribs.get((g.attrib_start + i) as usize)
                 && attr.attrib_flags & 1 == 0
@@ -1927,7 +2011,7 @@ impl LiveShapes {
                 write_text_geom(
                     &attr.text,
                     &self.pools,
-                    Some([attr.layer_slot, attr.color]),
+                    Some([display_layer(layer_ids, attr.layer_slot), attr.color]),
                     w,
                 );
             }
@@ -2826,9 +2910,22 @@ fn write_poly_vertices_display(
     }
 }
 
+/// 画層スロットを表示バッファーに書く正規の画層番号に写す
+#[inline]
+pub fn display_layer(layer_ids: &[LayerId], slot: u32) -> u32 {
+    layer_ids.get(slot as usize).map_or(slot, |id| id.0)
+}
+
+/// 行の表示スタイル（正規の画層番号と色）
+#[inline]
+pub fn display_style(layer_ids: &[LayerId], row: &LiveRow) -> [u32; 2] {
+    [display_layer(layer_ids, row.layer_slot), row.color]
+}
+
 fn write_shape_display(
     shape: &Shape<ModelPoint>,
     symbols: &[SymbolDefinition],
+    layer_ids: &[LayerId],
     xf: &Xform,
     depth: u8,
     w: &mut DisplayWriter<'_>,
@@ -2892,7 +2989,7 @@ fn write_shape_display(
                 }
                 if sub_c != [0; 4] {
                     for el in &def.space.elements {
-                        write_shape_display(&el.shape, symbols, xf, depth + 1, w);
+                        write_shape_display(&el.shape, symbols, layer_ids, xf, depth + 1, w);
                     }
                     before = true;
                 }
@@ -2923,13 +3020,25 @@ fn write_shape_display(
                 }
             }
             if let CalloutContent::Text(text) = &callout.content {
-                write_shape_display(&Shape::Formatted((**text).clone()), symbols, xf, depth, w);
+                write_shape_display(
+                    &Shape::Formatted((**text).clone()),
+                    symbols,
+                    layer_ids,
+                    xf,
+                    depth,
+                    w,
+                );
             }
         }
         Shape::Symbol(sym) => {
             for attr in &sym.attributes {
                 if !attr.hidden {
-                    let st = (depth == 0).then(|| [attr.layer.0, pack_color(attr.style.color)]);
+                    let st = (depth == 0).then(|| {
+                        [
+                            display_layer(layer_ids, attr.layer.0),
+                            pack_color(attr.style.color),
+                        ]
+                    });
                     write_model_text_display(&attr.text, xf, st, w);
                 }
             }
@@ -2974,7 +3083,7 @@ fn write_shape_display(
                 };
                 let next_xf = xf.compose(&local);
                 for el in &def.space.elements {
-                    write_shape_display(&el.shape, symbols, &next_xf, depth + 1, w);
+                    write_shape_display(&el.shape, symbols, layer_ids, &next_xf, depth + 1, w);
                 }
             }
         }
@@ -2995,7 +3104,7 @@ fn write_shape_display(
                 }
                 if sub_c != [0; 4] {
                     for el in &def.space.elements {
-                        write_shape_display(&el.shape, symbols, xf, depth + 1, w);
+                        write_shape_display(&el.shape, symbols, layer_ids, xf, depth + 1, w);
                     }
                     emitted = true;
                 }

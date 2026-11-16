@@ -2,8 +2,8 @@
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Key, Kind, Limit, Limits};
 use zumen_drawing::{
-    Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, Font, FontKind, Hash, PaperPoint,
-    Placed, Restyle, Seen, Shape, id, transform,
+    Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, Font, FontKind, Hash, Inherit,
+    PaperPoint, Placed, Restyle, Seen, Shape, id, transform,
 };
 use zumen_live::RowId;
 use zumen_sdk::{Apply, Codec, Error, Lift};
@@ -264,11 +264,15 @@ where
     }
 
     fn apply(&mut self, edit: Edit) -> Vec<Applied> {
+        self.apply_edits(vec![edit])
+    }
+
+    fn apply_edits(&mut self, edits: Vec<Edit>) -> Vec<Applied> {
         let before = fresh_cx(|cx| self.live.drawing(cx)).0.unwrap();
         let before_bytes = fresh_cx(|cx| self.live.save(cx)).0.unwrap();
         let changes = Changes {
             document: None,
-            edits: vec![edit],
+            edits,
         };
         let (actual, diagnostics) = fresh_cx(|cx| self.live.apply(&changes, cx));
         let (expected, expected_diag) = fresh_cx(|cx| self.reference.apply(&changes, cx));
@@ -723,6 +727,569 @@ fn implicit_layer_removal_preserves_ids_hashes_and_undo() {
                 .collect::<Vec<_>>(),
             ["SECOND", "THIRD"]
         );
+    }
+}
+
+/// 表のない ASCII DXF。`lines` は（ハンドル・画層・線種）の LINE、`blocks` は BLOCKS の中身
+fn implicit_dxf(blocks: &str, lines: &[(u64, &str, Option<&str>)]) -> Vec<u8> {
+    let mut input = "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n".to_owned();
+    if !blocks.is_empty() {
+        input.push_str("0\nSECTION\n2\nBLOCKS\n");
+        input.push_str(blocks);
+        input.push_str("0\nENDSEC\n");
+    }
+    input.push_str("0\nSECTION\n2\nENTITIES\n");
+    for &(handle, layer, line_type) in lines {
+        input.push_str(&format!("0\nLINE\n5\n{handle:X}\n8\n{layer}\n"));
+        if let Some(line_type) = line_type {
+            input.push_str(&format!("6\n{line_type}\n"));
+        }
+        input.push_str(&format!("10\n{handle}\n20\n0\n11\n10\n21\n5\n"));
+    }
+    input.push_str("0\nENDSEC\n0\nEOF\n");
+    input.into_bytes()
+}
+
+/// ブロック定義の中だけで使う画層 BLK
+const BLOCK_ONLY_LAYER: &str = "0\nBLOCK\n5\n20\n8\nBLK\n2\nB1\n70\n0\n10\n0\n20\n0\n30\n0\n3\nB1\n\
+0\nLINE\n5\n21\n8\nBLK\n10\n0\n20\n0\n11\n1\n21\n1\n0\nENDBLK\n5\n22\n8\nBLK\n";
+
+/// 生きた行の表示スタイルを要素の ID ごとに集める
+fn display_styles_by_id(live: &AcadLive) -> std::collections::BTreeMap<String, [Vec<[u32; 2]>; 4]> {
+    let mut styles = std::collections::BTreeMap::new();
+    for index in 0..live.table().len() {
+        let row = RowId::from_index(index).unwrap();
+        if !live.table().is_alive(row) {
+            continue;
+        }
+        let seen = fresh_cx(|cx| live.seen_of_row(row, cx)).0.unwrap().unwrap();
+        styles.insert(
+            seen.id,
+            live.display().row_styles(u32::try_from(index).unwrap()),
+        );
+    }
+    styles
+}
+
+impl DxfPair {
+    fn layer_id(&self, name: &str) -> zumen_drawing::LayerId {
+        let model = fresh_cx(|cx| self.live.drawing(cx)).0.unwrap();
+        model
+            .layers
+            .iter()
+            .find(|layer| layer.name == name)
+            .unwrap()
+            .id
+    }
+
+    fn line_type_id(&self, name: &str) -> zumen_drawing::LineTypeId {
+        let model = fresh_cx(|cx| self.live.drawing(cx)).0.unwrap();
+        model
+            .line_types
+            .iter()
+            .find(|line_type| line_type.name == name)
+            .unwrap()
+            .id
+    }
+
+    /// まだない画層「0」の ID（表のない文書で編集が新しく名指せる唯一の名前）
+    fn new_zero_layer(&self) -> zumen_drawing::LayerId {
+        let model = fresh_cx(|cx| self.live.drawing(cx)).0.unwrap();
+        assert!(model.layers.iter().all(|layer| layer.name != "0"));
+        zumen_drawing::LayerId(u32::try_from(model.layers.len()).unwrap())
+    }
+
+    fn element(&self, handle: u64) -> Element<zumen_drawing::ModelPoint> {
+        let model = fresh_cx(|cx| self.live.drawing(cx)).0.unwrap();
+        model.spaces[0]
+            .elements
+            .iter()
+            .find(|element| element.source.key() == Some(Key::Handle(handle)))
+            .unwrap()
+            .clone()
+    }
+
+    fn assert_display_matches_reopen(&self) {
+        let saved = fresh_cx(|cx| self.live.save(cx)).0.unwrap();
+        let reopened = fresh_cx(|cx| AcadLive::open_with_threads(&saved, 1, cx))
+            .0
+            .unwrap();
+        assert_eq!(
+            display_styles_by_id(&self.live),
+            display_styles_by_id(&reopened)
+        );
+    }
+
+    /// 編集を 1 回の apply で適用して従来の apply と比べ、高速経路かどうかと表示を確かめる
+    fn apply_implicit(&mut self, edits: Vec<Edit>, fast: bool) -> Vec<Applied> {
+        let applied = self.apply_edits(edits);
+        assert_eq!(self.live.journal.last_is_fast(), Some(fast));
+        self.assert_display_matches_reopen();
+        assert!(fresh_cx(|cx| self.live.undo(cx)).0.unwrap());
+        self.assert_display_matches_reopen();
+        assert!(fresh_cx(|cx| self.live.redo(cx)).0.unwrap());
+        self.assert_display_matches_reopen();
+        applied
+    }
+}
+
+#[test]
+fn implicit_first_reference_removal_reorders_on_fast_path() {
+    let input = implicit_dxf(
+        "",
+        &[(0x10, "A", None), (0x11, "B", None), (0x12, "A", None)],
+    );
+    let names = |pair: &DxfPair| {
+        fresh_cx(|cx| pair.live.drawing(cx))
+            .0
+            .unwrap()
+            .layers
+            .into_iter()
+            .map(|layer| layer.name)
+            .collect::<Vec<_>>()
+    };
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&input, threads);
+        pair.assert_display_matches_reopen();
+        pair.apply_implicit(
+            vec![Edit::Remove {
+                target: pair.seen(0x10),
+            }],
+            true,
+        );
+        assert_eq!(names(&pair), ["B", "A"]);
+        pair.apply_implicit(
+            vec![Edit::Remove {
+                target: pair.seen(0x12),
+            }],
+            true,
+        );
+        assert_eq!(names(&pair), ["B"]);
+    }
+}
+
+#[test]
+fn implicit_last_reference_removal_drops_layer_on_fast_path() {
+    let input = implicit_dxf(
+        "",
+        &[(0x10, "A", None), (0x11, "B", None), (0x12, "C", None)],
+    );
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&input, threads);
+        pair.apply_implicit(
+            vec![Edit::Remove {
+                target: pair.seen(0x11),
+            }],
+            true,
+        );
+        pair.apply_implicit(
+            vec![Edit::Transform {
+                target: pair.seen(0x12),
+                transform: Affine::translation(1.0, 2.0),
+            }],
+            true,
+        );
+    }
+}
+
+#[test]
+fn implicit_restyle_and_replace_onto_new_and_existing_layers_use_fast_path() {
+    let input = implicit_dxf(
+        "",
+        &[(0x10, "A", None), (0x11, "B", None), (0x12, "C", None)],
+    );
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&input, threads);
+        // 既存の暗黙の画層へ移し、A が消えて番号が詰まる
+        pair.apply_implicit(
+            vec![Edit::Restyle {
+                target: pair.seen(0x10),
+                style: Restyle {
+                    layer: Some(pair.layer_id("C")),
+                    ..Restyle::default()
+                },
+            }],
+            true,
+        );
+        // 置き換えで画層を変えることは従来の apply も断る
+        let mut replacement = pair.element(0x11);
+        replacement.layer = pair.new_zero_layer();
+        pair.reject(Edit::Replace {
+            target: pair.seen(0x11),
+            element: Box::new(Placed::Model(replacement)),
+        });
+        // まだない画層「0」へ移す
+        pair.apply_implicit(
+            vec![Edit::Restyle {
+                target: pair.seen(0x11),
+                style: Restyle {
+                    layer: Some(pair.new_zero_layer()),
+                    ..Restyle::default()
+                },
+            }],
+            true,
+        );
+        // 番号が動いたあとの形だけの置き換え
+        let mut replacement = pair.element(0x12);
+        if let Shape::Line { end, .. } = &mut replacement.shape {
+            end.x += 1.0;
+        }
+        pair.apply_implicit(
+            vec![Edit::Replace {
+                target: pair.seen(0x12),
+                element: Box::new(Placed::Model(replacement)),
+            }],
+            true,
+        );
+        // 既存の「0」へ移し、C が消える
+        pair.apply_implicit(
+            vec![Edit::Restyle {
+                target: pair.seen(0x12),
+                style: Restyle {
+                    layer: Some(pair.layer_id("0")),
+                    ..Restyle::default()
+                },
+            }],
+            true,
+        );
+
+        let mut pair = DxfPair::open(&input, threads);
+        pair.apply_implicit(
+            vec![Edit::Restyle {
+                target: pair.seen(0x12),
+                style: Restyle {
+                    layer: Some(pair.new_zero_layer()),
+                    ..Restyle::default()
+                },
+            }],
+            true,
+        );
+    }
+}
+
+#[test]
+fn implicit_layer_add_uses_fast_path_unless_block_layer_ids_move() {
+    let lines = [(0x10, "A", None), (0x11, "B", None)];
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&implicit_dxf("", &lines), threads);
+        let mut element = pair.element(0x10);
+        element.layer = pair.new_zero_layer();
+        pair.apply_implicit(
+            vec![Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(element)),
+            }],
+            true,
+        );
+        let mut element = pair.element(0x11);
+        element.layer = pair.layer_id("A");
+        pair.apply_implicit(
+            vec![Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(element)),
+            }],
+            true,
+        );
+
+        // ブロック定義だけが使う画層の番号が動く追加は構造経路に任せる
+        let mut pair = DxfPair::open(&implicit_dxf(BLOCK_ONLY_LAYER, &lines), threads);
+        pair.assert_display_matches_reopen();
+        let mut element = pair.element(0x11);
+        element.layer = pair.layer_id("A");
+        pair.apply_implicit(
+            vec![Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(element)),
+            }],
+            true,
+        );
+        pair.apply_implicit(
+            vec![Edit::Remove {
+                target: pair.seen(0x10),
+            }],
+            true,
+        );
+        let mut element = pair.element(0x11);
+        element.layer = pair.new_zero_layer();
+        pair.apply_implicit(
+            vec![Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(element)),
+            }],
+            false,
+        );
+    }
+}
+
+#[test]
+fn implicit_line_type_edits_use_fast_path() {
+    let input = implicit_dxf(
+        "",
+        &[
+            (0x10, "A", Some("DASHED")),
+            (0x11, "A", Some("CENTER")),
+            (0x12, "A", Some("DASHED")),
+        ],
+    );
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&input, threads);
+        pair.apply_implicit(
+            vec![Edit::Remove {
+                target: pair.seen(0x10),
+            }],
+            true,
+        );
+        pair.apply_implicit(
+            vec![Edit::Restyle {
+                target: pair.seen(0x11),
+                style: Restyle {
+                    line_type: Some(Inherit::Own(pair.line_type_id("DASHED"))),
+                    ..Restyle::default()
+                },
+            }],
+            true,
+        );
+        pair.apply_implicit(
+            vec![Edit::Restyle {
+                target: pair.seen(0x12),
+                style: Restyle {
+                    line_type: Some(Inherit::Layer),
+                    ..Restyle::default()
+                },
+            }],
+            true,
+        );
+    }
+}
+
+#[test]
+fn several_implicit_edits_in_one_apply_use_fast_path() {
+    let input = implicit_dxf(
+        "",
+        &[
+            (0x10, "A", Some("DASHED")),
+            (0x11, "B", None),
+            (0x12, "A", Some("CENTER")),
+            (0x13, "C", None),
+        ],
+    );
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&input, threads);
+        let mut added = pair.element(0x13);
+        added.layer = pair.layer_id("B");
+        let edits = vec![
+            Edit::Remove {
+                target: pair.seen(0x10),
+            },
+            Edit::Restyle {
+                target: pair.seen(0x11),
+                style: Restyle {
+                    layer: Some(pair.new_zero_layer()),
+                    ..Restyle::default()
+                },
+            },
+            Edit::Transform {
+                target: pair.seen(0x13),
+                transform: Affine::translation(1.0, 2.0),
+            },
+            Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(added)),
+            },
+        ];
+        pair.apply_implicit(edits, true);
+    }
+}
+
+#[test]
+fn stopped_implicit_edits_leave_state_unchanged() {
+    let input = implicit_dxf(
+        "",
+        &[(0x10, "A", None), (0x11, "B", None), (0x12, "A", None)],
+    );
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&input, threads);
+        pair.apply_with_budgets(Edit::Remove {
+            target: pair.seen(0x10),
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+        pair.apply_with_budgets(Edit::Restyle {
+            target: pair.seen(0x11),
+            style: Restyle {
+                layer: Some(pair.new_zero_layer()),
+                ..Restyle::default()
+            },
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+        pair.assert_display_matches_reopen();
+    }
+}
+
+fn implicit_entities_dxf(entities: &str) -> Vec<u8> {
+    format!(
+        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{entities}0\nENDSEC\n0\nEOF\n"
+    )
+    .into_bytes()
+}
+
+#[test]
+fn general_entity_spelling_variant_falls_back_when_head_changes() {
+    // 一般の経路の図形（ELLIPSE）の綴りの違いも、先頭の参照が変わると構造経路に任せる
+    let input = implicit_entities_dxf(
+        "0\nLINE\n5\n10\n8\nFoo\n6\nDashed\n10\n0\n20\n0\n11\n10\n21\n5\n\
+0\nELLIPSE\n5\n11\n8\nFOO\n6\nDASHED\n10\n0\n20\n0\n30\n0\n11\n5\n21\n0\n31\n0\n40\n0.5\n41\n0\n42\n6.283185307179586\n\
+0\nLINE\n5\n12\n8\nFoo\n10\n0\n20\n0\n11\n10\n21\n5\n",
+    );
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&input, threads);
+        pair.apply_implicit(
+            vec![Edit::Remove {
+                target: pair.seen(0x10),
+            }],
+            false,
+        );
+        let model = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+        assert_eq!(model.layers[0].name, "FOO");
+        // 先頭の参照が変わらない変更は高速経路のまま
+        pair.apply_implicit(
+            vec![Edit::Remove {
+                target: pair.seen(0x12),
+            }],
+            true,
+        );
+    }
+}
+
+#[test]
+fn names_left_by_dropped_block_entities_keep_their_position() {
+    // ブロック定義の LINE は画層（8）がなく持ち上げに失敗するが、線種 DASHED はその前に足される
+    let blocks = "0\nBLOCK\n5\n20\n8\nBLK\n2\nB1\n70\n0\n10\n0\n20\n0\n30\n0\n3\nB1\n\
+0\nLINE\n5\n21\n6\nDASHED\n10\n0\n20\n0\n11\n1\n21\n1\n0\nENDBLK\n5\n22\n8\nBLK\n";
+    let input = implicit_dxf(
+        blocks,
+        &[
+            (0x10, "A", Some("DASHED")),
+            (0x11, "A", None),
+            (0x12, "A", Some("CENTER")),
+        ],
+    );
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&input, threads);
+        // モデル空間の参照が残る間は先頭がわかる
+        pair.apply_implicit(
+            vec![Edit::Remove {
+                target: pair.seen(0x12),
+            }],
+            true,
+        );
+        // 最後のモデル空間の参照が消えると、ブロック定義の中の位置はわからない
+        pair.apply_implicit(
+            vec![Edit::Remove {
+                target: pair.seen(0x10),
+            }],
+            false,
+        );
+        let model = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+        assert!(model.line_types.iter().any(|lt| lt.name == "DASHED"));
+    }
+}
+
+/// 古い形式の POLYLINE（VERTEX・SEQEND が画層・線種を持つ）を含む文書
+fn polyline_line_types_dxf() -> Vec<u8> {
+    implicit_entities_dxf(
+        "0\nLINE\n5\n10\n8\nA\n10\n0\n20\n0\n11\n10\n21\n5\n\
+0\nLINE\n5\n11\n8\nA\n6\nCENTER\n10\n1\n20\n0\n11\n10\n21\n5\n\
+0\nLINE\n5\n12\n8\nA\n6\nDASHED\n10\n2\n20\n0\n11\n10\n21\n5\n\
+0\nPOLYLINE\n5\n13\n8\nA\n66\n1\n70\n0\n10\n0\n20\n0\n30\n0\n\
+0\nVERTEX\n5\n14\n8\nA\n6\nCENTER\n10\n0\n20\n0\n30\n0\n70\n0\n\
+0\nVERTEX\n5\n15\n8\nA\n10\n1\n20\n1\n30\n0\n70\n0\n\
+0\nSEQEND\n5\n16\n8\nA\n",
+    )
+}
+
+#[test]
+fn restyle_onto_existing_implicit_name_moves_its_head_earlier() {
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&polyline_line_types_dxf(), threads);
+        // VERTEX・SEQEND の名前は持ち上げで足さないので、並びを作り直せる
+        assert!(pair.live.state.implicit.line_types.usable);
+        pair.apply_implicit(
+            vec![Edit::Restyle {
+                target: pair.seen(0x10),
+                style: Restyle {
+                    line_type: Some(Inherit::Own(pair.line_type_id("DASHED"))),
+                    ..Restyle::default()
+                },
+            }],
+            true,
+        );
+        let model = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+        let names: Vec<_> = model.line_types.iter().map(|lt| lt.name.as_str()).collect();
+        assert_eq!(names.first(), Some(&"DASHED"));
+    }
+}
+
+#[test]
+fn unusable_documents_only_append_references_from_added_elements() {
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&polyline_line_types_dxf(), threads);
+        // 並びを作り直せない文書として扱う
+        pair.live.state.implicit.line_types.usable = false;
+        pair.live.state.implicit.layers.usable = false;
+        // 元の図形の位置に参照を足すと先頭が前へ動きうるので、構造経路に任せる
+        pair.apply_implicit(
+            vec![Edit::Restyle {
+                target: pair.seen(0x10),
+                style: Restyle {
+                    line_type: Some(Inherit::Own(pair.line_type_id("DASHED"))),
+                    ..Restyle::default()
+                },
+            }],
+            false,
+        );
+        let mut pair = DxfPair::open(&polyline_line_types_dxf(), threads);
+        pair.live.state.implicit.line_types.usable = false;
+        pair.live.state.implicit.layers.usable = false;
+        // 追加する図形から既存の名前を参照するだけなら高速経路
+        let mut added = pair.element(0x11);
+        added.style.line_type = Inherit::Own(pair.line_type_id("DASHED"));
+        pair.apply_implicit(
+            vec![Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(added)),
+            }],
+            true,
+        );
+    }
+}
+
+#[test]
+fn documents_without_implicit_names_skip_the_implicit_plan() {
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&synthetic_rich_dxf(), threads);
+        assert!(!pair.live.state.catalog.has_implicit);
+        super::edit::PLAN_IMPLICIT_CALLS.with(|calls| calls.set(0));
+        pair.apply_with_budgets(Edit::Transform {
+            target: pair.seen(0x101),
+            transform: Affine::translation(1.0, 2.0),
+        });
+        let layer = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap().layers[0].id;
+        pair.apply_with_budgets(Edit::Restyle {
+            target: pair.seen(0x101),
+            style: Restyle {
+                layer: Some(layer),
+                line_type_scale: Some(2.0),
+                ..Restyle::default()
+            },
+        });
+        pair.apply_with_budgets(Edit::Remove {
+            target: pair.seen(0x101),
+        });
+        assert_eq!(
+            super::edit::PLAN_IMPLICIT_CALLS.with(core::cell::Cell::get),
+            0
+        );
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true));
     }
 }
 

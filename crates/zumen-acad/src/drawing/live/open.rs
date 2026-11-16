@@ -37,9 +37,10 @@ use super::super::{
 use super::backing::{
     DwgLiveBacking, DxfHeaderValues, DxfLiveBacking, DxfRecordMapper, LiveBacking,
 };
+use super::implicit::{ImplicitRefs, KindRefs, OpenNotes};
 use super::shape::{
     GeneralRow, LiveKind, LiveRow, LiveShapes, NO_DEFINITION, PlainAttrib, PlainLifted,
-    ROW_UNIQUE_HANDLE, SlotCatalog, general_from_element, try_lift_plain_attrib,
+    ROW_UNIQUE_HANDLE, SlotCatalog, display_style, general_from_element, try_lift_plain_attrib,
     try_lift_plain_entity,
 };
 use crate::charset::Charset;
@@ -70,6 +71,8 @@ pub struct LiveState {
     pub external_dep_sources: Arc<BTreeMap<RowId, Vec<RowId>>>,
     /// 画層・線種スロット表
     pub catalog: SlotCatalog,
+    /// 暗黙の画層・線種への参照の位置
+    pub implicit: ImplicitRefs,
     /// 単一図形書き戻し用の表情報
     pub single_tables: SingleTables,
     /// 文字符号化
@@ -1670,6 +1673,16 @@ fn finish_live_open(
         }
     }
 
+    let layer_table = catalog.layers.len() as u32;
+    let line_type_table = catalog.line_types.len() as u32;
+    let mut layer_notes = OpenNotes::default();
+    let mut line_type_notes = OpenNotes::default();
+    let mut pending_new: Option<(u32, usize, usize)> = None;
+    let mut raw_layers: Vec<u32> = Vec::new();
+    let mut raw_line_types: Vec<u32> = Vec::new();
+    let mut row_layers: Vec<u32> = Vec::new();
+    let mut row_line_types: Vec<u32> = Vec::new();
+
     let mut shapes = LiveShapes::default();
     let mut rows: Vec<LiveRow> = Vec::new();
     let mut row_reactors: Vec<(usize, u64)> = Vec::new();
@@ -1748,9 +1761,19 @@ fn finish_live_open(
     };
 
     for ent_pos in 0..inputs.count {
+        if let Some((record, layers_before, line_types_before)) = pending_new.take() {
+            layer_notes.note_new(layer_table, layers_before, catalog.layers.len(), record);
+            line_type_notes.note_new(
+                line_type_table,
+                line_types_before,
+                catalog.line_types.len(),
+                record,
+            );
+        }
         let Some((rec_u32, work_amt, src_ref, handle_opt)) = entity_meta(ent_pos) else {
             continue;
         };
+        pending_new = Some((rec_u32, catalog.layers.len(), catalog.line_types.len()));
         work(cx, work_amt, &src_ref)?;
         if inputs.owned_set.contains(&ent_pos) {
             if let Some(h) = handle_opt {
@@ -1803,6 +1826,21 @@ fn finish_live_open(
         {
             cx.report((*diagnostic).at(src_ref));
             sync_out_to_catalog(&out, &mut catalog, false);
+            raw_slot_names(
+                &obj,
+                &child_objs,
+                cs,
+                &mut catalog,
+                &mut raw_layers,
+                &mut raw_line_types,
+            );
+            note_maybe_refs(
+                &raw_layers,
+                &raw_line_types,
+                rec_u32,
+                &mut layer_notes,
+                &mut line_type_notes,
+            );
             if let Some(h) = obj.handle() {
                 non_table_max_handle = Some(non_table_max_handle.map_or(h, |m| m.max(h)));
             }
@@ -1810,6 +1848,23 @@ fn finish_live_open(
         }
         let added_paper = out.paper.len() > before_paper;
         sync_out_to_catalog(&out, &mut catalog, added_paper);
+        raw_slot_names(
+            &obj,
+            &child_objs,
+            cs,
+            &mut catalog,
+            &mut raw_layers,
+            &mut raw_line_types,
+        );
+        if out.model.len() <= before_model {
+            note_maybe_refs(
+                &raw_layers,
+                &raw_line_types,
+                rec_u32,
+                &mut layer_notes,
+                &mut line_type_notes,
+            );
+        }
         if out.model.len() > before_model {
             if let Some(el) = out.model.pop() {
                 let _ = out.model_handles.pop();
@@ -1848,6 +1903,13 @@ fn finish_live_open(
                     false,
                     general,
                 );
+                shapes.slot_refs(&row, &mut row_layers, &mut row_line_types);
+                if !multiset_covers(&row_layers, &raw_layers) {
+                    layer_notes.opaque = true;
+                }
+                if !multiset_covers(&row_line_types, &raw_line_types) {
+                    line_type_notes.opaque = true;
+                }
                 rows.push(row);
             }
         } else if let Some(h) = obj.handle() {
@@ -1855,10 +1917,35 @@ fn finish_live_open(
         }
     }
 
+    if let Some((record, layers_before, line_types_before)) = pending_new.take() {
+        layer_notes.note_new(layer_table, layers_before, catalog.layers.len(), record);
+        line_type_notes.note_new(
+            line_type_table,
+            line_types_before,
+            catalog.line_types.len(),
+            record,
+        );
+    }
+
     sync_catalog_to_out(&catalog, &mut out);
     let ([model_keys, paper_keys], block_keys) = lifter.sort_keys(shell_db, cx)?;
     let symbols = lifter.definitions(shell_db, &block_keys, &mut out, cx)?;
+    let (layers_before, line_types_before) = (catalog.layers.len(), catalog.line_types.len());
     sync_out_to_catalog(&out, &mut catalog, true);
+    layer_notes.note_after_entities(layer_table, layers_before, catalog.layers.len());
+    line_type_notes.note_after_entities(
+        line_type_table,
+        line_types_before,
+        catalog.line_types.len(),
+    );
+    // ブロック定義の図形は、持ち上げに失敗しても名前を足していることがある（線種は画層より先に読む）
+    let block_named = if catalog.layers.len() > layer_table as usize
+        || catalog.line_types.len() > line_type_table as usize
+    {
+        block_slot_names(shell_db, cs, &mut catalog, cx)?
+    } else {
+        Default::default()
+    };
     for sym in &symbols {
         for el in &sym.space.elements {
             pin_element_slots(el, &mut catalog);
@@ -1882,6 +1969,14 @@ fn finish_live_open(
     for el in &out.paper {
         pin_element_slots(el, &mut catalog);
     }
+    let implicit = build_implicit_refs(
+        &catalog,
+        &shapes,
+        &rows,
+        [layer_table, line_type_table],
+        [&layer_notes, &line_type_notes],
+        &block_named,
+    );
 
     let mut block_defs_by_lower: BTreeMap<String, u32> = BTreeMap::new();
     let mut blocks_exact: BTreeMap<String, String> = BTreeMap::new();
@@ -2126,14 +2221,17 @@ fn finish_live_open(
         let (counts, style) = RowId::from_index(idx)
             .and_then(|rid| table.row(rid))
             .map_or(([0; 4], [0; 2]), |r| {
-                (shapes.display_counts(r, &symbols), [r.layer_slot, r.color])
+                (
+                    shapes.display_counts(r, &symbols),
+                    display_style(&catalog.layer_remap, r),
+                )
             });
         display
             .push_with_cx(cx, counts, style, |writer| {
                 if let Some(rid) = RowId::from_index(idx)
                     && let Some(r) = table.row(rid)
                 {
-                    shapes.write_display(r, &symbols, writer);
+                    shapes.write_display(r, &symbols, &catalog.layer_remap, writer);
                 }
             })
             .map_err(|stop| {
@@ -2208,6 +2306,7 @@ fn finish_live_open(
         dep,
         external_dep_sources: Arc::new(external_dep_sources),
         catalog,
+        implicit,
         single_tables,
         charset: cs,
         unit: doc_unit,
@@ -2253,6 +2352,188 @@ fn compute_model_order(
         .collect();
     keyed.sort_by_key(|&(k, _)| k);
     keyed.into_iter().map(|(_, item)| item).collect()
+}
+
+/// 図形と属性の画層（8）・線種（6）の名前が指すスロットを集める（`Lifter` が名前を足す元）
+///
+/// `Lifter` は POLYLINE の VERTEX と SEQEND の画層・線種を読まないので、従属レコードは ATTRIB だけを見る。
+/// スロットの名前と綴りの違う参照があれば、スロットに印を付ける（先頭の参照が変わると名前が変わりうる）。
+fn raw_slot_names(
+    obj: &Object,
+    children: &[(u32, Object)],
+    cs: Charset,
+    catalog: &mut SlotCatalog,
+    layers: &mut Vec<u32>,
+    line_types: &mut Vec<u32>,
+) {
+    layers.clear();
+    line_types.clear();
+    let attribs = children
+        .iter()
+        .map(|(_, o)| o)
+        .filter(|o| o.kind == b"ATTRIB");
+    for object in core::iter::once(obj).chain(attribs) {
+        object_slot_names(object, cs, catalog, layers, line_types);
+    }
+}
+
+/// 1 つのレコードの画層（8）・線種（6）の名前が指すスロットを足し、綴りの違いに印を付ける
+fn object_slot_names(
+    object: &Object,
+    cs: Charset,
+    catalog: &mut SlotCatalog,
+    layers: &mut Vec<u32>,
+    line_types: &mut Vec<u32>,
+) {
+    if let Some(Data::Text(raw)) = object.first(8)
+        && let Some(name) = cs.decode(raw)
+        && let Some(&slot) = catalog.by_layer_lower.get(&name.to_ascii_lowercase())
+    {
+        if let Some(entry) = catalog.layers.get_mut(slot as usize)
+            && entry.name != name
+        {
+            entry.spelled_otherwise = true;
+        }
+        layers.push(slot);
+    }
+    if let Some(Data::Text(raw)) = object.first(6)
+        && let Some(name) = cs.decode(raw)
+        && let Some(&slot) = catalog.by_line_type_lower.get(&name.to_ascii_lowercase())
+    {
+        if let Some(entry) = catalog.line_types.get_mut(slot as usize)
+            && entry.name != name
+        {
+            entry.spelled_otherwise = true;
+        }
+        line_types.push(slot);
+    }
+}
+
+/// BLOCKS の各レコードが名前で指すスロットを集める（用紙のブロックと、持ち上げに失敗した図形を含む）
+fn block_slot_names(
+    db: &AcadDb,
+    cs: Charset,
+    catalog: &mut SlotCatalog,
+    cx: &mut Cx<'_>,
+) -> Result<[BTreeSet<u32>; 2], Error> {
+    let mut named = [BTreeSet::new(), BTreeSet::new()];
+    let mut layers = Vec::new();
+    let mut line_types = Vec::new();
+    for object in db.objects() {
+        if object.section != Section::Blocks {
+            continue;
+        }
+        cx.check(Kind::Work, 1).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        layers.clear();
+        line_types.clear();
+        object_slot_names(object, cs, catalog, &mut layers, &mut line_types);
+        let [layer_named, line_type_named] = &mut named;
+        layer_named.extend(layers.iter().copied());
+        line_type_named.extend(line_types.iter().copied());
+    }
+    Ok(named)
+}
+
+/// モデル空間の行に残らない参照を「あるかもしれない参照」として記録する
+fn note_maybe_refs(
+    layers: &[u32],
+    line_types: &[u32],
+    record: u32,
+    layer_notes: &mut OpenNotes,
+    line_type_notes: &mut OpenNotes,
+) {
+    for &slot in layers {
+        layer_notes.note_maybe(slot, record);
+    }
+    for &slot in line_types {
+        line_type_notes.note_maybe(slot, record);
+    }
+}
+
+/// `kept` が `named` を多重集合として含むか
+fn multiset_covers(kept: &[u32], named: &[u32]) -> bool {
+    let mut kept = kept.to_vec();
+    kept.sort_unstable();
+    named.iter().all(|slot| match kept.binary_search(slot) {
+        Ok(at) => {
+            kept.remove(at);
+            true
+        }
+        Err(_) => false,
+    })
+}
+
+/// 開いた行と材料から暗黙の画層・線種の参照表を組む
+fn build_implicit_refs(
+    catalog: &SlotCatalog,
+    shapes: &LiveShapes,
+    rows: &[LiveRow],
+    [layer_table, line_type_table]: [u32; 2],
+    [layer_notes, line_type_notes]: [&OpenNotes; 2],
+    [block_layers, block_line_types]: &[BTreeSet<u32>; 2],
+) -> ImplicitRefs {
+    let implicit_layers = catalog.layers.len().saturating_sub(layer_table as usize);
+    let implicit_line_types = catalog
+        .line_types
+        .len()
+        .saturating_sub(line_type_table as usize);
+    let mut layer_model: Vec<BTreeMap<(u32, u32), u32>> = vec![BTreeMap::new(); implicit_layers];
+    let mut line_type_model: Vec<BTreeMap<(u32, u32), u32>> =
+        vec![BTreeMap::new(); implicit_line_types];
+    if implicit_layers + implicit_line_types > 0 {
+        let mut layers = Vec::new();
+        let mut line_types = Vec::new();
+        for row in rows {
+            shapes.slot_refs(row, &mut layers, &mut line_types);
+            for (order, &slot) in layers.iter().enumerate() {
+                if let Some(idx) = slot.checked_sub(layer_table)
+                    && let Some(map) = layer_model.get_mut(idx as usize)
+                {
+                    *map.entry((row.record, order as u32)).or_default() += 1;
+                }
+            }
+            for (order, &slot) in line_types.iter().enumerate() {
+                if let Some(idx) = slot.checked_sub(line_type_table)
+                    && let Some(map) = line_type_model.get_mut(idx as usize)
+                {
+                    *map.entry((row.record, order as u32)).or_default() += 1;
+                }
+            }
+        }
+    }
+    ImplicitRefs {
+        layers: KindRefs::build(
+            layer_table,
+            catalog.layers.len(),
+            |slot| {
+                catalog
+                    .layers
+                    .get(slot as usize)
+                    .is_some_and(|e| e.pinned_outside_model)
+            },
+            |slot| block_layers.contains(&slot),
+            layer_model,
+            layer_notes,
+            &catalog.active_layer_slots,
+        ),
+        line_types: KindRefs::build(
+            line_type_table,
+            catalog.line_types.len(),
+            |slot| {
+                catalog
+                    .line_types
+                    .get(slot as usize)
+                    .is_some_and(|e| e.pinned_outside_model)
+            },
+            |slot| block_line_types.contains(&slot),
+            line_type_model,
+            line_type_notes,
+            &catalog.active_line_type_slots,
+        ),
+    }
 }
 
 fn pin_element_slots<P>(el: &Element<P>, catalog: &mut SlotCatalog) {

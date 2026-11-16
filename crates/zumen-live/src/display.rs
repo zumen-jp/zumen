@@ -1344,6 +1344,28 @@ impl Display {
         }
     }
 
+    /// 行 `row` の線分・円弧・文字・挿入のスタイル（画層・色の指定）
+    pub fn row_styles(&self, row: u32) -> [Vec<[u32; 2]>; 4] {
+        let Some(&slot) = self.slots.get(row as usize) else {
+            return Default::default();
+        };
+        let (firsts, counts) = self.slot_ranges(slot);
+        let [seg_first, arc_first, text_first, inst_first] = firsts.map(|first| first as usize);
+        let [seg_count, arc_count, text_count, inst_count] = counts.map(|count| count as usize);
+        let (segments, arcs, texts, instances) = (
+            (seg_first, seg_first + seg_count),
+            (arc_first, arc_first + arc_count),
+            (text_first, text_first + text_count),
+            (inst_first, inst_first + inst_count),
+        );
+        [
+            self.segment_style.slice_to_vec(segments.0, segments.1),
+            self.arc_style.slice_to_vec(arcs.0, arcs.1),
+            self.text_style.slice_to_vec(texts.0, texts.1),
+            self.instance_style.slice_to_vec(instances.0, instances.1),
+        ]
+    }
+
     /// すべての行の値を行の順に並べたもの
     pub fn canonical(&self) -> Vec<RowBuffers> {
         (0..self.slots.len() as u32)

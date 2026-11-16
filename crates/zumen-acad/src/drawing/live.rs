@@ -8,6 +8,7 @@ mod backing;
 mod edit;
 #[cfg(test)]
 mod equivalence;
+mod implicit;
 mod open;
 mod query;
 mod shape;
