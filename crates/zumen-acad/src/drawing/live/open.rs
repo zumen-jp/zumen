@@ -633,19 +633,12 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
         vec![scan_dxf_chunk(src, 0, src.len(), true)]
     };
 
-    if scans.iter().any(|s| s.invalid || s.leading_tags > 0) {
-        // 不正タグまたは分割境界の例外ケースは既存の逐次パーサーへ回して行番号つき診断を 100% 一致させる
-        let mut fresh_budget =
-            Budget::new(Limits::default().with(Kind::InputBytes, Limit::Unlimited));
-        let _ = &mut fresh_budget;
-        // `InputBytes` はすでに `cx` で計上済みなので、残りの予算をそのまま引き継いで `Dxf::read` に委譲できるよう
-        // 元の `cx` で読む前に `InputBytes` の二重計上を避ける
-        return open_ascii_via_dxf_file_after_input_check(src, cx);
-    }
-
     let mut records: Vec<ScannedRecord> = Vec::new();
     let mut trailer_start = src.len() as u32;
     'merge: for scan in scans {
+        if scan.invalid || scan.leading_tags > 0 {
+            return open_ascii_via_dxf_file_after_input_check(src, cx);
+        }
         for rec in scan.records {
             let is_eof = rec.kind.as_ref() == b"EOF"
                 && src
