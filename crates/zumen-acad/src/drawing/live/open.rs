@@ -30,8 +30,8 @@ use super::super::single::{
     followed_tags,
 };
 use super::super::{
-    BLOCK, EMPTY, FIT_DATA, Lifter, MODEL, Out, SHEET, TABLE_CONTENT, amount, arrange, attached,
-    charset, extension_work, header_limits, header_real, invalid, layout, layout_index,
+    BLOCK, EMPTY, FIT_DATA, Lifter, MODEL, Out, PaperFrame, SHEET, TABLE_CONTENT, amount, arrange,
+    attached, charset, extension_work, header_limits, header_real, invalid, layout, layout_index,
     point_style, source, unit, work,
 };
 use super::backing::{
@@ -113,6 +113,13 @@ pub struct LiveState {
     pub non_model_element_ids: BTreeSet<String>,
     /// 名前付きブロック定義の要素 ID から `(定義添字, 要素添字)` への対応
     pub block_element_targets: BTreeMap<String, (u32, u32)>,
+    /// 用紙の要素 ID から `(用紙添字, 要素添字)` への対応
+    pub sheet_element_targets: BTreeMap<String, (u32, u32)>,
+    /// 用紙ごとの、用紙の座標と元の図形の座標の対応（一括の `apply` が同じ文書から作るものと同じ）
+    pub sheet_frames: BTreeMap<SheetId, PaperFrame>,
+    /// ATTRIB などが所有者（330）か続くフラグで付く INSERT のハンドル（ENTITIES・BLOCKS セクション）。
+    /// 一括の `apply` が数える属性の数と読み込んだ数が違いうるので、用紙・ブロック定義の要素の差分の経路では扱わない
+    pub attached_inserts: BTreeSet<u64>,
     /// ハンドル一意索引に乗らないモデル要素の `ID -> RowId`
     pub non_unique_model_ids: BTreeMap<String, RowId>,
     /// `DICTIONARY` や `102` 組から参照されているハンドル集合
@@ -1552,6 +1559,42 @@ fn open_from_db_and_backing(
     )
 }
 
+/// 付く図形（ATTRIB・VERTEX）を持つ図形のハンドル。ENTITIES セクションは読み込みの対応から、BLOCKS セクションは
+/// 一括の `apply` の属性の数え方（`attached`）と同じ規則で求める
+fn attached_insert_handles(
+    shell_db: &AcadDb,
+    inputs: &EntityPassInputs<'_>,
+    entity_meta: &impl Fn(usize) -> Option<(u32, u64, Ref, Option<u64>)>,
+    cx: &mut Cx<'_>,
+) -> Result<BTreeSet<u64>, Error> {
+    let mut handles = BTreeSet::new();
+    let place = Ref::default();
+    for (&parent, children) in inputs.att_map {
+        work(cx, 1, &place)?;
+        if !children.is_empty()
+            && let Some((_, _, _, Some(handle))) = entity_meta(parent)
+        {
+            handles.insert(handle);
+        }
+    }
+    let mut blocks = Vec::new();
+    for object in shell_db.objects() {
+        work(cx, 1, &place)?;
+        if object.section == Section::Blocks {
+            blocks.push(object);
+        }
+    }
+    let (attributes, _) = attached(&blocks);
+    for (parent, children) in attributes {
+        if !children.is_empty()
+            && let Some(handle) = blocks.get(parent).and_then(|object| object.handle())
+        {
+            handles.insert(handle);
+        }
+    }
+    Ok(handles)
+}
+
 struct EntityPassInputs<'a> {
     count: usize,
     owned_set: &'a BTreeSet<usize>,
@@ -2093,6 +2136,8 @@ fn finish_live_open(
         }
     }
     sheets.extend(out.layouts.into_iter().map(|(_, _, sheet, _)| sheet));
+    let sheet_frames = std::mem::take(&mut out.frames);
+    let attached_inserts = attached_insert_handles(shell_db, &inputs, &entity_meta, cx)?;
 
     // ハンドル重複・共有 `Ref`・非モデル要素 ID の検査
     let mut handle_counts: BTreeMap<u64, u32> = BTreeMap::new();
@@ -2126,15 +2171,24 @@ fn finish_live_open(
             non_model_element_ids.insert(elem_id);
         }
     }
+    let mut sheet_element_targets: BTreeMap<String, (u32, u32)> = BTreeMap::new();
     let mut sheet_namer = id::SheetNamer::default();
-    for sheet in &sheets {
+    for (sheet_idx, sheet) in sheets.iter().enumerate() {
         let place = sheet_namer.next(sheet);
         let mut namer = id::Namer::new(&place);
         for (idx, el) in sheet.elements.iter().enumerate() {
             if let Some(Key::Handle(h)) = el.source.key() {
                 *handle_counts.entry(h).or_insert(0) += 1;
             }
-            non_model_element_ids.insert(namer.next(idx, el));
+            let elem_id = namer.next(idx, el);
+            if let Ok(s_u32) = u32::try_from(sheet_idx)
+                && let Ok(e_u32) = u32::try_from(idx)
+            {
+                sheet_element_targets
+                    .entry(elem_id.clone())
+                    .or_insert((s_u32, e_u32));
+            }
+            non_model_element_ids.insert(elem_id);
         }
     }
     let mut seen_origins: BTreeMap<String, u64> = BTreeMap::new();
@@ -2327,6 +2381,9 @@ fn finish_live_open(
         shared_sources,
         non_model_element_ids,
         block_element_targets,
+        sheet_element_targets,
+        sheet_frames,
+        attached_inserts,
         non_unique_model_ids,
         forget_referenced_handles,
         non_table_max_handle,

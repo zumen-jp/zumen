@@ -7,7 +7,7 @@ use super::{
     ENTITY, ENTITY_SCHEMA, Lifted, Lifter, Out, XDATA, XDATA_SCHEMA, XRECORD, XRECORD_SCHEMA,
     amount, invalid, source, text, work,
 };
-use crate::db::{AcadDb, Data, Object, Value};
+use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use zumen_base::{Cx, Diagnostic, codes};
 use zumen_drawing::{Draft, Field, FieldValue, Position};
 use zumen_sdk::Error;
@@ -357,6 +357,23 @@ pub(super) fn extension_work(db: &AcadDb, object: &Object, cx: &mut Cx) -> Resul
         }
     }
     Ok(())
+}
+
+/// 図形の値を書き換えても、拡張情報のひな形（厚さ・スプラインの許容差など）が変わらないか。読めない値があれば偽
+pub(super) fn same_entity_fields(kind: &[u8], before: &[Value], after: &[Value]) -> bool {
+    let object = |values: &[Value]| Object {
+        kind: kind.to_vec(),
+        section: Section::Entities,
+        values: values.to_vec(),
+        origin: Origin::New,
+    };
+    match (
+        entity_fields(&object(before)),
+        entity_fields(&object(after)),
+    ) {
+        (Ok(before), Ok(after)) => before == after,
+        _ => false,
+    }
 }
 
 /// 図面モデルの値にない図形のフィールド（決定 0142）。厚さ（39）は、平面の図形を Z の向きに押し出す長さで、上から

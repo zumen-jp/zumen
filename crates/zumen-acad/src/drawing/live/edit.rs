@@ -4,7 +4,10 @@
 //!   [`zumen_live::run_transaction`] で [`VersionedTable`](zumen_live::VersionedTable) と [`SpatialGrid`](zumen_live::SpatialGrid) を
 //!   `O(1)` 差分で更新し、表示バッファー [`Display`](zumen_live::Display) と形式別バックエンド（[`LiveBacking`]）にも
 //!   変更したレコードの差分だけを積む。
-//! - 画層・線種・文字スタイル・寸法スタイルの表の編集や、ペーパー空間・ブロック定義・拡張辞書木・寸法や表のブロック再生成など
+//! - ブロック定義の要素と用紙（ペーパー空間）の要素の移動・スタイル変更・置き換えは、ASCII DXF と DWG で
+//!   変更したレコードだけを書き戻し、変更前後の要素を履歴（`symbol_edits`・`sheet_edits`）に持って戻す。
+//!   用紙とブロック定義の要素は表示バッファーと空間索引に載せないので、そちらは変えない。
+//! - 画層・線種・文字スタイル・寸法スタイルの表の編集や、用紙の要素の追加・削除・ブロック定義の作り直し・拡張辞書木・寸法や表のブロック再生成など
 //!   構造全体の整合を伴う変更は、現在のバイト列の上に既存の [`DxfFile::apply`](crate::DxfFile) /
 //!   [`DwgFile::apply`](crate::DwgFile) を通して常駐状態を更新し、同じ履歴列（[`LiveJournal`]）に積むことで、
 //!   高速経路と構造経路を自由に行き来しても `undo`・`redo`・`save`・診断が 100% 一致する。
@@ -17,7 +20,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Key, Kind, Ref, codes};
 use zumen_drawing::{
     Applied, Changes, Edit, Element, Hash, Inherit, LayerId, Length, LineTypeId, ModelLength,
-    ModelPoint, Placed, PointMark, PointSize, PointStyle, Seen, Shape, SpaceId,
+    ModelPoint, PaperLength, PaperPoint, Placed, PointMark, PointSize, PointStyle, Seen, Shape,
+    Sheet, SheetId, SpaceId,
 };
 use zumen_live::{
     CommittedTxn, ExistingRowDiff, History, PatchPayload, Revision, RowId, SideIndexes, TxnError,
@@ -25,8 +29,9 @@ use zumen_live::{
 };
 use zumen_sdk::{Apply, Codec, Error};
 
+use super::super::extension::same_entity_fields;
 use super::super::single::{self, RestyleLineType};
-use super::super::{BLOCK, FIT_DATA, Lifter, Out, SHEET, TABLE_CONTENT, work};
+use super::super::{BLOCK, FIT_DATA, Lifter, Out, PaperFrame, SHEET, TABLE_CONTENT, work};
 use super::backing::{
     DwgBornRecord, DwgRecordPatch, DwgStepPatch, DxfStepPatch, LiveBacking, LiveFormat,
 };
@@ -75,6 +80,8 @@ impl PatchPayload for FastBackendPatch {
 pub struct FastEntry {
     step: History<LiveRow, FastBackendPatch>,
     symbol_edits: Vec<(u32, u32, Element<ModelPoint>, Element<ModelPoint>)>,
+    /// 用紙の要素の `(用紙添字, 要素添字, 前, 後)`。表示バッファーと空間索引はモデル空間だけなので、用紙の列だけを置き直す
+    sheet_edits: Vec<StagedSheetEdit>,
     dirty_symbols: Vec<u32>,
     before_point_style: Option<PointStyle>,
     after_point_style: Option<PointStyle>,
@@ -230,6 +237,7 @@ impl LiveJournal {
                         *slot = before_el.clone();
                     }
                 }
+                set_sheet_elements(&mut state.sheets, &fast.sheet_edits, false);
                 let side = SideIndexes {
                     grid: Some(&mut state.spatial),
                     dirty_rows: None,
@@ -246,6 +254,7 @@ impl LiveJournal {
                                 *slot = after_el.clone();
                             }
                         }
+                        set_sheet_elements(&mut state.sheets, &fast.sheet_edits, true);
                         self.undo_stack.push(entry);
                         cx.report(stop.to_diagnostic());
                         return Err(Error::Stopped(stop));
@@ -326,6 +335,7 @@ impl LiveJournal {
                         *slot = after_el.clone();
                     }
                 }
+                set_sheet_elements(&mut state.sheets, &fast.sheet_edits, true);
                 let side = SideIndexes {
                     grid: Some(&mut state.spatial),
                     dirty_rows: None,
@@ -342,6 +352,7 @@ impl LiveJournal {
                                 *slot = before_el.clone();
                             }
                         }
+                        set_sheet_elements(&mut state.sheets, &fast.sheet_edits, false);
                         self.redo_stack.push(entry);
                         cx.report(stop.to_diagnostic());
                         return Err(Error::Stopped(stop));
@@ -954,6 +965,92 @@ fn stage_lift_block_element(
     values: Vec<Value>,
     cx: &mut Cx<'_>,
 ) -> Result<Option<Element<ModelPoint>>, Error> {
+    let lift = LiftPlace {
+        section: Section::Blocks,
+        sheet: SHEET,
+        mm: state.unit.millimeters(),
+        origin: [0.0, 0.0],
+    };
+    stage_lift_element(
+        state,
+        &lift,
+        source_ref,
+        origin,
+        was_shape,
+        kind,
+        values,
+        |x, y| ModelPoint { space, x, y },
+        |value| Length::Model(ModelLength { space, value }),
+        cx,
+    )
+}
+
+/// 用紙 `sheet` の 1 要素を、読むときと同じ座標の対応 `frame` で `Element<PaperPoint>` に持ち上げる
+#[allow(clippy::too_many_arguments)]
+fn stage_lift_sheet_element(
+    state: &LiveState,
+    section: Section,
+    sheet: SheetId,
+    frame: PaperFrame,
+    source_ref: Ref,
+    origin: Origin,
+    was_shape: &Shape<PaperPoint>,
+    kind: &[u8],
+    values: Vec<Value>,
+    cx: &mut Cx<'_>,
+) -> Result<Option<Element<PaperPoint>>, Error> {
+    let PaperFrame {
+        origin: [ox, oy],
+        mm,
+        ..
+    } = frame;
+    let lift = LiftPlace {
+        section,
+        sheet,
+        mm: Some(mm),
+        origin: [ox, oy],
+    };
+    stage_lift_element(
+        state,
+        &lift,
+        source_ref,
+        origin,
+        was_shape,
+        kind,
+        values,
+        |x, y| PaperPoint {
+            sheet,
+            x: (x - ox) * mm,
+            y: (y - oy) * mm,
+        },
+        |value| Length::Paper(PaperLength(value * mm)),
+        cx,
+    )
+}
+
+/// 単独の要素を持ち上げるときの、置き場所ごとの設定
+struct LiftPlace {
+    section: Section,
+    sheet: SheetId,
+    mm: Option<f64>,
+    origin: [f64; 2],
+}
+
+/// モデル空間の行にしない 1 要素（ブロック定義の要素・用紙の要素）を持ち上げる。一括の変換と同じ
+/// [`Lifter`] の規則を通し、診断が出る・画層や線種が増える・形式固有の値を持つものは `None` を返して構造経路に任せる
+#[allow(clippy::too_many_arguments)]
+fn stage_lift_element<P: zumen_drawing::transform::Point>(
+    state: &LiveState,
+    lift: &LiftPlace,
+    source_ref: Ref,
+    origin: Origin,
+    was_shape: &Shape<P>,
+    kind: &[u8],
+    values: Vec<Value>,
+    point: impl Fn(f64, f64) -> P,
+    length: impl Fn(f64) -> Length,
+    cx: &mut Cx<'_>,
+) -> Result<Option<Element<P>>, Error> {
     check_lift_values(&values, cx)?;
     if state.catalog.has_implicit
         || values
@@ -980,14 +1077,14 @@ fn stage_lift_block_element(
     let ver = state.single_tables.version.as_slice();
     let lifter = Lifter {
         layouts: &empty_layouts,
-        sheet: SHEET,
+        sheet: lift.sheet,
         charset: state.charset,
         fit_data: ver >= FIT_DATA,
         table_content: ver >= TABLE_CONTENT,
         version: (!ver.is_empty()).then(|| String::from_utf8_lossy(ver).into_owned()),
-        mm: state.unit.millimeters(),
+        mm: lift.mm,
         unit: state.unit,
-        origin: [0.0, 0.0],
+        origin: lift.origin,
     };
     let mut out = Out {
         layers: state.catalog.build_layers(),
@@ -1009,12 +1106,10 @@ fn stage_lift_block_element(
 
     let obj = Object {
         kind: kind.to_vec(),
-        section: Section::Blocks,
+        section: lift.section.clone(),
         values,
         origin,
     };
-    let point = |x: f64, y: f64| ModelPoint { space, x, y };
-    let length = |value: f64| Length::Model(ModelLength { space, value });
     let mut diag = Diagnostics::new();
     let mut local_cx = Cx::new(cx.budget, &mut diag, cx.cancel);
     let lifted = lifter.element(
@@ -1273,7 +1368,7 @@ fn check_block_element_seen(
     let Some(Key::Handle(handle)) = was.source.key() else {
         return Ok(Err(FastAttempt::Fallback));
     };
-    if handle == 0 {
+    if handle == 0 || state.attached_inserts.contains(&handle) {
         return Ok(Err(FastAttempt::Fallback));
     }
     let copied_bytes = cx
@@ -1310,40 +1405,7 @@ fn compute_block_element_values(
             moved_atts.is_empty().then_some(new_vals)
         }
         Edit::Restyle { style, .. } => {
-            let cur_layer = resolve_layer_name_for_edit(&state.catalog, was.layer)?;
-            let cur_lt = match was.style.line_type {
-                Inherit::Own(lt_id) => state
-                    .catalog
-                    .slot_of_line_type_id(lt_id)
-                    .and_then(|s| state.catalog.line_type_name(s)),
-                _ => None,
-            };
-            let new_layer = match style.layer {
-                None => None,
-                Some(lid) => Some(resolve_layer_name_for_edit(&state.catalog, lid)?),
-            };
-            let new_lt = match style.line_type {
-                None => None,
-                Some(Inherit::Layer) => Some(RestyleLineType::Layer),
-                Some(Inherit::Block) => Some(RestyleLineType::Block),
-                Some(Inherit::Own(lt_id)) => {
-                    let slot = state.catalog.slot_of_line_type_id(lt_id)?;
-                    let name = state.catalog.line_type_name(slot)?;
-                    Some(RestyleLineType::Named(name))
-                }
-            };
-            single::restyle_model(
-                &state.single_tables,
-                kind_vec,
-                old_vals,
-                cur_layer,
-                cur_lt,
-                new_layer,
-                new_lt,
-                style.color,
-                style.line_type_scale,
-                style.line_weight,
-            )
+            restyle_values(state, style, was.layer, &was.style, kind_vec, old_vals)
         }
         Edit::Replace { element, .. } => {
             let Placed::Model(now_el) = element.as_ref() else {
@@ -1365,6 +1427,51 @@ fn compute_block_element_values(
         }
         _ => None,
     }
+}
+
+/// 図形の共通属性を変えた後の値（ブロック定義の要素・用紙の要素で共通）。書き戻せなければ `None`
+fn restyle_values(
+    state: &LiveState,
+    style: &zumen_drawing::Restyle,
+    layer: LayerId,
+    was_style: &zumen_drawing::Style,
+    kind_vec: &[u8],
+    old_vals: &[Value],
+) -> Option<Vec<Value>> {
+    let cur_layer = resolve_layer_name_for_edit(&state.catalog, layer)?;
+    let cur_lt = match was_style.line_type {
+        Inherit::Own(lt_id) => state
+            .catalog
+            .slot_of_line_type_id(lt_id)
+            .and_then(|s| state.catalog.line_type_name(s)),
+        _ => None,
+    };
+    let new_layer = match style.layer {
+        None => None,
+        Some(lid) => Some(resolve_layer_name_for_edit(&state.catalog, lid)?),
+    };
+    let new_lt = match style.line_type {
+        None => None,
+        Some(Inherit::Layer) => Some(RestyleLineType::Layer),
+        Some(Inherit::Block) => Some(RestyleLineType::Block),
+        Some(Inherit::Own(lt_id)) => {
+            let slot = state.catalog.slot_of_line_type_id(lt_id)?;
+            let name = state.catalog.line_type_name(slot)?;
+            Some(RestyleLineType::Named(name))
+        }
+    };
+    single::restyle_model(
+        &state.single_tables,
+        kind_vec,
+        old_vals,
+        cur_layer,
+        cur_lt,
+        new_layer,
+        new_lt,
+        style.color,
+        style.line_type_scale,
+        style.line_weight,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1523,6 +1630,296 @@ fn stage_block_element_dwg(
     }))
 }
 
+type SeenSheetElement = (u32, u32, SheetId, PaperFrame, u64, Element<PaperPoint>);
+type StagedSheetEdit = (u32, u32, Element<PaperPoint>, Element<PaperPoint>);
+
+/// 用紙の要素を指す変更の対象を、ブロック定義の要素と同じ規則で確かめる。単独の変更でハッシュが違えば、
+/// 一括の `apply` と同じ診断で拒む。差分で書き戻せないものは構造経路に任せる
+fn check_sheet_element_seen(
+    state: &LiveState,
+    target: &Seen,
+    single_edit: bool,
+    cx: &mut Cx<'_>,
+) -> Result<Result<SeenSheetElement, FastAttempt>, Error> {
+    if state.catalog.has_implicit {
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    let Some(&(sheet_idx, elem_idx)) = state.sheet_element_targets.get(&target.id) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some(sheet) = state.sheets.get(sheet_idx as usize) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some(was) = sheet.elements.get(elem_idx as usize) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let work_before_hash = cx.budget.used(Kind::Work);
+    let cur_hash = Hash::element_checked(was, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(was.source.clone()));
+        Error::Stopped(stop)
+    })?;
+    if cur_hash != target.hash {
+        if single_edit {
+            cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", target.id.as_str()));
+            return Err(Error::Rejected);
+        }
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    if state.shared_sources.contains(&was.source)
+        || matches!(was.shape, Shape::Dimension(_) | Shape::Table(_))
+    {
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    if let Shape::Symbol(s) = &was.shape
+        && !s.attributes.is_empty()
+    {
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    let Some(Key::Handle(handle)) = was.source.key() else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    if handle == 0 || state.attached_inserts.contains(&handle) {
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    let Some(&frame) = state.sheet_frames.get(&sheet.id) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let copied_bytes = cx
+        .budget
+        .used(Kind::Work)
+        .saturating_sub(work_before_hash)
+        .saturating_mul(1024)
+        .saturating_add(512);
+    cx.check(Kind::DecodedBytes, copied_bytes).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(was.source.clone()));
+        Error::Stopped(stop)
+    })?;
+    Ok(Ok((
+        sheet_idx,
+        elem_idx,
+        sheet.id,
+        frame,
+        handle,
+        was.clone(),
+    )))
+}
+
+/// 用紙の要素の変更後の値。一括の `apply` と同じ用紙の座標の対応で書き戻す。書き戻せなければ `None`
+fn compute_sheet_element_values(
+    state: &LiveState,
+    edit: &Edit,
+    was: &Element<PaperPoint>,
+    frame: PaperFrame,
+    kind_vec: &[u8],
+    old_vals: &[Value],
+) -> Option<Vec<Value>> {
+    if single::is_followed(kind_vec, old_vals)
+        || old_vals
+            .iter()
+            .any(|v| v.code >= 1000 || matches!(v.code, 102 | 360 | 101))
+    {
+        return None;
+    }
+    let new_vals = match edit {
+        Edit::Transform { transform, .. } => {
+            single::move_paper(was, kind_vec, old_vals, transform, frame, state.charset)
+        }
+        Edit::Restyle { style, .. } => {
+            restyle_values(state, style, was.layer, &was.style, kind_vec, old_vals)
+        }
+        Edit::Replace { element, .. } => {
+            let Placed::Paper(now_el) = element.as_ref() else {
+                return None;
+            };
+            if now_el.shape != was.shape && single::moving_xdata(old_vals).is_some() {
+                return None;
+            }
+            single::replace_paper(was, now_el, kind_vec, old_vals, frame, state.charset)
+        }
+        _ => None,
+    }?;
+    // 厚さなどの拡張情報のひな形は用紙の要素の位置に結び付くので、変わる書き戻しは構造経路に任せる
+    same_entity_fields(kind_vec, old_vals, &new_vals).then_some(new_vals)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_sheet_element_dxf(
+    state: &LiveState,
+    dxf: &super::backing::DxfLiveBacking,
+    edit: &Edit,
+    target: &Seen,
+    single_edit: bool,
+    record_ops: &mut Vec<super::backing::DxfRecordOp>,
+    sheet_edits: &mut Vec<StagedSheetEdit>,
+    cx: &mut Cx<'_>,
+) -> Result<Result<Applied, FastAttempt>, Error> {
+    let (sheet_idx, elem_idx, sheet, frame, _, was) =
+        match check_sheet_element_seen(state, target, single_edit, cx)? {
+            Ok(found) => found,
+            Err(fb) => return Ok(Err(fb)),
+        };
+    let Some(rec_u64) = was.source.record() else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Ok(rec_u32) = u32::try_from(rec_u64) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some((kind_vec, old_vals)) = dxf.decode_current(rec_u32, b"LINE") else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some(new_vals) =
+        compute_sheet_element_values(state, edit, &was, frame, &kind_vec, &old_vals)
+    else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some(op) = stage_dxf_record_op(dxf, rec_u32, &old_vals, new_vals.clone()) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let origin = Origin::Dxf {
+        record: rec_u32 as usize,
+    };
+    let Some(after_el) = stage_lift_sheet_element(
+        state,
+        Section::Entities,
+        sheet,
+        frame,
+        was.source.clone(),
+        origin,
+        &was.shape,
+        &kind_vec,
+        new_vals,
+        cx,
+    )?
+    else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let hash = Hash::element_checked(&after_el, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(after_el.source.clone()));
+        Error::Stopped(stop)
+    })?;
+    record_ops.push(op);
+    sheet_edits.push((sheet_idx, elem_idx, was, after_el));
+    Ok(Ok(Applied {
+        id: Some(target.id.clone()),
+        hash: Some(hash),
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_sheet_element_dwg(
+    state: &LiveState,
+    dwg: &super::backing::DwgLiveBacking,
+    edit: &Edit,
+    target: &Seen,
+    single_edit: bool,
+    step_updated: &mut Vec<crate::dwg::single::UpdatedDwgRecord>,
+    patched_diffs: &mut Vec<(u32, Option<DwgRecordPatch>, DwgRecordPatch)>,
+    born_diffs: &mut Vec<(u32, Option<DwgBornRecord>, DwgBornRecord)>,
+    sheet_edits: &mut Vec<StagedSheetEdit>,
+    cx: &mut Cx<'_>,
+) -> Result<Result<Applied, FastAttempt>, Error> {
+    let (sheet_idx, elem_idx, sheet, frame, handle, was) =
+        match check_sheet_element_seen(state, target, single_edit, cx)? {
+            Ok(found) => found,
+            Err(fb) => return Ok(Err(fb)),
+        };
+    let Some(rec_usize) = dwg.single.record_of_handle(handle) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Ok(rec_u32) = u32::try_from(rec_usize) else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some((kind_vec, sec, cur_enc, old_vals)) = dwg.current_record_data(rec_u32, cx)? else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    if !matches!(sec, Section::Entities | Section::Blocks) {
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    let Some(new_vals_raw) =
+        compute_sheet_element_values(state, edit, &was, frame, &kind_vec, &old_vals)
+    else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some(new_enc) =
+        dwg.single
+            .encode_record_edit(&cur_enc, sec.clone(), &kind_vec, &old_vals, &new_vals_raw)
+    else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let Some((_, _, settled_vals)) = dwg.single.decode_encoded_with_cx(handle, &new_enc, cx)?
+    else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    if !same_entity_fields(&kind_vec, &old_vals, &settled_vals) {
+        return Ok(Err(FastAttempt::Fallback));
+    }
+    let origin = match was.source.bytes() {
+        Some(r) => Origin::Dwg {
+            offset: r.start as usize,
+            end: r.end as usize,
+        },
+        None => Origin::New,
+    };
+    let Some(after_el) = stage_lift_sheet_element(
+        state,
+        sec.clone(),
+        sheet,
+        frame,
+        was.source.clone(),
+        origin,
+        &was.shape,
+        &kind_vec,
+        settled_vals.clone(),
+        cx,
+    )?
+    else {
+        return Ok(Err(FastAttempt::Fallback));
+    };
+    let hash = Hash::element_checked(&after_el, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(after_el.source.clone()));
+        Error::Stopped(stop)
+    })?;
+    step_updated.push((
+        handle,
+        sec.clone(),
+        kind_vec.clone(),
+        old_vals,
+        new_vals_raw,
+    ));
+    record_dwg_diff(
+        dwg,
+        rec_u32,
+        handle,
+        &kind_vec,
+        sec,
+        settled_vals,
+        new_enc,
+        patched_diffs,
+        born_diffs,
+    );
+    sheet_edits.push((sheet_idx, elem_idx, was, after_el));
+    Ok(Ok(Applied {
+        id: Some(target.id.clone()),
+        hash: Some(hash),
+    }))
+}
+
+/// 用紙の要素を、記録の後（`after` が真）か前の値に置き直す。前に戻すときは逆順に当てる
+fn set_sheet_elements(sheets: &mut [Sheet], edits: &[StagedSheetEdit], after: bool) {
+    let mut put = |(sheet_idx, elem_idx, before_el, after_el): &StagedSheetEdit| {
+        if let Some(sheet) = sheets.get_mut(*sheet_idx as usize)
+            && let Some(slot) = sheet.elements.get_mut(*elem_idx as usize)
+        {
+            *slot = if after { after_el } else { before_el }.clone();
+        }
+    };
+    if after {
+        edits.iter().for_each(&mut put);
+    } else {
+        edits.iter().rev().for_each(&mut put);
+    }
+}
+
 fn try_apply_fast(
     state: &mut LiveState,
     journal: &mut LiveJournal,
@@ -1542,6 +1939,7 @@ fn try_apply_fast(
             | Edit::Replace { target, .. } => {
                 target.id.starts_with("space/0/")
                     || state.block_element_targets.contains_key(&target.id)
+                    || state.sheet_element_targets.contains_key(&target.id)
             }
             Edit::Remove { target } => target.id.starts_with("space/0/"),
             Edit::Add { place, element } => {
@@ -1561,6 +1959,7 @@ fn try_apply_fast(
     let mut seen_targets: BTreeSet<&str> = BTreeSet::new();
     let mut row_actions: Vec<StagedRowAction> = Vec::with_capacity(changes.edits.len());
     let mut symbol_edits: Vec<StagedSymbolEdit> = Vec::new();
+    let mut sheet_edits: Vec<StagedSheetEdit> = Vec::new();
     let mut applied_out: Vec<Applied> = Vec::with_capacity(changes.edits.len());
     let mut new_point_style = state.point_style;
 
@@ -1601,6 +2000,32 @@ fn try_apply_fast(
                         single_edit,
                         &mut record_ops,
                         &mut symbol_edits,
+                        cx,
+                    ) {
+                        Ok(Ok(ap)) => {
+                            applied_out.push(ap);
+                            continue;
+                        }
+                        Ok(Err(fb)) => return fb,
+                        Err(e) => return FastAttempt::Err(e),
+                    }
+                }
+                if let Edit::Transform { target, .. }
+                | Edit::Restyle { target, .. }
+                | Edit::Replace { target, .. } = edit
+                    && state.sheet_element_targets.contains_key(&target.id)
+                {
+                    if !seen_targets.insert(target.id.as_str()) {
+                        return FastAttempt::Fallback;
+                    }
+                    match stage_sheet_element_dxf(
+                        state,
+                        dxf,
+                        edit,
+                        target,
+                        single_edit,
+                        &mut record_ops,
+                        &mut sheet_edits,
                         cx,
                     ) {
                         Ok(Ok(ap)) => {
@@ -2178,6 +2603,34 @@ fn try_apply_fast(
                         &mut patched_diffs,
                         &mut born_diffs,
                         &mut symbol_edits,
+                        cx,
+                    ) {
+                        Ok(Ok(ap)) => {
+                            applied_out.push(ap);
+                            continue;
+                        }
+                        Ok(Err(fb)) => return fb,
+                        Err(e) => return FastAttempt::Err(e),
+                    }
+                }
+                if let Edit::Transform { target, .. }
+                | Edit::Restyle { target, .. }
+                | Edit::Replace { target, .. } = edit
+                    && state.sheet_element_targets.contains_key(&target.id)
+                {
+                    if !seen_targets.insert(target.id.as_str()) {
+                        return FastAttempt::Fallback;
+                    }
+                    match stage_sheet_element_dwg(
+                        state,
+                        dwg,
+                        edit,
+                        target,
+                        single_edit,
+                        &mut step_updated,
+                        &mut patched_diffs,
+                        &mut born_diffs,
+                        &mut sheet_edits,
                         cx,
                     ) {
                         Ok(Ok(ap)) => {
@@ -2933,7 +3386,8 @@ fn try_apply_fast(
     let affected_count = row_actions
         .len()
         .saturating_add(affected_from_symbols.len())
-        .saturating_add(symbol_edits.len());
+        .saturating_add(symbol_edits.len())
+        .saturating_add(sheet_edits.len());
     let external_source_count = row_actions.iter().fold(0u64, |total, action| {
         let StagedRowAction::Update { row_id, .. } = action else {
             return total;
@@ -2970,6 +3424,7 @@ fn try_apply_fast(
             *slot = after_el.clone();
         }
     }
+    set_sheet_elements(&mut state.sheets, &sheet_edits, true);
 
     let mut removed_set = BTreeSet::new();
     let mut explicit_rows = BTreeSet::new();
@@ -3101,6 +3556,7 @@ fn try_apply_fast(
                     *slot = before_el.clone();
                 }
             }
+            set_sheet_elements(&mut state.sheets, &sheet_edits, false);
             state.catalog = catalog_before;
             cx.report(stop.to_diagnostic());
             return FastAttempt::Err(Error::Stopped(stop));
@@ -3113,6 +3569,7 @@ fn try_apply_fast(
                     *slot = before_el.clone();
                 }
             }
+            set_sheet_elements(&mut state.sheets, &sheet_edits, false);
             state.catalog = catalog_before;
             return FastAttempt::Fallback;
         }
@@ -3157,12 +3614,14 @@ fn try_apply_fast(
 
     let approx_bytes = step_history.bytes()
         + symbol_edits.len() * 256
+        + sheet_edits.len() * 256
         + dirty_symbols.len() * 4
         + implicit_step.as_ref().map_or(0, ImplicitStep::bytes)
         + 64;
     journal.push_entry(JournalEntry::Fast(FastEntry {
         step: step_history,
         symbol_edits,
+        sheet_edits,
         dirty_symbols,
         before_point_style,
         after_point_style: new_point_style,

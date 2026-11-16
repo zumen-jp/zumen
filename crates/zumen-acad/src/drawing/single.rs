@@ -10,16 +10,16 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Limits, Ref};
 use zumen_drawing::{
     Affine, Attribute, Clip, Color, ColorCode, ColorSystem, Drawing2D, Element, Fit, Horizontal,
     Inherit, Layer, LayerId, Length, LineType, LineTypeId, LineWeight, ModelLength, ModelPoint,
-    PaperLength, Style, Transparency, Unit, Vertical,
+    PaperLength, PaperPoint, Style, Transparency, Unit, Vertical,
 };
 
 use super::apply::{
-    Born, Encoder, InSpace, Target, anchor, children_of_values, followed_values,
+    Born, Encoder, InSpace, OnSheet, Target, anchor, children_of_values, followed_values,
     moved_with_attribs, moving_xdata_code, next_handle_from, replacement, restyled,
     revalued_with_attribs, symbol_moved,
 };
 use super::style::transparency as decode_transparency;
-use super::{FIT_DATA, Lifter, MODEL, Out, SHEET, TABLE_CONTENT, source, unit_of};
+use super::{FIT_DATA, Lifter, MODEL, Out, PaperFrame, SHEET, TABLE_CONTENT, source, unit_of};
 use crate::charset::Charset;
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use crate::dxf::{self, RawData};
@@ -926,6 +926,62 @@ pub fn move_model(
     )?;
     let followers = moved.followers.into_iter().map(|(_, vals)| vals).collect();
     Some((moved.object, followers))
+}
+
+/// 用紙の 1 図形（続く ATTRIB を持たないもの）を変換 `transform` で動かした後の値。`frame` は用紙の座標と
+/// 元の図形の座標の対応。一括の `apply` と同じく、拡張データを動かす図形は書き戻さない。書き戻せなければ `None`
+pub(crate) fn move_paper(
+    was: &Element<PaperPoint>,
+    kind: &[u8],
+    old: &[Value],
+    transform: &Affine,
+    frame: PaperFrame,
+    charset: Charset,
+) -> Option<Vec<Value>> {
+    let sheet = anchor(&was.shape)?.sheet;
+    let object = Object {
+        kind: kind.to_vec(),
+        section: Section::Entities,
+        values: old.to_vec(),
+        origin: Origin::New,
+    };
+    let encoder = Encoder::new(charset);
+    let moved = moved_with_attribs(
+        was,
+        &object,
+        &[],
+        transform,
+        &encoder,
+        &OnSheet(sheet, frame),
+        false,
+    )?;
+    moved.followers.is_empty().then_some(moved.object)
+}
+
+/// 用紙の 1 図形（続く ATTRIB を持たないもの）を置き換えた後の値。属性の値を書き換える置き換えは扱わない。
+/// 書き戻せなければ `None`
+pub(crate) fn replace_paper(
+    was: &Element<PaperPoint>,
+    now: &Element<PaperPoint>,
+    kind: &[u8],
+    old: &[Value],
+    frame: PaperFrame,
+    charset: Charset,
+) -> Option<Vec<Value>> {
+    let sheet = anchor(&was.shape)?.sheet;
+    let object = Object {
+        kind: kind.to_vec(),
+        section: Section::Entities,
+        values: old.to_vec(),
+        origin: Origin::New,
+    };
+    let frame = OnSheet(sheet, frame);
+    let encoder = Encoder::new(charset);
+    let (written, followers) = revalued_with_attribs(was, now, &[], &encoder, &frame)?;
+    if !followers.is_empty() {
+        return None;
+    }
+    replacement(was, &written, &object, &encoder, &frame)
 }
 
 /// 1 図形の追加・スタイル変更に必要な、図面の名前表と設定

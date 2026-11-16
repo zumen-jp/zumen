@@ -2621,3 +2621,471 @@ fn fast_entry_above_layer_table_change_survives_undo_and_redo() {
         }
     }
 }
+
+/// 用紙の原点（`$PLIMMIN`）とインチの単位を持ち、今のレイアウトに線分・円・文字・ポリライン・記号を置いた DXF
+fn paper_dxf() -> Vec<u8> {
+    let mut input = String::from_utf8(synthetic_rich_dxf()).unwrap();
+    input = input.replacen("$INSUNITS\n 70\n4\n", "$INSUNITS\n 70\n1\n", 1);
+    input = input.replacen(
+        "  9\n$PDMODE\n",
+        "  9\n$PLIMMIN\n 10\n5.0\n 20\n7.0\n  9\n$PDMODE\n",
+        1,
+    );
+    let head = |kind: &str, handle: &str, marker: &str| {
+        format!("0\n{kind}\n5\n{handle}\n330\n42\n100\nAcDbEntity\n67\n1\n8\n0\n100\n{marker}\n")
+    };
+    let entities = [
+        head("LINE", "130", "AcDbLine") + "10\n6\n20\n8\n30\n0\n11\n9\n21\n12\n31\n0\n",
+        head("CIRCLE", "131", "AcDbCircle") + "10\n20\n20\n30\n30\n0\n40\n4\n",
+        head("TEXT", "132", "AcDbText")
+            + "10\n40\n20\n50\n30\n0\n40\n2.5\n1\nPAPER\n100\nAcDbText\n",
+        head("LWPOLYLINE", "133", "AcDbPolyline")
+            + "90\n3\n70\n0\n10\n10\n20\n10\n10\n20\n20\n10\n10\n20\n20\n20\n",
+        head("INSERT", "134", "AcDbBlockReference") + "2\nMARK\n10\n60\n20\n70\n30\n0\n",
+    ]
+    .concat();
+    let at = input.rfind("  0\nENDSEC\n").unwrap();
+    input.insert_str(at, &entities);
+    input.into_bytes()
+}
+
+/// 用紙の要素の `handle` を探し、図形を `affine` で動かしたものを返す
+fn paper_element<C: Codec>(pair: &AcadPair<C>, handle: u64, affine: &Affine) -> Placed
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+{
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let mut element = model
+        .sheets
+        .iter()
+        .flat_map(|sheet| &sheet.elements)
+        .find(|element| element.source.key() == Some(Key::Handle(handle)))
+        .unwrap()
+        .clone();
+    element.shape = transform::transform(&element.shape, affine).unwrap();
+    Placed::Paper(element)
+}
+
+/// 画層 0 でない画層の ID（なければ最初の画層）
+fn other_layer<C: Codec>(pair: &AcadPair<C>) -> zumen_drawing::LayerId
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+{
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    model
+        .layers
+        .iter()
+        .find(|layer| layer.name != "0")
+        .or(model.layers.first())
+        .unwrap()
+        .id
+}
+
+/// 用紙の要素を動かし・スタイルを変え・置き換え、どれも高速経路で従来の apply と一致することを確かめる
+fn check_paper_edits_on_fast_path<C: Codec>(pair: &mut AcadPair<C>, handles: &[u64])
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+{
+    let layer = other_layer(pair);
+    for &handle in handles {
+        pair.apply(Edit::Transform {
+            target: pair.seen(handle),
+            transform: Affine::translation(2.0, 3.0),
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true), "h{handle:X}");
+        pair.apply(Edit::Transform {
+            target: pair.seen(handle),
+            transform: Affine::rotation(1.0, 2.0, 30.0),
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true), "h{handle:X}");
+        pair.apply(Edit::Restyle {
+            target: pair.seen(handle),
+            style: Restyle {
+                layer: Some(layer),
+                line_type_scale: Some(2.0),
+                ..Restyle::default()
+            },
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true), "h{handle:X}");
+        let element = paper_element(pair, handle, &Affine::translation(-3.0, 4.0));
+        pair.apply(Edit::Replace {
+            target: pair.seen(handle),
+            element: Box::new(element),
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true), "h{handle:X}");
+    }
+}
+
+#[test]
+fn paper_transform_restyle_and_replace_use_fast_path() {
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&paper_dxf(), threads);
+        assert_eq!(pair.live.state.sheet_element_targets.len(), 5);
+        check_paper_edits_on_fast_path(&mut pair, &[0x130, 0x131, 0x132, 0x133, 0x134]);
+        pair.apply(Edit::Remove {
+            target: pair.seen(0x130),
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(false));
+    }
+}
+
+/// DWG の見本の今のレイアウトとほかのレイアウト（用紙の単位が違う）に線分を足し（構造経路）、それを差分で直す
+fn dwg_paper_pair(name: &str, threads: usize) -> (DwgPair, Vec<u64>) {
+    let mut pair = DwgPair::open(&dwg_sample(name), threads);
+    let mut handles = Vec::new();
+    for sheet_index in 0..3 {
+        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+        let sheet = model
+            .sheets
+            .iter()
+            .find(|sheet| sheet.id.0 == sheet_index)
+            .unwrap();
+        let template = model.spaces.first().unwrap().elements.first().unwrap();
+        let point = |x, y| PaperPoint {
+            sheet: sheet.id,
+            x,
+            y,
+        };
+        let applied = pair.apply(Edit::Add {
+            place: id::sheet(sheet),
+            element: Box::new(Placed::Paper(Element {
+                source: Default::default(),
+                layer: template.layer,
+                style: template.style,
+                shape: Shape::Line {
+                    start: point(1.0, 2.0),
+                    end: point(3.0, 4.0),
+                },
+            })),
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(false));
+        let id = applied.first().unwrap().id.clone().unwrap();
+        let (_, handle) = id.rsplit_once("/h").unwrap();
+        handles.push(u64::from_str_radix(handle, 16).unwrap());
+    }
+    (pair, handles)
+}
+
+#[test]
+fn dwg_paper_transform_restyle_and_replace_use_fast_path() {
+    // 4 スレッドは R2018 だけで照らし、試験の時間を抑える
+    for (name, threads) in [
+        ("zumen-layout-r2000.dwg", 1),
+        ("zumen-layout-r2004.dwg", 1),
+        ("zumen-layout-r2018.dwg", 1),
+        ("zumen-layout-r2018.dwg", 4),
+    ] {
+        let (mut pair, handles) = dwg_paper_pair(name, threads);
+        check_paper_edits_on_fast_path(&mut pair, &handles);
+    }
+}
+
+#[test]
+fn paper_edits_share_budget_and_cancellation() {
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&paper_dxf(), threads);
+        let layer = other_layer(&pair);
+        for handle in [0x130, 0x132, 0x134] {
+            pair.apply_with_budgets(Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine::translation(2.0, 3.0),
+            });
+            assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+        }
+        pair.apply_with_budgets(Edit::Restyle {
+            target: pair.seen(0x131),
+            style: Restyle {
+                layer: Some(layer),
+                ..Restyle::default()
+            },
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+        let element = paper_element(&pair, 0x133, &Affine::rotation(0.0, 0.0, 45.0));
+        pair.apply_with_budgets(Edit::Replace {
+            target: pair.seen(0x133),
+            element: Box::new(element),
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+    }
+    let (mut pair, handles) = dwg_paper_pair("zumen-layout-r2018.dwg", 1);
+    for handle in handles {
+        pair.apply_with_budgets(Edit::Transform {
+            target: pair.seen(handle),
+            transform: Affine::translation(2.0, 3.0),
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+        let element = paper_element(&pair, handle, &Affine::translation(1.0, -1.0));
+        pair.apply_with_budgets(Edit::Replace {
+            target: pair.seen(handle),
+            element: Box::new(element),
+        });
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+    }
+}
+
+#[test]
+fn model_paper_and_block_edits_in_one_apply_use_fast_path() {
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&paper_dxf(), threads);
+        let element = paper_element(&pair, 0x131, &Affine::translation(1.0, 1.0));
+        pair.apply_edits(vec![
+            Edit::Transform {
+                target: pair.seen(0x101),
+                transform: Affine::translation(2.0, 3.0),
+            },
+            Edit::Transform {
+                target: pair.seen(0x130),
+                transform: Affine::translation(2.0, 3.0),
+            },
+            Edit::Transform {
+                target: pair.seen(0x55),
+                transform: Affine::translation(2.0, 3.0),
+            },
+            Edit::Replace {
+                target: pair.seen(0x131),
+                element: Box::new(element),
+            },
+            Edit::Restyle {
+                target: pair.seen(0x132),
+                style: Restyle {
+                    line_type_scale: Some(3.0),
+                    ..Restyle::default()
+                },
+            },
+        ]);
+        assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+        // 同じ用紙の要素を 2 回指す一覧は、一括の apply と同じく拒む
+        let before = pair.live.undo_len();
+        let changes = Changes {
+            document: None,
+            edits: vec![
+                Edit::Transform {
+                    target: pair.seen(0x130),
+                    transform: Affine::translation(1.0, 0.0),
+                },
+                Edit::Transform {
+                    target: pair.seen(0x130),
+                    transform: Affine::translation(0.0, 1.0),
+                },
+            ],
+        };
+        let actual = fresh_cx(|cx| pair.live.apply(&changes, cx));
+        let expected = fresh_cx(|cx| pair.reference.apply(&changes, cx));
+        assert!(expected.0.is_err());
+        assert_eq!(actual, expected);
+        assert_eq!(pair.live.undo_len(), before);
+        pair.assert_model();
+    }
+    let (mut pair, handles) = dwg_paper_pair("zumen-layout-r2004.dwg", 1);
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let model_handle = model.spaces[0]
+        .elements
+        .iter()
+        .find_map(|element| match (&element.shape, element.source.key()) {
+            (Shape::Line { .. } | Shape::Circle { .. }, Some(Key::Handle(handle))) => Some(handle),
+            _ => None,
+        })
+        .unwrap();
+    let mut edits = vec![Edit::Transform {
+        target: pair.seen(model_handle),
+        transform: Affine::translation(2.0, 3.0),
+    }];
+    for handle in handles {
+        edits.push(Edit::Transform {
+            target: pair.seen(handle),
+            transform: Affine::translation(-1.0, 2.0),
+        });
+    }
+    pair.apply_edits(edits);
+    assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+}
+
+#[test]
+fn stale_paper_hash_is_rejected_like_apply() {
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&paper_dxf(), threads);
+        let stale = Seen {
+            id: pair.seen(0x130).id,
+            hash: pair.seen(0x131).hash,
+        };
+        pair.reject_with_budgets(Edit::Transform {
+            target: stale.clone(),
+            transform: Affine::translation(2.0, 3.0),
+        });
+        pair.reject(Edit::Restyle {
+            target: stale.clone(),
+            style: Restyle {
+                line_type_scale: Some(2.0),
+                ..Restyle::default()
+            },
+        });
+        // 一覧の中の古いハッシュは、構造経路で一括の apply と同じ診断を返す
+        let changes = Changes {
+            document: None,
+            edits: vec![
+                Edit::Transform {
+                    target: pair.seen(0x132),
+                    transform: Affine::translation(1.0, 0.0),
+                },
+                Edit::Transform {
+                    target: stale,
+                    transform: Affine::translation(0.0, 1.0),
+                },
+            ],
+        };
+        let actual = fresh_cx(|cx| pair.live.apply(&changes, cx));
+        let expected = fresh_cx(|cx| pair.reference.apply(&changes, cx));
+        assert!(expected.0.is_err());
+        assert_eq!(actual, expected);
+        assert_eq!(pair.live.undo_len(), 0);
+    }
+    let (mut pair, handles) = dwg_paper_pair("zumen-layout-r2000.dwg", 1);
+    let stale = Seen {
+        id: pair.seen(handles[0]).id,
+        hash: pair.seen(handles[1]).hash,
+    };
+    pair.reject_with_budgets(Edit::Transform {
+        target: stale,
+        transform: Affine::translation(2.0, 3.0),
+    });
+}
+
+/// 用紙の要素の高速な記録と構造の記録（画層の追加）を交互に積み、まとめて取り消してやり直す
+fn check_paper_entries_around_structural_entry<C: Codec>(mut pair: AcadPair<C>, handles: &[u64])
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+{
+    let (first, second) = (handles.first().unwrap(), handles.get(1).unwrap());
+    let bottom = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+    let bottom_bytes = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+    let base = pair.live.undo_len();
+    pair.apply(Edit::Transform {
+        target: pair.seen(*first),
+        transform: Affine::translation(3.0, 4.0),
+    });
+    assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let mut layer = model.layers[0].clone();
+    layer.name = "LIVE_NEW".to_owned();
+    pair.apply(Edit::AddLayer {
+        layer: Box::new(layer),
+    });
+    assert_eq!(pair.live.journal.last_is_fast(), Some(false));
+    let element = paper_element(&pair, *second, &Affine::rotation(0.0, 0.0, 90.0));
+    pair.apply(Edit::Replace {
+        target: pair.seen(*second),
+        element: Box::new(element),
+    });
+    assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+    pair.apply(Edit::Restyle {
+        target: pair.seen(*first),
+        style: Restyle {
+            line_type_scale: Some(0.5),
+            ..Restyle::default()
+        },
+    });
+    assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+    let top = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+    let top_bytes = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+    for _ in 0..4 {
+        assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+    }
+    assert_eq!(pair.live.undo_len(), base);
+    assert_eq!(fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap(), bottom);
+    assert_eq!(fresh_cx(|cx| pair.live.save(cx)).0.unwrap(), bottom_bytes);
+    for _ in 0..4 {
+        assert!(fresh_cx(|cx| pair.live.redo(cx)).0.unwrap());
+    }
+    assert_eq!(fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap(), top);
+    assert_eq!(fresh_cx(|cx| pair.live.save(cx)).0.unwrap(), top_bytes);
+    pair.assert_model();
+    // 構造の記録の手前まで戻し、新しい高速な記録で上の記録を捨てても一致する
+    for _ in 0..3 {
+        assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+    }
+    pair.reference = {
+        let bytes = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+        fresh_cx(|cx| C::read(&bytes, cx)).0.unwrap()
+    };
+    pair.apply(Edit::Transform {
+        target: pair.seen(*second),
+        transform: Affine::translation(-2.0, 1.0),
+    });
+    assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+    assert_eq!(pair.live.redo_len(), 0);
+    assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+    assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+    assert_eq!(fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap(), bottom);
+    assert_eq!(fresh_cx(|cx| pair.live.save(cx)).0.unwrap(), bottom_bytes);
+}
+
+#[test]
+fn paper_fast_entries_interleave_with_structural_entries() {
+    for threads in [1, 4] {
+        check_paper_entries_around_structural_entry(
+            DxfPair::open(&paper_dxf(), threads),
+            &[0x130, 0x133],
+        );
+        let (pair, handles) = dwg_paper_pair("zumen-layout-r2018.dwg", threads);
+        check_paper_entries_around_structural_entry(pair, &handles);
+    }
+}
+
+/// 続くフラグ（66）を持たない INSERT（h150）に、所有者（330）で読めない ATTRIB（押し出し 230 が -1）を付けた DXF。
+/// `paper` なら用紙、そうでなければモデル空間に置く
+fn orphan_attrib_insert_dxf(paper: bool) -> Vec<u8> {
+    let mut input = String::from_utf8(paper_dxf()).unwrap();
+    let (owner, flag) = if paper { ("42", "67\n1\n") } else { ("41", "") };
+    let entities = format!(
+        "0\nINSERT\n5\n150\n330\n{owner}\n100\nAcDbEntity\n{flag}8\n0\n100\nAcDbBlockReference\n2\nMARK\n10\n60\n20\n70\n30\n0\n\
+         0\nATTRIB\n5\n151\n330\n150\n100\nAcDbEntity\n{flag}8\n0\n100\nAcDbText\n10\n61\n20\n71\n30\n0\n40\n2\n1\nVAL\n230\n-1\n100\nAcDbAttribute\n2\nTAG\n70\n0\n"
+    );
+    let at = input.rfind("  0\nENDSEC\n").unwrap();
+    input.insert_str(at, &entities);
+    input.into_bytes()
+}
+
+/// 名前付きブロック OTHER の中に、続くフラグを持たない INSERT（h161）と、所有者で付く読めない ATTRIB（h162）を置いた DXF
+fn orphan_attrib_block_dxf() -> Vec<u8> {
+    let mut input = String::from_utf8(paper_dxf()).unwrap();
+    input = input.replacen(
+        "  2\nMARK\n  0\nENDTAB\n",
+        "  2\nMARK\n0\nBLOCK_RECORD\n5\n15F\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\nOTHER\n  0\nENDTAB\n",
+        1,
+    );
+    let block = "0\nBLOCK\n5\n160\n330\n15F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\nOTHER\n70\n0\n10\n0\n20\n0\n30\n0\n3\nOTHER\n1\n\n\
+         0\nINSERT\n5\n161\n330\n15F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockReference\n2\nMARK\n10\n60\n20\n70\n30\n0\n\
+         0\nATTRIB\n5\n162\n330\n161\n100\nAcDbEntity\n8\n0\n100\nAcDbText\n10\n61\n20\n71\n30\n0\n40\n2\n1\nVAL\n230\n-1\n100\nAcDbAttribute\n2\nTAG\n70\n0\n\
+         0\nENDBLK\n5\n163\n330\n15F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n";
+    let at = input
+        .find("  0\nENDSEC\n  0\nSECTION\n  2\nENTITIES\n")
+        .unwrap();
+    input.insert_str(at, block);
+    input.into_bytes()
+}
+
+#[test]
+fn insert_with_owner_attached_unreadable_attrib_is_rejected_like_apply() {
+    for threads in [1, 4] {
+        for paper in [false, true] {
+            let mut pair = DxfPair::open(&orphan_attrib_insert_dxf(paper), threads);
+            pair.reject(Edit::Transform {
+                target: pair.seen(0x150),
+                transform: Affine::translation(2.0, 3.0),
+            });
+            if paper {
+                // 記号を動かす置き換えも、一括の apply と同じく属性の数の食い違いで断る
+                let element = paper_element(&pair, 0x150, &Affine::translation(2.0, 3.0));
+                pair.reject(Edit::Replace {
+                    target: pair.seen(0x150),
+                    element: Box::new(element),
+                });
+            }
+        }
+        let mut pair = DxfPair::open(&orphan_attrib_block_dxf(), threads);
+        pair.reject(Edit::Transform {
+            target: pair.seen(0x161),
+            transform: Affine::translation(2.0, 3.0),
+        });
+    }
+}

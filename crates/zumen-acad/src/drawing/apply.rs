@@ -1505,7 +1505,7 @@ impl Frame<ModelPoint> for InSpace {
 }
 
 /// 用紙。用紙の mm を、読むときと逆に、図面の単位に戻して原点を足す
-struct OnSheet(SheetId, PaperFrame);
+pub(crate) struct OnSheet(pub(crate) SheetId, pub(crate) PaperFrame);
 
 impl Frame<PaperPoint> for OnSheet {
     // 模様の基点・ずれ・線の長さは読む側がまだ用紙の単位に直さないため、異なる座標の系では追加しない。
