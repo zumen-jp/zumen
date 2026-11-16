@@ -116,7 +116,9 @@ where
 
     #[expect(clippy::print_stdout, reason = "ネイティブと WASI の比較記録")]
     fn apply_with_budgets(&mut self, edit: Edit) -> Vec<Applied> {
-        let original = self.live.clone();
+        let mut original = self.live.clone();
+        original.display_mut().clear_dirty();
+        original.clear_dirty_symbols();
         let before = fresh_cx(|cx| original.drawing(cx)).0.unwrap();
         let before_bytes = fresh_cx(|cx| original.save(cx)).0.unwrap();
         let history = (
@@ -167,6 +169,8 @@ where
                 if available < needed {
                     assert!(matches!(actual, Err(Error::Stopped(_))));
                     assert_eq!((live.state_id(), live.undo_len(), live.redo_len()), history);
+                    assert!(!live.display().has_dirty());
+                    assert!(live.dirty_symbols().is_empty());
                     assert_eq!(fresh_cx(|cx| live.drawing(cx)).0.unwrap(), before);
                     assert_eq!(fresh_cx(|cx| live.save(cx)).0.unwrap(), before_bytes);
                 } else {
@@ -190,6 +194,8 @@ where
             Err(Error::Stopped(_))
         ));
         assert_eq!((live.state_id(), live.undo_len(), live.redo_len()), history);
+        assert!(!live.display().has_dirty());
+        assert!(live.dirty_symbols().is_empty());
         assert_eq!(fresh_cx(|cx| live.drawing(cx)).0.unwrap(), before);
         assert_eq!(fresh_cx(|cx| live.save(cx)).0.unwrap(), before_bytes);
         println!(

@@ -1327,10 +1327,7 @@ fn stage_block_element_dwg(
     let Ok(rec_u32) = u32::try_from(rec_usize) else {
         return Ok(Err(FastAttempt::Fallback));
     };
-    let mut quiet = Diagnostics::new();
-    let Some((kind_vec, sec, cur_enc, old_vals)) =
-        dwg.current_record_data(rec_u32, &mut Cx::new(cx.budget, &mut quiet, cx.cancel))
-    else {
+    let Some((kind_vec, sec, cur_enc, old_vals)) = dwg.current_record_data(rec_u32, cx)? else {
         return Ok(Err(FastAttempt::Fallback));
     };
     if sec != Section::Blocks {
@@ -2116,13 +2113,12 @@ fn try_apply_fast(
                         if !f_recs.is_empty() || raw_att > 0 {
                             return FastAttempt::Fallback;
                         }
-                        let mut quiet = Diagnostics::new();
-                        let Some((kind_vec, _, cur_enc, old_vals)) = dwg.current_record_data(
-                            row.record,
-                            &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
-                        ) else {
-                            return FastAttempt::Fallback;
-                        };
+                        let (kind_vec, _, cur_enc, old_vals) =
+                            match dwg.current_record_data(row.record, cx) {
+                                Ok(Some(record)) => record,
+                                Ok(None) => return FastAttempt::Fallback,
+                                Err(error) => return FastAttempt::Err(error),
+                            };
                         if single::is_followed(&kind_vec, &old_vals)
                             || old_vals.iter().any(|v| matches!(v.code, 102 | 360))
                         {
@@ -2179,20 +2175,18 @@ fn try_apply_fast(
                         {
                             return FastAttempt::Fallback;
                         }
-                        let mut quiet = Diagnostics::new();
-                        let Some((kind_vec, sec, cur_enc, old_vals)) = dwg.current_record_data(
-                            row.record,
-                            &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
-                        ) else {
-                            return FastAttempt::Fallback;
-                        };
+                        let (kind_vec, sec, cur_enc, old_vals) =
+                            match dwg.current_record_data(row.record, cx) {
+                                Ok(Some(record)) => record,
+                                Ok(None) => return FastAttempt::Fallback,
+                                Err(error) => return FastAttempt::Err(error),
+                            };
                         let mut att_decoded = Vec::with_capacity(f_recs.len());
                         for &f_rec in &f_recs {
-                            let Some((fk, fs, fe, fv)) = dwg.current_record_data(
-                                f_rec,
-                                &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
-                            ) else {
-                                return FastAttempt::Fallback;
+                            let (fk, fs, fe, fv) = match dwg.current_record_data(f_rec, cx) {
+                                Ok(Some(record)) => record,
+                                Ok(None) => return FastAttempt::Fallback,
+                                Err(error) => return FastAttempt::Err(error),
                             };
                             if fk != b"ATTRIB" {
                                 return FastAttempt::Fallback;
@@ -2366,13 +2360,12 @@ fn try_apply_fast(
                                 Some(RestyleLineType::Named(name))
                             }
                         };
-                        let mut quiet = Diagnostics::new();
-                        let Some((kind_vec, sec, cur_enc, old_vals)) = dwg.current_record_data(
-                            row.record,
-                            &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
-                        ) else {
-                            return FastAttempt::Fallback;
-                        };
+                        let (kind_vec, sec, cur_enc, old_vals) =
+                            match dwg.current_record_data(row.record, cx) {
+                                Ok(Some(record)) => record,
+                                Ok(None) => return FastAttempt::Fallback,
+                                Err(error) => return FastAttempt::Err(error),
+                            };
                         let Some(new_vals_raw) = single::restyle_model(
                             &state.single_tables,
                             &kind_vec,
@@ -2422,11 +2415,10 @@ fn try_apply_fast(
 
                         let mut follower_tuples = Vec::with_capacity(f_recs.len());
                         for &f_rec in &f_recs {
-                            let Some((fk, _, _, fv)) = dwg.current_record_data(
-                                f_rec,
-                                &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
-                            ) else {
-                                return FastAttempt::Fallback;
+                            let (fk, _, _, fv) = match dwg.current_record_data(f_rec, cx) {
+                                Ok(Some(record)) => record,
+                                Ok(None) => return FastAttempt::Fallback,
+                                Err(error) => return FastAttempt::Err(error),
                             };
                             let fh = crate::db::handle_of_values(&fk, &fv);
                             let fo = dwg_follower_origin(dwg, f_rec);
@@ -2476,23 +2468,21 @@ fn try_apply_fast(
                         let Some((f_recs, raw_att)) = row_follower_records(state, &row) else {
                             return FastAttempt::Fallback;
                         };
-                        let mut quiet = Diagnostics::new();
-                        let Some((kind_vec, sec, cur_enc, old_vals)) = dwg.current_record_data(
-                            row.record,
-                            &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
-                        ) else {
-                            return FastAttempt::Fallback;
-                        };
+                        let (kind_vec, sec, cur_enc, old_vals) =
+                            match dwg.current_record_data(row.record, cx) {
+                                Ok(Some(record)) => record,
+                                Ok(None) => return FastAttempt::Fallback,
+                                Err(error) => return FastAttempt::Err(error),
+                            };
                         if now_el.shape != was.shape && single::moving_xdata(&old_vals).is_some() {
                             return FastAttempt::Fallback;
                         }
                         let mut att_decoded = Vec::with_capacity(f_recs.len());
                         for &f_rec in &f_recs {
-                            let Some((fk, fs, fe, fv)) = dwg.current_record_data(
-                                f_rec,
-                                &mut Cx::new(cx.budget, &mut quiet, cx.cancel),
-                            ) else {
-                                return FastAttempt::Fallback;
+                            let (fk, fs, fe, fv) = match dwg.current_record_data(f_rec, cx) {
+                                Ok(Some(record)) => record,
+                                Ok(None) => return FastAttempt::Fallback,
+                                Err(error) => return FastAttempt::Err(error),
                             };
                             if fk != b"ATTRIB" {
                                 return FastAttempt::Fallback;

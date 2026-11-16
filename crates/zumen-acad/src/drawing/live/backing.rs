@@ -16,7 +16,7 @@ use zumen_drawing::{CalloutContent, Drawing2D, Element, Shape};
 use zumen_live::SourceBytes;
 use zumen_sdk::{Codec, Error};
 
-use crate::db::{Section, Value};
+use crate::db::{Data, Section, Value};
 use crate::dwg::single::{
     DwgFastStep, DwgSingle, DwgSourceLayout, DwgSourceSpans, UpdatedDwgRecord,
 };
@@ -836,6 +836,52 @@ pub struct DwgLiveBacking {
 /// DWG レコードの現在値 `(kind, section, encoded, values)`
 pub type CurrentDwgRecord = (Vec<u8>, Section, Vec<u8>, Vec<Value>);
 
+fn copy_dwg_record(
+    kind: &[u8],
+    section: &Section,
+    encoded: &[u8],
+    values: &[Value],
+    cx: &mut Cx<'_>,
+) -> Result<CurrentDwgRecord, Error> {
+    let stopped = |cx: &mut Cx<'_>, stop: zumen_base::Stop| {
+        cx.report(stop.to_diagnostic());
+        Error::Stopped(stop)
+    };
+    let section_bytes = match section {
+        Section::Other(name) => name.len() as u64,
+        _ => 0,
+    };
+    let fixed = (kind.len() as u64)
+        .saturating_add(encoded.len() as u64)
+        .saturating_add(section_bytes);
+    cx.check(Kind::Work, (values.len() as u64).saturating_add(1))
+        .map_err(|stop| stopped(cx, stop))?;
+    let payload = values.iter().fold(fixed, |size, value| {
+        size.saturating_add(match &value.data {
+            Data::Text(bytes) | Data::Binary(bytes) => bytes.len() as u64,
+            _ => 0,
+        })
+    });
+    cx.check(Kind::Work, payload)
+        .map_err(|stop| stopped(cx, stop))?;
+    cx.check(
+        Kind::DecodedBytes,
+        (values.len() as u64)
+            .saturating_mul(96)
+            .saturating_add(payload)
+            .saturating_add(128),
+    )
+    .map_err(|stop| stopped(cx, stop))?;
+    let record = (
+        kind.to_vec(),
+        section.clone(),
+        encoded.to_vec(),
+        values.to_vec(),
+    );
+    cx.check(Kind::Work, 0).map_err(|stop| stopped(cx, stop))?;
+    Ok(record)
+}
+
 impl DwgLiveBacking {
     /// 元のレコード件数
     #[inline]
@@ -844,30 +890,36 @@ impl DwgLiveBacking {
     }
 
     /// レコード `record` の現在の `(kind, section, encoded, values)` を取り出す
-    pub fn current_record_data(&self, record: u32, cx: &mut Cx<'_>) -> Option<CurrentDwgRecord> {
+    pub fn current_record_data(
+        &self,
+        record: u32,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<CurrentDwgRecord>, Error> {
+        cx.check(Kind::Work, 1).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
         if self.gone.contains(&record) {
-            return None;
+            return Ok(None);
         }
         if let Some(p) = self.patched.get(&record) {
-            return Some((
-                p.kind.clone(),
-                p.section.clone(),
-                p.encoded.clone(),
-                p.values.clone(),
-            ));
+            return copy_dwg_record(&p.kind, &p.section, &p.encoded, &p.values, cx).map(Some);
         }
         if let Some(b) = self.born.get(&record) {
-            return Some((
-                b.kind.clone(),
-                Section::Entities,
-                b.encoded.clone(),
-                b.values.clone(),
-            ));
+            return copy_dwg_record(&b.kind, &Section::Entities, &b.encoded, &b.values, cx)
+                .map(Some);
         }
         let rec_usize = record as usize;
-        let obj = self.single.decode_record(&self.base_file, rec_usize, cx)?;
-        let enc = self.single.base_encoded(&self.base_file, rec_usize)?;
-        Some((obj.kind, obj.section, enc, obj.values))
+        let Some(obj) = self
+            .single
+            .decode_record_with_cx(&self.base_file, rec_usize, cx)?
+        else {
+            return Ok(None);
+        };
+        let Some(enc) = self.single.base_encoded(&self.base_file, rec_usize) else {
+            return Ok(None);
+        };
+        Ok(Some((obj.kind, obj.section, enc, obj.values)))
     }
 
     /// 1 段階分のパッチを確定させる（新しい編集のとき、`is_redo` が偽なら後ろの段階を切り詰めて積む）
@@ -1102,7 +1154,223 @@ impl LiveBacking {
 
 #[cfg(test)]
 mod tests {
+    use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits, Stop};
+    use zumen_drawing::Hash;
+
     use super::*;
+    use crate::AcadLive;
+    use crate::drawing::live::tests::fresh_cx;
+
+    #[expect(clippy::print_stdout, reason = "ネイティブと WASI の比較記録")]
+    fn check_current_record_budget(
+        backing: &DwgLiveBacking,
+        record: u32,
+        expected: &CurrentDwgRecord,
+    ) {
+        let cancel = CancelToken::new();
+        let mut measured = Budget::new(Limits::default().with(Kind::InputBytes, Limit::Finite(0)));
+        let mut diagnostics = Diagnostics::new();
+        assert_eq!(
+            backing
+                .current_record_data(
+                    record,
+                    &mut Cx::new(&mut measured, &mut diagnostics, &cancel),
+                )
+                .unwrap()
+                .as_ref(),
+            Some(expected)
+        );
+        assert!(diagnostics.is_empty());
+        let mut boundary_record = String::new();
+        for kind in [Kind::Work, Kind::DecodedBytes] {
+            let needed = measured.used(kind);
+            assert!(needed > 0);
+            for available in [0, needed / 2, needed - 1, needed] {
+                let mut budget =
+                    Budget::new(Limits::default().with(kind, Limit::Finite(available + 11)));
+                budget.spend(kind, 11).unwrap();
+                let mut diagnostics = Diagnostics::new();
+                let result = backing.current_record_data(
+                    record,
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                );
+                if available < needed {
+                    assert!(matches!(result, Err(Error::Stopped(_))));
+                    assert!(
+                        diagnostics
+                            .iter()
+                            .any(|item| item.code() == kind.exceeded_code())
+                    );
+                } else {
+                    assert_eq!(result.as_ref().unwrap().as_ref(), Some(expected));
+                    assert_eq!(budget.used(kind), needed + 11);
+                }
+                boundary_record.push_str(&format!(
+                    "{kind:?} {available} {:?} {:?} {:?}\n",
+                    result.as_ref().map(|record| record.is_some()),
+                    Kind::ALL.map(|kind| budget.used(kind)),
+                    diagnostics.iter().collect::<Vec<_>>()
+                ));
+            }
+        }
+        cancel.cancel();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        assert_eq!(
+            backing
+                .current_record_data(record, &mut Cx::new(&mut budget, &mut diagnostics, &cancel),),
+            Err(Error::Stopped(Stop::Cancelled))
+        );
+        assert_eq!(budget.used(Kind::Work), 0);
+        assert_eq!(budget.used(Kind::DecodedBytes), 0);
+        println!(
+            "live-record-budget hash={:?} used={:?} boundaries={:?}",
+            Hash::document(format!("{expected:?}").as_bytes()),
+            Kind::ALL.map(|kind| measured.used(kind)),
+            Hash::document(boundary_record.as_bytes())
+        );
+    }
+
+    #[test]
+    fn current_records_share_budget_and_cancellation() {
+        for bytes in [
+            include_bytes!("../../../../../samples/dwg/zumen-layout-r2000.dwg").as_slice(),
+            include_bytes!("../../../../../samples/dwg/zumen-layout-r2004.dwg").as_slice(),
+            include_bytes!("../../../../../samples/dwg/zumen-layout-r2018.dwg").as_slice(),
+        ] {
+            for threads in [1, 4] {
+                let live = fresh_cx(|cx| AcadLive::open_with_threads(bytes, threads, cx))
+                    .0
+                    .unwrap();
+                let record = live
+                    .table()
+                    .row(zumen_live::RowId::from_index(0).unwrap())
+                    .unwrap()
+                    .record;
+                let LiveBacking::Dwg(mut backing) = live.state.backing else {
+                    panic!("DWG required");
+                };
+                let object = fresh_cx(|cx| {
+                    backing
+                        .single
+                        .decode_record(&backing.base_file, record as usize, cx)
+                })
+                .0
+                .unwrap();
+                let encoded = backing
+                    .single
+                    .base_encoded(&backing.base_file, record as usize)
+                    .unwrap();
+                let expected = (object.kind, object.section, encoded, object.values);
+                check_current_record_budget(&backing, record, &expected);
+                backing.patched.insert(
+                    record,
+                    DwgRecordPatch {
+                        kind: expected.0.clone(),
+                        section: expected.1.clone(),
+                        encoded: expected.2.clone(),
+                        values: expected.3.clone(),
+                    },
+                );
+                check_current_record_budget(&backing, record, &expected);
+                let born = backing.source_records();
+                backing.born.insert(
+                    born,
+                    DwgBornRecord {
+                        handle: 1,
+                        kind: expected.0.clone(),
+                        encoded: expected.2.clone(),
+                        values: expected.3.clone(),
+                        in_model: true,
+                    },
+                );
+                check_current_record_budget(&backing, born, &expected);
+                backing.gone.insert(record);
+                assert_eq!(
+                    fresh_cx(|cx| backing.current_record_data(record, cx)).0,
+                    Ok(None)
+                );
+                assert_eq!(
+                    fresh_cx(|cx| backing.current_record_data(u32::MAX, cx)).0,
+                    Ok(None)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn record_copy_budget_uses_payload_lengths() {
+        let make_bytes = |capacity| {
+            let mut bytes = Vec::with_capacity(capacity);
+            bytes.extend_from_slice(b"value");
+            bytes
+        };
+        let measure = |capacity| {
+            let values = [
+                Value {
+                    code: 1,
+                    data: Data::Text(make_bytes(capacity)),
+                },
+                Value {
+                    code: 310,
+                    data: Data::Binary(make_bytes(capacity)),
+                },
+            ];
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let record = copy_dwg_record(
+                &make_bytes(capacity),
+                &Section::Other(make_bytes(capacity)),
+                &make_bytes(capacity),
+                &values,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            )
+            .unwrap();
+            (
+                record,
+                Kind::ALL.map(|kind| budget.used(kind)),
+                budget.used(Kind::DecodedBytes),
+            )
+        };
+        assert_eq!(measure(5), measure(4096));
+        let (small, _, needed) = measure(5);
+        for part in 0..5 {
+            let mut large = small.clone();
+            let payload = match part {
+                0 => &mut large.0,
+                1 => match &mut large.1 {
+                    Section::Other(name) => name,
+                    _ => panic!("test section must carry a name"),
+                },
+                2 => &mut large.2,
+                _ => match &mut large.3[part - 3].data {
+                    Data::Text(bytes) | Data::Binary(bytes) => bytes,
+                    _ => panic!("test value must carry bytes"),
+                },
+            };
+            payload.resize(4096, 0);
+            let mut budget =
+                Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(needed)));
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            assert!(matches!(
+                copy_dwg_record(
+                    &large.0,
+                    &large.1,
+                    &large.2,
+                    &large.3,
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                ),
+                Err(Error::Stopped(_))
+            ));
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|item| { item.code() == Kind::DecodedBytes.exceeded_code() })
+            );
+        }
+    }
 
     fn patch_with_capacity(capacity: usize) -> DxfStepPatch {
         let bytes = || {

@@ -32,6 +32,35 @@ pub type UpdatedDwgRecord = (u64, Section, Vec<u8>, Vec<Value>, Vec<Value>);
 /// 復号した 1 レコードの種類・セクション・値。
 type DecodedRecord = (Vec<u8>, Section, Vec<Value>);
 
+#[cfg(any(feature = "drawing", test))]
+fn check_decode_input(bytes: usize, cx: &mut Cx<'_>) -> Result<(), Error> {
+    let bytes = bytes as u64;
+    cx.check(Kind::Work, bytes.saturating_mul(8).saturating_add(1))
+        .map_err(|stop| stopped(cx, stop))?;
+    // ビット列から作る値と一時領域の論理サイズ。表から補う文字列は復号後にも数える。
+    cx.check(
+        Kind::DecodedBytes,
+        bytes.saturating_mul(128).saturating_add(1024),
+    )
+    .map_err(|stop| stopped(cx, stop))
+}
+
+#[cfg(any(feature = "drawing", test))]
+fn check_decoded_values(kind: &[u8], values: &[Value], cx: &mut Cx<'_>) -> Result<(), Error> {
+    cx.check(Kind::Work, values.len() as u64)
+        .map_err(|stop| stopped(cx, stop))?;
+    let payload = values.iter().fold(kind.len() as u64, |size, value| {
+        size.saturating_add(match &value.data {
+            Data::Text(bytes) | Data::Binary(bytes) => bytes.len() as u64,
+            _ => 0,
+        })
+    });
+    cx.check(Kind::Work, payload)
+        .map_err(|stop| stopped(cx, stop))?;
+    cx.check(Kind::DecodedBytes, payload)
+        .map_err(|stop| stopped(cx, stop))
+}
+
 /// 書き戻したオブジェクトのハンドルと出所のバイト範囲。
 #[cfg(any(feature = "drawing", test))]
 pub(crate) type DwgSourceSpans = BTreeMap<u64, Range<usize>>;
@@ -1254,6 +1283,29 @@ impl DwgSingle {
         })
     }
 
+    /// 編集対象の元レコードを共有予算で復号する。変換診断は開いたときに報告済み。
+    #[cfg(any(feature = "drawing", test))]
+    pub(crate) fn decode_record_with_cx(
+        &self,
+        file: &DwgFile,
+        record: usize,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Object>, Error> {
+        cx.check(Kind::Work, 0).map_err(|stop| stopped(cx, stop))?;
+        let Some(entry) = file.entries.get(record) else {
+            return Ok(None);
+        };
+        check_decode_input(file.data(entry).len(), cx)?;
+        let mut quiet = zumen_base::Diagnostics::new();
+        let result =
+            self.decode_record(file, record, &mut Cx::new(cx.budget, &mut quiet, cx.cancel));
+        cx.check(Kind::Work, 0).map_err(|stop| stopped(cx, stop))?;
+        if let Some(object) = &result {
+            check_decoded_values(&object.kind, &object.values, cx)?;
+        }
+        Ok(result)
+    }
+
     /// 元のファイル `file` の `record` 番目のオブジェクトを `DwgTxn::set_data` と同じバイト列で取り出す
     pub fn base_encoded(&self, file: &DwgFile, record: usize) -> Option<Vec<u8>> {
         let entry = file.entries.get(record)?;
@@ -1290,15 +1342,7 @@ impl DwgSingle {
         encoded: &[u8],
         cx: &mut Cx<'_>,
     ) -> Result<Option<DecodedRecord>, Error> {
-        let bytes = encoded.len() as u64;
-        cx.check(Kind::Work, bytes.saturating_mul(8).saturating_add(1))
-            .map_err(|stop| stopped(cx, stop))?;
-        // ビット列から作る値と一時領域の論理サイズ。表から補う文字列は復号後にも数える。
-        cx.check(
-            Kind::DecodedBytes,
-            bytes.saturating_mul(128).saturating_add(1024),
-        )
-        .map_err(|stop| stopped(cx, stop))?;
+        check_decode_input(encoded.len(), cx)?;
         let mut quiet = zumen_base::Diagnostics::new();
         let result = self.decode_encoded_in(
             handle,
@@ -1307,18 +1351,7 @@ impl DwgSingle {
         );
         cx.check(Kind::Work, 0).map_err(|stop| stopped(cx, stop))?;
         if let Some((kind, _, values)) = &result {
-            cx.check(Kind::Work, values.len() as u64)
-                .map_err(|stop| stopped(cx, stop))?;
-            let payload = values.iter().fold(kind.len() as u64, |size, value| {
-                size.saturating_add(match &value.data {
-                    Data::Text(bytes) | Data::Binary(bytes) => bytes.len() as u64,
-                    _ => 0,
-                })
-            });
-            cx.check(Kind::Work, payload)
-                .map_err(|stop| stopped(cx, stop))?;
-            cx.check(Kind::DecodedBytes, payload)
-                .map_err(|stop| stopped(cx, stop))?;
+            check_decoded_values(kind, values, cx)?;
         }
         Ok(result)
     }
@@ -1886,6 +1919,73 @@ mod tests {
 
     use super::{DwgFastStep, DwgSingle, DwgSourceLayout, bit_get};
     use crate::Dwg;
+
+    fn shared_decode<T: core::fmt::Debug + PartialEq>(
+        expected: Option<T>,
+        mut decode: impl FnMut(&mut Cx<'_>) -> Result<Option<T>, Error>,
+    ) {
+        let cancel = CancelToken::new();
+        let mut measured = Budget::new(Limits::default().with(Kind::InputBytes, Limit::Finite(0)));
+        let mut diagnostics = Diagnostics::new();
+        assert_eq!(
+            decode(&mut Cx::new(&mut measured, &mut diagnostics, &cancel)).unwrap(),
+            expected
+        );
+        assert!(diagnostics.is_empty());
+        for kind in [Kind::Work, Kind::DecodedBytes] {
+            let needed = measured.used(kind);
+            assert!(needed > 0);
+            for available in [0, needed / 2, needed - 1, needed] {
+                let mut budget =
+                    Budget::new(Limits::default().with(kind, Limit::Finite(available + 11)));
+                budget.spend(kind, 11).unwrap();
+                let mut diagnostics = Diagnostics::new();
+                let result = decode(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+                if available < needed {
+                    assert!(matches!(result, Err(Error::Stopped(_))));
+                    assert!(diagnostics.iter().any(|d| d.code() == kind.exceeded_code()));
+                } else {
+                    assert_eq!(result.unwrap(), expected);
+                    assert_eq!(budget.used(kind), needed + 11);
+                }
+            }
+        }
+        cancel.cancel();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        assert_eq!(
+            decode(&mut Cx::new(&mut budget, &mut diagnostics, &cancel)),
+            Err(Error::Stopped(Stop::Cancelled))
+        );
+        assert_eq!(budget.used(Kind::Work), 0);
+        assert_eq!(budget.used(Kind::DecodedBytes), 0);
+    }
+
+    #[test]
+    fn source_records_share_budget_and_cancellation() {
+        for bytes in [
+            include_bytes!("../../../../samples/dwg/zumen-layout-r2000.dwg").as_slice(),
+            include_bytes!("../../../../samples/dwg/zumen-layout-r2004.dwg").as_slice(),
+            include_bytes!("../../../../samples/dwg/zumen-layout-r2018.dwg").as_slice(),
+        ] {
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            let file = Dwg::read(bytes, &mut cx).unwrap();
+            let single = DwgSingle::from_file(&file, &mut cx).unwrap();
+            for record in 0..file.entries.len() {
+                let expected = single.decode_record(&file, record, &mut cx);
+                shared_decode(expected, |cx| {
+                    single.decode_record_with_cx(&file, record, cx)
+                });
+            }
+            assert_eq!(
+                single.decode_record_with_cx(&file, usize::MAX, &mut cx),
+                Ok(None)
+            );
+        }
+    }
 
     #[test]
     fn encoded_records_share_budget_and_cancellation() {
