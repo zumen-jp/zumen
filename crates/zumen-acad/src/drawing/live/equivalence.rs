@@ -22,6 +22,165 @@ struct AcadPair<C: Codec> {
 type DxfPair = AcadPair<Dxf>;
 type DwgPair = AcadPair<Dwg>;
 
+#[test]
+#[expect(clippy::print_stdout, reason = "ネイティブと WASI の比較記録")]
+fn paged_open_preserves_mixed_elements_and_budget_boundaries() {
+    let input = String::from_utf8(synthetic_rich_dxf()).unwrap();
+    let (prefix, suffix) = input.rsplit_once("  0\nENDSEC\n").unwrap();
+    let mut input = prefix.to_owned();
+    for index in 0..16_390 {
+        let handle = 0x1000 + if index == 16_380 { 10 } else { index } * 3;
+        if index == 246 {
+            input.push_str(&format!(
+                "0\nINSERT\n5\n{handle:X}\n8\n0\n2\nMARK\n66\n1\n10\n0\n20\n0\n\
+                 0\nATTRIB\n5\n{:X}\n330\n{handle:X}\n8\n0\n1\nVALUE\n2\nCODE\n10\n1\n20\n1\n40\n2\n\
+                 0\nSEQEND\n5\n{:X}\n330\n{handle:X}\n",
+                handle + 1,
+                handle + 2
+            ));
+            continue;
+        }
+        // 一般図形だけの区間、用紙、キーなし要素を、平面図形と同じ入力に置く。
+        let kind = if (256..768).contains(&index) {
+            "POINT"
+        } else {
+            "LINE"
+        };
+        input.push_str(&format!("0\n{kind}\n"));
+        if index % 17 != 0 {
+            input.push_str(&format!("5\n{handle:X}\n"));
+        }
+        if index % 71 == 0 {
+            input.push_str("67\n1\n");
+        }
+        input.push_str(&format!("8\n0\n10\n{index}\n20\n2\n"));
+        if kind == "LINE" {
+            input.push_str(&format!("11\n{}\n21\n3\n", index + 1));
+        }
+    }
+    input.push_str("  0\nENDSEC\n");
+    input.push_str(suffix);
+    let bytes = input.as_bytes();
+    let (expected, expected_diag) = fresh_cx(|cx| Dxf::read(bytes, cx)?.lift(cx));
+    let expected: Drawing2D = expected.unwrap();
+    let probe = |threads, limits, cancel: &CancelToken| {
+        let mut budget = Budget::new(limits);
+        let mut diagnostics = Diagnostics::new();
+        let result = AcadLive::open_with_threads(
+            bytes,
+            threads,
+            &mut Cx::new(&mut budget, &mut diagnostics, cancel),
+        )
+        .map(|live| {
+            (
+                fresh_cx(|cx| live.drawing(cx)).0.unwrap(),
+                fresh_cx(|cx| live.save(cx)).0.unwrap(),
+            )
+        });
+        (
+            result,
+            diagnostics.into_vec(),
+            Kind::ALL.map(|kind| budget.used(kind)),
+        )
+    };
+    let cancel = CancelToken::new();
+    let baseline = probe(1, Limits::default(), &cancel);
+    assert_eq!(baseline.0.as_ref().unwrap().0, expected);
+    assert_eq!(baseline.1, expected_diag);
+    let saved = &baseline.0.as_ref().unwrap().1;
+    let expected_bytes = fresh_cx(|cx| {
+        let file = Dxf::read(bytes, cx)?;
+        let mut output = Vec::new();
+        Dxf::write(&file, &mut output, cx).map(|()| output)
+    })
+    .0
+    .unwrap();
+    assert_eq!(saved, &expected_bytes);
+    let mut records = String::new();
+    for threads in [1, 4] {
+        assert_eq!(probe(threads, Limits::default(), &cancel), baseline);
+        for kind in [Kind::Work, Kind::DecodedBytes] {
+            let needed = baseline.2[Kind::ALL.iter().position(|&value| value == kind).unwrap()];
+            assert!(needed > 0);
+            for available in [0, needed / 2, needed - 1, needed] {
+                let limits = Limits::default().with(kind, Limit::Finite(available));
+                let actual = probe(threads, limits, &cancel);
+                assert_eq!(actual, probe(1, limits, &cancel));
+                if available < needed {
+                    assert!(matches!(actual.0, Err(Error::Stopped(_))));
+                } else {
+                    assert_eq!(actual, baseline);
+                }
+                records.push_str(&format!(
+                    "{threads} {kind:?} {available} {:?}\n",
+                    Hash::document(format!("{actual:?}").as_bytes())
+                ));
+            }
+        }
+    }
+    cancel.cancel();
+    let stopped = probe(1, Limits::default(), &cancel);
+    assert!(matches!(stopped.0, Err(Error::Stopped(_))));
+    assert_eq!(probe(4, Limits::default(), &cancel), stopped);
+    records.push_str(&format!("{stopped:?}"));
+    println!(
+        "live-open-budget saved={:?} model={:?} used={:?} boundaries={:?}",
+        Hash::document(saved),
+        Hash::document(format!("{expected:?}").as_bytes()),
+        baseline.2,
+        Hash::document(records.as_bytes())
+    );
+}
+
+#[test]
+fn duplicate_and_keyless_ids_keep_edit_results_after_open() {
+    let input = b"0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+        0\nSECTION\n2\nENTITIES\n\
+        0\nLINE\n5\n10\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n\
+        0\nLINE\n5\n11\n8\n0\n10\n5\n20\n0\n11\n6\n21\n0\n\
+        0\nLINE\n5\n10\n8\n0\n10\n10\n20\n0\n11\n11\n21\n0\n\
+        0\nLINE\n8\n0\n10\n15\n20\n0\n11\n16\n21\n0\n\
+        0\nENDSEC\n0\nEOF\n";
+    let unique = String::from_utf8(input.to_vec())
+        .unwrap()
+        .replace("5\n10\n8\n0\n10\n10\n", "5\n12\n8\n0\n10\n10\n");
+    for (bytes, duplicated) in [(input.as_slice(), true), (unique.as_bytes(), false)] {
+        for threads in [1, 4] {
+            let mut pair = DxfPair::open(bytes, threads);
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let names = all_element_ids_and_hashes(&model);
+            assert_eq!(
+                pair.live.state.non_unique_model_ids.len(),
+                if duplicated { 3 } else { 1 }
+            );
+            for ((name, _), element) in names.iter().zip(&model.spaces[0].elements) {
+                if element.source.key().is_none()
+                    || (duplicated && element.source.key() == Some(Key::Handle(0x10)))
+                {
+                    let row = *pair.live.state.non_unique_model_ids.get(name).unwrap();
+                    assert_eq!(&pair.live.element_of_row(row).unwrap(), element);
+                }
+            }
+            for (name, _) in names {
+                let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+                let (_, hash) = all_element_ids_and_hashes(&model)
+                    .into_iter()
+                    .find(|(current, _)| current == &name)
+                    .unwrap();
+                let edit = Edit::Transform {
+                    target: Seen { id: name, hash },
+                    transform: Affine::translation(1.0, 2.0),
+                };
+                if duplicated {
+                    pair.reject(edit);
+                } else {
+                    pair.apply(edit);
+                }
+            }
+        }
+    }
+}
+
 impl<C: Codec> AcadPair<C>
 where
     C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
@@ -68,7 +227,7 @@ where
                 .spaces
                 .iter()
                 .flat_map(|space| &space.elements)
-                .find(|candidate| candidate.source.key() == element.source.key())
+                .find(|candidate| candidate.source == element.source)
                 .unwrap();
             assert_eq!(&element, expected, "row={index}");
             assert_eq!(Hash::element(&element), Hash::element(expected));

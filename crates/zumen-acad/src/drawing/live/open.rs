@@ -5,8 +5,12 @@
 //! 非エンティティの殻 [`AcadDb`] の上で既存の [`Lifter`] をそのまま通すことで、診断・ID・ハッシュ・拡張情報の
 //! 100% 一致を保ったままメモリ常駐量と開く時間を抑える。
 
+mod pending;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+
+use pending::{PAGE_ROWS, Pending};
 
 use zumen_base::{
     Budget, CancelToken, Cx, Diagnostic, Diagnostics, Key, Kind, Limit, Limits, Ref, codes,
@@ -844,8 +848,24 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
         })
         .collect();
 
-    let mut lifted_plains: Vec<Option<PlainLifted>> = vec![None; entity_indices.len()];
-    if !plain_tasks.is_empty() {
+    let mut lifted_plains = Pending::with_len(entity_indices.len());
+    let mut filled_until = 0;
+    let mut take_plain = |ent_pos| {
+        if ent_pos < filled_until {
+            return lifted_plains.take_ordered(ent_pos);
+        }
+        // 全件の復号結果を保持せず、最大 16,384 要素を入力順の処理へ渡す。
+        let first_page = ent_pos / PAGE_ROWS;
+        let last_page = first_page
+            .saturating_add(64)
+            .min(lifted_plains.pages_mut().len());
+        let start = first_page * PAGE_ROWS;
+        filled_until = last_page * PAGE_ROWS;
+        let first = plain_tasks.partition_point(|&(position, _)| position < start);
+        let last = plain_tasks.partition_point(|&(position, _)| position < filled_until);
+        for &(position, _) in plain_tasks.get(first..last).unwrap_or_default() {
+            let _ = lifted_plains.prepare(position);
+        }
         let lift_one = |(ent_pos, rec_u32): (usize, u32)| -> (usize, Option<PlainLifted>) {
             let Some(rec) = records.get(rec_u32 as usize) else {
                 return (ent_pos, None);
@@ -887,33 +907,57 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
             (ent_pos, plain)
         };
 
-        let results: Vec<(usize, Option<PlainLifted>)> =
-            if !cfg!(target_arch = "wasm32") && parts > 1 && plain_tasks.len() >= 256 {
-                let chunk_sz = plain_tasks.len().div_ceil(parts);
-                std::thread::scope(|scope| {
-                    let mut handles = Vec::new();
-                    for slice in plain_tasks.chunks(chunk_sz) {
-                        handles.push(scope.spawn(move || {
-                            slice.iter().copied().map(lift_one).collect::<Vec<_>>()
-                        }));
+        let fill_pages = |first_page: usize, pages: &mut [Option<Vec<Option<PlainLifted>>>]| {
+            for (page_offset, page) in pages.iter_mut().enumerate() {
+                let Some(page) = page else {
+                    continue;
+                };
+                let start = (first_page + page_offset) * PAGE_ROWS;
+                let end = start.saturating_add(page.len());
+                let first = plain_tasks.partition_point(|&(position, _)| position < start);
+                let last = plain_tasks.partition_point(|&(position, _)| position < end);
+                for &task in plain_tasks.get(first..last).unwrap_or_default() {
+                    let (position, item) = lift_one(task);
+                    if let Some(slot) = page.get_mut(position - start) {
+                        *slot = item;
                     }
-                    let mut merged = Vec::with_capacity(plain_tasks.len());
-                    for h in handles {
-                        if let Ok(part) = h.join() {
-                            merged.extend(part);
-                        }
-                    }
-                    merged
-                })
-            } else {
-                plain_tasks.into_iter().map(lift_one).collect()
-            };
-        for (ent_pos, item) in results {
-            if let Some(slot) = lifted_plains.get_mut(ent_pos) {
-                *slot = item;
+                }
             }
+        };
+        let pages = lifted_plains
+            .pages_mut()
+            .get_mut(first_page..last_page)
+            .unwrap_or_default();
+        if !cfg!(target_arch = "wasm32") && parts > 1 && last - first >= 256 {
+            let chunk_size = pages.len().div_ceil(parts).max(1);
+            let failed = std::thread::scope(|scope| {
+                let mut handles = Vec::new();
+                let fill = &fill_pages;
+                for (index, chunk) in pages.chunks_mut(chunk_size).enumerate() {
+                    let start = index * chunk_size;
+                    let end = start + chunk.len();
+                    handles.push((
+                        start..end,
+                        scope.spawn(move || fill(first_page + start, chunk)),
+                    ));
+                }
+                handles
+                    .into_iter()
+                    .filter_map(|(range, handle)| handle.join().is_err().then_some(range))
+                    .collect::<Vec<_>>()
+            });
+            for range in failed {
+                if let Some(failed_pages) = pages.get_mut(range) {
+                    for page in failed_pages {
+                        *page = None;
+                    }
+                }
+            }
+        } else {
+            fill_pages(first_page, pages);
         }
-    }
+        lifted_plains.take_ordered(ent_pos)
+    };
 
     let source_bytes = SourceBytes::compress_slice_with_cx(src, parts, cx).map_err(|stop| {
         cx.report(stop.to_diagnostic());
@@ -944,7 +988,6 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
         count: entity_indices.len(),
         owned_set: &owned_set,
         att_map: &att_map,
-        lifted_plains,
         first_paper_owner,
         any_entity_code_100,
         duplicate_handles_global,
@@ -953,6 +996,7 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
     let mut state = finish_live_open(
         &shell_db,
         finish_inputs,
+        &mut take_plain,
         |ent_pos| {
             let rec_u32 = *entity_indices.get(ent_pos)?;
             let rec = records.get(rec_u32 as usize)?;
@@ -1159,7 +1203,7 @@ pub fn open_from_dwg_file(
     }
 
     let mut ent_slots: Vec<DwgEntSlot> = Vec::new();
-    let mut lifted_plains: Vec<Option<PlainLifted>> = Vec::new();
+    let mut lifted_plains = Pending::with_len(0);
     let mut any_entity_code_100 = false;
     let mut seen_handles: BTreeSet<u64> = BTreeSet::new();
     let mut duplicate_handles_global = false;
@@ -1372,7 +1416,6 @@ pub fn open_from_dwg_file(
         count: ent_slots.len(),
         owned_set: &owned_set,
         att_map: &att_map,
-        lifted_plains,
         first_paper_owner,
         any_entity_code_100,
         duplicate_handles_global,
@@ -1382,6 +1425,7 @@ pub fn open_from_dwg_file(
     let mut state = finish_live_open(
         &shell_db,
         finish_inputs,
+        |ent_pos| lifted_plains.take_ordered(ent_pos),
         |ent_pos| {
             let s = ent_slots.get(ent_pos)?;
             Some((s.record, s.work_amount, s.source_ref.clone(), s.handle))
@@ -1489,12 +1533,10 @@ fn open_from_db_and_backing(
         .iter()
         .find(|o| matches!(o.first(67), Some(Data::Int(1))))
         .and_then(|o| o.owner());
-    let lifted_plains = vec![None; entities.len()];
     let finish_inputs = EntityPassInputs {
         count: entities.len(),
         owned_set: &owned_set,
         att_map: &att_map,
-        lifted_plains,
         first_paper_owner,
         any_entity_code_100,
         duplicate_handles_global,
@@ -1503,6 +1545,7 @@ fn open_from_db_and_backing(
     finish_live_open(
         &shell_db,
         finish_inputs,
+        |_| None,
         |pos| {
             let (rec_u32, obj) = entities.get(pos)?;
             Some((*rec_u32, amount(obj), source(obj), obj.handle()))
@@ -1517,7 +1560,6 @@ struct EntityPassInputs<'a> {
     count: usize,
     owned_set: &'a BTreeSet<usize>,
     att_map: &'a BTreeMap<usize, Vec<usize>>,
-    lifted_plains: Vec<Option<PlainLifted>>,
     first_paper_owner: Option<u64>,
     any_entity_code_100: bool,
     duplicate_handles_global: bool,
@@ -1526,7 +1568,8 @@ struct EntityPassInputs<'a> {
 
 fn finish_live_open(
     shell_db: &AcadDb,
-    mut inputs: EntityPassInputs<'_>,
+    inputs: EntityPassInputs<'_>,
+    mut take_plain: impl FnMut(usize) -> Option<PlainLifted>,
     entity_meta: impl Fn(usize) -> Option<(u32, u64, Ref, Option<u64>)>,
     decode_general: impl Fn(usize, &mut Cx<'_>) -> Option<(u32, Object)>,
     backing: LiveBacking,
@@ -1722,7 +1765,7 @@ fn finish_live_open(
             }
             continue;
         }
-        if let Some(plain) = inputs.lifted_plains.get_mut(ent_pos).and_then(Option::take) {
+        if let Some(plain) = take_plain(ent_pos) {
             if let super::shape::PlainGeom::Insert { attribs, .. } = &plain.geom {
                 for a in attribs {
                     if let Some(ah) = a.handle {
@@ -1970,10 +2013,6 @@ fn finish_live_open(
     let mut non_model_element_ids: BTreeSet<String> = BTreeSet::new();
     let mut block_element_targets: BTreeMap<String, (u32, u32)> = BTreeMap::new();
     for row in &rows {
-        let sref = row.source_ref();
-        if sref != Ref::default() && !source_seen.insert(sref.clone()) {
-            shared_sources.insert(sref);
-        }
         if let Some(h) = row.raw_handle() {
             *handle_counts.entry(h).or_insert(0) += 1;
         }
@@ -1983,9 +2022,6 @@ fn finish_live_open(
         let place = def_namer.next(sym);
         let mut namer = id::Namer::new(&place);
         for (idx, el) in sym.space.elements.iter().enumerate() {
-            if el.source != Ref::default() && !source_seen.insert(el.source.clone()) {
-                shared_sources.insert(el.source.clone());
-            }
             if let Some(Key::Handle(h)) = el.source.key() {
                 *handle_counts.entry(h).or_insert(0) += 1;
             }
@@ -2007,9 +2043,6 @@ fn finish_live_open(
         let place = sheet_namer.next(sheet);
         let mut namer = id::Namer::new(&place);
         for (idx, el) in sheet.elements.iter().enumerate() {
-            if el.source != Ref::default() && !source_seen.insert(el.source.clone()) {
-                shared_sources.insert(el.source.clone());
-            }
             if let Some(Key::Handle(h)) = el.source.key() {
                 *handle_counts.entry(h).or_insert(0) += 1;
             }
@@ -2019,7 +2052,16 @@ fn finish_live_open(
     let mut seen_origins: BTreeMap<String, u64> = BTreeMap::new();
     let mut non_unique_model_ids: BTreeMap<String, RowId> = BTreeMap::new();
     for (idx, row) in rows.iter_mut().enumerate() {
+        let is_unique = row
+            .raw_handle()
+            .is_some_and(|h| handle_counts.get(&h).copied() == Some(1));
+        if is_unique {
+            continue;
+        }
         let src_ref = row.source_ref();
+        if src_ref != Ref::default() && !source_seen.insert(src_ref.clone()) {
+            shared_sources.insert(src_ref.clone());
+        }
         let orig = id::origin(&src_ref, idx);
         let repeat =
             if src_ref.key().is_none() && src_ref.record().is_none() && src_ref.bytes().is_none() {
@@ -2029,23 +2071,39 @@ fn finish_live_open(
                 *count += 1;
                 *count - 1
             };
-        let is_unique = row
-            .raw_handle()
-            .is_some_and(|h| handle_counts.get(&h).copied() == Some(1));
-        if !is_unique {
-            row.flags &= !ROW_UNIQUE_HANDLE;
-            if let Some(h) = row.raw_handle() {
-                non_table_max_handle = Some(non_table_max_handle.map_or(h, |m| m.max(h)));
-            }
-            if let Some(row_id) = RowId::from_index(idx) {
-                let elem_id = match repeat {
-                    0 => format!("space/0/{orig}"),
-                    n => format!("space/0/{orig}/{n}"),
-                };
-                non_unique_model_ids.entry(elem_id).or_insert(row_id);
-            }
+        row.flags &= !ROW_UNIQUE_HANDLE;
+        if let Some(h) = row.raw_handle() {
+            non_table_max_handle = Some(non_table_max_handle.map_or(h, |m| m.max(h)));
+        }
+        if let Some(row_id) = RowId::from_index(idx) {
+            let elem_id = match repeat {
+                0 => format!("space/0/{orig}"),
+                n => format!("space/0/{orig}/{n}"),
+            };
+            non_unique_model_ids.entry(elem_id).or_insert(row_id);
         }
     }
+    // 一意なハンドルを持つ出所は、ほかの要素と共有されない。
+    for source in symbols
+        .iter()
+        .flat_map(|symbol| symbol.space.elements.iter().map(|element| &element.source))
+        .chain(
+            sheets
+                .iter()
+                .flat_map(|sheet| sheet.elements.iter().map(|element| &element.source)),
+        )
+    {
+        if matches!(source.key(), Some(Key::Handle(handle)) if handle_counts.get(&handle) == Some(&1))
+        {
+            continue;
+        }
+        if source != &Ref::default() && !source_seen.insert(source.clone()) {
+            shared_sources.insert(source.clone());
+        }
+    }
+    drop(seen_origins);
+    drop(handle_counts);
+    drop(source_seen);
 
     // 要素数予算と境界矩形の計算
     let total_elements = (rows.len() as u64)
