@@ -18,7 +18,7 @@ IDS（Information Delivery Specification）1.0 を読み、建物モデルで照
 
 ## 確かめた度合い
 
-自作の UTF-16LE・UTF-16BE で IDS を読み、名前の要件をモデルに照合します。[XML の規則](xml.md)を使います。この追加の確認は `synthetic` で、IDS の外部照合はしていません。
+自作の UTF-8・UTF-16LE・UTF-16BE で IDS を読み、名前の要件をモデルに照合します。[XML の規則](xml.md)を使います。公開 IFC2X3 と自作の名前の要件 6 仕様について、IfcTester 0.9.0 の対象・不適合の全 GlobalId とコアの判定が一致しました。手順・期待値・比較器の反例は [IDS 検証キット](../../xtask/verify/ids/README.md)にあります。自分で定めた要件なので、読みの段は `synthetic` のままです。
 
 自作の Shift_JIS の日本語の根を不正な IDS として断り、診断の `near` に Unicode の名前を返すことを検査します。未知の facet と制約の日本語の名前も、診断の `kind` とモデルに返します。この確認は `synthetic` です。
 
@@ -26,6 +26,6 @@ IDS（Information Delivery Specification）1.0 を読み、建物モデルで照
 | --- | --- | --- |
 | `ids` | 読み | `synthetic` |
 
-段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-ids)にあります。IDS の読み取りと照合の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-ids)にあります。外部照合は entity と attribute（Name）の上記 18 結果に限ります。ほかの facet・制約式・IFC4/4.3・実機表示と環境間の一致を確かめた結果ではありません。
 
-- 公開サンプルと外部の実装での照合は #522 で行う。
+- 公開 IDS は #522 で調査を続ける。2026-11-16 に buildingSMART/IDS の `development/LICENSE` が CC BY-ND 4.0 であることを確認した。個々の例の別の許諾は未確認なので、例と XSD は同梱していない。調べた場所と固定したライセンスのハッシュは検証キットの説明に記録した。

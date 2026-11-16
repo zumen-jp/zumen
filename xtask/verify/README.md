@@ -28,6 +28,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `mtext/` | 自作の MTEXT の読み・追加・置き換え・変換を ezdxf の度数と照らし、自前の往復では見えない角度の不一致を検出する（#882）。手順は [README](mtext/README.md) |
 | `polyline/` | 2 頂点の自作 POLYLINE の画層・線種・色を、監査前の ezdxf の値と照らし、親だけの変更による不一致を検出する（#885）。手順と期待値は [README](polyline/README.md) |
 | `express/` | buildingSMART の公開 IFC EXPRESS 3版を実行時だけ取得し、実体・明示属性・型を同じ入力から読んだ IfcOpenShell と照らす（#663）。手順は [README](express/README.md) |
+| `ids/` | 公開 IFC2X3 と自作 IDS の名前の要件 6 仕様を、3 文字コードで IfcTester と照らす（#522）。手順と期待値は [README](ids/README.md) |
 | `acc/` | 公開 IFC と BCF 2.1 のオフライン検証キットを作り、Autodesk Build の取り込み・書き出しを利用者が確認する（#686・#787）。手順と期待値は [README](acc/README.md) |
 | `check_autocad.py` | キットの DXF・DWG を、画面のない AutoCAD（`accoreconsole.exe`）で 1 つずつ開き、監査の誤りの数と `dump.lsp` の書き出しを、zumen の読みと変更で決めた値に照らす（#683）。AutoCAD のある端末の手元でだけ流す |
 | `test_check_autocad.py` | `check_autocad.py` の、流すスクリプトの組み立て、コンソールの出力と書き出しの読み、形の値への直し、寸法と表の部品の比べ方を、合成の入力で確かめる。AutoCAD がなくても流せる |

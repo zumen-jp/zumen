@@ -800,8 +800,8 @@
 - 仕様: [ids\_1\_0](#spec-ids_1_0)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [IDS のリポジトリのライセンス（LICENSE）](https://github.com/buildingSMART/IDS/blob/development/LICENSE)（確認日: 2026-10-31）
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: IDS 1.0 の文書と、テストの中で作った IDS（crates/zumen-ids/tests・crates/zumen-ifc/tests/ids.rs）で確かめた。公開サンプルと外部の実装との照合はまだ（#522）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-16）
+- 読みの確かめた範囲: IDS 1.0 の文書と自作 IDS で確かめた。公開 IFC2X3 と自作の名前の要件 6 仕様を UTF-8・UTF-16LE・UTF-16BE で判定し、IfcTester 0.9.0 の対象・不適合 ID と一致した（xtask/verify/ids）。自作の要件なので読みは synthetic のまま。公開 IDS の別許諾、ほかの facet・IFC4/4.3・実機は未確認（#522）
 - issue: [zumen-jp/zumen#411](https://github.com/zumen-jp/zumen/issues/411)
 - 形式の文書: [docs/formats/ids.md](../../docs/formats/ids.md)
 
