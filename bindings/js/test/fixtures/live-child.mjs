@@ -21,7 +21,7 @@ function reply(request, status = 0, kind = 0, data = Buffer.alloc(0)) {
 }
 
 async function send(bytes) {
-  if (mode === "fragmented") {
+  if (mode === "fragmented" || mode === "selection-fragmented") {
     for (const byte of bytes) {
       process.stdout.write(Buffer.from([byte]));
       await new Promise((resolve) => setImmediate(resolve));
@@ -45,6 +45,25 @@ function handle(request, body) {
   }
   if (mode === "hold" || mode === "silent") { waiting = request; return; }
   if (mode === "exit") { process.exit(7); return; }
+  if (request.command === 10) {
+    if (body.length !== 104 || [1, 2, 3, 4].some((value, i) => body.readDoubleLE(72 + i * 8) !== value)) { process.exit(6); return; }
+    const data = Buffer.alloc(12);
+    data.writeUInt32LE(2, 0);
+    data.writeUInt32LE(2, 4);
+    data.writeUInt32LE(65, 8);
+    if (mode === "selection-duplicate") data.writeUInt32LE(2, 8);
+    if (mode === "selection-descending") data.writeUInt32LE(1, 8);
+    if (mode === "selection-virtual") data.writeUInt32LE(0x80000000, 8);
+    if (mode === "selection-count") data.writeUInt32LE(0xffffffff, 0);
+    let payload = mode === "selection-truncated" ? data.subarray(0, 11) : data;
+    if (mode === "selection-extra") payload = Buffer.concat([data, Buffer.from([0])]);
+    const out = reply(request, 0, 5, payload);
+    out.writeBigUInt64LE(body.readBigUInt64LE(56), 32);
+    out.writeBigUInt64LE(mode === "selection-result" ? 3n : 2n, 48);
+    if (mode === "selection-no-revision") { out.writeBigUInt64LE(none, 32); out.writeBigUInt64LE(none, 40); }
+    send(out);
+    return;
+  }
   let out = reply(request, 0, 2, stored);
   if (mode === "wrong-id") out.writeBigUInt64LE(request.id + 1n, 8);
   if (mode === "wrong-magic") out[0] = 0;

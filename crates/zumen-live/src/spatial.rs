@@ -476,8 +476,24 @@ impl SpatialGrid {
     }
 
     /// 予算と中断を確かめながら、箱が `rect` と重なる [`RowId`] を昇順で `out` へ足す。
+    /// 結果 1 行ごとの要素数・4 バイトと、走査・整列の作業量を共有予算へ計上する。
     /// 予算超過または中断で止まったときは `out` を呼び出し前の長さに戻す。
     pub fn query_with_cx<B: BoundsSource + ?Sized>(
+        &self,
+        boxes: &B,
+        rect: [f64; 4],
+        out: &mut Vec<RowId>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Stop> {
+        let start = out.len();
+        let result = self.query_checked(boxes, rect, out, cx);
+        if result.is_err() {
+            out.truncate(start);
+        }
+        result
+    }
+
+    fn query_checked<B: BoundsSource + ?Sized>(
         &self,
         boxes: &B,
         rect: [f64; 4],
@@ -501,17 +517,11 @@ impl SpatialGrid {
                 ..=self.index_half(level, 1, hr3 + half_reach);
             for row in rows {
                 for column in columns.clone() {
-                    if let Err(stop) = cx.check(Kind::Work, 1) {
-                        out.truncate(start);
-                        return Err(stop);
-                    }
+                    cx.check(Kind::Work, 1)?;
                     let cell = (level.offset + row * level.columns + column) as usize;
                     let mut at = self.head.get(cell).copied().unwrap_or(NONE);
                     while at != NONE {
-                        if let Err(stop) = cx.check(Kind::Work, 1) {
-                            out.truncate(start);
-                            return Err(stop);
-                        }
+                        cx.check(Kind::Work, 1)?;
                         if let Some(item) = boxes.bounds_at(at as usize)
                             && is_valid_box(item)
                             && item[0] <= rect[2]
@@ -519,6 +529,8 @@ impl SpatialGrid {
                             && item[1] <= rect[3]
                             && item[3] >= rect[1]
                         {
+                            cx.check(Kind::Elements, 1)?;
+                            cx.check(Kind::DecodedBytes, 4)?;
                             out.push(RowId(at));
                         }
                         at = self.next.get(at as usize).copied().unwrap_or(NONE);
@@ -526,7 +538,14 @@ impl SpatialGrid {
                 }
             }
         }
-        out.get_mut(start..).unwrap_or_default().sort_unstable();
+        let added = out.get_mut(start..).unwrap_or_default();
+        let count = added.len() as u64;
+        // 環境ごとの整列実装に依存せず、件数とそのビット幅で作業量を先に制限する。
+        cx.check(
+            Kind::Work,
+            count.saturating_mul(u64::from(u64::BITS - count.leading_zeros())),
+        )?;
+        added.sort_unstable();
         Ok(())
     }
 
@@ -604,6 +623,19 @@ mod tests {
                 let mut found = Vec::new();
                 grid.query(boxes, rect, &mut found);
                 assert_eq!(found, brute(boxes, rect));
+                let mut budget = zumen_base::Budget::default();
+                let mut diagnostics = zumen_base::Diagnostics::new();
+                let cancel = zumen_base::CancelToken::new();
+                let mut checked = vec![RowId(9999)];
+                grid.query_with_cx(
+                    boxes,
+                    rect,
+                    &mut checked,
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                )
+                .unwrap();
+                assert_eq!(checked.remove(0), RowId(9999));
+                assert_eq!(checked, found.into_iter().map(RowId).collect::<Vec<_>>());
             }
         };
         check(&grid, &boxes, &mut random);
@@ -658,5 +690,102 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, Stop::Exceeded(e) if e.kind == Kind::Work));
         assert_eq!(out_rows, vec![RowId(999)]);
+    }
+
+    #[test]
+    fn query_budget_covers_results_sorting_and_keeps_the_original_prefix() {
+        use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
+
+        let boxes: Vec<_> = (0..80)
+            .map(|i| [f64::from(i), 0.0, f64::from(i) + 1.0, 1.0])
+            .collect();
+        let grid = SpatialGrid::build(boxes.as_slice());
+        let rect = [
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::INFINITY,
+        ];
+        let cancel = CancelToken::new();
+        let run = |limits| {
+            let mut budget = Budget::new(limits);
+            let mut diagnostics = Diagnostics::new();
+            let mut out = vec![RowId(999), RowId(998)];
+            let result = grid.query_with_cx(
+                boxes.as_slice(),
+                rect,
+                &mut out,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            );
+            (result, out, Kind::ALL.map(|kind| budget.used(kind)))
+        };
+        let normal = run(Limits::default());
+        assert!(normal.0.is_ok());
+        assert_eq!(normal.1[2..], (0..80).map(RowId).collect::<Vec<_>>());
+        assert_eq!(normal.2[1], 320);
+        assert_eq!(normal.2[3], 80);
+        for kind in [Kind::DecodedBytes, Kind::Elements, Kind::Work] {
+            let needed = normal.2[Kind::ALL.iter().position(|&item| item == kind).unwrap()];
+            for limit in [0, needed / 2, needed - 1, needed] {
+                let limits = Limits::default().with(kind, Limit::Finite(limit));
+                let actual = run(limits);
+                assert_eq!(actual, run(limits));
+                if limit == needed {
+                    assert_eq!(actual, normal);
+                } else {
+                    assert!(matches!(actual.0, Err(Stop::Exceeded(e)) if e.kind == kind));
+                    assert_eq!(actual.1, vec![RowId(999), RowId(998)]);
+                }
+            }
+        }
+        cancel.cancel();
+        let stopped = run(Limits::default());
+        assert_eq!(stopped.0, Err(Stop::Cancelled));
+        assert_eq!(stopped.1, vec![RowId(999), RowId(998)]);
+    }
+
+    #[test]
+    fn query_cancellation_during_the_walk_rolls_back_partial_hits() {
+        use std::cell::Cell;
+        use zumen_base::{Budget, CancelToken, Diagnostics};
+
+        struct Cancelling<'a> {
+            boxes: &'a [[f64; 4]],
+            visited: Cell<usize>,
+            cancel: CancelToken,
+        }
+        impl BoundsSource for Cancelling<'_> {
+            fn bounds_len(&self) -> usize {
+                self.boxes.len()
+            }
+            fn bounds_at(&self, index: usize) -> Option<[f64; 4]> {
+                self.visited.set(self.visited.get() + 1);
+                if self.visited.get() == 4 {
+                    self.cancel.cancel();
+                }
+                self.boxes.get(index).copied()
+            }
+        }
+        let boxes = [[0.0, 0.0, 1.0, 1.0]; 8];
+        let grid = SpatialGrid::build(&boxes[..]);
+        let cancel = CancelToken::new();
+        let source = Cancelling {
+            boxes: &boxes,
+            visited: Cell::new(0),
+            cancel: cancel.clone(),
+        };
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let mut out = vec![RowId(99)];
+        let result = grid.query_with_cx(
+            &source,
+            [0.0, 0.0, 1.0, 1.0],
+            &mut out,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        );
+        assert_eq!(result, Err(Stop::Cancelled));
+        assert_eq!(source.visited.get(), 4);
+        assert_eq!(budget.used(Kind::Elements), 3);
+        assert_eq!(out, vec![RowId(99)]);
     }
 }

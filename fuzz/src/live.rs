@@ -346,6 +346,65 @@ impl Trace {
         }
     }
 
+    fn rectangle_queries(&mut self, engine: &Engine, seed: u64) {
+        if !matches!(engine, Engine::Acad(_) | Engine::Jww(_)) {
+            return;
+        }
+        let rectangles = [
+            [
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::INFINITY,
+            ],
+            [0.0, 0.0, 10.0, 10.0],
+            [
+                f64::from_bits(seed),
+                -1.0,
+                f64::from_bits(seed.rotate_left(23)),
+                1.0,
+            ],
+        ];
+        for rect in rectangles {
+            for (limits, cancel) in [
+                (self.limits, false),
+                (
+                    self.limits.with(Kind::Work, Limit::Finite(seed % 128)),
+                    false,
+                ),
+                (
+                    self.limits
+                        .with(Kind::DecodedBytes, Limit::Finite(seed % 64)),
+                    false,
+                ),
+                (
+                    self.limits.with(Kind::Elements, Limit::Finite(seed % 16)),
+                    false,
+                ),
+                (self.limits, true),
+            ] {
+                if let Ok(result) = self.call(limits, cancel, |cx| match engine {
+                    Engine::Acad(live) => {
+                        let mut rows = vec![zumen_live::RowId::NONE];
+                        let result = live.select_rect_with_cx(rect, &mut rows, cx);
+                        if result.is_err() {
+                            assert_eq!(rows, [zumen_live::RowId::NONE]);
+                        }
+                        result?;
+                        bounded_debug(&rows, cx)
+                    }
+                    Engine::Jww(live) => {
+                        let ids = live.select_sheet(rect, cx)?;
+                        bounded_debug(&ids, cx)
+                    }
+                    _ => Err(Error::Unsupported),
+                }) {
+                    self.bytes.push(result);
+                }
+            }
+        }
+    }
+
     fn stopped_history(&mut self, engine: &mut Engine, redo: bool) {
         let before_state = engine.state();
         let before = self.snapshot(engine);
@@ -403,6 +462,7 @@ pub fn run(data: &[u8], format: Format, limits: Limits, threads: usize) -> Vec<V
         let before_state = engine.state();
         let before = trace.snapshot(&engine);
         trace.row_targets(&engine, seed);
+        trace.rectangle_queries(&engine, seed);
         let edit_limits = if mode == 2 {
             limits.with(Kind::Work, Limit::Finite(seed % 128))
         } else {
@@ -418,6 +478,7 @@ pub fn run(data: &[u8], format: Format, limits: Limits, threads: usize) -> Vec<V
         let after_state = engine.state();
         let after = trace.snapshot(&engine);
         trace.row_targets(&engine, seed);
+        trace.rectangle_queries(&engine, seed);
         trace
             .bytes
             .push(format!("{before_state:?}\n{after_state:?}").into_bytes());

@@ -340,3 +340,160 @@ fn row_targets_after_dwg_add_use_no_input_budget() {
         Hash::document(records.as_bytes())
     );
 }
+
+type SelectionProbe = (Result<(), Error>, Vec<RowId>, Vec<Diagnostic>, [u64; 7]);
+
+fn select_probe(
+    live: &AcadLive,
+    rect: [f64; 4],
+    limits: Limits,
+    cancel: &CancelToken,
+    prior: Option<Kind>,
+) -> SelectionProbe {
+    let mut budget = Budget::new(limits);
+    if let Some(kind) = prior {
+        budget.spend(kind, 1).unwrap();
+    }
+    let mut diagnostics = Diagnostics::new();
+    let mut rows = vec![RowId(999), RowId(998)];
+    let result = live.select_rect_with_cx(
+        rect,
+        &mut rows,
+        &mut Cx::new(&mut budget, &mut diagnostics, cancel),
+    );
+    (
+        result,
+        rows,
+        diagnostics.into_vec(),
+        Kind::ALL.map(|kind| budget.used(kind)),
+    )
+}
+
+fn check_selections(live: &AcadLive, records: &mut String) {
+    let all = [
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::INFINITY,
+    ];
+    let cancel = CancelToken::new();
+    for rect in [
+        all,
+        [0.25, 0.25, 0.75, 0.75],
+        [100.0, 200.0, 101.0, 201.0],
+        [f64::NAN, 0.0, 1.0, 1.0],
+        [2.0, 1.0, 1.0, 2.0],
+    ] {
+        let mut expected = vec![RowId(999), RowId(998)];
+        live.select_rect(rect, &mut expected);
+        let actual = select_probe(live, rect, Limits::default(), &cancel, None);
+        assert_eq!(actual.0, Ok(()));
+        assert_eq!(actual.1, expected);
+        assert!(actual.2.is_empty());
+        assert_eq!(actual.3[0], 0);
+        records.push_str(&format!("{actual:?}\n"));
+    }
+    let normal = select_probe(live, all, Limits::default(), &cancel, None);
+    for kind in [Kind::Elements, Kind::DecodedBytes, Kind::Work] {
+        let needed = normal.3[Kind::ALL.iter().position(|&value| value == kind).unwrap()];
+        assert!(needed > 0);
+        for limit in [0, needed / 2, needed - 1, needed] {
+            let limits = Limits::default().with(kind, Limit::Finite(limit));
+            let actual = select_probe(live, all, limits, &cancel, None);
+            assert_eq!(actual, select_probe(live, all, limits, &cancel, None));
+            if limit == needed {
+                assert_eq!(actual, normal);
+            } else {
+                assert!(matches!(actual.0, Err(Error::Stopped(_))));
+                assert_eq!(actual.1, vec![RowId(999), RowId(998)]);
+                assert_eq!(actual.2.len(), 1);
+            }
+            records.push_str(&format!("{kind:?} {limit} {actual:?}\n"));
+        }
+        let limits = Limits::default().with(kind, Limit::Finite(needed));
+        let used = select_probe(live, all, limits, &cancel, Some(kind));
+        assert!(matches!(used.0, Err(Error::Stopped(_))));
+        assert_eq!(used.1, vec![RowId(999), RowId(998)]);
+    }
+    cancel.cancel();
+    let stopped = select_probe(live, all, Limits::default(), &cancel, None);
+    assert_eq!(stopped.0, Err(Error::Stopped(zumen_base::Stop::Cancelled)));
+    assert_eq!(stopped.1, vec![RowId(999), RowId(998)]);
+    assert_eq!(stopped.2.len(), 1);
+    records.push_str(&format!("{stopped:?}\n"));
+}
+
+#[test]
+#[expect(clippy::print_stdout, reason = "ネイティブと WASI の比較記録")]
+fn rectangle_selection_is_budgeted_and_follows_edits_and_history() {
+    let dxf = lines(&[Some(0x10), None, Some(0x11), None]);
+    let dwg: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../samples/dwg/zumen-points-a-r2018.dwg"
+    ));
+    let mut records = String::new();
+    for input in [dxf.as_slice(), dwg] {
+        let mut baseline = None;
+        for threads in [1, 4] {
+            let mut live = fresh_cx(|cx| AcadLive::open_with_threads(input, threads, cx))
+                .0
+                .unwrap();
+            let initial = fresh_cx(|cx| live.save(cx)).0.unwrap();
+            let mut trace = String::new();
+            for step in 0..5 {
+                let before = fresh_cx(|cx| live.save(cx)).0.unwrap();
+                let display = format!("{:?}", live.display());
+                let revision = live.revision();
+                check_selections(&live, &mut trace);
+                assert_eq!(fresh_cx(|cx| live.save(cx)).0.unwrap(), before);
+                assert_eq!(format!("{:?}", live.display()), display);
+                assert_eq!(live.revision(), revision);
+                match step {
+                    0 | 1 => {
+                        let target = fresh_cx(|cx| live.seen_of_row(RowId(0), cx))
+                            .0
+                            .unwrap()
+                            .unwrap();
+                        let edit = if step == 0 {
+                            Edit::Transform {
+                                target,
+                                transform: Affine::translation(100.0, 200.0),
+                            }
+                        } else {
+                            Edit::Remove { target }
+                        };
+                        fresh_cx(|cx| {
+                            live.apply(
+                                &Changes {
+                                    document: None,
+                                    edits: vec![edit],
+                                },
+                                cx,
+                            )
+                        })
+                        .0
+                        .unwrap();
+                    }
+                    2 | 3 => {
+                        assert!(fresh_cx(|cx| live.undo(cx)).0.unwrap());
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!(fresh_cx(|cx| live.save(cx)).0.unwrap(), initial);
+            assert!(fresh_cx(|cx| live.redo(cx)).0.unwrap());
+            assert!(fresh_cx(|cx| live.redo(cx)).0.unwrap());
+            check_selections(&live, &mut trace);
+            if let Some(expected) = &baseline {
+                assert_eq!(&trace, expected);
+            } else {
+                baseline = Some(trace.clone());
+            }
+            records.push_str(&trace);
+        }
+    }
+    println!(
+        "live-rectangle-selection {:?}",
+        Hash::document(records.as_bytes())
+    );
+}

@@ -104,6 +104,82 @@ test("予算停止後の診断を独立して取得し、文書を再利用す�
   } finally { await live.close(); }
 });
 
+test("矩形選択は版・編集・取り消しに追従し、予算停止で部分結果を返さない", { skip: !executable, timeout: 30000 }, async () => {
+  let baseline;
+  for (const threads of [1, 4]) {
+    const live = await openLiveProcess(executable);
+    try {
+      const input = dxf();
+      await live.open(input, { threads });
+      const rect = [130.25, -0.1, 130.75, 0.1];
+      const first = await live.select(rect, 0n);
+      assert.equal(first.status, "ok");
+      assert.equal(first.selection.length, 1);
+      assert.equal(first.result, 1n);
+      assert.deepEqual([...first.selection.rows()], [65]);
+      const all = await live.select([-Infinity, -Infinity, Infinity, Infinity], 0n);
+      assert.deepEqual([...all.selection.rows()], Array.from({ length: 130 }, (_, i) => i));
+      const record = { data: all.data, used: all.used, diagnosticCount: all.diagnosticCount };
+      if (baseline) assert.deepEqual(record, baseline); else baseline = record;
+      for (const kind of ["decodedBytes", "elements", "work"]) {
+        const stopped = await live.select([-Infinity, -Infinity, Infinity, Infinity], 0n, { budget: { [kind]: all.used[kind] - 1n } });
+        assert.equal(stopped.status, "exceeded");
+        assert.equal(stopped.revision, 0n);
+        assert.equal(stopped.selection, null);
+        assert.equal(stopped.data.length, 0);
+        assert.equal(stopped.stop.kind, kind);
+        assert.equal(stopped.diagnosticCount, 1);
+      }
+      assert.deepEqual((await live.save()).data, input);
+      const changed = await live.transform({ revision: first.revision, rows: [...first.selection.rows()], matrix: move });
+      assert.equal(changed.status, "ok");
+      const stale = await live.select(rect, first.revision);
+      assert.equal(stale.status, "stale");
+      assert.equal(stale.selection, null);
+      assert.equal((await live.select(rect, changed.revision)).selection.length, 0);
+      assert.deepEqual([...(await live.select([135.25, -2.1, 135.75, -1.9], changed.revision)).selection.rows()], [65]);
+      await live.undo(live.revision);
+      assert.deepEqual([...(await live.select(rect, live.revision)).selection.rows()], [65]);
+      await live.redo(live.revision);
+      assert.equal((await live.select(rect, live.revision)).selection.length, 0);
+      for (const empty of [[NaN, 0, 1, 1], [2, 0, 1, 1]]) {
+        const result = await live.select(empty, live.revision);
+        assert.equal(result.status, "ok");
+        assert.deepEqual([...result.selection.rows()], []);
+      }
+      assert.deepEqual([...first.selection.rows()], [65]);
+    } finally { await live.close(); }
+  }
+});
+
+test("矩形選択の要求をコピーし、分割応答の検査後に行を借りる", async () => {
+  const { live } = await fake("selection-fragmented");
+  try {
+    const rect = new Float64Array([1, 2, 3, 4]);
+    const pending = live.select(rect, 7n);
+    rect.fill(99);
+    const selected = await pending;
+    assert.equal(selected.revision, 7n);
+    assert.equal(selected.selection.length, 2);
+    assert.deepEqual([...selected.selection.rows()], [2, 65]);
+    await live.save();
+    assert.deepEqual([...selected.selection.rows()], [2, 65]);
+    for (const bad of [[], [1, 2, 3], [1, 2, 3, "4"], null]) await assert.rejects(live.select(bad, 7n), TypeError);
+    await assert.rejects(live.select([1, 2, 3, 4], undefined), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+for (const mode of ["selection-count", "selection-result", "selection-truncated", "selection-extra", "selection-no-revision", "selection-duplicate", "selection-descending", "selection-virtual"]) {
+  test(`不正な選択結果を公開せず接続を終了する: ${mode}`, async () => {
+    const { live } = await fake(mode);
+    try {
+      await assert.rejects(live.select([1, 2, 3, 4], 0n), transport("protocol"));
+      assert(live.broken);
+    } finally { await live.close(); }
+  });
+}
+
 test("既存 Session の逐次 apply と保存・現在の対象を 1・4 スレッドで照合する", { skip: !executable, timeout: 30000 }, async () => {
   const records = [];
   for (const threads of [1, 4]) {

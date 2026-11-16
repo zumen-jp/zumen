@@ -1,4 +1,4 @@
-//! 表示の行から、編集に使う現在の正規 ID とハッシュを得る。
+//! 現在の行を矩形で選び、編集に使う正規 ID とハッシュを得る。
 
 use zumen_base::{Cx, Kind, Stop};
 use zumen_drawing::{Hash, Seen};
@@ -8,6 +8,38 @@ use zumen_sdk::Error;
 use super::open::LiveState;
 
 impl LiveState {
+    pub(super) fn select_rect_with_cx(
+        &self,
+        query: [f64; 4],
+        out: &mut Vec<RowId>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        let start = out.len();
+        let result = (|| -> Result<(), Stop> {
+            self.spatial
+                .query_with_cx(self.table.bounds_column(), query, out, cx)?;
+            cx.check(Kind::Work, out.len().saturating_sub(start) as u64)?;
+            let mut write = start;
+            for read in start..out.len() {
+                if let Some(row) = out.get(read).copied()
+                    && self.table.is_alive(row)
+                {
+                    if let Some(slot) = out.get_mut(write) {
+                        *slot = row;
+                    }
+                    write += 1;
+                }
+            }
+            out.truncate(write);
+            Ok(())
+        })();
+        result.map_err(|stop| {
+            out.truncate(start);
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })
+    }
+
     pub(super) fn seen_of_row(
         &self,
         row_id: RowId,

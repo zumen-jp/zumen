@@ -26,6 +26,7 @@ pub(super) enum Command {
     Target = 7,
     Diagnostics = 8,
     Close = 9,
+    Select = 10,
 }
 
 impl Command {
@@ -41,6 +42,7 @@ impl Command {
             7 => Self::Target,
             8 => Self::Diagnostics,
             9 => Self::Close,
+            10 => Self::Select,
             _ => return None,
         })
     }
@@ -52,6 +54,7 @@ impl Command {
             Self::Transform => (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4),
             Self::Target => (CONTROL_BYTES + 4, CONTROL_BYTES + 4),
             Self::Diagnostics => (CONTROL_BYTES + 8, CONTROL_BYTES + 8),
+            Self::Select => (CONTROL_BYTES + 32, CONTROL_BYTES + 32),
             Self::Display | Self::Undo | Self::Redo | Self::Save => (CONTROL_BYTES, CONTROL_BYTES),
         }
     }

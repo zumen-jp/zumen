@@ -28,6 +28,7 @@ enum Operation<'a> {
     Open { threads: usize, bytes: &'a [u8] },
     Transform { transform: Affine, rows: &'a [u8] },
     Target(RowId),
+    Select([f64; 4]),
     Diagnostics(u64),
     Empty,
 }
@@ -62,6 +63,13 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
         Command::Target => {
             let row = RowId(input.u32()?);
             input.0.is_empty().then_some(Operation::Target(row))
+        }
+        Command::Select => {
+            let mut rect = [0_f64; 4];
+            for value in &mut rect {
+                *value = input.f64()?;
+            }
+            input.0.is_empty().then_some(Operation::Select(rect))
         }
         Command::Diagnostics => {
             let id = input.u64()?;
@@ -224,6 +232,27 @@ impl Host {
                     reply.data = data;
                     reply.data_kind = 3;
                     reply.result = u64::from(row.0);
+                }
+                Operation::Select(rect) => {
+                    let rows = document.select(rect, cx)?;
+                    let length = rows
+                        .len()
+                        .checked_mul(4)
+                        .and_then(|n| n.checked_add(4))
+                        .filter(|&n| n <= display_wire::MAX_PACKET_BYTES)
+                        .ok_or(Problem::Core(Error::Invalid))?;
+                    checked(cx, Kind::DecodedBytes, length as u64)?;
+                    checked(cx, Kind::Work, rows.len() as u64)?;
+                    let mut data = Vec::with_capacity(length);
+                    let count =
+                        u32::try_from(rows.len()).map_err(|_| Problem::Core(Error::Invalid))?;
+                    data.extend_from_slice(&count.to_le_bytes());
+                    for row in rows {
+                        data.extend_from_slice(&row.0.to_le_bytes());
+                    }
+                    reply.data = data;
+                    reply.data_kind = 5;
+                    reply.result = u64::from(count);
                 }
                 Operation::Empty => match header.command {
                     Command::Undo => reply.result = u64::from(document.undo(revision, cx)?),

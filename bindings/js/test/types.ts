@@ -42,6 +42,9 @@ export async function liveDocument(executable: string, input: Uint8Array): Promi
       if (changed.revision !== null) await live.undo(changed.revision);
       const target: string | undefined = (await live.target(0, live.revision!)).target?.id;
       void target;
+      const selected = await live.select([0, 0, 10, 10], live.revision!);
+      const rows: number[] = selected.selection ? [...selected.selection.rows()] : [];
+      if (selected.revision !== null) await live.transform({ revision: selected.revision, rows, matrix: [1, 0, 1, 0, 1, 2] });
       await live.diagnostics(changed.requestId, { budget: { decodedBytes: null } });
     }
     return live.revision;

@@ -146,6 +146,12 @@ impl Document {
         self.live.seen_of_row(row, cx)?.ok_or(Problem::Missing(row))
     }
 
+    pub fn select(&self, rect: [f64; 4], cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        let mut rows = Vec::new();
+        self.live.select_rect_with_cx(rect, &mut rows, cx)?;
+        Ok(rows)
+    }
+
     pub fn live_count(&self) -> u32 {
         self.live.live_count()
     }

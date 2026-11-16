@@ -107,13 +107,13 @@ export function response(bytes, pending) {
   const statusCode = bytes.readUInt32LE(0), displayCode = bytes.readUInt32LE(4);
   const kind = bytes.readUInt32LE(40), length = bytes.readUInt32LE(48);
   if (statusCode >= STATUSES.length || ![0, 1, 6, 7, 8].includes(displayCode)
-    || kind > 4 || length !== bytes.length - PREFIX || bytes.readUInt32LE(52) !== 0 || bytes.readUInt32LE(132) !== 0) throw invalid();
+    || kind > 5 || length !== bytes.length - PREFIX || bytes.readUInt32LE(52) !== 0 || bytes.readUInt32LE(132) !== 0) throw invalid();
   const value = (offset) => { const n = bytes.readBigUInt64LE(offset); return n === NONE ? null : n; };
   const reply = {
     requestId: pending.id, status: STATUSES[statusCode], displayStatus: STATUSES[displayCode],
     revision: value(8), state: value(16), result: bytes.readBigUInt64LE(24), base: value(32),
     diagnosticCount: bytes.readUInt32LE(44), used: {}, stop: null, data: bytes.subarray(PREFIX),
-    display: null, target: null,
+    display: null, target: null, selection: null,
   };
   for (let i = 0; i < 7; i++) reply.used[KINDS[i]] = bytes.readBigUInt64LE(56 + i * 8);
   const stopKind = bytes.readUInt32LE(112), limit = bytes.readBigUInt64LE(116), requested = bytes.readBigUInt64LE(124);
@@ -124,7 +124,7 @@ export function response(bytes, pending) {
   else if (stopKind > 7) reply.stop = { kind: stopKind === 8 ? "cancelled" : "timedOut" };
   const wantsDisplay = (pending.flags & 1) !== 0 || pending.command === 2;
   const expected = statusCode !== 0 || displayCode !== 0 ? 0 : wantsDisplay ? 1
-    : pending.command === 6 ? 2 : pending.command === 7 ? 3 : pending.command === 8 ? 4 : 0;
+    : pending.command === 6 ? 2 : pending.command === 7 ? 3 : pending.command === 8 ? 4 : pending.command === 10 ? 5 : 0;
   if (kind !== expected || (kind === 0 && length !== 0) || ((statusCode !== 0 || !wantsDisplay) && displayCode !== 0)
     || (kind !== 1 && reply.base !== null) || (reply.revision === null) !== (reply.state === null)) throw invalid();
   if (kind === 1) {
@@ -134,6 +134,22 @@ export function response(bytes, pending) {
   } else if (kind === 3) {
     if (length < 20 || reply.data.readUInt32LE(0) !== length - 20) throw invalid();
     reply.target = { id: decoder.decode(reply.data.subarray(20)), hash: `v2:${reply.data.subarray(4, 20).toString("hex")}` };
+  } else if (kind === 5) {
+    if (length < 4 || reply.revision === null) throw invalid();
+    const count = reply.data.readUInt32LE(0);
+    if (length !== 4 + count * 4 || reply.result !== BigInt(count)) throw invalid();
+    let previous = -1;
+    for (let i = 0; i < count; i++) {
+      const row = reply.data.readUInt32LE(4 + i * 4);
+      if (row >= 0x80000000 || row <= previous) throw invalid();
+      previous = row;
+    }
+    // 全件を検査してから借用する。配列の複製とホストのエンディアンへの依存を避ける。
+    const data = reply.data;
+    reply.selection = Object.freeze({
+      length: count,
+      *rows() { for (let i = 0; i < count; i++) yield data.readUInt32LE(4 + i * 4); },
+    });
   }
   return reply;
 }

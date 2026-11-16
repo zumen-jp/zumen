@@ -236,6 +236,19 @@ impl AcadLive {
         );
     }
 
+    /// 共有予算で、モデル空間の矩形と囲む箱が交差する生存行を昇順で `out` に足す。
+    ///
+    /// 矩形は `[min_x, min_y, max_x, max_y]`。逆転・NaN は空、無限大は全域指定に使える。
+    /// 停止時は元の `out` を保ち、診断を 1 件報告する。行は取得時の [`Self::revision`] に属する。
+    pub fn select_rect_with_cx(
+        &self,
+        query: [f64; 4],
+        out: &mut Vec<RowId>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        self.state.select_rect_with_cx(query, out, cx)
+    }
+
     /// 生きている行 `row` から図面モデルの [`Element<ModelPoint>`] を 1 件だけ復元する。
     /// DWG の出所は保持時の位置。保存結果と照らす場合は [`Self::element_with_source`] を使う。
     pub fn element_of_row(&self, row: RowId) -> Option<Element<ModelPoint>> {

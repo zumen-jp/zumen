@@ -31,6 +31,12 @@ export interface LiveDisplay {
   /** 固定順の 13 列。全体の検証が済んでから公開する */
   readonly columns: readonly LiveColumn[];
 }
+/** 応答の版に属する生存行。元の応答バイト列は利用中に変更しない */
+export interface LiveSelection {
+  readonly length: number;
+  /** 全件の検証後、昇順で借りる。次の要求後も有効 */
+  rows(): IterableIterator<number>;
+}
 export interface LiveReply {
   requestId: bigint;
   status: LiveStatus;
@@ -44,10 +50,11 @@ export interface LiveReply {
   diagnosticCount: number;
   used: Record<LiveBudgetKind, bigint>;
   stop: { kind: LiveBudgetKind; limit: bigint; requested: bigint } | { kind: "cancelled" | "timedOut" } | null;
-  /** 表示・保存・対象・診断の元のバイト列。次の要求後も有効 */
+  /** 表示・保存・対象・診断・選択の元のバイト列。次の要求後も有効 */
   data: Uint8Array;
   display: LiveDisplay | null;
   target: { id: string; hash: string } | null;
+  selection: LiveSelection | null;
 }
 export interface LiveTransform {
   /** 選択した行が属する版。現在の版と異なれば stale */
@@ -67,6 +74,8 @@ export declare class LiveProcess {
   acknowledge(revision: bigint | number): void;
   display(options?: LiveDisplayOptions): Promise<LiveReply>;
   target(row: number, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
+  /** モデル空間の [minX,minY,maxX,maxY] と囲む箱が交差する行。NaN・逆転は空、無限大は全域指定 */
+  select(rect: readonly number[] | Float64Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   transform(change: LiveTransform, options?: LiveDisplayOptions): Promise<LiveReply>;
   undo(revision: bigint | number, options?: LiveDisplayOptions): Promise<LiveReply>;
   redo(revision: bigint | number, options?: LiveDisplayOptions): Promise<LiveReply>;

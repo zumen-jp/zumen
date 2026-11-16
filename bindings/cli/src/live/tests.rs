@@ -217,6 +217,152 @@ fn stale_and_missing_rows_leave_saved_content_unchanged() {
     assert_eq!(words.0, b"space/0/h10");
 }
 
+fn rectangle(rect: [f64; 4]) -> Vec<u8> {
+    rect.into_iter().flat_map(f64::to_le_bytes).collect()
+}
+
+#[test]
+#[expect(clippy::print_stdout, reason = "ネイティブと WASI の比較記録")]
+fn selection_returns_sorted_rows_and_stops_without_publishing_partial_results() {
+    let mut host = Host::default();
+    open(&mut host);
+    let input = rectangle([-1.0, -1.0, 4.0, 1.0]);
+    let mut record = Vec::new();
+    let baseline = call(&mut host, Command::Select, 2, 0, wire::NONE, 0, &input);
+    assert_eq!(baseline.status, Status::Ok);
+    assert_eq!(baseline.data_kind, 5);
+    assert_eq!(baseline.result, 2);
+    assert_eq!(baseline.data, [2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]);
+    assert_eq!(baseline.used[0], 128);
+    for kind in [
+        Kind::InputBytes,
+        Kind::DecodedBytes,
+        Kind::Elements,
+        Kind::Work,
+    ] {
+        let needed = baseline.used[Kind::ALL.iter().position(|&item| item == kind).unwrap()];
+        for limit in [0, needed / 2, needed - 1, needed] {
+            let mut request = request(
+                Command::Select,
+                3,
+                0,
+                wire::NONE,
+                0,
+                Limits::default().with(kind, Limit::Finite(limit)),
+                &input,
+            );
+            let actual = host.handle(&mut request);
+            assert_eq!(actual.revision, 0);
+            assert_eq!(actual.state, baseline.state);
+            if limit == needed {
+                assert_eq!(actual.status, Status::Ok);
+                assert_eq!(actual.data, baseline.data);
+                assert_eq!(actual.used, baseline.used);
+            } else {
+                assert_eq!(actual.status, Status::Exceeded);
+                assert_eq!(actual.data_kind, 0);
+                assert!(actual.data.is_empty());
+                assert_eq!(actual.diagnostics, 1);
+            }
+            actual.write(request.header, &mut record).unwrap();
+        }
+    }
+    let mut cancelled = request(
+        Command::Select,
+        4,
+        0,
+        wire::NONE,
+        0,
+        Limits::default(),
+        &input,
+    );
+    cancelled.cancel.cancel();
+    let stopped = host.handle(&mut cancelled);
+    assert_eq!(stopped.status, Status::Cancelled);
+    assert!(stopped.data.is_empty());
+    assert_eq!(stopped.revision, 0);
+    assert_eq!(stopped.diagnostics, 1);
+    stopped.write(cancelled.header, &mut record).unwrap();
+    assert_eq!(
+        call(&mut host, Command::Save, 5, 0, wire::NONE, 0, &[]).data,
+        DXF
+    );
+    let move_row = transform(&[0], Affine::translation(10.0, 0.0));
+    assert_eq!(
+        call(
+            &mut host,
+            Command::Transform,
+            6,
+            0,
+            wire::NONE,
+            0,
+            &move_row
+        )
+        .status,
+        Status::Ok
+    );
+    let stale = call(&mut host, Command::Select, 7, 0, wire::NONE, 0, &input);
+    assert_eq!(stale.status, Status::Stale);
+    assert!(stale.data.is_empty());
+    let selected = call(&mut host, Command::Select, 8, 1, wire::NONE, 0, &input);
+    assert_eq!(selected.data, [1, 0, 0, 0, 1, 0, 0, 0]);
+    record.extend_from_slice(&selected.data);
+    assert_eq!(
+        call(&mut host, Command::Undo, 9, 1, wire::NONE, 0, &[]).revision,
+        2
+    );
+    assert_eq!(
+        call(&mut host, Command::Select, 10, 2, wire::NONE, 0, &input).data,
+        baseline.data
+    );
+    assert_eq!(
+        call(&mut host, Command::Redo, 11, 2, wire::NONE, 0, &[]).revision,
+        3
+    );
+    assert_eq!(
+        call(&mut host, Command::Select, 12, 3, wire::NONE, 0, &input).data,
+        selected.data
+    );
+    for rect in [[f64::NAN, 0.0, 1.0, 1.0], [2.0, 0.0, 1.0, 1.0]] {
+        let empty = call(
+            &mut host,
+            Command::Select,
+            13,
+            3,
+            wire::NONE,
+            0,
+            &rectangle(rect),
+        );
+        assert_eq!(empty.status, Status::Ok);
+        assert_eq!(empty.result, 0);
+        assert_eq!(empty.data, [0; 4]);
+    }
+    assert_eq!(
+        call(&mut host, Command::Select, 14, 3, wire::NONE, 0, &[0; 31]).status,
+        Status::Invalid
+    );
+    println!("native-live-selection {:?}", Hash::document(&record));
+}
+
+#[test]
+fn selection_header_requires_exact_length_and_no_display_flag() {
+    let bytes = [
+        b'Z', b'L', b'I', b'P', 1, 0, 10, 0, 1, 0, 0, 0, 0, 0, 0, 0, 104, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    let header = Header::parse(&bytes).unwrap();
+    assert_eq!(header.command, Command::Select);
+    for length in [0, 72, 103, 105, u32::MAX] {
+        let mut invalid = bytes;
+        invalid[16..20].copy_from_slice(&length.to_le_bytes());
+        assert!(Header::parse(&invalid).is_none());
+    }
+    for flags in [1, 2, 3, 4] {
+        let mut invalid = bytes;
+        invalid[20] = flags;
+        assert!(Header::parse(&invalid).is_none());
+    }
+}
+
 #[test]
 fn headers_and_replies_have_independent_fixed_width_records() {
     let bytes = [

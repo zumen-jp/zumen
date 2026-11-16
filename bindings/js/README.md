@@ -108,6 +108,8 @@ try {
 
 `applyDisplay` はアプリ側の処理です。全列の長さと `column.blocks()` の塊を反映します。差分では手元の表示の版と `reply.base` が一致することを確かめ、違う場合は `live.display({ full: true })` を取得します。バイト列は応答を借りるため、使っている間は書き換えません。`transform`・`target`・`undo`・`redo` には対象の版を明示します。
 
+`live.select([minX, minY, maxX, maxY], revision)` は、モデル空間の囲む箱と矩形が交差する生存行を取得します。成功時は `reply.selection.length` で件数を、`reply.selection.rows()` で昇順の行を反復できます。選択した行を編集するときは、この応答の `revision` を渡します。空間索引と応答へのコピーは要求の予算を共有し、停止時は部分結果を返しません。
+
 診断は次の通常要求の前に、明示した予算で別途取得します。表示だけが停止したときの扱い、通信上限、中断・終了は[文書の IPC](../cli/live.md)にあります。残りの形式、描画順・画層・文字・記号の定義、移動以外の編集、Electron の表示への組み込みと性能の検査は[文書エンジンの残件](../../docs/live.md)です。
 
 ```sh

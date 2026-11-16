@@ -195,6 +195,16 @@ export class LiveProcess {
     return this.#request(7, 0, u64(revision, "revision"), options, 4, (out) => out.writeUInt32LE(row));
   }
 
+  /** モデル空間の囲む箱と交差する行を、指定した版で取得する */
+  async select(rect, revision, options = {}) {
+    this.#check();
+    if ((!Array.isArray(rect) && !(rect instanceof Float64Array)) || rect.length !== 4
+      || Array.from(rect).some((value) => typeof value !== "number")) throw new TypeError("rect は 4 つの数値にする");
+    return this.#request(10, 0, u64(revision, "revision"), options, 32, (out) => {
+      for (let i = 0; i < 4; i++) out.writeDoubleLE(rect[i], i * 8);
+    });
+  }
+
   async transform({ revision, rows, matrix }, options = {}) {
     this.#check();
     if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
