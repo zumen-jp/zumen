@@ -51,7 +51,25 @@ if (hits.length > 0) viewer.select({ doc, format: "ifc", hash }, [hits[0].id]);
 - 1:1 でない枠は、既定（`frame: "exact"`）では `aspect-ratio` の例外です。`frame: "contain"` を渡すと枠を含む正方形へ広げ、調整した値と理由を `adjustments` に返します。当てるときは正方形を枠に収め、視野角か幅を調整して返します。
 - 見つからない要素（`element-missing`）、ハッシュの違う要素（`element-changed`）、ハッシュを確かめられない要素（`hash-unchecked`）、上書きした色（`color-overridden`）は `issues` に返し、採れる要素だけ当てます。別文書の場所・不正なカメラ・3D でない場所は例外です。
 
-利用側の追加描画と入力の接続（#815）、地面の 2D（#816）、地物と点群（#817）は後続の issue で足します。
+## 追加描画
+
+利用側の物は `addGeometry(items, options)` か `addObject(root, options)` で登録します。`options` に利用側の `id`、f64 の `origin`、列優先 16 値の `matrix`、シーンと同じ `unit`、`scope`（`scene` か `viewer`）、同じ距離での順を決める `priority`、`pickable`、線・点の当たりの許容差 `pickTolerance`（CSS px）を渡します。戻り値の `remove()` は何回呼んでも後始末を重ねず、`signal` は理由（`removed`・`scene`・`unit`・`destroy`）付きで abort します。
+
+- `addGeometry` は線・範囲・円・寸法線・ラベルの記述から表示部品が資源を作り、解除で解放します。寸法の長さは文書単位で `parts` に返します。ラベルは利用側が描いた画像を CSS px の大きさで渡し、部品は写しを持ちます。文字の組版・フォント・URL の取得は行いません。
+- `addObject` は親のない root を借用し、部品の wrapper に付けます。利用側の位置・材質・`userData` を書き換えず、資源を dispose しません。解除で `dispose` を渡していれば一度だけ呼びます。表示部品と同じ three.js の実体の Object3D に限ります。
+- `scope: "scene"` はシーンの差し替えで外し、`viewer` は残しますが単位の違うシーンでは外します。破棄では両方を外します。後始末の 1 つが失敗しても残りを実行し、最初の例外を投げます。
+- `hitTest` は要素と追加描画の当たりを距離、優先度、種類、ID の順に並べて返します。追加描画を常に手前とは扱いません。`clipping: false` の物は切断面のあるビューで描かず選ばず、`render` の通知の `excluded` に返します。
+- 利用側の独自の shader や raycast は信頼したアプリのコードとして動かし、予算で中断できるとはしません。線と点の許容差は物の外接球の中心の深さで画素から換算します。
+
+## 入力
+
+`attachInput(element, options)` は DOM の入力を接続し、解除関数を返します。DOM を使わない場合は正規化した入力を `handleInput(input)` に渡します。標準の割り当ては、クリック・タップで選択、中ボタンで移動、Shift と中ボタンで回転、Ctrl・Command とホイールで拡大、2 本指で移動・拡大です。`setInputOptions` で個別に止められ、扱わない入力は DOM の既定の動作に残します。
+
+- 操作は始めたビューに固定します。Escape・`pointercancel`・捕捉の喪失・フォーカスの喪失・ビューやシーンや入力設定の変更・例外・破棄で操作を止め、移動と回転は元のカメラに戻します。`cancelInput(reason)` でも止められます。
+- 選択の結果は `pick`、操作の始まり・終わり・中断は `input` で通知します。通知の中から `handleInput` を呼ぶと `reentrant` の例外です。
+- `touch-action`・フォーカスの扱い・ポインターの見た目は利用側が CSS で決めます。
+
+地面の 2D（#816）、地物と点群（#817）は後続の issue で足します。
 
 ## 検査
 
@@ -59,7 +77,7 @@ if (hits.length > 0) viewer.select({ doc, format: "ifc", hash }, [hits[0].id]);
 node bindings/js/test/browser/view3d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
-合成の ZMS3 で画素・ID・位置・当たり・ビューごとの状態・切断面・pixel ratio・レビューの場所の往復・不正な入力・上限・context loss・破棄を確かめ、コアが作った IFC のシーンで列の数・要素 ID・描画と当たりの一致を確かめ、m の IFC で BCF 2.1・3.0 の透視・平行投影の視点が `bcf_write`・`bcf_read` を通って同じ場所に戻ることを確かめます。外部の BCF の実装で view3d の出力を読むことは確かめていません。CPU の時間、`readPixels` までの時間、確定したバイト数、取れる環境での JS ヒープを別々に記録します。GPU に依存する画素はコアのビット一致の保証に含めません。
+合成の ZMS3 で画素・ID・位置・当たり・ビューごとの状態・切断面・pixel ratio・レビューの場所の往復・追加描画の位置と当たりの順と後始末・入力の操作と中断・不正な入力・上限・context loss・破棄を確かめ、コアが作った IFC のシーンで列の数・要素 ID・描画と当たりの一致を確かめ、m の IFC で BCF 2.1・3.0 の透視・平行投影の視点が `bcf_write`・`bcf_read` を通って同じ場所に戻ることを確かめます。外部の BCF の実装で view3d の出力を読むことは確かめていません。CPU の時間、`readPixels` までの時間、確定したバイト数、取れる環境での JS ヒープを別々に記録します。GPU に依存する画素はコアのビット一致の保証に含めません。
 
 2026-11-17 に Playwright 1.64.1 の Chromium 156・Firefox 157・WebKit 27.2 で検査を通しました。CI は Chromium で流します。[対応するブラウザー](../../docs/support.md)の下限の製品そのものでは確かめていません。表示部品の本体は `Object.hasOwn`・`Array.at` に依存しないことだけを、これらを外して確かめます。
 

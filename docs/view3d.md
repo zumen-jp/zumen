@@ -59,7 +59,7 @@ React は表示部品の依存にしません。React の任意のフックは `
 
 状態は three.js のオブジェクトそのものではなく、文書識別、ビュー ID、位置・方向・上方向、縦の視野角または平行投影の幅と縦横比、切断面、要素の参照による表示・選択・色を持ちます。入力値は有限で、方向・上方向が 0 でなく平行でもなく、投影の範囲と縦横比が有効であることを検査します。状態の取得・差し替え・購読は View2D と同じく明示し、保存先・自動送信・文言を持ちません。
 
-次は表示部品の操作の設計です。Rust の API の op やメッセージを追加するものではありません。[#813](https://github.com/zumen-jp/zumen/issues/813) で `new View3D`・`setScene`・`setViews`・`getState`・`subscribe`・`on`・`select`・`setHidden`・`fit`・`getRay`・`hitTest`・`invalidate`・`render`・`destroy` を実装し、[#814](https://github.com/zumen-jp/zumen/issues/814) でビューごとの選択・非表示・色、切断面と切断の箱、`setColors`・`toReviewPlace`・`applyReviewPlace`・`snapshot` を足しました。使い方と確認した範囲は[パッケージの案内](../packages/view3d/README.md)にあります。ほかの操作は後続の issue で足します。
+次は表示部品の操作の設計です。Rust の API の op やメッセージを追加するものではありません。[#813](https://github.com/zumen-jp/zumen/issues/813) で `new View3D`・`setScene`・`setViews`・`getState`・`subscribe`・`on`・`select`・`setHidden`・`fit`・`getRay`・`hitTest`・`invalidate`・`render`・`destroy` を実装し、[#814](https://github.com/zumen-jp/zumen/issues/814) でビューごとの選択・非表示・色、切断面と切断の箱、`setColors`・`toReviewPlace`・`applyReviewPlace`・`snapshot` を足し、[#815](https://github.com/zumen-jp/zumen/issues/815) で追加描画の `addObject`・`addGeometry` と入力の `attachInput`・`setInputOptions`・`handleInput`・`cancelInput` を足しました。使い方と確認した範囲は[パッケージの案内](../packages/view3d/README.md)にあります。ほかの操作は後続の issue で足します。
 
 | 操作 | 入力・返すもの・寿命 |
 | --- | --- |
@@ -69,7 +69,7 @@ React は表示部品の依存にしません。React の任意のフックは `
 | `getState()`・`subscribe()`・`on()` | 状態が変わるまで同じ読み取り専用の snapshot。購読は解除関数を返す |
 | `select()`・表示と色の設定 | 文書・ビュー・要素の参照で指定し、別文書の参照や未知の値を黙って読み替えない |
 | `getRay(viewId, point)`・`hitTest(viewId, point)` | CSS px から、f64 原点と相対位置の光線、種類を区別した当たりの一覧を返す |
-| `addOverlay(definition)` | 利用側の ID・原点・変換・単位・scope と幾何の記述か Object3D を登録し、`{ remove, signal }` を返す |
+| `addObject(root, options)`・`addGeometry(items, options)` | 利用側の ID・原点・変換・単位・scope と Object3D か幾何の記述を登録し、`{ remove, signal }` を返す |
 | レビューの場所への変換・適用 | 変換した値と調整・未対応の報告を返す。元のレビュー文書や保存先へ直接書かない |
 | `attachInput()`・`handleInput()` | DOM の明示した接続と解除、DOM を使わない正規化した入力 |
 | `invalidate()`・`render()`・`destroy()` | 更新を要求し、必要なときだけ描画する。破棄で予約した描画・購読・接続と部品所有の資源を終える |

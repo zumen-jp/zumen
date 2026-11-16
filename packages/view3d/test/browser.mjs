@@ -2,6 +2,7 @@
 import { load, readScene3D } from "@zumen-jp/zumen";
 import { View3D, View3DError } from "../src/index.js";
 import { document, encode, ORIGIN, result, synthetic, topView } from "./fixture.mjs";
+import { testExtras } from "./extras.mjs";
 
 const RED = [255, 0, 0], SELECTED = [255, 136, 0], GREEN = [0, 255, 0], WHITE = [255, 255, 255], HALF = [128, 128, 255], BLUE = [0, 0, 255];
 
@@ -398,6 +399,8 @@ export async function testView3D(wasmPath, ifc) {
   } finally { session.close(); }
 
   canvas.remove();
+  const added = await testExtras();
+  assertions += added.assertions;
   const memory = globalThis.performance?.memory?.usedJSHeapSize ?? null;
-  return { assertions, contextLoss, timings, bytes: { blob: blob.length, gpu: report.gpuBytes }, memory, core };
+  return { assertions, contextLoss, timings, bytes: { blob: blob.length, gpu: report.gpuBytes }, memory, core, extras: added.extras };
 }

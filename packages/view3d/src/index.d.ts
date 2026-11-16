@@ -4,7 +4,7 @@ import type { Bytes, Scene3dCounts, Scene3dResult } from "@zumen-jp/zumen";
 export declare const THREE_REVISION: "187";
 
 export type View3DErrorReason = "invalid-input" | "invalid-scene" | "limit" | "three-version" | "webgl2-unavailable"
-  | "destroyed" | "no-scene" | "unknown-element" | "other-document" | "unknown-view" | "outside-view" | "aspect-ratio" | "context-lost";
+  | "destroyed" | "no-scene" | "unknown-element" | "other-document" | "unknown-view" | "outside-view" | "aspect-ratio" | "context-lost" | "reentrant";
 /** 表示部品の失敗。reason で種類を区別する。 */
 export declare class View3DError extends Error {
   readonly reason: View3DErrorReason;
@@ -113,6 +113,8 @@ export interface View3DState {
   readonly document: DocumentIdentity | null;
   readonly scene: { readonly unit: Scene3dResult["unit"]; readonly tolerance: number; readonly counts: Readonly<Required<Scene3dCounts>> } | null;
   readonly views: readonly View3DViewState[];
+  /** 登録した追加描画。three.js のオブジェクトは含めない。 */
+  readonly objects: readonly ExtraState[];
   readonly size: { readonly width: number; readonly height: number; readonly pixelRatio: number };
   readonly contextLost: boolean;
   readonly destroyed: boolean;
@@ -131,7 +133,99 @@ export interface ElementHit {
   readonly distance: number;
   readonly position: Position3D;
 }
-export interface HitTestResult { readonly hits: readonly ElementHit[]; readonly truncated: boolean }
+/** 追加描画の当たり。幾何の記述は part、利用側の Object3D は当たった節を object に持つ。 */
+export interface ExtraHit {
+  readonly kind: "geometry" | "object";
+  readonly id: string;
+  readonly priority: number;
+  readonly part?: number;
+  readonly object?: object;
+  readonly distance: number;
+  readonly position: Position3D;
+}
+export type Hit3D = ElementHit | ExtraHit;
+/** 距離、優先度（大きいほう、要素は 0）、種類（要素・幾何の記述・Object3D）、要素の行か ID、部分の順。 */
+export interface HitTestResult { readonly hits: readonly Hit3D[]; readonly truncated: boolean }
+/** 長さの単位。シーンの unit と name・prefix・scale が同じもの。 */
+export interface LengthUnit { readonly name: string; readonly prefix?: string; readonly scale?: number }
+export interface ExtraOptions {
+  /** 利用側の ID。コアの要素 ID とは kind で区別する。 */
+  readonly id: string;
+  /** f64 の原点（文書単位）。 */
+  readonly origin: Vector3;
+  /** 局所の変換。列優先の 16 値で、アフィンで逆を持つもの。 */
+  readonly matrix?: ArrayLike<number>;
+  readonly unit: LengthUnit;
+  /** scene はシーンの差し替えで外す。viewer は残し、単位の違うシーンでは外す。既定 scene。 */
+  readonly scope?: "scene" | "viewer";
+  /** 同じ距離の当たりの順。既定 0。 */
+  readonly priority?: number;
+  readonly pickable?: boolean;
+  /** 線・点の当たりの許容差（CSS px）。既定 3。 */
+  readonly pickTolerance?: number;
+}
+export interface ObjectOptions extends ExtraOptions {
+  /** 材質が切断面に従うか。false の物は切断面のあるビューで描かず選ばない。既定 true。 */
+  readonly clipping?: boolean;
+  /** 登録を外すときに一度だけ呼ぶ。部品は借用した資源を解放しない。 */
+  readonly dispose?: () => void;
+}
+export type ImageSource = ImageData | ImageBitmap | HTMLCanvasElement | OffscreenCanvas | HTMLImageElement;
+export interface LabelSpec {
+  /** 描画済みの字形か画像。部品は写しを作り、URL やフォントを取りに行かない。 */
+  readonly image: ImageSource;
+  /** CSS px。 */
+  readonly width: number;
+  readonly height: number;
+  /** 位置に合わせる画像の点。0〜1、左下が [0, 0]。既定 [0.5, 0.5]。 */
+  readonly anchor?: readonly [number, number];
+}
+/** 位置は登録の局所の座標（文書単位）。 */
+export type GeometryItem =
+  | { readonly kind: "line"; readonly points: readonly Vector3[]; readonly closed?: boolean; readonly color?: string | number }
+  | { readonly kind: "region"; readonly points: readonly Vector3[]; readonly color?: string | number; readonly opacity?: number; readonly tolerance?: number }
+  | { readonly kind: "circle"; readonly center: Vector3; readonly radius: number; readonly normal?: Vector3; readonly tolerance?: number; readonly filled?: boolean; readonly color?: string | number; readonly opacity?: number }
+  | { readonly kind: "dimension"; readonly from: Vector3; readonly to: Vector3; readonly offset?: Vector3; readonly color?: string | number; readonly label?: LabelSpec }
+  | ({ readonly kind: "label"; readonly position: Vector3 } & LabelSpec);
+export interface GeometryPart { readonly part: number; readonly kind: GeometryItem["kind"]; readonly length?: number; readonly segments?: number }
+export interface Registration {
+  readonly id: string;
+  /** 何回呼んでも後始末を重ねない。 */
+  remove(): void;
+  /** 解除で abort する。reason は removed・scene・unit・destroy。 */
+  readonly signal: AbortSignal;
+}
+export interface GeometryRegistration extends Registration { readonly parts: readonly GeometryPart[] }
+export interface ExtraState {
+  readonly id: string; readonly kind: "geometry" | "object"; readonly scope: "scene" | "viewer";
+  readonly priority: number; readonly pickable: boolean; readonly clipping: boolean;
+}
+export interface InputOptions {
+  /** クリック・タップで選ぶ。 */
+  readonly select?: boolean;
+  /** 中ボタンで移動。 */
+  readonly pan?: boolean;
+  /** Shift と中ボタンで注視点の周りに回す。 */
+  readonly orbit?: boolean;
+  /** Ctrl・Command とホイールで拡大。 */
+  readonly zoom?: boolean;
+  /** 2 本指で移動・拡大。 */
+  readonly touch?: boolean;
+  /** クリックとみなす移動の上限（CSS px）。既定 4。 */
+  readonly dragThreshold?: number;
+  /** ホイールの 1 CSS px あたりの拡大の指数。既定 0.002。 */
+  readonly zoomSpeed?: number;
+  /** 1 CSS px あたりの回転（ラジアン）。既定 0.01。 */
+  readonly rotateSpeed?: number;
+}
+export interface PointLike { readonly x: number; readonly y: number }
+interface Modifiers { readonly shiftKey?: boolean; readonly ctrlKey?: boolean; readonly altKey?: boolean; readonly metaKey?: boolean }
+/** 正規化した入力。点は Canvas 左上からの CSS px。 */
+export type View3DInput =
+  | ({ readonly type: "pointerdown" | "pointermove" | "pointerup"; readonly pointerId: number; readonly pointerType?: "mouse" | "pen" | "touch"; readonly button?: number; readonly point: PointLike } & Modifiers)
+  | ({ readonly type: "pointercancel"; readonly pointerId: number; readonly pointerType?: "mouse" | "pen" | "touch" } & Modifiers)
+  | ({ readonly type: "wheel"; readonly point: PointLike; readonly deltaY: number } & Modifiers)
+  | ({ readonly type: "keydown"; readonly key: string } & Modifiers);
 export interface View3DStats {
   readonly geometries: number; readonly textures: number; readonly programs: number;
   readonly calls: number; readonly triangles: number; readonly lines: number;
@@ -189,7 +283,9 @@ export interface Snapshot3D {
 export interface ViewTarget { readonly view?: string }
 
 export type View3DEvent =
-  | { readonly type: "render"; readonly views: number }
+  | { readonly type: "render"; readonly views: number; readonly excluded: readonly { readonly view: string; readonly id: string; readonly reason: "clipping-unsupported" }[] }
+  | { readonly type: "pick"; readonly view: string; readonly point: PointLike; readonly hits: readonly Hit3D[] }
+  | { readonly type: "input"; readonly action: "start" | "end" | "cancel"; readonly gesture: "pan" | "orbit" | "touch"; readonly view: string; readonly reason?: string }
   | { readonly type: "contextlost" }
   | { readonly type: "contextrestored" };
 
@@ -217,6 +313,17 @@ export declare class View3D {
   applyReviewPlace(viewId: string, document: DocumentIdentity, place: ReviewPlace3D, options?: { readonly hashes?: ReadonlyMap<string, string> }): ReviewApplyResult;
   /** 利用側の明示した要求で描き、画素を返す。保存・送信はしない。 */
   snapshot(viewId: string): Snapshot3D;
+  /** 親のない root を借用して描く。表示部品と同じ three.js の実体の Object3D に限る。 */
+  addObject(root: object, options: ObjectOptions): Registration;
+  /** 幾何の記述から部品が資源を作って描く。 */
+  addGeometry(items: readonly GeometryItem[], options: ExtraOptions): GeometryRegistration;
+  /** 省けば Canvas。戻り値で接続を外す。 */
+  attachInput(element?: HTMLElement | HTMLCanvasElement, options?: InputOptions): () => void;
+  setInputOptions(options: InputOptions): void;
+  /** 扱った入力なら true。通知の中から呼ぶと reason が reentrant の例外。 */
+  handleInput(input: View3DInput): boolean;
+  /** 移動・回転・2 本指の操作は元のカメラへ戻す。 */
+  cancelInput(reason?: string): void;
   getStats(): View3DStats;
   invalidate(): void;
   /** context を失っている間は描かずに false を返す。 */

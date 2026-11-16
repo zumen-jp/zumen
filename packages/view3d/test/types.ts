@@ -1,5 +1,5 @@
 import type { Scene3dResult } from "@zumen-jp/zumen";
-import { THREE_REVISION, View3D, View3DError, type ElementHit, type ReviewApplyResult, type ReviewExport, type Scene3DReport, type Snapshot3D, type View3DState, type View3DView } from "../src/index.js";
+import { THREE_REVISION, View3D, View3DError, type Hit3D, type ReviewApplyResult, type ReviewExport, type Scene3DReport, type Snapshot3D, type View3DState, type View3DView } from "../src/index.js";
 
 declare const blob: Uint8Array;
 declare const result: Scene3dResult;
@@ -24,7 +24,19 @@ const shot: Snapshot3D = viewer.snapshot("main");
 const firstView = viewer.getState().views[0];
 const clipCount: number = firstView.clips.length + (firstView.box === null ? 0 : 6);
 viewer.fit("main");
-const hits: readonly ElementHit[] = viewer.hitTest("main", { x: 1, y: 2 }, { limit: 10 }).hits;
+const unit = { name: "METRE" };
+const registered = viewer.addGeometry([{ kind: "line", points: [[0, 0, 0], [1, 0, 0]] }, { kind: "label", position: [0, 0, 0], image: new ImageData(1, 1), width: 8, height: 8 }], { id: "g", origin: [0, 0, 0], unit, priority: 1 });
+const parts: number = registered.parts.length;
+const object = viewer.addObject({}, { id: "o", origin: [0, 0, 0], unit, scope: "viewer", clipping: false, dispose: () => {} });
+object.signal.addEventListener("abort", () => object.remove());
+const detach = viewer.attachInput(canvas, { orbit: false, zoomSpeed: 0.001 });
+const handled: boolean = viewer.handleInput({ type: "wheel", point: { x: 1, y: 2 }, deltaY: 10, ctrlKey: true });
+viewer.setInputOptions({ touch: false });
+viewer.cancelInput();
+detach();
+const offPick = viewer.on("pick", (event) => event.hits[0]?.kind === "geometry" ? event.hits[0].part : event.view);
+offPick();
+const hits: readonly Hit3D[] = viewer.hitTest("main", { x: 1, y: 2 }, { limit: 10 }).hits;
 const ray = viewer.getRay("main", { x: 1, y: 2 });
 const state: View3DState = viewer.getState();
 const off = viewer.subscribe((value) => value.views[0]?.selected.length);
@@ -35,4 +47,4 @@ off(); offRender();
 viewer.destroy();
 const revision: "187" = THREE_REVISION;
 try { viewer.render(); } catch (error) { if (error instanceof View3DError) error.reason satisfies string; }
-void [report, none, hits, ray, state, drawn, revision, applied, shot, clipCount];
+void [report, none, hits, ray, state, drawn, revision, applied, shot, clipCount, parts, handled, state.objects.length];

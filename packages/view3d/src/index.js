@@ -2,6 +2,9 @@
 // three.js は同梱せず、利用側と同じ ESM の実体を peer dependency として使う。
 import * as THREE from "three";
 import { readScene3D } from "@zumen-jp/zumen";
+import { View3DError, color, cross, dot, fail, finite, invalid, isObject, length, normalize, positive, scale, sub, vector } from "./common.js";
+import { Extras, compareHits, sameUnit } from "./extras.js";
+import { InputState, bindInput, normalizeInput, readInputOptions } from "./input.js";
 
 /** 検査を通した three.js の r 版。範囲外では互換を推測して続けない。 */
 export const THREE_REVISION = "187";
@@ -25,37 +28,7 @@ const OPTION_KEYS = new Set(["width", "height", "pixelRatio", "background", "unr
 const ZERO = new Float32Array(16);
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
-/** 表示部品の失敗。reason で種類を区別する。 */
-export class View3DError extends Error {
-  constructor(reason, message, options) {
-    super(message, options);
-    this.name = "View3DError";
-    this.reason = reason;
-  }
-}
-const fail = (reason, message, cause) => { throw new View3DError(reason, message, cause === undefined ? undefined : { cause }); };
-const invalid = (message) => fail("invalid-input", message);
-
-function isObject(value) { return typeof value === "object" && value !== null && !Array.isArray(value); }
-function finite(value, message) { if (typeof value !== "number" || !Number.isFinite(value)) invalid(message); return value; }
-function positive(value, message) { if (finite(value, message) <= 0) invalid(message); return value; }
-function vector(value, message) {
-  if (!Array.isArray(value) && !ArrayBuffer.isView(value)) invalid(message);
-  if (value.length !== 3) invalid(message);
-  return [finite(value[0], message), finite(value[1], message), finite(value[2], message)];
-}
-function color(value, message) {
-  if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 0xffffff) return new THREE.Color(value);
-  if (typeof value !== "string" || !/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) invalid(message);
-  const hex = value.length === 4 ? value.slice(1).split("").map((c) => c + c).join("") : value.slice(1);
-  return new THREE.Color(Number.parseInt(hex, 16));
-}
-const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const length = (a) => Math.hypot(a[0], a[1], a[2]);
-const scale = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
-const normalize = (a) => scale(a, 1 / length(a));
+export { View3DError };
 
 function readLimits(options) {
   if (options === undefined) return DEFAULT_LIMITS;
@@ -232,7 +205,13 @@ export class View3D {
   /** ビュー ID から、行に解決した選択・非表示・色と切断面 */
   #displays = new Map();
   #subscribers = new Set();
-  #listeners = { render: new Set(), contextlost: new Set(), contextrestored: new Set() };
+  #listeners = { render: new Set(), contextlost: new Set(), contextrestored: new Set(), pick: new Set(), input: new Set() };
+  /** 利用側の追加描画。部品が作った資源と借用した Object3D を分けて持つ */
+  #extras;
+  #input;
+  #binding = null;
+  #handling = false;
+  #inputCamera = false;
   #frame = 0;
   #lost = false;
   #destroyed = false;
@@ -267,6 +246,18 @@ export class View3D {
       fail("webgl2-unavailable", "WebGL2 の描画を始められない", error);
     }
     this.#canvas = canvas;
+    this.#extras = new Extras(this.#limits, canvas.ownerDocument ?? null);
+    this.#root.add(this.#extras.group);
+    this.#input = new InputState({
+      view: (id) => this.#views.find((v) => v.id === id) ?? null,
+      viewAt: (p) => this.#views.find((v) => p.x >= v.rect.x && p.x <= v.rect.x + v.rect.width && p.y >= v.rect.y && p.y <= v.rect.y + v.rect.height) ?? null,
+      hitTest: (id, p) => this.hitTest(id, p),
+      getRay: (id, p) => this.getRay(id, p),
+      center: () => this.#scene?.extent?.center ?? null,
+      setCamera: (id, camera) => this.#setCamera(id, camera),
+      select: (ids) => { if (this.#scene !== null) this.select(this.#scene.document, ids); },
+      emit: (type, event) => this.#emit(type, event),
+    });
     if (views !== null) { this.#views = views.views; this.#displays = views.displays; }
     this.#renderer.autoClear = false;
     this.#renderer.setPixelRatio(this.#size.pixelRatio);
@@ -318,6 +309,7 @@ export class View3D {
       document: scene?.document ?? null,
       scene: scene === null ? null : Object.freeze({ unit: scene.result.unit, tolerance: scene.result.tolerance, counts: scene.counts }),
       views: this.#views,
+      objects: this.#extras.state(),
       size: this.#size,
       contextLost: this.#lost,
       destroyed: this.#destroyed,
@@ -356,7 +348,18 @@ export class View3D {
   /** ID・CSS px の枠・カメラ・切断面・要素の状態を一括で検査し、成功時だけ置き換える。 */
   setViews(views) {
     this.#alive();
-    this.#commitViews(this.#resolveViews(readViews(views, this.#limits)));
+    const resolved = this.#resolveViews(readViews(views, this.#limits));
+    // 利用側がビューを差し替えたら操作を中断する。操作が動かすカメラは #setCamera を通る
+    const cleanup = this.#inputCamera ? { failed: false } : this.#input.reset("views");
+    this.#commitViews(resolved);
+    if (cleanup.failed) throw cleanup.error;
+  }
+
+  /** 入力の操作がカメラを動かす。ビューの他の状態は保つ。 */
+  #setCamera(viewId, camera) {
+    this.#inputCamera = true;
+    try { this.setViews(this.#views.map((v) => (v.id === viewId ? { ...v, camera } : v))); }
+    finally { this.#inputCamera = false; }
   }
 
   /** 要素の ID を表示中のシーンの行に解決する。シーンがなければ ID を持てない。 */
@@ -427,9 +430,12 @@ export class View3D {
       this.#scene = null;
       const resolved = this.#resolveViews(this.#plainViews(), null);
       this.#views = resolved.views; this.#displays = resolved.displays;
-      if (old !== null) this.#dispose(old);
-      this.#changed();
-      this.invalidate();
+      const tasks = this.#sceneChanged(null);
+      if (old !== null) tasks.unshift(() => this.#dispose(old));
+      try { runAll(tasks); } finally {
+        this.#changed();
+        this.invalidate();
+      }
       return null;
     }
     const built = this.#build(input);
@@ -437,13 +443,26 @@ export class View3D {
     const resolved = this.#resolveViews(this.#plainViews(), built);
     this.#scene = built;
     this.#views = resolved.views; this.#displays = resolved.displays;
-    try {
-      if (old !== null) this.#dispose(old);
-    } finally {
+    const tasks = this.#sceneChanged(built.result.unit);
+    if (old !== null) tasks.unshift(() => this.#dispose(old));
+    try { runAll(tasks); } finally {
       this.#changed();
       this.invalidate();
     }
     return built.report;
+  }
+
+  /**
+   * シーンの差し替えに伴う後始末。操作を中断し、scope が scene の追加描画と、新しいシーンと単位の違う viewer の追加描画を外す。
+   * viewer の追加描画は残すが、古い文書の要素の参照は引き継がない。
+   */
+  #sceneChanged(unit) {
+    const tasks = [() => { const cleanup = this.#input.reset("scene"); if (cleanup.failed) throw cleanup.error; }];
+    for (const entry of this.#extras.entries()) {
+      if (entry.scope === "scene") tasks.push(...this.#extras.remove(entry, "scene"));
+      else if (unit !== null && !sameUnit(entry.unit, unit)) tasks.push(...this.#extras.remove(entry, "unit"));
+    }
+    return tasks;
   }
 
   #build(input) {
@@ -522,7 +541,7 @@ export class View3D {
       const triangles = (c.mesh_triangles[mesh + 1] ?? counts.triangles) - c.mesh_triangles[mesh];
       gpuBytes += vertices * 12 + triangles * 12;
     }
-    if (gpuBytes > limits.gpuBytes) fail("limit", "GPU へ渡すバイト数の上限");
+    if (gpuBytes + this.#extras.bytes((entry) => entry.scope === "viewer" && sameUnit(entry.unit, result.unit)) > limits.gpuBytes) fail("limit", "GPU へ渡すバイト数の上限");
     spend(edgeRows * 2);
 
     // ここから資源を作る。失敗したら作った分を解放し、前のシーンを保つ
@@ -649,7 +668,7 @@ export class View3D {
     if (!this.#options.edges) return;
     const missing = new Map();
     for (const display of displays.values()) if (!scene.edgeSets.has(display.key)) missing.set(display.key, display);
-    let bytes = scene.report.gpuBytes;
+    let bytes = scene.report.gpuBytes + this.#extras.bytes();
     for (const [key, lines] of scene.edgeSets) if (key !== PLAIN.key) for (const line of lines) bytes += line.geometry.attributes.position.array.byteLength;
     for (const display of missing.values()) bytes += this.#edgeRows(scene, display) * 24;
     if (bytes > this.#limits.gpuBytes) fail("limit", "GPU へ渡すバイト数の上限（ビューごとの稜線）");
@@ -888,6 +907,7 @@ export class View3D {
     renderer.setClearColor(this.#options.background, 1);
     renderer.clear(true, true, false);
     if (scene !== null) for (const group of scene.chunks) if (group.parent === null) this.#root.add(group);
+    const excluded = [];
     for (const view of this.#views) {
       const { rect, camera } = view, origin = camera.position;
       if (scene !== null) {
@@ -904,6 +924,7 @@ export class View3D {
         this.#apply(scene, display);
         for (const [key, lines] of scene.edgeSets) for (const line of lines) line.visible = key === display.key;
       }
+      for (const id of this.#extras.prepare(camera, rect, display.planes)) excluded.push(Object.freeze({ view: view.id, id, reason: "clipping-unsupported" }));
       // 切断面は表示原点からの相対座標で渡す。three.js は符号付き距離が負の側を切るので法線を反転する
       renderer.clippingPlanes = display.planes.map(({ point, normal }) => new THREE.Plane(
         new THREE.Vector3(-normal[0], -normal[1], -normal[2]), dot(normal, sub(point, origin))));
@@ -915,7 +936,7 @@ export class View3D {
     }
     renderer.clippingPlanes = [];
     renderer.setScissorTest(false);
-    this.#emit("render", { type: "render", views: this.#views.length });
+    this.#emit("render", Object.freeze({ type: "render", views: this.#views.length, excluded: Object.freeze(excluded) }));
     return true;
   }
 
@@ -948,16 +969,20 @@ export class View3D {
     if (!isObject(options)) invalid("options はオブジェクト");
     const limit = options.limit ?? this.#limits.hits;
     if (!Number.isSafeInteger(limit) || limit <= 0 || limit > this.#limits.hits) invalid("limit は上限以下の正の整数");
-    const scene = this.#scene;
-    if (scene === null) return Object.freeze({ hits: Object.freeze([]), truncated: false });
-    const { data } = scene, c = data.columns, d = ray.direction;
-    const { near } = this.#clipRange(this.#view(viewId).camera);
+    const scene = this.#scene, view = this.#view(viewId);
+    const { near } = this.#clipRange(view.camera);
     const display = this.#displays.get(viewId) ?? PLAIN;
+    let work = 0;
+    const spend = (n) => { work += n; if (work > this.#limits.work) fail("limit", "当たり判定の作業量の上限"); };
+    const extras = this.#extras.size === 0 ? [] : this.#extras.hit(ray, view.camera, this.#cameraFor(view), view.rect, display.planes, near, spend);
+    if (scene === null) {
+      extras.sort(compareHits);
+      return Object.freeze({ hits: Object.freeze(extras.slice(0, limit)), truncated: extras.length > limit });
+    }
+    const { data } = scene, c = data.columns, d = ray.direction;
     // 切断面で除く条件 n · (q + o - p0) > 0 を、光線の係数 t の一次式 a + b t にする（f64）
     const cuts = display.planes.map(({ point, normal }) => [dot(normal, sub(ray.origin, point)) + dot(normal, ray.offset), dot(normal, d)]);
     const accept = (t) => cuts.every(([a, b]) => !(a + b * t > 0));
-    let work = 0;
-    const spend = (n) => { work += n; if (work > this.#limits.work) fail("limit", "当たり判定の作業量の上限"); };
     const best = new Map();
     for (let chunk = 0; chunk < data.chunks; chunk++) {
       const begin = c.chunk_instances[chunk], end = c.chunk_instances[chunk + 1] ?? scene.counts.instances;
@@ -992,7 +1017,8 @@ export class View3D {
       distance,
       position: Object.freeze({ origin: ray.origin, offset: Object.freeze([0, 1, 2].map((k) => ray.offset[k] + d[k] * distance)) }),
     }));
-    hits.sort((a, b) => a.distance - b.distance || a.element - b.element);
+    hits.push(...extras);
+    hits.sort(compareHits);
     return Object.freeze({ hits: Object.freeze(hits.slice(0, limit)), truncated: hits.length > limit });
   }
 
@@ -1153,6 +1179,98 @@ export class View3D {
   }
 
   /** 利用側の明示した要求で、ビューの枠を描いて RGBA の画素（上の行から）を返す。保存・送信はしない。 */
+  /** 登録の扱い。remove は何回呼んでも後始末を重ねず、signal は解除の理由を reason に持つ。 */
+  #handle(entry) {
+    const remove = () => {
+      if (this.#destroyed || !entry.active) return;
+      const tasks = this.#extras.remove(entry, "removed");
+      try { runAll(tasks); } finally {
+        this.#changed();
+        this.invalidate();
+      }
+    };
+    const handle = { id: entry.id, remove, signal: entry.controller.signal };
+    if (entry.parts !== undefined) handle.parts = entry.parts;
+    return Object.freeze(handle);
+  }
+
+  #registrationContext() {
+    return { unit: this.#scene?.result.unit ?? null, usedBytes: (this.#scene?.report.gpuBytes ?? 0) + this.#extras.bytes() };
+  }
+
+  /**
+   * 利用側の Object3D を借用して描く。部品は親のない root を wrapper に接続するだけで、位置・材質・userData を書き換えず、
+   * 資源を解放しない。登録解除・scope の終了・破棄で接続を外し、渡した dispose を一度だけ呼ぶ。
+   */
+  addObject(root, options) {
+    this.#alive();
+    const entry = this.#extras.addObject(root, options, this.#registrationContext());
+    this.#changed();
+    this.invalidate();
+    return this.#handle(entry);
+  }
+
+  /** 線・範囲・円・寸法線・ラベルの記述から部品が資源を作って描く。資源は部品が所有する。 */
+  addGeometry(items, options) {
+    this.#alive();
+    const entry = this.#extras.addGeometry(items, options, this.#registrationContext());
+    this.#changed();
+    this.invalidate();
+    return this.#handle(entry);
+  }
+
+  /** DOM の入力を接続する。1 つの要素だけを接続し、別の要素を渡すと前の接続を外す。 */
+  attachInput(element = this.#canvas, options) {
+    this.#alive();
+    const next = readInputOptions(options, this.#input.options);
+    const binding = bindInput(this, element);
+    const cleanup = this.#input.reset("attach");
+    const previous = this.#binding;
+    this.#binding = binding;
+    this.#input.options = next;
+    try { previous?.disconnect(); } finally { if (cleanup.failed) throw cleanup.error; }
+    return () => {
+      if (this.#destroyed || this.#binding !== binding) return;
+      this.#binding = null;
+      const stopped = this.#input.reset("detach");
+      binding.disconnect();
+      if (stopped.failed) throw stopped.error;
+    };
+  }
+
+  /** 標準の割り当てを個別に有効・無効にする。操作中なら中断する。 */
+  setInputOptions(options) {
+    this.#alive();
+    const next = readInputOptions(options, this.#input.options);
+    const cleanup = this.#input.reset("options");
+    this.#input.options = next;
+    if (cleanup.failed) throw cleanup.error;
+  }
+
+  /** 正規化した入力を扱い、扱ったかを返す。例外では操作を中断して元の例外を返す。通知の中から呼ぶと reentrant。 */
+  handleInput(value) {
+    this.#alive();
+    if (this.#handling) fail("reentrant", "入力の処理中に入力を渡した");
+    const input = normalizeInput(value);
+    this.#handling = true;
+    try {
+      return this.#input.handle(input);
+    } catch (error) {
+      try { this.#input.reset("error"); } catch { /* 元の例外を返す */ }
+      throw error;
+    } finally {
+      this.#handling = false;
+    }
+  }
+
+  /** 操作を中断する。移動・回転・2 本指の操作は元のカメラへ戻す。 */
+  cancelInput(reason = "cancel") {
+    this.#alive();
+    if (typeof reason !== "string" || reason === "" || reason.length > 64) invalid("中断の理由は 64 文字以下の文字列");
+    const cleanup = this.#input.reset(reason);
+    if (cleanup.failed) throw cleanup.error;
+  }
+
   snapshot(viewId) {
     this.#alive();
     const view = this.#view(viewId);
@@ -1187,7 +1305,12 @@ export class View3D {
   destroy() {
     if (this.#destroyed) return;
     this.#destroyed = true;
+    const input = this.#input, binding = this.#binding;
+    this.#binding = null;
     const tasks = [
+      () => { const cleanup = input.reset("destroy"); if (cleanup.failed) throw cleanup.error; },
+      () => binding?.disconnect(),
+      ...this.#extras.entries().flatMap((entry) => this.#extras.remove(entry, "destroy")),
       () => this.#cancelFrame(),
       () => this.#canvas.removeEventListener("webglcontextlost", this.#onLost),
       () => this.#canvas.removeEventListener("webglcontextrestored", this.#onRestored),
