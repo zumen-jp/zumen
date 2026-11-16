@@ -2067,6 +2067,10 @@ fn try_apply_fast(
                             ) {
                                 return FastAttempt::Fallback;
                             }
+                        } else if !dwg.single.can_unlink_added_model_entity(
+                            row.handle, &cur_enc, &kind_vec, &old_vals,
+                        ) {
+                            return FastAttempt::Fallback;
                         }
                         step_removed_handles.insert(row.handle);
                         step_removed_model_handles.insert(row.handle);

@@ -1467,6 +1467,30 @@ impl DwgSingle {
         )
     }
 
+    /// 追加したモデル空間の図形が、保存後にも単独で削除できる種類と参照を持つか。
+    #[cfg(feature = "drawing")]
+    pub(crate) fn can_unlink_added_model_entity(
+        &self,
+        handle: u64,
+        current_encoded: &[u8],
+        kind: &[u8],
+        values: &[Value],
+    ) -> bool {
+        let Some((_, owner)) = self.model_block else {
+            return false;
+        };
+        let current_owner = values
+            .iter()
+            .find_map(|value| match (value.code, &value.data) {
+                (330, Data::Handle(handle)) => Some(*handle),
+                _ => None,
+            });
+        current_owner == Some(owner)
+            && can_unlink_single(self.release, current_encoded, handle, kind, values, |_| {
+                false
+            })
+    }
+
     /// 差分の変更を `DwgFile` の複製に反映して書き出したバイト列を返す
     #[allow(clippy::too_many_arguments)]
     pub fn save_file(

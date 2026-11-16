@@ -2,8 +2,8 @@
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Key, Kind, Limit, Limits};
 use zumen_drawing::{
-    Affine, Applied, Changes, Drawing2D, Edge, Edit, Hash, Placed, Restyle, Seen, Shape, id,
-    transform,
+    Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, Font, FontKind, Hash, PaperPoint,
+    Placed, Restyle, Seen, Shape, id, transform,
 };
 use zumen_live::RowId;
 use zumen_sdk::{Apply, Codec, Error, Lift};
@@ -130,6 +130,82 @@ where
         assert_eq!(fresh_cx(|cx| self.live.save(cx)).0.unwrap(), bytes);
         assert_eq!(self.live.undo_len(), history);
         self.assert_model();
+    }
+
+    fn reject_with_budgets(&mut self, edit: Edit) {
+        self.reject(edit.clone());
+        let before = fresh_cx(|cx| self.live.drawing(cx)).0.unwrap();
+        let bytes = fresh_cx(|cx| self.live.save(cx)).0.unwrap();
+        let history = (
+            self.live.state_id(),
+            self.live.undo_len(),
+            self.live.redo_len(),
+        );
+        let changes = Changes {
+            document: None,
+            edits: vec![edit],
+        };
+        let cancel = CancelToken::new();
+        let mut measured = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        assert_eq!(
+            self.live.apply(
+                &changes,
+                &mut Cx::new(&mut measured, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Rejected)
+        );
+        assert!(measured.used(Kind::Work) > 0);
+        for kind in [Kind::Work, Kind::DecodedBytes, Kind::InputBytes] {
+            let needed = measured.used(kind);
+            for available in [0, needed / 2, needed.saturating_sub(1), needed] {
+                let mut limited =
+                    Budget::new(Limits::default().with(kind, Limit::Finite(available + 7)));
+                limited.spend(kind, 7).unwrap();
+                let mut diagnostics = Diagnostics::new();
+                let result = self.live.apply(
+                    &changes,
+                    &mut Cx::new(&mut limited, &mut diagnostics, &cancel),
+                );
+                if available < needed {
+                    assert!(
+                        matches!(result, Err(Error::Stopped(_))),
+                        "{kind:?} available={available}: {result:?}"
+                    );
+                } else {
+                    assert_eq!(result, Err(Error::Rejected));
+                }
+                assert_eq!(
+                    (
+                        self.live.state_id(),
+                        self.live.undo_len(),
+                        self.live.redo_len()
+                    ),
+                    history
+                );
+                assert_eq!(fresh_cx(|cx| self.live.save(cx)).0.unwrap(), bytes);
+            }
+        }
+        cancel.cancel();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        assert!(matches!(
+            self.live.apply(
+                &changes,
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel)
+            ),
+            Err(Error::Stopped(_))
+        ));
+        assert_eq!(
+            (
+                self.live.state_id(),
+                self.live.undo_len(),
+                self.live.redo_len()
+            ),
+            history
+        );
+        assert_eq!(fresh_cx(|cx| self.live.drawing(cx)).0.unwrap(), before);
+        assert_eq!(fresh_cx(|cx| self.live.save(cx)).0.unwrap(), bytes);
     }
 }
 
@@ -329,178 +405,276 @@ fn paper_and_block_elements_match_sequential_apply() {
     }
 }
 
+fn check_layer_table_changes<C: Codec>(mut pair: AcadPair<C>)
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+{
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let mut layer = model.layers[0].clone();
+    layer.name = "LIVE_NEW".to_owned();
+    pair.apply(Edit::AddLayer {
+        layer: Box::new(layer),
+    });
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let mut layer = model
+        .layers
+        .iter()
+        .find(|layer| layer.name == "LIVE_NEW")
+        .unwrap()
+        .clone();
+    let target = Seen {
+        id: id::layer(&layer),
+        hash: Hash::layer(&layer),
+    };
+    layer.name = "LIVE_RENAMED".to_owned();
+    pair.apply(Edit::ReplaceLayer {
+        target,
+        layer: Box::new(layer),
+    });
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let layer = model
+        .layers
+        .iter()
+        .find(|layer| layer.name == "LIVE_RENAMED")
+        .unwrap();
+    pair.apply(Edit::RemoveLayer {
+        target: Seen {
+            id: id::layer(layer),
+            hash: Hash::layer(layer),
+        },
+    });
+}
+
 #[test]
 fn layer_table_changes_match_sequential_apply() {
     for threads in [1, 4] {
-        let mut pair = DxfPair::open(&synthetic_rich_dxf(), threads);
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let mut layer = model.layers[0].clone();
-        layer.name = "LIVE_NEW".to_owned();
-        pair.apply(Edit::AddLayer {
-            layer: Box::new(layer),
-        });
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let mut layer = model
-            .layers
-            .iter()
-            .find(|layer| layer.name == "LIVE_NEW")
-            .unwrap()
-            .clone();
-        let target = Seen {
-            id: id::layer(&layer),
-            hash: Hash::layer(&layer),
-        };
-        layer.name = "LIVE_RENAMED".to_owned();
-        pair.apply(Edit::ReplaceLayer {
-            target,
-            layer: Box::new(layer),
-        });
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let layer = model
-            .layers
-            .iter()
-            .find(|layer| layer.name == "LIVE_RENAMED")
-            .unwrap();
-        pair.apply(Edit::RemoveLayer {
-            target: Seen {
-                id: id::layer(layer),
-                hash: Hash::layer(layer),
-            },
-        });
+        check_layer_table_changes(DxfPair::open(&synthetic_rich_dxf(), threads));
     }
+}
+
+#[test]
+fn dwg_layer_table_changes_match_sequential_apply() {
+    for name in [
+        "zumen-layout-r2000.dwg",
+        "zumen-layout-r2004.dwg",
+        "zumen-layout-r2018.dwg",
+    ] {
+        for threads in [1, 4] {
+            check_layer_table_changes(DwgPair::open(&dwg_sample(name), threads));
+        }
+    }
+}
+
+fn check_text_style_table_changes<C: Codec>(mut pair: AcadPair<C>)
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+{
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let mut style = model.text_styles[0].clone();
+    style.name = "LIVE_NEW".to_owned();
+    style.definition.as_mut().unwrap().font = Some(Font {
+        name: "LIVE_TEST.shx".to_owned(),
+        kind: FontKind::Shape,
+    });
+    pair.apply(Edit::AddTextStyle {
+        style: Box::new(style),
+    });
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let (index, style) = model
+        .text_styles
+        .iter()
+        .enumerate()
+        .find(|(_, style)| style.name == "LIVE_NEW")
+        .unwrap();
+    let target = Seen {
+        id: id::text_style(style, index),
+        hash: Hash::text_style(style),
+    };
+    let mut style = style.clone();
+    style.name = "LIVE_RENAMED".to_owned();
+    style.definition.as_mut().unwrap().width = 1.5;
+    pair.apply(Edit::ReplaceTextStyle {
+        target,
+        style: Box::new(style),
+    });
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let (index, style) = model
+        .text_styles
+        .iter()
+        .enumerate()
+        .find(|(_, style)| style.name == "LIVE_RENAMED")
+        .unwrap();
+    pair.apply(Edit::RemoveTextStyle {
+        target: Seen {
+            id: id::text_style(style, index),
+            hash: Hash::text_style(style),
+        },
+    });
 }
 
 #[test]
 fn text_style_table_changes_match_sequential_apply() {
     for threads in [1, 4] {
-        let mut pair = DxfPair::open(&synthetic_rich_dxf(), threads);
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let mut style = model.text_styles[0].clone();
-        style.name = "LIVE_NEW".to_owned();
-        pair.apply(Edit::AddTextStyle {
-            style: Box::new(style),
-        });
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let (index, style) = model
-            .text_styles
-            .iter()
-            .enumerate()
-            .find(|(_, style)| style.name == "LIVE_NEW")
-            .unwrap();
-        let target = Seen {
-            id: id::text_style(style, index),
-            hash: Hash::text_style(style),
-        };
-        let mut style = style.clone();
-        style.name = "LIVE_RENAMED".to_owned();
-        style.definition.as_mut().unwrap().width = 1.5;
-        pair.apply(Edit::ReplaceTextStyle {
-            target,
-            style: Box::new(style),
-        });
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let (index, style) = model
-            .text_styles
-            .iter()
-            .enumerate()
-            .find(|(_, style)| style.name == "LIVE_RENAMED")
-            .unwrap();
-        pair.apply(Edit::RemoveTextStyle {
-            target: Seen {
-                id: id::text_style(style, index),
-                hash: Hash::text_style(style),
-            },
-        });
+        check_text_style_table_changes(DxfPair::open(&synthetic_rich_dxf(), threads));
     }
+}
+
+#[test]
+fn dwg_text_style_table_changes_match_sequential_apply() {
+    for name in [
+        "zumen-layout-r2000.dwg",
+        "zumen-layout-r2004.dwg",
+        "zumen-layout-r2018.dwg",
+    ] {
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(&dwg_sample(name), threads);
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let mut named = model.text_styles[0].clone();
+            assert!(matches!(
+                named
+                    .definition
+                    .as_ref()
+                    .unwrap()
+                    .font
+                    .as_ref()
+                    .unwrap()
+                    .kind,
+                FontKind::Named { .. }
+            ));
+            named.name = "LIVE_NAMED".to_owned();
+            pair.reject(Edit::AddTextStyle {
+                style: Box::new(named),
+            });
+            check_text_style_table_changes(pair);
+        }
+    }
+}
+
+fn check_line_type_table_changes<C: Codec>(mut pair: AcadPair<C>)
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+{
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let mut line_type = model
+        .line_types
+        .iter()
+        .find(|line_type| line_type.definition.is_some())
+        .unwrap()
+        .clone();
+    line_type.name = "LIVE_NEW".to_owned();
+    pair.apply(Edit::AddLineType {
+        line_type: Box::new(line_type),
+    });
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let line_type = model
+        .line_types
+        .iter()
+        .find(|line_type| line_type.name == "LIVE_NEW")
+        .unwrap();
+    let target = Seen {
+        id: id::line_type(line_type),
+        hash: Hash::line_type(line_type),
+    };
+    let mut line_type = line_type.clone();
+    line_type.name = "LIVE_RENAMED".to_owned();
+    pair.apply(Edit::ReplaceLineType {
+        target,
+        line_type: Box::new(line_type),
+    });
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let line_type = model
+        .line_types
+        .iter()
+        .find(|line_type| line_type.name == "LIVE_RENAMED")
+        .unwrap();
+    pair.apply(Edit::RemoveLineType {
+        target: Seen {
+            id: id::line_type(line_type),
+            hash: Hash::line_type(line_type),
+        },
+    });
 }
 
 #[test]
 fn line_type_table_changes_match_sequential_apply() {
     for threads in [1, 4] {
-        let mut pair = DxfPair::open(&synthetic_rich_dxf(), threads);
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let mut line_type = model
-            .line_types
-            .iter()
-            .find(|line_type| line_type.definition.is_some())
-            .unwrap()
-            .clone();
-        line_type.name = "LIVE_NEW".to_owned();
-        pair.apply(Edit::AddLineType {
-            line_type: Box::new(line_type),
-        });
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let line_type = model
-            .line_types
-            .iter()
-            .find(|line_type| line_type.name == "LIVE_NEW")
-            .unwrap();
-        let target = Seen {
-            id: id::line_type(line_type),
-            hash: Hash::line_type(line_type),
-        };
-        let mut line_type = line_type.clone();
-        line_type.name = "LIVE_RENAMED".to_owned();
-        pair.apply(Edit::ReplaceLineType {
-            target,
-            line_type: Box::new(line_type),
-        });
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let line_type = model
-            .line_types
-            .iter()
-            .find(|line_type| line_type.name == "LIVE_RENAMED")
-            .unwrap();
-        pair.apply(Edit::RemoveLineType {
-            target: Seen {
-                id: id::line_type(line_type),
-                hash: Hash::line_type(line_type),
-            },
-        });
+        check_line_type_table_changes(DxfPair::open(&synthetic_rich_dxf(), threads));
     }
+}
+
+#[test]
+fn dwg_line_type_table_changes_match_sequential_apply() {
+    for name in [
+        "zumen-layout-r2000.dwg",
+        "zumen-layout-r2004.dwg",
+        "zumen-layout-r2018.dwg",
+    ] {
+        for threads in [1, 4] {
+            check_line_type_table_changes(DwgPair::open(&dwg_sample(name), threads));
+        }
+    }
+}
+
+fn check_dimension_style_table_changes<C: Codec>(mut pair: AcadPair<C>)
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+{
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let mut style = model.dimension_styles[0].clone();
+    style.name = "LIVE_NEW".to_owned();
+    pair.apply(Edit::AddDimensionStyle {
+        style: Box::new(style),
+    });
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let (index, style) = model
+        .dimension_styles
+        .iter()
+        .enumerate()
+        .find(|(_, style)| style.name == "LIVE_NEW")
+        .unwrap();
+    let target = Seen {
+        id: id::dimension_style(style, index),
+        hash: Hash::dimension_style(style),
+    };
+    let mut style = style.clone();
+    style.name = "LIVE_RENAMED".to_owned();
+    style.size = 2.5;
+    pair.apply(Edit::ReplaceDimensionStyle {
+        target,
+        style: Box::new(style),
+    });
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let (index, style) = model
+        .dimension_styles
+        .iter()
+        .enumerate()
+        .find(|(_, style)| style.name == "LIVE_RENAMED")
+        .unwrap();
+    pair.apply(Edit::RemoveDimensionStyle {
+        target: Seen {
+            id: id::dimension_style(style, index),
+            hash: Hash::dimension_style(style),
+        },
+    });
 }
 
 #[test]
 fn dimension_style_table_changes_match_sequential_apply() {
     for threads in [1, 4] {
-        let mut pair = DxfPair::open(&synthetic_associative_dxf(), threads);
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let mut style = model.dimension_styles[0].clone();
-        style.name = "LIVE_NEW".to_owned();
-        pair.apply(Edit::AddDimensionStyle {
-            style: Box::new(style),
-        });
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let (index, style) = model
-            .dimension_styles
-            .iter()
-            .enumerate()
-            .find(|(_, style)| style.name == "LIVE_NEW")
-            .unwrap();
-        let target = Seen {
-            id: id::dimension_style(style, index),
-            hash: Hash::dimension_style(style),
-        };
-        let mut style = style.clone();
-        style.name = "LIVE_RENAMED".to_owned();
-        style.size = 2.5;
-        pair.apply(Edit::ReplaceDimensionStyle {
-            target,
-            style: Box::new(style),
-        });
-        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
-        let (index, style) = model
-            .dimension_styles
-            .iter()
-            .enumerate()
-            .find(|(_, style)| style.name == "LIVE_RENAMED")
-            .unwrap();
-        pair.apply(Edit::RemoveDimensionStyle {
-            target: Seen {
-                id: id::dimension_style(style, index),
-                hash: Hash::dimension_style(style),
-            },
-        });
+        check_dimension_style_table_changes(DxfPair::open(&synthetic_associative_dxf(), threads));
+    }
+}
+
+#[test]
+fn dwg_dimension_style_table_changes_match_sequential_apply() {
+    for name in [
+        "zumen-layout-r2000.dwg",
+        "zumen-layout-r2004.dwg",
+        "zumen-layout-r2018.dwg",
+    ] {
+        for threads in [1, 4] {
+            check_dimension_style_table_changes(DwgPair::open(&dwg_sample(name), threads));
+        }
     }
 }
 
@@ -678,7 +852,68 @@ fn dwg_public_samples_retain_full_models() {
 }
 
 #[test]
-fn dwg_general_shape_additions_match_sequential_apply() {
+fn dwg_added_line_removal_does_not_reread_the_document() {
+    for name in [
+        "zumen-layout-r2000.dwg",
+        "zumen-layout-r2004.dwg",
+        "zumen-layout-r2018.dwg",
+    ] {
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(&dwg_sample(name), threads);
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let mut element = model.spaces[0].elements[0].clone();
+            let point = |x, y| zumen_drawing::ModelPoint {
+                space: model.spaces[0].id,
+                x,
+                y,
+            };
+            element.shape = Shape::Line {
+                start: point(0.0, 0.0),
+                end: point(10.0, 20.0),
+            };
+            let added = pair
+                .apply(Edit::Add {
+                    place: "space/0".to_owned(),
+                    element: Box::new(Placed::Model(element)),
+                })
+                .pop()
+                .unwrap();
+            let remove = Edit::Remove {
+                target: Seen {
+                    id: added.id.unwrap(),
+                    hash: added.hash.unwrap(),
+                },
+            };
+            let mut live = pair.live.clone();
+            let mut budget =
+                Budget::new(Limits::default().with(Kind::InputBytes, Limit::Finite(0)));
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let actual = live
+                .apply(
+                    &Changes {
+                        document: None,
+                        edits: vec![remove.clone()],
+                    },
+                    &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+                )
+                .unwrap();
+            assert_eq!(budget.used(Kind::InputBytes), 0);
+            assert_eq!(actual, pair.apply(remove));
+            assert_eq!(
+                fresh_cx(|cx| live.drawing(cx)).0.unwrap(),
+                fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap()
+            );
+            assert_eq!(
+                fresh_cx(|cx| live.save(cx)).0.unwrap(),
+                fresh_cx(|cx| pair.live.save(cx)).0.unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn dwg_general_shape_edits_match_sequential_apply() {
     let mut added = Vec::new();
     for (bytes, handles) in [
         (general_shapes_dxf(), vec![0x109, 0x120, 0x122]),
@@ -696,12 +931,21 @@ fn dwg_general_shape_additions_match_sequential_apply() {
                 .clone();
             if let Shape::Leader(leader) = &mut element.shape {
                 leader.annotation = None;
+                let mut explicit_leader = leader.clone();
+                explicit_leader.arrow = Some(true);
+                let mut explicit = element.clone();
+                explicit.shape = Shape::Leader(explicit_leader);
+                added.push(explicit);
             }
             added.push(element);
         }
     }
-    assert_eq!(added.len(), 5);
-    for name in ["zumen-layout-r2000.dwg", "zumen-layout-r2018.dwg"] {
+    assert_eq!(added.len(), 6);
+    for name in [
+        "zumen-layout-r2000.dwg",
+        "zumen-layout-r2004.dwg",
+        "zumen-layout-r2018.dwg",
+    ] {
         let bytes = dwg_sample(name);
         for threads in [1, 4] {
             let mut pair = DwgPair::open(&bytes, threads);
@@ -712,14 +956,62 @@ fn dwg_general_shape_additions_match_sequential_apply() {
                 let mut element = original.clone();
                 element.layer = layer;
                 element.style = style;
+                if let Shape::Leader(leader) = &mut element.shape {
+                    leader.style = model.dimension_styles[0].name.clone();
+                }
                 let edit = Edit::Add {
                     place: "space/0".to_owned(),
                     element: Box::new(Placed::Model(element)),
                 };
-                if matches!(original.shape, Shape::Leader(_)) {
+                if matches!(&original.shape, Shape::Leader(leader) if leader.arrow.is_none()) {
                     pair.reject(edit);
                 } else {
                     pair.apply(edit);
+                    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+                    let Some(Key::Handle(handle)) =
+                        model.spaces[0].elements.last().unwrap().source.key()
+                    else {
+                        panic!("handle required");
+                    };
+                    pair.apply(Edit::Restyle {
+                        target: pair.seen(handle),
+                        style: Restyle {
+                            line_type_scale: Some(2.0),
+                            ..Restyle::default()
+                        },
+                    });
+                    let edit = Edit::Transform {
+                        target: pair.seen(handle),
+                        transform: Affine::translation(2.0, 3.0),
+                    };
+                    if matches!(original.shape, Shape::Curve(Edge::Spline(_))) {
+                        pair.reject(edit);
+                    } else {
+                        pair.apply(edit);
+                    }
+                    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+                    let mut replacement = model.spaces[0].elements.last().unwrap().clone();
+                    let affine = Affine::translation(-3.0, 4.0);
+                    if let Shape::Curve(Edge::Spline(spline)) = &mut replacement.shape {
+                        for control in &mut spline.control {
+                            *control = affine.point(*control);
+                        }
+                    } else {
+                        replacement.shape =
+                            transform::transform(&replacement.shape, &affine).unwrap();
+                    }
+                    pair.apply(Edit::Replace {
+                        target: pair.seen(handle),
+                        element: Box::new(Placed::Model(replacement)),
+                    });
+                    let edit = Edit::Remove {
+                        target: pair.seen(handle),
+                    };
+                    if matches!(original.shape, Shape::Leader(_)) {
+                        pair.reject(edit);
+                    } else {
+                        pair.apply(edit);
+                    }
                 }
             }
         }
@@ -800,6 +1092,251 @@ fn dwg_source_positions_follow_repeated_edits_and_removals() {
                     target: pair.seen(handle),
                 });
             }
+        }
+    }
+}
+
+#[test]
+fn dwg_paper_edits_match_sequential_apply() {
+    for name in [
+        "zumen-layout-r2000.dwg",
+        "zumen-layout-r2004.dwg",
+        "zumen-layout-r2018.dwg",
+    ] {
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(&dwg_sample(name), threads);
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let sheet = &model.sheets[0];
+            let template = &model.spaces[0].elements[0];
+            let point = |x, y| PaperPoint {
+                sheet: sheet.id,
+                x,
+                y,
+            };
+            pair.apply(Edit::Add {
+                place: id::sheet(sheet),
+                element: Box::new(Placed::Paper(Element {
+                    source: Default::default(),
+                    layer: template.layer,
+                    style: template.style,
+                    shape: Shape::Line {
+                        start: point(1.0, 2.0),
+                        end: point(3.0, 4.0),
+                    },
+                })),
+            });
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let element = model.sheets[0].elements.last().unwrap();
+            let Some(Key::Handle(handle)) = element.source.key() else {
+                panic!("handle required")
+            };
+            pair.apply(Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine::translation(2.0, 3.0),
+            });
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let mut element = model.sheets[0].elements.last().unwrap().clone();
+            element.shape =
+                transform::transform(&element.shape, &Affine::translation(-3.0, 4.0)).unwrap();
+            pair.apply(Edit::Replace {
+                target: pair.seen(handle),
+                element: Box::new(Placed::Paper(element)),
+            });
+            pair.apply(Edit::Restyle {
+                target: pair.seen(handle),
+                style: Restyle {
+                    line_type_scale: Some(2.0),
+                    ..Restyle::default()
+                },
+            });
+            pair.apply(Edit::Remove {
+                target: pair.seen(handle),
+            });
+        }
+    }
+}
+
+#[test]
+fn dwg_hatch_and_solid_edits_match_sequential_apply() {
+    let model: Drawing2D =
+        fresh_cx(|cx| Dxf::read(&synthetic_associative_dxf(), cx).and_then(|file| file.lift(cx)))
+            .0
+            .unwrap();
+    let hatch = model.spaces[0]
+        .elements
+        .iter()
+        .find(|element| element.source.key() == Some(Key::Handle(0x102)))
+        .unwrap();
+    for name in ["zumen-layout-r2000.dwg", "zumen-layout-r2018.dwg"] {
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(&dwg_sample(name), threads);
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let mut added = hatch.clone();
+            added.layer = model.layers[0].id;
+            added.style = model.spaces[0].elements[0].style;
+            pair.reject(Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(added.clone())),
+            });
+            let Shape::Hatch(shape) = &mut added.shape else {
+                panic!("HATCH required")
+            };
+            shape.associative = false;
+            for boundary in &mut shape.loops {
+                boundary.sources.clear();
+            }
+            pair.apply(Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(added)),
+            });
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let Some(Key::Handle(handle)) = model.spaces[0].elements.last().unwrap().source.key()
+            else {
+                panic!("handle required")
+            };
+            pair.apply(Edit::Restyle {
+                target: pair.seen(handle),
+                style: Restyle {
+                    line_type_scale: Some(2.0),
+                    ..Restyle::default()
+                },
+            });
+            pair.reject(Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine::translation(2.0, 3.0),
+            });
+            pair.reject_with_budgets(Edit::Remove {
+                target: pair.seen(handle),
+            });
+        }
+    }
+    for name in ["zumen-arcdim-r2004.dwg", "zumen-arcdim-r2018.dwg"] {
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(&dwg_sample(name), threads);
+            let db = fresh_cx(|cx| pair.reference.objects(cx)).0.unwrap();
+            let handle = db
+                .objects()
+                .iter()
+                .find(|object| object.kind == b"SOLID")
+                .unwrap()
+                .handle()
+                .unwrap();
+            pair.apply(Edit::Restyle {
+                target: pair.seen(handle),
+                style: Restyle {
+                    line_type_scale: Some(2.0),
+                    ..Restyle::default()
+                },
+            });
+            pair.reject(Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine::translation(2.0, 3.0),
+            });
+            pair.apply(Edit::Remove {
+                target: pair.seen(handle),
+            });
+        }
+    }
+}
+
+#[test]
+fn dwg_dimension_edits_match_sequential_apply() {
+    for name in ["zumen-arcdim-r2004.dwg", "zumen-arcdim-r2018.dwg"] {
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(&dwg_sample(name), threads);
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let element = model.spaces[0]
+                .elements
+                .iter()
+                .find(|element| matches!(element.shape, Shape::Dimension(_)))
+                .unwrap();
+            let Some(Key::Handle(handle)) = element.source.key() else {
+                panic!("handle required")
+            };
+            pair.reject(Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine {
+                    m: [2.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+                },
+            });
+            pair.apply(Edit::Restyle {
+                target: pair.seen(handle),
+                style: Restyle {
+                    line_type_scale: Some(2.0),
+                    ..Restyle::default()
+                },
+            });
+            pair.apply(Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine::translation(2.0, 3.0),
+            });
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let mut replacement = model.spaces[0]
+                .elements
+                .iter()
+                .find(|element| element.source.key() == Some(Key::Handle(handle)))
+                .unwrap()
+                .clone();
+            replacement.shape =
+                transform::transform(&replacement.shape, &Affine::translation(-3.0, 4.0)).unwrap();
+            pair.apply(Edit::Replace {
+                target: pair.seen(handle),
+                element: Box::new(Placed::Model(replacement)),
+            });
+            pair.reject(Edit::Remove {
+                target: pair.seen(handle),
+            });
+        }
+    }
+}
+
+#[test]
+fn dwg_block_definition_edits_match_sequential_apply() {
+    for name in [
+        "zumen-minsert-r2000.dwg",
+        "zumen-minsert-r2004.dwg",
+        "zumen-minsert-r2018.dwg",
+    ] {
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(&dwg_sample(name), threads);
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let element = model
+                .symbols
+                .iter()
+                .flat_map(|symbol| &symbol.space.elements)
+                .find(|element| matches!(element.shape, Shape::Polyline(_)))
+                .unwrap();
+            let Some(Key::Handle(handle)) = element.source.key() else {
+                panic!("handle required")
+            };
+            pair.apply(Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine::translation(2.0, 3.0),
+            });
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            let mut element = model
+                .symbols
+                .iter()
+                .flat_map(|symbol| &symbol.space.elements)
+                .find(|element| element.source.key() == Some(Key::Handle(handle)))
+                .unwrap()
+                .clone();
+            element.shape =
+                transform::transform(&element.shape, &Affine::translation(-3.0, 4.0)).unwrap();
+            pair.apply(Edit::Replace {
+                target: pair.seen(handle),
+                element: Box::new(Placed::Model(element)),
+            });
+            pair.apply(Edit::Restyle {
+                target: pair.seen(handle),
+                style: Restyle {
+                    line_type_scale: Some(2.0),
+                    ..Restyle::default()
+                },
+            });
+            pair.apply(Edit::Remove {
+                target: pair.seen(handle),
+            });
         }
     }
 }
