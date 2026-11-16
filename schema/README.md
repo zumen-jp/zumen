@@ -25,6 +25,17 @@ VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenN
 
 DXF のバージョン・既定の表・空間と用紙は、[新規作成の規則](../docs/formats/dxf.md#空の-dxf-を作る)に従います。既存の文書は上書きしません。未対応形式は `create.format.unsupported`、不正な名前は `call.value.invalid`、既存の名前は `call.document.exists` で拒否します。予算停止・中断・失敗で文書や blob は残りません。入力を登録してある同名の名前は変更せず、文書名とは別に扱います。
 
+## P21・JWW への変換
+
+スキーマ 1.85 から、図面のモジュールの `convert` と `convert_estimate` に `sxf`（出力は P21）と `jww` を指定できます。元の文書を `doc`、新しく登録する文書名を `to` に渡します。
+
+```json
+{"v":1,"op":"convert_estimate","doc":"source.dxf","format":"sxf","to":"out.p21","limit":100}
+{"v":1,"op":"convert","doc":"source.dxf","format":"sxf","to":"out.p21"}
+```
+
+見積もりは出力予定のハッシュ・要素数・忠実度の集計と明細を返し、文書と blob は登録しません。実変換は同じ書き手を使い、新しい文書と `file` blob を返します。書けない情報は種類・件数・出所で診断します。対応する図形、用紙・縮尺・レイヤと属性の扱いは、[P21](../docs/formats/sxf.md#新しい-p21-への変換)・[JWW](../docs/formats/jww.md#新しい-jww-への変換)の契約を確認してください。
+
 ## 管理 XML の変更
 
 スキーマ 1.84 から、図面のモジュールで `delivery_apply` を使えます。`zm_push` した管理 XML の `input` と `edits` を渡すと、変更後の XML を 1 個の `file` blob で返します。結果は `input`・変更後の `hash`・変更数の `applied` です。入力の登録内容は変えません。blob を取り出し、`close` の `inputs` で元の登録を捨ててから同じ名前で `zm_push` し、`delivery_check` で成果品全体を照らせます。

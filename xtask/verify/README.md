@@ -229,3 +229,13 @@ uv run --no-project --python 3.13 --with ezdxf==1.4.5 python -I xtask/verify/che
 ```
 
 書いたバージョン・単位・既定の表、レイアウトの参照、図形の種類と座標・文字・レイヤを比べ、監査の誤りと修復がないことを確かめます。この照合は、適合テストによるネイティブと wasm のバイト列の一致とは別です。AutoCAD での表示はこの手順に含めません。
+
+## 新しい P21・JWW を照らす
+
+`cargo run -p zumen-abi --example convert_cad_case -- --output <リポジトリ外の出力先>` で、合成 DXF からの変換と再読を検査し、出力を保存します。`check_convert_cad.py <出力先>` は ezjww 0.7.6・ezsxf 0.3.7（どちらも MIT）で、図形の値と文字・表の参照を照らします。入力はすべて自作で、外部のひな形や付属ファイルは使いません。
+
+P21 の文字列のエスケープは既存の検証用の関数で戻します。JWW の線種の列は外部 API が返さず、外部照合は番号まで、自前の再読は長さの列までです。実機表示と規格全体の適合はこの検査に含めません。
+
+```powershell
+uv run --no-project --python 3.13 --with ezjww==0.7.6 --with ezsxf==0.3.7 python -X utf8 xtask/verify/check_convert_cad.py <出力先>
+```

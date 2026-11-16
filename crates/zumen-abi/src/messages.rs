@@ -35,7 +35,7 @@ pub enum Request {
     Create(CreateRequest),
     /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
     Convert(ConvertRequest),
-    /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+    /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
     ConvertEstimate(ConvertEstimateRequest),
     /// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。マイナーバージョン 8 から
     Tables(TablesRequest),
@@ -6522,7 +6522,7 @@ pub struct ConvertRequest {
     pub request_common: RequestCommon,
     /// 書く元の文書の名前。open で作ったもの
     pub doc: String,
-    /// 書く形式の名前（capabilities の formats の id）。dxf・geojson・sima のいずれか
+    /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から
     pub format: String,
     /// 作る文書の名前
     pub to: String,
@@ -6630,14 +6630,14 @@ impl ToJson for ConvertResult {
     }
 }
 
-/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConvertEstimateRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
     /// 書く元の文書の名前
     pub doc: String,
-    /// 書く形式の名前。今は dxf だけ
+    /// 書く形式の名前。dxf・sxf・jww
     pub format: String,
     /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
     pub to: String,

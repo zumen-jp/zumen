@@ -1,20 +1,22 @@
-//! 開いた図面を新しい DXF に書く（決定 0139・0206・0281）。対応する R2004 DWG では共有の表を再符号化する。
+//! 開いた図面を新しい DXF・P21・JWW に書く（決定 0139・0206・0281）。対応する R2004 DWG では共有の表を再符号化する。
 //!
-//! 図面モデルから書く処理（lower）は `zumen-acad` の [`zumen_acad::lower_to_dxf_with`] にある。ここでは、要素の形を
+//! DXF の図面モデルから書く処理（lower）は `zumen-acad` の [`zumen_acad::lower_to_dxf_with`] にある。ここでは、要素の形を
 //! API の形の値（`add` が受けるもの）を通して書く先に移す方法（[`Geometric`]）を渡し、公開の操作の `convert` と
 //! `civil_drawing` が同じ値を書くようにする。
 
-use zumen_acad::{Dxf, DxfFile, Relocate};
+use zumen_acad::{Dxf, Relocate};
 use zumen_base::{Cx, DiagnosticEvents};
 use zumen_drawing::{Drawing2D, ModelPoint, PaperPoint, Shape, Symbol};
 use zumen_sdk::Codec;
 
+use crate::formats::DrawingFile;
 use crate::geometry;
 use crate::session::Failed;
 
 /// 書いたファイルと、足した要素の数
+#[cfg(feature = "drawing")]
 pub(crate) struct Converted {
-    pub(crate) file: DxfFile,
+    pub(crate) file: DrawingFile,
     pub(crate) bytes: Vec<u8>,
     pub(crate) elements: u64,
     pub(crate) report: zumen_acad::ConversionReport,
@@ -22,6 +24,7 @@ pub(crate) struct Converted {
 }
 
 /// R2004 DWG は共有の表を一度だけ読む。再符号化の範囲外なら同じ表から図面モデルを作る。
+#[cfg(feature = "drawing")]
 pub(crate) fn from_r2004(
     source: &zumen_acad::DwgFile,
     limit: u64,
@@ -44,7 +47,7 @@ pub(crate) fn from_r2004(
         zumen_acad::dxf::R2004Conversion::Dxf(encoded) => {
             let file = Dxf::read(&encoded.bytes, cx).map_err(|_| Failed)?;
             Ok(Converted {
-                file,
+                file: DrawingFile::Dxf(file),
                 bytes: encoded.bytes,
                 elements: encoded.elements,
                 report: encoded.report,
@@ -69,11 +72,13 @@ pub(crate) fn from_r2004(
 }
 
 /// 図面モデルを、新しい DXF（R2004）に書く。診断は `zumen-acad` が報告する
+#[cfg(feature = "drawing")]
 pub(crate) fn to_dxf(drawing: &Drawing2D, cx: &mut Cx<'_>) -> Result<Converted, Failed> {
     to_dxf_with_report(drawing, 0, cx)
 }
 
 /// 実変換と同じ書き手から、上限付きの明細も受け取る
+#[cfg(feature = "drawing")]
 pub(crate) fn to_dxf_with_report(
     drawing: &Drawing2D,
     limit: u64,
@@ -82,10 +87,48 @@ pub(crate) fn to_dxf_with_report(
     let lowered =
         zumen_acad::lower_to_dxf_with_report(drawing, &Geometric, limit, cx).map_err(|_| Failed)?;
     Ok(Converted {
-        file: lowered.file,
+        file: DrawingFile::Dxf(lowered.file),
         bytes: lowered.bytes,
         elements: lowered.elements,
         report: lowered.report,
+        input_diagnostics: DiagnosticEvents::default(),
+    })
+}
+
+/// 各形式の L2 書き手を選ぶ。出力モデルとバイト列は同じ書き手が返す。
+#[cfg(feature = "drawing")]
+pub(crate) fn to_format(
+    drawing: &Drawing2D,
+    format: &str,
+    limit: u64,
+    cx: &mut Cx<'_>,
+) -> Result<Converted, Failed> {
+    let (file, bytes, elements, report) = match format {
+        "sxf" => {
+            let out = zumen_sxf::lower_to_p21(drawing, limit, cx).map_err(|_| Failed)?;
+            (
+                DrawingFile::Sxf(out.file, None, None),
+                out.bytes,
+                out.elements,
+                out.report,
+            )
+        }
+        "jww" => {
+            let out = zumen_jww::lower_to_jww(drawing, limit, cx).map_err(|_| Failed)?;
+            (
+                DrawingFile::Jww(out.file),
+                out.bytes,
+                out.elements,
+                out.report,
+            )
+        }
+        _ => return to_dxf_with_report(drawing, limit, cx),
+    };
+    Ok(Converted {
+        file,
+        bytes,
+        elements,
+        report,
         input_diagnostics: DiagnosticEvents::default(),
     })
 }
@@ -154,6 +197,7 @@ fn geometric_fidelity<P>(shape: &Shape<P>) -> zumen_acad::ConversionFidelity {
 }
 
 #[cfg(test)]
+#[cfg(feature = "drawing")]
 mod tests {
     use super::*;
     use zumen_base::{Budget, CancelToken, Diagnostics, Limits, Ref};
@@ -235,8 +279,6 @@ mod tests {
     /// API の移し方でも、符号化できない文字を分けて当て直したあと、用紙の後続の線をすべて残す
     #[test]
     fn the_api_keeps_paper_lines_after_rejected_text() {
-        use zumen_sdk::Lift;
-
         let mut budget = Budget::default();
         let mut diagnostics = Diagnostics::new();
         let cancel = CancelToken::new();
@@ -292,7 +334,6 @@ mod tests {
     #[test]
     fn the_estimate_exposes_spline_parameters_that_the_api_does_not_write() {
         use zumen_drawing::{Edge, KnotParameterization, Spline};
-        use zumen_sdk::Lift;
 
         let mut budget = Budget::default();
         let mut diagnostics = Diagnostics::new();

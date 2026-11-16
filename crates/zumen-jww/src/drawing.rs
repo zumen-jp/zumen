@@ -25,6 +25,7 @@ use crate::{JwwFile, Record, RecordKind};
 
 mod apply;
 pub(crate) mod live;
+pub(super) mod lower;
 
 /// 形式固有の情報の値の型の契約のバージョン。どの `jww.*` の名前空間も同じバージョンにする（決定 0115・0156・0157）
 pub(super) const SCHEMA: u32 = 2;

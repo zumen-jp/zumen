@@ -506,3 +506,7 @@ decimal-separator = "."
 "delivery.edit-path.missing" = "No management item matches step {step} of edit {index}."
 "delivery.edit-hash.stale" = "The management XML hash has changed; no edits were applied."
 "xml.write.failed" = "Could not allocate the XML output buffer."
+
+"convert.item.drawn" = "Changed {count} \"{kind}\" items during conversion to {format} ({reason})."
+
+"convert.item.approximated" = "Changed {count} \"{kind}\" items during conversion to {format} ({reason})."

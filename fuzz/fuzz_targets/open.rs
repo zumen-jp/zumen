@@ -1,5 +1,5 @@
 //! API の `open` の fuzz の target（#517、決定 0262）。`zumen` の `Session` に入力を渡し、`open` で形式を判定して
-//! 開き、開いた文書を図面・建物・土木・地理・点群の op で読む。図面はシーンにし、図面モデルのバイナリと DXF に
+//! 開き、開いた文書を図面・建物・土木・地理・点群の op で読む。図面はシーンにし、図面モデルのバイナリと DXF・P21・JWW に
 //! 書いて読み直す（書き直した文書は、同じ図面なので、シーンにしない）。土木の線形からは図（`civil_drawing`）を作り、
 //! シーンにする。LAS・LAZ は範囲でも読む（決定 0232）。開けない入力は、`format` で名指せる XYZ・拡張 DM と、SXF の図面の
 //! 属性ファイル（SAF、決定 0249）と、文書にしない op（写真・ボーリング交換用データ・成果品）に渡す。
@@ -165,25 +165,27 @@ fn read_drawing(calls: &mut Calls, doc: &str, summary: &Reply, depth: Depth) {
             read(calls, &name, Depth::Copy);
         }
     }
-    // DXF に書く（決定 0139）
-    let to = format!("{doc}.dxf");
-    // 見積もりは同じ出力名を確保せず、後の実変換を妨げない（#645）。明細は小さく制限する。
-    calls.call("convert_estimate", |out| {
-        field(out, "doc", doc);
-        field(out, "format", "dxf");
-        field(out, "to", &to);
-        out.key("limit");
-        out.uint(4);
-    });
-    if calls
-        .call("convert", |out| {
+    // 新しい DXF・P21・JWW に書く（決定 0139・#360）。
+    for format in ["dxf", "sxf", "jww"] {
+        let to = format!("{doc}.{format}");
+        // 見積もりは同じ出力名を確保せず、後の実変換を妨げない（#645）。明細は小さく制限する。
+        calls.call("convert_estimate", |out| {
             field(out, "doc", doc);
-            field(out, "format", "dxf");
+            field(out, "format", format);
             field(out, "to", &to);
-        })
-        .ok
-    {
-        read(calls, &to, Depth::Copy);
+            out.key("limit");
+            out.uint(4);
+        });
+        if calls
+            .call("convert", |out| {
+                field(out, "doc", doc);
+                field(out, "format", format);
+                field(out, "to", &to);
+            })
+            .ok
+        {
+            read(calls, &to, Depth::Copy);
+        }
     }
 }
 

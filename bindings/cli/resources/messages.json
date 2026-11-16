@@ -1358,7 +1358,7 @@
       "properties": {
         "op": { "description": "op の名前", "const": "convert" },
         "doc": { "description": "書く元の文書の名前。open で作ったもの", "type": "string" },
-        "format": { "description": "書く形式の名前（capabilities の formats の id）。dxf・geojson・sima のいずれか", "type": "string" },
+        "format": { "description": "書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から", "type": "string" },
         "to": { "description": "作る文書の名前", "type": "string" }
       },
       "required": ["op", "doc", "format", "to"],
@@ -1377,13 +1377,13 @@
       "additionalProperties": false
     },
     "convert_estimate_request": {
-      "description": "開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から",
+      "description": "開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）",
       "type": "object",
       "allOf": [{ "$ref": "#/$defs/request_common" }],
       "properties": {
         "op": { "description": "op の名前", "const": "convert_estimate" },
         "doc": { "description": "書く元の文書の名前", "type": "string" },
-        "format": { "description": "書く形式の名前。今は dxf だけ", "type": "string" },
+        "format": { "description": "書く形式の名前。dxf・sxf・jww", "type": "string" },
         "to": { "description": "予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない", "type": "string" },
         "limit": { "description": "書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない", "type": "integer", "minimum": 0, "maximum": 1000 }
       },

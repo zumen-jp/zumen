@@ -926,6 +926,36 @@ pub const CONVERT_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 別の形式への変換で値・参照・配置を変えた。種類と変更理由のキーごとに数え、忠実度の詳細は見積もりに返す（#360）
+///
+/// `convert.item.approximated`（0.2.0 から）
+pub const CONVERT_ITEM_APPROXIMATED: Code = Code::new(
+    "convert.item.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[
+        Param::new("format", ParamType::Text),
+        Param::new("kind", ParamType::Key),
+        Param::new("reason", ParamType::Key),
+    ],
+    &["kind", "reason"],
+);
+
+/// 別の形式への変換で値・参照・配置を変えた。種類と変更理由のキーごとに数え、忠実度の詳細は見積もりに返す（#360）
+///
+/// `convert.item.drawn`（0.2.0 から）
+pub const CONVERT_ITEM_DRAWN: Code = Code::new(
+    "convert.item.drawn",
+    Severity::Warning,
+    Some(Fidelity::Drawn),
+    &[
+        Param::new("format", ParamType::Text),
+        Param::new("kind", ParamType::Key),
+        Param::new("reason", ParamType::Key),
+    ],
+    &["kind", "reason"],
+);
+
 /// 新しいファイルへの変換で画層の説明か透過性を出力できず、元の値を落とした。フィールドごとに数える
 ///
 /// `convert.layer-field.dropped`（0.2.0 から）
@@ -5744,6 +5774,8 @@ pub const ALL: &[Code] = &[
     CONVERT_ATTRIBUTE_DRAWN,
     CONVERT_ELEMENT_UNSUPPORTED,
     CONVERT_FORMAT_UNSUPPORTED,
+    CONVERT_ITEM_APPROXIMATED,
+    CONVERT_ITEM_DRAWN,
     CONVERT_LAYER_FIELD_DROPPED,
     CONVERT_VIEW_APPROXIMATED,
     CREATE_FORMAT_UNSUPPORTED,

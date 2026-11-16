@@ -45,6 +45,7 @@ mod style;
 mod symbol;
 mod table;
 mod text;
+pub mod transfer;
 pub mod transform;
 mod underlay;
 mod walk;

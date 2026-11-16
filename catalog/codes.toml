@@ -3831,3 +3831,21 @@ description = "XML の出力の長さを扱えないか、出力の領域を確�
 severity = "error"
 since = "0.0.0"
 status = "active"
+
+[codes."convert.item.drawn"]
+description = "別の形式への変換で値・参照・配置を変えた。種類と変更理由のキーごとに数え、忠実度の詳細は見積もりに返す（#360）"
+severity = "warning"
+fidelity = "drawn"
+params = { format = "text", kind = "key", reason = "key" }
+group-by = ["kind", "reason"]
+since = "0.2.0"
+status = "active"
+
+[codes."convert.item.approximated"]
+description = "別の形式への変換で値・参照・配置を変えた。種類と変更理由のキーごとに数え、忠実度の詳細は見積もりに返す（#360）"
+severity = "warning"
+fidelity = "approximated"
+params = { format = "text", kind = "key", reason = "key" }
+group-by = ["kind", "reason"]
+since = "0.2.0"
+status = "active"

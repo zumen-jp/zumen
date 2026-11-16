@@ -2891,7 +2891,7 @@ class ConvertRequest extends Message {
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
-  /// 書く形式の名前（capabilities の formats の id）。dxf・geojson・sima のいずれか
+  /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から
   String? get format => readField('format', asString);
   set format(String? value) => writeField('format', value);
 
@@ -2925,7 +2925,7 @@ class ConvertResult extends Message {
   set elements(core.int? value) => writeField('elements', value);
 }
 
-/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
 class ConvertEstimateRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ConvertEstimateRequest.fromJson(super.json);
@@ -2961,7 +2961,7 @@ class ConvertEstimateRequest extends Message {
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
-  /// 書く形式の名前。今は dxf だけ
+  /// 書く形式の名前。dxf・sxf・jww
   String? get format => readField('format', asString);
   set format(String? value) => writeField('format', value);
 

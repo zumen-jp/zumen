@@ -24,6 +24,7 @@ use crate::{Mode, Quote, SfcRecord, SxfFile, Value, p21};
 
 mod apply;
 pub mod live;
+pub(super) mod lower;
 
 /// 形式固有の情報の値の型の契約のバージョン。どの `sxf.*` の名前空間も同じバージョンにする（決定 0115・0156・0157）
 const SCHEMA: u32 = 2;

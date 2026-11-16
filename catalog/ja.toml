@@ -506,3 +506,7 @@ decimal-separator = "."
 "delivery.edit-path.missing" = "変更 {index} の経路の {step} 番目に合う管理項目がありません。"
 "delivery.edit-hash.stale" = "管理 XML のハッシュが変わっているので、変更しませんでした。"
 "xml.write.failed" = "XML を書き出すための領域を確保できませんでした。"
+
+"convert.item.drawn" = "「{kind}」を {count} 件、{format} への変換で変更しました（{reason}）。"
+
+"convert.item.approximated" = "「{kind}」を {count} 件、{format} への変換で変更しました（{reason}）。"

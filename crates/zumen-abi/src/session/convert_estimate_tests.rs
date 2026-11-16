@@ -230,7 +230,7 @@ fn estimate_checks_names_formats_and_limits_without_registering_output() {
     let before = seen(&mut session, "source.dxf");
     for (request, code) in [
         (
-            r#"{"v":1,"op":"convert_estimate","doc":"source.dxf","format":"sxf","to":"out.sfc"}"#,
+            r#"{"v":1,"op":"convert_estimate","doc":"source.dxf","format":"dwg","to":"out.dwg"}"#,
             "convert.format.unsupported",
         ),
         (

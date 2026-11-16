@@ -2578,7 +2578,7 @@ type ConvertRequest struct {
 	// 書く元の文書の名前。open で作ったもの
 	Doc *string `json:"doc,omitempty"`
 
-	// 書く形式の名前（capabilities の formats の id）。dxf・geojson・sima のいずれか
+	// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から
 	Format *string `json:"format,omitempty"`
 
 	// 作る文書の名前
@@ -2607,7 +2607,7 @@ type ConvertResult struct {
 	Elements *int64 `json:"elements,omitempty"`
 }
 
-// ConvertEstimateRequest: 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+// ConvertEstimateRequest: 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
 type ConvertEstimateRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -2630,7 +2630,7 @@ type ConvertEstimateRequest struct {
 	// 書く元の文書の名前
 	Doc *string `json:"doc,omitempty"`
 
-	// 書く形式の名前。今は dxf だけ
+	// 書く形式の名前。dxf・sxf・jww
 	Format *string `json:"format,omitempty"`
 
 	// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない

@@ -47,7 +47,7 @@
       "expect": { "/diagnostics/0/code": "call.document.exists", "/blobs": [] }
     },
     {
-      "call": { "v": 1, "op": "convert_estimate", "doc": "input.sfc", "format": "sxf", "to": "out.sfc" },
+      "call": { "v": 1, "op": "convert_estimate", "doc": "input.sfc", "format": "dwg", "to": "out.sfc" },
       "status": "failed",
       "expect": { "/diagnostics/0/code": "convert.format.unsupported", "/blobs": [] }
     },

@@ -88,7 +88,7 @@
         "v": 1,
         "op": "convert",
         "doc": "a.jww",
-        "format": "jww",
+        "format": "dwg",
         "to": "c.jww"
       },
       "expect": {

@@ -4435,7 +4435,7 @@ public struct ConvertRequest: Message {
         set { writeField("doc", newValue) }
     }
 
-    /// 書く形式の名前（capabilities の formats の id）。dxf・geojson・sima のいずれか
+    /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から
     public var format: String? {
         get { readField("format") }
         set { writeField("format", newValue) }
@@ -4488,7 +4488,7 @@ public struct ConvertResult: Message {
     }
 }
 
-/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
+/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
 public struct ConvertEstimateRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -4545,7 +4545,7 @@ public struct ConvertEstimateRequest: Message {
         set { writeField("doc", newValue) }
     }
 
-    /// 書く形式の名前。今は dxf だけ
+    /// 書く形式の名前。dxf・sxf・jww
     public var format: String? {
         get { readField("format") }
         set { writeField("format", newValue) }

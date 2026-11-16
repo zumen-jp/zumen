@@ -163,3 +163,5 @@ node bindings/conformance/generate-font-cases.mjs --check
 ### 3D の建物のシーン
 
 scene3d.json は自作の IFC4 です。共有メッシュ、開口を引く壁、円柱、1e12 の座標、mm の単位、地図変換の元値、階・ID・クラス・箱の積、空の選択、不正な条件、予算停止後の再利用を照らします。全応答・blob のハッシュに加え、各言語で 8 種の件数とインスタンスから要素 ID への参照を確かめます。Rust の合成 Building の試験では元モデルの ID 検索にも照合します。VBA は同じ手順とクラスを用意し、実機の実行状況は #800 の記録と区別します。
+
+`convert_cad` は自作 DXF から P21/JWW への見積もり・実変換・再読を照らします。明細上限によらないハッシュと集計、対応外のスプラインの欠落、作業量・確保量の予算の境界を含みます。`cargo run -p zumen-abi --example convert_cad_case` で入力を作り直します。

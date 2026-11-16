@@ -136,7 +136,7 @@ impl Session {
         self.docs.insert(
             to.clone(),
             Document::Drawing {
-                file: Box::new(DrawingFile::Dxf(converted.file)),
+                file: Box::new(converted.file),
                 hash,
             },
         );

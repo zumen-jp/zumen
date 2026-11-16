@@ -11,6 +11,7 @@
 //!
 //! trait の形は、AutoCAD の系統の試作（#3）で育てている。`Lower` は、別の形式への変換を作るときに足す。
 
+pub mod conversion;
 pub mod ranged;
 mod register;
 mod root;

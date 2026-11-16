@@ -81,6 +81,8 @@
     "convert.attribute.drawn": "Wrote {count} symbol attributes to {format} as text detached from their symbols.",
     "convert.element.unsupported": "Dropped {count} \"{kind}\" items that cannot be written to {format}.",
     "convert.format.unsupported": "Cannot write {format} from another format yet.",
+    "convert.item.approximated": "Changed {count} \"{kind}\" items during conversion to {format} ({reason}).",
+    "convert.item.drawn": "Changed {count} \"{kind}\" items during conversion to {format} ({reason}).",
     "convert.layer-field.dropped": "Dropped the \"{field}\" field from {count} layers during conversion to {format}.",
     "convert.view.approximated": "Wrote {count} views with different horizontal and vertical scales to {format} as paper elements.",
     "create.format.unsupported": "Cannot create an empty {format} document yet.",

@@ -1313,7 +1313,7 @@ export interface ConvertRequest extends RequestCommon {
   op: "convert";
   /** 書く元の文書の名前。open で作ったもの */
   doc: string;
-  /** 書く形式の名前（capabilities の formats の id）。dxf・geojson・sima のいずれか */
+  /** 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から */
   format: string;
   /** 作る文書の名前 */
   to: string;
@@ -1331,13 +1331,13 @@ export interface ConvertResult {
   elements: number;
 }
 
-/** 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から */
+/** 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から） */
 export interface ConvertEstimateRequest extends RequestCommon {
   /** op の名前 */
   op: "convert_estimate";
   /** 書く元の文書の名前 */
   doc: string;
-  /** 書く形式の名前。今は dxf だけ */
+  /** 書く形式の名前。dxf・sxf・jww */
   format: string;
   /** 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない */
   to: string;

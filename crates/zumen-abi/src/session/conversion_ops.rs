@@ -40,7 +40,7 @@ impl Session {
             self.docs.insert(
                 request.to.clone(),
                 Document::Drawing {
-                    file: Box::new(DrawingFile::Dxf(converted.file)),
+                    file: Box::new(converted.file),
                     hash,
                 },
             );
@@ -50,7 +50,7 @@ impl Session {
             }));
             Ok(ConvertResult {
                 doc: request.to.clone(),
-                format: Dxf::FORMAT.to_string(),
+                format: request.format.clone(),
                 hash: hash.to_string(),
                 elements: converted.elements,
             })
@@ -299,7 +299,7 @@ impl Session {
             return Err(fail(cx, invalid_value("/to")));
         }
         self.check_new_document(to, cx)?;
-        if format != Dxf::FORMAT {
+        if !matches!(format, "dxf" | "sxf" | "jww") {
             return Err(fail(
                 cx,
                 Diagnostic::new(codes::CONVERT_FORMAT_UNSUPPORTED).with("format", format),
@@ -309,18 +309,19 @@ impl Session {
             let (source, _) = self.drawing_file(doc, cx)?;
             if let DrawingFile::Dwg(file) = source
                 && file.version() == b"AC1018"
+                && format == Dxf::FORMAT
             {
                 return convert::from_r2004(file, limit, collect_input, cx);
             }
             if !collect_input {
                 let drawing = source.lift(cx).map_err(|_| Failed)?;
-                return convert::to_dxf_with_report(&drawing, limit, cx);
+                return convert::to_format(&drawing, format, limit, cx);
             }
             let (drawing, input_diagnostics) = cx
                 .with_diagnostic_events(limit, |cx| Ok::<_, Stop>(source.lift(cx)))
                 .map_err(|_| Failed)?;
             let drawing = drawing.map_err(|_| Failed)?;
-            let mut converted = convert::to_dxf_with_report(&drawing, limit, cx)?;
+            let mut converted = convert::to_format(&drawing, format, limit, cx)?;
             converted.input_diagnostics = input_diagnostics;
             Ok(converted)
         })?;

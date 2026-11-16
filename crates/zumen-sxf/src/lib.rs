@@ -11,6 +11,8 @@ mod drawing;
 #[cfg(feature = "drawing")]
 pub use drawing::live::SxfLive;
 #[cfg(feature = "drawing")]
+pub use drawing::lower::{Lowered, lower_to_p21};
+#[cfg(feature = "drawing")]
 mod p21;
 #[cfg(feature = "drawing")]
 pub mod saf;

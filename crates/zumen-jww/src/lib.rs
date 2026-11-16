@@ -9,6 +9,8 @@ mod parse;
 
 #[cfg(feature = "drawing")]
 pub use drawing::live::JwwLive;
+#[cfg(feature = "drawing")]
+pub use drawing::lower::{Lowered, lower_to_jww};
 
 use core::ops::Range;
 
