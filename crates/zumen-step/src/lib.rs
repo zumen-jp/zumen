@@ -7,11 +7,13 @@
 mod parse;
 mod text;
 
+use core::num::NonZeroUsize;
 use core::ops::Range;
+use std::sync::{Arc, OnceLock};
 
 use zumen_base::Code;
 
-pub use parse::read;
+pub use parse::{read, read_shared};
 pub use text::decode;
 
 /// 形式ごとの読み方
@@ -51,13 +53,15 @@ pub enum Form {
 }
 
 /// レコード。文か、フィーチャのコメント
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone)]
 pub struct Record {
     span: Range<usize>,
     id: Option<u64>,
-    feature: Option<usize>,
+    feature: Option<NonZeroUsize>,
     form: Form,
-    parts: Vec<Part>,
+    parts: OnceLock<Vec<Part>>,
+    /// 必要時に値を作る読み方だけが持つ、構文を検査済みの不変な入力。
+    source: Option<Arc<Vec<u8>>>,
 }
 
 impl Record {
@@ -73,7 +77,7 @@ impl Record {
 
     /// フィーチャのコメントなら、[`Dialect::features`] の何番目の開きと閉じか。文にはない
     pub fn feature(&self) -> Option<usize> {
-        self.feature
+        self.feature.map(|value| value.get() - 1)
     }
 
     /// 形
@@ -81,9 +85,71 @@ impl Record {
         self.form
     }
 
-    /// 部分。語と名前と引数のものは 1 つ、複合のインスタンスは書いた順
+    /// 部分。語と名前と引数のものは 1 つ、複合のインスタンスは書いた順。
+    /// [`read_shared`] のデータの文は、検査済みの元の入力から初回だけ値を作り、以降は同じ配列を返す。
     pub fn parts(&self) -> &[Part] {
-        &self.parts
+        self.parts.get_or_init(|| match &self.source {
+            Some(source) => parse::materialize(source, self.span.clone()),
+            None => Vec::new(),
+        })
+    }
+
+    /// 値を復元してから、共有している元の入力を手放す。値の範囲は変えない。
+    /// 元の入力を別の保持方法へ移す利用側が、未参照の文も先に復元するために使う。
+    pub fn detach_source(&mut self) {
+        if self.source.is_some() {
+            self.parts();
+            self.source = None;
+        }
+    }
+
+    /// 最初の部分の名前。必要時に値を作る読み方でも引数の配列を作らない。
+    pub fn first_name(&self) -> Option<Range<usize>> {
+        match self.parts.get() {
+            Some(parts) => parts.first().map(Part::name),
+            None => parse::first_name(self.source.as_ref()?, self.span.clone()),
+        }
+    }
+
+    /// 値の中の参照。書いた順で同じものも残し、必要時の値の配列は作らない。
+    pub fn references(&self) -> Vec<u64> {
+        if let Some(source) = &self.source {
+            return parse::references(source, self.span.clone());
+        }
+        let mut found = Vec::new();
+        let mut stack: Vec<&Value> = self.parts().iter().flat_map(Part::args).collect();
+        stack.reverse();
+        while let Some(value) = stack.pop() {
+            match value {
+                Value::Ref(id) => found.push(*id),
+                Value::List(values) => stack.extend(values.iter().rev()),
+                Value::Typed(part) => stack.extend(part.args().iter().rev()),
+                _ => {}
+            }
+        }
+        found
+    }
+}
+
+impl core::fmt::Debug for Record {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Record")
+            .field("span", &self.span)
+            .field("id", &self.id)
+            .field("feature", &self.feature())
+            .field("form", &self.form)
+            .field("parts", &self.parts())
+            .finish()
+    }
+}
+
+impl PartialEq for Record {
+    fn eq(&self, other: &Self) -> bool {
+        self.span == other.span
+            && self.id == other.id
+            && self.feature == other.feature
+            && self.form == other.form
+            && self.parts() == other.parts()
     }
 }
 

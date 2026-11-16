@@ -9,6 +9,7 @@
 
 use core::ops::Range;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use zumen_base::{ByteRange, Diagnostic, Kind, Ref, codes};
 use zumen_sdk::{Codec, Cx, Error, FileModel, RecordInfo, Signature, Stop};
@@ -61,7 +62,7 @@ pub struct Ifc;
 /// 読んだ IFC-SPF。元のバイト列と、レコードと、番号の表
 #[derive(Clone, Debug, PartialEq)]
 pub struct IfcFile {
-    src: Vec<u8>,
+    src: Arc<Vec<u8>>,
     records: Vec<Record>,
     schema: Range<usize>,
     /// インスタンスの番号から、レコードの番号。同じ番号は初めのもの
@@ -107,8 +108,19 @@ impl IfcFile {
     }
 
     #[cfg(feature = "building")]
-    pub(crate) fn into_parts(self) -> (Vec<u8>, Vec<Record>, Range<usize>, BTreeMap<u64, usize>) {
-        (self.src, self.records, self.schema, self.index)
+    pub(crate) fn into_parts(
+        mut self,
+    ) -> (Vec<u8>, Vec<Record>, Range<usize>, BTreeMap<u64, usize>) {
+        // 文書エンジンは元の入力を圧縮する。文が未圧縮の入力を持ち続けないよう先に復元する。
+        for record in &mut self.records {
+            record.detach_source();
+        }
+        (
+            Arc::unwrap_or_clone(self.src),
+            self.records,
+            self.schema,
+            self.index,
+        )
     }
 
     /// 元のバイト列の範囲。外なら空
@@ -147,27 +159,14 @@ impl IfcFile {
     /// 実体の名前（`IFCWALL` など）。複合のインスタンスは最初の部分の名前
     pub fn kind(&self, record: &Record) -> &[u8] {
         record
-            .parts()
-            .first()
-            .map(|part| self.bytes(part.name()))
+            .first_name()
+            .map(|name| self.bytes(name))
             .unwrap_or_default()
     }
 
     /// レコードの値の中の参照。書いた順で、同じものも残す
     pub fn references(&self, record: &Record) -> Vec<u64> {
-        let mut found = Vec::new();
-        // 書いた順に取り出すので、後ろから積む
-        let mut stack: Vec<&Value> = record.parts().iter().flat_map(Part::args).collect();
-        stack.reverse();
-        while let Some(value) = stack.pop() {
-            match value {
-                Value::Ref(id) => found.push(*id),
-                Value::List(values) => stack.extend(values.iter().rev()),
-                Value::Typed(part) => stack.extend(part.args().iter().rev()),
-                _ => {}
-            }
-        }
-        found
+        record.references()
     }
 
     /// 逆向きの参照を作る。参照ごとに `work` を 1 つ数える
@@ -219,7 +218,8 @@ impl Codec for Ifc {
     fn read(src: &[u8], cx: &mut Cx) -> Result<IfcFile, Error> {
         cx.check(Kind::InputBytes, src.len() as u64)
             .map_err(|stop| stopped(cx, stop, None))?;
-        let read = zumen_step::read(src, &DIALECT, cx)?;
+        let owned = Arc::new(src.to_vec());
+        let read = zumen_step::read_shared(Arc::clone(&owned), &DIALECT, cx)?;
         let schema = read.schema.unwrap_or(0..0);
         let name = src.get(schema.clone()).unwrap_or_default();
         let is_ifc = name
@@ -251,7 +251,7 @@ impl Codec for Ifc {
         #[cfg(feature = "building")]
         let text_hint = text::hint(&read.records, src, cx)?;
         let file = IfcFile {
-            src: src.to_vec(),
+            src: owned,
             records: read.records,
             schema,
             index,

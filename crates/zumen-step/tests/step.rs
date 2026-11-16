@@ -35,6 +35,107 @@ ENDSEC;
 END-ISO-10303-21;
 ";
 
+#[test]
+fn shared_references_skip_text_and_comments_and_preserve_order() {
+    let source = b"ISO-10303-21;HEADER;FILE_SCHEMA(('TEST'));ENDSEC;DATA;#1=(A('#8''#9',#2) B(/* #7 */(#2,T(#3)),\"0FF\"));ENDSEC;END-ISO-10303-21;";
+    let exchange = with_cx(Limits::default(), |cx| {
+        zumen_step::read_shared(std::sync::Arc::new(source.to_vec()), &PLAIN, cx)
+    })
+    .0
+    .unwrap();
+    let record = exchange.records.iter().find(|r| r.id() == Some(1)).unwrap();
+    assert_eq!(record.references(), [2, 2, 3]);
+    assert_eq!(&source[record.first_name().unwrap()], b"A");
+    assert_eq!(record.parts().len(), 2);
+    assert_eq!(record.references(), [2, 2, 3]);
+}
+
+#[test]
+fn detaching_records_releases_the_shared_input_and_preserves_values() {
+    use std::sync::Arc;
+    let source = Arc::new(SRC.to_vec());
+    let mut exchange = with_cx(Limits::default(), |cx| {
+        zumen_step::read_shared(Arc::clone(&source), &PLAIN, cx)
+    })
+    .0
+    .unwrap();
+    assert!(Arc::strong_count(&source) > 1);
+    for record in &mut exchange.records {
+        record.detach_source();
+        record.detach_source();
+    }
+    assert_eq!(Arc::strong_count(&source), 1);
+    assert_eq!(exchange, read(SRC, &PLAIN).0.unwrap());
+    let record = exchange.records.iter().find(|r| r.id() == Some(2)).unwrap();
+    assert_eq!(record.references(), [1]);
+}
+
+#[test]
+fn shared_reading_preserves_values_metadata_diagnostics_and_budget_stops() {
+    use std::sync::Arc;
+    let run = |src: &[u8], dialect: &Dialect, limits, shared, cancelled| {
+        let mut budget = Budget::new(limits);
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        if cancelled {
+            cancel.cancel();
+        }
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let result = if shared {
+            zumen_step::read_shared(Arc::new(src.to_vec()), dialect, &mut cx)
+        } else {
+            zumen_step::read(src, dialect, &mut cx)
+        };
+        if let Ok(exchange) = &result {
+            for record in &exchange.records {
+                let name = record.first_name();
+                let references = record.references();
+                assert_eq!(name, record.parts().first().map(|part| part.name()));
+                assert_eq!(references, record.references());
+            }
+        }
+        (
+            result,
+            format!("{diagnostics:?}"),
+            Kind::ALL.map(|k| budget.used(k)),
+        )
+    };
+    for (src, dialect) in [(SRC, &PLAIN), (FEATURE_SRC, &FEATURES)] {
+        for end in 0..=src.len() {
+            assert_eq!(
+                run(&src[..end], dialect, Limits::default(), false, false),
+                run(&src[..end], dialect, Limits::default(), true, false)
+            );
+        }
+        for kind in [Kind::Work, Kind::Records, Kind::Depth] {
+            for value in 0..=100 {
+                let limits = Limits::default().with(kind, Limit::Finite(value));
+                assert_eq!(
+                    run(src, dialect, limits, false, false),
+                    run(src, dialect, limits, true, false)
+                );
+            }
+        }
+        assert_eq!(
+            run(src, dialect, Limits::default(), false, true),
+            run(src, dialect, Limits::default(), true, true)
+        );
+    }
+    let eager = read(SRC, &PLAIN).0.unwrap();
+    let mut source = Arc::new(SRC.to_vec());
+    let shared = with_cx(Limits::default(), |cx| {
+        zumen_step::read_shared(Arc::clone(&source), &PLAIN, cx)
+    })
+    .0
+    .unwrap();
+    // 呼び出し側が元の Arc を書き換えて捨てても、文の復元元は変わらない。
+    Arc::make_mut(&mut source).fill(b'!');
+    drop(source);
+    let cloned = shared.clone();
+    assert_eq!(shared, eager);
+    assert_eq!(cloned, eager);
+}
+
 fn with_cx<T>(limits: Limits, f: impl FnOnce(&mut Cx) -> T) -> (T, Diagnostics) {
     let mut budget = Budget::new(limits);
     let mut diag = Diagnostics::new();

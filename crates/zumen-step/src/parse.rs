@@ -1,6 +1,7 @@
 //! ISO 10303-21 の交換構造と、フィーチャのコメントを、レコードに分けて読む（決定 0120）。
 
 use core::ops::Range;
+use std::sync::{Arc, OnceLock};
 
 use zumen_base::{Cx, Diagnostic, Error, Kind, Ref, Stop};
 
@@ -39,11 +40,27 @@ const END: &[u8] = b"END-ISO-10303-21";
 /// 交換構造を読む。始まり・`DATA` の節・終わりのどれかがなければ、[`Dialect::file_invalid`] を報告して読めない
 /// とする。読めない文とコメントは [`Dialect::record_invalid`] を報告して飛ばす。レコードは予算のレコードで数える
 pub fn read(src: &[u8], dialect: &Dialect, cx: &mut Cx) -> Result<Exchange, Error> {
+    read_inner(src, None, dialect, cx)
+}
+
+/// 不変な入力を共有し、データの文の値を必要時に作る。構文・深さ・作業量は読むときに検査する。
+/// ヘッダーと形式固有のフィーチャは従来どおり所有する。値を取り出す最大作業量は元の文の長さで制限する。
+pub fn read_shared(src: Arc<Vec<u8>>, dialect: &Dialect, cx: &mut Cx) -> Result<Exchange, Error> {
+    read_inner(&src, Some(&src), dialect, cx)
+}
+
+fn read_inner(
+    src: &[u8],
+    source: Option<&Arc<Vec<u8>>>,
+    dialect: &Dialect,
+    cx: &mut Cx,
+) -> Result<Exchange, Error> {
     let mut p = Parser {
         src,
         pos: 0,
         end: src.len(),
         in_feature: false,
+        retain_values: true,
     };
     let mut records = Vec::new();
     let mut section = Section::Start;
@@ -76,7 +93,8 @@ pub fn read(src: &[u8], dialect: &Dialect, cx: &mut Cx) -> Result<Exchange, Erro
             }
             continue;
         }
-        let record = match p.statement(cx) {
+        p.retain_values = source.is_none() || section != Section::Data || p.peek() != Some(b'#');
+        let mut record = match p.statement(cx) {
             Ok(record) => record,
             Err(Fail::Stop(stop)) => return Err(stopped(cx, stop, Some(start..p.pos))),
             Err(Fail::Syntax) if section == Section::Start => {
@@ -89,7 +107,7 @@ pub fn read(src: &[u8], dialect: &Dialect, cx: &mut Cx) -> Result<Exchange, Erro
             }
         };
         let name = record
-            .parts
+            .parts()
             .first()
             .and_then(|part| src.get(part.name()))
             .unwrap_or_default();
@@ -112,10 +130,18 @@ pub fn read(src: &[u8], dialect: &Dialect, cx: &mut Cx) -> Result<Exchange, Erro
             Section::Outside if name == b"FILE_SCHEMA" => schema = first_text(&record),
             _ => {}
         }
+        if !p.retain_values {
+            record.parts = OnceLock::new();
+            record.source = source.cloned();
+        }
         push(&mut records, record, cx)?;
     }
     if !saw_data || section != Section::Done {
         return Err(file_invalid(cx, dialect));
+    }
+    if source.is_some() {
+        // 利用側が番号の索引を作る前に、文の配列の余分な容量を戻す。
+        records.shrink_to_fit();
     }
     Ok(Exchange {
         records,
@@ -155,14 +181,16 @@ fn feature(p: &mut Parser, dialect: &Dialect, cx: &mut Cx) -> Result<Option<Reco
         pos: start + open.len(),
         end: closing,
         in_feature: true,
+        retain_values: true,
     };
     match inner.feature(cx) {
         Ok((id, part)) => Ok(Some(Record {
             span,
             id: Some(id),
-            feature: Some(index),
+            feature: core::num::NonZeroUsize::new(index + 1),
             form: Form::Entity,
-            parts: vec![part],
+            parts: OnceLock::from(vec![part]),
+            source: None,
         })),
         Err(Fail::Syntax) => {
             invalid(cx, dialect, span);
@@ -196,7 +224,7 @@ fn stopped(cx: &mut Cx, stop: Stop, place: Option<Range<usize>>) -> Error {
 
 /// 最初の引数の並びの、最初の文字列
 fn first_text(record: &Record) -> Option<Range<usize>> {
-    match record.parts.first()?.args.first()? {
+    match record.parts().first()?.args.first()? {
         Value::List(items) => match items.first()? {
             Value::Text { raw, .. } => Some(raw.clone()),
             _ => None,
@@ -232,6 +260,84 @@ fn is_name(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'
 }
 
+/// ここへ来る範囲は同じパーサーで検査済みで、Arc が持つ入力は変更できない。
+/// 検査で値ごとに予約した作業を一度だけ行う。文のバイト数より値と入れ子が多くなることはない。
+#[allow(
+    clippy::expect_used,
+    reason = "同じ不変な文を同じパーサーで検査済み。再走査の上限は文の長さ以上"
+)]
+pub(crate) fn materialize(src: &[u8], span: Range<usize>) -> Vec<Part> {
+    use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
+    let length = span.len() as u64;
+    let limits = Limits::default()
+        .with(Kind::Work, Limit::Finite(length))
+        .with(Kind::Depth, Limit::Finite(length));
+    let mut parser = Parser {
+        src,
+        pos: span.start,
+        end: span.end,
+        in_feature: false,
+        retain_values: true,
+    };
+    let mut budget = Budget::new(limits);
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let record = parser
+        .statement(&mut Cx::new(&mut budget, &mut diagnostics, &cancel))
+        .map_err(|_| "検査済みの STEP の文を復元できない")
+        .expect("不変な STEP の文の再走査");
+    record.parts.into_inner().unwrap_or_default()
+}
+
+fn after_id(src: &[u8], span: Range<usize>) -> Result<Parser<'_>, Fail> {
+    let mut parser = Parser {
+        src,
+        pos: span.start,
+        end: span.end,
+        in_feature: false,
+        retain_values: false,
+    };
+    parser.expect(b'#')?;
+    parser.number()?;
+    parser.expect(b'=')?;
+    parser.skip_space();
+    Ok(parser)
+}
+
+pub(crate) fn first_name(src: &[u8], span: Range<usize>) -> Option<Range<usize>> {
+    let mut parser = after_id(src, span).ok()?;
+    if parser.peek() == Some(b'(') {
+        parser.pos += 1;
+    }
+    parser.name().ok()
+}
+
+pub(crate) fn references(src: &[u8], span: Range<usize>) -> Vec<u64> {
+    let Ok(mut parser) = after_id(src, span) else {
+        return Vec::new();
+    };
+    let mut result = Vec::new();
+    while parser.pos < parser.end {
+        parser.skip_space();
+        match parser.peek() {
+            Some(b'\'') => {
+                if parser.plain().is_err() {
+                    break;
+                }
+            }
+            Some(b'#') => {
+                parser.pos += 1;
+                if let Ok(id) = parser.number() {
+                    result.push(id);
+                }
+            }
+            Some(_) => parser.pos += 1,
+            None => break,
+        }
+    }
+    result
+}
+
 struct Parser<'s> {
     src: &'s [u8],
     pos: usize,
@@ -239,6 +345,7 @@ struct Parser<'s> {
     end: usize,
     /// フィーチャのコメントの中か
     in_feature: bool,
+    retain_values: bool,
 }
 
 impl Parser<'_> {
@@ -330,15 +437,20 @@ impl Parser<'_> {
         let (form, parts) = if id.is_some() && self.peek() == Some(b'(') {
             self.pos += 1;
             let mut parts = Vec::new();
+            let mut had_part = false;
             loop {
                 self.skip_space();
                 if self.peek() == Some(b')') {
                     self.pos += 1;
                     break;
                 }
-                parts.push(self.part(cx)?);
+                let part = self.part(cx)?;
+                had_part = true;
+                if self.retain_values {
+                    parts.push(part);
+                }
             }
-            if parts.is_empty() {
+            if !had_part {
                 return Err(Fail::Syntax);
             }
             (Form::Complex, parts)
@@ -347,7 +459,12 @@ impl Parser<'_> {
             self.skip_space();
             if self.peek() == Some(b'(') {
                 let args = self.list(cx)?;
-                (Form::Entity, vec![Part { name, args }])
+                let parts = if self.retain_values {
+                    vec![Part { name, args }]
+                } else {
+                    Vec::new()
+                };
+                (Form::Entity, parts)
             } else if id.is_none() {
                 (
                     Form::Keyword,
@@ -366,7 +483,8 @@ impl Parser<'_> {
             id,
             feature: None,
             form,
-            parts,
+            parts: OnceLock::from(parts),
+            source: None,
         })
     }
 
@@ -407,7 +525,10 @@ impl Parser<'_> {
             return Ok(items);
         }
         loop {
-            items.push(self.value(cx)?);
+            let value = self.value(cx)?;
+            if self.retain_values {
+                items.push(value);
+            }
             self.skip_space();
             match self.peek() {
                 Some(b',') => self.pos += 1,

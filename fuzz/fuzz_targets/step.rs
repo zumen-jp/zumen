@@ -62,6 +62,12 @@ fuzz_target!(|data: &[u8]| {
     let read = zumen_sdk::testkit::survives_with(data, |src, cx| {
         let plain = zumen_step::read(src, &PLAIN, cx)?;
         let features = zumen_step::read(src, &FEATURES, cx)?;
+        let shared = zumen_step::read_shared(std::sync::Arc::new(src.to_vec()), &PLAIN, cx)?;
+        for (a, b) in plain.records.iter().zip(&shared.records) {
+            assert_eq!(a.first_name(), b.first_name());
+            assert_eq!(a.references(), b.references());
+        }
+        assert_eq!(plain, shared);
         Ok(decode_all(src, &plain) + decode_all(src, &features))
     });
     if let Err(message) = read {
