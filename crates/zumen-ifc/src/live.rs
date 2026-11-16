@@ -13,8 +13,9 @@ use std::sync::Arc;
 
 use zumen_base::{Diagnostic, Diagnostics, Kind, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, Grid, Hash, Identity, Literal, Measured, Opening, Properties,
-    Property, PropertySet, Quantities, Quantity, QuantitySet, RelationSource, TypedValue, Unit,
+    Building, DetailedProperty, DetailedPropertySet, ElementRef, GlobalId, Grid, Hash, Identity,
+    Literal, Measured, Opening, Properties, Property, PropertyDetailValue, PropertyDetails,
+    PropertySet, Quantities, Quantity, QuantitySet, RelationSource, TypedValue, Unit,
 };
 #[cfg(feature = "ids")]
 use zumen_ids::{AttributeValue, Lookup, Missing};
@@ -27,8 +28,8 @@ use zumen_sdk::Stop;
 use zumen_sdk::{Codec, Cx, Error};
 
 use crate::building::{
-    Category, MEASURES, QUANTITIES, Version, arg, category, decode, lift_with_units, reference,
-    refs,
+    Category, QUANTITIES, Version, arg, category, decode, lift_with_units, measure_types,
+    reference, refs,
 };
 use crate::edit::{
     Edit, Item, NewValue, RootAttribute, Stmt, refs_in, refs_of, stmt_from_slice, swap, text,
@@ -104,36 +105,220 @@ fn item_heap_bytes(item: &Item) -> usize {
 
 #[derive(Clone, Debug)]
 struct ElementSnap {
+    copy_bytes: usize,
     identity: Option<Identity>,
     has_level: bool,
     level_name: Option<String>,
     properties: Option<Properties>,
+    property_details: Option<PropertyDetails>,
     quantities: Option<Quantities>,
     relations: Vec<RelationSource>,
 }
 
 impl ElementSnap {
     fn heap_bytes(&self) -> usize {
-        let id_bytes = self.identity.as_ref().map_or(0, |id| {
-            id.name.as_ref().map_or(0, String::capacity)
-                + id.description.as_ref().map_or(0, String::capacity)
-                + id.tag.as_ref().map_or(0, String::capacity)
-                + id.long_name.as_ref().map_or(0, String::capacity)
-        });
-        let prop_bytes = self
-            .properties
-            .as_ref()
-            .map_or(0, |p| p.sets.capacity() * 48);
-        let qty_bytes = self
-            .quantities
-            .as_ref()
-            .map_or(0, |q| q.sets.capacity() * 72);
-        let rel_bytes = self.relations.capacity() * 48;
-        id_bytes
-            + self.level_name.as_ref().map_or(0, String::capacity)
-            + prop_bytes
-            + qty_bytes
-            + rel_bytes
+        self.copy_bytes
+    }
+
+    fn check_copy(&self, cx: &mut Cx) -> Result<usize, Error> {
+        ElementSnapRef {
+            identity: self.identity.as_ref(),
+            level_name: self.level_name.as_deref(),
+            properties: self.properties.as_ref(),
+            property_details: self.property_details.as_ref(),
+            quantities: self.quantities.as_ref(),
+            relations: &self.relations,
+        }
+        .check_copy(cx)
+    }
+}
+
+struct ElementSnapRef<'a> {
+    identity: Option<&'a Identity>,
+    level_name: Option<&'a str>,
+    properties: Option<&'a Properties>,
+    property_details: Option<&'a PropertyDetails>,
+    quantities: Option<&'a Quantities>,
+    relations: &'a [RelationSource],
+}
+
+impl ElementSnapRef<'_> {
+    fn check_copy(&self, cx: &mut Cx) -> Result<usize, Error> {
+        let mut copy = ModelCopy::new(cx);
+        copy.add(512)?;
+        if let Some(id) = self.identity {
+            for text in [&id.name, &id.description, &id.tag, &id.long_name] {
+                copy.text(text.as_deref())?;
+            }
+        }
+        copy.text(self.level_name)?;
+        if let Some(props) = self.properties {
+            for set in &props.sets {
+                copy.property_set(set)?;
+            }
+        }
+        if let Some(details) = self.property_details {
+            for set in &details.sets {
+                copy.detail_set(set)?;
+            }
+        }
+        if let Some(qtys) = self.quantities {
+            for set in &qtys.sets {
+                copy.quantity_set(set)?;
+            }
+        }
+        for relation in self.relations {
+            copy.add(64)?;
+            copy.text(relation.global_id.as_deref())?;
+        }
+        Ok(copy.bytes)
+    }
+}
+
+/// モデルのコピー前に、容量やポインター幅によらない論理サイズと作業量を数える。
+/// 履歴には検査済みのサイズを持ち、履歴の集計で値の木を走査し直さない。
+struct ModelCopy<'a, 'b> {
+    cx: &'a mut Cx<'b>,
+    bytes: usize,
+}
+
+impl<'a, 'b> ModelCopy<'a, 'b> {
+    fn new(cx: &'a mut Cx<'b>) -> Self {
+        Self { cx, bytes: 0 }
+    }
+
+    fn add(&mut self, bytes: usize) -> Result<(), Error> {
+        self.cx
+            .check(Kind::Work, 1 + bytes.div_ceil(1024) as u64)
+            .map_err(|stop| stopped(self.cx, stop, None))?;
+        self.cx
+            .check(Kind::DecodedBytes, bytes as u64)
+            .map_err(|stop| stopped(self.cx, stop, None))?;
+        self.bytes = self.bytes.saturating_add(bytes);
+        Ok(())
+    }
+
+    fn text(&mut self, text: Option<&str>) -> Result<(), Error> {
+        if let Some(text) = text {
+            self.add(text.len())?;
+        }
+        Ok(())
+    }
+
+    fn unit(&mut self, unit: Option<&Unit>) -> Result<(), Error> {
+        if let Some(unit) = unit {
+            self.add(128)?;
+            self.text(Some(&unit.kind))?;
+            self.text(unit.prefix.as_deref())?;
+            self.text(Some(&unit.name))?;
+        }
+        Ok(())
+    }
+
+    fn typed(&mut self, value: &TypedValue) -> Result<(), Error> {
+        self.add(128)?;
+        self.text(value.type_name.as_deref())?;
+        self.literal(&value.value)
+    }
+
+    fn literal(&mut self, value: &Literal) -> Result<(), Error> {
+        self.add(64)?;
+        match value {
+            Literal::Text(text) | Literal::Enumeration(text) => self.text(Some(text)),
+            Literal::List(values) => {
+                self.cx
+                    .enter()
+                    .map_err(|stop| stopped(self.cx, stop, None))?;
+                let result = values.iter().try_for_each(|value| self.literal(value));
+                self.cx.leave();
+                result
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn property_set(&mut self, set: &PropertySet) -> Result<(), Error> {
+        self.add(128)?;
+        self.text(Some(&set.name))?;
+        for property in &set.properties {
+            self.add(256)?;
+            self.text(Some(&property.name))?;
+            if let Some(value) = &property.value {
+                self.typed(value)?;
+            }
+            self.unit(property.unit.as_ref())?;
+        }
+        Ok(())
+    }
+
+    fn detail_set(&mut self, set: &DetailedPropertySet) -> Result<(), Error> {
+        self.add(128)?;
+        self.text(Some(&set.name))?;
+        self.text(set.description.as_deref())?;
+        for property in &set.properties {
+            self.detail_property(property)?;
+        }
+        Ok(())
+    }
+
+    fn detail_property(&mut self, property: &DetailedProperty) -> Result<(), Error> {
+        self.add(512)?;
+        self.text(Some(&property.name))?;
+        self.text(property.description.as_deref())?;
+        match &property.value {
+            PropertyDetailValue::Single { value, unit } => {
+                if let Some(value) = value {
+                    self.typed(value)?;
+                }
+                self.unit(unit.as_ref())?;
+            }
+            PropertyDetailValue::List { values, unit } => {
+                for value in values.iter().flatten() {
+                    self.typed(value)?;
+                }
+                self.unit(unit.as_ref())?;
+            }
+            PropertyDetailValue::Enumerated { values, choices } => {
+                for value in values.iter().flatten() {
+                    self.typed(value)?;
+                }
+                if let Some(choices) = choices {
+                    self.add(256)?;
+                    self.text(Some(&choices.name))?;
+                    for value in &choices.values {
+                        self.typed(value)?;
+                    }
+                    self.unit(choices.unit.as_ref())?;
+                }
+            }
+            PropertyDetailValue::Bounded {
+                lower,
+                upper,
+                set_point,
+                unit,
+            } => {
+                for value in [lower, upper, set_point].into_iter().flatten() {
+                    self.typed(value)?;
+                }
+                self.unit(unit.as_ref())?;
+            }
+            PropertyDetailValue::Complex { usage_name } => self.text(Some(usage_name))?,
+            PropertyDetailValue::Unsupported { kind } => self.text(Some(kind))?,
+        }
+        Ok(())
+    }
+
+    fn quantity_set(&mut self, set: &QuantitySet) -> Result<(), Error> {
+        self.add(128)?;
+        self.text(Some(&set.name))?;
+        self.text(set.method.as_deref())?;
+        for quantity in &set.quantities {
+            self.add(256)?;
+            self.text(Some(&quantity.name))?;
+            self.text(quantity.formula.as_deref())?;
+            self.unit(quantity.value.unit.as_ref())?;
+        }
+        Ok(())
     }
 }
 
@@ -152,6 +337,16 @@ struct IfcPatch {
     after_next: u64,
     project_name: Option<(Option<String>, Option<String>)>,
     element_diffs: Vec<ElementSnapDiff>,
+}
+
+impl IfcPatch {
+    fn check_model_restore(&self, forward: bool, cx: &mut Cx) -> Result<(), Error> {
+        // 履歴や版を変える前に、後処理で戻すモデルのコピーを検査する。
+        for diff in &self.element_diffs {
+            if forward { &diff.after } else { &diff.before }.check_copy(cx)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -574,10 +769,17 @@ impl IfcLive {
         for diff in &shared_patch.0.element_diffs {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, None))?;
-            let new_srcs = if diff.before.properties != diff.after.properties {
+            let new_srcs = if diff.before.properties != diff.after.properties
+                || diff.before.property_details != diff.after.property_details
+            {
                 let mut combined =
                     copy_dep_sources(self.base_dep_sources.get(diff.element.0 as usize), cx)?;
                 collect_property_element_refs(diff.after.properties.as_ref(), &mut combined, cx)?;
+                collect_detail_element_refs(
+                    diff.after.property_details.as_ref(),
+                    &mut combined,
+                    cx,
+                )?;
                 cx.check(Kind::Work, combined.len() as u64)
                     .map_err(|stop| stopped(cx, stop, None))?;
                 cx.check(
@@ -592,6 +794,7 @@ impl IfcLive {
             updated_rows.push((diff.element, new_srcs));
         }
 
+        shared_patch.0.check_model_restore(true, cx)?;
         let side = SideIndexes {
             grid: None,
             dirty_rows: Some(&mut self.dirty_rows),
@@ -634,6 +837,11 @@ impl IfcLive {
 
     /// 直前の変更を取り消す。取り消したら `Ok(true)`、履歴が空なら `Ok(false)` を返す
     pub fn undo(&mut self, cx: &mut Cx) -> Result<bool, Error> {
+        if let Some(txn) = self.history.last_undo() {
+            for patch in txn.patches() {
+                patch.0.check_model_restore(false, cx)?;
+            }
+        }
         let side = SideIndexes {
             grid: None,
             dirty_rows: Some(&mut self.dirty_rows),
@@ -652,6 +860,11 @@ impl IfcLive {
 
     /// 取り消した変更をやり直す。やり直したら `Ok(true)`、履歴が空なら `Ok(false)` を返す
     pub fn redo(&mut self, cx: &mut Cx) -> Result<bool, Error> {
+        if let Some(txn) = self.history.last_redo() {
+            for patch in txn.patches() {
+                patch.0.check_model_restore(true, cx)?;
+            }
+        }
         let side = SideIndexes {
             grid: None,
             dirty_rows: Some(&mut self.dirty_rows),
@@ -783,20 +996,39 @@ impl IfcLive {
         })
     }
 
-    fn snapshot_element(&self, element: ElementRef) -> ElementSnap {
+    fn snapshot_element(&self, element: ElementRef, cx: &mut Cx) -> Result<ElementSnap, Error> {
         let level_entry = self.building.components.level.get(element);
-        ElementSnap {
+        let view = ElementSnapRef {
+            identity: self.building.components.identity.get(element),
+            level_name: level_entry.and_then(|level| level.name.as_deref()),
+            properties: self.building.components.properties.get(element),
+            property_details: self.building.components.property_details.get(element),
+            quantities: self.building.components.quantities.get(element),
+            relations: self
+                .building
+                .element(element)
+                .map_or(&[], |e| &e.source().relations),
+        };
+        let copy_bytes = view.check_copy(cx)?;
+        Ok(ElementSnap {
+            copy_bytes,
             identity: self.building.components.identity.get(element).cloned(),
             has_level: level_entry.is_some(),
             level_name: level_entry.and_then(|l| l.name.clone()),
             properties: self.building.components.properties.get(element).cloned(),
+            property_details: self
+                .building
+                .components
+                .property_details
+                .get(element)
+                .cloned(),
             quantities: self.building.components.quantities.get(element).cloned(),
             relations: self
                 .building
                 .element(element)
                 .map(|e| e.source().relations.clone())
                 .unwrap_or_default(),
-        }
+        })
     }
 
     fn restore_element_snap(&mut self, element: ElementRef, snap: &ElementSnap) {
@@ -837,6 +1069,17 @@ impl IfcLive {
             }
             _ => {
                 self.building.components.quantities.remove(element);
+            }
+        }
+        match &snap.property_details {
+            Some(details) if !details.sets.is_empty() => {
+                self.building
+                    .components
+                    .property_details
+                    .insert(element, details.clone());
+            }
+            _ => {
+                self.building.components.property_details.remove(element);
             }
         }
         if let Some(src) = self.building.source_mut(element) {
@@ -929,6 +1172,8 @@ struct OverlayDraft<'a> {
     minted: u64,
     affected_identity: BTreeSet<ElementRef>,
     affected_defs: BTreeSet<ElementRef>,
+    copied_sets: BTreeMap<u64, u64>,
+    copied_properties: BTreeMap<u64, u64>,
     project_name_after: Option<Option<String>>,
 }
 
@@ -945,6 +1190,8 @@ impl<'a> OverlayDraft<'a> {
             minted: 0,
             affected_identity: BTreeSet::new(),
             affected_defs: BTreeSet::new(),
+            copied_sets: BTreeMap::new(),
+            copied_properties: BTreeMap::new(),
             project_name_after: None,
         }
     }
@@ -1066,8 +1313,8 @@ impl<'a> OverlayDraft<'a> {
             if attribute == RootAttribute::Name && self.live.first_project_id == Some(element) {
                 self.project_name_after = Some(value.map(str::to_owned));
             }
-        } else if attribute == RootAttribute::Name
-            && (stmt_name == b"IFCPROPERTYSET" || stmt_name == b"IFCELEMENTQUANTITY")
+        } else if stmt_name == b"IFCPROPERTYSET"
+            || (attribute == RootAttribute::Name && stmt_name == b"IFCELEMENTQUANTITY")
         {
             for holder in self.referrers(element) {
                 cx.check(Kind::Work, 1)
@@ -1127,7 +1374,7 @@ impl<'a> OverlayDraft<'a> {
                 if exclusive {
                     pset
                 } else {
-                    self.copy_set(element, &owner, holder, pset, typed_object)
+                    self.copy_set(element, &owner, holder, pset, typed_object, cx)?
                 }
             }
             None => self.new_set(element, &owner, set, typed_object),
@@ -1191,22 +1438,29 @@ impl<'a> OverlayDraft<'a> {
         holder: u64,
         pset: u64,
         typed_object: bool,
-    ) -> u64 {
+        cx: &mut Cx,
+    ) -> Result<u64, Error> {
         let Some(mut copy) = self.stmt(pset) else {
-            return pset;
+            return Ok(pset);
         };
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        cx.check(Kind::DecodedBytes, 64)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        let original = self.copied_sets.get(&pset).copied().unwrap_or(pset);
         copy.set(1, self.global_id());
         let copy = self.add(copy);
+        self.copied_sets.insert(copy, original);
         if typed_object {
             if let Some(mut stmt) = self.stmt(holder) {
                 let sets = swap(stmt.arg(6), pset, copy);
                 stmt.set(6, sets);
                 self.put(holder, stmt);
             }
-            return copy;
+            return Ok(copy);
         }
         let Some(mut rel) = self.stmt(holder) else {
-            return copy;
+            return Ok(copy);
         };
         if refs_of(rel.arg(5)) == [element] {
             let sets = swap(rel.arg(6), pset, copy);
@@ -1236,7 +1490,7 @@ impl<'a> OverlayDraft<'a> {
             let history = owner.arg(2).cloned().unwrap_or(Item::Raw(b"$".to_vec()));
             self.relate(element, copy, history);
         }
-        copy
+        Ok(copy)
     }
 
     fn new_set(&mut self, element: u64, owner: &Stmt, set: &str, typed_object: bool) -> u64 {
@@ -1325,7 +1579,17 @@ impl<'a> OverlayDraft<'a> {
                 if self.referrers(property) == [pset] {
                     self.put(property, stmt);
                 } else {
+                    cx.check(Kind::Work, 1)
+                        .map_err(|stop| stopped(cx, stop, None))?;
+                    cx.check(Kind::DecodedBytes, 64)
+                        .map_err(|stop| stopped(cx, stop, None))?;
+                    let original = self
+                        .copied_properties
+                        .get(&property)
+                        .copied()
+                        .unwrap_or(property);
                     let copy = self.add(stmt);
+                    self.copied_properties.insert(copy, original);
                     let properties = swap(set.arg(5), property, copy);
                     set.set(5, properties);
                     self.put(pset, set);
@@ -1393,42 +1657,55 @@ impl<'a> OverlayDraft<'a> {
     fn read_definition_set(
         &self,
         set_id: u64,
+        element: ElementRef,
         cx: &mut Cx,
     ) -> Result<Option<LiveDefinition>, Error> {
         cx.check(Kind::Work, 1)
             .map_err(|stop| stopped(cx, stop, None))?;
         let kind = self.kind(set_id);
         if kind == b"IFCPROPERTYSET" {
-            let Some((name, prop_ids)) = self.with_parsed_or_base(set_id, |rec, base, slice| {
-                let n = slice_text(arg(rec, 3), base, slice).unwrap_or_default();
-                let ids = refs(arg(rec, 5));
-                (n, ids)
-            }) else {
+            let Some((name, prop_ids)) = self
+                .with_parsed_or_base(set_id, |rec, base, slice| {
+                    check_model_record(rec, slice, cx)?;
+                    let n = slice_text(arg(rec, 3), base, slice).unwrap_or_default();
+                    let ids = refs(arg(rec, 5));
+                    Ok::<_, Error>((n, ids))
+                })
+                .transpose()?
+            else {
                 return Ok(None);
             };
             let mut properties = Vec::with_capacity(prop_ids.len());
-            for prop_id in prop_ids {
+            for &prop_id in &prop_ids {
                 cx.check(Kind::Work, 1)
                     .map_err(|stop| stopped(cx, stop, None))?;
-                if self.kind(prop_id) != b"IFCPROPERTYSINGLEVALUE" {
+                if !matches!(
+                    self.kind(prop_id).as_slice(),
+                    b"IFCPROPERTYSINGLEVALUE"
+                        | b"IFCPROPERTYLISTVALUE"
+                        | b"IFCPROPERTYENUMERATEDVALUE"
+                ) {
                     continue;
                 }
-                if let Some(prop) = self.read_single_property(prop_id) {
+                if let Some(prop) = self.read_property(prop_id, cx)? {
                     properties.push(prop);
                 }
             }
-            Ok(Some(LiveDefinition::Properties(PropertySet {
-                name,
-                properties,
-            })))
+            let details = self.read_property_details(set_id, element, &name, &prop_ids, cx)?;
+            Ok(Some(LiveDefinition::Properties(
+                PropertySet { name, properties },
+                details,
+            )))
         } else if kind == b"IFCELEMENTQUANTITY" {
-            let Some((name, method, qty_ids)) =
-                self.with_parsed_or_base(set_id, |rec, base, slice| {
+            let Some((name, method, qty_ids)) = self
+                .with_parsed_or_base(set_id, |rec, base, slice| {
+                    check_model_record(rec, slice, cx)?;
                     let n = slice_text(arg(rec, 3), base, slice).unwrap_or_default();
                     let m = slice_text(arg(rec, 5), base, slice);
                     let ids = refs(arg(rec, 6));
-                    (n, m, ids)
+                    Ok::<_, Error>((n, m, ids))
                 })
+                .transpose()?
             else {
                 return Ok(None);
             };
@@ -1436,7 +1713,7 @@ impl<'a> OverlayDraft<'a> {
             for qty_id in qty_ids {
                 cx.check(Kind::Work, 1)
                     .map_err(|stop| stopped(cx, stop, None))?;
-                if let Some(qty) = self.read_single_quantity(qty_id) {
+                if let Some(qty) = self.read_single_quantity(qty_id, cx)? {
                     quantities.push(qty);
                 }
             }
@@ -1450,61 +1727,272 @@ impl<'a> OverlayDraft<'a> {
         }
     }
 
-    fn read_single_property(&self, prop_id: u64) -> Option<Property> {
+    fn read_property(&self, prop_id: u64, cx: &mut Cx) -> Result<Option<Property>, Error> {
+        let kind = self.kind(prop_id);
+        let enumerated = kind == b"IFCPROPERTYENUMERATEDVALUE";
+        let list = enumerated || kind == b"IFCPROPERTYLISTVALUE";
         self.with_parsed_or_base(prop_id, |rec, base, slice| {
+            check_model_record(rec, slice, cx)?;
             let name = slice_text(arg(rec, 1), base, slice).unwrap_or_default();
             let value = match arg(rec, 3) {
                 None | Some(Value::Null) => None,
+                Some(v) if list => self.slice_property_values(v, base, slice),
                 Some(v) => self.slice_typed_value(v, base, slice),
             };
-            let unit = match reference(arg(rec, 4)) {
-                Some(unit_id) => self.live.units.get(&unit_id).and_then(Clone::clone),
-                None => value
+            let unit_id = if enumerated {
+                match arg(rec, 4) {
+                    None | Some(Value::Null) => Ok(None),
+                    other => reference(other)
+                        .filter(|&id| self.kind(id) == b"IFCPROPERTYENUMERATION")
+                        .and_then(|id| {
+                            self.with_parsed_or_base(id, |rec, _, _| match arg(rec, 3) {
+                                Some(Value::Null) => Ok(None),
+                                other => reference(other).map(Some).ok_or(()),
+                            })
+                        })
+                        .unwrap_or(Err(())),
+                }
+            } else {
+                match arg(rec, 4) {
+                    None | Some(Value::Null) => Ok(None),
+                    other => reference(other).map(Some).ok_or(()),
+                }
+            };
+            let unit = match unit_id {
+                Err(()) => None,
+                Ok(Some(unit_id)) => self.live.units.get(&unit_id).and_then(Option::as_ref),
+                Ok(None) => value
                     .as_ref()
                     .and_then(|v| v.type_name.as_deref())
                     .and_then(|tn| self.doc_measure_unit(tn)),
             };
-            Property { name, value, unit }
+            ModelCopy::new(cx).unit(unit)?;
+            Ok(Property {
+                name,
+                value,
+                unit: unit.cloned(),
+            })
+        })
+        .transpose()
+    }
+
+    fn slice_property_values(
+        &self,
+        value: &Value,
+        base: usize,
+        slice: &[u8],
+    ) -> Option<TypedValue> {
+        let Value::List(values) = value else {
+            return None;
+        };
+        if values.is_empty() {
+            return None;
+        }
+        let mut result = Vec::with_capacity(values.len());
+        let mut type_name = None;
+        for (index, value) in values.iter().enumerate() {
+            let value = self.slice_typed_value(value, base, slice)?;
+            if matches!(value.value, Literal::Real(real) if !real.is_finite()) {
+                return None;
+            }
+            if index == 0 {
+                type_name = value.type_name;
+            } else if type_name != value.type_name {
+                return None;
+            }
+            result.push(value.value);
+        }
+        Some(TypedValue {
+            type_name,
+            value: Literal::List(result),
         })
     }
 
-    fn read_single_quantity(&self, qty_id: u64) -> Option<Quantity> {
+    fn read_property_details(
+        &self,
+        set_id: u64,
+        element: ElementRef,
+        name: &str,
+        roots: &[u64],
+        cx: &mut Cx,
+    ) -> Result<Option<DetailedPropertySet>, Error> {
+        let original = self.copied_sets.get(&set_id).copied().unwrap_or(set_id);
+        cx.check(
+            Kind::Work,
+            self.live
+                .building
+                .components
+                .property_details
+                .get(element)
+                .map_or(0, |details| details.sets.len()) as u64,
+        )
+        .map_err(|stop| stopped(cx, stop, None))?;
+        let Some(template) = self
+            .live
+            .building
+            .components
+            .property_details
+            .get(element)
+            .and_then(|details| {
+                details
+                    .sets
+                    .iter()
+                    .find(|set| set.source_instance == Some(original))
+            })
+        else {
+            return Ok(None);
+        };
+        cx.check(
+            Kind::Work,
+            (template.properties.len() as u64).saturating_mul(2),
+        )
+        .map_err(|stop| stopped(cx, stop, None))?;
+        let mut groups = BTreeMap::new();
+        for (start, property) in template.properties.iter().enumerate() {
+            if property.parent.is_some() {
+                continue;
+            }
+            let end = template
+                .properties
+                .get(start + 1..)
+                .unwrap_or_default()
+                .iter()
+                .position(|property| property.parent.is_none())
+                .map_or(template.properties.len(), |next| start + next + 1);
+            if let Some(instance) = property.source_instance {
+                cx.check(Kind::DecodedBytes, 64)
+                    .map_err(|stop| stopped(cx, stop, None))?;
+                groups.entry(instance).or_insert(start..end);
+            }
+        }
+        let description = self
+            .with_parsed_or_base(set_id, |record, base, bytes| {
+                check_model_record(record, bytes, cx)?;
+                Ok::<_, Error>(slice_text(arg(record, 4), base, bytes))
+            })
+            .transpose()?
+            .flatten();
+        let mut copy = ModelCopy::new(cx);
+        copy.add(128)?;
+        copy.text(Some(name))?;
+        let mut result = DetailedPropertySet {
+            name: name.into(),
+            description,
+            properties: Vec::new(),
+            source_instance: Some(set_id),
+        };
+        for &root in roots {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, None))?;
+            let original = self.copied_properties.get(&root).copied().unwrap_or(root);
+            if let Some(range) = groups.get(&original) {
+                let new_start = result.properties.len();
+                for (offset, property) in template
+                    .properties
+                    .get(range.clone())
+                    .unwrap_or_default()
+                    .iter()
+                    .enumerate()
+                {
+                    ModelCopy::new(cx).detail_property(property)?;
+                    let mut property = property.clone();
+                    property.parent = property
+                        .parent
+                        .map(|parent| {
+                            (parent as usize)
+                                .checked_sub(range.start)
+                                .and_then(|relative| relative.checked_add(new_start))
+                                .and_then(|index| u32::try_from(index).ok())
+                                .ok_or(Error::Invalid)
+                        })
+                        .transpose()?;
+                    if offset == 0 {
+                        property.source_instance = Some(root);
+                    }
+                    if let Some(instance) = property.source_instance
+                        && self.staged_changed.contains_key(&instance)
+                        && matches!(property.value, PropertyDetailValue::Single { .. })
+                        && let Some(value) = self.read_property(instance, cx)?
+                    {
+                        property.value = PropertyDetailValue::Single {
+                            value: value.value,
+                            unit: value.unit,
+                        };
+                    }
+                    result.properties.push(property);
+                }
+            } else if self.kind(root) == b"IFCPROPERTYSINGLEVALUE"
+                && let Some(value) = self.read_property(root, cx)?
+            {
+                let description = self
+                    .with_parsed_or_base(root, |record, base, bytes| {
+                        check_model_record(record, bytes, cx)?;
+                        Ok::<_, Error>(slice_text(arg(record, 2), base, bytes))
+                    })
+                    .transpose()?
+                    .flatten();
+                ModelCopy::new(cx).add(512)?;
+                result.properties.push(DetailedProperty {
+                    parent: None,
+                    name: value.name,
+                    description,
+                    value: PropertyDetailValue::Single {
+                        value: value.value,
+                        unit: value.unit,
+                    },
+                    source_instance: Some(root),
+                });
+            }
+        }
+        Ok(Some(result))
+    }
+
+    fn read_single_quantity(&self, qty_id: u64, cx: &mut Cx) -> Result<Option<Quantity>, Error> {
         let kind = self.kind(qty_id);
-        let (_, quantity_kind, unit_kind) = QUANTITIES
+        let Some((_, quantity_kind, unit_kind)) = QUANTITIES
             .iter()
-            .find(|(name, ..)| name.as_bytes() == kind.as_slice())?;
+            .find(|(name, ..)| name.as_bytes() == kind.as_slice())
+        else {
+            return Ok(None);
+        };
         self.with_parsed_or_base(qty_id, |rec, base, slice| {
-            let value = slice_real(arg(rec, 4), base, slice)?;
+            check_model_record(rec, slice, cx)?;
+            let Some(value) = slice_real(arg(rec, 4), base, slice) else {
+                return Ok(None);
+            };
             let unit = match reference(arg(rec, 3)) {
-                Some(unit_id) => self.live.units.get(&unit_id).and_then(Clone::clone),
+                Some(unit_id) => self.live.units.get(&unit_id).and_then(Option::as_ref),
                 None => unit_kind.and_then(|uk| self.doc_unit_by_kind(uk)),
             };
-            Some(Quantity {
+            ModelCopy::new(cx).unit(unit)?;
+            Ok(Some(Quantity {
                 name: slice_text(arg(rec, 1), base, slice).unwrap_or_default(),
                 kind: *quantity_kind,
-                value: Measured { value, unit },
+                value: Measured {
+                    value,
+                    unit: unit.cloned(),
+                },
                 formula: match self.live.version {
                     Version::Ifc2x3 => None,
                     _ => slice_text(arg(rec, 5), base, slice),
                 },
-            })
+            }))
         })
-        .flatten()
+        .transpose()
+        .map(Option::flatten)
     }
 
-    fn doc_unit_by_kind(&self, kind: &str) -> Option<Unit> {
+    fn doc_unit_by_kind(&self, kind: &str) -> Option<&Unit> {
         self.live
             .building
             .document
             .units
             .iter()
             .find(|u| u.kind == kind)
-            .cloned()
     }
 
-    fn doc_measure_unit(&self, type_name: &str) -> Option<Unit> {
-        let kind = MEASURES
-            .iter()
+    fn doc_measure_unit(&self, type_name: &str) -> Option<&Unit> {
+        let kind = measure_types()
             .find(|(name, _)| *name == type_name)
             .and_then(|(_, k)| *k)?;
         self.doc_unit_by_kind(kind)
@@ -1515,8 +2003,7 @@ impl<'a> OverlayDraft<'a> {
             Value::Typed(part) => {
                 let written =
                     String::from_utf8_lossy(slice_at(base, slice, part.name())).into_owned();
-                let type_name = MEASURES
-                    .iter()
+                let type_name = measure_types()
                     .find(|(name, _)| name.eq_ignore_ascii_case(&written))
                     .map_or(written, |(name, _)| (*name).to_owned());
                 let [inner] = part.args() else {
@@ -1582,6 +2069,32 @@ impl<'a> OverlayDraft<'a> {
         }
     }
 
+    fn copy_definition(
+        &self,
+        set_id: u64,
+        element: ElementRef,
+        cache: &mut BTreeMap<u64, Option<LiveDefinition>>,
+        cx: &mut Cx,
+    ) -> Result<Option<LiveDefinition>, Error> {
+        if let std::collections::btree_map::Entry::Vacant(entry) = cache.entry(set_id) {
+            ModelCopy::new(cx).add(128)?;
+            entry.insert(self.read_definition_set(set_id, element, cx)?);
+        }
+        let definition = cache.get(&set_id).and_then(Option::as_ref);
+        let mut copy = ModelCopy::new(cx);
+        match definition {
+            Some(LiveDefinition::Properties(set, details)) => {
+                copy.property_set(set)?;
+                if let Some(details) = details {
+                    copy.detail_set(details)?;
+                }
+            }
+            Some(LiveDefinition::Quantities(set)) => copy.quantity_set(set)?,
+            None => {}
+        }
+        Ok(definition.cloned())
+    }
+
     fn compute_defs_and_relations(
         &self,
         elem_ref: ElementRef,
@@ -1597,6 +2110,7 @@ impl<'a> OverlayDraft<'a> {
         rel_ids.sort_by_key(|&(ord, rel)| (ord, rel));
 
         let mut prop_sets = Vec::new();
+        let mut detail_sets = Vec::new();
         let mut qty_sets = Vec::new();
         let mut prop_relations: Vec<(usize, RelationSource)> = Vec::new();
         let mut def_cache: BTreeMap<u64, Option<LiveDefinition>> = BTreeMap::new();
@@ -1623,15 +2137,12 @@ impl<'a> OverlayDraft<'a> {
 
             for pos in positions {
                 for &set_id in &set_ids {
-                    let def = if let Some(cached) = def_cache.get(&set_id) {
-                        cached.clone()
-                    } else {
-                        let resolved = self.read_definition_set(set_id, cx)?;
-                        def_cache.insert(set_id, resolved.clone());
-                        resolved
-                    };
+                    let def = self.copy_definition(set_id, elem_ref, &mut def_cache, cx)?;
                     match def {
-                        Some(LiveDefinition::Properties(ps)) => prop_sets.push(ps),
+                        Some(LiveDefinition::Properties(ps, details)) => {
+                            prop_sets.push(ps);
+                            detail_sets.extend(details);
+                        }
                         Some(LiveDefinition::Quantities(qs)) => qty_sets.push(qs),
                         None => {}
                     }
@@ -1654,15 +2165,12 @@ impl<'a> OverlayDraft<'a> {
             )
         {
             for set_id in refs_of(owner_stmt.arg(6)) {
-                let def = if let Some(cached) = def_cache.get(&set_id) {
-                    cached.clone()
-                } else {
-                    let resolved = self.read_definition_set(set_id, cx)?;
-                    def_cache.insert(set_id, resolved.clone());
-                    resolved
-                };
+                let def = self.copy_definition(set_id, elem_ref, &mut def_cache, cx)?;
                 match def {
-                    Some(LiveDefinition::Properties(ps)) => prop_sets.push(ps),
+                    Some(LiveDefinition::Properties(ps, details)) => {
+                        prop_sets.push(ps);
+                        detail_sets.extend(details);
+                    }
                     Some(LiveDefinition::Quantities(qs)) => qty_sets.push(qs),
                     None => {}
                 }
@@ -1701,7 +2209,13 @@ impl<'a> OverlayDraft<'a> {
 
         let props = (!prop_sets.is_empty()).then_some(Properties { sets: prop_sets });
         let qtys = (!qty_sets.is_empty()).then_some(Quantities { sets: qty_sets });
-        Ok((props, qtys, merged))
+        let details = (!detail_sets.is_empty()).then_some(PropertyDetails { sets: detail_sets });
+        Ok(ComputedElementDefs {
+            properties: props,
+            property_details: details,
+            quantities: qtys,
+            relations: merged,
+        })
     }
 
     fn finish(mut self, cx: &mut Cx) -> Result<StagedOutcome, Error> {
@@ -1718,7 +2232,8 @@ impl<'a> OverlayDraft<'a> {
         for elem_ref in all_affected {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, None))?;
-            let before = self.live.snapshot_element(elem_ref);
+            let before = self.live.snapshot_element(elem_ref, cx)?;
+            before.check_copy(cx)?;
             let mut after = before.clone();
             let Some(inst_id) = self
                 .live
@@ -1740,14 +2255,13 @@ impl<'a> OverlayDraft<'a> {
                 after.identity = (ident != Identity::default()).then_some(ident);
             }
             if self.affected_defs.contains(&elem_ref) {
-                let (props, qtys, relations) =
-                    self.compute_defs_and_relations(elem_ref, inst_id, cx)?;
-                after.properties = props;
-                after.quantities = qtys;
-                after.relations = relations;
+                let definitions = self.compute_defs_and_relations(elem_ref, inst_id, cx)?;
+                after.properties = definitions.properties;
+                after.property_details = definitions.property_details;
+                after.quantities = definitions.quantities;
+                after.relations = definitions.relations;
             }
-            cx.check(Kind::DecodedBytes, after.heap_bytes() as u64)
-                .map_err(|stop| stopped(cx, stop, None))?;
+            after.copy_bytes = after.check_copy(cx)?;
             element_diffs.push(ElementSnapDiff {
                 element: elem_ref,
                 before,
@@ -1795,11 +2309,16 @@ impl<'a> OverlayDraft<'a> {
     }
 }
 
-type ComputedElementDefs = (Option<Properties>, Option<Quantities>, Vec<RelationSource>);
+struct ComputedElementDefs {
+    properties: Option<Properties>,
+    property_details: Option<PropertyDetails>,
+    quantities: Option<Quantities>,
+    relations: Vec<RelationSource>,
+}
 
 #[derive(Clone)]
 enum LiveDefinition {
-    Properties(PropertySet),
+    Properties(PropertySet, Option<DetailedPropertySet>),
     Quantities(QuantitySet),
 }
 
@@ -1919,6 +2438,15 @@ fn parsed_values_size(values: &[Value], cx: &mut Cx) -> Result<usize, Error> {
     result
 }
 
+fn check_model_record(record: &Record, bytes: &[u8], cx: &mut Cx) -> Result<(), Error> {
+    // 型名・文字列・値の列を作る前に、解析済みの木と文字の展開分を数える。
+    let mut size = bytes.len().saturating_mul(4).saturating_add(512);
+    for part in record.parts() {
+        size = size.saturating_add(parsed_values_size(part.args(), cx)?.saturating_mul(4));
+    }
+    ModelCopy::new(cx).add(size)
+}
+
 fn parse_single_stmt(id: u64, stmt: &Stmt, cx: &mut Cx) -> Result<ParsedStmt, Error> {
     const STEP_PREFIX: &[u8] = b"ISO-10303-21;HEADER;ENDSEC;DATA;";
     const STEP_SUFFIX: &[u8] = b"ENDSEC;END-ISO-10303-21;";
@@ -2033,6 +2561,58 @@ fn collect_property_element_refs(
     Ok(())
 }
 
+fn collect_detail_element_refs(
+    details: Option<&PropertyDetails>,
+    out: &mut BTreeSet<RowId>,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let Some(details) = details else {
+        return Ok(());
+    };
+    for set in &details.sets {
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        for property in &set.properties {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, None))?;
+            match &property.value {
+                PropertyDetailValue::Single { value, .. } => {
+                    if let Some(value) = value {
+                        collect_literal_element_refs(&value.value, out, cx)?;
+                    }
+                }
+                PropertyDetailValue::List { values, .. }
+                | PropertyDetailValue::Enumerated { values, .. } => {
+                    for value in values.iter().flatten() {
+                        collect_literal_element_refs(&value.value, out, cx)?;
+                    }
+                    if let PropertyDetailValue::Enumerated {
+                        choices: Some(choices),
+                        ..
+                    } = &property.value
+                    {
+                        for value in &choices.values {
+                            collect_literal_element_refs(&value.value, out, cx)?;
+                        }
+                    }
+                }
+                PropertyDetailValue::Bounded {
+                    lower,
+                    upper,
+                    set_point,
+                    ..
+                } => {
+                    for value in [lower, upper, set_point].into_iter().flatten() {
+                        collect_literal_element_refs(&value.value, out, cx)?;
+                    }
+                }
+                PropertyDetailValue::Complex { .. } | PropertyDetailValue::Unsupported { .. } => {}
+            }
+        }
+    }
+    Ok(())
+}
+
 fn build_ifc_dep_graph(
     building: &Building,
     cx: &mut Cx,
@@ -2131,6 +2711,11 @@ fn build_ifc_dep_graph(
         let mut combined = copy_dep_sources(Some(base), cx)?;
         collect_property_element_refs(
             building.components.properties.get(elem_ref),
+            &mut combined,
+            cx,
+        )?;
+        collect_detail_element_refs(
+            building.components.property_details.get(elem_ref),
             &mut combined,
             cx,
         )?;
@@ -2318,6 +2903,411 @@ mod shared_budget_tests {
         )
         .as_bytes()
         .to_vec()
+    }
+
+    #[test]
+    fn rich_property_sets_follow_single_value_edits_and_history() {
+        for extra in [
+            "#70=IFCPROPERTYBOUNDEDVALUE('Bounds',$,IFCLENGTHMEASURE(4.),IFCLENGTHMEASURE(1.),$,IFCLENGTHMEASURE(2.));",
+            "#70=IFCPROPERTYLISTVALUE('Choices',$,(IFCLABEL('a'),IFCLABEL('b')),$);",
+            "#70=IFCPROPERTYENUMERATEDVALUE('Mode',$,(IFCLABEL('a')),#71);#71=IFCPROPERTYENUMERATION('Modes',(IFCLABEL('a'),IFCLABEL('b')),$);",
+            "#70=IFCCOMPLEXPROPERTY('Complex',$,'Use',(#41,#71));#71=IFCPROPERTYSINGLEVALUE('Child',$,IFCLABEL('child'),$);",
+            "#70=IFCPROPERTYLISTVALUE('Velocity',$,(IFCLINEARVELOCITYMEASURE(1.),IFCLINEARVELOCITYMEASURE(2.)),$);",
+        ] {
+            let bytes = String::from_utf8(fixture())
+                .unwrap()
+                .replace("'Pset_Test',$,(#41)", "'Pset_Test',$,(#41,#70)")
+                .replace(
+                    "ENDSEC;END-ISO-10303-21;",
+                    &format!("{extra}ENDSEC;END-ISO-10303-21;"),
+                )
+                .into_bytes();
+            for threads in [1, 4] {
+                let mut live = run(|cx| IfcLive::open_with_threads(&bytes, threads, cx))
+                    .0
+                    .unwrap();
+                check_model(&live, &bytes);
+                let change = [Edit::Property {
+                    element: 10,
+                    set: "Pset_Test".into(),
+                    name: "Value".into(),
+                    value: NewValue {
+                        type_name: "IfcLabel".into(),
+                        literal: crate::NewLiteral::Text("changed".into()),
+                    },
+                }];
+                let file = run(|cx| Ifc::read(&bytes, cx)).0.unwrap();
+                let expected = run(|cx| crate::apply(&file, &change, b"rich-property", cx));
+                let actual = run(|cx| live.apply(&change, b"rich-property", cx));
+                assert_eq!(actual.1, expected.1);
+                let expected = expected.0.unwrap();
+                assert_eq!(actual.0.unwrap(), expected.changed);
+                assert_eq!(run(|cx| live.save_spf(cx)).0.unwrap(), expected.bytes);
+                check_model(&live, &expected.bytes);
+                assert!(run(|cx| live.undo(cx)).0.unwrap());
+                check_model(&live, &bytes);
+                assert!(run(|cx| live.redo(cx)).0.unwrap());
+                check_model(&live, &expected.bytes);
+            }
+        }
+    }
+
+    fn rich_fixture() -> Vec<u8> {
+        String::from_utf8(fixture()).unwrap()
+            .replace("'Pset_Test',$,(#41)", "'Pset_Test','set description',(#41,#70,#70,#71,#72,#73,#77)")
+            .replace("IFCUNITASSIGNMENT((#4))", "IFCUNITASSIGNMENT((#4,#80))")
+            .replace("ENDSEC;END-ISO-10303-21;", concat!(
+                "#20=IFCWALLTYPE('0000000000000000000020',$,'Type A',$,$,(#40),$,$,$,.STANDARD.);",
+                "#21=IFCWALLTYPE('0000000000000000000021',$,'Type B',$,$,(#40),$,$,$,.STANDARD.);",
+                "#70=IFCCOMPLEXPROPERTY('Complex','complex description','Use',(#41,#76));",
+                "#71=IFCPROPERTYLISTVALUE('Choices',$,(IFCLABEL('a'),IFCLABEL('b')),$);",
+                "#72=IFCPROPERTYBOUNDEDVALUE('Bounds',$,IFCLENGTHMEASURE(4.),IFCLENGTHMEASURE(1.),#4,IFCLENGTHMEASURE(2.));",
+                "#73=IFCPROPERTYENUMERATEDVALUE('Mode',$,(IFCLABEL('a')),#74);",
+                "#74=IFCPROPERTYENUMERATION('Modes',(IFCLABEL('a'),IFCLABEL('b')),$);",
+                "#75=IFCPROPERTYSINGLEVALUE('ChildRef',$,#11,$);",
+                "#76=IFCCOMPLEXPROPERTY('Nested',$,'Nested Use',(#75,#71));",
+                "#77=IFCPROPERTYLISTVALUE('Velocity',$,(IFCLINEARVELOCITYMEASURE(1.),IFCLINEARVELOCITYMEASURE(2.)),$);",
+                "#80=IFCDERIVEDUNIT((#81,#82),.LINEARVELOCITYUNIT.,$);",
+                "#81=IFCDERIVEDUNITELEMENT(#4,1);#82=IFCDERIVEDUNITELEMENT(#83,-1);",
+                "#83=IFCSIUNIT(*,.TIMEUNIT.,$,.SECOND.);",
+                "ENDSEC;END-ISO-10303-21;",
+            )).into_bytes()
+    }
+
+    fn rich_edit(element: u64, set: &str, name: &str, text: &str) -> Edit {
+        Edit::Property {
+            element,
+            set: set.into(),
+            name: name.into(),
+            value: NewValue {
+                type_name: "IfcLabel".into(),
+                literal: crate::NewLiteral::Text(text.into()),
+            },
+        }
+    }
+
+    #[test]
+    fn rich_property_sets_follow_multiple_edits_types_and_parent_positions() {
+        let bytes = rich_fixture();
+        let mut transcript = String::new();
+        for threads in [1, 4] {
+            for element in [10, 20] {
+                let mut live = run(|cx| IfcLive::open_with_threads(&bytes, threads, cx))
+                    .0
+                    .unwrap();
+                let mut versions = vec![bytes.clone()];
+                transcript.push_str(&check_model(&live, &bytes));
+                for step in 0..4 {
+                    let target_set = if step > 0 {
+                        let draft = OverlayDraft::new(&live, b"rich-multi");
+                        if element == 10 {
+                            run(|cx| draft.occurrence_set(element, "Pset_Test", cx))
+                                .0
+                                .unwrap()
+                                .unwrap()
+                                .1
+                        } else {
+                            draft
+                                .type_set(element, &draft.stmt(element).unwrap(), "Pset_Test")
+                                .unwrap()
+                                .1
+                        }
+                    } else {
+                        40
+                    };
+                    let edits = match step {
+                        0 => vec![
+                            rich_edit(element, "Pset_Test", "Value", "first"),
+                            rich_edit(element, "Pset_Test", "Value", "second"),
+                        ],
+                        1 => vec![Edit::Property {
+                            element,
+                            set: "Pset_Test".into(),
+                            name: "Added".into(),
+                            value: NewValue {
+                                type_name: "IfcLinearVelocityMeasure".into(),
+                                literal: crate::NewLiteral::Real(3.5),
+                            },
+                        }],
+                        2 => vec![Edit::Attribute {
+                            element: target_set,
+                            attribute: RootAttribute::Description,
+                            value: Some("new description".into()),
+                        }],
+                        _ => vec![
+                            Edit::Attribute {
+                                element: target_set,
+                                attribute: RootAttribute::Name,
+                                value: Some("Renamed".into()),
+                            },
+                            rich_edit(element, "Renamed", "Value", "third"),
+                        ],
+                    };
+                    let current = versions.last().unwrap();
+                    let file = run(|cx| Ifc::read(current, cx)).0.unwrap();
+                    let expected = run(|cx| crate::apply(&file, &edits, b"rich-multi", cx));
+                    let actual =
+                        record_budget(&mut transcript, |cx| live.apply(&edits, b"rich-multi", cx));
+                    let expected_value = expected.0.unwrap();
+                    assert_eq!(actual.unwrap(), expected_value.changed);
+                    assert!(expected.1.is_empty());
+                    transcript.push_str(&check_model(&live, &expected_value.bytes));
+                    versions.push(expected_value.bytes);
+                }
+                for version in versions.iter().rev().skip(1) {
+                    assert!(record_budget(&mut transcript, |cx| live.undo(cx)).unwrap());
+                    transcript.push_str(&check_model(&live, version));
+                }
+                for version in versions.iter().skip(1) {
+                    assert!(record_budget(&mut transcript, |cx| live.redo(cx)).unwrap());
+                    transcript.push_str(&check_model(&live, version));
+                }
+            }
+        }
+        // stdout の比較記録で、ネイティブと WASI の全モデル・保存・履歴・予算を照らす。
+        #[expect(clippy::print_stdout, reason = "テストの比較記録だけを出力する")]
+        {
+            println!("ifc-rich {:?}", Hash::document(transcript.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn rich_model_copies_stop_before_apply_undo_and_redo_mutation() {
+        let bytes = rich_fixture();
+        let edits = [rich_edit(10, "Pset_Test", "Value", "changed")];
+        let perform = |live: &mut IfcLive, phase: u8, cx: &mut Cx| match phase {
+            0 => live.apply(&edits, b"rich-stop", cx).map(|count| count > 0),
+            1 => live.undo(cx),
+            _ => live.redo(cx),
+        };
+        for threads in [1, 4] {
+            let mut live = run(|cx| IfcLive::open_with_threads(&bytes, threads, cx))
+                .0
+                .unwrap();
+            live.take_dirty_element_spans();
+            for phase in 0..3 {
+                let before = format!("{live:?}");
+                let mut measured = Budget::default();
+                let cancel = CancelToken::new();
+                perform(
+                    &mut live.clone(),
+                    phase,
+                    &mut Cx::new(&mut measured, &mut Diagnostics::new(), &cancel),
+                )
+                .unwrap();
+                for kind in [Kind::Work, Kind::DecodedBytes, Kind::Records] {
+                    let used = measured.used(kind);
+                    if used == 0 {
+                        continue;
+                    }
+                    for (limit, spent) in
+                        [(0, 0), (used / 2, 0), (used - 1, 0), (used, 1), (used, 0)]
+                    {
+                        let mut budget =
+                            Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                        budget.spend(kind, spent).unwrap();
+                        let mut candidate = live.clone();
+                        let result = perform(
+                            &mut candidate,
+                            phase,
+                            &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel),
+                        );
+                        assert_eq!(
+                            result.is_ok(),
+                            limit >= used + spent,
+                            "{phase} {kind:?} {limit} {spent}"
+                        );
+                        if result.is_err() {
+                            assert_eq!(format!("{candidate:?}"), before);
+                        }
+                    }
+                }
+                let mut depth_budget =
+                    Budget::new(Limits::default().with(Kind::Depth, Limit::Finite(0)));
+                let mut candidate = live.clone();
+                assert!(matches!(
+                    perform(
+                        &mut candidate,
+                        phase,
+                        &mut Cx::new(&mut depth_budget, &mut Diagnostics::new(), &cancel)
+                    ),
+                    Err(Error::Stopped(_))
+                ));
+                assert_eq!(format!("{candidate:?}"), before);
+                assert_eq!(depth_budget.used(Kind::Depth), 0);
+                cancel.cancel();
+                let result = perform(
+                    &mut live,
+                    phase,
+                    &mut Cx::new(&mut Budget::default(), &mut Diagnostics::new(), &cancel),
+                );
+                assert_eq!(result, Err(Error::Stopped(Stop::Cancelled)));
+                assert_eq!(format!("{live:?}"), before);
+                assert!(run(|cx| perform(&mut live, phase, cx)).0.unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn rich_dependencies_include_complex_children_bounds_and_choices() {
+        let mut live = run(|cx| IfcLive::open(&rich_fixture(), cx)).0.unwrap();
+        let source = live.element_by_instance(11).unwrap();
+        let target = live.element_by_instance(10).unwrap();
+        assert!(
+            run(|cx| live.affected_elements(&[source], cx))
+                .0
+                .unwrap()
+                .contains(&target)
+        );
+        let graph = live.dep.clone();
+        run(|cx| {
+            live.apply(
+                &[rich_edit(10, "Pset_Test", "Value", "changed")],
+                b"rich-dep",
+                cx,
+            )
+        })
+        .0
+        .unwrap();
+        assert_eq!(live.dep, graph);
+        assert!(run(|cx| live.undo(cx)).0.unwrap());
+        assert_eq!(live.dep, graph);
+        assert!(run(|cx| live.redo(cx)).0.unwrap());
+        assert_eq!(live.dep, graph);
+        let ref_value = || TypedValue {
+            type_name: None,
+            value: Literal::Element(source),
+        };
+        let details = PropertyDetails {
+            sets: vec![DetailedPropertySet {
+                name: "refs".into(),
+                description: None,
+                source_instance: None,
+                properties: vec![
+                    DetailedProperty {
+                        parent: None,
+                        name: "bounds".into(),
+                        description: None,
+                        source_instance: None,
+                        value: PropertyDetailValue::Bounded {
+                            lower: Some(ref_value()),
+                            upper: None,
+                            set_point: None,
+                            unit: None,
+                        },
+                    },
+                    DetailedProperty {
+                        parent: None,
+                        name: "choice".into(),
+                        description: None,
+                        source_instance: None,
+                        value: PropertyDetailValue::Enumerated {
+                            values: None,
+                            choices: Some(zumen_building::PropertyChoices {
+                                name: "refs".into(),
+                                values: vec![ref_value()],
+                                unit: None,
+                                source_instance: None,
+                            }),
+                        },
+                    },
+                ],
+            }],
+        };
+        let mut sources = BTreeSet::new();
+        run(|cx| collect_detail_element_refs(Some(&details), &mut sources, cx))
+            .0
+            .unwrap();
+        assert_eq!(sources, BTreeSet::from([RowId(source.0)]));
+    }
+
+    #[test]
+    fn rich_model_copy_size_ignores_capacity_and_limits_nested_values() {
+        let mut property = DetailedProperty {
+            parent: None,
+            name: "payload".into(),
+            description: Some("description".into()),
+            source_instance: Some(1),
+            value: PropertyDetailValue::Single {
+                value: Some(TypedValue {
+                    type_name: Some("IfcLabel".into()),
+                    value: Literal::List(vec![Literal::List(vec![Literal::Text(
+                        "x".repeat(131_072),
+                    )])]),
+                }),
+                unit: Some(Unit {
+                    kind: "LENGTHUNIT".into(),
+                    prefix: Some("MILLI".into()),
+                    name: "METRE".into(),
+                    scale: None,
+                }),
+            },
+        };
+        let check = |property: &DetailedProperty, cx: &mut Cx| {
+            let mut copy = ModelCopy::new(cx);
+            copy.detail_property(property)?;
+            Ok::<_, Error>(copy.bytes)
+        };
+        let cancel = CancelToken::new();
+        let mut measured = Budget::default();
+        let bytes = check(
+            &property,
+            &mut Cx::new(&mut measured, &mut Diagnostics::new(), &cancel),
+        )
+        .unwrap();
+        assert!(bytes > 131_072);
+        property.name.reserve(1024);
+        property.description.as_mut().unwrap().reserve(2048);
+        if let PropertyDetailValue::Single {
+            value: Some(value),
+            unit: Some(unit),
+        } = &mut property.value
+        {
+            value.type_name.as_mut().unwrap().reserve(512);
+            unit.name.reserve(128);
+            if let Literal::List(values) = &mut value.value {
+                values.reserve(128);
+            }
+        }
+        let mut expanded = Budget::default();
+        assert_eq!(
+            check(
+                &property,
+                &mut Cx::new(&mut expanded, &mut Diagnostics::new(), &cancel)
+            )
+            .unwrap(),
+            bytes
+        );
+        for kind in Kind::ALL {
+            assert_eq!(measured.used(kind), expanded.used(kind));
+        }
+        for (kind, used) in [
+            (Kind::Work, measured.used(Kind::Work)),
+            (Kind::DecodedBytes, measured.used(Kind::DecodedBytes)),
+            (Kind::Depth, 2),
+        ] {
+            for (limit, spent) in [(0, 0), (used - 1, 0), (used, 0), (used, 1), (used + 1, 1)] {
+                let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                budget.spend(kind, spent).unwrap();
+                let result = check(
+                    &property,
+                    &mut Cx::new(&mut budget, &mut Diagnostics::new(), &cancel),
+                );
+                assert_eq!(result.is_ok(), limit >= used + spent);
+                assert_eq!(
+                    budget.used(Kind::Depth),
+                    if kind == Kind::Depth { spent } else { 0 }
+                );
+            }
+        }
+        cancel.cancel();
+        assert_eq!(
+            check(
+                &property,
+                &mut Cx::new(&mut Budget::default(), &mut Diagnostics::new(), &cancel)
+            ),
+            Err(Error::Stopped(Stop::Cancelled))
+        );
     }
 
     #[test]

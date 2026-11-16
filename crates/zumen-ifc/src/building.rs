@@ -53,6 +53,12 @@ pub use style::{
 };
 pub use sweep::SweptDisk;
 
+/// 量の型名と単位の種類を、通常の変換と常駐モデルの更新で共有する。
+pub(crate) fn measure_types() -> impl Iterator<Item = &'static (&'static str, Option<&'static str>)>
+{
+    MEASURES.iter().chain(unit_graph::DERIVED_MEASURES)
+}
+
 /// 建物モデルを作るバージョン
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Version {
@@ -1792,11 +1798,7 @@ impl<'f> Lifter<'f> {
 
     /// 値の型から、文書の単位の割り当ての単位。単位を持たない型は `None`、知らない量の型は診断する
     fn measure_unit(&self, type_name: &str, place: &Record, cx: &mut Cx) -> Option<Unit> {
-        match MEASURES
-            .iter()
-            .chain(unit_graph::DERIVED_MEASURES)
-            .find(|(name, _)| *name == type_name)
-        {
+        match measure_types().find(|(name, _)| *name == type_name) {
             Some((_, Some(kind))) => self.document_unit(kind, type_name, place, cx),
             Some((_, None)) => None,
             None if type_name.to_ascii_uppercase().ends_with("MEASURE") => {
@@ -1819,9 +1821,7 @@ impl<'f> Lifter<'f> {
                     return None;
                 }
                 let written = String::from_utf8_lossy(self.file.bytes(part.name())).into_owned();
-                let type_name = MEASURES
-                    .iter()
-                    .chain(unit_graph::DERIVED_MEASURES)
+                let type_name = measure_types()
                     .find(|(name, _)| name.eq_ignore_ascii_case(&written))
                     .map_or(written, |(name, _)| (*name).to_owned());
                 let [inner] = part.args() else {
