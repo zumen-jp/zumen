@@ -27,6 +27,8 @@ mod geometry;
 mod grid;
 mod indexed_faces;
 mod metadata;
+
+pub(crate) use metadata::predefined_property_fields;
 mod property_details;
 mod relations;
 mod semantic;

@@ -29,7 +29,7 @@ use zumen_sdk::{Codec, Cx, Error};
 
 use crate::building::{
     Category, QUANTITIES, Version, arg, category, decode, lift_with_units, measure_types,
-    reference, refs,
+    predefined_property_fields, reference, refs,
 };
 use crate::edit::{
     Edit, Item, NewValue, RootAttribute, Stmt, refs_in, refs_of, stmt_from_slice, swap, text,
@@ -1314,7 +1314,9 @@ impl<'a> OverlayDraft<'a> {
                 self.project_name_after = Some(value.map(str::to_owned));
             }
         } else if stmt_name == b"IFCPROPERTYSET"
-            || (attribute == RootAttribute::Name && stmt_name == b"IFCELEMENTQUANTITY")
+            || (attribute == RootAttribute::Name
+                && (stmt_name == b"IFCELEMENTQUANTITY"
+                    || predefined_property_fields(&stmt_name, self.live.version).is_some()))
         {
             for holder in self.referrers(element) {
                 cx.check(Kind::Work, 1)
@@ -1722,6 +1724,56 @@ impl<'a> OverlayDraft<'a> {
                 method,
                 quantities,
             })))
+        } else if let Some(fields) = predefined_property_fields(&kind, self.live.version) {
+            self.with_parsed_or_base(set_id, |record, base, bytes| {
+                check_model_record(record, bytes, cx)?;
+                ModelCopy::new(cx).add(128)?;
+                let name = slice_text(arg(record, 3), base, bytes).unwrap_or_default();
+                let mut properties = Vec::new();
+                for (at, name, type_name) in fields {
+                    cx.check(Kind::Work, 1)
+                        .map_err(|stop| stopped(cx, stop, None))?;
+                    let Some(value) = arg(record, at).filter(|v| !matches!(v, Value::Null)) else {
+                        continue;
+                    };
+                    ModelCopy::new(cx).add(256 + name.len() + type_name.len())?;
+                    let value = if type_name.ends_with("Enum") {
+                        match value {
+                            Value::Enum(range) => Some(Literal::Enumeration(
+                                String::from_utf8_lossy(slice_at(base, bytes, range.clone()))
+                                    .into_owned(),
+                            )),
+                            _ => None,
+                        }
+                    } else {
+                        slice_real(Some(value), base, bytes)
+                            .filter(|value| value.is_finite())
+                            .map(Literal::Real)
+                    };
+                    let Some(value) = value else {
+                        continue;
+                    };
+                    let unit = type_name
+                        .ends_with("LengthMeasure")
+                        .then(|| self.doc_unit_by_kind("LENGTHUNIT"))
+                        .flatten();
+                    ModelCopy::new(cx).unit(unit)?;
+                    properties.push(Property {
+                        name: name.into(),
+                        value: Some(TypedValue {
+                            type_name: Some(type_name.into()),
+                            value,
+                        }),
+                        unit: unit.cloned(),
+                    });
+                }
+                Ok(Some(LiveDefinition::Properties(
+                    PropertySet { name, properties },
+                    None,
+                )))
+            })
+            .transpose()
+            .map(Option::flatten)
         } else {
             Ok(None)
         }
@@ -2130,7 +2182,9 @@ impl<'a> OverlayDraft<'a> {
                 .into_iter()
                 .filter(|&s| {
                     let k = self.kind(s);
-                    k == b"IFCPROPERTYSET" || k == b"IFCELEMENTQUANTITY"
+                    k == b"IFCPROPERTYSET"
+                        || k == b"IFCELEMENTQUANTITY"
+                        || predefined_property_fields(&k, self.live.version).is_some()
                 })
                 .collect();
             let rel_gid = rel_stmt.arg(1).and_then(text_of);
@@ -2974,6 +3028,168 @@ mod shared_budget_tests {
             )).into_bytes()
     }
 
+    #[test]
+    fn predefined_property_sets_survive_unrelated_property_edits() {
+        let bytes = String::from_utf8(fixture()).unwrap().replace(
+            "ENDSEC;END-ISO-10303-21;",
+            concat!(
+                "#20=IFCDOORTYPE('0000000000000000000020',$,'Door Type',$,$,(#70,#40),$,$,$,.DOOR.,.SINGLE_SWING_LEFT.,.F.,$);",
+                "#70=IFCDOORLININGPROPERTIES('0000000000000000000070',$,'Lining',$,0.3,0.1,$,$,$,$,$,$,$,$,$,$,$);",
+                "#71=IFCRELDEFINESBYPROPERTIES('0000000000000000000071',$,$,$,(#10),#70);",
+                "ENDSEC;END-ISO-10303-21;",
+            ),
+        ).into_bytes();
+        for threads in [1, 4] {
+            for element in [10, 20] {
+                let mut live = run(|cx| IfcLive::open_with_threads(&bytes, threads, cx))
+                    .0
+                    .unwrap();
+                check_model(&live, &bytes);
+                let edits = [rich_edit(element, "Pset_Test", "Value", "changed")];
+                let file = run(|cx| Ifc::read(&bytes, cx)).0.unwrap();
+                let expected = run(|cx| crate::apply(&file, &edits, b"predefined", cx));
+                let actual = run(|cx| live.apply(&edits, b"predefined", cx));
+                assert_eq!(actual.1, expected.1);
+                let expected = expected.0.unwrap();
+                assert_eq!(actual.0.unwrap(), expected.changed);
+                check_model(&live, &expected.bytes);
+                assert!(run(|cx| live.undo(cx)).0.unwrap());
+                check_model(&live, &bytes);
+                assert!(run(|cx| live.redo(cx)).0.unwrap());
+                check_model(&live, &expected.bytes);
+            }
+        }
+    }
+
+    fn predefined_fixture(schema: &str, variant: u8) -> Vec<u8> {
+        let mut bytes = String::from_utf8(fixture())
+            .unwrap()
+            .replace("'IFC4'", &format!("'{schema}'"));
+        bytes = bytes.replace("ENDSEC;END-ISO-10303-21;", concat!(
+            "#20=IFCDOORTYPE('0000000000000000000020',$,'Type',$,$,(#70,#40,#71,#72,#73,#70),$,$,$,.DOOR.,.SINGLE_SWING_LEFT.,.F.,$);",
+            "#70=ifcdoorliningproperties('0000000000000000000070',$,'Door Lining',$,IFCLENGTHMEASURE(3),0.,1.,0.2,0.3,0.4,0.5,0.6,0.7,0.8,#999,0.9,1.);",
+            "#71=IFCDOORPANELPROPERTIES('0000000000000000000071',$,'Door Panel',$,IFCLENGTHMEASURE(2),.SWINGING.,0.5,.LEFT.,#999);",
+            "#72=IFCWINDOWLININGPROPERTIES('0000000000000000000072',$,'Window Lining',$,1.,0.,0.2,0.3,0.25,0.5,0.3,0.4,#999,0.6,0.7,0.8);",
+            "#73=IFCWINDOWPANELPROPERTIES('0000000000000000000073',$,'Window Panel',$,.ROTATING.,.LEFT.,0.4,IFCLENGTHMEASURE(0.1),#999);",
+            "#80=IFCRELDEFINESBYPROPERTIES('0000000000000000000080',$,$,$,(#10,#10,#20),(#70,#40,#71,#72,#73,#70,#999));",
+            "ENDSEC;END-ISO-10303-21;",
+        ));
+        if schema == "IFC2X3" {
+            bytes = bytes.replace("IFCDOORTYPE", "IFCDOORSTYLE");
+        }
+        if variant == 1 {
+            bytes = bytes
+                .replace("IFCLENGTHMEASURE(3)", "'bad'")
+                .replace(".SWINGING.", "3");
+        } else if variant == 2 {
+            bytes = bytes.replace("'Project',$,$,$,$,$,#3", "'Project',$,$,$,$,$,$");
+        }
+        bytes.into_bytes()
+    }
+
+    #[test]
+    fn predefined_properties_follow_versions_units_renames_and_history() {
+        let mut transcript = String::new();
+        for schema in ["IFC2X3", "IFC4", "IFC4X3"] {
+            for variant in 0..3 {
+                let bytes = predefined_fixture(schema, variant);
+                let mut thread_record = None;
+                for threads in [1, 4] {
+                    let mut record = String::new();
+                    for element in [10, 20] {
+                        let mut live = record_budget(&mut record, |cx| {
+                            IfcLive::open_with_threads(&bytes, threads, cx)
+                        })
+                        .unwrap();
+                        record.push_str(&check_model(&live, &bytes));
+                        let owner = live.element_by_instance(element).unwrap();
+                        let sets = &live.building.components.properties.get(owner).unwrap().sets;
+                        let lining = sets.iter().find(|s| s.name == "Door Lining").unwrap();
+                        let thickness = lining
+                            .properties
+                            .iter()
+                            .find(|p| p.name == "LiningThickness")
+                            .unwrap();
+                        assert_eq!(
+                            thickness.value.as_ref().unwrap().type_name.as_deref(),
+                            Some(if schema == "IFC2X3" {
+                                "IfcPositiveLengthMeasure"
+                            } else {
+                                "IfcNonNegativeLengthMeasure"
+                            })
+                        );
+                        assert_eq!(thickness.unit.is_some(), variant != 2);
+                        assert_eq!(
+                            lining
+                                .properties
+                                .iter()
+                                .any(|p| p.name == "LiningToPanelOffsetX"),
+                            schema != "IFC2X3"
+                        );
+                        let panel = sets.iter().find(|s| s.name == "Window Panel").unwrap();
+                        assert!(matches!(
+                            panel.properties[0].value.as_ref().unwrap().value,
+                            Literal::Enumeration(_)
+                        ));
+                        assert!(panel.properties[0].unit.is_none());
+                        let rename = |element, value: Option<&str>| Edit::Attribute {
+                            element,
+                            attribute: RootAttribute::Name,
+                            value: value.map(str::to_owned),
+                        };
+                        let changes = [
+                            vec![rich_edit(element, "Pset_Test", "Value", "changed")],
+                            vec![rename(70, Some("枠 'A'"))],
+                            vec![Edit::Attribute {
+                                element: 70,
+                                attribute: RootAttribute::Description,
+                                value: Some("description".into()),
+                            }],
+                            vec![rename(71, None)],
+                            vec![rename(72, Some("Window")), rename(73, Some("Window"))],
+                            vec![rich_edit(element, "Added", "Value", "new")],
+                            vec![rename(40, Some("Renamed"))],
+                        ];
+                        let mut history = vec![bytes.clone()];
+                        for edits in changes {
+                            let file = run(|cx| Ifc::read(history.last().unwrap(), cx)).0.unwrap();
+                            let expected =
+                                run(|cx| crate::apply(&file, &edits, b"predefined-history", cx));
+                            let actual = record_budget(&mut record, |cx| {
+                                let result = live.apply(&edits, b"predefined-history", cx);
+                                (result, cx.diag.iter().cloned().collect::<Vec<_>>())
+                            });
+                            assert_eq!(actual.1, expected.1);
+                            record.push_str(&format!("{:?}\n", actual.1));
+                            let expected = expected.0.unwrap();
+                            assert_eq!(actual.0.unwrap(), expected.changed);
+                            record.push_str(&check_model(&live, &expected.bytes));
+                            history.push(expected.bytes);
+                        }
+                        for version in history.iter().rev().skip(1) {
+                            assert!(record_budget(&mut record, |cx| live.undo(cx)).unwrap());
+                            record.push_str(&check_model(&live, version));
+                        }
+                        for version in history.iter().skip(1) {
+                            assert!(record_budget(&mut record, |cx| live.redo(cx)).unwrap());
+                            record.push_str(&check_model(&live, version));
+                        }
+                    }
+                    if let Some(reference) = &thread_record {
+                        assert_eq!(&record, reference);
+                    } else {
+                        thread_record = Some(record.clone());
+                    }
+                    transcript.push_str(&record);
+                }
+            }
+        }
+        #[expect(clippy::print_stdout, reason = "テストの比較記録だけを出力する")]
+        {
+            println!("ifc-predefined {:?}", Hash::document(transcript.as_bytes()));
+        }
+    }
+
     fn rich_edit(element: u64, set: &str, name: &str, text: &str) -> Edit {
         Edit::Property {
             element,
@@ -3075,13 +3291,32 @@ mod shared_budget_tests {
     fn rich_model_copies_stop_before_apply_undo_and_redo_mutation() {
         let bytes = rich_fixture();
         let edits = [rich_edit(10, "Pset_Test", "Value", "changed")];
+        check_model_copy_stops(&bytes, &edits, true);
+    }
+
+    #[test]
+    fn predefined_model_copies_stop_before_apply_undo_and_redo_mutation() {
+        let edits = [
+            Edit::Attribute {
+                element: 70,
+                attribute: RootAttribute::Name,
+                value: Some("Renamed".into()),
+            },
+            rich_edit(10, "Pset_Test", "Value", "changed"),
+        ];
+        for schema in ["IFC2X3", "IFC4", "IFC4X3"] {
+            check_model_copy_stops(&predefined_fixture(schema, 0), &edits, false);
+        }
+    }
+
+    fn check_model_copy_stops(bytes: &[u8], edits: &[Edit], check_depth: bool) {
         let perform = |live: &mut IfcLive, phase: u8, cx: &mut Cx| match phase {
-            0 => live.apply(&edits, b"rich-stop", cx).map(|count| count > 0),
+            0 => live.apply(edits, b"rich-stop", cx).map(|count| count > 0),
             1 => live.undo(cx),
             _ => live.redo(cx),
         };
         for threads in [1, 4] {
-            let mut live = run(|cx| IfcLive::open_with_threads(&bytes, threads, cx))
+            let mut live = run(|cx| IfcLive::open_with_threads(bytes, threads, cx))
                 .0
                 .unwrap();
             live.take_dirty_element_spans();
@@ -3122,19 +3357,21 @@ mod shared_budget_tests {
                         }
                     }
                 }
-                let mut depth_budget =
-                    Budget::new(Limits::default().with(Kind::Depth, Limit::Finite(0)));
-                let mut candidate = live.clone();
-                assert!(matches!(
-                    perform(
-                        &mut candidate,
-                        phase,
-                        &mut Cx::new(&mut depth_budget, &mut Diagnostics::new(), &cancel)
-                    ),
-                    Err(Error::Stopped(_))
-                ));
-                assert_eq!(format!("{candidate:?}"), before);
-                assert_eq!(depth_budget.used(Kind::Depth), 0);
+                if check_depth || phase == 0 {
+                    let mut depth_budget =
+                        Budget::new(Limits::default().with(Kind::Depth, Limit::Finite(0)));
+                    let mut candidate = live.clone();
+                    assert!(matches!(
+                        perform(
+                            &mut candidate,
+                            phase,
+                            &mut Cx::new(&mut depth_budget, &mut Diagnostics::new(), &cancel)
+                        ),
+                        Err(Error::Stopped(_))
+                    ));
+                    assert_eq!(format!("{candidate:?}"), before);
+                    assert_eq!(depth_budget.used(Kind::Depth), 0);
+                }
                 cancel.cancel();
                 let result = perform(
                     &mut live,

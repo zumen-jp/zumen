@@ -58,6 +58,43 @@ fn fields(kind: &[u8]) -> Option<&'static [(&'static str, &'static str)]> {
     .find_map(|(name, fields)| name.eq_ignore_ascii_case(kind).then_some(fields))
 }
 
+/// 従来変換と Live が、同じ版の属性位置・名前・型を使う。
+pub(crate) fn predefined_property_fields(
+    kind: &[u8],
+    version: Version,
+) -> Option<impl Iterator<Item = (usize, &'static str, &'static str)>> {
+    let fields = fields(kind)?;
+    let old = version == Version::Ifc2x3;
+    let last = if old {
+        if kind.eq_ignore_ascii_case(b"IFCDOORLININGPROPERTIES") {
+            15
+        } else if kind.eq_ignore_ascii_case(b"IFCWINDOWLININGPROPERTIES") {
+            13
+        } else {
+            9
+        }
+    } else {
+        usize::MAX
+    };
+    Some(
+        fields
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, &(name, kind))| {
+                let at = index + 5;
+                if at > last || name.is_empty() {
+                    return None;
+                }
+                let kind = if old && kind == "IfcNonNegativeLengthMeasure" {
+                    "IfcPositiveLengthMeasure"
+                } else {
+                    kind
+                };
+                Some((at, name, kind))
+            }),
+    )
+}
+
 impl Lifter<'_> {
     /// IfcPropertyListValue.ListValues と IfcPropertyEnumeratedValue.EnumerationValues。
     /// 値の型を共通の TypedValue に、順序と各値を Literal::List に保つ。
@@ -237,38 +274,16 @@ impl Lifter<'_> {
 
     /// 形の参照は使ったと数えず、形の種類と場所を既存の欠落の診断に残す。
     pub(super) fn predefined_properties(&mut self, record: &Record, cx: &mut Cx) -> Vec<Property> {
-        let Some(fields) = fields(self.file.kind(record)) else {
+        let Some(fields) = predefined_property_fields(self.file.kind(record), self.version) else {
             return Vec::new();
         };
-        let old = self.version == Version::Ifc2x3;
-        let last = if old {
-            let kind = self.file.kind(record);
-            if kind.eq_ignore_ascii_case(b"IFCDOORLININGPROPERTIES") {
-                15
-            } else if kind.eq_ignore_ascii_case(b"IFCWINDOWLININGPROPERTIES") {
-                13
-            } else {
-                9
-            }
-        } else {
-            usize::MAX
-        };
         let mut properties = Vec::new();
-        for (index, &(name, kind)) in fields.iter().enumerate() {
-            let at = index + 5;
-            if at > last || name.is_empty() {
-                continue;
-            }
+        for (at, name, kind) in fields {
             if !self.charge(cx, Kind::Work, 1) {
                 break;
             }
             let Some(value) = arg(record, at).filter(|v| !matches!(v, Value::Null)) else {
                 continue;
-            };
-            let kind = if old && kind == "IfcNonNegativeLengthMeasure" {
-                "IfcPositiveLengthMeasure"
-            } else {
-                kind
             };
             let bytes = match value {
                 Value::Enum(raw) => raw.len() as u64,
