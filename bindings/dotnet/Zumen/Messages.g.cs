@@ -48,6 +48,7 @@ namespace Zumen.Messages
             ["entities"] = typeof(EntitiesRequest),
             ["calibrations"] = typeof(CalibrationsRequest),
             ["measure_distance"] = typeof(MeasureDistanceRequest),
+            ["measure"] = typeof(MeasureRequest),
             ["apply"] = typeof(ApplyRequest),
             ["convert"] = typeof(ConvertRequest),
             ["convert_estimate"] = typeof(ConvertEstimateRequest),
@@ -973,6 +974,223 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("unit_label")]
         public string UnitLabel { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない
+    /// </summary>
+    public sealed record MeasureRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "measure";
+
+        /// <summary>
+        /// 開いた文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 求める値
+        /// </summary>
+        [JsonPropertyName("quantity")]
+        public string Quantity { get; init; } = default!;
+
+        /// <summary>
+        /// 計測する要素または点
+        /// </summary>
+        [JsonPropertyName("first")]
+        public JsonAny First { get; init; } = default!;
+
+        /// <summary>
+        /// 最短距離のもう一方の要素または点。distance のときだけ必須
+        /// </summary>
+        [JsonPropertyName("second")]
+        public JsonAny? Second { get; init; }
+
+        /// <summary>
+        /// 近似する曲線の分割で目標にする弦の誤差。空間の長さの単位で正の値。既定は 0.001。計測した長さ・面積・距離の誤差上限ではない
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double? Tolerance { get; init; }
+
+        /// <summary>
+        /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+        /// </summary>
+        [JsonPropertyName("expected_hash")]
+        public string? ExpectedHash { get; init; }
+    }
+
+    /// <summary>
+    /// 長さ、閉じた経路の周長、向き付き線積分の絶対値の面積、境界間の最短距離。面積は自己交差を塗り規則で統合しない
+    /// </summary>
+    public static class MeasureQuantity
+    {
+        /// <summary>length</summary>
+        public const string Length = "length";
+        /// <summary>perimeter</summary>
+        public const string Perimeter = "perimeter";
+        /// <summary>area</summary>
+        public const string Area = "area";
+        /// <summary>distance</summary>
+        public const string Distance = "distance";
+    }
+
+    /// <summary>
+    /// 同じモデル空間内の要素または座標
+    /// </summary>
+    public static class MeasureTarget
+    {
+        /// <summary>タグのフィールドの名前</summary>
+        public const string Tag = "kind";
+
+        /// <summary>タグの値と、その形の型</summary>
+        public static readonly IReadOnlyDictionary<string, global::System.Type> Variants = new Dictionary<string, global::System.Type>
+        {
+            ["element"] = typeof(MeasureElement),
+            ["point"] = typeof(MeasurePoint),
+        };
+    }
+
+    /// <summary>
+    /// 計測する要素。元の公開 ID を使う
+    /// </summary>
+    public sealed record MeasureElement
+    {
+        /// <summary>
+        /// 対象の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "element";
+
+        /// <summary>
+        /// 同じ空間の entities が返した要素の ID
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 距離の計測で使う空間の座標
+    /// </summary>
+    public sealed record MeasurePoint
+    {
+        /// <summary>
+        /// 対象の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "point";
+
+        /// <summary>
+        /// 空間の長さの単位の点
+        /// </summary>
+        [JsonPropertyName("position")]
+        public Point2 Position { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
+    /// </summary>
+    public sealed record MeasureResult
+    {
+        /// <summary>
+        /// 元の文書のハッシュ
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 計測した実寸の空間の公開 ID
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 求めた値の種類
+        /// </summary>
+        [JsonPropertyName("quantity")]
+        public string Quantity { get; init; } = default!;
+
+        /// <summary>
+        /// 計測値。0 以上の有限値
+        /// </summary>
+        [JsonPropertyName("value")]
+        public double Value { get; init; }
+
+        /// <summary>
+        /// 空間の長さの単位。不明な単位を補わない
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// 単位の次数。長さと距離は 1、面積は 2
+        /// </summary>
+        [JsonPropertyName("unit_power")]
+        public uint UnitPower { get; init; }
+
+        /// <summary>
+        /// 計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する
+        /// </summary>
+        [JsonPropertyName("approximate")]
+        public bool Approximate { get; init; }
+
+        /// <summary>
+        /// 指定した、または既定の分割の目標。近似しないときも返す
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double Tolerance { get; init; }
+
+        /// <summary>
+        /// 最短距離を作る最初の対象上の点。distance のときだけ返す
+        /// </summary>
+        [JsonPropertyName("nearest_first")]
+        public Point2? NearestFirst { get; init; }
+
+        /// <summary>
+        /// 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点
+        /// </summary>
+        [JsonPropertyName("nearest_second")]
+        public Point2? NearestSecond { get; init; }
     }
 
     /// <summary>
@@ -9940,6 +10158,7 @@ namespace Zumen.Messages
                 ["entities"] = (typeof(EntitiesRequest), typeof(EntitiesResult)),
                 ["calibrations"] = (typeof(CalibrationsRequest), typeof(CalibrationsResult)),
                 ["measure_distance"] = (typeof(MeasureDistanceRequest), typeof(MeasureDistanceResult)),
+                ["measure"] = (typeof(MeasureRequest), typeof(MeasureResult)),
                 ["apply"] = (typeof(ApplyRequest), typeof(ApplyResult)),
                 ["convert"] = (typeof(ConvertRequest), typeof(ConvertResult)),
                 ["convert_estimate"] = (typeof(ConvertEstimateRequest), typeof(ConvertEstimateResult)),

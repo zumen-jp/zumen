@@ -15,6 +15,7 @@
         { "$ref": "#/$defs/entities_request" },
         { "$ref": "#/$defs/calibrations_request" },
         { "$ref": "#/$defs/measure_distance_request" },
+        { "$ref": "#/$defs/measure_request" },
         { "$ref": "#/$defs/apply_request" },
         { "$ref": "#/$defs/convert_request" },
         { "$ref": "#/$defs/convert_estimate_request" },
@@ -436,6 +437,70 @@
         "unit_label": { "description": "元の単位ラベル。未知の単位でも原文を保つ", "type": "string" }
       },
       "required": ["hash", "from", "calibration", "distance", "unit", "unit_label"],
+      "additionalProperties": false
+    },
+    "measure_request": {
+      "description": "モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "measure" },
+        "doc": { "description": "開いた文書の名前", "type": "string" },
+        "from": { "description": "実寸の空間の公開 ID。用紙と記号定義の空間は対象外", "type": "string" },
+        "quantity": { "description": "求める値", "$ref": "#/$defs/measure_quantity" },
+        "first": { "description": "計測する要素または点", "$ref": "#/$defs/measure_target" },
+        "second": { "description": "最短距離のもう一方の要素または点。distance のときだけ必須", "$ref": "#/$defs/measure_target" },
+        "tolerance": { "description": "近似する曲線の分割で目標にする弦の誤差。空間の長さの単位で正の値。既定は 0.001。計測した長さ・面積・距離の誤差上限ではない", "type": "number" },
+        "expected_hash": { "description": "期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する", "type": "string" }
+      },
+      "required": ["op", "doc", "from", "quantity", "first"],
+      "unevaluatedProperties": false
+    },
+    "measure_quantity": {
+      "description": "長さ、閉じた経路の周長、向き付き線積分の絶対値の面積、境界間の最短距離。面積は自己交差を塗り規則で統合しない",
+      "type": "string",
+      "enum": ["length", "perimeter", "area", "distance"]
+    },
+    "measure_target": {
+      "description": "同じモデル空間内の要素または座標",
+      "oneOf": [{ "$ref": "#/$defs/measure_element" }, { "$ref": "#/$defs/measure_point" }]
+    },
+    "measure_element": {
+      "description": "計測する要素。元の公開 ID を使う",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "対象の種類", "const": "element" },
+        "id": { "description": "同じ空間の entities が返した要素の ID", "type": "string" }
+      },
+      "required": ["kind", "id"],
+      "additionalProperties": false
+    },
+    "measure_point": {
+      "description": "距離の計測で使う空間の座標",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "対象の種類", "const": "point" },
+        "position": { "description": "空間の長さの単位の点", "$ref": "#/$defs/point2" }
+      },
+      "required": ["kind", "position"],
+      "additionalProperties": false
+    },
+    "measure_result": {
+      "description": "要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する",
+      "type": "object",
+      "properties": {
+        "hash": { "description": "元の文書のハッシュ", "type": "string" },
+        "from": { "description": "計測した実寸の空間の公開 ID", "type": "string" },
+        "quantity": { "description": "求めた値の種類", "$ref": "#/$defs/measure_quantity" },
+        "value": { "description": "計測値。0 以上の有限値", "type": "number" },
+        "unit": { "description": "空間の長さの単位。不明な単位を補わない", "$ref": "#/$defs/unit" },
+        "unit_power": { "description": "単位の次数。長さと距離は 1、面積は 2", "type": "integer", "minimum": 1, "maximum": 2 },
+        "approximate": { "description": "計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する", "type": "boolean" },
+        "tolerance": { "description": "指定した、または既定の分割の目標。近似しないときも返す", "type": "number" },
+        "nearest_first": { "description": "最短距離を作る最初の対象上の点。distance のときだけ返す", "$ref": "#/$defs/point2" },
+        "nearest_second": { "description": "最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点", "$ref": "#/$defs/point2" }
+      },
+      "required": ["hash", "from", "quantity", "value", "unit", "unit_power", "approximate", "tolerance"],
       "additionalProperties": false
     },
     "point_style_summary": {

@@ -9,6 +9,7 @@
 
 use std::f64::consts::PI;
 
+pub mod measure;
 pub mod topology;
 
 /// 1 つの曲線で作る区間の数の上限
@@ -910,7 +911,7 @@ pub fn interpolate(
         chord += d;
         steps.push(match spacing {
             Spacing::Chord => d,
-            Spacing::SquareRoot => d.sqrt(),
+            Spacing::SquareRoot => libm::sqrt(d),
             Spacing::Uniform => 1.0,
         });
     }

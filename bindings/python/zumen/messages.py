@@ -17,6 +17,7 @@ Request = Union[
     "EntitiesRequest",
     "CalibrationsRequest",
     "MeasureDistanceRequest",
+    "MeasureRequest",
     "ApplyRequest",
     "ConvertRequest",
     "ConvertEstimateRequest",
@@ -602,6 +603,129 @@ MeasureDistanceResult = TypedDict(
         "unit_label": str,
     },
 )
+
+
+# モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない
+_MeasureRequestRequired = TypedDict(
+    "_MeasureRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["measure"],
+        # 開いた文書の名前
+        "doc": str,
+        # 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+        "from": str,
+        # 求める値
+        "quantity": "MeasureQuantity",
+        # 計測する要素または点
+        "first": "MeasureTarget",
+    },
+)
+_MeasureRequestOptional = TypedDict(
+    "_MeasureRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 最短距離のもう一方の要素または点。distance のときだけ必須
+        "second": "MeasureTarget",
+        # 近似する曲線の分割で目標にする弦の誤差。空間の長さの単位で正の値。既定は 0.001。計測した長さ・面積・距離の誤差上限ではない
+        "tolerance": float,
+        # 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+        "expected_hash": str,
+    },
+    total=False,
+)
+
+
+class MeasureRequest(_MeasureRequestRequired, _MeasureRequestOptional):
+    "モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない"
+
+# 長さ、閉じた経路の周長、向き付き線積分の絶対値の面積、境界間の最短距離。面積は自己交差を塗り規則で統合しない
+MeasureQuantity = Union[
+    Literal[
+        "length",
+        "perimeter",
+        "area",
+        "distance",
+    ],
+    str,
+]
+
+# 同じモデル空間内の要素または座標
+MeasureTarget = Union[
+    "MeasureElement",
+    "MeasurePoint",
+]
+
+
+# 計測する要素。元の公開 ID を使う
+MeasureElement = TypedDict(
+    "MeasureElement",
+    {
+        # 対象の種類
+        "kind": Literal["element"],
+        # 同じ空間の entities が返した要素の ID
+        "id": str,
+    },
+)
+
+
+# 距離の計測で使う空間の座標
+MeasurePoint = TypedDict(
+    "MeasurePoint",
+    {
+        # 対象の種類
+        "kind": Literal["point"],
+        # 空間の長さの単位の点
+        "position": "Point2",
+    },
+)
+
+
+# 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
+_MeasureResultRequired = TypedDict(
+    "_MeasureResultRequired",
+    {
+        # 元の文書のハッシュ
+        "hash": str,
+        # 計測した実寸の空間の公開 ID
+        "from": str,
+        # 求めた値の種類
+        "quantity": "MeasureQuantity",
+        # 計測値。0 以上の有限値
+        "value": float,
+        # 空間の長さの単位。不明な単位を補わない
+        "unit": "Unit",
+        # 単位の次数。長さと距離は 1、面積は 2
+        "unit_power": int,
+        # 計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する
+        "approximate": bool,
+        # 指定した、または既定の分割の目標。近似しないときも返す
+        "tolerance": float,
+    },
+)
+_MeasureResultOptional = TypedDict(
+    "_MeasureResultOptional",
+    {
+        # 最短距離を作る最初の対象上の点。distance のときだけ返す
+        "nearest_first": "Point2",
+        # 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点
+        "nearest_second": "Point2",
+    },
+    total=False,
+)
+
+
+class MeasureResult(_MeasureResultRequired, _MeasureResultOptional):
+    "要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する"
 
 
 # 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -6239,6 +6363,7 @@ Operation = Literal[
     "entities",
     "calibrations",
     "measure_distance",
+    "measure",
     "apply",
     "convert",
     "convert_estimate",
@@ -6278,6 +6403,7 @@ OPERATIONS: Dict[str, Any] = {
     "entities": ("EntitiesRequest", "EntitiesResult"),
     "calibrations": ("CalibrationsRequest", "CalibrationsResult"),
     "measure_distance": ("MeasureDistanceRequest", "MeasureDistanceResult"),
+    "measure": ("MeasureRequest", "MeasureResult"),
     "apply": ("ApplyRequest", "ApplyResult"),
     "convert": ("ConvertRequest", "ConvertResult"),
     "convert_estimate": ("ConvertEstimateRequest", "ConvertEstimateResult"),

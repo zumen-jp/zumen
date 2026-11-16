@@ -14,6 +14,7 @@ export type Request =
   | EntitiesRequest
   | CalibrationsRequest
   | MeasureDistanceRequest
+  | MeasureRequest
   | ApplyRequest
   | ConvertRequest
   | ConvertEstimateRequest
@@ -318,6 +319,79 @@ export interface MeasureDistanceResult {
   unit: Unit;
   /** 元の単位ラベル。未知の単位でも原文を保つ */
   unit_label: string;
+}
+
+/** モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない */
+export interface MeasureRequest extends RequestCommon {
+  /** op の名前 */
+  op: "measure";
+  /** 開いた文書の名前 */
+  doc: string;
+  /** 実寸の空間の公開 ID。用紙と記号定義の空間は対象外 */
+  from: string;
+  /** 求める値 */
+  quantity: MeasureQuantity;
+  /** 計測する要素または点 */
+  first: MeasureTarget;
+  /** 最短距離のもう一方の要素または点。distance のときだけ必須 */
+  second?: MeasureTarget;
+  /** 近似する曲線の分割で目標にする弦の誤差。空間の長さの単位で正の値。既定は 0.001。計測した長さ・面積・距離の誤差上限ではない */
+  tolerance?: number;
+  /** 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する */
+  expected_hash?: string;
+}
+
+/** 長さ、閉じた経路の周長、向き付き線積分の絶対値の面積、境界間の最短距離。面積は自己交差を塗り規則で統合しない */
+export type MeasureQuantity =
+  | "length"
+  | "perimeter"
+  | "area"
+  | "distance"
+  | (string & {});
+
+/** 同じモデル空間内の要素または座標 */
+export type MeasureTarget =
+  | MeasureElement
+  | MeasurePoint;
+
+/** 計測する要素。元の公開 ID を使う */
+export interface MeasureElement {
+  /** 対象の種類 */
+  kind: "element";
+  /** 同じ空間の entities が返した要素の ID */
+  id: string;
+}
+
+/** 距離の計測で使う空間の座標 */
+export interface MeasurePoint {
+  /** 対象の種類 */
+  kind: "point";
+  /** 空間の長さの単位の点 */
+  position: Point2;
+}
+
+/** 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する */
+export interface MeasureResult {
+  /** 元の文書のハッシュ */
+  hash: string;
+  /** 計測した実寸の空間の公開 ID */
+  from: string;
+  /** 求めた値の種類 */
+  quantity: MeasureQuantity;
+  /** 計測値。0 以上の有限値 */
+  value: number;
+  /** 空間の長さの単位。不明な単位を補わない */
+  unit: Unit;
+  /** 単位の次数。長さと距離は 1、面積は 2 */
+  unit_power: number;
+  /** 計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する */
+  approximate: boolean;
+  /** 指定した、または既定の分割の目標。近似しないときも返す */
+  tolerance: number;
+  /** 最短距離を作る最初の対象上の点。distance のときだけ返す */
+  nearest_first?: Point2;
+  /** 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点 */
+  nearest_second?: Point2;
 }
 
 /** 文書の点の表し方。フィールドの意味は point_style_edit と同じ */
@@ -3583,6 +3657,7 @@ export interface Operations {
   entities: { request: EntitiesRequest; result: EntitiesResult };
   calibrations: { request: CalibrationsRequest; result: CalibrationsResult };
   measure_distance: { request: MeasureDistanceRequest; result: MeasureDistanceResult };
+  measure: { request: MeasureRequest; result: MeasureResult };
   apply: { request: ApplyRequest; result: ApplyResult };
   convert: { request: ConvertRequest; result: ConvertResult };
   convert_estimate: { request: ConvertEstimateRequest; result: ConvertEstimateResult };

@@ -7,6 +7,8 @@ mod civil_ops;
 mod conversion_ops;
 mod delivery_ops;
 mod drawing_ops;
+#[cfg(feature = "drawing")]
+mod measurement_ops;
 mod pointcloud_ops;
 mod review_ops;
 mod scene_ops;
@@ -418,6 +420,8 @@ impl Session {
                 .measure_distance(request, &mut cx)
                 .map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
+            Request::Measure(request) => self.measure(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
             Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Render(request) => self.render(request, &mut cx).map(|r| Box::new(r) as _),
@@ -671,6 +675,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Tables(request) => &request.request_common,
         Request::Calibrations(request) => &request.request_common,
         Request::MeasureDistance(request) => &request.request_common,
+        Request::Measure(request) => &request.request_common,
         Request::Scene(request) => &request.request_common,
         Request::Render(request) => &request.request_common,
         Request::Raster(request) => &request.request_common,
@@ -913,5 +918,7 @@ mod watchdog {
 
 #[cfg(all(test, feature = "drawing"))]
 mod calibration_tests;
+#[cfg(all(test, feature = "drawing"))]
+mod measurement_tests;
 #[cfg(test)]
 mod tests;

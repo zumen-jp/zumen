@@ -102,6 +102,11 @@ public final class Messages {
             return "measure_distance".equals(json.get("op")) ? new MeasureDistanceRequest(json) : null;
         }
 
+        /** op が measure の形なら、そのビュー。違えば null */
+        public MeasureRequest asMeasureRequest() {
+            return "measure".equals(json.get("op")) ? new MeasureRequest(json) : null;
+        }
+
         /** op が apply の形なら、そのビュー。違えば null */
         public ApplyRequest asApplyRequest() {
             return "apply".equals(json.get("op")) ? new ApplyRequest(json) : null;
@@ -2027,6 +2032,423 @@ public final class Messages {
         /** {@link #getUnitLabel()} を書く。null ならフィールドを除く */
         public MeasureDistanceResult withUnitLabel(String value) {
             put("unit_label", value);
+            return this;
+        }
+    }
+
+    /** モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない */
+    public static final class MeasureRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MeasureRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MeasureRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MeasureRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public MeasureRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "measure");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public MeasureRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public MeasureRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public MeasureRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public MeasureRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public MeasureRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public MeasureRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 開いた文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public MeasureRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 実寸の空間の公開 ID。用紙と記号定義の空間は対象外 */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public MeasureRequest withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 求める値 */
+        public String getQuantity() {
+            return Json.read(json.get("quantity"), Json::string);
+        }
+
+        /** {@link #getQuantity()} を書く。null ならフィールドを除く */
+        public MeasureRequest withQuantity(String value) {
+            put("quantity", value);
+            return this;
+        }
+
+        /** 計測する要素または点 */
+        public MeasureTarget getFirst() {
+            return Json.read(json.get("first"), MeasureTarget::of);
+        }
+
+        /** {@link #getFirst()} を書く。null ならフィールドを除く */
+        public MeasureRequest withFirst(MeasureTarget value) {
+            put("first", value);
+            return this;
+        }
+
+        /** 最短距離のもう一方の要素または点。distance のときだけ必須 */
+        public MeasureTarget getSecond() {
+            return Json.read(json.get("second"), MeasureTarget::of);
+        }
+
+        /** {@link #getSecond()} を書く。null ならフィールドを除く */
+        public MeasureRequest withSecond(MeasureTarget value) {
+            put("second", value);
+            return this;
+        }
+
+        /** 近似する曲線の分割で目標にする弦の誤差。空間の長さの単位で正の値。既定は 0.001。計測した長さ・面積・距離の誤差上限ではない */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public MeasureRequest withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する */
+        public String getExpectedHash() {
+            return Json.read(json.get("expected_hash"), Json::string);
+        }
+
+        /** {@link #getExpectedHash()} を書く。null ならフィールドを除く */
+        public MeasureRequest withExpectedHash(String value) {
+            put("expected_hash", value);
+            return this;
+        }
+    }
+
+    /**
+     * 長さ、閉じた経路の周長、向き付き線積分の絶対値の面積、境界間の最短距離。面積は自己交差を塗り規則で統合しない
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class MeasureQuantity {
+        private MeasureQuantity() {}
+
+        public static final String LENGTH = "length";
+
+        public static final String PERIMETER = "perimeter";
+
+        public static final String AREA = "area";
+
+        public static final String DISTANCE = "distance";
+    }
+
+    /** 同じモデル空間内の要素または座標 */
+    public static final class MeasureTarget extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MeasureTarget(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MeasureTarget of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MeasureTarget(json);
+        }
+
+        /** kind が element の形なら、そのビュー。違えば null */
+        public MeasureElement asMeasureElement() {
+            return "element".equals(json.get("kind")) ? new MeasureElement(json) : null;
+        }
+
+        /** kind が point の形なら、そのビュー。違えば null */
+        public MeasurePoint asMeasurePoint() {
+            return "point".equals(json.get("kind")) ? new MeasurePoint(json) : null;
+        }
+    }
+
+    /** 計測する要素。元の公開 ID を使う */
+    public static final class MeasureElement extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MeasureElement(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MeasureElement of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MeasureElement(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public MeasureElement() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "element");
+        }
+
+        /** 対象の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public MeasureElement withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 同じ空間の entities が返した要素の ID */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public MeasureElement withId(String value) {
+            put("id", value);
+            return this;
+        }
+    }
+
+    /** 距離の計測で使う空間の座標 */
+    public static final class MeasurePoint extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MeasurePoint(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MeasurePoint of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MeasurePoint(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public MeasurePoint() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "point");
+        }
+
+        /** 対象の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public MeasurePoint withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 空間の長さの単位の点 */
+        public Point2 getPosition() {
+            return Json.read(json.get("position"), Point2::of);
+        }
+
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
+        public MeasurePoint withPosition(Point2 value) {
+            put("position", value);
+            return this;
+        }
+    }
+
+    /** 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する */
+    public static final class MeasureResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MeasureResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MeasureResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MeasureResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public MeasureResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の文書のハッシュ */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public MeasureResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 計測した実寸の空間の公開 ID */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public MeasureResult withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 求めた値の種類 */
+        public String getQuantity() {
+            return Json.read(json.get("quantity"), Json::string);
+        }
+
+        /** {@link #getQuantity()} を書く。null ならフィールドを除く */
+        public MeasureResult withQuantity(String value) {
+            put("quantity", value);
+            return this;
+        }
+
+        /** 計測値。0 以上の有限値 */
+        public Double getValue() {
+            return Json.read(json.get("value"), Json::number);
+        }
+
+        /** {@link #getValue()} を書く。null ならフィールドを除く */
+        public MeasureResult withValue(Double value) {
+            put("value", value);
+            return this;
+        }
+
+        /** 空間の長さの単位。不明な単位を補わない */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public MeasureResult withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** 単位の次数。長さと距離は 1、面積は 2 */
+        public Long getUnitPower() {
+            return Json.read(json.get("unit_power"), Json::integer);
+        }
+
+        /** {@link #getUnitPower()} を書く。null ならフィールドを除く */
+        public MeasureResult withUnitPower(Long value) {
+            put("unit_power", value);
+            return this;
+        }
+
+        /** 計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する */
+        public Boolean getApproximate() {
+            return Json.read(json.get("approximate"), Json::bool);
+        }
+
+        /** {@link #getApproximate()} を書く。null ならフィールドを除く */
+        public MeasureResult withApproximate(Boolean value) {
+            put("approximate", value);
+            return this;
+        }
+
+        /** 指定した、または既定の分割の目標。近似しないときも返す */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public MeasureResult withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 最短距離を作る最初の対象上の点。distance のときだけ返す */
+        public Point2 getNearestFirst() {
+            return Json.read(json.get("nearest_first"), Point2::of);
+        }
+
+        /** {@link #getNearestFirst()} を書く。null ならフィールドを除く */
+        public MeasureResult withNearestFirst(Point2 value) {
+            put("nearest_first", value);
+            return this;
+        }
+
+        /** 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点 */
+        public Point2 getNearestSecond() {
+            return Json.read(json.get("nearest_second"), Point2::of);
+        }
+
+        /** {@link #getNearestSecond()} を書く。null ならフィールドを除く */
+        public MeasureResult withNearestSecond(Point2 value) {
+            put("nearest_second", value);
             return this;
         }
     }
@@ -19598,6 +20020,8 @@ public final class Messages {
         public static final String CALIBRATIONS = "calibrations";
 
         public static final String MEASURE_DISTANCE = "measure_distance";
+
+        public static final String MEASURE = "measure";
 
         public static final String APPLY = "apply";
 

@@ -681,6 +681,7 @@ dependencies = [
  "zumen-geo",
  "zumen-geojson",
  "zumen-geology",
+ "zumen-geom2d",
  "zumen-geom3d",
  "zumen-ids",
  "zumen-ifc",

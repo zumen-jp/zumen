@@ -50,6 +50,8 @@ zumen-citygml = { version = "0.2.0", path = "../zumen-citygml" }
 zumen-fgd = { version = "0.2.0", path = "../zumen-fgd" }
 zumen-extdm = { version = "0.2.0", path = "../zumen-extdm" }
 zumen-geojson = { version = "0.2.0", path = "../zumen-geojson" }
+# 要素の計測。元の円弧と、近似が必要な曲線を分ける（#863）。
+zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d" }
 zumen-sima = { version = "0.2.0", path = "../zumen-sima" }
 zumen-tiff = { version = "0.2.0", path = "../zumen-tiff" }
 zumen-delivery = { version = "0.2.0", path = "../zumen-delivery" }

@@ -54,6 +54,11 @@ public struct Request: Message {
         taggedView("op", "measure_distance")
     }
 
+    /// op が measure の形なら、そのビュー。違えば nil
+    public var asMeasureRequest: MeasureRequest? {
+        taggedView("op", "measure")
+    }
+
     /// op が apply の形なら、そのビュー。違えば nil
     public var asApplyRequest: ApplyRequest? {
         taggedView("op", "apply")
@@ -1286,6 +1291,263 @@ public struct MeasureDistanceResult: Message {
     public var unitLabel: String? {
         get { readField("unit_label") }
         set { writeField("unit_label", newValue) }
+    }
+}
+
+/// モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない
+public struct MeasureRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("measure")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 開いた文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 求める値
+    public var quantity: String? {
+        get { readField("quantity") }
+        set { writeField("quantity", newValue) }
+    }
+
+    /// 計測する要素または点
+    public var first: MeasureTarget? {
+        get { readField("first") }
+        set { writeField("first", newValue) }
+    }
+
+    /// 最短距離のもう一方の要素または点。distance のときだけ必須
+    public var second: MeasureTarget? {
+        get { readField("second") }
+        set { writeField("second", newValue) }
+    }
+
+    /// 近似する曲線の分割で目標にする弦の誤差。空間の長さの単位で正の値。既定は 0.001。計測した長さ・面積・距離の誤差上限ではない
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+    public var expectedHash: String? {
+        get { readField("expected_hash") }
+        set { writeField("expected_hash", newValue) }
+    }
+}
+
+/// 長さ、閉じた経路の周長、向き付き線積分の絶対値の面積、境界間の最短距離。面積は自己交差を塗り規則で統合しない
+///
+/// 列挙の値。知らない値も受け取る
+public enum MeasureQuantity {
+    public static let length = "length"
+    public static let perimeter = "perimeter"
+    public static let area = "area"
+    public static let distance = "distance"
+}
+
+/// 同じモデル空間内の要素または座標
+public struct MeasureTarget: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// kind が element の形なら、そのビュー。違えば nil
+    public var asMeasureElement: MeasureElement? {
+        taggedView("kind", "element")
+    }
+
+    /// kind が point の形なら、そのビュー。違えば nil
+    public var asMeasurePoint: MeasurePoint? {
+        taggedView("kind", "point")
+    }
+}
+
+/// 計測する要素。元の公開 ID を使う
+public struct MeasureElement: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("element")]
+    }
+
+    /// 対象の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 同じ空間の entities が返した要素の ID
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+}
+
+/// 距離の計測で使う空間の座標
+public struct MeasurePoint: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("point")]
+    }
+
+    /// 対象の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 空間の長さの単位の点
+    public var position: Point2? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+}
+
+/// 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
+public struct MeasureResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の文書のハッシュ
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 計測した実寸の空間の公開 ID
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 求めた値の種類
+    public var quantity: String? {
+        get { readField("quantity") }
+        set { writeField("quantity", newValue) }
+    }
+
+    /// 計測値。0 以上の有限値
+    public var value: Double? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+
+    /// 空間の長さの単位。不明な単位を補わない
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// 単位の次数。長さと距離は 1、面積は 2
+    public var unitPower: Int64? {
+        get { readField("unit_power") }
+        set { writeField("unit_power", newValue) }
+    }
+
+    /// 計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する
+    public var approximate: Bool? {
+        get { readField("approximate") }
+        set { writeField("approximate", newValue) }
+    }
+
+    /// 指定した、または既定の分割の目標。近似しないときも返す
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 最短距離を作る最初の対象上の点。distance のときだけ返す
+    public var nearestFirst: Point2? {
+        get { readField("nearest_first") }
+        set { writeField("nearest_first", newValue) }
+    }
+
+    /// 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点
+    public var nearestSecond: Point2? {
+        get { readField("nearest_second") }
+        set { writeField("nearest_second", newValue) }
     }
 }
 
@@ -12049,6 +12311,7 @@ public enum Operations {
     public static let entities = "entities"
     public static let calibrations = "calibrations"
     public static let measureDistance = "measure_distance"
+    public static let measure = "measure"
     public static let apply = "apply"
     public static let convert = "convert"
     public static let convertEstimate = "convert_estimate"

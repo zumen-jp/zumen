@@ -47,6 +47,8 @@ mod formats;
 #[cfg(feature = "civil")]
 mod geo;
 mod geometry;
+#[cfg(feature = "drawing")]
+mod measurement;
 pub mod messages;
 mod packed;
 #[cfg(feature = "drawing")]

@@ -27,6 +27,8 @@ pub enum Request {
     Calibrations(CalibrationsRequest),
     /// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
     MeasureDistance(MeasureDistanceRequest),
+    /// モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない
+    Measure(MeasureRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
     /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
@@ -94,6 +96,7 @@ impl Request {
         "entities",
         "calibrations",
         "measure_distance",
+        "measure",
         "apply",
         "convert",
         "convert_estimate",
@@ -134,6 +137,7 @@ impl Request {
             Self::Entities(_) => "entities",
             Self::Calibrations(_) => "calibrations",
             Self::MeasureDistance(_) => "measure_distance",
+            Self::Measure(_) => "measure",
             Self::Apply(_) => "apply",
             Self::Convert(_) => "convert",
             Self::ConvertEstimate(_) => "convert_estimate",
@@ -179,6 +183,7 @@ impl FromJson for Request {
             "measure_distance" => {
                 Self::MeasureDistance(MeasureDistanceRequest::read_fields(&mut object)?)
             }
+            "measure" => Self::Measure(MeasureRequest::read_fields(&mut object)?),
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
             "convert" => Self::Convert(ConvertRequest::read_fields(&mut object)?),
             "convert_estimate" => {
@@ -234,6 +239,7 @@ impl ToJson for Request {
             Self::Entities(value) => value.to_json(out),
             Self::Calibrations(value) => value.to_json(out),
             Self::MeasureDistance(value) => value.to_json(out),
+            Self::Measure(value) => value.to_json(out),
             Self::Apply(value) => value.to_json(out),
             Self::Convert(value) => value.to_json(out),
             Self::ConvertEstimate(value) => value.to_json(out),
@@ -1623,6 +1629,364 @@ impl FromJson for MeasureDistanceResult {
 }
 
 impl ToJson for MeasureDistanceResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeasureRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 開いた文書の名前
+    pub doc: String,
+    /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+    pub from: String,
+    /// 求める値
+    pub quantity: MeasureQuantity,
+    /// 計測する要素または点
+    pub first: MeasureTarget,
+    /// 最短距離のもう一方の要素または点。distance のときだけ必須
+    pub second: Option<MeasureTarget>,
+    /// 近似する曲線の分割で目標にする弦の誤差。空間の長さの単位で正の値。既定は 0.001。計測した長さ・面積・距離の誤差上限ではない
+    pub tolerance: Option<f64>,
+    /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+    pub expected_hash: Option<String>,
+}
+
+impl MeasureRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "measure")?;
+        let doc = object.required("doc", json::string)?;
+        let from = object.required("from", json::string)?;
+        let quantity = object.required("quantity", MeasureQuantity::from_json)?;
+        let first = object.required("first", MeasureTarget::from_json)?;
+        let second = object.optional("second", MeasureTarget::from_json)?;
+        let tolerance = object.optional("tolerance", json::number)?;
+        let expected_hash = object.optional("expected_hash", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            from,
+            quantity,
+            first,
+            second,
+            tolerance,
+            expected_hash,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("measure");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("from");
+        out.string(&self.from);
+        out.key("quantity");
+        self.quantity.to_json(out);
+        out.key("first");
+        self.first.to_json(out);
+        if let Some(value) = &self.second {
+            out.key("second");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.tolerance {
+            out.key("tolerance");
+            out.float(*value);
+        }
+        if let Some(value) = &self.expected_hash {
+            out.key("expected_hash");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for MeasureRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MeasureRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 長さ、閉じた経路の周長、向き付き線積分の絶対値の面積、境界間の最短距離。面積は自己交差を塗り規則で統合しない
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MeasureQuantity {
+    /// `length`
+    Length,
+    /// `perimeter`
+    Perimeter,
+    /// `area`
+    Area,
+    /// `distance`
+    Distance,
+}
+
+impl MeasureQuantity {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Length, Self::Perimeter, Self::Area, Self::Distance];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Length => "length",
+            Self::Perimeter => "perimeter",
+            Self::Area => "area",
+            Self::Distance => "distance",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "length" => Some(Self::Length),
+            "perimeter" => Some(Self::Perimeter),
+            "area" => Some(Self::Area),
+            "distance" => Some(Self::Distance),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for MeasureQuantity {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for MeasureQuantity {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 同じモデル空間内の要素または座標
+#[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum MeasureTarget {
+    /// 計測する要素。元の公開 ID を使う
+    Element(MeasureElement),
+    /// 距離の計測で使う空間の座標
+    Point(MeasurePoint),
+}
+
+impl MeasureTarget {
+    /// タグのフィールド（`kind`）の値（スキーマの順）
+    pub const TAGS: &[&str] = &["element", "point"];
+
+    /// タグのフィールド（`kind`）の値
+    pub const fn tag(&self) -> &'static str {
+        match self {
+            Self::Element(_) => "element",
+            Self::Point(_) => "point",
+        }
+    }
+}
+
+impl FromJson for MeasureTarget {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = match object.tag("kind")? {
+            "element" => Self::Element(MeasureElement::read_fields(&mut object)?),
+            "point" => Self::Point(MeasurePoint::read_fields(&mut object)?),
+            other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
+        };
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MeasureTarget {
+    fn to_json(&self, out: &mut Writer) {
+        match self {
+            Self::Element(value) => value.to_json(out),
+            Self::Point(value) => value.to_json(out),
+        }
+    }
+}
+
+/// 計測する要素。元の公開 ID を使う
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeasureElement {
+    /// 同じ空間の entities が返した要素の ID
+    pub id: String,
+}
+
+impl MeasureElement {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "element")?;
+        let id = object.required("id", json::string)?;
+        Ok(Self { id })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("element");
+        out.key("id");
+        out.string(&self.id);
+    }
+}
+
+impl FromJson for MeasureElement {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MeasureElement {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 距離の計測で使う空間の座標
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeasurePoint {
+    /// 空間の長さの単位の点
+    pub position: Point2,
+}
+
+impl MeasurePoint {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "point")?;
+        let position = object.required("position", Point2::from_json)?;
+        Ok(Self { position })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("point");
+        out.key("position");
+        self.position.to_json(out);
+    }
+}
+
+impl FromJson for MeasurePoint {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MeasurePoint {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeasureResult {
+    /// 元の文書のハッシュ
+    pub hash: String,
+    /// 計測した実寸の空間の公開 ID
+    pub from: String,
+    /// 求めた値の種類
+    pub quantity: MeasureQuantity,
+    /// 計測値。0 以上の有限値
+    pub value: f64,
+    /// 空間の長さの単位。不明な単位を補わない
+    pub unit: Unit,
+    /// 単位の次数。長さと距離は 1、面積は 2
+    pub unit_power: u64,
+    /// 計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する
+    pub approximate: bool,
+    /// 指定した、または既定の分割の目標。近似しないときも返す
+    pub tolerance: f64,
+    /// 最短距離を作る最初の対象上の点。distance のときだけ返す
+    pub nearest_first: Option<Point2>,
+    /// 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点
+    pub nearest_second: Option<Point2>,
+}
+
+impl MeasureResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.required("hash", json::string)?;
+        let from = object.required("from", json::string)?;
+        let quantity = object.required("quantity", MeasureQuantity::from_json)?;
+        let value = object.required("value", json::number)?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let unit_power = object.required("unit_power", |value| json::uint(value, 1, 2))?;
+        let approximate = object.required("approximate", json::boolean)?;
+        let tolerance = object.required("tolerance", json::number)?;
+        let nearest_first = object.optional("nearest_first", Point2::from_json)?;
+        let nearest_second = object.optional("nearest_second", Point2::from_json)?;
+        Ok(Self {
+            hash,
+            from,
+            quantity,
+            value,
+            unit,
+            unit_power,
+            approximate,
+            tolerance,
+            nearest_first,
+            nearest_second,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("from");
+        out.string(&self.from);
+        out.key("quantity");
+        self.quantity.to_json(out);
+        out.key("value");
+        out.float(self.value);
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("unit_power");
+        out.uint(self.unit_power);
+        out.key("approximate");
+        out.bool(self.approximate);
+        out.key("tolerance");
+        out.float(self.tolerance);
+        if let Some(value) = &self.nearest_first {
+            out.key("nearest_first");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.nearest_second {
+            out.key("nearest_second");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for MeasureResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MeasureResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

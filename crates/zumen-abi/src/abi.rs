@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマのメジャーバージョン。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマのマイナーバージョン。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 76;
+pub const SCHEMA_MINOR: u64 = 77;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,6 +128,7 @@ pub const MODULES: &[Module] = &[
             "render",
             "calibrations",
             "measure_distance",
+            "measure",
             "raster",
         ],
     },
@@ -218,6 +219,7 @@ pub fn has_op(op: &str) -> bool {
                 | "render"
                 | "calibrations"
                 | "measure_distance"
+                | "measure"
                 | "raster"
         ))
         || (cfg!(feature = "bim")

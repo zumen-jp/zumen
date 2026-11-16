@@ -40,6 +40,9 @@ class Request extends Message {
   /// op が measure_distance の形なら、そのビュー。違えば null
   MeasureDistanceRequest? get asMeasureDistanceRequest => taggedView('op', 'measure_distance', MeasureDistanceRequest.fromJson);
 
+  /// op が measure の形なら、そのビュー。違えば null
+  MeasureRequest? get asMeasureRequest => taggedView('op', 'measure', MeasureRequest.fromJson);
+
   /// op が apply の形なら、そのビュー。違えば null
   ApplyRequest? get asApplyRequest => taggedView('op', 'apply', ApplyRequest.fromJson);
 
@@ -819,6 +822,175 @@ class MeasureDistanceResult extends Message {
   /// 元の単位ラベル。未知の単位でも原文を保つ
   String? get unitLabel => readField('unit_label', asString);
   set unitLabel(String? value) => writeField('unit_label', value);
+}
+
+/// モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない
+class MeasureRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MeasureRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  MeasureRequest() : super({'op': 'measure'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  int? get v => readField('v', asInt);
+  set v(int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  bool? get partial => readField('partial', asBool);
+  set partial(bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 開いた文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 求める値
+  String? get quantity => readField('quantity', asString);
+  set quantity(String? value) => writeField('quantity', value);
+
+  /// 計測する要素または点
+  MeasureTarget? get first => readField('first', objectOf(MeasureTarget.fromJson));
+  set first(MeasureTarget? value) => writeField('first', value);
+
+  /// 最短距離のもう一方の要素または点。distance のときだけ必須
+  MeasureTarget? get second => readField('second', objectOf(MeasureTarget.fromJson));
+  set second(MeasureTarget? value) => writeField('second', value);
+
+  /// 近似する曲線の分割で目標にする弦の誤差。空間の長さの単位で正の値。既定は 0.001。計測した長さ・面積・距離の誤差上限ではない
+  double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(double? value) => writeField('tolerance', value);
+
+  /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+  String? get expectedHash => readField('expected_hash', asString);
+  set expectedHash(String? value) => writeField('expected_hash', value);
+}
+
+/// 長さ、閉じた経路の周長、向き付き線積分の絶対値の面積、境界間の最短距離。面積は自己交差を塗り規則で統合しない
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class MeasureQuantity {
+  static const length = 'length';
+  static const perimeter = 'perimeter';
+  static const area = 'area';
+  static const distance = 'distance';
+}
+
+/// 同じモデル空間内の要素または座標
+class MeasureTarget extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MeasureTarget.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  MeasureTarget() : super({});
+
+  /// kind が element の形なら、そのビュー。違えば null
+  MeasureElement? get asMeasureElement => taggedView('kind', 'element', MeasureElement.fromJson);
+
+  /// kind が point の形なら、そのビュー。違えば null
+  MeasurePoint? get asMeasurePoint => taggedView('kind', 'point', MeasurePoint.fromJson);
+}
+
+/// 計測する要素。元の公開 ID を使う
+class MeasureElement extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MeasureElement.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  MeasureElement() : super({'kind': 'element'});
+
+  /// 対象の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 同じ空間の entities が返した要素の ID
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+}
+
+/// 距離の計測で使う空間の座標
+class MeasurePoint extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MeasurePoint.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  MeasurePoint() : super({'kind': 'point'});
+
+  /// 対象の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 空間の長さの単位の点
+  Point2? get position => readField('position', objectOf(Point2.fromJson));
+  set position(Point2? value) => writeField('position', value);
+}
+
+/// 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
+class MeasureResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MeasureResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  MeasureResult() : super({});
+
+  /// 元の文書のハッシュ
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 計測した実寸の空間の公開 ID
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 求めた値の種類
+  String? get quantity => readField('quantity', asString);
+  set quantity(String? value) => writeField('quantity', value);
+
+  /// 計測値。0 以上の有限値
+  double? get value => readField('value', asDouble);
+  set value(double? value) => writeField('value', value);
+
+  /// 空間の長さの単位。不明な単位を補わない
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// 単位の次数。長さと距離は 1、面積は 2
+  int? get unitPower => readField('unit_power', asInt);
+  set unitPower(int? value) => writeField('unit_power', value);
+
+  /// 計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する
+  bool? get approximate => readField('approximate', asBool);
+  set approximate(bool? value) => writeField('approximate', value);
+
+  /// 指定した、または既定の分割の目標。近似しないときも返す
+  double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(double? value) => writeField('tolerance', value);
+
+  /// 最短距離を作る最初の対象上の点。distance のときだけ返す
+  Point2? get nearestFirst => readField('nearest_first', objectOf(Point2.fromJson));
+  set nearestFirst(Point2? value) => writeField('nearest_first', value);
+
+  /// 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点
+  Point2? get nearestSecond => readField('nearest_second', objectOf(Point2.fromJson));
+  set nearestSecond(Point2? value) => writeField('nearest_second', value);
 }
 
 /// 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -7834,6 +8006,7 @@ abstract final class Operations {
   static const entities = 'entities';
   static const calibrations = 'calibrations';
   static const measureDistance = 'measure_distance';
+  static const measure = 'measure';
   static const apply = 'apply';
   static const convert = 'convert';
   static const convertEstimate = 'convert_estimate';

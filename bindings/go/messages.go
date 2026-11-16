@@ -70,6 +70,11 @@ func (u Request) AsMeasureDistanceRequest() *MeasureDistanceRequest {
 	return asTagged[MeasureDistanceRequest](u, "op", "measure_distance")
 }
 
+// AsMeasureRequest は、op が measure の形なら、その型で読む。違えば nil。
+func (u Request) AsMeasureRequest() *MeasureRequest {
+	return asTagged[MeasureRequest](u, "op", "measure")
+}
+
 // AsApplyRequest は、op が apply の形なら、その型で読む。違えば nil。
 func (u Request) AsApplyRequest() *ApplyRequest {
 	return asTagged[ApplyRequest](u, "op", "apply")
@@ -702,6 +707,169 @@ type MeasureDistanceResult struct {
 
 	// 元の単位ラベル。未知の単位でも原文を保つ
 	UnitLabel *string `json:"unit_label,omitempty"`
+}
+
+// MeasureRequest: モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない
+type MeasureRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 開いた文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+	From *string `json:"from,omitempty"`
+
+	// 求める値
+	Quantity *MeasureQuantity `json:"quantity,omitempty"`
+
+	// 計測する要素または点
+	First MeasureTarget `json:"first,omitempty"`
+
+	// 最短距離のもう一方の要素または点。distance のときだけ必須
+	Second MeasureTarget `json:"second,omitempty"`
+
+	// 近似する曲線の分割で目標にする弦の誤差。空間の長さの単位で正の値。既定は 0.001。計測した長さ・面積・距離の誤差上限ではない
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m MeasureRequest) MarshalJSON() ([]byte, error) {
+	type plain MeasureRequest
+	m.Op = "measure"
+	return json.Marshal(plain(m))
+}
+
+// MeasureQuantity: 長さ、閉じた経路の周長、向き付き線積分の絶対値の面積、境界間の最短距離。面積は自己交差を塗り規則で統合しない
+//
+// 列挙の値。知らない値も受け取る。
+type MeasureQuantity string
+
+// MeasureQuantityLength は length。
+const MeasureQuantityLength MeasureQuantity = "length"
+
+// MeasureQuantityPerimeter は perimeter。
+const MeasureQuantityPerimeter MeasureQuantity = "perimeter"
+
+// MeasureQuantityArea は area。
+const MeasureQuantityArea MeasureQuantity = "area"
+
+// MeasureQuantityDistance は distance。
+const MeasureQuantityDistance MeasureQuantity = "distance"
+
+// MeasureTarget: 同じモデル空間内の要素または座標
+//
+// 読んだ JSON をそのまま持つ。形は As で始まるメソッドで読み、MeasureTargetOf で作る。
+type MeasureTarget json.RawMessage
+
+// MeasureTargetOf は、形の値を JSON にして MeasureTarget にする。
+func MeasureTargetOf(value any) (MeasureTarget, error) {
+	data, err := json.Marshal(value)
+	return MeasureTarget(data), err
+}
+
+// MarshalJSON は、持っている JSON をそのまま書く。
+func (u MeasureTarget) MarshalJSON() ([]byte, error) {
+	return rawJSON(u), nil
+}
+
+// UnmarshalJSON は、読んだ JSON をそのまま持つ。
+func (u *MeasureTarget) UnmarshalJSON(data []byte) error {
+	*u = append((*u)[:0], data...)
+	return nil
+}
+
+// AsMeasureElement は、kind が element の形なら、その型で読む。違えば nil。
+func (u MeasureTarget) AsMeasureElement() *MeasureElement {
+	return asTagged[MeasureElement](u, "kind", "element")
+}
+
+// AsMeasurePoint は、kind が point の形なら、その型で読む。違えば nil。
+func (u MeasureTarget) AsMeasurePoint() *MeasurePoint {
+	return asTagged[MeasurePoint](u, "kind", "point")
+}
+
+// MeasureElement: 計測する要素。元の公開 ID を使う
+type MeasureElement struct {
+	// 対象の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 同じ空間の entities が返した要素の ID
+	Id *string `json:"id,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m MeasureElement) MarshalJSON() ([]byte, error) {
+	type plain MeasureElement
+	m.Kind = "element"
+	return json.Marshal(plain(m))
+}
+
+// MeasurePoint: 距離の計測で使う空間の座標
+type MeasurePoint struct {
+	// 対象の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 空間の長さの単位の点
+	Position *Point2 `json:"position,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m MeasurePoint) MarshalJSON() ([]byte, error) {
+	type plain MeasurePoint
+	m.Kind = "point"
+	return json.Marshal(plain(m))
+}
+
+// MeasureResult: 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
+type MeasureResult struct {
+	// 元の文書のハッシュ
+	Hash *string `json:"hash,omitempty"`
+
+	// 計測した実寸の空間の公開 ID
+	From *string `json:"from,omitempty"`
+
+	// 求めた値の種類
+	Quantity *MeasureQuantity `json:"quantity,omitempty"`
+
+	// 計測値。0 以上の有限値
+	Value *float64 `json:"value,omitempty"`
+
+	// 空間の長さの単位。不明な単位を補わない
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 単位の次数。長さと距離は 1、面積は 2
+	UnitPower *int64 `json:"unit_power,omitempty"`
+
+	// 計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する
+	Approximate *bool `json:"approximate,omitempty"`
+
+	// 指定した、または既定の分割の目標。近似しないときも返す
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 最短距離を作る最初の対象上の点。distance のときだけ返す
+	NearestFirst *Point2 `json:"nearest_first,omitempty"`
+
+	// 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点
+	NearestSecond *Point2 `json:"nearest_second,omitempty"`
 }
 
 // PointStyleSummary: 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -6338,6 +6506,9 @@ const OpCalibrations = "calibrations"
 
 // OpMeasureDistance は、op の名前 measure_distance。
 const OpMeasureDistance = "measure_distance"
+
+// OpMeasure は、op の名前 measure。
+const OpMeasure = "measure"
 
 // OpApply は、op の名前 apply。
 const OpApply = "apply"

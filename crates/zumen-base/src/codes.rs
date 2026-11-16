@@ -1150,6 +1150,36 @@ pub const DRAWING_CALIBRATION_INVALID: Code = Code::new(
     &["id", "reason"],
 );
 
+/// モデル空間の要素の計測で曲線を折れ線へ近似した。tolerance は分割の目標で、計測値自体の誤差上限ではない
+///
+/// `drawing.element-measurement.approximated`（0.3.0 から）
+pub const DRAWING_ELEMENT_MEASUREMENT_APPROXIMATED: Code = Code::new(
+    "drawing.element-measurement.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("quantity", ParamType::Key),
+        Param::new("tolerance", ParamType::Float),
+    ],
+    &["id", "quantity", "tolerance"],
+);
+
+/// モデル空間の要素または点の計測を完了できなかった。id は対象の公開 ID、quantity は求めた値、reason は失敗の理由
+///
+/// `drawing.element-measurement.failed`（0.3.0 から）
+pub const DRAWING_ELEMENT_MEASUREMENT_FAILED: Code = Code::new(
+    "drawing.element-measurement.failed",
+    Severity::Error,
+    None,
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("quantity", ParamType::Key),
+        Param::new("reason", ParamType::Key),
+    ],
+    &["id", "quantity", "reason"],
+);
+
 /// 線種に添える文字の高さが有限の実数で表せず、結果に含めなかった
 ///
 /// `drawing.mark-height.dropped`（0.0.0 から）
@@ -5412,6 +5442,8 @@ pub const ALL: &[Code] = &[
     DRAWING_BINARY_VERSION_UNSUPPORTED,
     DRAWING_BINARY_INVALID,
     DRAWING_CALIBRATION_INVALID,
+    DRAWING_ELEMENT_MEASUREMENT_APPROXIMATED,
+    DRAWING_ELEMENT_MEASUREMENT_FAILED,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_MEASUREMENT_FAILED,
     DRAWING_PLACEMENT_INVALID,

@@ -62,6 +62,17 @@ cargo run -p zumen-conformance -- --write
 
 `apply_dwg_table.json` は、[自作の表](../../crates/zumen-acad/tests/fixtures/README.md)を持つ R2010・R2013・R2018 の DWG で、位置だけの `replace` と `transform` を確かめます。ID・セル・表示用ブロックの参照と未変更要素のハッシュを保ち、セルの変更・回転・予算停止で変更が残らないことを比べます。形式の照合は、検証キットで ACadSharp と別に行います。
 
+### 計測
+
+`measure.json` は、線分・円・円弧・膨らみのない折れ線・楕円・制御点とフィット点のスプライン・クロソイド・点を持つ合成の図面モデルで、`measure` の値と全応答のハッシュを照らします。同じ出所が重なる公開 ID、単位不明、未対応の形、閉じていない面積、予算停止と再利用も含みます。生成元は `crates/zumen-abi/examples/measurement_case.rs` と隣の JSON です。
+
+```bash
+cargo run -p zumen-abi --example measurement_case
+cargo run -p zumen-abi --example measurement_case -- --check
+```
+
+環境間の一致とは別に、円と円弧・閉じた経路の解析式、楕円の完全楕円積分による周長、2 次 Bézier の速度の積分を、ABI の計測テストの期待値に使います。幾何のテストは、離れた円・内包する円・接線・交差・角度の範囲・膨らみを持つ辺・大きな座標での面積も確かめます。スプラインの `work`・`decoded_bytes`・`segments` の停止境界と中断は、ABI のテストで確認します。
+
 ### 合成フォント
 
 `cases/scene_fonts_cff.json` は、CFF・CFF2 と、両方を含むフォントのコレクション（TTC）の合成の入力です（#564）。実在のフォントは使わず、次のコマンドで組み立てます。`--check` は、作り直した組が記録した JSON と同じかを確かめます。
