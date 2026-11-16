@@ -12,6 +12,7 @@
 //! - [`spatial`]: 要素数によらない時間で更新・範囲検索する階層格子 [`SpatialGrid`]
 //! - [`dirty`]: 64 要素の塊ごとに変更範囲を追跡する [`DirtyColumn`]
 //! - [`display`]: 差分で更新する 2D の表示のバッファー [`Display`] と 13 列の変更追跡 [`DisplayDirty`]
+//! - [`display_wire`]: 64 要素の表示差分を、予算を共有してバイト列へ写す IPC の部品
 //! - [`dep`]: 寸法・ハッチング・属性・開口などの要素間の依存辺をたどる [`DepGraph`]
 //! - [`rank`]: レコード番号ベースの形式向けに `rank` と `select` を高速に引く [`RankBitset`]
 
@@ -19,6 +20,7 @@ pub mod cow;
 pub mod dep;
 pub mod dirty;
 pub mod display;
+pub mod display_wire;
 pub mod handle;
 pub mod paged;
 pub mod rank;

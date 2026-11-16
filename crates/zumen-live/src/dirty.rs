@@ -5,6 +5,8 @@
 
 use core::ops::Range;
 
+use zumen_base::{Cx, Kind, Stop};
+
 /// 差分追跡の 1 塊の要素数（64 要素）
 pub const DIRTY_BLOCK: usize = 64;
 const DIRTY_SHIFT: usize = 6;
@@ -144,6 +146,33 @@ impl<const PAGE_BITS: usize> DirtyColumn<PAGE_BITS> {
     /// 変更された要素の合計数
     pub fn dirty_elements(&self, current_len: usize) -> usize {
         self.spans(current_len).into_iter().map(|r| r.len()).sum()
+    }
+
+    /// IPC の書き出しで、一時配列を作らず 64 要素の塊を昇順にたどる。
+    pub(crate) fn visit_blocks_with_cx(
+        &self,
+        current_len: usize,
+        cx: &mut Cx<'_>,
+        mut visit: impl FnMut(Range<usize>, &mut Cx<'_>) -> Result<(), Stop>,
+    ) -> Result<(), Stop> {
+        for (index, &word) in self.words.iter().enumerate() {
+            cx.check(Kind::Work, 1)?;
+            let mut remaining = word;
+            while remaining != 0 {
+                cx.check(Kind::Work, 1)?;
+                let bit = remaining.trailing_zeros() as usize;
+                remaining &= remaining - 1;
+                let start = ((index << 6) | bit) << DIRTY_SHIFT;
+                if start >= current_len {
+                    return Ok(());
+                }
+                visit(
+                    start..start.saturating_add(DIRTY_BLOCK).min(current_len),
+                    cx,
+                )?;
+            }
+        }
+        Ok(())
     }
 }
 

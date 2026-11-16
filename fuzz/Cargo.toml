@@ -37,6 +37,7 @@ zumen-ids = { path = "../crates/zumen-ids" }
 zumen-ifc = { path = "../crates/zumen-ifc" }
 zumen-jww = { path = "../crates/zumen-jww" }
 zumen-landxml = { path = "../crates/zumen-landxml" }
+zumen-live = { path = "../crates/zumen-live" }
 zumen-las = { path = "../crates/zumen-las" }
 zumen-photo = { path = "../crates/zumen-photo" }
 zumen-ply = { path = "../crates/zumen-ply" }
@@ -82,6 +83,13 @@ bench = false
 [[bin]]
 name = "geom3d"
 path = "fuzz_targets/geom3d.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "display_wire"
+path = "fuzz_targets/display_wire.rs"
 test = false
 doc = false
 bench = false
