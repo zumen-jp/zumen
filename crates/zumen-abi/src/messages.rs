@@ -20270,6 +20270,8 @@ pub struct DeviationRequest {
     pub offset: Option<u64>,
     /// 返す評価した点の数の上限。書かなければ点を返さない
     pub limit: Option<u64>,
+    /// 差の色の段で点を塗った 3D のシーンも返す。点の選び方は点群の scene3d と同じ。89 から
+    pub scene3d: Option<DeviationScene3d>,
 }
 
 impl DeviationRequest {
@@ -20283,6 +20285,7 @@ impl DeviationRequest {
         let work = object.required("work", json::string)?;
         let offset = object.optional("offset", |value| json::uint(value, 0, 9007199254740991))?;
         let limit = object.optional("limit", |value| json::uint(value, 0, 10000))?;
+        let scene3d = object.optional("scene3d", DeviationScene3d::from_json)?;
         Ok(Self {
             request_common,
             doc,
@@ -20292,6 +20295,7 @@ impl DeviationRequest {
             work,
             offset,
             limit,
+            scene3d,
         })
     }
 
@@ -20316,6 +20320,10 @@ impl DeviationRequest {
         if let Some(value) = &self.limit {
             out.key("limit");
             out.uint(*value);
+        }
+        if let Some(value) = &self.scene3d {
+            out.key("scene3d");
+            value.to_json(out);
         }
     }
 }
@@ -20401,6 +20409,10 @@ pub struct DeviationResult {
     pub differences: Vec<DeviationPoint>,
     /// 続きの最初の評価した点の位置。続きがなければ持たない
     pub next_offset: Option<u64>,
+    /// 要求に scene3d を書いたときの 3D のシーン。点の色は bands の段の色で、元の色は持たない。強度と分類は元の値。89 から
+    pub scene3d: Option<Scene3dResult>,
+    /// 要求に scene3d を書いたときの色の段。規則の順に、その規則で起こりうる段を、差の小さい順に並べ、最後に評価しなかった点の段を置く。89 から
+    pub bands: Option<Vec<DeviationBand>>,
 }
 
 impl DeviationResult {
@@ -20428,6 +20440,10 @@ impl DeviationResult {
         let next_offset = object.optional("next_offset", |value| {
             json::uint(value, 0, 9007199254740991)
         })?;
+        let scene3d = object.optional("scene3d", Scene3dResult::from_json)?;
+        let bands = object.optional("bands", |value| {
+            json::array(value, DeviationBand::from_json)
+        })?;
         Ok(Self {
             chain,
             points,
@@ -20439,6 +20455,8 @@ impl DeviationResult {
             evaluated,
             differences,
             next_offset,
+            scene3d,
+            bands,
         })
     }
 
@@ -20465,6 +20483,14 @@ impl DeviationResult {
             out.key("next_offset");
             out.uint(*value);
         }
+        if let Some(value) = &self.scene3d {
+            out.key("scene3d");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.bands {
+            out.key("bands");
+            out.array(value, |out, item| item.to_json(out));
+        }
     }
 }
 
@@ -20482,6 +20508,203 @@ impl ToJson for DeviationResult {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// 差の色分けの 3D のシーンの点の選び方。意味は点群の scene3d の box・tolerance・limit と同じ
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DeviationScene3d {
+    /// 点群の元の座標系の東・北・高さのメートルの箱
+    pub r#box: Option<Scene3dBox>,
+    /// 点の間隔（メートル）の正の有限値。これより細かい段の節を選ばない
+    pub tolerance: Option<f64>,
+    /// 返す点の数の上限。省略時は選んだすべての点
+    pub limit: Option<u64>,
+}
+
+impl DeviationScene3d {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let r#box = object.optional("box", Scene3dBox::from_json)?;
+        let tolerance = object.optional("tolerance", json::number)?;
+        let limit = object.optional("limit", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            r#box,
+            tolerance,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.r#box {
+            out.key("box");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.tolerance {
+            out.key("tolerance");
+            out.float(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for DeviationScene3d {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeviationScene3d {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 差の色の段。差は mm で、規則の each（個々の計測値の規格値）から決める。下限より小さい差は below、上限より大きい差は above で、規格値ちょうどは内側に入れる。内側は 0 から規格値の半分までと、半分から規格値までに分け、境の値は 0 に近い段に入れる。0 は high_inner。規格値のない側は inner の 1 段だけにする
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeviationBand {
+    /// 規則の id。評価しなかった点の段は持たない
+    pub rule: Option<String>,
+    /// 段の名前
+    pub band: DeviationBandKind,
+    /// 段の下の端の差（mm）。下に端がなければ持たない
+    pub lower: Option<f64>,
+    /// 段の上の端の差（mm）。上に端がなければ持たない
+    pub upper: Option<f64>,
+    /// シーンの点の色。16 ビットの赤・緑・青・不透明度
+    pub color: Vec<u64>,
+}
+
+impl DeviationBand {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let rule = object.optional("rule", json::string)?;
+        let band = object.required("band", DeviationBandKind::from_json)?;
+        let lower = object.optional("lower", json::number)?;
+        let upper = object.optional("upper", json::number)?;
+        let color = object.required("color", |value| {
+            json::array(value, |value| json::uint(value, 0, 65535))
+        })?;
+        Ok(Self {
+            rule,
+            band,
+            lower,
+            upper,
+            color,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.rule {
+            out.key("rule");
+            out.string(value);
+        }
+        out.key("band");
+        self.band.to_json(out);
+        if let Some(value) = &self.lower {
+            out.key("lower");
+            out.float(*value);
+        }
+        if let Some(value) = &self.upper {
+            out.key("upper");
+            out.float(*value);
+        }
+        out.key("color");
+        out.array(&self.color, |out, item| out.uint(*item));
+    }
+}
+
+impl FromJson for DeviationBand {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeviationBand {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 差の色の段。not_evaluated は TIN の外・どの規則の勾配にも入らない・区分の境の近くで除いた点
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DeviationBandKind {
+    /// `below`
+    Below,
+    /// `low_outer`
+    LowOuter,
+    /// `low_inner`
+    LowInner,
+    /// `high_inner`
+    HighInner,
+    /// `high_outer`
+    HighOuter,
+    /// `above`
+    Above,
+    /// `not_evaluated`
+    NotEvaluated,
+}
+
+impl DeviationBandKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Below,
+        Self::LowOuter,
+        Self::LowInner,
+        Self::HighInner,
+        Self::HighOuter,
+        Self::Above,
+        Self::NotEvaluated,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Below => "below",
+            Self::LowOuter => "low_outer",
+            Self::LowInner => "low_inner",
+            Self::HighInner => "high_inner",
+            Self::HighOuter => "high_outer",
+            Self::Above => "above",
+            Self::NotEvaluated => "not_evaluated",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "below" => Some(Self::Below),
+            "low_outer" => Some(Self::LowOuter),
+            "low_inner" => Some(Self::LowInner),
+            "high_inner" => Some(Self::HighInner),
+            "high_outer" => Some(Self::HighOuter),
+            "above" => Some(Self::Above),
+            "not_evaluated" => Some(Self::NotEvaluated),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for DeviationBandKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for DeviationBandKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 

@@ -5497,6 +5497,10 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 10000
+        },
+        "scene3d": {
+          "description": "差の色の段で点を塗った 3D のシーンも返す。点の選び方は点群の scene3d と同じ。89 から",
+          "$ref": "#/$defs/deviation_scene3d"
         }
       },
       "required": ["op", "doc", "surface", "profiles", "profile", "work"],
@@ -5541,10 +5545,47 @@
           "type": "array",
           "items": { "$ref": "#/$defs/deviation_point" }
         },
-        "next_offset": { "description": "続きの最初の評価した点の位置。続きがなければ持たない", "type": "integer", "minimum": 0 }
+        "next_offset": { "description": "続きの最初の評価した点の位置。続きがなければ持たない", "type": "integer", "minimum": 0 },
+        "scene3d": {
+          "description": "要求に scene3d を書いたときの 3D のシーン。点の色は bands の段の色で、元の色は持たない。強度と分類は元の値。89 から",
+          "$ref": "#/$defs/scene3d_result"
+        },
+        "bands": {
+          "description": "要求に scene3d を書いたときの色の段。規則の順に、その規則で起こりうる段を、差の小さい順に並べ、最後に評価しなかった点の段を置く。89 から",
+          "type": "array",
+          "items": { "$ref": "#/$defs/deviation_band" }
+        }
       },
       "required": ["chain", "points", "outside", "unmatched", "excluded", "rules", "findings", "evaluated", "differences"],
       "additionalProperties": false
+    },
+    "deviation_scene3d": {
+      "description": "差の色分けの 3D のシーンの点の選び方。意味は点群の scene3d の box・tolerance・limit と同じ",
+      "type": "object",
+      "properties": {
+        "box": { "description": "点群の元の座標系の東・北・高さのメートルの箱", "$ref": "#/$defs/scene3d_box" },
+        "tolerance": { "description": "点の間隔（メートル）の正の有限値。これより細かい段の節を選ばない", "type": "number" },
+        "limit": { "description": "返す点の数の上限。省略時は選んだすべての点", "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "deviation_band": {
+      "description": "差の色の段。差は mm で、規則の each（個々の計測値の規格値）から決める。下限より小さい差は below、上限より大きい差は above で、規格値ちょうどは内側に入れる。内側は 0 から規格値の半分までと、半分から規格値までに分け、境の値は 0 に近い段に入れる。0 は high_inner。規格値のない側は inner の 1 段だけにする",
+      "type": "object",
+      "properties": {
+        "rule": { "description": "規則の id。評価しなかった点の段は持たない", "type": "string" },
+        "band": { "description": "段の名前", "$ref": "#/$defs/deviation_band_kind" },
+        "lower": { "description": "段の下の端の差（mm）。下に端がなければ持たない", "type": "number" },
+        "upper": { "description": "段の上の端の差（mm）。上に端がなければ持たない", "type": "number" },
+        "color": { "description": "シーンの点の色。16 ビットの赤・緑・青・不透明度", "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 65535 } }
+      },
+      "required": ["band", "color"],
+      "additionalProperties": false
+    },
+    "deviation_band_kind": {
+      "description": "差の色の段。not_evaluated は TIN の外・どの規則の勾配にも入らない・区分の境の近くで除いた点",
+      "type": "string",
+      "enum": ["below", "low_outer", "low_inner", "high_inner", "high_outer", "above", "not_evaluated"]
     },
     "deviation_rule": {
       "description": "規則の区分ごとの集計。差はメートル",

@@ -4,6 +4,7 @@
 //! 点の真下の三角形を格子の索引で探し、三角形の勾配で規則を選ぶ。区分の違う三角形から `exclude` の内にある点は
 //! 除く。結果は指摘で返し、合格・適合とは言わない（`docs/style.md`）。
 
+pub mod bands;
 mod surface;
 
 use zumen_base::{Cx, Diagnostic, Kind, Severity, Stop, codes};

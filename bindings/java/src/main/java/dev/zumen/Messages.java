@@ -22731,6 +22731,17 @@ public final class Messages {
             put("limit", value);
             return this;
         }
+
+        /** 差の色の段で点を塗った 3D のシーンも返す。点の選び方は点群の scene3d と同じ。89 から */
+        public DeviationScene3d getScene3d() {
+            return Json.read(json.get("scene3d"), DeviationScene3d::of);
+        }
+
+        /** {@link #getScene3d()} を書く。null ならフィールドを除く */
+        public DeviationRequest withScene3d(DeviationScene3d value) {
+            put("scene3d", value);
+            return this;
+        }
     }
 
     /** 設計面の TIN を持つ文書と、TIN の ID */
@@ -22901,6 +22912,177 @@ public final class Messages {
             put("next_offset", value);
             return this;
         }
+
+        /** 要求に scene3d を書いたときの 3D のシーン。点の色は bands の段の色で、元の色は持たない。強度と分類は元の値。89 から */
+        public Scene3dResult getScene3d() {
+            return Json.read(json.get("scene3d"), Scene3dResult::of);
+        }
+
+        /** {@link #getScene3d()} を書く。null ならフィールドを除く */
+        public DeviationResult withScene3d(Scene3dResult value) {
+            put("scene3d", value);
+            return this;
+        }
+
+        /** 要求に scene3d を書いたときの色の段。規則の順に、その規則で起こりうる段を、差の小さい順に並べ、最後に評価しなかった点の段を置く。89 から */
+        public List<DeviationBand> getBands() {
+            return Json.read(json.get("bands"), v0 -> Json.list(v0, DeviationBand::of));
+        }
+
+        /** {@link #getBands()} を書く。null ならフィールドを除く */
+        public DeviationResult withBands(List<DeviationBand> value) {
+            put("bands", value);
+            return this;
+        }
+    }
+
+    /** 差の色分けの 3D のシーンの点の選び方。意味は点群の scene3d の box・tolerance・limit と同じ */
+    public static final class DeviationScene3d extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeviationScene3d(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeviationScene3d of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeviationScene3d(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeviationScene3d() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 点群の元の座標系の東・北・高さのメートルの箱 */
+        public Scene3dBox getBox() {
+            return Json.read(json.get("box"), Scene3dBox::of);
+        }
+
+        /** {@link #getBox()} を書く。null ならフィールドを除く */
+        public DeviationScene3d withBox(Scene3dBox value) {
+            put("box", value);
+            return this;
+        }
+
+        /** 点の間隔（メートル）の正の有限値。これより細かい段の節を選ばない */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public DeviationScene3d withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 返す点の数の上限。省略時は選んだすべての点 */
+        public Long getLimit() {
+            return Json.read(json.get("limit"), Json::integer);
+        }
+
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
+        public DeviationScene3d withLimit(Long value) {
+            put("limit", value);
+            return this;
+        }
+    }
+
+    /** 差の色の段。差は mm で、規則の each（個々の計測値の規格値）から決める。下限より小さい差は below、上限より大きい差は above で、規格値ちょうどは内側に入れる。内側は 0 から規格値の半分までと、半分から規格値までに分け、境の値は 0 に近い段に入れる。0 は high_inner。規格値のない側は inner の 1 段だけにする */
+    public static final class DeviationBand extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeviationBand(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeviationBand of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeviationBand(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeviationBand() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 規則の id。評価しなかった点の段は持たない */
+        public String getRule() {
+            return Json.read(json.get("rule"), Json::string);
+        }
+
+        /** {@link #getRule()} を書く。null ならフィールドを除く */
+        public DeviationBand withRule(String value) {
+            put("rule", value);
+            return this;
+        }
+
+        /** 段の名前 */
+        public String getBand() {
+            return Json.read(json.get("band"), Json::string);
+        }
+
+        /** {@link #getBand()} を書く。null ならフィールドを除く */
+        public DeviationBand withBand(String value) {
+            put("band", value);
+            return this;
+        }
+
+        /** 段の下の端の差（mm）。下に端がなければ持たない */
+        public Double getLower() {
+            return Json.read(json.get("lower"), Json::number);
+        }
+
+        /** {@link #getLower()} を書く。null ならフィールドを除く */
+        public DeviationBand withLower(Double value) {
+            put("lower", value);
+            return this;
+        }
+
+        /** 段の上の端の差（mm）。上に端がなければ持たない */
+        public Double getUpper() {
+            return Json.read(json.get("upper"), Json::number);
+        }
+
+        /** {@link #getUpper()} を書く。null ならフィールドを除く */
+        public DeviationBand withUpper(Double value) {
+            put("upper", value);
+            return this;
+        }
+
+        /** シーンの点の色。16 ビットの赤・緑・青・不透明度 */
+        public List<Long> getColor() {
+            return Json.read(json.get("color"), v0 -> Json.list(v0, Json::integer));
+        }
+
+        /** {@link #getColor()} を書く。null ならフィールドを除く */
+        public DeviationBand withColor(List<Long> value) {
+            put("color", value);
+            return this;
+        }
+    }
+
+    /**
+     * 差の色の段。not_evaluated は TIN の外・どの規則の勾配にも入らない・区分の境の近くで除いた点
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class DeviationBandKind {
+        private DeviationBandKind() {}
+
+        public static final String BELOW = "below";
+
+        public static final String LOW_OUTER = "low_outer";
+
+        public static final String LOW_INNER = "low_inner";
+
+        public static final String HIGH_INNER = "high_inner";
+
+        public static final String HIGH_OUTER = "high_outer";
+
+        public static final String ABOVE = "above";
+
+        public static final String NOT_EVALUATED = "not_evaluated";
     }
 
     /** 規則の区分ごとの集計。差はメートル */

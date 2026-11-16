@@ -21,7 +21,7 @@ public final class Constants {
     public static final int SCHEMA_MAJOR = 1;
 
     /** メッセージのスキーマのマイナーバージョン */
-    public static final int SCHEMA_MINOR = 88;
+    public static final int SCHEMA_MINOR = 89;
 
     /** 状態コード */
     public static final class Status {

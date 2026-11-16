@@ -77,6 +77,17 @@ fn inside(point: [f64; 3], bounds: Option<Bounds>) -> bool {
 
 /// 同じ Query と元の節で選ぶ。座標系と高さ基準を変換せず、メートルの元値を使う。
 pub fn build(cloud: &PointCloud, query: &Query, cx: &mut Cx) -> Result<Scene, Error> {
+    build_colored(cloud, query, None, cx)
+}
+
+/// [`build`] と同じに選び、点の色を `colors`（点群の点の順、16 ビットの赤・緑・青・不透明度）にする。
+/// `colors` が `None` なら元の色を使う
+pub fn build_colored(
+    cloud: &PointCloud,
+    query: &Query,
+    colors: Option<&[[u16; 4]]>,
+    cx: &mut Cx,
+) -> Result<Scene, Error> {
     if query.spacing.is_some_and(|v| !v.is_finite() || v <= 0.0)
         || query.bounds.is_some_and(|[low, high]| {
             low.into_iter()
@@ -92,6 +103,7 @@ pub fn build(cloud: &PointCloud, query: &Query, cx: &mut Cx) -> Result<Scene, Er
         || p.easting.len() != n
         || p.height.len() != n
         || p.color.as_ref().is_some_and(|v| v.len() != n)
+        || colors.is_some_and(|v| v.len() != n)
         || p.intensity.as_ref().is_some_and(|v| v.len() != n)
         || p.classification.as_ref().is_some_and(|v| v.len() != n)
         || p.returns.as_ref().is_some_and(|v| v.len() != n)
@@ -162,10 +174,8 @@ pub fn build(cloud: &PointCloud, query: &Query, cx: &mut Cx) -> Result<Scene, Er
         points: PointData {
             chunks: reserve(nodes.len().min(capacity), 32, cx)?,
             positions: reserve(capacity, 12, cx)?,
-            rgba: p
-                .color
-                .as_ref()
-                .map(|_| reserve(capacity, 8, cx))
+            rgba: (p.color.is_some() || colors.is_some())
+                .then(|| reserve(capacity, 8, cx))
                 .transpose()?,
             intensity: p
                 .intensity
@@ -241,11 +251,15 @@ pub fn build(cloud: &PointCloud, query: &Query, cx: &mut Cx) -> Result<Scene, Er
                 }),
             );
             out.points.positions.push(local);
-            if let (Some(source), Some(target)) = (&p.color, &mut out.points.rgba) {
-                let [r, g, b] = *source
-                    .get(index as usize)
-                    .ok_or(Error::Invalid("point_reference"))?;
-                target.push([r, g, b, u16::MAX]);
+            if let Some(target) = &mut out.points.rgba {
+                let rgba = match (colors, &p.color) {
+                    (Some(colors), _) => colors.get(index as usize).copied(),
+                    (None, Some(source)) => source
+                        .get(index as usize)
+                        .map(|&[r, g, b]| [r, g, b, u16::MAX]),
+                    (None, None) => None,
+                };
+                target.push(rgba.ok_or(Error::Invalid("point_reference"))?);
             }
             if let (Some(source), Some(target)) = (&p.intensity, &mut out.points.intensity) {
                 target.push(

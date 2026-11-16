@@ -11,7 +11,7 @@ use zumen_scene3d::{Bounds, Error};
 #[cfg(feature = "civil")]
 mod geo;
 #[cfg(feature = "pointcloud")]
-mod points;
+pub(in crate::session) mod points;
 
 fn scene_error(cx: &mut Cx, error: Error) -> Failed {
     match error {
@@ -55,8 +55,13 @@ fn ids(
 }
 
 fn box_value(value: &Scene3dBox, cx: &mut Cx) -> Result<Bounds, Failed> {
+    box_at(value, "/box", cx)
+}
+
+/// `pointer` の箱を読む
+fn box_at(value: &Scene3dBox, pointer: &str, cx: &mut Cx) -> Result<Bounds, Failed> {
     let ([x, y, z], [u, v, w]) = (value.min.as_slice(), value.max.as_slice()) else {
-        return Err(fail(cx, invalid_value("/box")));
+        return Err(fail(cx, invalid_value(pointer)));
     };
     let (min, max) = ([*x, *y, *z], [*u, *v, *w]);
     if min
@@ -64,7 +69,7 @@ fn box_value(value: &Scene3dBox, cx: &mut Cx) -> Result<Bounds, Failed> {
         .zip(max)
         .any(|(a, b)| !a.is_finite() || !b.is_finite() || a > b)
     {
-        return Err(fail(cx, invalid_value("/box")));
+        return Err(fail(cx, invalid_value(pointer)));
     }
     Ok([min, max])
 }

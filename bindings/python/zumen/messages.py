@@ -7203,6 +7203,8 @@ _DeviationRequestOptional = TypedDict(
         "offset": int,
         # 返す評価した点の数の上限。書かなければ点を返さない
         "limit": int,
+        # 差の色の段で点を塗った 3D のシーンも返す。点の選び方は点群の scene3d と同じ。89 から
+        "scene3d": "DeviationScene3d",
     },
     total=False,
 )
@@ -7253,6 +7255,10 @@ _DeviationResultOptional = TypedDict(
     {
         # 続きの最初の評価した点の位置。続きがなければ持たない
         "next_offset": int,
+        # 要求に scene3d を書いたときの 3D のシーン。点の色は bands の段の色で、元の色は持たない。強度と分類は元の値。89 から
+        "scene3d": "Scene3dResult",
+        # 要求に scene3d を書いたときの色の段。規則の順に、その規則で起こりうる段を、差の小さい順に並べ、最後に評価しなかった点の段を置く。89 から
+        "bands": List["DeviationBand"],
     },
     total=False,
 )
@@ -7260,6 +7266,63 @@ _DeviationResultOptional = TypedDict(
 
 class DeviationResult(_DeviationResultRequired, _DeviationResultOptional):
     "標高の差の、規則の区分ごとの集計と指摘。合格・適合とは言わない"
+
+
+# 差の色分けの 3D のシーンの点の選び方。意味は点群の scene3d の box・tolerance・limit と同じ
+DeviationScene3d = TypedDict(
+    "DeviationScene3d",
+    {
+        # 点群の元の座標系の東・北・高さのメートルの箱
+        "box": "Scene3dBox",
+        # 点の間隔（メートル）の正の有限値。これより細かい段の節を選ばない
+        "tolerance": float,
+        # 返す点の数の上限。省略時は選んだすべての点
+        "limit": int,
+    },
+    total=False,
+)
+
+
+# 差の色の段。差は mm で、規則の each（個々の計測値の規格値）から決める。下限より小さい差は below、上限より大きい差は above で、規格値ちょうどは内側に入れる。内側は 0 から規格値の半分までと、半分から規格値までに分け、境の値は 0 に近い段に入れる。0 は high_inner。規格値のない側は inner の 1 段だけにする
+_DeviationBandRequired = TypedDict(
+    "_DeviationBandRequired",
+    {
+        # 段の名前
+        "band": "DeviationBandKind",
+        # シーンの点の色。16 ビットの赤・緑・青・不透明度
+        "color": List[int],
+    },
+)
+_DeviationBandOptional = TypedDict(
+    "_DeviationBandOptional",
+    {
+        # 規則の id。評価しなかった点の段は持たない
+        "rule": str,
+        # 段の下の端の差（mm）。下に端がなければ持たない
+        "lower": float,
+        # 段の上の端の差（mm）。上に端がなければ持たない
+        "upper": float,
+    },
+    total=False,
+)
+
+
+class DeviationBand(_DeviationBandRequired, _DeviationBandOptional):
+    "差の色の段。差は mm で、規則の each（個々の計測値の規格値）から決める。下限より小さい差は below、上限より大きい差は above で、規格値ちょうどは内側に入れる。内側は 0 から規格値の半分までと、半分から規格値までに分け、境の値は 0 に近い段に入れる。0 は high_inner。規格値のない側は inner の 1 段だけにする"
+
+# 差の色の段。not_evaluated は TIN の外・どの規則の勾配にも入らない・区分の境の近くで除いた点
+DeviationBandKind = Union[
+    Literal[
+        "below",
+        "low_outer",
+        "low_inner",
+        "high_inner",
+        "high_outer",
+        "above",
+        "not_evaluated",
+    ],
+    str,
+]
 
 
 # 規則の区分ごとの集計。差はメートル

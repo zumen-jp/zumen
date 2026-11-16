@@ -1,0 +1,158 @@
+{
+  "description": "deviation の scene3d は、点群の点を、規則の個々の計測値の規格値（each）から決めた差の色の段で塗り、点群の scene3d と同じ点の区画で返す（#476）。標高 0 の計画面の上に、道路掘削の平場の規格値 ±150 mm に対する 0・半分・ちょうど・外の差を持つ 9 点と、TIN の外の 1 点を置く。規格値ちょうどは内側、内側の境は 0 に近い段に入れ、TIN の外の点は not_evaluated の色にする",
+  "steps": [
+    {
+      "push": {
+        "name": "plan.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\">\n<CoordinateSystem horizontalDatum=\"JGD2011\" verticalDatum=\"T.P\" horizontalCoordinateSystemName=\"9(X,Y)\"/>\n<Surfaces><Surface name=\"計画面\" desc=\"FinishedGrade\"><Definition surfType=\"TIN\"><Pnts><P id=\"1\">0 0 0</P><P id=\"2\">0 20 0</P><P id=\"3\">20 20 0</P><P id=\"4\">20 0 0</P></Pnts><Faces><F>1 2 3</F><F>1 3 4</F></Faces></Definition></Surface></Surfaces>\n</LandXML>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "plan.xml"
+      },
+      "expect": {
+        "/result/format": "landxml"
+      }
+    },
+    {
+      "push": {
+        "name": "a.xyz",
+        "text": "1 1 0\n2 2 0.075\n3 3 0.1\n4 4 0.15\n5 5 0.2\n6 6 -0.075\n7 7 -0.1\n8 8 -0.15\n9 9 -0.2\n30 30 0\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.xyz",
+        "format": "xyz"
+      },
+      "expect": {
+        "/result/format": "xyz"
+      }
+    },
+    {
+      "push": {
+        "name": "profile.json",
+        "text": "{\n  \"edition\": \"2026-03\",\n  \"format\": \"0.1\",\n  \"id\": \"mlit-earthwork\",\n  \"license\": \"CC-BY-4.0\",\n  \"revision\": 1,\n  \"rules\": [\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"max\": 150,\n        \"min\": -150\n      },\n      \"exclude\": 0.05,\n      \"id\": \"road-excavation-flat\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"max\": 50,\n        \"min\": -50\n      },\n      \"part\": \"flat\",\n      \"slope\": {\n        \"min\": 20\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-6\",\n        \"section\": \"1-2-4-2\"\n      },\n      \"work\": \"road-excavation\"\n    },\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"max\": 160,\n        \"min\": -160\n      },\n      \"exclude\": 0.05,\n      \"id\": \"road-excavation-slope\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"max\": 70,\n        \"min\": -70\n      },\n      \"part\": \"slope\",\n      \"slope\": {\n        \"max\": 20\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-6\",\n        \"section\": \"1-2-4-2\"\n      },\n      \"work\": \"road-excavation\"\n    }\n  ],\n  \"sources\": {\n    \"main\": {\n      \"checked\": \"2026-11-01\",\n      \"publisher\": \"国土交通省\",\n      \"title\": \"土木工事施工管理基準及び規格値（案）\",\n      \"url\": \"https://www.mlit.go.jp/tec/content/001990185.pdf\",\n      \"version\": \"令和 8 年 3 月\"\n    }\n  },\n  \"title\": \"土木工事施工管理基準及び規格値（案）土工の面管理\"\n}\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "a.xyz",
+        "surface": {
+          "doc": "plan.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "scene3d": {}
+      },
+      "expect": {
+        "/result/evaluated": 9,
+        "/result/outside": 1,
+        "/result/scene3d/counts/points": 10,
+        "/result/scene3d/truncated": false,
+        "/result/bands/0/rule": "road-excavation-flat",
+        "/result/bands/0/band": "below",
+        "/result/bands/0/upper": -150,
+        "/result/bands/1/band": "low_outer",
+        "/result/bands/1/lower": -150,
+        "/result/bands/1/upper": -75,
+        "/result/bands/2/band": "low_inner",
+        "/result/bands/3/band": "high_inner",
+        "/result/bands/3/lower": 0,
+        "/result/bands/3/upper": 75,
+        "/result/bands/4/band": "high_outer",
+        "/result/bands/5/band": "above",
+        "/result/bands/5/lower": 150,
+        "/result/bands/6/rule": "road-excavation-slope",
+        "/result/bands/12/band": "not_evaluated",
+        "/result/bands/12/color/3": 65535,
+        "/result/scene3d/blob": 0,
+        "/blobs/0/kind": "scene3d"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "a.xyz",
+        "surface": {
+          "doc": "plan.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "scene3d": {
+          "limit": 4,
+          "box": {
+            "min": [
+              0,
+              0,
+              -1
+            ],
+            "max": [
+              6,
+              6,
+              1
+            ]
+          }
+        }
+      },
+      "expect": {
+        "/result/scene3d/counts/points": 4,
+        "/result/scene3d/truncated": true
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "a.xyz",
+        "surface": {
+          "doc": "plan.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "scene3d": {
+          "tolerance": 0
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/params/pointer": "/scene3d/tolerance"
+      }
+    }
+  ]
+}

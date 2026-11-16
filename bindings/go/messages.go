@@ -7307,6 +7307,9 @@ type DeviationRequest struct {
 
 	// 返す評価した点の数の上限。書かなければ点を返さない
 	Limit *int64 `json:"limit,omitempty"`
+
+	// 差の色の段で点を塗った 3D のシーンも返す。点の選び方は点群の scene3d と同じ。89 から
+	Scene3d *DeviationScene3d `json:"scene3d,omitempty"`
 }
 
 // MarshalJSON は、タグのフィールドを入れて書く。
@@ -7356,7 +7359,69 @@ type DeviationResult struct {
 
 	// 続きの最初の評価した点の位置。続きがなければ持たない
 	NextOffset *int64 `json:"next_offset,omitempty"`
+
+	// 要求に scene3d を書いたときの 3D のシーン。点の色は bands の段の色で、元の色は持たない。強度と分類は元の値。89 から
+	Scene3d *Scene3dResult `json:"scene3d,omitempty"`
+
+	// 要求に scene3d を書いたときの色の段。規則の順に、その規則で起こりうる段を、差の小さい順に並べ、最後に評価しなかった点の段を置く。89 から
+	Bands []DeviationBand `json:"bands,omitempty"`
 }
+
+// DeviationScene3d: 差の色分けの 3D のシーンの点の選び方。意味は点群の scene3d の box・tolerance・limit と同じ
+type DeviationScene3d struct {
+	// 点群の元の座標系の東・北・高さのメートルの箱
+	Box *Scene3dBox `json:"box,omitempty"`
+
+	// 点の間隔（メートル）の正の有限値。これより細かい段の節を選ばない
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 返す点の数の上限。省略時は選んだすべての点
+	Limit *int64 `json:"limit,omitempty"`
+}
+
+// DeviationBand: 差の色の段。差は mm で、規則の each（個々の計測値の規格値）から決める。下限より小さい差は below、上限より大きい差は above で、規格値ちょうどは内側に入れる。内側は 0 から規格値の半分までと、半分から規格値までに分け、境の値は 0 に近い段に入れる。0 は high_inner。規格値のない側は inner の 1 段だけにする
+type DeviationBand struct {
+	// 規則の id。評価しなかった点の段は持たない
+	Rule *string `json:"rule,omitempty"`
+
+	// 段の名前
+	Band *DeviationBandKind `json:"band,omitempty"`
+
+	// 段の下の端の差（mm）。下に端がなければ持たない
+	Lower *float64 `json:"lower,omitempty"`
+
+	// 段の上の端の差（mm）。上に端がなければ持たない
+	Upper *float64 `json:"upper,omitempty"`
+
+	// シーンの点の色。16 ビットの赤・緑・青・不透明度
+	Color []int64 `json:"color,omitempty"`
+}
+
+// DeviationBandKind: 差の色の段。not_evaluated は TIN の外・どの規則の勾配にも入らない・区分の境の近くで除いた点
+//
+// 列挙の値。知らない値も受け取る。
+type DeviationBandKind string
+
+// DeviationBandKindBelow は below。
+const DeviationBandKindBelow DeviationBandKind = "below"
+
+// DeviationBandKindLowOuter は low_outer。
+const DeviationBandKindLowOuter DeviationBandKind = "low_outer"
+
+// DeviationBandKindLowInner は low_inner。
+const DeviationBandKindLowInner DeviationBandKind = "low_inner"
+
+// DeviationBandKindHighInner は high_inner。
+const DeviationBandKindHighInner DeviationBandKind = "high_inner"
+
+// DeviationBandKindHighOuter は high_outer。
+const DeviationBandKindHighOuter DeviationBandKind = "high_outer"
+
+// DeviationBandKindAbove は above。
+const DeviationBandKindAbove DeviationBandKind = "above"
+
+// DeviationBandKindNotEvaluated は not_evaluated。
+const DeviationBandKindNotEvaluated DeviationBandKind = "not_evaluated"
 
 // DeviationRule: 規則の区分ごとの集計。差はメートル
 type DeviationRule struct {

@@ -934,6 +934,8 @@ mod watchdog {
 
 #[cfg(all(test, feature = "drawing"))]
 mod calibration_tests;
+#[cfg(all(test, feature = "pointcloud"))]
+mod deviation_tests;
 #[cfg(all(test, feature = "drawing"))]
 mod measurement_tests;
 #[cfg(test)]

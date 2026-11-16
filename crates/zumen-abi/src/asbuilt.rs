@@ -5,17 +5,23 @@ use zumen_civil::{CivilModel, Tin};
 use zumen_pointcloud::PointCloud;
 
 use crate::check::{finding_of, identity_of, profile_failed};
-use crate::messages::{DeviationPoint, DeviationRequest, DeviationResult, DeviationRule};
+use zumen_asbuilt::bands::Step;
+use zumen_asbuilt::{Report, Rule};
+
+use crate::messages::{
+    DeviationBand, DeviationBandKind, DeviationPoint, DeviationRequest, DeviationResult,
+    DeviationRule,
+};
 use crate::session::{Failed, fail, invalid_value, stopped};
 
-/// 差を求めて、集計と、評価した点の一部を返す。`profiles` は入力の名前とバイト列
+/// 差を求めて、集計と、評価した点の一部を返す。`profiles` は入力の名前とバイト列。色分けに使う報告と規則も返す
 pub(crate) fn deviation(
     request: &DeviationRequest,
     cloud: &PointCloud,
     model: &CivilModel,
     profiles: &[(&str, &[u8])],
     cx: &mut Cx<'_>,
-) -> Result<DeviationResult, Failed> {
+) -> Result<(DeviationResult, Report, Vec<Rule>), Failed> {
     let Some(tin) = model
         .surfaces
         .iter()
@@ -41,7 +47,7 @@ pub(crate) fn deviation(
     if rules.is_empty() {
         return Err(fail(cx, invalid_value("/work")));
     }
-    let report = zumen_asbuilt::deviation(&cloud.points, tin, &rules, cx)
+    let mut report = zumen_asbuilt::deviation(&cloud.points, tin, &rules, cx)
         .map_err(|stop| stopped(cx, stop))?;
     let total = report.evaluated.len() as u64;
     let start = request.offset.unwrap_or(0);
@@ -66,14 +72,13 @@ pub(crate) fn deviation(
             })
         })
         .collect();
-    Ok(DeviationResult {
+    let result = DeviationResult {
         chain: chain.into_iter().map(identity_of).collect(),
         points: points.len() as u64,
         outside: report.outside,
         unmatched: report.unmatched,
         excluded: report.excluded,
-        rules: report
-            .summaries
+        rules: std::mem::take(&mut report.summaries)
             .into_iter()
             .map(|summary| DeviationRule {
                 rule: summary.rule,
@@ -92,5 +97,47 @@ pub(crate) fn deviation(
         evaluated: total,
         differences,
         next_offset: (end < total && request.limit.is_some()).then_some(end),
-    })
+        scene3d: None,
+        bands: None,
+    };
+    Ok((result, report, rules))
+}
+
+fn band_kind(step: Step) -> DeviationBandKind {
+    match step {
+        Step::Below => DeviationBandKind::Below,
+        Step::LowOuter => DeviationBandKind::LowOuter,
+        Step::LowInner => DeviationBandKind::LowInner,
+        Step::HighInner => DeviationBandKind::HighInner,
+        Step::HighOuter => DeviationBandKind::HighOuter,
+        Step::Above => DeviationBandKind::Above,
+        Step::NotEvaluated => DeviationBandKind::NotEvaluated,
+    }
+}
+
+/// 規則の順の色の段と、最後に評価しなかった点の段（#476）
+pub(crate) fn bands(rules: &[Rule]) -> Vec<DeviationBand> {
+    let color = |step| zumen_asbuilt::bands::color(step).map(u64::from).to_vec();
+    let mut out: Vec<DeviationBand> = rules
+        .iter()
+        .flat_map(|rule| {
+            zumen_asbuilt::bands::bands(rule)
+                .into_iter()
+                .map(|band| DeviationBand {
+                    rule: Some(rule.id.clone()),
+                    band: band_kind(band.kind),
+                    lower: band.lower,
+                    upper: band.upper,
+                    color: color(band.kind),
+                })
+        })
+        .collect();
+    out.push(DeviationBand {
+        rule: None,
+        band: DeviationBandKind::NotEvaluated,
+        lower: None,
+        upper: None,
+        color: color(Step::NotEvaluated),
+    });
+    out
 }

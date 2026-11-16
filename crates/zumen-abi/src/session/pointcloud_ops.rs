@@ -8,10 +8,24 @@ impl Session {
     /// 点群と TIN の標高の差の、規則の区分ごとの集計（決定 0234）
     #[cfg(feature = "pointcloud")]
     pub(super) fn deviation(
-        &self,
+        &mut self,
         request: &messages::DeviationRequest,
         cx: &mut Cx<'_>,
     ) -> Result<messages::DeviationResult, Failed> {
+        use super::scene3d_ops::points::{CloudSelection, cloud_scene};
+        let selection = request
+            .scene3d
+            .as_ref()
+            .map(|scene| {
+                CloudSelection::read(
+                    scene.r#box.as_ref(),
+                    scene.tolerance,
+                    scene.limit,
+                    "/scene3d",
+                    cx,
+                )
+            })
+            .transpose()?;
         let cloud = self.cloud(&request.doc, "/doc", cx)?;
         let model = self.civil_model(&request.surface.doc, "/surface/doc", "deviation", cx)?;
         let mut profiles = Vec::with_capacity(request.profiles.len());
@@ -19,7 +33,31 @@ impl Session {
             let bytes = self.input(name, &format!("/profiles/{index}"), cx)?;
             profiles.push((name.as_str(), bytes));
         }
-        asbuilt::deviation(request, &cloud, &model, &profiles, cx)
+        let (mut result, report, rules) =
+            asbuilt::deviation(request, &cloud, &model, &profiles, cx)?;
+        // 差の段で塗った点のシーン（#476）
+        let scene = match &selection {
+            Some(selection) => {
+                let colors = zumen_asbuilt::bands::colors(cloud.points.len(), &report, &rules, cx)
+                    .map_err(|stop| stopped(cx, stop))?;
+                result.bands = Some(asbuilt::bands(&rules));
+                Some(cloud_scene(
+                    &request.doc,
+                    &cloud,
+                    selection,
+                    Some(&colors),
+                    cx,
+                )?)
+            }
+            None => None,
+        };
+        drop(profiles);
+        drop(cloud);
+        if let Some((mut scene, bytes)) = scene {
+            scene.blob = self.push_scene3d(bytes);
+            result.scene3d = Some(scene);
+        }
+        Ok(result)
     }
 
     /// 開いた点群の文書。`pointer` は名前を書いたフィールド

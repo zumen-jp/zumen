@@ -13995,6 +13995,12 @@ public struct DeviationRequest: Message {
         get { readField("limit") }
         set { writeField("limit", newValue) }
     }
+
+    /// 差の色の段で点を塗った 3D のシーンも返す。点の選び方は点群の scene3d と同じ。89 から
+    public var scene3d: DeviationScene3d? {
+        get { readField("scene3d") }
+        set { writeField("scene3d", newValue) }
+    }
 }
 
 /// 設計面の TIN を持つ文書と、TIN の ID
@@ -14099,6 +14105,111 @@ public struct DeviationResult: Message {
         get { readField("next_offset") }
         set { writeField("next_offset", newValue) }
     }
+
+    /// 要求に scene3d を書いたときの 3D のシーン。点の色は bands の段の色で、元の色は持たない。強度と分類は元の値。89 から
+    public var scene3d: Scene3dResult? {
+        get { readField("scene3d") }
+        set { writeField("scene3d", newValue) }
+    }
+
+    /// 要求に scene3d を書いたときの色の段。規則の順に、その規則で起こりうる段を、差の小さい順に並べ、最後に評価しなかった点の段を置く。89 から
+    public var bands: [DeviationBand]? {
+        get { readField("bands") }
+        set { writeField("bands", newValue) }
+    }
+}
+
+/// 差の色分けの 3D のシーンの点の選び方。意味は点群の scene3d の box・tolerance・limit と同じ
+public struct DeviationScene3d: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 点群の元の座標系の東・北・高さのメートルの箱
+    public var box: Scene3dBox? {
+        get { readField("box") }
+        set { writeField("box", newValue) }
+    }
+
+    /// 点の間隔（メートル）の正の有限値。これより細かい段の節を選ばない
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 返す点の数の上限。省略時は選んだすべての点
+    public var limit: Int64? {
+        get { readField("limit") }
+        set { writeField("limit", newValue) }
+    }
+}
+
+/// 差の色の段。差は mm で、規則の each（個々の計測値の規格値）から決める。下限より小さい差は below、上限より大きい差は above で、規格値ちょうどは内側に入れる。内側は 0 から規格値の半分までと、半分から規格値までに分け、境の値は 0 に近い段に入れる。0 は high_inner。規格値のない側は inner の 1 段だけにする
+public struct DeviationBand: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 規則の id。評価しなかった点の段は持たない
+    public var rule: String? {
+        get { readField("rule") }
+        set { writeField("rule", newValue) }
+    }
+
+    /// 段の名前
+    public var band: String? {
+        get { readField("band") }
+        set { writeField("band", newValue) }
+    }
+
+    /// 段の下の端の差（mm）。下に端がなければ持たない
+    public var lower: Double? {
+        get { readField("lower") }
+        set { writeField("lower", newValue) }
+    }
+
+    /// 段の上の端の差（mm）。上に端がなければ持たない
+    public var upper: Double? {
+        get { readField("upper") }
+        set { writeField("upper", newValue) }
+    }
+
+    /// シーンの点の色。16 ビットの赤・緑・青・不透明度
+    public var color: [Int64]? {
+        get { readField("color") }
+        set { writeField("color", newValue) }
+    }
+}
+
+/// 差の色の段。not_evaluated は TIN の外・どの規則の勾配にも入らない・区分の境の近くで除いた点
+///
+/// 列挙の値。知らない値も受け取る
+public enum DeviationBandKind {
+    public static let below = "below"
+    public static let lowOuter = "low_outer"
+    public static let lowInner = "low_inner"
+    public static let highInner = "high_inner"
+    public static let highOuter = "high_outer"
+    public static let above = "above"
+    public static let notEvaluated = "not_evaluated"
 }
 
 /// 規則の区分ごとの集計。差はメートル
