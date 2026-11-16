@@ -124,6 +124,7 @@ def seed_bcf(image):
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
         for name, data in sorted(entries.items()):
             item = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            item.create_system = 3
             item.external_attr = 0o100644 << 16
             archive.writestr(item, data)
     return buffer.getvalue()

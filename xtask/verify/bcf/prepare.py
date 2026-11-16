@@ -36,6 +36,20 @@ def new_folder(path):
     return path
 
 
+def select_sdk(listing):
+    versions = []
+    for line in listing.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        version = parts[0].split(".")
+        if len(version) == 3 and version[0] == "10" and all(part.isdigit() for part in version):
+            versions.append(tuple(int(part) for part in version))
+    if not versions:
+        raise ValueError("sdk.ten_required")
+    return ".".join(str(part) for part in max(versions))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path)
@@ -60,7 +74,12 @@ def main():
                                        "packageSha256": digest, "assembly": filename, "assemblySha256": sha(assembly)})
         sources = [HERE / "prepare.py", *sorted((HERE / "external").iterdir())]
         result["sourceSha256"] = {path.relative_to(HERE).as_posix(): sha(path.read_bytes()) for path in sources if path.is_file()}
-        result["sdk"] = subprocess.check_output(["dotnet", "--version"], text=True).strip()
+        listing = subprocess.check_output(["dotnet", "--list-sdks"], cwd=output, text=True, timeout=30)
+        selected = select_sdk(listing)
+        write_json(output / "global.json", {"sdk": {"version": selected, "rollForward": "disable", "allowPrerelease": False}})
+        result["sdk"] = subprocess.check_output(["dotnet", "--version"], cwd=output, text=True, timeout=30).strip()
+        if result["sdk"] != selected:
+            raise ValueError("sdk.selection")
         command = ["dotnet", "build", str(HERE / "external/ReadBcf.csproj"), "--configfile", str(HERE / "external/NuGet.Config"),
                    "--nologo", "-v", "quiet", "-p:BcfTools=" + str(output), "-p:BaseIntermediateOutputPath=" + str(output / "obj") + "/",
                    "-p:OutputPath=" + str(output / "bin") + "/"]

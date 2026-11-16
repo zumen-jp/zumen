@@ -35,6 +35,24 @@ def archive_for(markup, image=b"image"):
     return output.getvalue()
 
 
+class SeedTests(unittest.TestCase):
+    def test_zip_bytes_do_not_depend_on_host_defaults(self):
+        original = zipfile.ZipInfo
+        archives = []
+        for host in (0, 3):
+            class HostZipInfo(original):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    self.create_system = host
+
+            with mock.patch.object(zipfile, "ZipInfo", HostZipInfo):
+                archives.append(kit.seed_bcf(kit.snapshot()))
+        self.assertEqual(archives[0], archives[1])
+        with zipfile.ZipFile(io.BytesIO(archives[0])) as archive:
+            self.assertEqual(len(archive.infolist()), 13)
+            self.assertTrue(all(item.create_system == 3 and item.date_time == (1980, 1, 1, 0, 0, 0) for item in archive.infolist()))
+
+
 class ComparisonTests(unittest.TestCase):
     def test_detects_each_changed_field(self):
         expected = kit.expected_cases("v1:123")

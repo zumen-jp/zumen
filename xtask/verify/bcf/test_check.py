@@ -198,6 +198,14 @@ class CompareTests(unittest.TestCase):
 
 
 class OutputTests(unittest.TestCase):
+    def test_sdk_ten_is_selected_among_other_releases(self):
+        listing = "11.0.100 [sdk]\n10.0.100 [sdk]\n10.0.404 [sdk]\n9.0.999 [sdk]\n10.0.999-preview [sdk]\n"
+        self.assertEqual(prepare.select_sdk(listing), "10.0.404")
+
+    def test_sdk_ten_is_required(self):
+        with self.assertRaises(ValueError):
+            prepare.select_sdk("11.0.100 [sdk]\n10.0.999-preview [sdk]\n")
+
     def test_existing_output_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
