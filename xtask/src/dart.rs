@@ -37,8 +37,9 @@ const RESERVED: &[&str] = &[
     "ZumenException",
 ];
 
-/// ビューのクラスが持つメンバー。フィールドの名前と重なれば、後ろに `Field` を付ける
+/// ビューと生成したコードが使う名前。フィールドと重なれば、後ろに `Field` を付ける
 const MEMBERS: &[&str] = &[
+    "core",
     "json",
     "readField",
     "writeField",
@@ -205,9 +206,9 @@ fn constant(name: &str) -> String {
 fn dart_type(schema: &Schema, ty: &Ty) -> String {
     match ty {
         Ty::String | Ty::Const(_) => "String".to_string(),
-        Ty::Bool => "bool".to_string(),
-        Ty::UInt { .. } | Ty::Int { .. } => "int".to_string(),
-        Ty::Float => "double".to_string(),
+        Ty::Bool => "core.bool".to_string(),
+        Ty::UInt { .. } | Ty::Int { .. } => "core.int".to_string(),
+        Ty::Float => "core.double".to_string(),
         Ty::Ref(name) => match schema.def(name).map(|def| &def.shape) {
             Some(Shape::Enum { .. }) => "String".to_string(),
             Some(Shape::Object { .. } | Shape::Union { .. }) => pascal(name),
@@ -419,7 +420,7 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
     let mut out = String::new();
     out.push_str("// 生成したファイル。手で直さない。\n");
     out.push_str("// 元は schema/messages.json で、`cargo xtask codegen` で作り直す。\n");
-    out.push_str("//\n// API のメッセージの型（決定 0012・0227）。スキーマの定義ごとに 1 つの型がある。型は JSON のオブジェクトを包む\n// ビューで、知らないフィールドもそのまま持つ。列挙は文字列で読み、知らない値も受け取る（決定 0015）。\n\n// ignore_for_file: lines_longer_than_80_chars\n\nimport 'message.dart';\n");
+    out.push_str("//\n// API のメッセージの型（決定 0012・0227）。スキーマの定義ごとに 1 つの型がある。型は JSON のオブジェクトを包む\n// ビューで、知らないフィールドもそのまま持つ。列挙は文字列で読み、知らない値も受け取る（決定 0015）。\n\n// ignore_for_file: lines_longer_than_80_chars\n\nimport 'dart:core';\nimport 'dart:core' as core;\n\nimport 'message.dart';\n");
     for def in &schema.defs {
         match &def.shape {
             Shape::Object { .. } => render_object(&mut out, schema, def)?,
@@ -606,11 +607,11 @@ mod tests {
         assert!(types.contains("class OpenRequest extends Message {"));
         assert!(types.contains("  OpenRequest() : super({'op': 'open'});"));
         assert!(types.contains(
-            "  int? get v => readField('v', asInt);\n  set v(int? value) => writeField('v', value);"
+            "  core.int? get v => readField('v', asInt);\n  set v(core.int? value) => writeField('v', value);"
         ));
         assert!(types.contains("  String? get fromUnit => readField('from_unit', asString);"));
         assert!(types.contains("  String? get classField => readField('class', asString);"));
-        assert!(types.contains("  bool? get jsonField => readField('json', asBool);"));
+        assert!(types.contains("  core.bool? get jsonField => readField('json', asBool);"));
         assert!(
             types.contains("  List<String>? get names => readField('names', listOf(asString));")
         );

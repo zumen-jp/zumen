@@ -16,6 +16,14 @@ void expectUnsupported(void Function() change, String message) {
 }
 
 void main() {
+  final pattern = HatchPattern()
+    ..double = true
+    ..angle = 30.0
+    ..scale = 2.0;
+  expect(pattern.double == true && pattern.angle == 30.0 && pattern.scale == 2.0,
+      'double のフィールドと数の型を同時に使えない');
+  expect(jsonDecode(jsonEncode(pattern))['double'] == true, 'double の JSON キーが変わった');
+
   final request = CloseRequest()..inputs = ['a.dxf'];
   expectUnsupported(() => request.inputs!.add('b.dxf'), '取得した配列を変更できてしまう');
   request.inputs = [...request.inputs!, 'b.dxf'];

@@ -6,6 +6,9 @@
 
 // ignore_for_file: lines_longer_than_80_chars
 
+import 'dart:core';
+import 'dart:core' as core;
+
 import 'message.dart';
 
 /// 要求。op の値で形が決まる
@@ -137,24 +140,24 @@ class RequestCommon extends Message {
   RequestCommon() : super({});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 }
 
 /// 予算の単位ごとの上限（決定 0010）
@@ -203,24 +206,24 @@ class CapabilitiesRequest extends Message {
   CapabilitiesRequest() : super({'op': 'capabilities'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -240,8 +243,8 @@ class CapabilitiesResult extends Message {
   set package(String? value) => writeField('package', value);
 
   /// ABI のメジャーバージョン。zm_abi_version と同じ
-  int? get abi => readField('abi', asInt);
-  set abi(int? value) => writeField('abi', value);
+  core.int? get abi => readField('abi', asInt);
+  set abi(core.int? value) => writeField('abi', value);
 
   /// メッセージのスキーマのバージョン
   SchemaVersion? get schema => readField('schema', objectOf(SchemaVersion.fromJson));
@@ -265,12 +268,12 @@ class SchemaVersion extends Message {
   SchemaVersion() : super({});
 
   /// メジャーバージョン
-  int? get major => readField('major', asInt);
-  set major(int? value) => writeField('major', value);
+  core.int? get major => readField('major', asInt);
+  set major(core.int? value) => writeField('major', value);
 
   /// マイナーバージョン
-  int? get minor => readField('minor', asInt);
-  set minor(int? value) => writeField('minor', value);
+  core.int? get minor => readField('minor', asInt);
+  set minor(core.int? value) => writeField('minor', value);
 }
 
 /// 読み書きできる形式
@@ -290,16 +293,16 @@ class Format extends Message {
   set family(String? value) => writeField('family', value);
 
   /// 読めるか
-  bool? get read => readField('read', asBool);
-  set read(bool? value) => writeField('read', value);
+  core.bool? get read => readField('read', asBool);
+  set read(core.bool? value) => writeField('read', value);
 
   /// 書けるか
-  bool? get write => readField('write', asBool);
-  set write(bool? value) => writeField('write', value);
+  core.bool? get write => readField('write', asBool);
+  set write(core.bool? value) => writeField('write', value);
 
   /// この形式の ID の規則のバージョン（決定 0015）
-  int? get idRules => readField('id_rules', asInt);
-  set idRules(int? value) => writeField('id_rules', value);
+  core.int? get idRules => readField('id_rules', asInt);
+  set idRules(core.int? value) => writeField('id_rules', value);
 }
 
 /// 入力を読んで、文書を作る。形式は入力から判定する
@@ -311,24 +314,24 @@ class OpenRequest extends Message {
   OpenRequest() : super({'op': 'open'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -343,8 +346,8 @@ class OpenRequest extends Message {
   set doc(String? value) => writeField('doc', value);
 
   /// 入力の全体の大きさ（バイト）。渡した入力より大きければ、入力を全体の初めの部分とみなし、足りない範囲を needs で求める。範囲で読める形式（LAS・LAZ）だけが使う（決定 0232）。マイナーバージョン 48 から
-  int? get size => readField('size', asInt);
-  set size(int? value) => writeField('size', value);
+  core.int? get size => readField('size', asInt);
+  set size(core.int? value) => writeField('size', value);
 
   /// 見分けるマーカーのない形式（xyz・extdm・geojson）を名指して読む。書かなければ、入力から判定する（決定 0232）。マイナーバージョン 49 から。extdm はマイナーバージョン 62 から。geojson はマイナーバージョン 71 から
   String? get format => readField('format', asString);
@@ -410,12 +413,12 @@ class InputRange extends Message {
   set input(String? value) => writeField('input', value);
 
   /// 範囲の初め（バイト）
-  int? get start => readField('start', asInt);
-  set start(int? value) => writeField('start', value);
+  core.int? get start => readField('start', asInt);
+  set start(core.int? value) => writeField('start', value);
 
   /// 範囲の終わり（バイト、含まない）
-  int? get end => readField('end', asInt);
-  set end(int? value) => writeField('end', value);
+  core.int? get end => readField('end', asInt);
+  set end(core.int? value) => writeField('end', value);
 }
 
 /// 文書と入力を捨てる。名指ししたものが 1 つでもなければ、何も捨てない
@@ -427,24 +430,24 @@ class CloseRequest extends Message {
   CloseRequest() : super({'op': 'close'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -477,24 +480,24 @@ class DescribeRequest extends Message {
   DescribeRequest() : super({'op': 'describe'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -531,24 +534,24 @@ class DrawingRequest extends Message {
   DrawingRequest() : super({'op': 'drawing'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -593,12 +596,12 @@ class Point2 extends Message {
   Point2() : super({});
 
   /// X 座標
-  double? get x => readField('x', asDouble);
-  set x(double? value) => writeField('x', value);
+  core.double? get x => readField('x', asDouble);
+  set x(core.double? value) => writeField('x', value);
 
   /// Y 座標
-  double? get y => readField('y', asDouble);
-  set y(double? value) => writeField('y', value);
+  core.double? get y => readField('y', asDouble);
+  set y(core.double? value) => writeField('y', value);
 }
 
 /// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
@@ -639,12 +642,12 @@ class CalibrationItem extends Message {
   set from(String? value) => writeField('from', value);
 
   /// 用紙の mm の閉じた矩形。[X の最小, Y の最小, X の最大, Y の最大] の 4 値で、幅と高さは正
-  List<double>? get bounds => readField('bounds', listOf(asDouble));
-  set bounds(List<double>? value) => writeField('bounds', value);
+  List<core.double>? get bounds => readField('bounds', listOf(asDouble));
+  set bounds(List<core.double>? value) => writeField('bounds', value);
 
   /// 用紙の mm の変位から校正単位の変位へ写す行優先の 2×2 行列。[a, b, c, d] の 4 値で、[dx, dy] を [a*dx+b*dy, c*dx+d*dy] に写す
-  List<double>? get matrix => readField('matrix', listOf(asDouble));
-  set matrix(List<double>? value) => writeField('matrix', value);
+  List<core.double>? get matrix => readField('matrix', listOf(asDouble));
+  set matrix(List<core.double>? value) => writeField('matrix', value);
 
   /// 校正後の長さの単位。ラベルだけから推定しない
   String? get unit => readField('unit', asString);
@@ -668,24 +671,24 @@ class CalibrationsRequest extends Message {
   CalibrationsRequest() : super({'op': 'calibrations'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -700,12 +703,12 @@ class CalibrationsRequest extends Message {
   set from(String? value) => writeField('from', value);
 
   /// 返す最初の校正の位置。from で絞った後の位置で、前の応答の next_offset を渡す。書かなければ 0
-  int? get offset => readField('offset', asInt);
-  set offset(int? value) => writeField('offset', value);
+  core.int? get offset => readField('offset', asInt);
+  set offset(core.int? value) => writeField('offset', value);
 
   /// 返す校正の数の上限。書かなければ 1000
-  int? get limit => readField('limit', asInt);
-  set limit(int? value) => writeField('limit', value);
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 
   /// 期待する元の文書のハッシュ。open に渡したバイト列のハッシュと照合する。図面モデルへ変換した ZMDR 自身のハッシュではない
   String? get expectedHash => readField('expected_hash', asString);
@@ -729,12 +732,12 @@ class CalibrationsResult extends Message {
   set items(List<CalibrationItem>? value) => writeField('items', value);
 
   /// from で絞った後の校正の総数
-  int? get total => readField('total', asInt);
-  set total(int? value) => writeField('total', value);
+  core.int? get total => readField('total', asInt);
+  set total(core.int? value) => writeField('total', value);
 
   /// 続きの最初の校正の位置。続きがなければ持たない
-  int? get nextOffset => readField('next_offset', asInt);
-  set nextOffset(int? value) => writeField('next_offset', value);
+  core.int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(core.int? value) => writeField('next_offset', value);
 }
 
 /// 用紙と校正を明示的に選び、始点と終点の校正後の距離を求める。両点は校正の閉領域内にある必要がある。マイナーバージョン 68 から
@@ -746,24 +749,24 @@ class MeasureDistanceRequest extends Message {
   MeasureDistanceRequest() : super({'op': 'measure_distance'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -815,8 +818,8 @@ class MeasureDistanceResult extends Message {
   set calibration(String? value) => writeField('calibration', value);
 
   /// 校正後の距離。unit と unit_label が示す単位
-  double? get distance => readField('distance', asDouble);
-  set distance(double? value) => writeField('distance', value);
+  core.double? get distance => readField('distance', asDouble);
+  set distance(core.double? value) => writeField('distance', value);
 
   /// 校正後の長さの単位
   String? get unit => readField('unit', asString);
@@ -836,24 +839,24 @@ class MeasureRequest extends Message {
   MeasureRequest() : super({'op': 'measure'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -880,8 +883,8 @@ class MeasureRequest extends Message {
   set second(MeasureTarget? value) => writeField('second', value);
 
   /// 近似する曲線の分割で目標にする弦の誤差。空間の長さの単位で正の値。既定は 0.001。計測した長さ・面積・距離の誤差上限ではない
-  double? get tolerance => readField('tolerance', asDouble);
-  set tolerance(double? value) => writeField('tolerance', value);
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
 
   /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
   String? get expectedHash => readField('expected_hash', asString);
@@ -968,24 +971,24 @@ class MeasureResult extends Message {
   set quantity(String? value) => writeField('quantity', value);
 
   /// 計測値。0 以上の有限値
-  double? get value => readField('value', asDouble);
-  set value(double? value) => writeField('value', value);
+  core.double? get value => readField('value', asDouble);
+  set value(core.double? value) => writeField('value', value);
 
   /// 空間の長さの単位。不明な単位を補わない
   String? get unit => readField('unit', asString);
   set unit(String? value) => writeField('unit', value);
 
   /// 単位の次数。長さと距離は 1、面積は 2
-  int? get unitPower => readField('unit_power', asInt);
-  set unitPower(int? value) => writeField('unit_power', value);
+  core.int? get unitPower => readField('unit_power', asInt);
+  set unitPower(core.int? value) => writeField('unit_power', value);
 
   /// 計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する
-  bool? get approximate => readField('approximate', asBool);
-  set approximate(bool? value) => writeField('approximate', value);
+  core.bool? get approximate => readField('approximate', asBool);
+  set approximate(core.bool? value) => writeField('approximate', value);
 
   /// 指定した、または既定の分割の目標。近似しないときも返す
-  double? get tolerance => readField('tolerance', asDouble);
-  set tolerance(double? value) => writeField('tolerance', value);
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
 
   /// 最短距離を作る最初の対象上の点。distance のときだけ返す
   Point2? get nearestFirst => readField('nearest_first', objectOf(Point2.fromJson));
@@ -1009,16 +1012,16 @@ class PointStyleSummary extends Message {
   set mark(String? value) => writeField('mark', value);
 
   /// 円で囲む
-  bool? get circle => readField('circle', asBool);
-  set circle(bool? value) => writeField('circle', value);
+  core.bool? get circle => readField('circle', asBool);
+  set circle(core.bool? value) => writeField('circle', value);
 
   /// 四角で囲む
-  bool? get square => readField('square', asBool);
-  set square(bool? value) => writeField('square', value);
+  core.bool? get square => readField('square', asBool);
+  set square(core.bool? value) => writeField('square', value);
 
   /// 大きさ。意味は size_kind で決まる
-  double? get size => readField('size', asDouble);
-  set size(double? value) => writeField('size', value);
+  core.double? get size => readField('size', asDouble);
+  set size(core.double? value) => writeField('size', value);
 
   /// 大きさの意味
   String? get sizeKind => readField('size_kind', asString);
@@ -1067,16 +1070,16 @@ class SheetSummary extends Message {
   set name(String? value) => writeField('name', value);
 
   /// 用紙の幅と高さ（mm）。分からなければ持たない
-  List<double>? get size => readField('size', listOf(asDouble));
-  set size(List<double>? value) => writeField('size', value);
+  List<core.double>? get size => readField('size', listOf(asDouble));
+  set size(List<core.double>? value) => writeField('size', value);
 
   /// 要素の数
   ElementCounts? get elements => readField('elements', objectOf(ElementCounts.fromJson));
   set elements(ElementCounts? value) => writeField('elements', value);
 
   /// ビューの数
-  int? get views => readField('views', asInt);
-  set views(int? value) => writeField('views', value);
+  core.int? get views => readField('views', asInt);
+  set views(core.int? value) => writeField('views', value);
 
   /// ビューの詳細。元の順に返す。マイナーバージョン 81 から
   List<ViewDetail>? get viewDetails => readField('view_details', listOf(objectOf(ViewDetail.fromJson)));
@@ -1108,60 +1111,60 @@ class ElementCounts extends Message {
   ElementCounts() : super({});
 
   /// 線分
-  int? get lines => readField('lines', asInt);
-  set lines(int? value) => writeField('lines', value);
+  core.int? get lines => readField('lines', asInt);
+  set lines(core.int? value) => writeField('lines', value);
 
   /// 文字
-  int? get texts => readField('texts', asInt);
-  set texts(int? value) => writeField('texts', value);
+  core.int? get texts => readField('texts', asInt);
+  set texts(core.int? value) => writeField('texts', value);
 
   /// 円。マイナーバージョン 81 から
-  int? get circles => readField('circles', asInt);
-  set circles(int? value) => writeField('circles', value);
+  core.int? get circles => readField('circles', asInt);
+  set circles(core.int? value) => writeField('circles', value);
 
   /// 円弧・楕円弧・スプラインなどの曲線。マイナーバージョン 81 から
-  int? get curves => readField('curves', asInt);
-  set curves(int? value) => writeField('curves', value);
+  core.int? get curves => readField('curves', asInt);
+  set curves(core.int? value) => writeField('curves', value);
 
   /// 折れ線。マイナーバージョン 81 から
-  int? get polylines => readField('polylines', asInt);
-  set polylines(int? value) => writeField('polylines', value);
+  core.int? get polylines => readField('polylines', asInt);
+  set polylines(core.int? value) => writeField('polylines', value);
 
   /// 書式つきの文字。マイナーバージョン 81 から
-  int? get formattedTexts => readField('formatted_texts', asInt);
-  set formattedTexts(int? value) => writeField('formatted_texts', value);
+  core.int? get formattedTexts => readField('formatted_texts', asInt);
+  set formattedTexts(core.int? value) => writeField('formatted_texts', value);
 
   /// 寸法。マイナーバージョン 81 から
-  int? get dimensions => readField('dimensions', asInt);
-  set dimensions(int? value) => writeField('dimensions', value);
+  core.int? get dimensions => readField('dimensions', asInt);
+  set dimensions(core.int? value) => writeField('dimensions', value);
 
   /// 引出線。マイナーバージョン 81 から
-  int? get leaders => readField('leaders', asInt);
-  set leaders(int? value) => writeField('leaders', value);
+  core.int? get leaders => readField('leaders', asInt);
+  set leaders(core.int? value) => writeField('leaders', value);
 
   /// 引出線つきの注記。マイナーバージョン 81 から
-  int? get callouts => readField('callouts', asInt);
-  set callouts(int? value) => writeField('callouts', value);
+  core.int? get callouts => readField('callouts', asInt);
+  set callouts(core.int? value) => writeField('callouts', value);
 
   /// 表。マイナーバージョン 81 から
-  int? get tables => readField('tables', asInt);
-  set tables(int? value) => writeField('tables', value);
+  core.int? get tables => readField('tables', asInt);
+  set tables(core.int? value) => writeField('tables', value);
 
   /// アンダーレイ。マイナーバージョン 81 から
-  int? get underlays => readField('underlays', asInt);
-  set underlays(int? value) => writeField('underlays', value);
+  core.int? get underlays => readField('underlays', asInt);
+  set underlays(core.int? value) => writeField('underlays', value);
 
   /// 記号の配置。中の要素を展開しない。マイナーバージョン 81 から
-  int? get symbols => readField('symbols', asInt);
-  set symbols(int? value) => writeField('symbols', value);
+  core.int? get symbols => readField('symbols', asInt);
+  set symbols(core.int? value) => writeField('symbols', value);
 
   /// ハッチング。マイナーバージョン 81 から
-  int? get hatches => readField('hatches', asInt);
-  set hatches(int? value) => writeField('hatches', value);
+  core.int? get hatches => readField('hatches', asInt);
+  set hatches(core.int? value) => writeField('hatches', value);
 
   /// 点。マイナーバージョン 81 から
-  int? get points => readField('points', asInt);
-  set points(int? value) => writeField('points', value);
+  core.int? get points => readField('points', asInt);
+  set points(core.int? value) => writeField('points', value);
 }
 
 /// 2D のビュー。変換行列と切り抜きを保ち、尺度・向き・見えるモデル範囲を決定的に求める
@@ -1177,24 +1180,24 @@ class ViewDetail extends Message {
   set space(String? value) => writeField('space', value);
 
   /// モデル座標から用紙の mm への [a,b,c,d,e,f]。点を (ax+by+c,dx+ey+f) に写す
-  List<double>? get matrix => readField('matrix', listOf(asDouble));
-  set matrix(List<double>? value) => writeField('matrix', value);
+  List<core.double>? get matrix => readField('matrix', listOf(asDouble));
+  set matrix(List<core.double>? value) => writeField('matrix', value);
 
   /// モデルの X 軸・Y 軸の 1 単位に対応する用紙の長さ [SX,SY]（mm）。回転・せん断・反転でも各軸の正の長さを返す
-  List<double>? get scale => readField('scale', listOf(asDouble));
-  set scale(List<double>? value) => writeField('scale', value);
+  List<core.double>? get scale => readField('scale', listOf(asDouble));
+  set scale(List<core.double>? value) => writeField('scale', value);
 
   /// モデル単位を mm に直した、各軸の縮尺の比 [SX,SY]。1:100 なら 0.01。単位不明なら持たない
-  List<double>? get ratio => readField('ratio', listOf(asDouble));
-  set ratio(List<double>? value) => writeField('ratio', value);
+  List<core.double>? get ratio => readField('ratio', listOf(asDouble));
+  set ratio(List<core.double>? value) => writeField('ratio', value);
 
   /// 用紙の X 軸から見たモデルの X 軸の向き。度、反時計回り、-180〜180
-  double? get rotation => readField('rotation', asDouble);
-  set rotation(double? value) => writeField('rotation', value);
+  core.double? get rotation => readField('rotation', asDouble);
+  set rotation(core.double? value) => writeField('rotation', value);
 
   /// 変換が向きを反転する
-  bool? get mirrored => readField('mirrored', asBool);
-  set mirrored(bool? value) => writeField('mirrored', value);
+  core.bool? get mirrored => readField('mirrored', asBool);
+  set mirrored(core.bool? value) => writeField('mirrored', value);
 
   /// 用紙の mm での切り抜きの頂点。元の順を保ち、空なら切り抜かない
   List<Point2>? get clip => readField('clip', listOf(objectOf(Point2.fromJson)));
@@ -1222,20 +1225,20 @@ class Extent extends Message {
   Extent() : super({});
 
   /// X の最小
-  double? get minX => readField('min_x', asDouble);
-  set minX(double? value) => writeField('min_x', value);
+  core.double? get minX => readField('min_x', asDouble);
+  set minX(core.double? value) => writeField('min_x', value);
 
   /// Y の最小
-  double? get minY => readField('min_y', asDouble);
-  set minY(double? value) => writeField('min_y', value);
+  core.double? get minY => readField('min_y', asDouble);
+  set minY(core.double? value) => writeField('min_y', value);
 
   /// X の最大
-  double? get maxX => readField('max_x', asDouble);
-  set maxX(double? value) => writeField('max_x', value);
+  core.double? get maxX => readField('max_x', asDouble);
+  set maxX(core.double? value) => writeField('max_x', value);
 
   /// Y の最大
-  double? get maxY => readField('max_y', asDouble);
-  set maxY(double? value) => writeField('max_y', value);
+  core.double? get maxY => readField('max_y', asDouble);
+  set maxY(core.double? value) => writeField('max_y', value);
 }
 
 /// 開いた文書を図面モデル（L2、決定 0022）に変換し、要素の一覧を返す。実寸の空間、用紙の順に、それぞれの要素を入力の順に並べる（決定 0117）
@@ -1247,24 +1250,24 @@ class EntitiesRequest extends Message {
   EntitiesRequest() : super({'op': 'entities'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -1275,20 +1278,20 @@ class EntitiesRequest extends Message {
   set doc(String? value) => writeField('doc', value);
 
   /// すべての条件で絞った後の、返す最初の要素の位置。前の応答の next_offset を渡す。書かなければ 0
-  int? get offset => readField('offset', asInt);
-  set offset(int? value) => writeField('offset', value);
+  core.int? get offset => readField('offset', asInt);
+  set offset(core.int? value) => writeField('offset', value);
 
   /// 返す要素の数の上限。書かなければ 1000
-  int? get limit => readField('limit', asInt);
-  set limit(int? value) => writeField('limit', value);
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 
   /// 返すフィールドの名前。1 つ以上で、重ねない。id は書かなくても返す。書かなければ id・kind・layer・source を返す（決定 0118）
   List<String>? get fields => readField('fields', listOf(asString));
   set fields(List<String>? value) => writeField('fields', value);
 
   /// [最小の X, 最小の Y, 最大の X, 最大の Y]。範囲がこの長方形と重なるか接する要素だけを返す。空間か用紙それぞれの座標で比べる（決定 0118）
-  List<double>? get region => readField('region', listOf(asDouble));
-  set region(List<double>? value) => writeField('region', value);
+  List<core.double>? get region => readField('region', listOf(asDouble));
+  set region(List<core.double>? value) => writeField('region', value);
 
   /// 空間か用紙の ID（space/0・sheet/h22 など）。書けば、その空間か用紙の要素だけを返す。記号の定義の空間（space/h1F など。BLOCK のハンドルから作る、決定 0156）も指せ、書かなければ定義の中の要素は返さない。ない ID なら要素を返さない。マイナーバージョン 31 から（決定 0177）
   String? get place => readField('place', asString);
@@ -1320,8 +1323,8 @@ class EntitySourceFilter extends Message {
   EntitySourceFilter() : super({});
 
   /// L1 のレコード番号と完全に一致する
-  int? get record => readField('record', asInt);
-  set record(int? value) => writeField('record', value);
+  core.int? get record => readField('record', asInt);
+  set record(core.int? value) => writeField('record', value);
 
   /// L1 のバイト範囲との重なり。start を含み end を含まない、空でない範囲。境界が接するだけなら一致しない
   ByteRange? get bytes => readField('bytes', objectOf(ByteRange.fromJson));
@@ -1349,12 +1352,12 @@ class EntitiesResult extends Message {
   set items(List<Entity>? value) => writeField('items', value);
 
   /// 全体の要素の数
-  int? get total => readField('total', asInt);
-  set total(int? value) => writeField('total', value);
+  core.int? get total => readField('total', asInt);
+  set total(core.int? value) => writeField('total', value);
 
   /// 続きの最初の要素の位置。続きがなければ持たない
-  int? get nextOffset => readField('next_offset', asInt);
-  set nextOffset(int? value) => writeField('next_offset', value);
+  core.int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(core.int? value) => writeField('next_offset', value);
 }
 
 /// 図面モデルの要素
@@ -1434,8 +1437,8 @@ class EntityStyle extends Message {
   set lineType(LineTypeChange? value) => writeField('line_type', value);
 
   /// 要素自身の線種の倍率。文書や配置の倍率を掛けない
-  double? get lineTypeScale => readField('line_type_scale', asDouble);
-  set lineTypeScale(double? value) => writeField('line_type_scale', value);
+  core.double? get lineTypeScale => readField('line_type_scale', asDouble);
+  set lineTypeScale(core.double? value) => writeField('line_type_scale', value);
 
   /// 線幅の指定。元の形式から読めていなければ持たない
   LineWeightChange? get lineWeight => readField('line_weight', objectOf(LineWeightChange.fromJson));
@@ -1459,8 +1462,8 @@ class EntityTransparency extends Message {
   set inherit(String? value) => writeField('inherit', value);
 
   /// 不透明度。0 は透明、255 は不透明
-  int? get alpha => readField('alpha', asInt);
-  set alpha(int? value) => writeField('alpha', value);
+  core.int? get alpha => readField('alpha', asInt);
+  set alpha(core.int? value) => writeField('alpha', value);
 }
 
 /// 要素に付く形式固有の情報。元の順序を保ち、失効した値も current を偽にして返す。書き戻す操作ではない
@@ -1484,16 +1487,16 @@ class EntityExtension extends Message {
   set version(String? value) => writeField('version', value);
 
   /// 名前空間の値の型のバージョン
-  int? get schema => readField('schema', asInt);
-  set schema(int? value) => writeField('schema', value);
+  core.int? get schema => readField('schema', asInt);
+  set schema(core.int? value) => writeField('schema', value);
 
   /// 拡張が依存する元の要素のハッシュ。要素に依存するハッシュがなければ持たない
   String? get basis => readField('basis', asString);
   set basis(String? value) => writeField('basis', value);
 
   /// basis が現在の要素のハッシュと一致する
-  bool? get current => readField('current', asBool);
-  set current(bool? value) => writeField('current', value);
+  core.bool? get current => readField('current', asBool);
+  set current(core.bool? value) => writeField('current', value);
 
   /// 元の順序と型を保つフィールド
   List<EntityExtensionField>? get fields => readField('fields', listOf(objectOf(EntityExtensionField.fromJson)));
@@ -1517,8 +1520,8 @@ class EntityExtensionField extends Message {
   set key(String? value) => writeField('key', value);
 
   /// 元の形式の値の番号。番号がなければ持たない
-  int? get code => readField('code', asInt);
-  set code(int? value) => writeField('code', value);
+  core.int? get code => readField('code', asInt);
+  set code(core.int? value) => writeField('code', value);
 
   /// 型付きの値
   EntityExtensionValue? get value => readField('value', objectOf(EntityExtensionValue.fromJson));
@@ -1599,8 +1602,8 @@ class EntityExtensionReal extends Message {
   set kind(String? value) => writeField('kind', value);
 
   /// 実数
-  double? get value => readField('value', asDouble);
-  set value(double? value) => writeField('value', value);
+  core.double? get value => readField('value', asDouble);
+  set value(core.double? value) => writeField('value', value);
 }
 
 /// 3 次元の点やベクトル。単位と空間は名前空間が定める
@@ -1616,8 +1619,8 @@ class EntityExtensionPoint extends Message {
   set kind(String? value) => writeField('kind', value);
 
   /// [X, Y, Z] の有限値
-  List<double>? get value => readField('value', listOf(asDouble));
-  set value(List<double>? value) => writeField('value', value);
+  List<core.double>? get value => readField('value', listOf(asDouble));
+  set value(List<core.double>? value) => writeField('value', value);
 }
 
 /// 元の形式のオブジェクトを指す符号なし 64 bit の値
@@ -1737,8 +1740,8 @@ class HatchGeometry extends Message {
   set pattern(HatchPattern? value) => writeField('pattern', value);
 
   /// 境界を探した点 [[X, Y], ...]。書かなければ空
-  List<List<double>>? get seeds => readField('seeds', listOf(listOf(asDouble)));
-  set seeds(List<List<double>>? value) => writeField('seeds', value);
+  List<List<core.double>>? get seeds => readField('seeds', listOf(listOf(asDouble)));
+  set seeds(List<List<core.double>>? value) => writeField('seeds', value);
 }
 
 /// ハッチングの境界の輪。参照を持たない
@@ -1754,12 +1757,12 @@ class HatchLoop extends Message {
   set boundary(HatchBoundary? value) => writeField('boundary', value);
 
   /// 外側の輪
-  bool? get externalField => readField('external', asBool);
-  set externalField(bool? value) => writeField('external', value);
+  core.bool? get externalField => readField('external', asBool);
+  set externalField(core.bool? value) => writeField('external', value);
 
   /// いちばん外の輪
-  bool? get outermost => readField('outermost', asBool);
-  set outermost(bool? value) => writeField('outermost', value);
+  core.bool? get outermost => readField('outermost', asBool);
+  set outermost(core.bool? value) => writeField('outermost', value);
 }
 
 /// 輪の形。折れ線は closed が真で頂点が 2 つ以上。最後の点から最初の点へ結ぶ
@@ -1811,16 +1814,16 @@ class HatchPattern extends Message {
   set origin(String? value) => writeField('origin', value);
 
   /// 定義に加えた回転（度）
-  double? get angle => readField('angle', asDouble);
-  set angle(double? value) => writeField('angle', value);
+  core.double? get angle => readField('angle', asDouble);
+  set angle(core.double? value) => writeField('angle', value);
 
   /// 定義に掛けた尺度か、利用者が決めた線の間隔。0 より大きい
-  double? get scale => readField('scale', asDouble);
-  set scale(double? value) => writeField('scale', value);
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
 
   /// 線の組を 90 度回して重ねる
-  bool? get double => readField('double', asBool);
-  set double(bool? value) => writeField('double', value);
+  core.bool? get double => readField('double', asBool);
+  set double(core.bool? value) => writeField('double', value);
 
   /// angle と scale を当てた後の線の組。1 つ以上
   List<HatchPatternLine>? get lines => readField('lines', listOf(objectOf(HatchPatternLine.fromJson)));
@@ -1845,20 +1848,20 @@ class HatchPatternLine extends Message {
   HatchPatternLine() : super({});
 
   /// 線の向き（度）
-  double? get angle => readField('angle', asDouble);
-  set angle(double? value) => writeField('angle', value);
+  core.double? get angle => readField('angle', asDouble);
+  set angle(core.double? value) => writeField('angle', value);
 
   /// 1 本の線が通る点 [X, Y]
-  List<double>? get baseField => readField('base', listOf(asDouble));
-  set baseField(List<double>? value) => writeField('base', value);
+  List<core.double>? get baseField => readField('base', listOf(asDouble));
+  set baseField(List<core.double>? value) => writeField('base', value);
 
   /// 隣の線までのずれ [X, Y]。両方 0 にはしない
-  List<double>? get offset => readField('offset', listOf(asDouble));
-  set offset(List<double>? value) => writeField('offset', value);
+  List<core.double>? get offset => readField('offset', listOf(asDouble));
+  set offset(List<core.double>? value) => writeField('offset', value);
 
   /// 正は線、負は間、0 は点。空なら実線
-  List<double>? get dashes => readField('dashes', listOf(asDouble));
-  set dashes(List<double>? value) => writeField('dashes', value);
+  List<core.double>? get dashes => readField('dashes', listOf(asDouble));
+  set dashes(List<core.double>? value) => writeField('dashes', value);
 }
 
 /// 線分
@@ -1874,12 +1877,12 @@ class LineGeometry extends Message {
   set shape(String? value) => writeField('shape', value);
 
   /// 始点 [X, Y]
-  List<double>? get start => readField('start', listOf(asDouble));
-  set start(List<double>? value) => writeField('start', value);
+  List<core.double>? get start => readField('start', listOf(asDouble));
+  set start(List<core.double>? value) => writeField('start', value);
 
   /// 終点 [X, Y]
-  List<double>? get end => readField('end', listOf(asDouble));
-  set end(List<double>? value) => writeField('end', value);
+  List<core.double>? get end => readField('end', listOf(asDouble));
+  set end(List<core.double>? value) => writeField('end', value);
 }
 
 /// 円
@@ -1895,12 +1898,12 @@ class CircleGeometry extends Message {
   set shape(String? value) => writeField('shape', value);
 
   /// 中心 [X, Y]
-  List<double>? get center => readField('center', listOf(asDouble));
-  set center(List<double>? value) => writeField('center', value);
+  List<core.double>? get center => readField('center', listOf(asDouble));
+  set center(List<core.double>? value) => writeField('center', value);
 
   /// 半径。0 より大きい
-  double? get radius => readField('radius', asDouble);
-  set radius(double? value) => writeField('radius', value);
+  core.double? get radius => readField('radius', asDouble);
+  set radius(core.double? value) => writeField('radius', value);
 }
 
 /// 円弧。始まりの角度から終わりの角度へ、反時計回りにたどる
@@ -1916,20 +1919,20 @@ class ArcGeometry extends Message {
   set shape(String? value) => writeField('shape', value);
 
   /// 中心 [X, Y]
-  List<double>? get center => readField('center', listOf(asDouble));
-  set center(List<double>? value) => writeField('center', value);
+  List<core.double>? get center => readField('center', listOf(asDouble));
+  set center(List<core.double>? value) => writeField('center', value);
 
   /// 半径。0 より大きい
-  double? get radius => readField('radius', asDouble);
-  set radius(double? value) => writeField('radius', value);
+  core.double? get radius => readField('radius', asDouble);
+  set radius(core.double? value) => writeField('radius', value);
 
   /// 始まりの角度（度）
-  double? get startAngle => readField('start_angle', asDouble);
-  set startAngle(double? value) => writeField('start_angle', value);
+  core.double? get startAngle => readField('start_angle', asDouble);
+  set startAngle(core.double? value) => writeField('start_angle', value);
 
   /// 終わりの角度（度）
-  double? get endAngle => readField('end_angle', asDouble);
-  set endAngle(double? value) => writeField('end_angle', value);
+  core.double? get endAngle => readField('end_angle', asDouble);
+  set endAngle(core.double? value) => writeField('end_angle', value);
 }
 
 /// 楕円か楕円の弧。始まりの角度から終わりの角度へ、反時計回りにたどる。閉じた楕円は 0 度から 360 度。マイナーバージョン 11 から
@@ -1945,24 +1948,24 @@ class EllipseGeometry extends Message {
   set shape(String? value) => writeField('shape', value);
 
   /// 中心 [X, Y]
-  List<double>? get center => readField('center', listOf(asDouble));
-  set center(List<double>? value) => writeField('center', value);
+  List<core.double>? get center => readField('center', listOf(asDouble));
+  set center(List<core.double>? value) => writeField('center', value);
 
   /// 長軸の端の点 [X, Y]。中心と違う点
-  List<double>? get major => readField('major', listOf(asDouble));
-  set major(List<double>? value) => writeField('major', value);
+  List<core.double>? get major => readField('major', listOf(asDouble));
+  set major(List<core.double>? value) => writeField('major', value);
 
   /// 短軸の長軸に対する比。0 より大きく 1 以下
-  double? get ratio => readField('ratio', asDouble);
-  set ratio(double? value) => writeField('ratio', value);
+  core.double? get ratio => readField('ratio', asDouble);
+  set ratio(core.double? value) => writeField('ratio', value);
 
   /// 始まりの角度（度）。楕円を円に引き延ばしたときの角度
-  double? get startAngle => readField('start_angle', asDouble);
-  set startAngle(double? value) => writeField('start_angle', value);
+  core.double? get startAngle => readField('start_angle', asDouble);
+  set startAngle(core.double? value) => writeField('start_angle', value);
 
   /// 終わりの角度（度）。楕円を円に引き延ばしたときの角度
-  double? get endAngle => readField('end_angle', asDouble);
-  set endAngle(double? value) => writeField('end_angle', value);
+  core.double? get endAngle => readField('end_angle', asDouble);
+  set endAngle(core.double? value) => writeField('end_angle', value);
 }
 
 /// 頂点を結んだ折れ線。幅は持たない
@@ -1978,16 +1981,16 @@ class PolylineGeometry extends Message {
   set shape(String? value) => writeField('shape', value);
 
   /// 頂点の [X, Y] の並び。2 つ以上
-  List<List<double>>? get points => readField('points', listOf(listOf(asDouble)));
-  set points(List<List<double>>? value) => writeField('points', value);
+  List<List<core.double>>? get points => readField('points', listOf(listOf(asDouble)));
+  set points(List<List<core.double>>? value) => writeField('points', value);
 
   /// 頂点ごとの、次の頂点への弧の膨らみ（中心角の 4 分の 1 の正接。正は反時計回り）。points と同じ数。書かなければどれも 0
-  List<double>? get bulges => readField('bulges', listOf(asDouble));
-  set bulges(List<double>? value) => writeField('bulges', value);
+  List<core.double>? get bulges => readField('bulges', listOf(asDouble));
+  set bulges(List<core.double>? value) => writeField('bulges', value);
 
   /// 最後の頂点から最初の頂点へ結ぶ
-  bool? get closed => readField('closed', asBool);
-  set closed(bool? value) => writeField('closed', value);
+  core.bool? get closed => readField('closed', asBool);
+  set closed(core.bool? value) => writeField('closed', value);
 }
 
 /// 1 点か 2 点の間に置く文字。置き換えるときは、位置合わせを元の値のままにし、書かない幅の倍率・斜体・反転も元の値を受け継ぐ。足すときは、2 点目がなければ書かない位置合わせを左の基準線にし、幅の倍率 1・斜体なし・反転なしにする
@@ -2007,12 +2010,12 @@ class TextGeometry extends Message {
   set content(String? value) => writeField('content', value);
 
   /// 基点 [X, Y]。2 点の間に合わせる文字では 1 点目
-  List<double>? get position => readField('position', listOf(asDouble));
-  set position(List<double>? value) => writeField('position', value);
+  List<core.double>? get position => readField('position', listOf(asDouble));
+  set position(List<core.double>? value) => writeField('position', value);
 
   /// 2 点の間に合わせる文字の 2 点目 [X, Y]。合わせ方（fit）と一緒に書く。置き換えでは、1 点に置く文字と 2 点の間に合わせる文字を入れ替えられない。マイナーバージョン 17 から
-  List<double>? get end => readField('end', listOf(asDouble));
-  set end(List<double>? value) => writeField('end', value);
+  List<core.double>? get end => readField('end', listOf(asDouble));
+  set end(List<core.double>? value) => writeField('end', value);
 
   /// 2 点の間への合わせ方。2 点目（end）と一緒に書く。マイナーバージョン 17 から
   String? get fit => readField('fit', asString);
@@ -2027,28 +2030,28 @@ class TextGeometry extends Message {
   set vertical(String? value) => writeField('vertical', value);
 
   /// 高さ。0 より大きい
-  double? get height => readField('height', asDouble);
-  set height(double? value) => writeField('height', value);
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
 
   /// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
-  double? get rotation => readField('rotation', asDouble);
-  set rotation(double? value) => writeField('rotation', value);
+  core.double? get rotation => readField('rotation', asDouble);
+  set rotation(core.double? value) => writeField('rotation', value);
 
   /// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
-  double? get widthFactor => readField('width_factor', asDouble);
-  set widthFactor(double? value) => writeField('width_factor', value);
+  core.double? get widthFactor => readField('width_factor', asDouble);
+  set widthFactor(core.double? value) => writeField('width_factor', value);
 
   /// 斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
-  double? get oblique => readField('oblique', asDouble);
-  set oblique(double? value) => writeField('oblique', value);
+  core.double? get oblique => readField('oblique', asDouble);
+  set oblique(core.double? value) => writeField('oblique', value);
 
   /// 左右を裏返すか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
-  bool? get backward => readField('backward', asBool);
-  set backward(bool? value) => writeField('backward', value);
+  core.bool? get backward => readField('backward', asBool);
+  set backward(core.bool? value) => writeField('backward', value);
 
   /// 上下を反転するか。偽のときは entities が省き、足すときも省けば偽、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
-  bool? get upsideDown => readField('upside_down', asBool);
-  set upsideDown(bool? value) => writeField('upside_down', value);
+  core.bool? get upsideDown => readField('upside_down', asBool);
+  set upsideDown(core.bool? value) => writeField('upside_down', value);
 
   /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。DXF に文字スタイルの定義がないときは Standard だけを受ける。置き換えるときは、省けば元の名前を保ち、DXF・DWG は定義のある別の文字スタイルも受ける。style_id と一緒に書くなら、同じ文字スタイルを指す。マイナーバージョン 12 から
   String? get style => readField('style', asString);
@@ -2104,24 +2107,24 @@ class FormattedTextGeometry extends Message {
   set content(String? value) => writeField('content', value);
 
   /// 基点 [X, Y]
-  List<double>? get position => readField('position', listOf(asDouble));
-  set position(List<double>? value) => writeField('position', value);
+  List<core.double>? get position => readField('position', listOf(asDouble));
+  set position(List<core.double>? value) => writeField('position', value);
 
   /// 高さ。0 より大きい
-  double? get height => readField('height', asDouble);
-  set height(double? value) => writeField('height', value);
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
 
   /// 回転（度）
-  double? get rotation => readField('rotation', asDouble);
-  set rotation(double? value) => writeField('rotation', value);
+  core.double? get rotation => readField('rotation', asDouble);
+  set rotation(core.double? value) => writeField('rotation', value);
 
   /// 基点に合わせる枠の位置
   String? get attachment => readField('attachment', asString);
   set attachment(String? value) => writeField('attachment', value);
 
   /// 折り返す枠の幅。0 より大きい。書かなければ折り返さない
-  double? get width => readField('width', asDouble);
-  set width(double? value) => writeField('width', value);
+  core.double? get width => readField('width', asDouble);
+  set width(core.double? value) => writeField('width', value);
 
   /// 文字スタイルの元の名前。entities は返し、足すときは図面にある名前を指す（省けば Standard）。置き換えるときは、省けば元の名前を保ち、DXF・DWG は定義のある別の文字スタイルも受ける。style_id と一緒に書くなら、同じ文字スタイルを指す
   String? get style => readField('style', asString);
@@ -2145,40 +2148,40 @@ class SplineGeometry extends Message {
   set shape(String? value) => writeField('shape', value);
 
   /// 次数。1 以上
-  int? get degree => readField('degree', asInt);
-  set degree(int? value) => writeField('degree', value);
+  core.int? get degree => readField('degree', asInt);
+  set degree(core.int? value) => writeField('degree', value);
 
   /// ノットの並び。周期的でなければ、制御点の数と次数と 1 の和の数。フィット点で決まるものは空
-  List<double>? get knots => readField('knots', listOf(asDouble));
-  set knots(List<double>? value) => writeField('knots', value);
+  List<core.double>? get knots => readField('knots', listOf(asDouble));
+  set knots(List<core.double>? value) => writeField('knots', value);
 
   /// 制御点の [X, Y] の並び。次数より多い。フィット点で決まるものは空
-  List<List<double>>? get control => readField('control', listOf(listOf(asDouble)));
-  set control(List<List<double>>? value) => writeField('control', value);
+  List<List<core.double>>? get control => readField('control', listOf(listOf(asDouble)));
+  set control(List<List<core.double>>? value) => writeField('control', value);
 
   /// 制御点ごとの重み。0 より大きい。有理のスプラインだけが持ち、書かなければ有理でない
-  List<double>? get weights => readField('weights', listOf(asDouble));
-  set weights(List<double>? value) => writeField('weights', value);
+  List<core.double>? get weights => readField('weights', listOf(asDouble));
+  set weights(List<core.double>? value) => writeField('weights', value);
 
   /// フィット点の [X, Y] の並び。2 つ以上。書けば、ノットと制御点は空で、重みは書かない。マイナーバージョン 18 から
-  List<List<double>>? get fit => readField('fit', listOf(listOf(asDouble)));
-  set fit(List<List<double>>? value) => writeField('fit', value);
+  List<List<core.double>>? get fit => readField('fit', listOf(listOf(asDouble)));
+  set fit(List<List<core.double>>? value) => writeField('fit', value);
 
   /// フィット点で決まるスプラインの、始まりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から
-  List<double>? get startTangent => readField('start_tangent', listOf(asDouble));
-  set startTangent(List<double>? value) => writeField('start_tangent', value);
+  List<core.double>? get startTangent => readField('start_tangent', listOf(asDouble));
+  set startTangent(List<core.double>? value) => writeField('start_tangent', value);
 
   /// フィット点で決まるスプラインの、終わりの接線の向き [X, Y]。0 でない。書かなければ読む側が決める。マイナーバージョン 18 から
-  List<double>? get endTangent => readField('end_tangent', listOf(asDouble));
-  set endTangent(List<double>? value) => writeField('end_tangent', value);
+  List<core.double>? get endTangent => readField('end_tangent', listOf(asDouble));
+  set endTangent(List<core.double>? value) => writeField('end_tangent', value);
 
   /// 閉じている
-  bool? get closed => readField('closed', asBool);
-  set closed(bool? value) => writeField('closed', value);
+  core.bool? get closed => readField('closed', asBool);
+  set closed(core.bool? value) => writeField('closed', value);
 
   /// 周期的
-  bool? get periodic => readField('periodic', asBool);
-  set periodic(bool? value) => writeField('periodic', value);
+  core.bool? get periodic => readField('periodic', asBool);
+  set periodic(core.bool? value) => writeField('periodic', value);
 }
 
 /// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から
@@ -2198,68 +2201,68 @@ class DimensionGeometry extends Message {
   set kind(String? value) => writeField('kind', value);
 
   /// 1 本目の補助線の点か、測る角度の 1 本目の線の点か、円弧の始めの点 [X, Y]。linear・aligned・angular・arc_length が持つ
-  List<double>? get first => readField('first', listOf(asDouble));
-  set first(List<double>? value) => writeField('first', value);
+  List<core.double>? get first => readField('first', listOf(asDouble));
+  set first(List<core.double>? value) => writeField('first', value);
 
   /// 2 本目の補助線の点か、測る角度の 2 本目の線の点か、円弧の終わりの点 [X, Y]。linear・aligned・angular・arc_length が持つ
-  List<double>? get second => readField('second', listOf(asDouble));
-  set second(List<double>? value) => writeField('second', value);
+  List<core.double>? get second => readField('second', listOf(asDouble));
+  set second(List<core.double>? value) => writeField('second', value);
 
   /// 寸法線が通る点 [X, Y]。linear・aligned が持つ
-  List<double>? get line => readField('line', listOf(asDouble));
-  set line(List<double>? value) => writeField('line', value);
+  List<core.double>? get line => readField('line', listOf(asDouble));
+  set line(List<core.double>? value) => writeField('line', value);
 
   /// 測る向き（度）。linear が持つ
-  double? get rotation => readField('rotation', asDouble);
-  set rotation(double? value) => writeField('rotation', value);
+  core.double? get rotation => readField('rotation', asDouble);
+  set rotation(core.double? value) => writeField('rotation', value);
 
   /// 補助線の傾き（度）。傾けなければ 0。linear・aligned が持つ
-  double? get oblique => readField('oblique', asDouble);
-  set oblique(double? value) => writeField('oblique', value);
+  core.double? get oblique => readField('oblique', asDouble);
+  set oblique(core.double? value) => writeField('oblique', value);
 
   /// 角度の頂点 [X, Y]。angular が持つ
-  List<double>? get vertex => readField('vertex', listOf(asDouble));
-  set vertex(List<double>? value) => writeField('vertex', value);
+  List<core.double>? get vertex => readField('vertex', listOf(asDouble));
+  set vertex(List<core.double>? value) => writeField('vertex', value);
 
   /// 1 本目の線の始点と終点 [[X, Y], [X, Y]]。angular_lines が持つ
-  List<List<double>>? get firstLine => readField('first_line', listOf(listOf(asDouble)));
-  set firstLine(List<List<double>>? value) => writeField('first_line', value);
+  List<List<core.double>>? get firstLine => readField('first_line', listOf(listOf(asDouble)));
+  set firstLine(List<List<core.double>>? value) => writeField('first_line', value);
 
   /// 2 本目の線の始点と終点 [[X, Y], [X, Y]]。angular_lines が持つ
-  List<List<double>>? get secondLine => readField('second_line', listOf(listOf(asDouble)));
-  set secondLine(List<List<double>>? value) => writeField('second_line', value);
+  List<List<core.double>>? get secondLine => readField('second_line', listOf(listOf(asDouble)));
+  set secondLine(List<List<core.double>>? value) => writeField('second_line', value);
 
   /// 寸法の弧が通る点 [X, Y]。angular・angular_lines・arc_length が持つ
-  List<double>? get arc => readField('arc', listOf(asDouble));
-  set arc(List<double>? value) => writeField('arc', value);
+  List<core.double>? get arc => readField('arc', listOf(asDouble));
+  set arc(List<core.double>? value) => writeField('arc', value);
 
   /// 中心 [X, Y]。arc_length・radius が持つ
-  List<double>? get center => readField('center', listOf(asDouble));
-  set center(List<double>? value) => writeField('center', value);
+  List<core.double>? get center => readField('center', listOf(asDouble));
+  set center(List<core.double>? value) => writeField('center', value);
 
   /// 円の上の点 [X, Y]。radius・diameter が持つ
-  List<double>? get chord => readField('chord', listOf(asDouble));
-  set chord(List<double>? value) => writeField('chord', value);
+  List<core.double>? get chord => readField('chord', listOf(asDouble));
+  set chord(List<core.double>? value) => writeField('chord', value);
 
   /// chord と向かい合う円の上の点 [X, Y]。diameter が持つ
-  List<double>? get opposite => readField('opposite', listOf(asDouble));
-  set opposite(List<double>? value) => writeField('opposite', value);
+  List<core.double>? get opposite => readField('opposite', listOf(asDouble));
+  set opposite(List<core.double>? value) => writeField('opposite', value);
 
   /// 引出線の長さ。radius・diameter が持つ
-  double? get leader => readField('leader', asDouble);
-  set leader(double? value) => writeField('leader', value);
+  core.double? get leader => readField('leader', asDouble);
+  set leader(core.double? value) => writeField('leader', value);
 
   /// 原点 [X, Y]。ordinate が持つ
-  List<double>? get origin => readField('origin', listOf(asDouble));
-  set origin(List<double>? value) => writeField('origin', value);
+  List<core.double>? get origin => readField('origin', listOf(asDouble));
+  set origin(List<core.double>? value) => writeField('origin', value);
 
   /// 測る点 [X, Y]。ordinate が持つ
-  List<double>? get feature => readField('feature', listOf(asDouble));
-  set feature(List<double>? value) => writeField('feature', value);
+  List<core.double>? get feature => readField('feature', listOf(asDouble));
+  set feature(List<core.double>? value) => writeField('feature', value);
 
   /// 引出線の終点 [X, Y]。ordinate が持つ
-  List<double>? get leaderEnd => readField('leader_end', listOf(asDouble));
-  set leaderEnd(List<double>? value) => writeField('leader_end', value);
+  List<core.double>? get leaderEnd => readField('leader_end', listOf(asDouble));
+  set leaderEnd(List<core.double>? value) => writeField('leader_end', value);
 
   /// 測る座標の軸。ordinate が持つ
   String? get axis => readField('axis', asString);
@@ -2274,20 +2277,20 @@ class DimensionGeometry extends Message {
   set content(String? value) => writeField('content', value);
 
   /// 元の形式が保存した測定値。単位と倍率は measurement_key のフィールドに従う
-  double? get measurement => readField('measurement', asDouble);
-  set measurement(double? value) => writeField('measurement', value);
+  core.double? get measurement => readField('measurement', asDouble);
+  set measurement(core.double? value) => writeField('measurement', value);
 
   /// measurement の形式とフィールドを指すキー（DXF の DIMENSION の 42 なら dxf.DIMENSION.42）。measurement と一緒に持つ
   String? get measurementKey => readField('measurement_key', asString);
   set measurementKey(String? value) => writeField('measurement_key', value);
 
   /// 寸法値の文字の中央の点 [X, Y]。元の形式が持たなければ書かない
-  List<double>? get textPosition => readField('text_position', listOf(asDouble));
-  set textPosition(List<double>? value) => writeField('text_position', value);
+  List<core.double>? get textPosition => readField('text_position', listOf(asDouble));
+  set textPosition(List<core.double>? value) => writeField('text_position', value);
 
   /// 寸法値の文字の回転（度）。寸法線に沿わせるなら書かない
-  double? get textRotation => readField('text_rotation', asDouble);
-  set textRotation(double? value) => writeField('text_rotation', value);
+  core.double? get textRotation => readField('text_rotation', asDouble);
+  set textRotation(core.double? value) => writeField('text_rotation', value);
 
   /// 寸法スタイルの元の名前
   String? get style => readField('style', asString);
@@ -2311,16 +2314,16 @@ class LeaderGeometry extends Message {
   set shape(String? value) => writeField('shape', value);
 
   /// 経路の頂点 [[X, Y], ...]。矢印の側から並べる。2 つ以上
-  List<List<double>>? get path => readField('path', listOf(listOf(asDouble)));
-  set path(List<List<double>>? value) => writeField('path', value);
+  List<List<core.double>>? get path => readField('path', listOf(listOf(asDouble)));
+  set path(List<List<core.double>>? value) => writeField('path', value);
 
   /// 頂点を通る曲線で結ぶか。偽なら折れ線
-  bool? get spline => readField('spline', asBool);
-  set spline(bool? value) => writeField('spline', value);
+  core.bool? get spline => readField('spline', asBool);
+  set spline(core.bool? value) => writeField('spline', value);
 
   /// 始点に矢印を付けるか。書かなければ寸法スタイルに従う
-  bool? get arrow => readField('arrow', asBool);
-  set arrow(bool? value) => writeField('arrow', value);
+  core.bool? get arrow => readField('arrow', asBool);
+  set arrow(core.bool? value) => writeField('arrow', value);
 
   /// 注記の要素の ID。同じ空間か用紙の要素で、entities が返したもの。注記がなければ書かない。置き換えるときは元と同じ ID だけを受ける。足すときは、同じ空間か用紙の書式つきの文字（MTEXT）を指す
   String? get annotation => readField('annotation', asString);
@@ -2356,16 +2359,16 @@ class CalloutGeometry extends Message {
   set path(String? value) => writeField('path', value);
 
   /// 線を注記に、水平の線（ランディング）でつなぐか
-  bool? get landing => readField('landing', asBool);
-  set landing(bool? value) => writeField('landing', value);
+  core.bool? get landing => readField('landing', asBool);
+  set landing(core.bool? value) => writeField('landing', value);
 
   /// 端部記号の大きさ
-  double? get arrowSize => readField('arrow_size', asDouble);
-  set arrowSize(double? value) => writeField('arrow_size', value);
+  core.double? get arrowSize => readField('arrow_size', asDouble);
+  set arrowSize(core.double? value) => writeField('arrow_size', value);
 
   /// 大きさに掛ける倍率
-  double? get scale => readField('scale', asDouble);
-  set scale(double? value) => writeField('scale', value);
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
 
   /// 注記の種類
   String? get content => readField('content', asString);
@@ -2389,12 +2392,12 @@ class CalloutBranch extends Message {
   CalloutBranch() : super({});
 
   /// 線ごとの頂点 [[[X, Y], ...], ...]。矢印の側から並べ、集まる点は含めない。線ごとに 1 つ以上
-  List<List<List<double>>>? get lines => readField('lines', listOf(listOf(listOf(asDouble))));
-  set lines(List<List<List<double>>>? value) => writeField('lines', value);
+  List<List<List<core.double>>>? get lines => readField('lines', listOf(listOf(listOf(asDouble))));
+  set lines(List<List<List<core.double>>>? value) => writeField('lines', value);
 
   /// 線が集まる点 [X, Y]。元の形式が持たなければ書かない
-  List<double>? get end => readField('end', listOf(asDouble));
-  set end(List<double>? value) => writeField('end', value);
+  List<core.double>? get end => readField('end', listOf(asDouble));
+  set end(List<core.double>? value) => writeField('end', value);
 
   /// 集まる点から注記への折れ曲がり。なければ書かない
   CalloutDogleg? get dogleg => readField('dogleg', objectOf(CalloutDogleg.fromJson));
@@ -2410,12 +2413,12 @@ class CalloutDogleg extends Message {
   CalloutDogleg() : super({});
 
   /// 向き [X, Y]。長さは意味を持たない
-  List<double>? get direction => readField('direction', listOf(asDouble));
-  set direction(List<double>? value) => writeField('direction', value);
+  List<core.double>? get direction => readField('direction', listOf(asDouble));
+  set direction(List<core.double>? value) => writeField('direction', value);
 
   /// 長さ
-  double? get length => readField('length', asDouble);
-  set length(double? value) => writeField('length', value);
+  core.double? get length => readField('length', asDouble);
+  set length(core.double? value) => writeField('length', value);
 }
 
 /// 引出線つきの注記の線の引き方。straight は折れ線、spline は頂点を通る曲線、hidden は線を描かない
@@ -2449,20 +2452,20 @@ class TableGeometry extends Message {
   set shape(String? value) => writeField('shape', value);
 
   /// 挿入点 [X, Y]
-  List<double>? get position => readField('position', listOf(asDouble));
-  set position(List<double>? value) => writeField('position', value);
+  List<core.double>? get position => readField('position', listOf(asDouble));
+  set position(List<core.double>? value) => writeField('position', value);
 
   /// 行の向き [X, Y]。0 でない
-  List<double>? get direction => readField('direction', listOf(asDouble));
-  set direction(List<double>? value) => writeField('direction', value);
+  List<core.double>? get direction => readField('direction', listOf(asDouble));
+  set direction(List<core.double>? value) => writeField('direction', value);
 
   /// 上の行からの行の高さ。どれも 0 より大きい。1 つ以上
-  List<double>? get rowHeights => readField('row_heights', listOf(asDouble));
-  set rowHeights(List<double>? value) => writeField('row_heights', value);
+  List<core.double>? get rowHeights => readField('row_heights', listOf(asDouble));
+  set rowHeights(List<core.double>? value) => writeField('row_heights', value);
 
   /// 左の列からの列の幅。どれも 0 より大きい。1 つ以上
-  List<double>? get columnWidths => readField('column_widths', listOf(asDouble));
-  set columnWidths(List<double>? value) => writeField('column_widths', value);
+  List<core.double>? get columnWidths => readField('column_widths', listOf(asDouble));
+  set columnWidths(List<core.double>? value) => writeField('column_widths', value);
 
   /// 上の行から、行ごとに左の列から並べたセル。数は行の数と列の数の積
   List<TableCell>? get cells => readField('cells', listOf(objectOf(TableCell.fromJson)));
@@ -2490,16 +2493,16 @@ class TableCell extends Message {
   set symbol(String? value) => writeField('symbol', value);
 
   /// 結合して広げる列と行の数 [列, 行]。結合しなければ [1, 1]（省けば [1, 1]）
-  List<int>? get span => readField('span', listOf(asInt));
-  set span(List<int>? value) => writeField('span', value);
+  List<core.int>? get span => readField('span', listOf(asInt));
+  set span(List<core.int>? value) => writeField('span', value);
 
   /// ほかのセルに結合されて覆われるか。偽のときは省ける
-  bool? get covered => readField('covered', asBool);
-  set covered(bool? value) => writeField('covered', value);
+  core.bool? get covered => readField('covered', asBool);
+  set covered(core.bool? value) => writeField('covered', value);
 
   /// 文字か記号の回転。0 のときは省ける
-  double? get rotation => readField('rotation', asDouble);
-  set rotation(double? value) => writeField('rotation', value);
+  core.double? get rotation => readField('rotation', asDouble);
+  set rotation(core.double? value) => writeField('rotation', value);
 }
 
 /// 表のセルの中身の種類。empty は空、text は書式つきの文字、symbol は記号（ブロック）
@@ -2524,20 +2527,20 @@ class PointGeometry extends Message {
   set shape(String? value) => writeField('shape', value);
 
   /// 位置 [X, Y]
-  List<double>? get position => readField('position', listOf(asDouble));
-  set position(List<double>? value) => writeField('position', value);
+  List<core.double>? get position => readField('position', listOf(asDouble));
+  set position(List<core.double>? value) => writeField('position', value);
 
   /// 回転（度）
-  double? get rotation => readField('rotation', asDouble);
-  set rotation(double? value) => writeField('rotation', value);
+  core.double? get rotation => readField('rotation', asDouble);
+  set rotation(core.double? value) => writeField('rotation', value);
 
   /// 既定義のマーカー。書かなければ文書の点の表し方に従う
   PointMarker? get marker => readField('marker', objectOf(PointMarker.fromJson));
   set marker(PointMarker? value) => writeField('marker', value);
 
   /// 作図の補助の点（JWW の仮点）か。書かなければ偽
-  bool? get construction => readField('construction', asBool);
-  set construction(bool? value) => writeField('construction', value);
+  core.bool? get construction => readField('construction', asBool);
+  set construction(core.bool? value) => writeField('construction', value);
 }
 
 /// 既定義のマーカーの表のキーと尺度。マーカーの形は、表示する側がキーから引く
@@ -2557,8 +2560,8 @@ class PointMarker extends Message {
   set code(String? value) => writeField('code', value);
 
   /// 尺度
-  double? get scale => readField('scale', asDouble);
-  set scale(double? value) => writeField('scale', value);
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
 }
 
 /// 寸法の種類。linear は 2 点を測る向きに、aligned は 2 点を結ぶ向きに測った長さ。angular は頂点から 2 点へ向かう線の、angular_lines は 2 本の線のなす角度。arc_length は円弧の長さ。radius は半径、diameter は直径。ordinate は原点からの X か Y の座標
@@ -2609,16 +2612,16 @@ class SymbolGeometry extends Message {
   set name(String? value) => writeField('name', value);
 
   /// 定義の基点を置く点 [X, Y]
-  List<double>? get position => readField('position', listOf(asDouble));
-  set position(List<double>? value) => writeField('position', value);
+  List<core.double>? get position => readField('position', listOf(asDouble));
+  set position(List<core.double>? value) => writeField('position', value);
 
   /// X と Y の尺度 [X, Y]。0 でない。負なら反転する
-  List<double>? get scale => readField('scale', listOf(asDouble));
-  set scale(List<double>? value) => writeField('scale', value);
+  List<core.double>? get scale => readField('scale', listOf(asDouble));
+  set scale(List<core.double>? value) => writeField('scale', value);
 
   /// 回転（度）
-  double? get rotation => readField('rotation', asDouble);
-  set rotation(double? value) => writeField('rotation', value);
+  core.double? get rotation => readField('rotation', asDouble);
+  set rotation(core.double? value) => writeField('rotation', value);
 
   /// 格子に並べて置く列と行。書かなければ 1 つだけ置く
   SymbolGrid? get grid => readField('grid', objectOf(SymbolGrid.fromJson));
@@ -2655,20 +2658,20 @@ class SymbolGrid extends Message {
   SymbolGrid() : super({});
 
   /// 列の数。1 以上
-  int? get columns => readField('columns', asInt);
-  set columns(int? value) => writeField('columns', value);
+  core.int? get columns => readField('columns', asInt);
+  set columns(core.int? value) => writeField('columns', value);
 
   /// 行の数。1 以上。列と行がどちらも 1 の格子は持たない
-  int? get rows => readField('rows', asInt);
-  set rows(int? value) => writeField('rows', value);
+  core.int? get rows => readField('rows', asInt);
+  set rows(core.int? value) => writeField('rows', value);
 
   /// 列の間隔
-  double? get columnSpacing => readField('column_spacing', asDouble);
-  set columnSpacing(double? value) => writeField('column_spacing', value);
+  core.double? get columnSpacing => readField('column_spacing', asDouble);
+  set columnSpacing(core.double? value) => writeField('column_spacing', value);
 
   /// 行の間隔
-  double? get rowSpacing => readField('row_spacing', asDouble);
-  set rowSpacing(double? value) => writeField('row_spacing', value);
+  core.double? get rowSpacing => readField('row_spacing', asDouble);
+  set rowSpacing(core.double? value) => writeField('row_spacing', value);
 }
 
 /// 基点に合わせる枠の位置。entities は返し、足すときに書かなければ左上、置き換えるときに書かなければ元のまま
@@ -2715,24 +2718,24 @@ class ApplyRequest extends Message {
   ApplyRequest() : super({'op': 'apply'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -2768,8 +2771,8 @@ class ApplyResult extends Message {
   set hash(String? value) => writeField('hash', value);
 
   /// true なら、変えていない要素の ID がずれた。キーを持たない形式（JWW）か、ハンドルを持たない DXF（R12 など）で、前の図形か表のレコードを除くか足したとき。ID を使う前に entities で読み直す。ずれないときは持たない。マイナーバージョン 30 から
-  bool? get idsShifted => readField('ids_shifted', asBool);
-  set idsShifted(bool? value) => writeField('ids_shifted', value);
+  core.bool? get idsShifted => readField('ids_shifted', asBool);
+  set idsShifted(core.bool? value) => writeField('ids_shifted', value);
 }
 
 /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
@@ -2781,24 +2784,24 @@ class ConvertRequest extends Message {
   ConvertRequest() : super({'op': 'convert'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -2838,8 +2841,8 @@ class ConvertResult extends Message {
   set hash(String? value) => writeField('hash', value);
 
   /// 書いた要素の数。記号から離した属性の文字を含む
-  int? get elements => readField('elements', asInt);
-  set elements(int? value) => writeField('elements', value);
+  core.int? get elements => readField('elements', asInt);
+  set elements(core.int? value) => writeField('elements', value);
 }
 
 /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。今は DXF への変換だけ。マイナーバージョン 66 から
@@ -2851,24 +2854,24 @@ class ConvertEstimateRequest extends Message {
   ConvertEstimateRequest() : super({'op': 'convert_estimate'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -2887,8 +2890,8 @@ class ConvertEstimateRequest extends Message {
   set to(String? value) => writeField('to', value);
 
   /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
-  int? get limit => readField('limit', asInt);
-  set limit(int? value) => writeField('limit', value);
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 }
 
 /// 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
@@ -2925,12 +2928,12 @@ class ConversionEstimate extends Message {
   set hash(String? value) => writeField('hash', value);
 
   /// 予定する出力の要素数。記号から離す属性の文字を含む
-  int? get elements => readField('elements', asInt);
-  set elements(int? value) => writeField('elements', value);
+  core.int? get elements => readField('elements', asInt);
+  set elements(core.int? value) => writeField('elements', value);
 
   /// 処理対象の出現数。同じ出所を持つ別の入力は別々に数え、診断の数では増やさない
-  int? get total => readField('total', asInt);
-  set total(int? value) => writeField('total', value);
+  core.int? get total => readField('total', asInt);
+  set total(core.int? value) => writeField('total', value);
 
   /// 種類と忠実度ごとの全件集計
   List<ConversionCount>? get counts => readField('counts', listOf(objectOf(ConversionCount.fromJson)));
@@ -2941,8 +2944,8 @@ class ConversionEstimate extends Message {
   set details(List<ConversionDetail>? value) => writeField('details', value);
 
   /// 明細の上限で返さなかった対象がある
-  bool? get truncated => readField('truncated', asBool);
-  set truncated(bool? value) => writeField('truncated', value);
+  core.bool? get truncated => readField('truncated', asBool);
+  set truncated(core.bool? value) => writeField('truncated', value);
 
   /// 入力の表の読み取りと lift 中の、集約前の診断発生記録。書き手の項目の集計には含めない。マイナーバージョン 67 から
   ConversionInputDiagnostics? get inputDiagnostics => readField('input_diagnostics', objectOf(ConversionInputDiagnostics.fromJson));
@@ -2958,8 +2961,8 @@ class ConversionInputDiagnostics extends Message {
   ConversionInputDiagnostics() : super({});
 
   /// 診断の発生件数の合計。max_places と limit によらない
-  int? get total => readField('total', asInt);
-  set total(int? value) => writeField('total', value);
+  core.int? get total => readField('total', asInt);
+  set total(core.int? value) => writeField('total', value);
 
   /// 診断の code とカタログの group_by の値による全件集計。場所は持たず、値は最も早い入力位置の報告から取る
   List<Diagnostic>? get counts => readField('counts', listOf(objectOf(Diagnostic.fromJson)));
@@ -2970,8 +2973,8 @@ class ConversionInputDiagnostics extends Message {
   set details(List<ConversionInputDiagnostic>? value) => writeField('details', value);
 
   /// 明細の上限で返さなかった報告がある
-  bool? get truncated => readField('truncated', asBool);
-  set truncated(bool? value) => writeField('truncated', value);
+  core.bool? get truncated => readField('truncated', asBool);
+  set truncated(core.bool? value) => writeField('truncated', value);
 }
 
 /// 集約前の診断と、その場所と同じ順序の出所。種類や失った値は診断の code と params からたどる
@@ -3008,12 +3011,12 @@ class ConversionCount extends Message {
   set fidelity(String? value) => writeField('fidelity', value);
 
   /// 入力の出現数。1 つの入力が複数の出力になっても 1 件
-  int? get count => readField('count', asInt);
-  set count(int? value) => writeField('count', value);
+  core.int? get count => readField('count', asInt);
+  set count(core.int? value) => writeField('count', value);
 
   /// この対象から書いた図形の数。表や参照だけを移した場合は 0
-  int? get outputElements => readField('output_elements', asInt);
-  set outputElements(int? value) => writeField('output_elements', value);
+  core.int? get outputElements => readField('output_elements', asInt);
+  set outputElements(core.int? value) => writeField('output_elements', value);
 }
 
 /// 処理対象の出現 1 つ。複数の欠落の診断が出ても 1 件として数える
@@ -3045,8 +3048,8 @@ class ConversionDetail extends Message {
   set source(Source? value) => writeField('source', value);
 
   /// この対象から書いた図形の数。表や参照だけを移した場合は 0
-  int? get outputElements => readField('output_elements', asInt);
-  set outputElements(int? value) => writeField('output_elements', value);
+  core.int? get outputElements => readField('output_elements', asInt);
+  set outputElements(core.int? value) => writeField('output_elements', value);
 }
 
 /// 忠実度。`native` は元の値・参照を保持、`equivalent` は別の表現で同じ意味、`approximated` は近似、`drawn` は見た目だけ、`dropped` は欠落
@@ -3177,8 +3180,8 @@ class RestyleEdit extends Message {
   set lineType(LineTypeChange? value) => writeField('line_type', value);
 
   /// 要素の線種の倍率
-  double? get lineTypeScale => readField('line_type_scale', asDouble);
-  set lineTypeScale(double? value) => writeField('line_type_scale', value);
+  core.double? get lineTypeScale => readField('line_type_scale', asDouble);
+  set lineTypeScale(core.double? value) => writeField('line_type_scale', value);
 
   /// 線幅
   LineWeightChange? get lineWeight => readField('line_weight', objectOf(LineWeightChange.fromJson));
@@ -3206,8 +3209,8 @@ class TransformEdit extends Message {
   set hash(String? value) => writeField('hash', value);
 
   /// [a, b, c, d, e, f]。要素の空間か用紙の点 (x, y) を (a x + b y + c, d x + e y + f) に写す
-  List<double>? get matrix => readField('matrix', listOf(asDouble));
-  set matrix(List<double>? value) => writeField('matrix', value);
+  List<core.double>? get matrix => readField('matrix', listOf(asDouble));
+  set matrix(List<core.double>? value) => writeField('matrix', value);
 }
 
 /// 要素を除く
@@ -3322,20 +3325,20 @@ class LayerEdit extends Message {
   set name(String? value) => writeField('name', value);
 
   /// 表示する。凍結するなら偽
-  bool? get visible => readField('visible', asBool);
-  set visible(bool? value) => writeField('visible', value);
+  core.bool? get visible => readField('visible', asBool);
+  set visible(core.bool? value) => writeField('visible', value);
 
   /// 印刷する
-  bool? get printable => readField('printable', asBool);
-  set printable(bool? value) => writeField('printable', value);
+  core.bool? get printable => readField('printable', asBool);
+  set printable(core.bool? value) => writeField('printable', value);
 
   /// 編集できる（ロックしない）
-  bool? get editable => readField('editable', asBool);
-  set editable(bool? value) => writeField('editable', value);
+  core.bool? get editable => readField('editable', asBool);
+  set editable(core.bool? value) => writeField('editable', value);
 
   /// 凍結する
-  bool? get frozen => readField('frozen', asBool);
-  set frozen(bool? value) => writeField('frozen', value);
+  core.bool? get frozen => readField('frozen', asBool);
+  set frozen(core.bool? value) => writeField('frozen', value);
 
   /// 色。aci が要る。inherit は書けない
   ColorChange? get color => readField('color', objectOf(ColorChange.fromJson));
@@ -3404,28 +3407,28 @@ class TextStyleEdit extends Message {
   set bigFont(Font? value) => writeField('big_font', value);
 
   /// 決まった高さ。文書の単位。0 なら決めない。負の数は書けない
-  double? get height => readField('height', asDouble);
-  set height(double? value) => writeField('height', value);
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
 
   /// 幅の倍率。正の数
-  double? get width => readField('width', asDouble);
-  set width(double? value) => writeField('width', value);
+  core.double? get width => readField('width', asDouble);
+  set width(core.double? value) => writeField('width', value);
 
   /// 傾き（度）。-85 から 85 まで
-  double? get oblique => readField('oblique', asDouble);
-  set oblique(double? value) => writeField('oblique', value);
+  core.double? get oblique => readField('oblique', asDouble);
+  set oblique(core.double? value) => writeField('oblique', value);
 
   /// 左右を裏返す
-  bool? get backward => readField('backward', asBool);
-  set backward(bool? value) => writeField('backward', value);
+  core.bool? get backward => readField('backward', asBool);
+  set backward(core.bool? value) => writeField('backward', value);
 
   /// 上下を反転する
-  bool? get upsideDown => readField('upside_down', asBool);
-  set upsideDown(bool? value) => writeField('upside_down', value);
+  core.bool? get upsideDown => readField('upside_down', asBool);
+  set upsideDown(core.bool? value) => writeField('upside_down', value);
 
   /// 縦書き
-  bool? get vertical => readField('vertical', asBool);
-  set vertical(bool? value) => writeField('vertical', value);
+  core.bool? get vertical => readField('vertical', asBool);
+  set vertical(core.bool? value) => writeField('vertical', value);
 }
 
 /// 文字スタイルを足す（決定 0163）。書かないフィールドは Standard と同じ。同じ apply の後ろの文字の追加・置き換えから、足した文字スタイルを名前で指せる。マイナーバージョン 25 から
@@ -3453,28 +3456,28 @@ class AddTextStyleEdit extends Message {
   set bigFont(Font? value) => writeField('big_font', value);
 
   /// 決まった高さ。文書の単位。0 なら決めない。負の数は書けない
-  double? get height => readField('height', asDouble);
-  set height(double? value) => writeField('height', value);
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
 
   /// 幅の倍率。正の数
-  double? get width => readField('width', asDouble);
-  set width(double? value) => writeField('width', value);
+  core.double? get width => readField('width', asDouble);
+  set width(core.double? value) => writeField('width', value);
 
   /// 傾き（度）。-85 から 85 まで
-  double? get oblique => readField('oblique', asDouble);
-  set oblique(double? value) => writeField('oblique', value);
+  core.double? get oblique => readField('oblique', asDouble);
+  set oblique(core.double? value) => writeField('oblique', value);
 
   /// 左右を裏返す
-  bool? get backward => readField('backward', asBool);
-  set backward(bool? value) => writeField('backward', value);
+  core.bool? get backward => readField('backward', asBool);
+  set backward(core.bool? value) => writeField('backward', value);
 
   /// 上下を反転する
-  bool? get upsideDown => readField('upside_down', asBool);
-  set upsideDown(bool? value) => writeField('upside_down', value);
+  core.bool? get upsideDown => readField('upside_down', asBool);
+  set upsideDown(core.bool? value) => writeField('upside_down', value);
 
   /// 縦書き
-  bool? get vertical => readField('vertical', asBool);
-  set vertical(bool? value) => writeField('vertical', value);
+  core.bool? get vertical => readField('vertical', asBool);
+  set vertical(core.bool? value) => writeField('vertical', value);
 }
 
 /// 文字スタイルを除く（決定 0163）。要素・表の書式や寸法スタイルなどのほかのオブジェクト・今の文字スタイル（$TEXTSTYLE）が指すものと、Standard・外部参照に依るものは除けない。同じ apply で足す要素が指すものも除けない。後ろにハンドルのない文字スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 25 から
@@ -3527,8 +3530,8 @@ class LineTypeEdit extends Message {
   set description(String? value) => writeField('description', value);
 
   /// 線と間の長さの列。文書の単位。正は線、負は間、0 は点
-  List<double>? get pattern => readField('pattern', listOf(asDouble));
-  set pattern(List<double>? value) => writeField('pattern', value);
+  List<core.double>? get pattern => readField('pattern', listOf(asDouble));
+  set pattern(List<core.double>? value) => writeField('pattern', value);
 }
 
 /// 線種を足す（決定 0164）。書かないフィールドは Continuous と同じ。同じ apply の後ろの要素とレイヤの変更から、足した線種を名前で指せる。マイナーバージョン 26 から
@@ -3552,8 +3555,8 @@ class AddLineTypeEdit extends Message {
   set description(String? value) => writeField('description', value);
 
   /// 線と間の長さの列。文書の単位。正は線、負は間、0 は点
-  List<double>? get pattern => readField('pattern', listOf(asDouble));
-  set pattern(List<double>? value) => writeField('pattern', value);
+  List<core.double>? get pattern => readField('pattern', listOf(asDouble));
+  set pattern(List<core.double>? value) => writeField('pattern', value);
 }
 
 /// 線種を除く（決定 0164）。要素・レイヤ・マルチラインスタイルなどのほかのオブジェクト・今の線種（$CELTYPE）が指すものと、ByLayer・ByBlock・Continuous・外部参照に依るものは除けない。同じ apply で足す・変える要素とレイヤが指すものも除けない。後ろにハンドルのない線種があれば、その ID が変わるので除けない。マイナーバージョン 26 から
@@ -3610,16 +3613,16 @@ class DimensionStyleEdit extends Message {
   set leader(String? value) => writeField('leader', value);
 
   /// 端部記号の大きさ（DIMASZ）。文書の単位で、scale を掛ける前の値。負の数は書けない
-  double? get size => readField('size', asDouble);
-  set size(double? value) => writeField('size', value);
+  core.double? get size => readField('size', asDouble);
+  set size(core.double? value) => writeField('size', value);
 
   /// 端部記号の代わりに描く斜線の大きさ（DIMTSZ）。0 なら斜線を描かない。負の数は書けない
-  double? get tick => readField('tick', asDouble);
-  set tick(double? value) => writeField('tick', value);
+  core.double? get tick => readField('tick', asDouble);
+  set tick(core.double? value) => writeField('tick', value);
 
   /// 大きさに掛ける倍率（DIMSCALE）。0 はビューの縮尺から決める。負の数は書けない
-  double? get scale => readField('scale', asDouble);
-  set scale(double? value) => writeField('scale', value);
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
 }
 
 /// 寸法スタイルを足す（決定 0165）。書かないフィールドは Standard と同じ。同じ apply の後ろの要素の追加から、足した寸法スタイルを名前で指せる。マイナーバージョン 27 から
@@ -3647,16 +3650,16 @@ class AddDimensionStyleEdit extends Message {
   set leader(String? value) => writeField('leader', value);
 
   /// 端部記号の大きさ（DIMASZ）。文書の単位で、scale を掛ける前の値。負の数は書けない
-  double? get size => readField('size', asDouble);
-  set size(double? value) => writeField('size', value);
+  core.double? get size => readField('size', asDouble);
+  set size(core.double? value) => writeField('size', value);
 
   /// 端部記号の代わりに描く斜線の大きさ（DIMTSZ）。0 なら斜線を描かない。負の数は書けない
-  double? get tick => readField('tick', asDouble);
-  set tick(double? value) => writeField('tick', value);
+  core.double? get tick => readField('tick', asDouble);
+  set tick(core.double? value) => writeField('tick', value);
 
   /// 大きさに掛ける倍率（DIMSCALE）。0 はビューの縮尺から決める。負の数は書けない
-  double? get scale => readField('scale', asDouble);
-  set scale(double? value) => writeField('scale', value);
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
 }
 
 /// 寸法スタイルを除く（決定 0165）。寸法・引出線・公差などのほかのオブジェクト・今の寸法スタイル（$DIMSTYLE）が指すものと、Standard・子の寸法スタイル・子を持つ寸法スタイル・外部参照に依るものは除けない。後ろにハンドルのない寸法スタイルがあれば、その ID が変わるので除けない。マイナーバージョン 27 から
@@ -3697,16 +3700,16 @@ class PointStyleEdit extends Message {
   set mark(String? value) => writeField('mark', value);
 
   /// 円で囲む。書かなければ偽
-  bool? get circle => readField('circle', asBool);
-  set circle(bool? value) => writeField('circle', value);
+  core.bool? get circle => readField('circle', asBool);
+  set circle(core.bool? value) => writeField('circle', value);
 
   /// 四角で囲む。書かなければ偽
-  bool? get square => readField('square', asBool);
-  set square(bool? value) => writeField('square', value);
+  core.bool? get square => readField('square', asBool);
+  set square(core.bool? value) => writeField('square', value);
 
   /// 大きさ。0 より大きい有限の数。意味は size_kind で決まる
-  double? get size => readField('size', asDouble);
-  set size(double? value) => writeField('size', value);
+  core.double? get size => readField('size', asDouble);
+  set size(core.double? value) => writeField('size', value);
 
   /// 大きさの意味
   String? get sizeKind => readField('size_kind', asString);
@@ -3749,20 +3752,20 @@ class AddLayerEdit extends Message {
   set name(String? value) => writeField('name', value);
 
   /// 表示する。凍結するなら偽
-  bool? get visible => readField('visible', asBool);
-  set visible(bool? value) => writeField('visible', value);
+  core.bool? get visible => readField('visible', asBool);
+  set visible(core.bool? value) => writeField('visible', value);
 
   /// 印刷する
-  bool? get printable => readField('printable', asBool);
-  set printable(bool? value) => writeField('printable', value);
+  core.bool? get printable => readField('printable', asBool);
+  set printable(core.bool? value) => writeField('printable', value);
 
   /// 編集できる（ロックしない）
-  bool? get editable => readField('editable', asBool);
-  set editable(bool? value) => writeField('editable', value);
+  core.bool? get editable => readField('editable', asBool);
+  set editable(core.bool? value) => writeField('editable', value);
 
   /// 凍結する
-  bool? get frozen => readField('frozen', asBool);
-  set frozen(bool? value) => writeField('frozen', value);
+  core.bool? get frozen => readField('frozen', asBool);
+  set frozen(core.bool? value) => writeField('frozen', value);
 
   /// 色。aci が要る。inherit は書けない
   ColorChange? get color => readField('color', objectOf(ColorChange.fromJson));
@@ -3798,20 +3801,20 @@ class ColorChange extends Message {
   set inherit(String? value) => writeField('inherit', value);
 
   /// AutoCAD の色の番号（1〜255）
-  int? get aci => readField('aci', asInt);
-  set aci(int? value) => writeField('aci', value);
+  core.int? get aci => readField('aci', asInt);
+  set aci(core.int? value) => writeField('aci', value);
 
   /// SXF の色のコード。1〜16 は既定義色、17 からは利用者定義色を定義の順に数えたもの。マイナーバージョン 29 から
-  int? get sxf => readField('sxf', asInt);
-  set sxf(int? value) => writeField('sxf', value);
+  core.int? get sxf => readField('sxf', asInt);
+  set sxf(core.int? value) => writeField('sxf', value);
 
   /// Jw_cad のペンの番号。0〜9 と、バージョン 420 からの SXF の拡張色 100〜356。マイナーバージョン 30 から
-  int? get jww => readField('jww', asInt);
-  set jww(int? value) => writeField('jww', value);
+  core.int? get jww => readField('jww', asInt);
+  set jww(core.int? value) => writeField('jww', value);
 
   /// [赤, 緑, 青]。それぞれ 0〜255
-  List<int>? get rgb => readField('rgb', listOf(asInt));
-  set rgb(List<int>? value) => writeField('rgb', value);
+  List<core.int>? get rgb => readField('rgb', listOf(asInt));
+  set rgb(List<core.int>? value) => writeField('rgb', value);
 }
 
 /// 新しい線種。inherit・name・id のどれか 1 つを書く
@@ -3848,12 +3851,12 @@ class LineWeightChange extends Message {
   set inherit(String? value) => writeField('inherit', value);
 
   /// 用紙の上の幅（mm）。0 以上
-  double? get mm => readField('mm', asDouble);
-  set mm(double? value) => writeField('mm', value);
+  core.double? get mm => readField('mm', asDouble);
+  set mm(core.double? value) => writeField('mm', value);
 
   /// true なら、文書の既定の線幅
-  bool? get defaultField => readField('default', asBool);
-  set defaultField(bool? value) => writeField('default', value);
+  core.bool? get defaultField => readField('default', asBool);
+  set defaultField(core.bool? value) => writeField('default', value);
 }
 
 /// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。マイナーバージョン 8 から
@@ -3865,24 +3868,24 @@ class TablesRequest extends Message {
   TablesRequest() : super({'op': 'tables'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -3951,8 +3954,8 @@ class SymbolDefinitionItem extends Message {
   set attributes(List<SymbolAttributeDefinition>? value) => writeField('attributes', value);
 
   /// 寸法などが作った無名の定義である
-  bool? get anonymous => readField('anonymous', asBool);
-  set anonymous(bool? value) => writeField('anonymous', value);
+  core.bool? get anonymous => readField('anonymous', asBool);
+  set anonymous(core.bool? value) => writeField('anonymous', value);
 
   /// 外部参照の元のパス。参照先を開かない。外部参照でなければ持たない
   String? get externalField => readField('external', asString);
@@ -3988,20 +3991,20 @@ class SymbolAttributeDefinition extends Message {
   set prompt(String? value) => writeField('prompt', value);
 
   /// 値が決まっていて、配置ごとに変えない
-  bool? get constant => readField('constant', asBool);
-  set constant(bool? value) => writeField('constant', value);
+  core.bool? get constant => readField('constant', asBool);
+  set constant(core.bool? value) => writeField('constant', value);
 
   /// 入力した値を確かめる指定
-  bool? get verify => readField('verify', asBool);
-  set verify(bool? value) => writeField('verify', value);
+  core.bool? get verify => readField('verify', asBool);
+  set verify(core.bool? value) => writeField('verify', value);
 
   /// 尋ねずに既定の値を使う指定
-  bool? get preset => readField('preset', asBool);
-  set preset(bool? value) => writeField('preset', value);
+  core.bool? get preset => readField('preset', asBool);
+  set preset(core.bool? value) => writeField('preset', value);
 
   /// 属性を表示しない
-  bool? get hidden => readField('hidden', asBool);
-  set hidden(bool? value) => writeField('hidden', value);
+  core.bool? get hidden => readField('hidden', asBool);
+  set hidden(core.bool? value) => writeField('hidden', value);
 
   /// 属性の出所
   Source? get source => readField('source', objectOf(Source.fromJson));
@@ -4017,24 +4020,24 @@ class SceneRequest extends Message {
   SceneRequest() : super({'op': 'scene'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -4049,20 +4052,20 @@ class SceneRequest extends Message {
   set from(String? value) => writeField('from', value);
 
   /// 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した空間の要素だけを描く。from が用紙のときだけ書ける
-  int? get view => readField('view', asInt);
-  set view(int? value) => writeField('view', value);
+  core.int? get view => readField('view', asInt);
+  set view(core.int? value) => writeField('view', value);
 
   /// [x の最小, y の最小, x の最大, y の最大]。起点の座標の長方形。範囲の重なる塊だけを返す
-  List<double>? get region => readField('region', listOf(asDouble));
-  set region(List<double>? value) => writeField('region', value);
+  List<core.double>? get region => readField('region', listOf(asDouble));
+  set region(List<core.double>? value) => writeField('region', value);
 
   /// 弦の誤差（起点の長さ）。0 より大きい。書かなければ、用紙からは 0.02 mm、空間からは要素の範囲の対角線の 1/50000
-  double? get tolerance => readField('tolerance', asDouble);
-  set tolerance(double? value) => writeField('tolerance', value);
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
 
   /// true なら印刷する要素を、書かないか false なら表示する要素を描く
-  bool? get print => readField('print', asBool);
-  set print(bool? value) => writeField('print', value);
+  core.bool? get print => readField('print', asBool);
+  set print(core.bool? value) => writeField('print', value);
 
   /// 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。プロファイルの色の語彙と同じ形の JSON で、values に rgb（#rrggbb）と aci・sxf・jww の符号を並べる（決定 0138・0178）。書かなければ、ファイルが RGB を持たない色は未解決のフラグを立てる
   String? get palette => readField('palette', asString);
@@ -4086,24 +4089,24 @@ class Scene3dRequest extends Message {
   Scene3dRequest() : super({'op': 'scene3d'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -4130,8 +4133,8 @@ class Scene3dRequest extends Message {
   set box(Scene3dBox? value) => writeField('box', value);
 
   /// 曲線を分ける弦の誤差。文書単位の正の有限値。省略時は 1 mm の予備評価による対象範囲の対角線の 1/50000。空か点だけなら 1 mm 相当
-  double? get tolerance => readField('tolerance', asDouble);
-  set tolerance(double? value) => writeField('tolerance', value);
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
 }
 
 /// プロジェクト空間の文書単位の箱。Z が上。地図への変換を掛けない
@@ -4143,12 +4146,12 @@ class Scene3dBox extends Message {
   Scene3dBox() : super({});
 
   /// 最小の X・Y・Z の 3 値
-  List<double>? get min => readField('min', listOf(asDouble));
-  set min(List<double>? value) => writeField('min', value);
+  List<core.double>? get min => readField('min', listOf(asDouble));
+  set min(List<core.double>? value) => writeField('min', value);
 
   /// 最大の X・Y・Z の 3 値
-  List<double>? get max => readField('max', listOf(asDouble));
-  set max(List<double>? value) => writeField('max', value);
+  List<core.double>? get max => readField('max', listOf(asDouble));
+  set max(List<core.double>? value) => writeField('max', value);
 }
 
 /// 建物の文書が持つ地図への変換の元値。シーンの座標へは適用していない
@@ -4164,28 +4167,28 @@ class Scene3dMap extends Message {
   set crsName(String? value) => writeField('crs_name', value);
 
   /// 東への移動
-  double? get eastings => readField('eastings', asDouble);
-  set eastings(double? value) => writeField('eastings', value);
+  core.double? get eastings => readField('eastings', asDouble);
+  set eastings(core.double? value) => writeField('eastings', value);
 
   /// 北への移動
-  double? get northings => readField('northings', asDouble);
-  set northings(double? value) => writeField('northings', value);
+  core.double? get northings => readField('northings', asDouble);
+  set northings(core.double? value) => writeField('northings', value);
 
   /// 高さの移動
-  double? get height => readField('height', asDouble);
-  set height(double? value) => writeField('height', value);
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
 
   /// 地図の X 軸の横の成分の元値
-  double? get xAxisAbscissa => readField('x_axis_abscissa', asDouble);
-  set xAxisAbscissa(double? value) => writeField('x_axis_abscissa', value);
+  core.double? get xAxisAbscissa => readField('x_axis_abscissa', asDouble);
+  set xAxisAbscissa(core.double? value) => writeField('x_axis_abscissa', value);
 
   /// 地図の X 軸の縦の成分の元値
-  double? get xAxisOrdinate => readField('x_axis_ordinate', asDouble);
-  set xAxisOrdinate(double? value) => writeField('x_axis_ordinate', value);
+  core.double? get xAxisOrdinate => readField('x_axis_ordinate', asDouble);
+  set xAxisOrdinate(core.double? value) => writeField('x_axis_ordinate', value);
 
   /// 地図への尺度の元値
-  double? get scale => readField('scale', asDouble);
-  set scale(double? value) => writeField('scale', value);
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
 }
 
 /// 返した 3D シーンの列の行数。共有するメッシュの点と面は 1 回だけ数える
@@ -4197,36 +4200,36 @@ class Scene3dCounts extends Message {
   Scene3dCounts() : super({});
 
   /// 塊
-  int? get chunks => readField('chunks', asInt);
-  set chunks(int? value) => writeField('chunks', value);
+  core.int? get chunks => readField('chunks', asInt);
+  set chunks(core.int? value) => writeField('chunks', value);
 
   /// 共有するメッシュ
-  int? get meshes => readField('meshes', asInt);
-  set meshes(int? value) => writeField('meshes', value);
+  core.int? get meshes => readField('meshes', asInt);
+  set meshes(core.int? value) => writeField('meshes', value);
 
   /// メッシュの配置
-  int? get instances => readField('instances', asInt);
-  set instances(int? value) => writeField('instances', value);
+  core.int? get instances => readField('instances', asInt);
+  set instances(core.int? value) => writeField('instances', value);
 
   /// 要素と参照先の階。形のない行も含む
-  int? get elements => readField('elements', asInt);
-  set elements(int? value) => writeField('elements', value);
+  core.int? get elements => readField('elements', asInt);
+  set elements(core.int? value) => writeField('elements', value);
 
   /// 色
-  int? get colors => readField('colors', asInt);
-  set colors(int? value) => writeField('colors', value);
+  core.int? get colors => readField('colors', asInt);
+  set colors(core.int? value) => writeField('colors', value);
 
   /// 局所の頂点
-  int? get vertices => readField('vertices', asInt);
-  set vertices(int? value) => writeField('vertices', value);
+  core.int? get vertices => readField('vertices', asInt);
+  set vertices(core.int? value) => writeField('vertices', value);
 
   /// 三角形
-  int? get triangles => readField('triangles', asInt);
-  set triangles(int? value) => writeField('triangles', value);
+  core.int? get triangles => readField('triangles', asInt);
+  set triangles(core.int? value) => writeField('triangles', value);
 
   /// 形の稜線
-  int? get edges => readField('edges', asInt);
-  set edges(int? value) => writeField('edges', value);
+  core.int? get edges => readField('edges', asInt);
+  set edges(core.int? value) => writeField('edges', value);
 }
 
 /// 3D シーンの座標・許容差・行数と blob の番号
@@ -4250,8 +4253,8 @@ class Scene3dResult extends Message {
   set map(Scene3dMap? value) => writeField('map', value);
 
   /// 曲線の評価へ渡した文書単位の弦の誤差。f32 への丸めのずれは別の診断で返す
-  double? get tolerance => readField('tolerance', asDouble);
-  set tolerance(double? value) => writeField('tolerance', value);
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
 
   /// 要求の断面の箱。なければ持たない
   Scene3dBox? get box => readField('box', objectOf(Scene3dBox.fromJson));
@@ -4266,8 +4269,8 @@ class Scene3dResult extends Message {
   set counts(Scene3dCounts? value) => writeField('counts', value);
 
   /// 種類が scene3d の blob の番号。zm_take で取り出す
-  int? get blob => readField('blob', asInt);
-  set blob(int? value) => writeField('blob', value);
+  core.int? get blob => readField('blob', asInt);
+  set blob(core.int? value) => writeField('blob', value);
 }
 
 /// 開いた文書を scene と同じ起点・配置・フォントで 2D のシーンにし、画像を blob で返す（決定 0272・0275・0277）。字形の輪郭だけを描き、字形のない空でない文字・外部画像・名前付きの点記号は元の ID と unit を診断して描かない。シーン生成と描画で同じ予算と中断の合図を使い、失敗では画像を返さない。PNG は最大 16777216 画素で、変換後の座標は絶対値 2^31 ピクセル以内。SVG はマイナーバージョン 64、PNG は 65 から
@@ -4279,24 +4282,24 @@ class RenderRequest extends Message {
   RenderRequest() : super({'op': 'render'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -4311,44 +4314,44 @@ class RenderRequest extends Message {
   set from(String? value) => writeField('from', value);
 
   /// 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。scene と同じ意味
-  int? get view => readField('view', asInt);
-  set view(int? value) => writeField('view', value);
+  core.int? get view => readField('view', asInt);
+  set view(core.int? value) => writeField('view', value);
 
   /// 画像の出力形式
   String? get format => readField('format', asString);
   set format(String? value) => writeField('format', value);
 
   /// 出力の幅（ピクセル）
-  int? get width => readField('width', asInt);
-  set width(int? value) => writeField('width', value);
+  core.int? get width => readField('width', asInt);
+  set width(core.int? value) => writeField('width', value);
 
   /// 出力の高さ（ピクセル）
-  int? get height => readField('height', asInt);
-  set height(int? value) => writeField('height', value);
+  core.int? get height => readField('height', asInt);
+  set height(core.int? value) => writeField('height', value);
 
   /// [x の最小, y の最小, x の最大, y の最大]。起点の座標で、幅と高さが正の有限値になる範囲を明示する。scene の範囲の絞り込みにも使い、縦横同率で中央に収めて範囲外を切る。縦横比の違いによる余白は背景色にする
-  List<double>? get region => readField('region', listOf(asDouble));
-  set region(List<double>? value) => writeField('region', value);
+  List<core.double>? get region => readField('region', listOf(asDouble));
+  set region(List<core.double>? value) => writeField('region', value);
 
   /// 用紙 mm の線幅をピクセルへ直す DPI。正の有限値。座標の単位を mm と推測しない。線幅 0 は 1 ピクセル
-  double? get dpi => readField('dpi', asDouble);
-  set dpi(double? value) => writeField('dpi', value);
+  core.double? get dpi => readField('dpi', asDouble);
+  set dpi(core.double? value) => writeField('dpi', value);
 
   /// 背景の sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する
-  List<int>? get background => readField('background', listOf(asInt));
-  set background(List<int>? value) => writeField('background', value);
+  List<core.int>? get background => readField('background', listOf(asInt));
+  set background(List<core.int>? value) => writeField('background', value);
 
   /// ACI 7 と未解決の色に使う sRGB と alpha。[r, g, b, a] の 4 値を 0〜255 で明示する。未解決の色は診断する
-  List<int>? get foreground => readField('foreground', listOf(asInt));
-  set foreground(List<int>? value) => writeField('foreground', value);
+  List<core.int>? get foreground => readField('foreground', listOf(asInt));
+  set foreground(List<core.int>? value) => writeField('foreground', value);
 
   /// scene と同じ弦の誤差（起点の長さ）。0 より大きい。書かなければ用紙は 0.02 mm、空間は要素の範囲の対角線の 1/50000
-  double? get tolerance => readField('tolerance', asDouble);
-  set tolerance(double? value) => writeField('tolerance', value);
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
 
   /// scene と同じ指定。true は印刷する要素、書かないか false は表示する要素を描く
-  bool? get print => readField('print', asBool);
-  set print(bool? value) => writeField('print', value);
+  core.bool? get print => readField('print', asBool);
+  set print(core.bool? value) => writeField('print', value);
 
   /// 隠すレイヤの公開 ID の一覧。scene の layer_ids と同じ値で描画単位を除く。未知の ID は失敗、省略または空なら従来どおり描く
   List<String>? get hiddenLayers => readField('hidden_layers', listOf(asString));
@@ -4388,32 +4391,32 @@ class RenderResult extends Message {
   set format(String? value) => writeField('format', value);
 
   /// 出力の幅（ピクセル）
-  int? get width => readField('width', asInt);
-  set width(int? value) => writeField('width', value);
+  core.int? get width => readField('width', asInt);
+  set width(core.int? value) => writeField('width', value);
 
   /// 出力の高さ（ピクセル）
-  int? get height => readField('height', asInt);
-  set height(int? value) => writeField('height', value);
+  core.int? get height => readField('height', asInt);
+  set height(core.int? value) => writeField('height', value);
 
   /// シーンの起点の ID
   String? get from => readField('from', asString);
   set from(String? value) => writeField('from', value);
 
   /// 起点のビューの番号。ビューでなければ持たない
-  int? get view => readField('view', asInt);
-  set view(int? value) => writeField('view', value);
+  core.int? get view => readField('view', asInt);
+  set view(core.int? value) => writeField('view', value);
 
   /// 起点の座標の単位。用紙とビューからは millimeter
   String? get unit => readField('unit', asString);
   set unit(String? value) => writeField('unit', value);
 
   /// シーンで使った弦の誤差（起点の長さ）
-  double? get tolerance => readField('tolerance', asDouble);
-  set tolerance(double? value) => writeField('tolerance', value);
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
 
   /// 画像の blob の番号（種類は image）。zm_take で取り出す
-  int? get blob => readField('blob', asInt);
-  set blob(int? value) => writeField('blob', value);
+  core.int? get blob => readField('blob', asInt);
+  set blob(core.int? value) => writeField('blob', value);
 }
 
 /// 開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から
@@ -4425,24 +4428,24 @@ class RasterRequest extends Message {
   RasterRequest() : super({'op': 'raster'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -4453,12 +4456,12 @@ class RasterRequest extends Message {
   set doc(String? value) => writeField('doc', value);
 
   /// ページ番号（IFD の 1 から始まる番号）。書かなければ 1
-  int? get page => readField('page', asInt);
-  set page(int? value) => writeField('page', value);
+  core.int? get page => readField('page', asInt);
+  set page(core.int? value) => writeField('page', value);
 
   /// 出力の長辺の最大ピクセル数。元の長辺がこれを超えるときだけ縦横比を保って縮小する
-  int? get maxSide => readField('max_side', asInt);
-  set maxSide(int? value) => writeField('max_side', value);
+  core.int? get maxSide => readField('max_side', asInt);
+  set maxSide(core.int? value) => writeField('max_side', value);
 }
 
 /// 復号した PNG 画像のサイズ・元のページサイズ・総ページ数と、画像の blob の番号
@@ -4470,32 +4473,32 @@ class RasterResult extends Message {
   RasterResult() : super({});
 
   /// 出力した PNG の幅（ピクセル）
-  int? get width => readField('width', asInt);
-  set width(int? value) => writeField('width', value);
+  core.int? get width => readField('width', asInt);
+  set width(core.int? value) => writeField('width', value);
 
   /// 出力した PNG の高さ（ピクセル）
-  int? get height => readField('height', asInt);
-  set height(int? value) => writeField('height', value);
+  core.int? get height => readField('height', asInt);
+  set height(core.int? value) => writeField('height', value);
 
   /// 元のページの幅（ピクセル）
-  int? get sourceWidth => readField('source_width', asInt);
-  set sourceWidth(int? value) => writeField('source_width', value);
+  core.int? get sourceWidth => readField('source_width', asInt);
+  set sourceWidth(core.int? value) => writeField('source_width', value);
 
   /// 元のページの高さ（ピクセル）
-  int? get sourceHeight => readField('source_height', asInt);
-  set sourceHeight(int? value) => writeField('source_height', value);
+  core.int? get sourceHeight => readField('source_height', asInt);
+  set sourceHeight(core.int? value) => writeField('source_height', value);
 
   /// 復号したページ番号（1 から）
-  int? get page => readField('page', asInt);
-  set page(int? value) => writeField('page', value);
+  core.int? get page => readField('page', asInt);
+  set page(core.int? value) => writeField('page', value);
 
   /// 文書に含まれる総ページ（IFD）数
-  int? get pages => readField('pages', asInt);
-  set pages(int? value) => writeField('pages', value);
+  core.int? get pages => readField('pages', asInt);
+  set pages(core.int? value) => writeField('pages', value);
 
   /// PNG 画像の blob の番号（種類は image）。zm_take で取り出す
-  int? get blob => readField('blob', asInt);
-  set blob(int? value) => writeField('blob', value);
+  core.int? get blob => readField('blob', asInt);
+  set blob(core.int? value) => writeField('blob', value);
 }
 
 /// シーンの文字を置くフォント（決定 0188）
@@ -4515,8 +4518,8 @@ class SceneFont extends Message {
   set input(String? value) => writeField('input', value);
 
   /// フォントのコレクション（TTC）の中の番号。書かなければ 0
-  int? get index => readField('index', asInt);
-  set index(int? value) => writeField('index', value);
+  core.int? get index => readField('index', asInt);
+  set index(core.int? value) => writeField('index', value);
 }
 
 /// 宣言された高さが当たるフォントの寸法。cap_height は大文字の高さ、em は em、frame はアセンダーとディセンダーを合わせた高さ、capital_a は A の字形の外形の上（A がなければ大文字の高さ。マイナーバージョン 59 から）
@@ -4542,16 +4545,16 @@ class SceneResult extends Message {
   set from(String? value) => writeField('from', value);
 
   /// 起点のビューの番号。ビューでなければ持たない
-  int? get view => readField('view', asInt);
-  set view(int? value) => writeField('view', value);
+  core.int? get view => readField('view', asInt);
+  set view(core.int? value) => writeField('view', value);
 
   /// 起点の座標の単位。用紙とビューからは millimeter
   String? get unit => readField('unit', asString);
   set unit(String? value) => writeField('unit', value);
 
   /// 使った弦の誤差（起点の長さ）
-  double? get tolerance => readField('tolerance', asDouble);
-  set tolerance(double? value) => writeField('tolerance', value);
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
 
   /// 返した描くものの数
   SceneCounts? get counts => readField('counts', objectOf(SceneCounts.fromJson));
@@ -4562,8 +4565,8 @@ class SceneResult extends Message {
   set extent(Extent? value) => writeField('extent', value);
 
   /// シーンの blob の番号（種類は scene）。zm_take で取り出す
-  int? get blob => readField('blob', asInt);
-  set blob(int? value) => writeField('blob', value);
+  core.int? get blob => readField('blob', asInt);
+  set blob(core.int? value) => writeField('blob', value);
 }
 
 /// シーンの描くものの種類ごとの数
@@ -4575,36 +4578,36 @@ class SceneCounts extends Message {
   SceneCounts() : super({});
 
   /// 塊
-  int? get chunks => readField('chunks', asInt);
-  set chunks(int? value) => writeField('chunks', value);
+  core.int? get chunks => readField('chunks', asInt);
+  set chunks(core.int? value) => writeField('chunks', value);
 
   /// 線（折れ線）
-  int? get lines => readField('lines', asInt);
-  set lines(int? value) => writeField('lines', value);
+  core.int? get lines => readField('lines', asInt);
+  set lines(core.int? value) => writeField('lines', value);
 
   /// 線と面の頂点
-  int? get vertices => readField('vertices', asInt);
-  set vertices(int? value) => writeField('vertices', value);
+  core.int? get vertices => readField('vertices', asInt);
+  set vertices(core.int? value) => writeField('vertices', value);
 
   /// 面
-  int? get faces => readField('faces', asInt);
-  set faces(int? value) => writeField('faces', value);
+  core.int? get faces => readField('faces', asInt);
+  set faces(core.int? value) => writeField('faces', value);
 
   /// 文字
-  int? get texts => readField('texts', asInt);
-  set texts(int? value) => writeField('texts', value);
+  core.int? get texts => readField('texts', asInt);
+  set texts(core.int? value) => writeField('texts', value);
 
   /// 点
-  int? get points => readField('points', asInt);
-  set points(int? value) => writeField('points', value);
+  core.int? get points => readField('points', asInt);
+  set points(core.int? value) => writeField('points', value);
 
   /// 画像
-  int? get images => readField('images', asInt);
-  set images(int? value) => writeField('images', value);
+  core.int? get images => readField('images', asInt);
+  set images(core.int? value) => writeField('images', value);
 
   /// 置いた字形。fonts を書かなければ 0。マイナーバージョン 37 から
-  int? get glyphs => readField('glyphs', asInt);
-  set glyphs(int? value) => writeField('glyphs', value);
+  core.int? get glyphs => readField('glyphs', asInt);
+  set glyphs(core.int? value) => writeField('glyphs', value);
 }
 
 /// 開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、プロファイルの規則と語彙で照合する（決定 0138・0173・0179）。マイナーバージョン 34 から
@@ -4616,24 +4619,24 @@ class CheckRequest extends Message {
   CheckRequest() : super({'op': 'check'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -4656,20 +4659,20 @@ class CheckRequest extends Message {
   set from(String? value) => writeField('from', value);
 
   /// 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける
-  int? get view => readField('view', asInt);
-  set view(int? value) => writeField('view', value);
+  core.int? get view => readField('view', asInt);
+  set view(core.int? value) => writeField('view', value);
 
   /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から
   String? get fileName => readField('file_name', asString);
   set fileName(String? value) => writeField('file_name', value);
 
   /// 返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0
-  int? get offset => readField('offset', asInt);
-  set offset(int? value) => writeField('offset', value);
+  core.int? get offset => readField('offset', asInt);
+  set offset(core.int? value) => writeField('offset', value);
 
   /// 返す指摘の数の上限。書かなければ 1000
-  int? get limit => readField('limit', asInt);
-  set limit(int? value) => writeField('limit', value);
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 
   /// 色の表の入力の名前（zm_push で渡したもの）、または組み込みの表 builtin:cad-v1。scene の palette と同じ形。ファイルが RGB を持たない色の RGB を引く
   String? get palette => readField('palette', asString);
@@ -4714,12 +4717,12 @@ class CheckResult extends Message {
   set findings(List<CheckFinding>? value) => writeField('findings', value);
 
   /// 全体の指摘の数
-  int? get total => readField('total', asInt);
-  set total(int? value) => writeField('total', value);
+  core.int? get total => readField('total', asInt);
+  set total(core.int? value) => writeField('total', value);
 
   /// 続きの最初の指摘の位置。続きがなければ持たない
-  int? get nextOffset => readField('next_offset', asInt);
-  set nextOffset(int? value) => writeField('next_offset', value);
+  core.int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(core.int? value) => writeField('next_offset', value);
 }
 
 /// 照合に使ったプロファイルの識別と、データの直し
@@ -4739,8 +4742,8 @@ class ProfileIdentity extends Message {
   set edition(String? value) => writeField('edition', value);
 
   /// このデータの直し。1 から
-  int? get revision => readField('revision', asInt);
-  set revision(int? value) => writeField('revision', value);
+  core.int? get revision => readField('revision', asInt);
+  set revision(core.int? value) => writeField('revision', value);
 }
 
 /// 規則ごとの数
@@ -4760,12 +4763,12 @@ class CheckRule extends Message {
   set check(String? value) => writeField('check', value);
 
   /// 指摘の数。照合できなかったものを除く
-  int? get findings => readField('findings', asInt);
-  set findings(int? value) => writeField('findings', value);
+  core.int? get findings => readField('findings', asInt);
+  set findings(core.int? value) => writeField('findings', value);
 
   /// 照合できなかった数
-  int? get unsupported => readField('unsupported', asInt);
-  set unsupported(int? value) => writeField('unsupported', value);
+  core.int? get unsupported => readField('unsupported', asInt);
+  set unsupported(core.int? value) => writeField('unsupported', value);
 }
 
 /// 指摘。diagnostic は診断と同じ形で、describe で文にできる。severity は規則の level で、照合できない値（profile.<種類>.unsupported）は info。count は 1
@@ -4794,24 +4797,24 @@ class ValidateRequest extends Message {
   ValidateRequest() : super({'op': 'validate'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -4826,12 +4829,12 @@ class ValidateRequest extends Message {
   set express(String? value) => writeField('express', value);
 
   /// 返す最初の指摘の位置。前の応答の next_offset を渡す。書かなければ 0
-  int? get offset => readField('offset', asInt);
-  set offset(int? value) => writeField('offset', value);
+  core.int? get offset => readField('offset', asInt);
+  set offset(core.int? value) => writeField('offset', value);
 
   /// 返す指摘の数の上限。書かなければ 1000
-  int? get limit => readField('limit', asInt);
-  set limit(int? value) => writeField('limit', value);
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 }
 
 /// スキーマに照らしたチェックの結果。指摘は offset から limit 個まで。スキーマの名前の違いと評価しない規則は、診断で返す
@@ -4855,20 +4858,20 @@ class ValidateResult extends Message {
   set expressHash(String? value) => writeField('express_hash', value);
 
   /// 評価しなかった規則（WHERE・UNIQUE・RULE）の数。確認できなかった項目
-  int? get rulesNotEvaluated => readField('rules_not_evaluated', asInt);
-  set rulesNotEvaluated(int? value) => writeField('rules_not_evaluated', value);
+  core.int? get rulesNotEvaluated => readField('rules_not_evaluated', asInt);
+  set rulesNotEvaluated(core.int? value) => writeField('rules_not_evaluated', value);
 
   /// 指摘。インスタンスの番号の順に、属性の順。診断と同じ形で、describe で文にできる。count は 1
   List<Diagnostic>? get findings => readField('findings', listOf(objectOf(Diagnostic.fromJson)));
   set findings(List<Diagnostic>? value) => writeField('findings', value);
 
   /// 全体の指摘の数
-  int? get total => readField('total', asInt);
-  set total(int? value) => writeField('total', value);
+  core.int? get total => readField('total', asInt);
+  set total(core.int? value) => writeField('total', value);
 
   /// 続きの最初の指摘の位置。続きがなければ持たない
-  int? get nextOffset => readField('next_offset', asInt);
-  set nextOffset(int? value) => writeField('next_offset', value);
+  core.int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(core.int? value) => writeField('next_offset', value);
 }
 
 /// レビューの文書（決定 0214・0218）の 1 つの対象を、開いた図面の文書のバージョンへ移す。要素の参照を図面の要素の ID で引き、参照ごとに unchanged・changed・removed を返す。場所と図形に元のバージョンのハッシュと状態を書き、対象のハッシュを文書のハッシュにする。2D の点は動かさない。移した文書は blobs の file で返す。マイナーバージョン 43 から
@@ -4880,24 +4883,24 @@ class ReviewCarryRequest extends Message {
   ReviewCarryRequest() : super({'op': 'review_carry'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -4916,12 +4919,12 @@ class ReviewCarryRequest extends Message {
   set target(String? value) => writeField('target', value);
 
   /// 返す最初の参照の位置。前の応答の next_offset を渡す。書かなければ 0
-  int? get offset => readField('offset', asInt);
-  set offset(int? value) => writeField('offset', value);
+  core.int? get offset => readField('offset', asInt);
+  set offset(core.int? value) => writeField('offset', value);
 
   /// 返す参照の数の上限。書かなければ 1000
-  int? get limit => readField('limit', asInt);
-  set limit(int? value) => writeField('limit', value);
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 }
 
 /// 移した結果。参照は offset から limit 個まで。移した文書は blobs の file で返す
@@ -4945,12 +4948,12 @@ class ReviewCarryResult extends Message {
   set references(List<CarriedReference>? value) => writeField('references', value);
 
   /// 全体の参照の数
-  int? get total => readField('total', asInt);
-  set total(int? value) => writeField('total', value);
+  core.int? get total => readField('total', asInt);
+  set total(core.int? value) => writeField('total', value);
 
   /// 続きの最初の参照の位置。続きがなければ持たない
-  int? get nextOffset => readField('next_offset', asInt);
-  set nextOffset(int? value) => writeField('next_offset', value);
+  core.int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(core.int? value) => writeField('next_offset', value);
 }
 
 /// 移した要素の参照
@@ -4996,24 +4999,24 @@ class ReviewAdoptRequest extends Message {
   ReviewAdoptRequest() : super({'op': 'review_adopt'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -5036,8 +5039,8 @@ class ReviewAdoptRequest extends Message {
   set from(String? value) => writeField('from', value);
 
   /// 起点の用紙のビューの番号。用紙のビューの並びの順で、0 から数える。書けば、そのビューを通した要素と、そのビューの縮尺だけを照合する。from が用紙のときだけ書ける
-  int? get view => readField('view', asInt);
-  set view(int? value) => writeField('view', value);
+  core.int? get view => readField('view', asInt);
+  set view(core.int? value) => writeField('view', value);
 
   /// 照合するファイルの名前（拡張子を含み、フォルダーを含まない）。file-name の規則で比べる。書かなければ、file-name の規則は照合できない（決定 0204）。マイナーバージョン 40 から
   String? get fileName => readField('file_name', asString);
@@ -5056,8 +5059,8 @@ class ReviewAdoptRequest extends Message {
   set target(String? value) => writeField('target', value);
 
   /// 取り込む指摘の番号の列。check の指摘の並びの順で、0 から数える
-  List<int>? get findings => readField('findings', listOf(asInt));
-  set findings(List<int>? value) => writeField('findings', value);
+  List<core.int>? get findings => readField('findings', listOf(asInt));
+  set findings(List<core.int>? value) => writeField('findings', value);
 }
 
 /// 取り込んだ結果。足した文書は blobs の file で返す
@@ -5073,8 +5076,8 @@ class ReviewAdoptResult extends Message {
   set added(List<String>? value) => writeField('added', value);
 
   /// 足した後の文書の指摘の数
-  int? get topics => readField('topics', asInt);
-  set topics(int? value) => writeField('topics', value);
+  core.int? get topics => readField('topics', asInt);
+  set topics(core.int? value) => writeField('topics', value);
 }
 
 /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
@@ -5086,24 +5089,24 @@ class BuildingRequest extends Message {
   BuildingRequest() : super({'op': 'building'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -5143,8 +5146,8 @@ class BuildingResult extends Message {
   set units(List<BuildingUnit>? value) => writeField('units', value);
 
   /// 要素の数
-  int? get elements => readField('elements', asInt);
-  set elements(int? value) => writeField('elements', value);
+  core.int? get elements => readField('elements', asInt);
+  set elements(core.int? value) => writeField('elements', value);
 
   /// クラスごとの要素の数。クラスの名前の順
   List<ClassCount>? get classes => readField('classes', listOf(objectOf(ClassCount.fromJson)));
@@ -5172,8 +5175,8 @@ class BuildingUnit extends Message {
   set name(String? value) => writeField('name', value);
 
   /// 換算する単位の、SI の単位での大きさ。SI の単位は持たない
-  double? get scale => readField('scale', asDouble);
-  set scale(double? value) => writeField('scale', value);
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
 }
 
 /// クラスの要素の数
@@ -5189,8 +5192,8 @@ class ClassCount extends Message {
   set name(String? value) => writeField('name', value);
 
   /// 要素の数
-  int? get count => readField('count', asInt);
-  set count(int? value) => writeField('count', value);
+  core.int? get count => readField('count', asInt);
+  set count(core.int? value) => writeField('count', value);
 }
 
 /// 開いた IFC の建物モデルの要素を、書いた順に返す。コンポーネントは components で選ぶ（決定 0207・0219）。マイナーバージョン 44 から
@@ -5202,24 +5205,24 @@ class BuildingElementsRequest extends Message {
   BuildingElementsRequest() : super({'op': 'building_elements'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -5242,12 +5245,12 @@ class BuildingElementsRequest extends Message {
   set components(List<String>? value) => writeField('components', value);
 
   /// 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0
-  int? get offset => readField('offset', asInt);
-  set offset(int? value) => writeField('offset', value);
+  core.int? get offset => readField('offset', asInt);
+  set offset(core.int? value) => writeField('offset', value);
 
   /// 返す数の上限。書かなければ 1000
-  int? get limit => readField('limit', asInt);
-  set limit(int? value) => writeField('limit', value);
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 }
 
 /// building_elements で返すコンポーネント（決定 0207）。relations は索引から求める子・参照・型の実例・開口・埋める要素・構成員
@@ -5286,12 +5289,12 @@ class BuildingElementsResult extends Message {
   set elements(List<BuildingElement>? value) => writeField('elements', value);
 
   /// 選んだ要素の数
-  int? get total => readField('total', asInt);
-  set total(int? value) => writeField('total', value);
+  core.int? get total => readField('total', asInt);
+  set total(core.int? value) => writeField('total', value);
 
   /// 続きの最初の位置。続きがなければ持たない
-  int? get nextOffset => readField('next_offset', asInt);
-  set nextOffset(int? value) => writeField('next_offset', value);
+  core.int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(core.int? value) => writeField('next_offset', value);
 }
 
 /// 建物モデルの要素。コンポーネントは、選んだもののうち要素が持つものだけを持つ
@@ -5463,8 +5466,8 @@ class Measured extends Message {
   Measured() : super({});
 
   /// 値
-  double? get value => readField('value', asDouble);
-  set value(double? value) => writeField('value', value);
+  core.double? get value => readField('value', asDouble);
+  set value(core.double? value) => writeField('value', value);
 
   /// 単位。解けなければ持たない
   BuildingUnit? get unit => readField('unit', objectOf(BuildingUnit.fromJson));
@@ -5526,8 +5529,8 @@ class Membership extends Message {
   set kind(String? value) => writeField('kind', value);
 
   /// 入れ子の順。0 から
-  int? get order => readField('order', asInt);
-  set order(int? value) => writeField('order', value);
+  core.int? get order => readField('order', asInt);
+  set order(core.int? value) => writeField('order', value);
 }
 
 /// 配置
@@ -5543,8 +5546,8 @@ class PlacementComponent extends Message {
   set relativeTo(String? value) => writeField('relative_to', value);
 
   /// 親をたどった世界の変換。3 行 4 列（回転と移動）。解けなければ持たない
-  List<List<double>>? get world => readField('world', listOf(listOf(asDouble)));
-  set world(List<List<double>>? value) => writeField('world', value);
+  List<List<core.double>>? get world => readField('world', listOf(listOf(asDouble)));
+  set world(List<List<core.double>>? value) => writeField('world', value);
 
   /// 解けなかった配置の実体の名前
   String? get unsupported => readField('unsupported', asString);
@@ -5568,16 +5571,16 @@ class BuildingValue extends Message {
   set kind(String? value) => writeField('kind', value);
 
   /// real と、2^53 − 1 までの integer の値
-  double? get number => readField('number', asDouble);
-  set number(double? value) => writeField('number', value);
+  core.double? get number => readField('number', asDouble);
+  set number(core.double? value) => writeField('number', value);
 
   /// text と enumeration の値と、2^53 − 1 を超える integer の値
   String? get text => readField('text', asString);
   set text(String? value) => writeField('text', value);
 
   /// boolean と logical の値。logical の不明は持たない
-  bool? get boolean => readField('boolean', asBool);
-  set boolean(bool? value) => writeField('boolean', value);
+  core.bool? get boolean => readField('boolean', asBool);
+  set boolean(core.bool? value) => writeField('boolean', value);
 
   /// element の要素の ID
   String? get element => readField('element', asString);
@@ -5803,16 +5806,16 @@ class StyleComponent extends Message {
   StyleComponent() : super({});
 
   /// 面の色の RGB（0 から 1）
-  List<double>? get surfaceColor => readField('surface_color', listOf(asDouble));
-  set surfaceColor(List<double>? value) => writeField('surface_color', value);
+  List<core.double>? get surfaceColor => readField('surface_color', listOf(asDouble));
+  set surfaceColor(List<core.double>? value) => writeField('surface_color', value);
 
   /// 透明度（0 から 1）
-  double? get transparency => readField('transparency', asDouble);
-  set transparency(double? value) => writeField('transparency', value);
+  core.double? get transparency => readField('transparency', asDouble);
+  set transparency(core.double? value) => writeField('transparency', value);
 
   /// 線の色の RGB（0 から 1）
-  List<double>? get curveColor => readField('curve_color', listOf(asDouble));
-  set curveColor(List<double>? value) => writeField('curve_color', value);
+  List<core.double>? get curveColor => readField('curve_color', listOf(asDouble));
+  set curveColor(List<core.double>? value) => writeField('curve_color', value);
 
   /// 提示のレイヤの名前
   List<String>? get layers => readField('layers', listOf(asString));
@@ -5916,24 +5919,24 @@ class BuildingApplyRequest extends Message {
   BuildingApplyRequest() : super({'op': 'building_apply'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -6063,24 +6066,24 @@ class LiftRequest extends Message {
   LiftRequest() : super({'op': 'lift'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -6100,8 +6103,8 @@ class LiftResult extends Message {
   LiftResult() : super({});
 
   /// 図面モデルのバイナリの blob の番号（種類は drawing）。zm_take で取り出す
-  int? get blob => readField('blob', asInt);
-  set blob(int? value) => writeField('blob', value);
+  core.int? get blob => readField('blob', asInt);
+  set blob(core.int? value) => writeField('blob', value);
 }
 
 /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。マイナーバージョン 44 から
@@ -6113,24 +6116,24 @@ class IdsCheckRequest extends Message {
   IdsCheckRequest() : super({'op': 'ids_check'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -6149,12 +6152,12 @@ class IdsCheckRequest extends Message {
   set express(String? value) => writeField('express', value);
 
   /// 返す最初の位置。前の応答の next_offset を渡す。書かなければ 0
-  int? get offset => readField('offset', asInt);
-  set offset(int? value) => writeField('offset', value);
+  core.int? get offset => readField('offset', asInt);
+  set offset(core.int? value) => writeField('offset', value);
 
   /// 返す数の上限。書かなければ 1000
-  int? get limit => readField('limit', asInt);
-  set limit(int? value) => writeField('limit', value);
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 }
 
 /// 照合の結果。指摘は offset から limit 個まで
@@ -6178,12 +6181,12 @@ class IdsCheckResult extends Message {
   set findings(List<IdsFinding>? value) => writeField('findings', value);
 
   /// 全体の指摘の数
-  int? get total => readField('total', asInt);
-  set total(int? value) => writeField('total', value);
+  core.int? get total => readField('total', asInt);
+  set total(core.int? value) => writeField('total', value);
 
   /// 続きの最初の位置。続きがなければ持たない
-  int? get nextOffset => readField('next_offset', asInt);
-  set nextOffset(int? value) => writeField('next_offset', value);
+  core.int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(core.int? value) => writeField('next_offset', value);
 }
 
 /// 仕様の結果
@@ -6207,16 +6210,16 @@ class IdsSpecification extends Message {
   set status(String? value) => writeField('status', value);
 
   /// 適用の条件に合う要素の数
-  int? get applicable => readField('applicable', asInt);
-  set applicable(int? value) => writeField('applicable', value);
+  core.int? get applicable => readField('applicable', asInt);
+  set applicable(core.int? value) => writeField('applicable', value);
 
   /// 要件を満たさない要素の数
-  int? get failed => readField('failed', asInt);
-  set failed(int? value) => writeField('failed', value);
+  core.int? get failed => readField('failed', asInt);
+  set failed(core.int? value) => writeField('failed', value);
 
   /// 確かめられなかった要素の数
-  int? get unsupported => readField('unsupported', asInt);
-  set unsupported(int? value) => writeField('unsupported', value);
+  core.int? get unsupported => readField('unsupported', asInt);
+  set unsupported(core.int? value) => writeField('unsupported', value);
 }
 
 /// 指摘。diagnostic は診断と同じ形で、describe で文にできる
@@ -6245,24 +6248,24 @@ class ReviewAdoptIdsRequest extends Message {
   ReviewAdoptIdsRequest() : super({'op': 'review_adopt_ids'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -6289,8 +6292,8 @@ class ReviewAdoptIdsRequest extends Message {
   set target(String? value) => writeField('target', value);
 
   /// 取り込む指摘の番号の列。ids_check の指摘の並びの順で、0 から数える
-  List<int>? get findings => readField('findings', listOf(asInt));
-  set findings(List<int>? value) => writeField('findings', value);
+  List<core.int>? get findings => readField('findings', listOf(asInt));
+  set findings(List<core.int>? value) => writeField('findings', value);
 }
 
 /// zm_push で渡した BCF 2.1 か 3.0 の bcfzip を読み、開いた IFC を対象にしたレビューの文書（決定 0214・0220）にする。topic は指摘に、comment はコメントに、viewpoint は 3D の場所に写し、要素の参照のハッシュは建物モデルの要素のハッシュで埋める。文書は blobs の file で返す。マイナーバージョン 45 から
@@ -6302,24 +6305,24 @@ class BcfReadRequest extends Message {
   BcfReadRequest() : super({'op': 'bcf_read'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -6381,8 +6384,8 @@ class BcfReadResult extends Message {
   set version(String? value) => writeField('version', value);
 
   /// 指摘の数
-  int? get topics => readField('topics', asInt);
-  set topics(int? value) => writeField('topics', value);
+  core.int? get topics => readField('topics', asInt);
+  set topics(core.int? value) => writeField('topics', value);
 }
 
 /// zm_push で渡したレビューの文書を、BCF の bcfzip に書く（決定 0214・0220）。バージョンは version で選ぶ（マイナーバージョン 61 から。それまでは 3.0 だけ）。target を対象にした 3D の場所を viewpoint にし、2D の場所と図形は書かずに診断する。original を渡せば、変えていない topic を元のバイト列のまま書き、変えた topic でも写さない要素と知らない要素を保つ。bcfzip は blobs の file で返す。マイナーバージョン 45 から
@@ -6394,24 +6397,24 @@ class BcfWriteRequest extends Message {
   BcfWriteRequest() : super({'op': 'bcf_write'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -6459,8 +6462,8 @@ class BcfWriteResult extends Message {
   BcfWriteResult() : super({});
 
   /// 書いた指摘の数
-  int? get topics => readField('topics', asInt);
-  set topics(int? value) => writeField('topics', value);
+  core.int? get topics => readField('topics', asInt);
+  set topics(core.int? value) => writeField('topics', value);
 }
 
 /// 表の項目
@@ -6505,24 +6508,24 @@ class LayerItem extends Message {
   set hash(String? value) => writeField('hash', value);
 
   /// ファイルに定義がある。偽なら、要素が名前で指すだけのレイヤで、ほかのフィールドを持たない。マイナーバージョン 22 から
-  bool? get defined => readField('defined', asBool);
-  set defined(bool? value) => writeField('defined', value);
+  core.bool? get defined => readField('defined', asBool);
+  set defined(core.bool? value) => writeField('defined', value);
 
   /// 表示する。マイナーバージョン 22 から
-  bool? get visible => readField('visible', asBool);
-  set visible(bool? value) => writeField('visible', value);
+  core.bool? get visible => readField('visible', asBool);
+  set visible(core.bool? value) => writeField('visible', value);
 
   /// 印刷する。マイナーバージョン 22 から
-  bool? get printable => readField('printable', asBool);
-  set printable(bool? value) => writeField('printable', value);
+  core.bool? get printable => readField('printable', asBool);
+  set printable(core.bool? value) => writeField('printable', value);
 
   /// 編集できる。マイナーバージョン 22 から
-  bool? get editable => readField('editable', asBool);
-  set editable(bool? value) => writeField('editable', value);
+  core.bool? get editable => readField('editable', asBool);
+  set editable(core.bool? value) => writeField('editable', value);
 
   /// 凍結する。マイナーバージョン 22 から
-  bool? get frozen => readField('frozen', asBool);
-  set frozen(bool? value) => writeField('frozen', value);
+  core.bool? get frozen => readField('frozen', asBool);
+  set frozen(core.bool? value) => writeField('frozen', value);
 
   /// 色。inherit を持たない。定義が色を持たなければ書かない。マイナーバージョン 22 から
   ColorChange? get color => readField('color', objectOf(ColorChange.fromJson));
@@ -6558,24 +6561,24 @@ class LineTypeItem extends Message {
   set hash(String? value) => writeField('hash', value);
 
   /// ファイルに定義がある。偽なら、要素が名前で指すだけの線種で、ほかのフィールドを持たない。マイナーバージョン 26 から
-  bool? get defined => readField('defined', asBool);
-  set defined(bool? value) => writeField('defined', value);
+  core.bool? get defined => readField('defined', asBool);
+  set defined(core.bool? value) => writeField('defined', value);
 
   /// 元の説明。マイナーバージョン 26 から
   String? get description => readField('description', asString);
   set description(String? value) => writeField('description', value);
 
   /// 線と間の長さの列。正は線、負は間、0 は点。空なら実線。長さの単位は paper が決める。マイナーバージョン 26 から
-  List<double>? get pattern => readField('pattern', listOf(asDouble));
-  set pattern(List<double>? value) => writeField('pattern', value);
+  List<core.double>? get pattern => readField('pattern', listOf(asDouble));
+  set pattern(List<core.double>? value) => writeField('pattern', value);
 
   /// 列の長さが用紙の mm なら真、文書の単位なら偽。用紙の mm の列は line_type で変えられない。マイナーバージョン 26 から
-  bool? get paper => readField('paper', asBool);
-  set paper(bool? value) => writeField('paper', value);
+  core.bool? get paper => readField('paper', asBool);
+  set paper(core.bool? value) => writeField('paper', value);
 
   /// 列の要素に形か文字を添える。添えれば、line_type で列の要素の数を変えられない。マイナーバージョン 26 から
-  bool? get marked => readField('marked', asBool);
-  set marked(bool? value) => writeField('marked', value);
+  core.bool? get marked => readField('marked', asBool);
+  set marked(core.bool? value) => writeField('marked', value);
 
   /// 列の要素に添える形と文字（決定 0150・0166）。添えなければ空。マイナーバージョン 28 から
   List<LineTypeMark>? get marks => readField('marks', listOf(objectOf(LineTypeMark.fromJson)));
@@ -6611,16 +6614,16 @@ class DimensionStyleItem extends Message {
   set leader(String? value) => writeField('leader', value);
 
   /// 端部記号の大きさ。文書の単位で、scale を掛ける前の値。マイナーバージョン 27 から
-  double? get size => readField('size', asDouble);
-  set size(double? value) => writeField('size', value);
+  core.double? get size => readField('size', asDouble);
+  set size(core.double? value) => writeField('size', value);
 
   /// 端部記号の代わりに描く斜線の大きさ。0 なら斜線を描かない。マイナーバージョン 27 から
-  double? get tick => readField('tick', asDouble);
-  set tick(double? value) => writeField('tick', value);
+  core.double? get tick => readField('tick', asDouble);
+  set tick(core.double? value) => writeField('tick', value);
 
   /// 大きさに掛ける倍率。0 はビューの縮尺から決める。マイナーバージョン 27 から
-  double? get scale => readField('scale', asDouble);
-  set scale(double? value) => writeField('scale', value);
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
 }
 
 /// 線種の列の要素に添える形か文字（決定 0150・0166）。要素の始まりに、線の向きとずれで置く。マイナーバージョン 28 から
@@ -6632,8 +6635,8 @@ class LineTypeMark extends Message {
   LineTypeMark() : super({});
 
   /// 添える列の要素の番号（pattern の添字）
-  int? get index => readField('index', asInt);
-  set index(int? value) => writeField('index', value);
+  core.int? get index => readField('index', asInt);
+  set index(core.int? value) => writeField('index', value);
 
   /// 形（shape）か文字（text）
   String? get kind => readField('kind', asString);
@@ -6644,8 +6647,8 @@ class LineTypeMark extends Message {
   set font(Font? value) => writeField('font', value);
 
   /// 形の番号
-  int? get number => readField('number', asInt);
-  set number(int? value) => writeField('number', value);
+  core.int? get number => readField('number', asInt);
+  set number(core.int? value) => writeField('number', value);
 
   /// 文字の文字列
   String? get text => readField('text', asString);
@@ -6660,24 +6663,24 @@ class LineTypeMark extends Message {
   set styleId(String? value) => writeField('style_id', value);
 
   /// 文字の高さ。文字スタイルが決まった高さを持てば、それに scale を掛けたもの。持たなければ scale。単位は pattern と同じ
-  double? get height => readField('height', asDouble);
-  set height(double? value) => writeField('height', value);
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
 
   /// 倍率。文字なら、文字スタイルの高さへの倍率
-  double? get scale => readField('scale', asDouble);
-  set scale(double? value) => writeField('scale', value);
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
 
   /// 回転（度、反時計回り）
-  double? get rotation => readField('rotation', asDouble);
-  set rotation(double? value) => writeField('rotation', value);
+  core.double? get rotation => readField('rotation', asDouble);
+  set rotation(core.double? value) => writeField('rotation', value);
 
   /// 回転の基準
   String? get rotationBasis => readField('rotation_basis', asString);
   set rotationBasis(String? value) => writeField('rotation_basis', value);
 
   /// 置く位置のずれ（x・y）。線の向きを x とする。単位は pattern と同じ
-  List<double>? get offset => readField('offset', listOf(asDouble));
-  set offset(List<double>? value) => writeField('offset', value);
+  List<core.double>? get offset => readField('offset', listOf(asDouble));
+  set offset(List<core.double>? value) => writeField('offset', value);
 }
 
 /// 線種に添えるものの種類。shape は形のファイルの形、text は文字
@@ -6718,8 +6721,8 @@ class TextStyleItem extends Message {
   set hash(String? value) => writeField('hash', value);
 
   /// ファイルに定義がある。偽なら、ほかのフィールドを持たない
-  bool? get defined => readField('defined', asBool);
-  set defined(bool? value) => writeField('defined', value);
+  core.bool? get defined => readField('defined', asBool);
+  set defined(core.bool? value) => writeField('defined', value);
 
   /// 主のフォント。ファイルが決めていなければ書かない
   Font? get font => readField('font', objectOf(Font.fromJson));
@@ -6730,28 +6733,28 @@ class TextStyleItem extends Message {
   set bigFont(Font? value) => writeField('big_font', value);
 
   /// 決まった高さ。文書の単位。決めなければ書かない
-  double? get height => readField('height', asDouble);
-  set height(double? value) => writeField('height', value);
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
 
   /// 幅の倍率
-  double? get width => readField('width', asDouble);
-  set width(double? value) => writeField('width', value);
+  core.double? get width => readField('width', asDouble);
+  set width(core.double? value) => writeField('width', value);
 
   /// 傾き（度）
-  double? get oblique => readField('oblique', asDouble);
-  set oblique(double? value) => writeField('oblique', value);
+  core.double? get oblique => readField('oblique', asDouble);
+  set oblique(core.double? value) => writeField('oblique', value);
 
   /// 左右を裏返す
-  bool? get backward => readField('backward', asBool);
-  set backward(bool? value) => writeField('backward', value);
+  core.bool? get backward => readField('backward', asBool);
+  set backward(core.bool? value) => writeField('backward', value);
 
   /// 上下を反転する
-  bool? get upsideDown => readField('upside_down', asBool);
-  set upsideDown(bool? value) => writeField('upside_down', value);
+  core.bool? get upsideDown => readField('upside_down', asBool);
+  set upsideDown(core.bool? value) => writeField('upside_down', value);
 
   /// 縦書き
-  bool? get vertical => readField('vertical', asBool);
-  set vertical(bool? value) => writeField('vertical', value);
+  core.bool? get vertical => readField('vertical', asBool);
+  set vertical(core.bool? value) => writeField('vertical', value);
 }
 
 /// フォントの指定。取得と字形の評価は使い手が行う
@@ -6771,20 +6774,20 @@ class Font extends Message {
   set kind(String? value) => writeField('kind', value);
 
   /// 太字。名前で指すフォントだけ
-  bool? get bold => readField('bold', asBool);
-  set bold(bool? value) => writeField('bold', value);
+  core.bool? get bold => readField('bold', asBool);
+  set bold(core.bool? value) => writeField('bold', value);
 
   /// 斜体。名前で指すフォントだけ
-  bool? get italic => readField('italic', asBool);
-  set italic(bool? value) => writeField('italic', value);
+  core.bool? get italic => readField('italic', asBool);
+  set italic(core.bool? value) => writeField('italic', value);
 
   /// 文字集合の番号（128 は Shift_JIS）。名前で指すフォントで、元の形式が決めていれば
-  int? get charset => readField('charset', asInt);
-  set charset(int? value) => writeField('charset', value);
+  core.int? get charset => readField('charset', asInt);
+  set charset(core.int? value) => writeField('charset', value);
 
   /// ピッチと系統の番号。名前で指すフォントで、元の形式が決めていれば
-  int? get pitch => readField('pitch', asInt);
-  set pitch(int? value) => writeField('pitch', value);
+  core.int? get pitch => readField('pitch', asInt);
+  set pitch(core.int? value) => writeField('pitch', value);
 }
 
 /// フォントの種類。shape は形のファイル（SHX など）、named は名前で指すフォント（TrueType など）
@@ -6804,8 +6807,8 @@ class Source extends Message {
   Source() : super({});
 
   /// L1 のレコードの番号
-  int? get record => readField('record', asInt);
-  set record(int? value) => writeField('record', value);
+  core.int? get record => readField('record', asInt);
+  set record(core.int? value) => writeField('record', value);
 
   /// L1 のバイト範囲
   ByteRange? get bytes => readField('bytes', objectOf(ByteRange.fromJson));
@@ -6829,8 +6832,8 @@ class Response extends Message {
   Response() : super({});
 
   /// メッセージのスキーマのメジャーバージョン
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 診断。入力の順
   List<Diagnostic>? get diagnostics => readField('diagnostics', listOf(objectOf(Diagnostic.fromJson)));
@@ -6869,8 +6872,8 @@ class Diagnostic extends Message {
   set fidelity(String? value) => writeField('fidelity', value);
 
   /// まとめた件数
-  int? get count => readField('count', asInt);
-  set count(int? value) => writeField('count', value);
+  core.int? get count => readField('count', asInt);
+  set count(core.int? value) => writeField('count', value);
 
   /// 場所。入力の順に先頭の数件
   List<Place>? get at => readField('at', listOf(objectOf(Place.fromJson)));
@@ -6917,8 +6920,8 @@ class Place extends Message {
   set id(String? value) => writeField('id', value);
 
   /// L1 のレコードの番号
-  int? get record => readField('record', asInt);
-  set record(int? value) => writeField('record', value);
+  core.int? get record => readField('record', asInt);
+  set record(core.int? value) => writeField('record', value);
 
   /// L1 のバイト範囲
   ByteRange? get bytes => readField('bytes', objectOf(ByteRange.fromJson));
@@ -6934,12 +6937,12 @@ class ByteRange extends Message {
   ByteRange() : super({});
 
   /// 先頭の位置
-  int? get start => readField('start', asInt);
-  set start(int? value) => writeField('start', value);
+  core.int? get start => readField('start', asInt);
+  set start(core.int? value) => writeField('start', value);
 
   /// 終わりの位置（含まない）
-  int? get end => readField('end', asInt);
-  set end(int? value) => writeField('end', value);
+  core.int? get end => readField('end', asInt);
+  set end(core.int? value) => writeField('end', value);
 }
 
 /// 仕様の節。仕様の本文は写さない
@@ -6968,16 +6971,16 @@ class Blob extends Message {
   Blob() : super({});
 
   /// 番号。zm_take に渡す
-  int? get id => readField('id', asInt);
-  set id(int? value) => writeField('id', value);
+  core.int? get id => readField('id', asInt);
+  set id(core.int? value) => writeField('id', value);
 
   /// 種類
   String? get kind => readField('kind', asString);
   set kind(String? value) => writeField('kind', value);
 
   /// バイト数
-  int? get size => readField('size', asInt);
-  set size(int? value) => writeField('size', value);
+  core.int? get size => readField('size', asInt);
+  set size(core.int? value) => writeField('size', value);
 }
 
 /// バイナリの結果の種類。file は書き出したファイル、image は描いた画像、scene は 2D のシーン（schema/scene.toml の配置、決定 0137・0172）、scene3d は 3D のシーン（schema/scene3d.toml の配置）、arrow は表（Arrow の IPC ストリーム。ネイティブでは zm_take_arrow でも取り出せる）、drawing は図面モデルのバイナリ（schema/drawing.toml の配置、決定 0247。マイナーバージョン 60 から）
@@ -7001,8 +7004,8 @@ class SessionOptions extends Message {
   SessionOptions() : super({});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 実行の形態。書かなければ、ネイティブのライブラリでは `native`、wasm のモジュールでは `wasm`（決定 0013）
   String? get engine => readField('engine', asString);
@@ -7031,24 +7034,24 @@ class CivilRequest extends Message {
   CivilRequest() : super({'op': 'civil'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -7067,24 +7070,24 @@ class CivilRequest extends Message {
   set id(String? value) => writeField('id', value);
 
   /// 追加距離（メートル）の列
-  List<double>? get distances => readField('distances', listOf(asDouble));
-  set distances(List<double>? value) => writeField('distances', value);
+  List<core.double>? get distances => readField('distances', listOf(asDouble));
+  set distances(List<core.double>? value) => writeField('distances', value);
 
   /// 測点の表記（No.12+5.000・No.12+5・No.12）の列。測点の不連続のために同じ値が何か所にもあれば、最初の所にして診断する
   List<String>? get stations => readField('stations', listOf(asString));
   set stations(List<String>? value) => writeField('stations', value);
 
   /// 線形の初めから終わりまで、この間隔（メートル）ごとの所を足す。終わりの所も足す
-  double? get interval => readField('interval', asDouble);
-  set interval(double? value) => writeField('interval', value);
+  core.double? get interval => readField('interval', asDouble);
+  set interval(core.double? value) => writeField('interval', value);
 
   /// 測点の間隔（メートル）。書かなければ 20
-  double? get pitch => readField('pitch', asDouble);
-  set pitch(double? value) => writeField('pitch', value);
+  core.double? get pitch => readField('pitch', asDouble);
+  set pitch(core.double? value) => writeField('pitch', value);
 
   /// 測点の表記の端数の小数の桁数。書かなければ 3
-  int? get digits => readField('digits', asInt);
-  set digits(int? value) => writeField('digits', value);
+  core.int? get digits => readField('digits', asInt);
+  set digits(core.int? value) => writeField('digits', value);
 }
 
 /// 線形。点は地図の空間（北と東、メートル）に置き、方向角は北から時計回りのラジアンにする。半径は、右へ曲がるものを正にする（決定 0230）
@@ -7104,8 +7107,8 @@ class CivilAlignment extends Message {
   set vertical(List<CivilVertical>? value) => writeField('vertical', value);
 
   /// 線形の初めの測点の値（メートル）。書かなければ 0
-  double? get startStation => readField('start_station', asDouble);
-  set startStation(double? value) => writeField('start_station', value);
+  core.double? get startStation => readField('start_station', asDouble);
+  set startStation(core.double? value) => writeField('start_station', value);
 
   /// 測点の不連続。追加距離の順に並べる
   List<CivilStationBreak>? get breaks => readField('breaks', listOf(objectOf(CivilStationBreak.fromJson)));
@@ -7125,32 +7128,32 @@ class CivilHorizontal extends Message {
   set kind(String? value) => writeField('kind', value);
 
   /// 初めの点の北（メートル）
-  double? get northing => readField('northing', asDouble);
-  set northing(double? value) => writeField('northing', value);
+  core.double? get northing => readField('northing', asDouble);
+  set northing(core.double? value) => writeField('northing', value);
 
   /// 初めの点の東（メートル）
-  double? get easting => readField('easting', asDouble);
-  set easting(double? value) => writeField('easting', value);
+  core.double? get easting => readField('easting', asDouble);
+  set easting(core.double? value) => writeField('easting', value);
 
   /// 初めの方向角（北から時計回りのラジアン）
-  double? get direction => readField('direction', asDouble);
-  set direction(double? value) => writeField('direction', value);
+  core.double? get direction => readField('direction', asDouble);
+  set direction(core.double? value) => writeField('direction', value);
 
   /// 長さ（メートル）
-  double? get length => readField('length', asDouble);
-  set length(double? value) => writeField('length', value);
+  core.double? get length => readField('length', asDouble);
+  set length(core.double? value) => writeField('length', value);
 
   /// 円弧の半径（メートル）。arc に書く
-  double? get radius => readField('radius', asDouble);
-  set radius(double? value) => writeField('radius', value);
+  core.double? get radius => readField('radius', asDouble);
+  set radius(core.double? value) => writeField('radius', value);
 
   /// 緩和曲線の初めの半径（メートル）。直線の側は書かない
-  double? get startRadius => readField('start_radius', asDouble);
-  set startRadius(double? value) => writeField('start_radius', value);
+  core.double? get startRadius => readField('start_radius', asDouble);
+  set startRadius(core.double? value) => writeField('start_radius', value);
 
   /// 緩和曲線の終わりの半径（メートル）。直線の側は書かない
-  double? get endRadius => readField('end_radius', asDouble);
-  set endRadius(double? value) => writeField('end_radius', value);
+  core.double? get endRadius => readField('end_radius', asDouble);
+  set endRadius(core.double? value) => writeField('end_radius', value);
 
   /// 緩和曲線の種類。transition に書き、書かなければ clothoid
   String? get curve => readField('curve', asString);
@@ -7170,28 +7173,28 @@ class CivilVertical extends Message {
   set kind(String? value) => writeField('kind', value);
 
   /// 初めの追加距離（メートル）
-  double? get startDistance => readField('start_distance', asDouble);
-  set startDistance(double? value) => writeField('start_distance', value);
+  core.double? get startDistance => readField('start_distance', asDouble);
+  set startDistance(core.double? value) => writeField('start_distance', value);
 
   /// 初めの高さ（メートル）
-  double? get startHeight => readField('start_height', asDouble);
-  set startHeight(double? value) => writeField('start_height', value);
+  core.double? get startHeight => readField('start_height', asDouble);
+  set startHeight(core.double? value) => writeField('start_height', value);
 
   /// 初めの勾配（高さ ÷ 平面の距離）
-  double? get startGradient => readField('start_gradient', asDouble);
-  set startGradient(double? value) => writeField('start_gradient', value);
+  core.double? get startGradient => readField('start_gradient', asDouble);
+  set startGradient(core.double? value) => writeField('start_gradient', value);
 
   /// 平面の距離での長さ（メートル）
-  double? get length => readField('length', asDouble);
-  set length(double? value) => writeField('length', value);
+  core.double? get length => readField('length', asDouble);
+  set length(core.double? value) => writeField('length', value);
 
   /// 放物線の終わりの勾配。parabola に書く
-  double? get endGradient => readField('end_gradient', asDouble);
-  set endGradient(double? value) => writeField('end_gradient', value);
+  core.double? get endGradient => readField('end_gradient', asDouble);
+  set endGradient(core.double? value) => writeField('end_gradient', value);
 
   /// 円弧の半径（メートル）。上に凸のものを正にする。circular_arc に書く
-  double? get radius => readField('radius', asDouble);
-  set radius(double? value) => writeField('radius', value);
+  core.double? get radius => readField('radius', asDouble);
+  set radius(core.double? value) => writeField('radius', value);
 }
 
 /// 平面線形の区間の種類。直線・円弧・緩和曲線
@@ -7234,16 +7237,16 @@ class CivilStationBreak extends Message {
   CivilStationBreak() : super({});
 
   /// 追加距離（メートル）
-  double? get distance => readField('distance', asDouble);
-  set distance(double? value) => writeField('distance', value);
+  core.double? get distance => readField('distance', asDouble);
+  set distance(core.double? value) => writeField('distance', value);
 
   /// 戻りの測点の値（不連続の手前から数えた値）
-  double? get back => readField('back', asDouble);
-  set back(double? value) => writeField('back', value);
+  core.double? get back => readField('back', asDouble);
+  set back(core.double? value) => writeField('back', value);
 
   /// 進みの測点の値（不連続の先で数え直す値）
-  double? get ahead => readField('ahead', asDouble);
-  set ahead(double? value) => writeField('ahead', value);
+  core.double? get ahead => readField('ahead', asDouble);
+  set ahead(core.double? value) => writeField('ahead', value);
 }
 
 /// 線形の上の所
@@ -7255,8 +7258,8 @@ class CivilResult extends Message {
   CivilResult() : super({});
 
   /// 平面線形の長さ（メートル）
-  double? get length => readField('length', asDouble);
-  set length(double? value) => writeField('length', value);
+  core.double? get length => readField('length', asDouble);
+  set length(core.double? value) => writeField('length', value);
 
   /// 求めた所
   List<CivilPosition>? get positions => readField('positions', listOf(objectOf(CivilPosition.fromJson)));
@@ -7275,8 +7278,8 @@ class CivilResult extends Message {
   set surfaces(List<CivilSurfaceSummary>? value) => writeField('surfaces', value);
 
   /// doc の水平の座標系の EPSG のコード。分からなければ書かない。マイナーバージョン 47 から
-  int? get crs => readField('crs', asInt);
-  set crs(int? value) => writeField('crs', value);
+  core.int? get crs => readField('crs', asInt);
+  set crs(core.int? value) => writeField('crs', value);
 }
 
 /// 線形の要約
@@ -7296,28 +7299,28 @@ class CivilAlignmentSummary extends Message {
   set name(String? value) => writeField('name', value);
 
   /// 平面線形の長さ（メートル）
-  double? get length => readField('length', asDouble);
-  set length(double? value) => writeField('length', value);
+  core.double? get length => readField('length', asDouble);
+  set length(core.double? value) => writeField('length', value);
 
   /// 線形の初めの測点の値（メートル）
-  double? get startStation => readField('start_station', asDouble);
-  set startStation(double? value) => writeField('start_station', value);
+  core.double? get startStation => readField('start_station', asDouble);
+  set startStation(core.double? value) => writeField('start_station', value);
 
   /// 平面線形の区間の数
-  int? get horizontal => readField('horizontal', asInt);
-  set horizontal(int? value) => writeField('horizontal', value);
+  core.int? get horizontal => readField('horizontal', asInt);
+  set horizontal(core.int? value) => writeField('horizontal', value);
 
   /// 縦断線形の区間の数
-  int? get vertical => readField('vertical', asInt);
-  set vertical(int? value) => writeField('vertical', value);
+  core.int? get vertical => readField('vertical', asInt);
+  set vertical(core.int? value) => writeField('vertical', value);
 
   /// 測点の不連続の数
-  int? get breaks => readField('breaks', asInt);
-  set breaks(int? value) => writeField('breaks', value);
+  core.int? get breaks => readField('breaks', asInt);
+  set breaks(core.int? value) => writeField('breaks', value);
 
   /// 横断の数
-  int? get crossSections => readField('cross_sections', asInt);
-  set crossSections(int? value) => writeField('cross_sections', value);
+  core.int? get crossSections => readField('cross_sections', asInt);
+  set crossSections(core.int? value) => writeField('cross_sections', value);
 }
 
 /// 地表面（TIN）の要約
@@ -7341,12 +7344,12 @@ class CivilSurfaceSummary extends Message {
   set role(String? value) => writeField('role', value);
 
   /// 点の数
-  int? get points => readField('points', asInt);
-  set points(int? value) => writeField('points', value);
+  core.int? get points => readField('points', asInt);
+  set points(core.int? value) => writeField('points', value);
 
   /// 三角形の数
-  int? get triangles => readField('triangles', asInt);
-  set triangles(int? value) => writeField('triangles', value);
+  core.int? get triangles => readField('triangles', asInt);
+  set triangles(core.int? value) => writeField('triangles', value);
 }
 
 /// 線形の上の 1 つの所
@@ -7358,36 +7361,36 @@ class CivilPosition extends Message {
   CivilPosition() : super({});
 
   /// 追加距離（メートル）
-  double? get distance => readField('distance', asDouble);
-  set distance(double? value) => writeField('distance', value);
+  core.double? get distance => readField('distance', asDouble);
+  set distance(core.double? value) => writeField('distance', value);
 
   /// 測点の値（メートル）
-  double? get station => readField('station', asDouble);
-  set station(double? value) => writeField('station', value);
+  core.double? get station => readField('station', asDouble);
+  set station(core.double? value) => writeField('station', value);
 
   /// 測点の表記。表記にできなければ書かない
   String? get label => readField('label', asString);
   set label(String? value) => writeField('label', value);
 
   /// 点の北（メートル）
-  double? get northing => readField('northing', asDouble);
-  set northing(double? value) => writeField('northing', value);
+  core.double? get northing => readField('northing', asDouble);
+  set northing(core.double? value) => writeField('northing', value);
 
   /// 点の東（メートル）
-  double? get easting => readField('easting', asDouble);
-  set easting(double? value) => writeField('easting', value);
+  core.double? get easting => readField('easting', asDouble);
+  set easting(core.double? value) => writeField('easting', value);
 
   /// 接線の方向角（北から時計回りのラジアン）
-  double? get direction => readField('direction', asDouble);
-  set direction(double? value) => writeField('direction', value);
+  core.double? get direction => readField('direction', asDouble);
+  set direction(core.double? value) => writeField('direction', value);
 
   /// 縦断線形の高さ（メートル）。求められなければ書かない
-  double? get height => readField('height', asDouble);
-  set height(double? value) => writeField('height', value);
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
 
   /// 縦断線形の勾配。高さと同じく、求められなければ書かない
-  double? get gradient => readField('gradient', asDouble);
-  set gradient(double? value) => writeField('gradient', value);
+  core.double? get gradient => readField('gradient', asDouble);
+  set gradient(core.double? value) => writeField('gradient', value);
 }
 
 /// open で開いた点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）の要約と、条件に合う点を返す。点は八分木の浅い段のノードから順に選ぶ（決定 0232）。点群のモジュールに置く（決定 0253）。マイナーバージョン 48 から
@@ -7399,24 +7402,24 @@ class PointcloudRequest extends Message {
   PointcloudRequest() : super({'op': 'pointcloud'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -7431,12 +7434,12 @@ class PointcloudRequest extends Message {
   set region(PointcloudBox? value) => writeField('region', value);
 
   /// 許容差（点の間隔、メートル）。これより細かい段の点を選ばない。書かなければすべての段
-  double? get tolerance => readField('tolerance', asDouble);
-  set tolerance(double? value) => writeField('tolerance', value);
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
 
   /// 返す点の数の上限。書かなければ点を返さず、要約だけを返す
-  int? get limit => readField('limit', asInt);
-  set limit(int? value) => writeField('limit', value);
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 }
 
 /// 地図の空間の箱。北・東・標高（メートル）の最小と最大
@@ -7448,12 +7451,12 @@ class PointcloudBox extends Message {
   PointcloudBox() : super({});
 
   /// 最小の北・東・標高
-  List<double>? get min => readField('min', listOf(asDouble));
-  set min(List<double>? value) => writeField('min', value);
+  List<core.double>? get min => readField('min', listOf(asDouble));
+  set min(List<core.double>? value) => writeField('min', value);
 
   /// 最大の北・東・標高
-  List<double>? get max => readField('max', listOf(asDouble));
-  set max(List<double>? value) => writeField('max', value);
+  List<core.double>? get max => readField('max', listOf(asDouble));
+  set max(List<core.double>? value) => writeField('max', value);
 }
 
 /// 点群の要約と、選んだ点
@@ -7465,32 +7468,32 @@ class PointcloudResult extends Message {
   PointcloudResult() : super({});
 
   /// 点の数
-  int? get points => readField('points', asInt);
-  set points(int? value) => writeField('points', value);
+  core.int? get points => readField('points', asInt);
+  set points(core.int? value) => writeField('points', value);
 
   /// 点の範囲。点がなければ書かない
   PointcloudBox? get bounds => readField('bounds', objectOf(PointcloudBox.fromJson));
   set bounds(PointcloudBox? value) => writeField('bounds', value);
 
   /// 水平の座標系の EPSG のコード。分からなければ書かない
-  int? get crs => readField('crs', asInt);
-  set crs(int? value) => writeField('crs', value);
+  core.int? get crs => readField('crs', asInt);
+  set crs(core.int? value) => writeField('crs', value);
 
   /// 高さの座標系の EPSG のコード。分からなければ書かない
-  int? get vertical => readField('vertical', asInt);
-  set vertical(int? value) => writeField('vertical', value);
+  core.int? get vertical => readField('vertical', asInt);
+  set vertical(core.int? value) => writeField('vertical', value);
 
   /// 点が持つ属性（position・intensity・classification・color・returns・time）
   List<String>? get attributes => readField('attributes', listOf(asString));
   set attributes(List<String>? value) => writeField('attributes', value);
 
   /// 八分木のいちばん深い段
-  int? get depth => readField('depth', asInt);
-  set depth(int? value) => writeField('depth', value);
+  core.int? get depth => readField('depth', asInt);
+  set depth(core.int? value) => writeField('depth', value);
 
   /// 八分木のノードの数
-  int? get nodes => readField('nodes', asInt);
-  set nodes(int? value) => writeField('nodes', value);
+  core.int? get nodes => readField('nodes', asInt);
+  set nodes(core.int? value) => writeField('nodes', value);
 
   /// 選んだ点。limit を書いたときに返す
   PointcloudPoints? get selected => readField('selected', objectOf(PointcloudPoints.fromJson));
@@ -7506,28 +7509,28 @@ class PointcloudPoints extends Message {
   PointcloudPoints() : super({});
 
   /// 北・東・標高（メートル）
-  List<List<double>>? get positions => readField('positions', listOf(listOf(asDouble)));
-  set positions(List<List<double>>? value) => writeField('positions', value);
+  List<List<core.double>>? get positions => readField('positions', listOf(listOf(asDouble)));
+  set positions(List<List<core.double>>? value) => writeField('positions', value);
 
   /// 強度。点群が持つときに返す
-  List<int>? get intensity => readField('intensity', listOf(asInt));
-  set intensity(List<int>? value) => writeField('intensity', value);
+  List<core.int>? get intensity => readField('intensity', listOf(asInt));
+  set intensity(List<core.int>? value) => writeField('intensity', value);
 
   /// 分類。点群が持つときに返す
-  List<int>? get classification => readField('classification', listOf(asInt));
-  set classification(List<int>? value) => writeField('classification', value);
+  List<core.int>? get classification => readField('classification', listOf(asInt));
+  set classification(List<core.int>? value) => writeField('classification', value);
 
   /// 色（赤・緑・青。16 ビット）。点群が持つときに返す
-  List<List<int>>? get color => readField('color', listOf(listOf(asInt)));
-  set color(List<List<int>>? value) => writeField('color', value);
+  List<List<core.int>>? get color => readField('color', listOf(listOf(asInt)));
+  set color(List<List<core.int>>? value) => writeField('color', value);
 
   /// limit のために選ばなかった点がある
-  bool? get truncated => readField('truncated', asBool);
-  set truncated(bool? value) => writeField('truncated', value);
+  core.bool? get truncated => readField('truncated', asBool);
+  set truncated(core.bool? value) => writeField('truncated', value);
 
   /// 選んだいちばん深い段
-  int? get level => readField('level', asInt);
-  set level(int? value) => writeField('level', value);
+  core.int? get level => readField('level', asInt);
+  set level(core.int? value) => writeField('level', value);
 }
 
 /// 電子納品の成果品（決定 0241）を読み、管理ファイルの要約を返す。成果品は、zm_push で渡した入力のうち root の下にある名前の集まりか、ZIP の入力（archive）で渡す。profiles と profile を渡せば、プロファイルの delivery- で始まる照合の種類の規則と照らし、指摘を返す（#384）。ほかの種類の規則は飛ばす。図面のモジュールに置く。マイナーバージョン 53 から
@@ -7539,24 +7542,24 @@ class DeliveryCheckRequest extends Message {
   DeliveryCheckRequest() : super({'op': 'delivery_check'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -7579,12 +7582,12 @@ class DeliveryCheckRequest extends Message {
   set profile(ProfileRef? value) => writeField('profile', value);
 
   /// 返す指摘の初めの位置
-  int? get offset => readField('offset', asInt);
-  set offset(int? value) => writeField('offset', value);
+  core.int? get offset => readField('offset', asInt);
+  set offset(core.int? value) => writeField('offset', value);
 
   /// 返す指摘の数の上限。書かなければ 10000
-  int? get limit => readField('limit', asInt);
-  set limit(int? value) => writeField('limit', value);
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 }
 
 /// 成果品の要約と、照合の結果。照合の結果は check と同じ形
@@ -7596,8 +7599,8 @@ class DeliveryCheckResult extends Message {
   DeliveryCheckResult() : super({});
 
   /// 成果品のファイルの数
-  int? get files => readField('files', asInt);
-  set files(int? value) => writeField('files', value);
+  core.int? get files => readField('files', asInt);
+  set files(core.int? value) => writeField('files', value);
 
   /// 管理ファイルの要約。名前の順
   List<DeliveryManaged>? get managed => readField('managed', listOf(objectOf(DeliveryManaged.fromJson)));
@@ -7616,12 +7619,12 @@ class DeliveryCheckResult extends Message {
   set findings(List<CheckFinding>? value) => writeField('findings', value);
 
   /// 指摘の数の全体
-  int? get total => readField('total', asInt);
-  set total(int? value) => writeField('total', value);
+  core.int? get total => readField('total', asInt);
+  set total(core.int? value) => writeField('total', value);
 
   /// 続きの指摘の位置。続きがなければ書かない
-  int? get nextOffset => readField('next_offset', asInt);
-  set nextOffset(int? value) => writeField('next_offset', value);
+  core.int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(core.int? value) => writeField('next_offset', value);
 }
 
 /// 工事写真（JPEG）の Exif と XMP を読み、画素数・向き・撮影の日時・位置などを返す（#387）。画像は復号しない。図面のモジュールに置く。マイナーバージョン 55 から
@@ -7633,24 +7636,24 @@ class PhotoRequest extends Message {
   PhotoRequest() : super({'op': 'photo'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -7670,16 +7673,16 @@ class PhotoResult extends Message {
   PhotoResult() : super({});
 
   /// 画素の幅（フレームのヘッダー）
-  int? get width => readField('width', asInt);
-  set width(int? value) => writeField('width', value);
+  core.int? get width => readField('width', asInt);
+  set width(core.int? value) => writeField('width', value);
 
   /// 画素の高さ（フレームのヘッダー）
-  int? get height => readField('height', asInt);
-  set height(int? value) => writeField('height', value);
+  core.int? get height => readField('height', asInt);
+  set height(core.int? value) => writeField('height', value);
 
   /// 向き（Exif の Orientation、1〜8）
-  int? get orientation => readField('orientation', asInt);
-  set orientation(int? value) => writeField('orientation', value);
+  core.int? get orientation => readField('orientation', asInt);
+  set orientation(core.int? value) => writeField('orientation', value);
 
   /// 撮影の日時（YYYY-MM-DDTHH:MM:SS、時差があれば +09:00 などを足す）
   String? get taken => readField('taken', asString);
@@ -7698,8 +7701,8 @@ class PhotoResult extends Message {
   set position(PhotoPosition? value) => writeField('position', value);
 
   /// 撮った向き（度）
-  double? get direction => readField('direction', asDouble);
-  set direction(double? value) => writeField('direction', value);
+  core.double? get direction => readField('direction', asDouble);
+  set direction(core.double? value) => writeField('direction', value);
 
   /// 向きの基準（T は真北、M は磁北）
   String? get directionReference => readField('direction_reference', asString);
@@ -7723,16 +7726,16 @@ class PhotoPosition extends Message {
   PhotoPosition() : super({});
 
   /// 緯度（度、北が正）
-  double? get latitude => readField('latitude', asDouble);
-  set latitude(double? value) => writeField('latitude', value);
+  core.double? get latitude => readField('latitude', asDouble);
+  set latitude(core.double? value) => writeField('latitude', value);
 
   /// 経度（度、東が正）
-  double? get longitude => readField('longitude', asDouble);
-  set longitude(double? value) => writeField('longitude', value);
+  core.double? get longitude => readField('longitude', asDouble);
+  set longitude(core.double? value) => writeField('longitude', value);
 
   /// 高さ（m、海面より下は負）
-  double? get altitude => readField('altitude', asDouble);
-  set altitude(double? value) => writeField('altitude', value);
+  core.double? get altitude => readField('altitude', asDouble);
+  set altitude(core.double? value) => writeField('altitude', value);
 }
 
 /// XMP の性質
@@ -7765,24 +7768,24 @@ class BoringRequest extends Message {
   BoringRequest() : super({'op': 'boring'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -7822,12 +7825,12 @@ class BoringResult extends Message {
   set name(String? value) => writeField('name', value);
 
   /// ボーリング総数
-  int? get count => readField('count', asInt);
-  set count(int? value) => writeField('count', value);
+  core.int? get count => readField('count', asInt);
+  set count(core.int? value) => writeField('count', value);
 
   /// ボーリング連番
-  int? get serial => readField('serial', asInt);
-  set serial(int? value) => writeField('serial', value);
+  core.int? get serial => readField('serial', asInt);
+  set serial(core.int? value) => writeField('serial', value);
 
   /// 孔口の位置。測地系は換算しない
   BoringPosition? get position => readField('position', objectOf(BoringPosition.fromJson));
@@ -7854,16 +7857,16 @@ class BoringResult extends Message {
   set elevation(BoringHeight? value) => writeField('elevation', value);
 
   /// 総削孔長（m）
-  double? get length => readField('length', asDouble);
-  set length(double? value) => writeField('length', value);
+  core.double? get length => readField('length', asDouble);
+  set length(core.double? value) => writeField('length', value);
 
   /// 削孔の角度（度）
-  double? get angle => readField('angle', asDouble);
-  set angle(double? value) => writeField('angle', value);
+  core.double? get angle => readField('angle', asDouble);
+  set angle(core.double? value) => writeField('angle', value);
 
   /// 削孔の方位（度）
-  double? get direction => readField('direction', asDouble);
-  set direction(double? value) => writeField('direction', value);
+  core.double? get direction => readField('direction', asDouble);
+  set direction(core.double? value) => writeField('direction', value);
 
   /// 工学的地質区分名・現場土質名。文書の順
   List<BoringLayer>? get layers => readField('layers', listOf(objectOf(BoringLayer.fromJson)));
@@ -7895,12 +7898,12 @@ class BoringPosition extends Message {
   BoringPosition() : super({});
 
   /// 緯度（度、北が正）
-  double? get latitude => readField('latitude', asDouble);
-  set latitude(double? value) => writeField('latitude', value);
+  core.double? get latitude => readField('latitude', asDouble);
+  set latitude(core.double? value) => writeField('latitude', value);
 
   /// 経度（度、東が正）
-  double? get longitude => readField('longitude', asDouble);
-  set longitude(double? value) => writeField('longitude', value);
+  core.double? get longitude => readField('longitude', asDouble);
+  set longitude(core.double? value) => writeField('longitude', value);
 }
 
 /// 測地系。tokyo は日本測地系（コード 00）、jgd2000・jgd2011・jgd2024 は世界測地系（コード 01〜03）
@@ -7922,8 +7925,8 @@ class BoringHeight extends Message {
   BoringHeight() : super({});
 
   /// 標高（m）
-  double? get value => readField('value', asDouble);
-  set value(double? value) => writeField('value', value);
+  core.double? get value => readField('value', asDouble);
+  set value(core.double? value) => writeField('value', value);
 
   /// 高さの基準。孔口標高は tokyo_bay（東京湾平均海面）とする
   String? get datum => readField('datum', asString);
@@ -7960,8 +7963,8 @@ class BoringLayer extends Message {
   BoringLayer() : super({});
 
   /// 下端の深さ（m）
-  double? get bottom => readField('bottom', asDouble);
-  set bottom(double? value) => writeField('bottom', value);
+  core.double? get bottom => readField('bottom', asDouble);
+  set bottom(core.double? value) => writeField('bottom', value);
 
   /// 工学的地質区分名・現場土質名
   String? get name => readField('name', asString);
@@ -7981,8 +7984,8 @@ class BoringColor extends Message {
   BoringColor() : super({});
 
   /// 下端の深さ（m）
-  double? get bottom => readField('bottom', asDouble);
-  set bottom(double? value) => writeField('bottom', value);
+  core.double? get bottom => readField('bottom', asDouble);
+  set bottom(core.double? value) => writeField('bottom', value);
 
   /// 色調の名前
   String? get name => readField('name', asString);
@@ -7998,12 +8001,12 @@ class BoringObservation extends Message {
   BoringObservation() : super({});
 
   /// 上端の深さ（m）
-  double? get top => readField('top', asDouble);
-  set top(double? value) => writeField('top', value);
+  core.double? get top => readField('top', asDouble);
+  set top(core.double? value) => writeField('top', value);
 
   /// 下端の深さ（m）
-  double? get bottom => readField('bottom', asDouble);
-  set bottom(double? value) => writeField('bottom', value);
+  core.double? get bottom => readField('bottom', asDouble);
+  set bottom(core.double? value) => writeField('bottom', value);
 
   /// 記事
   String? get text => readField('text', asString);
@@ -8019,16 +8022,16 @@ class BoringPenetration extends Message {
   BoringPenetration() : super({});
 
   /// 開始の深さ（m）
-  double? get depth => readField('depth', asDouble);
-  set depth(double? value) => writeField('depth', value);
+  core.double? get depth => readField('depth', asDouble);
+  set depth(core.double? value) => writeField('depth', value);
 
   /// 合計の打撃回数
-  int? get blows => readField('blows', asInt);
-  set blows(int? value) => writeField('blows', value);
+  core.int? get blows => readField('blows', asInt);
+  set blows(core.int? value) => writeField('blows', value);
 
   /// 合計の貫入量（mm）
-  double? get penetration => readField('penetration', asDouble);
-  set penetration(double? value) => writeField('penetration', value);
+  core.double? get penetration => readField('penetration', asDouble);
+  set penetration(core.double? value) => writeField('penetration', value);
 }
 
 /// 孔内水位
@@ -8048,8 +8051,8 @@ class BoringWaterLevel extends Message {
   set state(String? value) => writeField('state', value);
 
   /// 水位の深さ（m）。地表より高ければ負。水位がなければ書かない
-  double? get depth => readField('depth', asDouble);
-  set depth(double? value) => writeField('depth', value);
+  core.double? get depth => readField('depth', asDouble);
+  set depth(core.double? value) => writeField('depth', value);
 
   /// 水位種別・備考
   String? get note => readField('note', asString);
@@ -8077,12 +8080,12 @@ class DeliveryManaged extends Message {
   set root(String? value) => writeField('root', value);
 
   /// 要素の記録の数
-  int? get records => readField('records', asInt);
-  set records(int? value) => writeField('records', value);
+  core.int? get records => readField('records', asInt);
+  set records(core.int? value) => writeField('records', value);
 
   /// ファイルの名前の形の値の数
-  int? get links => readField('links', asInt);
-  set links(int? value) => writeField('links', value);
+  core.int? get links => readField('links', asInt);
+  set links(core.int? value) => writeField('links', value);
 
   /// 成果品の中に見つからないファイルの名前。書いた順
   List<String>? get missing => readField('missing', listOf(asString));
@@ -8098,24 +8101,24 @@ class GeoRequest extends Message {
   GeoRequest() : super({'op': 'geo'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -8139,16 +8142,16 @@ class GeoResult extends Message {
   GeoResult() : super({});
 
   /// 平面の座標系の EPSG のコード。分からなければ書かない
-  int? get crs => readField('crs', asInt);
-  set crs(int? value) => writeField('crs', value);
+  core.int? get crs => readField('crs', asInt);
+  set crs(core.int? value) => writeField('crs', value);
 
   /// 高さの座標系の EPSG のコード。分からなければ書かない
-  int? get height => readField('height', asInt);
-  set height(int? value) => writeField('height', value);
+  core.int? get height => readField('height', asInt);
+  set height(core.int? value) => writeField('height', value);
 
   /// 地物の数
-  int? get features => readField('features', asInt);
-  set features(int? value) => writeField('features', value);
+  core.int? get features => readField('features', asInt);
+  set features(core.int? value) => writeField('features', value);
 
   /// 地物の型ごとの数。型の名前の順
   List<GeoKind>? get kinds => readField('kinds', listOf(objectOf(GeoKind.fromJson)));
@@ -8172,8 +8175,8 @@ class GeoKind extends Message {
   set kind(String? value) => writeField('kind', value);
 
   /// 地物の数
-  int? get count => readField('count', asInt);
-  set count(int? value) => writeField('count', value);
+  core.int? get count => readField('count', asInt);
+  set count(core.int? value) => writeField('count', value);
 }
 
 /// 地物の中身
@@ -8205,8 +8208,8 @@ class GeoFeature extends Message {
   set parent(String? value) => writeField('parent', value);
 
   /// 子の地物の数
-  int? get children => readField('children', asInt);
-  set children(int? value) => writeField('children', value);
+  core.int? get children => readField('children', asInt);
+  set children(core.int? value) => writeField('children', value);
 
   /// 属性。入力の順
   List<GeoAttribute>? get attributes => readField('attributes', listOf(objectOf(GeoAttribute.fromJson)));
@@ -8278,20 +8281,20 @@ class GeoGeometry extends Message {
   GeoGeometry() : super({});
 
   /// LOD。2D の地物は書かない
-  int? get lod => readField('lod', asInt);
-  set lod(int? value) => writeField('lod', value);
+  core.int? get lod => readField('lod', asInt);
+  set lod(core.int? value) => writeField('lod', value);
 
   /// 形の種類
   String? get form => readField('form', asString);
   set form(String? value) => writeField('form', value);
 
   /// 点の数。立体と面の集まりは、面の輪の点の数の和
-  int? get points => readField('points', asInt);
-  set points(int? value) => writeField('points', value);
+  core.int? get points => readField('points', asInt);
+  set points(core.int? value) => writeField('points', value);
 
   /// 立体と面の集まりの面の数
-  int? get faces => readField('faces', asInt);
-  set faces(int? value) => writeField('faces', value);
+  core.int? get faces => readField('faces', asInt);
+  set faces(core.int? value) => writeField('faces', value);
 }
 
 /// open で開いた J-LandXML・IFC4.3・SIMA の文書の線形から、平面図・縦断図・横断図の図面モデルを作り（決定 0231）、用紙を 1 枚選んで新しい DXF の文書として開く（決定 0239）。尺度・文字の高さ・測点の間隔は、プロファイルを渡せば語彙 civil-drawing と text-height から読み、渡さなければ作図の慣習の値にする。縦断図は用紙の要素に焼き込む（決定 0238）。書いたファイルは blobs で返す。作った文書は scene と check に渡せる。図面のモジュールに置く。マイナーバージョン 51 から
@@ -8303,24 +8306,24 @@ class CivilDrawingRequest extends Message {
   CivilDrawingRequest() : super({'op': 'civil_drawing'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -8372,8 +8375,8 @@ class CivilDrawingResult extends Message {
   set hash(String? value) => writeField('hash', value);
 
   /// 書いた要素の数
-  int? get elements => readField('elements', asInt);
-  set elements(int? value) => writeField('elements', value);
+  core.int? get elements => readField('elements', asInt);
+  set elements(core.int? value) => writeField('elements', value);
 
   /// 図を作った線形の ID
   String? get alignment => readField('alignment', asString);
@@ -8405,28 +8408,28 @@ class CivilDrawingOptions extends Message {
   CivilDrawingOptions() : super({});
 
   /// 平面図の尺度の分母
-  double? get plan => readField('plan', asDouble);
-  set plan(double? value) => writeField('plan', value);
+  core.double? get plan => readField('plan', asDouble);
+  set plan(core.double? value) => writeField('plan', value);
 
   /// 縦断図の横の尺度の分母
-  double? get horizontal => readField('horizontal', asDouble);
-  set horizontal(double? value) => writeField('horizontal', value);
+  core.double? get horizontal => readField('horizontal', asDouble);
+  set horizontal(core.double? value) => writeField('horizontal', value);
 
   /// 縦断図の縦の尺度の分母
-  double? get vertical => readField('vertical', asDouble);
-  set vertical(double? value) => writeField('vertical', value);
+  core.double? get vertical => readField('vertical', asDouble);
+  set vertical(core.double? value) => writeField('vertical', value);
 
   /// 横断図の尺度の分母
-  double? get crossSection => readField('cross_section', asDouble);
-  set crossSection(double? value) => writeField('cross_section', value);
+  core.double? get crossSection => readField('cross_section', asDouble);
+  set crossSection(core.double? value) => writeField('cross_section', value);
 
   /// 文字の高さ（mm）
-  double? get textHeight => readField('text_height', asDouble);
-  set textHeight(double? value) => writeField('text_height', value);
+  core.double? get textHeight => readField('text_height', asDouble);
+  set textHeight(core.double? value) => writeField('text_height', value);
 
   /// 測点の間隔（メートル）
-  double? get stationPitch => readField('station_pitch', asDouble);
-  set stationPitch(double? value) => writeField('station_pitch', value);
+  core.double? get stationPitch => readField('station_pitch', asDouble);
+  set stationPitch(core.double? value) => writeField('station_pitch', value);
 }
 
 /// 開いた点群と、土木の文書の TIN の標高の差を求め、プロファイルの surface-elevation の規則の区分ごとに集計して、規格値と比べる（決定 0234）。点群のモジュールに置く（決定 0253）。マイナーバージョン 50 から
@@ -8438,24 +8441,24 @@ class DeviationRequest extends Message {
   DeviationRequest() : super({'op': 'deviation'});
 
   /// メッセージのスキーマのメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
   Budget? get budget => readField('budget', objectOf(Budget.fromJson));
   set budget(Budget? value) => writeField('budget', value);
 
   /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
-  bool? get partial => readField('partial', asBool);
-  set partial(bool? value) => writeField('partial', value);
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
 
   /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
-  int? get maxPlaces => readField('max_places', asInt);
-  set maxPlaces(int? value) => writeField('max_places', value);
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
 
   /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
-  int? get timeLimitMs => readField('time_limit_ms', asInt);
-  set timeLimitMs(int? value) => writeField('time_limit_ms', value);
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
 
   /// op の名前
   String? get op => readField('op', asString);
@@ -8482,12 +8485,12 @@ class DeviationRequest extends Message {
   set work(String? value) => writeField('work', value);
 
   /// 返す最初の評価した点の位置。前の応答の next_offset を渡す。書かなければ 0
-  int? get offset => readField('offset', asInt);
-  set offset(int? value) => writeField('offset', value);
+  core.int? get offset => readField('offset', asInt);
+  set offset(core.int? value) => writeField('offset', value);
 
   /// 返す評価した点の数の上限。書かなければ点を返さない
-  int? get limit => readField('limit', asInt);
-  set limit(int? value) => writeField('limit', value);
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 }
 
 /// 設計面の TIN を持つ文書と、TIN の ID
@@ -8520,20 +8523,20 @@ class DeviationResult extends Message {
   set chain(List<ProfileIdentity>? value) => writeField('chain', value);
 
   /// 点群の点の数
-  int? get points => readField('points', asInt);
-  set points(int? value) => writeField('points', value);
+  core.int? get points => readField('points', asInt);
+  set points(core.int? value) => writeField('points', value);
 
   /// TIN の外なので評価しなかった点の数
-  int? get outside => readField('outside', asInt);
-  set outside(int? value) => writeField('outside', value);
+  core.int? get outside => readField('outside', asInt);
+  set outside(core.int? value) => writeField('outside', value);
 
   /// どの規則の勾配にも入らない三角形の上なので評価しなかった点の数
-  int? get unmatched => readField('unmatched', asInt);
-  set unmatched(int? value) => writeField('unmatched', value);
+  core.int? get unmatched => readField('unmatched', asInt);
+  set unmatched(core.int? value) => writeField('unmatched', value);
 
   /// 区分の境の近く（規則の exclude の内）なので除いた点の数
-  int? get excluded => readField('excluded', asInt);
-  set excluded(int? value) => writeField('excluded', value);
+  core.int? get excluded => readField('excluded', asInt);
+  set excluded(core.int? value) => writeField('excluded', value);
 
   /// 規則ごとの集計。プロファイルの順。使えない規則は持たず、profile.rule.unsupported の診断で返す
   List<DeviationRule>? get rules => readField('rules', listOf(objectOf(DeviationRule.fromJson)));
@@ -8544,16 +8547,16 @@ class DeviationResult extends Message {
   set findings(List<CheckFinding>? value) => writeField('findings', value);
 
   /// 評価した点の数
-  int? get evaluated => readField('evaluated', asInt);
-  set evaluated(int? value) => writeField('evaluated', value);
+  core.int? get evaluated => readField('evaluated', asInt);
+  set evaluated(core.int? value) => writeField('evaluated', value);
 
   /// 評価した点。点群の順に、offset から limit 個まで
   List<DeviationPoint>? get differences => readField('differences', listOf(objectOf(DeviationPoint.fromJson)));
   set differences(List<DeviationPoint>? value) => writeField('differences', value);
 
   /// 続きの最初の評価した点の位置。続きがなければ持たない
-  int? get nextOffset => readField('next_offset', asInt);
-  set nextOffset(int? value) => writeField('next_offset', value);
+  core.int? get nextOffset => readField('next_offset', asInt);
+  set nextOffset(core.int? value) => writeField('next_offset', value);
 }
 
 /// 規則の区分ごとの集計。差はメートル
@@ -8573,36 +8576,36 @@ class DeviationRule extends Message {
   set partField(String? value) => writeField('part', value);
 
   /// 評価した点の数
-  int? get points => readField('points', asInt);
-  set points(int? value) => writeField('points', value);
+  core.int? get points => readField('points', asInt);
+  set points(core.int? value) => writeField('points', value);
 
   /// 区分の三角形の、平面に投影した面積（m²）
-  double? get area => readField('area', asDouble);
-  set area(double? value) => writeField('area', value);
+  core.double? get area => readField('area', asDouble);
+  set area(core.double? value) => writeField('area', value);
 
   /// 計測の密度（点／m²）。面積がなければ書かない
-  double? get density => readField('density', asDouble);
-  set density(double? value) => writeField('density', value);
+  core.double? get density => readField('density', asDouble);
+  set density(core.double? value) => writeField('density', value);
 
   /// 差の平均。点がなければ書かない
-  double? get mean => readField('mean', asDouble);
-  set mean(double? value) => writeField('mean', value);
+  core.double? get mean => readField('mean', asDouble);
+  set mean(core.double? value) => writeField('mean', value);
 
   /// 差の最小。点がなければ書かない
-  double? get min => readField('min', asDouble);
-  set min(double? value) => writeField('min', value);
+  core.double? get min => readField('min', asDouble);
+  set min(core.double? value) => writeField('min', value);
 
   /// 差の最大。点がなければ書かない
-  double? get max => readField('max', asDouble);
-  set max(double? value) => writeField('max', value);
+  core.double? get max => readField('max', asDouble);
+  set max(core.double? value) => writeField('max', value);
 
   /// 指摘の数（確認できなかったものを除く）
-  int? get findings => readField('findings', asInt);
-  set findings(int? value) => writeField('findings', value);
+  core.int? get findings => readField('findings', asInt);
+  set findings(core.int? value) => writeField('findings', value);
 
   /// 確認できなかった数
-  int? get unsupported => readField('unsupported', asInt);
-  set unsupported(int? value) => writeField('unsupported', value);
+  core.int? get unsupported => readField('unsupported', asInt);
+  set unsupported(core.int? value) => writeField('unsupported', value);
 }
 
 /// 評価した点
@@ -8614,16 +8617,16 @@ class DeviationPoint extends Message {
   DeviationPoint() : super({});
 
   /// 点群の中の番号
-  int? get index => readField('index', asInt);
-  set index(int? value) => writeField('index', value);
+  core.int? get index => readField('index', asInt);
+  set index(core.int? value) => writeField('index', value);
 
   /// 北・東・標高（メートル）
-  List<double>? get position => readField('position', listOf(asDouble));
-  set position(List<double>? value) => writeField('position', value);
+  List<core.double>? get position => readField('position', listOf(asDouble));
+  set position(List<core.double>? value) => writeField('position', value);
 
   /// 点の標高から設計面の標高を引いた差（メートル）
-  double? get difference => readField('difference', asDouble);
-  set difference(double? value) => writeField('difference', value);
+  core.double? get difference => readField('difference', asDouble);
+  set difference(core.double? value) => writeField('difference', value);
 
   /// 評価した規則の id
   String? get rule => readField('rule', asString);
@@ -8639,8 +8642,8 @@ class Catalog extends Message {
   Catalog() : super({});
 
   /// カタログの形のメジャーバージョン。今は 1
-  int? get v => readField('v', asInt);
-  set v(int? value) => writeField('v', value);
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
 
   /// 言語（ja・en）
   String? get lang => readField('lang', asString);
