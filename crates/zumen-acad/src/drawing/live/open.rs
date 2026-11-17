@@ -896,48 +896,52 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
         for &(position, _) in plain_tasks.get(first..last).unwrap_or_default() {
             let _ = lifted_plains.prepare(position);
         }
-        let lift_one = |(ent_pos, rec_u32): (usize, u32)| -> (usize, Option<PlainLifted>) {
-            let Some(rec) = records.get(rec_u32 as usize) else {
-                return (ent_pos, None);
-            };
-            let mut attribs = Vec::new();
-            let mut raw_attrib_count = 0u32;
-            if rec.kind.as_ref() == b"INSERT"
-                && let Some(children) = att_map.get(&ent_pos)
-            {
-                raw_attrib_count = children.len() as u32;
-                attribs.reserve(children.len());
-                for &child_pos in children {
-                    let Some(&c_rec_u32) = entity_indices.get(child_pos) else {
-                        return (ent_pos, None);
-                    };
-                    let Some(c_rec) = records.get(c_rec_u32 as usize) else {
-                        return (ent_pos, None);
-                    };
-                    let Some(pa) = lift_plain_attrib_from_dxf(
-                        src,
-                        c_rec.start as usize..c_rec.end as usize,
-                        cs,
-                        c_rec_u32,
-                    ) else {
-                        return (ent_pos, None);
-                    };
-                    attribs.push(pa);
+        let lift_one =
+            |(ent_pos, rec_u32): (usize, u32), tags: &mut Vec<_>| -> (usize, Option<PlainLifted>) {
+                let Some(rec) = records.get(rec_u32 as usize) else {
+                    return (ent_pos, None);
+                };
+                let mut attribs = Vec::new();
+                let mut raw_attrib_count = 0u32;
+                if rec.kind.as_ref() == b"INSERT"
+                    && let Some(children) = att_map.get(&ent_pos)
+                {
+                    raw_attrib_count = children.len() as u32;
+                    attribs.reserve(children.len());
+                    for &child_pos in children {
+                        let Some(&c_rec_u32) = entity_indices.get(child_pos) else {
+                            return (ent_pos, None);
+                        };
+                        let Some(c_rec) = records.get(c_rec_u32 as usize) else {
+                            return (ent_pos, None);
+                        };
+                        let Some(pa) = lift_plain_attrib_from_dxf(
+                            src,
+                            c_rec.start as usize..c_rec.end as usize,
+                            cs,
+                            c_rec_u32,
+                            tags,
+                        ) else {
+                            return (ent_pos, None);
+                        };
+                        attribs.push(pa);
+                    }
                 }
-            }
-            let plain = lift_plain_entity_from_dxf(
-                src,
-                rec.start as usize..rec.end as usize,
-                &rec.kind,
-                cs,
-                rec_u32,
-                attribs,
-                raw_attrib_count,
-            );
-            (ent_pos, plain)
-        };
+                let plain = lift_plain_entity_from_dxf(
+                    src,
+                    rec.start as usize..rec.end as usize,
+                    &rec.kind,
+                    cs,
+                    rec_u32,
+                    attribs,
+                    raw_attrib_count,
+                    tags,
+                );
+                (ent_pos, plain)
+            };
 
         let fill_pages = |first_page: usize, pages: &mut [Option<Vec<Option<PlainLifted>>>]| {
+            let mut tags = Vec::with_capacity(24);
             for (page_offset, page) in pages.iter_mut().enumerate() {
                 let Some(page) = page else {
                     continue;
@@ -947,7 +951,7 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
                 let first = plain_tasks.partition_point(|&(position, _)| position < start);
                 let last = plain_tasks.partition_point(|&(position, _)| position < end);
                 for &task in plain_tasks.get(first..last).unwrap_or_default() {
-                    let (position, item) = lift_one(task);
+                    let (position, item) = lift_one(task, &mut tags);
                     if let Some(slot) = page.get_mut(position - start) {
                         *slot = item;
                     }
@@ -2206,23 +2210,20 @@ fn lift_live_state(
     let attached_inserts = attached_insert_handles(shell_db, &inputs, &entity_meta, cx)?;
 
     // ハンドル重複・共有 `Ref`・非モデル要素 ID の検査
-    let mut handle_counts: BTreeMap<u64, u32> = BTreeMap::new();
+    // 100 万行でも速いよう、全ハンドルを整列して 2 回以上現れるものだけを集める。
+    let mut all_handles: Vec<u64> = Vec::with_capacity(rows.len());
     let mut source_seen: BTreeSet<Ref> = BTreeSet::new();
     let mut shared_sources: BTreeSet<Ref> = BTreeSet::new();
     let mut non_model_element_ids: BTreeSet<String> = BTreeSet::new();
     let mut block_element_targets: BTreeMap<String, (u32, u32)> = BTreeMap::new();
-    for row in &rows {
-        if let Some(h) = row.raw_handle() {
-            *handle_counts.entry(h).or_insert(0) += 1;
-        }
-    }
+    all_handles.extend(rows.iter().filter_map(LiveRow::raw_handle));
     let mut def_namer = id::DefinitionNamer::default();
     for (def_idx, sym) in symbols.iter().enumerate() {
         let place = def_namer.next(sym);
         let mut namer = id::Namer::new(&place);
         for (idx, el) in sym.space.elements.iter().enumerate() {
             if let Some(Key::Handle(h)) = el.source.key() {
-                *handle_counts.entry(h).or_insert(0) += 1;
+                all_handles.push(h);
             }
             let elem_id = namer.next(idx, el);
             if !sym.anonymous
@@ -2244,7 +2245,7 @@ fn lift_live_state(
         let mut namer = id::Namer::new(&place);
         for (idx, el) in sheet.elements.iter().enumerate() {
             if let Some(Key::Handle(h)) = el.source.key() {
-                *handle_counts.entry(h).or_insert(0) += 1;
+                all_handles.push(h);
             }
             let elem_id = namer.next(idx, el);
             if let Ok(s_u32) = u32::try_from(sheet_idx)
@@ -2257,12 +2258,21 @@ fn lift_live_state(
             non_model_element_ids.insert(elem_id);
         }
     }
+    all_handles.sort_unstable();
+    let repeated_handles: BTreeSet<u64> = all_handles
+        .windows(2)
+        .filter_map(|pair| match pair {
+            [a, b] if a == b => Some(*a),
+            _ => None,
+        })
+        .collect();
+    drop(all_handles);
     let mut seen_origins: BTreeMap<String, u64> = BTreeMap::new();
     let mut non_unique_model_ids: BTreeMap<String, RowId> = BTreeMap::new();
     for (idx, row) in rows.iter_mut().enumerate() {
         let is_unique = row
             .raw_handle()
-            .is_some_and(|h| handle_counts.get(&h).copied() == Some(1));
+            .is_some_and(|h| !repeated_handles.contains(&h));
         if is_unique {
             continue;
         }
@@ -2301,7 +2311,7 @@ fn lift_live_state(
                 .flat_map(|sheet| sheet.elements.iter().map(|element| &element.source)),
         )
     {
-        if matches!(source.key(), Some(Key::Handle(handle)) if handle_counts.get(&handle) == Some(&1))
+        if matches!(source.key(), Some(Key::Handle(handle)) if !repeated_handles.contains(&handle))
         {
             continue;
         }
@@ -2310,7 +2320,7 @@ fn lift_live_state(
         }
     }
     drop(seen_origins);
-    drop(handle_counts);
+    drop(repeated_handles);
     drop(source_seen);
 
     // 要素数予算と境界矩形の計算
@@ -3126,14 +3136,15 @@ fn decode_dxf_slice(src: &[u8], range: core::ops::Range<usize>) -> Option<(Vec<u
     decode_record_slice(&rs)
 }
 
-fn lift_plain_attrib_from_dxf(
-    src: &[u8],
+fn lift_plain_attrib_from_dxf<'a>(
+    src: &'a [u8],
     range: core::ops::Range<usize>,
     cs: Charset,
     record: u32,
+    tags: &mut Vec<RawTag<'a>>,
 ) -> Option<PlainAttrib> {
     let bytes = src.get(range)?;
-    let mut tags: Vec<RawTag<'_>> = Vec::with_capacity(24);
+    tags.clear();
     let mut pos = 0usize;
     let Next::Tag(first) = next_tag(bytes, pos) else {
         return None;
@@ -3150,7 +3161,7 @@ fn lift_plain_attrib_from_dxf(
             value: val,
         });
     }
-    let fields = DxfFields::new(&tags);
+    let fields = DxfFields::new(tags);
     try_lift_plain_attrib(
         &fields,
         cs,
@@ -3162,17 +3173,19 @@ fn lift_plain_attrib_from_dxf(
     )
 }
 
-fn lift_plain_entity_from_dxf(
-    src: &[u8],
+#[allow(clippy::too_many_arguments)]
+fn lift_plain_entity_from_dxf<'a>(
+    src: &'a [u8],
     range: core::ops::Range<usize>,
     kind: &[u8],
     cs: Charset,
     record: u32,
     attribs: Vec<PlainAttrib>,
     raw_attrib_count: u32,
+    tags: &mut Vec<RawTag<'a>>,
 ) -> Option<PlainLifted> {
     let bytes = src.get(range)?;
-    let mut tags: Vec<RawTag<'_>> = Vec::with_capacity(24);
+    tags.clear();
     let mut pos = 0usize;
     let Next::Tag(first) = next_tag(bytes, pos) else {
         return None;
@@ -3189,7 +3202,7 @@ fn lift_plain_entity_from_dxf(
             value: val,
         });
     }
-    let fields = DxfFields::new(&tags);
+    let fields = DxfFields::new(tags);
     let poly_stream = (kind == b"LWPOLYLINE").then_some(tags.as_slice());
     try_lift_plain_entity(
         kind,
