@@ -2,11 +2,11 @@
 
 日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群です。Rust の 1 つのコアを、ブラウザー・サーバー・各言語から同じ結果で使います。ファイルは外へ出さずに読みます。
 
-> 状態: [v0.2.0](https://github.com/zumen-jp/zumen/releases/tag/v0.2.0) を公開しています。配布先と使い方は下の[「試す」](#試す)にあります。引き続き開発中で、1.0 までは、壊す変更をリリースノートに書いたうえで、マイナーバージョンで API を変えることがあります。PDF を読みたい場合は、旧版の [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) を使ってください。
+> 状態: [v0.3.0](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0) を公開しています。配布先と使い方は下の[「試す」](#試す)にあります。引き続き開発中で、1.0 までは、壊す変更をリリースノートに書いたうえで、マイナーバージョンで API を変えることがあります。PDF を読みたい場合は、旧版の [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) を使ってください。
 
 ## できること
 
-`main` で動くものです。公開済み v0.2.0 の範囲は、サイトの[対応形式](https://zumen.dev/formats/)をご覧ください。確かめた度合いは形式ごとに違います。実物のファイルとほかの実装で照らしたものも、テストの中で作ったファイルだけで確かめたものもあります。
+`main` で動くものです。公開済み v0.3.0 の範囲は、サイトの[対応形式](https://zumen.dev/formats/)をご覧ください。確かめた度合いは形式ごとに違います。実物のファイルとほかの実装で照らしたものも、テストの中で作ったファイルだけで確かめたものもあります。
 
 | 領域 | 形式 | できること |
 | --- | --- | --- |
@@ -16,24 +16,24 @@
 | 点群 | LAS・LAZ、PLY、XYZ、E57、GeoTIFF | 読む。設計の面との標高の差を、規格値と比べて集計する |
 | 納品 | 電子納品の成果品、工事写真（JPEG）、ボーリング交換用データ | 管理ファイルを読み、プロファイルの規則でチェックする。Exif と XMP、地層と標準貫入試験の値を返す |
 
-- PDF・JWC・JWS・表（xlsx・CSV）は、コアでは扱いません。LAZ は、公開済み v0.2.0 では展開を止めていましたが、`main` で展開を戻しました（[#510](https://github.com/zumen-jp/zumen/issues/510)）。
+- PDF・JWC・JWS・表（xlsx・CSV）は、コアでは扱いません。LAZ は、v0.2.0 では展開を止めていましたが、v0.3.0 で展開を戻しました（[#510](https://github.com/zumen-jp/zumen/issues/510)）。
 - 読めなかったもの・形を変えて書いたものは、診断（code・件数・場所）で返します。
 - 各形式の権利と置き場所（コア・外部プラグイン・実装しない）は[形式と権利の一覧](docs/formats/README.md#一覧)で確認できます。
 
 ## 試す
 
-公開済み v0.2.0 は、次の場所から取得できます。使い方のリンクは、公開したバージョンの文書です。
+公開済み v0.3.0 は、次の場所から取得できます。使い方のリンクは、公開したバージョンの文書です。
 
 | 言語・入口 | 配布先 | 使い方 |
 | --- | --- | --- |
-| Rust | [crates.io の zumen](https://crates.io/crates/zumen/0.2.0) | [API と例](https://docs.rs/zumen/0.2.0/zumen/) |
-| TypeScript・JavaScript | [npm の @zumen-jp/zumen](https://www.npmjs.com/package/@zumen-jp/zumen/v/0.2.0) | [ブラウザー・Node.js](https://github.com/zumen-jp/zumen/blob/v0.2.0/bindings/js/README.md#使い方) |
-| Python | [PyPI の zumen](https://pypi.org/project/zumen/0.2.0/) | [Python](https://github.com/zumen-jp/zumen/blob/v0.2.0/bindings/python/README.md#使い方) |
-| .NET | [NuGet の Zumen](https://www.nuget.org/packages/Zumen/0.2.0) | [.NET](https://github.com/zumen-jp/zumen/blob/v0.2.0/bindings/dotnet/README.md#使い方) |
-| CLI・MCP | [GitHub Release](https://github.com/zumen-jp/zumen/releases/tag/v0.2.0)・[crates.io の zumen-cli](https://crates.io/crates/zumen-cli/0.2.0) | [CLI・MCP](https://github.com/zumen-jp/zumen/blob/v0.2.0/bindings/cli/README.md#使い方) |
-| C・C++ | [GitHub Release の C ABI](https://github.com/zumen-jp/zumen/releases/tag/v0.2.0) | [C・C++](https://github.com/zumen-jp/zumen/blob/v0.2.0/bindings/c/README.md#使い方) |
+| Rust | [crates.io の zumen](https://crates.io/crates/zumen/0.3.0) | [API と例](https://docs.rs/zumen/0.3.0/zumen/) |
+| TypeScript・JavaScript | [npm の @zumen-jp/zumen](https://www.npmjs.com/package/@zumen-jp/zumen/v/0.3.0) | [ブラウザー・Node.js](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/js/README.md#使い方) |
+| Python | [PyPI の zumen](https://pypi.org/project/zumen/0.3.0/) | [Python](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/python/README.md#使い方) |
+| .NET | [NuGet の Zumen](https://www.nuget.org/packages/Zumen/0.3.0) | [.NET](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/dotnet/README.md#使い方) |
+| CLI・MCP | [GitHub Release](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0)・[crates.io の zumen-cli](https://crates.io/crates/zumen-cli/0.3.0) | [CLI・MCP](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/cli/README.md#使い方) |
+| C・C++ | [GitHub Release の C ABI](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0) | [C・C++](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/c/README.md#使い方) |
 
-GNU Linux の v0.2.0 のライブラリと CLI は `GLIBC_2.34` を要求し、Python wheel のインストールには glibc 2.35 以降が必要です。これは公開物の静的解析と wheel のタグによる条件で、glibc 2.34 で動作を確認したという意味ではありません。glibc 2.28 対応の修正は `main` に入りましたが、修正版は未公開です（[#789](https://github.com/zumen-jp/zumen/issues/789)）。v0.2.0 に musl の CLI はありません。詳しくは[対応する環境](docs/support.md)をご覧ください。
+GNU Linux の v0.3.0 のライブラリと CLI は glibc 2.28 で作り、要求するシンボルの版が `GLIBC_2.28` 以下であることを、公開した配布物から取って確かめました。Python wheel のタグは `manylinux_2_28` です。v0.2.0 の配布物は `GLIBC_2.34`（wheel は glibc 2.35）以降を要求します（[#789](https://github.com/zumen-jp/zumen/issues/789)）。musl の CLI はまだありません。詳しくは[対応する環境](docs/support.md)をご覧ください。
 
 `main` をソースから試すには、Rust を [rustup](https://rustup.rs/) で入れ（バージョンは `rust-toolchain.toml` で決めてあります）、CLI をビルドして、公開サンプルを開きます。
 

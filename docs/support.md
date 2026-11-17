@@ -28,7 +28,7 @@ Tier 1 は言語ごとのパッケージをコアと同じ日に公開し、PR �
 - OS の下限は、Rust の対象の下限（Windows 10、macOS 11・10.12、glibc 2.17）と、配り方の下限（`manylinux_2_28`、Flutter の iOS 15・Android 7.0）の高いほうです。
 - glibc 2.28 より古い Linux では、musl で静的にリンクした CLI を、プロセスの外か HTTP の形態（[API のスキーマ](../schema/README.md)）で使います。glibc のプロセスには、musl のライブラリを読み込めません。
 - ツールチェーンは Rust 1.99.1 です。1.99.0 は使いません（`bool` を返す `extern "C"` の関数を、x64 で誤ってコンパイルする）。
-- 公開済み v0.2.0 の GNU Linux のライブラリと CLI は `GLIBC_2.34` を要求し、この表の glibc 2.28 の下限を満たしていません。PyPI の wheel のインストールの条件は `manylinux_2_35`（glibc 2.35 以降）です。これは公開物の静的解析とタグの条件であり、glibc 2.34 での動作確認ではありません。以後のビルドと検査の修正、新しい版の公開は [#789](https://github.com/zumen-jp/zumen/issues/789) で追跡します。v0.2.0 には musl の CLI もありません。
+- v0.3.0 から、GNU Linux のライブラリと CLI を glibc 2.28 で作り、要求するシンボルの版と PyPI の wheel のタグ（`manylinux_2_28`）を検査します。公開した配布物を各配布先から取って確かめました（[#789](https://github.com/zumen-jp/zumen/issues/789)）。v0.2.0 の配布物は `GLIBC_2.34`（wheel は `manylinux_2_35`）以降を要求し、この表の下限を満たしません。musl の CLI はまだありません。
 
 ## 言語と実行環境
 

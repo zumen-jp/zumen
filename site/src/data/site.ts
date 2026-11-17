@@ -1,7 +1,7 @@
 // サイトの中で使い回す文と表。お知らせ・対応形式は、ここを直す。
 
 export const repo = 'https://github.com/zumen-jp/zumen';
-export const releaseVersion = '0.2.0';
+export const releaseVersion = '0.3.0';
 export const releaseUrl = `${repo}/releases/tag/v${releaseVersion}`;
 export const releasedSource = (file: string) => `${repo}/blob/v${releaseVersion}/${file}`;
 
@@ -44,9 +44,14 @@ export interface News {
 
 export const news: News[] = [
   {
+    date: '2026-11-17',
+    tag: 'リリース',
+    html: `v${releaseVersion} を公開しました。GeoJSON・SIMA の読み書き、TIFF・GeoTIFF の読み取り、SXF・JWW への変換、LAZ の展開を足し、GNU Linux の配布物を glibc 2.28 で動くように作りました。<a href="/platforms/#packages">配布先と導入手順</a>、<a href="${releaseUrl}">リリースの内容</a>をご覧ください。`,
+  },
+  {
     date: '2026-11-10',
     tag: 'リリース',
-    html: `v${releaseVersion} を公開しました。図面・BIM の読み書き、土木・地理・点群の読み取りを、Rust・JavaScript・Python・.NET・C・C++・CLI から使えます。<a href="/platforms/#packages">配布先と導入手順</a>、<a href="${releaseUrl}">リリースの内容</a>をご覧ください。`,
+    html: `v0.2.0 を公開しました。図面・BIM の読み書き、土木・地理・点群の読み取りを、Rust・JavaScript・Python・.NET・C・C++・CLI から使えます。<a href="/platforms/#packages">配布先と導入手順</a>、<a href="${repo}/releases/tag/v0.2.0">リリースの内容</a>をご覧ください。`,
   },
   {
     date: '2026-10-24',
@@ -79,8 +84,11 @@ export const formats: Format[] = [
   { name: 'LandXML', about: '線形・地表面などの土木のデータ', read: '○', write: '―', place: 'コア' },
   { name: 'CityGML', about: '都市の 3D モデル', read: '○', write: '―', place: 'コア' },
   { name: '基盤地図情報', about: '国土地理院の地理のデータ（GML）', read: '○', write: '―', place: 'コア' },
+  { name: 'GeoJSON', about: '地理のデータ（RFC 7946）', read: '○', write: '○', place: 'コア' },
+  { name: 'SIMA', about: '測量データ共通フォーマット', read: '○', write: '○', place: 'コア' },
+  { name: 'TIFF・GeoTIFF', about: '画像と地理参照付きの画像', read: '○', write: '―', place: 'コア' },
   { name: '拡張 DM', about: '測量成果の地理のデータ', read: '○', write: '―', place: 'コア' },
-  { name: 'LAS・PLY・XYZ・E57', about: '点群のデータ。LAZ は公開版に含めない', read: '○', write: '―', place: 'コア' },
+  { name: 'LAS・LAZ・PLY・XYZ・E57', about: '点群のデータ', read: '○', write: '―', place: 'コア' },
   { name: 'ST-Bridge', about: '構造のモデル', read: '―', write: '―', place: '外部のプラグイン' },
   {
     name: 'BE-Bridge・CEDXM・Stem',

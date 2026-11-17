@@ -65,7 +65,7 @@ python xtask/release/check_linux_runtime.py --rid linux-x64 --built built --pack
 - `ZUMEN_CONFORMANCE_CLI` に梱包対象の CLI を指定し、既存の stdio・HTTP・process・MCP の適合テストを流す。テストで作る別の CLI に置き換えて確かめたことにはしない。
 - .NET 10 のソースのラッパーから、梱包対象の共有ライブラリの適合テストを流す。.NET の実行だけに使う ICU・Kerberos のライブラリはコンテナーに入れ、配布物には加えない。
 
-コンテナーで実際の glibc 2.28 を使いますが、カーネルは runner と共有するので、古いカーネルの下限で動かしたことにはなりません。静的な検査の通過と、x64・arm64 の実行結果は分けて記録します。公開済み v0.2.0 はこの検査を満たさず、同じ版の配布物を置き換えません。修正した新しい版の公開までの残件は [#789](https://github.com/zumen-jp/zumen/issues/789) にあります。
+コンテナーで実際の glibc 2.28 を使いますが、カーネルは runner と共有するので、古いカーネルの下限で動かしたことにはなりません。静的な検査の通過と、x64・arm64 の実行結果は分けて記録します。公開済み v0.2.0 はこの検査を満たさず、同じ版の配布物を置き換えません。検査を通した配布物は v0.3.0 で公開しました（[#789](https://github.com/zumen-jp/zumen/issues/789)）。
 
 ELF の参照先は [gABI のヘッダーと節](https://gabi.xinuos.com/elf/02-eheader.html)、[LSB の Symbol Versioning](https://refspecs.linuxfoundation.org/LSB_3.1.1/LSB-Core-generic/LSB-Core-generic/symversion.html)、[GNU ld のバージョンの照合](https://sourceware.org/binutils/docs/ld/VERSION.html)です。wheel の下限の意味は [Python Packaging の manylinux](https://packaging.python.org/en/latest/specifications/platform-compatibility-tags/#manylinux) に従います。
 
