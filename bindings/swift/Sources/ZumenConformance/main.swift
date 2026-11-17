@@ -145,9 +145,11 @@ final class Conformance {
     func checkScene3D(_ at: String, _ blob: Data, _ result: JSON) {
         do {
             let scene = try Scene3D(blob)
+            // deviation などはシーンの応答を scene3d の下に入れる
+            let source = result["scene3d"] ?? result
             let pairs = [("chunks", "chunk_origins"), ("meshes", "mesh_vertices"), ("instances", "instance_meshes"), ("elements", "element_ids"), ("colors", "color_rgba"), ("vertices", "vertex_xyz"), ("triangles", "triangle_vertices"), ("edges", "edge_vertices")]
             for (name, column) in pairs {
-                if Int64(try scene.rows(column)) != result["counts"]?[name]?.integerValue {
+                if Int64(try scene.rows(column)) != source["counts"]?[name]?.integerValue {
                     failures.append("\(at): 3D の \(name) の数が合わない")
                 }
             }

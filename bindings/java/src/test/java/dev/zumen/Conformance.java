@@ -264,7 +264,9 @@ public final class Conformance {
     void checkScene3D(String at, byte[] blob, Map<String, Object> result) {
         try {
             Scene3D scene = Scene3D.read(blob);
-            Map<String, Object> counts = Json.object(result.get("counts"));
+            // deviation などはシーンの応答を scene3d の下に入れる
+            Map<String, Object> source = result.containsKey("scene3d") ? Json.object(result.get("scene3d")) : result;
+            Map<String, Object> counts = Json.object(source.get("counts"));
             String[][] pairs = {{"chunks", "chunk_origins"}, {"meshes", "mesh_vertices"}, {"instances", "instance_meshes"}, {"elements", "element_ids"}, {"colors", "color_rgba"}, {"vertices", "vertex_xyz"}, {"triangles", "triangle_vertices"}, {"edges", "edge_vertices"}};
             for (String[] pair : pairs)
                 if (scene.rows(pair[1]) != Json.integer(counts.get(pair[0])))

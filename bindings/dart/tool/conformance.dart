@@ -143,9 +143,11 @@ void checkResponse(String at, Map step, Object? response) {
 void checkScene3D(String at, Uint8List blob, Map result) {
   try {
     final scene = Scene3D.read(blob);
+    // deviation などはシーンの応答を scene3d の下に入れる
+    final counts = ((result['scene3d'] ?? result) as Map)['counts'] as Map;
     final pairs = <(String, String)>[('chunks', 'chunk_origins'), ('meshes', 'mesh_vertices'), ('instances', 'instance_meshes'), ('elements', 'element_ids'), ('colors', 'color_rgba'), ('vertices', 'vertex_xyz'), ('triangles', 'triangle_vertices'), ('edges', 'edge_vertices')];
     for (final (name, column) in pairs) {
-      if (scene.rows(column) != (result['counts'] as Map)[name]) throw FormatException('$name count mismatch');
+      if (scene.rows(column) != counts[name]) throw FormatException('$name count mismatch');
     }
     for (var row = 0; row < scene.rows('instance_meshes'); row++) {
       if (scene.elementId(scene.instanceElement(row)).isEmpty) throw const FormatException('Empty element ID');
