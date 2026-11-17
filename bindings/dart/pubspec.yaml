@@ -1,6 +1,6 @@
 name: zumen
 description: zumen のネイティブのライブラリの C ABI を dart:ffi で呼ぶラッパー（決定 0227）。
-version: 0.2.0
+version: 0.3.0
 # pub.dev にはまだ出さない（段階 2 の別の子 issue）
 publish_to: none
 

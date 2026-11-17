@@ -12,5 +12,5 @@
   },
   "files": ["src", "README.md"],
   "sideEffects": false,
-  "peerDependencies": { "@zumen-jp/zumen": "^0.2.0", "three": ">=0.187.0 <0.188.0" }
+  "peerDependencies": { "@zumen-jp/zumen": "^0.3.0", "three": ">=0.187.0 <0.188.0" }
 }

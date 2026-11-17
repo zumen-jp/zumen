@@ -384,7 +384,7 @@ status = "active"
 description = "この形式には、まだ空の文書を作れない（#857）"
 severity = "error"
 params = { format = "text" }
-since = "0.0.0"
+since = "0.3.0"
 status = "active"
 
 [codes."convert.format.unsupported"]
@@ -1196,58 +1196,58 @@ status = "active"
 description = "指定した XML の要素がない（#866）"
 severity = "error"
 params = { index = "uint" }
-since = "0.0.0"
+since = "0.3.0"
 status = "active"
 
 [codes."xml.edit-range.invalid"]
 description = "同じ要素や重なる範囲への変更が競合する（#866）"
 severity = "error"
-since = "0.0.0"
+since = "0.3.0"
 status = "active"
 
 [codes."xml.edit-children.unsupported"]
 description = "子の要素を持つ項目の文字全体は置き換えない（#866）"
 severity = "error"
-since = "0.0.0"
+since = "0.3.0"
 status = "active"
 
 [codes."xml.edit-name.invalid"]
 description = "追加する XML の名前が QName ではない（#866）"
 severity = "error"
-since = "0.0.0"
+since = "0.3.0"
 status = "active"
 
 [codes."xml.edit-character.invalid"]
 description = "XML 1.0 の文字ではない値を書こうとした（#866）"
 severity = "error"
 params = { code = "uint" }
-since = "0.0.0"
+since = "0.3.0"
 status = "active"
 
 [codes."xml.edit-encoding.failed"]
 description = "元の文字コードで値を同じ文字に戻せない（#866）"
 severity = "error"
-since = "0.0.0"
+since = "0.3.0"
 status = "active"
 
 [codes."xml.edit-namespace.missing"]
 description = "追加する要素の名前空間の接頭辞が宣言されていない（#866）"
 severity = "error"
 params = { prefix = "text" }
-since = "0.0.0"
+since = "0.3.0"
 status = "active"
 
 [codes."delivery.edit-path.missing"]
 description = "管理項目の変更先の経路に合う要素がない（#866）"
 severity = "error"
 params = { index = "uint", step = "uint" }
-since = "0.0.0"
+since = "0.3.0"
 status = "active"
 
 [codes."delivery.edit-hash.stale"]
 description = "管理 XML の変更の前提となるハッシュが現在の入力と違う（#866）"
 severity = "error"
-since = "0.0.0"
+since = "0.3.0"
 status = "active"
 
 # IFC の L1（決定 0207・0211）
@@ -1354,7 +1354,7 @@ description = "曲線の定義に読めない値か循環があるので、曲�
 severity = "error"
 params = { reason = "key" }
 group-by = ["reason"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.curve.unsupported"]
@@ -1363,7 +1363,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { kind = "key" }
 group-by = ["kind"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.shape.invalid"]
@@ -1371,7 +1371,7 @@ description = "要素の形状表現の参照か構造に読めない値か循�
 severity = "error"
 params = { reason = "key" }
 group-by = ["reason"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.shape.unsupported"]
@@ -1380,7 +1380,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { kind = "key" }
 group-by = ["kind"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.shape.missing"]
@@ -1388,7 +1388,7 @@ description = "形状表現の取得で省略された属性を None として�
 severity = "warning"
 params = { field = "key" }
 group-by = ["field"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.extrusion.invalid"]
@@ -1456,7 +1456,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { kind = "key", target_kind = "key", position = "uint" }
 group-by = ["kind", "target_kind", "position"]
-since = "0.2.1"
+since = "0.3.0"
 status = "active"
 
 [codes."ifc.placement.invalid"]
@@ -2040,7 +2040,7 @@ status = "retired"
 description = "OCMD の表示式（VE）を評価せず、OCGs と P だけで表示を決めた"
 severity = "warning"
 fidelity = "approximated"
-since = "0.2.0"
+since = "0.3.0"
 status = "retired"
 
 [codes."pdf.annotation.drawn"]
@@ -2049,7 +2049,7 @@ severity = "warning"
 fidelity = "drawn"
 params = { kind = "text" }
 group-by = ["kind"]
-since = "0.2.0"
+since = "0.3.0"
 status = "retired"
 
 [codes."pdf.annotation.unsupported"]
@@ -2067,7 +2067,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { id = "text", reason = "text" }
 group-by = ["id", "reason"]
-since = "0.2.0"
+since = "0.3.0"
 status = "active"
 
 [codes."change.references.failed"]
@@ -2116,7 +2116,7 @@ description = "選んだ校正で用紙上の距離を測れなかった。id �
 severity = "error"
 params = { id = "text", reason = "text" }
 group-by = ["id", "reason"]
-since = "0.2.0"
+since = "0.3.0"
 status = "active"
 
 [codes."pdf.date.approximated"]
@@ -2125,7 +2125,7 @@ severity = "warning"
 fidelity = "approximated"
 params = { field = "text" }
 group-by = ["field"]
-since = "0.2.0"
+since = "0.3.0"
 status = "retired"
 
 [codes."pdf.date.invalid"]
@@ -2134,7 +2134,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { field = "text" }
 group-by = ["field"]
-since = "0.2.0"
+since = "0.3.0"
 status = "retired"
 
 [codes."pdf.measure.invalid"]
@@ -2143,14 +2143,14 @@ severity = "warning"
 fidelity = "dropped"
 params = { field = "text", reason = "text" }
 group-by = ["field", "reason"]
-since = "0.2.0"
+since = "0.3.0"
 status = "retired"
 
 [codes."pdf.measure-distance.equivalent"]
 description = "矩形計測の距離校正を、既存の紙上の図形を動かさず、用紙上の校正領域として保持した。絶対座標の原点や数値表示書式の復元は含まない"
 severity = "info"
 fidelity = "equivalent"
-since = "0.2.0"
+since = "0.3.0"
 status = "retired"
 
 [codes."pdf.measure.unsupported"]
@@ -2300,7 +2300,7 @@ status = "retired"
 description = "軸に平行な長方形の始点と向きが渡されないので、左下の角から反時計回りの折れ線にし、破線の始まる角と向きを確認できなかった"
 severity = "warning"
 fidelity = "approximated"
-since = "0.2.0"
+since = "0.3.0"
 status = "retired"
 
 [codes."pdf.dash.approximated"]
@@ -2726,21 +2726,21 @@ status = "active"
 description = "レビューを描く起点が図面にないか、同じ ID の空間を区別できない"
 severity = "error"
 params = { origin = "text" }
-since = "0.2.0"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-options.invalid"]
 description = "レビューの描画の設定が条件を満たさない。pointer は設定のフィールド"
 severity = "error"
 params = { pointer = "text" }
-since = "0.2.0"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-geometry.invalid"]
 description = "選んだレビューの図形・場所の座標や形を描けない。reason は理由を表すタグ"
 severity = "error"
 params = { reason = "text" }
-since = "0.2.0"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-text-frame.approximated"]
@@ -2748,7 +2748,7 @@ description = "字形の範囲を得られず、注記の枠を文字の高さ�
 severity = "warning"
 fidelity = "approximated"
 params = {}
-since = "0.2.0"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-points.dropped"]
@@ -2756,7 +2756,7 @@ description = "注記または写真の位置に使わない、2 点目からの
 severity = "warning"
 fidelity = "dropped"
 params = { points = "uint" }
-since = "0.2.0"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-placement.dropped"]
@@ -2765,7 +2765,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { reason = "text" }
 group-by = ["reason"]
-since = "0.2.0"
+since = "0.3.0"
 status = "active"
 
 [codes."review.scene-property.dropped"]
@@ -2774,7 +2774,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { property = "text" }
 group-by = ["property"]
-since = "0.2.0"
+since = "0.3.0"
 status = "active"
 
 
@@ -3863,7 +3863,7 @@ status = "active"
 [codes."xml.write.failed"]
 description = "XML の出力の長さを扱えないか、出力の領域を確保できない（#866）"
 severity = "error"
-since = "0.0.0"
+since = "0.3.0"
 status = "active"
 
 [codes."convert.item.drawn"]
@@ -3872,7 +3872,7 @@ severity = "warning"
 fidelity = "drawn"
 params = { format = "text", kind = "key", reason = "key" }
 group-by = ["kind", "reason"]
-since = "0.2.0"
+since = "0.3.0"
 status = "active"
 
 [codes."convert.item.approximated"]
@@ -3881,7 +3881,7 @@ severity = "warning"
 fidelity = "approximated"
 params = { format = "text", kind = "key", reason = "key" }
 group-by = ["kind", "reason"]
-since = "0.2.0"
+since = "0.3.0"
 status = "active"
 
 [codes."profile.ifc-schema.invalid"]

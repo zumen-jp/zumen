@@ -12,9 +12,9 @@ publish = true
 libm = { version = "0.2.16", default-features = false }
 # 既存の建物モデルと同じ純 Rust の BLAKE3。共有候補を引き、衝突は列の全体で確かめる。
 blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-building = { version = "0.2.0", path = "../zumen-building" }
-zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-building = { version = "0.3.0", path = "../zumen-building" }
+zumen-geom3d = { version = "0.3.0", path = "../zumen-geom3d" }
 
 [lints]
 workspace = true

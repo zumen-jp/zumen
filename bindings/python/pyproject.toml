@@ -6,7 +6,7 @@
 
 [project]
 name = "zumen"
-version = "0.2.0"
+version = "0.3.0"
 description = "日本の建設の図面（DXF・DWG・SXF・JWW）を読み書きする zumen の、Python のラッパー"
 license = "MIT OR Apache-2.0"
 # docs/support.md の Python の下限

@@ -10,7 +10,7 @@ publish = true
 [dependencies]
 # 空間索引の平方根・切り上げ・切り捨て（決定 0007）。どの対象でも同じ値にする
 libm = { version = "0.2.16", default-features = false }
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
 
 [lints]
 workspace = true

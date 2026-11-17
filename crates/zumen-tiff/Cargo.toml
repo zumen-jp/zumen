@@ -12,12 +12,12 @@ formats = ["tiff"]
 
 [dependencies]
 libm = { version = "0.2.16", default-features = false }
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-crs = { version = "0.2.0", path = "../zumen-crs" }
-zumen-drawing = { version = "0.2.0", path = "../zumen-drawing" }
-zumen-geo = { version = "0.2.0", path = "../zumen-geo" }
-zumen-pointcloud = { version = "0.2.0", path = "../zumen-pointcloud" }
-zumen-sdk = { version = "0.2.0", path = "../zumen-sdk" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-crs = { version = "0.3.0", path = "../zumen-crs" }
+zumen-drawing = { version = "0.3.0", path = "../zumen-drawing" }
+zumen-geo = { version = "0.3.0", path = "../zumen-geo" }
+zumen-pointcloud = { version = "0.3.0", path = "../zumen-pointcloud" }
+zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
 
 [dev-dependencies]
 zumen-json = { path = "../zumen-json" }

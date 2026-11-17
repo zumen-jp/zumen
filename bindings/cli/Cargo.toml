@@ -13,13 +13,13 @@ name = "zumen"
 path = "src/main.rs"
 
 [dependencies]
-zumen-abi = { version = "0.2.0", path = "../../crates/zumen-abi" }
-zumen-acad = { version = "0.2.0", path = "../../crates/zumen-acad" }
-zumen-base = { version = "0.2.0", path = "../../crates/zumen-base" }
-zumen-drawing = { version = "0.2.0", path = "../../crates/zumen-drawing" }
-zumen-json = { version = "0.2.0", path = "../../crates/zumen-json" }
-zumen-live = { version = "0.2.0", path = "../../crates/zumen-live" }
-zumen-scene = { version = "0.2.0", path = "../../crates/zumen-scene" }
+zumen-abi = { version = "0.3.0", path = "../../crates/zumen-abi" }
+zumen-acad = { version = "0.3.0", path = "../../crates/zumen-acad" }
+zumen-base = { version = "0.3.0", path = "../../crates/zumen-base" }
+zumen-drawing = { version = "0.3.0", path = "../../crates/zumen-drawing" }
+zumen-json = { version = "0.3.0", path = "../../crates/zumen-json" }
+zumen-live = { version = "0.3.0", path = "../../crates/zumen-live" }
+zumen-scene = { version = "0.3.0", path = "../../crates/zumen-scene" }
 
 [dev-dependencies]
 zumen-conformance = { path = "../conformance" }

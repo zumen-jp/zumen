@@ -981,7 +981,7 @@ pub const CONVERT_FORMAT_UNSUPPORTED: Code = Code::new(
 
 /// 別の形式への変換で値・参照・配置を変えた。種類と変更理由のキーごとに数え、忠実度の詳細は見積もりに返す（#360）
 ///
-/// `convert.item.approximated`（0.2.0 から）
+/// `convert.item.approximated`（0.3.0 から）
 pub const CONVERT_ITEM_APPROXIMATED: Code = Code::new(
     "convert.item.approximated",
     Severity::Warning,
@@ -996,7 +996,7 @@ pub const CONVERT_ITEM_APPROXIMATED: Code = Code::new(
 
 /// 別の形式への変換で値・参照・配置を変えた。種類と変更理由のキーごとに数え、忠実度の詳細は見積もりに返す（#360）
 ///
-/// `convert.item.drawn`（0.2.0 から）
+/// `convert.item.drawn`（0.3.0 から）
 pub const CONVERT_ITEM_DRAWN: Code = Code::new(
     "convert.item.drawn",
     Severity::Warning,
@@ -1036,7 +1036,7 @@ pub const CONVERT_VIEW_APPROXIMATED: Code = Code::new(
 
 /// この形式には、まだ空の文書を作れない（#857）
 ///
-/// `create.format.unsupported`（0.0.0 から）
+/// `create.format.unsupported`（0.3.0 から）
 pub const CREATE_FORMAT_UNSUPPORTED: Code = Code::new(
     "create.format.unsupported",
     Severity::Error,
@@ -1197,13 +1197,13 @@ pub const CSV_QUOTE_INVALID: Code = Code::new(
 
 /// 管理 XML の変更の前提となるハッシュが現在の入力と違う（#866）
 ///
-/// `delivery.edit-hash.stale`（0.0.0 から）
+/// `delivery.edit-hash.stale`（0.3.0 から）
 pub const DELIVERY_EDIT_HASH_STALE: Code =
     Code::new("delivery.edit-hash.stale", Severity::Error, None, &[], &[]);
 
 /// 管理項目の変更先の経路に合う要素がない（#866）
 ///
-/// `delivery.edit-path.missing`（0.0.0 から）
+/// `delivery.edit-path.missing`（0.3.0 から）
 pub const DELIVERY_EDIT_PATH_MISSING: Code = Code::new(
     "delivery.edit-path.missing",
     Severity::Error,
@@ -1335,7 +1335,7 @@ pub const DRAWING_BINARY_INVALID: Code = Code::new(
 
 /// 用紙上の校正領域を、契約・値・付く先が不正か ID が重複していたため使わなかった。id は校正の ID、reason は理由
 ///
-/// `drawing.calibration.invalid`（0.2.0 から）
+/// `drawing.calibration.invalid`（0.3.0 から）
 pub const DRAWING_CALIBRATION_INVALID: Code = Code::new(
     "drawing.calibration.invalid",
     Severity::Warning,
@@ -1404,7 +1404,7 @@ pub const DRAWING_MARK_HEIGHT_DROPPED: Code = Code::new(
 
 /// 選んだ校正で用紙上の距離を測れなかった。id は校正の ID、reason は領域・用紙・座標・計算を使えない理由
 ///
-/// `drawing.measurement.failed`（0.2.0 から）
+/// `drawing.measurement.failed`（0.3.0 から）
 pub const DRAWING_MEASUREMENT_FAILED: Code = Code::new(
     "drawing.measurement.failed",
     Severity::Error,
@@ -2805,7 +2805,7 @@ pub const IFC_CIVIL_UNIT_ASSUMED: Code = Code::new(
 
 /// 曲線の定義に読めない値か循環があるので、曲線のグラフを返さなかった
 ///
-/// `ifc.curve.invalid`（0.2.1 から）
+/// `ifc.curve.invalid`（0.3.0 から）
 pub const IFC_CURVE_INVALID: Code = Code::new(
     "ifc.curve.invalid",
     Severity::Error,
@@ -2816,7 +2816,7 @@ pub const IFC_CURVE_INVALID: Code = Code::new(
 
 /// 型を持たない曲線なので、種類と出所だけを持った
 ///
-/// `ifc.curve.unsupported`（0.2.1 から）
+/// `ifc.curve.unsupported`（0.3.0 から）
 pub const IFC_CURVE_UNSUPPORTED: Code = Code::new(
     "ifc.curve.unsupported",
     Severity::Warning,
@@ -2993,7 +2993,7 @@ pub const IFC_REFERENCE_MISSING: Code = Code::new(
 
 /// 別の成分に写した対象が建物モデルの要素でないので、関係を成分に写せなかった。集合内の位置は 0 から
 ///
-/// `ifc.relation-target.unsupported`（0.2.1 から）
+/// `ifc.relation-target.unsupported`（0.3.0 から）
 pub const IFC_RELATION_TARGET_UNSUPPORTED: Code = Code::new(
     "ifc.relation-target.unsupported",
     Severity::Warning,
@@ -3019,7 +3019,7 @@ pub const IFC_SCHEMA_UNSUPPORTED: Code = Code::new(
 
 /// 要素の形状表現の参照か構造に読めない値か循環があり、ビューを返さなかった
 ///
-/// `ifc.shape.invalid`（0.2.1 から）
+/// `ifc.shape.invalid`（0.3.0 から）
 pub const IFC_SHAPE_INVALID: Code = Code::new(
     "ifc.shape.invalid",
     Severity::Error,
@@ -3030,7 +3030,7 @@ pub const IFC_SHAPE_INVALID: Code = Code::new(
 
 /// 形状表現の取得で省略された属性を None として保持した
 ///
-/// `ifc.shape.missing`（0.2.1 から）
+/// `ifc.shape.missing`（0.3.0 から）
 pub const IFC_SHAPE_MISSING: Code = Code::new(
     "ifc.shape.missing",
     Severity::Warning,
@@ -3041,7 +3041,7 @@ pub const IFC_SHAPE_MISSING: Code = Code::new(
 
 /// 形の項目は展開せず、元の L1 レコードへの参照だけを残した
 ///
-/// `ifc.shape.unsupported`（0.2.1 から）
+/// `ifc.shape.unsupported`（0.3.0 から）
 pub const IFC_SHAPE_UNSUPPORTED: Code = Code::new(
     "ifc.shape.unsupported",
     Severity::Warning,
@@ -3395,7 +3395,7 @@ pub const LAS_VLR_INVALID: Code = Code::new(
 
 /// 注釈の通常外観だけを図形へ移し、内容・返信・操作などの情報を移さなかった。kind は注釈の種類（Subtype）
 ///
-/// `pdf.annotation.drawn`（0.2.0 から）
+/// `pdf.annotation.drawn`（0.3.0 から）
 #[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_ANNOTATION_DRAWN: Code = Code::new(
     "pdf.annotation.drawn",
@@ -3491,7 +3491,7 @@ pub const PDF_DASH_APPROXIMATED: Code = Code::new(
 
 /// 文書の情報の辞書の日付（CreationDate・ModDate）で省略された要素を既定値で補うか、時差のない日時を +00:00 として ISO 8601 の日時にした。原値と時差の有無は形式固有情報に残す。field は項目名（created・modified）
 ///
-/// `pdf.date.approximated`（0.2.0 から）
+/// `pdf.date.approximated`（0.3.0 から）
 #[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_DATE_APPROXIMATED: Code = Code::new(
     "pdf.date.approximated",
@@ -3503,7 +3503,7 @@ pub const PDF_DATE_APPROXIMATED: Code = Code::new(
 
 /// 文書の情報の辞書の日付（CreationDate・ModDate）を PDF の日付として読めなかったので、ISO 8601 の日時にしなかった。原値は形式固有情報に残す。field は項目名（created・modified）
 ///
-/// `pdf.date.invalid`（0.2.0 から）
+/// `pdf.date.invalid`（0.3.0 から）
 #[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_DATE_INVALID: Code = Code::new(
     "pdf.date.invalid",
@@ -3655,7 +3655,7 @@ pub const PDF_IMAGE_MASK_APPROXIMATED: Code = Code::new(
 
 /// 矩形計測の距離校正を、既存の紙上の図形を動かさず、用紙上の校正領域として保持した。絶対座標の原点や数値表示書式の復元は含まない
 ///
-/// `pdf.measure-distance.equivalent`（0.2.0 から）
+/// `pdf.measure-distance.equivalent`（0.3.0 から）
 #[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_MEASURE_DISTANCE_EQUIVALENT: Code = Code::new(
     "pdf.measure-distance.equivalent",
@@ -3667,7 +3667,7 @@ pub const PDF_MEASURE_DISTANCE_EQUIVALENT: Code = Code::new(
 
 /// ビューポートの計測辞書の値を解釈できなかった。field は値の経路、reason は理由。読めた原値は形式固有情報に残す
 ///
-/// `pdf.measure.invalid`（0.2.0 から）
+/// `pdf.measure.invalid`（0.3.0 から）
 #[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_MEASURE_INVALID: Code = Code::new(
     "pdf.measure.invalid",
@@ -3785,7 +3785,7 @@ pub const PDF_PATTERN_DROPPED: Code = Code::new(
 
 /// 軸に平行な長方形の始点と向きが渡されないので、左下の角から反時計回りの折れ線にし、破線の始まる角と向きを確認できなかった
 ///
-/// `pdf.rect-orientation.approximated`（0.2.0 から）
+/// `pdf.rect-orientation.approximated`（0.3.0 から）
 #[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_RECT_ORIENTATION_APPROXIMATED: Code = Code::new(
     "pdf.rect-orientation.approximated",
@@ -3881,7 +3881,7 @@ pub const PDF_VERTICAL_ORIGIN_APPROXIMATED: Code = Code::new(
 
 /// OCMD の表示式（VE）を評価せず、OCGs と P だけで表示を決めた
 ///
-/// `pdf.visibility-expression.approximated`（0.2.0 から）
+/// `pdf.visibility-expression.approximated`（0.3.0 から）
 #[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const PDF_VISIBILITY_EXPRESSION_APPROXIMATED: Code = Code::new(
     "pdf.visibility-expression.approximated",
@@ -4755,7 +4755,7 @@ pub const REVIEW_REFERENCE_MISSING: Code = Code::new(
 
 /// 選んだレビューの図形・場所の座標や形を描けない。reason は理由を表すタグ
 ///
-/// `review.scene-geometry.invalid`（0.2.0 から）
+/// `review.scene-geometry.invalid`（0.3.0 から）
 pub const REVIEW_SCENE_GEOMETRY_INVALID: Code = Code::new(
     "review.scene-geometry.invalid",
     Severity::Error,
@@ -4766,7 +4766,7 @@ pub const REVIEW_SCENE_GEOMETRY_INVALID: Code = Code::new(
 
 /// レビューの描画の設定が条件を満たさない。pointer は設定のフィールド
 ///
-/// `review.scene-options.invalid`（0.2.0 から）
+/// `review.scene-options.invalid`（0.3.0 から）
 pub const REVIEW_SCENE_OPTIONS_INVALID: Code = Code::new(
     "review.scene-options.invalid",
     Severity::Error,
@@ -4777,7 +4777,7 @@ pub const REVIEW_SCENE_OPTIONS_INVALID: Code = Code::new(
 
 /// レビューを描く起点が図面にないか、同じ ID の空間を区別できない
 ///
-/// `review.scene-origin.invalid`（0.2.0 から）
+/// `review.scene-origin.invalid`（0.3.0 から）
 pub const REVIEW_SCENE_ORIGIN_INVALID: Code = Code::new(
     "review.scene-origin.invalid",
     Severity::Error,
@@ -4788,7 +4788,7 @@ pub const REVIEW_SCENE_ORIGIN_INVALID: Code = Code::new(
 
 /// 選んだ対象の場所を 2D に置けず描かなかった。reason は 3D・ビューなし・形なしを区別するタグ
 ///
-/// `review.scene-placement.dropped`（0.2.0 から）
+/// `review.scene-placement.dropped`（0.3.0 から）
 pub const REVIEW_SCENE_PLACEMENT_DROPPED: Code = Code::new(
     "review.scene-placement.dropped",
     Severity::Warning,
@@ -4799,7 +4799,7 @@ pub const REVIEW_SCENE_PLACEMENT_DROPPED: Code = Code::new(
 
 /// 注記または写真の位置に使わない、2 点目からの点を描かなかった
 ///
-/// `review.scene-points.dropped`（0.2.0 から）
+/// `review.scene-points.dropped`（0.3.0 から）
 pub const REVIEW_SCENE_POINTS_DROPPED: Code = Code::new(
     "review.scene-points.dropped",
     Severity::Warning,
@@ -4810,7 +4810,7 @@ pub const REVIEW_SCENE_POINTS_DROPPED: Code = Code::new(
 
 /// 拡張フィールドに保った描画の値をシーンに反映しなかった。property はフィールド名
 ///
-/// `review.scene-property.dropped`（0.2.0 から）
+/// `review.scene-property.dropped`（0.3.0 から）
 pub const REVIEW_SCENE_PROPERTY_DROPPED: Code = Code::new(
     "review.scene-property.dropped",
     Severity::Warning,
@@ -4821,7 +4821,7 @@ pub const REVIEW_SCENE_PROPERTY_DROPPED: Code = Code::new(
 
 /// 字形の範囲を得られず、注記の枠を文字の高さと字数から近似した
 ///
-/// `review.scene-text-frame.approximated`（0.2.0 から）
+/// `review.scene-text-frame.approximated`（0.3.0 から）
 pub const REVIEW_SCENE_TEXT_FRAME_APPROXIMATED: Code = Code::new(
     "review.scene-text-frame.approximated",
     Severity::Warning,
@@ -5699,7 +5699,7 @@ pub const XML_DTD_DROPPED: Code = Code::new("xml.dtd.dropped", Severity::Info, N
 
 /// XML 1.0 の文字ではない値を書こうとした（#866）
 ///
-/// `xml.edit-character.invalid`（0.0.0 から）
+/// `xml.edit-character.invalid`（0.3.0 から）
 pub const XML_EDIT_CHARACTER_INVALID: Code = Code::new(
     "xml.edit-character.invalid",
     Severity::Error,
@@ -5710,7 +5710,7 @@ pub const XML_EDIT_CHARACTER_INVALID: Code = Code::new(
 
 /// 子の要素を持つ項目の文字全体は置き換えない（#866）
 ///
-/// `xml.edit-children.unsupported`（0.0.0 から）
+/// `xml.edit-children.unsupported`（0.3.0 から）
 pub const XML_EDIT_CHILDREN_UNSUPPORTED: Code = Code::new(
     "xml.edit-children.unsupported",
     Severity::Error,
@@ -5721,19 +5721,19 @@ pub const XML_EDIT_CHILDREN_UNSUPPORTED: Code = Code::new(
 
 /// 元の文字コードで値を同じ文字に戻せない（#866）
 ///
-/// `xml.edit-encoding.failed`（0.0.0 から）
+/// `xml.edit-encoding.failed`（0.3.0 から）
 pub const XML_EDIT_ENCODING_FAILED: Code =
     Code::new("xml.edit-encoding.failed", Severity::Error, None, &[], &[]);
 
 /// 追加する XML の名前が QName ではない（#866）
 ///
-/// `xml.edit-name.invalid`（0.0.0 から）
+/// `xml.edit-name.invalid`（0.3.0 から）
 pub const XML_EDIT_NAME_INVALID: Code =
     Code::new("xml.edit-name.invalid", Severity::Error, None, &[], &[]);
 
 /// 追加する要素の名前空間の接頭辞が宣言されていない（#866）
 ///
-/// `xml.edit-namespace.missing`（0.0.0 から）
+/// `xml.edit-namespace.missing`（0.3.0 から）
 pub const XML_EDIT_NAMESPACE_MISSING: Code = Code::new(
     "xml.edit-namespace.missing",
     Severity::Error,
@@ -5744,13 +5744,13 @@ pub const XML_EDIT_NAMESPACE_MISSING: Code = Code::new(
 
 /// 同じ要素や重なる範囲への変更が競合する（#866）
 ///
-/// `xml.edit-range.invalid`（0.0.0 から）
+/// `xml.edit-range.invalid`（0.3.0 から）
 pub const XML_EDIT_RANGE_INVALID: Code =
     Code::new("xml.edit-range.invalid", Severity::Error, None, &[], &[]);
 
 /// 指定した XML の要素がない（#866）
 ///
-/// `xml.edit-target.missing`（0.0.0 から）
+/// `xml.edit-target.missing`（0.3.0 から）
 pub const XML_EDIT_TARGET_MISSING: Code = Code::new(
     "xml.edit-target.missing",
     Severity::Error,
@@ -5794,7 +5794,7 @@ pub const XML_NAMESPACE_MISSING: Code = Code::new(
 
 /// XML の出力の長さを扱えないか、出力の領域を確保できない（#866）
 ///
-/// `xml.write.failed`（0.0.0 から）
+/// `xml.write.failed`（0.3.0 から）
 pub const XML_WRITE_FAILED: Code = Code::new("xml.write.failed", Severity::Error, None, &[], &[]);
 
 /// 列の数から属性を推定できないので、4 列目からを移さなかった

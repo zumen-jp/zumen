@@ -9,7 +9,7 @@ publish = true
 
 [dependencies]
 encoding_rs = "0.8.35"
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
 
 [lints]
 workspace = true

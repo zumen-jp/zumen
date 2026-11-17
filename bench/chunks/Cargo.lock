@@ -79,6 +79,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
+name = "i_float"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ecaff1ce29bcacd72cdf581ba6fce636ef4c4e0b2da7e7846dd0137d98141e2"
+dependencies = [
+ "libm",
+]
+
+[[package]]
+name = "i_key_sort"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14269ee362009550495e20650ff3c2bca14a8147fe251e216760381ffed90b6f"
+
+[[package]]
+name = "i_overlay"
+version = "9.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e19f30f6631721dcdfdd424da135bde0ffb0f6aca1036947eff2137527f5e926"
+dependencies = [
+ "i_float",
+ "i_key_sort",
+ "i_shape",
+ "i_tree",
+]
+
+[[package]]
+name = "i_shape"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa1878f91ef7921feaf1b2346253ebc5e661878b22d5715195c1d5dcf0f20ae5"
+dependencies = [
+ "i_float",
+]
+
+[[package]]
+name = "i_tree"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "048af31de955890c62a8506fec511335a5089e91e1c516537add16f96c507d84"
+
+[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -122,17 +164,20 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "zumen-acad"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
+ "libm",
  "zumen-base",
  "zumen-drawing",
+ "zumen-geom2d",
+ "zumen-live",
  "zumen-sdk",
 ]
 
 [[package]]
 name = "zumen-base"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "zumen-bench-chunks"
@@ -147,16 +192,15 @@ dependencies = [
 
 [[package]]
 name = "zumen-crs"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
- "zumen-sdk",
 ]
 
 [[package]]
 name = "zumen-drawing"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "libm",
@@ -166,18 +210,27 @@ dependencies = [
 
 [[package]]
 name = "zumen-geom2d"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
+ "i_overlay",
  "libm",
 ]
 
 [[package]]
 name = "zumen-json"
-version = "0.2.0"
+version = "0.3.0"
+
+[[package]]
+name = "zumen-live"
+version = "0.3.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+]
 
 [[package]]
 name = "zumen-review"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "zumen-base",
@@ -187,18 +240,30 @@ dependencies = [
 
 [[package]]
 name = "zumen-scene"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
  "zumen-drawing",
  "zumen-geom2d",
  "zumen-review",
+ "zumen-text",
 ]
 
 [[package]]
 name = "zumen-sdk"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
+ "encoding_rs",
  "zumen-base",
+]
+
+[[package]]
+name = "zumen-text"
+version = "0.3.0"
+dependencies = [
+ "encoding_rs",
+ "libm",
+ "zumen-base",
+ "zumen-drawing",
 ]

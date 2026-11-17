@@ -13,11 +13,11 @@ drawing = ["dep:zumen-drawing", "dep:zumen-geom2d", "dep:zumen-crs"]
 measure = ["dep:zumen-geom2d", "dep:zumen-crs"]
 
 [dependencies]
-zumen-base = { version = "0.2.0", path = "../zumen-base" }
-zumen-geom3d = { version = "0.2.0", path = "../zumen-geom3d" }
-zumen-drawing = { version = "0.2.0", path = "../zumen-drawing", optional = true }
-zumen-geom2d = { version = "0.2.0", path = "../zumen-geom2d", optional = true }
-zumen-crs = { version = "0.2.0", path = "../zumen-crs", optional = true }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-geom3d = { version = "0.3.0", path = "../zumen-geom3d" }
+zumen-drawing = { version = "0.3.0", path = "../zumen-drawing", optional = true }
+zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d", optional = true }
+zumen-crs = { version = "0.3.0", path = "../zumen-crs", optional = true }
 libm = { version = "0.2.16", default-features = false }
 # 要素のハッシュ（決定 0156）。C と asm を使わない pure の機能だけを使う
 blake3 = { version = "1.8.2", default-features = false, features = ["pure"] }
