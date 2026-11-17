@@ -20,8 +20,9 @@ WASM = "wasm32-unknown-unknown"
 MODULES = ("default", "drawing", "bim", "civil", "pointcloud")
 
 
-def feature_args(module):
-    return [] if module == "default" else ["--no-default-features", "--features", module]
+def feature_args(module, package="zumen-abi"):
+    # 名前を crate で限る。限らないと cargo metadata が、同じ名前の feature を workspace の別 member でも有効にする
+    return [] if module == "default" else ["--no-default-features", "--features", f"{package}/{module}"]
 
 
 def wasm_name(module):

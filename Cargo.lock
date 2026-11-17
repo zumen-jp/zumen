@@ -1102,7 +1102,6 @@ dependencies = [
  "zumen-json",
  "zumen-landxml",
  "zumen-live",
- "zumen-profile",
  "zumen-sdk",
  "zumen-step",
  "zumen-sxf",
@@ -1213,7 +1212,9 @@ dependencies = [
  "zumen-drawing",
  "zumen-geom2d",
  "zumen-geom3d",
+ "zumen-ifc",
  "zumen-json",
+ "zumen-sdk",
 ]
 
 [[package]]

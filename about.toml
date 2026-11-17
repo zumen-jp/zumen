@@ -33,8 +33,8 @@ path = "LICENSE.txt"
 license = "MIT"
 checksum = "3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7"
 
-# dashu・i_overlay・i_key_sort の包みには、ライセンスのファイルが入っていない。cargo-about は MIT の SPDX の定型の文で
-# 代えるので、公開したコミット（包みの .cargo_vcs_info.json）の上流のリポジトリから、著作権の表示を含む MIT の本文を取る。
+# dashu・i_overlay・i_key_sort が crates.io に出したファイルには、ライセンスのファイルが入っていない。cargo-about は MIT の SPDX の定型の文で
+# 代えるので、公開したコミット（.cargo_vcs_info.json）の上流のリポジトリから、著作権の表示を含む MIT の本文を取る。
 # どれも MIT OR Apache-2.0（i_key_sort は MIT）なので、MIT を選んで載せる。dashu-int は、移植元の ibig の MIT の本文
 # （NOTICE.md）も同梱しているので、あわせて載せる。
 [dashu-base.clarify]

@@ -58,8 +58,6 @@ name = "building_measure"
 required-features = ["measure"]
 
 [dev-dependencies]
-# 直接の建具属性から、作図プロファイルの記号までを合成 IFC で照らす。
-zumen-profile = { path = "../zumen-profile", features = ["building-drawing"] }
 zumen-drawing = { path = "../zumen-drawing" }
 zumen-geom3d = { path = "../zumen-geom3d" }
 # 公開サンプルの要素の値を、IfcOpenShell と照らす JSON に書く

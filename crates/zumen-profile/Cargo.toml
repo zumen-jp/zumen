@@ -24,6 +24,12 @@ zumen-geom3d = { version = "0.3.0", path = "../zumen-geom3d", optional = true }
 zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d", optional = true }
 blake3 = { version = "1.8.2", default-features = false, features = ["pure"], optional = true }
 
+[dev-dependencies]
+# 建具の属性から作図プロファイルの記号までを、合成 IFC で照らす（tests/ifc_door.rs）。
+# zumen-ifc の側から zumen-profile の feature を有効にすると、配る SBOM に実ビルドにない辺が載る
+zumen-ifc = { path = "../zumen-ifc" }
+zumen-sdk = { path = "../zumen-sdk" }
+
 [lints]
 workspace = true
 

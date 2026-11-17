@@ -56,7 +56,7 @@ def run(workspace):
     lock = (workspace / "Cargo.lock").read_bytes()
     for module, failure in (("drawing", "コンパイラーの実際の依存"), ("keep", "cargo tree と SBOM の辺"), ("plugin", None)):
         # drawing は extra を作らない。keep は全 crate を作るが、base -> common の辺は使わない。
-        flags = ["--manifest-path", str(manifest), "--target", host, *feature_args(module)]
+        flags = ["--manifest-path", str(manifest), "--target", host, *feature_args(module, "zumen-cli")]
         output = sbom.raw_command(["cargo", "auditable", "build", "--release", "--locked", "--bin", "zumen",
                                    "--message-format=json-render-diagnostics", *flags], workspace, env)
         messages = [json.loads(line) for line in output.splitlines()]

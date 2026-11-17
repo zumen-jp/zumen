@@ -13,14 +13,15 @@ name = "zumen_abi1"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 # wasm のモジュール（決定 0013・0221）。名前は schema/boundary.toml の modules と同じ。ネイティブのライブラリと CLI は、
-# すべてを入れる
+# すべてを入れる。モジュールの feature は cfg のコードだけを切り替え、依存の crate と feature を変えない。cargo metadata は
+# workspace の全 member の feature をまとめて解くので、依存を変えると、配る SBOM と埋込情報に実ビルドにない辺が載る
 [features]
 default = ["drawing", "bim", "civil", "pointcloud"]
 drawing = []
-bim = ["dep:zumen-scene3d"]
+bim = []
 # 土木・地理と点群のモジュール（決定 0253）
-civil = ["dep:zumen-scene3d", "zumen-geo/scene3d"]
-pointcloud = ["dep:zumen-scene3d", "zumen-pointcloud/scene3d"]
+civil = []
+pointcloud = []
 # プラグインのモジュールの土台（決定 0247）。プラグインの形式だけを読み、lift で図面モデルのバイナリにする
 plugin = []
 
@@ -38,7 +39,7 @@ zumen-review = { version = "0.3.0", path = "../zumen-review" }
 # 決定 0272 の描画部品を、scene と同じ図面モデルから使う（決定 0275）
 zumen-render = { version = "0.3.0", path = "../zumen-render" }
 zumen-scene = { version = "0.3.0", path = "../zumen-scene" }
-zumen-scene3d = { version = "0.3.0", path = "../zumen-scene3d", optional = true }
+zumen-scene3d = { version = "0.3.0", path = "../zumen-scene3d" }
 zumen-text = { version = "0.3.0", path = "../zumen-text" }
 zumen-jww = { version = "0.3.0", path = "../zumen-jww" }
 zumen-bcf = { version = "0.3.0", path = "../zumen-bcf" }
@@ -56,11 +57,11 @@ zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d" }
 zumen-sima = { version = "0.3.0", path = "../zumen-sima" }
 zumen-tiff = { version = "0.3.0", path = "../zumen-tiff" }
 zumen-delivery = { version = "0.3.0", path = "../zumen-delivery" }
-zumen-geo = { version = "0.3.0", path = "../zumen-geo" }
+zumen-geo = { version = "0.3.0", path = "../zumen-geo", features = ["scene3d"] }
 zumen-geom3d = { version = "0.3.0", path = "../zumen-geom3d" }
 zumen-las = { version = "0.3.0", path = "../zumen-las" }
 zumen-ply = { version = "0.3.0", path = "../zumen-ply" }
-zumen-pointcloud = { version = "0.3.0", path = "../zumen-pointcloud" }
+zumen-pointcloud = { version = "0.3.0", path = "../zumen-pointcloud", features = ["scene3d"] }
 zumen-e57 = { version = "0.3.0", path = "../zumen-e57" }
 zumen-xyz = { version = "0.3.0", path = "../zumen-xyz" }
 zumen-building = { version = "0.3.0", path = "../zumen-building" }
