@@ -114,12 +114,6 @@ fn overflow_drops_only_the_bad_element_or_view_and_keeps_the_good_id() {
             ],
         ),
         (
-            "MTEXT",
-            50,
-            "4",
-            &[(10, "0"), (20, "0"), (40, "1"), (1, "a"), (50, "1e308")],
-        ),
-        (
             "LINE",
             10,
             "6",

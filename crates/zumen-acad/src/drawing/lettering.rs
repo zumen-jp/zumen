@@ -61,7 +61,8 @@ impl Lifter<'_> {
     }
 
     /// MTEXT（DXF Reference「MTEXT」）。内容は、250 バイトずつの 3 の後に、残りの 1 を続けたもの。向きは X 軸の
-    /// 向き（11・21）があればそれを、なければ回転（50、ラジアン）を移す。枠の幅（41）と高さ（46）は 0 なら
+    /// 向き（11・21）があればそれを、なければ回転（50）を移す。DXF Reference は 50 をラジアンと書くが、ファイルの
+    /// 50 は度で、AutoCAD 2027 は 50 が 35 の MTEXT の向きを 35 度と読んだ（#882）。枠の幅（41）と高さ（46）は 0 なら
     /// 持たない。文字の範囲の大きさ（42・43）は内容から決まる値なので移さない。段組み（75）は、まだ移さない
     pub(super) fn formatted<P: Copy>(
         &self,
@@ -99,11 +100,7 @@ impl Lifter<'_> {
             }
             Rotation::Direction(direction)
         } else {
-            Rotation::Angle(finite(
-                kind,
-                50,
-                self.real(object, 50, Some(0.0))?.to_degrees(),
-            )?)
+            Rotation::Angle(finite(kind, 50, self.real(object, 50, Some(0.0))?)?)
         };
         let frame = |code: i16| -> Lifted<Option<Length>> {
             match self.real(object, code, Some(0.0))? {

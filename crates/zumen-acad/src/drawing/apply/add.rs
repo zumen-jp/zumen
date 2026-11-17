@@ -694,7 +694,7 @@ impl Born {
     }
 
     /// MTEXT（DXF Reference「MTEXT」）の値。高さの意味が MTEXT の高さ（`dxf.MTEXT.40`）で、背景を持たず、
-    /// 区間が内容を解釈し直した区間と合うものに限る。向きは、DXF では元の形（50 のラジアンか、11・21 の向き）で、
+    /// 区間が内容を解釈し直した区間と合うものに限る。向きは、DXF では元の形（50 の度か、11・21 の向き）で、
     /// DWG では 11・21 の向きで書く。DWG に足す MTEXT は角度（50）を持てないので、0 でない角度の MTEXT は DWG に
     /// 足さない。DWG から読む MTEXT は、どれも向きを持つ。
     /// 枠の高さ（46）は、DWG には R2010 からだけ書き、R2010 からは、なくても 0 を書く
@@ -768,7 +768,8 @@ impl Born {
             }
             Rotation::Angle(angle) => {
                 if angle != 0.0 {
-                    values.push(real(50, angle.to_radians())?);
+                    // ファイルの 50 は度（#882）
+                    values.push(real(50, angle)?);
                 }
                 None
             }

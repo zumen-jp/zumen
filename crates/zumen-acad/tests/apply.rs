@@ -560,15 +560,65 @@ fn mtexts_are_moved_rewritten_and_reframed() {
     assert_eq!(first.shape, changed.shape);
     assert_eq!(second.shape, moved.shape);
     let text = String::from_utf8(written).unwrap();
-    // 枠の幅は 0 にし、位置合わせを直す。角度（ラジアン）と行送りは、省いたフィールドを内容の後に足す
+    // 枠の幅は 0 にし、位置合わせを直す。角度（度、#882）と行送りは、省いたフィールドを内容の後に足す
     assert!(text.contains(" 41\n0.0\n 71\n5\n"), "{text}");
-    assert!(
-        text.contains("あ\n 50\n1.5707963267948966\n 73\n2\n 44\n1.5\n"),
-        "{text}"
-    );
+    assert!(text.contains("あ\n 50\n90.0\n 73\n2\n 44\n1.5\n"), "{text}");
     assert!(text.contains(" 11\n0.0\n 21\n1.0\n"), "{text}");
     // 元の区切り（3）の内容は、変えていないのでそのまま
     assert!(text.contains(&format!("  3\n{long}\n  1\nend\n")));
+}
+
+/// MTEXT の回転（50）はファイルでは度。AutoCAD 2027 は 50 が 35 の MTEXT の向きを 35 度と読む（#882）。読み・
+/// 置き換え・追加のどれも度のまま扱う
+#[test]
+fn mtext_rotations_are_degrees() {
+    use zumen_drawing::Rotation;
+    let src = versioned(
+        "AC1015",
+        &[
+            (0, "MTEXT"),
+            (5, "1A"),
+            (8, "0"),
+            (10, "1.0"),
+            (20, "2.0"),
+            (30, "0.0"),
+            (40, "2.5"),
+            (71, "1"),
+            (1, "A"),
+            (50, "35.0"),
+        ],
+    );
+    let mut file = testkit::read::<Dxf>(&src).0.unwrap();
+    let [element] = <[_; 1]>::try_from(elements(&lift(&file))).unwrap();
+    let Shape::Formatted(text) = &element.shape else {
+        panic!("{:?}", element.shape);
+    };
+    assert_eq!(text.rotation, Rotation::Angle(35.0));
+    let mut turned = element.clone();
+    let mut added = element.clone();
+    added.source = Ref::at_record(901);
+    if let (Shape::Formatted(text), Shape::Formatted(other)) = (&mut turned.shape, &mut added.shape)
+    {
+        text.rotation = Rotation::Angle(90.0);
+        other.rotation = Rotation::Angle(20.0);
+    }
+    let (result, found) = apply(
+        &mut file,
+        vec![
+            Edit::Replace(Box::new(turned.clone())),
+            Edit::Add(Box::new(added.clone())),
+        ],
+    );
+    assert!(result.is_ok(), "{found:?}");
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let text = String::from_utf8(written.clone()).unwrap();
+    assert!(text.contains(" 50\n90.0\n"), "{text}");
+    assert!(text.contains(" 50\n20.0\n"), "{text}");
+    let shapes: Vec<_> = elements(&lift(&testkit::read::<Dxf>(&written).0.unwrap()))
+        .into_iter()
+        .map(|element| element.shape)
+        .collect();
+    assert_eq!(shapes, [turned.shape, added.shape]);
 }
 
 #[test]

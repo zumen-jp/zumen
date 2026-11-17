@@ -478,7 +478,7 @@ fn lettering_in<P: PartialEq>(
 }
 
 /// MTEXT（DXF Reference「MTEXT」）のフィールドを直す。内容（250 バイトずつの 3 と、最後の 1）・基点（10）・高さ（40）・
-/// 向き（50 のラジアンか、11・21 の向き）・枠の幅（41）と高さ（46）・位置合わせ（71）・行送り（44・73）を書く。
+/// 向き（50 の度か、11・21 の向き）・枠の幅（41）と高さ（46）・位置合わせ（71）・行送り（44・73）を書く。
 /// 書き進める向き・背景・高さの意味は変えられない。文字スタイルは表で検査した場合だけ変える。向きは、元と同じ形（角度か向き）のときだけ
 /// 書く。省いたフィールドは、DXF Reference の並び（内容の後に 50・73・44）で足す。区間は内容から決まるので、内容を解釈し直した区間と合わなければ受け付けない
 fn formatting<P: PartialEq>(
@@ -509,7 +509,8 @@ fn formatting<P: PartialEq>(
     if text.rotation != was.rotation {
         match (text.rotation, was.rotation) {
             (Rotation::Angle(angle), Rotation::Angle(_)) => {
-                put(values, 50, angle.to_radians(), &[43, 42, 7, 1])?;
+                // ファイルの 50 は度（#882）
+                put(values, 50, angle, &[43, 42, 7, 1])?;
             }
             (Rotation::Direction([x, y]), Rotation::Direction(_)) if [x, y] != [0.0, 0.0] => {
                 put(values, 11, x, &[])?;
