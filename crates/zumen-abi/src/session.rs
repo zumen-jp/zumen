@@ -4,11 +4,15 @@ mod building_ops;
 #[cfg(feature = "drawing")]
 mod calibration_ops;
 mod civil_ops;
+#[cfg(feature = "drawing")]
+mod construct_ops;
 mod conversion_ops;
 #[cfg(feature = "drawing")]
 mod creation_ops;
 mod delivery_ops;
 mod drawing_ops;
+#[cfg(feature = "drawing")]
+mod element_set;
 #[cfg(feature = "drawing")]
 mod intersection_ops;
 #[cfg(feature = "drawing")]
@@ -454,6 +458,10 @@ impl Session {
             #[cfg(feature = "drawing")]
             Request::Regions(request) => self.regions(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
+            Request::Construct(request) => {
+                self.construct(request, &mut cx).map(|r| Box::new(r) as _)
+            }
+            #[cfg(feature = "drawing")]
             Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(any(feature = "bim", feature = "civil", feature = "pointcloud"))]
             Request::Scene3d(request) => self.scene3d(request, &mut cx).map(|r| Box::new(r) as _),
@@ -718,6 +726,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Measure(request) => &request.request_common,
         Request::Intersect(request) => &request.request_common,
         Request::Regions(request) => &request.request_common,
+        Request::Construct(request) => &request.request_common,
         Request::Scene(request) => &request.request_common,
         Request::Scene3d(request) => &request.request_common,
         Request::Render(request) => &request.request_common,
@@ -962,6 +971,8 @@ mod watchdog {
 
 #[cfg(all(test, feature = "drawing"))]
 mod calibration_tests;
+#[cfg(all(test, feature = "drawing"))]
+mod construct_tests;
 #[cfg(all(test, feature = "pointcloud"))]
 mod deviation_tests;
 #[cfg(all(test, feature = "drawing"))]

@@ -33,6 +33,8 @@ pub enum Request {
     Intersect(IntersectRequest),
     /// 同じ実寸の空間の要素の線が囲む閉領域を検出する、または閉じた要素どうしの和・積・差・排他的論理和を求める。文書を変更しない。マイナーバージョン 91 から
     Regions(RegionsRequest),
+    /// 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から
+    Construct(ConstructRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
     /// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
@@ -109,6 +111,7 @@ impl Request {
         "measure",
         "intersect",
         "regions",
+        "construct",
         "apply",
         "create",
         "convert",
@@ -155,6 +158,7 @@ impl Request {
             Self::Measure(_) => "measure",
             Self::Intersect(_) => "intersect",
             Self::Regions(_) => "regions",
+            Self::Construct(_) => "construct",
             Self::Apply(_) => "apply",
             Self::Create(_) => "create",
             Self::Convert(_) => "convert",
@@ -206,6 +210,7 @@ impl FromJson for Request {
             "measure" => Self::Measure(MeasureRequest::read_fields(&mut object)?),
             "intersect" => Self::Intersect(IntersectRequest::read_fields(&mut object)?),
             "regions" => Self::Regions(RegionsRequest::read_fields(&mut object)?),
+            "construct" => Self::Construct(ConstructRequest::read_fields(&mut object)?),
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
             "create" => Self::Create(CreateRequest::read_fields(&mut object)?),
             "convert" => Self::Convert(ConvertRequest::read_fields(&mut object)?),
@@ -269,6 +274,7 @@ impl ToJson for Request {
             Self::Measure(value) => value.to_json(out),
             Self::Intersect(value) => value.to_json(out),
             Self::Regions(value) => value.to_json(out),
+            Self::Construct(value) => value.to_json(out),
             Self::Apply(value) => value.to_json(out),
             Self::Create(value) => value.to_json(out),
             Self::Convert(value) => value.to_json(out),
@@ -2834,6 +2840,429 @@ impl FromJson for RegionsResult {
 }
 
 impl ToJson for RegionsResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConstructRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 開いた文書の名前
+    pub doc: String,
+    /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+    pub from: String,
+    /// 作図の種類
+    pub operation: ConstructOperation,
+    /// 作図する要素。線分・円・円弧。面取りとフィレットでは 1 本目の線分
+    pub target: MeasureElement,
+    /// 面取りとフィレットの 2 本目の線分。target と端点を共有し、target と異なる ID
+    pub second: Option<MeasureElement>,
+    /// トリムと延長の境界の要素。線分・円・円弧・折れ線と、近似する曲線。1 つ以上で、同じ ID と target を含めない
+    pub boundaries: Option<Vec<MeasureElement>>,
+    /// トリムで削る区間を選ぶ点。線分は元の直線へ垂直に投影し、円・円弧は中心からの向きで選ぶ
+    pub pick: Option<Point2>,
+    /// 延長する端点
+    pub end: Option<ConstructEnd>,
+    /// オフセットの距離。線分は始点から終点へ向かって左、円・円弧は外側を正にする
+    pub distance: Option<f64>,
+    /// 面取りで、共有する端点から target と second の上を進む正の距離 [target, second]
+    pub distances: Option<Vec<f64>>,
+    /// フィレットの円弧の正の半径
+    pub radius: Option<f64>,
+    /// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、境界の曲線を近似する目標にも使う
+    pub tolerance: Option<f64>,
+    /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+    pub expected_hash: Option<String>,
+}
+
+impl ConstructRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "construct")?;
+        let doc = object.required("doc", json::string)?;
+        let from = object.required("from", json::string)?;
+        let operation = object.required("operation", ConstructOperation::from_json)?;
+        let target = object.required("target", MeasureElement::from_json)?;
+        let second = object.optional("second", MeasureElement::from_json)?;
+        let boundaries = object.optional("boundaries", |value| {
+            json::array(value, MeasureElement::from_json)
+        })?;
+        let pick = object.optional("pick", Point2::from_json)?;
+        let end = object.optional("end", ConstructEnd::from_json)?;
+        let distance = object.optional("distance", json::number)?;
+        let distances = object.optional("distances", |value| json::array(value, json::number))?;
+        let radius = object.optional("radius", json::number)?;
+        let tolerance = object.optional("tolerance", json::number)?;
+        let expected_hash = object.optional("expected_hash", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            from,
+            operation,
+            target,
+            second,
+            boundaries,
+            pick,
+            end,
+            distance,
+            distances,
+            radius,
+            tolerance,
+            expected_hash,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("construct");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("from");
+        out.string(&self.from);
+        out.key("operation");
+        self.operation.to_json(out);
+        out.key("target");
+        self.target.to_json(out);
+        if let Some(value) = &self.second {
+            out.key("second");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.boundaries {
+            out.key("boundaries");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.pick {
+            out.key("pick");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.end {
+            out.key("end");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.distance {
+            out.key("distance");
+            out.float(*value);
+        }
+        if let Some(value) = &self.distances {
+            out.key("distances");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.radius {
+            out.key("radius");
+            out.float(*value);
+        }
+        if let Some(value) = &self.tolerance {
+            out.key("tolerance");
+            out.float(*value);
+        }
+        if let Some(value) = &self.expected_hash {
+            out.key("expected_hash");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for ConstructRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConstructRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// offset は distance だけ平行に移した新しい形、trim は pick を含む区間を最初に当たる境界の間で削った残り、extend は end の端点を最初に当たる境界まで延ばした形、chamfer は target と second の角を distances で切る線分、fillet は radius の接する円弧
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ConstructOperation {
+    /// `offset`
+    Offset,
+    /// `trim`
+    Trim,
+    /// `extend`
+    Extend,
+    /// `chamfer`
+    Chamfer,
+    /// `fillet`
+    Fillet,
+}
+
+impl ConstructOperation {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Offset,
+        Self::Trim,
+        Self::Extend,
+        Self::Chamfer,
+        Self::Fillet,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Offset => "offset",
+            Self::Trim => "trim",
+            Self::Extend => "extend",
+            Self::Chamfer => "chamfer",
+            Self::Fillet => "fillet",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "offset" => Some(Self::Offset),
+            "trim" => Some(Self::Trim),
+            "extend" => Some(Self::Extend),
+            "chamfer" => Some(Self::Chamfer),
+            "fillet" => Some(Self::Fillet),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for ConstructOperation {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for ConstructOperation {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 延長する端点。start は始点を逆向きへ、end は終点を進む向きへ延ばす
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ConstructEnd {
+    /// `start`
+    Start,
+    /// `end`
+    End,
+}
+
+impl ConstructEnd {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Start, Self::End];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::End => "end",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "start" => Some(Self::Start),
+            "end" => Some(Self::End),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for ConstructEnd {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for ConstructEnd {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConstructReplacement {
+    /// 置き換える要素の公開 ID
+    pub id: String,
+    /// 置き換える形。元の向きの順
+    pub geometries: Vec<Geometry>,
+}
+
+impl ConstructReplacement {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let geometries = object.required("geometries", |value| {
+            json::array(value, Geometry::from_json)
+        })?;
+        Ok(Self { id, geometries })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("geometries");
+        out.array(&self.geometries, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for ConstructReplacement {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConstructReplacement {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// トリムと延長で採用した境界と切断点
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConstructCut {
+    /// 境界の要素の公開 ID
+    pub boundary: String,
+    /// 元の交点を丸めた格子点
+    pub position: Point2,
+    /// 元の交点が格子点でなく、近い格子点へ丸めた
+    pub rounded: bool,
+    /// 丸めた点を元の線・円の上へ投影したため、正確な切断位置と異なる
+    pub adjusted: bool,
+}
+
+impl ConstructCut {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let boundary = object.required("boundary", json::string)?;
+        let position = object.required("position", Point2::from_json)?;
+        let rounded = object.required("rounded", json::boolean)?;
+        let adjusted = object.required("adjusted", json::boolean)?;
+        Ok(Self {
+            boundary,
+            position,
+            rounded,
+            adjusted,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("boundary");
+        out.string(&self.boundary);
+        out.key("position");
+        self.position.to_json(out);
+        out.key("rounded");
+        out.bool(self.rounded);
+        out.key("adjusted");
+        out.bool(self.adjusted);
+    }
+}
+
+impl FromJson for ConstructCut {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConstructCut {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 作図の結果の形。文書は変わらない
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConstructResult {
+    /// 元の文書のハッシュ
+    pub hash: String,
+    /// 求めた実寸の空間の公開 ID
+    pub from: String,
+    /// 空間の長さの単位。不明な単位を補わない
+    pub unit: Unit,
+    /// 指定した、または既定の許容差
+    pub tolerance: f64,
+    /// 境界の曲線を折れ線に近似した
+    pub approximate: bool,
+    /// 置き換える要素。target、second の順
+    pub replace: Vec<ConstructReplacement>,
+    /// 足す形。オフセットの形、面取りの線分、フィレットの円弧
+    pub add: Vec<Geometry>,
+    /// トリムと延長で採用した切断点。元の向きの順
+    pub cuts: Vec<ConstructCut>,
+}
+
+impl ConstructResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.required("hash", json::string)?;
+        let from = object.required("from", json::string)?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let tolerance = object.required("tolerance", json::number)?;
+        let approximate = object.required("approximate", json::boolean)?;
+        let replace = object.required("replace", |value| {
+            json::array(value, ConstructReplacement::from_json)
+        })?;
+        let add = object.required("add", |value| json::array(value, Geometry::from_json))?;
+        let cuts = object.required("cuts", |value| json::array(value, ConstructCut::from_json))?;
+        Ok(Self {
+            hash,
+            from,
+            unit,
+            tolerance,
+            approximate,
+            replace,
+            add,
+            cuts,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("from");
+        out.string(&self.from);
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("tolerance");
+        out.float(self.tolerance);
+        out.key("approximate");
+        out.bool(self.approximate);
+        out.key("replace");
+        out.array(&self.replace, |out, item| item.to_json(out));
+        out.key("add");
+        out.array(&self.add, |out, item| item.to_json(out));
+        out.key("cuts");
+        out.array(&self.cuts, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for ConstructResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ConstructResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

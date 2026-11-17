@@ -176,6 +176,26 @@ DXF・DWG は 4 種類の表、JWW・SXF は各形式が追加できるレイヤ
 
 分割後の辺は合わせて 4096 本までで、超えると `input-limit` で失敗します。経路と弦の点を `segments` へ、分割・走査・抽出の二乗の上限を作業量へ、配列を確保量へ先に数えます。未対応の形・範囲外の座標・ない ID・丸めが収束しない入力（`precision`）は `drawing.element-region.failed` に理由と元の要素を残し、部分結果を返しません。要素の集合の計算で失敗した場合は `subject` の最初の要素を指します。予算停止後も文書を再利用できます。期待値と環境間の応答の一致は[閉領域の適合テスト](../bindings/conformance/README.md#閉領域)で確かめます。
 
+## モデル空間の作図
+
+スキーマ 1.92 から、`construct` で同じ実寸の空間の要素からオフセット・トリム・延長・面取り・フィレットの形の値を求められます。文書・要素・ID・ハッシュは変わりません。返した値を `apply` の `replace` と `add` に渡すと、図面に反映できます。
+
+```json
+{"v":1,"op":"construct","doc":"plan.dxf","from":"space/0","operation":"trim","target":{"kind":"element","id":"space/0/h10"},"boundaries":[{"kind":"element","id":"space/0/h11"}],"pick":{"x":12.5,"y":3}}
+```
+
+`operation` ごとに使うフィールドが決まり、それ以外のフィールドは書けません。
+
+- `offset`: `target` を `distance` だけ離した形を `add` に返します。線分は進む向きの左、円と円弧は外側を正とします。半径が 0 以下になる値は `no-solution` で失敗します
+- `trim`: `target` を `boundaries` との交点で切り、`pick` の点を含む部分を除いた残りを `replace` に返します。円は切ると円弧になります。`pick` が要素の外なら `pick-outside`、交点の上なら `ambiguous-pick`、交点がなければ `no-intersection` で失敗します
+- `extend`: 線分か円弧の `end`（`start` か `end`）を、延ばした先で最初に当たる `boundaries` まで延ばします。円は延ばせず `unsupported-shape` になります
+- `chamfer`: 端点を共有する 2 本の線分 `target` と `second` の角を、角から `distances` の 2 つの距離で結ぶ線分を `add` に、残りを `replace` に返します
+- `fillet`: 同じ角を半径 `radius` の円弧で丸めます。端点を共有しない組は `no-corner` で失敗します
+
+距離と半径は正の有限値で、`offset` の `distance` だけは 0 でない負の値も書けます。`boundaries` は 1 本以上、`target` や `second` と同じ ID や重複を含めません。`tolerance` と[整数格子](../docs/geometry2d.md)は `intersect` と同じです。作った点・交点・切断点は格子で求めた値、変えない端点・中心・半径・角度は元の値を返し、`replace` の形は元の要素の向きを保ちます。時計回りの円弧は反時計回りの値にします。`cuts` は切断点ごとに境界の ID と点と、交点を格子点へ丸めたか（`rounded`）、端の判定で点を寄せたか（`adjusted`）を返します。境界に楕円・スプライン・クロソイドを使うと `approximate: true` と `drawing.element-construction.approximated` を返します。
+
+経路・交点・作図の計算を作業量・`segments`・確保量へ数えます。未対応の形・範囲外の座標・ない ID・解がない入力は `drawing.element-construction.failed` に理由と元の要素を残し、部分結果を返しません。計算での失敗は `target` を指します。予算停止後も文書を再利用できます。期待値と環境間の応答の一致は[作図の適合テスト](../bindings/conformance/README.md#作図)で確かめます。
+
 ## 3D のシーンの契約
 
 建物のシーンは `zumen-scene3d` と共通 API の `scene3d` で作ります（メッセージのスキーマ 1.82 から）。地物も同じ列と op を使います（1.86 から）。[scene3d.toml](scene3d.toml) から各言語の定数と型を生成します。以下の生成条件は建物を対象とし、地物の座標と選択は[地物の図面とシーン](#地物の図面とシーン)、点群は[点群の 3D のシーン](#点群の-3d-のシーン)に従います（1.88 から）。

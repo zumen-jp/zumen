@@ -52,6 +52,9 @@ class Request extends Message {
   /// op が regions の形なら、そのビュー。違えば null
   RegionsRequest? get asRegionsRequest => taggedView('op', 'regions', RegionsRequest.fromJson);
 
+  /// op が construct の形なら、そのビュー。違えば null
+  ConstructRequest? get asConstructRequest => taggedView('op', 'construct', ConstructRequest.fromJson);
+
   /// op が apply の形なら、そのビュー。違えば null
   ApplyRequest? get asApplyRequest => taggedView('op', 'apply', ApplyRequest.fromJson);
 
@@ -1362,6 +1365,193 @@ class RegionsResult extends Message {
   /// 閉領域を作らなかった入力。degenerate、続いて open を元の入力順で返す
   List<RegionDiscard>? get discarded => readField('discarded', listOf(objectOf(RegionDiscard.fromJson)));
   set discarded(List<RegionDiscard>? value) => writeField('discarded', value);
+}
+
+/// 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から
+class ConstructRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConstructRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  ConstructRequest() : super({'op': 'construct'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 開いた文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 作図の種類
+  String? get operation => readField('operation', asString);
+  set operation(String? value) => writeField('operation', value);
+
+  /// 作図する要素。線分・円・円弧。面取りとフィレットでは 1 本目の線分
+  MeasureElement? get target => readField('target', objectOf(MeasureElement.fromJson));
+  set target(MeasureElement? value) => writeField('target', value);
+
+  /// 面取りとフィレットの 2 本目の線分。target と端点を共有し、target と異なる ID
+  MeasureElement? get second => readField('second', objectOf(MeasureElement.fromJson));
+  set second(MeasureElement? value) => writeField('second', value);
+
+  /// トリムと延長の境界の要素。線分・円・円弧・折れ線と、近似する曲線。1 つ以上で、同じ ID と target を含めない
+  List<MeasureElement>? get boundaries => readField('boundaries', listOf(objectOf(MeasureElement.fromJson)));
+  set boundaries(List<MeasureElement>? value) => writeField('boundaries', value);
+
+  /// トリムで削る区間を選ぶ点。線分は元の直線へ垂直に投影し、円・円弧は中心からの向きで選ぶ
+  Point2? get pick => readField('pick', objectOf(Point2.fromJson));
+  set pick(Point2? value) => writeField('pick', value);
+
+  /// 延長する端点
+  String? get end => readField('end', asString);
+  set end(String? value) => writeField('end', value);
+
+  /// オフセットの距離。線分は始点から終点へ向かって左、円・円弧は外側を正にする
+  core.double? get distance => readField('distance', asDouble);
+  set distance(core.double? value) => writeField('distance', value);
+
+  /// 面取りで、共有する端点から target と second の上を進む正の距離 [target, second]
+  List<core.double>? get distances => readField('distances', listOf(asDouble));
+  set distances(List<core.double>? value) => writeField('distances', value);
+
+  /// フィレットの円弧の正の半径
+  core.double? get radius => readField('radius', asDouble);
+  set radius(core.double? value) => writeField('radius', value);
+
+  /// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、境界の曲線を近似する目標にも使う
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
+
+  /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+  String? get expectedHash => readField('expected_hash', asString);
+  set expectedHash(String? value) => writeField('expected_hash', value);
+}
+
+/// offset は distance だけ平行に移した新しい形、trim は pick を含む区間を最初に当たる境界の間で削った残り、extend は end の端点を最初に当たる境界まで延ばした形、chamfer は target と second の角を distances で切る線分、fillet は radius の接する円弧
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class ConstructOperation {
+  static const offset = 'offset';
+  static const trim = 'trim';
+  static const extend = 'extend';
+  static const chamfer = 'chamfer';
+  static const fillet = 'fillet';
+}
+
+/// 延長する端点。start は始点を逆向きへ、end は終点を進む向きへ延ばす
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class ConstructEnd {
+  static const start = 'start';
+  static const end = 'end';
+}
+
+/// 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す
+class ConstructReplacement extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConstructReplacement.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConstructReplacement() : super({});
+
+  /// 置き換える要素の公開 ID
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 置き換える形。元の向きの順
+  List<Geometry>? get geometries => readField('geometries', listOf(objectOf(Geometry.fromJson)));
+  set geometries(List<Geometry>? value) => writeField('geometries', value);
+}
+
+/// トリムと延長で採用した境界と切断点
+class ConstructCut extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConstructCut.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConstructCut() : super({});
+
+  /// 境界の要素の公開 ID
+  String? get boundary => readField('boundary', asString);
+  set boundary(String? value) => writeField('boundary', value);
+
+  /// 元の交点を丸めた格子点
+  Point2? get position => readField('position', objectOf(Point2.fromJson));
+  set position(Point2? value) => writeField('position', value);
+
+  /// 元の交点が格子点でなく、近い格子点へ丸めた
+  core.bool? get rounded => readField('rounded', asBool);
+  set rounded(core.bool? value) => writeField('rounded', value);
+
+  /// 丸めた点を元の線・円の上へ投影したため、正確な切断位置と異なる
+  core.bool? get adjusted => readField('adjusted', asBool);
+  set adjusted(core.bool? value) => writeField('adjusted', value);
+}
+
+/// 作図の結果の形。文書は変わらない
+class ConstructResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ConstructResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ConstructResult() : super({});
+
+  /// 元の文書のハッシュ
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 求めた実寸の空間の公開 ID
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 空間の長さの単位。不明な単位を補わない
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// 指定した、または既定の許容差
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
+
+  /// 境界の曲線を折れ線に近似した
+  core.bool? get approximate => readField('approximate', asBool);
+  set approximate(core.bool? value) => writeField('approximate', value);
+
+  /// 置き換える要素。target、second の順
+  List<ConstructReplacement>? get replace => readField('replace', listOf(objectOf(ConstructReplacement.fromJson)));
+  set replace(List<ConstructReplacement>? value) => writeField('replace', value);
+
+  /// 足す形。オフセットの形、面取りの線分、フィレットの円弧
+  List<Geometry>? get add => readField('add', listOf(objectOf(Geometry.fromJson)));
+  set add(List<Geometry>? value) => writeField('add', value);
+
+  /// トリムと延長で採用した切断点。元の向きの順
+  List<ConstructCut>? get cuts => readField('cuts', listOf(objectOf(ConstructCut.fromJson)));
+  set cuts(List<ConstructCut>? value) => writeField('cuts', value);
 }
 
 /// 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -9706,6 +9896,7 @@ abstract final class Operations {
   static const measure = 'measure';
   static const intersect = 'intersect';
   static const regions = 'regions';
+  static const construct = 'construct';
   static const apply = 'apply';
   static const create = 'create';
   static const convert = 'convert';

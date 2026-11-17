@@ -20,6 +20,7 @@ Request = Union[
     "MeasureRequest",
     "IntersectRequest",
     "RegionsRequest",
+    "ConstructRequest",
     "ApplyRequest",
     "CreateRequest",
     "ConvertRequest",
@@ -999,6 +1000,135 @@ RegionsResult = TypedDict(
         "rounded": List["RegionRounding"],
         # 閉領域を作らなかった入力。degenerate、続いて open を元の入力順で返す
         "discarded": List["RegionDiscard"],
+    },
+)
+
+
+# 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から
+_ConstructRequestRequired = TypedDict(
+    "_ConstructRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["construct"],
+        # 開いた文書の名前
+        "doc": str,
+        # 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+        "from": str,
+        # 作図の種類
+        "operation": "ConstructOperation",
+        # 作図する要素。線分・円・円弧。面取りとフィレットでは 1 本目の線分
+        "target": "MeasureElement",
+    },
+)
+_ConstructRequestOptional = TypedDict(
+    "_ConstructRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 面取りとフィレットの 2 本目の線分。target と端点を共有し、target と異なる ID
+        "second": "MeasureElement",
+        # トリムと延長の境界の要素。線分・円・円弧・折れ線と、近似する曲線。1 つ以上で、同じ ID と target を含めない
+        "boundaries": List["MeasureElement"],
+        # トリムで削る区間を選ぶ点。線分は元の直線へ垂直に投影し、円・円弧は中心からの向きで選ぶ
+        "pick": "Point2",
+        # 延長する端点
+        "end": "ConstructEnd",
+        # オフセットの距離。線分は始点から終点へ向かって左、円・円弧は外側を正にする
+        "distance": float,
+        # 面取りで、共有する端点から target と second の上を進む正の距離 [target, second]
+        "distances": List[float],
+        # フィレットの円弧の正の半径
+        "radius": float,
+        # 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、境界の曲線を近似する目標にも使う
+        "tolerance": float,
+        # 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+        "expected_hash": str,
+    },
+    total=False,
+)
+
+
+class ConstructRequest(_ConstructRequestRequired, _ConstructRequestOptional):
+    "同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から"
+
+# offset は distance だけ平行に移した新しい形、trim は pick を含む区間を最初に当たる境界の間で削った残り、extend は end の端点を最初に当たる境界まで延ばした形、chamfer は target と second の角を distances で切る線分、fillet は radius の接する円弧
+ConstructOperation = Union[
+    Literal[
+        "offset",
+        "trim",
+        "extend",
+        "chamfer",
+        "fillet",
+    ],
+    str,
+]
+
+# 延長する端点。start は始点を逆向きへ、end は終点を進む向きへ延ばす
+ConstructEnd = Union[
+    Literal[
+        "start",
+        "end",
+    ],
+    str,
+]
+
+
+# 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す
+ConstructReplacement = TypedDict(
+    "ConstructReplacement",
+    {
+        # 置き換える要素の公開 ID
+        "id": str,
+        # 置き換える形。元の向きの順
+        "geometries": List["Geometry"],
+    },
+)
+
+
+# トリムと延長で採用した境界と切断点
+ConstructCut = TypedDict(
+    "ConstructCut",
+    {
+        # 境界の要素の公開 ID
+        "boundary": str,
+        # 元の交点を丸めた格子点
+        "position": "Point2",
+        # 元の交点が格子点でなく、近い格子点へ丸めた
+        "rounded": bool,
+        # 丸めた点を元の線・円の上へ投影したため、正確な切断位置と異なる
+        "adjusted": bool,
+    },
+)
+
+
+# 作図の結果の形。文書は変わらない
+ConstructResult = TypedDict(
+    "ConstructResult",
+    {
+        # 元の文書のハッシュ
+        "hash": str,
+        # 求めた実寸の空間の公開 ID
+        "from": str,
+        # 空間の長さの単位。不明な単位を補わない
+        "unit": "Unit",
+        # 指定した、または既定の許容差
+        "tolerance": float,
+        # 境界の曲線を折れ線に近似した
+        "approximate": bool,
+        # 置き換える要素。target、second の順
+        "replace": List["ConstructReplacement"],
+        # 足す形。オフセットの形、面取りの線分、フィレットの円弧
+        "add": List["Geometry"],
+        # トリムと延長で採用した切断点。元の向きの順
+        "cuts": List["ConstructCut"],
     },
 )
 
@@ -7691,6 +7821,7 @@ Operation = Literal[
     "measure",
     "intersect",
     "regions",
+    "construct",
     "apply",
     "create",
     "convert",
@@ -7736,6 +7867,7 @@ OPERATIONS: Dict[str, Any] = {
     "measure": ("MeasureRequest", "MeasureResult"),
     "intersect": ("IntersectRequest", "IntersectResult"),
     "regions": ("RegionsRequest", "RegionsResult"),
+    "construct": ("ConstructRequest", "ConstructResult"),
     "apply": ("ApplyRequest", "ApplyResult"),
     "create": ("CreateRequest", "CreateResult"),
     "convert": ("ConvertRequest", "ConvertResult"),

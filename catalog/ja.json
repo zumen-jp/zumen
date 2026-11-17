@@ -116,6 +116,8 @@
     "drawing.binary-version.unsupported": "図面モデルのバイナリのメジャーバージョン {major} を読めません。このコアが読めるのはメジャーバージョン {supported} です（{count} 件）。",
     "drawing.binary.invalid": "図面モデルのバイナリが {position} バイト目で壊れているので（{reason}）、読めませんでした（{count} 件）。",
     "drawing.calibration.invalid": "校正領域「{id}」が不正なため、使いませんでした（理由: {reason}、{count} 件）。",
+    "drawing.element-construction.approximated": "境界「{id}」の曲線を、分割の目標 {tolerance} で折れ線にして作図しました（{count} 件）。",
+    "drawing.element-construction.failed": "対象「{id}」の作図の結果を求められませんでした（理由: {reason}、{count} 件）。",
     "drawing.element-intersection.approximated": "対象「{id}」の交わりを、分割の目標 {tolerance} で曲線を折れ線にして求めました（{count} 件）。",
     "drawing.element-intersection.failed": "対象「{id}」の交わりを求められませんでした（理由: {reason}、{count} 件）。",
     "drawing.element-measurement.approximated": "対象「{id}」の {quantity} を、分割の目標 {tolerance} で曲線を折れ線にして求めました（{count} 件）。",

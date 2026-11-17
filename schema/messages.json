@@ -18,6 +18,7 @@
         { "$ref": "#/$defs/measure_request" },
         { "$ref": "#/$defs/intersect_request" },
         { "$ref": "#/$defs/regions_request" },
+        { "$ref": "#/$defs/construct_request" },
         { "$ref": "#/$defs/apply_request" },
         { "$ref": "#/$defs/create_request" },
         { "$ref": "#/$defs/convert_request" },
@@ -688,6 +689,104 @@
         }
       },
       "required": ["hash", "from", "unit", "tolerance", "approximate", "regions", "rounded", "discarded"],
+      "additionalProperties": false
+    },
+    "construct_request": {
+      "description": "同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "construct" },
+        "doc": { "description": "開いた文書の名前", "type": "string" },
+        "from": { "description": "実寸の空間の公開 ID。用紙と記号定義の空間は対象外", "type": "string" },
+        "operation": { "description": "作図の種類", "$ref": "#/$defs/construct_operation" },
+        "target": { "description": "作図する要素。線分・円・円弧。面取りとフィレットでは 1 本目の線分", "$ref": "#/$defs/measure_element" },
+        "second": { "description": "面取りとフィレットの 2 本目の線分。target と端点を共有し、target と異なる ID", "$ref": "#/$defs/measure_element" },
+        "boundaries": {
+          "description": "トリムと延長の境界の要素。線分・円・円弧・折れ線と、近似する曲線。1 つ以上で、同じ ID と target を含めない",
+          "type": "array",
+          "items": { "$ref": "#/$defs/measure_element" }
+        },
+        "pick": { "description": "トリムで削る区間を選ぶ点。線分は元の直線へ垂直に投影し、円・円弧は中心からの向きで選ぶ", "$ref": "#/$defs/point2" },
+        "end": { "description": "延長する端点", "$ref": "#/$defs/construct_end" },
+        "distance": { "description": "オフセットの距離。線分は始点から終点へ向かって左、円・円弧は外側を正にする", "type": "number" },
+        "distances": {
+          "description": "面取りで、共有する端点から target と second の上を進む正の距離 [target, second]",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "radius": { "description": "フィレットの円弧の正の半径", "type": "number" },
+        "tolerance": {
+          "description": "許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、境界の曲線を近似する目標にも使う",
+          "type": "number"
+        },
+        "expected_hash": { "description": "期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する", "type": "string" }
+      },
+      "required": ["op", "doc", "from", "operation", "target"],
+      "unevaluatedProperties": false
+    },
+    "construct_operation": {
+      "description": "offset は distance だけ平行に移した新しい形、trim は pick を含む区間を最初に当たる境界の間で削った残り、extend は end の端点を最初に当たる境界まで延ばした形、chamfer は target と second の角を distances で切る線分、fillet は radius の接する円弧",
+      "type": "string",
+      "enum": ["offset", "trim", "extend", "chamfer", "fillet"]
+    },
+    "construct_end": {
+      "description": "延長する端点。start は始点を逆向きへ、end は終点を進む向きへ延ばす",
+      "type": "string",
+      "enum": ["start", "end"]
+    },
+    "construct_replacement": {
+      "description": "元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す",
+      "type": "object",
+      "properties": {
+        "id": { "description": "置き換える要素の公開 ID", "type": "string" },
+        "geometries": {
+          "description": "置き換える形。元の向きの順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/geometry" }
+        }
+      },
+      "required": ["id", "geometries"],
+      "additionalProperties": false
+    },
+    "construct_cut": {
+      "description": "トリムと延長で採用した境界と切断点",
+      "type": "object",
+      "properties": {
+        "boundary": { "description": "境界の要素の公開 ID", "type": "string" },
+        "position": { "description": "元の交点を丸めた格子点", "$ref": "#/$defs/point2" },
+        "rounded": { "description": "元の交点が格子点でなく、近い格子点へ丸めた", "type": "boolean" },
+        "adjusted": { "description": "丸めた点を元の線・円の上へ投影したため、正確な切断位置と異なる", "type": "boolean" }
+      },
+      "required": ["boundary", "position", "rounded", "adjusted"],
+      "additionalProperties": false
+    },
+    "construct_result": {
+      "description": "作図の結果の形。文書は変わらない",
+      "type": "object",
+      "properties": {
+        "hash": { "description": "元の文書のハッシュ", "type": "string" },
+        "from": { "description": "求めた実寸の空間の公開 ID", "type": "string" },
+        "unit": { "description": "空間の長さの単位。不明な単位を補わない", "$ref": "#/$defs/unit" },
+        "tolerance": { "description": "指定した、または既定の許容差", "type": "number" },
+        "approximate": { "description": "境界の曲線を折れ線に近似した", "type": "boolean" },
+        "replace": {
+          "description": "置き換える要素。target、second の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/construct_replacement" }
+        },
+        "add": {
+          "description": "足す形。オフセットの形、面取りの線分、フィレットの円弧",
+          "type": "array",
+          "items": { "$ref": "#/$defs/geometry" }
+        },
+        "cuts": {
+          "description": "トリムと延長で採用した切断点。元の向きの順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/construct_cut" }
+        }
+      },
+      "required": ["hash", "from", "unit", "tolerance", "approximate", "replace", "add", "cuts"],
       "additionalProperties": false
     },
     "point_style_summary": {

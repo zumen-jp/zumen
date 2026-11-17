@@ -51,6 +51,7 @@ namespace Zumen.Messages
             ["measure"] = typeof(MeasureRequest),
             ["intersect"] = typeof(IntersectRequest),
             ["regions"] = typeof(RegionsRequest),
+            ["construct"] = typeof(ConstructRequest),
             ["apply"] = typeof(ApplyRequest),
             ["create"] = typeof(CreateRequest),
             ["convert"] = typeof(ConvertRequest),
@@ -1656,6 +1657,256 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("discarded")]
         public IReadOnlyList<RegionDiscard> Discarded { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から
+    /// </summary>
+    public sealed record ConstructRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "construct";
+
+        /// <summary>
+        /// 開いた文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 作図の種類
+        /// </summary>
+        [JsonPropertyName("operation")]
+        public string Operation { get; init; } = default!;
+
+        /// <summary>
+        /// 作図する要素。線分・円・円弧。面取りとフィレットでは 1 本目の線分
+        /// </summary>
+        [JsonPropertyName("target")]
+        public MeasureElement Target { get; init; } = default!;
+
+        /// <summary>
+        /// 面取りとフィレットの 2 本目の線分。target と端点を共有し、target と異なる ID
+        /// </summary>
+        [JsonPropertyName("second")]
+        public MeasureElement? Second { get; init; }
+
+        /// <summary>
+        /// トリムと延長の境界の要素。線分・円・円弧・折れ線と、近似する曲線。1 つ以上で、同じ ID と target を含めない
+        /// </summary>
+        [JsonPropertyName("boundaries")]
+        public IReadOnlyList<MeasureElement>? Boundaries { get; init; }
+
+        /// <summary>
+        /// トリムで削る区間を選ぶ点。線分は元の直線へ垂直に投影し、円・円弧は中心からの向きで選ぶ
+        /// </summary>
+        [JsonPropertyName("pick")]
+        public Point2? Pick { get; init; }
+
+        /// <summary>
+        /// 延長する端点
+        /// </summary>
+        [JsonPropertyName("end")]
+        public string? End { get; init; }
+
+        /// <summary>
+        /// オフセットの距離。線分は始点から終点へ向かって左、円・円弧は外側を正にする
+        /// </summary>
+        [JsonPropertyName("distance")]
+        public double? Distance { get; init; }
+
+        /// <summary>
+        /// 面取りで、共有する端点から target と second の上を進む正の距離 [target, second]
+        /// </summary>
+        [JsonPropertyName("distances")]
+        public IReadOnlyList<double>? Distances { get; init; }
+
+        /// <summary>
+        /// フィレットの円弧の正の半径
+        /// </summary>
+        [JsonPropertyName("radius")]
+        public double? Radius { get; init; }
+
+        /// <summary>
+        /// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、境界の曲線を近似する目標にも使う
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double? Tolerance { get; init; }
+
+        /// <summary>
+        /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+        /// </summary>
+        [JsonPropertyName("expected_hash")]
+        public string? ExpectedHash { get; init; }
+    }
+
+    /// <summary>
+    /// offset は distance だけ平行に移した新しい形、trim は pick を含む区間を最初に当たる境界の間で削った残り、extend は end の端点を最初に当たる境界まで延ばした形、chamfer は target と second の角を distances で切る線分、fillet は radius の接する円弧
+    /// </summary>
+    public static class ConstructOperation
+    {
+        /// <summary>offset</summary>
+        public const string Offset = "offset";
+        /// <summary>trim</summary>
+        public const string Trim = "trim";
+        /// <summary>extend</summary>
+        public const string Extend = "extend";
+        /// <summary>chamfer</summary>
+        public const string Chamfer = "chamfer";
+        /// <summary>fillet</summary>
+        public const string Fillet = "fillet";
+    }
+
+    /// <summary>
+    /// 延長する端点。start は始点を逆向きへ、end は終点を進む向きへ延ばす
+    /// </summary>
+    public static class ConstructEnd
+    {
+        /// <summary>start</summary>
+        public const string Start = "start";
+        /// <summary>end</summary>
+        public const string End = "end";
+    }
+
+    /// <summary>
+    /// 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す
+    /// </summary>
+    public sealed record ConstructReplacement
+    {
+        /// <summary>
+        /// 置き換える要素の公開 ID
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 置き換える形。元の向きの順
+        /// </summary>
+        [JsonPropertyName("geometries")]
+        public IReadOnlyList<JsonAny> Geometries { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// トリムと延長で採用した境界と切断点
+    /// </summary>
+    public sealed record ConstructCut
+    {
+        /// <summary>
+        /// 境界の要素の公開 ID
+        /// </summary>
+        [JsonPropertyName("boundary")]
+        public string Boundary { get; init; } = default!;
+
+        /// <summary>
+        /// 元の交点を丸めた格子点
+        /// </summary>
+        [JsonPropertyName("position")]
+        public Point2 Position { get; init; } = default!;
+
+        /// <summary>
+        /// 元の交点が格子点でなく、近い格子点へ丸めた
+        /// </summary>
+        [JsonPropertyName("rounded")]
+        public bool Rounded { get; init; }
+
+        /// <summary>
+        /// 丸めた点を元の線・円の上へ投影したため、正確な切断位置と異なる
+        /// </summary>
+        [JsonPropertyName("adjusted")]
+        public bool Adjusted { get; init; }
+    }
+
+    /// <summary>
+    /// 作図の結果の形。文書は変わらない
+    /// </summary>
+    public sealed record ConstructResult
+    {
+        /// <summary>
+        /// 元の文書のハッシュ
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 求めた実寸の空間の公開 ID
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 空間の長さの単位。不明な単位を補わない
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// 指定した、または既定の許容差
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double Tolerance { get; init; }
+
+        /// <summary>
+        /// 境界の曲線を折れ線に近似した
+        /// </summary>
+        [JsonPropertyName("approximate")]
+        public bool Approximate { get; init; }
+
+        /// <summary>
+        /// 置き換える要素。target、second の順
+        /// </summary>
+        [JsonPropertyName("replace")]
+        public IReadOnlyList<ConstructReplacement> Replace { get; init; } = default!;
+
+        /// <summary>
+        /// 足す形。オフセットの形、面取りの線分、フィレットの円弧
+        /// </summary>
+        [JsonPropertyName("add")]
+        public IReadOnlyList<JsonAny> Add { get; init; } = default!;
+
+        /// <summary>
+        /// トリムと延長で採用した切断点。元の向きの順
+        /// </summary>
+        [JsonPropertyName("cuts")]
+        public IReadOnlyList<ConstructCut> Cuts { get; init; } = default!;
     }
 
     /// <summary>
@@ -12291,6 +12542,7 @@ namespace Zumen.Messages
                 ["measure"] = (typeof(MeasureRequest), typeof(MeasureResult)),
                 ["intersect"] = (typeof(IntersectRequest), typeof(IntersectResult)),
                 ["regions"] = (typeof(RegionsRequest), typeof(RegionsResult)),
+                ["construct"] = (typeof(ConstructRequest), typeof(ConstructResult)),
                 ["apply"] = (typeof(ApplyRequest), typeof(ApplyResult)),
                 ["create"] = (typeof(CreateRequest), typeof(CreateResult)),
                 ["convert"] = (typeof(ConvertRequest), typeof(ConvertResult)),

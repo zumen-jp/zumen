@@ -134,7 +134,7 @@ pub(crate) fn snap(grid: Grid, point: Xy) -> Result<Point, Error> {
     grid.snap(point).map(|snap| snap.point).map_err(geometry)
 }
 
-fn curve(piece: &Piece, grid: Grid) -> Result<Curve, Error> {
+pub(crate) fn curve(piece: &Piece, grid: Grid) -> Result<Curve, Error> {
     match *piece {
         Piece::Line { start, end } => Ok(Curve::Segment(Segment {
             start: snap(grid, start)?,

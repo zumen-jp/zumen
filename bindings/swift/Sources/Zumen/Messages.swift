@@ -69,6 +69,11 @@ public struct Request: Message {
         taggedView("op", "regions")
     }
 
+    /// op が construct の形なら、そのビュー。違えば nil
+    public var asConstructRequest: ConstructRequest? {
+        taggedView("op", "construct")
+    }
+
     /// op が apply の形なら、そのビュー。違えば nil
     public var asApplyRequest: ApplyRequest? {
         taggedView("op", "apply")
@@ -2107,6 +2112,287 @@ public struct RegionsResult: Message {
     public var discarded: [RegionDiscard]? {
         get { readField("discarded") }
         set { writeField("discarded", newValue) }
+    }
+}
+
+/// 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から
+public struct ConstructRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("construct")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 開いた文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 作図の種類
+    public var operation: String? {
+        get { readField("operation") }
+        set { writeField("operation", newValue) }
+    }
+
+    /// 作図する要素。線分・円・円弧。面取りとフィレットでは 1 本目の線分
+    public var target: MeasureElement? {
+        get { readField("target") }
+        set { writeField("target", newValue) }
+    }
+
+    /// 面取りとフィレットの 2 本目の線分。target と端点を共有し、target と異なる ID
+    public var second: MeasureElement? {
+        get { readField("second") }
+        set { writeField("second", newValue) }
+    }
+
+    /// トリムと延長の境界の要素。線分・円・円弧・折れ線と、近似する曲線。1 つ以上で、同じ ID と target を含めない
+    public var boundaries: [MeasureElement]? {
+        get { readField("boundaries") }
+        set { writeField("boundaries", newValue) }
+    }
+
+    /// トリムで削る区間を選ぶ点。線分は元の直線へ垂直に投影し、円・円弧は中心からの向きで選ぶ
+    public var pick: Point2? {
+        get { readField("pick") }
+        set { writeField("pick", newValue) }
+    }
+
+    /// 延長する端点
+    public var end: String? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+
+    /// オフセットの距離。線分は始点から終点へ向かって左、円・円弧は外側を正にする
+    public var distance: Double? {
+        get { readField("distance") }
+        set { writeField("distance", newValue) }
+    }
+
+    /// 面取りで、共有する端点から target と second の上を進む正の距離 [target, second]
+    public var distances: [Double]? {
+        get { readField("distances") }
+        set { writeField("distances", newValue) }
+    }
+
+    /// フィレットの円弧の正の半径
+    public var radius: Double? {
+        get { readField("radius") }
+        set { writeField("radius", newValue) }
+    }
+
+    /// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、境界の曲線を近似する目標にも使う
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+    public var expectedHash: String? {
+        get { readField("expected_hash") }
+        set { writeField("expected_hash", newValue) }
+    }
+}
+
+/// offset は distance だけ平行に移した新しい形、trim は pick を含む区間を最初に当たる境界の間で削った残り、extend は end の端点を最初に当たる境界まで延ばした形、chamfer は target と second の角を distances で切る線分、fillet は radius の接する円弧
+///
+/// 列挙の値。知らない値も受け取る
+public enum ConstructOperation {
+    public static let offset = "offset"
+    public static let trim = "trim"
+    public static let extend = "extend"
+    public static let chamfer = "chamfer"
+    public static let fillet = "fillet"
+}
+
+/// 延長する端点。start は始点を逆向きへ、end は終点を進む向きへ延ばす
+///
+/// 列挙の値。知らない値も受け取る
+public enum ConstructEnd {
+    public static let start = "start"
+    public static let end = "end"
+}
+
+/// 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す
+public struct ConstructReplacement: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 置き換える要素の公開 ID
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 置き換える形。元の向きの順
+    public var geometries: [Geometry]? {
+        get { readField("geometries") }
+        set { writeField("geometries", newValue) }
+    }
+}
+
+/// トリムと延長で採用した境界と切断点
+public struct ConstructCut: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 境界の要素の公開 ID
+    public var boundary: String? {
+        get { readField("boundary") }
+        set { writeField("boundary", newValue) }
+    }
+
+    /// 元の交点を丸めた格子点
+    public var position: Point2? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+
+    /// 元の交点が格子点でなく、近い格子点へ丸めた
+    public var rounded: Bool? {
+        get { readField("rounded") }
+        set { writeField("rounded", newValue) }
+    }
+
+    /// 丸めた点を元の線・円の上へ投影したため、正確な切断位置と異なる
+    public var adjusted: Bool? {
+        get { readField("adjusted") }
+        set { writeField("adjusted", newValue) }
+    }
+}
+
+/// 作図の結果の形。文書は変わらない
+public struct ConstructResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の文書のハッシュ
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 求めた実寸の空間の公開 ID
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 空間の長さの単位。不明な単位を補わない
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// 指定した、または既定の許容差
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 境界の曲線を折れ線に近似した
+    public var approximate: Bool? {
+        get { readField("approximate") }
+        set { writeField("approximate", newValue) }
+    }
+
+    /// 置き換える要素。target、second の順
+    public var replace: [ConstructReplacement]? {
+        get { readField("replace") }
+        set { writeField("replace", newValue) }
+    }
+
+    /// 足す形。オフセットの形、面取りの線分、フィレットの円弧
+    public var add: [Geometry]? {
+        get { readField("add") }
+        set { writeField("add", newValue) }
+    }
+
+    /// トリムと延長で採用した切断点。元の向きの順
+    public var cuts: [ConstructCut]? {
+        get { readField("cuts") }
+        set { writeField("cuts", newValue) }
     }
 }
 
@@ -14953,6 +15239,7 @@ public enum Operations {
     public static let measure = "measure"
     public static let intersect = "intersect"
     public static let regions = "regions"
+    public static let construct = "construct"
     public static let apply = "apply"
     public static let create = "create"
     public static let convert = "convert"

@@ -116,6 +116,8 @@
     "drawing.binary-version.unsupported": "Cannot read major version {major} of the drawing model binary. This core reads major version {supported} ({count}).",
     "drawing.binary.invalid": "Could not read the drawing model binary, because it is broken at byte {position} ({reason}) ({count}).",
     "drawing.calibration.invalid": "Did not use calibration \"{id}\" because it is invalid (reason: {reason}; {count}).",
+    "drawing.element-construction.approximated": "Constructed using a polyline approximation of boundary \"{id}\" with subdivision target {tolerance} ({count}).",
+    "drawing.element-construction.failed": "Could not construct from \"{id}\" (reason: {reason}; {count}).",
     "drawing.element-intersection.approximated": "Intersected \"{id}\" using a polyline approximation with subdivision target {tolerance} ({count}).",
     "drawing.element-intersection.failed": "Could not intersect \"{id}\" (reason: {reason}; {count}).",
     "drawing.element-measurement.approximated": "Measured {quantity} for \"{id}\" using a polyline approximation with subdivision target {tolerance} ({count}).",

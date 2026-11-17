@@ -17,6 +17,7 @@ export type Request =
   | MeasureRequest
   | IntersectRequest
   | RegionsRequest
+  | ConstructRequest
   | ApplyRequest
   | CreateRequest
   | ConvertRequest
@@ -559,6 +560,93 @@ export interface RegionsResult {
   rounded: RegionRounding[];
   /** 閉領域を作らなかった入力。degenerate、続いて open を元の入力順で返す */
   discarded: RegionDiscard[];
+}
+
+/** 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から */
+export interface ConstructRequest extends RequestCommon {
+  /** op の名前 */
+  op: "construct";
+  /** 開いた文書の名前 */
+  doc: string;
+  /** 実寸の空間の公開 ID。用紙と記号定義の空間は対象外 */
+  from: string;
+  /** 作図の種類 */
+  operation: ConstructOperation;
+  /** 作図する要素。線分・円・円弧。面取りとフィレットでは 1 本目の線分 */
+  target: MeasureElement;
+  /** 面取りとフィレットの 2 本目の線分。target と端点を共有し、target と異なる ID */
+  second?: MeasureElement;
+  /** トリムと延長の境界の要素。線分・円・円弧・折れ線と、近似する曲線。1 つ以上で、同じ ID と target を含めない */
+  boundaries?: MeasureElement[];
+  /** トリムで削る区間を選ぶ点。線分は元の直線へ垂直に投影し、円・円弧は中心からの向きで選ぶ */
+  pick?: Point2;
+  /** 延長する端点 */
+  end?: ConstructEnd;
+  /** オフセットの距離。線分は始点から終点へ向かって左、円・円弧は外側を正にする */
+  distance?: number;
+  /** 面取りで、共有する端点から target と second の上を進む正の距離 [target, second] */
+  distances?: number[];
+  /** フィレットの円弧の正の半径 */
+  radius?: number;
+  /** 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、境界の曲線を近似する目標にも使う */
+  tolerance?: number;
+  /** 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する */
+  expected_hash?: string;
+}
+
+/** offset は distance だけ平行に移した新しい形、trim は pick を含む区間を最初に当たる境界の間で削った残り、extend は end の端点を最初に当たる境界まで延ばした形、chamfer は target と second の角を distances で切る線分、fillet は radius の接する円弧 */
+export type ConstructOperation =
+  | "offset"
+  | "trim"
+  | "extend"
+  | "chamfer"
+  | "fillet"
+  | (string & {});
+
+/** 延長する端点。start は始点を逆向きへ、end は終点を進む向きへ延ばす */
+export type ConstructEnd =
+  | "start"
+  | "end"
+  | (string & {});
+
+/** 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す */
+export interface ConstructReplacement {
+  /** 置き換える要素の公開 ID */
+  id: string;
+  /** 置き換える形。元の向きの順 */
+  geometries: Geometry[];
+}
+
+/** トリムと延長で採用した境界と切断点 */
+export interface ConstructCut {
+  /** 境界の要素の公開 ID */
+  boundary: string;
+  /** 元の交点を丸めた格子点 */
+  position: Point2;
+  /** 元の交点が格子点でなく、近い格子点へ丸めた */
+  rounded: boolean;
+  /** 丸めた点を元の線・円の上へ投影したため、正確な切断位置と異なる */
+  adjusted: boolean;
+}
+
+/** 作図の結果の形。文書は変わらない */
+export interface ConstructResult {
+  /** 元の文書のハッシュ */
+  hash: string;
+  /** 求めた実寸の空間の公開 ID */
+  from: string;
+  /** 空間の長さの単位。不明な単位を補わない */
+  unit: Unit;
+  /** 指定した、または既定の許容差 */
+  tolerance: number;
+  /** 境界の曲線を折れ線に近似した */
+  approximate: boolean;
+  /** 置き換える要素。target、second の順 */
+  replace: ConstructReplacement[];
+  /** 足す形。オフセットの形、面取りの線分、フィレットの円弧 */
+  add: Geometry[];
+  /** トリムと延長で採用した切断点。元の向きの順 */
+  cuts: ConstructCut[];
 }
 
 /** 文書の点の表し方。フィールドの意味は point_style_edit と同じ */
@@ -4439,6 +4527,7 @@ export interface Operations {
   measure: { request: MeasureRequest; result: MeasureResult };
   intersect: { request: IntersectRequest; result: IntersectResult };
   regions: { request: RegionsRequest; result: RegionsResult };
+  construct: { request: ConstructRequest; result: ConstructResult };
   apply: { request: ApplyRequest; result: ApplyResult };
   create: { request: CreateRequest; result: CreateResult };
   convert: { request: ConvertRequest; result: ConvertResult };

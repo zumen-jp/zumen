@@ -85,6 +85,11 @@ func (u Request) AsRegionsRequest() *RegionsRequest {
 	return asTagged[RegionsRequest](u, "op", "regions")
 }
 
+// AsConstructRequest は、op が construct の形なら、その型で読む。違えば nil。
+func (u Request) AsConstructRequest() *ConstructRequest {
+	return asTagged[ConstructRequest](u, "op", "construct")
+}
+
 // AsApplyRequest は、op が apply の形なら、その型で読む。違えば nil。
 func (u Request) AsApplyRequest() *ApplyRequest {
 	return asTagged[ApplyRequest](u, "op", "apply")
@@ -1169,6 +1174,155 @@ type RegionsResult struct {
 
 	// 閉領域を作らなかった入力。degenerate、続いて open を元の入力順で返す
 	Discarded []RegionDiscard `json:"discarded,omitempty"`
+}
+
+// ConstructRequest: 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から
+type ConstructRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 開いた文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+	From *string `json:"from,omitempty"`
+
+	// 作図の種類
+	Operation *ConstructOperation `json:"operation,omitempty"`
+
+	// 作図する要素。線分・円・円弧。面取りとフィレットでは 1 本目の線分
+	Target *MeasureElement `json:"target,omitempty"`
+
+	// 面取りとフィレットの 2 本目の線分。target と端点を共有し、target と異なる ID
+	Second *MeasureElement `json:"second,omitempty"`
+
+	// トリムと延長の境界の要素。線分・円・円弧・折れ線と、近似する曲線。1 つ以上で、同じ ID と target を含めない
+	Boundaries []MeasureElement `json:"boundaries,omitempty"`
+
+	// トリムで削る区間を選ぶ点。線分は元の直線へ垂直に投影し、円・円弧は中心からの向きで選ぶ
+	Pick *Point2 `json:"pick,omitempty"`
+
+	// 延長する端点
+	End *ConstructEnd `json:"end,omitempty"`
+
+	// オフセットの距離。線分は始点から終点へ向かって左、円・円弧は外側を正にする
+	Distance *float64 `json:"distance,omitempty"`
+
+	// 面取りで、共有する端点から target と second の上を進む正の距離 [target, second]
+	Distances []float64 `json:"distances,omitempty"`
+
+	// フィレットの円弧の正の半径
+	Radius *float64 `json:"radius,omitempty"`
+
+	// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、境界の曲線を近似する目標にも使う
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m ConstructRequest) MarshalJSON() ([]byte, error) {
+	type plain ConstructRequest
+	m.Op = "construct"
+	return json.Marshal(plain(m))
+}
+
+// ConstructOperation: offset は distance だけ平行に移した新しい形、trim は pick を含む区間を最初に当たる境界の間で削った残り、extend は end の端点を最初に当たる境界まで延ばした形、chamfer は target と second の角を distances で切る線分、fillet は radius の接する円弧
+//
+// 列挙の値。知らない値も受け取る。
+type ConstructOperation string
+
+// ConstructOperationOffset は offset。
+const ConstructOperationOffset ConstructOperation = "offset"
+
+// ConstructOperationTrim は trim。
+const ConstructOperationTrim ConstructOperation = "trim"
+
+// ConstructOperationExtend は extend。
+const ConstructOperationExtend ConstructOperation = "extend"
+
+// ConstructOperationChamfer は chamfer。
+const ConstructOperationChamfer ConstructOperation = "chamfer"
+
+// ConstructOperationFillet は fillet。
+const ConstructOperationFillet ConstructOperation = "fillet"
+
+// ConstructEnd: 延長する端点。start は始点を逆向きへ、end は終点を進む向きへ延ばす
+//
+// 列挙の値。知らない値も受け取る。
+type ConstructEnd string
+
+// ConstructEndStart は start。
+const ConstructEndStart ConstructEnd = "start"
+
+// ConstructEndEnd は end。
+const ConstructEndEnd ConstructEnd = "end"
+
+// ConstructReplacement: 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す
+type ConstructReplacement struct {
+	// 置き換える要素の公開 ID
+	Id *string `json:"id,omitempty"`
+
+	// 置き換える形。元の向きの順
+	Geometries []Geometry `json:"geometries,omitempty"`
+}
+
+// ConstructCut: トリムと延長で採用した境界と切断点
+type ConstructCut struct {
+	// 境界の要素の公開 ID
+	Boundary *string `json:"boundary,omitempty"`
+
+	// 元の交点を丸めた格子点
+	Position *Point2 `json:"position,omitempty"`
+
+	// 元の交点が格子点でなく、近い格子点へ丸めた
+	Rounded *bool `json:"rounded,omitempty"`
+
+	// 丸めた点を元の線・円の上へ投影したため、正確な切断位置と異なる
+	Adjusted *bool `json:"adjusted,omitempty"`
+}
+
+// ConstructResult: 作図の結果の形。文書は変わらない
+type ConstructResult struct {
+	// 元の文書のハッシュ
+	Hash *string `json:"hash,omitempty"`
+
+	// 求めた実寸の空間の公開 ID
+	From *string `json:"from,omitempty"`
+
+	// 空間の長さの単位。不明な単位を補わない
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 指定した、または既定の許容差
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 境界の曲線を折れ線に近似した
+	Approximate *bool `json:"approximate,omitempty"`
+
+	// 置き換える要素。target、second の順
+	Replace []ConstructReplacement `json:"replace,omitempty"`
+
+	// 足す形。オフセットの形、面取りの線分、フィレットの円弧
+	Add []Geometry `json:"add,omitempty"`
+
+	// トリムと延長で採用した切断点。元の向きの順
+	Cuts []ConstructCut `json:"cuts,omitempty"`
 }
 
 // PointStyleSummary: 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -7811,6 +7965,9 @@ const OpIntersect = "intersect"
 
 // OpRegions は、op の名前 regions。
 const OpRegions = "regions"
+
+// OpConstruct は、op の名前 construct。
+const OpConstruct = "construct"
 
 // OpApply は、op の名前 apply。
 const OpApply = "apply"

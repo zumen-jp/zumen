@@ -117,6 +117,11 @@ public final class Messages {
             return "regions".equals(json.get("op")) ? new RegionsRequest(json) : null;
         }
 
+        /** op が construct の形なら、そのビュー。違えば null */
+        public ConstructRequest asConstructRequest() {
+            return "construct".equals(json.get("op")) ? new ConstructRequest(json) : null;
+        }
+
         /** op が apply の形なら、そのビュー。違えば null */
         public ApplyRequest asApplyRequest() {
             return "apply".equals(json.get("op")) ? new ApplyRequest(json) : null;
@@ -3356,6 +3361,478 @@ public final class Messages {
         /** {@link #getDiscarded()} を書く。null ならフィールドを除く */
         public RegionsResult withDiscarded(List<RegionDiscard> value) {
             put("discarded", value);
+            return this;
+        }
+    }
+
+    /** 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から */
+    public static final class ConstructRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConstructRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConstructRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConstructRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public ConstructRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "construct");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public ConstructRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public ConstructRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public ConstructRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public ConstructRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public ConstructRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public ConstructRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 開いた文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public ConstructRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 実寸の空間の公開 ID。用紙と記号定義の空間は対象外 */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public ConstructRequest withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 作図の種類 */
+        public String getOperation() {
+            return Json.read(json.get("operation"), Json::string);
+        }
+
+        /** {@link #getOperation()} を書く。null ならフィールドを除く */
+        public ConstructRequest withOperation(String value) {
+            put("operation", value);
+            return this;
+        }
+
+        /** 作図する要素。線分・円・円弧。面取りとフィレットでは 1 本目の線分 */
+        public MeasureElement getTarget() {
+            return Json.read(json.get("target"), MeasureElement::of);
+        }
+
+        /** {@link #getTarget()} を書く。null ならフィールドを除く */
+        public ConstructRequest withTarget(MeasureElement value) {
+            put("target", value);
+            return this;
+        }
+
+        /** 面取りとフィレットの 2 本目の線分。target と端点を共有し、target と異なる ID */
+        public MeasureElement getSecond() {
+            return Json.read(json.get("second"), MeasureElement::of);
+        }
+
+        /** {@link #getSecond()} を書く。null ならフィールドを除く */
+        public ConstructRequest withSecond(MeasureElement value) {
+            put("second", value);
+            return this;
+        }
+
+        /** トリムと延長の境界の要素。線分・円・円弧・折れ線と、近似する曲線。1 つ以上で、同じ ID と target を含めない */
+        public List<MeasureElement> getBoundaries() {
+            return Json.read(json.get("boundaries"), v0 -> Json.list(v0, MeasureElement::of));
+        }
+
+        /** {@link #getBoundaries()} を書く。null ならフィールドを除く */
+        public ConstructRequest withBoundaries(List<MeasureElement> value) {
+            put("boundaries", value);
+            return this;
+        }
+
+        /** トリムで削る区間を選ぶ点。線分は元の直線へ垂直に投影し、円・円弧は中心からの向きで選ぶ */
+        public Point2 getPick() {
+            return Json.read(json.get("pick"), Point2::of);
+        }
+
+        /** {@link #getPick()} を書く。null ならフィールドを除く */
+        public ConstructRequest withPick(Point2 value) {
+            put("pick", value);
+            return this;
+        }
+
+        /** 延長する端点 */
+        public String getEnd() {
+            return Json.read(json.get("end"), Json::string);
+        }
+
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
+        public ConstructRequest withEnd(String value) {
+            put("end", value);
+            return this;
+        }
+
+        /** オフセットの距離。線分は始点から終点へ向かって左、円・円弧は外側を正にする */
+        public Double getDistance() {
+            return Json.read(json.get("distance"), Json::number);
+        }
+
+        /** {@link #getDistance()} を書く。null ならフィールドを除く */
+        public ConstructRequest withDistance(Double value) {
+            put("distance", value);
+            return this;
+        }
+
+        /** 面取りで、共有する端点から target と second の上を進む正の距離 [target, second] */
+        public List<Double> getDistances() {
+            return Json.read(json.get("distances"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getDistances()} を書く。null ならフィールドを除く */
+        public ConstructRequest withDistances(List<Double> value) {
+            put("distances", value);
+            return this;
+        }
+
+        /** フィレットの円弧の正の半径 */
+        public Double getRadius() {
+            return Json.read(json.get("radius"), Json::number);
+        }
+
+        /** {@link #getRadius()} を書く。null ならフィールドを除く */
+        public ConstructRequest withRadius(Double value) {
+            put("radius", value);
+            return this;
+        }
+
+        /** 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、境界の曲線を近似する目標にも使う */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public ConstructRequest withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する */
+        public String getExpectedHash() {
+            return Json.read(json.get("expected_hash"), Json::string);
+        }
+
+        /** {@link #getExpectedHash()} を書く。null ならフィールドを除く */
+        public ConstructRequest withExpectedHash(String value) {
+            put("expected_hash", value);
+            return this;
+        }
+    }
+
+    /**
+     * offset は distance だけ平行に移した新しい形、trim は pick を含む区間を最初に当たる境界の間で削った残り、extend は end の端点を最初に当たる境界まで延ばした形、chamfer は target と second の角を distances で切る線分、fillet は radius の接する円弧
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class ConstructOperation {
+        private ConstructOperation() {}
+
+        public static final String OFFSET = "offset";
+
+        public static final String TRIM = "trim";
+
+        public static final String EXTEND = "extend";
+
+        public static final String CHAMFER = "chamfer";
+
+        public static final String FILLET = "fillet";
+    }
+
+    /**
+     * 延長する端点。start は始点を逆向きへ、end は終点を進む向きへ延ばす
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class ConstructEnd {
+        private ConstructEnd() {}
+
+        public static final String START = "start";
+
+        public static final String END = "end";
+    }
+
+    /** 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す */
+    public static final class ConstructReplacement extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConstructReplacement(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConstructReplacement of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConstructReplacement(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConstructReplacement() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 置き換える要素の公開 ID */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public ConstructReplacement withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 置き換える形。元の向きの順 */
+        public List<Geometry> getGeometries() {
+            return Json.read(json.get("geometries"), v0 -> Json.list(v0, Geometry::of));
+        }
+
+        /** {@link #getGeometries()} を書く。null ならフィールドを除く */
+        public ConstructReplacement withGeometries(List<Geometry> value) {
+            put("geometries", value);
+            return this;
+        }
+    }
+
+    /** トリムと延長で採用した境界と切断点 */
+    public static final class ConstructCut extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConstructCut(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConstructCut of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConstructCut(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConstructCut() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 境界の要素の公開 ID */
+        public String getBoundary() {
+            return Json.read(json.get("boundary"), Json::string);
+        }
+
+        /** {@link #getBoundary()} を書く。null ならフィールドを除く */
+        public ConstructCut withBoundary(String value) {
+            put("boundary", value);
+            return this;
+        }
+
+        /** 元の交点を丸めた格子点 */
+        public Point2 getPosition() {
+            return Json.read(json.get("position"), Point2::of);
+        }
+
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
+        public ConstructCut withPosition(Point2 value) {
+            put("position", value);
+            return this;
+        }
+
+        /** 元の交点が格子点でなく、近い格子点へ丸めた */
+        public Boolean getRounded() {
+            return Json.read(json.get("rounded"), Json::bool);
+        }
+
+        /** {@link #getRounded()} を書く。null ならフィールドを除く */
+        public ConstructCut withRounded(Boolean value) {
+            put("rounded", value);
+            return this;
+        }
+
+        /** 丸めた点を元の線・円の上へ投影したため、正確な切断位置と異なる */
+        public Boolean getAdjusted() {
+            return Json.read(json.get("adjusted"), Json::bool);
+        }
+
+        /** {@link #getAdjusted()} を書く。null ならフィールドを除く */
+        public ConstructCut withAdjusted(Boolean value) {
+            put("adjusted", value);
+            return this;
+        }
+    }
+
+    /** 作図の結果の形。文書は変わらない */
+    public static final class ConstructResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ConstructResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ConstructResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ConstructResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ConstructResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の文書のハッシュ */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public ConstructResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 求めた実寸の空間の公開 ID */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public ConstructResult withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 空間の長さの単位。不明な単位を補わない */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public ConstructResult withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** 指定した、または既定の許容差 */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public ConstructResult withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 境界の曲線を折れ線に近似した */
+        public Boolean getApproximate() {
+            return Json.read(json.get("approximate"), Json::bool);
+        }
+
+        /** {@link #getApproximate()} を書く。null ならフィールドを除く */
+        public ConstructResult withApproximate(Boolean value) {
+            put("approximate", value);
+            return this;
+        }
+
+        /** 置き換える要素。target、second の順 */
+        public List<ConstructReplacement> getReplace() {
+            return Json.read(json.get("replace"), v0 -> Json.list(v0, ConstructReplacement::of));
+        }
+
+        /** {@link #getReplace()} を書く。null ならフィールドを除く */
+        public ConstructResult withReplace(List<ConstructReplacement> value) {
+            put("replace", value);
+            return this;
+        }
+
+        /** 足す形。オフセットの形、面取りの線分、フィレットの円弧 */
+        public List<Geometry> getAdd() {
+            return Json.read(json.get("add"), v0 -> Json.list(v0, Geometry::of));
+        }
+
+        /** {@link #getAdd()} を書く。null ならフィールドを除く */
+        public ConstructResult withAdd(List<Geometry> value) {
+            put("add", value);
+            return this;
+        }
+
+        /** トリムと延長で採用した切断点。元の向きの順 */
+        public List<ConstructCut> getCuts() {
+            return Json.read(json.get("cuts"), v0 -> Json.list(v0, ConstructCut::of));
+        }
+
+        /** {@link #getCuts()} を書く。null ならフィールドを除く */
+        public ConstructResult withCuts(List<ConstructCut> value) {
+            put("cuts", value);
             return this;
         }
     }
@@ -24298,6 +24775,8 @@ public final class Messages {
         public static final String INTERSECT = "intersect";
 
         public static final String REGIONS = "regions";
+
+        public static final String CONSTRUCT = "construct";
 
         public static final String APPLY = "apply";
 

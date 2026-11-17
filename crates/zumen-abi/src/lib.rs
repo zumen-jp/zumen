@@ -38,6 +38,8 @@ mod check;
     feature = "pointcloud"
 ))]
 mod civil;
+#[cfg(feature = "drawing")]
+mod construction;
 mod convert;
 #[cfg(feature = "drawing")]
 mod delivery;
