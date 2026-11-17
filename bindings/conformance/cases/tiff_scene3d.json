@@ -1,4 +1,5 @@
 {
+  "module": "pointcloud",
   "description": "平面直角座標系の GeoTIFF の DEM（単バンドの標高格子）の scene3d は、外枠の地物でなく標高格子を、点群の scene3d と同じ点の区画（ZMS3 1.1）で返す（#896）。座標系と高さの基準は変換しない。GDAL_NODATA と非有限値のセルは点に含めず、理由ごとのセルの数を tiff.cell.dropped で知らせる",
   "steps": [
     {
