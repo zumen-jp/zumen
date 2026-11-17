@@ -274,7 +274,8 @@ impl AcadLive {
         self.state.element_with_source(row, cx)
     }
 
-    /// 現在の常駐状態から [`Drawing2D`] を組み立てる
+    /// 現在の常駐状態から [`Drawing2D`] を組み立てる。ファイルモデルの変換の診断のうち、ヘッダーから決まるもの
+    /// （単位がない `dxf.units.missing` など）を最初に返す。表と要素の変換の診断はまだ返さない
     pub fn drawing(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, Error> {
         self.state.to_drawing(cx)
     }
@@ -939,13 +940,27 @@ mod tests {
                         f.lift(cx)
                     }
                 });
-                let (live_1, live_diag_1) = fresh_cx(|cx| {
-                    let live = AcadLive::open_with_threads(&bytes, 1, cx)?;
-                    live.drawing(cx).map(|d| (live, d))
+                let (live_1, live_diag_1) =
+                    fresh_cx(|cx| AcadLive::open_with_threads(&bytes, 1, cx));
+                let live_1 = live_1.and_then(|live| {
+                    let (drawing, drawing_diag) = fresh_cx(|cx| live.drawing(cx));
+                    assert!(
+                        ref_diag.starts_with(&drawing_diag),
+                        "drawing diagnostics are not the header prefix on {}",
+                        path.display()
+                    );
+                    drawing.map(|d| (live, d))
                 });
-                let (live_4, live_diag_4) = fresh_cx(|cx| {
-                    let live = AcadLive::open_with_threads(&bytes, 4, cx)?;
-                    live.drawing(cx).map(|d| (live, d))
+                let (live_4, live_diag_4) =
+                    fresh_cx(|cx| AcadLive::open_with_threads(&bytes, 4, cx));
+                let live_4 = live_4.and_then(|live| {
+                    let (drawing, drawing_diag) = fresh_cx(|cx| live.drawing(cx));
+                    assert!(
+                        ref_diag.starts_with(&drawing_diag),
+                        "drawing diagnostics are not the header prefix on {}",
+                        path.display()
+                    );
+                    drawing.map(|d| (live, d))
                 });
                 assert_eq!(
                     ref_res.is_ok(),

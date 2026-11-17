@@ -1,6 +1,6 @@
 //! 保持モデル・保存・取り消しを従来の逐次 apply と直接比較する。
 
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Key, Kind, Limit, Limits};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Key, Kind, Limit, Limits, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, Drawing2D, Edge, Edit, Element, Font, FontKind, Hash, Inherit,
     PaperPoint, Placed, Restyle, Seen, Shape, id, transform,
@@ -200,6 +200,81 @@ fn duplicate_and_keyless_ids_keep_edit_results_after_open() {
 /// 範囲が空（`$EXTMIN` が 1e+20）の図面と、範囲の Z がわずかに負の図面の両方で確かめる。
 /// これまでの比較は、この 2 つの変数を持たない DXF と DWG だけを使っていたので、除いた図形で範囲を広げる誤りを見逃した
 #[test]
+fn unitless_dxf_drawing_reports_units_missing_like_lift() {
+    let input = b"0
+SECTION
+2
+HEADER
+9
+$ACADVER
+1
+AC1015
+0
+ENDSEC
+        0
+SECTION
+2
+ENTITIES
+        0
+LINE
+5
+10
+8
+0
+10
+0
+20
+0
+11
+1
+21
+0
+        0
+LINE
+5
+11
+8
+0
+10
+5
+20
+0
+11
+6
+21
+0
+        0
+ENDSEC
+0
+EOF
+";
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(input, threads);
+        let check = |pair: &DxfPair| {
+            let (_, expected) = fresh_cx(|cx| pair.reference.lift(cx));
+            let (_, actual) = fresh_cx(|cx| pair.live.drawing(cx));
+            assert_eq!(actual, expected);
+            assert!(
+                actual
+                    .iter()
+                    .any(|diagnostic| diagnostic.code() == codes::DXF_UNITS_MISSING)
+            );
+        };
+        check(&pair);
+        let edit = Edit::Transform {
+            target: pair.seen(0x10),
+            transform: Affine::translation(1.0, 2.0),
+        };
+        pair.apply(edit);
+        check(&pair);
+        assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+        let (_, actual) = fresh_cx(|cx| pair.live.drawing(cx));
+        let (_, expected) = fresh_cx(|cx| Dxf::read(input, cx)?.lift(cx));
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
 fn dxf_extents_follow_only_changed_and_added_elements() {
     for (bytes, handle) in [
         (
@@ -305,9 +380,12 @@ where
 
     fn assert_model(&self) {
         let (expected, expected_diag) = fresh_cx(|cx| self.reference.lift(cx));
-        let actual = fresh_cx(|cx| self.live.drawing(cx)).0.unwrap();
+        let (actual, actual_diag) = fresh_cx(|cx| self.live.drawing(cx));
+        let actual = actual.unwrap();
         let expected = expected.unwrap();
         assert_eq!(actual, expected);
+        // ヘッダーから決まる変換の診断だけを、変換と同じ順で最初に返す
+        assert!(expected_diag.starts_with(&actual_diag));
         assert_eq!(
             all_element_ids_and_hashes(&actual),
             all_element_ids_and_hashes(&expected)

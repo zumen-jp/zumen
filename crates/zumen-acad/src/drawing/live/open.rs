@@ -126,6 +126,10 @@ pub struct LiveState {
     pub forget_referenced_handles: BTreeSet<u64>,
     /// 非モデルオブジェクトおよび従属レコード（`ATTRIB`・`VERTEX`・`SEQEND`）の最大ハンドル
     pub non_table_max_handle: Option<u64>,
+    /// ヘッダーから決まる変換の診断（単位がない `dxf.units.missing`、用紙の範囲が読めない診断）。開いたときに、
+    /// ファイルモデルの変換と同じく最初に報告し、[`Self::to_drawing`] も最初に同じ順で報告する。差分の経路は
+    /// ヘッダーのこれらの値を変えず、作り直す経路は開き直すので、変わった文書の診断になる
+    pub header_diagnostics: Vec<Diagnostic>,
 }
 
 impl LiveState {
@@ -250,6 +254,9 @@ impl LiveState {
 
     /// 現在の常駐状態から [`Drawing2D`] を組み立てる
     pub fn to_drawing(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, Error> {
+        for diagnostic in &self.header_diagnostics {
+            cx.report(diagnostic.clone());
+        }
         let layers = self.catalog.build_layers();
         let line_types = self.catalog.build_line_types();
         let default_line_type = self
@@ -1614,9 +1621,21 @@ fn finish_live_open(
     backing: LiveBacking,
     cx: &mut Cx<'_>,
 ) -> Result<LiveState, Error> {
-    let doc_unit = unit(shell_db, cx);
-    let min = header_limits(shell_db, b"$PLIMMIN", cx);
-    let max = header_limits(shell_db, b"$PLIMMAX", cx);
+    // ファイルモデルの変換と同じく最初に報告する。予算を使わない処理なので、別の収集先に集めてから同じ順で移す
+    let mut header = Diagnostics::new();
+    let mut header_budget = Budget::new(Limits::default());
+    let (doc_unit, min, max) = {
+        let hcx = &mut Cx::new(&mut header_budget, &mut header, cx.cancel);
+        (
+            unit(shell_db, hcx),
+            header_limits(shell_db, b"$PLIMMIN", hcx),
+            header_limits(shell_db, b"$PLIMMAX", hcx),
+        )
+    };
+    let header_diagnostics = header.into_vec();
+    for diagnostic in &header_diagnostics {
+        cx.report(diagnostic.clone());
+    }
     let version =
         shell_db
             .variable(b"$ACADVER")
@@ -2387,6 +2406,7 @@ fn finish_live_open(
         non_unique_model_ids,
         forget_referenced_handles,
         non_table_max_handle,
+        header_diagnostics,
     })
 }
 
