@@ -1353,6 +1353,45 @@ mod tests {
         assert_eq!(calls, 3);
     }
 
+    /// 次数 32 で 200 の制御点を持ち、座標が 1e6 ずつ振れるスプラインと、3 次で 40,000 の制御点を持つ
+    /// スプラインは、許す誤差 1e-9 では点を求める作業が大きい。作業量の上限 2^20 では、作り切る前に止まり、
+    /// 上限を超えて数えない（#762・#756）
+    #[test]
+    fn large_splines_stop_before_they_are_made() {
+        let limit = 1_u64 << 20;
+        for (degree, count) in [(MAX_DEGREE, 200_usize), (3, 40_000)] {
+            let d = degree as usize;
+            let knots: Vec<f64> = (0..count + d + 1)
+                .map(|i| i.saturating_sub(d).min(count - d) as f64)
+                .collect();
+            let control: Vec<Xy> = (0..count)
+                .map(|i| {
+                    let x = i as f64 * 1e6;
+                    [x, if i % 2 == 0 { 1e6 } else { -1e6 }]
+                })
+                .collect();
+            let mut used = 0_u64;
+            let found = try_spline_with_work(degree, &knots, &control, &[], 1e-9, |amount| {
+                if used.saturating_add(amount) > limit {
+                    return Err(());
+                }
+                used += amount;
+                Ok(())
+            });
+            assert_eq!(found, Err(()), "{degree} {count}");
+            assert!(used <= limit && used > limit / 2, "{degree} {count} {used}");
+        }
+    }
+
+    /// 原点から遠い短いクロソイド（A 1 の 1000 m から 1000.0001 m）は、作る点が少なくても、原点から刻んで
+    /// 積む作業が大きい。既定の作業量の上限 10^10 では、2,000 本より前に止まる（#762・#753）
+    #[test]
+    fn far_clothoids_are_heavy_enough_to_stop_early() {
+        let work = clothoid_work(1.0, 1000.0, 1000.0001, 1e-6);
+        assert!(clothoid_point_count(1.0, 1000.0, 1000.0001, 1e-6) <= 3);
+        assert!(work.saturating_mul(2_000) > 10_000_000_000, "{work}");
+    }
+
     #[test]
     fn dashes_continue_across_vertices() {
         let lines = dashes(

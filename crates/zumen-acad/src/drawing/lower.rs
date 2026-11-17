@@ -1969,6 +1969,51 @@ mod tests {
         }
     }
 
+    /// 原点から遠い短いクロソイド（A 1 の 1000 m から 1000.0001 m）と、次数 32 で 200 の制御点を持ち、座標が
+    /// 1e6 ずつ振れるスプラインを焼き込むと、作業量の上限 2^20 では、折れ線を作り切る前に止まる（#762・#753）
+    #[test]
+    fn far_clothoids_and_high_degree_splines_stop_baking_at_the_work_limit() {
+        let base = profile_with(None);
+        let (written, used, _) = written_within(&base, Limits::default());
+        assert!(written);
+        let space = base.sheets[0].views[0].space;
+        let at = |x, y| ModelPoint { space, x, y };
+        let length = |value| Length::Model(zumen_drawing::ModelLength { space, value });
+        let clothoid = Shape::Curve(Edge::Clothoid {
+            origin: at(0.0, 0.0),
+            parameter: length(1.0),
+            angle: 0.0,
+            counterclockwise: true,
+            start: length(1000.0),
+            end: length(1000.0001),
+        });
+        let spline = Shape::Curve(Edge::Spline(zumen_drawing::Spline {
+            degree: zumen_geom2d::MAX_DEGREE,
+            knots: (0_usize..233)
+                .map(|i| i.saturating_sub(32).min(168) as f64)
+                .collect(),
+            control: (0..200)
+                .map(|i| at(f64::from(i) * 1e6, if i % 2 == 0 { 1e6 } else { -1e6 }))
+                .collect(),
+            weights: Vec::new(),
+            fit: Vec::new(),
+            start_tangent: None,
+            end_tangent: None,
+            closed: false,
+            periodic: false,
+            fit_tolerance: None,
+            knot_parameterization: None,
+        }));
+        for shape in [clothoid, spline] {
+            let drawing = profile_with(Some(shape));
+            let limits = Limits::default()
+                .with(Kind::Work, Limit::Finite(used.used(Kind::Work) + (1 << 20)));
+            let (written, _, codes) = written_within(&drawing, limits);
+            assert!(!written);
+            assert!(codes.contains(&codes::BUDGET_WORK_EXCEEDED), "{codes:?}");
+        }
+    }
+
     /// 作業量の上限をどこにしても、途中で止めたときは `Stopped` を返し、止めた理由を 1 件だけ最後に報告する。
     /// 中断の合図でも `Stopped` を返す
     #[test]

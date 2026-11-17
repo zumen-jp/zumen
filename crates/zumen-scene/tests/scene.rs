@@ -656,6 +656,58 @@ fn curves_count_the_work_of_making_their_points() {
     );
 }
 
+/// 原点から遠い短いクロソイド（A 1 の 1000 m から 1000.0001 m）と、次数 32 で 200 の制御点を持ち、座標が
+/// 1e6 ずつ振れるスプラインは、作る点が少なくても、折れ線にする作業が大きい。許す誤差 1e-9 と作業量の上限
+/// 2^20 では、折れ線を作り切る前に、作業量で止まる（#762・#753・#756）
+#[test]
+fn far_clothoids_and_high_degree_splines_stop_at_the_work_limit() {
+    let mut base = lift(&SHAPES[..9]);
+    base.spaces[0].order.clear();
+    let options = Options {
+        tolerance: Some(1e-9),
+        ..options()
+    };
+    let used = {
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        build(
+            &base,
+            &options,
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        budget.used(Kind::Work)
+    };
+    let control: Vec<[f64; 2]> = (0..200)
+        .map(|i| {
+            let x = f64::from(i) * 1e6;
+            [x, if i % 2 == 0 { 1e6 } else { -1e6 }]
+        })
+        .collect();
+    let clothoid = Shape::Curve(zumen_drawing::Edge::Clothoid {
+        origin: at(0.0, 0.0),
+        parameter: model(1.0),
+        angle: 0.0,
+        counterclockwise: true,
+        start: model(1000.0),
+        end: model(1000.0001),
+    });
+    for shape in [
+        clothoid,
+        spline(zumen_geom2d::MAX_DEGREE, &control, Vec::new()),
+    ] {
+        let mut drawing = base.clone();
+        push(&mut drawing, shape);
+        let limits = Limits::default().with(Kind::Work, Limit::Finite(used + (1 << 20)));
+        let (result, _) = scene_with(&drawing, &options, limits);
+        assert!(
+            matches!(result, Err(Stop::Exceeded(ref e)) if e.kind == Kind::Work),
+            "{:?}",
+            result.err()
+        );
+    }
+}
+
 /// 膨らみを持つ折れ線の点は、作る前に予算の `segments` に数える。線は描くときにも同じ数を数えるので、
 /// 2 回分を数える。ハッチングの輪は、作る前の 1 回だけ数える（#756）
 #[test]
