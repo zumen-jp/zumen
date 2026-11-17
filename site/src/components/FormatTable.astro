@@ -18,7 +18,7 @@ const markClass: Record<Mark, string> = { '○': 'm-on', '△': 'm-half', '―':
 <div class="table-scroll">
   <table class="table format-table">
     <thead>
-      <tr><th scope="col">形式</th><th scope="col">内容</th><th scope="col">読む</th><th scope="col">書く</th><th scope="col">置き場所</th></tr>
+      <tr><th scope="col">形式</th><th scope="col">内容</th><th scope="col">読む</th><th scope="col">書く</th></tr>
     </thead>
     <tbody>
       {
@@ -28,7 +28,6 @@ const markClass: Record<Mark, string> = { '○': 'm-on', '△': 'm-half', '―':
             <td>{f.about}</td>
             <td class:list={['mark', markClass[f.read]]} data-label="読む">{f.read}</td>
             <td class:list={['mark', markClass[f.write]]} data-label="書く">{f.write}</td>
-            <td class="place" data-label="置き場所">{f.place}</td>
           </tr>
         ))
       }
