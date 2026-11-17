@@ -2575,6 +2575,124 @@ fn restyles_change_only_the_named_style_fields_and_keep_the_shape() {
     );
 }
 
+/// POLYLINE のスタイルを変えると、続く VERTEX も同じ値になり、SEQEND は画層だけがそろう（#885）
+#[test]
+fn polyline_restyles_reach_the_vertices() {
+    use zumen_drawing::{Color, ColorCode, ColorSystem, Inherit, LineTypeId, Restyle};
+    let circle = "  0\nCIRCLE\n  5\n1B\n  8\n0\n 10\n5.0\n 20\n5.0\n 30\n0.0\n 40\n2.0\n";
+    let vertex = |handle: &str, x: &str| {
+        format!(
+            "  0\nVERTEX\n  5\n{handle}\n330\n1B\n100\nAcDbEntity\n  8\n0\n 62\n2\n100\nAcDbVertex\n\
+             100\nAcDb2dVertex\n 10\n{x}\n 20\n0.0\n 30\n0.0\n"
+        )
+    };
+    let polyline = format!(
+        "  0\nPOLYLINE\n  5\n1B\n100\nAcDbEntity\n  8\n0\n 62\n2\n100\nAcDb2dPolyline\n 66\n1\n\
+         10\n0.0\n 20\n0.0\n 30\n0.0\n 70\n0\n{}{}  0\nSEQEND\n  5\n1E\n330\n1B\n100\nAcDbEntity\n  8\n0\n",
+        vertex("1C", "0.0"),
+        vertex("1D", "3.0"),
+    );
+    let src = String::from_utf8(styled()).unwrap();
+    assert!(src.contains(circle));
+    let src = src.replacen(circle, &polyline, 1).into_bytes();
+    let file = testkit::read::<Dxf>(&src).0.unwrap();
+    let drawing = lift(&file);
+    let wall = LayerId(
+        drawing
+            .layers
+            .iter()
+            .position(|layer| layer.name == "Wall")
+            .unwrap() as u32,
+    );
+    let dashed = LineTypeId(
+        drawing
+            .line_types
+            .iter()
+            .position(|line_type| line_type.name == "Dashed")
+            .unwrap() as u32,
+    );
+    let [(_, line_before), (target, before)] = <[_; 2]>::try_from(seen(&drawing)).unwrap();
+    let magenta = Color {
+        code: Some(ColorCode {
+            system: ColorSystem::Aci,
+            value: 6,
+        }),
+        rgb: None,
+    };
+    let single = |style: Restyle| zumen_drawing::Changes {
+        edits: vec![zumen_drawing::Edit::Restyle {
+            target: target.clone(),
+            style,
+        }],
+        document: None,
+    };
+    for (style, vertex_values, seqend_layer) in [
+        (
+            Restyle {
+                color: Some(Inherit::Own(magenta)),
+                ..Restyle::default()
+            },
+            "  8\n0\n 62\n6\n",
+            "0",
+        ),
+        (
+            Restyle {
+                layer: Some(wall),
+                ..Restyle::default()
+            },
+            "  8\nWall\n 62\n2\n",
+            "Wall",
+        ),
+        (
+            Restyle {
+                line_type: Some(Inherit::Own(dashed)),
+                ..Restyle::default()
+            },
+            "  8\n0\n  6\nDashed\n 62\n2\n",
+            "0",
+        ),
+        (
+            Restyle {
+                layer: Some(wall),
+                color: Some(Inherit::Own(magenta)),
+                line_type: Some(Inherit::Own(dashed)),
+                ..Restyle::default()
+            },
+            "  8\nWall\n  6\nDashed\n 62\n6\n",
+            "Wall",
+        ),
+    ] {
+        let mut file = file.clone();
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        zumen_sdk::Apply::apply(
+            &mut file,
+            &single(style),
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        )
+        .unwrap();
+        assert_eq!(diag.iter().count(), 0);
+        let written = testkit::write::<Dxf>(&file).unwrap();
+        let text = String::from_utf8(written.clone()).unwrap();
+        for (handle, x) in [("1C", "0.0"), ("1D", "3.0")] {
+            let expected = format!(
+                "  0\nVERTEX\n  5\n{handle}\n330\n1B\n100\nAcDbEntity\n{vertex_values}100\nAcDbVertex\n\
+                 100\nAcDb2dVertex\n 10\n{x}\n"
+            );
+            assert!(text.contains(&expected), "{expected}\n{text}");
+        }
+        let seqend =
+            format!("  0\nSEQEND\n  5\n1E\n330\n1B\n100\nAcDbEntity\n  8\n{seqend_layer}\n  0\n");
+        assert!(text.contains(&seqend), "{seqend}\n{text}");
+        let again = seen(&lift(&testkit::read::<Dxf>(&written).0.unwrap()));
+        let [(_, line_after), (_, after)] = <[_; 2]>::try_from(again).unwrap();
+        assert_eq!(line_after, line_before);
+        assert_eq!(after.shape, before.shape);
+    }
+    // 元のファイルは変えていない
+    assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
+}
+
 #[test]
 fn restyles_the_records_cannot_hold_change_nothing() {
     use zumen_drawing::{Inherit, LineWeight, Restyle};

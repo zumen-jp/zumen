@@ -1054,6 +1054,57 @@ fn implicit_layer_removal_preserves_ids_hashes_and_undo() {
     }
 }
 
+/// POLYLINE のスタイルを変えると、文書エンジンも続く VERTEX と SEQEND を従来の経路と同じに書く（#885）
+#[test]
+fn polyline_restyles_reach_the_vertices_like_the_batch_apply() {
+    let vertex = |handle: &str, x: &str| {
+        format!(
+            "0\nVERTEX\n5\n{handle}\n330\n1F\n100\nAcDbEntity\n8\n0\n62\n2\n100\nAcDbVertex\n\
+             100\nAcDb2dVertex\n10\n{x}\n20\n0\n30\n0\n"
+        )
+    };
+    let input = format!(
+        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$HANDSEED\n5\n40\n0\nENDSEC\n\
+         0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n0\nLTYPE\n5\n11\n2\nCONTINUOUS\n70\n0\n\
+         0\nLTYPE\n5\n12\n2\nDashed\n70\n0\n0\nENDTAB\n0\nTABLE\n2\nLAYER\n\
+         0\nLAYER\n5\n10\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n\
+         0\nLAYER\n5\n13\n2\nWall\n70\n0\n62\n1\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n\
+         0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n1A\n8\n0\n10\n0\n20\n0\n11\n10\n21\n5\n\
+         0\nPOLYLINE\n5\n1F\n100\nAcDbEntity\n8\n0\n62\n2\n100\nAcDb2dPolyline\n66\n1\n\
+         10\n0\n20\n0\n30\n0\n70\n0\n{}{}0\nSEQEND\n5\n22\n330\n1F\n100\nAcDbEntity\n8\n0\n\
+         0\nENDSEC\n0\nEOF\n",
+        vertex("20", "0"),
+        vertex("21", "3"),
+    );
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(input.as_bytes(), threads);
+        let style = Restyle {
+            layer: Some(pair.layer_id("Wall")),
+            color: Some(Inherit::Own(zumen_drawing::Color {
+                code: Some(zumen_drawing::ColorCode {
+                    system: zumen_drawing::ColorSystem::Aci,
+                    value: 6,
+                }),
+                rgb: None,
+            })),
+            line_type: Some(Inherit::Own(pair.line_type_id("Dashed"))),
+            ..Restyle::default()
+        };
+        pair.apply(Edit::Restyle {
+            target: pair.seen(0x1F),
+            style,
+        });
+        let saved = String::from_utf8(fresh_cx(|cx| pair.live.save(cx)).0.unwrap()).unwrap();
+        for handle in ["20", "21"] {
+            let expected = format!(
+                "VERTEX\n5\n{handle}\n330\n1F\n100\nAcDbEntity\n  8\nWall\n  6\nDashed\n 62\n6\n"
+            );
+            assert!(saved.contains(&expected), "{expected}\n{saved}");
+        }
+        assert!(saved.contains("SEQEND\n5\n22\n330\n1F\n100\nAcDbEntity\n8\nWall\n0\n"));
+    }
+}
+
 /// 表のない ASCII DXF。`lines` は（ハンドル・画層・線種）の LINE、`blocks` は BLOCKS の中身
 fn implicit_dxf(blocks: &str, lines: &[(u64, &str, Option<&str>)]) -> Vec<u8> {
     let mut input = "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n".to_owned();

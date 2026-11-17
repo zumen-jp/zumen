@@ -1118,9 +1118,36 @@ fn change_element<'e>(
                 Found::Model(element) => (element.layer, &element.style),
                 Found::Paper(element) => (element.layer, &element.style),
             };
+            // POLYLINE の続く VERTEX にも同じ変更を書き、SEQEND は画層だけをそろえる（#885）
+            let mut followers = Vec::new();
+            for (pos, follower) in vertices(db, position, object) {
+                let change = if follower.kind == b"SEQEND" {
+                    Restyle {
+                        layer: style.layer,
+                        color: None,
+                        line_type: None,
+                        line_type_scale: None,
+                        line_weight: None,
+                    }
+                } else {
+                    style.clone()
+                };
+                match restyled(born, follower, layer, was, &change, cx)? {
+                    Some(values) => followers.push((pos, values)),
+                    None => {
+                        plan.reject(
+                            unsupported(edit, &text(&object.kind), target).at(at.clone()),
+                            cx,
+                        );
+                        return Ok(());
+                    }
+                }
+            }
             restyled(born, object, layer, was, style, cx)?.map(|values| {
                 plan.touched.insert(position);
+                plan.touched.extend(followers.iter().map(|(pos, _)| *pos));
                 plan.replaced.push((position, values));
+                plan.replaced.extend(followers);
             })
         }
         (Edit::Transform { transform, .. }, Found::Model(was)) => {
@@ -1642,6 +1669,36 @@ fn entity_removal(
     let skip: BTreeSet<usize> = owned.into_keys().chain([position]).collect();
     let free = !owned::pointed(db, &skip, &handles, cx, place)?;
     Ok(free.then_some(skip))
+}
+
+/// POLYLINE（表の `position`）のすぐ後に並ぶ VERTEX と、それを閉じる SEQEND（DXF Reference「POLYLINE」）。
+/// 所有者（330）を持つものは、それが POLYLINE か、POLYLINE と同じ所有者（ezdxf 1.4.5 の書き方）を指す間だけ
+/// 取る。POLYLINE でなければ空
+fn vertices<'a>(db: &'a AcadDb, position: usize, object: &Object) -> Vec<(usize, &'a Object)> {
+    let mut found = Vec::new();
+    if object.kind != b"POLYLINE" || !followed(object) {
+        return found;
+    }
+    let mine = [object.handle(), object.owner()];
+    let rest = db.objects().iter().enumerate().skip(position + 1);
+    for (at, follower) in rest {
+        let ends = match follower.kind.as_slice() {
+            b"VERTEX" => false,
+            b"SEQEND" => true,
+            _ => break,
+        };
+        if follower
+            .owner()
+            .is_some_and(|owner| !mine.contains(&Some(owner)))
+        {
+            break;
+        }
+        found.push((at, follower));
+        if ends {
+            break;
+        }
+    }
+    found
 }
 
 /// 続くレコード（POLYLINE の VERTEX、属性を持つ INSERT の ATTRIB、SEQEND）を持つ図形か

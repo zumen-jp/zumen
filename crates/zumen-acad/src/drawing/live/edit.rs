@@ -2273,6 +2273,10 @@ fn try_apply_fast(
                         else {
                             return FastAttempt::Fallback;
                         };
+                        // POLYLINE の VERTEX と SEQEND も変える構造の経路に任せる（#885）
+                        if kind_vec == b"POLYLINE" {
+                            return FastAttempt::Fallback;
+                        }
                         let Some(new_vals) = single::restyle_model(
                             &state.single_tables,
                             &kind_vec,
@@ -2972,6 +2976,10 @@ fn try_apply_fast(
                                 Ok(None) => return FastAttempt::Fallback,
                                 Err(error) => return FastAttempt::Err(error),
                             };
+                        // POLYLINE の VERTEX と SEQEND も変える構造の経路に任せる（#885）
+                        if kind_vec == b"POLYLINE" {
+                            return FastAttempt::Fallback;
+                        }
                         let Some(new_vals_raw) = single::restyle_model(
                             &state.single_tables,
                             &kind_vec,
