@@ -3572,6 +3572,52 @@ fn associative_dependencies_follow_every_edit_like_reopening() {
     }
 }
 
+/// EOF の後ろに不正なタグがある DXF を、1 スレッドと 4 スレッドで同じ経路で開く。並列の読み込みは
+/// EOF より後ろの区間も走査するが、その区間の不正なタグで従来のパーサーへ回らず、逐次と同じ予算の
+/// 使用量・保存・図形の数になる（#890）
+#[test]
+fn dxf_trailing_invalid_tags_after_eof_open_like_sequential() {
+    let mut src = String::from("  0\r\nSECTION\r\n  2\r\nENTITIES\r\n");
+    for i in 0..600 {
+        src.push_str(&format!(
+            "  0\r\nLINE\r\n  5\r\n{:X}\r\n  8\r\n0\r\n 10\r\n{i}.0\r\n 20\r\n0.0\r\n 11\r\n{i}.5\r\n 21\r\n1.0\r\n",
+            0x100 + i
+        ));
+    }
+    src.push_str("  0\r\nENDSEC\r\n  0\r\nEOF\r\n");
+    let eof_end = src.len();
+    // EOF の後ろは、読まない末尾。group 0 で区間の切れ目を作り、続く group code を数でない値にする
+    while src.len() < eof_end * 2 {
+        src.push_str("  0\r\nJUNK\r\nxx\r\n1\r\n");
+    }
+    let src = src.into_bytes();
+    assert!(
+        crate::dxf::live_io::split_points(&src, 4).len() > 2,
+        "区間に分かれる大きさにする"
+    );
+
+    let open = |threads: usize| {
+        let mut budget = Budget::default();
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let live = AcadLive::open_dxf_with_threads(
+            &src,
+            threads,
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+        .unwrap();
+        let used: Vec<u64> = Kind::ALL.iter().map(|&kind| budget.used(kind)).collect();
+        let saved = fresh_cx(|cx| live.save(cx)).0.unwrap();
+        (used, saved, live.table().len(), diag.into_vec())
+    };
+    let (used1, saved1, rows1, diag1) = open(1);
+    let (used4, saved4, rows4, diag4) = open(4);
+    assert_eq!(rows1, rows4);
+    assert_eq!(used1, used4);
+    assert_eq!(saved1, saved4);
+    assert_eq!(diag1, diag4);
+}
+
 /// 公開の R2000 の DWG（`zumen-layout-r2000.dwg`）のモデル空間に、連想の合成 DXF の LINE・MTEXT・
 /// 連想 LEADER を写した DWG と、写した 3 図形のハンドルを返す。DWG の書き戻しは、足す HATCH を連想にできず、
 /// DIMASSOC も書けないので、連想ハッチングと寸法は写さない
