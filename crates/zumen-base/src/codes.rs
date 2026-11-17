@@ -1369,6 +1369,34 @@ pub const DRAWING_CALIBRATION_INVALID: Code = Code::new(
     &["id", "reason"],
 );
 
+/// モデル空間の要素の交わりを求めるとき曲線を折れ線へ近似した。tolerance は分割の目標で、交点の誤差上限ではない
+///
+/// `drawing.element-intersection.approximated`（0.4.0 から）
+pub const DRAWING_ELEMENT_INTERSECTION_APPROXIMATED: Code = Code::new(
+    "drawing.element-intersection.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("tolerance", ParamType::Float),
+    ],
+    &["id", "tolerance"],
+);
+
+/// モデル空間の 2 要素の交わりを求められなかった。id は対象の公開 ID、reason は失敗の理由。区間の組の計算で失敗した場合は first を指す
+///
+/// `drawing.element-intersection.failed`（0.4.0 から）
+pub const DRAWING_ELEMENT_INTERSECTION_FAILED: Code = Code::new(
+    "drawing.element-intersection.failed",
+    Severity::Error,
+    None,
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("reason", ParamType::Key),
+    ],
+    &["id", "reason"],
+);
+
 /// モデル空間の要素の計測で曲線を折れ線へ近似した。tolerance は分割の目標で、計測値自体の誤差上限ではない
 ///
 /// `drawing.element-measurement.approximated`（0.3.0 から）
@@ -6072,6 +6100,8 @@ pub const ALL: &[Code] = &[
     DRAWING_BINARY_VERSION_UNSUPPORTED,
     DRAWING_BINARY_INVALID,
     DRAWING_CALIBRATION_INVALID,
+    DRAWING_ELEMENT_INTERSECTION_APPROXIMATED,
+    DRAWING_ELEMENT_INTERSECTION_FAILED,
     DRAWING_ELEMENT_MEASUREMENT_APPROXIMATED,
     DRAWING_ELEMENT_MEASUREMENT_FAILED,
     DRAWING_ENTITY_DETAILS_FAILED,

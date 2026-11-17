@@ -59,6 +59,11 @@ public struct Request: Message {
         taggedView("op", "measure")
     }
 
+    /// op が intersect の形なら、そのビュー。違えば nil
+    public var asIntersectRequest: IntersectRequest? {
+        taggedView("op", "intersect")
+    }
+
     /// op が apply の形なら、そのビュー。違えば nil
     public var asApplyRequest: ApplyRequest? {
         taggedView("op", "apply")
@@ -1569,6 +1574,241 @@ public struct MeasureResult: Message {
     public var nearestSecond: Point2? {
         get { readField("nearest_second") }
         set { writeField("nearest_second", newValue) }
+    }
+}
+
+/// 同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から
+public struct IntersectRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("intersect")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 開いた文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 交わりを求める要素
+    public var first: MeasureElement? {
+        get { readField("first") }
+        set { writeField("first", newValue) }
+    }
+
+    /// 交わりを求めるもう一方の要素。first と異なる ID
+    public var second: MeasureElement? {
+        get { readField("second") }
+        set { writeField("second", newValue) }
+    }
+
+    /// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、近似する曲線の分割の目標にも使う
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+    public var expectedHash: String? {
+        get { readField("expected_hash") }
+        set { writeField("expected_hash", newValue) }
+    }
+}
+
+/// 交点または接点。格子点の座標
+public struct IntersectionPoint: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 空間の長さの単位の点
+    public var position: Point2? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+
+    /// 接点。同じ格子点にまとめたすべての交わりが接するときだけ真
+    public var tangent: Bool? {
+        get { readField("tangent") }
+        set { writeField("tangent", newValue) }
+    }
+
+    /// 正確な交点が格子点でなく、近い格子点へ丸めた。まとめたすべての交わりが丸めたときだけ真
+    public var rounded: Bool? {
+        get { readField("rounded") }
+        set { writeField("rounded", newValue) }
+    }
+}
+
+/// 重なりの形。segment は線分、arc は反時計回りの円弧、circle は円全体
+///
+/// 列挙の値。知らない値も受け取る
+public enum IntersectionOverlapKind {
+    public static let segment = "segment"
+    public static let arc = "arc"
+    public static let circle = "circle"
+}
+
+/// 2 要素が長さを持って重なる区間。区間の組ごとに返し、つながる区間をつながない
+public struct IntersectionOverlap: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 重なりの形
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 始点。segment は X、Y の辞書順で小さい端、arc は反時計回りの始点。circle では持たない
+    public var start: Point2? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 終点。circle では持たない
+    public var end: Point2? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+
+    /// 円弧と円の中心。segment では持たない
+    public var center: Point2? {
+        get { readField("center") }
+        set { writeField("center", newValue) }
+    }
+
+    /// 円弧と円の格子上の半径。segment では持たない
+    public var radius: Double? {
+        get { readField("radius") }
+        set { writeField("radius", newValue) }
+    }
+}
+
+/// 2 要素の交わり。first と second を入れ替えても同じ結果を返す
+public struct IntersectResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の文書のハッシュ
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 求めた実寸の空間の公開 ID
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 空間の長さの単位。不明な単位を補わない
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// 指定した、または既定の許容差
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 曲線を折れ線に近似した要素がある
+    public var approximate: Bool? {
+        get { readField("approximate") }
+        set { writeField("approximate", newValue) }
+    }
+
+    /// 交点と接点。格子点の X、Y の辞書順。重なりの端点と同じ点は含めない
+    public var points: [IntersectionPoint]? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+
+    /// 重なり。形・座標の順
+    public var overlaps: [IntersectionOverlap]? {
+        get { readField("overlaps") }
+        set { writeField("overlaps", newValue) }
     }
 }
 
@@ -14413,6 +14653,7 @@ public enum Operations {
     public static let calibrations = "calibrations"
     public static let measureDistance = "measure_distance"
     public static let measure = "measure"
+    public static let intersect = "intersect"
     public static let apply = "apply"
     public static let create = "create"
     public static let convert = "convert"

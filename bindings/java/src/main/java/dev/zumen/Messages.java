@@ -107,6 +107,11 @@ public final class Messages {
             return "measure".equals(json.get("op")) ? new MeasureRequest(json) : null;
         }
 
+        /** op が intersect の形なら、そのビュー。違えば null */
+        public IntersectRequest asIntersectRequest() {
+            return "intersect".equals(json.get("op")) ? new IntersectRequest(json) : null;
+        }
+
         /** op が apply の形なら、そのビュー。違えば null */
         public ApplyRequest asApplyRequest() {
             return "apply".equals(json.get("op")) ? new ApplyRequest(json) : null;
@@ -2475,6 +2480,395 @@ public final class Messages {
         /** {@link #getNearestSecond()} を書く。null ならフィールドを除く */
         public MeasureResult withNearestSecond(Point2 value) {
             put("nearest_second", value);
+            return this;
+        }
+    }
+
+    /** 同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から */
+    public static final class IntersectRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public IntersectRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static IntersectRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new IntersectRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public IntersectRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "intersect");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public IntersectRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public IntersectRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public IntersectRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public IntersectRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public IntersectRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public IntersectRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 開いた文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public IntersectRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 実寸の空間の公開 ID。用紙と記号定義の空間は対象外 */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public IntersectRequest withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 交わりを求める要素 */
+        public MeasureElement getFirst() {
+            return Json.read(json.get("first"), MeasureElement::of);
+        }
+
+        /** {@link #getFirst()} を書く。null ならフィールドを除く */
+        public IntersectRequest withFirst(MeasureElement value) {
+            put("first", value);
+            return this;
+        }
+
+        /** 交わりを求めるもう一方の要素。first と異なる ID */
+        public MeasureElement getSecond() {
+            return Json.read(json.get("second"), MeasureElement::of);
+        }
+
+        /** {@link #getSecond()} を書く。null ならフィールドを除く */
+        public IntersectRequest withSecond(MeasureElement value) {
+            put("second", value);
+            return this;
+        }
+
+        /** 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、近似する曲線の分割の目標にも使う */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public IntersectRequest withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する */
+        public String getExpectedHash() {
+            return Json.read(json.get("expected_hash"), Json::string);
+        }
+
+        /** {@link #getExpectedHash()} を書く。null ならフィールドを除く */
+        public IntersectRequest withExpectedHash(String value) {
+            put("expected_hash", value);
+            return this;
+        }
+    }
+
+    /** 交点または接点。格子点の座標 */
+    public static final class IntersectionPoint extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public IntersectionPoint(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static IntersectionPoint of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new IntersectionPoint(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public IntersectionPoint() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 空間の長さの単位の点 */
+        public Point2 getPosition() {
+            return Json.read(json.get("position"), Point2::of);
+        }
+
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
+        public IntersectionPoint withPosition(Point2 value) {
+            put("position", value);
+            return this;
+        }
+
+        /** 接点。同じ格子点にまとめたすべての交わりが接するときだけ真 */
+        public Boolean getTangent() {
+            return Json.read(json.get("tangent"), Json::bool);
+        }
+
+        /** {@link #getTangent()} を書く。null ならフィールドを除く */
+        public IntersectionPoint withTangent(Boolean value) {
+            put("tangent", value);
+            return this;
+        }
+
+        /** 正確な交点が格子点でなく、近い格子点へ丸めた。まとめたすべての交わりが丸めたときだけ真 */
+        public Boolean getRounded() {
+            return Json.read(json.get("rounded"), Json::bool);
+        }
+
+        /** {@link #getRounded()} を書く。null ならフィールドを除く */
+        public IntersectionPoint withRounded(Boolean value) {
+            put("rounded", value);
+            return this;
+        }
+    }
+
+    /**
+     * 重なりの形。segment は線分、arc は反時計回りの円弧、circle は円全体
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class IntersectionOverlapKind {
+        private IntersectionOverlapKind() {}
+
+        public static final String SEGMENT = "segment";
+
+        public static final String ARC = "arc";
+
+        public static final String CIRCLE = "circle";
+    }
+
+    /** 2 要素が長さを持って重なる区間。区間の組ごとに返し、つながる区間をつながない */
+    public static final class IntersectionOverlap extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public IntersectionOverlap(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static IntersectionOverlap of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new IntersectionOverlap(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public IntersectionOverlap() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 重なりの形 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public IntersectionOverlap withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 始点。segment は X、Y の辞書順で小さい端、arc は反時計回りの始点。circle では持たない */
+        public Point2 getStart() {
+            return Json.read(json.get("start"), Point2::of);
+        }
+
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
+        public IntersectionOverlap withStart(Point2 value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 終点。circle では持たない */
+        public Point2 getEnd() {
+            return Json.read(json.get("end"), Point2::of);
+        }
+
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
+        public IntersectionOverlap withEnd(Point2 value) {
+            put("end", value);
+            return this;
+        }
+
+        /** 円弧と円の中心。segment では持たない */
+        public Point2 getCenter() {
+            return Json.read(json.get("center"), Point2::of);
+        }
+
+        /** {@link #getCenter()} を書く。null ならフィールドを除く */
+        public IntersectionOverlap withCenter(Point2 value) {
+            put("center", value);
+            return this;
+        }
+
+        /** 円弧と円の格子上の半径。segment では持たない */
+        public Double getRadius() {
+            return Json.read(json.get("radius"), Json::number);
+        }
+
+        /** {@link #getRadius()} を書く。null ならフィールドを除く */
+        public IntersectionOverlap withRadius(Double value) {
+            put("radius", value);
+            return this;
+        }
+    }
+
+    /** 2 要素の交わり。first と second を入れ替えても同じ結果を返す */
+    public static final class IntersectResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public IntersectResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static IntersectResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new IntersectResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public IntersectResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の文書のハッシュ */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public IntersectResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 求めた実寸の空間の公開 ID */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public IntersectResult withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 空間の長さの単位。不明な単位を補わない */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public IntersectResult withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** 指定した、または既定の許容差 */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public IntersectResult withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 曲線を折れ線に近似した要素がある */
+        public Boolean getApproximate() {
+            return Json.read(json.get("approximate"), Json::bool);
+        }
+
+        /** {@link #getApproximate()} を書く。null ならフィールドを除く */
+        public IntersectResult withApproximate(Boolean value) {
+            put("approximate", value);
+            return this;
+        }
+
+        /** 交点と接点。格子点の X、Y の辞書順。重なりの端点と同じ点は含めない */
+        public List<IntersectionPoint> getPoints() {
+            return Json.read(json.get("points"), v0 -> Json.list(v0, IntersectionPoint::of));
+        }
+
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
+        public IntersectResult withPoints(List<IntersectionPoint> value) {
+            put("points", value);
+            return this;
+        }
+
+        /** 重なり。形・座標の順 */
+        public List<IntersectionOverlap> getOverlaps() {
+            return Json.read(json.get("overlaps"), v0 -> Json.list(v0, IntersectionOverlap::of));
+        }
+
+        /** {@link #getOverlaps()} を書く。null ならフィールドを除く */
+        public IntersectResult withOverlaps(List<IntersectionOverlap> value) {
+            put("overlaps", value);
             return this;
         }
     }
@@ -23413,6 +23807,8 @@ public final class Messages {
         public static final String MEASURE_DISTANCE = "measure_distance";
 
         public static final String MEASURE = "measure";
+
+        public static final String INTERSECT = "intersect";
 
         public static final String APPLY = "apply";
 

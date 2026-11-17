@@ -49,6 +49,7 @@ namespace Zumen.Messages
             ["calibrations"] = typeof(CalibrationsRequest),
             ["measure_distance"] = typeof(MeasureDistanceRequest),
             ["measure"] = typeof(MeasureRequest),
+            ["intersect"] = typeof(IntersectRequest),
             ["apply"] = typeof(ApplyRequest),
             ["create"] = typeof(CreateRequest),
             ["convert"] = typeof(ConvertRequest),
@@ -1200,6 +1201,205 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("nearest_second")]
         public Point2? NearestSecond { get; init; }
+    }
+
+    /// <summary>
+    /// 同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から
+    /// </summary>
+    public sealed record IntersectRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "intersect";
+
+        /// <summary>
+        /// 開いた文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 交わりを求める要素
+        /// </summary>
+        [JsonPropertyName("first")]
+        public MeasureElement First { get; init; } = default!;
+
+        /// <summary>
+        /// 交わりを求めるもう一方の要素。first と異なる ID
+        /// </summary>
+        [JsonPropertyName("second")]
+        public MeasureElement Second { get; init; } = default!;
+
+        /// <summary>
+        /// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、近似する曲線の分割の目標にも使う
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double? Tolerance { get; init; }
+
+        /// <summary>
+        /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+        /// </summary>
+        [JsonPropertyName("expected_hash")]
+        public string? ExpectedHash { get; init; }
+    }
+
+    /// <summary>
+    /// 交点または接点。格子点の座標
+    /// </summary>
+    public sealed record IntersectionPoint
+    {
+        /// <summary>
+        /// 空間の長さの単位の点
+        /// </summary>
+        [JsonPropertyName("position")]
+        public Point2 Position { get; init; } = default!;
+
+        /// <summary>
+        /// 接点。同じ格子点にまとめたすべての交わりが接するときだけ真
+        /// </summary>
+        [JsonPropertyName("tangent")]
+        public bool Tangent { get; init; }
+
+        /// <summary>
+        /// 正確な交点が格子点でなく、近い格子点へ丸めた。まとめたすべての交わりが丸めたときだけ真
+        /// </summary>
+        [JsonPropertyName("rounded")]
+        public bool Rounded { get; init; }
+    }
+
+    /// <summary>
+    /// 重なりの形。segment は線分、arc は反時計回りの円弧、circle は円全体
+    /// </summary>
+    public static class IntersectionOverlapKind
+    {
+        /// <summary>segment</summary>
+        public const string Segment = "segment";
+        /// <summary>arc</summary>
+        public const string Arc = "arc";
+        /// <summary>circle</summary>
+        public const string Circle = "circle";
+    }
+
+    /// <summary>
+    /// 2 要素が長さを持って重なる区間。区間の組ごとに返し、つながる区間をつながない
+    /// </summary>
+    public sealed record IntersectionOverlap
+    {
+        /// <summary>
+        /// 重なりの形
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 始点。segment は X、Y の辞書順で小さい端、arc は反時計回りの始点。circle では持たない
+        /// </summary>
+        [JsonPropertyName("start")]
+        public Point2? Start { get; init; }
+
+        /// <summary>
+        /// 終点。circle では持たない
+        /// </summary>
+        [JsonPropertyName("end")]
+        public Point2? End { get; init; }
+
+        /// <summary>
+        /// 円弧と円の中心。segment では持たない
+        /// </summary>
+        [JsonPropertyName("center")]
+        public Point2? Center { get; init; }
+
+        /// <summary>
+        /// 円弧と円の格子上の半径。segment では持たない
+        /// </summary>
+        [JsonPropertyName("radius")]
+        public double? Radius { get; init; }
+    }
+
+    /// <summary>
+    /// 2 要素の交わり。first と second を入れ替えても同じ結果を返す
+    /// </summary>
+    public sealed record IntersectResult
+    {
+        /// <summary>
+        /// 元の文書のハッシュ
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 求めた実寸の空間の公開 ID
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 空間の長さの単位。不明な単位を補わない
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// 指定した、または既定の許容差
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double Tolerance { get; init; }
+
+        /// <summary>
+        /// 曲線を折れ線に近似した要素がある
+        /// </summary>
+        [JsonPropertyName("approximate")]
+        public bool Approximate { get; init; }
+
+        /// <summary>
+        /// 交点と接点。格子点の X、Y の辞書順。重なりの端点と同じ点は含めない
+        /// </summary>
+        [JsonPropertyName("points")]
+        public IReadOnlyList<IntersectionPoint> Points { get; init; } = default!;
+
+        /// <summary>
+        /// 重なり。形・座標の順
+        /// </summary>
+        [JsonPropertyName("overlaps")]
+        public IReadOnlyList<IntersectionOverlap> Overlaps { get; init; } = default!;
     }
 
     /// <summary>
@@ -11833,6 +12033,7 @@ namespace Zumen.Messages
                 ["calibrations"] = (typeof(CalibrationsRequest), typeof(CalibrationsResult)),
                 ["measure_distance"] = (typeof(MeasureDistanceRequest), typeof(MeasureDistanceResult)),
                 ["measure"] = (typeof(MeasureRequest), typeof(MeasureResult)),
+                ["intersect"] = (typeof(IntersectRequest), typeof(IntersectResult)),
                 ["apply"] = (typeof(ApplyRequest), typeof(ApplyResult)),
                 ["create"] = (typeof(CreateRequest), typeof(CreateResult)),
                 ["convert"] = (typeof(ConvertRequest), typeof(ConvertResult)),

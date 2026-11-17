@@ -15,6 +15,7 @@ export type Request =
   | CalibrationsRequest
   | MeasureDistanceRequest
   | MeasureRequest
+  | IntersectRequest
   | ApplyRequest
   | CreateRequest
   | ConvertRequest
@@ -397,6 +398,73 @@ export interface MeasureResult {
   nearest_first?: Point2;
   /** 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点 */
   nearest_second?: Point2;
+}
+
+/** 同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から */
+export interface IntersectRequest extends RequestCommon {
+  /** op の名前 */
+  op: "intersect";
+  /** 開いた文書の名前 */
+  doc: string;
+  /** 実寸の空間の公開 ID。用紙と記号定義の空間は対象外 */
+  from: string;
+  /** 交わりを求める要素 */
+  first: MeasureElement;
+  /** 交わりを求めるもう一方の要素。first と異なる ID */
+  second: MeasureElement;
+  /** 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、近似する曲線の分割の目標にも使う */
+  tolerance?: number;
+  /** 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する */
+  expected_hash?: string;
+}
+
+/** 交点または接点。格子点の座標 */
+export interface IntersectionPoint {
+  /** 空間の長さの単位の点 */
+  position: Point2;
+  /** 接点。同じ格子点にまとめたすべての交わりが接するときだけ真 */
+  tangent: boolean;
+  /** 正確な交点が格子点でなく、近い格子点へ丸めた。まとめたすべての交わりが丸めたときだけ真 */
+  rounded: boolean;
+}
+
+/** 重なりの形。segment は線分、arc は反時計回りの円弧、circle は円全体 */
+export type IntersectionOverlapKind =
+  | "segment"
+  | "arc"
+  | "circle"
+  | (string & {});
+
+/** 2 要素が長さを持って重なる区間。区間の組ごとに返し、つながる区間をつながない */
+export interface IntersectionOverlap {
+  /** 重なりの形 */
+  kind: IntersectionOverlapKind;
+  /** 始点。segment は X、Y の辞書順で小さい端、arc は反時計回りの始点。circle では持たない */
+  start?: Point2;
+  /** 終点。circle では持たない */
+  end?: Point2;
+  /** 円弧と円の中心。segment では持たない */
+  center?: Point2;
+  /** 円弧と円の格子上の半径。segment では持たない */
+  radius?: number;
+}
+
+/** 2 要素の交わり。first と second を入れ替えても同じ結果を返す */
+export interface IntersectResult {
+  /** 元の文書のハッシュ */
+  hash: string;
+  /** 求めた実寸の空間の公開 ID */
+  from: string;
+  /** 空間の長さの単位。不明な単位を補わない */
+  unit: Unit;
+  /** 指定した、または既定の許容差 */
+  tolerance: number;
+  /** 曲線を折れ線に近似した要素がある */
+  approximate: boolean;
+  /** 交点と接点。格子点の X、Y の辞書順。重なりの端点と同じ点は含めない */
+  points: IntersectionPoint[];
+  /** 重なり。形・座標の順 */
+  overlaps: IntersectionOverlap[];
 }
 
 /** 文書の点の表し方。フィールドの意味は point_style_edit と同じ */
@@ -4275,6 +4343,7 @@ export interface Operations {
   calibrations: { request: CalibrationsRequest; result: CalibrationsResult };
   measure_distance: { request: MeasureDistanceRequest; result: MeasureDistanceResult };
   measure: { request: MeasureRequest; result: MeasureResult };
+  intersect: { request: IntersectRequest; result: IntersectResult };
   apply: { request: ApplyRequest; result: ApplyResult };
   create: { request: CreateRequest; result: CreateResult };
   convert: { request: ConvertRequest; result: ConvertResult };

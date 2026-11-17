@@ -107,6 +107,17 @@ cargo run -p zumen-abi --example measurement_case -- --check
 
 環境間の一致とは別に、円と円弧・閉じた経路の解析式、楕円の完全楕円積分による周長、2 次 Bézier の速度の積分を、ABI の計測テストの期待値に使います。幾何のテストは、離れた円・内包する円・接線・交差・角度の範囲・膨らみを持つ辺・大きな座標での面積も確かめます。スプラインの `work`・`decoded_bytes`・`segments` の停止境界と中断は、ABI のテストで確認します。
 
+### 交わり
+
+`intersect.json` は、線分・円・円弧・膨らみのない折れ線・楕円を持つ合成の図面モデルで、`intersect` の値と全応答のハッシュを照らします。交差・接触・接する円・円弧の重なり・線分の重なりと、その端点を交点から除くこと、入れ替えの対称性、楕円の近似、未対応の形・範囲外の座標・ない ID、予算停止と再利用を含みます。生成元は `crates/zumen-abi/examples/intersection_case.rs` と隣の JSON です。
+
+```bash
+cargo run -p zumen-abi --example intersection_case
+cargo run -p zumen-abi --example intersection_case -- --check
+```
+
+期待値は、整数の座標を持つ図形の交点を手で求めた値です。楕円との交点は解析式の値から許容差以内であることを ABI のテストで確かめます。環境間の一致は、外部実装との照合とは別に扱います。
+
 ### 合成フォント
 
 `cases/scene_fonts_cff.json` は、CFF・CFF2 と、両方を含むフォントのコレクション（TTC）の合成の入力です（#564）。実在のフォントは使わず、次のコマンドで組み立てます。`--check` は、作り直した組が記録した JSON と同じかを確かめます。

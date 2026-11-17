@@ -2125,6 +2125,23 @@ group-by = ["id", "quantity", "tolerance"]
 since = "0.3.0"
 status = "active"
 
+[codes."drawing.element-intersection.failed"]
+description = "モデル空間の 2 要素の交わりを求められなかった。id は対象の公開 ID、reason は失敗の理由。区間の組の計算で失敗した場合は first を指す"
+severity = "error"
+params = { id = "text", reason = "key" }
+group-by = ["id", "reason"]
+since = "0.4.0"
+status = "active"
+
+[codes."drawing.element-intersection.approximated"]
+description = "モデル空間の要素の交わりを求めるとき曲線を折れ線へ近似した。tolerance は分割の目標で、交点の誤差上限ではない"
+severity = "warning"
+fidelity = "approximated"
+params = { id = "text", tolerance = "float" }
+group-by = ["id", "tolerance"]
+since = "0.4.0"
+status = "active"
+
 [codes."drawing.measurement.failed"]
 description = "選んだ校正で用紙上の距離を測れなかった。id は校正の ID、reason は領域・用紙・座標・計算を使えない理由"
 severity = "error"

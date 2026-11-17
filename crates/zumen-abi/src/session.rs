@@ -10,6 +10,8 @@ mod creation_ops;
 mod delivery_ops;
 mod drawing_ops;
 #[cfg(feature = "drawing")]
+mod intersection_ops;
+#[cfg(feature = "drawing")]
 mod measurement_ops;
 mod pointcloud_ops;
 mod resident;
@@ -444,6 +446,10 @@ impl Session {
             #[cfg(feature = "drawing")]
             Request::Measure(request) => self.measure(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
+            Request::Intersect(request) => {
+                self.intersect(request, &mut cx).map(|r| Box::new(r) as _)
+            }
+            #[cfg(feature = "drawing")]
             Request::Scene(request) => self.scene(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(any(feature = "bim", feature = "civil", feature = "pointcloud"))]
             Request::Scene3d(request) => self.scene3d(request, &mut cx).map(|r| Box::new(r) as _),
@@ -706,6 +712,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Calibrations(request) => &request.request_common,
         Request::MeasureDistance(request) => &request.request_common,
         Request::Measure(request) => &request.request_common,
+        Request::Intersect(request) => &request.request_common,
         Request::Scene(request) => &request.request_common,
         Request::Scene3d(request) => &request.request_common,
         Request::Render(request) => &request.request_common,
@@ -952,6 +959,8 @@ mod watchdog {
 mod calibration_tests;
 #[cfg(all(test, feature = "pointcloud"))]
 mod deviation_tests;
+#[cfg(all(test, feature = "drawing"))]
+mod intersection_tests;
 #[cfg(all(test, feature = "drawing"))]
 mod measurement_tests;
 #[cfg(test)]

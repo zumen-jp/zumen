@@ -18,6 +18,7 @@ Request = Union[
     "CalibrationsRequest",
     "MeasureDistanceRequest",
     "MeasureRequest",
+    "IntersectRequest",
     "ApplyRequest",
     "CreateRequest",
     "ConvertRequest",
@@ -731,6 +732,122 @@ _MeasureResultOptional = TypedDict(
 
 class MeasureResult(_MeasureResultRequired, _MeasureResultOptional):
     "要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する"
+
+
+# 同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から
+_IntersectRequestRequired = TypedDict(
+    "_IntersectRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["intersect"],
+        # 開いた文書の名前
+        "doc": str,
+        # 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+        "from": str,
+        # 交わりを求める要素
+        "first": "MeasureElement",
+        # 交わりを求めるもう一方の要素。first と異なる ID
+        "second": "MeasureElement",
+    },
+)
+_IntersectRequestOptional = TypedDict(
+    "_IntersectRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、近似する曲線の分割の目標にも使う
+        "tolerance": float,
+        # 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+        "expected_hash": str,
+    },
+    total=False,
+)
+
+
+class IntersectRequest(_IntersectRequestRequired, _IntersectRequestOptional):
+    "同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から"
+
+
+# 交点または接点。格子点の座標
+IntersectionPoint = TypedDict(
+    "IntersectionPoint",
+    {
+        # 空間の長さの単位の点
+        "position": "Point2",
+        # 接点。同じ格子点にまとめたすべての交わりが接するときだけ真
+        "tangent": bool,
+        # 正確な交点が格子点でなく、近い格子点へ丸めた。まとめたすべての交わりが丸めたときだけ真
+        "rounded": bool,
+    },
+)
+
+# 重なりの形。segment は線分、arc は反時計回りの円弧、circle は円全体
+IntersectionOverlapKind = Union[
+    Literal[
+        "segment",
+        "arc",
+        "circle",
+    ],
+    str,
+]
+
+
+# 2 要素が長さを持って重なる区間。区間の組ごとに返し、つながる区間をつながない
+_IntersectionOverlapRequired = TypedDict(
+    "_IntersectionOverlapRequired",
+    {
+        # 重なりの形
+        "kind": "IntersectionOverlapKind",
+    },
+)
+_IntersectionOverlapOptional = TypedDict(
+    "_IntersectionOverlapOptional",
+    {
+        # 始点。segment は X、Y の辞書順で小さい端、arc は反時計回りの始点。circle では持たない
+        "start": "Point2",
+        # 終点。circle では持たない
+        "end": "Point2",
+        # 円弧と円の中心。segment では持たない
+        "center": "Point2",
+        # 円弧と円の格子上の半径。segment では持たない
+        "radius": float,
+    },
+    total=False,
+)
+
+
+class IntersectionOverlap(_IntersectionOverlapRequired, _IntersectionOverlapOptional):
+    "2 要素が長さを持って重なる区間。区間の組ごとに返し、つながる区間をつながない"
+
+
+# 2 要素の交わり。first と second を入れ替えても同じ結果を返す
+IntersectResult = TypedDict(
+    "IntersectResult",
+    {
+        # 元の文書のハッシュ
+        "hash": str,
+        # 求めた実寸の空間の公開 ID
+        "from": str,
+        # 空間の長さの単位。不明な単位を補わない
+        "unit": "Unit",
+        # 指定した、または既定の許容差
+        "tolerance": float,
+        # 曲線を折れ線に近似した要素がある
+        "approximate": bool,
+        # 交点と接点。格子点の X、Y の辞書順。重なりの端点と同じ点は含めない
+        "points": List["IntersectionPoint"],
+        # 重なり。形・座標の順
+        "overlaps": List["IntersectionOverlap"],
+    },
+)
 
 
 # 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -7419,6 +7536,7 @@ Operation = Literal[
     "calibrations",
     "measure_distance",
     "measure",
+    "intersect",
     "apply",
     "create",
     "convert",
@@ -7462,6 +7580,7 @@ OPERATIONS: Dict[str, Any] = {
     "calibrations": ("CalibrationsRequest", "CalibrationsResult"),
     "measure_distance": ("MeasureDistanceRequest", "MeasureDistanceResult"),
     "measure": ("MeasureRequest", "MeasureResult"),
+    "intersect": ("IntersectRequest", "IntersectResult"),
     "apply": ("ApplyRequest", "ApplyResult"),
     "create": ("CreateRequest", "CreateResult"),
     "convert": ("ConvertRequest", "ConvertResult"),

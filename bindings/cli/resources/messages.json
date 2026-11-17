@@ -16,6 +16,7 @@
         { "$ref": "#/$defs/calibrations_request" },
         { "$ref": "#/$defs/measure_distance_request" },
         { "$ref": "#/$defs/measure_request" },
+        { "$ref": "#/$defs/intersect_request" },
         { "$ref": "#/$defs/apply_request" },
         { "$ref": "#/$defs/create_request" },
         { "$ref": "#/$defs/convert_request" },
@@ -505,6 +506,74 @@
         "nearest_second": { "description": "最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点", "$ref": "#/$defs/point2" }
       },
       "required": ["hash", "from", "quantity", "value", "unit", "unit_power", "approximate", "tolerance"],
+      "additionalProperties": false
+    },
+    "intersect_request": {
+      "description": "同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "intersect" },
+        "doc": { "description": "開いた文書の名前", "type": "string" },
+        "from": { "description": "実寸の空間の公開 ID。用紙と記号定義の空間は対象外", "type": "string" },
+        "first": { "description": "交わりを求める要素", "$ref": "#/$defs/measure_element" },
+        "second": { "description": "交わりを求めるもう一方の要素。first と異なる ID", "$ref": "#/$defs/measure_element" },
+        "tolerance": { "description": "許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、近似する曲線の分割の目標にも使う", "type": "number" },
+        "expected_hash": { "description": "期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する", "type": "string" }
+      },
+      "required": ["op", "doc", "from", "first", "second"],
+      "unevaluatedProperties": false
+    },
+    "intersection_point": {
+      "description": "交点または接点。格子点の座標",
+      "type": "object",
+      "properties": {
+        "position": { "description": "空間の長さの単位の点", "$ref": "#/$defs/point2" },
+        "tangent": { "description": "接点。同じ格子点にまとめたすべての交わりが接するときだけ真", "type": "boolean" },
+        "rounded": { "description": "正確な交点が格子点でなく、近い格子点へ丸めた。まとめたすべての交わりが丸めたときだけ真", "type": "boolean" }
+      },
+      "required": ["position", "tangent", "rounded"],
+      "additionalProperties": false
+    },
+    "intersection_overlap_kind": {
+      "description": "重なりの形。segment は線分、arc は反時計回りの円弧、circle は円全体",
+      "type": "string",
+      "enum": ["segment", "arc", "circle"]
+    },
+    "intersection_overlap": {
+      "description": "2 要素が長さを持って重なる区間。区間の組ごとに返し、つながる区間をつながない",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "重なりの形", "$ref": "#/$defs/intersection_overlap_kind" },
+        "start": { "description": "始点。segment は X、Y の辞書順で小さい端、arc は反時計回りの始点。circle では持たない", "$ref": "#/$defs/point2" },
+        "end": { "description": "終点。circle では持たない", "$ref": "#/$defs/point2" },
+        "center": { "description": "円弧と円の中心。segment では持たない", "$ref": "#/$defs/point2" },
+        "radius": { "description": "円弧と円の格子上の半径。segment では持たない", "type": "number" }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "intersect_result": {
+      "description": "2 要素の交わり。first と second を入れ替えても同じ結果を返す",
+      "type": "object",
+      "properties": {
+        "hash": { "description": "元の文書のハッシュ", "type": "string" },
+        "from": { "description": "求めた実寸の空間の公開 ID", "type": "string" },
+        "unit": { "description": "空間の長さの単位。不明な単位を補わない", "$ref": "#/$defs/unit" },
+        "tolerance": { "description": "指定した、または既定の許容差", "type": "number" },
+        "approximate": { "description": "曲線を折れ線に近似した要素がある", "type": "boolean" },
+        "points": {
+          "description": "交点と接点。格子点の X、Y の辞書順。重なりの端点と同じ点は含めない",
+          "type": "array",
+          "items": { "$ref": "#/$defs/intersection_point" }
+        },
+        "overlaps": {
+          "description": "重なり。形・座標の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/intersection_overlap" }
+        }
+      },
+      "required": ["hash", "from", "unit", "tolerance", "approximate", "points", "overlaps"],
       "additionalProperties": false
     },
     "point_style_summary": {

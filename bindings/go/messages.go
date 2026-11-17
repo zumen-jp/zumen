@@ -75,6 +75,11 @@ func (u Request) AsMeasureRequest() *MeasureRequest {
 	return asTagged[MeasureRequest](u, "op", "measure")
 }
 
+// AsIntersectRequest は、op が intersect の形なら、その型で読む。違えば nil。
+func (u Request) AsIntersectRequest() *IntersectRequest {
+	return asTagged[IntersectRequest](u, "op", "intersect")
+}
+
 // AsApplyRequest は、op が apply の形なら、その型で読む。違えば nil。
 func (u Request) AsApplyRequest() *ApplyRequest {
 	return asTagged[ApplyRequest](u, "op", "apply")
@@ -888,6 +893,120 @@ type MeasureResult struct {
 
 	// 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点
 	NearestSecond *Point2 `json:"nearest_second,omitempty"`
+}
+
+// IntersectRequest: 同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から
+type IntersectRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 開いた文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+	From *string `json:"from,omitempty"`
+
+	// 交わりを求める要素
+	First *MeasureElement `json:"first,omitempty"`
+
+	// 交わりを求めるもう一方の要素。first と異なる ID
+	Second *MeasureElement `json:"second,omitempty"`
+
+	// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、近似する曲線の分割の目標にも使う
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m IntersectRequest) MarshalJSON() ([]byte, error) {
+	type plain IntersectRequest
+	m.Op = "intersect"
+	return json.Marshal(plain(m))
+}
+
+// IntersectionPoint: 交点または接点。格子点の座標
+type IntersectionPoint struct {
+	// 空間の長さの単位の点
+	Position *Point2 `json:"position,omitempty"`
+
+	// 接点。同じ格子点にまとめたすべての交わりが接するときだけ真
+	Tangent *bool `json:"tangent,omitempty"`
+
+	// 正確な交点が格子点でなく、近い格子点へ丸めた。まとめたすべての交わりが丸めたときだけ真
+	Rounded *bool `json:"rounded,omitempty"`
+}
+
+// IntersectionOverlapKind: 重なりの形。segment は線分、arc は反時計回りの円弧、circle は円全体
+//
+// 列挙の値。知らない値も受け取る。
+type IntersectionOverlapKind string
+
+// IntersectionOverlapKindSegment は segment。
+const IntersectionOverlapKindSegment IntersectionOverlapKind = "segment"
+
+// IntersectionOverlapKindArc は arc。
+const IntersectionOverlapKindArc IntersectionOverlapKind = "arc"
+
+// IntersectionOverlapKindCircle は circle。
+const IntersectionOverlapKindCircle IntersectionOverlapKind = "circle"
+
+// IntersectionOverlap: 2 要素が長さを持って重なる区間。区間の組ごとに返し、つながる区間をつながない
+type IntersectionOverlap struct {
+	// 重なりの形
+	Kind *IntersectionOverlapKind `json:"kind,omitempty"`
+
+	// 始点。segment は X、Y の辞書順で小さい端、arc は反時計回りの始点。circle では持たない
+	Start *Point2 `json:"start,omitempty"`
+
+	// 終点。circle では持たない
+	End *Point2 `json:"end,omitempty"`
+
+	// 円弧と円の中心。segment では持たない
+	Center *Point2 `json:"center,omitempty"`
+
+	// 円弧と円の格子上の半径。segment では持たない
+	Radius *float64 `json:"radius,omitempty"`
+}
+
+// IntersectResult: 2 要素の交わり。first と second を入れ替えても同じ結果を返す
+type IntersectResult struct {
+	// 元の文書のハッシュ
+	Hash *string `json:"hash,omitempty"`
+
+	// 求めた実寸の空間の公開 ID
+	From *string `json:"from,omitempty"`
+
+	// 空間の長さの単位。不明な単位を補わない
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 指定した、または既定の許容差
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 曲線を折れ線に近似した要素がある
+	Approximate *bool `json:"approximate,omitempty"`
+
+	// 交点と接点。格子点の X、Y の辞書順。重なりの端点と同じ点は含めない
+	Points []IntersectionPoint `json:"points,omitempty"`
+
+	// 重なり。形・座標の順
+	Overlaps []IntersectionOverlap `json:"overlaps,omitempty"`
 }
 
 // PointStyleSummary: 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -7524,6 +7643,9 @@ const OpMeasureDistance = "measure_distance"
 
 // OpMeasure は、op の名前 measure。
 const OpMeasure = "measure"
+
+// OpIntersect は、op の名前 intersect。
+const OpIntersect = "intersect"
 
 // OpApply は、op の名前 apply。
 const OpApply = "apply"

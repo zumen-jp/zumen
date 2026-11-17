@@ -35,7 +35,7 @@ pub(crate) struct Scalar {
     pub approximate: bool,
 }
 
-fn charge(cx: &mut Cx<'_>, value: Charge) -> Result<(), Stop> {
+pub(crate) fn charge(cx: &mut Cx<'_>, value: Charge) -> Result<(), Stop> {
     match value {
         Charge::Work(n) => cx.check(Kind::Work, n),
         Charge::Points(n) => cx.check(Kind::Segments, n),

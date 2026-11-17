@@ -48,6 +48,8 @@ mod formats;
 mod geo;
 mod geometry;
 #[cfg(feature = "drawing")]
+mod intersection;
+#[cfg(feature = "drawing")]
 mod measurement;
 pub mod messages;
 mod packed;

@@ -29,6 +29,8 @@ pub enum Request {
     MeasureDistance(MeasureDistanceRequest),
     /// モデル空間の要素の長さ・周長・面積、2 要素または点の間の最短距離を測る。線幅と表示用の変換は含めない
     Measure(MeasureRequest),
+    /// 同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から
+    Intersect(IntersectRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
     /// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
@@ -103,6 +105,7 @@ impl Request {
         "calibrations",
         "measure_distance",
         "measure",
+        "intersect",
         "apply",
         "create",
         "convert",
@@ -147,6 +150,7 @@ impl Request {
             Self::Calibrations(_) => "calibrations",
             Self::MeasureDistance(_) => "measure_distance",
             Self::Measure(_) => "measure",
+            Self::Intersect(_) => "intersect",
             Self::Apply(_) => "apply",
             Self::Create(_) => "create",
             Self::Convert(_) => "convert",
@@ -196,6 +200,7 @@ impl FromJson for Request {
                 Self::MeasureDistance(MeasureDistanceRequest::read_fields(&mut object)?)
             }
             "measure" => Self::Measure(MeasureRequest::read_fields(&mut object)?),
+            "intersect" => Self::Intersect(IntersectRequest::read_fields(&mut object)?),
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
             "create" => Self::Create(CreateRequest::read_fields(&mut object)?),
             "convert" => Self::Convert(ConvertRequest::read_fields(&mut object)?),
@@ -257,6 +262,7 @@ impl ToJson for Request {
             Self::Calibrations(value) => value.to_json(out),
             Self::MeasureDistance(value) => value.to_json(out),
             Self::Measure(value) => value.to_json(out),
+            Self::Intersect(value) => value.to_json(out),
             Self::Apply(value) => value.to_json(out),
             Self::Create(value) => value.to_json(out),
             Self::Convert(value) => value.to_json(out),
@@ -2013,6 +2019,331 @@ impl FromJson for MeasureResult {
 }
 
 impl ToJson for MeasureResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct IntersectRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 開いた文書の名前
+    pub doc: String,
+    /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+    pub from: String,
+    /// 交わりを求める要素
+    pub first: MeasureElement,
+    /// 交わりを求めるもう一方の要素。first と異なる ID
+    pub second: MeasureElement,
+    /// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、近似する曲線の分割の目標にも使う
+    pub tolerance: Option<f64>,
+    /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+    pub expected_hash: Option<String>,
+}
+
+impl IntersectRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "intersect")?;
+        let doc = object.required("doc", json::string)?;
+        let from = object.required("from", json::string)?;
+        let first = object.required("first", MeasureElement::from_json)?;
+        let second = object.required("second", MeasureElement::from_json)?;
+        let tolerance = object.optional("tolerance", json::number)?;
+        let expected_hash = object.optional("expected_hash", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            from,
+            first,
+            second,
+            tolerance,
+            expected_hash,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("intersect");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("from");
+        out.string(&self.from);
+        out.key("first");
+        self.first.to_json(out);
+        out.key("second");
+        self.second.to_json(out);
+        if let Some(value) = &self.tolerance {
+            out.key("tolerance");
+            out.float(*value);
+        }
+        if let Some(value) = &self.expected_hash {
+            out.key("expected_hash");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for IntersectRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IntersectRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 交点または接点。格子点の座標
+#[derive(Clone, Debug, PartialEq)]
+pub struct IntersectionPoint {
+    /// 空間の長さの単位の点
+    pub position: Point2,
+    /// 接点。同じ格子点にまとめたすべての交わりが接するときだけ真
+    pub tangent: bool,
+    /// 正確な交点が格子点でなく、近い格子点へ丸めた。まとめたすべての交わりが丸めたときだけ真
+    pub rounded: bool,
+}
+
+impl IntersectionPoint {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let position = object.required("position", Point2::from_json)?;
+        let tangent = object.required("tangent", json::boolean)?;
+        let rounded = object.required("rounded", json::boolean)?;
+        Ok(Self {
+            position,
+            tangent,
+            rounded,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("position");
+        self.position.to_json(out);
+        out.key("tangent");
+        out.bool(self.tangent);
+        out.key("rounded");
+        out.bool(self.rounded);
+    }
+}
+
+impl FromJson for IntersectionPoint {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IntersectionPoint {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 重なりの形。segment は線分、arc は反時計回りの円弧、circle は円全体
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IntersectionOverlapKind {
+    /// `segment`
+    Segment,
+    /// `arc`
+    Arc,
+    /// `circle`
+    Circle,
+}
+
+impl IntersectionOverlapKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Segment, Self::Arc, Self::Circle];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Segment => "segment",
+            Self::Arc => "arc",
+            Self::Circle => "circle",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "segment" => Some(Self::Segment),
+            "arc" => Some(Self::Arc),
+            "circle" => Some(Self::Circle),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for IntersectionOverlapKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for IntersectionOverlapKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 2 要素が長さを持って重なる区間。区間の組ごとに返し、つながる区間をつながない
+#[derive(Clone, Debug, PartialEq)]
+pub struct IntersectionOverlap {
+    /// 重なりの形
+    pub kind: IntersectionOverlapKind,
+    /// 始点。segment は X、Y の辞書順で小さい端、arc は反時計回りの始点。circle では持たない
+    pub start: Option<Point2>,
+    /// 終点。circle では持たない
+    pub end: Option<Point2>,
+    /// 円弧と円の中心。segment では持たない
+    pub center: Option<Point2>,
+    /// 円弧と円の格子上の半径。segment では持たない
+    pub radius: Option<f64>,
+}
+
+impl IntersectionOverlap {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", IntersectionOverlapKind::from_json)?;
+        let start = object.optional("start", Point2::from_json)?;
+        let end = object.optional("end", Point2::from_json)?;
+        let center = object.optional("center", Point2::from_json)?;
+        let radius = object.optional("radius", json::number)?;
+        Ok(Self {
+            kind,
+            start,
+            end,
+            center,
+            radius,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.start {
+            out.key("start");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.end {
+            out.key("end");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.center {
+            out.key("center");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.radius {
+            out.key("radius");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for IntersectionOverlap {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IntersectionOverlap {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 2 要素の交わり。first と second を入れ替えても同じ結果を返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct IntersectResult {
+    /// 元の文書のハッシュ
+    pub hash: String,
+    /// 求めた実寸の空間の公開 ID
+    pub from: String,
+    /// 空間の長さの単位。不明な単位を補わない
+    pub unit: Unit,
+    /// 指定した、または既定の許容差
+    pub tolerance: f64,
+    /// 曲線を折れ線に近似した要素がある
+    pub approximate: bool,
+    /// 交点と接点。格子点の X、Y の辞書順。重なりの端点と同じ点は含めない
+    pub points: Vec<IntersectionPoint>,
+    /// 重なり。形・座標の順
+    pub overlaps: Vec<IntersectionOverlap>,
+}
+
+impl IntersectResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.required("hash", json::string)?;
+        let from = object.required("from", json::string)?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let tolerance = object.required("tolerance", json::number)?;
+        let approximate = object.required("approximate", json::boolean)?;
+        let points = object.required("points", |value| {
+            json::array(value, IntersectionPoint::from_json)
+        })?;
+        let overlaps = object.required("overlaps", |value| {
+            json::array(value, IntersectionOverlap::from_json)
+        })?;
+        Ok(Self {
+            hash,
+            from,
+            unit,
+            tolerance,
+            approximate,
+            points,
+            overlaps,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("from");
+        out.string(&self.from);
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("tolerance");
+        out.float(self.tolerance);
+        out.key("approximate");
+        out.bool(self.approximate);
+        out.key("points");
+        out.array(&self.points, |out, item| item.to_json(out));
+        out.key("overlaps");
+        out.array(&self.overlaps, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for IntersectResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IntersectResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

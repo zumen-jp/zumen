@@ -46,6 +46,9 @@ class Request extends Message {
   /// op が measure の形なら、そのビュー。違えば null
   MeasureRequest? get asMeasureRequest => taggedView('op', 'measure', MeasureRequest.fromJson);
 
+  /// op が intersect の形なら、そのビュー。違えば null
+  IntersectRequest? get asIntersectRequest => taggedView('op', 'intersect', IntersectRequest.fromJson);
+
   /// op が apply の形なら、そのビュー。違えば null
   ApplyRequest? get asApplyRequest => taggedView('op', 'apply', ApplyRequest.fromJson);
 
@@ -1007,6 +1010,159 @@ class MeasureResult extends Message {
   /// 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点
   Point2? get nearestSecond => readField('nearest_second', objectOf(Point2.fromJson));
   set nearestSecond(Point2? value) => writeField('nearest_second', value);
+}
+
+/// 同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から
+class IntersectRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  IntersectRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  IntersectRequest() : super({'op': 'intersect'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 開いた文書の名前
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 交わりを求める要素
+  MeasureElement? get first => readField('first', objectOf(MeasureElement.fromJson));
+  set first(MeasureElement? value) => writeField('first', value);
+
+  /// 交わりを求めるもう一方の要素。first と異なる ID
+  MeasureElement? get second => readField('second', objectOf(MeasureElement.fromJson));
+  set second(MeasureElement? value) => writeField('second', value);
+
+  /// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、近似する曲線の分割の目標にも使う
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
+
+  /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+  String? get expectedHash => readField('expected_hash', asString);
+  set expectedHash(String? value) => writeField('expected_hash', value);
+}
+
+/// 交点または接点。格子点の座標
+class IntersectionPoint extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  IntersectionPoint.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  IntersectionPoint() : super({});
+
+  /// 空間の長さの単位の点
+  Point2? get position => readField('position', objectOf(Point2.fromJson));
+  set position(Point2? value) => writeField('position', value);
+
+  /// 接点。同じ格子点にまとめたすべての交わりが接するときだけ真
+  core.bool? get tangent => readField('tangent', asBool);
+  set tangent(core.bool? value) => writeField('tangent', value);
+
+  /// 正確な交点が格子点でなく、近い格子点へ丸めた。まとめたすべての交わりが丸めたときだけ真
+  core.bool? get rounded => readField('rounded', asBool);
+  set rounded(core.bool? value) => writeField('rounded', value);
+}
+
+/// 重なりの形。segment は線分、arc は反時計回りの円弧、circle は円全体
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class IntersectionOverlapKind {
+  static const segment = 'segment';
+  static const arc = 'arc';
+  static const circle = 'circle';
+}
+
+/// 2 要素が長さを持って重なる区間。区間の組ごとに返し、つながる区間をつながない
+class IntersectionOverlap extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  IntersectionOverlap.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  IntersectionOverlap() : super({});
+
+  /// 重なりの形
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 始点。segment は X、Y の辞書順で小さい端、arc は反時計回りの始点。circle では持たない
+  Point2? get start => readField('start', objectOf(Point2.fromJson));
+  set start(Point2? value) => writeField('start', value);
+
+  /// 終点。circle では持たない
+  Point2? get end => readField('end', objectOf(Point2.fromJson));
+  set end(Point2? value) => writeField('end', value);
+
+  /// 円弧と円の中心。segment では持たない
+  Point2? get center => readField('center', objectOf(Point2.fromJson));
+  set center(Point2? value) => writeField('center', value);
+
+  /// 円弧と円の格子上の半径。segment では持たない
+  core.double? get radius => readField('radius', asDouble);
+  set radius(core.double? value) => writeField('radius', value);
+}
+
+/// 2 要素の交わり。first と second を入れ替えても同じ結果を返す
+class IntersectResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  IntersectResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  IntersectResult() : super({});
+
+  /// 元の文書のハッシュ
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 求めた実寸の空間の公開 ID
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 空間の長さの単位。不明な単位を補わない
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// 指定した、または既定の許容差
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
+
+  /// 曲線を折れ線に近似した要素がある
+  core.bool? get approximate => readField('approximate', asBool);
+  set approximate(core.bool? value) => writeField('approximate', value);
+
+  /// 交点と接点。格子点の X、Y の辞書順。重なりの端点と同じ点は含めない
+  List<IntersectionPoint>? get points => readField('points', listOf(objectOf(IntersectionPoint.fromJson)));
+  set points(List<IntersectionPoint>? value) => writeField('points', value);
+
+  /// 重なり。形・座標の順
+  List<IntersectionOverlap>? get overlaps => readField('overlaps', listOf(objectOf(IntersectionOverlap.fromJson)));
+  set overlaps(List<IntersectionOverlap>? value) => writeField('overlaps', value);
 }
 
 /// 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -9349,6 +9505,7 @@ abstract final class Operations {
   static const calibrations = 'calibrations';
   static const measureDistance = 'measure_distance';
   static const measure = 'measure';
+  static const intersect = 'intersect';
   static const apply = 'apply';
   static const create = 'create';
   static const convert = 'convert';
