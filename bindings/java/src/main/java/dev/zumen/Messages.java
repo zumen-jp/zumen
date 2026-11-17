@@ -177,6 +177,11 @@ public final class Messages {
             return "review_adopt".equals(json.get("op")) ? new ReviewAdoptRequest(json) : null;
         }
 
+        /** op が review_scene の形なら、そのビュー。違えば null */
+        public ReviewSceneRequest asReviewSceneRequest() {
+            return "review_scene".equals(json.get("op")) ? new ReviewSceneRequest(json) : null;
+        }
+
         /** op が building の形なら、そのビュー。違えば null */
         public BuildingRequest asBuildingRequest() {
             return "building".equals(json.get("op")) ? new BuildingRequest(json) : null;
@@ -14342,6 +14347,520 @@ public final class Messages {
         }
     }
 
+    /** レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から */
+    public static final class ReviewSceneRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ReviewSceneRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ReviewSceneRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ReviewSceneRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public ReviewSceneRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "review_scene");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 対象の図面の文書の名前。open で作ったもの */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** レビューの文書の入力の名前（zm_push で渡した JSON） */
+        public String getReview() {
+            return Json.read(json.get("review"), Json::string);
+        }
+
+        /** {@link #getReview()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withReview(String value) {
+            put("review", value);
+            return this;
+        }
+
+        /** 描く対象の ID。レビューの文書の targets の id */
+        public String getTarget() {
+            return Json.read(json.get("target"), Json::string);
+        }
+
+        /** {@link #getTarget()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withTarget(String value) {
+            put("target", value);
+            return this;
+        }
+
+        /** 起点。実寸の空間・記号の定義の空間・用紙の ID（scene と同じ）。文書の図形・場所の view がこの起点を指すものだけを描く */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。書けば、文書の view が用紙の ID に /view/<番号> を足した値の項目だけを描く */
+        public Long getView() {
+            return Json.read(json.get("view"), Json::integer);
+        }
+
+        /** {@link #getView()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withView(Long value) {
+            put("view", value);
+            return this;
+        }
+
+        /** [x の最小, y の最小, x の最大, y の最大]。起点の座標の長方形。範囲の重なる塊だけを返す */
+        public List<Double> getRegion() {
+            return Json.read(json.get("region"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getRegion()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withRegion(List<Double> value) {
+            put("region", value);
+            return this;
+        }
+
+        /** 弦の誤差（起点の長さ）。0 より大きい有限値。既定値を補わない */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 文字を置くフォント（scene と同じ）。style の font の名前で引く。書かなければ字形を置かず、注記の枠を文字高と字数から概算して診断する */
+        public List<SceneFont> getFonts() {
+            return Json.read(json.get("fonts"), v0 -> Json.list(v0, SceneFont::of));
+        }
+
+        /** {@link #getFonts()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withFonts(List<SceneFont> value) {
+            put("fonts", value);
+            return this;
+        }
+
+        /** 選んだ項目に共通で当てる色と寸法 */
+        public ReviewSceneStyle getStyle() {
+            return Json.read(json.get("style"), ReviewSceneStyle::of);
+        }
+
+        /** {@link #getStyle()} を書く。null ならフィールドを除く */
+        public ReviewSceneRequest withStyle(ReviewSceneStyle value) {
+            put("style", value);
+            return this;
+        }
+    }
+
+    /** レビューの図形の色と寸法。幾何の寸法は起点の単位、線幅だけは用紙の mm。文書には保存しない */
+    public static final class ReviewSceneStyle extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ReviewSceneStyle(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ReviewSceneStyle of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ReviewSceneStyle(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ReviewSceneStyle() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 線・面・文字の色。#rrggbb */
+        public String getColor() {
+            return Json.read(json.get("color"), Json::string);
+        }
+
+        /** {@link #getColor()} を書く。null ならフィールドを除く */
+        public ReviewSceneStyle withColor(String value) {
+            put("color", value);
+            return this;
+        }
+
+        /** 用紙の mm の線幅。0 以上の有限値。0 はもっとも細い線 */
+        public Double getLineWeight() {
+            return Json.read(json.get("line_weight"), Json::number);
+        }
+
+        /** {@link #getLineWeight()} を書く。null ならフィールドを除く */
+        public ReviewSceneStyle withLineWeight(Double value) {
+            put("line_weight", value);
+            return this;
+        }
+
+        /** 起点の単位での文字の高さ。正の有限値 */
+        public Double getTextHeight() {
+            return Json.read(json.get("text_height"), Json::number);
+        }
+
+        /** {@link #getTextHeight()} を書く。null ならフィールドを除く */
+        public ReviewSceneStyle withTextHeight(Double value) {
+            put("text_height", value);
+            return this;
+        }
+
+        /** 起点の単位での注記の枠の余白。0 以上の有限値 */
+        public Double getTextPadding() {
+            return Json.read(json.get("text_padding"), Json::number);
+        }
+
+        /** {@link #getTextPadding()} を書く。null ならフィールドを除く */
+        public ReviewSceneStyle withTextPadding(Double value) {
+            put("text_padding", value);
+            return this;
+        }
+
+        /** 起点の単位での矢じりの長さ。正の有限値 */
+        public Double getArrowLength() {
+            return Json.read(json.get("arrow_length"), Json::number);
+        }
+
+        /** {@link #getArrowLength()} を書く。null ならフィールドを除く */
+        public ReviewSceneStyle withArrowLength(Double value) {
+            put("arrow_length", value);
+            return this;
+        }
+
+        /** 赤線の矢じりを置く端 */
+        public String getArrows() {
+            return Json.read(json.get("arrows"), Json::string);
+        }
+
+        /** {@link #getArrows()} を書く。null ならフィールドを除く */
+        public ReviewSceneStyle withArrows(String value) {
+            put("arrows", value);
+            return this;
+        }
+
+        /** 雲の円弧の弦の長さの上限。起点の単位の正の有限値 */
+        public Double getCloudPitch() {
+            return Json.read(json.get("cloud_pitch"), Json::number);
+        }
+
+        /** {@link #getCloudPitch()} を書く。null ならフィールドを除く */
+        public ReviewSceneStyle withCloudPitch(Double value) {
+            put("cloud_pitch", value);
+            return this;
+        }
+
+        /** 写真と指摘の位置の記号の直径。起点の単位の正の有限値 */
+        public Double getMarkerSize() {
+            return Json.read(json.get("marker_size"), Json::number);
+        }
+
+        /** {@link #getMarkerSize()} を書く。null ならフィールドを除く */
+        public ReviewSceneStyle withMarkerSize(Double value) {
+            put("marker_size", value);
+            return this;
+        }
+
+        /** fonts から引くフォントの名前。書かなければ名前のないフォント */
+        public String getFont() {
+            return Json.read(json.get("font"), Json::string);
+        }
+
+        /** {@link #getFont()} を書く。null ならフィールドを除く */
+        public ReviewSceneStyle withFont(String value) {
+            put("font", value);
+            return this;
+        }
+    }
+
+    /**
+     * 赤線の矢じりを置く端。none は置かない、start は最初の端点、end は最後の端点、both は両端
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class ReviewArrows {
+        private ReviewArrows() {}
+
+        public static final String NONE = "none";
+
+        public static final String START = "start";
+
+        public static final String END = "end";
+
+        public static final String BOTH = "both";
+    }
+
+    /** レビューのシーンの要約と、シーンの blob の番号、シーンの ID から元の図形・場所への対応 */
+    public static final class ReviewSceneResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ReviewSceneResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ReviewSceneResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ReviewSceneResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ReviewSceneResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 起点の ID */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public ReviewSceneResult withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 起点のビューの番号。ビューでなければ持たない */
+        public Long getView() {
+            return Json.read(json.get("view"), Json::integer);
+        }
+
+        /** {@link #getView()} を書く。null ならフィールドを除く */
+        public ReviewSceneResult withView(Long value) {
+            put("view", value);
+            return this;
+        }
+
+        /** 起点の座標の単位。用紙とビューからは millimeter。単位の不明な空間は unknown のまま */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public ReviewSceneResult withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** 使った弦の誤差（起点の長さ） */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public ReviewSceneResult withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 返した描くものの数 */
+        public SceneCounts getCounts() {
+            return Json.read(json.get("counts"), SceneCounts::of);
+        }
+
+        /** {@link #getCounts()} を書く。null ならフィールドを除く */
+        public ReviewSceneResult withCounts(SceneCounts value) {
+            put("counts", value);
+            return this;
+        }
+
+        /** 返した塊の範囲。起点の座標。塊がなければ持たない */
+        public Extent getExtent() {
+            return Json.read(json.get("extent"), Extent::of);
+        }
+
+        /** {@link #getExtent()} を書く。null ならフィールドを除く */
+        public ReviewSceneResult withExtent(Extent value) {
+            put("extent", value);
+            return this;
+        }
+
+        /** 描いた図形・場所ごとの対応。描く順（文書の markups の順、続いて topics と各指摘の locations の順） */
+        public List<ReviewSceneSource> getSources() {
+            return Json.read(json.get("sources"), v0 -> Json.list(v0, ReviewSceneSource::of));
+        }
+
+        /** {@link #getSources()} を書く。null ならフィールドを除く */
+        public ReviewSceneResult withSources(List<ReviewSceneSource> value) {
+            put("sources", value);
+            return this;
+        }
+
+        /** シーンの blob の番号（種類は scene）。zm_take で取り出す */
+        public Long getBlob() {
+            return Json.read(json.get("blob"), Json::integer);
+        }
+
+        /** {@link #getBlob()} を書く。null ならフィールドを除く */
+        public ReviewSceneResult withBlob(Long value) {
+            put("blob", value);
+            return this;
+        }
+    }
+
+    /** シーンの ID（シーンの entity_ids）から、元のレビューの文書の図形か指摘の場所へ戻す対応 */
+    public static final class ReviewSceneSource extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ReviewSceneSource(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ReviewSceneSource of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ReviewSceneSource(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ReviewSceneSource() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** シーンの ID。review/markup/<hex> か review/location/<hex>/<hex> */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public ReviewSceneSource withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 元の項目の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public ReviewSceneSource withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 元の図形の ID。kind が markup のときだけ持つ */
+        public String getMarkup() {
+            return Json.read(json.get("markup"), Json::string);
+        }
+
+        /** {@link #getMarkup()} を書く。null ならフィールドを除く */
+        public ReviewSceneSource withMarkup(String value) {
+            put("markup", value);
+            return this;
+        }
+
+        /** 元の指摘の ID。kind が location のときだけ持つ */
+        public String getTopic() {
+            return Json.read(json.get("topic"), Json::string);
+        }
+
+        /** {@link #getTopic()} を書く。null ならフィールドを除く */
+        public ReviewSceneSource withTopic(String value) {
+            put("topic", value);
+            return this;
+        }
+
+        /** 元の場所の ID。kind が location のときだけ持つ */
+        public String getLocation() {
+            return Json.read(json.get("location"), Json::string);
+        }
+
+        /** {@link #getLocation()} を書く。null ならフィールドを除く */
+        public ReviewSceneSource withLocation(String value) {
+            put("location", value);
+            return this;
+        }
+    }
+
+    /**
+     * シーンの ID の元の項目の種類。markup はレビューの文書の図形、location は指摘の中の場所
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class ReviewSceneSourceKind {
+        private ReviewSceneSourceKind() {}
+
+        public static final String MARKUP = "markup";
+
+        public static final String LOCATION = "location";
+    }
+
     /** 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から */
     public static final class BuildingRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -24810,6 +25329,8 @@ public final class Messages {
         public static final String REVIEW_CARRY = "review_carry";
 
         public static final String REVIEW_ADOPT = "review_adopt";
+
+        public static final String REVIEW_SCENE = "review_scene";
 
         public static final String BUILDING = "building";
 

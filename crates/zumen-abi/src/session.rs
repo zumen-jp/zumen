@@ -482,6 +482,10 @@ impl Session {
             Request::ReviewAdopt(request) => self
                 .review_adopt(request, &mut cx)
                 .map(|r| Box::new(r) as _),
+            #[cfg(feature = "drawing")]
+            Request::ReviewScene(request) => self
+                .review_scene(request, &mut cx)
+                .map(|r| Box::new(r) as _),
             #[cfg(feature = "bim")]
             Request::Building(request) => self
                 .model(&request.doc, "building", &mut cx)
@@ -735,6 +739,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Validate(request) => &request.request_common,
         Request::ReviewCarry(request) => &request.request_common,
         Request::ReviewAdopt(request) => &request.request_common,
+        Request::ReviewScene(request) => &request.request_common,
         Request::Building(request) => &request.request_common,
         Request::BuildingElements(request) => &request.request_common,
         Request::BuildingApply(request) => &request.request_common,

@@ -73,7 +73,7 @@ pub(crate) fn check(request: View<'_>, cx: &mut Cx<'_>) -> Result<(), Failed> {
 }
 
 /// 起点の ID を、たどる起点と座標の単位にする
-fn origin(
+pub(crate) fn origin(
     drawing: &Drawing2D,
     request: View<'_>,
     cx: &mut Cx<'_>,
@@ -152,7 +152,7 @@ pub(crate) fn palette(bytes: &[u8]) -> Option<Palette> {
 }
 
 /// `#rrggbb` の RGB
-fn hex(text: &str) -> Option<[u8; 3]> {
+pub(crate) fn hex(text: &str) -> Option<[u8; 3]> {
     let digits = text.strip_prefix('#')?;
     if digits.len() != 6 || !digits.is_ascii() {
         return None;

@@ -29,6 +29,7 @@ export type Request =
   | ValidateRequest
   | ReviewCarryRequest
   | ReviewAdoptRequest
+  | ReviewSceneRequest
   | BuildingRequest
   | BuildingElementsRequest
   | IdsCheckRequest
@@ -2593,6 +2594,100 @@ export interface ReviewAdoptResult {
   topics: number;
 }
 
+/** レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から */
+export interface ReviewSceneRequest extends RequestCommon {
+  /** op の名前 */
+  op: "review_scene";
+  /** 対象の図面の文書の名前。open で作ったもの */
+  doc: string;
+  /** レビューの文書の入力の名前（zm_push で渡した JSON） */
+  review: string;
+  /** 描く対象の ID。レビューの文書の targets の id */
+  target: string;
+  /** 起点。実寸の空間・記号の定義の空間・用紙の ID（scene と同じ）。文書の図形・場所の view がこの起点を指すものだけを描く */
+  from: string;
+  /** 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。書けば、文書の view が用紙の ID に /view/<番号> を足した値の項目だけを描く */
+  view?: number;
+  /** [x の最小, y の最小, x の最大, y の最大]。起点の座標の長方形。範囲の重なる塊だけを返す */
+  region?: number[];
+  /** 弦の誤差（起点の長さ）。0 より大きい有限値。既定値を補わない */
+  tolerance: number;
+  /** 文字を置くフォント（scene と同じ）。style の font の名前で引く。書かなければ字形を置かず、注記の枠を文字高と字数から概算して診断する */
+  fonts?: SceneFont[];
+  /** 選んだ項目に共通で当てる色と寸法 */
+  style: ReviewSceneStyle;
+}
+
+/** レビューの図形の色と寸法。幾何の寸法は起点の単位、線幅だけは用紙の mm。文書には保存しない */
+export interface ReviewSceneStyle {
+  /** 線・面・文字の色。#rrggbb */
+  color: string;
+  /** 用紙の mm の線幅。0 以上の有限値。0 はもっとも細い線 */
+  line_weight: number;
+  /** 起点の単位での文字の高さ。正の有限値 */
+  text_height: number;
+  /** 起点の単位での注記の枠の余白。0 以上の有限値 */
+  text_padding: number;
+  /** 起点の単位での矢じりの長さ。正の有限値 */
+  arrow_length: number;
+  /** 赤線の矢じりを置く端 */
+  arrows: ReviewArrows;
+  /** 雲の円弧の弦の長さの上限。起点の単位の正の有限値 */
+  cloud_pitch: number;
+  /** 写真と指摘の位置の記号の直径。起点の単位の正の有限値 */
+  marker_size: number;
+  /** fonts から引くフォントの名前。書かなければ名前のないフォント */
+  font?: string;
+}
+
+/** 赤線の矢じりを置く端。none は置かない、start は最初の端点、end は最後の端点、both は両端 */
+export type ReviewArrows =
+  | "none"
+  | "start"
+  | "end"
+  | "both"
+  | (string & {});
+
+/** レビューのシーンの要約と、シーンの blob の番号、シーンの ID から元の図形・場所への対応 */
+export interface ReviewSceneResult {
+  /** 起点の ID */
+  from: string;
+  /** 起点のビューの番号。ビューでなければ持たない */
+  view?: number;
+  /** 起点の座標の単位。用紙とビューからは millimeter。単位の不明な空間は unknown のまま */
+  unit: Unit;
+  /** 使った弦の誤差（起点の長さ） */
+  tolerance: number;
+  /** 返した描くものの数 */
+  counts: SceneCounts;
+  /** 返した塊の範囲。起点の座標。塊がなければ持たない */
+  extent?: Extent;
+  /** 描いた図形・場所ごとの対応。描く順（文書の markups の順、続いて topics と各指摘の locations の順） */
+  sources: ReviewSceneSource[];
+  /** シーンの blob の番号（種類は scene）。zm_take で取り出す */
+  blob: number;
+}
+
+/** シーンの ID（シーンの entity_ids）から、元のレビューの文書の図形か指摘の場所へ戻す対応 */
+export interface ReviewSceneSource {
+  /** シーンの ID。review/markup/<hex> か review/location/<hex>/<hex> */
+  id: string;
+  /** 元の項目の種類 */
+  kind: ReviewSceneSourceKind;
+  /** 元の図形の ID。kind が markup のときだけ持つ */
+  markup?: string;
+  /** 元の指摘の ID。kind が location のときだけ持つ */
+  topic?: string;
+  /** 元の場所の ID。kind が location のときだけ持つ */
+  location?: string;
+}
+
+/** シーンの ID の元の項目の種類。markup はレビューの文書の図形、location は指摘の中の場所 */
+export type ReviewSceneSourceKind =
+  | "markup"
+  | "location"
+  | (string & {});
+
 /** 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から */
 export interface BuildingRequest extends RequestCommon {
   /** op の名前 */
@@ -4541,6 +4636,7 @@ export interface Operations {
   validate: { request: ValidateRequest; result: ValidateResult };
   review_carry: { request: ReviewCarryRequest; result: ReviewCarryResult };
   review_adopt: { request: ReviewAdoptRequest; result: ReviewAdoptResult };
+  review_scene: { request: ReviewSceneRequest; result: ReviewSceneResult };
   building: { request: BuildingRequest; result: BuildingResult };
   building_elements: { request: BuildingElementsRequest; result: BuildingElementsResult };
   ids_check: { request: IdsCheckRequest; result: IdsCheckResult };

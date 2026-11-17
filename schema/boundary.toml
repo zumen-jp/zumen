@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）のメジャーバージョン。要求と応答の v
 schema-major = 1
 # メッセージのスキーマのマイナーバージョン。op・フィールド・列挙の値を足すたびに上げる
-schema-minor = 94
+schema-minor = 95
 
 # 状態コード。理由は応答の診断で返す
 
@@ -166,7 +166,7 @@ description = "図面（DXF・DWG・SXF・JWW・SIMA・TIFF と、図面モデ�
 formats = ["dxf", "dwg", "sxf", "jww", "sima", "tiff", "landxml", "drawing"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "create", "convert", "convert_estimate", "tables", "scene",
-    "check", "review_carry", "review_adopt", "civil", "civil_drawing", "delivery_check", "delivery_apply", "photo", "boring",
+    "check", "review_carry", "review_adopt", "review_scene", "civil", "civil_drawing", "delivery_check", "delivery_apply", "photo", "boring",
     "lift", "render", "calibrations", "measure_distance", "measure", "intersect", "regions", "construct", "raster",
 ]
 

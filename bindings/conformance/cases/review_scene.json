@@ -1,0 +1,324 @@
+{
+  "description": "review_scene は、レビューの文書の 1 つの対象の図形と指摘の場所を、開いた図面の起点で図面とは別の 2D のシーンにし、シーンの ID から元の図形・場所への対応と一緒に返す（決定 0295）。別の対象の項目は描かず、対象のハッシュが合わない文書・不正なスタイル・起点は描かない。シーンのバイト列と応答が、ネイティブと wasm で同じになることを確かめる",
+  "steps": [
+    {
+      "push": {
+        "name": "a.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\nA1\n8\n0\n10\n0.0\n20\n0.0\n11\n50.0\n21\n30.0\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "a.dxf"
+      },
+      "expect": {
+        "/result/hash": "v2:bc5bf7c68ff30d62a88a07dd68a8a7c9"
+      }
+    },
+    {
+      "push": {
+        "name": "review.json",
+        "text": "{\"format\":\"zumen-review\",\"version\":1,\"targets\":[{\"id\":\"plan\",\"format\":\"dxf\",\"hash\":\"v2:bc5bf7c68ff30d62a88a07dd68a8a7c9\"},{\"id\":\"other\",\"format\":\"dxf\",\"hash\":\"v2:00000000000000000000000000000000\"}],\"topics\":[{\"id\":\"t1\",\"title\":\"寸法の確認\",\"status\":\"open\",\"locations\":[{\"id\":\"l1\",\"target\":\"plan\",\"kind\":\"2d\",\"view\":\"space/0\",\"pin\":[5,5],\"extent\":[0,0,10,10]},{\"id\":\"l2\",\"target\":\"other\",\"kind\":\"2d\",\"view\":\"space/0\",\"pin\":[1,1]}]}],\"markups\":[{\"id\":\"m1\",\"kind\":\"redline\",\"target\":\"plan\",\"view\":\"space/0\",\"points\":[[0,0],[10,0],[10,10]],\"topic\":\"t1\"},{\"id\":\"m2\",\"kind\":\"cloud\",\"target\":\"plan\",\"view\":\"space/0\",\"points\":[[20,0],[30,0],[30,10],[20,10]]},{\"id\":\"m3\",\"kind\":\"text\",\"target\":\"plan\",\"view\":\"space/0\",\"points\":[[0,20]],\"text\":\"確認\"},{\"id\":\"m4\",\"kind\":\"photo\",\"target\":\"plan\",\"view\":\"space/0\",\"points\":[[40,5]],\"text\":\"photo-1\"},{\"id\":\"m5\",\"kind\":\"redline\",\"target\":\"other\",\"view\":\"space/0\",\"points\":[[0,0],[1,1]]}]}"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_scene",
+        "doc": "a.dxf",
+        "review": "review.json",
+        "target": "plan",
+        "from": "space/0",
+        "tolerance": 0.01,
+        "style": {
+          "color": "#ff0000",
+          "line_weight": 0.35,
+          "text_height": 2.5,
+          "text_padding": 0.5,
+          "arrow_length": 2,
+          "arrows": "end",
+          "cloud_pitch": 3,
+          "marker_size": 2
+        }
+      },
+      "expect": {
+        "/result/from": "space/0",
+        "/result/unit": "millimeter",
+        "/result/tolerance": 0.01,
+        "/result/blob": 0,
+        "/blobs/0/kind": "scene",
+        "/result/sources/0/id": "review/markup/6d31",
+        "/result/sources/0/kind": "markup",
+        "/result/sources/0/markup": "m1",
+        "/result/sources/3/markup": "m4",
+        "/result/sources/4/kind": "location",
+        "/result/sources/4/topic": "t1",
+        "/result/sources/4/location": "l1",
+        "/result/sources/4/id": "review/location/7431/6c31",
+        "/result/counts/texts": 1,
+        "/diagnostics/0/code": "review.scene-text-frame.approximated",
+        "/diagnostics/1/code": "scene.curve.approximated"
+      },
+      "absent": [
+        "/result/sources/5",
+        "/result/view"
+      ]
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_scene",
+        "doc": "a.dxf",
+        "review": "review.json",
+        "target": "plan",
+        "from": "space/0",
+        "tolerance": 0.01,
+        "style": {
+          "color": "#ff0000",
+          "line_weight": 0.35,
+          "text_height": 2.5,
+          "text_padding": 0.5,
+          "arrow_length": 2,
+          "arrows": "end",
+          "cloud_pitch": 3,
+          "marker_size": 2
+        },
+        "region": [
+          35,
+          0,
+          50,
+          10
+        ]
+      },
+      "expect": {
+        "/result/sources/0/markup": "m1"
+      }
+    },
+    {
+      "push": {
+        "name": "stale.json",
+        "text": "{\"format\":\"zumen-review\",\"version\":1,\"targets\":[{\"id\":\"plan\",\"format\":\"dxf\",\"hash\":\"v2:00000000000000000000000000000000\"},{\"id\":\"other\",\"format\":\"dxf\",\"hash\":\"v2:00000000000000000000000000000000\"}],\"topics\":[{\"id\":\"t1\",\"title\":\"寸法の確認\",\"status\":\"open\",\"locations\":[{\"id\":\"l1\",\"target\":\"plan\",\"kind\":\"2d\",\"view\":\"space/0\",\"pin\":[5,5],\"extent\":[0,0,10,10]},{\"id\":\"l2\",\"target\":\"other\",\"kind\":\"2d\",\"view\":\"space/0\",\"pin\":[1,1]}]}],\"markups\":[{\"id\":\"m1\",\"kind\":\"redline\",\"target\":\"plan\",\"view\":\"space/0\",\"points\":[[0,0],[10,0],[10,10]],\"topic\":\"t1\"},{\"id\":\"m2\",\"kind\":\"cloud\",\"target\":\"plan\",\"view\":\"space/0\",\"points\":[[20,0],[30,0],[30,10],[20,10]]},{\"id\":\"m3\",\"kind\":\"text\",\"target\":\"plan\",\"view\":\"space/0\",\"points\":[[0,20]],\"text\":\"確認\"},{\"id\":\"m4\",\"kind\":\"photo\",\"target\":\"plan\",\"view\":\"space/0\",\"points\":[[40,5]],\"text\":\"photo-1\"},{\"id\":\"m5\",\"kind\":\"redline\",\"target\":\"other\",\"view\":\"space/0\",\"points\":[[0,0],[1,1]]}]}"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_scene",
+        "doc": "a.dxf",
+        "review": "stale.json",
+        "target": "plan",
+        "from": "space/0",
+        "tolerance": 0.01,
+        "style": {
+          "color": "#ff0000",
+          "line_weight": 0.35,
+          "text_height": 2.5,
+          "text_padding": 0.5,
+          "arrow_length": 2,
+          "arrows": "end",
+          "cloud_pitch": 3,
+          "marker_size": 2
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "review.target.stale"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_scene",
+        "doc": "a.dxf",
+        "review": "review.json",
+        "target": "none",
+        "from": "space/0",
+        "tolerance": 0.01,
+        "style": {
+          "color": "#ff0000",
+          "line_weight": 0.35,
+          "text_height": 2.5,
+          "text_padding": 0.5,
+          "arrow_length": 2,
+          "arrows": "end",
+          "cloud_pitch": 3,
+          "marker_size": 2
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "review.target.missing"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_scene",
+        "doc": "a.dxf",
+        "review": "review.json",
+        "target": "plan",
+        "from": "space/9",
+        "tolerance": 0.01,
+        "style": {
+          "color": "#ff0000",
+          "line_weight": 0.35,
+          "text_height": 2.5,
+          "text_padding": 0.5,
+          "arrow_length": 2,
+          "arrows": "end",
+          "cloud_pitch": 3,
+          "marker_size": 2
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/from"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_scene",
+        "doc": "a.dxf",
+        "review": "review.json",
+        "target": "plan",
+        "from": "space/0",
+        "tolerance": 0.01,
+        "style": {
+          "color": "red",
+          "line_weight": 0.35,
+          "text_height": 2.5,
+          "text_padding": 0.5,
+          "arrow_length": 2,
+          "arrows": "end",
+          "cloud_pitch": 3,
+          "marker_size": 2
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/style/color"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_scene",
+        "doc": "a.dxf",
+        "review": "review.json",
+        "target": "plan",
+        "from": "space/0",
+        "tolerance": 0.01,
+        "style": {
+          "color": "#ff0000",
+          "line_weight": 0.35,
+          "text_height": 0,
+          "text_padding": 0.5,
+          "arrow_length": 2,
+          "arrows": "end",
+          "cloud_pitch": 3,
+          "marker_size": 2
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "review.scene-options.invalid"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_scene",
+        "doc": "a.dxf",
+        "review": "review.json",
+        "target": "plan",
+        "from": "space/0",
+        "tolerance": 0,
+        "style": {
+          "color": "#ff0000",
+          "line_weight": 0.35,
+          "text_height": 2.5,
+          "text_padding": 0.5,
+          "arrow_length": 2,
+          "arrows": "end",
+          "cloud_pitch": 3,
+          "marker_size": 2
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/tolerance"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_scene",
+        "doc": "a.dxf",
+        "review": "review.json",
+        "target": "plan",
+        "from": "space/0",
+        "tolerance": 0.01,
+        "style": {
+          "color": "#ff0000",
+          "line_weight": 0.35,
+          "text_height": 2.5,
+          "text_padding": 0.5,
+          "arrow_length": 2,
+          "arrows": "end",
+          "cloud_pitch": 3,
+          "marker_size": 2
+        },
+        "budget": {
+          "work": 5
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "review_scene",
+        "doc": "a.dxf",
+        "review": "review.json",
+        "target": "plan",
+        "from": "space/0",
+        "tolerance": 0.01,
+        "style": {
+          "color": "#ff0000",
+          "line_weight": 0.35,
+          "text_height": 2.5,
+          "text_padding": 0.5,
+          "arrow_length": 2,
+          "arrows": "end",
+          "cloud_pitch": 3,
+          "marker_size": 2
+        }
+      },
+      "expect": {
+        "/result/blob": 0
+      }
+    }
+  ]
+}

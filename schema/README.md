@@ -13,6 +13,20 @@
 
 VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenNative.bas` にネイティブの宣言・ABI の型・バージョン・状態コード・シーンの配置を生成します。メッセージは UTF-8 の JSON のまま受け渡します。所有権と型の対応は [VBA のバインディング](../bindings/vba/README.md) にあります。
 
+## レビューのシーン
+
+スキーマ 1.95 から、図面のモジュールの `review_scene` で、レビューの文書の 1 つの対象の図形と指摘の場所を、開いた図面の起点で 2D のシーンにできます。図面のシーンとは別の blob で、配置は `scene` と同じです。`zm_push` した文書の名前を `review`、描く対象の ID を `target` に渡します。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ `review.target.stale` で描きません。
+
+```json
+{"v":1,"op":"review_scene","doc":"plan.dxf","review":"review.json","target":"plan","from":"space/0","tolerance":0.01,"style":{"color":"#ff0000","line_weight":0.35,"text_height":2.5,"text_padding":0.5,"arrow_length":2,"arrows":"end","cloud_pitch":3,"marker_size":2}}
+```
+
+`tolerance` と `style` は必須です。色・線幅・寸法を文書の値や旧版の値から推測しないためです。`from`・`view`・`region`・`fonts` は `scene` と同じ意味で、`print`・`palette`・`heights` は受け付けません。文書の図形・場所の `view` が起点と合う項目だけを描き、別の対象・起点の項目は混ぜません。
+
+結果の `sources` は描いた図形・場所ごとに、シーンの ID（シーンの `entity_ids`）から元の図形の `markup`、または指摘の `topic` と場所の `location` へ戻す対応です。描く順に並びます。題・作者・写真などの文言はシーンに入れず、呼び手が元の ID から引きます。図形の規則と診断は[レビューの文書と 2D の図形](../docs/formats/review.md)にあります。
+
+`scene` に `review` を足さず op を分けたのは、`scene` の `print`・`palette`・`heights` が意味を持たず、必須のスタイルと `sources` で結果と検査の形が変わるためです。`review_carry`・`review_adopt` と同じレビューの領域の op にしています。
+
 ## 用紙の長さの文字の高さ
 
 スキーマ 1.93 から、`entities` は、実寸の空間の文字が用紙の長さで高さを持つとき（JWW）、`geometry` の `height` を用紙の mm で返し、`height_on_paper` を `true` にします。前は `geometry` を省いていました。返した形をそのまま `apply` の `replace` に渡せます。`add` と `replace` で `height_on_paper` を省くと、従来どおり高さを点と同じ単位として受け取ります。

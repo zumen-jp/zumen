@@ -88,6 +88,9 @@ class Request extends Message {
   /// op が review_adopt の形なら、そのビュー。違えば null
   ReviewAdoptRequest? get asReviewAdoptRequest => taggedView('op', 'review_adopt', ReviewAdoptRequest.fromJson);
 
+  /// op が review_scene の形なら、そのビュー。違えば null
+  ReviewSceneRequest? get asReviewSceneRequest => taggedView('op', 'review_scene', ReviewSceneRequest.fromJson);
+
   /// op が building の形なら、そのビュー。違えば null
   BuildingRequest? get asBuildingRequest => taggedView('op', 'building', BuildingRequest.fromJson);
 
@@ -5737,6 +5740,208 @@ class ReviewAdoptResult extends Message {
   set topics(core.int? value) => writeField('topics', value);
 }
 
+/// レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から
+class ReviewSceneRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ReviewSceneRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  ReviewSceneRequest() : super({'op': 'review_scene'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 対象の図面の文書の名前。open で作ったもの
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// レビューの文書の入力の名前（zm_push で渡した JSON）
+  String? get review => readField('review', asString);
+  set review(String? value) => writeField('review', value);
+
+  /// 描く対象の ID。レビューの文書の targets の id
+  String? get target => readField('target', asString);
+  set target(String? value) => writeField('target', value);
+
+  /// 起点。実寸の空間・記号の定義の空間・用紙の ID（scene と同じ）。文書の図形・場所の view がこの起点を指すものだけを描く
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。書けば、文書の view が用紙の ID に /view/<番号> を足した値の項目だけを描く
+  core.int? get view => readField('view', asInt);
+  set view(core.int? value) => writeField('view', value);
+
+  /// [x の最小, y の最小, x の最大, y の最大]。起点の座標の長方形。範囲の重なる塊だけを返す
+  List<core.double>? get region => readField('region', listOf(asDouble));
+  set region(List<core.double>? value) => writeField('region', value);
+
+  /// 弦の誤差（起点の長さ）。0 より大きい有限値。既定値を補わない
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
+
+  /// 文字を置くフォント（scene と同じ）。style の font の名前で引く。書かなければ字形を置かず、注記の枠を文字高と字数から概算して診断する
+  List<SceneFont>? get fonts => readField('fonts', listOf(objectOf(SceneFont.fromJson)));
+  set fonts(List<SceneFont>? value) => writeField('fonts', value);
+
+  /// 選んだ項目に共通で当てる色と寸法
+  ReviewSceneStyle? get style => readField('style', objectOf(ReviewSceneStyle.fromJson));
+  set style(ReviewSceneStyle? value) => writeField('style', value);
+}
+
+/// レビューの図形の色と寸法。幾何の寸法は起点の単位、線幅だけは用紙の mm。文書には保存しない
+class ReviewSceneStyle extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ReviewSceneStyle.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ReviewSceneStyle() : super({});
+
+  /// 線・面・文字の色。#rrggbb
+  String? get color => readField('color', asString);
+  set color(String? value) => writeField('color', value);
+
+  /// 用紙の mm の線幅。0 以上の有限値。0 はもっとも細い線
+  core.double? get lineWeight => readField('line_weight', asDouble);
+  set lineWeight(core.double? value) => writeField('line_weight', value);
+
+  /// 起点の単位での文字の高さ。正の有限値
+  core.double? get textHeight => readField('text_height', asDouble);
+  set textHeight(core.double? value) => writeField('text_height', value);
+
+  /// 起点の単位での注記の枠の余白。0 以上の有限値
+  core.double? get textPadding => readField('text_padding', asDouble);
+  set textPadding(core.double? value) => writeField('text_padding', value);
+
+  /// 起点の単位での矢じりの長さ。正の有限値
+  core.double? get arrowLength => readField('arrow_length', asDouble);
+  set arrowLength(core.double? value) => writeField('arrow_length', value);
+
+  /// 赤線の矢じりを置く端
+  String? get arrows => readField('arrows', asString);
+  set arrows(String? value) => writeField('arrows', value);
+
+  /// 雲の円弧の弦の長さの上限。起点の単位の正の有限値
+  core.double? get cloudPitch => readField('cloud_pitch', asDouble);
+  set cloudPitch(core.double? value) => writeField('cloud_pitch', value);
+
+  /// 写真と指摘の位置の記号の直径。起点の単位の正の有限値
+  core.double? get markerSize => readField('marker_size', asDouble);
+  set markerSize(core.double? value) => writeField('marker_size', value);
+
+  /// fonts から引くフォントの名前。書かなければ名前のないフォント
+  String? get font => readField('font', asString);
+  set font(String? value) => writeField('font', value);
+}
+
+/// 赤線の矢じりを置く端。none は置かない、start は最初の端点、end は最後の端点、both は両端
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class ReviewArrows {
+  static const none = 'none';
+  static const start = 'start';
+  static const end = 'end';
+  static const both = 'both';
+}
+
+/// レビューのシーンの要約と、シーンの blob の番号、シーンの ID から元の図形・場所への対応
+class ReviewSceneResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ReviewSceneResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ReviewSceneResult() : super({});
+
+  /// 起点の ID
+  String? get from => readField('from', asString);
+  set from(String? value) => writeField('from', value);
+
+  /// 起点のビューの番号。ビューでなければ持たない
+  core.int? get view => readField('view', asInt);
+  set view(core.int? value) => writeField('view', value);
+
+  /// 起点の座標の単位。用紙とビューからは millimeter。単位の不明な空間は unknown のまま
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// 使った弦の誤差（起点の長さ）
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
+
+  /// 返した描くものの数
+  SceneCounts? get counts => readField('counts', objectOf(SceneCounts.fromJson));
+  set counts(SceneCounts? value) => writeField('counts', value);
+
+  /// 返した塊の範囲。起点の座標。塊がなければ持たない
+  Extent? get extent => readField('extent', objectOf(Extent.fromJson));
+  set extent(Extent? value) => writeField('extent', value);
+
+  /// 描いた図形・場所ごとの対応。描く順（文書の markups の順、続いて topics と各指摘の locations の順）
+  List<ReviewSceneSource>? get sources => readField('sources', listOf(objectOf(ReviewSceneSource.fromJson)));
+  set sources(List<ReviewSceneSource>? value) => writeField('sources', value);
+
+  /// シーンの blob の番号（種類は scene）。zm_take で取り出す
+  core.int? get blob => readField('blob', asInt);
+  set blob(core.int? value) => writeField('blob', value);
+}
+
+/// シーンの ID（シーンの entity_ids）から、元のレビューの文書の図形か指摘の場所へ戻す対応
+class ReviewSceneSource extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  ReviewSceneSource.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  ReviewSceneSource() : super({});
+
+  /// シーンの ID。review/markup/<hex> か review/location/<hex>/<hex>
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 元の項目の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 元の図形の ID。kind が markup のときだけ持つ
+  String? get markup => readField('markup', asString);
+  set markup(String? value) => writeField('markup', value);
+
+  /// 元の指摘の ID。kind が location のときだけ持つ
+  String? get topic => readField('topic', asString);
+  set topic(String? value) => writeField('topic', value);
+
+  /// 元の場所の ID。kind が location のときだけ持つ
+  String? get location => readField('location', asString);
+  set location(String? value) => writeField('location', value);
+}
+
+/// シーンの ID の元の項目の種類。markup はレビューの文書の図形、location は指摘の中の場所
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class ReviewSceneSourceKind {
+  static const markup = 'markup';
+  static const location = 'location';
+}
+
 /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
 class BuildingRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -9912,6 +10117,7 @@ abstract final class Operations {
   static const validate = 'validate';
   static const reviewCarry = 'review_carry';
   static const reviewAdopt = 'review_adopt';
+  static const reviewScene = 'review_scene';
   static const building = 'building';
   static const buildingElements = 'building_elements';
   static const idsCheck = 'ids_check';

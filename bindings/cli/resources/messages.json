@@ -30,6 +30,7 @@
         { "$ref": "#/$defs/validate_request" },
         { "$ref": "#/$defs/review_carry_request" },
         { "$ref": "#/$defs/review_adopt_request" },
+        { "$ref": "#/$defs/review_scene_request" },
         { "$ref": "#/$defs/building_request" },
         { "$ref": "#/$defs/building_elements_request" },
         { "$ref": "#/$defs/ids_check_request" },
@@ -2852,6 +2853,100 @@
       },
       "required": ["added", "topics"],
       "additionalProperties": false
+    },
+    "review_scene_request": {
+      "description": "レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "review_scene" },
+        "doc": { "description": "対象の図面の文書の名前。open で作ったもの", "type": "string" },
+        "review": { "description": "レビューの文書の入力の名前（zm_push で渡した JSON）", "type": "string" },
+        "target": { "description": "描く対象の ID。レビューの文書の targets の id", "type": "string" },
+        "from": {
+          "description": "起点。実寸の空間・記号の定義の空間・用紙の ID（scene と同じ）。文書の図形・場所の view がこの起点を指すものだけを描く",
+          "type": "string"
+        },
+        "view": {
+          "description": "起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。書けば、文書の view が用紙の ID に /view/<番号> を足した値の項目だけを描く",
+          "type": "integer",
+          "minimum": 0
+        },
+        "region": {
+          "description": "[x の最小, y の最小, x の最大, y の最大]。起点の座標の長方形。範囲の重なる塊だけを返す",
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "tolerance": { "description": "弦の誤差（起点の長さ）。0 より大きい有限値。既定値を補わない", "type": "number" },
+        "fonts": {
+          "description": "文字を置くフォント（scene と同じ）。style の font の名前で引く。書かなければ字形を置かず、注記の枠を文字高と字数から概算して診断する",
+          "type": "array",
+          "items": { "$ref": "#/$defs/scene_font" }
+        },
+        "style": { "description": "選んだ項目に共通で当てる色と寸法", "$ref": "#/$defs/review_scene_style" }
+      },
+      "required": ["op", "doc", "review", "target", "from", "tolerance", "style"],
+      "unevaluatedProperties": false
+    },
+    "review_scene_style": {
+      "description": "レビューの図形の色と寸法。幾何の寸法は起点の単位、線幅だけは用紙の mm。文書には保存しない",
+      "type": "object",
+      "properties": {
+        "color": { "description": "線・面・文字の色。#rrggbb", "type": "string" },
+        "line_weight": { "description": "用紙の mm の線幅。0 以上の有限値。0 はもっとも細い線", "type": "number" },
+        "text_height": { "description": "起点の単位での文字の高さ。正の有限値", "type": "number" },
+        "text_padding": { "description": "起点の単位での注記の枠の余白。0 以上の有限値", "type": "number" },
+        "arrow_length": { "description": "起点の単位での矢じりの長さ。正の有限値", "type": "number" },
+        "arrows": { "description": "赤線の矢じりを置く端", "$ref": "#/$defs/review_arrows" },
+        "cloud_pitch": { "description": "雲の円弧の弦の長さの上限。起点の単位の正の有限値", "type": "number" },
+        "marker_size": { "description": "写真と指摘の位置の記号の直径。起点の単位の正の有限値", "type": "number" },
+        "font": { "description": "fonts から引くフォントの名前。書かなければ名前のないフォント", "type": "string" }
+      },
+      "required": ["color", "line_weight", "text_height", "text_padding", "arrow_length", "arrows", "cloud_pitch", "marker_size"],
+      "additionalProperties": false
+    },
+    "review_arrows": {
+      "description": "赤線の矢じりを置く端。none は置かない、start は最初の端点、end は最後の端点、both は両端",
+      "type": "string",
+      "enum": ["none", "start", "end", "both"]
+    },
+    "review_scene_result": {
+      "description": "レビューのシーンの要約と、シーンの blob の番号、シーンの ID から元の図形・場所への対応",
+      "type": "object",
+      "properties": {
+        "from": { "description": "起点の ID", "type": "string" },
+        "view": { "description": "起点のビューの番号。ビューでなければ持たない", "type": "integer", "minimum": 0 },
+        "unit": { "description": "起点の座標の単位。用紙とビューからは millimeter。単位の不明な空間は unknown のまま", "$ref": "#/$defs/unit" },
+        "tolerance": { "description": "使った弦の誤差（起点の長さ）", "type": "number" },
+        "counts": { "description": "返した描くものの数", "$ref": "#/$defs/scene_counts" },
+        "extent": { "description": "返した塊の範囲。起点の座標。塊がなければ持たない", "$ref": "#/$defs/extent" },
+        "sources": {
+          "description": "描いた図形・場所ごとの対応。描く順（文書の markups の順、続いて topics と各指摘の locations の順）",
+          "type": "array",
+          "items": { "$ref": "#/$defs/review_scene_source" }
+        },
+        "blob": { "description": "シーンの blob の番号（種類は scene）。zm_take で取り出す", "type": "integer", "minimum": 0 }
+      },
+      "required": ["from", "unit", "tolerance", "counts", "sources", "blob"],
+      "additionalProperties": false
+    },
+    "review_scene_source": {
+      "description": "シーンの ID（シーンの entity_ids）から、元のレビューの文書の図形か指摘の場所へ戻す対応",
+      "type": "object",
+      "properties": {
+        "id": { "description": "シーンの ID。review/markup/<hex> か review/location/<hex>/<hex>", "type": "string" },
+        "kind": { "description": "元の項目の種類", "$ref": "#/$defs/review_scene_source_kind" },
+        "markup": { "description": "元の図形の ID。kind が markup のときだけ持つ", "type": "string" },
+        "topic": { "description": "元の指摘の ID。kind が location のときだけ持つ", "type": "string" },
+        "location": { "description": "元の場所の ID。kind が location のときだけ持つ", "type": "string" }
+      },
+      "required": ["id", "kind"],
+      "additionalProperties": false
+    },
+    "review_scene_source_kind": {
+      "description": "シーンの ID の元の項目の種類。markup はレビューの文書の図形、location は指摘の中の場所",
+      "type": "string",
+      "enum": ["markup", "location"]
     },
     "building_request": {
       "description": "開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から",

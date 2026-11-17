@@ -63,6 +63,7 @@ namespace Zumen.Messages
             ["validate"] = typeof(ValidateRequest),
             ["review_carry"] = typeof(ReviewCarryRequest),
             ["review_adopt"] = typeof(ReviewAdoptRequest),
+            ["review_scene"] = typeof(ReviewSceneRequest),
             ["building"] = typeof(BuildingRequest),
             ["building_elements"] = typeof(BuildingElementsRequest),
             ["ids_check"] = typeof(IdsCheckRequest),
@@ -7230,6 +7231,278 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から
+    /// </summary>
+    public sealed record ReviewSceneRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "review_scene";
+
+        /// <summary>
+        /// 対象の図面の文書の名前。open で作ったもの
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// レビューの文書の入力の名前（zm_push で渡した JSON）
+        /// </summary>
+        [JsonPropertyName("review")]
+        public string Review { get; init; } = default!;
+
+        /// <summary>
+        /// 描く対象の ID。レビューの文書の targets の id
+        /// </summary>
+        [JsonPropertyName("target")]
+        public string Target { get; init; } = default!;
+
+        /// <summary>
+        /// 起点。実寸の空間・記号の定義の空間・用紙の ID（scene と同じ）。文書の図形・場所の view がこの起点を指すものだけを描く
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。書けば、文書の view が用紙の ID に /view/&lt;番号&gt; を足した値の項目だけを描く
+        /// </summary>
+        [JsonPropertyName("view")]
+        public ulong? View { get; init; }
+
+        /// <summary>
+        /// [x の最小, y の最小, x の最大, y の最大]。起点の座標の長方形。範囲の重なる塊だけを返す
+        /// </summary>
+        [JsonPropertyName("region")]
+        public IReadOnlyList<double>? Region { get; init; }
+
+        /// <summary>
+        /// 弦の誤差（起点の長さ）。0 より大きい有限値。既定値を補わない
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double Tolerance { get; init; }
+
+        /// <summary>
+        /// 文字を置くフォント（scene と同じ）。style の font の名前で引く。書かなければ字形を置かず、注記の枠を文字高と字数から概算して診断する
+        /// </summary>
+        [JsonPropertyName("fonts")]
+        public IReadOnlyList<SceneFont>? Fonts { get; init; }
+
+        /// <summary>
+        /// 選んだ項目に共通で当てる色と寸法
+        /// </summary>
+        [JsonPropertyName("style")]
+        public ReviewSceneStyle Style { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// レビューの図形の色と寸法。幾何の寸法は起点の単位、線幅だけは用紙の mm。文書には保存しない
+    /// </summary>
+    public sealed record ReviewSceneStyle
+    {
+        /// <summary>
+        /// 線・面・文字の色。#rrggbb
+        /// </summary>
+        [JsonPropertyName("color")]
+        public string Color { get; init; } = default!;
+
+        /// <summary>
+        /// 用紙の mm の線幅。0 以上の有限値。0 はもっとも細い線
+        /// </summary>
+        [JsonPropertyName("line_weight")]
+        public double LineWeight { get; init; }
+
+        /// <summary>
+        /// 起点の単位での文字の高さ。正の有限値
+        /// </summary>
+        [JsonPropertyName("text_height")]
+        public double TextHeight { get; init; }
+
+        /// <summary>
+        /// 起点の単位での注記の枠の余白。0 以上の有限値
+        /// </summary>
+        [JsonPropertyName("text_padding")]
+        public double TextPadding { get; init; }
+
+        /// <summary>
+        /// 起点の単位での矢じりの長さ。正の有限値
+        /// </summary>
+        [JsonPropertyName("arrow_length")]
+        public double ArrowLength { get; init; }
+
+        /// <summary>
+        /// 赤線の矢じりを置く端
+        /// </summary>
+        [JsonPropertyName("arrows")]
+        public string Arrows { get; init; } = default!;
+
+        /// <summary>
+        /// 雲の円弧の弦の長さの上限。起点の単位の正の有限値
+        /// </summary>
+        [JsonPropertyName("cloud_pitch")]
+        public double CloudPitch { get; init; }
+
+        /// <summary>
+        /// 写真と指摘の位置の記号の直径。起点の単位の正の有限値
+        /// </summary>
+        [JsonPropertyName("marker_size")]
+        public double MarkerSize { get; init; }
+
+        /// <summary>
+        /// fonts から引くフォントの名前。書かなければ名前のないフォント
+        /// </summary>
+        [JsonPropertyName("font")]
+        public string? Font { get; init; }
+    }
+
+    /// <summary>
+    /// 赤線の矢じりを置く端。none は置かない、start は最初の端点、end は最後の端点、both は両端
+    /// </summary>
+    public static class ReviewArrows
+    {
+        /// <summary>none</summary>
+        public const string None = "none";
+        /// <summary>start</summary>
+        public const string Start = "start";
+        /// <summary>end</summary>
+        public const string End = "end";
+        /// <summary>both</summary>
+        public const string Both = "both";
+    }
+
+    /// <summary>
+    /// レビューのシーンの要約と、シーンの blob の番号、シーンの ID から元の図形・場所への対応
+    /// </summary>
+    public sealed record ReviewSceneResult
+    {
+        /// <summary>
+        /// 起点の ID
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 起点のビューの番号。ビューでなければ持たない
+        /// </summary>
+        [JsonPropertyName("view")]
+        public ulong? View { get; init; }
+
+        /// <summary>
+        /// 起点の座標の単位。用紙とビューからは millimeter。単位の不明な空間は unknown のまま
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// 使った弦の誤差（起点の長さ）
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double Tolerance { get; init; }
+
+        /// <summary>
+        /// 返した描くものの数
+        /// </summary>
+        [JsonPropertyName("counts")]
+        public SceneCounts Counts { get; init; } = default!;
+
+        /// <summary>
+        /// 返した塊の範囲。起点の座標。塊がなければ持たない
+        /// </summary>
+        [JsonPropertyName("extent")]
+        public Extent? Extent { get; init; }
+
+        /// <summary>
+        /// 描いた図形・場所ごとの対応。描く順（文書の markups の順、続いて topics と各指摘の locations の順）
+        /// </summary>
+        [JsonPropertyName("sources")]
+        public IReadOnlyList<ReviewSceneSource> Sources { get; init; } = default!;
+
+        /// <summary>
+        /// シーンの blob の番号（種類は scene）。zm_take で取り出す
+        /// </summary>
+        [JsonPropertyName("blob")]
+        public ulong Blob { get; init; }
+    }
+
+    /// <summary>
+    /// シーンの ID（シーンの entity_ids）から、元のレビューの文書の図形か指摘の場所へ戻す対応
+    /// </summary>
+    public sealed record ReviewSceneSource
+    {
+        /// <summary>
+        /// シーンの ID。review/markup/&lt;hex&gt; か review/location/&lt;hex&gt;/&lt;hex&gt;
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 元の項目の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 元の図形の ID。kind が markup のときだけ持つ
+        /// </summary>
+        [JsonPropertyName("markup")]
+        public string? Markup { get; init; }
+
+        /// <summary>
+        /// 元の指摘の ID。kind が location のときだけ持つ
+        /// </summary>
+        [JsonPropertyName("topic")]
+        public string? Topic { get; init; }
+
+        /// <summary>
+        /// 元の場所の ID。kind が location のときだけ持つ
+        /// </summary>
+        [JsonPropertyName("location")]
+        public string? Location { get; init; }
+    }
+
+    /// <summary>
+    /// シーンの ID の元の項目の種類。markup はレビューの文書の図形、location は指摘の中の場所
+    /// </summary>
+    public static class ReviewSceneSourceKind
+    {
+        /// <summary>markup</summary>
+        public const string Markup = "markup";
+        /// <summary>location</summary>
+        public const string Location = "location";
+    }
+
+    /// <summary>
     /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
     /// </summary>
     public sealed record BuildingRequest
@@ -12560,6 +12833,7 @@ namespace Zumen.Messages
                 ["validate"] = (typeof(ValidateRequest), typeof(ValidateResult)),
                 ["review_carry"] = (typeof(ReviewCarryRequest), typeof(ReviewCarryResult)),
                 ["review_adopt"] = (typeof(ReviewAdoptRequest), typeof(ReviewAdoptResult)),
+                ["review_scene"] = (typeof(ReviewSceneRequest), typeof(ReviewSceneResult)),
                 ["building"] = (typeof(BuildingRequest), typeof(BuildingResult)),
                 ["building_elements"] = (typeof(BuildingElementsRequest), typeof(BuildingElementsResult)),
                 ["ids_check"] = (typeof(IdsCheckRequest), typeof(IdsCheckResult)),

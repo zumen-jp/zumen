@@ -106,6 +106,48 @@ impl Session {
         Ok(result)
     }
 
+    /// レビューの文書の対象の図形と場所を、開いた図面の起点で別のシーンにし、blob で返す（決定 0295）
+    #[cfg(feature = "drawing")]
+    pub(super) fn review_scene(
+        &mut self,
+        request: &messages::ReviewSceneRequest,
+        cx: &mut Cx<'_>,
+    ) -> Result<messages::ReviewSceneResult, Failed> {
+        let view = scene::View {
+            doc: &request.doc,
+            from: &request.from,
+            view: request.view,
+            region: request.region.as_deref(),
+            tolerance: Some(request.tolerance),
+            print: None,
+            palette: None,
+            fonts: request.fonts.as_deref(),
+            heights: None,
+        };
+        scene::check(view, cx)?;
+        let style = review::style(&request.style, cx)?;
+        let fonts = self.fonts(view, cx)?;
+        let bytes = self.input(&request.review, "/review", cx)?;
+        let document = zumen_review::Review::read(bytes, cx).map_err(|_| Failed)?;
+        let (file, hash) = self.drawing_file(&request.doc, cx)?;
+        let target = zumen_review::Target {
+            id: request.target.clone(),
+            format: file.format().to_string(),
+            hash: hash.to_string(),
+            name: Some(request.doc.clone()),
+            extra: Vec::new(),
+        };
+        let drawing = file.lift(cx).map_err(|_| Failed)?;
+        let (mut result, bytes) =
+            review::scene(&drawing, &document, &target, view, style, &fonts, cx)?;
+        result.blob = self.blobs.len() as u64;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::Scene,
+            bytes,
+        }));
+        Ok(result)
+    }
+
     /// 建物モデルを IDS で照合し、選んだ指摘をレビューの文書に取り込み、足した文書を blob で返す（決定 0219）
     pub(super) fn review_adopt_ids(
         &mut self,

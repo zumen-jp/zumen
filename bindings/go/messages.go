@@ -145,6 +145,11 @@ func (u Request) AsReviewAdoptRequest() *ReviewAdoptRequest {
 	return asTagged[ReviewAdoptRequest](u, "op", "review_adopt")
 }
 
+// AsReviewSceneRequest は、op が review_scene の形なら、その型で読む。違えば nil。
+func (u Request) AsReviewSceneRequest() *ReviewSceneRequest {
+	return asTagged[ReviewSceneRequest](u, "op", "review_scene")
+}
+
 // AsBuildingRequest は、op が building の形なら、その型で読む。違えば nil。
 func (u Request) AsBuildingRequest() *BuildingRequest {
 	return asTagged[BuildingRequest](u, "op", "building")
@@ -4837,6 +4842,164 @@ type ReviewAdoptResult struct {
 	Topics *int64 `json:"topics,omitempty"`
 }
 
+// ReviewSceneRequest: レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から
+type ReviewSceneRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 対象の図面の文書の名前。open で作ったもの
+	Doc *string `json:"doc,omitempty"`
+
+	// レビューの文書の入力の名前（zm_push で渡した JSON）
+	Review *string `json:"review,omitempty"`
+
+	// 描く対象の ID。レビューの文書の targets の id
+	Target *string `json:"target,omitempty"`
+
+	// 起点。実寸の空間・記号の定義の空間・用紙の ID（scene と同じ）。文書の図形・場所の view がこの起点を指すものだけを描く
+	From *string `json:"from,omitempty"`
+
+	// 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。書けば、文書の view が用紙の ID に /view/<番号> を足した値の項目だけを描く
+	View *int64 `json:"view,omitempty"`
+
+	// [x の最小, y の最小, x の最大, y の最大]。起点の座標の長方形。範囲の重なる塊だけを返す
+	Region []float64 `json:"region,omitempty"`
+
+	// 弦の誤差（起点の長さ）。0 より大きい有限値。既定値を補わない
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 文字を置くフォント（scene と同じ）。style の font の名前で引く。書かなければ字形を置かず、注記の枠を文字高と字数から概算して診断する
+	Fonts []SceneFont `json:"fonts,omitempty"`
+
+	// 選んだ項目に共通で当てる色と寸法
+	Style *ReviewSceneStyle `json:"style,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m ReviewSceneRequest) MarshalJSON() ([]byte, error) {
+	type plain ReviewSceneRequest
+	m.Op = "review_scene"
+	return json.Marshal(plain(m))
+}
+
+// ReviewSceneStyle: レビューの図形の色と寸法。幾何の寸法は起点の単位、線幅だけは用紙の mm。文書には保存しない
+type ReviewSceneStyle struct {
+	// 線・面・文字の色。#rrggbb
+	Color *string `json:"color,omitempty"`
+
+	// 用紙の mm の線幅。0 以上の有限値。0 はもっとも細い線
+	LineWeight *float64 `json:"line_weight,omitempty"`
+
+	// 起点の単位での文字の高さ。正の有限値
+	TextHeight *float64 `json:"text_height,omitempty"`
+
+	// 起点の単位での注記の枠の余白。0 以上の有限値
+	TextPadding *float64 `json:"text_padding,omitempty"`
+
+	// 起点の単位での矢じりの長さ。正の有限値
+	ArrowLength *float64 `json:"arrow_length,omitempty"`
+
+	// 赤線の矢じりを置く端
+	Arrows *ReviewArrows `json:"arrows,omitempty"`
+
+	// 雲の円弧の弦の長さの上限。起点の単位の正の有限値
+	CloudPitch *float64 `json:"cloud_pitch,omitempty"`
+
+	// 写真と指摘の位置の記号の直径。起点の単位の正の有限値
+	MarkerSize *float64 `json:"marker_size,omitempty"`
+
+	// fonts から引くフォントの名前。書かなければ名前のないフォント
+	Font *string `json:"font,omitempty"`
+}
+
+// ReviewArrows: 赤線の矢じりを置く端。none は置かない、start は最初の端点、end は最後の端点、both は両端
+//
+// 列挙の値。知らない値も受け取る。
+type ReviewArrows string
+
+// ReviewArrowsNone は none。
+const ReviewArrowsNone ReviewArrows = "none"
+
+// ReviewArrowsStart は start。
+const ReviewArrowsStart ReviewArrows = "start"
+
+// ReviewArrowsEnd は end。
+const ReviewArrowsEnd ReviewArrows = "end"
+
+// ReviewArrowsBoth は both。
+const ReviewArrowsBoth ReviewArrows = "both"
+
+// ReviewSceneResult: レビューのシーンの要約と、シーンの blob の番号、シーンの ID から元の図形・場所への対応
+type ReviewSceneResult struct {
+	// 起点の ID
+	From *string `json:"from,omitempty"`
+
+	// 起点のビューの番号。ビューでなければ持たない
+	View *int64 `json:"view,omitempty"`
+
+	// 起点の座標の単位。用紙とビューからは millimeter。単位の不明な空間は unknown のまま
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 使った弦の誤差（起点の長さ）
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 返した描くものの数
+	Counts *SceneCounts `json:"counts,omitempty"`
+
+	// 返した塊の範囲。起点の座標。塊がなければ持たない
+	Extent *Extent `json:"extent,omitempty"`
+
+	// 描いた図形・場所ごとの対応。描く順（文書の markups の順、続いて topics と各指摘の locations の順）
+	Sources []ReviewSceneSource `json:"sources,omitempty"`
+
+	// シーンの blob の番号（種類は scene）。zm_take で取り出す
+	Blob *int64 `json:"blob,omitempty"`
+}
+
+// ReviewSceneSource: シーンの ID（シーンの entity_ids）から、元のレビューの文書の図形か指摘の場所へ戻す対応
+type ReviewSceneSource struct {
+	// シーンの ID。review/markup/<hex> か review/location/<hex>/<hex>
+	Id *string `json:"id,omitempty"`
+
+	// 元の項目の種類
+	Kind *ReviewSceneSourceKind `json:"kind,omitempty"`
+
+	// 元の図形の ID。kind が markup のときだけ持つ
+	Markup *string `json:"markup,omitempty"`
+
+	// 元の指摘の ID。kind が location のときだけ持つ
+	Topic *string `json:"topic,omitempty"`
+
+	// 元の場所の ID。kind が location のときだけ持つ
+	Location *string `json:"location,omitempty"`
+}
+
+// ReviewSceneSourceKind: シーンの ID の元の項目の種類。markup はレビューの文書の図形、location は指摘の中の場所
+//
+// 列挙の値。知らない値も受け取る。
+type ReviewSceneSourceKind string
+
+// ReviewSceneSourceKindMarkup は markup。
+const ReviewSceneSourceKindMarkup ReviewSceneSourceKind = "markup"
+
+// ReviewSceneSourceKindLocation は location。
+const ReviewSceneSourceKindLocation ReviewSceneSourceKind = "location"
+
 // BuildingRequest: 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
 type BuildingRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
@@ -8004,6 +8167,9 @@ const OpReviewCarry = "review_carry"
 
 // OpReviewAdopt は、op の名前 review_adopt。
 const OpReviewAdopt = "review_adopt"
+
+// OpReviewScene は、op の名前 review_scene。
+const OpReviewScene = "review_scene"
 
 // OpBuilding は、op の名前 building。
 const OpBuilding = "building"

@@ -57,6 +57,8 @@ pub enum Request {
     ReviewCarry(ReviewCarryRequest),
     /// 開いた文書を check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0214・0218）に足す。指摘の ID は対象のハッシュ・規則・診断から決め、取り込み済みの指摘は足さない。足した文書は blobs の file で返す。マイナーバージョン 43 から
     ReviewAdopt(ReviewAdoptRequest),
+    /// レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から
+    ReviewScene(ReviewSceneRequest),
     /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
     Building(BuildingRequest),
     /// 開いた IFC の建物モデルの要素を、書いた順に返す。コンポーネントは components で選ぶ（決定 0207・0219）。マイナーバージョン 44 から
@@ -123,6 +125,7 @@ impl Request {
         "validate",
         "review_carry",
         "review_adopt",
+        "review_scene",
         "building",
         "building_elements",
         "ids_check",
@@ -170,6 +173,7 @@ impl Request {
             Self::Validate(_) => "validate",
             Self::ReviewCarry(_) => "review_carry",
             Self::ReviewAdopt(_) => "review_adopt",
+            Self::ReviewScene(_) => "review_scene",
             Self::Building(_) => "building",
             Self::BuildingElements(_) => "building_elements",
             Self::IdsCheck(_) => "ids_check",
@@ -224,6 +228,7 @@ impl FromJson for Request {
             "validate" => Self::Validate(ValidateRequest::read_fields(&mut object)?),
             "review_carry" => Self::ReviewCarry(ReviewCarryRequest::read_fields(&mut object)?),
             "review_adopt" => Self::ReviewAdopt(ReviewAdoptRequest::read_fields(&mut object)?),
+            "review_scene" => Self::ReviewScene(ReviewSceneRequest::read_fields(&mut object)?),
             "building" => Self::Building(BuildingRequest::read_fields(&mut object)?),
             "building_elements" => {
                 Self::BuildingElements(BuildingElementsRequest::read_fields(&mut object)?)
@@ -286,6 +291,7 @@ impl ToJson for Request {
             Self::Validate(value) => value.to_json(out),
             Self::ReviewCarry(value) => value.to_json(out),
             Self::ReviewAdopt(value) => value.to_json(out),
+            Self::ReviewScene(value) => value.to_json(out),
             Self::Building(value) => value.to_json(out),
             Self::BuildingElements(value) => value.to_json(out),
             Self::IdsCheck(value) => value.to_json(out),
@@ -12634,6 +12640,442 @@ impl ToJson for ReviewAdoptResult {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewSceneRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 対象の図面の文書の名前。open で作ったもの
+    pub doc: String,
+    /// レビューの文書の入力の名前（zm_push で渡した JSON）
+    pub review: String,
+    /// 描く対象の ID。レビューの文書の targets の id
+    pub target: String,
+    /// 起点。実寸の空間・記号の定義の空間・用紙の ID（scene と同じ）。文書の図形・場所の view がこの起点を指すものだけを描く
+    pub from: String,
+    /// 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。書けば、文書の view が用紙の ID に /view/<番号> を足した値の項目だけを描く
+    pub view: Option<u64>,
+    /// [x の最小, y の最小, x の最大, y の最大]。起点の座標の長方形。範囲の重なる塊だけを返す
+    pub region: Option<Vec<f64>>,
+    /// 弦の誤差（起点の長さ）。0 より大きい有限値。既定値を補わない
+    pub tolerance: f64,
+    /// 文字を置くフォント（scene と同じ）。style の font の名前で引く。書かなければ字形を置かず、注記の枠を文字高と字数から概算して診断する
+    pub fonts: Option<Vec<SceneFont>>,
+    /// 選んだ項目に共通で当てる色と寸法
+    pub style: ReviewSceneStyle,
+}
+
+impl ReviewSceneRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "review_scene")?;
+        let doc = object.required("doc", json::string)?;
+        let review = object.required("review", json::string)?;
+        let target = object.required("target", json::string)?;
+        let from = object.required("from", json::string)?;
+        let view = object.optional("view", |value| json::uint(value, 0, 9007199254740991))?;
+        let region = object.optional("region", |value| json::array(value, json::number))?;
+        let tolerance = object.required("tolerance", json::number)?;
+        let fonts = object.optional("fonts", |value| json::array(value, SceneFont::from_json))?;
+        let style = object.required("style", ReviewSceneStyle::from_json)?;
+        Ok(Self {
+            request_common,
+            doc,
+            review,
+            target,
+            from,
+            view,
+            region,
+            tolerance,
+            fonts,
+            style,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("review_scene");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("review");
+        out.string(&self.review);
+        out.key("target");
+        out.string(&self.target);
+        out.key("from");
+        out.string(&self.from);
+        if let Some(value) = &self.view {
+            out.key("view");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.region {
+            out.key("region");
+            out.array(value, |out, item| out.float(*item));
+        }
+        out.key("tolerance");
+        out.float(self.tolerance);
+        if let Some(value) = &self.fonts {
+            out.key("fonts");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        out.key("style");
+        self.style.to_json(out);
+    }
+}
+
+impl FromJson for ReviewSceneRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ReviewSceneRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// レビューの図形の色と寸法。幾何の寸法は起点の単位、線幅だけは用紙の mm。文書には保存しない
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewSceneStyle {
+    /// 線・面・文字の色。#rrggbb
+    pub color: String,
+    /// 用紙の mm の線幅。0 以上の有限値。0 はもっとも細い線
+    pub line_weight: f64,
+    /// 起点の単位での文字の高さ。正の有限値
+    pub text_height: f64,
+    /// 起点の単位での注記の枠の余白。0 以上の有限値
+    pub text_padding: f64,
+    /// 起点の単位での矢じりの長さ。正の有限値
+    pub arrow_length: f64,
+    /// 赤線の矢じりを置く端
+    pub arrows: ReviewArrows,
+    /// 雲の円弧の弦の長さの上限。起点の単位の正の有限値
+    pub cloud_pitch: f64,
+    /// 写真と指摘の位置の記号の直径。起点の単位の正の有限値
+    pub marker_size: f64,
+    /// fonts から引くフォントの名前。書かなければ名前のないフォント
+    pub font: Option<String>,
+}
+
+impl ReviewSceneStyle {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let color = object.required("color", json::string)?;
+        let line_weight = object.required("line_weight", json::number)?;
+        let text_height = object.required("text_height", json::number)?;
+        let text_padding = object.required("text_padding", json::number)?;
+        let arrow_length = object.required("arrow_length", json::number)?;
+        let arrows = object.required("arrows", ReviewArrows::from_json)?;
+        let cloud_pitch = object.required("cloud_pitch", json::number)?;
+        let marker_size = object.required("marker_size", json::number)?;
+        let font = object.optional("font", json::string)?;
+        Ok(Self {
+            color,
+            line_weight,
+            text_height,
+            text_padding,
+            arrow_length,
+            arrows,
+            cloud_pitch,
+            marker_size,
+            font,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("color");
+        out.string(&self.color);
+        out.key("line_weight");
+        out.float(self.line_weight);
+        out.key("text_height");
+        out.float(self.text_height);
+        out.key("text_padding");
+        out.float(self.text_padding);
+        out.key("arrow_length");
+        out.float(self.arrow_length);
+        out.key("arrows");
+        self.arrows.to_json(out);
+        out.key("cloud_pitch");
+        out.float(self.cloud_pitch);
+        out.key("marker_size");
+        out.float(self.marker_size);
+        if let Some(value) = &self.font {
+            out.key("font");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for ReviewSceneStyle {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ReviewSceneStyle {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 赤線の矢じりを置く端。none は置かない、start は最初の端点、end は最後の端点、both は両端
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ReviewArrows {
+    /// `none`
+    None,
+    /// `start`
+    Start,
+    /// `end`
+    End,
+    /// `both`
+    Both,
+}
+
+impl ReviewArrows {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::None, Self::Start, Self::End, Self::Both];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Start => "start",
+            Self::End => "end",
+            Self::Both => "both",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "none" => Some(Self::None),
+            "start" => Some(Self::Start),
+            "end" => Some(Self::End),
+            "both" => Some(Self::Both),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for ReviewArrows {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for ReviewArrows {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// レビューのシーンの要約と、シーンの blob の番号、シーンの ID から元の図形・場所への対応
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewSceneResult {
+    /// 起点の ID
+    pub from: String,
+    /// 起点のビューの番号。ビューでなければ持たない
+    pub view: Option<u64>,
+    /// 起点の座標の単位。用紙とビューからは millimeter。単位の不明な空間は unknown のまま
+    pub unit: Unit,
+    /// 使った弦の誤差（起点の長さ）
+    pub tolerance: f64,
+    /// 返した描くものの数
+    pub counts: SceneCounts,
+    /// 返した塊の範囲。起点の座標。塊がなければ持たない
+    pub extent: Option<Extent>,
+    /// 描いた図形・場所ごとの対応。描く順（文書の markups の順、続いて topics と各指摘の locations の順）
+    pub sources: Vec<ReviewSceneSource>,
+    /// シーンの blob の番号（種類は scene）。zm_take で取り出す
+    pub blob: u64,
+}
+
+impl ReviewSceneResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let from = object.required("from", json::string)?;
+        let view = object.optional("view", |value| json::uint(value, 0, 9007199254740991))?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let tolerance = object.required("tolerance", json::number)?;
+        let counts = object.required("counts", SceneCounts::from_json)?;
+        let extent = object.optional("extent", Extent::from_json)?;
+        let sources = object.required("sources", |value| {
+            json::array(value, ReviewSceneSource::from_json)
+        })?;
+        let blob = object.required("blob", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            from,
+            view,
+            unit,
+            tolerance,
+            counts,
+            extent,
+            sources,
+            blob,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("from");
+        out.string(&self.from);
+        if let Some(value) = &self.view {
+            out.key("view");
+            out.uint(*value);
+        }
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("tolerance");
+        out.float(self.tolerance);
+        out.key("counts");
+        self.counts.to_json(out);
+        if let Some(value) = &self.extent {
+            out.key("extent");
+            value.to_json(out);
+        }
+        out.key("sources");
+        out.array(&self.sources, |out, item| item.to_json(out));
+        out.key("blob");
+        out.uint(self.blob);
+    }
+}
+
+impl FromJson for ReviewSceneResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ReviewSceneResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// シーンの ID（シーンの entity_ids）から、元のレビューの文書の図形か指摘の場所へ戻す対応
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewSceneSource {
+    /// シーンの ID。review/markup/<hex> か review/location/<hex>/<hex>
+    pub id: String,
+    /// 元の項目の種類
+    pub kind: ReviewSceneSourceKind,
+    /// 元の図形の ID。kind が markup のときだけ持つ
+    pub markup: Option<String>,
+    /// 元の指摘の ID。kind が location のときだけ持つ
+    pub topic: Option<String>,
+    /// 元の場所の ID。kind が location のときだけ持つ
+    pub location: Option<String>,
+}
+
+impl ReviewSceneSource {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let kind = object.required("kind", ReviewSceneSourceKind::from_json)?;
+        let markup = object.optional("markup", json::string)?;
+        let topic = object.optional("topic", json::string)?;
+        let location = object.optional("location", json::string)?;
+        Ok(Self {
+            id,
+            kind,
+            markup,
+            topic,
+            location,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.markup {
+            out.key("markup");
+            out.string(value);
+        }
+        if let Some(value) = &self.topic {
+            out.key("topic");
+            out.string(value);
+        }
+        if let Some(value) = &self.location {
+            out.key("location");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for ReviewSceneSource {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ReviewSceneSource {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// シーンの ID の元の項目の種類。markup はレビューの文書の図形、location は指摘の中の場所
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ReviewSceneSourceKind {
+    /// `markup`
+    Markup,
+    /// `location`
+    Location,
+}
+
+impl ReviewSceneSourceKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Markup, Self::Location];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Markup => "markup",
+            Self::Location => "location",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "markup" => Some(Self::Markup),
+            "location" => Some(Self::Location),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for ReviewSceneSourceKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for ReviewSceneSourceKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 

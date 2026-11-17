@@ -129,6 +129,11 @@ public struct Request: Message {
         taggedView("op", "review_adopt")
     }
 
+    /// op が review_scene の形なら、そのビュー。違えば nil
+    public var asReviewSceneRequest: ReviewSceneRequest? {
+        taggedView("op", "review_scene")
+    }
+
     /// op が building の形なら、そのビュー。違えば nil
     public var asBuildingRequest: BuildingRequest? {
         taggedView("op", "building")
@@ -8834,6 +8839,310 @@ public struct ReviewAdoptResult: Message {
     }
 }
 
+/// レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から
+public struct ReviewSceneRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("review_scene")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 対象の図面の文書の名前。open で作ったもの
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// レビューの文書の入力の名前（zm_push で渡した JSON）
+    public var review: String? {
+        get { readField("review") }
+        set { writeField("review", newValue) }
+    }
+
+    /// 描く対象の ID。レビューの文書の targets の id
+    public var target: String? {
+        get { readField("target") }
+        set { writeField("target", newValue) }
+    }
+
+    /// 起点。実寸の空間・記号の定義の空間・用紙の ID（scene と同じ）。文書の図形・場所の view がこの起点を指すものだけを描く
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。書けば、文書の view が用紙の ID に /view/<番号> を足した値の項目だけを描く
+    public var view: Int64? {
+        get { readField("view") }
+        set { writeField("view", newValue) }
+    }
+
+    /// [x の最小, y の最小, x の最大, y の最大]。起点の座標の長方形。範囲の重なる塊だけを返す
+    public var region: [Double]? {
+        get { readField("region") }
+        set { writeField("region", newValue) }
+    }
+
+    /// 弦の誤差（起点の長さ）。0 より大きい有限値。既定値を補わない
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 文字を置くフォント（scene と同じ）。style の font の名前で引く。書かなければ字形を置かず、注記の枠を文字高と字数から概算して診断する
+    public var fonts: [SceneFont]? {
+        get { readField("fonts") }
+        set { writeField("fonts", newValue) }
+    }
+
+    /// 選んだ項目に共通で当てる色と寸法
+    public var style: ReviewSceneStyle? {
+        get { readField("style") }
+        set { writeField("style", newValue) }
+    }
+}
+
+/// レビューの図形の色と寸法。幾何の寸法は起点の単位、線幅だけは用紙の mm。文書には保存しない
+public struct ReviewSceneStyle: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 線・面・文字の色。#rrggbb
+    public var color: String? {
+        get { readField("color") }
+        set { writeField("color", newValue) }
+    }
+
+    /// 用紙の mm の線幅。0 以上の有限値。0 はもっとも細い線
+    public var lineWeight: Double? {
+        get { readField("line_weight") }
+        set { writeField("line_weight", newValue) }
+    }
+
+    /// 起点の単位での文字の高さ。正の有限値
+    public var textHeight: Double? {
+        get { readField("text_height") }
+        set { writeField("text_height", newValue) }
+    }
+
+    /// 起点の単位での注記の枠の余白。0 以上の有限値
+    public var textPadding: Double? {
+        get { readField("text_padding") }
+        set { writeField("text_padding", newValue) }
+    }
+
+    /// 起点の単位での矢じりの長さ。正の有限値
+    public var arrowLength: Double? {
+        get { readField("arrow_length") }
+        set { writeField("arrow_length", newValue) }
+    }
+
+    /// 赤線の矢じりを置く端
+    public var arrows: String? {
+        get { readField("arrows") }
+        set { writeField("arrows", newValue) }
+    }
+
+    /// 雲の円弧の弦の長さの上限。起点の単位の正の有限値
+    public var cloudPitch: Double? {
+        get { readField("cloud_pitch") }
+        set { writeField("cloud_pitch", newValue) }
+    }
+
+    /// 写真と指摘の位置の記号の直径。起点の単位の正の有限値
+    public var markerSize: Double? {
+        get { readField("marker_size") }
+        set { writeField("marker_size", newValue) }
+    }
+
+    /// fonts から引くフォントの名前。書かなければ名前のないフォント
+    public var font: String? {
+        get { readField("font") }
+        set { writeField("font", newValue) }
+    }
+}
+
+/// 赤線の矢じりを置く端。none は置かない、start は最初の端点、end は最後の端点、both は両端
+///
+/// 列挙の値。知らない値も受け取る
+public enum ReviewArrows {
+    public static let none = "none"
+    public static let start = "start"
+    public static let end = "end"
+    public static let both = "both"
+}
+
+/// レビューのシーンの要約と、シーンの blob の番号、シーンの ID から元の図形・場所への対応
+public struct ReviewSceneResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 起点の ID
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 起点のビューの番号。ビューでなければ持たない
+    public var view: Int64? {
+        get { readField("view") }
+        set { writeField("view", newValue) }
+    }
+
+    /// 起点の座標の単位。用紙とビューからは millimeter。単位の不明な空間は unknown のまま
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// 使った弦の誤差（起点の長さ）
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 返した描くものの数
+    public var counts: SceneCounts? {
+        get { readField("counts") }
+        set { writeField("counts", newValue) }
+    }
+
+    /// 返した塊の範囲。起点の座標。塊がなければ持たない
+    public var extent: Extent? {
+        get { readField("extent") }
+        set { writeField("extent", newValue) }
+    }
+
+    /// 描いた図形・場所ごとの対応。描く順（文書の markups の順、続いて topics と各指摘の locations の順）
+    public var sources: [ReviewSceneSource]? {
+        get { readField("sources") }
+        set { writeField("sources", newValue) }
+    }
+
+    /// シーンの blob の番号（種類は scene）。zm_take で取り出す
+    public var blob: Int64? {
+        get { readField("blob") }
+        set { writeField("blob", newValue) }
+    }
+}
+
+/// シーンの ID（シーンの entity_ids）から、元のレビューの文書の図形か指摘の場所へ戻す対応
+public struct ReviewSceneSource: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// シーンの ID。review/markup/<hex> か review/location/<hex>/<hex>
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 元の項目の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 元の図形の ID。kind が markup のときだけ持つ
+    public var markup: String? {
+        get { readField("markup") }
+        set { writeField("markup", newValue) }
+    }
+
+    /// 元の指摘の ID。kind が location のときだけ持つ
+    public var topic: String? {
+        get { readField("topic") }
+        set { writeField("topic", newValue) }
+    }
+
+    /// 元の場所の ID。kind が location のときだけ持つ
+    public var location: String? {
+        get { readField("location") }
+        set { writeField("location", newValue) }
+    }
+}
+
+/// シーンの ID の元の項目の種類。markup はレビューの文書の図形、location は指摘の中の場所
+///
+/// 列挙の値。知らない値も受け取る
+public enum ReviewSceneSourceKind {
+    public static let markup = "markup"
+    public static let location = "location"
+}
+
 /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
 public struct BuildingRequest: Message {
     /// 包んでいる JSON のオブジェクト
@@ -15257,6 +15566,7 @@ public enum Operations {
     public static let validate = "validate"
     public static let reviewCarry = "review_carry"
     public static let reviewAdopt = "review_adopt"
+    public static let reviewScene = "review_scene"
     public static let building = "building"
     public static let buildingElements = "building_elements"
     public static let idsCheck = "ids_check"
