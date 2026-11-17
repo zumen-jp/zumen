@@ -349,6 +349,15 @@ url = "https://docs.ogc.org/cs/24-070r1/24-070r1.pdf"
 checked = "2026-11-01"
 note = "OGC の公表は、誰でも入手して実装できるとする"
 
+[specs.copc_1_0]
+title = "Cloud Optimized Point Cloud Specification"
+publisher = "Hobu, Inc."
+version = "1.0"
+access = "public"
+url = "https://copc.io/"
+checked = "2026-11-18"
+note = "仕様のページを読んだ。ページは All rights reserved と書き、仕様を置く GitHub のリポジトリは MIT。本文は写さない"
+
 [specs.e57_astm_e2807]
 title = "ASTM E2807 Standard Specification for 3D Imaging Data Exchange, Version 1.0"
 publisher = "ASTM International"
@@ -1137,7 +1146,7 @@ note = "RFC 7946 の Copyright Notice が参照する IETF Trust の規定。標
 name = "LAS・LAZ"
 family = "las"
 domains = ["pointcloud"]
-specs = ["las_1_4_r15", "laz_1_4"]
+specs = ["las_1_4_r15", "laz_1_4", "copc_1_0"]
 rights = "public"
 rights-note = "ASPRS が LAS の仕様を、OGC が LAZ の仕様を無償で公開している。OGC は LAZ を誰でも実装できるとする。LAZ を展開する LASzip と Rust の laz は、どちらも Apache-2.0"
 place = "core"

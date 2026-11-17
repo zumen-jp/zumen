@@ -122,6 +122,16 @@
 - 確認日: 2026-11-01
 - 補足: 概念モデルは Part 1（OGC 20-010）
 
+### spec-copc_1_0
+
+- 名前: Cloud Optimized Point Cloud Specification
+- 公開元: Hobu, Inc.
+- 版: 1.0
+- 入手の条件: 無償公開
+- 入手先: [Cloud Optimized Point Cloud Specification](https://copc.io/)
+- 確認日: 2026-11-18
+- 補足: 仕様のページを読んだ。ページは All rights reserved と書き、仕様を置く GitHub のリポジトリは MIT。本文は写さない
+
 ### spec-dxf_2026
 
 - 名前: DXF Reference
@@ -916,7 +926,7 @@
 
 - 名前: LAS・LAZ
 - 権利の根拠: ASPRS が LAS の仕様を、OGC が LAZ の仕様を無償で公開している。OGC は LAZ を誰でも実装できるとする。LAZ を展開する LASzip と Rust の laz は、どちらも Apache-2.0
-- 仕様: [las\_1\_4\_r15](#spec-las_1_4_r15)、[laz\_1\_4](#spec-laz_1_4)
+- 仕様: [las\_1\_4\_r15](#spec-las_1_4_r15)、[laz\_1\_4](#spec-laz_1_4)、[copc\_1\_0](#spec-copc_1_0)
 - 実装の根拠: spec・inferred・reference
 - 権利の根拠にした文書: [OGC の LAZ 1.4 コミュニティ標準の公表](https://www.ogc.org/announcement/ogc-announces-publication-of-the-laz-1-4-community-standard/)（確認日: 2026-11-01）
 - 権利の根拠にした文書: [LASzip のリポジトリ（ライセンス）](https://github.com/LASzip/LASzip)（確認日: 2026-11-01）

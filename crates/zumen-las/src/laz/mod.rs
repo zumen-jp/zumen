@@ -318,3 +318,53 @@ fn decompress_inner(
         }
     }
 }
+
+/// 1 つのチャンクを展開する。COPC の節は 1 つのチャンクで、階層の項が位置・長さ・点の数を持つ（#473）
+pub(crate) fn decompress_chunk(
+    header: &Header,
+    vlrs: &[Vlr],
+    chunk: &[u8],
+    count: usize,
+    cx: &mut Cx<'_>,
+) -> Result<Vec<u8>, Error> {
+    let Some(record) = vlrs
+        .iter()
+        .find(|vlr| vlr.user == LASZIP_USER_ID && vlr.record == LASZIP_RECORD_ID)
+    else {
+        return Err(report_invalid(cx, "laszip-vlr-missing"));
+    };
+    let vlr = match LazVlr::parse(&record.data, cx) {
+        Ok(v) => v,
+        Err(Error::Invalid) => return Err(report_invalid(cx, "laszip-vlr-invalid")),
+        Err(other) => return Err(other),
+    };
+    if vlr.items_size() != u64::from(header.record_length) {
+        return Err(report_invalid(cx, "record-length"));
+    }
+    let record_size = usize::from(header.record_length);
+    let total = (count as u64).saturating_mul(record_size as u64);
+    cx.check(Kind::DecodedBytes, total)?;
+    let Ok(total) = usize::try_from(total) else {
+        return Err(report_invalid(cx, "too-large"));
+    };
+    let mut out = vec![0u8; total];
+    if count == 0 {
+        return Ok(out);
+    }
+    let cursor = SliceCursor::new(chunk);
+    let run = match vlr.compressor {
+        Compressor::PointWise | Compressor::PointWiseChunked => {
+            v1v2::decompress_sequential_chunk(&vlr.items, cursor, record_size, &mut out, cx)
+                .map(|_| count)
+        }
+        Compressor::LayeredChunked => {
+            v3v4::decompress_layered_chunk(&vlr.items, cursor, record_size, count, &mut out, cx)
+                .map(|(_, n)| n)
+        }
+    };
+    match run {
+        Ok(n) if n == count => Ok(out),
+        Ok(_) | Err(Error::Invalid) => Err(report_invalid(cx, "decompress")),
+        Err(other) => Err(other),
+    }
+}

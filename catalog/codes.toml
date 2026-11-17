@@ -3400,6 +3400,13 @@ severity = "error"
 since = "0.2.0"
 status = "retired"
 
+[codes."las.copc.invalid"]
+description = "COPC の情報の VLR か階層の頁が壊れているか、頁・チャンクの範囲が入力の外を指すので、読まなかった"
+severity = "error"
+params = { reason = "key" }
+since = "0.3.0"
+status = "active"
+
 [codes."las.attribute.dropped"]
 description = "点群の領域モデルに持たない点の属性を、移さなかった（決定 0232）"
 severity = "info"

@@ -3421,6 +3421,17 @@ pub const LAS_ATTRIBUTE_DROPPED: Code = Code::new(
     &["attribute"],
 );
 
+/// COPC の情報の VLR か階層の頁が壊れているか、頁・チャンクの範囲が入力の外を指すので、読まなかった
+///
+/// `las.copc.invalid`（0.3.0 から）
+pub const LAS_COPC_INVALID: Code = Code::new(
+    "las.copc.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &[],
+);
+
 /// 座標系のレコードがないので、座標系を不明にした
 ///
 /// `las.crs.missing`（0.2.0 から）
@@ -6444,6 +6455,7 @@ pub const ALL: &[Code] = &[
     LANDXML_HEIGHT_DATUM_UNSUPPORTED,
     LANDXML_VALUE_INVALID,
     LAS_ATTRIBUTE_DROPPED,
+    LAS_COPC_INVALID,
     LAS_CRS_MISSING,
     LAS_CRS_UNSUPPORTED,
     LAS_FILE_INVALID,

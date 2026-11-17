@@ -23,6 +23,25 @@ const GEOGRAPHIC_KEY: u16 = 2048;
 const VERTICAL_KEY: u16 = 4096;
 
 pub(crate) fn lift(file: &LasFile, cx: &mut Cx<'_>) -> Result<PointCloud, Error> {
+    let (points, crs, vertical) = parts(file, cx)?;
+    let octree = Octree::build(&points, cx)?;
+    Ok(PointCloud {
+        crs,
+        vertical,
+        points,
+        octree,
+        source: Ref::at_bytes(
+            u64::from(file.header.point_offset),
+            u64::from(file.header.point_offset) + file.points.len() as u64,
+        ),
+    })
+}
+
+/// 点の列と、水平・高さの座標系。八分木は作らない
+pub(crate) fn parts(
+    file: &LasFile,
+    cx: &mut Cx<'_>,
+) -> Result<(Points, Option<Crs>, Option<VerticalCrs>), Error> {
     let header = &file.header;
     let format = header.point_format;
     let length = usize::from(header.record_length);
@@ -83,17 +102,7 @@ pub(crate) fn lift(file: &LasFile, cx: &mut Cx<'_>) -> Result<PointCloud, Error>
     }
     dropped(file, cx);
     let (crs, vertical) = crs(file, cx);
-    let octree = Octree::build(&points, cx)?;
-    Ok(PointCloud {
-        crs,
-        vertical,
-        points,
-        octree,
-        source: Ref::at_bytes(
-            u64::from(header.point_offset),
-            u64::from(header.point_offset) + file.points.len() as u64,
-        ),
-    })
+    Ok((points, crs, vertical))
 }
 
 /// 点群の領域モデルに持たない属性を知らせる
