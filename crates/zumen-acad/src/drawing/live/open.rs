@@ -10,7 +10,7 @@ mod pending;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use pending::{PAGE_ROWS, Pending};
+use pending::{BATCH_PAGES, PAGE_ROWS, Pending};
 
 use zumen_base::{
     Budget, CancelToken, Cx, Diagnostic, Diagnostics, Key, Kind, Limit, Limits, Ref, codes,
@@ -878,92 +878,89 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
         })
         .collect();
 
-    let mut lifted_plains = Pending::with_len(entity_indices.len());
-    let mut filled_until = 0;
-    let mut take_plain = |ent_pos| {
-        if ent_pos < filled_until {
-            return lifted_plains.take_ordered(ent_pos);
-        }
-        // 全件の復号結果を保持せず、最大 16,384 要素を入力順の処理へ渡す。
-        let first_page = ent_pos / PAGE_ROWS;
-        let last_page = first_page
-            .saturating_add(64)
-            .min(lifted_plains.pages_mut().len());
-        let start = first_page * PAGE_ROWS;
-        filled_until = last_page * PAGE_ROWS;
-        let first = plain_tasks.partition_point(|&(position, _)| position < start);
-        let last = plain_tasks.partition_point(|&(position, _)| position < filled_until);
-        for &(position, _) in plain_tasks.get(first..last).unwrap_or_default() {
-            let _ = lifted_plains.prepare(position);
-        }
-        let lift_one =
-            |(ent_pos, rec_u32): (usize, u32), tags: &mut Vec<_>| -> (usize, Option<PlainLifted>) {
-                let Some(rec) = records.get(rec_u32 as usize) else {
-                    return (ent_pos, None);
-                };
-                let mut attribs = Vec::new();
-                let mut raw_attrib_count = 0u32;
-                if rec.kind.as_ref() == b"INSERT"
-                    && let Some(children) = att_map.get(&ent_pos)
-                {
-                    raw_attrib_count = children.len() as u32;
-                    attribs.reserve(children.len());
-                    for &child_pos in children {
-                        let Some(&c_rec_u32) = entity_indices.get(child_pos) else {
-                            return (ent_pos, None);
-                        };
-                        let Some(c_rec) = records.get(c_rec_u32 as usize) else {
-                            return (ent_pos, None);
-                        };
-                        let Some(pa) = lift_plain_attrib_from_dxf(
-                            src,
-                            c_rec.start as usize..c_rec.end as usize,
-                            cs,
-                            c_rec_u32,
-                            tags,
-                        ) else {
-                            return (ent_pos, None);
-                        };
-                        attribs.push(pa);
-                    }
-                }
-                let plain = lift_plain_entity_from_dxf(
-                    src,
-                    rec.start as usize..rec.end as usize,
-                    &rec.kind,
-                    cs,
-                    rec_u32,
-                    attribs,
-                    raw_attrib_count,
-                    tags,
-                );
-                (ent_pos, plain)
+    let lift_one =
+        |(ent_pos, rec_u32): (usize, u32), tags: &mut Vec<_>| -> (usize, Option<PlainLifted>) {
+            let Some(rec) = records.get(rec_u32 as usize) else {
+                return (ent_pos, None);
             };
-
-        let fill_pages = |first_page: usize, pages: &mut [Option<Vec<Option<PlainLifted>>>]| {
-            let mut tags = Vec::with_capacity(24);
-            for (page_offset, page) in pages.iter_mut().enumerate() {
-                let Some(page) = page else {
-                    continue;
-                };
-                let start = (first_page + page_offset) * PAGE_ROWS;
-                let end = start.saturating_add(page.len());
-                let first = plain_tasks.partition_point(|&(position, _)| position < start);
-                let last = plain_tasks.partition_point(|&(position, _)| position < end);
-                for &task in plain_tasks.get(first..last).unwrap_or_default() {
-                    let (position, item) = lift_one(task, &mut tags);
-                    if let Some(slot) = page.get_mut(position - start) {
-                        *slot = item;
-                    }
+            let mut attribs = Vec::new();
+            let mut raw_attrib_count = 0u32;
+            if rec.kind.as_ref() == b"INSERT"
+                && let Some(children) = att_map.get(&ent_pos)
+            {
+                raw_attrib_count = children.len() as u32;
+                attribs.reserve(children.len());
+                for &child_pos in children {
+                    let Some(&c_rec_u32) = entity_indices.get(child_pos) else {
+                        return (ent_pos, None);
+                    };
+                    let Some(c_rec) = records.get(c_rec_u32 as usize) else {
+                        return (ent_pos, None);
+                    };
+                    let Some(pa) = lift_plain_attrib_from_dxf(
+                        src,
+                        c_rec.start as usize..c_rec.end as usize,
+                        cs,
+                        c_rec_u32,
+                        tags,
+                    ) else {
+                        return (ent_pos, None);
+                    };
+                    attribs.push(pa);
                 }
             }
+            let plain = lift_plain_entity_from_dxf(
+                src,
+                rec.start as usize..rec.end as usize,
+                &rec.kind,
+                cs,
+                rec_u32,
+                attribs,
+                raw_attrib_count,
+                tags,
+            );
+            (ent_pos, plain)
         };
-        let pages = lifted_plains
-            .pages_mut()
-            .get_mut(first_page..last_page)
-            .unwrap_or_default();
-        if !cfg!(target_arch = "wasm32") && parts > 1 && last - first >= 256 {
-            let chunk_size = pages.len().div_ceil(parts).max(1);
+
+    let fill_pages = |first_page: usize, pages: &mut [Option<Vec<Option<PlainLifted>>>]| {
+        let mut tags = Vec::with_capacity(24);
+        for (page_offset, page) in pages.iter_mut().enumerate() {
+            let Some(page) = page else {
+                continue;
+            };
+            let start = (first_page + page_offset) * PAGE_ROWS;
+            let end = start.saturating_add(page.len());
+            let first = plain_tasks.partition_point(|&(position, _)| position < start);
+            let last = plain_tasks.partition_point(|&(position, _)| position < end);
+            for &task in plain_tasks.get(first..last).unwrap_or_default() {
+                let (position, item) = lift_one(task, &mut tags);
+                if let Some(slot) = page.get_mut(position - start) {
+                    *slot = item;
+                }
+            }
+        }
+    };
+
+    // 全件の復号結果を保持せず、最大 64 ページ（16,384 入力位置）ずつ復号する。
+    let entity_count = entity_indices.len();
+    let page_count = entity_count.div_ceil(PAGE_ROWS);
+    let lift_batch = |first_page: usize, workers: usize| -> Vec<Option<Vec<Option<PlainLifted>>>> {
+        let last_page = first_page.saturating_add(BATCH_PAGES).min(page_count);
+        let mut pages: Vec<Option<Vec<Option<PlainLifted>>>> =
+            (first_page..last_page).map(|_| None).collect();
+        let start = first_page * PAGE_ROWS;
+        let end = last_page * PAGE_ROWS;
+        let first = plain_tasks.partition_point(|&(position, _)| position < start);
+        let last = plain_tasks.partition_point(|&(position, _)| position < end);
+        for &(position, _) in plain_tasks.get(first..last).unwrap_or_default() {
+            let page_index = position / PAGE_ROWS;
+            let len = (entity_count - page_index * PAGE_ROWS).min(PAGE_ROWS);
+            if let Some(page) = pages.get_mut(page_index - first_page) {
+                page.get_or_insert_with(|| (0..len).map(|_| None).collect());
+            }
+        }
+        if !cfg!(target_arch = "wasm32") && workers > 1 && last - first >= 256 {
+            let chunk_size = pages.len().div_ceil(workers).max(1);
             let failed = std::thread::scope(|scope| {
                 let mut handles = Vec::new();
                 let fill = &fill_pages;
@@ -988,10 +985,15 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
                 }
             }
         } else {
-            fill_pages(first_page, pages);
+            fill_pages(first_page, &mut pages);
         }
-        lifted_plains.take_ordered(ent_pos)
+        pages
     };
+    // 3 スレッド以上では、1 本のスレッドが残りのスレッドで先の塊を復号し、入力順の処理と重ねる。
+    // 2 スレッドでは、復号を 1 スレッドに減らすより、2 スレッドで復号してから処理するほうが速い。
+    // 受け渡しを待つ塊は 1 つまでに限る。塊の値は復号の時期によらないので、結果は変わらない。
+    let pipelined = !cfg!(target_arch = "wasm32") && parts > 2 && plain_tasks.len() >= 256;
+    let lift_workers = if pipelined { parts - 1 } else { parts };
 
     let source_bytes = SourceBytes::compress_slice_with_cx(src, parts, cx).map_err(|stop| {
         cx.report(stop.to_diagnostic());
@@ -1027,54 +1029,111 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
         duplicate_handles_global,
         dwg_seed: None,
     };
-    let mut state = finish_live_open(
-        &shell_db,
-        finish_inputs,
-        &mut take_plain,
-        |ent_pos| {
-            let rec_u32 = *entity_indices.get(ent_pos)?;
-            let rec = records.get(rec_u32 as usize)?;
-            let at = match rec.handle {
-                Some(h) => Ref::at_record(u64::from(rec_u32)).with_key(Key::Handle(h)),
-                None => Ref::at_record(u64::from(rec_u32)),
-            };
-            Some((rec_u32, u64::from(1 + rec.work_extra), at, rec.handle))
-        },
-        |ent_pos, _cx| {
-            let rec_u32 = *entity_indices.get(ent_pos)?;
-            let rec = records.get(rec_u32 as usize)?;
-            let (kind, values) = decode_dxf_slice(src, rec.start as usize..rec.end as usize)?;
-            Some((
-                rec_u32,
-                Object {
-                    kind,
-                    section: Section::Entities,
-                    values,
-                    origin: Origin::Dxf {
-                        record: rec_u32 as usize,
+    let lift_batch = &lift_batch;
+    let mut state = std::thread::scope(|scope| {
+        let (sender, receiver) = if pipelined {
+            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            (Some(sender), Some(receiver))
+        } else {
+            (None, None)
+        };
+        let producer = sender.map(|sender| {
+            scope.spawn(move || {
+                let mut first_page = 0;
+                while first_page < page_count {
+                    let pages = lift_batch(first_page, lift_workers);
+                    let count = pages.len();
+                    if count == 0 || sender.send((first_page, pages)).is_err() {
+                        break;
+                    }
+                    first_page += count;
+                }
+            })
+        });
+        let mut receiver = receiver;
+        let mut lifted_plains = Pending::with_len(entity_count);
+        let mut filled_until = 0;
+        let mut take_plain = |ent_pos: usize| {
+            if ent_pos < filled_until {
+                return lifted_plains.take_ordered(ent_pos);
+            }
+            if let Some(batches) = &receiver {
+                while filled_until <= ent_pos {
+                    let Ok((first_page, pages)) = batches.recv() else {
+                        break;
+                    };
+                    filled_until = (first_page + pages.len()) * PAGE_ROWS;
+                    if filled_until > ent_pos {
+                        lifted_plains.install(first_page, pages);
+                    }
+                }
+                if filled_until > ent_pos {
+                    return lifted_plains.take_ordered(ent_pos);
+                }
+                // 先に復号するスレッドが止まったときは、この場で復号する。
+                receiver = None;
+            }
+            let first_page = ent_pos / PAGE_ROWS;
+            let pages = lift_batch(first_page, lift_workers);
+            filled_until = (first_page + pages.len()) * PAGE_ROWS;
+            lifted_plains.install(first_page, pages);
+            lifted_plains.take_ordered(ent_pos)
+        };
+        let result = finish_live_open(
+            &shell_db,
+            finish_inputs,
+            &mut take_plain,
+            |ent_pos| {
+                let rec_u32 = *entity_indices.get(ent_pos)?;
+                let rec = records.get(rec_u32 as usize)?;
+                let at = match rec.handle {
+                    Some(h) => Ref::at_record(u64::from(rec_u32)).with_key(Key::Handle(h)),
+                    None => Ref::at_record(u64::from(rec_u32)),
+                };
+                Some((rec_u32, u64::from(1 + rec.work_extra), at, rec.handle))
+            },
+            |ent_pos, _cx| {
+                let rec_u32 = *entity_indices.get(ent_pos)?;
+                let rec = records.get(rec_u32 as usize)?;
+                let (kind, values) = decode_dxf_slice(src, rec.start as usize..rec.end as usize)?;
+                Some((
+                    rec_u32,
+                    Object {
+                        kind,
+                        section: Section::Entities,
+                        values,
+                        origin: Origin::Dxf {
+                            record: rec_u32 as usize,
+                        },
                     },
-                },
-            ))
-        },
-        LiveBacking::AsciiDxf(DxfLiveBacking {
-            src: SourceBytes::default(),
-            record_starts: Vec::new(),
-            trailer_start: 0,
-            entities_end_record: None,
-            header_record: None,
-            header_spans: Box::new([]),
-            header_known_starts: BTreeMap::new(),
-            base_header: DxfHeaderValues::default(),
-            header: DxfHeaderValues::default(),
-            overlay: BTreeMap::new(),
-            gone: BTreeSet::new(),
-            edited_values: BTreeMap::new(),
-            next_born_record: 0,
-            non_model_max_handle: None,
-            current_max_handle: None,
-        }),
-        cx,
-    )?;
+                ))
+            },
+            LiveBacking::AsciiDxf(DxfLiveBacking {
+                src: SourceBytes::default(),
+                record_starts: Vec::new(),
+                trailer_start: 0,
+                entities_end_record: None,
+                header_record: None,
+                header_spans: Box::new([]),
+                header_known_starts: BTreeMap::new(),
+                base_header: DxfHeaderValues::default(),
+                header: DxfHeaderValues::default(),
+                overlay: BTreeMap::new(),
+                gone: BTreeSet::new(),
+                edited_values: BTreeMap::new(),
+                next_born_record: 0,
+                non_model_max_handle: None,
+                current_max_handle: None,
+            }),
+            cx,
+        );
+        drop(take_plain);
+        drop(receiver);
+        if let Some(producer) = producer {
+            let _ = producer.join();
+        }
+        result
+    })?;
     dxf_backing.non_model_max_handle = state.non_table_max_handle;
     dxf_backing.current_max_handle = state.current_max_handle();
     state.backing = LiveBacking::AsciiDxf(dxf_backing);

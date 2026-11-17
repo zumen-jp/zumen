@@ -1,6 +1,8 @@
 //! 復号済みの要素を入力順に消費し、済んだページを解放する一時領域。
 
 pub(super) const PAGE_ROWS: usize = 256;
+/// 一度に復号するページの数。
+pub(super) const BATCH_PAGES: usize = 64;
 
 pub(super) struct Pending<T> {
     pages: Vec<Option<Vec<Option<T>>>>,
@@ -31,8 +33,16 @@ impl<T> Pending<T> {
         Some(slots)
     }
 
-    pub(super) fn pages_mut(&mut self) -> &mut [Option<Vec<Option<T>>>] {
-        &mut self.pages
+    /// `first_page` から始まるページを置き換える。範囲の外のページは捨てる。
+    pub(super) fn install(&mut self, first_page: usize, pages: Vec<Option<Vec<Option<T>>>>) {
+        for (offset, page) in pages.into_iter().enumerate() {
+            if let Some(slot) = first_page
+                .checked_add(offset)
+                .and_then(|index| self.pages.get_mut(index))
+            {
+                *slot = page;
+            }
+        }
     }
 
     pub(super) fn push(&mut self, value: Option<T>) {

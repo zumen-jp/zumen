@@ -97,7 +97,8 @@ fn paged_open_preserves_mixed_elements_and_budget_boundaries() {
     .unwrap();
     assert_eq!(saved, &expected_bytes);
     let mut records = String::new();
-    for threads in [1, 4] {
+    // 3 スレッド以上では、平面図形の復号を入力順の処理と重ねる。
+    for threads in [1, 2, 3, 4] {
         assert_eq!(probe(threads, Limits::default(), &cancel), baseline);
         for kind in [Kind::Work, Kind::DecodedBytes] {
             let needed = baseline.2[Kind::ALL.iter().position(|&value| value == kind).unwrap()];
