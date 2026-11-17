@@ -18,6 +18,9 @@ sys.path.insert(0, str(HERE.parent))
 from make import Zumen, read  # noqa: E402
 
 VERSIONS = ("R2000", "R2004", "R2007", "R2010", "R2013", "R2018")
+# 置き場所: 実寸の空間、用紙（Layout1）、名前付きブロックの定義（モデル空間に INSERT を 1 つ置く）
+PLACEMENTS = ("model", "paper", "block")
+BLOCK = "QA_BLOCK"
 STYLES = {
     "unchanged": {"color": 2},
     "color": {"color": 6},
@@ -36,14 +39,25 @@ def write_json(path, value):
         stream.write(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
 
 
-def fixture(version, binary):
+def container(doc, placement):
+    if placement == "paper":
+        return doc.paperspace()
+    if placement == "block":
+        return doc.blocks.get(BLOCK)
+    return doc.modelspace()
+
+
+def fixture(version, binary, placement="model"):
     """付属図面・線種を使わず、表も線種の模様も自作する。"""
     # https://ezdxf.readthedocs.io/en/stable/options.html
     ezdxf.options.write_fixed_meta_data_for_testing = True
     doc = ezdxf.new(version)
     doc.layers.new("QA_TARGET")
     doc.linetypes.new("QA_DASH", dxfattribs={"description": "QA dash", "pattern": [2, 1, -1]})
-    model = doc.modelspace()
+    if placement == "block":
+        doc.blocks.new(BLOCK)
+        doc.modelspace().add_blockref(BLOCK, (10, 20))
+    model = container(doc, placement)
     model.add_line((0, 0), (3, 4), dxfattribs={"color": 3})
     # 公開 API: https://ezdxf.readthedocs.io/en/stable/dxfentities/polyline.html
     entity = model.add_polyline2d([(1, 2), (4, 6)], dxfattribs={"color": 2, "linetype": "Continuous"})
@@ -67,17 +81,19 @@ def entity_state(entity):
     return {"type": entity.dxftype(), "attributes": plain(entity.dxfattribs())}
 
 
-def external(path):
+def external(path, placement="model"):
     doc = ezdxf.readfile(path)
     polylines, others = [], {}
-    for entity in doc.modelspace():
+    for entity in container(doc, placement):
         if entity.dxftype() == "POLYLINE":
             polylines.append({"parent": entity_state(entity),
                               "vertices": [entity_state(vertex) for vertex in entity.vertices],
                               "seqend": entity_state(entity.seqend)})
         else:
             others[entity.dxf.handle] = entity_state(entity)
-    state = {"polylines": polylines, "others": others,
+    # 置き場所の外（ブロックの INSERT など）も、変わらないことを比べる
+    outside = {} if placement == "model" else {entity.dxf.handle: entity_state(entity) for entity in doc.modelspace()}
+    state = {"polylines": polylines, "others": others, "outside": outside,
              "tables": {name: [entity_state(item) for item in getattr(doc, name)] for name in ("layers", "linetypes")},
              "header": [doc.header.get("$PDMODE", 0), doc.header.get("$PDSIZE", 0)]}
     # audit が修復件数へ数えずに子の画層をそろえるため、値は必ず監査前に取得する。
@@ -130,14 +146,31 @@ def call(client, request):
     return response
 
 
-def apply(cli, original, style, request=None):
-    client = Zumen(cli)
+class WasiZumen(Zumen):
+    """wasm32-wasip1 の zumen.wasm を、Node.js の WASI（bindings/conformance/wasi.mjs）の上の `serve --stdio` で動かす"""
+
+    def __init__(self, wasm):
+        command = ["node", "--no-warnings", str(ROOT / "bindings/conformance/wasi.mjs"), str(wasm), "serve", "--stdio"]
+        self.child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        self.next = 0
+        self.rpc("session_new", {})
+
+
+def block_place(path):
+    """定義の空間の ID は BLOCK のハンドルから決まる（`space/h<ハンドル>`。xtask/verify/make.py の definition_places）"""
+    handle = ezdxf.readfile(path).blocks.get(BLOCK).block.dxf.handle
+    return f"space/h{int(handle, 16):X}"
+
+
+def apply(runtime, original, style, request=None, place=None):
+    client = runtime()
     try:
         client.push("input.dxf", original)
         call(client, {"op": "open", "input": "input.dxf"})
         if request is None:
-            reading = read(client, "input.dxf")
-            entity, = [item for item in reading["entities"] if item["kind"] == "polyline"]
+            reading = read(client, "input.dxf", {BLOCK: place} if place else None)
+            items = reading["definitions"][BLOCK]["entities"] if place else reading["entities"]
+            entity, = [item for item in items if item["kind"] == "polyline"]
             edit = {"kind": "restyle", "id": entity["id"], "hash": entity["hash"]}
             for key, value in style.items():
                 if key == "color":
@@ -153,20 +186,22 @@ def apply(cli, original, style, request=None):
         client.close()
 
 
-def check_case(cli, folder, version, binary, operation):
+def check_case(runtime, folder, version, binary, operation, placement):
     folder.mkdir()
-    original = fixture(version, binary)
+    original = fixture(version, binary, placement)
     (folder / "input.dxf").write_bytes(original)
-    before = external(folder / "input.dxf")
+    before = external(folder / "input.dxf", placement)
     style = STYLES[operation]
-    output, request = apply(cli, original, style)
-    repeated, _ = apply(cli, original, style, request)
+    place = block_place(folder / "input.dxf") if placement == "block" else None
+    output, request = apply(runtime, original, style, place=place)
+    repeated, _ = apply(runtime, original, style, request)
     (folder / "output.dxf").write_bytes(output)
-    after = external(folder / "output.dxf")
+    after = external(folder / "output.dxf", placement)
     failures = evaluate(style, before, after)
     if repeated != output:
         failures.append("determinism")
-    result = {"case": folder.name, "version": version, "format": "binary" if binary else "ascii", "operation": operation,
+    result = {"case": folder.name, "version": version, "format": "binary" if binary else "ascii", "placement": placement,
+              "operation": operation,
               "expectedStyle": style, "inputExternal": before, "external": after,
               "inputSha256": sha(original), "outputSha256": sha(output),
               "deterministic": repeated == output, "failures": failures}
@@ -177,8 +212,11 @@ def check_case(cli, folder, version, binary, operation):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cli", required=True, type=Path)
+    engine = parser.add_mutually_exclusive_group(required=True)
+    engine.add_argument("--cli", type=Path, help="ネイティブの zumen")
+    engine.add_argument("--wasi", type=Path, help="wasm32-wasip1 の zumen.wasm（Node.js 22 以降で動かす）")
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--same-as", type=Path, help="別の実行の results.json。各条件の出力の SHA-256 が同じことも確かめる")
     args = parser.parse_args()
     output = args.out.resolve()
     if any((parent / ".git").exists() for parent in (output, *output.parents)) or (output.exists() and any(output.iterdir())):
@@ -186,8 +224,13 @@ def main():
     if ezdxf.__version__ != "1.4.5":
         parser.error("ezdxf は 1.4.5 に固定してください")
     output.mkdir(parents=True, exist_ok=True)
-    cli = args.cli.resolve(strict=True)
-    sources = [{"path": path, "sha256": sha((ROOT / path).read_bytes())} for path in ("xtask/verify/polyline/check.py", "xtask/verify/make.py")]
+    cli = (args.cli or args.wasi).resolve(strict=True)
+    runtime = (lambda: Zumen(cli)) if args.cli else (lambda: WasiZumen(cli))
+    others = None
+    if args.same_as:
+        others = {row["case"]: row["outputSha256"] for row in json.loads(args.same_as.read_text(encoding="utf-8"))["cases"]}
+    sources = [{"path": path, "sha256": sha((ROOT / path).read_bytes())}
+               for path in ("xtask/verify/polyline/check.py", "xtask/verify/make.py", "bindings/conformance/wasi.mjs")]
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT).decode().strip()
     cli_sha = sha(cli.read_bytes())
     if sys.platform == "win32":
@@ -196,16 +239,21 @@ def main():
             return original_popen(*args, **{**kwargs, "creationflags": subprocess.CREATE_NO_WINDOW})
         subprocess.Popen = hidden_popen
     cases = []
-    for version in VERSIONS:
-        for binary in (False, True):
-            for operation in STYLES:
-                folder = output / f"{version.lower()}-{'bin' if binary else 'ascii'}-{operation}"
-                cases.append(check_case(cli, folder, version, binary, operation))
+    for placement in PLACEMENTS:
+        for version in VERSIONS:
+            for binary in (False, True):
+                for operation in STYLES:
+                    folder = output / f"{placement}-{version.lower()}-{'bin' if binary else 'ascii'}-{operation}"
+                    case = check_case(runtime, folder, version, binary, operation, placement)
+                    if others is not None and others.get(case["case"]) != case["outputSha256"]:
+                        case["failures"].append("same-as")
+                    cases.append(case)
     if any(sha((ROOT / item["path"]).read_bytes()) != item["sha256"] for item in sources) or sha(cli.read_bytes()) != cli_sha:
         raise ValueError("検証中にソースか CLI が変わりました")
     report = {"schemaVersion": 1, "issue": 885, "sourceCommit": commit,
-              "cliSha256": cli_sha, "ezdxf": ezdxf.__version__, "python": sys.version.split()[0], "sources": sources,
-              "inputProvenance": "ezdxf で自作した2頂点の2D POLYLINEと非対象のLINE各1件。表と線種も自作。",
+              "runtime": "native" if args.cli else "wasm32-wasip1", "cliSha256": cli_sha,
+              "sameAs": sha(args.same_as.read_bytes()) if args.same_as else None, "ezdxf": ezdxf.__version__, "python": sys.version.split()[0], "sources": sources,
+              "inputProvenance": "ezdxf で自作した2頂点の2D POLYLINEと非対象のLINE各1件を、実寸・用紙・名前付きブロックに置く。表と線種も自作。",
               "application": "not_run", "cases": cases}
     write_json(output / "results.json", report)
     failed = sum(bool(row["failures"]) for row in cases)

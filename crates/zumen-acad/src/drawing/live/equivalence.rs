@@ -1054,54 +1054,83 @@ fn implicit_layer_removal_preserves_ids_hashes_and_undo() {
     }
 }
 
-/// POLYLINE のスタイルを変えると、文書エンジンも続く VERTEX と SEQEND を従来の経路と同じに書く（#885）
+/// POLYLINE のスタイルを変えると、文書エンジンも続く VERTEX と SEQEND を従来の経路と同じに書く（#885）。
+/// 実寸の空間・用紙（67 が 1）・名前付きブロック（MARK）の定義の中で確かめる
 #[test]
 fn polyline_restyles_reach_the_vertices_like_the_batch_apply() {
-    let vertex = |handle: &str, x: &str| {
+    let polyline = |owner: &str, paper: &str| {
+        let vertex = |handle: &str, x: &str| {
+            format!(
+                "0\nVERTEX\n5\n{handle}\n330\n1F0\n100\nAcDbEntity\n{paper}8\n0\n62\n2\n\
+                 100\nAcDbVertex\n100\nAcDb2dVertex\n10\n{x}\n20\n0\n30\n0\n"
+            )
+        };
         format!(
-            "0\nVERTEX\n5\n{handle}\n330\n1F\n100\nAcDbEntity\n8\n0\n62\n2\n100\nAcDbVertex\n\
-             100\nAcDb2dVertex\n10\n{x}\n20\n0\n30\n0\n"
+            "0\nPOLYLINE\n5\n1F0\n330\n{owner}\n100\nAcDbEntity\n{paper}8\n0\n62\n2\n\
+             100\nAcDb2dPolyline\n66\n1\n10\n0\n20\n0\n30\n0\n70\n0\n{}{}\
+             0\nSEQEND\n5\n1F3\n330\n1F0\n100\nAcDbEntity\n{paper}8\n0\n",
+            vertex("1F1", "0"),
+            vertex("1F2", "3"),
         )
     };
-    let input = format!(
-        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$HANDSEED\n5\n40\n0\nENDSEC\n\
-         0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n0\nLTYPE\n5\n11\n2\nCONTINUOUS\n70\n0\n\
-         0\nLTYPE\n5\n12\n2\nDashed\n70\n0\n0\nENDTAB\n0\nTABLE\n2\nLAYER\n\
-         0\nLAYER\n5\n10\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n\
-         0\nLAYER\n5\n13\n2\nWall\n70\n0\n62\n1\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n\
-         0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n1A\n8\n0\n10\n0\n20\n0\n11\n10\n21\n5\n\
-         0\nPOLYLINE\n5\n1F\n100\nAcDbEntity\n8\n0\n62\n2\n100\nAcDb2dPolyline\n66\n1\n\
-         10\n0\n20\n0\n30\n0\n70\n0\n{}{}0\nSEQEND\n5\n22\n330\n1F\n100\nAcDbEntity\n8\n0\n\
-         0\nENDSEC\n0\nEOF\n",
-        vertex("20", "0"),
-        vertex("21", "3"),
-    );
-    for threads in [1, 4] {
-        let mut pair = DxfPair::open(input.as_bytes(), threads);
-        let style = Restyle {
-            layer: Some(pair.layer_id("Wall")),
-            color: Some(Inherit::Own(zumen_drawing::Color {
-                code: Some(zumen_drawing::ColorCode {
-                    system: zumen_drawing::ColorSystem::Aci,
-                    value: 6,
-                }),
-                rgb: None,
-            })),
-            line_type: Some(Inherit::Own(pair.line_type_id("Dashed"))),
-            ..Restyle::default()
-        };
-        pair.apply(Edit::Restyle {
-            target: pair.seen(0x1F),
-            style,
-        });
-        let saved = String::from_utf8(fresh_cx(|cx| pair.live.save(cx)).0.unwrap()).unwrap();
-        for handle in ["20", "21"] {
-            let expected = format!(
-                "VERTEX\n5\n{handle}\n330\n1F\n100\nAcDbEntity\n  8\nWall\n  6\nDashed\n 62\n6\n"
-            );
-            assert!(saved.contains(&expected), "{expected}\n{saved}");
+    let rich = String::from_utf8(synthetic_rich_dxf()).unwrap();
+    let insert = |at: usize, body: &str| {
+        let mut input = rich.clone();
+        input.insert_str(at, body);
+        input
+    };
+    let entities_end = rich.rfind("  0\nENDSEC\n").unwrap();
+    let block_end = rich.find("  0\nENDBLK\n  5\n57\n").unwrap();
+    let inputs = [
+        ("model", insert(entities_end, &polyline("41", ""))),
+        ("paper", insert(entities_end, &polyline("42", "67\n1\n"))),
+        ("block", insert(block_end, &polyline("43", ""))),
+    ];
+    for (placement, input) in inputs {
+        for threads in [1, 4] {
+            let mut pair = DxfPair::open(input.as_bytes(), threads);
+            let style = Restyle {
+                layer: Some(pair.layer_id("WALL")),
+                color: Some(Inherit::Own(zumen_drawing::Color {
+                    code: Some(zumen_drawing::ColorCode {
+                        system: zumen_drawing::ColorSystem::Aci,
+                        value: 6,
+                    }),
+                    rgb: None,
+                })),
+                line_type: Some(Inherit::Own(pair.line_type_id("DASHED"))),
+                ..Restyle::default()
+            };
+            pair.apply(Edit::Restyle {
+                target: pair.seen(0x1F0),
+                style,
+            });
+            let saved = String::from_utf8(fresh_cx(|cx| pair.live.save(cx)).0.unwrap()).unwrap();
+            // ハンドルの行から次のレコード（0 の組）の前までを切り出す。用紙では 67 が画層の前に入る
+            let record = |handle: &str| -> String {
+                let Some(start) = saved.find(&format!("\n{handle}\n")) else {
+                    return String::new();
+                };
+                let rest = saved.get(start + 1..).unwrap_or_default();
+                let end = [rest.find("\n0\n"), rest.find("\n  0\n")]
+                    .into_iter()
+                    .flatten()
+                    .min()
+                    .map_or(rest.len(), |at| at + 1);
+                rest.get(..end).unwrap_or_default().to_owned()
+            };
+            for handle in ["1F1", "1F2"] {
+                let vertex = record(handle);
+                for expected in ["8\nWALL\n", "6\nDASHED\n", "62\n6\n"] {
+                    assert!(
+                        vertex.contains(expected),
+                        "{placement}: {handle} {expected}\n{saved}"
+                    );
+                }
+            }
+            let seqend = record("1F3");
+            assert!(seqend.contains("8\nWALL\n"), "{placement}: {seqend:?}");
         }
-        assert!(saved.contains("SEQEND\n5\n22\n330\n1F\n100\nAcDbEntity\n8\nWall\n0\n"));
     }
 }
 
