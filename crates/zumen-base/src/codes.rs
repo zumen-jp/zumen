@@ -1045,6 +1045,28 @@ pub const CREATE_FORMAT_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 図面から地図への変換を求める対応点の組に、有限でない値がある。index は 0 から数えた組の番号（#685）
+///
+/// `crs.control-point.invalid`（0.3.0 から）
+pub const CRS_CONTROL_POINT_INVALID: Code = Code::new(
+    "crs.control-point.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("index", ParamType::UInt)],
+    &[],
+);
+
+/// 対応点の組が 2 つより少ないか、図面の点がすべて重なるか、求めた変換が有限でないので、図面から地図への相似の変換を求められなかった。points は渡した組の数（#685）
+///
+/// `crs.control-points.failed`（0.3.0 から）
+pub const CRS_CONTROL_POINTS_FAILED: Code = Code::new(
+    "crs.control-points.failed",
+    Severity::Error,
+    None,
+    &[Param::new("points", ParamType::UInt)],
+    &[],
+);
+
 /// 渡された測地系の変換のパラメーター（TKY2JGD・PatchJGD の形）の行が壊れていて読めない
 ///
 /// `crs.datum-grid.invalid`（0.2.0 から）
@@ -6024,6 +6046,8 @@ pub const ALL: &[Code] = &[
     CONVERT_LAYER_FIELD_DROPPED,
     CONVERT_VIEW_APPROXIMATED,
     CREATE_FORMAT_UNSUPPORTED,
+    CRS_CONTROL_POINT_INVALID,
+    CRS_CONTROL_POINTS_FAILED,
     CRS_DATUM_GRID_INVALID,
     CRS_DATUM_GRID_MISSING,
     CRS_DATUM_GRID_UNSUPPORTED,

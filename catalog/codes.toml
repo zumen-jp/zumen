@@ -1154,6 +1154,20 @@ group-by = ["crs"]
 since = "0.2.0"
 status = "active"
 
+[codes."crs.control-point.invalid"]
+description = "図面から地図への変換を求める対応点の組に、有限でない値がある。index は 0 から数えた組の番号（#685）"
+severity = "error"
+params = { index = "uint" }
+since = "0.3.0"
+status = "active"
+
+[codes."crs.control-points.failed"]
+description = "対応点の組が 2 つより少ないか、図面の点がすべて重なるか、求めた変換が有限でないので、図面から地図への相似の変換を求められなかった。points は渡した組の数（#685）"
+severity = "error"
+params = { points = "uint" }
+since = "0.3.0"
+status = "active"
+
 # XML の L0（決定 0209）
 
 [codes."xml.document.invalid"]

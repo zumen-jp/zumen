@@ -90,6 +90,8 @@
     "convert.layer-field.dropped": "Dropped the \"{field}\" field from {count} layers during conversion to {format}.",
     "convert.view.approximated": "Wrote {count} views with different horizontal and vertical scales to {format} as paper elements.",
     "create.format.unsupported": "Cannot create an empty {format} document yet.",
+    "crs.control-point.invalid": "The control point pair at index {index} (counting from 0) has a non-finite value, so no transformation from the drawing to the map was computed ({count}).",
+    "crs.control-points.failed": "A transformation from the drawing to the map could not be computed from {points} control point pairs, because fewer than two drawing points were given or they coincide ({count}).",
     "crs.datum-grid.invalid": "Line {line} of the datum transformation parameters is broken and could not be read ({count}).",
     "crs.datum-grid.missing": "Coordinates in EPSG:{crs} were not converted to JGD2011 because the {grid} parameters were not given ({count}).",
     "crs.datum-grid.unsupported": "The grid points did not establish a spacing of 30 by 45 seconds or 150 by 225 seconds, so the datum transformation parameters were not read ({count}).",

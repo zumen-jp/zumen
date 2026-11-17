@@ -90,6 +90,8 @@
     "convert.layer-field.dropped": "画層の「{field}」を {count} 件、{format} への変換で落としました。",
     "convert.view.approximated": "横と縦の尺度の違うビュー {count} 件を、{format} では用紙の要素に焼き込んで書きました。",
     "create.format.unsupported": "{format} には、まだ空の文書を作れません。",
+    "crs.control-point.invalid": "対応点の {index} 番目（0 から数える）の組に有限でない値があるので、図面から地図への変換を求めませんでした（{count} 件）。",
+    "crs.control-points.failed": "対応点の {points} 組からは、図面の点が 2 つより少ないか重なるので、図面から地図への変換を求められませんでした（{count} 件）。",
     "crs.datum-grid.invalid": "測地系の変換のパラメーターの {line} 行目が壊れていて読めませんでした（{count} 件）。",
     "crs.datum-grid.missing": "EPSG:{crs} の座標を JGD2011 に直す {grid} のパラメーターがないので、直しませんでした（{count} 件）。",
     "crs.datum-grid.unsupported": "測地系の変換のパラメーターの格子点の並びから、3 次メッシュの間隔（緯度 30 秒・経度 45 秒）か、その 5 倍の間隔（緯度 150 秒・経度 225 秒）を確認できず、読みませんでした（{count} 件）。",
