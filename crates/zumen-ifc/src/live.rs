@@ -417,6 +417,10 @@ pub struct IfcLive {
     first_project_id: Option<u64>,
     /// 初回変換で解決済みの明示単位インスタンス表
     units: BTreeMap<u64, Option<Unit>>,
+    /// 開いたときの変換の診断（場所は元のバイト列の位置）
+    lift_diagnostics: Vec<Diagnostic>,
+    /// 変換の診断の場所に重なるレコードの番号
+    noted_records: BTreeSet<usize>,
     /// 各要素の `IFCRELDEFINESBYPROPERTIES` 以外の不変な関係出所（文の位置順キー付き）
     base_non_prop_relations: Vec<Vec<(usize, RelationSource)>>,
     /// 各要素の不変な構造依存元の集合（空間階層・相対配置・型・材料・開口・グループ・通り芯・区画）
@@ -470,7 +474,15 @@ impl IfcLive {
         threads: usize,
         cx: &mut Cx,
     ) -> Result<Self, Error> {
-        let (building, version, units) = lift_with_units(&file, cx)?;
+        // 変換の診断を別に集めて持つ。届いた順にまとめたものを移すので、呼び出し元には 1 件ずつ
+        // 報告したのと同じ件数・場所・順で届く
+        let mut lifted = Diagnostics::with_max_places(usize::MAX);
+        let result = lift_with_units(&file, &mut Cx::new(cx.budget, &mut lifted, cx.cancel));
+        let lift_diagnostics = lifted.into_vec();
+        for diagnostic in &lift_diagnostics {
+            cx.report(diagnostic.clone());
+        }
+        let (building, version, units) = result?;
         let inverse = file.inverse(cx)?;
 
         let mut referrers: BTreeMap<u64, BTreeSet<u64>> = BTreeMap::new();
@@ -552,6 +564,7 @@ impl IfcLive {
 
         let mut dirty_rows = DirtyColumn::new();
         dirty_rows.clear(table.len());
+        let noted_records = noted_records(&records, &lift_diagnostics);
 
         Ok(Self {
             src,
@@ -574,6 +587,8 @@ impl IfcLive {
             elements_by_instance,
             first_project_id,
             units,
+            lift_diagnostics,
+            noted_records,
             base_non_prop_relations,
             base_dep_sources,
             table,
@@ -668,6 +683,77 @@ impl IfcLive {
     #[inline]
     pub fn building(&self) -> &Building {
         &self.building
+    }
+
+    /// 今の状態を保存して読み直し、建物モデルに変換したときと同じ変換の診断を報告する。
+    ///
+    /// 変更が参照・値の型・名前の付いた値を変えず、診断の場所のインスタンスを書き換えず、インスタンスを
+    /// 足さないときは、開いたときの診断の場所を今の保存の位置へ移して報告する（仕事は書き直した文と
+    /// 診断の数に比例する）。ほかの変更があるときと、文字の手がかりから CP932 で読んだときは、
+    /// 保存して読み直して変換する。予算の使い方は、読み直す変換と同じとは限らない
+    pub fn report_lift_diagnostics(&self, cx: &mut Cx) -> Result<(), Error> {
+        if let Some(shifts) = self.diagnostic_shifts(cx)? {
+            for diagnostic in &self.lift_diagnostics {
+                cx.check(Kind::Work, 1 + diagnostic.places().len() as u64)
+                    .map_err(|stop| stopped(cx, stop, None))?;
+                cx.report(diagnostic.clone().map_places(|place| {
+                    if let Some(range) = place.bytes() {
+                        let start = shift_offset(&shifts, range.start);
+                        let end = shift_offset(&shifts, range.end);
+                        *place = place.clone().with_bytes(start, end);
+                    }
+                }));
+            }
+            return Ok(());
+        }
+        use zumen_sdk::Lift;
+        let file = self.to_file(cx)?;
+        let _: Building = file.lift(cx)?;
+        Ok(())
+    }
+
+    /// 持っている診断の場所を移せるとき、書き直したレコードの終わりの位置と、そこまでの長さの差の
+    /// 累計を、位置の順に返す。移せないときは `None`
+    fn diagnostic_shifts(&self, cx: &mut Cx) -> Result<Option<Vec<(u64, i64)>>, Error> {
+        if self.shift_jis || !self.added.is_empty() {
+            return Ok(None);
+        }
+        let mut ends = Vec::with_capacity(self.changed.len());
+        let mut written = Vec::new();
+        for (&id, stmt) in &self.changed {
+            let Some(&rec_idx) = self.index.get(&id) else {
+                return Ok(None);
+            };
+            let Some(record) = self.records.get(rec_idx) else {
+                return Ok(None);
+            };
+            let span = record.span();
+            cx.check(Kind::Work, 1 + span.len().div_ceil(1024) as u64)
+                .map_err(|stop| stopped(cx, stop, Some(span.clone())))?;
+            if self.noted_records.contains(&rec_idx) {
+                return Ok(None);
+            }
+            let Some(base) = self.base_stmt(id) else {
+                return Ok(None);
+            };
+            if !base.name.eq_ignore_ascii_case(&stmt.name)
+                || refs_in(&base.args) != refs_in(&stmt.args)
+                || value_shape(&base.args) != value_shape(&stmt.args)
+            {
+                return Ok(None);
+            }
+            written.clear();
+            write_stmt(id, stmt, &mut written);
+            let delta = written.len() as i64 - span.len() as i64;
+            ends.push((span.end as u64, delta));
+        }
+        ends.sort_unstable_by_key(|&(end, _)| end);
+        let mut total = 0i64;
+        for entry in &mut ends {
+            total += entry.1;
+            entry.1 = total;
+        }
+        Ok(Some(ends))
     }
 
     /// 表の現在の版番号
@@ -2891,6 +2977,96 @@ impl Lookup for LiveIdsLookup<'_> {
     }
 }
 
+/// 変換の診断の場所に重なるレコードの番号。レコードは位置の順に並ぶ
+fn noted_records(records: &[Record], diagnostics: &[Diagnostic]) -> BTreeSet<usize> {
+    let mut noted = BTreeSet::new();
+    for place in diagnostics.iter().flat_map(Diagnostic::places) {
+        let Some(range) = place.bytes() else {
+            continue;
+        };
+        let (start, end) = (range.start as usize, range.end as usize);
+        let first = records.partition_point(|record| record.span().end <= start);
+        for (at, record) in records.iter().enumerate().skip(first) {
+            let span = record.span();
+            if span.start >= end.max(start + 1) {
+                break;
+            }
+            noted.insert(at);
+        }
+    }
+    noted
+}
+
+/// 書き直す前の位置 `offset` を、書き直したあとの保存の位置へ移す。`shifts` は
+/// [`IfcLive::diagnostic_shifts`] の値
+fn shift_offset(shifts: &[(u64, i64)], offset: u64) -> u64 {
+    let before = shifts.partition_point(|&(end, _)| end <= offset);
+    let delta = before
+        .checked_sub(1)
+        .and_then(|at| shifts.get(at))
+        .map_or(0, |&(_, delta)| delta);
+    offset.saturating_add_signed(delta)
+}
+
+/// 値の形。文字列と数の中身だけを除き、型の名前・列挙・省略・参照の位置を残す。形が同じ書き直しは、
+/// 変換の診断を変えない
+fn value_shape(items: &[Item]) -> Vec<u8> {
+    let mut out = Vec::new();
+    // 入れ子の深いファイルでもスタックを使い切らないよう、再帰しない
+    let mut stack: Vec<Option<&Item>> = items.iter().rev().map(Some).collect();
+    while let Some(step) = stack.pop() {
+        let Some(item) = step else {
+            out.push(b')');
+            out.push(b',');
+            continue;
+        };
+        match item {
+            Item::Ref(_) => out.push(b'#'),
+            Item::List(items) => {
+                out.push(b'(');
+                stack.push(None);
+                stack.extend(items.iter().rev().map(Some));
+                continue;
+            }
+            Item::Raw(bytes) => {
+                let mut at = 0;
+                while let Some(&byte) = bytes.get(at) {
+                    if byte == b'\'' {
+                        at += 1;
+                        while let Some(&inner) = bytes.get(at) {
+                            at += 1;
+                            if inner == b'\'' {
+                                if bytes.get(at) == Some(&b'\'') {
+                                    at += 1;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        out.push(b'\'');
+                    } else if byte.is_ascii_digit()
+                        || ((byte == b'-' || byte == b'+')
+                            && bytes.get(at + 1).is_some_and(u8::is_ascii_digit))
+                    {
+                        at += 1;
+                        while bytes.get(at).is_some_and(|b| {
+                            b.is_ascii_digit() || matches!(b, b'.' | b'E' | b'e' | b'-' | b'+')
+                        }) {
+                            at += 1;
+                        }
+                        out.push(b'0');
+                    } else {
+                        out.push(byte);
+                        at += 1;
+                    }
+                }
+            }
+        }
+        out.push(b',');
+    }
+    out
+}
+
 #[cfg(test)]
 mod shared_budget_tests {
     use super::*;
@@ -3048,6 +3224,99 @@ mod shared_budget_tests {
                 check_model(&live, &bytes);
                 assert!(run(|cx| live.redo(cx)).0.unwrap());
                 check_model(&live, &expected.bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn public_sample_lift_diagnostics_follow_edits_like_reading_the_saved_file() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../samples/ifc/nakano/nakano_Outside.ifc");
+        let original = std::fs::read(path).unwrap();
+        for threads in [1, 4] {
+            let mut live = run(|cx| IfcLive::open_with_threads(&original, threads, cx))
+                .0
+                .unwrap();
+            assert!(!live.lift_diagnostics.is_empty());
+            check_model(&live, &original);
+            let all: Vec<u64> = live
+                .building()
+                .elements()
+                .iter()
+                .filter_map(|element| element.source().instance)
+                .collect();
+            // 名前を持つ要素。値のない名前（`$`）に名前を付けると、値の形が変わる
+            let named: Vec<u64> = all
+                .iter()
+                .copied()
+                .filter(|&id| {
+                    live.base_stmt(id).is_some_and(
+                        |stmt| matches!(stmt.arg(3), Some(Item::Raw(raw)) if raw.starts_with(b"'")),
+                    )
+                })
+                .collect();
+            assert!(named.len() >= 2 && all.len() >= 4);
+            let others: Vec<u64> = all
+                .iter()
+                .copied()
+                .filter(|id| !named.contains(id))
+                .collect();
+            let instances = [named[0], others[0], named[1], others[1]];
+            let attribute = |element, attribute, value: Option<&str>| Edit::Attribute {
+                element,
+                attribute,
+                value: value.map(str::to_owned),
+            };
+            // 名前を長く・短くするだけなら場所を移し、値の形を変えるか、インスタンスを足すと読み直す
+            let steps = [
+                vec![
+                    attribute(
+                        instances[0],
+                        RootAttribute::Name,
+                        Some("壁の名前を長くした"),
+                    ),
+                    attribute(instances[2], RootAttribute::Name, Some("x")),
+                ],
+                vec![attribute(
+                    instances[1],
+                    RootAttribute::Description,
+                    Some("説明 'quote' \\ 😀"),
+                )],
+                vec![Edit::Property {
+                    element: instances[3],
+                    set: "Pset_Zumen".into(),
+                    name: "Note".into(),
+                    value: NewValue {
+                        type_name: "IfcLabel".into(),
+                        literal: crate::NewLiteral::Text("added".into()),
+                    },
+                }],
+            ];
+            let mut history = vec![original.clone()];
+            let mut fast = vec![true];
+            for changes in &steps {
+                let file = run(|cx| Ifc::read(history.last().unwrap(), cx)).0.unwrap();
+                let expected = run(|cx| crate::apply(&file, changes, b"diag", cx))
+                    .0
+                    .unwrap();
+                run(|cx| live.apply(changes, b"diag", cx)).0.unwrap();
+                check_model(&live, &expected.bytes);
+                fast.push(run(|cx| live.diagnostic_shifts(cx)).0.unwrap().is_some());
+                history.push(expected.bytes);
+            }
+            assert!(fast[1], "名前を書き換えただけなら場所を移す");
+            assert!(!fast[3], "インスタンスを足したら読み直す");
+            for at in (0..history.len() - 1).rev() {
+                assert!(run(|cx| live.undo(cx)).0.unwrap());
+                check_model(&live, &history[at]);
+                assert_eq!(
+                    run(|cx| live.diagnostic_shifts(cx)).0.unwrap().is_some(),
+                    fast[at],
+                );
+            }
+            for bytes in history.iter().skip(1) {
+                assert!(run(|cx| live.redo(cx)).0.unwrap());
+                check_model(&live, bytes);
             }
         }
     }
@@ -3756,8 +4025,12 @@ mod shared_budget_tests {
             live.redo_len()
         );
         let file = run(|cx| Ifc::read(bytes, cx)).0.unwrap();
-        let expected: Building = run(|cx| file.lift(cx)).0.unwrap();
+        let (expected, lift_diagnostics) = run(|cx| file.lift(cx));
+        let expected: Building = expected.unwrap();
         assert_eq!(live.building(), &expected);
+        let (reported, held_diagnostics) = run(|cx| live.report_lift_diagnostics(cx));
+        reported.unwrap();
+        assert_eq!(held_diagnostics, lift_diagnostics);
         assert_eq!(run(|cx| live.save_spf(cx)).0.unwrap(), bytes);
         for (index, _) in expected.elements().iter().enumerate() {
             let element = ElementRef(index as u32);
