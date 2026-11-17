@@ -19,6 +19,7 @@ Request = Union[
     "MeasureDistanceRequest",
     "MeasureRequest",
     "IntersectRequest",
+    "RegionsRequest",
     "ApplyRequest",
     "CreateRequest",
     "ConvertRequest",
@@ -846,6 +847,158 @@ IntersectResult = TypedDict(
         "points": List["IntersectionPoint"],
         # 重なり。形・座標の順
         "overlaps": List["IntersectionOverlap"],
+    },
+)
+
+
+# 同じ実寸の空間の要素の線が囲む閉領域を検出する、または閉じた要素どうしの和・積・差・排他的論理和を求める。文書を変更しない。マイナーバージョン 91 から
+_RegionsRequestRequired = TypedDict(
+    "_RegionsRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["regions"],
+        # 開いた文書の名前
+        "doc": str,
+        # 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+        "from": str,
+        # 求め方
+        "operation": "RegionOperation",
+        # detect では線で面を囲む要素、ほかでは集合演算の左側の閉じた要素。1 つ以上で、同じ ID を繰り返さない
+        "subject": List["MeasureElement"],
+    },
+)
+_RegionsRequestOptional = TypedDict(
+    "_RegionsRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 集合演算の右側の閉じた要素。書かなければ空。detect では書かない。同じ ID を繰り返さない
+        "clip": List["MeasureElement"],
+        # 閉じた要素の内部を決める規則。書かなければ even_odd。detect では書かない
+        "fill": "RegionFill",
+        # 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、円弧を弦に分ける目標にも使う
+        "tolerance": float,
+        # 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+        "expected_hash": str,
+    },
+    total=False,
+)
+
+
+class RegionsRequest(_RegionsRequestRequired, _RegionsRequestOptional):
+    "同じ実寸の空間の要素の線が囲む閉領域を検出する、または閉じた要素どうしの和・積・差・排他的論理和を求める。文書を変更しない。マイナーバージョン 91 から"
+
+# 閉領域の求め方。detect は subject の線が囲むすべての有限の面、union・intersection・difference・xor は subject と clip の和・積・差（subject から clip を除く）・排他的論理和
+RegionOperation = Union[
+    Literal[
+        "detect",
+        "union",
+        "intersection",
+        "difference",
+        "xor",
+    ],
+    str,
+]
+
+# 閉じた要素の内部を決める規則。even_odd は境界を横切る回数が奇数の部分、non_zero は符号を付けた周回数が 0 でない部分
+RegionFill = Union[
+    Literal[
+        "even_odd",
+        "non_zero",
+    ],
+    str,
+]
+
+
+# 外周と穴で表した閉領域。最後の点から最初の点へ閉じる
+ClosedRegion = TypedDict(
+    "ClosedRegion",
+    {
+        # 反時計回りの外周。格子点の座標で、辞書順で最小の点から始める
+        "outer": List["Point2"],
+        # 時計回りの穴。輪郭の辞書順
+        "holes": List[List["Point2"]],
+        # 外周から穴を除いた面積。空間の長さの単位の 2 乗
+        "area": float,
+    },
+)
+
+
+# 交点を格子点へ丸めて元の要素の線を曲げた点
+RegionRounding = TypedDict(
+    "RegionRounding",
+    {
+        # 曲げた要素の公開 ID
+        "id": str,
+        # 丸めた格子点
+        "position": "Point2",
+    },
+)
+
+# 閉領域を作らなかった入力の種類。degenerate は点や一直線に縮んだ要素か長さ 0 の線、open は閉領域の境界に使わなかった線の部分
+RegionDiscardKind = Union[
+    Literal[
+        "degenerate",
+        "open",
+    ],
+    str,
+]
+
+
+# 閉領域を作らなかった入力
+_RegionDiscardRequired = TypedDict(
+    "_RegionDiscardRequired",
+    {
+        # 元の要素の公開 ID
+        "id": str,
+        # 種類
+        "kind": "RegionDiscardKind",
+    },
+)
+_RegionDiscardOptional = TypedDict(
+    "_RegionDiscardOptional",
+    {
+        # 使わなかった部分の始点。open だけが持つ
+        "start": "Point2",
+        # 使わなかった部分の終点。open だけが持つ
+        "end": "Point2",
+    },
+    total=False,
+)
+
+
+class RegionDiscard(_RegionDiscardRequired, _RegionDiscardOptional):
+    "閉領域を作らなかった入力"
+
+
+# 閉領域。要素の順序を入れ替えても同じ領域を返す
+RegionsResult = TypedDict(
+    "RegionsResult",
+    {
+        # 元の文書のハッシュ
+        "hash": str,
+        # 求めた実寸の空間の公開 ID
+        "from": str,
+        # 空間の長さの単位。不明な単位を補わない
+        "unit": "Unit",
+        # 指定した、または既定の許容差
+        "tolerance": float,
+        # 曲線を折れ線に近似した要素がある
+        "approximate": bool,
+        # 閉領域。外周、穴の順の辞書順
+        "regions": List["ClosedRegion"],
+        # 丸めた分割点。要素の指定順、格子点の辞書順
+        "rounded": List["RegionRounding"],
+        # 閉領域を作らなかった入力。degenerate、続いて open を元の入力順で返す
+        "discarded": List["RegionDiscard"],
     },
 )
 
@@ -7537,6 +7690,7 @@ Operation = Literal[
     "measure_distance",
     "measure",
     "intersect",
+    "regions",
     "apply",
     "create",
     "convert",
@@ -7581,6 +7735,7 @@ OPERATIONS: Dict[str, Any] = {
     "measure_distance": ("MeasureDistanceRequest", "MeasureDistanceResult"),
     "measure": ("MeasureRequest", "MeasureResult"),
     "intersect": ("IntersectRequest", "IntersectResult"),
+    "regions": ("RegionsRequest", "RegionsResult"),
     "apply": ("ApplyRequest", "ApplyResult"),
     "create": ("CreateRequest", "CreateResult"),
     "convert": ("ConvertRequest", "ConvertResult"),

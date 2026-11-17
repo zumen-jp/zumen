@@ -31,6 +31,8 @@ pub enum Request {
     Measure(MeasureRequest),
     /// 同じ実寸の空間の 2 要素の交点・接点・重なりを求める。文書を変更しない。マイナーバージョン 90 から
     Intersect(IntersectRequest),
+    /// 同じ実寸の空間の要素の線が囲む閉領域を検出する、または閉じた要素どうしの和・積・差・排他的論理和を求める。文書を変更しない。マイナーバージョン 91 から
+    Regions(RegionsRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
     /// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
@@ -106,6 +108,7 @@ impl Request {
         "measure_distance",
         "measure",
         "intersect",
+        "regions",
         "apply",
         "create",
         "convert",
@@ -151,6 +154,7 @@ impl Request {
             Self::MeasureDistance(_) => "measure_distance",
             Self::Measure(_) => "measure",
             Self::Intersect(_) => "intersect",
+            Self::Regions(_) => "regions",
             Self::Apply(_) => "apply",
             Self::Create(_) => "create",
             Self::Convert(_) => "convert",
@@ -201,6 +205,7 @@ impl FromJson for Request {
             }
             "measure" => Self::Measure(MeasureRequest::read_fields(&mut object)?),
             "intersect" => Self::Intersect(IntersectRequest::read_fields(&mut object)?),
+            "regions" => Self::Regions(RegionsRequest::read_fields(&mut object)?),
             "apply" => Self::Apply(ApplyRequest::read_fields(&mut object)?),
             "create" => Self::Create(CreateRequest::read_fields(&mut object)?),
             "convert" => Self::Convert(ConvertRequest::read_fields(&mut object)?),
@@ -263,6 +268,7 @@ impl ToJson for Request {
             Self::MeasureDistance(value) => value.to_json(out),
             Self::Measure(value) => value.to_json(out),
             Self::Intersect(value) => value.to_json(out),
+            Self::Regions(value) => value.to_json(out),
             Self::Apply(value) => value.to_json(out),
             Self::Create(value) => value.to_json(out),
             Self::Convert(value) => value.to_json(out),
@@ -2344,6 +2350,490 @@ impl FromJson for IntersectResult {
 }
 
 impl ToJson for IntersectResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 同じ実寸の空間の要素の線が囲む閉領域を検出する、または閉じた要素どうしの和・積・差・排他的論理和を求める。文書を変更しない。マイナーバージョン 91 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct RegionsRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 開いた文書の名前
+    pub doc: String,
+    /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+    pub from: String,
+    /// 求め方
+    pub operation: RegionOperation,
+    /// detect では線で面を囲む要素、ほかでは集合演算の左側の閉じた要素。1 つ以上で、同じ ID を繰り返さない
+    pub subject: Vec<MeasureElement>,
+    /// 集合演算の右側の閉じた要素。書かなければ空。detect では書かない。同じ ID を繰り返さない
+    pub clip: Option<Vec<MeasureElement>>,
+    /// 閉じた要素の内部を決める規則。書かなければ even_odd。detect では書かない
+    pub fill: Option<RegionFill>,
+    /// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、円弧を弦に分ける目標にも使う
+    pub tolerance: Option<f64>,
+    /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+    pub expected_hash: Option<String>,
+}
+
+impl RegionsRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "regions")?;
+        let doc = object.required("doc", json::string)?;
+        let from = object.required("from", json::string)?;
+        let operation = object.required("operation", RegionOperation::from_json)?;
+        let subject = object.required("subject", |value| {
+            json::array(value, MeasureElement::from_json)
+        })?;
+        let clip = object.optional("clip", |value| {
+            json::array(value, MeasureElement::from_json)
+        })?;
+        let fill = object.optional("fill", RegionFill::from_json)?;
+        let tolerance = object.optional("tolerance", json::number)?;
+        let expected_hash = object.optional("expected_hash", json::string)?;
+        Ok(Self {
+            request_common,
+            doc,
+            from,
+            operation,
+            subject,
+            clip,
+            fill,
+            tolerance,
+            expected_hash,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("regions");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("from");
+        out.string(&self.from);
+        out.key("operation");
+        self.operation.to_json(out);
+        out.key("subject");
+        out.array(&self.subject, |out, item| item.to_json(out));
+        if let Some(value) = &self.clip {
+            out.key("clip");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.fill {
+            out.key("fill");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.tolerance {
+            out.key("tolerance");
+            out.float(*value);
+        }
+        if let Some(value) = &self.expected_hash {
+            out.key("expected_hash");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for RegionsRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RegionsRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 閉領域の求め方。detect は subject の線が囲むすべての有限の面、union・intersection・difference・xor は subject と clip の和・積・差（subject から clip を除く）・排他的論理和
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RegionOperation {
+    /// `detect`
+    Detect,
+    /// `union`
+    Union,
+    /// `intersection`
+    Intersection,
+    /// `difference`
+    Difference,
+    /// `xor`
+    Xor,
+}
+
+impl RegionOperation {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Detect,
+        Self::Union,
+        Self::Intersection,
+        Self::Difference,
+        Self::Xor,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Detect => "detect",
+            Self::Union => "union",
+            Self::Intersection => "intersection",
+            Self::Difference => "difference",
+            Self::Xor => "xor",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "detect" => Some(Self::Detect),
+            "union" => Some(Self::Union),
+            "intersection" => Some(Self::Intersection),
+            "difference" => Some(Self::Difference),
+            "xor" => Some(Self::Xor),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for RegionOperation {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for RegionOperation {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 閉じた要素の内部を決める規則。even_odd は境界を横切る回数が奇数の部分、non_zero は符号を付けた周回数が 0 でない部分
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RegionFill {
+    /// `even_odd`
+    EvenOdd,
+    /// `non_zero`
+    NonZero,
+}
+
+impl RegionFill {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::EvenOdd, Self::NonZero];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::EvenOdd => "even_odd",
+            Self::NonZero => "non_zero",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "even_odd" => Some(Self::EvenOdd),
+            "non_zero" => Some(Self::NonZero),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for RegionFill {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for RegionFill {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 外周と穴で表した閉領域。最後の点から最初の点へ閉じる
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClosedRegion {
+    /// 反時計回りの外周。格子点の座標で、辞書順で最小の点から始める
+    pub outer: Vec<Point2>,
+    /// 時計回りの穴。輪郭の辞書順
+    pub holes: Vec<Vec<Point2>>,
+    /// 外周から穴を除いた面積。空間の長さの単位の 2 乗
+    pub area: f64,
+}
+
+impl ClosedRegion {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let outer = object.required("outer", |value| json::array(value, Point2::from_json))?;
+        let holes = object.required("holes", |value| {
+            json::array(value, |value| json::array(value, Point2::from_json))
+        })?;
+        let area = object.required("area", json::number)?;
+        Ok(Self { outer, holes, area })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("outer");
+        out.array(&self.outer, |out, item| item.to_json(out));
+        out.key("holes");
+        out.array(&self.holes, |out, item| {
+            out.array(item, |out, item| item.to_json(out))
+        });
+        out.key("area");
+        out.float(self.area);
+    }
+}
+
+impl FromJson for ClosedRegion {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for ClosedRegion {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 交点を格子点へ丸めて元の要素の線を曲げた点
+#[derive(Clone, Debug, PartialEq)]
+pub struct RegionRounding {
+    /// 曲げた要素の公開 ID
+    pub id: String,
+    /// 丸めた格子点
+    pub position: Point2,
+}
+
+impl RegionRounding {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let position = object.required("position", Point2::from_json)?;
+        Ok(Self { id, position })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("position");
+        self.position.to_json(out);
+    }
+}
+
+impl FromJson for RegionRounding {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RegionRounding {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 閉領域を作らなかった入力の種類。degenerate は点や一直線に縮んだ要素か長さ 0 の線、open は閉領域の境界に使わなかった線の部分
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RegionDiscardKind {
+    /// `degenerate`
+    Degenerate,
+    /// `open`
+    Open,
+}
+
+impl RegionDiscardKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Degenerate, Self::Open];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Degenerate => "degenerate",
+            Self::Open => "open",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "degenerate" => Some(Self::Degenerate),
+            "open" => Some(Self::Open),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for RegionDiscardKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for RegionDiscardKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 閉領域を作らなかった入力
+#[derive(Clone, Debug, PartialEq)]
+pub struct RegionDiscard {
+    /// 元の要素の公開 ID
+    pub id: String,
+    /// 種類
+    pub kind: RegionDiscardKind,
+    /// 使わなかった部分の始点。open だけが持つ
+    pub start: Option<Point2>,
+    /// 使わなかった部分の終点。open だけが持つ
+    pub end: Option<Point2>,
+}
+
+impl RegionDiscard {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let id = object.required("id", json::string)?;
+        let kind = object.required("kind", RegionDiscardKind::from_json)?;
+        let start = object.optional("start", Point2::from_json)?;
+        let end = object.optional("end", Point2::from_json)?;
+        Ok(Self {
+            id,
+            kind,
+            start,
+            end,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("id");
+        out.string(&self.id);
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.start {
+            out.key("start");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.end {
+            out.key("end");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for RegionDiscard {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RegionDiscard {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 閉領域。要素の順序を入れ替えても同じ領域を返す
+#[derive(Clone, Debug, PartialEq)]
+pub struct RegionsResult {
+    /// 元の文書のハッシュ
+    pub hash: String,
+    /// 求めた実寸の空間の公開 ID
+    pub from: String,
+    /// 空間の長さの単位。不明な単位を補わない
+    pub unit: Unit,
+    /// 指定した、または既定の許容差
+    pub tolerance: f64,
+    /// 曲線を折れ線に近似した要素がある
+    pub approximate: bool,
+    /// 閉領域。外周、穴の順の辞書順
+    pub regions: Vec<ClosedRegion>,
+    /// 丸めた分割点。要素の指定順、格子点の辞書順
+    pub rounded: Vec<RegionRounding>,
+    /// 閉領域を作らなかった入力。degenerate、続いて open を元の入力順で返す
+    pub discarded: Vec<RegionDiscard>,
+}
+
+impl RegionsResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.required("hash", json::string)?;
+        let from = object.required("from", json::string)?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let tolerance = object.required("tolerance", json::number)?;
+        let approximate = object.required("approximate", json::boolean)?;
+        let regions = object.required("regions", |value| {
+            json::array(value, ClosedRegion::from_json)
+        })?;
+        let rounded = object.required("rounded", |value| {
+            json::array(value, RegionRounding::from_json)
+        })?;
+        let discarded = object.required("discarded", |value| {
+            json::array(value, RegionDiscard::from_json)
+        })?;
+        Ok(Self {
+            hash,
+            from,
+            unit,
+            tolerance,
+            approximate,
+            regions,
+            rounded,
+            discarded,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("from");
+        out.string(&self.from);
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("tolerance");
+        out.float(self.tolerance);
+        out.key("approximate");
+        out.bool(self.approximate);
+        out.key("regions");
+        out.array(&self.regions, |out, item| item.to_json(out));
+        out.key("rounded");
+        out.array(&self.rounded, |out, item| item.to_json(out));
+        out.key("discarded");
+        out.array(&self.discarded, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for RegionsResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for RegionsResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

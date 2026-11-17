@@ -50,6 +50,7 @@ namespace Zumen.Messages
             ["measure_distance"] = typeof(MeasureDistanceRequest),
             ["measure"] = typeof(MeasureRequest),
             ["intersect"] = typeof(IntersectRequest),
+            ["regions"] = typeof(RegionsRequest),
             ["apply"] = typeof(ApplyRequest),
             ["create"] = typeof(CreateRequest),
             ["convert"] = typeof(ConvertRequest),
@@ -1400,6 +1401,261 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("overlaps")]
         public IReadOnlyList<IntersectionOverlap> Overlaps { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 同じ実寸の空間の要素の線が囲む閉領域を検出する、または閉じた要素どうしの和・積・差・排他的論理和を求める。文書を変更しない。マイナーバージョン 91 から
+    /// </summary>
+    public sealed record RegionsRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "regions";
+
+        /// <summary>
+        /// 開いた文書の名前
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 求め方
+        /// </summary>
+        [JsonPropertyName("operation")]
+        public string Operation { get; init; } = default!;
+
+        /// <summary>
+        /// detect では線で面を囲む要素、ほかでは集合演算の左側の閉じた要素。1 つ以上で、同じ ID を繰り返さない
+        /// </summary>
+        [JsonPropertyName("subject")]
+        public IReadOnlyList<MeasureElement> Subject { get; init; } = default!;
+
+        /// <summary>
+        /// 集合演算の右側の閉じた要素。書かなければ空。detect では書かない。同じ ID を繰り返さない
+        /// </summary>
+        [JsonPropertyName("clip")]
+        public IReadOnlyList<MeasureElement>? Clip { get; init; }
+
+        /// <summary>
+        /// 閉じた要素の内部を決める規則。書かなければ even_odd。detect では書かない
+        /// </summary>
+        [JsonPropertyName("fill")]
+        public string? Fill { get; init; }
+
+        /// <summary>
+        /// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、円弧を弦に分ける目標にも使う
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double? Tolerance { get; init; }
+
+        /// <summary>
+        /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+        /// </summary>
+        [JsonPropertyName("expected_hash")]
+        public string? ExpectedHash { get; init; }
+    }
+
+    /// <summary>
+    /// 閉領域の求め方。detect は subject の線が囲むすべての有限の面、union・intersection・difference・xor は subject と clip の和・積・差（subject から clip を除く）・排他的論理和
+    /// </summary>
+    public static class RegionOperation
+    {
+        /// <summary>detect</summary>
+        public const string Detect = "detect";
+        /// <summary>union</summary>
+        public const string Union = "union";
+        /// <summary>intersection</summary>
+        public const string Intersection = "intersection";
+        /// <summary>difference</summary>
+        public const string Difference = "difference";
+        /// <summary>xor</summary>
+        public const string Xor = "xor";
+    }
+
+    /// <summary>
+    /// 閉じた要素の内部を決める規則。even_odd は境界を横切る回数が奇数の部分、non_zero は符号を付けた周回数が 0 でない部分
+    /// </summary>
+    public static class RegionFill
+    {
+        /// <summary>even_odd</summary>
+        public const string EvenOdd = "even_odd";
+        /// <summary>non_zero</summary>
+        public const string NonZero = "non_zero";
+    }
+
+    /// <summary>
+    /// 外周と穴で表した閉領域。最後の点から最初の点へ閉じる
+    /// </summary>
+    public sealed record ClosedRegion
+    {
+        /// <summary>
+        /// 反時計回りの外周。格子点の座標で、辞書順で最小の点から始める
+        /// </summary>
+        [JsonPropertyName("outer")]
+        public IReadOnlyList<Point2> Outer { get; init; } = default!;
+
+        /// <summary>
+        /// 時計回りの穴。輪郭の辞書順
+        /// </summary>
+        [JsonPropertyName("holes")]
+        public IReadOnlyList<IReadOnlyList<Point2>> Holes { get; init; } = default!;
+
+        /// <summary>
+        /// 外周から穴を除いた面積。空間の長さの単位の 2 乗
+        /// </summary>
+        [JsonPropertyName("area")]
+        public double Area { get; init; }
+    }
+
+    /// <summary>
+    /// 交点を格子点へ丸めて元の要素の線を曲げた点
+    /// </summary>
+    public sealed record RegionRounding
+    {
+        /// <summary>
+        /// 曲げた要素の公開 ID
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 丸めた格子点
+        /// </summary>
+        [JsonPropertyName("position")]
+        public Point2 Position { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 閉領域を作らなかった入力の種類。degenerate は点や一直線に縮んだ要素か長さ 0 の線、open は閉領域の境界に使わなかった線の部分
+    /// </summary>
+    public static class RegionDiscardKind
+    {
+        /// <summary>degenerate</summary>
+        public const string Degenerate = "degenerate";
+        /// <summary>open</summary>
+        public const string Open = "open";
+    }
+
+    /// <summary>
+    /// 閉領域を作らなかった入力
+    /// </summary>
+    public sealed record RegionDiscard
+    {
+        /// <summary>
+        /// 元の要素の公開 ID
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 使わなかった部分の始点。open だけが持つ
+        /// </summary>
+        [JsonPropertyName("start")]
+        public Point2? Start { get; init; }
+
+        /// <summary>
+        /// 使わなかった部分の終点。open だけが持つ
+        /// </summary>
+        [JsonPropertyName("end")]
+        public Point2? End { get; init; }
+    }
+
+    /// <summary>
+    /// 閉領域。要素の順序を入れ替えても同じ領域を返す
+    /// </summary>
+    public sealed record RegionsResult
+    {
+        /// <summary>
+        /// 元の文書のハッシュ
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 求めた実寸の空間の公開 ID
+        /// </summary>
+        [JsonPropertyName("from")]
+        public string From { get; init; } = default!;
+
+        /// <summary>
+        /// 空間の長さの単位。不明な単位を補わない
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// 指定した、または既定の許容差
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double Tolerance { get; init; }
+
+        /// <summary>
+        /// 曲線を折れ線に近似した要素がある
+        /// </summary>
+        [JsonPropertyName("approximate")]
+        public bool Approximate { get; init; }
+
+        /// <summary>
+        /// 閉領域。外周、穴の順の辞書順
+        /// </summary>
+        [JsonPropertyName("regions")]
+        public IReadOnlyList<ClosedRegion> Regions { get; init; } = default!;
+
+        /// <summary>
+        /// 丸めた分割点。要素の指定順、格子点の辞書順
+        /// </summary>
+        [JsonPropertyName("rounded")]
+        public IReadOnlyList<RegionRounding> Rounded { get; init; } = default!;
+
+        /// <summary>
+        /// 閉領域を作らなかった入力。degenerate、続いて open を元の入力順で返す
+        /// </summary>
+        [JsonPropertyName("discarded")]
+        public IReadOnlyList<RegionDiscard> Discarded { get; init; } = default!;
     }
 
     /// <summary>
@@ -12034,6 +12290,7 @@ namespace Zumen.Messages
                 ["measure_distance"] = (typeof(MeasureDistanceRequest), typeof(MeasureDistanceResult)),
                 ["measure"] = (typeof(MeasureRequest), typeof(MeasureResult)),
                 ["intersect"] = (typeof(IntersectRequest), typeof(IntersectResult)),
+                ["regions"] = (typeof(RegionsRequest), typeof(RegionsResult)),
                 ["apply"] = (typeof(ApplyRequest), typeof(ApplyResult)),
                 ["create"] = (typeof(CreateRequest), typeof(CreateResult)),
                 ["convert"] = (typeof(ConvertRequest), typeof(ConvertResult)),

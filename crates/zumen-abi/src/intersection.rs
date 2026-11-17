@@ -114,18 +114,23 @@ fn anchor(path: &Path) -> Option<Xy> {
 /// 両方の経路に共通の格子。原点は各経路の最初の点のうち X、Y の辞書順で小さいほうを
 /// 整数へ丸めた点とし、first と second を入れ替えても同じ格子にする。
 pub(crate) fn grid(first: &Path, second: &Path, tolerance: f64) -> Result<Grid, Error> {
-    let origin = match (anchor(first), anchor(second)) {
-        (Some(a), Some(b)) => {
-            let order = a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1]));
-            if order.is_le() { a } else { b }
-        }
-        (Some(a), None) | (None, Some(a)) => a,
-        (None, None) => [0.0, 0.0],
-    };
+    shared_grid([first, second], tolerance)
+}
+
+/// 経路の集合に共通の格子。原点は各経路の最初の点のうち X、Y の辞書順で最小の点を整数へ丸める。
+pub(crate) fn shared_grid<'a>(
+    paths: impl IntoIterator<Item = &'a Path>,
+    tolerance: f64,
+) -> Result<Grid, Error> {
+    let origin = paths
+        .into_iter()
+        .filter_map(anchor)
+        .min_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])))
+        .unwrap_or([0.0, 0.0]);
     Grid::new(origin.map(libm::round).map(|v| v + 0.0), tolerance).map_err(geometry)
 }
 
-fn snap(grid: Grid, point: Xy) -> Result<Point, Error> {
+pub(crate) fn snap(grid: Grid, point: Xy) -> Result<Point, Error> {
     grid.snap(point).map(|snap| snap.point).map_err(geometry)
 }
 

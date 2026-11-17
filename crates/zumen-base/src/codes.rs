@@ -1427,6 +1427,34 @@ pub const DRAWING_ELEMENT_MEASUREMENT_FAILED: Code = Code::new(
     &["id", "quantity", "reason"],
 );
 
+/// モデル空間の要素の閉領域を求めるとき曲線を折れ線へ近似した。tolerance は分割の目標で、境界の誤差上限ではない
+///
+/// `drawing.element-region.approximated`（0.4.0 から）
+pub const DRAWING_ELEMENT_REGION_APPROXIMATED: Code = Code::new(
+    "drawing.element-region.approximated",
+    Severity::Warning,
+    Some(Fidelity::Approximated),
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("tolerance", ParamType::Float),
+    ],
+    &["id", "tolerance"],
+);
+
+/// モデル空間の要素の閉領域を求められなかった。id は対象の公開 ID、reason は失敗の理由。要素の集合の計算で失敗した場合は subject の最初の要素を指す
+///
+/// `drawing.element-region.failed`（0.4.0 から）
+pub const DRAWING_ELEMENT_REGION_FAILED: Code = Code::new(
+    "drawing.element-region.failed",
+    Severity::Error,
+    None,
+    &[
+        Param::new("id", ParamType::Text),
+        Param::new("reason", ParamType::Key),
+    ],
+    &["id", "reason"],
+);
+
 /// 要素のスタイルか拡張の値を応答の型で表せず、または複製する領域を確保できず、指定したフィールドを返せなかった
 ///
 /// `drawing.entity-details.failed`（0.3.0 から）
@@ -6104,6 +6132,8 @@ pub const ALL: &[Code] = &[
     DRAWING_ELEMENT_INTERSECTION_FAILED,
     DRAWING_ELEMENT_MEASUREMENT_APPROXIMATED,
     DRAWING_ELEMENT_MEASUREMENT_FAILED,
+    DRAWING_ELEMENT_REGION_APPROXIMATED,
+    DRAWING_ELEMENT_REGION_FAILED,
     DRAWING_ENTITY_DETAILS_FAILED,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_MEASUREMENT_FAILED,

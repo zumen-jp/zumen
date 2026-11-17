@@ -112,6 +112,11 @@ public final class Messages {
             return "intersect".equals(json.get("op")) ? new IntersectRequest(json) : null;
         }
 
+        /** op が regions の形なら、そのビュー。違えば null */
+        public RegionsRequest asRegionsRequest() {
+            return "regions".equals(json.get("op")) ? new RegionsRequest(json) : null;
+        }
+
         /** op が apply の形なら、そのビュー。違えば null */
         public ApplyRequest asApplyRequest() {
             return "apply".equals(json.get("op")) ? new ApplyRequest(json) : null;
@@ -2869,6 +2874,488 @@ public final class Messages {
         /** {@link #getOverlaps()} を書く。null ならフィールドを除く */
         public IntersectResult withOverlaps(List<IntersectionOverlap> value) {
             put("overlaps", value);
+            return this;
+        }
+    }
+
+    /** 同じ実寸の空間の要素の線が囲む閉領域を検出する、または閉じた要素どうしの和・積・差・排他的論理和を求める。文書を変更しない。マイナーバージョン 91 から */
+    public static final class RegionsRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public RegionsRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static RegionsRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new RegionsRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public RegionsRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "regions");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public RegionsRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public RegionsRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public RegionsRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public RegionsRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public RegionsRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public RegionsRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 開いた文書の名前 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public RegionsRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 実寸の空間の公開 ID。用紙と記号定義の空間は対象外 */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public RegionsRequest withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 求め方 */
+        public String getOperation() {
+            return Json.read(json.get("operation"), Json::string);
+        }
+
+        /** {@link #getOperation()} を書く。null ならフィールドを除く */
+        public RegionsRequest withOperation(String value) {
+            put("operation", value);
+            return this;
+        }
+
+        /** detect では線で面を囲む要素、ほかでは集合演算の左側の閉じた要素。1 つ以上で、同じ ID を繰り返さない */
+        public List<MeasureElement> getSubject() {
+            return Json.read(json.get("subject"), v0 -> Json.list(v0, MeasureElement::of));
+        }
+
+        /** {@link #getSubject()} を書く。null ならフィールドを除く */
+        public RegionsRequest withSubject(List<MeasureElement> value) {
+            put("subject", value);
+            return this;
+        }
+
+        /** 集合演算の右側の閉じた要素。書かなければ空。detect では書かない。同じ ID を繰り返さない */
+        public List<MeasureElement> getClip() {
+            return Json.read(json.get("clip"), v0 -> Json.list(v0, MeasureElement::of));
+        }
+
+        /** {@link #getClip()} を書く。null ならフィールドを除く */
+        public RegionsRequest withClip(List<MeasureElement> value) {
+            put("clip", value);
+            return this;
+        }
+
+        /** 閉じた要素の内部を決める規則。書かなければ even_odd。detect では書かない */
+        public String getFill() {
+            return Json.read(json.get("fill"), Json::string);
+        }
+
+        /** {@link #getFill()} を書く。null ならフィールドを除く */
+        public RegionsRequest withFill(String value) {
+            put("fill", value);
+            return this;
+        }
+
+        /** 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、円弧を弦に分ける目標にも使う */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public RegionsRequest withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する */
+        public String getExpectedHash() {
+            return Json.read(json.get("expected_hash"), Json::string);
+        }
+
+        /** {@link #getExpectedHash()} を書く。null ならフィールドを除く */
+        public RegionsRequest withExpectedHash(String value) {
+            put("expected_hash", value);
+            return this;
+        }
+    }
+
+    /**
+     * 閉領域の求め方。detect は subject の線が囲むすべての有限の面、union・intersection・difference・xor は subject と clip の和・積・差（subject から clip を除く）・排他的論理和
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class RegionOperation {
+        private RegionOperation() {}
+
+        public static final String DETECT = "detect";
+
+        public static final String UNION = "union";
+
+        public static final String INTERSECTION = "intersection";
+
+        public static final String DIFFERENCE = "difference";
+
+        public static final String XOR = "xor";
+    }
+
+    /**
+     * 閉じた要素の内部を決める規則。even_odd は境界を横切る回数が奇数の部分、non_zero は符号を付けた周回数が 0 でない部分
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class RegionFill {
+        private RegionFill() {}
+
+        public static final String EVEN_ODD = "even_odd";
+
+        public static final String NON_ZERO = "non_zero";
+    }
+
+    /** 外周と穴で表した閉領域。最後の点から最初の点へ閉じる */
+    public static final class ClosedRegion extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public ClosedRegion(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static ClosedRegion of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new ClosedRegion(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public ClosedRegion() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 反時計回りの外周。格子点の座標で、辞書順で最小の点から始める */
+        public List<Point2> getOuter() {
+            return Json.read(json.get("outer"), v0 -> Json.list(v0, Point2::of));
+        }
+
+        /** {@link #getOuter()} を書く。null ならフィールドを除く */
+        public ClosedRegion withOuter(List<Point2> value) {
+            put("outer", value);
+            return this;
+        }
+
+        /** 時計回りの穴。輪郭の辞書順 */
+        public List<List<Point2>> getHoles() {
+            return Json.read(json.get("holes"), v0 -> Json.list(v0, v1 -> Json.list(v1, Point2::of)));
+        }
+
+        /** {@link #getHoles()} を書く。null ならフィールドを除く */
+        public ClosedRegion withHoles(List<List<Point2>> value) {
+            put("holes", value);
+            return this;
+        }
+
+        /** 外周から穴を除いた面積。空間の長さの単位の 2 乗 */
+        public Double getArea() {
+            return Json.read(json.get("area"), Json::number);
+        }
+
+        /** {@link #getArea()} を書く。null ならフィールドを除く */
+        public ClosedRegion withArea(Double value) {
+            put("area", value);
+            return this;
+        }
+    }
+
+    /** 交点を格子点へ丸めて元の要素の線を曲げた点 */
+    public static final class RegionRounding extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public RegionRounding(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static RegionRounding of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new RegionRounding(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public RegionRounding() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 曲げた要素の公開 ID */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public RegionRounding withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 丸めた格子点 */
+        public Point2 getPosition() {
+            return Json.read(json.get("position"), Point2::of);
+        }
+
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
+        public RegionRounding withPosition(Point2 value) {
+            put("position", value);
+            return this;
+        }
+    }
+
+    /**
+     * 閉領域を作らなかった入力の種類。degenerate は点や一直線に縮んだ要素か長さ 0 の線、open は閉領域の境界に使わなかった線の部分
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class RegionDiscardKind {
+        private RegionDiscardKind() {}
+
+        public static final String DEGENERATE = "degenerate";
+
+        public static final String OPEN = "open";
+    }
+
+    /** 閉領域を作らなかった入力 */
+    public static final class RegionDiscard extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public RegionDiscard(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static RegionDiscard of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new RegionDiscard(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public RegionDiscard() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の要素の公開 ID */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public RegionDiscard withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public RegionDiscard withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 使わなかった部分の始点。open だけが持つ */
+        public Point2 getStart() {
+            return Json.read(json.get("start"), Point2::of);
+        }
+
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
+        public RegionDiscard withStart(Point2 value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 使わなかった部分の終点。open だけが持つ */
+        public Point2 getEnd() {
+            return Json.read(json.get("end"), Point2::of);
+        }
+
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
+        public RegionDiscard withEnd(Point2 value) {
+            put("end", value);
+            return this;
+        }
+    }
+
+    /** 閉領域。要素の順序を入れ替えても同じ領域を返す */
+    public static final class RegionsResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public RegionsResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static RegionsResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new RegionsResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public RegionsResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 元の文書のハッシュ */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public RegionsResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 求めた実寸の空間の公開 ID */
+        public String getFrom() {
+            return Json.read(json.get("from"), Json::string);
+        }
+
+        /** {@link #getFrom()} を書く。null ならフィールドを除く */
+        public RegionsResult withFrom(String value) {
+            put("from", value);
+            return this;
+        }
+
+        /** 空間の長さの単位。不明な単位を補わない */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public RegionsResult withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** 指定した、または既定の許容差 */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public RegionsResult withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 曲線を折れ線に近似した要素がある */
+        public Boolean getApproximate() {
+            return Json.read(json.get("approximate"), Json::bool);
+        }
+
+        /** {@link #getApproximate()} を書く。null ならフィールドを除く */
+        public RegionsResult withApproximate(Boolean value) {
+            put("approximate", value);
+            return this;
+        }
+
+        /** 閉領域。外周、穴の順の辞書順 */
+        public List<ClosedRegion> getRegions() {
+            return Json.read(json.get("regions"), v0 -> Json.list(v0, ClosedRegion::of));
+        }
+
+        /** {@link #getRegions()} を書く。null ならフィールドを除く */
+        public RegionsResult withRegions(List<ClosedRegion> value) {
+            put("regions", value);
+            return this;
+        }
+
+        /** 丸めた分割点。要素の指定順、格子点の辞書順 */
+        public List<RegionRounding> getRounded() {
+            return Json.read(json.get("rounded"), v0 -> Json.list(v0, RegionRounding::of));
+        }
+
+        /** {@link #getRounded()} を書く。null ならフィールドを除く */
+        public RegionsResult withRounded(List<RegionRounding> value) {
+            put("rounded", value);
+            return this;
+        }
+
+        /** 閉領域を作らなかった入力。degenerate、続いて open を元の入力順で返す */
+        public List<RegionDiscard> getDiscarded() {
+            return Json.read(json.get("discarded"), v0 -> Json.list(v0, RegionDiscard::of));
+        }
+
+        /** {@link #getDiscarded()} を書く。null ならフィールドを除く */
+        public RegionsResult withDiscarded(List<RegionDiscard> value) {
+            put("discarded", value);
             return this;
         }
     }
@@ -23809,6 +24296,8 @@ public final class Messages {
         public static final String MEASURE = "measure";
 
         public static final String INTERSECT = "intersect";
+
+        public static final String REGIONS = "regions";
 
         public static final String APPLY = "apply";
 

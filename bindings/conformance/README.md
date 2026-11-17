@@ -118,6 +118,17 @@ cargo run -p zumen-abi --example intersection_case -- --check
 
 期待値は、整数の座標を持つ図形の交点を手で求めた値です。楕円との交点は解析式の値から許容差以内であることを ABI のテストで確かめます。環境間の一致は、外部実装との照合とは別に扱います。
 
+### 閉領域
+
+`regions.json` は、重なる正方形・入れ子の正方形・枝のある線・円・一直線に縮んだ折れ線・格子点でない交差を持つ合成の図面モデルで、`regions` の値と全応答のハッシュを照らします。面の検出と枝の除外、穴と穴の内側の面、和・積・差・排他的論理和、`even_odd` と `non_zero`、退化、円の近似、交点の丸め、閉じていない要素・未対応の形・範囲外の座標・ない ID・重複した ID、予算停止と再利用を含みます。生成元は `crates/zumen-abi/examples/region_case.rs` と隣の JSON です。
+
+```bash
+cargo run -p zumen-abi --example region_case
+cargo run -p zumen-abi --example region_case -- --check
+```
+
+期待値は、整数の座標を持つ多角形の面積と頂点を手で求めた値です。円の面積と丸めた交点は解析式の値から許容差以内であることを ABI のテストで確かめます。環境間の一致は、外部実装との照合とは別に扱います。
+
 ### 合成フォント
 
 `cases/scene_fonts_cff.json` は、CFF・CFF2 と、両方を含むフォントのコレクション（TTC）の合成の入力です（#564）。実在のフォントは使わず、次のコマンドで組み立てます。`--check` は、作り直した組が記録した JSON と同じかを確かめます。

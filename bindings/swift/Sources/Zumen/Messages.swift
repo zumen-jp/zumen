@@ -64,6 +64,11 @@ public struct Request: Message {
         taggedView("op", "intersect")
     }
 
+    /// op が regions の形なら、そのビュー。違えば nil
+    public var asRegionsRequest: RegionsRequest? {
+        taggedView("op", "regions")
+    }
+
     /// op が apply の形なら、そのビュー。違えば nil
     public var asApplyRequest: ApplyRequest? {
         taggedView("op", "apply")
@@ -1809,6 +1814,299 @@ public struct IntersectResult: Message {
     public var overlaps: [IntersectionOverlap]? {
         get { readField("overlaps") }
         set { writeField("overlaps", newValue) }
+    }
+}
+
+/// 同じ実寸の空間の要素の線が囲む閉領域を検出する、または閉じた要素どうしの和・積・差・排他的論理和を求める。文書を変更しない。マイナーバージョン 91 から
+public struct RegionsRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("regions")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 開いた文書の名前
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 求め方
+    public var operation: String? {
+        get { readField("operation") }
+        set { writeField("operation", newValue) }
+    }
+
+    /// detect では線で面を囲む要素、ほかでは集合演算の左側の閉じた要素。1 つ以上で、同じ ID を繰り返さない
+    public var subject: [MeasureElement]? {
+        get { readField("subject") }
+        set { writeField("subject", newValue) }
+    }
+
+    /// 集合演算の右側の閉じた要素。書かなければ空。detect では書かない。同じ ID を繰り返さない
+    public var clip: [MeasureElement]? {
+        get { readField("clip") }
+        set { writeField("clip", newValue) }
+    }
+
+    /// 閉じた要素の内部を決める規則。書かなければ even_odd。detect では書かない
+    public var fill: String? {
+        get { readField("fill") }
+        set { writeField("fill", newValue) }
+    }
+
+    /// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、円弧を弦に分ける目標にも使う
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+    public var expectedHash: String? {
+        get { readField("expected_hash") }
+        set { writeField("expected_hash", newValue) }
+    }
+}
+
+/// 閉領域の求め方。detect は subject の線が囲むすべての有限の面、union・intersection・difference・xor は subject と clip の和・積・差（subject から clip を除く）・排他的論理和
+///
+/// 列挙の値。知らない値も受け取る
+public enum RegionOperation {
+    public static let detect = "detect"
+    public static let union = "union"
+    public static let intersection = "intersection"
+    public static let difference = "difference"
+    public static let xor = "xor"
+}
+
+/// 閉じた要素の内部を決める規則。even_odd は境界を横切る回数が奇数の部分、non_zero は符号を付けた周回数が 0 でない部分
+///
+/// 列挙の値。知らない値も受け取る
+public enum RegionFill {
+    public static let evenOdd = "even_odd"
+    public static let nonZero = "non_zero"
+}
+
+/// 外周と穴で表した閉領域。最後の点から最初の点へ閉じる
+public struct ClosedRegion: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 反時計回りの外周。格子点の座標で、辞書順で最小の点から始める
+    public var outer: [Point2]? {
+        get { readField("outer") }
+        set { writeField("outer", newValue) }
+    }
+
+    /// 時計回りの穴。輪郭の辞書順
+    public var holes: [[Point2]]? {
+        get { readField("holes") }
+        set { writeField("holes", newValue) }
+    }
+
+    /// 外周から穴を除いた面積。空間の長さの単位の 2 乗
+    public var area: Double? {
+        get { readField("area") }
+        set { writeField("area", newValue) }
+    }
+}
+
+/// 交点を格子点へ丸めて元の要素の線を曲げた点
+public struct RegionRounding: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 曲げた要素の公開 ID
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 丸めた格子点
+    public var position: Point2? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+}
+
+/// 閉領域を作らなかった入力の種類。degenerate は点や一直線に縮んだ要素か長さ 0 の線、open は閉領域の境界に使わなかった線の部分
+///
+/// 列挙の値。知らない値も受け取る
+public enum RegionDiscardKind {
+    public static let degenerate = "degenerate"
+    public static let `open` = "open"
+}
+
+/// 閉領域を作らなかった入力
+public struct RegionDiscard: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の要素の公開 ID
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 使わなかった部分の始点。open だけが持つ
+    public var start: Point2? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 使わなかった部分の終点。open だけが持つ
+    public var end: Point2? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+}
+
+/// 閉領域。要素の順序を入れ替えても同じ領域を返す
+public struct RegionsResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 元の文書のハッシュ
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 求めた実寸の空間の公開 ID
+    public var from: String? {
+        get { readField("from") }
+        set { writeField("from", newValue) }
+    }
+
+    /// 空間の長さの単位。不明な単位を補わない
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// 指定した、または既定の許容差
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 曲線を折れ線に近似した要素がある
+    public var approximate: Bool? {
+        get { readField("approximate") }
+        set { writeField("approximate", newValue) }
+    }
+
+    /// 閉領域。外周、穴の順の辞書順
+    public var regions: [ClosedRegion]? {
+        get { readField("regions") }
+        set { writeField("regions", newValue) }
+    }
+
+    /// 丸めた分割点。要素の指定順、格子点の辞書順
+    public var rounded: [RegionRounding]? {
+        get { readField("rounded") }
+        set { writeField("rounded", newValue) }
+    }
+
+    /// 閉領域を作らなかった入力。degenerate、続いて open を元の入力順で返す
+    public var discarded: [RegionDiscard]? {
+        get { readField("discarded") }
+        set { writeField("discarded", newValue) }
     }
 }
 
@@ -14654,6 +14952,7 @@ public enum Operations {
     public static let measureDistance = "measure_distance"
     public static let measure = "measure"
     public static let intersect = "intersect"
+    public static let regions = "regions"
     public static let apply = "apply"
     public static let create = "create"
     public static let convert = "convert"

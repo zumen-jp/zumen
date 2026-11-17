@@ -80,6 +80,11 @@ func (u Request) AsIntersectRequest() *IntersectRequest {
 	return asTagged[IntersectRequest](u, "op", "intersect")
 }
 
+// AsRegionsRequest は、op が regions の形なら、その型で読む。違えば nil。
+func (u Request) AsRegionsRequest() *RegionsRequest {
+	return asTagged[RegionsRequest](u, "op", "regions")
+}
+
 // AsApplyRequest は、op が apply の形なら、その型で読む。違えば nil。
 func (u Request) AsApplyRequest() *ApplyRequest {
 	return asTagged[ApplyRequest](u, "op", "apply")
@@ -1007,6 +1012,163 @@ type IntersectResult struct {
 
 	// 重なり。形・座標の順
 	Overlaps []IntersectionOverlap `json:"overlaps,omitempty"`
+}
+
+// RegionsRequest: 同じ実寸の空間の要素の線が囲む閉領域を検出する、または閉じた要素どうしの和・積・差・排他的論理和を求める。文書を変更しない。マイナーバージョン 91 から
+type RegionsRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 開いた文書の名前
+	Doc *string `json:"doc,omitempty"`
+
+	// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+	From *string `json:"from,omitempty"`
+
+	// 求め方
+	Operation *RegionOperation `json:"operation,omitempty"`
+
+	// detect では線で面を囲む要素、ほかでは集合演算の左側の閉じた要素。1 つ以上で、同じ ID を繰り返さない
+	Subject []MeasureElement `json:"subject,omitempty"`
+
+	// 集合演算の右側の閉じた要素。書かなければ空。detect では書かない。同じ ID を繰り返さない
+	Clip []MeasureElement `json:"clip,omitempty"`
+
+	// 閉じた要素の内部を決める規則。書かなければ even_odd。detect では書かない
+	Fill *RegionFill `json:"fill,omitempty"`
+
+	// 許容差。空間の長さの単位で正の値。既定は 0.001。整数格子の間隔はこの 1/4 で、円弧を弦に分ける目標にも使う
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 期待する元の文書のハッシュ。open の元のバイト列のハッシュと照合する
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m RegionsRequest) MarshalJSON() ([]byte, error) {
+	type plain RegionsRequest
+	m.Op = "regions"
+	return json.Marshal(plain(m))
+}
+
+// RegionOperation: 閉領域の求め方。detect は subject の線が囲むすべての有限の面、union・intersection・difference・xor は subject と clip の和・積・差（subject から clip を除く）・排他的論理和
+//
+// 列挙の値。知らない値も受け取る。
+type RegionOperation string
+
+// RegionOperationDetect は detect。
+const RegionOperationDetect RegionOperation = "detect"
+
+// RegionOperationUnion は union。
+const RegionOperationUnion RegionOperation = "union"
+
+// RegionOperationIntersection は intersection。
+const RegionOperationIntersection RegionOperation = "intersection"
+
+// RegionOperationDifference は difference。
+const RegionOperationDifference RegionOperation = "difference"
+
+// RegionOperationXor は xor。
+const RegionOperationXor RegionOperation = "xor"
+
+// RegionFill: 閉じた要素の内部を決める規則。even_odd は境界を横切る回数が奇数の部分、non_zero は符号を付けた周回数が 0 でない部分
+//
+// 列挙の値。知らない値も受け取る。
+type RegionFill string
+
+// RegionFillEvenOdd は even_odd。
+const RegionFillEvenOdd RegionFill = "even_odd"
+
+// RegionFillNonZero は non_zero。
+const RegionFillNonZero RegionFill = "non_zero"
+
+// ClosedRegion: 外周と穴で表した閉領域。最後の点から最初の点へ閉じる
+type ClosedRegion struct {
+	// 反時計回りの外周。格子点の座標で、辞書順で最小の点から始める
+	Outer []Point2 `json:"outer,omitempty"`
+
+	// 時計回りの穴。輪郭の辞書順
+	Holes [][]Point2 `json:"holes,omitempty"`
+
+	// 外周から穴を除いた面積。空間の長さの単位の 2 乗
+	Area *float64 `json:"area,omitempty"`
+}
+
+// RegionRounding: 交点を格子点へ丸めて元の要素の線を曲げた点
+type RegionRounding struct {
+	// 曲げた要素の公開 ID
+	Id *string `json:"id,omitempty"`
+
+	// 丸めた格子点
+	Position *Point2 `json:"position,omitempty"`
+}
+
+// RegionDiscardKind: 閉領域を作らなかった入力の種類。degenerate は点や一直線に縮んだ要素か長さ 0 の線、open は閉領域の境界に使わなかった線の部分
+//
+// 列挙の値。知らない値も受け取る。
+type RegionDiscardKind string
+
+// RegionDiscardKindDegenerate は degenerate。
+const RegionDiscardKindDegenerate RegionDiscardKind = "degenerate"
+
+// RegionDiscardKindOpen は open。
+const RegionDiscardKindOpen RegionDiscardKind = "open"
+
+// RegionDiscard: 閉領域を作らなかった入力
+type RegionDiscard struct {
+	// 元の要素の公開 ID
+	Id *string `json:"id,omitempty"`
+
+	// 種類
+	Kind *RegionDiscardKind `json:"kind,omitempty"`
+
+	// 使わなかった部分の始点。open だけが持つ
+	Start *Point2 `json:"start,omitempty"`
+
+	// 使わなかった部分の終点。open だけが持つ
+	End *Point2 `json:"end,omitempty"`
+}
+
+// RegionsResult: 閉領域。要素の順序を入れ替えても同じ領域を返す
+type RegionsResult struct {
+	// 元の文書のハッシュ
+	Hash *string `json:"hash,omitempty"`
+
+	// 求めた実寸の空間の公開 ID
+	From *string `json:"from,omitempty"`
+
+	// 空間の長さの単位。不明な単位を補わない
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 指定した、または既定の許容差
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 曲線を折れ線に近似した要素がある
+	Approximate *bool `json:"approximate,omitempty"`
+
+	// 閉領域。外周、穴の順の辞書順
+	Regions []ClosedRegion `json:"regions,omitempty"`
+
+	// 丸めた分割点。要素の指定順、格子点の辞書順
+	Rounded []RegionRounding `json:"rounded,omitempty"`
+
+	// 閉領域を作らなかった入力。degenerate、続いて open を元の入力順で返す
+	Discarded []RegionDiscard `json:"discarded,omitempty"`
 }
 
 // PointStyleSummary: 文書の点の表し方。フィールドの意味は point_style_edit と同じ
@@ -7646,6 +7808,9 @@ const OpMeasure = "measure"
 
 // OpIntersect は、op の名前 intersect。
 const OpIntersect = "intersect"
+
+// OpRegions は、op の名前 regions。
+const OpRegions = "regions"
 
 // OpApply は、op の名前 apply。
 const OpApply = "apply"
