@@ -921,7 +921,7 @@ family = "bebridge"
 domains = ["building"]
 specs = ["bebridge_6_1"]
 rights = "unknown"
-rights-note = "Ver.6.1 の仕様書は公開されていて、条件の記述はない。2015-04 に建築保全センターが Stem・BE-Bridge を承継した。承継した側の条件と、最新の版の入手先は見つからなかった。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決し、権利の行き先が分からない。清算人に問い合わせるまで作らない（zumen-jp/zumen#401）"
+rights-note = "Ver.6.1 の仕様書は公開されていて、条件の記述はない。2015-04 に建築保全センターが Stem・BE-Bridge を承継した。承継した側の条件と、最新の版の入手先は見つからなかった。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決し、権利の行き先が分からない。最終の版から更新がなく、建築と設備の受け渡しは IFC へ移っているので、作らず、問い合わせもしない（2026-11-17、zumen-jp/zumen#401）"
 place = "none"
 issues = ["zumen-jp/zumen-legacy#141", "zumen-jp/zumen#401"]
 
@@ -936,7 +936,7 @@ family = "stem"
 domains = ["building"]
 specs = []
 rights = "unknown"
-rights-note = "C-CADEC が作り、2015-04 に建築保全センターが承継した。最終の版は Ver.10（2015-04）。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決した。仕様書の入手先と条件は見つからなかった。清算人に問い合わせるまで作らない（zumen-jp/zumen#401）"
+rights-note = "C-CADEC が作り、2015-04 に建築保全センターが承継した。最終の版は Ver.10（2015-04）。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決した。仕様書の入手先と条件は見つからなかった。BE-Bridge と同じく、作らず、問い合わせもしない（2026-11-17、zumen-jp/zumen#401）"
 place = "none"
 issues = ["zumen-jp/zumen-legacy#141", "zumen-jp/zumen#401"]
 
@@ -1285,7 +1285,7 @@ family = "jpeg"
 domains = ["delivery"]
 specs = ["kokuban_jcomsia"]
 rights = "permission"
-rights-note = "J-COMSIA の実装規約は公開されておらず、協会の会員か検定を受けるソフトの作り手に出すものとみられる。改ざん検知は SHA-256 のハッシュを使うとだけ公開している。zumen は規約を持たない"
+rights-note = "J-COMSIA の実装規約は公開されておらず、協会の会員か検定を受けるソフトの作り手に出すものとみられる。改ざん検知は SHA-256 のハッシュを使うとだけ公開している。zumen は規約を持たない。実務の確認は検定に合格したソフトで行うので、zumen は改ざんの検知を作らず、問い合わせもしない。小黒板の情報の読み取りは Exif・XMP の読み取り（zumen-jp/zumen#387）で扱う（2026-11-17、zumen-jp/zumen#389）"
 place = "none"
 verify = ["J-COMSIA の信憑性チェックツール（利用の登録が要る）"]
 issues = ["zumen-jp/zumen#389"]
