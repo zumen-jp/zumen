@@ -4000,6 +4000,12 @@ public struct TextGeometry: Message {
         set { writeField("height", newValue) }
     }
 
+    /// 高さ（height）を用紙の mm で表すか。実寸の空間の文字が用紙の長さで高さを持つとき（JWW）、entities は真を返す。足す・置き換えるときに真を書けば、高さを用紙の mm として渡す。偽のときは entities が省き、省けば高さを点と同じ単位とする。マイナーバージョン 93 から
+    public var heightOnPaper: Bool? {
+        get { readField("height_on_paper") }
+        set { writeField("height_on_paper", newValue) }
+    }
+
     /// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
     public var rotation: Double? {
         get { readField("rotation") }

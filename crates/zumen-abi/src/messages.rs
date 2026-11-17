@@ -5628,6 +5628,8 @@ pub struct TextGeometry {
     pub vertical: Option<TextVertical>,
     /// 高さ。0 より大きい
     pub height: f64,
+    /// 高さ（height）を用紙の mm で表すか。実寸の空間の文字が用紙の長さで高さを持つとき（JWW）、entities は真を返す。足す・置き換えるときに真を書けば、高さを用紙の mm として渡す。偽のときは entities が省き、省けば高さを点と同じ単位とする。マイナーバージョン 93 から
+    pub height_on_paper: Option<bool>,
     /// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
     pub rotation: f64,
     /// 幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から
@@ -5654,6 +5656,7 @@ impl TextGeometry {
         let horizontal = object.optional("horizontal", TextHorizontal::from_json)?;
         let vertical = object.optional("vertical", TextVertical::from_json)?;
         let height = object.required("height", json::number)?;
+        let height_on_paper = object.optional("height_on_paper", json::boolean)?;
         let rotation = object.required("rotation", json::number)?;
         let width_factor = object.optional("width_factor", json::number)?;
         let oblique = object.optional("oblique", json::number)?;
@@ -5669,6 +5672,7 @@ impl TextGeometry {
             horizontal,
             vertical,
             height,
+            height_on_paper,
             rotation,
             width_factor,
             oblique,
@@ -5704,6 +5708,10 @@ impl TextGeometry {
         }
         out.key("height");
         out.float(self.height);
+        if let Some(value) = &self.height_on_paper {
+            out.key("height_on_paper");
+            out.bool(*value);
+        }
         out.key("rotation");
         out.float(self.rotation);
         if let Some(value) = &self.width_factor {

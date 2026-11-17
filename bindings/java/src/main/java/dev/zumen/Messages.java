@@ -6362,6 +6362,17 @@ public final class Messages {
             return this;
         }
 
+        /** 高さ（height）を用紙の mm で表すか。実寸の空間の文字が用紙の長さで高さを持つとき（JWW）、entities は真を返す。足す・置き換えるときに真を書けば、高さを用紙の mm として渡す。偽のときは entities が省き、省けば高さを点と同じ単位とする。マイナーバージョン 93 から */
+        public Boolean getHeightOnPaper() {
+            return Json.read(json.get("height_on_paper"), Json::bool);
+        }
+
+        /** {@link #getHeightOnPaper()} を書く。null ならフィールドを除く */
+        public TextGeometry withHeightOnPaper(Boolean value) {
+            put("height_on_paper", value);
+            return this;
+        }
+
         /** 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない */
         public Double getRotation() {
             return Json.read(json.get("rotation"), Json::number);

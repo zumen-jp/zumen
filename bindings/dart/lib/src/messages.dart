@@ -2588,6 +2588,10 @@ class TextGeometry extends Message {
   core.double? get height => readField('height', asDouble);
   set height(core.double? value) => writeField('height', value);
 
+  /// 高さ（height）を用紙の mm で表すか。実寸の空間の文字が用紙の長さで高さを持つとき（JWW）、entities は真を返す。足す・置き換えるときに真を書けば、高さを用紙の mm として渡す。偽のときは entities が省き、省けば高さを点と同じ単位とする。マイナーバージョン 93 から
+  core.bool? get heightOnPaper => readField('height_on_paper', asBool);
+  set heightOnPaper(core.bool? value) => writeField('height_on_paper', value);
+
   /// 回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない
   core.double? get rotation => readField('rotation', asDouble);
   set rotation(core.double? value) => writeField('rotation', value);

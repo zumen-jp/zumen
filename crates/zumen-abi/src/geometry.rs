@@ -209,6 +209,13 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                     )
                 }
             };
+            // 実寸の空間の文字が用紙の長さで高さを持つ（JWW）なら、用紙の mm で返して印を付ける（#884）
+            let (height, height_on_paper) =
+                match (point.length(text.height.value), text.height.value) {
+                    (Some(height), _) => (height, None),
+                    (None, Length::Paper(PaperLength(height))) if !P::PAPER => (height, Some(true)),
+                    (None, _) => return None,
+                };
             Geometry::Text(TextGeometry {
                 content: text.content.clone(),
                 position: xy(point),
@@ -216,7 +223,8 @@ pub(crate) fn geometry_of<P: Spot>(shape: &Shape<P>) -> Option<Geometry> {
                 fit,
                 horizontal,
                 vertical,
-                height: point.length(text.height.value)?,
+                height,
+                height_on_paper,
                 rotation,
                 width_factor: (text.width_factor != 1.0).then_some(text.width_factor),
                 oblique: (text.oblique != 0.0).then_some(text.oblique),
@@ -954,6 +962,14 @@ pub(crate) fn shape_of<P: Spot>(
         }
     };
     let mismatch = || Err("geometry".to_string());
+    // 文字の高さ。`height_on_paper` が真なら用紙の mm とする（#884）
+    let text_height = |text: &TextGeometry| {
+        let height = positive(text.height, "height")?;
+        Ok::<_, String>(match (text.height_on_paper, height) {
+            (Some(true), Length::Model(model)) => Length::Paper(PaperLength(model.value)),
+            _ => height,
+        })
+    };
     // 2 点の間に合わせる文字の 2 点と合わせ方。AutoCAD は回転を 2 点から決め直すので、回転は 1 点目から
     // 2 点目への向きと同じでなければならない
     let between = |text: &TextGeometry| -> Result<Option<(P, P, Fit)>, String> {
@@ -1198,7 +1214,7 @@ pub(crate) fn shape_of<P: Spot>(
                 content: text.content.clone(),
                 placement,
                 height: zumen_drawing::Height {
-                    value: positive(text.height, "height")?,
+                    value: text_height(text)?,
                     meaning: HeightMeaning::Declared("dxf.TEXT.40".into()),
                 },
                 rotation: finite(text.rotation, "rotation")?,
@@ -1269,7 +1285,7 @@ pub(crate) fn shape_of<P: Spot>(
                 content: text.content.clone(),
                 placement,
                 height: zumen_drawing::Height {
-                    value: positive(text.height, "height")?,
+                    value: text_height(text)?,
                     meaning: old.height.meaning.clone(),
                 },
                 rotation: finite(text.rotation, "rotation")?,

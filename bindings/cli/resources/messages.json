@@ -1270,6 +1270,7 @@
         "horizontal": { "description": "1 点に置く文字の水平の位置合わせ。left のときは entities が省き、足すときも省けば left。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から", "$ref": "#/$defs/text_horizontal" },
         "vertical": { "description": "1 点に置く文字の垂直の位置合わせ。baseline のときは entities が省き、足すときも省けば baseline。2 点の間に合わせる文字には書けない。置き換えるときは元と同じ値だけを受ける。マイナーバージョン 69 から", "$ref": "#/$defs/text_vertical" },
         "height": { "description": "高さ。0 より大きい", "type": "number" },
+        "height_on_paper": { "description": "高さ（height）を用紙の mm で表すか。実寸の空間の文字が用紙の長さで高さを持つとき（JWW）、entities は真を返す。足す・置き換えるときに真を書けば、高さを用紙の mm として渡す。偽のときは entities が省き、省けば高さを点と同じ単位とする。マイナーバージョン 93 から", "type": "boolean" },
         "rotation": { "description": "回転（度）。2 点の間に合わせる文字では、1 点目から 2 点目への向きと同じでなければならない", "type": "number" },
         "width_factor": { "description": "幅の倍率。0 より大きい。1 のときは entities が省き、足すときも省けば 1、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から", "type": "number" },
         "oblique": { "description": "斜体の角度（度）。0 のときは entities が省き、足すときも省けば 0、置き換えるときは省けば元の値を受け継ぐ。マイナーバージョン 69 から", "type": "number" },

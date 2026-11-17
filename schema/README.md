@@ -13,6 +13,10 @@
 
 VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenNative.bas` にネイティブの宣言・ABI の型・バージョン・状態コード・シーンの配置を生成します。メッセージは UTF-8 の JSON のまま受け渡します。所有権と型の対応は [VBA のバインディング](../bindings/vba/README.md) にあります。
 
+## 用紙の長さの文字の高さ
+
+スキーマ 1.93 から、`entities` は、実寸の空間の文字が用紙の長さで高さを持つとき（JWW）、`geometry` の `height` を用紙の mm で返し、`height_on_paper` を `true` にします。前は `geometry` を省いていました。返した形をそのまま `apply` の `replace` に渡せます。`add` と `replace` で `height_on_paper` を省くと、従来どおり高さを点と同じ単位として受け取ります。
+
 ## 土木モデルの保持値
 
 スキーマ 1.87 から、`civil` に `doc` と `details: true` を渡すと、座標点セット・元の高さの基準と、選んだ線形の IP・地盤縦断・片勾配・横断の線と点を `result.details` で取得できます。線形が複数ある場合は `id` が必要です。`alignment` に直接書いた線形では `details: true` を受け付けません。省略または `false` の場合は従来の要約と位置だけを返します。
