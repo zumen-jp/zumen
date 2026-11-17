@@ -44,6 +44,10 @@ API の `apply` で同じ要求の中の新しい表を指す場合は、作業�
 
 図面モデルから新しい DXF を作る lower は、`zumen-acad` の `drawing` の feature に置きます。別の形式への `convert` は L1 → `lift` → L2 → lower、新規作成の `create` と新規作図の `civil_drawing` は L2 → lower を通り、`lower_to_dxf_with` を共用します。既存の API は形の値を通す移し方を渡し、Rust の `lower_to_dxf` は元の形の値を保つ移し方を使います。文字の位置合わせなどの違いと保持・損失の範囲は、[DXF への変換](formats/dxf.md#新しい-dxf-への変換)にあります。同系統の L1 の再符号化は、この lower と分けます。
 
+建物モデルから新しい IFC を作る lower は、`zumen-ifc` の建物の側に置き、lift と同じ手書きの実体のバージョンの表を使います。図面と同じくバージョンごとのひな形に空間・要素・関係を足す作りで、`create`・`convert`・`convert_estimate` と Rust の呼び出し元が同じ書き手を使います。IFC の L1 はスキーマを持たないので、IFC2X3・IFC4・IFC4X3 の間のバージョンの変更は、上の表の「L1 の系統の中で書き分ける」ではなく、L2 を通るこの経路で行います。バージョン・GlobalId・ヘッダーと確かめ方は[新しい IFC を作る](formats/ifc.md#新しい-ifc-を作る)にあります。
+
+建物を作る編集は、作成用の別の保存形式を持たず、IFC を正として行います。ひな形か開いた IFC を文書エンジン（`IfcLive`）に持ち、`building_apply` の 1 つの要求を 1 つのトランザクションと取り消しの単位にします。建物モデルはこの IFC から作り直す読みの側で、図面・3D のシーン・数量は既存の経路で作ります。画面・入力・操作の途中の状態は、このリポジトリの外の製品が持ちます。規則は[建物を作る編集](formats/ifc.md#建物を作る編集)にあります。
+
 DXF の編集では、[DXF の編集](formats/dxf.md#編集) と [図面モデルの対応表](formats/drawing2d-mapping.md) で、残す値と診断を確認します。API の操作と期待する結果は [適合テストの `apply`](../bindings/conformance/cases/apply.json) と [`convert`](../bindings/conformance/cases/convert.json) にあります。外部の実装との照合は [検証キット](../xtask/verify/README.md) に従います。
 
 ## 幾何と許容差

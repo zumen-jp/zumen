@@ -29,5 +29,5 @@ zumen の外部のリポジトリに置く形式（プラグイン）のひな�
 - プラグインの形式は、図面の形式（`Lift<Drawing2D>`、`Plugin::of`）か建物の形式（`Lift<Building>`、`Plugin::building`）で、読むだけ。apply・building_apply では書き戻せない。建物の形式の wasm のモジュールは、`zumen-abi` の `bim` の feature と一緒に作る。
 - wasm のモジュールから図面のモジュールへの受け渡しは、ラッパーの `Modules.open` が行う（[API のスキーマ](../../schema/README.md)）。
 - `.cargo/config.toml` は、wasm のモジュールから名前のセクション（関数の名前）を除く設定（[wasm のビルド設定](../../.cargo/config.toml)）。ひな形を写したリポジトリの根に置く。
-- 建物の形式のプラグインの wasm のモジュールは、建物モデルのバイナリがまだないので、コアの建物のモジュールを中に持つ（`bim` の feature、[#484](https://github.com/zumen-jp/zumen/issues/484)）。
+- 建物の形式のプラグインの wasm のモジュールは、コアの建物のモジュールを中に持つ（`bim` の feature）。建物モデルのバイナリで公式のモジュールとやり取りする作りは、使う建物の形式のプラグインの予定がないので作らない（[#484](https://github.com/zumen-jp/zumen/issues/484)）。
 - コアのワークスペースで試すため、このフォルダーの crate はワークスペースの一員で、zumen の crate を `path` で指す。
