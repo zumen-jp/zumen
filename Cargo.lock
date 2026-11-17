@@ -1206,6 +1206,7 @@ version = "0.3.0"
 dependencies = [
  "blake3",
  "libm",
+ "zumen-acad",
  "zumen-base",
  "zumen-building",
  "zumen-crs",

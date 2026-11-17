@@ -3,6 +3,7 @@
 
 mod decorate;
 mod joinery;
+mod scale;
 mod settings;
 
 use crate::Identity;
