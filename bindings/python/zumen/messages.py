@@ -1004,7 +1004,7 @@ RegionsResult = TypedDict(
 )
 
 
-# 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から
+# 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の remove・replace・add で当てる。形の種類が変わるときは replace でなく remove と add にする。マイナーバージョン 92 から
 _ConstructRequestRequired = TypedDict(
     "_ConstructRequestRequired",
     {
@@ -1057,7 +1057,7 @@ _ConstructRequestOptional = TypedDict(
 
 
 class ConstructRequest(_ConstructRequestRequired, _ConstructRequestOptional):
-    "同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から"
+    "同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の remove・replace・add で当てる。形の種類が変わるときは replace でなく remove と add にする。マイナーバージョン 92 から"
 
 # offset は distance だけ平行に移した新しい形、trim は pick を含む区間を最初に当たる境界の間で削った残り、extend は end の端点を最初に当たる境界まで延ばした形、chamfer は target と second の角を distances で切る線分、fillet は radius の接する円弧
 ConstructOperation = Union[
@@ -1081,7 +1081,7 @@ ConstructEnd = Union[
 ]
 
 
-# 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す
+# 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す。円をトリムした円弧のように種類が変わる形は、元の要素を消して足す
 ConstructReplacement = TypedDict(
     "ConstructReplacement",
     {

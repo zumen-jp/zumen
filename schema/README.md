@@ -178,7 +178,7 @@ DXF・DWG は 4 種類の表、JWW・SXF は各形式が追加できるレイヤ
 
 ## モデル空間の作図
 
-スキーマ 1.92 から、`construct` で同じ実寸の空間の要素からオフセット・トリム・延長・面取り・フィレットの形の値を求められます。文書・要素・ID・ハッシュは変わりません。返した値を `apply` の `replace` と `add` に渡すと、図面に反映できます。
+スキーマ 1.92 から、`construct` で同じ実寸の空間の要素からオフセット・トリム・延長・面取り・フィレットの形の値を求められます。文書・要素・ID・ハッシュは変わりません。返した値を `apply` の `replace` と `add` に渡すと、図面に反映できます。`replace` の `geometries` が空なら `remove`、2 つなら 1 つ目で置き換えて 2 つ目を `add` にします。`replace` は形の種類を変えないので、円をトリムした円弧のように種類が変わる形は `remove` と `add` にします。
 
 ```json
 {"v":1,"op":"construct","doc":"plan.dxf","from":"space/0","operation":"trim","target":{"kind":"element","id":"space/0/h10"},"boundaries":[{"kind":"element","id":"space/0/h11"}],"pick":{"x":12.5,"y":3}}

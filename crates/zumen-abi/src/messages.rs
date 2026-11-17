@@ -33,7 +33,7 @@ pub enum Request {
     Intersect(IntersectRequest),
     /// 同じ実寸の空間の要素の線が囲む閉領域を検出する、または閉じた要素どうしの和・積・差・排他的論理和を求める。文書を変更しない。マイナーバージョン 91 から
     Regions(RegionsRequest),
-    /// 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から
+    /// 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の remove・replace・add で当てる。形の種類が変わるときは replace でなく remove と add にする。マイナーバージョン 92 から
     Construct(ConstructRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
@@ -2847,7 +2847,7 @@ impl ToJson for RegionsResult {
     }
 }
 
-/// 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から
+/// 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の remove・replace・add で当てる。形の種類が変わるときは replace でなく remove と add にする。マイナーバージョン 92 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConstructRequest {
     /// `request_common` のフィールド
@@ -3089,7 +3089,7 @@ impl ToJson for ConstructEnd {
     }
 }
 
-/// 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す
+/// 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す。円をトリムした円弧のように種類が変わる形は、元の要素を消して足す
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConstructReplacement {
     /// 置き換える要素の公開 ID

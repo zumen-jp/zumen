@@ -1367,7 +1367,7 @@ class RegionsResult extends Message {
   set discarded(List<RegionDiscard>? value) => writeField('discarded', value);
 }
 
-/// 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の replace と add でそのまま当てられる。マイナーバージョン 92 から
+/// 同じ実寸の空間の要素のオフセット・トリム・延長・面取り・フィレットの結果の形を求める。文書を変更しない。結果は apply の remove・replace・add で当てる。形の種類が変わるときは replace でなく remove と add にする。マイナーバージョン 92 から
 class ConstructRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ConstructRequest.fromJson(super.json);
@@ -1471,7 +1471,7 @@ abstract final class ConstructEnd {
   static const end = 'end';
 }
 
-/// 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す
+/// 元の要素を置き換える形。空なら要素を消す。2 つなら 1 つ目で置き換えて 2 つ目を足す。円をトリムした円弧のように種類が変わる形は、元の要素を消して足す
 class ConstructReplacement extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ConstructReplacement.fromJson(super.json);
