@@ -10,8 +10,11 @@
 //! - 日本測地系: ベッセル楕円体で経緯度に直し、TKY2JGD で JGD2000 にし、PatchJGD で JGD2011 にする。
 //! - JGD2000: GRS80 で経緯度に直し、PatchJGD で JGD2011 にする。
 //!
+//! - JGD2011: 2011 年より後の地震などによる改定の PatchJGD だけを当てる（#678）。
+//!
 //! PatchJGD のファイルは、地震などごとに、地殻変動のあった地域だけを持つ。呼ぶ側が古い順に並べたファイルを、その順に
-//! 当てる。点を囲む格子点が 1 つもないファイルは、補正量を 0 とする。JGD2011 の座標には当てない（#678）。
+//! 当てる。点を囲む格子点が 1 つもないファイルは、補正量を 0 とする。JGD2000 の成果に当てるファイル（2011 年より前の
+//! 改定と、JGD2000 から JGD2011 にするもの）と、JGD2011 の成果の改定のファイルは、別の並びで受ける（#678）。
 
 use std::collections::BTreeMap;
 
@@ -47,12 +50,14 @@ pub struct ShiftGrid {
 pub struct Shifts<'a> {
     /// 日本測地系から JGD2000（TKY2JGD）
     pub tky2jgd: Option<&'a ShiftGrid>,
-    /// 地震などによる成果の改定（PatchJGD）。2011 年より前の JGD2000 の改定、JGD2000 から JGD2011、その後の
-    /// JGD2011 の改定のファイルがある。直したい座標を得た時期より後のファイルを、呼ぶ側が古い順に並べ、この順に
-    /// 当てる（公共測量成果改定マニュアルの第 3 条の解説、決定 0286）。日本測地系と JGD2000 の座標にだけ当て、
-    /// JGD2011 の座標には当てないので、2011 年より後の改定のファイルを、その前に得た JGD2011 の座標には当てられない
-    /// （#678）
+    /// JGD2000 の成果に当てる PatchJGD（2011 年より前の JGD2000 の改定と、JGD2000 から JGD2011 にするファイル）。
+    /// 直したい座標を得た時期より後のファイルを、呼ぶ側が古い順に並べ、この順に当てる（公共測量成果改定マニュアルの
+    /// 第 3 条の解説、決定 0286）。日本測地系と JGD2000 の座標にだけ当てる
     pub patch: &'a [&'a ShiftGrid],
+    /// JGD2011 の成果の改定の PatchJGD（2011 年より後の地震などのファイル）。直したい座標を得た時期より後のファイルを、
+    /// 呼ぶ側が古い順に並べる。日本測地系と JGD2000 の座標には [`Shifts::patch`] の後に、JGD2011 の座標にはこれだけを
+    /// 当てる（#678）
+    pub revision: &'a [&'a ShiftGrid],
 }
 
 fn stopped(cx: &mut Cx, stop: Stop) -> Error {
@@ -239,10 +244,13 @@ fn shift(
     })
 }
 
-/// 座標系 `crs` の点を、同じ系の JGD2011 の平面直角座標に直す。JGD2011 の平面直角座標ならそのまま返し、PatchJGD の
-/// ファイルも当てない（#678）。PatchJGD のファイルは、渡した順（古い順）に、前のファイルで直した経緯度に当てる
-/// （決定 0286）。要る格子がないか、点が格子の範囲の外なら、診断して `None` を返す。診断の `grid` は、PatchJGD の
-/// ファイルが 1 つなら `PatchJGD`、複数なら渡した順の番号を付けた `PatchJGD 1`・`PatchJGD 2` など。平面直角座標と
+/// 座標系 `crs` の点を、同じ系の JGD2011 の平面直角座標に直す。日本測地系と JGD2000 の点には [`Shifts::patch`] と
+/// [`Shifts::revision`] を、JGD2011 の平面直角座標には [`Shifts::revision`] だけを当てる。JGD2011 の点に当てる
+/// ファイルがなければ、そのまま返す（#678）。PatchJGD のファイルは、渡した順（古い順）に、前のファイルで直した
+/// 経緯度に当てる（決定 0286）。返す座標がどの改定の後の JGD2011 かは、呼ぶ側が渡したファイルで決まり、座標系には
+/// 書かない。要る格子がないか、点が格子の範囲の外なら、診断して `None` を返す。診断の `grid` は、PatchJGD の
+/// ファイルが 1 つなら `PatchJGD`、複数なら渡した順の番号を付けた `PatchJGD 1`・`PatchJGD 2` など。改定のファイルは
+/// `PatchJGD (JGD2011)`・`PatchJGD (JGD2011) 1` などとする。平面直角座標と
 /// 経緯度の換算ができない点（補正量の極端な格子で直した点など）と、系の決まらない JGD2011 の経緯度の点は、
 /// `crs.projection.unsupported` を診断して `None` を返す（#679）。呼ぶ側は、座標系の違う点を比べない
 pub fn to_jgd2011(
@@ -270,7 +278,16 @@ pub fn to_jgd2011(
             unsupported(cx);
             return None;
         }
-        Crs::Plane(_) => return Some((crs, point)),
+        Crs::Plane(zone) => {
+            if shifts.revision.is_empty() {
+                return Some((crs, point));
+            }
+            let Some(geographic) = to_geographic_on(Ellipsoid::Grs80, zone, point) else {
+                unsupported(cx);
+                return None;
+            };
+            (zone, geographic.point)
+        }
         Crs::Jgd2000(zone) => {
             let Some(geographic) = to_geographic_on(Ellipsoid::Grs80, zone, point) else {
                 unsupported(cx);
@@ -290,22 +307,28 @@ pub fn to_jgd2011(
             (zone, shift(grid, "TKY2JGD", tokyo.point, false, cx)?)
         }
     };
-    if shifts.patch.is_empty() {
+    let patch: &[&ShiftGrid] = if matches!(crs, Crs::Plane(_)) {
+        &[]
+    } else if shifts.patch.is_empty() {
         missing("PatchJGD", cx);
         return None;
-    }
+    } else {
+        shifts.patch
+    };
     let mut jgd2011 = geographic;
-    for (index, patch) in shifts.patch.iter().enumerate() {
-        if let Err(stop) = cx.check(Kind::Work, 1) {
-            cx.report(stop.to_diagnostic());
-            return None;
+    for (files, label) in [(patch, "PatchJGD"), (shifts.revision, "PatchJGD (JGD2011)")] {
+        for (index, grid) in files.iter().enumerate() {
+            if let Err(stop) = cx.check(Kind::Work, 1) {
+                cx.report(stop.to_diagnostic());
+                return None;
+            }
+            let name = if files.len() == 1 {
+                String::from(label)
+            } else {
+                format!("{label} {}", index + 1)
+            };
+            jgd2011 = shift(grid, &name, jgd2011, true, cx)?;
         }
-        let name = if shifts.patch.len() == 1 {
-            String::from("PatchJGD")
-        } else {
-            format!("PatchJGD {}", index + 1)
-        };
-        jgd2011 = shift(patch, &name, jgd2011, true, cx)?;
     }
     let Some(plane) = to_plane(zone, jgd2011) else {
         unsupported(cx);

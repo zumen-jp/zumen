@@ -275,6 +275,7 @@ fn conversions_match_jgdtrans_applied_in_order() {
         let shifts = Shifts {
             tky2jgd: Some(&grids[0]),
             patch: &[&grids[1], &grids[2]],
+            revision: &[],
         };
         let expected = plane(zone, &theirs);
         let ours = convert(Crs::Tokyo(zone), point, &shifts);
@@ -290,6 +291,7 @@ fn conversions_match_jgdtrans_applied_in_order() {
         let shifts = Shifts {
             tky2jgd: None,
             patch: &[&grids[1], &grids[2]],
+            revision: &[],
         };
         let expected = plane(zone, &theirs);
         let ours = convert(Crs::Jgd2000(zone), point, &shifts);

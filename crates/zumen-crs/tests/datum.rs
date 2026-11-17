@@ -86,6 +86,7 @@ fn tokyo_coordinates_are_shifted_by_the_interpolated_parameters() {
     let shifts = Shifts {
         tky2jgd: Some(&tky2jgd),
         patch: &[&patch],
+        revision: &[],
     };
     let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Tokyo(zone), POINT, &shifts, cx));
     assert!(diag.is_empty(), "{diag:?}");
@@ -128,6 +129,7 @@ fn jgd2000_coordinates_are_shifted_by_patchjgd() {
     let shifts = Shifts {
         tky2jgd: None,
         patch: &[&patch],
+        revision: &[],
     };
     let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Jgd2000(zone), point, &shifts, cx));
     assert!(diag.is_empty(), "{diag:?}");
@@ -168,6 +170,7 @@ fn without_parameters_nothing_is_converted() {
     let shifts = Shifts {
         tky2jgd: Some(&tky2jgd),
         patch: &[&patch],
+        revision: &[],
     };
     let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Tokyo(zone), POINT, &shifts, cx));
     assert_eq!(found, None);
@@ -403,6 +406,7 @@ fn grids_at_five_times_the_mesh_are_interpolated_at_their_spacing() {
     let shifts = Shifts {
         tky2jgd: None,
         patch: &[&patch],
+        revision: &[],
     };
     let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Jgd2000(zone), point, &shifts, cx));
     assert!(diag.is_empty(), "{diag:?}");
@@ -506,6 +510,7 @@ fn patchjgd_files_are_applied_oldest_first() {
     let shifts = Shifts {
         tky2jgd: None,
         patch: &[&older, &newer],
+        revision: &[],
     };
     let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Jgd2000(zone), point, &shifts, cx));
     assert!(diag.is_empty(), "{diag:?}");
@@ -515,6 +520,7 @@ fn patchjgd_files_are_applied_oldest_first() {
     let reversed = Shifts {
         tky2jgd: None,
         patch: &[&newer, &older],
+        revision: &[],
     };
     let (found, _) = with_cx(|cx| to_jgd2011(Crs::Jgd2000(zone), point, &reversed, cx));
     let (_, other) = found.unwrap();
@@ -545,6 +551,7 @@ fn patchjgd_files_are_applied_oldest_first() {
     let shifts = Shifts {
         tky2jgd: None,
         patch: &[&older, &holed],
+        revision: &[],
     };
     let (found, diag) = with_diagnostics(|cx| to_jgd2011(Crs::Jgd2000(zone), point, &shifts, cx));
     assert_eq!(found, None);
@@ -555,6 +562,7 @@ fn patchjgd_files_are_applied_oldest_first() {
     let shifts = Shifts {
         tky2jgd: None,
         patch: &[&holed],
+        revision: &[],
     };
     let once_point = to_plane(zone, once).unwrap().point;
     let (found, diag) =
@@ -575,6 +583,7 @@ fn patch_files_are_counted_and_can_be_cancelled() {
     let shifts = Shifts {
         tky2jgd: None,
         patch: &[&patch, &patch],
+        revision: &[],
     };
     for (limit, cancelled, expected, work) in [
         (2, false, None, 2),
@@ -611,6 +620,7 @@ fn shifts_beyond_mesh_codes_do_not_panic() {
     let shifts = Shifts {
         tky2jgd: Some(&huge),
         patch: &[&patch],
+        revision: &[],
     };
     // 補正量で直した経緯度を平面直角座標に換算できないので、直せなかったことを診断する（#679）
     let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Tokyo(zone), POINT, &shifts, cx));
@@ -641,4 +651,122 @@ fn shifts_beyond_mesh_codes_do_not_panic() {
             None
         );
     }
+}
+
+/// JGD2000 の成果に当てるファイルと、JGD2011 の成果の改定のファイルを分けて受ける（#678）。JGD2011 の座標には改定の
+/// ファイルだけを当て、日本測地系と JGD2000 の座標には、JGD2000 の成果に当てるファイルの後に当てる
+#[test]
+fn jgd2011_coordinates_follow_later_revisions() {
+    let zone = Zone::new(IX).unwrap();
+    let point = MapPoint {
+        northing: -190_000.0,
+        easting: 30_000.0,
+    };
+    let geographic = to_geographic_on(Ellipsoid::Grs80, zone, point)
+        .unwrap()
+        .point;
+    // JGD2000 から JGD2011 にするファイルは一様な補正量。後の改定の補正量は場所で変わる
+    let first = |_: f64, _: f64| (20.0, -30.0);
+    let second =
+        |latitude: f64, longitude: f64| (60.0 * (latitude - 38.0), -45.0 * (longitude - 141.0));
+    let older = read(&grid_every(geographic, 1, 3, first));
+    let newer = read(&grid_every(geographic, 5, 3, second));
+    let split = Shifts {
+        tky2jgd: None,
+        patch: &[&older],
+        revision: &[&newer],
+    };
+    // JGD2000 の座標は、2 つのファイルを 1 つの並びで渡したときと同じに直る
+    let joined = Shifts {
+        tky2jgd: None,
+        patch: &[&older, &newer],
+        revision: &[],
+    };
+    let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Jgd2000(zone), point, &split, cx));
+    assert!(diag.is_empty(), "{diag:?}");
+    let (crs, moved) = found.unwrap();
+    assert_eq!(crs, Crs::Plane(zone));
+    let (same, _) = with_cx(|cx| to_jgd2011(Crs::Jgd2000(zone), point, &joined, cx));
+    assert_eq!(same, Some((Crs::Plane(zone), moved)));
+    // 改定の前に得た JGD2011 の座標は、改定のファイルだけで直る
+    let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Plane(zone), point, &split, cx));
+    assert!(diag.is_empty(), "{diag:?}");
+    let (crs, revised) = found.unwrap();
+    assert_eq!(crs, Crs::Plane(zone));
+    let expected = to_plane(
+        zone,
+        shifted(
+            geographic,
+            second(geographic.latitude, geographic.longitude),
+        ),
+    )
+    .unwrap()
+    .point;
+    assert!(
+        distance(revised, expected) < 1e-4,
+        "{revised:?} {expected:?}"
+    );
+    // JGD2000 の成果に当てるファイルは、JGD2011 の座標に当てない。改定のファイルがなければ、そのまま返す
+    let (found, diag) = with_cx(|cx| to_jgd2011(Crs::Plane(zone), point, &joined, cx));
+    assert!(diag.is_empty(), "{diag:?}");
+    assert_eq!(found, Some((Crs::Plane(zone), point)));
+    // JGD2000 から JGD2011 にするファイルがなければ、改定のファイルがあっても JGD2000 の座標は直さない
+    let only = Shifts {
+        tky2jgd: None,
+        patch: &[],
+        revision: &[&newer],
+    };
+    let (found, diag) = with_diagnostics(|cx| to_jgd2011(Crs::Jgd2000(zone), point, &only, cx));
+    assert_eq!(found, None);
+    assert_eq!(diag.len(), 1, "{diag:?}");
+    assert_eq!(diag[0].code(), codes::CRS_DATUM_GRID_MISSING);
+    assert_eq!(diag[0].param("grid"), Some(&"PatchJGD".into()));
+    // 改定のファイルの格子点が欠けていれば、改定のファイルの何番目かを診断に書いて直さない。2 つ目のファイルは、
+    // 1 つ目で直した点で補間するので、その点を囲む格子点を欠く
+    let holed = |at: GeoPoint| {
+        let cell = (
+            (at.latitude * 120.0 / 5.0) as u32 * 5,
+            ((at.longitude - 100.0) * 80.0 / 5.0) as u32 * 5,
+        );
+        read(&without(
+            &grid_every(geographic, 5, 3, second),
+            cell.0 + 5,
+            cell.1 + 5,
+        ))
+    };
+    let once = shifted(
+        geographic,
+        second(geographic.latitude, geographic.longitude),
+    );
+    let (first_hole, second_hole) = (holed(geographic), holed(once));
+    for (revision, name) in [
+        (&[&first_hole][..], "PatchJGD (JGD2011)"),
+        (&[&newer, &second_hole][..], "PatchJGD (JGD2011) 2"),
+    ] {
+        let shifts = Shifts {
+            tky2jgd: None,
+            patch: &[],
+            revision,
+        };
+        let (found, diag) = with_diagnostics(|cx| to_jgd2011(Crs::Plane(zone), point, &shifts, cx));
+        assert_eq!(found, None, "{name}");
+        assert_eq!(diag.len(), 1, "{diag:?}");
+        assert_eq!(diag[0].code(), codes::CRS_DATUM_SHIFT_MISSING);
+        assert_eq!(diag[0].param("grid"), Some(&name.into()));
+    }
+    // 改定のファイルも、1 つ当てる前に work を 1 つ数える
+    let shifts = Shifts {
+        tky2jgd: None,
+        patch: &[],
+        revision: &[&newer, &newer],
+    };
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    assert_eq!(to_jgd2011(Crs::Plane(zone), point, &shifts, &mut cx), None);
+    assert_eq!(
+        diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+        [codes::BUDGET_WORK_EXCEEDED]
+    );
 }

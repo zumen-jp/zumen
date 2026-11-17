@@ -51,8 +51,9 @@ fn run(src: &[u8], cx: &mut zumen_base::Cx) -> Result<(ShiftGrid, Vec<Bits>), zu
     let shifts = Shifts {
         tky2jgd: Some(&grid),
         patch: &[&grid],
+        revision: &[&grid],
     };
-    for crs in [Crs::Tokyo(zone), Crs::Jgd2000(zone)] {
+    for crs in [Crs::Tokyo(zone), Crs::Jgd2000(zone), Crs::Plane(zone)] {
         for (northing, easting) in PLANE {
             let point = MapPoint { northing, easting };
             let found = to_jgd2011(crs, point, &shifts, cx);
