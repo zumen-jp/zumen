@@ -434,6 +434,17 @@ pub struct IfcLive {
     dep: DepGraph,
     /// 取り消し・やり直し履歴
     history: History<IfcElementRow, SharedIfcPatch>,
+
+    /// 構造の編集（空間・要素・関係）を当てる前の状態。この状態の履歴を取り消し終えたら、ここへ戻る
+    before: Option<Box<IfcLive>>,
+    /// 取り消した構造の編集の後の状態。この状態の履歴をやり直し終えたら、ここへ進む
+    after: Option<Box<IfcLive>>,
+    /// 履歴のやり直しの記録のうち、構造の編集で捨てたもの（記録の下に積まれている）の数
+    stale_redo: usize,
+    /// 構造の編集で作り直した状態の番号（開いたままなら `0`）。[`Self::state_id`] を分ける
+    stamp: u64,
+    /// これまでに配った `stamp` の最大
+    stamps: u64,
 }
 
 impl IfcLive {
@@ -595,6 +606,11 @@ impl IfcLive {
             dirty_rows,
             dep,
             history: History::new(),
+            before: None,
+            after: None,
+            stale_redo: 0,
+            stamp: 0,
+            stamps: 0,
         })
     }
 
@@ -677,6 +693,9 @@ impl IfcLive {
     /// 取り消し・やり直しの履歴を空にする。常駐する状態は変えない
     pub fn clear_history(&mut self) {
         self.history.clear();
+        self.before = None;
+        self.after = None;
+        self.stale_redo = 0;
     }
 
     /// 常駐する最新の建物モデルへの参照
@@ -756,7 +775,7 @@ impl IfcLive {
         Ok(Some(ends))
     }
 
-    /// 表の現在の版番号
+    /// 表の現在の版番号。構造の編集で表を作り直すと、作り直した表の版番号から数え直す
     #[inline]
     pub fn revision(&self) -> Revision {
         self.table.revision()
@@ -765,37 +784,58 @@ impl IfcLive {
     /// 内容の状態番号（開いた直後および初期状態まで取り消したときは `0`）
     #[inline]
     pub fn state_id(&self) -> u64 {
-        self.table.state_id()
+        if self.stamp == 0 {
+            self.table.state_id()
+        } else {
+            // 作り直した状態は、表の内容の番号に作り直した番号を重ねて、ほかの状態と分ける
+            (self.stamp << 40) | self.table.state_id()
+        }
     }
 
     /// 未変更（または初期状態まで取り消し済み）か
     #[inline]
     pub fn is_clean(&self) -> bool {
-        self.table.state_id() == 0 && self.changed.is_empty() && self.added.is_empty()
+        self.stamp == 0
+            && self.table.state_id() == 0
+            && self.changed.is_empty()
+            && self.added.is_empty()
     }
 
     /// 取り消せる操作があるか
     #[inline]
     pub fn can_undo(&self) -> bool {
-        self.history.undo_len() > 0
+        self.undo_len() > 0
     }
 
     /// やり直せる操作があるか
     #[inline]
     pub fn can_redo(&self) -> bool {
-        self.history.redo_len() > 0
+        self.redo_len() > 0
     }
 
     /// 取り消し履歴の段数
     #[inline]
     pub fn undo_len(&self) -> usize {
-        self.history.undo_len()
+        let before = self
+            .before
+            .as_ref()
+            .map_or(0, |b| b.undo_len().saturating_add(1));
+        self.history.undo_len().saturating_add(before)
     }
 
     /// やり直し履歴の段数
     #[inline]
     pub fn redo_len(&self) -> usize {
-        self.history.redo_len()
+        let after = self
+            .after
+            .as_ref()
+            .map_or(0, |a| a.redo_len().saturating_add(1));
+        self.own_redo_len().saturating_add(after)
+    }
+
+    /// この状態の履歴でやり直せる段数（構造の編集で捨てた記録を除く）
+    fn own_redo_len(&self) -> usize {
+        self.history.redo_len().saturating_sub(self.stale_redo)
     }
 
     /// STEP インスタンス番号から建物要素 [`ElementRef`] を `O(1)` で引く
@@ -853,6 +893,9 @@ impl IfcLive {
     /// 変更の一覧を原子的に当てる。書き直したインスタンスと追加したインスタンスの合計数を返す。
     /// 当てられない変更や予算超過・中断が起きた場合は、常駐状態を一切変えない。
     pub fn apply(&mut self, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result<usize, Error> {
+        if edits.iter().any(Edit::is_structural) {
+            return self.rebuild(edits, seed, cx);
+        }
         let staged = {
             let mut draft = OverlayDraft::new(self, seed);
             let mut rejected = false;
@@ -871,7 +914,7 @@ impl IfcLive {
                         attribute,
                         value,
                     } => draft.attribute(*element, *attribute, value.as_deref(), cx)?,
-                    // 空間・要素・関係の変更は、文書エンジンではまだ当てない（#897）
+                    // 空間・要素・関係の変更は、作り直す経路（`rebuild`）で当てるので、ここには来ない
                     structural => {
                         cx.report(unsupported(structural.name(), b""));
                         false
@@ -964,6 +1007,9 @@ impl IfcLive {
         match txn_res {
             Ok(_) => {
                 self.apply_patch_forward(&shared_patch.0);
+                // 新しい変更を当てたので、履歴と同じく、取り消した構造の編集もやり直せなくする
+                self.after = None;
+                self.stale_redo = 0;
                 Ok(changed_count)
             }
             Err(TxnError::Stop(stop)) => Err(stopped(cx, stop, None)),
@@ -974,6 +1020,9 @@ impl IfcLive {
 
     /// 直前の変更を取り消す。取り消したら `Ok(true)`、履歴が空なら `Ok(false)` を返す
     pub fn undo(&mut self, cx: &mut Cx) -> Result<bool, Error> {
+        if self.history.undo_len() == 0 {
+            return self.step_back(cx);
+        }
         if let Some(txn) = self.history.last_undo() {
             for patch in txn.patches() {
                 patch.0.check_model_restore(false, cx)?;
@@ -997,6 +1046,9 @@ impl IfcLive {
 
     /// 取り消した変更をやり直す。やり直したら `Ok(true)`、履歴が空なら `Ok(false)` を返す
     pub fn redo(&mut self, cx: &mut Cx) -> Result<bool, Error> {
+        if self.own_redo_len() == 0 {
+            return self.step_forward(cx);
+        }
         if let Some(txn) = self.history.last_redo() {
             for patch in txn.patches() {
                 patch.0.check_model_restore(true, cx)?;
@@ -1015,6 +1067,75 @@ impl IfcLive {
         if let Some(shared) = committed_patch {
             self.apply_patch_forward(&shared.0);
         }
+        Ok(true)
+    }
+
+    /// 空間・要素・関係を変える編集を含む一覧を当てる。今までの経路（[`crate::apply`]）で今の状態に当て、
+    /// 書き直したバイト列から状態を作り直すので、保存・建物モデル・ID・ハッシュ・依存の辺・変換の診断は、
+    /// 保存したファイルを開き直したものと同じになる。前の状態は取り消しのために持つ。仕事とメモリは
+    /// 文書の大きさに比例し、要素の差分で当てる編集より重い。断ったときと止まったときは状態を変えない
+    fn rebuild(&mut self, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result<usize, Error> {
+        let mut file = self.to_file(cx)?;
+        file.set_text_encoding(self.text_encoding);
+        let applied = crate::apply(&file, edits, seed, cx)?;
+        drop(file);
+        // 読み直しと変換の診断は返さない（開き直したときの診断として持ち、`report_lift_diagnostics` で返す）
+        let mut quiet = Diagnostics::new();
+        let mut inner = Cx::new(cx.budget, &mut quiet, cx.cancel);
+        let rebuilt = Ifc::read(&applied.bytes, &mut inner).and_then(|mut file| {
+            file.set_text_encoding(self.text_encoding);
+            Self::build(file, self.zip_entry.clone(), None, 1, &mut inner)
+        });
+        let mut next = match rebuilt {
+            Ok(next) => next,
+            Err(Error::Stopped(stop)) => return Err(stopped(cx, stop, None)),
+            Err(other) => {
+                cx.report(Diagnostic::new(codes::IFC_FILE_INVALID).at(at_bytes(0..0)));
+                return Err(other);
+            }
+        };
+        next.stamps = self.stamps.saturating_add(1);
+        next.stamp = next.stamps;
+        let stale = self.history.redo_len();
+        let mut previous = core::mem::replace(self, next);
+        // 新しい変更を当てたので、前の状態のやり直しは捨てる
+        previous.after = None;
+        previous.stale_redo = stale;
+        self.before = Some(Box::new(previous));
+        Ok(applied.changed)
+    }
+
+    /// 構造の編集の前の状態へ戻る。戻ったら `Ok(true)`、前の状態がなければ `Ok(false)`
+    fn step_back(&mut self, cx: &mut Cx) -> Result<bool, Error> {
+        if self.before.is_none() {
+            return Ok(false);
+        }
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        let Some(before) = self.before.take() else {
+            return Ok(false);
+        };
+        let stamps = self.stamps;
+        let current = core::mem::replace(self, *before);
+        self.stamps = self.stamps.max(stamps);
+        self.after = Some(Box::new(current));
+        Ok(true)
+    }
+
+    /// 取り消した構造の編集の後の状態へ進む。進んだら `Ok(true)`、後の状態がなければ `Ok(false)`
+    fn step_forward(&mut self, cx: &mut Cx) -> Result<bool, Error> {
+        if self.after.is_none() {
+            return Ok(false);
+        }
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        let Some(after) = self.after.take() else {
+            return Ok(false);
+        };
+        let stamps = self.stamps;
+        let current = core::mem::replace(self, *after);
+        self.stamps = self.stamps.max(stamps);
+        self.before = Some(Box::new(current));
         Ok(true)
     }
 

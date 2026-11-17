@@ -5,7 +5,10 @@ use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_building::{
     Building, ElementRef, GlobalId, Id, Local, Opening, ParentKind, SpatialKind, Transform,
 };
-use zumen_ifc::{Edit, Ifc, IfcFile, NewElement, NewPlacement, NewSpace, SpaceKind, Target, apply};
+use zumen_ifc::{
+    Edit, Ifc, IfcFile, IfcLive, NewElement, NewPlacement, NewSpace, RootAttribute, SpaceKind,
+    Target, apply,
+};
 use zumen_sdk::{Codec, Error, Lift};
 
 const SCHEMAS: [&str; 3] = ["IFC2X3", "IFC4", "IFC4X3_ADD2"];
@@ -524,17 +527,147 @@ fn writes_predefined_types_by_version() {
     assert!(text.contains(".NOTDEFINED.);"));
 }
 
+fn rename(element: u64, name: &str) -> Edit {
+    Edit::Attribute {
+        element,
+        attribute: RootAttribute::Name,
+        value: Some(name.to_owned()),
+    }
+}
+
+/// 要素のインスタンス番号と、その要素を変えたときに影響する要素のインスタンス番号
+type Edge = (Option<u64>, Vec<Option<u64>>);
+
+fn dependency_edges(live: &IfcLive) -> Option<Vec<Edge>> {
+    let instance = |element: ElementRef| {
+        live.building()
+            .element(element)
+            .and_then(|found| found.source().instance)
+    };
+    let mut edges = Vec::new();
+    for index in 0..live.building().elements().len() {
+        let element = ElementRef(u32::try_from(index).ok()?);
+        let affected = with(|cx| live.affected_elements(&[element], cx)).0.ok()?;
+        edges.push((
+            instance(element),
+            affected.into_iter().map(instance).collect(),
+        ));
+    }
+    Some(edges)
+}
+
+/// 保存したバイト列・建物モデル・依存の辺・変換の診断が、保存したファイルを開き直したものと同じか
+fn same_as_reopened(live: &IfcLive) -> Option<Vec<u8>> {
+    let saved = with(|cx| live.save(cx)).0.ok()?;
+    let reopened = with(|cx| IfcLive::open(&saved, cx)).0.ok()?;
+    assert_eq!(live.building(), reopened.building());
+    assert_eq!(dependency_edges(live)?, dependency_edges(&reopened)?);
+    let codes = |engine: &IfcLive| {
+        let (result, diag) = with(|cx| engine.report_lift_diagnostics(cx));
+        result.ok().map(|()| diag.into_vec())
+    };
+    assert_eq!(codes(live)?, codes(&reopened)?);
+    Some(saved)
+}
+
+/// 文書エンジンで当て、保存したファイルに今までの経路で当てたものと、結果・診断・保存が同じか
+fn apply_like_batch(live: &mut IfcLive, edits: &[Edit]) -> Option<Vec<u8>> {
+    let saved = with(|cx| live.save(cx)).0.ok()?;
+    let file = read(&saved)?;
+    let expected = with(|cx| apply(&file, edits, b"seed", cx));
+    let actual = with(|cx| live.apply(edits, b"seed", cx));
+    assert_eq!(actual.1.into_vec(), expected.1.into_vec());
+    let expected = expected.0.ok()?;
+    assert_eq!(actual.0.ok()?, expected.changed);
+    let now = same_as_reopened(live)?;
+    assert_eq!(now, expected.bytes);
+    assert_eq!(live.building(), &lift(&now)?);
+    Some(now)
+}
+
 #[test]
-fn the_document_engine_rejects_structural_edits_for_now() {
+fn the_document_engine_applies_structural_edits_like_reopening() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let (live, _) = with(|cx| IfcLive::open(src.as_bytes(), cx));
+        let Ok(mut live) = live else {
+            panic!("{schema}");
+        };
+        // 名前を変えて取り消し、やり直しを残したまま構造の編集を当てる
+        let renamed = apply_like_batch(&mut live, &[rename(10, "Renamed")]);
+        assert!(with(|cx| live.undo(cx)).0.is_ok_and(|done| done));
+        assert_eq!(live.redo_len(), 1);
+        let opened = live.state_id();
+        let built = apply_like_batch(&mut live, &building_edits());
+        assert!(built.is_some(), "{schema}");
+        assert!(!live.is_clean());
+        assert_ne!(live.state_id(), opened);
+        assert_eq!((live.undo_len(), live.redo_len()), (1, 0));
+        // 作り直した状態の上で、差分で当てる編集と構造の編集を続ける
+        let after_rename = apply_like_batch(&mut live, &[rename(10, "Site 2")]);
+        let removed = apply_like_batch(
+            &mut live,
+            &[Edit::Remove {
+                element: Target::Instance(10),
+            }],
+        );
+        assert!(removed.is_none(), "{schema}: 子のある敷地は除けない");
+        assert_eq!(with(|cx| live.save(cx)).0.ok(), after_rename);
+        let states = [
+            Some(src.as_bytes().to_vec()),
+            built.clone(),
+            after_rename.clone(),
+        ];
+        assert_eq!((live.undo_len(), live.redo_len()), (2, 0));
+        // 取り消しとやり直しで、どの状態にも同じバイト列と建物モデルで戻る
+        for state in states.iter().rev().skip(1) {
+            assert!(with(|cx| live.undo(cx)).0.is_ok_and(|done| done));
+            assert_eq!(same_as_reopened(&live), *state, "{schema}");
+        }
+        assert!(live.is_clean());
+        assert_eq!(live.state_id(), opened);
+        assert_eq!((live.undo_len(), live.redo_len()), (0, 2));
+        assert!(with(|cx| live.undo(cx)).0.is_ok_and(|done| !done));
+        for state in states.iter().skip(1) {
+            assert!(with(|cx| live.redo(cx)).0.is_ok_and(|done| done));
+            assert_eq!(same_as_reopened(&live), *state, "{schema}");
+        }
+        assert!(with(|cx| live.redo(cx)).0.is_ok_and(|done| !done));
+        // 戻ってから当てると、先の状態はやり直せない
+        assert!(with(|cx| live.undo(cx)).0.is_ok_and(|done| done));
+        assert!(with(|cx| live.undo(cx)).0.is_ok_and(|done| done));
+        assert!(apply_like_batch(&mut live, &[rename(10, "Renamed")]).is_some());
+        assert_eq!(with(|cx| live.save(cx)).0.ok(), renamed);
+        assert_eq!((live.undo_len(), live.redo_len()), (1, 0));
+        assert!(with(|cx| live.redo(cx)).0.is_ok_and(|done| !done));
+    }
+}
+
+#[test]
+fn the_document_engine_keeps_its_state_on_refused_or_stopped_edits() {
     let src = sample("IFC4", true);
-    let (live, _) = with(|cx| zumen_ifc::IfcLive::open(src.as_bytes(), cx));
-    let mut live = live.unwrap();
-    let (result, diag) = with(|cx| live.apply(&building_edits(), b"seed", cx));
+    let (live, _) = with(|cx| IfcLive::open(src.as_bytes(), cx));
+    let Ok(mut live) = live else {
+        panic!("open");
+    };
+    let refused = [Edit::Remove {
+        element: Target::Instance(99),
+    }];
+    let (result, diag) = with(|cx| live.apply(&refused, b"seed", cx));
     assert!(matches!(result, Err(Error::Invalid)));
-    assert!(
-        diag.iter()
-            .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
-    );
+    assert!(!diag.is_empty());
     assert!(live.is_clean());
-    assert_eq!(with(|cx| live.save(cx)).0.unwrap(), src.as_bytes());
+    let mut budget = Budget::new(Limits::default());
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let stopped = live.apply(
+        &building_edits(),
+        b"seed",
+        &mut Cx::new(&mut budget, &mut diag, &cancel),
+    );
+    assert!(matches!(stopped, Err(Error::Stopped(_))));
+    assert!(live.is_clean());
+    assert_eq!((live.undo_len(), live.redo_len()), (0, 0));
+    assert_eq!(with(|cx| live.save(cx)).0.ok(), Some(src.into_bytes()));
 }
