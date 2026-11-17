@@ -244,6 +244,14 @@ impl Diagnostic {
         &self.at
     }
 
+    /// 場所をそれぞれ書き換える。件数・値・順は変えない。保持した診断の場所を、書き直したファイルの位置へ移すときに使う
+    pub fn map_places(mut self, mut f: impl FnMut(&mut Ref)) -> Self {
+        for place in &mut self.at {
+            f(place);
+        }
+        self
+    }
+
     /// 仕様の節
     pub fn spec(&self) -> Option<SpecRef> {
         self.cite

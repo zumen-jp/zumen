@@ -274,8 +274,8 @@ impl AcadLive {
         self.state.element_with_source(row, cx)
     }
 
-    /// 現在の常駐状態から [`Drawing2D`] を組み立てる。ファイルモデルの変換の診断のうち、ヘッダーから決まるもの
-    /// （単位がない `dxf.units.missing` など）を最初に返す。表と要素の変換の診断はまだ返さない
+    /// 現在の常駐状態から [`Drawing2D`] を組み立てる。保存したバイト列をファイルモデルで読み直して変換したときと
+    /// 同じ変換の診断を返す（開いたときの診断を、場所を今の保存の位置へ移して返す）
     pub fn drawing(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, Error> {
         self.state.to_drawing(cx)
     }
@@ -944,9 +944,10 @@ mod tests {
                     fresh_cx(|cx| AcadLive::open_with_threads(&bytes, 1, cx));
                 let live_1 = live_1.and_then(|live| {
                     let (drawing, drawing_diag) = fresh_cx(|cx| live.drawing(cx));
-                    assert!(
-                        ref_diag.starts_with(&drawing_diag),
-                        "drawing diagnostics are not the header prefix on {}",
+                    assert_eq!(
+                        drawing_diag,
+                        ref_diag,
+                        "drawing diagnostics mismatch on {}",
                         path.display()
                     );
                     drawing.map(|d| (live, d))
@@ -955,9 +956,10 @@ mod tests {
                     fresh_cx(|cx| AcadLive::open_with_threads(&bytes, 4, cx));
                 let live_4 = live_4.and_then(|live| {
                     let (drawing, drawing_diag) = fresh_cx(|cx| live.drawing(cx));
-                    assert!(
-                        ref_diag.starts_with(&drawing_diag),
-                        "drawing diagnostics are not the header prefix on {}",
+                    assert_eq!(
+                        drawing_diag,
+                        ref_diag,
+                        "drawing diagnostics mismatch on {}",
                         path.display()
                     );
                     drawing.map(|d| (live, d))
@@ -1561,17 +1563,23 @@ mod tests {
                 let f = Dwg::read(&saved_full, cx)?;
                 f.lift(cx)
             });
-            let (reopened_live_full, diag_live_full) = fresh_cx(|cx| {
-                let l = AcadLive::open_dwg(&saved_full, cx)?;
-                l.drawing(cx)
-            });
+            let (reopened, diag_open_full) = fresh_cx(|cx| AcadLive::open_dwg(&saved_full, cx));
+            let reopened = reopened.unwrap();
+            let (reopened_live_full, diag_live_full) = fresh_cx(|cx| reopened.drawing(cx));
             assert_eq!(reopened_live_full, reloaded_full);
+            assert_eq!(diag_open_full, diag_full);
             assert_eq!(diag_live_full, diag_full);
             let (reloaded_compact, diag_compact) = fresh_cx(|cx| {
                 let f = Dwg::read(&saved_compact, cx)?;
                 f.lift(cx)
             });
-            let (resident_d, _) = fresh_cx(|cx| live.drawing(cx));
+            let (resident_d, resident_diag) = fresh_cx(|cx| live.drawing(cx));
+            assert_eq!(
+                resident_diag,
+                diag_full,
+                "resident diagnostics mismatch on {}",
+                path.display()
+            );
             assert_eq!(
                 reloaded_compact.as_ref().map(drawing_without_byte_ranges),
                 reloaded_full.as_ref().map(drawing_without_byte_ranges),

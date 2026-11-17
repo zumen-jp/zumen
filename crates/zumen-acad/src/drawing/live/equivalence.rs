@@ -275,6 +275,59 @@ EOF
 }
 
 #[test]
+fn element_lift_diagnostics_follow_edits_like_reading_the_saved_file() {
+    let input = synthetic_associative_dxf();
+    let opened = DxfPair::open(&input, 1);
+    let noted = opened.live.state.noted_records.clone();
+    let last_noted = *noted.last().unwrap();
+    let model = fresh_cx(|cx| opened.reference.lift(cx)).0.unwrap();
+    let mut shifted = false;
+    let mut gated = false;
+    for element in &model.spaces[0].elements {
+        let (Some(Key::Handle(handle)), Some(record)) =
+            (element.source.key(), element.source.record())
+        else {
+            continue;
+        };
+        let remove = Edit::Remove {
+            target: opened.seen(handle),
+        };
+        let changes = Changes {
+            document: None,
+            edits: vec![remove.clone()],
+        };
+        let mut probe = opened.live.clone();
+        let (result, rereads) = probe.apply_rereading(
+            &changes,
+            &mut Cx::new(
+                &mut Budget::default(),
+                &mut Diagnostics::new(),
+                &CancelToken::new(),
+            ),
+        );
+        if result.is_err() {
+            continue;
+        }
+        if noted.contains(&record) {
+            // 診断の出た図形を差分の経路で除くと、保持した診断が古くなるので構造経路に任せる
+            assert!(rereads);
+            gated = true;
+        }
+        if rereads || record > last_noted {
+            continue;
+        }
+        // 診断の出た図形より前を差分の経路で除くと、診断の場所のレコードの番号がずれる
+        shifted = true;
+        for threads in [1, 4] {
+            let mut pair = DxfPair::open(&input, threads);
+            pair.apply(remove.clone());
+        }
+    }
+    assert!(shifted);
+    assert!(gated);
+}
+
+#[test]
 fn dxf_extents_follow_only_changed_and_added_elements() {
     for (bytes, handle) in [
         (
@@ -384,8 +437,7 @@ where
         let actual = actual.unwrap();
         let expected = expected.unwrap();
         assert_eq!(actual, expected);
-        // ヘッダーから決まる変換の診断だけを、変換と同じ順で最初に返す
-        assert!(expected_diag.starts_with(&actual_diag));
+        assert_eq!(actual_diag, expected_diag);
         assert_eq!(
             all_element_ids_and_hashes(&actual),
             all_element_ids_and_hashes(&expected)

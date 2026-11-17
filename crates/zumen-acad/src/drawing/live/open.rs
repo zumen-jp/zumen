@@ -126,13 +126,26 @@ pub struct LiveState {
     pub forget_referenced_handles: BTreeSet<u64>,
     /// 非モデルオブジェクトおよび従属レコード（`ATTRIB`・`VERTEX`・`SEQEND`）の最大ハンドル
     pub non_table_max_handle: Option<u64>,
-    /// ヘッダーから決まる変換の診断（単位がない `dxf.units.missing`、用紙の範囲が読めない診断）。開いたときに、
-    /// ファイルモデルの変換と同じく最初に報告し、[`Self::to_drawing`] も最初に同じ順で報告する。差分の経路は
-    /// ヘッダーのこれらの値を変えず、作り直す経路は開き直すので、変わった文書の診断になる
-    pub header_diagnostics: Vec<Diagnostic>,
+    /// 開いたときの変換の診断（ヘッダー・表・図形）。届いた順にまとめ、場所は開いたファイルの位置。
+    /// [`Self::to_drawing`] は、場所を今の保存の位置へ移して同じ順で報告する。差分の経路は、診断の出た図形を
+    /// 変えず（[`Self::noted`]）、表とヘッダーも変えない。作り直す経路は開き直すので、変わった文書の診断になる
+    pub lift_diagnostics: Vec<Diagnostic>,
+    /// `lift_diagnostics` の場所が指すレコードの番号（開いたファイルの位置）
+    pub noted_records: BTreeSet<u64>,
+    /// `lift_diagnostics` の場所が指すハンドル
+    pub noted_handles: BTreeSet<u64>,
 }
 
 impl LiveState {
+    /// 開いたときに変換の診断が出た図形か。出所のレコードかハンドルが、診断の場所に含まれるかで見る。
+    /// その図形を差分の経路で変えると保持した診断が古くなるので、変更は構造経路に任せる
+    pub(crate) fn noted(&self, source: &Ref) -> bool {
+        source
+            .record()
+            .is_some_and(|record| self.noted_records.contains(&record))
+            || matches!(source.key(), Some(Key::Handle(handle)) if self.noted_handles.contains(&handle))
+    }
+
     /// ファイル全体で生きている最大のハンドルを返す
     pub fn current_max_handle(&self) -> Option<u64> {
         match (self.non_table_max_handle, self.table.max_handle()) {
@@ -254,9 +267,6 @@ impl LiveState {
 
     /// 現在の常駐状態から [`Drawing2D`] を組み立てる
     pub fn to_drawing(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, Error> {
-        for diagnostic in &self.header_diagnostics {
-            cx.report(diagnostic.clone());
-        }
         let layers = self.catalog.build_layers();
         let line_types = self.catalog.build_line_types();
         let default_line_type = self
@@ -291,6 +301,16 @@ impl LiveState {
             LiveBacking::Dwg(dwg) => dwg.source_mapper(cx)?,
             _ => None,
         };
+        for diagnostic in &self.lift_diagnostics {
+            cx.report(diagnostic.clone().map_places(|place| {
+                if let Some(mapper) = &dxf_mapper {
+                    mapper.remap_ref(place);
+                }
+                if let Some(mapper) = &dwg_mapper {
+                    mapper.remap_ref(place);
+                }
+            }));
+        }
         for row_idx in 0..self.table.len() {
             let Some(row_id) = RowId::from_index(row_idx) else {
                 break;
@@ -1612,7 +1632,46 @@ struct EntityPassInputs<'a> {
     dwg_seed: Option<Option<u64>>,
 }
 
+/// 図面モデルへの変換と同じ順で常駐の状態を作る。変換の診断を別の収集先に集めて呼び出し元へ同じ順で移し、
+/// 状態にも持つ（[`LiveState::lift_diagnostics`]）。届いた順にまとめる収集先へ移すので、件数・場所・順は
+/// 1 件ずつ報告したときと同じになり、そのような収集先への報告は予算を使わない
 fn finish_live_open(
+    shell_db: &AcadDb,
+    inputs: EntityPassInputs<'_>,
+    take_plain: impl FnMut(usize) -> Option<PlainLifted>,
+    entity_meta: impl Fn(usize) -> Option<(u32, u64, Ref, Option<u64>)>,
+    decode_general: impl Fn(usize, &mut Cx<'_>) -> Option<(u32, Object)>,
+    backing: LiveBacking,
+    cx: &mut Cx<'_>,
+) -> Result<LiveState, Error> {
+    let mut lifted = Diagnostics::with_max_places(usize::MAX);
+    let result = lift_live_state(
+        shell_db,
+        inputs,
+        take_plain,
+        entity_meta,
+        decode_general,
+        backing,
+        &mut Cx::new(cx.budget, &mut lifted, cx.cancel),
+    );
+    let lift_diagnostics = lifted.into_vec();
+    for diagnostic in &lift_diagnostics {
+        cx.report(diagnostic.clone());
+    }
+    let mut state = result?;
+    for place in lift_diagnostics.iter().flat_map(Diagnostic::places) {
+        if let Some(record) = place.record() {
+            state.noted_records.insert(record);
+        }
+        if let Some(Key::Handle(handle)) = place.key() {
+            state.noted_handles.insert(handle);
+        }
+    }
+    state.lift_diagnostics = lift_diagnostics;
+    Ok(state)
+}
+
+fn lift_live_state(
     shell_db: &AcadDb,
     inputs: EntityPassInputs<'_>,
     mut take_plain: impl FnMut(usize) -> Option<PlainLifted>,
@@ -1621,21 +1680,9 @@ fn finish_live_open(
     backing: LiveBacking,
     cx: &mut Cx<'_>,
 ) -> Result<LiveState, Error> {
-    // ファイルモデルの変換と同じく最初に報告する。予算を使わない処理なので、別の収集先に集めてから同じ順で移す
-    let mut header = Diagnostics::new();
-    let mut header_budget = Budget::new(Limits::default());
-    let (doc_unit, min, max) = {
-        let hcx = &mut Cx::new(&mut header_budget, &mut header, cx.cancel);
-        (
-            unit(shell_db, hcx),
-            header_limits(shell_db, b"$PLIMMIN", hcx),
-            header_limits(shell_db, b"$PLIMMAX", hcx),
-        )
-    };
-    let header_diagnostics = header.into_vec();
-    for diagnostic in &header_diagnostics {
-        cx.report(diagnostic.clone());
-    }
+    let doc_unit = unit(shell_db, cx);
+    let min = header_limits(shell_db, b"$PLIMMIN", cx);
+    let max = header_limits(shell_db, b"$PLIMMAX", cx);
     let version =
         shell_db
             .variable(b"$ACADVER")
@@ -2406,7 +2453,9 @@ fn finish_live_open(
         non_unique_model_ids,
         forget_referenced_handles,
         non_table_max_handle,
-        header_diagnostics,
+        lift_diagnostics: Vec::new(),
+        noted_records: BTreeSet::new(),
+        noted_handles: BTreeSet::new(),
     })
 }
 

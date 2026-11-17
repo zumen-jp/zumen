@@ -1324,7 +1324,7 @@ fn check_target_seen(
         }
         return Ok(Err(FastAttempt::Fallback));
     }
-    if state.shared_sources.contains(&was.source) {
+    if state.shared_sources.contains(&was.source) || state.noted(&was.source) {
         return Ok(Err(FastAttempt::Fallback));
     }
     Ok(Ok((row_id, row, was)))
@@ -1364,6 +1364,7 @@ fn check_block_element_seen(
         return Ok(Err(FastAttempt::Fallback));
     }
     if state.shared_sources.contains(&was.source)
+        || state.noted(&was.source)
         || matches!(was.shape, Shape::Dimension(_) | Shape::Table(_))
     {
         return Ok(Err(FastAttempt::Fallback));
@@ -1674,6 +1675,7 @@ fn check_sheet_element_seen(
         return Ok(Err(FastAttempt::Fallback));
     }
     if state.shared_sources.contains(&was.source)
+        || state.noted(&was.source)
         || matches!(was.shape, Shape::Dimension(_) | Shape::Table(_))
     {
         return Ok(Err(FastAttempt::Fallback));
