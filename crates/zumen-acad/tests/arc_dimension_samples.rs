@@ -102,6 +102,74 @@ fn autocad_arc_dimension_values_match_between_dwg_and_dxf() {
     }
 }
 
+/// リアクターの組（102 `{ACAD_REACTORS`）のハンドル。組がなければ空
+#[cfg(test)]
+fn reactors(object: &Object) -> Vec<Data> {
+    let open = |value: &zumen_acad::Value| {
+        value.code == 102 && value.data == Data::Text(b"{ACAD_REACTORS".to_vec())
+    };
+    object
+        .values
+        .iter()
+        .skip_while(|value| !open(value))
+        .skip(1)
+        .take_while(|value| value.code == 330)
+        .map(|value| value.data.clone())
+        .collect()
+}
+
+/// DWG の読み込みは、図形と図形でないオブジェクトのリアクターを、DXF と同じハンドルで 102 `{ACAD_REACTORS` の組に置く。
+/// DIMASSOC は、DXF と同じく、寸法（330）・関連づけのフラグ（90）と、点ごとの測る相手（331）などを持つ。DWG の値は 100 の
+/// サブクラスマーカーを持たない
+#[test]
+fn autocad_reactors_and_dimension_associations_match_between_dwg_and_dxf() {
+    for (dwg, dxf) in pairs() {
+        let (from_dwg, from_dxf) = (table(&dwg), table(&dxf));
+        let mut compared = 0;
+        for object in from_dxf.objects() {
+            let Some(other) = object.handle().and_then(|handle| from_dwg.get(handle)) else {
+                continue;
+            };
+            assert_eq!(
+                reactors(other),
+                reactors(object),
+                "{} {:?}",
+                dwg.display(),
+                object.handle()
+            );
+            compared += usize::from(!reactors(object).is_empty());
+        }
+        assert!(compared >= 12, "{} {compared}", dwg.display());
+        let associations = |db: &AcadDb| {
+            db.objects()
+                .iter()
+                .filter(|object| object.kind == b"DIMASSOC")
+                .map(|object| {
+                    object
+                        .values
+                        .iter()
+                        .filter(|value| value.code != 100)
+                        .map(|value| (value.code, value.data.clone()))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        let (a, b) = (associations(&from_dwg), associations(&from_dxf));
+        assert_eq!(a.len(), 6, "{}", dwg.display());
+        assert_eq!(a.len(), b.len(), "{}", dxf.display());
+        for (a, b) in a.iter().zip(&b) {
+            assert!(
+                same(a, b),
+                "{}
+{a:?}
+{b:?}",
+                dwg.display()
+            );
+            assert_eq!(a.iter().filter(|(code, _)| *code == 331).count(), 3);
+        }
+    }
+}
+
 /// 弧長の寸法として、円弧の中心・両端・寸法の弧の点と、寸法値の上書きを移す。保存した測定値は、図面の単位の
 /// 弧の長さになる。引出線は診断する。
 #[cfg(feature = "drawing")]

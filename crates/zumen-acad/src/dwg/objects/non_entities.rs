@@ -1,4 +1,5 @@
-//! 図形でないオブジェクト（MLINESTYLE・TABLESTYLE・DICTIONARY・XRECORD・GROUP・SCALE・IMAGEDEF・SPATIAL_FILTER・LAYOUT）のフィールドの読み取り。
+//! 図形でないオブジェクト（MLINESTYLE・TABLESTYLE・DICTIONARY・XRECORD・GROUP・SCALE・IMAGEDEF・SPATIAL_FILTER・LAYOUT・
+//! DIMASSOC）のフィールドの読み取り。
 
 use super::*;
 
@@ -205,6 +206,58 @@ pub(super) fn placeholders(bits: &mut Bits, handles: &mut Vec<i16>, code: i16) -
     }
     handles.extend(std::iter::repeat_n(code, count));
     Some(())
+}
+
+/// DIMASSOC のフィールド（クラスで決まる型）。ODS 5.4.1 は DIMASSOC の節を持たないので、並びは公開サンプルの DWG と
+/// 対の DXF で確かめた推定（`docs/formats/dwg.md` の「推定した扱い」）。DXF の順に、寸法（330。ハンドルのストリームで
+/// 埋める仮の値）・関連づけのフラグ（90）・変換の空間のフラグ（70）・回転寸法の種類（71）を置き、フラグの下位 4 ビットの
+/// 立つ点ごとに、クラスの名前（1）・オブジェクト・スナップの種類（72）・測る相手（331。仮の値）・部分の種類（73）・
+/// GS マーカー（91）・近い点の媒介変数（40）・スナップの点（10）・前の点の参照を持つか（75）を置く。データのストリームでは、
+/// 種類の後に測る相手の数（BS）、GS マーカーの後に交わる相手の数（BL）があり、ハンドルのストリームでは、寸法の後に、点ごとに
+/// 測る相手が並ぶ。交わる相手か前の点の参照を持つ点と、上位のフラグは、サンプルにないので読まない（`None`）
+pub(super) fn dimassoc(bits: &mut Bits, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
+    let flags = bits.bl()?;
+    if !(0..16).contains(&flags) {
+        return None;
+    }
+    let mut values = vec![
+        Value {
+            code: 330,
+            data: Data::Handle(SLOT),
+        },
+        int(90, i64::from(flags)),
+        int(70, i64::from(bits.bit()?)),
+        int(71, i64::from(bits.rc()?)),
+    ];
+    let mut found = vec![330];
+    for _ in 0..flags.count_ones() {
+        values.push(text_value(1, &bits.text()?));
+        values.push(int(72, i64::from(bits.rc()?)));
+        let mains = usize::try_from(bits.bs()?).ok()?;
+        if mains > bits.size() {
+            return None;
+        }
+        for _ in 0..mains {
+            values.push(Value {
+                code: 331,
+                data: Data::Handle(SLOT),
+            });
+            found.push(331);
+        }
+        values.push(int(73, i64::from(bits.bs()?)));
+        values.push(int(91, i64::from(bits.bl()?)));
+        if bits.bl()? != 0 {
+            return None;
+        }
+        values.push(real(40, bits.bd()?));
+        values.extend(point3(bits, 10)?);
+        if bits.bit()? {
+            return None;
+        }
+        values.push(int(75, 0));
+    }
+    handles.extend(found);
+    Some(values)
 }
 
 /// SCALE のフィールド（クラスで決まる型）。名前（300）・紙の単位（140）・図面の単位（141）・単位の尺度のフラグ（290）

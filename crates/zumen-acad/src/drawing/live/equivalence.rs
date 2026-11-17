@@ -3418,6 +3418,35 @@ fn associative_edges(live: &AcadLive) -> Vec<(u64, Vec<u64>)> {
     dependency_edges(live, &[0x101, 0x102, 0x103, 0x104, 0x105])
 }
 
+/// DWG の読み込みは、図形のリアクター（102 `{ACAD_REACTORS`）と DIMASSOC の測る相手（331）を DXF と同じ値で置く。
+/// 公開の弧長寸法の DWG（R2004・R2018）を開いた文書エンジンは、対の ASCII DXF と同じく、円弧 0x2d9 から弧長寸法
+/// 0x2da への依存辺を持つ（1・4 スレッド）
+#[test]
+fn dwg_arc_dimension_depends_on_its_arc_like_the_ascii_dxf() {
+    for name in ["zumen-arcdim-r2004", "zumen-arcdim-r2018"] {
+        let dwg = dwg_sample(&format!("{name}.dwg"));
+        let dxf = dwg_sample(&format!("{name}_ascii.dxf"));
+        for threads in [1, 4] {
+            let from_dwg = fresh_cx(|cx| AcadLive::open_dwg_with_threads(&dwg, threads, cx))
+                .0
+                .unwrap();
+            let from_dxf = fresh_cx(|cx| AcadLive::open_dxf_with_threads(&dxf, threads, cx))
+                .0
+                .unwrap();
+            let edges = dependency_edges(&from_dwg, &[0x2d9, 0x2da]);
+            assert!(
+                edges.contains(&(0x2d9, vec![0x2da])),
+                "{name} {threads}: {edges:x?}"
+            );
+            assert_eq!(
+                edges,
+                dependency_edges(&from_dxf, &[0x2d9, 0x2da]),
+                "{name}"
+            );
+        }
+    }
+}
+
 /// ハンドル `handles` の図形から、各図形が影響する図形（`handles` の中）のハンドルを返す
 fn dependency_edges(live: &AcadLive, handles: &[u64]) -> Vec<(u64, Vec<u64>)> {
     handles

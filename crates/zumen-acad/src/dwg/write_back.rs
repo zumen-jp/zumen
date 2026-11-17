@@ -219,8 +219,11 @@ impl DwgFile {
             }
             if old.values != object.values {
                 // 足したリアクターの組は、ほかのフィールドと分けて、リアクターの数とハンドルのストリームに書く（決定 0191）
-                let (reactors, object) = without_reactors(old, object);
-                let object = &object;
+                // リアクターの組は、元の分を型ごとのフィールドから除き、足した分は、ほかのフィールドと分けて、リアクターの数と
+                // ハンドルのストリームに書く（決定 0191）
+                let (reactors, old, object) =
+                    without_reactors(old, object).ok_or_else(|| unsupported(&object.kind))?;
+                let (old, object) = (&old, &object);
                 // 拡張辞書の組は、読む側が置いたままのものだけを受け付け、型ごとのフィールドからは除く（決定 0148・0152）
                 let (old, object) = match (without_xdictionary(old), without_xdictionary(object)) {
                     ((before, old), (after, object)) if before == after => (old, object),
@@ -1401,7 +1404,9 @@ impl DwgFile {
             b"DIMSTYLE" => (kinds::DIMSTYLE, kinds::DIMSTYLE_CONTROL),
             _ => return None,
         };
-        let (xdictionary, rest) = without_xdictionary(old);
+        // 表の項目のリアクター（寸法スタイルを使う寸法など）は、表の項目を除くかに関わらない
+        let (_, old) = split_reactors(old)?;
+        let (xdictionary, rest) = without_xdictionary(&old);
         let gone = match xdictionary {
             Some(Data::Handle(handle)) => all.contains(&handle),
             Some(_) => false,
@@ -1620,9 +1625,9 @@ pub(super) fn encode_single_entity(
         values: new_values.to_vec(),
         origin: Origin::New,
     };
-    let (reactors, new_no_react) = without_reactors(&old_full, &new_full);
+    let (reactors, old_no_react, new_no_react) = without_reactors(&old_full, &new_full)?;
     let (old, object) = match (
-        without_xdictionary(&old_full),
+        without_xdictionary(&old_no_react),
         without_xdictionary(&new_no_react),
     ) {
         ((before, old), (after, object)) if before == after => (old, object),

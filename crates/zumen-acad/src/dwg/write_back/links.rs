@@ -668,26 +668,21 @@ pub(super) fn callout(
     Some(out.into_bytes())
 }
 
-/// `old` になく `new` が持つリアクターの組（`102 {ACAD_REACTORS`・330・`102 }`）のハンドルと、組を除いた `new`。
-/// DWG を読む側はリアクターを値に置かないので、組は書き戻しで足したものだけ（決定 0191）。`old` が組を持てば
-/// 何も除かない
-pub(super) fn without_reactors(old: &Object, new: &Object) -> (Vec<u64>, Object) {
+/// リアクターの組（`102 {ACAD_REACTORS`・330・`102 }`）のハンドルと、組を除いたオブジェクト。組がなければ
+/// 空の列。組が閉じないか、330 でない値を持てば `None`
+pub(super) fn split_reactors(object: &Object) -> Option<(Vec<u64>, Object)> {
     let marker = |value: &Value, text: &[u8]| {
         value.code == 102 && matches!(&value.data, Data::Text(t) if t.as_slice() == text)
     };
-    let open = |object: &Object| {
-        object
-            .values
-            .iter()
-            .position(|v| marker(v, b"{ACAD_REACTORS"))
+    let mut copy = object.clone();
+    let Some(at) = copy
+        .values
+        .iter()
+        .position(|v| marker(v, b"{ACAD_REACTORS"))
+    else {
+        return Some((Vec::new(), copy));
     };
-    let mut copy = new.clone();
-    let (None, Some(at)) = (open(old), open(new)) else {
-        return (Vec::new(), copy);
-    };
-    let Some(close) = new.values.iter().skip(at).position(|v| marker(v, b"}")) else {
-        return (Vec::new(), copy);
-    };
+    let close = copy.values.iter().skip(at).position(|v| marker(v, b"}"))?;
     let mut handles = Vec::new();
     for value in copy.values.drain(at..=at + close).skip(1) {
         match value {
@@ -696,10 +691,20 @@ pub(super) fn without_reactors(old: &Object, new: &Object) -> (Vec<u64>, Object)
                 data: Data::Handle(handle),
             } => handles.push(handle),
             value if marker(&value, b"}") => {}
-            _ => return (Vec::new(), new.clone()),
+            _ => return None,
         }
     }
-    (handles, copy)
+    Some((handles, copy))
+}
+
+/// `old` から `new` へ足したリアクターのハンドルと、リアクターの組を除いた `old` と `new`。DWG を読む側は元の
+/// リアクターを組で置くので、書き戻せるのは、元のリアクターをそのまま前に残し、終わりに足したもの（決定 0191）。
+/// 除いたり、並べ替えたり、組が壊れていれば `None`
+pub(super) fn without_reactors(old: &Object, new: &Object) -> Option<(Vec<u64>, Object, Object)> {
+    let (before, old) = split_reactors(old)?;
+    let (after, new) = split_reactors(new)?;
+    let added = after.strip_prefix(before.as_slice())?.to_vec();
+    Some((added, old, new))
 }
 
 /// バージョン `release` の図形のデータ `data` のリアクターに、ハンドル `reactors` を足したもの（決定 0191）。リアクターの数（BL）

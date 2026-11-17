@@ -260,7 +260,7 @@ impl Lifter<'_> {
         object: &Object,
     ) -> Lifted<(u64, Option<usize>, BTreeMap<u64, u64>)> {
         let kind = object.kind.as_slice();
-        // DWG の表はサブクラスマーカーの 100 を持たないので、所有者（初めの 330）の後から読む
+        // DWG の表はサブクラスマーカーの 100 を持たないので、所有者（102 の組の外の初めの 330）の後から読む
         let start = object
             .values
             .iter()
@@ -268,7 +268,20 @@ impl Lifter<'_> {
                 matches!((value.code, &value.data), (100, Data::Text(text)) if text == b"AcDbSortentsTable")
             })
             .or_else(|| match object.origin {
-                Origin::Dwg { .. } => object.values.iter().position(|value| value.code == 330),
+                Origin::Dwg { .. } => {
+                    let mut depth = 0usize;
+                    object.values.iter().position(|value| {
+                        match (value.code, &value.data) {
+                            (102, Data::Text(text)) if text.starts_with(b"{") => depth += 1,
+                            (102, Data::Text(text)) if text.starts_with(b"}") => {
+                                depth = depth.saturating_sub(1);
+                            }
+                            (330, _) => return depth == 0,
+                            _ => {}
+                        }
+                        false
+                    })
+                }
                 _ => None,
             })
             .ok_or_else(|| invalid(kind, 100))?;

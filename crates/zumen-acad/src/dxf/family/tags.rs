@@ -127,14 +127,24 @@ impl<'p, 'a, 'c, 'b> Writer<'p, 'a, 'c, 'b> {
         let mut groups = 0usize;
         let mut owner_written = false;
         let mut id_written = false;
+        // DWG を読む側が値に置くリアクターの組は、上で元の DWG から書いたので、ここでは書かず、落としたとも数えない
+        let mut reactors = false;
         for v in &object.values {
             if v.code == 102 {
                 match text(v) {
+                    Some(b"{ACAD_REACTORS") if groups == 0 => {
+                        reactors = true;
+                        groups = 1;
+                    }
                     Some(t) if t.starts_with(b"{") => {
                         if groups == 0 {
                             self.omitted.push((object, 102));
                         }
                         groups = groups.checked_add(1).ok_or(Error::Unsupported)?;
+                    }
+                    Some(b"}") if groups == 1 && reactors => {
+                        groups = 0;
+                        reactors = false;
                     }
                     Some(b"}") if groups > 0 => groups -= 1,
                     _ => return Err(Error::Unsupported),

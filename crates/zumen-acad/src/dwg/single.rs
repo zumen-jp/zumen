@@ -1306,10 +1306,8 @@ impl DwgSingle {
             });
         }
         if section == Section::Entities {
-            let owner = values.iter().find_map(|v| match (v.code, &v.data) {
-                (330, Data::Handle(h)) => Some(*h),
-                _ => None,
-            });
+            // 所有者は、リアクターなどの 102 の組の外の初めの 330
+            let owner = crate::db::owner_of_values(&values);
             if self.in_block_definition(file, owner) {
                 section = Section::Blocks;
             }
@@ -1573,10 +1571,7 @@ impl DwgSingle {
         let Some(entry) = file.entries.get(record) else {
             return false;
         };
-        let ent_owner = values.iter().find_map(|v| match (v.code, &v.data) {
-            (330, Data::Handle(h)) => Some(*h),
-            _ => None,
-        });
+        let ent_owner = crate::db::owner_of_values(values);
         if ent_owner != Some(model_owner) {
             return false;
         }
@@ -1629,12 +1624,7 @@ impl DwgSingle {
         let Some((_, owner)) = self.model_block else {
             return false;
         };
-        let current_owner = values
-            .iter()
-            .find_map(|value| match (value.code, &value.data) {
-                (330, Data::Handle(handle)) => Some(*handle),
-                _ => None,
-            });
+        let current_owner = crate::db::owner_of_values(values);
         current_owner == Some(owner)
             && can_unlink_single(self.release, current_encoded, handle, kind, values, |_| {
                 false

@@ -407,6 +407,8 @@ fn in_blocks(objects: &mut [Object], header: Header) {
 pub(super) struct Fields {
     /// 所有者（330）
     pub(super) owner: Option<u64>,
+    /// リアクター（`{ACAD_REACTORS` の組の 330）。ハンドルのストリームの順（ODS 5.4.1 の 20.1・20.4.2）
+    reactors: Vec<u64>,
     /// 図形の拡張辞書（`{ACAD_XDICTIONARY` の組の 360）
     xdic: Option<u64>,
     /// 図形の画層のハンドル
@@ -480,6 +482,19 @@ impl Fields {
                 code: 360,
                 data: Data::Handle(xdic),
             });
+            values.push(text_value(102, b"}"));
+        }
+        // リアクターは、DXF と同じく拡張辞書の組の後、所有者の前に組で置く（AutoCAD の書いた公開サンプルの
+        // DXF は、両方を持つときこの順）
+        if !self.reactors.is_empty() {
+            before_copy(self.reactors.len() as u64 + 2, 0, cx)?;
+            values.push(text_value(102, b"{ACAD_REACTORS"));
+            for reactor in self.reactors {
+                values.push(Value {
+                    code: 330,
+                    data: Data::Handle(reactor),
+                });
+            }
             values.push(text_value(102, b"}"));
         }
         if let Some(owner) = self.owner {
@@ -749,8 +764,10 @@ pub(super) fn read(
             2 => header.map(|h| h.model),
             _ => None,
         };
+        // リアクターは、ハンドルのストリームから読めた数だけ持つ。数は確保の前に信じない
+        let mut reactors = Vec::new();
         for _ in 0..common.reactors {
-            bits.handle()?;
+            reactors.push(bits.handle()?.resolve(entry.handle)?);
         }
         let xdic = if common.xdic {
             Some(bits.handle()?.resolve(entry.handle)?).filter(|handle| *handle != 0)
@@ -911,6 +928,7 @@ pub(super) fn read(
         }
         Some(Fields {
             owner,
+            reactors,
             xdic,
             layer: Some(layer),
             values,
@@ -969,6 +987,13 @@ pub(super) fn read(
                 int(280, i64::from(bits.rc()?)),
                 text_value(1, &bits.text()?),
             ]
+        } else if kind == b"DIMASSOC" {
+            // 並びは推定なので、読めなければ、従来どおり所有者だけを持つ
+            let at = bits.pos();
+            dimassoc(&mut bits, &mut handles).unwrap_or_else(|| {
+                bits.seek(at);
+                Vec::new()
+            })
         } else if kind == b"SCALE" {
             scale(&mut bits)?
         } else if kind == b"SPATIAL_FILTER" {
@@ -997,9 +1022,12 @@ pub(super) fn read(
         // 拡張辞書は、図形と同じく DXF の組で置く。0 のハンドルは、ないものとする。型ごとのハンドルを
         // 持たないオブジェクトは、ハンドルのストリームがリアクターと拡張辞書を持たないことがあるので、読めなければ
         // 拡張辞書を持たないとする
+        // リアクターも同じく、読めなければ持たないとする
+        let mut reactor_handles = Vec::new();
         let xdic = (|| {
             for _ in 0..reactors {
-                bits.handle()?;
+                reactor_handles.push(bits.handle().and_then(|h| h.resolve(entry.handle)));
+                reactor_handles.last()?.as_ref()?;
             }
             if !xdic {
                 return None;
@@ -1007,6 +1035,11 @@ pub(super) fn read(
             bits.handle()?.resolve(entry.handle)
         })()
         .filter(|handle| *handle != 0);
+        let reactors = reactor_handles
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .filter(|read| usize::try_from(reactors).ok() == Some(read.len()))
+            .unwrap_or_default();
         if !entries.is_empty() || !handles.is_empty() || sortents {
             // SORTENTSTABLE は、ブロックのレコード（330）と、図形（331）と並べ替えのハンドル（5）の組を持つ
             if sortents {
@@ -1063,6 +1096,7 @@ pub(super) fn read(
         }
         Some(Fields {
             owner: Some(owner),
+            reactors,
             xdic,
             layer: None,
             values,
@@ -1373,6 +1407,7 @@ mod copy_tests {
     fn fields() -> Fields {
         Fields {
             owner: Some(1),
+            reactors: Vec::new(),
             xdic: Some(2),
             layer: Some(10),
             values: vec![int(62, 7), real(10, 2.0)],
