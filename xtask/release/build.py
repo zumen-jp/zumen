@@ -10,7 +10,7 @@ from pathlib import Path
 
 from licenses import MANIFESTS, MODULES, ROOT, TARGETS, WASM, feature_args, wasm_name
 from linux_abi import verify_environment, verify_linux
-from sbom import DRAFT, bom_ref, check, digest, document_graph, encode, metadata_for, properties, raw_command, source_of, source_revision
+from sbom import DRAFT, audit_proc_macro, bom_ref, check, digest, document_graph, encode, metadata_for, properties, raw_command, source_of, source_revision
 
 
 def target_tree(workspace, manifest, crate, target, module, kinds, names):
@@ -55,9 +55,17 @@ def build_graph(workspace, manifest, target, module, messages, root_id, enabled)
     check(len(names) == len(compiled_ids) == len(set(refs.values())), "コンパイラーの package ID を一意に識別できない")
     args = (workspace, manifest, packages[root_id]["name"], target, module)
     root, features, all_edges = target_tree(*args, "normal,build", names)
-    runtime_root, runtime_features, runtime = target_tree(*args, "normal,no-proc-macro", names)
+    runtime_root, runtime_features, normal = target_tree(*args, "normal", names)
     check(root == runtime_root == refs[root_id] and features == runtime_features == tuple(sorted(enabled)),
           "ビルドの起点か有効な feature が cargo tree と違う")
+    # 実行時の区分は埋込情報（cargo-auditable）に合わせ、proc-macro の target だけを持つ package で止める
+    macros = {refs[key] for key in compiled_ids if audit_proc_macro(packages[key])}
+    runtime, todo = set(), [root]
+    while todo:
+        ref = todo.pop()
+        if ref not in runtime and ref not in macros:
+            runtime.add(ref)
+            todo.extend(normal.get(ref, ()))
     check(set(all_edges) == set(refs.values()), "コンパイラーと cargo tree の依存が違う")
     return {"compiled": sorted(refs.values()), "root": root,
             "tree": {ref: ["runtime" if ref in runtime else "build", sorted(children)] for ref, children in all_edges.items()}}

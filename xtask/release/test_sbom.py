@@ -80,6 +80,18 @@ class SbomTests(unittest.TestCase):
                     change(args[0], args[2])
                     sbom.normalize(*args)
 
+    def test_proc_macro_with_build_script_is_runtime_like_cargo_auditable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            raw, meta, *rest = fixture(Path(tmp))
+            macro = next(p for p in meta["packages"] if p["name"] == "macro")
+            macro["targets"].append({"kind": ["custom-build"]})
+            raw["components"] = [dict(c, scope="required") if c["name"] in ("macro", "generated") else c
+                                 for c in raw["components"]]
+            document = sbom.normalize(raw, meta, *rest)
+            self.assertEqual({c["name"]: c["scope"] for c in document["components"]},
+                             {"both": "required", "normal": "required", "macro": "required",
+                              "generated": "required", "tool": "excluded"})
+
     def test_path_qualifiers_and_escaped_paths(self):
         for value in (r"C:\work\lib", "/runner/work/lib", r"\\server\share", "download_url=file%253A%252F%252Ftmp"):
             with self.subTest(value=value), self.assertRaises(ValueError):

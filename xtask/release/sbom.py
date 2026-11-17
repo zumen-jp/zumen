@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import tomllib
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -47,6 +48,16 @@ def source_of(package, members):
     return "crates.io"
 
 
+def audit_proc_macro(package):
+    """cargo-auditable 0.7.7 と同じく、proc-macro の target だけを持つ package を proc-macro とみなす。
+
+    build.rs を持つ proc-macro（rustversion など）は target が 2 つになり、cargo-auditable は通常の依存として
+    実行時に区分する。SBOM の区分は埋込情報と同じにする。
+    """
+    targets = package["targets"]
+    return len(targets) == 1 and targets[0]["kind"] == ["proc-macro"]
+
+
 def dependency_graph(metadata, root):
     """通常・build の辺をたどる。proc-macro を通る道は build、両方から使う crate は実行時とする。"""
     packages = {p["id"]: p for p in metadata["packages"]}
@@ -74,7 +85,7 @@ def dependency_graph(metadata, root):
             child = dep["pkg"]
             children.add(child)
             child_normal = None in kinds
-            proc_macro = any("proc-macro" in target["kind"] for target in packages[child]["targets"])
+            proc_macro = audit_proc_macro(packages[child])
             todo.append((child, in_normal and child_normal, at_runtime and child_normal and not proc_macro))
     return edges, normal, runtime
 
@@ -239,11 +250,55 @@ def generate(output, tool):
             print(f"{target} / {kind} / {module}: SBOM {1 + len(bom['components'])} 件")
 
 
+AUDIT_LIMIT = 8 * 1024 * 1024
+
+
+def leb128(binary, offset):
+    value = shift = 0
+    while True:
+        check(offset < len(binary) and shift < 35, "wasm の長さが不正")
+        byte = binary[offset]
+        offset += 1
+        value |= (byte & 0x7F) << shift
+        shift += 7
+        if byte < 0x80:
+            return value, offset
+
+
+def wasm_audit_data(binary):
+    """wasm の `.dep-v0` カスタムセクションを読む。
+
+    `--locked` で入る rust-audit-info 0.5.4 は auditable-extract 0.3.4 を使い、関数本体も 1 つと数えて
+    10,000 個を超えると壊れたファイルとして止まる。セクションの見出しだけをたどれば関数の数によらない。
+    """
+    check(binary[:8] == b"\0asm\x01\0\0\0", "wasm の見出しが違う")
+    offset, found = 8, []
+    while offset < len(binary):
+        section = binary[offset]
+        size, start = leb128(binary, offset + 1)
+        end = start + size
+        check(end <= len(binary), "wasm のセクションが末尾を越える")
+        if section == 0:
+            length, name_start = leb128(binary, start)
+            check(name_start + length <= end, "wasm のカスタムセクションの名前が不正")
+            if binary[name_start:name_start + length] == b".dep-v0":
+                found.append(binary[name_start + length:end])
+        offset = end
+    check(len(found) == 1, "wasm の埋込情報が一つでない")
+    inflater = zlib.decompressobj()
+    data = inflater.decompress(found[0], AUDIT_LIMIT + 1)
+    check(inflater.eof and not inflater.unconsumed_tail and len(data) <= AUDIT_LIMIT, "wasm の埋込情報が展開できない")
+    return data
+
+
 def extracted_graph(binary):
-    with tempfile.TemporaryDirectory(prefix="zumen-audit-") as temporary:
-        path = Path(temporary) / "artifact"
-        path.write_bytes(binary)
-        data = json.loads(raw_command(["rust-audit-info", str(path), str(len(binary)), str(8 * 1024 * 1024)], temporary))
+    if binary[:4] == b"\0asm":
+        data = json.loads(wasm_audit_data(binary))
+    else:
+        with tempfile.TemporaryDirectory(prefix="zumen-audit-") as temporary:
+            path = Path(temporary) / "artifact"
+            path.write_bytes(binary)
+            data = json.loads(raw_command(["rust-audit-info", str(path), str(len(binary)), str(AUDIT_LIMIT)], temporary))
     check(data.get("format") == 1, "埋込情報の形式が違う")
     packages = data["packages"]
     refs = [bom_ref(p["source"], p["name"], p["version"]) for p in packages]

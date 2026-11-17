@@ -14,7 +14,9 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 # wasm のモジュール（決定 0013・0221）。名前は schema/boundary.toml の modules と同じ。ネイティブのライブラリと CLI は、
 # すべてを入れる。モジュールの feature は cfg のコードだけを切り替え、依存の crate と feature を変えない。cargo metadata は
-# workspace の全 member の feature をまとめて解くので、依存を変えると、配る SBOM と埋込情報に実ビルドにない辺が載る
+# workspace の全 member の feature をまとめて解くので、依存を変えると、配る SBOM と埋込情報に実ビルドにない辺が載る。
+# cargo-auditable は有効な feature を crate で限らずに渡すので、同じ名前の feature（zumen-building・zumen-geo の
+# drawing など）を持つ依存では、その feature を下で常に有効にする
 [features]
 default = ["drawing", "bim", "civil", "pointcloud"]
 drawing = []
@@ -57,14 +59,14 @@ zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d" }
 zumen-sima = { version = "0.3.0", path = "../zumen-sima" }
 zumen-tiff = { version = "0.3.0", path = "../zumen-tiff" }
 zumen-delivery = { version = "0.3.0", path = "../zumen-delivery" }
-zumen-geo = { version = "0.3.0", path = "../zumen-geo", features = ["scene3d"] }
+zumen-geo = { version = "0.3.0", path = "../zumen-geo", features = ["scene3d", "drawing"] }
 zumen-geom3d = { version = "0.3.0", path = "../zumen-geom3d" }
 zumen-las = { version = "0.3.0", path = "../zumen-las" }
 zumen-ply = { version = "0.3.0", path = "../zumen-ply" }
 zumen-pointcloud = { version = "0.3.0", path = "../zumen-pointcloud", features = ["scene3d"] }
 zumen-e57 = { version = "0.3.0", path = "../zumen-e57" }
 zumen-xyz = { version = "0.3.0", path = "../zumen-xyz" }
-zumen-building = { version = "0.3.0", path = "../zumen-building" }
+zumen-building = { version = "0.3.0", path = "../zumen-building", features = ["drawing"] }
 zumen-ifc = { version = "0.3.0", path = "../zumen-ifc" }
 zumen-ids = { version = "0.3.0", path = "../zumen-ids" }
 zumen-sxf = { version = "0.3.0", path = "../zumen-sxf" }
