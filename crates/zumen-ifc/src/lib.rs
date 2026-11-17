@@ -44,7 +44,10 @@ pub use building::{
     SurfaceStyleSelection, SurfaceStyleSource, SweptDisk, TessellatedFaces,
 };
 #[cfg(feature = "building")]
-pub use edit::{Applied, Edit, NewLiteral, NewValue, RootAttribute, apply};
+pub use edit::{
+    Applied, Edit, NewElement, NewLiteral, NewPlacement, NewSpace, NewValue, RootAttribute,
+    SpaceKind, Target, apply,
+};
 pub use express::{Express, Findings, check, check_range};
 #[cfg(feature = "ids")]
 pub use ids::IdsLookup;

@@ -871,6 +871,11 @@ impl IfcLive {
                         attribute,
                         value,
                     } => draft.attribute(*element, *attribute, value.as_deref(), cx)?,
+                    // 空間・要素・関係の変更は、文書エンジンではまだ当てない（#897）
+                    structural => {
+                        cx.report(unsupported(structural.name(), b""));
+                        false
+                    }
                 };
                 rejected |= !ok;
             }

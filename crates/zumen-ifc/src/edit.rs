@@ -2,7 +2,13 @@
 //!
 //! 変更を、触れたインスタンスの写しに重ねて当て、触れたインスタンスだけを書き直す。足すインスタンスには、今の最大
 //! の番号の次から振り、データのセクションの終わり（`ENDSEC;`）の前に書く。名前を挙げないインスタンスは、元のバイトのまま
-//! 写す。共有されたプロパティのセットとプロパティは、写しを作って付け替え、ほかの要素の値を変えない。
+//! 写す。共有されたプロパティのセットとプロパティは、写しを作って付け替え、ほかの要素の値を変えない。除くインスタンス
+//! は書かず、前のレコードとの間が空白だけなら、その空白も書かない。空間・要素・関係を足し、除き、置き直す変更は
+//! [`author`] にある（#897）。
+
+mod author;
+
+pub use author::{NewElement, NewPlacement, NewSpace, SpaceKind, Target};
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -37,6 +43,80 @@ pub enum Edit {
         /// 値
         value: Option<String>,
     },
+    /// 空間（敷地・建物・階）を足し、親に集約（`IfcRelAggregates`）で結ぶ
+    Space(NewSpace),
+    /// 要素を足し、空間に包含（`IfcRelContainedInSpatialStructure`）で結ぶ
+    Element(NewElement),
+    /// 要素を除く。要素だけが使う配置・表現・定義・関係と、要素の開口も除く。子や所属する要素を持つ空間は除かない
+    Remove {
+        /// 除く要素
+        element: Target,
+    },
+    /// 要素を置き直す。子の配置は付いてくる
+    Place {
+        /// 置き直す要素
+        element: Target,
+        /// 新しい配置
+        placement: NewPlacement,
+    },
+    /// 所属する空間を変える。空間は集約、ほかは包含で結ぶ
+    Contain {
+        /// 変える要素
+        element: Target,
+        /// 新しく所属する空間（空間ならプロジェクトか空間）
+        space: Target,
+    },
+    /// 型（`IfcRelDefinesByType`）を変える
+    Type {
+        /// 変える要素
+        element: Target,
+        /// 新しい型。`None` は型を外す
+        type_of: Option<Target>,
+    },
+    /// 開口で要素に穴をあける（`IfcRelVoidsElement`）
+    Void {
+        /// 穴をあける要素
+        host: Target,
+        /// 開口（`IfcOpeningElement`）
+        opening: Target,
+    },
+    /// 建具などで開口を埋める（`IfcRelFillsElement`）
+    Fill {
+        /// 開口（`IfcOpeningElement`）
+        opening: Target,
+        /// 埋める要素
+        filler: Target,
+    },
+}
+
+impl Edit {
+    /// 診断に書く変更の種類
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Property { .. } => "property",
+            Self::Attribute {
+                attribute: RootAttribute::Name,
+                ..
+            } => "name",
+            Self::Attribute {
+                attribute: RootAttribute::Description,
+                ..
+            } => "description",
+            Self::Space(_) => "space",
+            Self::Element(_) => "element",
+            Self::Remove { .. } => "remove",
+            Self::Place { .. } => "place",
+            Self::Contain { .. } => "contain",
+            Self::Type { .. } => "type",
+            Self::Void { .. } => "void",
+            Self::Fill { .. } => "fill",
+        }
+    }
+
+    /// 空間・要素・関係を足し、除き、置き直す変更か
+    pub fn is_structural(&self) -> bool {
+        !matches!(self, Self::Property { .. } | Self::Attribute { .. })
+    }
 }
 
 /// `IfcRoot` の属性
@@ -101,13 +181,28 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
                 attribute,
                 value,
             } => draft.attribute(*element, *attribute, value.as_deref(), cx),
+            Edit::Space(space) => draft.add_space(space, cx)?,
+            Edit::Element(element) => draft.add_element(element, cx)?,
+            Edit::Remove { element } => draft.remove(*element, cx)?,
+            Edit::Place { element, placement } => draft.place(*element, placement, cx)?,
+            Edit::Contain { element, space } => draft.contain(*element, *space, cx)?,
+            Edit::Type { element, type_of } => draft.retype(*element, *type_of, cx)?,
+            Edit::Void { host, opening } => draft.relate_opening(false, *host, *opening, cx)?,
+            Edit::Fill { opening, filler } => draft.relate_opening(true, *opening, *filler, cx)?,
         };
         rejected |= !ok;
     }
     if rejected {
         return Err(Error::Invalid);
     }
-    let changed = draft.changed.len();
+    let changed = draft
+        .changed
+        .keys()
+        .chain(&draft.removed)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|id| !(draft.removed.contains(id) && draft.added.contains(id)))
+        .count();
     let bytes = draft.write(cx)?;
     Ok(Applied { bytes, changed })
 }
@@ -240,6 +335,14 @@ struct Draft<'f> {
     referrers: BTreeMap<u64, BTreeSet<u64>>,
     seed: Vec<u8>,
     minted: u64,
+    /// 除いたインスタンス
+    removed: BTreeSet<u64>,
+    /// 足す変更が足した要素。[`Target::Added`] の番号の順
+    handles: Vec<u64>,
+    /// 最初の `IfcProject`
+    project: Option<u64>,
+    /// 文書と、この要求で使った GlobalId。渡された GlobalId を確かめるときに作る
+    global_ids: Option<BTreeSet<String>>,
 }
 
 impl<'f> Draft<'f> {
@@ -255,8 +358,16 @@ impl<'f> Draft<'f> {
         let inverse = file.inverse(cx)?;
         let mut referrers: BTreeMap<u64, BTreeSet<u64>> = BTreeMap::new();
         let mut next = 0;
+        let mut project = None;
         for id in file.ids() {
             next = next.max(id);
+            if project.is_none()
+                && file
+                    .instance(id)
+                    .is_some_and(|record| file.kind(record).eq_ignore_ascii_case(b"IFCPROJECT"))
+            {
+                project = Some(id);
+            }
             for &by in inverse.referrers(id) {
                 referrers.entry(id).or_default().insert(by);
             }
@@ -269,6 +380,10 @@ impl<'f> Draft<'f> {
             referrers,
             seed: seed.to_vec(),
             minted: 0,
+            removed: BTreeSet::new(),
+            handles: Vec::new(),
+            project,
+            global_ids: None,
         })
     }
 
@@ -335,7 +450,9 @@ impl<'f> Draft<'f> {
 
     /// 要素（`IfcRoot`）の 2 OwnerHistory。要素でなければ `None`
     fn root(&self, element: u64, edit: &str, cx: &mut Cx) -> Option<(Stmt, Category)> {
-        let stmt = self.stmt(element);
+        let stmt = self
+            .stmt(element)
+            .filter(|_| !self.removed.contains(&element));
         let found = stmt.as_ref().and_then(|stmt| {
             let global_id = text_of(stmt.arg(1)?)?;
             (global_id.len() == 22).then_some(())?;
@@ -642,17 +759,32 @@ impl<'f> Draft<'f> {
         let mut out = Vec::with_capacity(src.len());
         let mut end = 0;
         let mut in_data = false;
-        let mut placed = self.added.is_empty();
+        let mut placed = self.added.iter().all(|id| self.removed.contains(id));
         for record in self.file.records() {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
-            out.extend_from_slice(self.file.bytes(end..record.span().start));
+            let gap = self.file.bytes(end..record.span().start);
+            if record.id().is_some_and(|id| {
+                self.removed.contains(&id)
+                    && self.file.instance(id).map(|r| r.span()) == Some(record.span())
+            }) {
+                // 除くレコードは、前との間が空白だけなら、その空白も書かない
+                if !gap.iter().all(u8::is_ascii_whitespace) {
+                    out.extend_from_slice(gap);
+                }
+                end = record.span().end;
+                continue;
+            }
+            out.extend_from_slice(gap);
             let name = self.file.kind(record).to_ascii_uppercase();
             let keyword = record.id().is_none();
             if keyword && name == b"DATA" {
                 in_data = true;
             } else if keyword && name == b"ENDSEC" && in_data && !placed {
                 for &id in &self.added {
+                    if self.removed.contains(&id) {
+                        continue;
+                    }
                     if let Some(stmt) = self.changed.get(&id) {
                         write_stmt(id, stmt, &mut out);
                         out.extend_from_slice(newline);
