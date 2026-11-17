@@ -619,7 +619,7 @@ impl Page {
                     }
                     _ => None,
                 };
-                geometry::geometry_of(&element.shape).map(|mut geometry| {
+                let geometry = geometry::geometry_of(&element.shape).map(|mut geometry| {
                     if let Some(ids) = &self.style_ids {
                         ids.fill(&mut geometry);
                     }
@@ -627,7 +627,16 @@ impl Page {
                         leader.annotation = annotation;
                     }
                     geometry
-                })
+                });
+                // 形の値で表せない要素は、黙って geometry を省かず、種類と元のレコードを示す（#884）
+                if geometry.is_none() {
+                    cx.report(
+                        Diagnostic::new(codes::DRAWING_ENTITY_GEOMETRY_UNSUPPORTED)
+                            .with("kind", kind_of(&element.shape).name())
+                            .at(element.source.clone()),
+                    );
+                }
+                geometry
             } else {
                 None
             };

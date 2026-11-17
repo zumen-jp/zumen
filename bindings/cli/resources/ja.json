@@ -125,6 +125,7 @@
     "drawing.element-region.approximated": "対象「{id}」の閉領域を、分割の目標 {tolerance} で曲線を折れ線にして求めました（{count} 件）。",
     "drawing.element-region.failed": "対象「{id}」の閉領域を求められませんでした（理由: {reason}、{count} 件）。",
     "drawing.entity-details.failed": "要素「{id}」の指定したフィールドを返せませんでした（理由: {reason}、{count} 件）。",
+    "drawing.entity-geometry.unsupported": "種類「{kind}」の要素の形を geometry の値で表せないので、geometry を省きました（{count} 件）。",
     "drawing.mark-height.dropped": "線種「{name}」に添える文字の高さを有限の実数で表せないので、結果に含めませんでした（{count} 件）。",
     "drawing.measurement.failed": "校正領域「{id}」で距離を測れませんでした（理由: {reason}、{count} 件）。",
     "drawing.metadata.failed": "図面の「{id}」の詳細を返せませんでした（理由: {reason}、{count} 件）。",

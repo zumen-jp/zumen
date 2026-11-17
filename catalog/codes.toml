@@ -2108,6 +2108,14 @@ group-by = ["id", "reason"]
 since = "0.3.0"
 status = "active"
 
+[codes."drawing.entity-geometry.unsupported"]
+description = "entities で geometry を求めたが、要素の形を形の値で表せず（扱わない形、点と違う座標の系の長さを持つ形）、geometry を省いた。kind は要素の種類。場所は元のレコード"
+severity = "warning"
+params = { kind = "key" }
+group-by = ["kind"]
+since = "0.4.0"
+status = "active"
+
 [codes."drawing.element-measurement.failed"]
 description = "モデル空間の要素または点の計測を完了できなかった。id は対象の公開 ID、quantity は求めた値、reason は失敗の理由"
 severity = "error"

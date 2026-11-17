@@ -125,6 +125,7 @@
     "drawing.element-region.approximated": "Computed regions for \"{id}\" using a polyline approximation with subdivision target {tolerance} ({count}).",
     "drawing.element-region.failed": "Could not compute regions for \"{id}\" (reason: {reason}; {count}).",
     "drawing.entity-details.failed": "Could not return the requested fields of element \"{id}\" (reason: {reason}; {count}).",
+    "drawing.entity-geometry.unsupported": "Could not express the shape of a \"{kind}\" element as a geometry value, so the geometry was omitted ({count}).",
     "drawing.mark-height.dropped": "Omitted the height of text in line type \"{name}\" because it cannot be represented as a finite number ({count}).",
     "drawing.measurement.failed": "Could not measure distance with calibration \"{id}\" (reason: {reason}; {count}).",
     "drawing.metadata.failed": "Could not return drawing metadata for {id} (reason: {reason}, {count} occurrence(s)).",

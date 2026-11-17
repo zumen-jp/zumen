@@ -1497,6 +1497,17 @@ pub const DRAWING_ENTITY_DETAILS_FAILED: Code = Code::new(
     &["id", "reason"],
 );
 
+/// entities で geometry を求めたが、要素の形を形の値で表せず（扱わない形、点と違う座標の系の長さを持つ形）、geometry を省いた。kind は要素の種類。場所は元のレコード
+///
+/// `drawing.entity-geometry.unsupported`（0.4.0 から）
+pub const DRAWING_ENTITY_GEOMETRY_UNSUPPORTED: Code = Code::new(
+    "drawing.entity-geometry.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("kind", ParamType::Key)],
+    &["kind"],
+);
+
 /// 線種に添える文字の高さが有限の実数で表せず、結果に含めなかった
 ///
 /// `drawing.mark-height.dropped`（0.0.0 から）
@@ -6258,6 +6269,7 @@ pub const ALL: &[Code] = &[
     DRAWING_ELEMENT_REGION_APPROXIMATED,
     DRAWING_ELEMENT_REGION_FAILED,
     DRAWING_ENTITY_DETAILS_FAILED,
+    DRAWING_ENTITY_GEOMETRY_UNSUPPORTED,
     DRAWING_MARK_HEIGHT_DROPPED,
     DRAWING_MEASUREMENT_FAILED,
     DRAWING_METADATA_FAILED,
