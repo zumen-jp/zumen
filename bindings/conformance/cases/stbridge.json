@@ -1,5 +1,5 @@
 {
-  "description": "ST-Bridge の MIT の公開サンプル（HoaryFox の 2.0.2 の鉄骨の架構と、STB-DiffChecker の 2.1.0 の最小の試料）を bim のモジュールで開き、建物モデルの要約と要素を環境間で照らす。書き戻しは断る（#400）。",
+  "description": "ST-Bridge の MIT の公開サンプル（HoaryFox の 2.0.2 の鉄骨の架構と、STB-DiffChecker の 2.1.0 の最小の試料）を bim のモジュールで開き、建物モデルの要約と要素、断面を押し出した形の 3D の場面を環境間で照らす。書き戻しは断る（#400）。",
   "module": "bim",
   "steps": [
     { "push": { "name": "hoaryfox.stb", "file": "samples/stbridge/hoaryfox-sample-building.stb" } },
@@ -9,6 +9,7 @@
       "call": { "v": 1, "op": "building_elements", "doc": "hoaryfox.stb", "class": "ifccolumn", "limit": 3, "components": ["class", "identity", "placement", "parent"] },
       "expect": {}
     },
+    { "call": { "v": 1, "op": "scene3d", "doc": "hoaryfox.stb" }, "expect": { "/result/counts/instances": 307 } },
     { "push": { "name": "mini-a.stb", "file": "samples/stbridge/stb-diffchecker-mini210-a.stb" } },
     { "call": { "v": 1, "op": "open", "input": "mini-a.stb" }, "expect": { "/result/format": "stbridge", "/diagnostics/0/code": "stbridge.element.unsupported" } },
     {

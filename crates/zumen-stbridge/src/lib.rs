@@ -8,6 +8,7 @@ use zumen_sdk::{Codec, Error, FileModel, RecordInfo, Signature};
 use zumen_xml::{Document, Node};
 
 pub mod lift;
+mod shape;
 
 /// ST-Bridge のコーデック
 #[derive(Clone, Copy, Debug)]

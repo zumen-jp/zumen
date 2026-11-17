@@ -891,17 +891,18 @@ rights-note = "buildingSMART Japan が仕様書と XML Schema を登録なしで
 place = "core"
 basis = ["spec"]
 known-crates = ["stb-parser"]
-verify = ["HoaryFox", "STB-DiffChecker"]
+verify = ["STBDotNet", "HoaryFox", "STB-DiffChecker"]
 samples = ["HoaryFox の Samples（MIT）", "STB-DiffChecker の TestData（MIT）"]
 legacy-decisions = ["0001", "0013", "0028"]
 issues = ["zumen-jp/zumen-legacy#140", "zumen-jp/zumen#400", "zumen-jp/zumen#402"]
 docs = ["docs/formats/stbridge.md"]
 
 [formats.stbridge.read]
-level = "synthetic"
-scope = "2.0 系と 2.1 系を読み、建物モデルへ移す。XML Schema に合わせて書いた合成のサンプル 2 件（2.1 の架構、Shift_JIS の 2.0 の壁と開口）と、MIT の公開サンプル 3 件（HoaryFox の 2.0.2 の鉄骨の架構、STB-DiffChecker の 2.1.0 の一組）を読み、部材の数・種類・配置・開口・診断を確かめた。公開サンプルの値を外部の実装が読んだ値とは照らしていない。断面の形・配筋・鋼材の規格は移さない。書き戻さない"
-checked = "2026-11-17"
+level = "external"
+scope = "2.0 系と 2.1 系を読み、建物モデルへ移す。柱・梁・ブレース・スラブ・壁は、矩形・円・I 形・角形鋼管・円形鋼管と板の断面を押し出した形を持つ（鋼材の丸みは入れない）。MIT の公開サンプルの HoaryFox の 2.0.2 の鉄骨の架構を STBDotNet 0.2.3 でも読み、部材 307・階 6 の数と ID・名前、部材・階・断面・鋼材の規格の属性の値 4492 個と参照、部材の配置の原点と材軸の向きを照らし、食い違いは 0（xtask/verify/stbridge、毎晩の CI）。external の根拠はこの 1 件。XML Schema に合わせて書いた合成のサンプル 2 件（2.1 の架構、Shift_JIS の 2.0 の壁と開口）と STB-DiffChecker の 2.1.0 の一組は、部材の数・種類・配置・開口・診断と形の評価を自前の試験で確かめた synthetic の範囲。断面の形の寸法と位置、局所の X の向き、階への所属は外部の実装と照らしていない。開口の形・部材の端のずれ・ハンチ・配筋は移さない。書き戻さない"
+checked = "2026-11-18"
 public-samples = ["samples/stbridge/"]
+implementations = [{ name = "STBDotNet", version = "0.2.3" }]
 
 [[formats.stbridge.evidence]]
 title = "STB-KIT の README「ST-Bridge および IFC との関係」"

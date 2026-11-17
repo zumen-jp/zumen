@@ -3,6 +3,7 @@
 
 use zumen_abi1::{Session, Status};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, codes};
+use zumen_building::evaluation::{self, ElementMesh};
 use zumen_building::{Building, ElementRef, Id, Local, Opening, ParentKind};
 use zumen_sdk::{Codec, Lift, testkit};
 use zumen_stbridge::Stb;
@@ -54,6 +55,45 @@ fn named(building: &Building, original: &str, tag: &str) -> ElementRef {
 }
 
 #[cfg(test)]
+fn evaluate(building: &Building) -> Vec<ElementMesh> {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+    evaluation::evaluate(building, Default::default(), &mut cx).unwrap()
+}
+
+/// 要素の形の、プロジェクトの座標（m）での外接箱
+#[cfg(test)]
+fn bounds(meshes: &[ElementMesh], element: ElementRef) -> [[f64; 3]; 2] {
+    let mesh = meshes.iter().find(|m| m.element == element).unwrap();
+    assert!(mesh.complete && !mesh.parts.is_empty());
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for part in &mesh.parts {
+        for &p in &part.mesh.positions {
+            let q = part.placement.point(p);
+            for ((l, h), v) in lo.iter_mut().zip(hi.iter_mut()).zip(q) {
+                *l = l.min(v);
+                *h = h.max(v);
+            }
+        }
+    }
+    [lo, hi]
+}
+
+#[cfg(test)]
+fn assert_close<const N: usize>(found: [f64; N], expected: [f64; N]) {
+    assert!(
+        found
+            .iter()
+            .zip(expected)
+            .all(|(f, e)| (f - e).abs() < 1e-6),
+        "{found:?} != {expected:?}"
+    );
+}
+
+#[cfg(test)]
 fn call(session: &mut Session, request: &str) -> (Status, String) {
     let reply = session.call(request.as_bytes(), &CancelToken::new());
     (reply.status, String::from_utf8(reply.response).unwrap())
@@ -98,30 +138,31 @@ fn lifts_the_hoaryfox_sample() {
         .unwrap()
         .sets;
     assert_eq!(sets[1].name, "StbSecColumn_S");
-    // 移さないのは、継手・計算の条件・解析のモデル・鋼材の規格の一覧と、断面の形を書く子の要素
+    // 角形鋼管の柱は、鋼材の規格の寸法を引き、規格の属性もセットに持つ
+    assert_eq!(sets[2].name, "StbSecRoll-BOX");
+    // 移さないのは、継手・計算の条件・解析のモデル。H 形と角形鋼管の丸みは、部材の名前ごとに知らせる
     let found: Vec<String> = diagnostics.iter().map(|d| format!("{d:?}")).collect();
-    assert_eq!(found.len(), 8, "{found:?}");
-    assert!(
-        diagnostics
-            .iter()
-            .all(|d| d.code() == codes::STBRIDGE_ELEMENT_UNSUPPORTED),
-        "{found:?}"
-    );
-    for element in [
-        "StbJoints",
-        "StbCalData",
-        "StbAnaModels",
-        "StbSecSteel\"",
-        "StbSecSteelFigureColumn_S",
-        "StbSecSteelFigureBeam_S",
-        "StbSecSteelFigureBrace_S",
-        "StbSecFigureBeam_RC",
-    ] {
+    assert_eq!(found.len(), 6, "{found:?}");
+    for element in ["StbJoints", "StbCalData", "StbAnaModels"] {
         assert!(
-            found.iter().any(|m| m.contains(element)),
+            found
+                .iter()
+                .any(|m| m.contains("element.unsupported") && m.contains(element)),
             "{element}: {found:?}"
         );
     }
+    let fillets: Vec<(String, u64)> = diagnostics
+        .iter()
+        .filter(|d| d.code() == codes::STBRIDGE_FILLET_DROPPED)
+        .map(|d| (format!("{d:?}"), d.count()))
+        .collect();
+    assert_eq!(fillets.len(), 3, "{fillets:?}");
+    assert_eq!(fillets.iter().map(|(_, n)| n).sum::<u64>(), 105 + 160 + 10);
+    // 柱・梁・ブレースの 307 本に形があり、どれも欠けずに評価できる
+    let meshes = evaluate(&building);
+    let shaped = meshes.iter().filter(|m| !m.parts.is_empty()).count();
+    assert_eq!(shaped, 105 + 192 + 10);
+    assert!(meshes.iter().all(|m| m.complete));
 }
 
 #[test]
@@ -129,22 +170,13 @@ fn lifts_the_diffchecker_pair() {
     // 節点 2 の X と梁の断面だけが違う 2.1.0 の組
     let (a, diagnostics_a) = lift(MINI_A);
     let (b, diagnostics_b) = lift(MINI_B);
-    // 断面の形と配筋の子の要素を移さないことだけを知らせる
+    // 配筋の子の要素を移さないことだけを知らせる
     for diagnostics in [&diagnostics_a, &diagnostics_b] {
         let found: Vec<String> = diagnostics.iter().map(|d| format!("{d:?}")).collect();
-        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found.len(), 1, "{found:?}");
         assert!(
-            found.iter().all(|m| m.contains("element.unsupported")),
-            "{found:?}"
-        );
-        assert!(
-            found.iter().any(|m| m.contains("StbSecFigureBeam_RC")),
-            "{found:?}"
-        );
-        assert!(
-            found
-                .iter()
-                .any(|m| m.contains("StbSecBarArrangementBeam_RC")),
+            found[0].contains("element.unsupported")
+                && found[0].contains("StbSecBarArrangementBeam_RC"),
             "{found:?}"
         );
     }
@@ -152,12 +184,20 @@ fn lifts_the_diffchecker_pair() {
     assert_eq!(classes(&a), classes(&b));
     let girder_a = named(&a, "StbGirder", "201");
     let girder_b = named(&b, "StbGirder", "201");
-    // 違いは断面の寸法（移さない子の要素）と終わりの節点の位置で、どちらも建物モデルには残らない。
+    // 違いは断面の寸法と終わりの節点の位置で、どちらも梁の形に表れる。プロパティは同じ。
     // 梁は始めの節点を原点にし、材軸を全体の X に向ける
     assert_eq!(
         a.components.properties.get(girder_a),
         b.components.properties.get(girder_b)
     );
+    assert_ne!(
+        a.geometry(girder_a).unwrap().fingerprint(),
+        b.geometry(girder_b).unwrap().fingerprint()
+    );
+    // a の梁は幅 400・せい 700 で、天端を節点（Z = 0）に合わせる
+    let [lo, hi] = bounds(&evaluate(&a), girder_a);
+    assert_close(lo, [0.0, -0.2, -0.7]);
+    assert_close(hi, [6.0, 0.2, 0.0]);
     for (building, girder) in [(&a, girder_a), (&b, girder_b)] {
         let Local::Transform(t) = &building.components.placement.get(girder).unwrap().local else {
             panic!("配置がない");
@@ -279,6 +319,30 @@ fn lifts_the_frame() {
 }
 
 #[test]
+fn shapes_the_frame() {
+    // 柱は材軸を中心に、梁は節点を天端に、床は節点の面を上端に、壁は節点の面を中心にする
+    let (building, _) = lift(FRAME);
+    let meshes = evaluate(&building);
+    let at = |original: &str, tag: &str| bounds(&meshes, named(&building, original, tag));
+    let [lo, hi] = at("StbColumn", "1");
+    assert_close(lo, [-0.3, -0.3, 0.0]);
+    assert_close(hi, [0.3, 0.3, 3.5]);
+    let [lo, hi] = at("StbGirder", "1");
+    assert_close(lo, [0.0, -0.1, 3.1]);
+    assert_close(hi, [6.0, 0.1, 3.5]);
+    let [lo, hi] = at("StbGirder", "2");
+    assert_close([lo[0], lo[1]], [5.9, 0.0]);
+    assert_close([hi[0], hi[1]], [6.1, 5.0]);
+    let [lo, hi] = at("StbSlab", "1");
+    assert_close(lo, [0.0, 0.0, 3.35]);
+    assert_close(hi, [6.0, 5.0, 3.5]);
+    // 開口は形を持たないので、壁は穴をあけられずに欠けたものとして残る
+    let wall = named(&building, "StbWall", "1");
+    let mesh = meshes.iter().find(|m| m.element == wall).unwrap();
+    assert!(!mesh.complete && !mesh.parts.is_empty());
+}
+
+#[test]
 fn lifts_shift_jis_and_the_2_0_openings() {
     let (building, diagnostics) = lift(WALL);
     assert_eq!(building.document.project_name.as_deref(), Some("壁の試験"));
@@ -322,20 +386,14 @@ fn lifts_shift_jis_and_the_2_0_openings() {
             .as_deref(),
         Some("2FL")
     );
-    // 拡張と、断面の形を書く子の要素は移さない
+    // 拡張と、杭の断面の形を書く子の要素は移さない。柱・梁・壁の形は 2.0 の名前の子から作る
     let unsupported: Vec<String> = diagnostics
         .iter()
         .filter(|d| d.code() == codes::STBRIDGE_ELEMENT_UNSUPPORTED)
         .map(|d| format!("{d:?}"))
         .collect();
-    assert_eq!(unsupported.len(), 5, "{unsupported:?}");
-    for element in [
-        "StbExtensions",
-        "StbSecFigureColumn_RC",
-        "StbSecFigureBeam_RC",
-        "StbSecFigureWall_RC",
-        "StbSecFigurePile_RC",
-    ] {
+    assert_eq!(unsupported.len(), 2, "{unsupported:?}");
+    for element in ["StbExtensions", "StbSecFigurePile_RC"] {
         assert!(
             unsupported.iter().any(|m| m.contains(element)),
             "{element}: {unsupported:?}"
@@ -381,6 +439,10 @@ fn check(session: &mut Session) {
     );
     assert_eq!(status, Status::Ok, "{elements}");
     assert!(elements.contains("StbSecBeam_S"), "{elements}");
+    // 断面の形を 3D の場面にできる。柱 4・梁 3・床・壁の 9 つに形がある
+    let (status, scene) = call(session, r#"{"v": 1, "op": "scene3d", "doc": "frame.stb"}"#);
+    assert_eq!(status, Status::Ok, "{scene}");
+    assert!(scene.contains(r#""instances":9"#), "{scene}");
     let (_, capabilities) = call(session, r#"{"v": 1, "op": "capabilities"}"#);
     assert!(
         capabilities.contains(r#""id":"stbridge","family":"stbridge""#),

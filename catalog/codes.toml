@@ -4060,23 +4060,23 @@ status = "active"
 [codes."stbridge.file.invalid"]
 description = "根の要素が ST_BRIDGE でないか、version がないので、ST-Bridge として読めない"
 severity = "error"
-since = "0.3.0"
+since = "0.4.0"
 status = "active"
 
 [codes."stbridge.version.unsupported"]
 description = "2.0 系と 2.1 系でない ST-Bridge の版（1.x など）なので、読まなかった"
 severity = "error"
 params = { version = "text" }
-since = "0.3.0"
+since = "0.4.0"
 status = "active"
 
 [codes."stbridge.element.unsupported"]
-description = "建物モデルへ移さない要素（断面の形・配筋・鋼材の規格の一覧・拡張など）。要素の名前ごとにまとめる"
+description = "建物モデルへ移さない要素（形にしない断面の子・配筋・寸法を引かない鋼材の規格・拡張など）。要素の名前ごとにまとめる"
 severity = "warning"
 fidelity = "dropped"
 params = { element = "text" }
 group-by = ["element"]
-since = "0.3.0"
+since = "0.4.0"
 status = "active"
 
 [codes."stbridge.reference.missing"]
@@ -4085,7 +4085,7 @@ severity = "warning"
 fidelity = "dropped"
 params = { element = "text", attribute = "text", target = "text" }
 group-by = ["element", "attribute"]
-since = "0.3.0"
+since = "0.4.0"
 status = "active"
 
 [codes."stbridge.placement.dropped"]
@@ -4094,5 +4094,23 @@ severity = "warning"
 fidelity = "dropped"
 params = { element = "text" }
 group-by = ["element"]
-since = "0.3.0"
+since = "0.4.0"
+status = "active"
+
+[codes."stbridge.shape.dropped"]
+description = "部材の断面の形を作れないので、形を移さなかった。reason は non_planar（面の部材の節点が 1 つの平面にない）か figure_mismatch（部材と断面の形の種類が合わない）"
+severity = "warning"
+fidelity = "dropped"
+params = { element = "text", reason = "text" }
+group-by = ["element", "reason"]
+since = "0.4.0"
+status = "active"
+
+[codes."stbridge.fillet.dropped"]
+description = "鋼材の規格の丸み（r）を形に入れず、角のある断面で移した。丸みの値は鋼材の規格の属性としてプロパティに残す"
+severity = "warning"
+fidelity = "dropped"
+params = { element = "text" }
+group-by = ["element"]
+since = "0.4.0"
 status = "active"

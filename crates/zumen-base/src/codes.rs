@@ -5431,9 +5431,9 @@ pub const SIMA_WRITE_CRS_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
-/// 建物モデルへ移さない要素（断面の形・配筋・鋼材の規格の一覧・拡張など）。要素の名前ごとにまとめる
+/// 建物モデルへ移さない要素（形にしない断面の子・配筋・寸法を引かない鋼材の規格・拡張など）。要素の名前ごとにまとめる
 ///
-/// `stbridge.element.unsupported`（0.3.0 から）
+/// `stbridge.element.unsupported`（0.4.0 から）
 pub const STBRIDGE_ELEMENT_UNSUPPORTED: Code = Code::new(
     "stbridge.element.unsupported",
     Severity::Warning,
@@ -5444,13 +5444,24 @@ pub const STBRIDGE_ELEMENT_UNSUPPORTED: Code = Code::new(
 
 /// 根の要素が ST_BRIDGE でないか、version がないので、ST-Bridge として読めない
 ///
-/// `stbridge.file.invalid`（0.3.0 から）
+/// `stbridge.file.invalid`（0.4.0 から）
 pub const STBRIDGE_FILE_INVALID: Code =
     Code::new("stbridge.file.invalid", Severity::Error, None, &[], &[]);
 
+/// 鋼材の規格の丸み（r）を形に入れず、角のある断面で移した。丸みの値は鋼材の規格の属性としてプロパティに残す
+///
+/// `stbridge.fillet.dropped`（0.4.0 から）
+pub const STBRIDGE_FILLET_DROPPED: Code = Code::new(
+    "stbridge.fillet.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("element", ParamType::Text)],
+    &["element"],
+);
+
 /// 部材を決める節点が足りないか重なるので、部材に配置を持たせなかった
 ///
-/// `stbridge.placement.dropped`（0.3.0 から）
+/// `stbridge.placement.dropped`（0.4.0 から）
 pub const STBRIDGE_PLACEMENT_DROPPED: Code = Code::new(
     "stbridge.placement.dropped",
     Severity::Warning,
@@ -5461,7 +5472,7 @@ pub const STBRIDGE_PLACEMENT_DROPPED: Code = Code::new(
 
 /// 部材などの属性が指す節点・断面・部材がないので、その参照を移さなかった
 ///
-/// `stbridge.reference.missing`（0.3.0 から）
+/// `stbridge.reference.missing`（0.4.0 から）
 pub const STBRIDGE_REFERENCE_MISSING: Code = Code::new(
     "stbridge.reference.missing",
     Severity::Warning,
@@ -5474,9 +5485,23 @@ pub const STBRIDGE_REFERENCE_MISSING: Code = Code::new(
     &["element", "attribute"],
 );
 
+/// 部材の断面の形を作れないので、形を移さなかった。reason は non_planar（面の部材の節点が 1 つの平面にない）か figure_mismatch（部材と断面の形の種類が合わない）
+///
+/// `stbridge.shape.dropped`（0.4.0 から）
+pub const STBRIDGE_SHAPE_DROPPED: Code = Code::new(
+    "stbridge.shape.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("element", ParamType::Text),
+        Param::new("reason", ParamType::Text),
+    ],
+    &["element", "reason"],
+);
+
 /// 2.0 系と 2.1 系でない ST-Bridge の版（1.x など）なので、読まなかった
 ///
-/// `stbridge.version.unsupported`（0.3.0 から）
+/// `stbridge.version.unsupported`（0.4.0 から）
 pub const STBRIDGE_VERSION_UNSUPPORTED: Code = Code::new(
     "stbridge.version.unsupported",
     Severity::Error,
@@ -6564,8 +6589,10 @@ pub const ALL: &[Code] = &[
     SIMA_WRITE_CRS_UNSUPPORTED,
     STBRIDGE_ELEMENT_UNSUPPORTED,
     STBRIDGE_FILE_INVALID,
+    STBRIDGE_FILLET_DROPPED,
     STBRIDGE_PLACEMENT_DROPPED,
     STBRIDGE_REFERENCE_MISSING,
+    STBRIDGE_SHAPE_DROPPED,
     STBRIDGE_VERSION_UNSUPPORTED,
     SXF_ARCHIVE_UNSUPPORTED,
     SXF_CODE_MISSING,

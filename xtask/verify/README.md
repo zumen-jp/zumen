@@ -30,6 +30,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `express/` | buildingSMART の公開 IFC EXPRESS 3版を実行時だけ取得し、実体・明示属性・型を同じ入力から読んだ IfcOpenShell と照らす（#663）。手順は [README](express/README.md) |
 | `ids/` | 公開 IFC2X3 と自作 IDS の名前の要件 6 仕様を、3 文字コードで IfcTester と照らす（#522）。手順と期待値は [README](ids/README.md) |
 | `bcf/` | 自作 BCF 2.1・3.0 の編集・新規出力と外部実装の再保存を、Smino.Bcf.Toolkit と固定期待値で照らす（#522）。手順と範囲は [README](bcf/README.md) |
+| `stbridge/` | ST-Bridge 2.0.2 の公開サンプルの部材・階・断面・鋼材の規格の属性と参照、部材の配置を、STBDotNet と照らす（#400）。手順は [README](stbridge/README.md) |
 | `acc/` | 公開 IFC と BCF 2.1 のオフライン検証キットを作り、Autodesk Build の取り込み・書き出しを利用者が確認する（#686・#787）。手順と期待値は [README](acc/README.md) |
 | `check_autocad.py` | キットの DXF・DWG を、画面のない AutoCAD（`accoreconsole.exe`）で 1 つずつ開き、監査の誤りの数と `dump.lsp` の書き出しを、zumen の読みと変更で決めた値に照らす（#683）。AutoCAD のある端末の手元でだけ流す |
 | `test_check_autocad.py` | `check_autocad.py` の、流すスクリプトの組み立て、コンソールの出力と書き出しの読み、形の値への直し、寸法と表の部品の比べ方を、合成の入力で確かめる。AutoCAD がなくても流せる |

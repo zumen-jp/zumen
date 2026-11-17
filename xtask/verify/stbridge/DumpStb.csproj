@@ -1,0 +1,25 @@
+<!--
+  公開サンプルの ST-Bridge を STBDotNet（MIT）で読み、節点・部材・断面・鋼材の規格の値を JSON に書き出す。
+  テストのツールで、zumen の成果物にも依存にも入れない。照らすのは check_stbridge.py。
+  STBDotNet のバージョンは決めて入れ、packages.lock.json で中身のハッシュも固定する（CI では lock のとおりにだけ取る）。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="STBDotNet" Version="[0.2.3]" />
+  </ItemGroup>
+
+</Project>

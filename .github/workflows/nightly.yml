@@ -315,6 +315,37 @@ jobs:
           path: ${{ runner.temp }}/bcf-check
           retention-days: 30
 
+  stbridge:
+    name: ST-Bridge の公開サンプルを STBDotNet と照らす
+    # STBDotNet（MIT）はテストのツールで、依存にしない（xtask/verify/stbridge/README.md、#400）
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml のバージョンの Rust を入れる
+        run: rustup toolchain install
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: 公開操作を呼ぶ CLI をビルドする
+        run: cargo build --locked -p zumen-cli --bin zumen
+      - name: 照合が値・参照・配置の食い違いを見逃さないことを確かめる
+        run: python -I -m unittest discover -s xtask/verify/stbridge -p test_check.py
+      - name: 公開サンプルを STBDotNet と zumen で読んで照らす
+        run: python -I xtask/verify/stbridge/check.py --cli target/debug/zumen --out "$RUNNER_TEMP/stbridge-check"
+      - name: 照合の結果を保存する
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verify-stbridge
+          path: ${{ runner.temp }}/stbridge-check
+          retention-days: 30
+
   pye57:
     name: 公開E57の全点と色をpye57と照らす
     runs-on: ubuntu-latest

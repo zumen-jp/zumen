@@ -3,22 +3,24 @@
 //! - 要素の種類は IFC の実体の名前（`IfcColumn` など）にし、元の要素の名前を `original` に残す。
 //! - 要素の ID は `guid`（UUID か 22 文字の GlobalId）から作り、なければ XML の要素の番号で作る。
 //! - 部材の属性と、参照する断面の属性は、元の要素の名前のプロパティのセットに、文字列のまま持つ。
-//! - 配置は、部材を決める節点から作る（決め方は `docs/formats/stbridge.md`）。形（断面の押し出し）は、建物モデルの
-//!   形の項目の型が決まるまで持たない。
-//! - 移さない要素は、要素の名前ごとに `stbridge.element.unsupported` で知らせる。断面は、形と配筋を書く子の
-//!   要素を移さない。
+//! - 配置は、部材を決める節点から作る（決め方は `docs/formats/stbridge.md`）。柱・梁・ブレース・スラブ・壁は、
+//!   断面の形を押し出しの形にする（`crate::shape`）。
+//! - 移さない要素は、要素の名前ごとに `stbridge.element.unsupported` で知らせる。断面は、形にしなかった子の要素と
+//!   配筋を移さない。
 
 use std::collections::BTreeMap;
 
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_building::{
-    Application, Building, Class, Document, ElementRef, GlobalId, Grid, GridSet, Header, Identity,
-    Literal, Local, Measured, Membership, Opening, Parent, ParentKind, Placement, Properties,
-    Property, PropertySet, Spatial, SpatialKind, Transform, TypedValue, Unit,
+    Application, Building, Class, Document, ElementRef, GeometryData, GeometryError, GlobalId,
+    Grid, GridSet, Header, Identity, Literal, Local, Measured, Membership, Opening, Parent,
+    ParentKind, Placement, Properties, Property, PropertySet, Spatial, SpatialKind, Transform,
+    TypedValue, Unit,
 };
 use zumen_sdk::{Error, Lift};
 
 use crate::StbFile;
+use crate::shape::{self, Figure, Found};
 
 /// 部材の要素と、建物モデルでの種類と、節点の持ち方と、断面の要素の名前の始まり
 struct MemberKind {
@@ -27,6 +29,31 @@ struct MemberKind {
     predefined: Option<&'static str>,
     nodes: Nodes,
     section: Option<&'static str>,
+    shape: Rule,
+}
+
+/// 断面の形の置き方
+#[derive(Clone, Copy, PartialEq)]
+enum Rule {
+    /// 断面の中心を材軸に合わせる（柱・ブレース）
+    Centered,
+    /// 断面の上端を材軸に合わせる（梁）
+    Top,
+    /// 節点の面を上端にして、厚さを下へとる（スラブ）
+    Slab,
+    /// 節点の面を中心にして、厚さを両側へとる（壁）
+    Wall,
+    /// 形を作らない
+    None,
+}
+
+/// 部材の配置に使った、形を作るための値
+enum Extent {
+    /// 線の部材の材軸の長さ
+    Line(f64),
+    /// 面の部材の節点（全体の座標）
+    Plate(Vec<[f64; 3]>),
+    None,
 }
 
 /// 部材を決める節点
@@ -51,6 +78,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: Some("COLUMN"),
         nodes: Nodes::BottomTop,
         section: Some("StbSecColumn"),
+        shape: Rule::Centered,
     },
     MemberKind {
         element: b"StbPost",
@@ -58,6 +86,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: Some("COLUMN"),
         nodes: Nodes::BottomTop,
         section: Some("StbSecColumn"),
+        shape: Rule::Centered,
     },
     MemberKind {
         element: b"StbGirder",
@@ -65,6 +94,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: Some("BEAM"),
         nodes: Nodes::StartEnd { upper: false },
         section: Some("StbSecBeam"),
+        shape: Rule::Top,
     },
     MemberKind {
         element: b"StbBeam",
@@ -72,6 +102,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: Some("BEAM"),
         nodes: Nodes::StartEnd { upper: false },
         section: Some("StbSecBeam"),
+        shape: Rule::Top,
     },
     MemberKind {
         element: b"StbBrace",
@@ -79,6 +110,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: Some("BRACE"),
         nodes: Nodes::StartEnd { upper: true },
         section: Some("StbSecBrace"),
+        shape: Rule::Centered,
     },
     MemberKind {
         element: b"StbSlab",
@@ -86,6 +118,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: None,
         nodes: Nodes::OrderFirst,
         section: Some("StbSecSlab"),
+        shape: Rule::Slab,
     },
     MemberKind {
         element: b"StbWall",
@@ -93,6 +126,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: None,
         nodes: Nodes::OrderLast,
         section: Some("StbSecWall"),
+        shape: Rule::Wall,
     },
     MemberKind {
         element: b"StbFooting",
@@ -100,6 +134,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: Some("PAD_FOOTING"),
         nodes: Nodes::Single,
         section: Some("StbSecFoundation"),
+        shape: Rule::None,
     },
     MemberKind {
         element: b"StbStripFooting",
@@ -107,6 +142,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: Some("STRIP_FOOTING"),
         nodes: Nodes::StartEnd { upper: false },
         section: Some("StbSecFoundation"),
+        shape: Rule::None,
     },
     MemberKind {
         element: b"StbPile",
@@ -114,6 +150,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: None,
         nodes: Nodes::Single,
         section: Some("StbSecPile"),
+        shape: Rule::None,
     },
     // 基礎柱の断面は、柱と根巻きの 2 つを属性で指すので、断面のセットを持たせない
     MemberKind {
@@ -122,6 +159,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: None,
         nodes: Nodes::Single,
         section: None,
+        shape: Rule::None,
     },
     MemberKind {
         element: b"StbParapet",
@@ -129,6 +167,7 @@ const MEMBERS: &[MemberKind] = &[
         predefined: Some("PARAPET"),
         nodes: Nodes::StartEnd { upper: false },
         section: Some("StbSecParapet"),
+        shape: Rule::None,
     },
 ];
 
@@ -197,6 +236,42 @@ fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     let [ax, ay, az] = a;
     let [bx, by, bz] = b;
     [ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx]
+}
+
+fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
+    let [x, y, z] = sub(b, a);
+    (x * x + y * y + z * z).sqrt()
+}
+
+/// 面の部材の形。節点を局所の XY に写し、局所の Z が 1 mm を超えてずれる（平面でない）なら作らない
+fn plate(
+    points: &[[f64; 3]],
+    thickness: f64,
+    rule: Rule,
+    local: &Transform,
+    instance: u64,
+) -> Option<GeometryData> {
+    let Transform([[xx, yx, zx, ox], [xy, yy, zy, oy], [xz, yz, zz, oz]]) = *local;
+    let mut flat = Vec::with_capacity(points.len());
+    for &[px, py, pz] in points {
+        let [dx, dy, dz] = [px - ox, py - oy, pz - oz];
+        let dot = |[ax, ay, az]: [f64; 3]| ax * dx + ay * dy + az * dz;
+        if dot([zx, zy, zz]).abs() > 1.0 {
+            return None;
+        }
+        flat.push([dot([xx, xy, xz]), dot([yx, yy, yz])]);
+    }
+    if flat.len() < 3 {
+        return None;
+    }
+    Some(match rule {
+        // 上端の面から下へ。局所の Z が下を向いていれば、局所の +Z へ押し出す
+        Rule::Slab => {
+            let sign = if zz < 0.0 { 1.0 } else { -1.0 };
+            shape::plate(&flat, thickness, 0.0, sign, instance)
+        }
+        _ => shape::plate(&flat, thickness, -thickness / 2.0, 1.0, instance),
+    })
 }
 
 fn normalize(v: [f64; 3]) -> Option<[f64; 3]> {
@@ -596,22 +671,64 @@ impl Lift<Building> for StbFile {
             }
         }
 
+        // 鋼材の規格の一覧。名前で引く。寸法を引けない種類は移さない
+        let list = self.child(model, b"StbSections");
+        let mut steels: BTreeMap<String, usize> = BTreeMap::new();
+        for table in list.into_iter().flat_map(|list| self.children(list)) {
+            if self.name(table) != b"StbSecSteel" {
+                continue;
+            }
+            for steel in self.children(table).collect::<Vec<_>>() {
+                builder.cx.check(Kind::Work, 1)?;
+                if !shape::STEEL.contains(&self.name(steel)) {
+                    builder.unsupported(steel);
+                }
+                if let Some(name) = self.attribute(steel, "name") {
+                    steels.entry(name.trim().to_owned()).or_insert(steel);
+                }
+            }
+        }
+
         // 断面。要素の名前と ID で引く
         let mut sections: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-        if let Some(list) = self.child(model, b"StbSections") {
-            for section in self.children(list).collect::<Vec<_>>() {
-                builder.cx.check(Kind::Work, 1)?;
-                // ID のない要素（鋼材の規格の一覧 `StbSecSteel`）と、断面の形・配筋を書く子の要素は移さない
-                let Some(id) = self.attribute(section, "id") else {
-                    builder.unsupported(section);
-                    continue;
-                };
-                sections
-                    .entry(id.trim().to_owned())
-                    .or_default()
-                    .push(section);
-                for child in self.children(section).collect::<Vec<_>>() {
-                    builder.unsupported(child);
+        let mut figures: BTreeMap<usize, Figure> = BTreeMap::new();
+        for section in list
+            .into_iter()
+            .flat_map(|list| self.children(list))
+            .collect::<Vec<_>>()
+        {
+            builder.cx.check(Kind::Work, 1)?;
+            if self.name(section) == b"StbSecSteel" {
+                continue;
+            }
+            // ID のない要素は移さない
+            let Some(id) = self.attribute(section, "id") else {
+                builder.unsupported(section);
+                continue;
+            };
+            sections
+                .entry(id.trim().to_owned())
+                .or_default()
+                .push(section);
+            let used = match shape::figure(self, section, &steels) {
+                Found::Figure { figure, used } => {
+                    figures.insert(section, figure);
+                    used
+                }
+                Found::Missing { element, name } => {
+                    builder.missing(element, "shape", &name);
+                    Vec::new()
+                }
+                Found::None => Vec::new(),
+            };
+            // 形にした要素のほかの子（配筋など）は移さない
+            let mut parents = vec![section];
+            parents.extend(used.iter().copied().take(used.len().saturating_sub(1)));
+            for parent in parents {
+                for child in self.children(parent).collect::<Vec<_>>() {
+                    if !used.contains(&child) {
+                        builder.unsupported(child);
+                    }
                 }
             }
         }
@@ -639,7 +756,8 @@ impl Lift<Building> for StbFile {
                         builder.unsupported(member);
                         continue;
                     };
-                    let Some(target) = builder.member(member, kind, &nodes, &sections, building)?
+                    let Some(target) =
+                        builder.member(member, kind, &nodes, (&sections, &figures), building)?
                     else {
                         continue;
                     };
@@ -713,7 +831,7 @@ impl Builder<'_, '_, '_> {
         member: usize,
         kind: &MemberKind,
         nodes: &BTreeMap<String, NodePoint>,
-        sections: &BTreeMap<String, Vec<usize>>,
+        (sections, figures): (&BTreeMap<String, Vec<usize>>, &BTreeMap<usize, Figure>),
         building: Option<ElementRef>,
     ) -> Result<Option<ElementRef>, Error> {
         let file = self.file;
@@ -734,12 +852,16 @@ impl Builder<'_, '_, '_> {
             found
         };
         let rotate = number(file.attribute(member, "rotate")).unwrap_or(0.0);
+        let mut extent = Extent::None;
         let (placement, story) = match kind.nodes {
             Nodes::BottomTop => {
                 let bottom = node(self, "id_node_bottom");
                 let top = node(self, "id_node_top");
                 match (bottom, top) {
-                    (Some(b), Some(t)) => (linear(b.point, t.point, rotate), t.story),
+                    (Some(b), Some(t)) => {
+                        extent = Extent::Line(distance(b.point, t.point));
+                        (linear(b.point, t.point, rotate), t.story)
+                    }
                     _ => (None, top.or(bottom).and_then(|n| n.story)),
                 }
             }
@@ -751,6 +873,7 @@ impl Builder<'_, '_, '_> {
                         let [_, _, sz] = s.point;
                         let [_, _, ez] = e.point;
                         let story = if upper && ez > sz { e.story } else { s.story };
+                        extent = Extent::Line(distance(s.point, e.point));
                         (linear(s.point, e.point, rotate), story)
                     }
                     _ => (None, start.or(end).and_then(|n| n.story)),
@@ -774,7 +897,9 @@ impl Builder<'_, '_, '_> {
                 }
                 .and_then(|n| n.story);
                 let coordinates: Vec<[f64; 3]> = points.iter().map(|n| n.point).collect();
-                (planar(&coordinates), story)
+                let placement = planar(&coordinates);
+                extent = Extent::Plate(coordinates);
+                (placement, story)
             }
             Nodes::Single => match node(self, "id_node") {
                 Some(n) => {
@@ -803,20 +928,98 @@ impl Builder<'_, '_, '_> {
         }
 
         // 断面
+        let mut figure = None;
         if let Some(prefix) = kind.section {
             match self.section(member, prefix, "id_section", sections) {
-                Some(section) => sets.push(self.set_of(section)),
+                Some(section) => {
+                    sets.push(self.set_of(section));
+                    figure = figures.get(&section);
+                }
                 None => {
                     let id = file.attribute(member, "id_section").unwrap_or_default();
                     self.missing(member, "id_section", id.trim());
                 }
             }
         }
+        if let Some(Figure::Line {
+            steel: Some(steel), ..
+        }) = figure
+        {
+            sets.push(self.set_of(*steel));
+        }
         self.building
             .components
             .properties
             .insert(target, Properties { sets });
+        if let (Some(local), Some(figure)) = (placement, figure) {
+            self.shape(target, member, kind.shape, figure, &extent, &local)?;
+        }
         Ok(Some(target))
+    }
+
+    /// 部材に断面の形を持たせる。形を作れなければ `stbridge.shape.dropped` で知らせる
+    fn shape(
+        &mut self,
+        target: ElementRef,
+        member: usize,
+        rule: Rule,
+        figure: &Figure,
+        extent: &Extent,
+        local: &Transform,
+    ) -> Result<(), Error> {
+        let instance = member as u64;
+        let data = match (rule, figure, extent) {
+            (Rule::None, ..) => return Ok(()),
+            (
+                Rule::Centered | Rule::Top,
+                Figure::Line {
+                    outline, rounded, ..
+                },
+                Extent::Line(length),
+            ) => {
+                if *rounded {
+                    let at = self.at(member);
+                    self.cx.report(
+                        Diagnostic::new(codes::STBRIDGE_FILLET_DROPPED)
+                            .with("element", self.name_of(member))
+                            .at(at),
+                    );
+                }
+                shape::line(outline, *length, rule == Rule::Top, instance)
+            }
+            (Rule::Slab | Rule::Wall, Figure::Plate { thickness }, Extent::Plate(points)) => {
+                match plate(points, *thickness, rule, local, instance) {
+                    Some(data) => data,
+                    None => {
+                        self.dropped(member, "non_planar");
+                        return Ok(());
+                    }
+                }
+            }
+            _ => {
+                self.dropped(member, "figure_mismatch");
+                return Ok(());
+            }
+        };
+        let stopped = |error: GeometryError| match error {
+            GeometryError::Stopped(stop) => Error::Stopped(stop),
+            _ => Error::Invalid,
+        };
+        let geometry = zumen_building::Geometry::new(data, self.cx).map_err(stopped)?;
+        self.building
+            .insert_geometry(target, geometry, self.cx)
+            .map_err(stopped)?;
+        Ok(())
+    }
+
+    fn dropped(&mut self, member: usize, reason: &str) {
+        let at = self.at(member);
+        self.cx.report(
+            Diagnostic::new(codes::STBRIDGE_SHAPE_DROPPED)
+                .with("element", self.name_of(member))
+                .with("reason", reason)
+                .at(at),
+        );
     }
 
     /// 部材の断面。名前が `prefix` で始まり、ID が合う断面のうち、構造種別（`kind_structure`）が名前に合うもの

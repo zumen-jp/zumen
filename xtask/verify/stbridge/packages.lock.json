@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "STBDotNet": {
+        "type": "Direct",
+        "requested": "[0.2.3, 0.2.3]",
+        "resolved": "0.2.3",
+        "contentHash": "KsgSy5GeYiRJwBvnLunFA4vFHDW8r1xoHyj61K1wcoRidZAHduUHVA22/G70+v62Ietb3wUWwnEQdjNStrActg=="
+      }
+    }
+  }
+}

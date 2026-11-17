@@ -43,7 +43,7 @@
 | [png](#format-png) | PNG | png | drawing | `public` | `core` |  | `external` |
 | [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `synthetic` |  |
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | drawing・civil・geo | `public` | `core` | `synthetic` | `synthetic` |
-| [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `public` | `core` | `synthetic` |  |
+| [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `public` | `core` | `external` |  |
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |  |  |
 | [svg](#format-svg) | SVG | svg | drawing | `public` | `core` |  | `external` |
 | [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `external` | `external` |
@@ -1049,11 +1049,12 @@
 - 権利の根拠にした文書: [HoaryFox（MIT の ST-Bridge の読み込み）](https://github.com/hrntsm/HoaryFox)（確認日: 2026-11-17）
 - 権利の根拠にした文書: [STBDotNet（MIT の ST-Bridge の読み書き）](https://github.com/hrntsm/STBDotNet)（確認日: 2026-11-17）
 - 権利の根拠にした文書: [STB-DiffChecker（MIT の ST-Bridge の比較）](https://github.com/NS-NS/STB-DiffChecker)（確認日: 2026-11-17）
-- 照合に使う候補: HoaryFox・STB-DiffChecker
+- 照合に使う候補: STBDotNet・HoaryFox・STB-DiffChecker
 - サンプルの出どころ: HoaryFox の Samples（MIT）・STB-DiffChecker の TestData（MIT）
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-17）
-- 読みの確かめた範囲: 2.0 系と 2.1 系を読み、建物モデルへ移す。XML Schema に合わせて書いた合成のサンプル 2 件（2.1 の架構、Shift\_JIS の 2.0 の壁と開口）と、MIT の公開サンプル 3 件（HoaryFox の 2.0.2 の鉄骨の架構、STB-DiffChecker の 2.1.0 の一組）を読み、部材の数・種類・配置・開口・診断を確かめた。公開サンプルの値を外部の実装が読んだ値とは照らしていない。断面の形・配筋・鋼材の規格は移さない。書き戻さない
+- 読みの確かめた度合い: `external`（確認日: 2026-11-18）
+- 読みの確かめた範囲: 2.0 系と 2.1 系を読み、建物モデルへ移す。柱・梁・ブレース・スラブ・壁は、矩形・円・I 形・角形鋼管・円形鋼管と板の断面を押し出した形を持つ（鋼材の丸みは入れない）。MIT の公開サンプルの HoaryFox の 2.0.2 の鉄骨の架構を STBDotNet 0.2.3 でも読み、部材 307・階 6 の数と ID・名前、部材・階・断面・鋼材の規格の属性の値 4492 個と参照、部材の配置の原点と材軸の向きを照らし、食い違いは 0（xtask/verify/stbridge、毎晩の CI）。external の根拠はこの 1 件。XML Schema に合わせて書いた合成のサンプル 2 件（2.1 の架構、Shift\_JIS の 2.0 の壁と開口）と STB-DiffChecker の 2.1.0 の一組は、部材の数・種類・配置・開口・診断と形の評価を自前の試験で確かめた synthetic の範囲。断面の形の寸法と位置、局所の X の向き、階への所属は外部の実装と照らしていない。開口の形・部材の端のずれ・ハンチ・配筋は移さない。書き戻さない
 - 読みで使った公開サンプル: [samples/stbridge/](../../samples/stbridge/)
+- 読みで照らした外部の実装: STBDotNet 0.2.3
 - 既知の crate: stb-parser
 - 旧版の記録: 旧版の決定 0001、旧版の決定 0013、旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - issue: [zumen-jp/zumen-legacy#140](https://github.com/zumen-jp/zumen-legacy/issues/140)
