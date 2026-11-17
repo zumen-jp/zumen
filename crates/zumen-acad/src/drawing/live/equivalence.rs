@@ -3415,13 +3415,17 @@ fn insert_with_owner_attached_unreadable_attrib_is_rejected_like_apply() {
 
 /// 連想の合成 DXF の図形（h101〜h105）から、各図形が影響する図形のハンドルを返す
 fn associative_edges(live: &AcadLive) -> Vec<(u64, Vec<u64>)> {
-    const HANDLES: [u64; 5] = [0x101, 0x102, 0x103, 0x104, 0x105];
-    HANDLES
+    dependency_edges(live, &[0x101, 0x102, 0x103, 0x104, 0x105])
+}
+
+/// ハンドル `handles` の図形から、各図形が影響する図形（`handles` の中）のハンドルを返す
+fn dependency_edges(live: &AcadLive, handles: &[u64]) -> Vec<(u64, Vec<u64>)> {
+    handles
         .iter()
         .filter_map(|&handle| {
             let row = live.table().find_handle(handle)?;
             let affected = fresh_cx(|cx| live.affected_rows(&[row], cx)).0.unwrap();
-            let handles = HANDLES
+            let others = handles
                 .iter()
                 .copied()
                 .filter(|&other| {
@@ -3432,7 +3436,7 @@ fn associative_edges(live: &AcadLive) -> Vec<(u64, Vec<u64>)> {
                             .is_some_and(|other| affected.contains(&other))
                 })
                 .collect();
-            Some((handle, handles))
+            Some((handle, others))
         })
         .collect()
 }
@@ -3535,5 +3539,231 @@ fn associative_dependencies_follow_every_edit_like_reopening() {
             let edit = edits(&pair, handle).swap_remove(index);
             check(&mut pair, edit);
         }
+    }
+}
+
+/// 公開の R2000 の DWG（`zumen-layout-r2000.dwg`）のモデル空間に、連想の合成 DXF の LINE・MTEXT・
+/// 連想 LEADER を写した DWG と、写した 3 図形のハンドルを返す。DWG の書き戻しは、足す HATCH を連想にできず、
+/// DIMASSOC も書けないので、連想ハッチングと寸法は写さない
+fn associative_dwg() -> (Vec<u8>, [u64; 3]) {
+    use crate::db::{Data, Origin, Section};
+
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../samples/dwg/zumen-layout-r2000.dwg");
+    let bytes = std::fs::read(path).unwrap();
+    let mut dwg = fresh_cx(|cx| Dwg::read(&bytes, cx)).0.unwrap();
+    assert_eq!(dwg.version(), b"AC1015");
+    let mut db = fresh_cx(|cx| dwg.objects(cx)).0.unwrap();
+    let seed = dwg.handle_seed().unwrap();
+    let model = db
+        .objects()
+        .iter()
+        .find(|object| {
+            object.section == Section::Tables
+                && object.kind == b"BLOCK_RECORD"
+                && object.values.iter().any(|value| {
+                    value.code == 2
+                        && matches!(&value.data, Data::Text(name) if name.eq_ignore_ascii_case(b"*Model_Space"))
+                })
+        })
+        .and_then(crate::db::Object::handle)
+        .unwrap();
+    let source = fresh_cx(|cx| {
+        Dxf::read(&synthetic_associative_dxf(), cx).and_then(|file| file.objects(cx))
+    })
+    .0
+    .unwrap();
+    let handles = [seed, seed + 1, seed + 2];
+    let map = |handle: u64| match handle {
+        0x41 => Some(model),
+        0x101 => Some(seed),
+        0x103 => Some(seed + 1),
+        0x104 => Some(seed + 2),
+        _ => None,
+    };
+    for kind in [&b"LINE"[..], b"MTEXT", b"LEADER"] {
+        let mut object = source
+            .objects()
+            .iter()
+            .find(|object| object.section == Section::Entities && object.kind == kind)
+            .unwrap()
+            .clone();
+        object.origin = Origin::New;
+        // サブクラスの印（100）は DXF だけのもので、DWG の書き戻しは受けない。足す図形はリアクターの組
+        // （102）を持てないので、MTEXT のリアクターは、足したあとに書き戻しで付ける
+        let mut in_reactors = false;
+        object.values.retain(|value| {
+            let reactor = value.code == 102 || (in_reactors && value.code == 330);
+            if value.code == 102 {
+                in_reactors = matches!(&value.data, Data::Text(text) if text.starts_with(b"{"));
+            }
+            value.code != 100 && !reactor
+        });
+        for value in &mut object.values {
+            if let Data::Handle(handle) = &mut value.data {
+                *handle = map(*handle).unwrap();
+            }
+        }
+        // サンプルの寸法スタイルは ISO-25 だけなので、引出線はそれを指す。足す MTEXT は行の間隔（73・44）を持つ
+        if kind == b"LEADER" {
+            for value in &mut object.values {
+                if value.code == 3 {
+                    value.data = Data::Text(b"ISO-25".to_vec());
+                }
+            }
+        }
+        if kind == b"MTEXT" {
+            object.values.extend([
+                crate::db::Value {
+                    code: 73,
+                    data: Data::Int(1),
+                },
+                crate::db::Value {
+                    code: 44,
+                    data: Data::Real(1.0),
+                },
+            ]);
+        }
+        db.push(object);
+    }
+    let (written, why) = fresh_cx(|cx| dwg.write_back(&db, cx));
+    written.unwrap_or_else(|e| panic!("{e:?} {why:?}"));
+    let [_, mtext, leader] = handles;
+    let mut db = fresh_cx(|cx| dwg.objects(cx)).0.unwrap();
+    let position = db.position(mtext).unwrap();
+    let object = db.object_mut(position).unwrap();
+    let at = object
+        .values
+        .iter()
+        .position(|value| value.code == 5)
+        .unwrap()
+        + 1;
+    let reactors = [
+        (102, Data::Text(b"{ACAD_REACTORS".to_vec())),
+        (330, Data::Handle(leader)),
+        (102, Data::Text(b"}".to_vec())),
+    ];
+    for (offset, (code, data)) in reactors.into_iter().enumerate() {
+        object
+            .values
+            .insert(at + offset, crate::db::Value { code, data });
+    }
+    let (written, why) = fresh_cx(|cx| dwg.write_back(&db, cx));
+    written.unwrap_or_else(|e| panic!("{e:?} {why:?}"));
+    let mut out = Vec::new();
+    fresh_cx(|cx| Dwg::write(&dwg, &mut out, cx)).0.unwrap();
+    (out, handles)
+}
+
+/// DWG の `input` の図形 `handles` のそれぞれに、移動・色・線種の尺度・削除を当て、当てられた
+/// （ハンドル, 編集の番号）を返す。1 つずつ当てたときと、当てられたものを続けて当てたときの両方で、結果・診断・保存・
+/// 保持モデル・取り消し・やり直しを逐次 apply と照らし、依存辺は、編集・取り消し・やり直しのたびに、保存した
+/// バイト列を開き直したものと一致する
+fn dwg_dependency_matrix(input: &[u8], handles: &[u64], threads: usize) -> Vec<(u64, usize)> {
+    let edges = |live: &AcadLive| dependency_edges(live, handles);
+    let reopened = |live: &AcadLive| {
+        let saved = fresh_cx(|cx| live.save(cx)).0.unwrap();
+        edges(
+            &fresh_cx(|cx| AcadLive::open_with_threads(&saved, 1, cx))
+                .0
+                .unwrap(),
+        )
+    };
+    let edits = |pair: &DwgPair, handle: u64| {
+        vec![
+            Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine::translation(2.0, 3.0),
+            },
+            Edit::Restyle {
+                target: pair.seen(handle),
+                style: Restyle {
+                    color: Some(Inherit::Own(zumen_drawing::Color {
+                        code: Some(zumen_drawing::ColorCode {
+                            system: zumen_drawing::ColorSystem::Aci,
+                            value: 5,
+                        }),
+                        rgb: None,
+                    })),
+                    ..Restyle::default()
+                },
+            },
+            Edit::Restyle {
+                target: pair.seen(handle),
+                style: Restyle {
+                    line_type_scale: Some(2.0),
+                    ..Restyle::default()
+                },
+            },
+            Edit::Remove {
+                target: pair.seen(handle),
+            },
+        ]
+    };
+    let accepted = |pair: &DwgPair, edit: &Edit| {
+        let saved = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+        let mut probe = fresh_cx(|cx| Dwg::read(&saved, cx)).0.unwrap();
+        let changes = Changes {
+            document: None,
+            edits: vec![edit.clone()],
+        };
+        fresh_cx(|cx| probe.apply(&changes, cx)).0.is_ok()
+    };
+    let check = |pair: &mut DwgPair, edit: Edit| -> bool {
+        let before = edges(&pair.live);
+        assert_eq!(before, reopened(&pair.live));
+        if !accepted(pair, &edit) {
+            pair.reject(edit);
+            assert_eq!(edges(&pair.live), before);
+            return false;
+        }
+        pair.apply(edit);
+        let after = edges(&pair.live);
+        assert_eq!(after, reopened(&pair.live));
+        assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+        assert_eq!(edges(&pair.live), before);
+        assert!(fresh_cx(|cx| pair.live.redo(cx)).0.unwrap());
+        assert_eq!(edges(&pair.live), after);
+        true
+    };
+    let opened = DwgPair::open(input, threads);
+    let mut taken = Vec::new();
+    for &handle in handles {
+        for (index, edit) in edits(&opened, handle).into_iter().enumerate() {
+            let mut pair = DwgPair::open(input, threads);
+            if check(&mut pair, edit) {
+                taken.push((handle, index));
+            }
+        }
+    }
+    let mut pair = DwgPair::open(input, threads);
+    for &(handle, index) in &taken {
+        if pair.live.table().find_handle(handle).is_none() {
+            continue;
+        }
+        let edit = edits(&pair, handle).swap_remove(index);
+        check(&mut pair, edit);
+    }
+    taken
+}
+
+/// 公開の DWG に写した引出線の注記（340 と、MTEXT のリアクター）は、編集のたびに開き直したときと同じ依存辺を保つ
+/// （1・4 スレッド）
+#[test]
+fn dwg_leader_dependencies_follow_every_edit_like_reopening() {
+    let (input, handles) = associative_dwg();
+    let [_, mtext, leader] = handles;
+    for threads in [1, 4] {
+        let opened = DwgPair::open(&input, threads);
+        let found = dependency_edges(&opened.live, &handles);
+        assert!(found.contains(&(mtext, vec![leader])), "{found:x?}");
+        // 引出線と、引出線が注記として指す MTEXT の削除だけを断る（逐次 apply と同じ）
+        let refused = [(mtext, 3), (leader, 3)];
+        let expected: Vec<_> = handles
+            .into_iter()
+            .flat_map(|handle| (0..4).map(move |index| (handle, index)))
+            .filter(|edit| !refused.contains(edit))
+            .collect();
+        assert_eq!(dwg_dependency_matrix(&input, &handles, threads), expected);
     }
 }
