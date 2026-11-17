@@ -935,8 +935,9 @@ fn refused_edits_and_cx_budget_or_cancel_leave_live_untouched() {
     assert_eq!(with_cx(|cx| live.save_spf(cx)).0.unwrap(), bytes);
 }
 
-#[test]
-fn dep_graph_tracks_spatial_type_opening_material_and_property_element_refs() {
+/// 階・壁・開口・扉・扉の型・室と、空間の包含・相対配置・開口（穴と充填）・型・プロパティの要素参照を持つ IFC
+#[cfg(test)]
+fn dep_fixture() -> String {
     let lines = [
         format!("#1=IFCPROJECT('{}',#2,'Proj',$,$,$,$,$,#10);", gid(1)),
         "#2=IFCOWNERHISTORY($,$,$,.ADDED.,$,$,$,0);".to_owned(),
@@ -989,10 +990,15 @@ fn dep_graph_tracks_spatial_type_opening_material_and_property_element_refs() {
             gid(112)
         ),
     ];
-    let spf = format!(
+    format!(
         "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');\nFILE_NAME('dep.ifc','2026-01-01T00:00:00',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;\n",
         lines.join("\n")
-    );
+    )
+}
+
+#[test]
+fn dep_graph_tracks_spatial_type_opening_material_and_property_element_refs() {
+    let spf = dep_fixture();
     let mut live = with_cx(|cx| IfcLive::open(spf.as_bytes(), cx)).0.unwrap();
 
     let storey = live.element_by_instance(20).unwrap();
@@ -1048,4 +1054,116 @@ fn dep_graph_tracks_spatial_type_opening_material_and_property_element_refs() {
     assert!(with_cx(|cx| live.redo(cx)).0.unwrap());
     let space_srcs_redo = live.dep_graph().sources_of(zumen_live::RowId(space.0));
     assert!(!space_srcs_redo.contains(&zumen_live::RowId(wall.0)));
+}
+
+/// 要素ごとの依存先（影響を受ける要素）を、インスタンスの番号で並べる
+#[cfg(test)]
+fn dependency_edges(live: &IfcLive) -> Vec<(Option<u64>, Vec<Option<u64>>)> {
+    let instance = |element: ElementRef| {
+        live.building()
+            .elements()
+            .get(element.0 as usize)
+            .and_then(|found| found.source().instance)
+    };
+    (0..live.building().elements().len())
+        .map(|index| {
+            let element = ElementRef(index as u32);
+            let affected = with_cx(|cx| live.affected_elements(&[element], cx))
+                .0
+                .unwrap();
+            (
+                instance(element),
+                affected.into_iter().map(instance).collect(),
+            )
+        })
+        .collect()
+}
+
+/// 階・壁・開口・扉・型・室のそれぞれに、プロパティを足す・名前を変える・説明をなくす変更を当て、室の
+/// プロパティの要素参照を文字列に変える。1 つずつ当てたときと続けて当てたときの両方で、結果・診断・保存・保持モデルを
+/// 逐次 `apply` と照らし、依存辺は、変更・取り消し・やり直しのたびに、保存したバイト列を開き直したものと一致する
+/// （1・4 スレッド）
+#[test]
+fn dependencies_follow_every_edit_like_reopening() {
+    let input = dep_fixture().into_bytes();
+    let reopened = |live: &IfcLive| {
+        let saved = with_cx(|cx| live.save_spf(cx)).0.unwrap();
+        dependency_edges(&with_cx(|cx| IfcLive::open(&saved, cx)).0.unwrap())
+    };
+    let edits = |element: u64| {
+        let mut edits = vec![
+            prop_edit(
+                element,
+                "Pset_Note",
+                "Note",
+                "IfcLabel",
+                NewLiteral::Text("note".to_owned()),
+            ),
+            Edit::Attribute {
+                element,
+                attribute: RootAttribute::Name,
+                value: Some("renamed".to_owned()),
+            },
+            Edit::Attribute {
+                element,
+                attribute: RootAttribute::Description,
+                value: None,
+            },
+        ];
+        if element == 35 {
+            edits.push(prop_edit(
+                35,
+                "Pset_CustomLink",
+                "BoundingRef",
+                "IfcLabel",
+                NewLiteral::Text("NONE".to_owned()),
+            ));
+        }
+        edits
+    };
+    let check = |live: &mut IfcLive, edit: Edit| {
+        let before = dependency_edges(live);
+        assert_eq!(before, reopened(live));
+        let saved = with_cx(|cx| live.save_spf(cx)).0.unwrap();
+        let file = read_file(&saved);
+        let change = [edit];
+        let expected = with_cx(|cx| apply(&file, &change, b"dep", cx));
+        let actual = with_cx(|cx| live.apply(&change, b"dep", cx));
+        assert_eq!(actual.1.into_vec(), expected.1.into_vec(), "{change:?}");
+        let expected = expected.0.unwrap();
+        assert_eq!(actual.0.unwrap(), expected.changed);
+        assert_eq!(with_cx(|cx| live.save_spf(cx)).0.unwrap(), expected.bytes);
+        assert_eq!(live.building(), &lift_building(&expected.bytes));
+        let after = dependency_edges(live);
+        assert_eq!(after, reopened(live), "{change:?}");
+        assert!(with_cx(|cx| live.undo(cx)).0.unwrap());
+        assert_eq!(dependency_edges(live), before);
+        assert!(with_cx(|cx| live.redo(cx)).0.unwrap());
+        assert_eq!(dependency_edges(live), after);
+        before != after
+    };
+    let instances = [20, 30, 31, 32, 34, 35];
+    for threads in [1, 4] {
+        let open = || {
+            with_cx(|cx| IfcLive::open_with_threads(&input, threads, cx))
+                .0
+                .unwrap()
+        };
+        let mut changed = Vec::new();
+        for element in instances {
+            for (index, edit) in edits(element).into_iter().enumerate() {
+                if check(&mut open(), edit) {
+                    changed.push((element, index));
+                }
+            }
+        }
+        // 依存辺を変えるのは、室のプロパティの要素参照を文字列に変えたときだけ
+        assert_eq!(changed, [(35, 3)]);
+        let mut live = open();
+        for element in instances {
+            for edit in edits(element) {
+                check(&mut live, edit);
+            }
+        }
+    }
 }
