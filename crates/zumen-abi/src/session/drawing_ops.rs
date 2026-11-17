@@ -254,7 +254,8 @@ impl Session {
             return self.apply_with_tables(request, drawing, cx);
         }
         let changes = changes(request, drawing, cx)?;
-        // DXF・DWG は文書エンジンで当てる。当てない文書は、今までの経路で当てる
+        // DXF・DWG・JWW・SXF は文書エンジンで当てる。当てない文書と、JWW・SXF の文書エンジンが断った変更は、
+        // 今までの経路で当てる
         let changes = match self.apply_on_engine(request, drawing, changes, cx)? {
             Ok(result) => return Ok(result),
             Err(changes) => changes,
@@ -332,7 +333,10 @@ impl Session {
                 (applied, hash)
             }
             DrawingFile::Sxf(file, archive, _) => {
-                let (updated, applied) = file.applied(changes, cx).map_err(|_| Failed)?;
+                // 変換で止まったときは、止まった理由を足す
+                let (updated, applied) = file
+                    .applied(changes, cx)
+                    .map_err(|error| live::engine_failed(cx, error))?;
                 Sxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
                 if let Some(archive) = archive {
                     bytes = archive

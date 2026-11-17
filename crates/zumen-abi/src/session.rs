@@ -108,6 +108,9 @@ pub struct Session {
     /// 試験で、文書エンジンを使わない今までの経路と比べるときに `false` にする
     #[cfg(test)]
     engines: bool,
+    /// 試験で、文書エンジンで当てた `apply` を数える
+    #[cfg(test)]
+    engine_applies: usize,
 }
 
 /// 一つの元文書。IFC から読んだ線形は、その建物と一緒に登録・更新・破棄する。
@@ -264,6 +267,8 @@ impl Session {
             child,
             #[cfg(test)]
             engines: true,
+            #[cfg(test)]
+            engine_applies: 0,
         })
     }
 

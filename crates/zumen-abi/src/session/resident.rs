@@ -5,9 +5,10 @@
 //! 記録を当てられない呼び出し（予算が足りない、中断の合図がある、入力順の収集の中など）は、今までどおり作り直す。
 //! ファイルモデルを書き換えるときは [`Resident::file_mut`] を通し、常駐の図面モデルと文書エンジンを捨てる。
 //!
-//! DXF・DWG の文書は、最初の `apply` で文書エンジン（[`zumen_acad::AcadLive`]）も作り、持ち続ける。
-//! 正はファイルモデルで、文書エンジンはその写しにする。文書エンジンで当てたら、保存したバイト列から
-//! ファイルモデルを読み直して置き換える（[`Resident::commit_live`]）。写しが食い違うおそれのある経路では捨てる。
+//! DXF・DWG・JWW・SXF の文書は、最初の `apply` で文書エンジン（[`zumen_acad::AcadLive`]・[`zumen_jww::JwwLive`]・
+//! [`zumen_sxf::SxfLive`]）も作り、持ち続ける。正はファイルモデルで、文書エンジンはその写しにする。文書エンジンで
+//! 当てたら、保存したバイト列からファイルモデルを読み直して置き換える（[`Resident::commit_live`]）。写しが食い違う
+//! おそれのある経路では捨てる。
 
 use std::borrow::Cow;
 use std::cell::OnceCell;
@@ -38,6 +39,12 @@ pub(crate) enum Live {
     /// DXF（ASCII）・DWG の文書エンジン
     #[cfg(feature = "drawing")]
     Acad(Box<zumen_acad::AcadLive>),
+    /// JWW の文書エンジン
+    #[cfg(feature = "drawing")]
+    Jww(Box<zumen_jww::JwwLive>),
+    /// SXF（SFC・P21）の文書エンジン
+    #[cfg(feature = "drawing")]
+    Sxf(Box<zumen_sxf::SxfLive>),
 }
 
 impl std::fmt::Debug for Live {
@@ -48,6 +55,10 @@ impl std::fmt::Debug for Live {
             Self::Refused => "Refused",
             #[cfg(feature = "drawing")]
             Self::Acad(_) => "Acad",
+            #[cfg(feature = "drawing")]
+            Self::Jww(_) => "Jww",
+            #[cfg(feature = "drawing")]
+            Self::Sxf(_) => "Sxf",
         })
     }
 }
@@ -88,16 +99,16 @@ impl Resident {
         self.live = live;
     }
 
-    /// 文書エンジンで当てた結果に置き換える。`file` は文書エンジンが保存したバイト列から読み直したファイルモデル、
-    /// `lifted` は、それを変換した図面モデルと記録（変換したときだけ）
+    /// 文書エンジンで当てた結果に置き換える。`update` は、文書エンジンが保存したバイト列から読み直したファイルモデルを
+    /// 置く（SXF のアーカイブと属性ファイルは残す）。`lifted` は、それを変換した図面モデルと記録（変換したときだけ）
     #[cfg(feature = "drawing")]
     pub(crate) fn commit_live(
         &mut self,
-        file: DrawingFile,
+        update: impl FnOnce(&mut DrawingFile),
         lifted: Option<(Drawing2D, Replay)>,
         live: Live,
     ) {
-        *self.file = file;
+        update(&mut self.file);
         self.lifted = OnceCell::new();
         if let Some((drawing, replay)) = lifted {
             self.restore(drawing, replay);

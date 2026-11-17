@@ -292,7 +292,7 @@ fn apply_moves_the_resident_model_and_keeps_it_only_when_nothing_changed() {
 }
 
 /// 文書エンジンで当てる形式の公開サンプル。ハンドルのない R12、R2007 の DXF、R2000〜R2018 の DWG を含む
-const ENGINE_SAMPLES: [(&str, &[u8]); 8] = [
+const ACAD_SAMPLES: [(&str, &[u8]); 8] = [
     (
         "a.dxf",
         include_bytes!("../../../../../samples/dxf/text_alignments.dxf"),
@@ -326,6 +326,73 @@ const ENGINE_SAMPLES: [(&str, &[u8]); 8] = [
         include_bytes!("../../../../../samples/dwg/zumen-arcdim-r2018.dwg"),
     ),
 ];
+
+/// 適合テストの `push` の 16 進のバイト列
+fn conformance_hex(case: &str, pointer: &str) -> Vec<u8> {
+    let text = std::fs::read_to_string(format!(
+        "{}/../../bindings/conformance/cases/{case}.json",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let value = zumen_json::parse(text.as_bytes()).unwrap();
+    let Some(Value::String(hex)) = value.pointer(pointer) else {
+        panic!("適合テストの {case} に {pointer} がない");
+    };
+    hex.as_bytes()
+        .chunks(2)
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+        .collect()
+}
+
+/// P2Z・SFZ の中の SXF のバイト列
+fn unpacked(archive: &[u8]) -> Vec<u8> {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    crate::packed::read(archive, &mut Cx::new(&mut budget, &mut diag, &cancel))
+        .ok()
+        .flatten()
+        .unwrap()
+        .0
+}
+
+/// 文書エンジンで当てる形式の公開サンプル。DXF・DWG に、JWW、SFC、P21（適合テストの P2Z の中身）、P2Z・SFZ、
+/// 属性ファイル（SAF）を持つ P2Z を足す
+fn engine_samples() -> Vec<(&'static str, Vec<u8>)> {
+    let p2z = conformance_hex("apply_text_p2z", "/steps/0/push/hex");
+    let sfz = conformance_hex("apply_text_sfz", "/steps/0/push/hex");
+    let mut samples: Vec<_> = ACAD_SAMPLES
+        .iter()
+        .map(|(name, bytes)| (*name, bytes.to_vec()))
+        .collect();
+    samples.extend([
+        (
+            "a.jww",
+            include_bytes!("../../../../../samples/jww/ezjww-geometry.jww").to_vec(),
+        ),
+        (
+            "a.sfc",
+            include_bytes!("../../../../../samples/sxf/ezsxf-writer-all-features.sfc").to_vec(),
+        ),
+        ("text.p21", unpacked(&p2z)),
+        ("text.sfc", unpacked(&sfz)),
+        ("text.p2z", p2z),
+        ("text.sfz", sfz),
+        (
+            "saf.p2z",
+            conformance_hex("open_sxf_saf", "/steps/5/push/hex"),
+        ),
+    ]);
+    samples
+}
+
+/// 文書エンジンを持ち続けているか
+fn engine_kept(session: &Session, name: &str) -> bool {
+    matches!(
+        resident(session, name).live,
+        Live::Acad(_) | Live::Jww(_) | Live::Sxf(_)
+    )
+}
 
 /// 文書エンジンを使うセッションと、今までの経路だけを使うセッション
 fn twins(name: &str, bytes: &[u8]) -> (Session, Session) {
@@ -388,8 +455,8 @@ fn edits(doc: &str, id: &str, hash: &str, document: &str) -> Vec<String> {
 
 #[test]
 fn apply_on_the_engine_answers_like_the_file_model() {
-    for (name, bytes) in ENGINE_SAMPLES {
-        let (mut engine, mut old) = twins(name, bytes);
+    for (name, bytes) in engine_samples() {
+        let (mut engine, mut old) = twins(name, &bytes);
         let empty = format!(r#"{{"v":1,"op":"apply","doc":"{name}","edits":[]}}"#);
         let mut document = result_hash(&same(&mut engine, &mut old, &empty).1);
         // 最初の 4 件の要素に、順に変更を当てる。ID・要素のハッシュ・文書のハッシュは、当てるたびに読み直す
@@ -417,27 +484,32 @@ fn apply_on_the_engine_answers_like_the_file_model() {
             }
         }
         assert!(applied > 0, "{name}");
+        // 今までの経路に任せずに、文書エンジンで当てた変更がある
+        assert!(engine.engine_applies > 0, "{name}");
         // 文書エンジンで当てたあとも、持ち続ける
-        assert!(
-            matches!(resident(&engine, name).live, Live::Acad(_)),
-            "{name}"
-        );
+        assert!(engine_kept(&engine, name), "{name}");
     }
 }
 
 #[test]
 fn apply_on_the_engine_stops_without_changing_the_document() {
-    for (name, bytes) in ENGINE_SAMPLES {
-        let (mut engine, mut old) = twins(name, bytes);
-        let Some((id, hash)) = elements(&mut engine, name).into_iter().next() else {
-            continue;
-        };
-        elements(&mut old, name);
-        let moved = |budget: &str| {
+    for (name, bytes) in engine_samples() {
+        let (mut engine, mut old) = twins(name, &bytes);
+        let transform = |id: &str, hash: &str, budget: &str| {
             format!(
                 r#"{{"v":1,"op":"apply","doc":"{name}"{budget},"edits":[{{"kind":"transform","id":"{id}","hash":"{hash}","matrix":[1,0,5,0,1,7]}}]}}"#
             )
         };
+        // 予算がなければ今までの経路で動かせる最初の要素を動かす（SXF の文字の要素などは動かせない）
+        let Some((id, hash)) = elements(&mut engine, name).into_iter().find(|(id, hash)| {
+            let (_, mut fresh) = twins(name, &bytes);
+            elements(&mut fresh, name);
+            answer(&mut fresh, &transform(id, hash, "")).0 == Status::Ok
+        }) else {
+            continue;
+        };
+        elements(&mut old, name);
+        let moved = |budget: &str| transform(&id, &hash, budget);
         let before: Vec<_> = reads(name, "")
             .iter()
             .map(|read| answer(&mut engine, read))
@@ -458,10 +530,7 @@ fn apply_on_the_engine_stops_without_changing_the_document() {
                             r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"remove","id":"{id}","hash":"v2:00000000000000000000000000000000"}}]}}"#
                         );
                         assert_eq!(answer(&mut engine, &rejected).0, Status::Failed, "{name}");
-                        assert!(
-                            matches!(resident(&engine, name).live, Live::Acad(_)),
-                            "{name}"
-                        );
+                        assert!(engine_kept(&engine, name), "{name}");
                     } else {
                         forget_engine(&mut engine, name);
                     }
@@ -475,7 +544,7 @@ fn apply_on_the_engine_stops_without_changing_the_document() {
                             (expected.0, &expected.1, &expected.2),
                             "{name} {kind} {limit}"
                         );
-                        let (fresh_engine, fresh_old) = twins(name, bytes);
+                        let (fresh_engine, fresh_old) = twins(name, &bytes);
                         engine = fresh_engine;
                         old = fresh_old;
                         elements(&mut engine, name);
@@ -529,12 +598,12 @@ fn apply_on_the_engine_reports_unreadable_dwg_objects_like_the_file_model() {
             same(&mut engine, &mut old, &read);
         }
     }
-    assert!(matches!(resident(&engine, "a").live, Live::Acad(_)));
+    assert!(engine_kept(&engine, "a"));
 }
 
 /// 変更の種類ごとの要求。`{id0}`・`{hash0}`・`{id1}`・`{hash1}` は初めから 1・2 番目の要素、`{layer0}`・`{lhash0}` は
 /// 最初のレイヤ、`{doc}` は文書のハッシュ、`{hash:ID}` はその ID の要素のハッシュで埋める
-const EDIT_KINDS: [&str; 16] = [
+const EDIT_KINDS: [&str; 23] = [
     r#""edits":[]"#,
     r#""hash":"{doc}","edits":[]"#,
     r#""edits":[{"kind":"remove","id":"{id0}","hash":"{hash0}"}]"#,
@@ -553,6 +622,15 @@ const EDIT_KINDS: [&str; 16] = [
     r#""hash":"{doc}","edits":[{"kind":"add","place":"space/0","geometry":{"shape":"circle","center":[-3,4],"radius":2}}]"#,
     r#""edits":[{"kind":"add","place":"space/9","geometry":{"shape":"line","start":[0,0],"end":[1,1]}}]"#,
     r#""edits":[{"kind":"add","place":"space/0","geometry":{"shape":"line","start":[0,0],"end":[1e9,-2e9]}}]"#,
+    // JWW・SXF の色の番号で、色が変わらない変更と変わる変更
+    r#""edits":[{"kind":"restyle","id":"{id0}","hash":"{hash0}","color":{"jww":2}}]"#,
+    r#""edits":[{"kind":"restyle","id":"{id1}","hash":"{hash1}","color":{"jww":5}}]"#,
+    r#""edits":[{"kind":"restyle","id":"{id0}","hash":"{hash0}","color":{"sxf":2}}]"#,
+    r#""edits":[{"kind":"restyle","id":"{id1}","hash":"{hash1}","color":{"sxf":5}}]"#,
+    // SXF の要素は用紙に置く。足す・除く・動かすを 1 つの一覧で当てる
+    r#""edits":[{"kind":"add","place":"sheet/0","geometry":{"shape":"line","start":[0,0],"end":[10,20]}}]"#,
+    r#""edits":[{"kind":"transform","id":"{id1}","hash":"{hash1}","matrix":[1,0,-2,0,1,3]},{"kind":"add","place":"sheet/0","geometry":{"shape":"circle","center":[5,5],"radius":2}},{"kind":"add","place":"space/0","geometry":{"shape":"circle","center":[5,5],"radius":2}}]"#,
+    r#""edits":[{"kind":"remove","id":"{id0}","hash":"{hash0}"},{"kind":"transform","id":"{id1}","hash":"{hash1}","matrix":[0,-1,0,1,0,0]}]"#,
 ];
 
 /// 文書のレイヤの ID とハッシュ
@@ -620,12 +698,13 @@ fn run_both(
     document: &mut String,
     templates: &[&str],
     mismatches: &mut Vec<String>,
-) {
+) -> usize {
+    let mut accepted = 0;
     for template in templates {
         let found = elements(engine, doc);
         if found != elements(old, doc) {
             mismatches.push(format!("{doc} の要素が違う（{template} の前）"));
-            return;
+            return accepted;
         }
         let tables = layers(engine, doc);
         let request = format!(
@@ -645,37 +724,27 @@ fn run_both(
                 String::from_utf8_lossy(&expected.1),
                 blobs(&expected.2),
             ));
-            return;
+            return accepted;
         }
         if expected.0 == Status::Ok
             && let Some(hash) = result_hash(&expected.1)
         {
+            accepted += 1;
             *document = hash;
         }
         for read in reads(doc, "") {
             if answer(engine, &read) != answer(old, &read) {
                 mismatches.push(format!("{request} のあとの {read} が違う"));
-                return;
+                return accepted;
             }
         }
     }
+    accepted
 }
 
 /// 適合テストの `entity_details_formats` の、型どおりに読めないオブジェクトを持つ R2000 の DWG
 fn unreadable_dwg() -> Vec<u8> {
-    let text = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../bindings/conformance/cases/entity_details_formats.json"
-    ))
-    .unwrap();
-    let value = zumen_json::parse(text.as_bytes()).unwrap();
-    let Some(Value::String(hex)) = value.pointer("/steps/12/push/hex") else {
-        panic!("適合テストの DWG がない");
-    };
-    hex.as_bytes()
-        .chunks(2)
-        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
-        .collect()
+    conformance_hex("entity_details_formats", "/steps/12/push/hex")
 }
 
 /// 同じハンドルの LINE を 2 つ持つ R2000 の DXF。`garbage` なら EOF の後ろに読まないバイトを足す
@@ -725,10 +794,8 @@ fn r12_paper() -> Vec<u8> {
 /// 紙空間の図形と空の図面の範囲を持つ R12 の DXF を使う。雛形ごとに開き直す場合と、続けて当てる場合の両方を見る
 #[test]
 fn apply_on_the_engine_answers_like_the_file_model_for_each_edit_kind() {
-    let mut documents: Vec<(&str, Vec<u8>)> = ENGINE_SAMPLES
-        .iter()
-        .map(|(name, bytes)| (*name, bytes.to_vec()))
-        .collect();
+    let mut documents = engine_samples();
+    let samples = documents.len();
     documents.extend([
         (
             "r2000.dxf",
@@ -740,12 +807,13 @@ fn apply_on_the_engine_answers_like_the_file_model_for_each_edit_kind() {
         ("paper.dxf", r12_paper()),
     ]);
     let mut mismatches = Vec::new();
-    for (name, bytes) in &documents {
+    for (index, (name, bytes)) in documents.iter().enumerate() {
         let start = zumen_drawing::Hash::document(bytes).to_string();
+        let (mut accepted, mut served) = (0, 0);
         for template in EDIT_KINDS {
             let (mut engine, mut old) = twins(name, bytes);
             let mut document = start.clone();
-            run_both(
+            accepted += run_both(
                 &mut engine,
                 &mut old,
                 name,
@@ -753,10 +821,11 @@ fn apply_on_the_engine_answers_like_the_file_model_for_each_edit_kind() {
                 &[template],
                 &mut mismatches,
             );
+            served += engine.engine_applies;
         }
         let (mut engine, mut old) = twins(name, bytes);
         let mut document = start.clone();
-        run_both(
+        accepted += run_both(
             &mut engine,
             &mut old,
             name,
@@ -764,6 +833,9 @@ fn apply_on_the_engine_answers_like_the_file_model_for_each_edit_kind() {
             &EDIT_KINDS,
             &mut mismatches,
         );
+        served += engine.engine_applies;
+        // どの公開サンプルでも、当てた変更があり、その一部は文書エンジンで当てた
+        assert!(index >= samples || (accepted > 0 && served > 0), "{name}");
     }
     // ハンドルを持たない R12 の DXF で、動かす・古いハッシュで断られる・2 つ除く・断られる足す・置き換える、を続ける。
     // 除くと後ろの要素の ID がずれるので、ずれたあとの `space/0/r5` も置き換える
@@ -793,4 +865,75 @@ fn apply_on_the_engine_answers_like_the_file_model_for_each_edit_kind() {
         &mut mismatches,
     );
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+}
+
+/// 属性ファイル（SAF）を結んで開いた SFC（適合テストの `open_sxf_saf`）。文書エンジンは属性ファイルを結ばずに作り、
+/// 今までの経路と同じく、結ばない図面モデルで要素のハッシュを比べる。当てたあとも属性ファイルを持ち、読み取りに使う
+#[test]
+fn apply_on_the_engine_keeps_the_attribute_file() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../bindings/conformance/cases/open_sxf_saf.json"
+    ))
+    .unwrap();
+    let value = zumen_json::parse(text.as_bytes()).unwrap();
+    let pushed = |step: usize| match value.pointer(&format!("/steps/{step}/push/text")) {
+        Some(Value::String(text)) => text.clone(),
+        _ => panic!("適合テストの open_sxf_saf に {step} の push がない"),
+    };
+    let (sfc, saf) = (pushed(0), pushed(1));
+    let open = |engines: bool| {
+        let mut session = Session::new(b"").unwrap();
+        session.engines = engines;
+        session.push(b"D0PL001Z.SFC", sfc.as_bytes()).unwrap();
+        session.push(b"D0PL001Z.SAF", saf.as_bytes()).unwrap();
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"open","input":"D0PL001Z.SFC","saf":"D0PL001Z.SAF"}"#,
+        );
+        assert_eq!(status, Status::Ok, "{}", String::from_utf8_lossy(&response));
+        session
+    };
+    let name = "D0PL001Z.SFC";
+    let start = zumen_drawing::Hash::document(sfc.as_bytes()).to_string();
+    let mut mismatches = Vec::new();
+    let mut accepted = 0;
+    for template in EDIT_KINDS {
+        let (mut engine, mut old) = (open(true), open(false));
+        let mut document = start.clone();
+        accepted += run_both(
+            &mut engine,
+            &mut old,
+            name,
+            &mut document,
+            &[template],
+            &mut mismatches,
+        );
+    }
+    let (mut engine, mut old) = (open(true), open(false));
+    let mut document = start;
+    accepted += run_both(
+        &mut engine,
+        &mut old,
+        name,
+        &mut document,
+        &EDIT_KINDS,
+        &mut mismatches,
+    );
+    assert!(
+        mismatches.is_empty(),
+        "{}",
+        mismatches.join(
+            "
+"
+        )
+    );
+    assert!(accepted > 0);
+    assert!(engine_kept(&engine, name));
+    // 属性ファイルの診断は、当てたあとの読み取りでも返す
+    let (_, response) = call(
+        &mut engine,
+        &format!(r#"{{"v":1,"op":"drawing","doc":"{name}"}}"#),
+    );
+    assert!(String::from_utf8_lossy(&response).contains("sxf.saf-figure"));
 }

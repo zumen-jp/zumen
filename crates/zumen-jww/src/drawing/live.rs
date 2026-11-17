@@ -873,8 +873,25 @@ impl JwwLive {
         Some(idx)
     }
 
-    /// 図面モデルの変更 [`Changes`] を常駐状態へ反映し、各項目の結果と他要素の ID ずれの有無を返す
+    /// 図面モデルの変更 [`Changes`] を常駐状態へ反映し、各項目の結果と他要素の ID ずれの有無を返す。
+    /// 断ったときと止まったときは、状態を変えない
     pub fn apply(
+        &mut self,
+        changes: &Changes,
+        cx: &mut Cx<'_>,
+    ) -> Result<(Vec<Applied>, bool), Error> {
+        // 足す図形のクラスの区分は、トランザクションの前に作る。そのあとで断ったか止まったときは、作った区分を除く
+        let buckets = self.class_buckets.len();
+        let same_name_multi_schema = self.same_name_multi_schema;
+        let result = self.apply_staged(changes, cx);
+        if result.is_err() {
+            self.class_buckets.truncate(buckets);
+            self.same_name_multi_schema = same_name_multi_schema;
+        }
+        result
+    }
+
+    fn apply_staged(
         &mut self,
         changes: &Changes,
         cx: &mut Cx<'_>,
@@ -4112,5 +4129,64 @@ mod equivalence_tests {
                 }
             }
         }
+    }
+
+    /// 足す図形のクラスの区分を作ったあとで止まっても、区分を残さない。止まったあとに当て直すと、止まらなかったときと同じ
+    #[test]
+    fn added_class_bucket_is_dropped_when_apply_stops() {
+        let bytes = block_bytes();
+        let initial = run(|cx| JwwLive::open(&bytes, cx)).0.unwrap();
+        // 部品の中の線分を、文書の空間の円に変える。円のクラスは、まだ文書にない
+        let model = run(|cx| initial.drawing(cx)).0.unwrap();
+        let mut circle = model.symbols[0].space.elements[0].clone();
+        circle.shape = Shape::Circle {
+            center: ModelPoint {
+                space: SpaceId(0),
+                x: 3.0,
+                y: 4.0,
+            },
+            radius: Length::Model(zumen_drawing::ModelLength {
+                space: SpaceId(0),
+                value: 2.0,
+            }),
+        };
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Add {
+                place: "space/0".into(),
+                element: Box::new(Placed::Model(circle)),
+            }],
+        };
+        let mut measured = initial.clone();
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let expected = measured.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+        );
+        assert!(expected.is_ok(), "{:?}", diagnostics.into_vec());
+        assert!(measured.class_buckets.len() > initial.class_buckets.len());
+        let saved = run(|cx| measured.save(cx)).0.unwrap();
+        let total = budget.used(Kind::Work);
+        let mut stops = 0;
+        for limit in 0..total {
+            let mut live = initial.clone();
+            let mut limited = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(limit)));
+            let mut diagnostics = Diagnostics::new();
+            let result = live.apply(
+                &changes,
+                &mut Cx::new(&mut limited, &mut diagnostics, &cancel),
+            );
+            assert!(matches!(result, Err(Error::Stopped(_))), "{limit}");
+            stops += 1;
+            assert_eq!(live.class_buckets.len(), initial.class_buckets.len());
+            assert_eq!(live.same_name_multi_schema, initial.same_name_multi_schema);
+            assert_eq!(live.state_id(), initial.state_id());
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+            assert_eq!(run(|cx| live.apply(&changes, cx)).0, expected);
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), saved);
+        }
+        assert!(stops > 0);
     }
 }
