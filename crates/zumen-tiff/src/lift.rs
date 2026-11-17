@@ -18,7 +18,7 @@ use zumen_sdk::{Cx, Error};
 
 use crate::geotiff::norm_zero;
 use crate::ifd::{DecodedIfd, PagePixels, ResolutionUnit};
-use crate::raster::read_dem_value;
+use crate::raster::{DemCell, read_dem_cell};
 use crate::{MAX_ALLOC, TiffFile, stopped};
 
 const LAYER_IMAGE: LayerId = LayerId(0);
@@ -444,14 +444,29 @@ pub(crate) fn lift_pointcloud(file: &TiffFile, cx: &mut Cx) -> Result<PointCloud
     let mut easting = Vec::with_capacity(init_cap);
     let mut height = Vec::with_capacity(init_cap);
 
+    // 除いたセルの数。nodata・非有限値・読めない値（位置を求められないセルを含む）の順
+    let mut dropped = [0u64; 3];
     for row in 0..h {
         cx.check(Kind::Work, u64::from(w))
             .map_err(|s| stopped(cx, s, Some(page.info.source.clone())))?;
         for col in 0..w {
-            let Some(elev) = read_dem_value(file.endian, page, native, col, row) else {
-                continue;
+            let elev = match read_dem_cell(file.endian, page, native, col, row) {
+                DemCell::Value(v) => v,
+                DemCell::NoData => {
+                    dropped[0] += 1;
+                    continue;
+                }
+                DemCell::NonFinite => {
+                    dropped[1] += 1;
+                    continue;
+                }
+                DemCell::Unreadable => {
+                    dropped[2] += 1;
+                    continue;
+                }
             };
             let Some((x, y)) = tf.cell_center(col, row, geo.raster_type) else {
+                dropped[2] += 1;
                 continue;
             };
             cx.check(Kind::Elements, 1)
@@ -464,6 +479,19 @@ pub(crate) fn lift_pointcloud(file: &TiffFile, cx: &mut Cx) -> Result<PointCloud
         }
     }
 
+    for (cells, reason) in dropped
+        .into_iter()
+        .zip(["nodata", "non-finite", "unreadable"])
+    {
+        if cells > 0 {
+            cx.report(
+                Diagnostic::new(codes::TIFF_CELL_DROPPED)
+                    .with("reason", reason)
+                    .with("cells", cells)
+                    .at(page.info.source.clone()),
+            );
+        }
+    }
     cx.check(
         Kind::DecodedBytes,
         (northing.len() as u64).saturating_mul(16),

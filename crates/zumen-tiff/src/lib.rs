@@ -79,6 +79,17 @@ impl TiffFile {
         self.pages.iter().any(ifd::DecodedIfd::is_dem_candidate)
     }
 
+    /// 点群モデルに持ち上げる DEM 標高格子を持つか。最初の DEM 候補の IFD が、平面直角座標系の
+    /// 座標参照系を持つときに限る。3D のシーンは、このとき標高格子を点群として返す（#896）
+    pub fn has_projected_dem_grid(&self) -> bool {
+        self.pages
+            .iter()
+            .find(|p| p.is_dem_candidate())
+            .and_then(|p| p.info.geo.as_ref())
+            .and_then(|g| g.crs)
+            .is_some_and(|crs| crs.zone().is_some())
+    }
+
     /// 1 始まりの指定ページを RGBA8・非インターレースの PNG に符号化する。
     ///
     /// `max_side` を指定すると、元の長辺が `max_side` を超えるときだけ縦横比を保って縮小する。

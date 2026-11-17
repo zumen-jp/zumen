@@ -52,7 +52,13 @@
 
 - **`Drawing2D`**: 各ページ（IFD）を `ModelSpace` に持ち上げる。投影座標系（平面直角座標系）の GeoTIFF は `Unit::Meter` で実座標の四隅に `Shape::Underlay`（`UnderlayKind::Image`、`path = "."`、`page = "<1始まりのページ番号>"`）と外枠の閉じた `Shape::Polyline`（レイヤ `"境界"`）を置く。非 GeoTIFF では `XResolution`（282）・`YResolution`（283）・`ResolutionUnit`（296、`2` インチ・`3` センチメートル）が正の有限値なら `Unit::Millimeter` に換算し、解像度が決まらなければ `Unit::Unknown` でピクセル寸法のまま配置する。これにより図面ビューの表示・距離計測と DXF への変換が動く。
 - **`GeoModel`**: 先頭ページに有効な GeoTIFF の座標参照系と外枠変換があるとき、四隅を閉じた `Form::Area` の地物 1 件と画像のメタデータ属性（幅・高さ・バンド数・ビット深さ・圧縮方式・ページ数）を持つ `GeoModel` に持ち上げる。座標系がないときは `tiff.crs.missing` を記録する。これにより `geo` 操作と GeoJSON・SIMA への変換が動く。
-- **`PointCloud`**: 単バンドの数値格子で、平面直角座標系の GeoTIFF 変換がある最初の IFD から、`GDAL_NODATA` と非有限値を除いた各セル代表点の `(northing, easting, height)` を集めて `Octree` を構築する。経緯度座標系の DEM は平面距離（メートル）を仮定せず `tiff.grid.unsupported`（`reason = "geographic-crs"`）を記録する。これにより `pointcloud` 操作と `deviation`（J-LandXML の設計 TIN との標高差検査）がそのまま動く。
+- **`PointCloud`**: 単バンドの数値格子で、平面直角座標系の GeoTIFF 変換がある最初の IFD から、`GDAL_NODATA` と非有限値を除いた各セル代表点の `(northing, easting, height)` を集めて `Octree` を構築する。除いたセルは、理由（`nodata`・`non-finite`・`unreadable`）ごとの数を `tiff.cell.dropped` で知らせる。経緯度座標系の DEM は平面距離（メートル）を仮定せず `tiff.grid.unsupported`（`reason = "geographic-crs"`）を記録する。これにより `pointcloud` 操作と `deviation`（J-LandXML の設計 TIN との標高差検査）がそのまま動く。
+
+## 3D のシーン
+
+平面直角座標系の DEM を持つ文書の `scene3d` は、外枠の `GeoModel` でなく、上の `PointCloud` を点群の `scene3d` と同じ点の区画（ZMS3 1.1）で返す（#896）。点は `pointcloud` と同じ八分木の節の順で選び、`limit`・`tolerance`・`box` を点群と同じ意味で受ける。`map` は地図の座標系の EPSG 名と恒等変換、`height_crs` は `VerticalCSTypeGeoKey` の EPSG のコードで、座標と標高は変換しない。
+
+経緯度座標系の DEM と、DEM でない GeoTIFF（オルソ画像など）の `scene3d` は、これまでどおり `GeoModel` の地物の道を通る。外枠の `Form::Area` は高さを持たないので、形を除いた診断を返す。地形のメッシュ（セル代表点を頂点にした三角形）は返さない。
 
 ## 確かめた度合い
 

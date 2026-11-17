@@ -3876,6 +3876,15 @@ group-by = ["reason"]
 since = "0.3.0"
 status = "active"
 
+[codes."tiff.cell.dropped"]
+description = "単バンドの数値標高格子のうち、GDAL_NODATA・非有限値・読めない値のセルを点群モデルに含めなかった。cells は理由ごとのセルの数"
+severity = "info"
+fidelity = "dropped"
+params = { reason = "key", cells = "uint" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
 [codes."scene3d.tolerance.approximated"]
 description = "建物の 3D シーンの曲線を、この文書単位の弦の誤差で評価した"
 severity = "info"

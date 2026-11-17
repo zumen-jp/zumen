@@ -5738,6 +5738,20 @@ pub const SXF_TEXT_WIDTH_APPROXIMATED: Code = Code::new(
     &[],
 );
 
+/// 単バンドの数値標高格子のうち、GDAL_NODATA・非有限値・読めない値のセルを点群モデルに含めなかった。cells は理由ごとのセルの数
+///
+/// `tiff.cell.dropped`（0.3.0 から）
+pub const TIFF_CELL_DROPPED: Code = Code::new(
+    "tiff.cell.dropped",
+    Severity::Info,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("cells", ParamType::UInt),
+        Param::new("reason", ParamType::Key),
+    ],
+    &["reason"],
+);
+
 /// 対応していない圧縮方式の IFD なので、そのページの画素を読めなかった
 ///
 /// `tiff.compression.unsupported`（0.3.0 から）
@@ -6616,6 +6630,7 @@ pub const ALL: &[Code] = &[
     SXF_SFIG_CYCLE_INVALID,
     SXF_SFIG_MISSING,
     SXF_TEXT_WIDTH_APPROXIMATED,
+    TIFF_CELL_DROPPED,
     TIFF_COMPRESSION_UNSUPPORTED,
     TIFF_CRS_MISSING,
     TIFF_CRS_UNSUPPORTED,

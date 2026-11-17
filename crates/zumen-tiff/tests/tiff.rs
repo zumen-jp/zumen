@@ -678,6 +678,14 @@ fn lifts_geotiff_crs_footprint_and_dem_pointcloud_with_nodata_filtering() {
     assert_eq!(pc.points.easting, vec![1001.0, 1001.0]);
     assert_eq!(pc.points.northing, vec![1999.0, 1997.0]);
     assert_eq!(pc.points.height, vec![10.5, 12.25]);
+    // 除いたセルは理由ごとに数える（#896）
+    let dropped: Vec<_> = d2
+        .iter()
+        .filter(|d| d.code() == codes::TIFF_CELL_DROPPED)
+        .map(|d| format!("{:?}", d.params()))
+        .collect();
+    assert_eq!(dropped.len(), 2, "{dropped:?}");
+    assert!(dropped[0].contains("nodata") && dropped[1].contains("non-finite"));
 
     testkit::survives_lift::<Tiff, PointCloud>(&bytes).unwrap();
 }

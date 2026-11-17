@@ -159,14 +159,27 @@ pub(crate) fn map_display_to_raw(
     (rx as usize, ry as usize)
 }
 
-/// 単バンド DEM 格子の `(disp_x, disp_y)` の数値を `f64` で読む。欠損値・非有限値は `None`。
-pub(crate) fn read_dem_value(
+/// 単バンド DEM 格子のセルの読み取り結果
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum DemCell {
+    /// 標高
+    Value(f64),
+    /// `GDAL_NODATA` の値
+    NoData,
+    /// 非有限値
+    NonFinite,
+    /// 標本の形式か長さが足りず読めない
+    Unreadable,
+}
+
+/// 単バンド DEM 格子の `(disp_x, disp_y)` のセルを読み、欠損値・非有限値を分ける。
+pub(crate) fn read_dem_cell(
     endian: Endian,
     page: &DecodedIfd,
     native: &[u8],
     disp_x: u32,
     disp_y: u32,
-) -> Option<f64> {
+) -> DemCell {
     let (rx, ry) = map_display_to_raw(
         page.orientation,
         page.raw_width,
@@ -177,26 +190,43 @@ pub(crate) fn read_dem_value(
     let idx = ry * (page.raw_width as usize) + rx;
     let bps = page.info.bits_per_sample;
     let val = match (page.info.sample_format, bps) {
-        (SampleFormat::Float, 32) => f64::from(endian.read_f32(native, idx * 4)?),
-        (SampleFormat::Float, 64) => endian.read_f64(native, idx * 8)?,
-        (SampleFormat::Int, 8) => f64::from(*native.get(idx)? as i8),
-        (SampleFormat::Int, 16) => f64::from(endian.read_i16(native, idx * 2)?),
-        (SampleFormat::Int, 32) => f64::from(endian.read_i32(native, idx * 4)?),
-        (SampleFormat::UInt, 8) => f64::from(*native.get(idx)?),
-        (SampleFormat::UInt, 16) => f64::from(endian.read_u16(native, idx * 2)?),
-        (SampleFormat::UInt, 32) => f64::from(endian.read_u32(native, idx * 4)?),
-        _ => return None,
+        (SampleFormat::Float, 32) => endian.read_f32(native, idx * 4).map(f64::from),
+        (SampleFormat::Float, 64) => endian.read_f64(native, idx * 8),
+        (SampleFormat::Int, 8) => native.get(idx).map(|v| f64::from(*v as i8)),
+        (SampleFormat::Int, 16) => endian.read_i16(native, idx * 2).map(f64::from),
+        (SampleFormat::Int, 32) => endian.read_i32(native, idx * 4).map(f64::from),
+        (SampleFormat::UInt, 8) => native.get(idx).map(|v| f64::from(*v)),
+        (SampleFormat::UInt, 16) => endian.read_u16(native, idx * 2).map(f64::from),
+        (SampleFormat::UInt, 32) => endian.read_u32(native, idx * 4).map(f64::from),
+        _ => None,
+    };
+    let Some(val) = val else {
+        return DemCell::Unreadable;
     };
     if !val.is_finite() {
-        return None;
+        return DemCell::NonFinite;
     }
     if let Some(nodata) = page.info.geo.as_ref().and_then(|g| g.nodata) {
         let tol = libm::fabs(nodata) * 1e-7 + 1e-9;
         if libm::fabs(val - nodata) <= tol {
-            return None;
+            return DemCell::NoData;
         }
     }
-    Some(val)
+    DemCell::Value(val)
+}
+
+/// 単バンド DEM 格子の `(disp_x, disp_y)` の数値を `f64` で読む。欠損値・非有限値は `None`。
+pub(crate) fn read_dem_value(
+    endian: Endian,
+    page: &DecodedIfd,
+    native: &[u8],
+    disp_x: u32,
+    disp_y: u32,
+) -> Option<f64> {
+    match read_dem_cell(endian, page, native, disp_x, disp_y) {
+        DemCell::Value(v) => Some(v),
+        _ => None,
+    }
 }
 
 fn compute_dem_min_max(

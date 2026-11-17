@@ -99,9 +99,19 @@ pub(in crate::session) fn cloud_scene(
 }
 
 impl Session {
-    /// 開いた点群の文書か。GeoTIFF の DEM は地物の入口に任せる
+    /// 開いた点群の文書か。平面直角座標系の GeoTIFF の DEM も、標高格子を点群として返す（#896）。
+    /// 経緯度の DEM と DEM でない GeoTIFF は地物の入口に任せる
     pub(super) fn is_cloud(&self, doc: &str) -> bool {
-        matches!(self.docs.get(doc), Some(Document::Cloud(_)))
+        match self.docs.get(doc) {
+            Some(Document::Cloud(_)) => true,
+            #[cfg(feature = "drawing")]
+            Some(Document::Drawing { file, .. }) => {
+                matches!(file.as_ref(), DrawingFile::Tiff(tiff) if tiff.has_projected_dem_grid())
+            }
+            #[cfg(not(feature = "drawing"))]
+            Some(Document::Tiff(tiff)) => tiff.has_projected_dem_grid(),
+            _ => false,
+        }
     }
 
     /// 3D のシーンの blob を足し、番号を返す
