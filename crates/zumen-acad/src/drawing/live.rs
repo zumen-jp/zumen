@@ -1772,6 +1772,88 @@ mod tests {
         assert_eq!(live.state_id(), before_sid);
     }
 
+    /// 構造の経路で積んだ履歴を Work 上限 0 で取り消し・やり直しすると、停止を返し、
+    /// 履歴の段数・版・状態 ID・保存を変えない（#887 の合成の回帰）
+    #[test]
+    fn stopped_structural_undo_redo_keeps_history() {
+        let src = synthetic_rich_dxf();
+        let (opened, _) = fresh_cx(|cx| AcadLive::open_dxf(&src, cx));
+        let mut live = opened.unwrap();
+        let add_layer = Changes {
+            document: None,
+            edits: vec![Edit::AddLayer {
+                layer: Box::new(Layer {
+                    id: LayerId(99),
+                    name: "PIPE".to_owned(),
+                    follows_placement: false,
+                    state: Some(LayerState {
+                        visible: true,
+                        frozen: false,
+                        printable: true,
+                        editable: true,
+                    }),
+                    style: Some(LayerStyle {
+                        color: Some(Color {
+                            code: Some(ColorCode {
+                                system: ColorSystem::Aci,
+                                value: 5,
+                            }),
+                            rgb: None,
+                        }),
+                        line_type: Some(LineTypeId(0)),
+                        line_weight: None,
+                        transparency: None,
+                    }),
+                    description: None,
+                    source: Ref::default(),
+                }),
+            }],
+        };
+        let ((applied, rereads), _) = fresh_cx(|cx| live.apply_rereading(&add_layer, cx));
+        applied.unwrap();
+        assert!(rereads);
+
+        let snapshot = |live: &AcadLive| {
+            (
+                live.undo_len(),
+                live.redo_len(),
+                live.revision(),
+                live.state_id(),
+                fresh_cx(|cx| live.save(cx)).0.unwrap(),
+            )
+        };
+        let stopped = |live: &mut AcadLive, redo: bool| {
+            let mut zero = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(0)));
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            let mut cx = Cx::new(&mut zero, &mut diagnostics, &cancel);
+            let result = if redo {
+                live.redo(&mut cx)
+            } else {
+                live.undo(&mut cx)
+            };
+            assert!(matches!(result, Err(Error::Stopped(_))));
+            assert_eq!(diagnostics.into_vec().len(), 1);
+        };
+
+        let applied_state = snapshot(&live);
+        assert_eq!((applied_state.0, applied_state.1), (1, 0));
+        stopped(&mut live, false);
+        assert_eq!(snapshot(&live), applied_state);
+
+        assert!(fresh_cx(|cx| live.undo(cx)).0.unwrap());
+        let undone_state = snapshot(&live);
+        assert_eq!((undone_state.0, undone_state.1), (0, 1));
+        stopped(&mut live, true);
+        assert_eq!(snapshot(&live), undone_state);
+
+        // 停止のあとの取り消し・やり直しは、版を進めて元の段数と保存に戻る
+        assert!(fresh_cx(|cx| live.redo(cx)).0.unwrap());
+        let redone_state = snapshot(&live);
+        assert_eq!((redone_state.0, redone_state.1), (1, 0));
+        assert!(redone_state.4 == applied_state.4);
+    }
+
     pub(super) fn synthetic_associative_dxf() -> Vec<u8> {
         let mut dxf = String::new();
         let mut tag = |code: i16, val: &str| {
