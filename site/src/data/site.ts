@@ -89,7 +89,7 @@ export const formats: Format[] = [
   { name: 'TIFF・GeoTIFF', about: '画像と地理参照付きの画像', read: '○', write: '―', place: 'コア' },
   { name: '拡張 DM', about: '測量成果の地理のデータ', read: '○', write: '―', place: 'コア' },
   { name: 'LAS・LAZ・PLY・XYZ・E57', about: '点群のデータ', read: '○', write: '―', place: 'コア' },
-  { name: 'ST-Bridge', about: '構造のモデル', read: '―', write: '―', place: '外部のプラグイン' },
+  { name: 'ST-Bridge', about: '構造のモデル（2.0 系・2.1 系）', read: '○', write: '―', place: 'コア' },
   {
     name: 'BE-Bridge・CEDXM・Stem',
     about: '設備の CAD データ・機器のデータ',

@@ -11,7 +11,7 @@
 | 領域 | 形式 | できること |
 | --- | --- | --- |
 | 図面 | SXF（SFC・P21・SFZ・P2Z）、JWW、DXF、DWG、SIMA、TIFF・GeoTIFF | 要素・レイヤ・線種・用紙を読む。変更を当てて、同じ形式に書き戻す（SXF・JWW・DXF・DWG・SIMA）。DXF に変換する。表示のための 2D のシーンや SVG・PNG を作る。CAD製図基準などのプロファイルの規則でチェックする |
-| BIM | IFC（IFC-SPF・ifcZIP）、IDS、BCF | IFC を建物モデルとして読み、変更を当てて書き戻す。IDS で照合する。BCF を読み書きする |
+| BIM | IFC（IFC-SPF・ifcZIP）、ST-Bridge、IDS、BCF | IFC を建物モデルとして読み、変更を当てて書き戻す。ST-Bridge（構造）を建物モデルとして読む。IDS で照合する。BCF を読み書きする |
 | 土木・地理 | J-LandXML、SIMA、GeoJSON、CityGML（PLATEAU）、基盤地図情報、拡張 DM、GeoTIFF | 線形の上の座標・高さ・勾配を求める。平面図・縦断図・横断図を作る。地物を返し、GeoJSON に書き出す |
 | 点群 | LAS・LAZ、PLY、XYZ、E57、GeoTIFF | 読む。設計の面との標高の差を、規格値と比べて集計する |
 | 納品 | 電子納品の成果品、工事写真（JPEG）、ボーリング交換用データ | 管理ファイルを読み、プロファイルの規則でチェックする。Exif と XMP、地層と標準貫入試験の値を返す |

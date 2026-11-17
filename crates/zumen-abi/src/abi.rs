@@ -137,10 +137,10 @@ pub const MODULES: &[Module] = &[
             "raster",
         ],
     },
-    // IFC と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）
+    // IFC と ST-Bridge と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）
     Module {
         name: "bim",
-        formats: &["ifc"],
+        formats: &["ifc", "stbridge"],
         ops: &[
             "capabilities",
             "open",
@@ -289,7 +289,7 @@ pub fn has_format(format: &str) -> bool {
             format,
             "dxf" | "dwg" | "sxf" | "jww" | "sima" | "tiff" | "landxml" | "drawing"
         ))
-        || (cfg!(feature = "bim") && matches!(format, "ifc"))
+        || (cfg!(feature = "bim") && matches!(format, "ifc" | "stbridge"))
         || (cfg!(feature = "civil")
             && matches!(
                 format,
@@ -469,6 +469,14 @@ pub const DETECTION: &[Detection] = &[
         rules: &[zumen_sdk::Signature::XmlRoot {
             name: b"Dataset",
             namespace: Some(b"http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema"),
+        }],
+    },
+    Detection {
+        format: "stbridge",
+        module: "bim",
+        rules: &[zumen_sdk::Signature::XmlRoot {
+            name: b"ST_BRIDGE",
+            namespace: None,
         }],
     },
     Detection {

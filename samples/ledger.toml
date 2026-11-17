@@ -622,3 +622,39 @@ license = "MIT"
 license-url = "https://github.com/monozukuri-ai/ezsxf/blob/0443a29e5874c9c91d7b9a7ccb84b8515f8f684e/LICENSE"
 attribution = "Copyright (c) 2026 nekanat. ezsxf の書き出しテスト用の SFC。MIT License の本文は licenses/ezsxf-MIT.txt"
 changes = "SXF Ver.3.1 の SFC 仕様に合わせて文字コードを UTF-8 から Shift_JIS（cp932）にした。取得したファイルは 7,465 バイト、SHA-256 は 60c5af8ca5a35f58ea95ee692e8e2e30f821e7ce3ad2f0b5c8b00557b9cb1756。フィーチャと値は変えていない"
+
+[[samples]]
+path = "stbridge/hoaryfox-sample-building.stb"
+sha256 = "83d35a8eeb57177d409766804e36288ff325d141d05a7cba4b58fff221257629"
+bytes = 83288
+title = "HoaryFox の Samples にある鉄骨の架構（ST-Bridge 2.0.2、柱 105・梁 192・ブレース 10）"
+publisher = "hrntsm（HoaryFox）"
+url = "https://raw.githubusercontent.com/hrntsm/HoaryFox/f991f97df99e307c449c4c0bc0cb85b514cc5e8c/Samples/SampleBuilding.stb"
+retrieved = "2026-11-02"
+license = "MIT"
+license-url = "https://github.com/hrntsm/HoaryFox/blob/f991f97df99e307c449c4c0bc0cb85b514cc5e8c/LICENSE"
+attribution = "Copyright (c) 2019 hrntsm. HoaryFox が書き出した、実在しない建物の ST-Bridge。MIT License の本文は licenses/hoaryfox-MIT.txt"
+
+[[samples]]
+path = "stbridge/stb-diffchecker-mini210-a.stb"
+sha256 = "9bf2b7b628d801f87d6d348b53b7628dfc0cc8a05989ace7787e727c697e80c5"
+bytes = 1606
+title = "STB-DiffChecker の TestData にある最小の ST-Bridge 2.1.0（比べる一組の A）"
+publisher = "NS-NS（STB-DiffChecker）"
+url = "https://raw.githubusercontent.com/NS-NS/STB-DiffChecker/2fb1230ffd546733ef51fd0fb42e754cb51e0381/TestData/Mini210_FileA.stb"
+retrieved = "2026-11-02"
+license = "MIT"
+license-url = "https://github.com/NS-NS/STB-DiffChecker/blob/2fb1230ffd546733ef51fd0fb42e754cb51e0381/LICENSE"
+attribution = "Copyright (c) 2020 NS-NS. STB-DiffChecker の試験用の ST-Bridge。MIT License の本文は licenses/stb-diffchecker-MIT.txt"
+
+[[samples]]
+path = "stbridge/stb-diffchecker-mini210-b.stb"
+sha256 = "e1089d0c32ef6296c18be32032b8dcf814cea98ee09b288275a0ae61fe491b63"
+bytes = 1606
+title = "STB-DiffChecker の TestData にある最小の ST-Bridge 2.1.0（比べる一組の B）"
+publisher = "NS-NS（STB-DiffChecker）"
+url = "https://raw.githubusercontent.com/NS-NS/STB-DiffChecker/2fb1230ffd546733ef51fd0fb42e754cb51e0381/TestData/Mini210_FileB.stb"
+retrieved = "2026-11-02"
+license = "MIT"
+license-url = "https://github.com/NS-NS/STB-DiffChecker/blob/2fb1230ffd546733ef51fd0fb42e754cb51e0381/LICENSE"
+attribution = "Copyright (c) 2020 NS-NS. STB-DiffChecker の試験用の ST-Bridge。MIT License の本文は licenses/stb-diffchecker-MIT.txt"

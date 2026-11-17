@@ -57,6 +57,7 @@ pub(crate) const READ_ONLY: &[Registration] = &[
     Registration::of::<zumen_ply::Ply>(Rights::Public, "ply", false, 1),
     Registration::of::<zumen_xyz::Xyz>(Rights::Public, "xyz", false, 1),
     Registration::of::<zumen_e57::E57>(Rights::Public, "e57", false, 1),
+    Registration::of::<zumen_stbridge::Stb>(Rights::Public, "stbridge", false, 1),
 ];
 
 /// 開いた文書。形式ごとのファイルモデル（L1）を持つ。コアの形式は `drawing` の feature で持ち、プラグインのモジュール
@@ -376,6 +377,11 @@ pub(crate) fn read(
             format,
             ReadDocument::Geo(Box::new(model?)),
         ));
+    }
+    // ST-Bridge も XML の根で見分ける（#400）
+    #[cfg(feature = "bim")]
+    if let Some(model) = building::read_stbridge(bytes, cx) {
+        return Opened::building(name, model?, cx);
     }
     #[cfg(feature = "bim")]
     if let Some(model) = building::read_zip(bytes, request.ifc_text_encoding.as_ref(), cx) {

@@ -42,8 +42,8 @@ export const MODULES = Object.freeze({
     ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "create", "convert", "convert_estimate", "tables", "scene", "check", "review_carry", "review_adopt", "civil", "civil_drawing", "delivery_check", "delivery_apply", "photo", "boring", "lift", "render", "calibrations", "measure_distance", "measure", "intersect", "regions", "construct", "raster"]),
   }),
   bim: Object.freeze({
-    description: "IFC と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）",
-    formats: Object.freeze(["ifc"]),
+    description: "IFC と ST-Bridge と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）",
+    formats: Object.freeze(["ifc", "stbridge"]),
     ops: Object.freeze(["capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements", "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply", "civil", "scene3d"]),
   }),
   civil: Object.freeze({
@@ -173,6 +173,13 @@ export const DETECTION = Object.freeze([
     module: "civil",
     rules: Object.freeze([
       Object.freeze({ kind: "xml_root", name: "Dataset", namespace: "http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema" }),
+    ]),
+  }),
+  Object.freeze({
+    format: "stbridge",
+    module: "bim",
+    rules: Object.freeze([
+      Object.freeze({ kind: "xml_root", name: "ST_BRIDGE", namespace: null }),
     ]),
   }),
   Object.freeze({

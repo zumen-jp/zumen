@@ -37,7 +37,7 @@ const DEFAULT_COMPONENTS: [BuildingComponent; 2] =
 pub(crate) struct Model {
     /// 形式の台帳のキー
     pub(crate) format: &'static str,
-    /// IFC の L1。建物の形式のプラグインで開いたなら `None`
+    /// IFC の L1。ST-Bridge か、建物の形式のプラグインで開いたなら `None`
     pub(crate) file: Option<IfcFile>,
     pub(crate) building: Building,
     pub(crate) hash: Hash,
@@ -133,6 +133,31 @@ fn model(
     })
 }
 
+/// ST-Bridge なら読み、建物モデルへ移す（#400）。ST-Bridge でなければ `None`。L1 を持たないので書き戻さない
+#[cfg(feature = "bim")]
+pub(crate) fn read_stbridge(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<Model, Failed>> {
+    use zumen_stbridge::Stb;
+    if !Stb::SIGNATURES.iter().any(|s| s.matches(bytes)) {
+        return None;
+    }
+    Some(
+        Stb::read(bytes, cx)
+            .and_then(|file| file.lift(cx))
+            .map_err(|_| Failed)
+            .and_then(|building| {
+                let hash = Hash::document_checked(bytes, cx).map_err(|stop| stopped(cx, stop))?;
+                Ok(Model {
+                    format: Stb::FORMAT,
+                    file: None,
+                    building,
+                    hash,
+                    entry: None,
+                    live: Live::Absent,
+                })
+            }),
+    )
+}
+
 /// 登録した建物の形式のプラグインのどれかに合えば読む。どれにも合わなければ `None`
 #[cfg(feature = "bim")]
 pub(crate) fn read_plugin(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<Model, Failed>> {
@@ -189,7 +214,7 @@ pub(crate) fn prepare(
     cx: &mut Cx<'_>,
 ) -> Result<Prepared, Failed> {
     if model.file.is_none() {
-        // プラグインの文書は書き戻せない（決定 0243）
+        // ST-Bridge とプラグインの文書は書き戻せない（決定 0243、#400）
         return Err(fail(
             cx,
             Diagnostic::new(codes::CALL_DOCUMENT_UNSUPPORTED)

@@ -49,6 +49,7 @@ zumen-review = { path = "../crates/zumen-review" }
 zumen-scene = { path = "../crates/zumen-scene" }
 zumen-scene3d = { path = "../crates/zumen-scene3d" }
 zumen-sima = { path = "../crates/zumen-sima" }
+zumen-stbridge = { path = "../crates/zumen-stbridge" }
 zumen-step = { path = "../crates/zumen-step" }
 zumen-sxf = { path = "../crates/zumen-sxf" }
 zumen-text = { path = "../crates/zumen-text" }
@@ -321,6 +322,13 @@ bench = false
 [[bin]]
 name = "e57"
 path = "fuzz_targets/e57.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stbridge"
+path = "fuzz_targets/stbridge.rs"
 test = false
 doc = false
 bench = false

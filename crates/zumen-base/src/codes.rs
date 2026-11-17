@@ -5431,6 +5431,60 @@ pub const SIMA_WRITE_CRS_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// 建物モデルへ移さない要素（断面の形・配筋・鋼材の規格の一覧・拡張など）。要素の名前ごとにまとめる
+///
+/// `stbridge.element.unsupported`（0.3.0 から）
+pub const STBRIDGE_ELEMENT_UNSUPPORTED: Code = Code::new(
+    "stbridge.element.unsupported",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("element", ParamType::Text)],
+    &["element"],
+);
+
+/// 根の要素が ST_BRIDGE でないか、version がないので、ST-Bridge として読めない
+///
+/// `stbridge.file.invalid`（0.3.0 から）
+pub const STBRIDGE_FILE_INVALID: Code =
+    Code::new("stbridge.file.invalid", Severity::Error, None, &[], &[]);
+
+/// 部材を決める節点が足りないか重なるので、部材に配置を持たせなかった
+///
+/// `stbridge.placement.dropped`（0.3.0 から）
+pub const STBRIDGE_PLACEMENT_DROPPED: Code = Code::new(
+    "stbridge.placement.dropped",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[Param::new("element", ParamType::Text)],
+    &["element"],
+);
+
+/// 部材などの属性が指す節点・断面・部材がないので、その参照を移さなかった
+///
+/// `stbridge.reference.missing`（0.3.0 から）
+pub const STBRIDGE_REFERENCE_MISSING: Code = Code::new(
+    "stbridge.reference.missing",
+    Severity::Warning,
+    Some(Fidelity::Dropped),
+    &[
+        Param::new("attribute", ParamType::Text),
+        Param::new("element", ParamType::Text),
+        Param::new("target", ParamType::Text),
+    ],
+    &["element", "attribute"],
+);
+
+/// 2.0 系と 2.1 系でない ST-Bridge の版（1.x など）なので、読まなかった
+///
+/// `stbridge.version.unsupported`（0.3.0 から）
+pub const STBRIDGE_VERSION_UNSUPPORTED: Code = Code::new(
+    "stbridge.version.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("version", ParamType::Text)],
+    &[],
+);
+
 /// 書き戻す P2Z・SFZ のアーカイブが ZIP64 を要する大きさになる。ZIP64 は書かない（#385）
 ///
 /// `sxf.archive.unsupported`（0.2.0 から）
@@ -6508,6 +6562,11 @@ pub const ALL: &[Code] = &[
     SIMA_RECORD_UNSUPPORTED,
     SIMA_VALUE_INVALID,
     SIMA_WRITE_CRS_UNSUPPORTED,
+    STBRIDGE_ELEMENT_UNSUPPORTED,
+    STBRIDGE_FILE_INVALID,
+    STBRIDGE_PLACEMENT_DROPPED,
+    STBRIDGE_REFERENCE_MISSING,
+    STBRIDGE_VERSION_UNSUPPORTED,
     SXF_ARCHIVE_UNSUPPORTED,
     SXF_CODE_MISSING,
     SXF_FILE_INVALID,

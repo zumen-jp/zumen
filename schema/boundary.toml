@@ -172,8 +172,8 @@ ops = [
 
 [[modules]]
 name = "bim"
-description = "IFC と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）"
-formats = ["ifc"]
+description = "IFC と ST-Bridge と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）"
+formats = ["ifc", "stbridge"]
 ops = [
     "capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements",
     "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply", "civil", "scene3d",
@@ -301,6 +301,12 @@ rules = [{ xml-root = "CityModel", namespace = "http://www.opengis.net/citygml/2
 format = "fgd"
 module = "civil"
 rules = [{ xml-root = "Dataset", namespace = "http://fgd.gsi.go.jp/spec/2008/FGD_GMLSchema" }]
+
+# ST-Bridge。版によって名前空間が違うので、根の名前だけで見分ける（#400）
+[[detection]]
+format = "stbridge"
+module = "bim"
+rules = [{ xml-root = "ST_BRIDGE" }]
 
 # ZIP に入れた SXF（SFZ・P2Z）。ifcZIP より前に、アーカイブの項目の名前で分ける
 [[detection]]

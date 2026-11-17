@@ -43,7 +43,7 @@
 | [png](#format-png) | PNG | png | drawing | `public` | `core` |  | `external` |
 | [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `synthetic` |  |
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | drawing・civil・geo | `public` | `core` | `synthetic` | `synthetic` |
-| [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `public` | `plugin` |  |  |
+| [stbridge](#format-stbridge) | ST-Bridge | stbridge | building | `public` | `core` | `synthetic` |  |
 | [stem](#format-stem) | Stem（設備機器ライブラリデータ交換仕様） | stem | building | `unknown` | `none` |  |  |
 | [svg](#format-svg) | SVG | svg | drawing | `public` | `core` |  | `external` |
 | [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `external` | `external` |
@@ -1041,8 +1041,7 @@
 ### format-stbridge
 
 - 名前: ST-Bridge
-- 権利の根拠: buildingSMART Japan が仕様書と XML Schema を登録なしで公開し、利用や実装の条件を書いていない。構造設計小委員会の頁は、ST-Bridge を関連ソフトに組み込むことを推進すると書く。MIT の実装（HoaryFox・STBDotNet・STB-DiffChecker）が、契約に触れずに公開されている。STB-KIT（MPL-2.0）は同会との利用許諾契約に基づくと書くが、仕様書の記述を参照・転記した部分についての記述で、実装の公開に契約が要るとは示していない。zumen は仕様書と XSD を同梱せず、要素名・属性名と節の番号だけを参照する。問い合わせずに public とした（2026-11-17、利用者の判断、zumen-jp/zumen#400）。public なのでコアに置ける。非公開のプラグイン（zumen-jp/stbridge）の実装をコアへ移すまでは、place を plugin のままにする
-- プラグインの置き場所: zumen-jp/stbridge（非公開）
+- 権利の根拠: buildingSMART Japan が仕様書と XML Schema を登録なしで公開し、利用や実装の条件を書いていない。構造設計小委員会の頁は、ST-Bridge を関連ソフトに組み込むことを推進すると書く。MIT の実装（HoaryFox・STBDotNet・STB-DiffChecker）が、契約に触れずに公開されている。STB-KIT（MPL-2.0）は同会との利用許諾契約に基づくと書くが、仕様書の記述を参照・転記した部分についての記述で、実装の公開に契約が要るとは示していない。zumen は仕様書と XSD を同梱せず、要素名・属性名と節の番号だけを参照する。問い合わせずに public とした（2026-11-17、利用者の判断、zumen-jp/zumen#400）。非公開のプラグイン（zumen-jp/stbridge）にあった実装をコアへ移した
 - 仕様: [stbridge\_2\_1\_1](#spec-stbridge_2_1_1)
 - 実装の根拠: spec
 - 権利の根拠にした文書: [STB-KIT の README「ST-Bridge および IFC との関係」](https://github.com/taisei-oss/stb-kit)（確認日: 2026-11-17）
@@ -1050,11 +1049,17 @@
 - 権利の根拠にした文書: [HoaryFox（MIT の ST-Bridge の読み込み）](https://github.com/hrntsm/HoaryFox)（確認日: 2026-11-17）
 - 権利の根拠にした文書: [STBDotNet（MIT の ST-Bridge の読み書き）](https://github.com/hrntsm/STBDotNet)（確認日: 2026-11-17）
 - 権利の根拠にした文書: [STB-DiffChecker（MIT の ST-Bridge の比較）](https://github.com/NS-NS/STB-DiffChecker)（確認日: 2026-11-17）
+- 照合に使う候補: HoaryFox・STB-DiffChecker
+- サンプルの出どころ: HoaryFox の Samples（MIT）・STB-DiffChecker の TestData（MIT）
+- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-17）
+- 読みの確かめた範囲: 2.0 系と 2.1 系を読み、建物モデルへ移す。XML Schema に合わせて書いた合成のサンプル 2 件（2.1 の架構、Shift\_JIS の 2.0 の壁と開口）と、MIT の公開サンプル 3 件（HoaryFox の 2.0.2 の鉄骨の架構、STB-DiffChecker の 2.1.0 の一組）を読み、部材の数・種類・配置・開口・診断を確かめた。公開サンプルの値を外部の実装が読んだ値とは照らしていない。断面の形・配筋・鋼材の規格は移さない。書き戻さない
+- 読みで使った公開サンプル: [samples/stbridge/](../../samples/stbridge/)
 - 既知の crate: stb-parser
 - 旧版の記録: 旧版の決定 0001、旧版の決定 0013、旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - issue: [zumen-jp/zumen-legacy#140](https://github.com/zumen-jp/zumen-legacy/issues/140)
 - issue: [zumen-jp/zumen#400](https://github.com/zumen-jp/zumen/issues/400)
 - issue: [zumen-jp/zumen#402](https://github.com/zumen-jp/zumen/issues/402)
+- 形式の文書: [docs/formats/stbridge.md](../../docs/formats/stbridge.md)
 
 ### format-stem
 

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="Shift_JIS"?>
+<!-- 試験のために作った合成の構造モデル。RC の柱と梁と壁と杭 -->
+<ST_BRIDGE xmlns="https://www.building-smart.or.jp/dl" version="2.0.2">
+  <StbCommon project_name="壁の試験" app_name="zumen-stbridge の試験" app_version="1"/>
+  <StbModel>
+    <StbNodes>
+      <StbNode id="1" X="0" Y="0" Z="0" kind="ON_COLUMN"/>
+      <StbNode id="2" X="4000" Y="0" Z="0" kind="ON_COLUMN"/>
+      <StbNode id="3" X="0" Y="0" Z="3000" kind="ON_GIRDER"/>
+      <StbNode id="4" X="4000" Y="0" Z="3000" kind="ON_GIRDER"/>
+    </StbNodes>
+    <StbStories>
+      <StbStory id="1" name="1FL" height="0" kind="GENERAL"/>
+      <StbStory id="2" name="2FL" height="3000" kind="GENERAL"/>
+    </StbStories>
+    <StbMembers>
+      <StbColumns>
+        <StbColumn id="1" name="C1" id_node_bottom="1" id_node_top="3" id_section="1" kind_structure="RC"/>
+        <StbColumn id="2" name="C1" id_node_bottom="2" id_node_top="4" id_section="1" kind_structure="RC"/>
+      </StbColumns>
+      <StbGirders>
+        <StbGirder id="1" name="G1" id_node_start="3" id_node_end="4" id_section="2" kind_structure="RC" isFoundation="false"/>
+      </StbGirders>
+      <StbWalls>
+        <StbWall id="1" name="W1" id_section="3" kind_structure="RC" kind_layout="ON_GIRDER">
+          <StbNodeIdOrder>1 2 4 3</StbNodeIdOrder>
+          <StbOpenIdList>
+            <StbOpenId id="1"/>
+          </StbOpenIdList>
+        </StbWall>
+      </StbWalls>
+      <StbPiles>
+        <StbPile id="1" name="P1" id_node="1" id_section="4" kind_structure="RC"/>
+      </StbPiles>
+      <StbOpens>
+        <StbOpen id="1" name="扉" id_section="5" position_X="1000" position_Y="0" length_X="900" length_Y="2000" rotate="0"/>
+      </StbOpens>
+    </StbMembers>
+    <StbSections>
+      <StbSecColumn_RC id="1" name="C1">
+        <StbSecFigureColumn_RC>
+          <StbSecColumn_RC_Rect width_X="500" width_Y="500"/>
+        </StbSecFigureColumn_RC>
+      </StbSecColumn_RC>
+      <StbSecBeam_RC id="2" name="G1">
+        <StbSecFigureBeam_RC>
+          <StbSecBeam_RC_Straight width="400" depth="700"/>
+        </StbSecFigureBeam_RC>
+      </StbSecBeam_RC>
+      <StbSecWall_RC id="3" name="W1">
+        <StbSecFigureWall_RC>
+          <StbSecWall_RC_Straight t="180"/>
+        </StbSecFigureWall_RC>
+      </StbSecWall_RC>
+      <StbSecPile_RC id="4" name="P1">
+        <StbSecFigurePile_RC>
+          <StbSecPile_RC_Straight D="1200"/>
+        </StbSecFigurePile_RC>
+      </StbSecPile_RC>
+      <StbSecOpen_RC id="5" name="扉"/>
+    </StbSections>
+  </StbModel>
+  <StbExtensions>
+    <StbExtension identifier="zumen-test" description="試験の拡張"/>
+  </StbExtensions>
+</ST_BRIDGE>

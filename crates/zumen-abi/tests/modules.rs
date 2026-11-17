@@ -19,6 +19,7 @@ use zumen_las::Las;
 use zumen_ply::Ply;
 use zumen_sdk::Codec;
 use zumen_sima::Sima;
+use zumen_stbridge::Stb;
 use zumen_sxf::Sxf;
 use zumen_tiff::Tiff;
 
@@ -71,6 +72,7 @@ fn detection_follows_the_codecs_in_the_order_open_tries() {
         ("landxml", LandXml::SIGNATURES),
         ("citygml", CityGml::SIGNATURES),
         ("fgd", Fgd::SIGNATURES),
+        ("stbridge", Stb::SIGNATURES),
         // ZIP に入れた SXF（src/packed.rs の読み取りと同じ名前の終わり）
         (
             "sxf",

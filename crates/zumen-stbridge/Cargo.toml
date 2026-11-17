@@ -1,0 +1,25 @@
+[package]
+name = "zumen-stbridge"
+description = "zumen の ST-Bridge（構造の XML）の読み取りと、建物モデルへの移し（#400）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = true
+
+[package.metadata.zumen]
+formats = ["stbridge"]
+
+[dependencies]
+# 三角関数を、どの環境でも同じ値で求める（決定 0007）
+libm = { version = "0.2.16", default-features = false }
+zumen-base = { version = "0.3.0", path = "../zumen-base" }
+zumen-building = { version = "0.3.0", path = "../zumen-building" }
+zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.3.0", path = "../zumen-xml" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+zumen-abi = { path = "../zumen-abi" }

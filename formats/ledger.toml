@@ -887,13 +887,21 @@ family = "stbridge"
 domains = ["building"]
 specs = ["stbridge_2_1_1"]
 rights = "public"
-rights-note = "buildingSMART Japan が仕様書と XML Schema を登録なしで公開し、利用や実装の条件を書いていない。構造設計小委員会の頁は、ST-Bridge を関連ソフトに組み込むことを推進すると書く。MIT の実装（HoaryFox・STBDotNet・STB-DiffChecker）が、契約に触れずに公開されている。STB-KIT（MPL-2.0）は同会との利用許諾契約に基づくと書くが、仕様書の記述を参照・転記した部分についての記述で、実装の公開に契約が要るとは示していない。zumen は仕様書と XSD を同梱せず、要素名・属性名と節の番号だけを参照する。問い合わせずに public とした（2026-11-17、利用者の判断、zumen-jp/zumen#400）。public なのでコアに置ける。非公開のプラグイン（zumen-jp/stbridge）の実装をコアへ移すまでは、place を plugin のままにする"
-place = "plugin"
-repository = "zumen-jp/stbridge（非公開）"
+rights-note = "buildingSMART Japan が仕様書と XML Schema を登録なしで公開し、利用や実装の条件を書いていない。構造設計小委員会の頁は、ST-Bridge を関連ソフトに組み込むことを推進すると書く。MIT の実装（HoaryFox・STBDotNet・STB-DiffChecker）が、契約に触れずに公開されている。STB-KIT（MPL-2.0）は同会との利用許諾契約に基づくと書くが、仕様書の記述を参照・転記した部分についての記述で、実装の公開に契約が要るとは示していない。zumen は仕様書と XSD を同梱せず、要素名・属性名と節の番号だけを参照する。問い合わせずに public とした（2026-11-17、利用者の判断、zumen-jp/zumen#400）。非公開のプラグイン（zumen-jp/stbridge）にあった実装をコアへ移した"
+place = "core"
 basis = ["spec"]
 known-crates = ["stb-parser"]
+verify = ["HoaryFox", "STB-DiffChecker"]
+samples = ["HoaryFox の Samples（MIT）", "STB-DiffChecker の TestData（MIT）"]
 legacy-decisions = ["0001", "0013", "0028"]
 issues = ["zumen-jp/zumen-legacy#140", "zumen-jp/zumen#400", "zumen-jp/zumen#402"]
+docs = ["docs/formats/stbridge.md"]
+
+[formats.stbridge.read]
+level = "synthetic"
+scope = "2.0 系と 2.1 系を読み、建物モデルへ移す。XML Schema に合わせて書いた合成のサンプル 2 件（2.1 の架構、Shift_JIS の 2.0 の壁と開口）と、MIT の公開サンプル 3 件（HoaryFox の 2.0.2 の鉄骨の架構、STB-DiffChecker の 2.1.0 の一組）を読み、部材の数・種類・配置・開口・診断を確かめた。公開サンプルの値を外部の実装が読んだ値とは照らしていない。断面の形・配筋・鋼材の規格は移さない。書き戻さない"
+checked = "2026-11-17"
+public-samples = ["samples/stbridge/"]
 
 [[formats.stbridge.evidence]]
 title = "STB-KIT の README「ST-Bridge および IFC との関係」"

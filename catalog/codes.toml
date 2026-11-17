@@ -4054,3 +4054,45 @@ params = { source = "uint", target = "uint" }
 group-by = ["source", "target"]
 since = "0.3.0"
 status = "active"
+
+# ST-Bridge の読み取りと、建物モデルへの移し（#400）
+
+[codes."stbridge.file.invalid"]
+description = "根の要素が ST_BRIDGE でないか、version がないので、ST-Bridge として読めない"
+severity = "error"
+since = "0.3.0"
+status = "active"
+
+[codes."stbridge.version.unsupported"]
+description = "2.0 系と 2.1 系でない ST-Bridge の版（1.x など）なので、読まなかった"
+severity = "error"
+params = { version = "text" }
+since = "0.3.0"
+status = "active"
+
+[codes."stbridge.element.unsupported"]
+description = "建物モデルへ移さない要素（断面の形・配筋・鋼材の規格の一覧・拡張など）。要素の名前ごとにまとめる"
+severity = "warning"
+fidelity = "dropped"
+params = { element = "text" }
+group-by = ["element"]
+since = "0.3.0"
+status = "active"
+
+[codes."stbridge.reference.missing"]
+description = "部材などの属性が指す節点・断面・部材がないので、その参照を移さなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { element = "text", attribute = "text", target = "text" }
+group-by = ["element", "attribute"]
+since = "0.3.0"
+status = "active"
+
+[codes."stbridge.placement.dropped"]
+description = "部材を決める節点が足りないか重なるので、部材に配置を持たせなかった"
+severity = "warning"
+fidelity = "dropped"
+params = { element = "text" }
+group-by = ["element"]
+since = "0.3.0"
+status = "active"

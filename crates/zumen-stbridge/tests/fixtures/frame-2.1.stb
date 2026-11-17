@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 試験のために作った合成の構造モデル。1 スパン・2 層の架構 -->
+<ST_BRIDGE xmlns="https://www.building-smart.or.jp/dl" version="2.1.0">
+  <StbCommon guid="0f8fad5bd9cb469fa16570867728950e" project_name="試験の架構" app_name="zumen-stbridge の試験" app_version="1"/>
+  <StbModel>
+    <StbNodes>
+      <StbNode id="1" X="0" Y="0" Z="0" kind="ON_COLUMN"/>
+      <StbNode id="2" X="6000" Y="0" Z="0" kind="ON_COLUMN"/>
+      <StbNode id="3" X="6000" Y="5000" Z="0" kind="ON_COLUMN"/>
+      <StbNode id="4" X="0" Y="5000" Z="0" kind="ON_COLUMN"/>
+      <StbNode id="5" X="0" Y="0" Z="3500" kind="ON_GIRDER"/>
+      <StbNode id="6" X="6000" Y="0" Z="3500" kind="ON_GIRDER"/>
+      <StbNode id="7" X="6000" Y="5000" Z="3500" kind="ON_GIRDER"/>
+      <StbNode id="8" X="0" Y="5000" Z="3500" kind="ON_GIRDER"/>
+    </StbNodes>
+    <StbAxes>
+      <StbParallelAxes group_name="X" X="0" Y="0" angle="0">
+        <StbParallelAxis id="1" name="X1" distance="0"/>
+        <StbParallelAxis id="2" name="X2" distance="6000"/>
+      </StbParallelAxes>
+      <StbParallelAxes group_name="Y" X="0" Y="0" angle="90">
+        <StbParallelAxis id="3" name="Y1" distance="0"/>
+        <StbParallelAxis id="4" name="Y2" distance="5000"/>
+      </StbParallelAxes>
+    </StbAxes>
+    <StbStories>
+      <StbStory id="1" name="1FL" height="0" kind="GENERAL">
+        <StbNodeIdList>
+          <StbNodeId id="1"/>
+          <StbNodeId id="2"/>
+          <StbNodeId id="3"/>
+          <StbNodeId id="4"/>
+        </StbNodeIdList>
+      </StbStory>
+      <StbStory id="2" name="RFL" height="3500" kind="ROOF">
+        <StbNodeIdList>
+          <StbNodeId id="5"/>
+          <StbNodeId id="6"/>
+          <StbNodeId id="7"/>
+          <StbNodeId id="8"/>
+        </StbNodeIdList>
+      </StbStory>
+    </StbStories>
+    <StbMembers>
+      <StbColumns>
+        <StbColumn id="1" guid="1b4e28ba2fa111d2883f0016d3cca427" name="C1" id_node_bottom="1" id_node_top="5" rotate="0" id_section="1" kind_structure="RC"/>
+        <StbColumn id="2" name="C1" id_node_bottom="2" id_node_top="6" rotate="90" id_section="1" kind_structure="RC"/>
+        <StbColumn id="3" name="C1" id_node_bottom="3" id_node_top="7" id_section="1" kind_structure="RC"/>
+        <StbColumn id="4" name="C1" id_node_bottom="4" id_node_top="8" id_section="1" kind_structure="RC"/>
+      </StbColumns>
+      <StbGirders>
+        <StbGirder id="1" name="G1" id_node_start="5" id_node_end="6" id_section="1" kind_structure="S" isFoundation="false"/>
+        <StbGirder id="2" name="G1" id_node_start="6" id_node_end="7" id_section="1" kind_structure="S" isFoundation="false"/>
+        <StbGirder id="3" name="G1" id_node_start="7" id_node_end="8" id_section="1" kind_structure="S" isFoundation="false"/>
+        <StbGirder id="4" name="G1" id_node_start="8" id_node_end="99" id_section="1" kind_structure="S" isFoundation="false"/>
+      </StbGirders>
+      <StbBraces>
+        <StbBrace id="1" name="V1" id_node_start="1" id_node_end="6" id_section="1" kind_structure="S"/>
+      </StbBraces>
+      <StbSlabs>
+        <StbSlab id="1" name="S1" id_section="1" kind_structure="RC" kind_slab="NORMAL" isFoundation="false">
+          <StbNodeIdOrder>5 6 7 8</StbNodeIdOrder>
+        </StbSlab>
+      </StbSlabs>
+      <StbWalls>
+        <StbWall id="1" name="W1" id_section="1" kind_structure="RC" kind_layout="ON_GIRDER">
+          <StbNodeIdOrder>4 3 7 8</StbNodeIdOrder>
+        </StbWall>
+      </StbWalls>
+      <StbFootings>
+        <StbFooting id="1" name="F1" id_node="1" id_section="1"/>
+      </StbFootings>
+      <StbOpenArrangements>
+        <StbOpenArrangement id="1" name="窓" id_section="1" kind_member="WALL" id_member="1" position_X="2000" position_Y="1000" rotate="0"/>
+      </StbOpenArrangements>
+    </StbMembers>
+    <StbSections>
+      <StbSecColumn_RC id="1" name="C1" strength_concrete="Fc24">
+        <StbSecFigureColumn_RC>
+          <StbSecColumnRect width_X="600" width_Y="600"/>
+        </StbSecFigureColumn_RC>
+      </StbSecColumn_RC>
+      <StbSecBeam_S id="1" name="G1">
+        <StbSecSteelFigureBeam_S>
+          <StbSecSteelBeam_S_Shape order="1">
+            <StbSecSteelBeamStraight shape="H-400x200x8x13" strength_main="SN490B"/>
+          </StbSecSteelBeam_S_Shape>
+        </StbSecSteelFigureBeam_S>
+      </StbSecBeam_S>
+      <StbSecBrace_S id="1" name="V1">
+        <StbSecSteelFigureBrace_S>
+          <StbSecSteelBrace_S_Same shape="L-65x65x6" strength_main="SS400"/>
+        </StbSecSteelFigureBrace_S>
+      </StbSecBrace_S>
+      <StbSecSlab_RC id="1" name="S1" strength_concrete="Fc24">
+        <StbSecSlab_RC_Conventional>
+          <StbSecFigureSlab_RC_Conventional>
+            <StbSecSlab_RC_ConventionalStraight depth="150"/>
+          </StbSecFigureSlab_RC_Conventional>
+        </StbSecSlab_RC_Conventional>
+      </StbSecSlab_RC>
+      <StbSecWall_RC id="1" name="W1" strength_concrete="Fc24">
+        <StbSecFigureWall_RC>
+          <StbSecWall_RC_Straight t="200"/>
+        </StbSecFigureWall_RC>
+      </StbSecWall_RC>
+      <StbSecFoundation_RC id="1" name="F1" strength_concrete="Fc24">
+        <StbSecFigureFoundation_RC>
+          <StbSecFoundation_RC_Rect width_X="2000" width_Y="2000" depth="800"/>
+        </StbSecFigureFoundation_RC>
+      </StbSecFoundation_RC>
+      <StbSecOpen_RC id="1" name="窓" length_X="1800" length_Y="1200"/>
+      <StbSecSteel>
+        <StbSecRoll-H name="H-400x200x8x13" type="H" A="400" B="200" t1="8" t2="13" r="16"/>
+        <StbSecRoll-L name="L-65x65x6" A="65" B="65" t1="6" t2="6" r1="8.5" r2="4"/>
+      </StbSecSteel>
+    </StbSections>
+  </StbModel>
+</ST_BRIDGE>
