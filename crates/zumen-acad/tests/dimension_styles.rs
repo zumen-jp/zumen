@@ -421,3 +421,110 @@ fn dimension_style_case_change_is_refused_if_an_object_may_reference_it() {
     assert_eq!(found, [codes::CHANGE_EDIT_UNSUPPORTED]);
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), input.as_bytes());
 }
+
+/// R12 の DXF に足した寸法スタイルは、既定の矢印の名前（5。DIMBLK）と両端を別にするフラグ（173。DIMSAH）を
+/// 持つ。AutoCAD は、どちらかがないと図面を開かない（#895）
+#[test]
+fn dimension_styles_added_to_r12_keep_the_arrow_name_and_flag() {
+    let style = |handle: &str, name: &str, arrows: bool| {
+        let mut tags = vec![
+            (0, "DIMSTYLE".to_owned()),
+            (105, handle.to_owned()),
+            (2, name.to_owned()),
+            (70, "0".to_owned()),
+            (3, String::new()),
+            (4, String::new()),
+        ];
+        if arrows {
+            tags.extend([
+                (5, "_DOT".to_owned()),
+                (6, "_DOT".to_owned()),
+                (7, String::new()),
+            ]);
+        }
+        tags.extend([
+            (40, "1.0".to_owned()),
+            (41, "2.5".to_owned()),
+            (142, "0.0".to_owned()),
+        ]);
+        if arrows {
+            tags.push((173, "1".to_owned()));
+        }
+        tags
+    };
+    let source = |arrows: bool| {
+        let mut tags: Vec<(i16, String)> = [
+            (0, "SECTION"),
+            (2, "HEADER"),
+            (9, "$ACADVER"),
+            (1, "AC1009"),
+            (9, "$HANDLING"),
+            (70, "1"),
+            (9, "$HANDSEED"),
+            (5, "40"),
+            (0, "ENDSEC"),
+            (0, "SECTION"),
+            (2, "TABLES"),
+            (0, "TABLE"),
+            (2, "DIMSTYLE"),
+            (70, "1"),
+        ]
+        .iter()
+        .map(|(code, value)| (*code, (*value).to_owned()))
+        .collect();
+        tags.extend(style("2B", "STANDARD", arrows));
+        tags.extend(
+            [
+                (0, "ENDTAB"),
+                (0, "ENDSEC"),
+                (0, "SECTION"),
+                (2, "ENTITIES"),
+                (0, "ENDSEC"),
+                (0, "EOF"),
+            ]
+            .iter()
+            .map(|(code, value)| (*code, (*value).to_owned())),
+        );
+        tags.iter()
+            .map(|(code, value)| format!("{code:>3}\n{value}\n"))
+            .collect::<String>()
+            .into_bytes()
+    };
+    // 写す元が矢印の名前とフラグを持つときは既定に戻し、持たないときは足す
+    for arrows in [true, false] {
+        let mut file = testkit::read::<Dxf>(&source(arrows)).0.unwrap();
+        let drawing = lift(&file);
+        let mut added = style_of(&drawing, "STANDARD");
+        added.name = "CIVIL".to_owned();
+        added.size = 3.25;
+        added.ends = [Arrowhead::Default, Arrowhead::Default];
+        let (result, found) = apply(
+            &mut file,
+            vec![Edit::AddDimensionStyle {
+                style: Box::new(added),
+            }],
+        );
+        result.unwrap();
+        assert!(found.is_empty(), "{found:?}");
+        let written = String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap();
+        let lines = written.replace("\r\n", "\n");
+        let (head, tail) = lines.split_once("\n  2\nCIVIL\n").unwrap();
+        let (_, head) = head.rsplit_once("DIMSTYLE").unwrap();
+        let (tail, _) = tail.split_once("\n  0\n").unwrap();
+        let record = format!("{head}\n{tail}\n");
+        assert!(record.contains("\n  5\n\n"), "{record}");
+        assert!(record.contains("\n173\n0\n"), "{record}");
+        assert!(!record.contains("_DOT"), "{record}");
+        let after = lift(&testkit::read::<Dxf>(written.as_bytes()).0.unwrap());
+        let civil = style_of(&after, "CIVIL");
+        assert_eq!(
+            (civil.size, &civil.ends),
+            (3.25, &[Arrowhead::Default, Arrowhead::Default])
+        );
+    }
+}
+
+#[cfg(test)]
+fn style_of(drawing: &Drawing2D, name: &str) -> DimensionStyle {
+    style(drawing, name).1.clone()
+}

@@ -210,13 +210,54 @@ fn layers_are_renamed_restyled_and_their_entities_follow() {
     assert_eq!(id::layer(renamed), "layer/h11");
     assert_eq!(applied[0].id.as_deref(), Some("layer/h11"));
     assert_eq!(applied[0].hash, Some(Hash::layer(renamed)));
-    // 線と円は名前を変えた画層にあり、今の画層も変わる。凍結した画層の色は負にしない
+    // 線と円は名前を変えた画層にあり、今の画層も変わる。新しく凍結して表示しない画層の色は負にする。凍結だけの
+    // 画層と公開値では読み分けられないので、AutoCAD が表示しない画層と読む形にする（#892）
     let elements = &after.spaces[0].elements;
     assert!(elements.iter().all(|element| element.layer == renamed.id));
     assert!(text.contains("$CLAYER\n  8\nWalls\n"));
     assert!(!text.contains("\n  8\nA\n") && !text.contains("\n  8\na\n"));
-    assert!(text.contains("  2\nWalls\n 70\n5\n 62\n3\n"));
+    assert!(text.contains("  2\nWalls\n 70\n5\n 62\n-3\n"));
     assert!(text.contains("290\n0\n370\n35\n"));
+}
+
+/// 凍結したまま置き換える画層は、色の符号を元のまま保つ。凍結だけの画層は表示する画層のまま、凍結して表示しない
+/// 画層は表示しない画層のまま書く（#892）
+#[test]
+fn frozen_layers_keep_their_color_sign_when_they_stay_frozen() {
+    for (sign, written) in [("", "4"), ("-", "-4")] {
+        let text = String::from_utf8(src()).unwrap().replace(
+            "  2\nA\n 70\n0\n 62\n1\n",
+            &format!("  2\nA\n 70\n1\n 62\n{sign}1\n"),
+        );
+        let mut file = testkit::read::<Dxf>(text.as_bytes()).0.unwrap();
+        let drawing = lift(&file);
+        let was = layer(&drawing, "A");
+        assert_eq!(
+            was.state.map(|state| (state.visible, state.frozen)),
+            Some((false, true))
+        );
+        let mut new = was.clone();
+        let mut style = new.style.unwrap();
+        style.color = aci(4);
+        new.style = Some(style);
+        let (result, codes) = apply(
+            &mut file,
+            vec![Edit::ReplaceLayer {
+                target: seen(was),
+                layer: Box::new(new.clone()),
+            }],
+        );
+        result.unwrap();
+        assert!(codes.is_empty(), "{codes:?}");
+        let written_text = String::from_utf8(testkit::write::<Dxf>(&file).unwrap()).unwrap();
+        assert!(
+            written_text.contains(&format!("  2\nA\n 70\n1\n 62\n{written}\n")),
+            "{sign}"
+        );
+        let after = lift(&testkit::read::<Dxf>(written_text.as_bytes()).0.unwrap());
+        assert_eq!(layer(&after, "A").state, new.state);
+        assert_eq!(layer(&after, "A").style, new.style);
+    }
 }
 
 /// 色見本帳の色（420 と 430）を持つ画層の、真の色を変えるか除いたら、色見本帳の色の名前（430）も除く。名前だけを

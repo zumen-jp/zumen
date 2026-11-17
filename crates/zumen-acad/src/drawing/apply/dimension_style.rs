@@ -24,6 +24,13 @@ use zumen_sdk::Error;
 /// フィールドを書く順。ないフィールドは、この順で前にあるフィールドの後に足す（DXF Reference「DIMSTYLE」の並び）
 const ORDER: [i16; 10] = [2, 70, 40, 41, 142, 173, 341, 342, 343, 344];
 
+/// R2000 より前の DXF の寸法スタイルのフィールドの並び（DXF Reference「DIMSTYLE」の R12 の並び）。ない 5・173 を
+/// この順で前にあるフィールドの後に足す
+const NAMED_ORDER: [i16; 36] = [
+    2, 70, 3, 4, 5, 6, 7, 40, 41, 42, 43, 44, 45, 46, 47, 48, 140, 141, 142, 143, 144, 145, 146,
+    147, 71, 72, 73, 74, 75, 76, 77, 78, 170, 171, 172, 173,
+];
+
 /// 端部記号のブロックのレコードのハンドル（DIMLDRBLK・DIMBLK・DIMBLK1・DIMBLK2）
 const ARROW_CODES: [i16; 4] = [341, 342, 343, 344];
 
@@ -60,19 +67,36 @@ pub(super) fn has_children<'n>(
 
 /// 足すレコードの元にする値。Standard（なければ表の初めの子でない寸法スタイル）のレコードを写し、ハンドル（5・105）・サブクラスマーカー（100）・拡張辞書とリアクターの組
 /// （102）・拡張データ（1000 から）を除く。端部記号は、書くときに決める
-pub(super) fn template(object: &Object) -> Vec<Value> {
+///
+/// `named_arrows` は、端部記号をブロックの名前（5・6・7。DIMBLK・DIMBLK1・DIMBLK2）で書く R2000 より前の
+/// DXF か。そこでは 5 はハンドルでなく、既定の矢印を表す空の名前を書き、両端を別にするフラグ（173。DIMSAH）を
+/// 0 にして残す。AutoCAD は、R12 の DXF の寸法スタイルに 5 と 173 の両方がないと図面を開かない（#895 の実機の
+/// 観測。仕様には書かれていない推定）
+pub(super) fn template(object: &Object, named_arrows: bool) -> Vec<Value> {
     let mut values = Vec::new();
     let mut depth = 0usize;
     for value in &object.values {
         match (value.code, &value.data) {
             (102, Data::Text(text)) if text.starts_with(b"{") => depth += 1,
             (102, Data::Text(text)) if text.starts_with(b"}") => depth = depth.saturating_sub(1),
+            (5..=7, _) if depth == 0 && named_arrows => values.push(Value {
+                code: value.code,
+                data: Data::Text(Vec::new()),
+            }),
+            (173, _) if depth == 0 && named_arrows => values.push(int(173, 0)),
             (code, _)
                 if depth > 0
                     || matches!(code, 5 | 105 | 173)
                     || ARROW_CODES.contains(&code)
                     || code >= 1000 => {}
             _ => values.push(value.clone()),
+        }
+    }
+    if named_arrows {
+        for (code, data) in [(5, Data::Text(Vec::new())), (173, Data::Int(0))] {
+            if find(&values, code).is_none() {
+                set_in(&mut values, code, Some(Value { code, data }), &NAMED_ORDER);
+            }
         }
     }
     values
@@ -660,7 +684,8 @@ pub(super) fn add(
     };
     let blocks: Option<Blocks<'_>> = plan.dimension_styles.block_handled.then_some(&block_of);
     let planned = standard.and_then(|standard| {
-        let mut values = template(standard);
+        let named_arrows = target == Target::Dxf && !plan.dimension_styles.block_handled;
+        let mut values = template(standard, named_arrows);
         write(born, &mut values, new, None, blocks)?;
         let Some(Data::Text(name)) = find(&values, 2) else {
             return None;

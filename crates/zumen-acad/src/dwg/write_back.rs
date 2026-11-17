@@ -62,6 +62,8 @@ mod links;
 mod records;
 mod restyle;
 
+#[cfg(all(test, feature = "drawing"))]
+mod dimstyle_tests;
 #[cfg(test)]
 mod layer_name_tests;
 #[cfg(test)]
@@ -1096,10 +1098,9 @@ impl DwgFile {
             for (code, field) in dim_fields(self.release) {
                 dim_field(&mut fields, object, code, field, self.release)?;
             }
-            // R2010 からは、使い道の分からない B が続く。サンプルの図面と同じく偽とする
-            if r2010 {
-                fields.bit(false);
-            }
+            // 使い道の分からない B が続く。サンプルの図面と同じく偽とする。R2000・R2004 のサンプルの図面の寸法スタイルも、
+            // フィールドの後にこの 1 ビットを持ち、ないと AutoCAD は図面を開かない（#893）
+            fields.bit(false);
             // 文字スタイルと、引出線・矢印・1 つめと 2 つめの矢印のブロック。サンプルの図面と同じく、参照の型は 5
             // R2010 からは、寸法線と 2 つの補助線の線種が続く
             let last = if r2010 { 347 } else { 344 };

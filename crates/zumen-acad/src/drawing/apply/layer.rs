@@ -149,7 +149,22 @@ pub(super) fn write(
     let flags = (flags & !(1 | 4)) | i64::from(state.frozen) | (i64::from(!state.editable) << 2);
     set(values, 70, Some(int(70, flags)));
     // DWG に足す画層は、真の色をまだ書かない
-    color(born, values, &state, &style, !(dwg && was.is_none()))?;
+    // 凍結のまま置き換える画層は、表示しない状態（62 の符号）を元のまま保つ。図面モデルの凍結した画層は、表示する
+    // 状態を持たない（いつも表示しない）ため。新たに凍結する画層と足す画層は、表示しない状態も書く（#892）
+    let kept_sign = match was {
+        Some((_, old)) if state.frozen && old.state.is_some_and(|old| old.frozen) => {
+            Some(matches!(find(values, 62), Some(Data::Int(index)) if *index < 0))
+        }
+        _ => None,
+    };
+    color(
+        born,
+        values,
+        &state,
+        &style,
+        kept_sign,
+        !(dwg && was.is_none()),
+    )?;
     match was {
         // DWG の今あるレコードは、線種をハンドルで持つ。変えるときだけ名前を書き、書き戻すときにハンドルに直す（#723）
         Some((_, old)) if dwg && old.style.and_then(|style| style.line_type) == style.line_type => {
@@ -178,7 +193,8 @@ pub(super) fn write(
     Some(())
 }
 
-/// 色（62）と真の色（420）。番号の色が要る。表示しない画層は、番号を負にする。番号を持たない真の色（AutoCAD の
+/// 色（62）と真の色（420）。番号の色が要る。表示しない画層は、番号を負にする。`kept_sign` が `Some` なら、表示しない
+/// かどうかを `state` でなく、その値（元のレコードの符号）で決める。番号を持たない真の色（AutoCAD の
 /// DWG の真の色の画層）は、元のレコードに同じ 420 があり、62 がないか ±7 のとき（真の色を変えずに、表示の状態などを
 /// 変えるとき）だけ、番号を 7 にする。ほかは、近い番号の決まりが分からないので書かない（#743）
 fn color(
@@ -186,6 +202,7 @@ fn color(
     values: &mut Vec<Value>,
     state: &LayerState,
     style: &LayerStyle,
+    kept_sign: Option<bool>,
     true_color: bool,
 ) -> Option<()> {
     let color = style.color?;
@@ -202,7 +219,7 @@ fn color(
         }
         (None, None) => return None,
     };
-    let index = if !state.visible && !state.frozen {
+    let index = if kept_sign.unwrap_or(!state.visible) {
         -index
     } else {
         index
