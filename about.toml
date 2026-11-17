@@ -32,3 +32,47 @@ license = "MIT"
 path = "LICENSE.txt"
 license = "MIT"
 checksum = "3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7"
+
+# dashu・i_overlay・i_key_sort の包みには、ライセンスのファイルが入っていない。cargo-about は MIT の SPDX の定型の文で
+# 代えるので、公開したコミット（包みの .cargo_vcs_info.json）の上流のリポジトリから、著作権の表示を含む MIT の本文を取る。
+# どれも MIT OR Apache-2.0（i_key_sort は MIT）なので、MIT を選んで載せる。dashu-int は、移植元の ibig の MIT の本文
+# （NOTICE.md）も同梱しているので、あわせて載せる。
+[dashu-base.clarify]
+license = "MIT"
+
+[[dashu-base.clarify.git]]
+path = "LICENSE-MIT"
+checksum = "d37bf20752fdde8a74dfeee8cdbedef6b168fede0a4c7a9bd132db191367ef5c"
+
+[dashu-int.clarify]
+license = "MIT"
+
+[[dashu-int.clarify.git]]
+path = "LICENSE-MIT"
+checksum = "d37bf20752fdde8a74dfeee8cdbedef6b168fede0a4c7a9bd132db191367ef5c"
+
+[[dashu-int.clarify.files]]
+path = "NOTICE.md"
+license = "MIT"
+checksum = "13ce2fb7da9c6c3a5a16e86877a604e80237f076b9258115d8f0444127f6a281"
+
+[dashu-ratio.clarify]
+license = "MIT"
+
+[[dashu-ratio.clarify.git]]
+path = "LICENSE-MIT"
+checksum = "d37bf20752fdde8a74dfeee8cdbedef6b168fede0a4c7a9bd132db191367ef5c"
+
+[i_key_sort.clarify]
+license = "MIT"
+
+[[i_key_sort.clarify.git]]
+path = "LICENSE"
+checksum = "47e00f18b265d350a2860d3899f17dd1c7689b966545e929df8ffa7033f5acdc"
+
+[i_overlay.clarify]
+license = "MIT"
+
+[[i_overlay.clarify.git]]
+path = "LICENSE-MIT"
+checksum = "260cc580f53a756821a0f35475e2cd6da790f8fed0efc058252fe1bed8f2689e"
