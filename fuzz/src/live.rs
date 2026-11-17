@@ -194,6 +194,29 @@ impl Engine {
         }
     }
 
+    /// 依存グラフの節の数。依存をたどれない形式は 0。
+    fn node_count(&self) -> usize {
+        match self {
+            Self::Acad(v) => v.row_count(),
+            Self::Sxf(v) => v.row_count(),
+            Self::Ifc(v) => v.building().elements().len(),
+            Self::Jww(_) => 0,
+        }
+    }
+
+    /// `node` を変えたときに影響を受ける節
+    fn affected(&self, node: u32, cx: &mut Cx<'_>) -> Result<Vec<u32>, Error> {
+        let rows = |rows: Vec<zumen_live::RowId>| rows.into_iter().map(|row| row.0).collect();
+        match self {
+            Self::Acad(v) => v.affected_rows(&[zumen_live::RowId(node)], cx).map(rows),
+            Self::Sxf(v) => v.affected_rows(&[zumen_live::RowId(node)], cx).map(rows),
+            Self::Ifc(v) => v
+                .affected_elements(&[zumen_building::ElementRef(node)], cx)
+                .map(|elements| elements.into_iter().map(|element| element.0).collect()),
+            Self::Jww(_) => Err(Error::Unsupported),
+        }
+    }
+
     fn undo(&mut self, cx: &mut Cx<'_>) -> Result<bool, Error> {
         match self {
             Self::Acad(v) => v.undo(cx),
@@ -283,6 +306,9 @@ fn bounded_debug(value: &impl fmt::Debug, cx: &mut Cx<'_>) -> Result<Vec<u8>, Er
     Ok(out.bytes)
 }
 
+/// 保存・保持モデル・依存先の符号化。止まった取得は `None`。
+type Snapshot = (Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<Vec<u8>>>);
+
 struct Trace {
     limits: Limits,
     bytes: Vec<Vec<u8>>,
@@ -315,11 +341,33 @@ impl Trace {
         Some(bytes)
     }
 
-    fn snapshot(&mut self, engine: &Engine) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+    fn snapshot(&mut self, engine: &Engine) -> Snapshot {
         (
             self.blob(|cx| engine.save(cx)),
             self.blob(|cx| engine.model(cx)),
+            self.dependencies(engine),
         )
+    }
+
+    /// 先頭の 16 節と最後の節について、変えたときに影響を受ける節を予算の中で求める。
+    /// 取り消し・やり直しで、保存・保持モデルと同じく前後の依存へ戻ることを確かめる。
+    fn dependencies(&mut self, engine: &Engine) -> Option<Vec<Vec<u8>>> {
+        let count = engine.node_count();
+        if count == 0 {
+            return None;
+        }
+        let last = u32::try_from(count - 1).unwrap_or(u32::MAX);
+        let mut nodes: Vec<u32> = (0..last.min(16)).collect();
+        nodes.push(last);
+        let mut edges = Vec::with_capacity(nodes.len());
+        for node in nodes {
+            let affected = self.blob(|cx| {
+                let rows = engine.affected(node, cx)?;
+                bounded_debug(&rows, cx)
+            });
+            edges.push(affected.unwrap_or_default());
+        }
+        Some(edges)
     }
 
     fn row_targets(&mut self, engine: &Engine, seed: u64) {
