@@ -3412,3 +3412,128 @@ fn insert_with_owner_attached_unreadable_attrib_is_rejected_like_apply() {
         });
     }
 }
+
+/// 連想の合成 DXF の図形（h101〜h105）から、各図形が影響する図形のハンドルを返す
+fn associative_edges(live: &AcadLive) -> Vec<(u64, Vec<u64>)> {
+    const HANDLES: [u64; 5] = [0x101, 0x102, 0x103, 0x104, 0x105];
+    HANDLES
+        .iter()
+        .filter_map(|&handle| {
+            let row = live.table().find_handle(handle)?;
+            let affected = fresh_cx(|cx| live.affected_rows(&[row], cx)).0.unwrap();
+            let handles = HANDLES
+                .iter()
+                .copied()
+                .filter(|&other| {
+                    other != handle
+                        && live
+                            .table()
+                            .find_handle(other)
+                            .is_some_and(|other| affected.contains(&other))
+                })
+                .collect();
+            Some((handle, handles))
+        })
+        .collect()
+}
+
+/// 保存したバイト列を開き直した文書エンジンの依存辺
+fn reopened_edges(live: &AcadLive) -> Vec<(u64, Vec<u64>)> {
+    let saved = fresh_cx(|cx| live.save(cx)).0.unwrap();
+    associative_edges(&fresh_cx(|cx| AcadLive::open_dxf(&saved, cx)).0.unwrap())
+}
+
+/// 寸法・連想ハッチング・引出線の測る相手と依存する側のそれぞれに、移動・色・線種の尺度・削除を当てる。
+/// 結果・診断・保存・保持モデル・取り消し・やり直しを逐次 apply と照らし、依存辺は、編集・取り消し・
+/// やり直しのたびに保存したバイト列を開き直したものと一致する。1 つずつ当てたあと、受けた編集を続けて当てる
+#[test]
+fn associative_dependencies_follow_every_edit_like_reopening() {
+    let input = synthetic_associative_dxf();
+    let edits = |pair: &DxfPair, handle: u64| {
+        vec![
+            Edit::Transform {
+                target: pair.seen(handle),
+                transform: Affine::translation(2.0, 3.0),
+            },
+            Edit::Restyle {
+                target: pair.seen(handle),
+                style: Restyle {
+                    color: Some(Inherit::Own(zumen_drawing::Color {
+                        code: Some(zumen_drawing::ColorCode {
+                            system: zumen_drawing::ColorSystem::Aci,
+                            value: 5,
+                        }),
+                        rgb: None,
+                    })),
+                    ..Restyle::default()
+                },
+            },
+            Edit::Restyle {
+                target: pair.seen(handle),
+                style: Restyle {
+                    line_type_scale: Some(2.0),
+                    ..Restyle::default()
+                },
+            },
+            Edit::Remove {
+                target: pair.seen(handle),
+            },
+        ]
+    };
+    let accepted = |pair: &DxfPair, edit: &Edit| {
+        let saved = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+        let mut probe = fresh_cx(|cx| Dxf::read(&saved, cx)).0.unwrap();
+        let changes = Changes {
+            document: None,
+            edits: vec![edit.clone()],
+        };
+        fresh_cx(|cx| probe.apply(&changes, cx)).0.is_ok()
+    };
+    let check = |pair: &mut DxfPair, edit: Edit| -> bool {
+        let before = associative_edges(&pair.live);
+        assert_eq!(before, reopened_edges(&pair.live));
+        if !accepted(pair, &edit) {
+            pair.reject(edit);
+            assert_eq!(associative_edges(&pair.live), before);
+            return false;
+        }
+        pair.apply(edit);
+        let after = associative_edges(&pair.live);
+        assert_eq!(after, reopened_edges(&pair.live));
+        assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+        assert_eq!(associative_edges(&pair.live), before);
+        assert!(fresh_cx(|cx| pair.live.redo(cx)).0.unwrap());
+        assert_eq!(associative_edges(&pair.live), after);
+        true
+    };
+    for threads in [1, 4] {
+        let opened = DxfPair::open(&input, threads);
+        let edges = associative_edges(&opened.live);
+        assert!(edges.contains(&(0x101, vec![0x102, 0x105])));
+        assert!(edges.contains(&(0x103, vec![0x104])));
+        let mut taken = Vec::new();
+        for handle in 0x101..=0x105 {
+            for (index, edit) in edits(&opened, handle).into_iter().enumerate() {
+                let mut pair = DxfPair::open(&input, threads);
+                if check(&mut pair, edit) {
+                    taken.push((handle, index));
+                }
+            }
+        }
+        // 連想ハッチングの移動と、引出線が注記として指す MTEXT の削除だけを断る（逐次 apply と同じ）
+        let refused = [(0x102, 0), (0x103, 3)];
+        let expected: Vec<_> = (0x101..=0x105)
+            .flat_map(|handle| (0..4).map(move |index| (handle, index)))
+            .filter(|edit| !refused.contains(edit))
+            .collect();
+        assert_eq!(taken, expected);
+        let mut pair = DxfPair::open(&input, threads);
+        for &(handle, index) in &taken {
+            if pair.live.table().find_handle(handle).is_none() {
+                continue;
+            }
+            let edit = edits(&pair, handle).swap_remove(index);
+            check(&mut pair, edit);
+        }
+    }
+}
