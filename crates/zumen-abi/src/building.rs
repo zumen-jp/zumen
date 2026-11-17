@@ -43,6 +43,34 @@ pub(crate) struct Model {
     pub(crate) hash: Hash,
     /// ifcZIP で開いたなら、中の IFC-SPF の項目の名前
     pub(crate) entry: Option<String>,
+    /// 文書エンジン。`building_apply` で作り、この文書を置き換えるまで持ち続ける（`docs/live.md`）
+    #[cfg(feature = "bim")]
+    pub(crate) live: Live,
+}
+
+/// 建物の文書の文書エンジンの状態。[`Model::file`] と同じ内容を持つ。文書を置き換えると、新しい文書は
+/// [`Live::Absent`] から始まるので、ほかの経路で書き換えた文書に古い文書エンジンが残らない
+#[cfg(feature = "bim")]
+#[derive(Default)]
+pub(crate) enum Live {
+    /// まだ作っていない
+    #[default]
+    Absent,
+    /// 作れなかったか、今までの経路と同じ読み方で名前を比べられない。この文書では作り直さない
+    Refused,
+    /// IFC-SPF の文書エンジン。ifcZIP は中の IFC-SPF で作る
+    Ifc(Box<zumen_ifc::IfcLive>),
+}
+
+#[cfg(feature = "bim")]
+impl std::fmt::Debug for Live {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Absent => "Absent",
+            Self::Refused => "Refused",
+            Self::Ifc(_) => "Ifc",
+        })
+    }
 }
 
 /// IFC-SPF なら読む。IFC-SPF でなければ `None`
@@ -100,6 +128,8 @@ fn model(
         building,
         hash,
         entry,
+        #[cfg(feature = "bim")]
+        live: Live::Absent,
     })
 }
 
@@ -122,17 +152,43 @@ pub(crate) fn read_plugin(bytes: &[u8], cx: &mut Cx<'_>) -> Option<Result<Model,
             building,
             hash,
             entry: None,
+            live: Live::Absent,
         })
     }))
 }
 
-/// 変更の一覧を IFC に当て、書き戻した文書と結果と、書き戻したファイルを返す（決定 0244）。元の文書は変えない
-pub(crate) fn apply(
+/// 書き戻した文書と結果と、書き戻したファイル
+pub(crate) type Updated = (Model, BuildingApplyResult, Vec<u8>);
+
+/// 確かめ終えた変更の一覧。L1 の変更と、変える要素（結果の並び）
+pub(crate) struct Prepared {
+    pub(crate) edits: Vec<Edit>,
+    targets: Vec<ElementRef>,
+}
+
+/// 確かめ終えた変更を、今までの経路（L1 の [`zumen_ifc::apply`]）で当て、書き戻した文書と結果と、書き戻した
+/// ファイルを返す（決定 0244）。元の文書は変えない
+pub(crate) fn applied(
+    model: &Model,
+    prepared: &Prepared,
+    cx: &mut Cx<'_>,
+) -> Result<Updated, Failed> {
+    let Some(source) = &model.file else {
+        return Err(Failed);
+    };
+    let applied =
+        zumen_ifc::apply(source, &prepared.edits, &model.hash.0, cx).map_err(|_| Failed)?;
+    finish(model, applied.bytes, prepared, cx)
+}
+
+/// 変更の一覧を確かめ、L1 の変更にする。文書と要素のハッシュ・値の形・要素があるかを確かめ、当てられない
+/// 変更があれば診断して失敗する。文書の種類と予算のほかは、文書を読むだけ
+pub(crate) fn prepare(
     model: &Model,
     request: &BuildingApplyRequest,
     cx: &mut Cx<'_>,
-) -> Result<(Model, BuildingApplyResult, Vec<u8>), Failed> {
-    let Some(source) = &model.file else {
+) -> Result<Prepared, Failed> {
+    if model.file.is_none() {
         // プラグインの文書は書き戻せない（決定 0243）
         return Err(fail(
             cx,
@@ -140,7 +196,7 @@ pub(crate) fn apply(
                 .with("name", request.doc.as_str())
                 .with("op", "building_apply"),
         ));
-    };
+    }
     if let Some(text) = &request.hash {
         let hash = text
             .parse::<Hash>()
@@ -208,7 +264,22 @@ pub(crate) fn apply(
     if rejected {
         return Err(Failed);
     }
-    let applied = zumen_ifc::apply(source, &edits, &model.hash.0, cx).map_err(|_| Failed)?;
+    Ok(Prepared { edits, targets })
+}
+
+/// 書き戻した IFC-SPF のバイト列 `spf` から、書き戻した文書と結果と、書き戻したファイルを作る。ifcZIP なら
+/// アーカイブに入れる。文書エンジンで当てたときも、今までの経路と同じこの手順で作る
+pub(crate) fn finish(
+    model: &Model,
+    spf: Vec<u8>,
+    prepared: &Prepared,
+    cx: &mut Cx<'_>,
+) -> Result<Updated, Failed> {
+    let encoding = model
+        .file
+        .as_ref()
+        .map(IfcFile::text_encoding)
+        .unwrap_or_default();
     // 書き戻したものを読み直す。読んだときの診断は、開いたときに返したので捨てる
     let mut scratch = Diagnostics::new();
     let reread = {
@@ -217,8 +288,8 @@ pub(crate) fn apply(
             diag: &mut scratch,
             cancel: cx.cancel,
         };
-        Ifc::read(&applied.bytes, &mut inner).and_then(|mut file| {
-            file.set_text_encoding(source.text_encoding());
+        Ifc::read(&spf, &mut inner).and_then(|mut file| {
+            file.set_text_encoding(encoding);
             file.lift(&mut inner).map(|building| (file, building))
         })
     };
@@ -229,9 +300,9 @@ pub(crate) fn apply(
         Err(_) => return Err(fail(cx, Diagnostic::new(codes::INTERNAL_PANIC_CAUGHT))),
     };
     let bytes = match &model.entry {
-        Some(entry) => zumen_zip::write(&[(entry.as_str(), &applied.bytes)])
+        Some(entry) => zumen_zip::write(&[(entry.as_str(), &spf)])
             .ok_or_else(|| fail(cx, Diagnostic::new(codes::INTERNAL_PANIC_CAUGHT)))?,
-        None => applied.bytes,
+        None => spf,
     };
     let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
     let updated = Model {
@@ -240,9 +311,11 @@ pub(crate) fn apply(
         building,
         hash,
         entry: model.entry.clone(),
+        #[cfg(feature = "bim")]
+        live: Live::Absent,
     };
-    let mut results = Vec::with_capacity(targets.len());
-    for element in targets {
+    let mut results = Vec::with_capacity(prepared.targets.len());
+    for &element in &prepared.targets {
         // 変えた要素の ID は変わらない。足したインスタンスは、元の要素の後ろに並ぶ
         let id = model.building.id(element);
         let after = id.and_then(|id| updated.building.find(id));

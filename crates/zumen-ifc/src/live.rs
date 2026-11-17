@@ -39,7 +39,9 @@ use crate::edit::{
 use crate::express::{Express, Layouts};
 #[cfg(feature = "ids")]
 use crate::ids::attributes_from_record_slice;
-use crate::{DIALECT, Ifc, IfcFile, IfcZip, IfcZipFile, Record, Value, at_bytes, stopped};
+use crate::{
+    DIALECT, Ifc, IfcFile, IfcZip, IfcZipFile, Record, TextEncoding, Value, at_bytes, stopped,
+};
 
 /// [`VersionedTable`] に並べる建物要素 1 行。要素番号 [`ElementRef`] と [`RowId`] は 1 対 1 に対応する
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -390,6 +392,11 @@ pub struct IfcLive {
     zip_entry: Option<String>,
     /// ifcZIP で開いた場合の未編集アーカイブの圧縮バイト列
     clean_zip_bytes: Option<SourceBytes>,
+    /// 開いたファイルの文字コードの指定
+    text_encoding: TextEncoding,
+    /// 開いたときに、エスケープの 8 ビット値を CP932 として読んだか。セットとプロパティの名前を、
+    /// 今までの経路（[`crate::apply`]）と同じ読み方で比べるのに使う
+    shift_jis: bool,
 
     /// 書き直したインスタンスおよび追加したインスタンス
     changed: BTreeMap<u64, Stmt>,
@@ -535,6 +542,8 @@ impl IfcLive {
         let (base_dep_sources, dep) = build_ifc_dep_graph(&building, cx)?;
 
         let schema = file.schema().to_vec();
+        let text_encoding = file.text_encoding();
+        let shift_jis = file.shift_jis();
         let (src_vec, records, _schema_range, index) = file.into_parts();
         let has_crlf = src_vec.windows(2).any(|w| w == b"\r\n");
         let src = SourceBytes::compress_slice_with_cx(&src_vec, threads, cx)
@@ -554,6 +563,8 @@ impl IfcLive {
             has_crlf,
             zip_entry,
             clean_zip_bytes,
+            text_encoding,
+            shift_jis,
             changed: BTreeMap::new(),
             parsed_changed: BTreeMap::new(),
             added: Vec::new(),
@@ -616,6 +627,41 @@ impl IfcLive {
     #[inline]
     pub fn is_zip(&self) -> bool {
         self.zip_entry.is_some()
+    }
+
+    /// 開いたファイルの文字コードの指定（[`IfcFile::text_encoding`]）
+    #[inline]
+    pub fn text_encoding(&self) -> TextEncoding {
+        self.text_encoding
+    }
+
+    /// エスケープの 8 ビット値を CP932 として読むか。指定が [`TextEncoding::Auto`] なら、開いたファイルの
+    /// 手がかりで決まる。変更で手がかりの文字列を書き換えても、この値は変えない（今までの経路は、書き戻したファイルを
+    /// 読み直すので、手がかりを読み直す）
+    #[inline]
+    pub fn reads_shift_jis(&self) -> bool {
+        self.shift_jis
+    }
+
+    /// `file` から開いたときの [`Self::reads_shift_jis`]。文書エンジンを作る前に、読み方を確かめるのに使う
+    #[inline]
+    pub fn file_reads_shift_jis(file: &IfcFile) -> bool {
+        file.shift_jis()
+    }
+
+    /// 文字列の値の中身を、開いたファイルの文字コードで読む。今までの経路（[`crate::apply`]）が、セットと
+    /// プロパティの名前を比べる読み方と同じ
+    fn text_value(&self, item: &Item) -> Option<String> {
+        let Item::Raw(bytes) = item else {
+            return None;
+        };
+        let inner = bytes.strip_prefix(b"'")?.strip_suffix(b"'")?;
+        Some(crate::text::decode(inner, self.shift_jis).text)
+    }
+
+    /// 取り消し・やり直しの履歴を空にする。常駐する状態は変えない
+    pub fn clear_history(&mut self) {
+        self.history.clear();
     }
 
     /// 常駐する最新の建物モデルへの参照
@@ -1429,7 +1475,7 @@ impl<'a> OverlayDraft<'a> {
         self.kind(pset) == b"IFCPROPERTYSET"
             && self
                 .stmt(pset)
-                .and_then(|stmt| text_of(stmt.arg(3)?))
+                .and_then(|stmt| self.live.text_value(stmt.arg(3)?))
                 .is_some_and(|name| name == set)
     }
 
@@ -1560,7 +1606,7 @@ impl<'a> OverlayDraft<'a> {
                 .map_err(|stop| stopped(cx, stop, None))?;
             let named = self
                 .stmt(property)
-                .and_then(|stmt| text_of(stmt.arg(1)?))
+                .and_then(|stmt| self.live.text_value(stmt.arg(1)?))
                 .is_some_and(|text| text == name);
             if named {
                 found = Some(property);

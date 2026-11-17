@@ -531,6 +531,90 @@ fn crlf_and_duplicate_id_byte_for_byte_parity() {
     );
 }
 
+/// セットとプロパティの名前を、開いたファイルの文字コードの指定で比べる。CP932 で読むファイルでは、
+/// エスケープで書いた日本語の名前のセットとプロパティを書き換え、従来どおり読むファイルでは新しいセットを足す。
+/// どちらも今までの経路（[`apply`]）とバイト列が一致し、2 回目の変更も一致する
+#[test]
+fn set_and_property_names_follow_the_text_encoding_like_apply() {
+    // 「テスト」の CP932 のエスケープ。`\X\83` が手がかりになる
+    let name = r"\X\83\X\65\X\83\X\58\X\83\X\67";
+    let src = format!(
+        concat!(
+            "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\n",
+            "FILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n",
+            "#1=IFCPROJECT('{p}',#2,'P',$,$,$,$,$,$);\n",
+            "#2=IFCOWNERHISTORY($,$,$,.ADDED.,$,$,$,0);\n",
+            "#30=IFCWALL('{w}',#2,'W',$,$,$,$,$,.NOTDEFINED.);\n",
+            "#40=IFCPROPERTYSINGLEVALUE('{n}',$,IFCLABEL('A'),$);\n",
+            "#41=IFCPROPERTYSET('{s}',#2,'{n}',$,(#40));\n",
+            "#42=IFCRELDEFINESBYPROPERTIES('{r}',#2,$,$,(#30),#41);\n",
+            "ENDSEC;\nEND-ISO-10303-21;\n"
+        ),
+        p = gid(1),
+        w = gid(30),
+        s = gid(41),
+        r = gid(42),
+        n = name,
+    );
+    let edits = [prop_edit(
+        30,
+        "テスト",
+        "テスト",
+        "IfcLabel",
+        NewLiteral::Text("B".to_owned()),
+    )];
+    let again = [prop_edit(
+        30,
+        "テスト",
+        "テスト",
+        "IfcLabel",
+        NewLiteral::Text("C".to_owned()),
+    )];
+    for (encoding, shift_jis) in [
+        (zumen_ifc::TextEncoding::Auto, true),
+        (zumen_ifc::TextEncoding::ShiftJis, true),
+        (zumen_ifc::TextEncoding::Iso8859_1, false),
+    ] {
+        let mut file = read_file(src.as_bytes());
+        file.set_text_encoding(encoding);
+        let mut live = with_cx(|cx| IfcLive::from_file(file.clone(), 1, cx))
+            .0
+            .unwrap();
+        assert_eq!(live.text_encoding(), encoding);
+        assert_eq!(live.reads_shift_jis(), shift_jis);
+
+        let expected = with_cx(|cx| apply(&file, &edits, b"seed", cx)).0.unwrap();
+        let changed = with_cx(|cx| live.apply(&edits, b"seed", cx)).0.unwrap();
+        assert_eq!(changed, expected.changed, "{encoding:?}");
+        let saved = with_cx(|cx| live.save_spf(cx)).0.unwrap();
+        assert_eq!(saved, expected.bytes, "{encoding:?}");
+        // CP932 で読むなら、元のプロパティを書き換えるだけで、インスタンスを足さない
+        assert_eq!(saved.len() < src.len() + 40, shift_jis, "{encoding:?}");
+
+        // 書き戻したファイルを読み直して当てた 2 回目とも一致する
+        let mut reread = read_file(&expected.bytes);
+        reread.set_text_encoding(encoding);
+        let second = with_cx(|cx| apply(&reread, &again, b"seed-2", cx))
+            .0
+            .unwrap();
+        with_cx(|cx| live.apply(&again, b"seed-2", cx)).0.unwrap();
+        assert_eq!(
+            with_cx(|cx| live.save_spf(cx)).0.unwrap(),
+            second.bytes,
+            "{encoding:?}"
+        );
+        // 履歴を空にしても、常駐する状態は変えない
+        assert!(live.can_undo());
+        live.clear_history();
+        assert!(!live.can_undo());
+        assert_eq!(
+            with_cx(|cx| live.save_spf(cx)).0.unwrap(),
+            second.bytes,
+            "{encoding:?}"
+        );
+    }
+}
+
 #[cfg(feature = "ids")]
 #[test]
 fn live_ids_lookup_matches_file_ids_lookup_before_after_edit_and_undo() {
