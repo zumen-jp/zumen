@@ -22,13 +22,12 @@ use crate::messages::{
     self, BuildingApplyRequest, BuildingApplyResult, BuildingAttribute, BuildingComponent,
     BuildingEdit, BuildingElement, BuildingElementsRequest, BuildingElementsResult,
     BuildingGridAxis, BuildingLayerDirection, BuildingMaterialChange, BuildingMaterialChangeKind,
-    BuildingPlacementChange, BuildingRef, BuildingResult, BuildingSection,
-    BuildingSpaceKind, BuildingUnit, BuildingValue, BuildingValueKind, BuildingWallLayer,
-    ClassComponent, ClassCount, ClassificationReference, ConnectionLink, IdentityComponent,
-    IdsCheckResult, IdsFinding, IdsSpecification, IdsStatus, LevelComponent, MaterialComponent,
-    MaterialPart, Measured, Membership, OpeningComponent, ParentComponent, PlacementComponent,
-    Property, PropertySet, Quantity, QuantitySet, RelationsComponent, SpatialComponent,
-    StyleComponent, ZoneComponent,
+    BuildingPlacementChange, BuildingRef, BuildingResult, BuildingSection, BuildingSpaceKind,
+    BuildingUnit, BuildingValue, BuildingValueKind, BuildingWallLayer, ClassComponent, ClassCount,
+    ClassificationReference, ConnectionLink, IdentityComponent, IdsCheckResult, IdsFinding,
+    IdsSpecification, IdsStatus, LevelComponent, MaterialComponent, MaterialPart, Measured,
+    Membership, OpeningComponent, ParentComponent, PlacementComponent, Property, PropertySet,
+    Quantity, QuantitySet, RelationsComponent, SpatialComponent, StyleComponent, ZoneComponent,
 };
 #[cfg(feature = "bim")]
 use crate::plugin;
