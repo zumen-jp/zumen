@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Axes, Boundary, Changes, Color, Draft, Drawing2D, Edge, Edit, Element, Field,
-    FieldValue, Hash, Height, Inherit, LayerId, Length, LineTypeId, ModelPoint, ModelSpace,
+    FieldValue, Hash, Height, Inherit, Layer, LayerId, Length, LineTypeId, ModelPoint, ModelSpace,
     PaperLength, Placed, Placement, Position, Seen, Shape, Sheet, SheetItem, SpaceId, Style,
     SymbolDefinition, Unit, View, transform,
 };
@@ -26,9 +26,9 @@ use zumen_live::{
 use zumen_sdk::{Codec, Error, quietly};
 
 use super::apply::{
-    ARC, Base as RawBase, FORMAT, LINE, POINT, base_for_style, class_of, count,
-    encode_added_entity, kind_of, near, scale_of_group, shape_bytes, space_of, style_of_base,
-    unset, unsupported, unturned, write_count, write_object_tag,
+    ARC, Base as RawBase, FORMAT, LINE, POINT, TEXT, base_for_style, count, encode_added_entity,
+    kind_of, layers, near, scale_of_group, shape_bytes, space_of, style_of_base, text, unset,
+    unsupported, unturned, writable_class, write_count, write_object_tag,
 };
 use super::{
     DEFINITION_SPACES, Header, PAPERS, POINT_SYMBOL, SCHEMA, SHEET, SingleEntity, block_key,
@@ -209,6 +209,17 @@ struct JwwStepPatch {
     removed: Vec<RemovedSlot>,
     added: Vec<BornRecord>,
     symbol_bounds: Vec<SymbolBoundsDiff>,
+    /// 文字の長さを変えて書き直した。今までの経路と同じく、一覧を数え直して書く
+    relisted: bool,
+    /// レイヤの名前と状態を書き直したヘッダーのレコード
+    header: Option<Box<HeaderDiff>>,
+}
+
+/// ヘッダーのレコードの書き直し。`None` は開いたときのバイト列
+#[derive(Clone, Debug)]
+struct HeaderDiff {
+    before: Option<Vec<u8>>,
+    after: Option<Vec<u8>>,
 }
 
 impl PatchPayload for JwwStepPatch {
@@ -225,7 +236,12 @@ impl PatchPayload for JwwStepPatch {
             .iter()
             .map(|item| item.body.capacity() + 128)
             .sum();
-        b + r + a + self.symbol_bounds.capacity() * 96
+        let h = self.header.as_ref().map_or(0, |diff| {
+            diff.before.as_ref().map_or(0, Vec::capacity)
+                + diff.after.as_ref().map_or(0, Vec::capacity)
+                + core::mem::size_of::<HeaderDiff>()
+        });
+        b + r + a + self.symbol_bounds.capacity() * 96 + h
     }
 }
 
@@ -236,6 +252,10 @@ pub struct JwwLive {
     version: u32,
     header_valid: bool,
     header: Header,
+    /// ヘッダーのレコードの終わり
+    header_end: usize,
+    /// レイヤを変えて書き直したヘッダーのレコード
+    patched_header: Option<Vec<u8>>,
     paper_origin: [f64; 2],
     list_layout: Option<ListLayout>,
     top_end: usize,
@@ -304,6 +324,8 @@ enum StagedAction {
         after_bounds: [f64; 4],
         body_diff: BodyDiff,
     },
+    /// レイヤの名前と状態。読み直したときのレイヤ
+    Layer(Layer),
     Added {
         born_offset: usize,
         class_name: &'static [u8],
@@ -351,6 +373,7 @@ impl JwwLive {
             cx.report(Diagnostic::new(codes::JWW_HEADER_INVALID).at(Ref::at_record(0)));
         }
         let header = parsed_header.unwrap_or_default();
+        let header_end = file.records().first().map_or(0, |record| record.span().end);
         let paper_origin = paper_origin_of(&header);
         let images_map = images(file);
         let list_layout = inspect_list_layout(file, full_bytes, version);
@@ -625,6 +648,8 @@ impl JwwLive {
             version,
             header_valid,
             header,
+            header_end,
+            patched_header: None,
             paper_origin,
             list_layout,
             top_end,
@@ -719,6 +744,7 @@ impl JwwLive {
         self.source.stored_bytes()
             + self.base_records.capacity() * core::mem::size_of::<BaseRecord>()
             + patched
+            + self.patched_header.as_ref().map_or(0, Vec::capacity)
             + born
             + self.base_alive.resident_bytes()
             + self.born_alive.resident_bytes()
@@ -779,6 +805,110 @@ impl JwwLive {
             }
             SlotRef::Born(b) => self.born_records.get(b).map(|rec| rec.body.clone()),
         }
+    }
+
+    /// 今のヘッダーのレコード
+    fn header_bytes(&self) -> Option<Vec<u8>> {
+        if let Some(header) = &self.patched_header {
+            return Some(header.clone());
+        }
+        let mut out = Vec::with_capacity(self.header_end);
+        append_exact_range(&self.source, 0..self.header_end, &mut out).then_some(out)
+    }
+
+    /// ヘッダーのレコードを置き換え、変換に使うフィールドを読み直す。`None` は開いたときのバイト列
+    fn set_header(&mut self, bytes: Option<Vec<u8>>) {
+        self.patched_header = bytes;
+        if let Some(header) = self
+            .header_bytes()
+            .and_then(|bytes| Header::read_slice(&bytes, self.version).ok())
+        {
+            self.header = header;
+        }
+    }
+
+    /// 図形が使うレイヤ。今までの経路と同じく、ブロックの定義の中の図形も数える
+    fn used_layers(&self, cx: &mut Cx<'_>) -> Result<Option<BTreeSet<LayerId>>, Error> {
+        let mut used = BTreeSet::new();
+        let slots = (0..self.base_records.len())
+            .filter(|r| {
+                self.base_alive.get(*r)
+                    && self
+                        .base_records
+                        .get(*r)
+                        .is_some_and(|rec| rec.kind == RecordKind::Entity)
+            })
+            .map(SlotRef::Base)
+            .chain(
+                (0..self.born_records.len())
+                    .filter(|b| self.born_alive.get(*b))
+                    .map(SlotRef::Born),
+            );
+        for slot in slots {
+            work_live(cx, 1)?;
+            let Some(base) = self
+                .current_body_bytes(slot)
+                .and_then(|body| RawBase::read(&body, 0, self.version))
+            else {
+                return Ok(None);
+            };
+            used.insert(base.layer());
+        }
+        Ok(Some(used))
+    }
+
+    /// レイヤを変えたヘッダーのレコードを作り、読み直したレイヤが求めたものになるかを確かめる
+    fn stage_header(
+        &self,
+        changes: &layers::Changes,
+        before: Option<&[Layer]>,
+        staged: &[StagedEdit],
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Box<HeaderDiff>>, Error> {
+        let Some(before) = before.filter(|_| !changes.is_empty()) else {
+            return Ok(None);
+        };
+        let written = match self.header_bytes() {
+            Some(original) => changes.header_bytes(&original, cx)?.flatten(),
+            None => None,
+        };
+        let parsed = written
+            .as_deref()
+            .and_then(|bytes| Header::read_slice(bytes, self.version).ok());
+        let (Some(after), Some(parsed)) = (written, parsed) else {
+            cx.report(unsupported("apply", "round_trip"));
+            return Err(Error::Rejected);
+        };
+        let now = build_layers(&parsed);
+        let mut changed = BTreeSet::new();
+        for item in staged {
+            work_live(cx, 1)?;
+            let StagedAction::Layer(layer) = &item.action else {
+                continue;
+            };
+            if now.iter().find(|found| found.id == layer.id) != Some(layer) {
+                cx.report(unsupported(item.kind_label, "round_trip"));
+                return Err(Error::Rejected);
+            }
+            changed.insert(layer.id);
+        }
+        for (was, now) in before.iter().zip(&now) {
+            work_live(cx, 1)?;
+            if !changed.contains(&was.id) && layers::hash(was, cx)? != layers::hash(now, cx)? {
+                cx.report(unsupported("apply", "round_trip").at(was.source.clone()));
+                return Err(Error::Rejected);
+            }
+        }
+        Ok(Some(Box::new(HeaderDiff {
+            before: self.patched_header.clone(),
+            after: Some(after),
+        })))
+    }
+
+    /// 文字のレコードか
+    fn is_text(&self, slot: SlotRef) -> bool {
+        self.slot_class_and_def(slot)
+            .is_some_and(|(class, ..)| class == TEXT)
     }
 
     fn slot_class_and_def(&self, slot: SlotRef) -> Option<(&[u8], Option<SpaceId>, bool)> {
@@ -923,6 +1053,10 @@ impl JwwLive {
         let mut changed_base = BTreeSet::new();
         let mut changed_born = BTreeSet::new();
         let mut added_count = 0usize;
+        // 文字の値を書き直した。今までの経路と同じく、一覧を数え直して書く
+        let mut relisted = false;
+        let mut layer_changes = layers::Changes::default();
+        let mut before_layers: Option<Vec<Layer>> = None;
         let mut rejected = false;
 
         for change in &changes.edits {
@@ -996,6 +1130,7 @@ impl JwwLive {
                     };
                     match self.stage_replace(row_id, slot, element) {
                         Ok(Some(action)) => {
+                            relisted |= self.is_text(slot);
                             note_changed_slot(slot, &mut changed_base, &mut changed_born);
                             Some(StagedEdit {
                                 kind_label: "replace",
@@ -1024,6 +1159,7 @@ impl JwwLive {
                     };
                     match self.stage_transform(row_id, slot, transform) {
                         Ok(Some(action)) => {
+                            relisted |= self.is_text(slot);
                             note_changed_slot(slot, &mut changed_base, &mut changed_born);
                             Some(StagedEdit {
                                 kind_label: "transform",
@@ -1103,7 +1239,25 @@ impl JwwLive {
                         }
                     }
                 }
-                Edit::ReplaceLayer { .. } | Edit::AddLayer { .. } | Edit::RemoveLayer { .. } => {
+                Edit::ReplaceLayer { target, layer } => {
+                    let before = before_layers.get_or_insert_with(|| build_layers(&self.header));
+                    layer_changes
+                        .replace(&self.header, before, target, layer, cx)?
+                        .map(|expected| StagedEdit {
+                            kind_label: "replace_layer",
+                            action: StagedAction::Layer(expected),
+                        })
+                }
+                Edit::AddLayer { layer } => {
+                    let before = before_layers.get_or_insert_with(|| build_layers(&self.header));
+                    layer_changes
+                        .add_with(|cx| self.used_layers(cx), &self.header, before, layer, cx)?
+                        .map(|expected| StagedEdit {
+                            kind_label: "add_layer",
+                            action: StagedAction::Layer(expected),
+                        })
+                }
+                Edit::RemoveLayer { .. } => {
                     cx.report(unsupported(change.name(), "layer"));
                     None
                 }
@@ -1139,10 +1293,11 @@ impl JwwLive {
         if rejected || !current {
             return Err(Error::Rejected);
         }
+        let header = self.stage_header(&layer_changes, before_layers.as_deref(), &staged, cx)?;
 
         let rebuild_needed =
             !removed_base.is_empty() || !removed_born.is_empty() || added_count > 0;
-        if rebuild_needed {
+        if rebuild_needed || relisted {
             let Some(layout) = &self.list_layout else {
                 cx.report(unsupported("apply", "round_trip"));
                 return Err(Error::Rejected);
@@ -1201,10 +1356,18 @@ impl JwwLive {
         let old_born_len = self.born_records.len();
         let mut post_results: Vec<Option<(SpaceId, SlotRef, Hash)>> =
             Vec::with_capacity(staged.len());
+        let mut layer_results = BTreeMap::new();
 
-        for item in &staged {
+        for (at, item) in staged.iter().enumerate() {
             match &item.action {
                 StagedAction::Removed { .. } => post_results.push(None),
+                StagedAction::Layer(layer) => {
+                    layer_results.insert(
+                        at,
+                        (zumen_drawing::id::layer(layer), layers::hash(layer, cx)?),
+                    );
+                    post_results.push(None);
+                }
                 StagedAction::Updated {
                     after_row, slot, ..
                 } => {
@@ -1246,10 +1409,14 @@ impl JwwLive {
             |txn, _cx| -> Result<(), TxnError<()>> {
                 let mut step_patch = JwwStepPatch {
                     symbol_bounds: dependent_bounds.symbols,
+                    relisted,
+                    header,
                     ..JwwStepPatch::default()
                 };
                 for item in staged {
                     match item.action {
+                        // ヘッダーの書き直しは、差分の記録で当てる
+                        StagedAction::Layer(_) => {}
                         StagedAction::Removed {
                             row_id,
                             slot,
@@ -1303,6 +1470,7 @@ impl JwwLive {
                     }
                 }
                 if !step_patch.bodies.is_empty()
+                    || step_patch.header.is_some()
                     || !step_patch.removed.is_empty()
                     || !step_patch.added.is_empty()
                     || !step_patch.symbol_bounds.is_empty()
@@ -1340,12 +1508,12 @@ impl JwwLive {
         }
 
         let mut applied = Vec::with_capacity(post_results.len());
-        for entry in post_results {
+        for (at, entry) in post_results.into_iter().enumerate() {
             match entry {
-                None => applied.push(Applied {
-                    id: None,
-                    hash: None,
-                }),
+                None => {
+                    let (id, hash) = layer_results.remove(&at).unzip();
+                    applied.push(Applied { id, hash });
+                }
                 Some((space, slot, hash)) => applied.push(Applied {
                     id: Some(self.canonical_id(space, slot)),
                     hash: Some(hash),
@@ -1645,6 +1813,13 @@ impl JwwLive {
                 };
                 dst.copy_from_slice(body);
             }
+            if let Some(header) = &self.patched_header {
+                if self.header_end > out.len() {
+                    cx.report(unsupported("save", "round_trip"));
+                    return Err(Error::Rejected);
+                }
+                out.splice(..self.header_end, header.iter().copied());
+            }
             return Ok(out);
         }
 
@@ -1664,7 +1839,15 @@ impl JwwLive {
         )?;
 
         let mut out = Vec::with_capacity(src_len + added_bytes as usize);
-        if !append_exact_range(&self.source, 0..layout.header_end, &mut out) {
+        let header = match &self.patched_header {
+            Some(header) if layout.header_end == self.header_end => {
+                out.extend_from_slice(header);
+                true
+            }
+            Some(_) => false,
+            None => append_exact_range(&self.source, 0..layout.header_end, &mut out),
+        };
+        if !header {
             cx.report(unsupported("save", "round_trip"));
             return Err(Error::Rejected);
         }
@@ -1770,7 +1953,13 @@ impl JwwLive {
                 }
                 let want_len = end - rec.body.start;
                 if let Some(patched) = self.patched_bodies.get(&rec_idx) {
-                    let Some(slice) = patched.get(..want_len) else {
+                    // 図形の中身は、書き直した文字の長さのまま書く
+                    let slice = if until_override.is_none() {
+                        Some(patched.as_slice())
+                    } else {
+                        patched.get(..want_len)
+                    };
+                    let Some(slice) = slice else {
                         return false;
                     };
                     out.extend_from_slice(slice);
@@ -1989,7 +2178,7 @@ impl JwwLive {
         let Some((class_name_raw, def_space, in_def)) = self.slot_class_and_def(slot) else {
             return Ok(None);
         };
-        let Some(class) = [LINE, ARC, POINT]
+        let Some(class) = [LINE, ARC, POINT, TEXT]
             .into_iter()
             .find(|c| *c == class_name_raw)
         else {
@@ -2012,7 +2201,8 @@ impl JwwLive {
         ) else {
             return Ok(None);
         };
-        if class == POINT
+        // 点の線種（線種 100 は記号の点）と線幅、文字の線種と線幅は、見え方ではないので変えない
+        if (class == POINT || class == TEXT)
             && (new_base.pen_style, new_base.pen_width) != (was.pen_style, was.pen_width)
         {
             return Ok(None);
@@ -2053,13 +2243,13 @@ impl JwwLive {
         let Some((class_name_raw, def_space, in_def)) = self.slot_class_and_def(slot) else {
             return Ok(None);
         };
-        let Some(class) = [LINE, ARC, POINT]
+        let Some(class) = [LINE, ARC, POINT, TEXT]
             .into_iter()
             .find(|c| *c == class_name_raw)
         else {
             return Ok(None);
         };
-        if class_of(&target_el.shape) != Some(class) {
+        if writable_class(&target_el.shape) != Some(class) {
             return Ok(None);
         }
         let Some(mut body) = self.current_body_bytes(slot) else {
@@ -2078,7 +2268,8 @@ impl JwwLive {
         ) else {
             return Ok(None);
         };
-        if class == POINT
+        // 点の線種（線種 100 は記号の点）と線幅、文字の線種と線幅は、見え方ではないので変えない
+        if (class == POINT || class == TEXT)
             && (new_base.pen_style, new_base.pen_width) != (was.pen_style, was.pen_width)
         {
             return Ok(None);
@@ -2086,24 +2277,40 @@ impl JwwLive {
         let Some(space) = space_of(&row.element.shape) else {
             return Ok(None);
         };
-        let Some(geom_bytes) = shape_bytes(
-            &target_el.shape,
-            space,
-            scale_of_group(&self.header, was.group, in_def),
-            was.pen_style == POINT_SYMBOL,
-        ) else {
-            return Ok(None);
-        };
+        let scale = scale_of_group(&self.header, was.group, in_def);
         let base_bytes = new_base.bytes(self.version);
         let base_len = base_bytes.len();
         let Some(dst_base) = body.get_mut(..base_len) else {
             return Err(());
         };
         dst_base.copy_from_slice(&base_bytes);
-        let Some(dst_geom) = body.get_mut(base_len..base_len + geom_bytes.len()) else {
-            return Err(());
+        let expected_shape = if let Shape::Text(target) = &target_el.shape {
+            // 文字は長さが変わる。文字種・字の間隔と、変えない文字列の符号化は元のまま保つ
+            let Some(written) = body
+                .get(base_len..)
+                .and_then(|original| text::bytes(target, space, scale, Some(original), None))
+            else {
+                return Ok(None);
+            };
+            let (text_bytes, normalized) = written;
+            body.truncate(base_len);
+            body.extend(text_bytes);
+            Shape::Text(normalized)
+        } else {
+            let Some(geom_bytes) = shape_bytes(
+                &target_el.shape,
+                space,
+                scale,
+                was.pen_style == POINT_SYMBOL,
+            ) else {
+                return Ok(None);
+            };
+            let Some(dst_geom) = body.get_mut(base_len..base_len + geom_bytes.len()) else {
+                return Err(());
+            };
+            dst_geom.copy_from_slice(&geom_bytes);
+            target_el.shape.clone()
         };
-        dst_geom.copy_from_slice(&geom_bytes);
         let expected_layer = new_base.layer();
         let expected_style = style_of_base(&self.header, &new_base, class);
         self.finish_updated_stage(
@@ -2115,7 +2322,7 @@ impl JwwLive {
             body,
             expected_layer,
             expected_style,
-            &target_el.shape,
+            &expected_shape,
         )
         .map(Some)
     }
@@ -2136,7 +2343,7 @@ impl JwwLive {
         else {
             return Ok(None);
         };
-        if class_of(&transformed) != Some(class_name_raw) {
+        if writable_class(&transformed) != Some(class_name_raw) {
             return Ok(None);
         }
         let Some(mut body) = self.current_body_bytes(slot) else {
@@ -2148,19 +2355,32 @@ impl JwwLive {
         let Some(space) = space_of(&row.element.shape) else {
             return Ok(None);
         };
-        let Some(geom_bytes) = shape_bytes(
-            &transformed,
-            space,
-            scale_of_group(&self.header, was.group, in_def),
-            was.pen_style == POINT_SYMBOL,
-        ) else {
-            return Ok(None);
-        };
+        let scale = scale_of_group(&self.header, was.group, in_def);
         let base_len = was.bytes(self.version).len();
-        let Some(dst_geom) = body.get_mut(base_len..base_len + geom_bytes.len()) else {
-            return Err(());
+        let transformed = if let Shape::Text(moved) = &transformed {
+            // 文字は、文字の終わりの点も同じ変換で動かす
+            let Some(written) = body
+                .get(base_len..)
+                .and_then(|original| text::bytes(moved, space, scale, Some(original), Some(xform)))
+            else {
+                return Ok(None);
+            };
+            let (text_bytes, normalized) = written;
+            body.truncate(base_len);
+            body.extend(text_bytes);
+            Shape::Text(normalized)
+        } else {
+            let Some(geom_bytes) =
+                shape_bytes(&transformed, space, scale, was.pen_style == POINT_SYMBOL)
+            else {
+                return Ok(None);
+            };
+            let Some(dst_geom) = body.get_mut(base_len..base_len + geom_bytes.len()) else {
+                return Err(());
+            };
+            dst_geom.copy_from_slice(&geom_bytes);
+            transformed
         };
-        dst_geom.copy_from_slice(&geom_bytes);
         self.finish_updated_stage(
             row_id,
             slot,
@@ -2525,8 +2745,11 @@ impl JwwLive {
                 *cnt = cnt.saturating_add(1);
             }
         }
-        if !patch.removed.is_empty() || !patch.added.is_empty() {
+        if !patch.removed.is_empty() || !patch.added.is_empty() || patch.relisted {
             self.lists_rebuilt_steps = self.lists_rebuilt_steps.saturating_add(1);
+        }
+        if let Some(diff) = &patch.header {
+            self.set_header(diff.after.clone());
         }
     }
 
@@ -2536,8 +2759,11 @@ impl JwwLive {
                 *bounds = diff.before;
             }
         }
-        if !patch.removed.is_empty() || !patch.added.is_empty() {
+        if !patch.removed.is_empty() || !patch.added.is_empty() || patch.relisted {
             self.lists_rebuilt_steps = self.lists_rebuilt_steps.saturating_sub(1);
+        }
+        if let Some(diff) = &patch.header {
+            self.set_header(diff.before.clone());
         }
         for born in patch.added.iter().rev() {
             if let Some(cnt) = self.group_counts.get_mut(born.group) {
@@ -2604,7 +2830,7 @@ impl JwwLive {
                 StagedAction::Updated { row_id, .. } | StagedAction::Removed { row_id, .. } => {
                     *row_id
                 }
-                StagedAction::Added { .. } => continue,
+                StagedAction::Added { .. } | StagedAction::Layer(_) => continue,
             };
             decoded_live(cx, 256)?;
             pending.insert(row_id, &item.action);

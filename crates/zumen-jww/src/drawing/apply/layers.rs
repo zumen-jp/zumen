@@ -9,12 +9,12 @@ use zumen_sdk::{Cx, Error};
 use super::{Base, Header, JwwFile, Reader, RecordKind, text, unsupported, work};
 
 #[derive(Default)]
-pub(super) struct Changes {
+pub(in crate::drawing) struct Changes {
     slots: BTreeMap<usize, (Layer, u32)>,
     used: Option<BTreeSet<LayerId>>,
 }
 
-pub(super) fn hash(layer: &Layer, cx: &mut Cx) -> Result<Hash, Error> {
+pub(in crate::drawing) fn hash(layer: &Layer, cx: &mut Cx) -> Result<Hash, Error> {
     Hash::layer_checked(layer, cx).map_err(|stop| {
         cx.report(stop.to_diagnostic().at(layer.source.clone()));
         Error::Stopped(stop)
@@ -22,7 +22,7 @@ pub(super) fn hash(layer: &Layer, cx: &mut Cx) -> Result<Hash, Error> {
 }
 
 impl Changes {
-    pub(super) fn replace(
+    pub(in crate::drawing) fn replace(
         &mut self,
         header: &Header,
         layers: &[Layer],
@@ -60,20 +60,38 @@ impl Changes {
         layer: &Layer,
         cx: &mut Cx,
     ) -> Result<Option<Layer>, Error> {
-        // 領域モデルに変換できない図形も使う枠を確保する。追加したレイヤの選択で上書きしない。
-        if self.used.is_none() {
+        let used = |cx: &mut Cx| {
             let mut used = BTreeSet::new();
             for record in file.records() {
                 work(cx, 1)?;
                 if record.kind() == RecordKind::Entity {
                     let Some(base) = Base::read(&file.src, record.body().start, header.version)
                     else {
-                        cx.report(unsupported("add_layer", "layer"));
                         return Ok(None);
                     };
                     used.insert(base.layer());
                 }
             }
+            Ok(Some(used))
+        };
+        self.add_with(used, header, layers, layer, cx)
+    }
+
+    /// `used` は、図形が使うレイヤの集まり。図形の共通のフィールドを読めなければ `None`
+    pub(in crate::drawing) fn add_with(
+        &mut self,
+        used: impl FnOnce(&mut Cx) -> Result<Option<BTreeSet<LayerId>>, Error>,
+        header: &Header,
+        layers: &[Layer],
+        layer: &Layer,
+        cx: &mut Cx,
+    ) -> Result<Option<Layer>, Error> {
+        // 領域モデルに変換できない図形も使う枠を確保する。追加したレイヤの選択で上書きしない。
+        if self.used.is_none() {
+            let Some(used) = used(cx)? else {
+                cx.report(unsupported("add_layer", "layer"));
+                return Ok(None);
+            };
             self.used = Some(used);
         }
         work(cx, layers.len() as u64)?;
@@ -135,12 +153,32 @@ impl Changes {
         if self.slots.is_empty() {
             return Ok(Some(None));
         }
-        let Some(end) = file.records().first().map(|r| r.span().end) else {
+        let Some(original) = file
+            .records()
+            .first()
+            .and_then(|r| file.src.get(..r.span().end))
+        else {
             return Ok(None);
         };
-        work(cx, (end as u64).div_ceil(1024))?;
+        self.header_bytes(original, cx)
+    }
+
+    /// 変えたレイヤがあるか
+    pub(in crate::drawing) fn is_empty(&self) -> bool {
+        self.slots.is_empty()
+    }
+
+    /// ヘッダーのレコード（`original`）を書き直す。外側の `None` は不正なヘッダー、内側は変更なし。
+    pub(in crate::drawing) fn header_bytes(
+        &self,
+        original: &[u8],
+        cx: &mut Cx,
+    ) -> Result<Option<Option<Vec<u8>>>, Error> {
+        if self.slots.is_empty() {
+            return Ok(Some(None));
+        }
+        work(cx, (original.len() as u64).div_ceil(1024))?;
         let result = (|| {
-            let original = file.src.get(..end)?;
             let mut r = Reader::new(original, 12);
             r.string().ok()?;
             r.skip(8).ok()?;

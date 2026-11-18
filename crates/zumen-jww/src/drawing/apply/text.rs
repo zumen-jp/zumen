@@ -34,7 +34,7 @@ pub(super) fn count(shape: &Shape<ModelPoint>, cx: &mut Cx) -> Result<(), Error>
 
 /// フィールドの配置は公式の jwdatafmt.txt の CDataMoji::Serialize に従う。
 /// https://www.jwcad.net/jwdatafmt.txt
-pub(super) fn bytes(
+pub(in crate::drawing) fn bytes(
     text: &Text<ModelPoint>,
     space: SpaceId,
     scale: f64,

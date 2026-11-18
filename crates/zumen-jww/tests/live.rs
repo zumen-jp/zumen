@@ -977,3 +977,231 @@ fn public_jww_samples_match_file_apply_byte_for_byte() {
         assert_eq!(live_save(&live), src);
     }
 }
+
+/// 文字の要素（`space/0` の最初の文字）の添字と、その要素
+#[cfg(test)]
+fn first_text(drawing: &Drawing2D) -> (usize, Element<ModelPoint>) {
+    let space = drawing.spaces.iter().find(|s| s.id == SpaceId(0)).unwrap();
+    space
+        .elements
+        .iter()
+        .enumerate()
+        .find(|(_, el)| matches!(el.shape, Shape::Text(_)))
+        .map(|(at, el)| (at, el.clone()))
+        .unwrap()
+}
+
+#[cfg(test)]
+fn with_content(element: &Element<ModelPoint>, content: &str, dx: f64) -> Element<ModelPoint> {
+    let mut element = element.clone();
+    let Shape::Text(text) = &mut element.shape else {
+        panic!("text: {element:?}");
+    };
+    text.content = content.into();
+    if let zumen_drawing::Placement::Anchor { point, .. } = &mut text.placement {
+        point.x += dx;
+    }
+    element
+}
+
+/// 文字の色・置き換え・移動・追加を、文書エンジンが断らずに当て、今までの経路と同じバイト列・図面モデル・
+/// 適用の結果・診断になる。取り消すと元のバイト列に戻る（#861）
+#[test]
+fn text_edits_match_file_apply_without_refusing() {
+    let src = base_src();
+    let mut file = read_file(&src);
+    let (mut live, _) = open_live(&src);
+
+    let (d, _) = live_drawing(&live);
+    let (at, text) = first_text(&d);
+    let ((rf, cf), (rl, cl)) = apply_both(
+        &mut file,
+        &mut live,
+        vec![Edit::Restyle {
+            target: seen_at(&d, at),
+            style: Restyle {
+                color: Some(Inherit::Own(Color {
+                    rgb: None,
+                    code: Some(ColorCode {
+                        system: ColorSystem::Jww,
+                        value: 5,
+                    }),
+                })),
+                ..Restyle::default()
+            },
+        }],
+        None,
+    );
+    assert_eq!(cl, cf);
+    assert_eq!(rl.unwrap(), rf.unwrap());
+    assert_state_parity(&file, &live);
+
+    // 長い文字列への置き換えと、短い文字列の追加は、一覧を数え直して書く
+    let (d, _) = live_drawing(&live);
+    let (at, _) = first_text(&d);
+    let ((rf, cf), (rl, cl)) = apply_both(
+        &mut file,
+        &mut live,
+        vec![
+            Edit::Replace {
+                target: seen_at(&d, at),
+                element: Box::new(Placed::Model(with_content(
+                    &text,
+                    "置き換えた長い文字列",
+                    3.0,
+                ))),
+            },
+            Edit::Add {
+                place: "space/0".into(),
+                element: Box::new(Placed::Model(with_content(&text, "A", -2.0))),
+            },
+        ],
+        None,
+    );
+    assert_eq!(cl, cf);
+    assert_eq!(rl.unwrap(), rf.unwrap());
+    assert_state_parity(&file, &live);
+
+    let (d, _) = live_drawing(&live);
+    let (at, _) = first_text(&d);
+    let ((rf, cf), (rl, cl)) = apply_both(
+        &mut file,
+        &mut live,
+        vec![Edit::Transform {
+            target: seen_at(&d, at),
+            transform: Affine {
+                m: [0.0, -1.0, 4.0, 1.0, 0.0, -2.0],
+            },
+        }],
+        None,
+    );
+    assert_eq!(cl, cf);
+    assert_eq!(rl.unwrap(), rf.unwrap());
+    assert_state_parity(&file, &live);
+
+    let mut b = Budget::default();
+    let mut diag = Diagnostics::new();
+    let c = CancelToken::new();
+    for _ in 0..3 {
+        assert!(live.undo(&mut Cx::new(&mut b, &mut diag, &c)).unwrap());
+    }
+    assert_eq!(live_save(&live), src);
+}
+
+/// レイヤの改名・状態の変更・追加を、文書エンジンが断らずに当て、今までの経路と同じバイト列・図面モデル・
+/// 適用の結果・診断になる。断る変更も、同じ診断で全体を断る。取り消し・やり直しでヘッダーも戻る（#861）
+#[test]
+fn layer_edits_match_file_apply_without_refusing() {
+    let src = base_src();
+    let mut file = read_file(&src);
+    let (mut live, _) = open_live(&src);
+    let (d, _) = live_drawing(&live);
+    let first = &d.layers[0];
+    let seen_layer = |layer: &zumen_drawing::Layer| Seen {
+        id: id::layer(layer),
+        hash: Hash::layer(layer),
+    };
+
+    // 長い名前への改名と、同じ変更の中の文字の置き換え（ヘッダーと一覧の両方を書き直す）
+    let mut renamed = first.clone();
+    renamed.name = "改訂図面の注記😀".repeat(40);
+    let (at, text) = first_text(&d);
+    let ((rf, cf), (rl, cl)) = apply_both(
+        &mut file,
+        &mut live,
+        vec![
+            Edit::ReplaceLayer {
+                target: seen_layer(first),
+                layer: Box::new(renamed),
+            },
+            Edit::Replace {
+                target: seen_at(&d, at),
+                element: Box::new(Placed::Model(with_content(&text, "注記", 0.0))),
+            },
+        ],
+        Some(Hash::document(&src)),
+    );
+    assert_eq!(cl, cf);
+    assert_eq!(rl.unwrap(), rf.unwrap());
+    assert_state_parity(&file, &live);
+    let renamed_bytes = live_save(&live);
+
+    // 状態の変更と、空いた枠への追加。ヘッダーだけを書き直す
+    let (d, _) = live_drawing(&live);
+    let mut hidden = d.layers[1].clone();
+    hidden.name = "非表示".into();
+    hidden.state = Some(zumen_drawing::LayerState {
+        visible: false,
+        printable: false,
+        editable: false,
+        frozen: false,
+    });
+    let mut added = d.layers[0].clone();
+    added.name = "追加".into();
+    let ((rf, cf), (rl, cl)) = apply_both(
+        &mut file,
+        &mut live,
+        vec![
+            Edit::ReplaceLayer {
+                target: seen_layer(&d.layers[1]),
+                layer: Box::new(hidden),
+            },
+            Edit::AddLayer {
+                layer: Box::new(added),
+            },
+        ],
+        None,
+    );
+    assert_eq!(cl, cf);
+    assert_eq!(rl.unwrap(), rf.unwrap());
+    assert_state_parity(&file, &live);
+    let added_bytes = live_save(&live);
+
+    // 古いハッシュ・書けない状態は、要素の変更とともに同じ診断で全体を断る
+    let (d, _) = live_drawing(&live);
+    let mut unprintable = d.layers[0].clone();
+    unprintable.state.as_mut().unwrap().printable = false;
+    for (target, layer) in [
+        (
+            Seen {
+                hash: Hash::document(b"stale"),
+                ..seen_layer(&d.layers[0])
+            },
+            d.layers[0].clone(),
+        ),
+        (seen_layer(&d.layers[0]), unprintable),
+    ] {
+        let ((rf, cf), (rl, cl)) = apply_both(
+            &mut file,
+            &mut live,
+            vec![
+                Edit::Remove {
+                    target: seen_at(&d, 0),
+                },
+                Edit::ReplaceLayer {
+                    target,
+                    layer: Box::new(layer),
+                },
+            ],
+            None,
+        );
+        assert_eq!(rl, Err(Error::Rejected));
+        assert_eq!(rf, Err(Error::Rejected));
+        assert_eq!(cl, cf);
+        assert_eq!(live_save(&live), added_bytes);
+    }
+
+    let mut b = Budget::default();
+    let mut diag = Diagnostics::new();
+    let c = CancelToken::new();
+    let mut cx = Cx::new(&mut b, &mut diag, &c);
+    assert!(live.undo(&mut cx).unwrap());
+    assert_eq!(live_save(&live), renamed_bytes);
+    assert!(live.undo(&mut cx).unwrap());
+    assert_eq!(live_save(&live), src);
+    assert_eq!(live_drawing(&live).0, lift_file(&read_file(&src)).0);
+    assert!(live.redo(&mut cx).unwrap());
+    assert!(live.redo(&mut cx).unwrap());
+    assert_eq!(live_save(&live), added_bytes);
+    assert_state_parity(&file, &live);
+}

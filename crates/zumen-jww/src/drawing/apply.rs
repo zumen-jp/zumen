@@ -19,8 +19,8 @@ use super::{Header, PEN_WIDTH_SINCE, POINT_SYMBOL, SXF_SINCE, TURN};
 use crate::parse::Reader;
 use crate::{Jww, JwwFile, RecordKind};
 
-mod layers;
-mod text;
+pub(super) mod layers;
+pub(super) mod text;
 
 /// 診断に書く形式の名前
 pub(super) const FORMAT: &str = "JWW";
@@ -34,7 +34,8 @@ pub(super) const ARC: &[u8] = b"CDataEnko";
 /// 点
 pub(super) const POINT: &[u8] = b"CDataTen";
 
-const TEXT: &[u8] = b"CDataMoji";
+/// 文字
+pub(super) const TEXT: &[u8] = b"CDataMoji";
 
 /// 形の値の比べ方。実寸の値は、用紙の値に縮尺の分母を掛けて読むので、最後の桁が違いうる
 pub(super) const NEAR: f64 = 1e-9;
@@ -466,7 +467,7 @@ pub(super) fn class_of(shape: &Shape<ModelPoint>) -> Option<&'static [u8]> {
     }
 }
 
-fn writable_class(shape: &Shape<ModelPoint>) -> Option<&'static [u8]> {
+pub(super) fn writable_class(shape: &Shape<ModelPoint>) -> Option<&'static [u8]> {
     if matches!(shape, Shape::Text(_)) {
         Some(TEXT)
     } else {
@@ -752,9 +753,9 @@ pub(super) fn base_for_style(
     Some(base)
 }
 
-/// 共通のフィールドを読み直したときのスタイル（変換の `line_style` と同じ）。点は色だけを持つ（変換の `fill_style` と同じ）
+/// 共通のフィールドを読み直したときのスタイル（変換の `line_style` と同じ）。点と文字は色だけを持つ（変換の `fill_style` と同じ）
 pub(super) fn style_of_base(header: &Header, base: &Base, class: &[u8]) -> Style {
-    if class == POINT {
+    if class == POINT || class == TEXT {
         return Style {
             color: Inherit::Own(header.color(base.pen_color)),
             line_type: Inherit::Layer,
@@ -848,7 +849,7 @@ pub(super) fn encode_added_entity(
     element: &Element<ModelPoint>,
 ) -> Option<EncodedAdded> {
     let group = u16::try_from(space.0).ok().filter(|group| *group < 16)?;
-    let class = class_of(&element.shape)?;
+    let class = writable_class(&element.shape)?;
     let n = element.layer.0.checked_sub(1)?;
     if n / 16 != u32::from(group) {
         return None;
@@ -859,7 +860,7 @@ pub(super) fn encode_added_entity(
     }
     let symbol = matches!(&element.shape, Shape::Point(dot) if dot.look != PointLook::Document);
     let (pen_style, pen_width) = match &element.shape {
-        Shape::Point(_) => {
+        Shape::Point(_) | Shape::Text(_) => {
             if style.line_type != Inherit::Layer
                 || !matches!(style.line_weight, None | Some(Inherit::Layer))
             {
@@ -885,18 +886,25 @@ pub(super) fn encode_added_entity(
         flag: 0,
     };
     let mut bytes = base.bytes(header.version);
-    bytes.extend(shape_bytes(
-        &element.shape,
-        space,
-        scale_of_group(header, group, false),
-        symbol,
-    )?);
+    let scale = scale_of_group(header, group, false);
+    let shape = match &element.shape {
+        // 文字は、今までの経路と同じく、読み直したときの高さの意味にそろえた値を返す
+        Shape::Text(text) => {
+            let (geometry, normalized) = text::bytes(text, space, scale, None, None)?;
+            bytes.extend(geometry);
+            Shape::Text(normalized)
+        }
+        shape => {
+            bytes.extend(shape_bytes(shape, space, scale, symbol)?);
+            shape.clone()
+        }
+    };
     Some((
         class,
         bytes,
         base.layer(),
         style_of_base(header, &base, class),
-        element.shape.clone(),
+        shape,
     ))
 }
 
