@@ -7,9 +7,10 @@ use zumen_building::{
     QuantityKind, SpatialKind, Transform,
 };
 use zumen_ifc::{
-    Edit, FillingKind, Ifc, IfcFile, IfcLive, NewBeam, NewColumn, NewElement, NewFilling, NewGrid,
-    NewGridAxis, NewLayer, NewOpening, NewPlacement, NewQuantity, NewSection, NewSlab, NewSpace,
-    NewUnit, NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
+    Edit, FillingKind, Ifc, IfcFile, IfcLive, NewBeam, NewColumn, NewConstituent, NewElement,
+    NewFilling, NewGrid, NewGridAxis, NewLayer, NewLayerUsage, NewMaterial, NewMaterialLayer,
+    NewOpening, NewPlacement, NewQuantity, NewSection, NewSlab, NewSpace, NewUnit, NewWall,
+    OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -2207,5 +2208,231 @@ fn rejects_quantities_and_units_it_cannot_write() {
         let (result, codes) = run(src.as_bytes(), &twice);
         assert!(result.is_err(), "{schema}");
         assert_eq!(codes.len(), 1, "{schema}: {codes:?}");
+    }
+}
+
+fn material_layer(material: Option<&str>, thickness: f64, name: Option<&str>) -> NewMaterialLayer {
+    NewMaterialLayer {
+        material: material.map(str::to_owned),
+        thickness,
+        name: name.map(str::to_owned),
+    }
+}
+
+fn usage(direction: &str, offset: f64) -> Option<NewLayerUsage> {
+    Some(NewLayerUsage {
+        direction: direction.to_owned(),
+        negative: true,
+        offset,
+    })
+}
+
+/// 材料の構成の種類・構成ごとの材料の名前と厚さと名前・層の向きと基準からのずれ
+type MaterialRow = (
+    MaterialKind,
+    Vec<(Option<String>, Option<f64>, Option<String>)>,
+    Option<String>,
+    Option<f64>,
+);
+
+fn material_of(building: &Building, n: u32) -> Option<MaterialRow> {
+    let material = building.components.material.get(element(building, n)?)?;
+    let name = |m: Option<ElementRef>| {
+        m.and_then(|m| building.components.identity.get(m))
+            .and_then(|i| i.name.clone())
+    };
+    Some((
+        material.kind,
+        material
+            .parts
+            .iter()
+            .map(|p| {
+                (
+                    name(p.material),
+                    p.thickness.as_ref().map(|t| t.value),
+                    p.name.clone(),
+                )
+            })
+            .collect(),
+        material.direction.clone(),
+        material.offset.as_ref().map(|o| o.value),
+    ))
+}
+
+#[test]
+fn writes_and_replaces_materials() {
+    for schema in SCHEMAS {
+        let later = schema != "IFC2X3";
+        let src = sample(schema, true);
+        let mut edits = building_edits();
+        let core = later.then_some("Core");
+        edits.extend([
+            Edit::Material {
+                element: Target::Added(3),
+                material: NewMaterial::Single("Concrete".to_owned()),
+            },
+            // 結び直すと前の構成を外す
+            Edit::Material {
+                element: Target::Added(3),
+                material: NewMaterial::Layers {
+                    layers: vec![
+                        material_layer(Some("Concrete"), 200.0, core),
+                        material_layer(None, 50.0, None),
+                        material_layer(Some("Gypsum"), 12.5, None),
+                    ],
+                    usage: usage("axis2", -100.0),
+                },
+            },
+            // IFC4 からは並びが非推奨なので、名前のない構成要素で書く
+            Edit::Material {
+                element: Target::Added(5),
+                material: if later {
+                    NewMaterial::Constituents(
+                        ["Wood", "Glass", "Wood"]
+                            .map(|material| NewConstituent {
+                                material: material.to_owned(),
+                                name: None,
+                            })
+                            .to_vec(),
+                    )
+                } else {
+                    NewMaterial::List(vec![
+                        "Wood".to_owned(),
+                        "Glass".to_owned(),
+                        "Wood".to_owned(),
+                    ])
+                },
+            },
+            Edit::Material {
+                element: Target::Instance(20),
+                material: if later {
+                    NewMaterial::Constituents(vec![
+                        NewConstituent {
+                            material: "Concrete".to_owned(),
+                            name: Some("Body".to_owned()),
+                        },
+                        NewConstituent {
+                            material: "Steel".to_owned(),
+                            name: None,
+                        },
+                    ])
+                } else {
+                    NewMaterial::Single("Concrete".to_owned())
+                },
+            },
+        ]);
+        let (result, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = result.unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        // 同じ名前の材料は 1 つ。外した単一の材料の関係は除く
+        assert_eq!(
+            count(&text, "IFCMATERIAL"),
+            if later { 5 } else { 4 },
+            "{text}"
+        );
+        assert_eq!(count(&text, "IFCRELASSOCIATESMATERIAL"), 3, "{text}");
+        let building = lift(&bytes).unwrap();
+        let some = |s: &str| Some(s.to_owned());
+        assert_eq!(
+            material_of(&building, 200),
+            Some((
+                MaterialKind::Layers,
+                vec![
+                    (some("Concrete"), Some(200.0), core.map(str::to_owned)),
+                    (None, Some(50.0), None),
+                    (some("Gypsum"), Some(12.5), None),
+                ],
+                some("AXIS2"),
+                Some(-100.0),
+            )),
+            "{schema}"
+        );
+        assert_eq!(
+            material_of(&building, 202).map(|m| (m.0, m.1)),
+            Some((
+                if later {
+                    MaterialKind::Constituents
+                } else {
+                    MaterialKind::List
+                },
+                vec![
+                    (some("Wood"), None, None),
+                    (some("Glass"), None, None),
+                    (some("Wood"), None, None),
+                ],
+            )),
+            "{schema}"
+        );
+        let expected = if later {
+            (
+                MaterialKind::Constituents,
+                vec![
+                    (some("Concrete"), None, some("Body")),
+                    (some("Steel"), None, None),
+                ],
+            )
+        } else {
+            (MaterialKind::Single, vec![(some("Concrete"), None, None)])
+        };
+        assert_eq!(
+            material_of(&building, 20).map(|m| (m.0, m.1)),
+            Some(expected),
+            "{schema}"
+        );
+    }
+}
+
+#[test]
+fn rejects_materials_it_cannot_write() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let on_type = |material| Edit::Material {
+            element: Target::Instance(20),
+            material,
+        };
+        let layers = |layers, usage| NewMaterial::Layers { layers, usage };
+        let one = || vec![material_layer(Some("C"), 1.0, None)];
+        let mut refused = vec![
+            // 敷地には結ばない
+            Edit::Material {
+                element: Target::Instance(10),
+                material: NewMaterial::Single("C".to_owned()),
+            },
+            on_type(NewMaterial::List(Vec::new())),
+            on_type(layers(Vec::new(), None)),
+            on_type(layers(vec![material_layer(Some("C"), -1.0, None)], None)),
+            on_type(layers(
+                vec![material_layer(Some("C"), f64::NAN, None)],
+                None,
+            )),
+            on_type(layers(one(), usage("AXIS4", 0.0))),
+            on_type(layers(one(), usage("AXIS2", f64::INFINITY))),
+        ];
+        if schema == "IFC2X3" {
+            // IFC2X3 の層は正の厚さで、名前を持たない。構成要素もない
+            refused.extend([
+                on_type(layers(vec![material_layer(Some("C"), 0.0, None)], None)),
+                on_type(layers(
+                    vec![material_layer(Some("C"), 1.0, Some("L"))],
+                    None,
+                )),
+                on_type(NewMaterial::Constituents(vec![NewConstituent {
+                    material: "C".to_owned(),
+                    name: None,
+                }])),
+            ]);
+        } else {
+            // 並びは IFC4 から非推奨
+            refused.extend([
+                on_type(NewMaterial::Constituents(Vec::new())),
+                on_type(NewMaterial::List(vec!["C".to_owned()])),
+            ]);
+        }
+        for edit in &refused {
+            let (result, codes) = run(src.as_bytes(), std::slice::from_ref(edit));
+            assert!(result.is_err(), "{schema}: {edit:?}");
+            assert_eq!(codes.len(), 1, "{schema}: {edit:?}: {codes:?}");
+        }
     }
 }

@@ -15,11 +15,14 @@ use crate::building::{Category, Version, category};
 use crate::stopped;
 
 mod intent;
+mod material;
 
 pub use intent::{
     FillingKind, NewBeam, NewColumn, NewFilling, NewGrid, NewGridAxis, NewLayer, NewOpening,
     NewSection, NewSlab, NewWall, OpeningChange, WallChange,
 };
+pub(super) use material::rejected as material_rejected;
+pub use material::{NewConstituent, NewLayerUsage, NewMaterial, NewMaterialLayer};
 
 /// 変更が指す要素。文書にあるインスタンスか、同じ要求の中で足した要素
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

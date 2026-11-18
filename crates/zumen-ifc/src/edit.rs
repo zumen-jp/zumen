@@ -12,9 +12,9 @@ mod create;
 mod quantity;
 
 pub use author::{
-    FillingKind, NewBeam, NewColumn, NewElement, NewFilling, NewGrid, NewGridAxis, NewLayer,
-    NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewType, NewWall, OpeningChange,
-    SpaceKind, Target, WallChange,
+    FillingKind, NewBeam, NewColumn, NewConstituent, NewElement, NewFilling, NewGrid, NewGridAxis,
+    NewLayer, NewLayerUsage, NewMaterial, NewMaterialLayer, NewOpening, NewPlacement, NewSection,
+    NewSlab, NewSpace, NewType, NewWall, OpeningChange, SpaceKind, Target, WallChange,
 };
 pub use convert::{ConvertOptions, Converted, convert};
 pub use create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
@@ -93,6 +93,14 @@ pub enum Edit {
     /// プロジェクトの単位の割り当て（`IfcUnitAssignment`）に SI の単位（`IfcSIUnit`）を足す。同じ種類の単位が
     /// あれば断る
     Unit(NewUnit),
+    /// 要素か型に材料の構成を結ぶ（`IfcRelAssociatesMaterial`）。結んであった材料は外す。同じ名前の材料
+    /// （`IfcMaterial`）は文書のものを使う
+    Material {
+        /// 結ぶ要素か型
+        element: Target,
+        /// 材料の構成
+        material: NewMaterial,
+    },
     /// 階の高さ（`Elevation`）を直し、階の配置の z を同じだけ動かす。階に属する要素は配置の相対で付いてくる
     Elevation {
         /// 直す階（`IfcBuildingStorey`）
@@ -171,6 +179,7 @@ impl Edit {
             Self::ElementType(_) => "element_type",
             Self::Quantity { .. } => "quantity",
             Self::Unit(_) => "unit",
+            Self::Material { .. } => "material",
             Self::Elevation { .. } => "elevation",
             Self::WallShape(_) => "wall_shape",
             Self::OpeningShape(_) => "opening_shape",
@@ -268,6 +277,7 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
                 quantity,
             } => draft.quantity(*element, set, method.as_deref(), quantity, cx)?,
             Edit::Unit(unit) => draft.add_unit(unit, cx)?,
+            Edit::Material { element, material } => draft.set_material(*element, material, cx)?,
             Edit::Elevation { storey, elevation } => draft.elevate(*storey, *elevation, cx)?,
             Edit::WallShape(change) => draft.reshape_wall(change, cx)?,
             Edit::OpeningShape(change) => draft.reshape_opening(change, cx)?,
@@ -431,6 +441,8 @@ struct Draft<'f> {
     project: Option<u64>,
     /// 文書と、この要求で使った GlobalId。渡された GlobalId を確かめるときに作る
     global_ids: Option<BTreeSet<String>>,
+    /// 名前ごとの `IfcMaterial`。材料を結ぶときに作る
+    materials: Option<BTreeMap<String, u64>>,
 }
 
 impl<'f> Draft<'f> {
@@ -472,6 +484,7 @@ impl<'f> Draft<'f> {
             handles: Vec::new(),
             project,
             global_ids: None,
+            materials: None,
         })
     }
 

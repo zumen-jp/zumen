@@ -3,13 +3,13 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, Id, Literal, Local, ParentKind, QuantityKind, Transform,
-    TypedValue,
+    Building, ElementRef, GlobalId, Id, Literal, Local, MaterialKind, ParentKind, QuantityKind,
+    Transform, TypedValue,
 };
 use zumen_ifc::{
-    ConvertOptions, Converted, Edit, Header, Ifc, LengthUnit, NewElement, NewPlacement,
-    NewQuantity, NewSpace, NewType, NewUnit, OwnerHistory, SpaceKind, Target, Template, Version,
-    apply, convert, create,
+    ConvertOptions, Converted, Edit, Header, Ifc, LengthUnit, NewConstituent, NewElement,
+    NewMaterial, NewMaterialLayer, NewPlacement, NewQuantity, NewSpace, NewType, NewUnit,
+    OwnerHistory, SpaceKind, Target, Template, Version, apply, convert, create,
 };
 use zumen_sdk::conversion::ConversionFidelity;
 use zumen_sdk::{Codec, Lift};
@@ -213,6 +213,56 @@ fn source(version: Version) -> Option<Vec<u8>> {
             type_of: Some(Target::Added(10)),
         });
     }
+    // 材料。壁は層、扉は並び（IFC4 からは非推奨なので名前のない構成要素）、柱は単一、壁の型は構成要素
+    // （IFC2X3 は持たないので単一）。層の名前は IFC4 から
+    let later = version != Version::Ifc2x3;
+    let layer = |material: &str, thickness, name: Option<&str>| NewMaterialLayer {
+        material: Some(material.to_owned()),
+        thickness,
+        name: name.filter(|_| later).map(str::to_owned),
+    };
+    edits.extend([
+        Edit::Material {
+            element: Target::Added(4),
+            material: NewMaterial::Layers {
+                layers: vec![
+                    layer("Concrete", 200.0, Some("Core")),
+                    layer("Insulation", 50.0, None),
+                ],
+                usage: None,
+            },
+        },
+        Edit::Material {
+            element: Target::Added(6),
+            material: if later {
+                NewMaterial::Constituents(
+                    ["Wood", "Glass"]
+                        .map(|material| NewConstituent {
+                            material: material.to_owned(),
+                            name: None,
+                        })
+                        .to_vec(),
+                )
+            } else {
+                NewMaterial::List(vec!["Wood".to_owned(), "Glass".to_owned()])
+            },
+        },
+        Edit::Material {
+            element: Target::Added(8),
+            material: NewMaterial::Single("Steel".to_owned()),
+        },
+        Edit::Material {
+            element: Target::Added(9),
+            material: if later {
+                NewMaterial::Constituents(vec![NewConstituent {
+                    material: "Concrete".to_owned(),
+                    name: Some("Body".to_owned()),
+                }])
+            } else {
+                NewMaterial::Single("Concrete".to_owned())
+            },
+        },
+    ]);
     let (applied, diag) = with(|cx| apply(&file, &edits, b"seed", cx));
     assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
     let bytes = applied.ok()?.bytes;
@@ -264,6 +314,37 @@ type QuantitySetRow = (
     Option<String>,
     Vec<(String, QuantityKind, f64, Option<String>)>,
 );
+
+type MaterialRow = (
+    MaterialKind,
+    Vec<(Option<String>, Option<f64>, Option<String>)>,
+    Option<String>,
+);
+
+/// 材料の構成の種類・構成ごとの材料の名前と厚さと名前・層の向き
+fn materials(building: &Building, n: u32) -> Option<MaterialRow> {
+    let e = building.find(Id::Global(global(n)))?;
+    let material = building.components.material.get(e)?;
+    let name = |m: Option<ElementRef>| {
+        m.and_then(|m| building.components.identity.get(m))
+            .and_then(|i| i.name.clone())
+    };
+    Some((
+        material.kind,
+        material
+            .parts
+            .iter()
+            .map(|p| {
+                (
+                    name(p.material),
+                    p.thickness.as_ref().map(|t| t.value),
+                    p.name.clone(),
+                )
+            })
+            .collect(),
+        material.direction.clone(),
+    ))
+}
 
 /// 数量のセットごとの値
 fn quantities(building: &Building, n: u32) -> Vec<QuantitySetRow> {
@@ -317,7 +398,8 @@ fn rows(building: &Building) -> Vec<Row> {
         .enumerate()
         .filter_map(|(n, _)| {
             let e = ElementRef(u32::try_from(n).ok()?);
-            let class = c.class.get(e)?;
+            // 材料は GlobalId を持たないので、構成の中で比べる（materials）
+            let class = c.class.get(e).filter(|class| class.name != "IfcMaterial")?;
             let parent = c
                 .parent
                 .get(e)
@@ -396,6 +478,26 @@ fn converts_the_structure_between_every_version() {
                 }
             }
             assert_eq!(quantities(&target, 20), wanted, "{from:?} → {to:?}");
+            // 材料は保つ。IFC2X3 へは層の名前を落とし、構成要素を並びで書く。IFC4 からは並びを構成要素にする
+            let mut materials_wanted = [20, 22, 24, 25].map(|n| materials(&source, n));
+            for row in materials_wanted.iter_mut().flatten() {
+                if to == Version::Ifc2x3 {
+                    for part in &mut row.1 {
+                        part.2 = None;
+                    }
+                    if row.0 == MaterialKind::Constituents {
+                        row.0 = MaterialKind::List;
+                    }
+                } else if row.0 == MaterialKind::List {
+                    row.0 = MaterialKind::Constituents;
+                }
+            }
+            assert!(materials_wanted.iter().all(Option::is_some));
+            assert_eq!(
+                [20, 22, 24, 25].map(|n| materials(&target, n)),
+                materials_wanted,
+                "{from:?} → {to:?}"
+            );
             assert_eq!(
                 wanted.iter().map(|set| set.2.len()).collect::<Vec<_>>(),
                 [2, 1]
@@ -442,12 +544,30 @@ fn converts_the_structure_between_every_version() {
                     ("IfcDoorType", ConversionFidelity::Dropped, Vec::new()),
                 ]);
             }
-            // 長さの数量の式は IFC2X3 に書けない
+            // 長さの数量の式・層の名前・構成要素は IFC2X3 に書けない
             if from != Version::Ifc2x3 && to == Version::Ifc2x3 {
+                if let Some(door) = wanted.iter_mut().find(|w| w.0 == "IfcDoor") {
+                    door.2.insert(0, "material".to_owned());
+                }
+                wanted.extend([
+                    (
+                        "IfcWall",
+                        ConversionFidelity::Approximated,
+                        vec!["material".to_owned(), "quantities".to_owned()],
+                    ),
+                    (
+                        "IfcWallType",
+                        ConversionFidelity::Approximated,
+                        vec!["material".to_owned()],
+                    ),
+                ]);
+            }
+            // IFC4 からは材料の並びが非推奨なので、構成要素にする
+            if from == Version::Ifc2x3 && to != Version::Ifc2x3 {
                 wanted.push((
-                    "IfcWall",
+                    "IfcDoor",
                     ConversionFidelity::Approximated,
-                    vec!["quantities".to_owned()],
+                    vec!["material".to_owned()],
                 ));
             }
             assert_eq!(approximated, wanted, "{from:?} → {to:?}");
@@ -471,9 +591,9 @@ fn converts_the_structure_between_every_version() {
                 (dropped, values, dropped + values),
                 "{from:?} → {to:?}: {codes:?}"
             );
-            // プロジェクト・空間 4 つ・要素 5 つ・型（IFC2X3 からは壁の型だけ）
+            // プロジェクト・空間 4 つ・要素 5 つ・型（IFC2X3 からは壁の型だけ）・材料 5 つ
             let types = if from == Version::Ifc2x3 { 1 } else { 2 };
-            assert_eq!(converted.report.total, 10 + types, "{from:?} → {to:?}");
+            assert_eq!(converted.report.total, 15 + types, "{from:?} → {to:?}");
         }
     }
 }
@@ -586,6 +706,12 @@ fn rich() -> String {
             "#94=IFCRELDEFINESBYPROPERTIES('{}',$,$,$,(#60),#93);",
             g(94)
         ),
+        "#95=IFCMATERIAL('Brick',$,$);".to_owned(),
+        "#96=IFCMATERIALLAYER(#95,100.,$,'Outer',$,$,$);".to_owned(),
+        "#97=IFCMATERIALLAYERSET((#96),$,$);".to_owned(),
+        "#98=IFCMATERIALLAYERSETUSAGE(#97,.AXIS2.,.NEGATIVE.,5.,$);".to_owned(),
+        format!("#99=IFCRELASSOCIATESMATERIAL('{}',$,$,$,(#60),#98);", g(99)),
+        "#100=IFCMATERIAL('Unused',$,$);".to_owned(),
     ];
     format!(
         "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('a.ifc','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;\n",
@@ -644,6 +770,25 @@ fn counts_the_elements_and_values_it_cannot_write() {
             Some((ConversionFidelity::Native, Vec::new())),
             "{to:?}"
         );
+        // 層の使い方の向きの正負は読んだ値に残らないので、材料は近似になる
+        assert!(
+            reasons.iter().any(|r| r == "material"),
+            "{to:?}: {reasons:?}"
+        );
+        // 使う材料は書き、どの構成も使わない材料は落とす
+        let mut materials: Vec<_> = converted
+            .report
+            .details
+            .iter()
+            .filter(|d| d.kind == "IfcMaterial")
+            .map(|d| d.fidelity)
+            .collect();
+        materials.sort_by_key(|f| format!("{f:?}"));
+        assert_eq!(
+            materials,
+            [ConversionFidelity::Dropped, ConversionFidelity::Native],
+            "{to:?}"
+        );
         // IFC2X3 の壁は定義された種類を持たない
         assert_eq!(
             reasons.iter().any(|r| r == "predefined"),
@@ -679,6 +824,26 @@ fn counts_the_elements_and_values_it_cannot_write() {
 
         let target = lift(&converted.bytes).unwrap();
         let wall = target.find(Id::Global(global(60))).unwrap();
+        let layers = target.components.material.get(wall).unwrap();
+        assert_eq!(
+            (
+                layers.kind,
+                layers.direction.as_deref(),
+                layers.offset.as_ref().map(|o| o.value),
+                layers
+                    .parts
+                    .iter()
+                    .map(|p| (p.thickness.as_ref().map(|t| t.value), p.name.as_deref()))
+                    .collect::<Vec<_>>()
+            ),
+            (
+                MaterialKind::Layers,
+                Some("AXIS2"),
+                Some(5.0),
+                vec![(Some(100.0), (to != Version::Ifc2x3).then_some("Outer"))]
+            ),
+            "{to:?}"
+        );
         let storey = target.find(Id::Global(global(40))).unwrap();
         let parent = target
             .components

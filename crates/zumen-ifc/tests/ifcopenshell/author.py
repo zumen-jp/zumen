@@ -160,6 +160,7 @@ CONVERTED = {
     "IfcDoor": 1,
     "IfcSlab": 1,
     "IfcColumn": 1,
+    "IfcMaterial": 5,
 }
 
 
@@ -226,6 +227,48 @@ def check_converted(path):
         door_type.OperationType,
     ) != (gid(26), "NOTDEFINED", "NOTDEFINED"):
         failures.append(f"扉の型が {door_type}")
+    failures += check_converted_materials(model)
+    return failures
+
+
+def check_converted_materials(model):
+    """変換した材料。元は IFC4。IFC2X3 は層の名前と構成要素を持たないので、構成要素は並びになる"""
+    failures = []
+    later = model.schema_identifier != "IFC2X3"
+
+    def material(n):
+        return ifcopenshell.util.element.get_material(model.by_guid(gid(n)), should_inherit=False)
+
+    wall = material(20)
+    layers = [
+        (layer.Material.Name, layer.LayerThickness, getattr(layer, "Name", None))
+        for layer in getattr(wall, "MaterialLayers", [])
+    ]
+    expected = [("Concrete", 200.0, "Core" if later else None), ("Insulation", 50.0, None)]
+    if not (wall and wall.is_a("IfcMaterialLayerSet")) or layers != expected:
+        failures.append(f"壁の材料が {wall} {layers}")
+    # IFC4 からは材料の並びが非推奨なので、名前のない構成要素になる
+    door = material(22)
+    if later:
+        names = [c.Material.Name for c in getattr(door, "MaterialConstituents", None) or []]
+        kind = "IfcMaterialConstituentSet"
+    else:
+        names = [m.Name for m in getattr(door, "Materials", [])]
+        kind = "IfcMaterialList"
+    if not (door and door.is_a(kind)) or names != ["Wood", "Glass"]:
+        failures.append(f"扉の材料が {door} {names}")
+    column = material(24)
+    if not (column and column.is_a("IfcMaterial")) or column.Name != "Steel":
+        failures.append(f"柱の材料が {column}")
+    wall_type = material(25)
+    if later:
+        parts = [(c.Name, c.Material.Name) for c in getattr(wall_type, "MaterialConstituents", None) or []]
+        if not (wall_type and wall_type.is_a("IfcMaterialConstituentSet")) or parts != [("Body", "Concrete")]:
+            failures.append(f"壁の型の材料が {wall_type} {parts}")
+    else:
+        names = [m.Name for m in getattr(wall_type, "Materials", [])]
+        if not (wall_type and wall_type.is_a("IfcMaterialList")) or names != ["Concrete"]:
+            failures.append(f"IFC2X3 の壁の型の材料が {wall_type} {names}")
     return failures
 
 

@@ -17,13 +17,16 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, Id, Literal, Local, Opening, ParentKind, Property, Quantity,
-    SpatialKind, Unit,
+    Building, ElementRef, GlobalId, Id, Literal, Local, Material, MaterialKind, Measured, Opening,
+    ParentKind, Property, Quantity, SpatialKind, Unit,
 };
 use zumen_sdk::conversion::{ConversionFidelity, ConversionReport, Report, note};
 use zumen_sdk::{Codec, Cx, Error};
 
-use super::author::{NewType, enumeration, predefined_at, rigid, writable_type};
+use super::author::{
+    NewConstituent, NewLayerUsage, NewMaterial, NewMaterialLayer, NewType, enumeration,
+    material_rejected, predefined_at, rigid, writable_type,
+};
 use super::create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
 use super::quantity::{NewQuantity, NewUnit, quantity_value, si_unit};
 use super::{
@@ -105,6 +108,8 @@ pub fn convert(
         edits: Vec::new(),
         added: 0,
         units: Vec::new(),
+        materials: Vec::new(),
+        used_materials: BTreeSet::new(),
         report: Report::new(options.limit),
     };
     if let Some(project) = project {
@@ -116,6 +121,7 @@ pub fn convert(
         plan.element(element, cx)?;
     }
     plan.openings();
+    plan.material_elements(cx)?;
     let edits = std::mem::take(&mut plan.edits);
     let mut bytes = apply(&file, &edits, &namespace, cx)?.bytes;
     // プロパティの変更は、文書にあるインスタンスの番号で指すので、書いた後に GlobalId で引いて当てる
@@ -282,6 +288,10 @@ struct Plan<'b, 'n> {
     added: usize,
     /// 書いた文書の単位（元の値）。長さの単位と、足した SI の単位
     units: Vec<&'b Unit>,
+    /// 材料（`IfcMaterial`）の要素。結んだ構成から使われたものだけを書く
+    materials: Vec<ElementRef>,
+    /// 書いた構成が使う材料
+    used_materials: BTreeSet<ElementRef>,
     report: Report,
 }
 
@@ -400,6 +410,11 @@ impl Plan<'_, '_> {
         let Some(class) = building.components.class.get(element) else {
             return self.drop_element(element, "element", cx);
         };
+        // 材料は要素として書かず、結んだ構成の中に書く
+        if class.name == "IfcMaterial" {
+            self.materials.push(element);
+            return Ok(());
+        }
         match building.components.spatial.get(element).map(|s| &s.kind) {
             Some(SpatialKind::Site) => self.space(element, SpaceKind::Site, cx),
             Some(SpatialKind::Building) => self.space(element, SpaceKind::Building, cx),
@@ -436,6 +451,132 @@ impl Plan<'_, '_> {
             global_id: self.global_id(element),
         }));
         self.wrote(element, kind, dropped);
+        self.material(element);
+    }
+
+    /// 値の単位が、書いた文書の単位か
+    fn unit_written(&self, value: &Measured) -> bool {
+        match &value.unit {
+            None => true,
+            Some(unit) => self.units.contains(&unit),
+        }
+    }
+
+    /// 書いた要素か型に材料の構成を結ぶ。そのまま書けたものは、落とした値から外す
+    fn material(&mut self, element: ElementRef) {
+        let Some(material) = self.building.components.material.get(element) else {
+            return;
+        };
+        let Some(target) = self.target(element) else {
+            return;
+        };
+        let Some((new, exact)) = self.new_material(material) else {
+            return;
+        };
+        self.used_materials
+            .extend(material.parts.iter().filter_map(|part| part.material));
+        self.edits.push(Edit::Material {
+            element: target,
+            material: new,
+        });
+        if exact && let Some((_, dropped)) = self.notes.get_mut(&element) {
+            dropped.retain(|&value| value != "material");
+        }
+    }
+
+    /// 書ける材料の構成と、そのまま書けたか。断面（形を持たない）と、名前のない材料を使うものは書かない
+    fn new_material(&self, material: &Material) -> Option<(NewMaterial, bool)> {
+        let name = |part: Option<ElementRef>| part.and_then(|m| self.name(m));
+        let later = self.version != Version::Ifc2x3;
+        let mut exact = true;
+        let new = match material.kind {
+            MaterialKind::Single => match material.parts.as_slice() {
+                [part] => NewMaterial::Single(name(part.material)?),
+                _ => return None,
+            },
+            // IFC4 からは並びが非推奨なので名前のない構成要素に、IFC2X3 は構成要素を持たないので並びで書く
+            MaterialKind::List | MaterialKind::Constituents if later => {
+                exact &= material.kind == MaterialKind::Constituents;
+                NewMaterial::Constituents(
+                    material
+                        .parts
+                        .iter()
+                        .map(|part| {
+                            Some(NewConstituent {
+                                material: name(part.material)?,
+                                name: part.name.clone(),
+                            })
+                        })
+                        .collect::<Option<_>>()?,
+                )
+            }
+            MaterialKind::List | MaterialKind::Constituents => {
+                exact &= material.kind == MaterialKind::List;
+                NewMaterial::List(
+                    material
+                        .parts
+                        .iter()
+                        .map(|part| name(part.material))
+                        .collect::<Option<_>>()?,
+                )
+            }
+            MaterialKind::Layers => {
+                let mut layers = Vec::with_capacity(material.parts.len());
+                for part in &material.parts {
+                    let thickness = part.thickness.as_ref()?;
+                    if !self.unit_written(thickness) {
+                        return None;
+                    }
+                    // IFC2X3 の層は名前を持たない
+                    if !later && part.name.is_some() {
+                        exact = false;
+                    }
+                    layers.push(NewMaterialLayer {
+                        material: match part.material {
+                            Some(m) => Some(self.name(m)?),
+                            None => None,
+                        },
+                        thickness: thickness.value,
+                        name: part.name.clone().filter(|_| later),
+                    });
+                }
+                // 層の使い方の向きの正負（DirectionSense）は、読んだ値に残らないので正にする
+                let usage = match &material.direction {
+                    Some(direction) => {
+                        exact = false;
+                        let offset = match &material.offset {
+                            Some(offset) if self.unit_written(offset) => offset.value,
+                            Some(_) => return None,
+                            None => 0.0,
+                        };
+                        Some(NewLayerUsage {
+                            direction: direction.clone(),
+                            negative: false,
+                            offset,
+                        })
+                    }
+                    None => None,
+                };
+                NewMaterial::Layers { layers, usage }
+            }
+            MaterialKind::Profiles => return None,
+        };
+        material_rejected(&new, self.version)
+            .is_none()
+            .then_some((new, exact))
+    }
+
+    /// 材料の要素。書いた構成が使うものは書いたものとし、ほかは落とす
+    fn material_elements(&mut self, cx: &mut Cx) -> Result<(), Error> {
+        for element in std::mem::take(&mut self.materials) {
+            if self.used_materials.contains(&element) {
+                let dropped = self.components(element);
+                self.notes.insert(element, ("IfcMaterial", dropped));
+            } else {
+                self.drop_element(element, "IfcMaterial", cx)?;
+            }
+        }
+        Ok(())
     }
 
     /// 書いた要素を、変更の中で指す値
@@ -638,6 +779,7 @@ impl Plan<'_, '_> {
         }));
         let added = Target::Added(self.added);
         self.wrote(element, kind, dropped);
+        self.material(element);
         if let Some(type_of) = type_of {
             self.edits.push(Edit::Type {
                 element: added,
@@ -775,11 +917,7 @@ impl Plan<'_, '_> {
     /// 書ける数量と、式を落としたか。値の単位が書いた文書の単位で、値がそのバージョンに書けるもの。IFC2X3 は式を
     /// 持たないので落とす
     fn quantity(&self, quantity: &Quantity) -> Option<(NewQuantity, bool)> {
-        let unit_written = match &quantity.value.unit {
-            None => true,
-            Some(unit) => self.units.contains(&unit),
-        };
-        if !unit_written
+        if !self.unit_written(&quantity.value)
             || quantity_value(quantity.kind, quantity.value.value, self.version).is_none()
         {
             return None;
