@@ -1493,7 +1493,7 @@ public final class Messages {
         }
     }
 
-    /** 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm */
+    /** 原点と相対座標を分けた点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は使う所に従う（measure_distance では用紙の mm、measure では from の空間か用紙の単位） */
     public static final class SplitPoint2 extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public SplitPoint2(Map<String, Object> json) {
@@ -2178,7 +2178,7 @@ public final class Messages {
             return this;
         }
 
-        /** 実寸の空間の公開 ID。用紙と記号定義の空間は対象外 */
+        /** 実寸の空間の公開 ID。記号定義の空間は対象外。マイナーバージョン 102 から、distance で両方の対象が点なら公開用紙の ID も使え、校正しない用紙の座標の距離を返す */
         public String getFrom() {
             return Json.read(json.get("from"), Json::string);
         }
@@ -2284,6 +2284,11 @@ public final class Messages {
         public MeasurePoint asMeasurePoint() {
             return "point".equals(json.get("kind")) ? new MeasurePoint(json) : null;
         }
+
+        /** kind が split_point の形なら、そのビュー。違えば null */
+        public MeasureSplitPoint asMeasureSplitPoint() {
+            return "split_point".equals(json.get("kind")) ? new MeasureSplitPoint(json) : null;
+        }
     }
 
     /** 計測する要素。元の公開 ID を使う */
@@ -2370,6 +2375,48 @@ public final class Messages {
         }
     }
 
+    /** 距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から */
+    public static final class MeasureSplitPoint extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MeasureSplitPoint(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MeasureSplitPoint of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MeasureSplitPoint(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public MeasureSplitPoint() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "split_point");
+        }
+
+        /** 対象の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public MeasureSplitPoint withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 原点と相対座標を分けた点。成分ごとの差を正確に求めてから一度だけ丸める */
+        public SplitPoint2 getPosition() {
+            return Json.read(json.get("position"), SplitPoint2::of);
+        }
+
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
+        public MeasureSplitPoint withPosition(SplitPoint2 value) {
+            put("position", value);
+            return this;
+        }
+    }
+
     /** 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する */
     public static final class MeasureResult extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -2432,7 +2479,7 @@ public final class Messages {
             return this;
         }
 
-        /** 空間の長さの単位。不明な単位を補わない */
+        /** 空間の長さの単位。不明な単位を補わない。from が用紙なら用紙の mm */
         public String getUnit() {
             return Json.read(json.get("unit"), Json::string);
         }
@@ -2440,6 +2487,17 @@ public final class Messages {
         /** {@link #getUnit()} を書く。null ならフィールドを除く */
         public MeasureResult withUnit(String value) {
             put("unit", value);
+            return this;
+        }
+
+        /** from が用紙で、value が校正しない用紙の座標の距離なら true。実寸ではない。実寸の空間では返さない。マイナーバージョン 102 から */
+        public Boolean getSheet() {
+            return Json.read(json.get("sheet"), Json::bool);
+        }
+
+        /** {@link #getSheet()} を書く。null ならフィールドを除く */
+        public MeasureResult withSheet(Boolean value) {
+            put("sheet", value);
             return this;
         }
 
@@ -2476,7 +2534,7 @@ public final class Messages {
             return this;
         }
 
-        /** 最短距離を作る最初の対象上の点。distance のときだけ返す */
+        /** 最短距離を作る最初の対象上の点。distance のときだけ返す。split_point なら原点と相対座標の和を丸めた点 */
         public Point2 getNearestFirst() {
             return Json.read(json.get("nearest_first"), Point2::of);
         }

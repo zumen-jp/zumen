@@ -981,7 +981,7 @@ public struct Point2: Message {
     }
 }
 
-/// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+/// 原点と相対座標を分けた点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は使う所に従う（measure_distance では用紙の mm、measure では from の空間か用紙の単位）
 public struct SplitPoint2: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -1392,7 +1392,7 @@ public struct MeasureRequest: Message {
         set { writeField("doc", newValue) }
     }
 
-    /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+    /// 実寸の空間の公開 ID。記号定義の空間は対象外。マイナーバージョン 102 から、distance で両方の対象が点なら公開用紙の ID も使え、校正しない用紙の座標の距離を返す
     public var from: String? {
         get { readField("from") }
         set { writeField("from", newValue) }
@@ -1458,6 +1458,11 @@ public struct MeasureTarget: Message {
     public var asMeasurePoint: MeasurePoint? {
         taggedView("kind", "point")
     }
+
+    /// kind が split_point の形なら、そのビュー。違えば nil
+    public var asMeasureSplitPoint: MeasureSplitPoint? {
+        taggedView("kind", "split_point")
+    }
 }
 
 /// 計測する要素。元の公開 ID を使う
@@ -1516,6 +1521,34 @@ public struct MeasurePoint: Message {
     }
 }
 
+/// 距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から
+public struct MeasureSplitPoint: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("split_point")]
+    }
+
+    /// 対象の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 原点と相対座標を分けた点。成分ごとの差を正確に求めてから一度だけ丸める
+    public var position: SplitPoint2? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+}
+
 /// 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
 public struct MeasureResult: Message {
     /// 包んでいる JSON のオブジェクト
@@ -1555,10 +1588,16 @@ public struct MeasureResult: Message {
         set { writeField("value", newValue) }
     }
 
-    /// 空間の長さの単位。不明な単位を補わない
+    /// 空間の長さの単位。不明な単位を補わない。from が用紙なら用紙の mm
     public var unit: String? {
         get { readField("unit") }
         set { writeField("unit", newValue) }
+    }
+
+    /// from が用紙で、value が校正しない用紙の座標の距離なら true。実寸ではない。実寸の空間では返さない。マイナーバージョン 102 から
+    public var sheet: Bool? {
+        get { readField("sheet") }
+        set { writeField("sheet", newValue) }
     }
 
     /// 単位の次数。長さと距離は 1、面積は 2
@@ -1579,7 +1618,7 @@ public struct MeasureResult: Message {
         set { writeField("tolerance", newValue) }
     }
 
-    /// 最短距離を作る最初の対象上の点。distance のときだけ返す
+    /// 最短距離を作る最初の対象上の点。distance のときだけ返す。split_point なら原点と相対座標の和を丸めた点
     public var nearestFirst: Point2? {
         get { readField("nearest_first") }
         set { writeField("nearest_first", newValue) }

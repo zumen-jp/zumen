@@ -696,7 +696,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+    /// 原点と相対座標を分けた点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は使う所に従う（measure_distance では用紙の mm、measure では from の空間か用紙の単位）
     /// </summary>
     public sealed record SplitPoint2
     {
@@ -1037,7 +1037,7 @@ namespace Zumen.Messages
         public string Doc { get; init; } = default!;
 
         /// <summary>
-        /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+        /// 実寸の空間の公開 ID。記号定義の空間は対象外。マイナーバージョン 102 から、distance で両方の対象が点なら公開用紙の ID も使え、校正しない用紙の座標の距離を返す
         /// </summary>
         [JsonPropertyName("from")]
         public string From { get; init; } = default!;
@@ -1101,6 +1101,7 @@ namespace Zumen.Messages
         {
             ["element"] = typeof(MeasureElement),
             ["point"] = typeof(MeasurePoint),
+            ["split_point"] = typeof(MeasureSplitPoint),
         };
     }
 
@@ -1141,6 +1142,24 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から
+    /// </summary>
+    public sealed record MeasureSplitPoint
+    {
+        /// <summary>
+        /// 対象の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "split_point";
+
+        /// <summary>
+        /// 原点と相対座標を分けた点。成分ごとの差を正確に求めてから一度だけ丸める
+        /// </summary>
+        [JsonPropertyName("position")]
+        public SplitPoint2 Position { get; init; } = default!;
+    }
+
+    /// <summary>
     /// 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
     /// </summary>
     public sealed record MeasureResult
@@ -1170,10 +1189,16 @@ namespace Zumen.Messages
         public double Value { get; init; }
 
         /// <summary>
-        /// 空間の長さの単位。不明な単位を補わない
+        /// 空間の長さの単位。不明な単位を補わない。from が用紙なら用紙の mm
         /// </summary>
         [JsonPropertyName("unit")]
         public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// from が用紙で、value が校正しない用紙の座標の距離なら true。実寸ではない。実寸の空間では返さない。マイナーバージョン 102 から
+        /// </summary>
+        [JsonPropertyName("sheet")]
+        public bool? Sheet { get; init; }
 
         /// <summary>
         /// 単位の次数。長さと距離は 1、面積は 2
@@ -1194,7 +1219,7 @@ namespace Zumen.Messages
         public double Tolerance { get; init; }
 
         /// <summary>
-        /// 最短距離を作る最初の対象上の点。distance のときだけ返す
+        /// 最短距離を作る最初の対象上の点。distance のときだけ返す。split_point なら原点と相対座標の和を丸めた点
         /// </summary>
         [JsonPropertyName("nearest_first")]
         public Point2? NearestFirst { get; init; }

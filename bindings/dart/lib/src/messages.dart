@@ -626,7 +626,7 @@ class Point2 extends Message {
   set y(core.double? value) => writeField('y', value);
 }
 
-/// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+/// 原点と相対座標を分けた点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は使う所に従う（measure_distance では用紙の mm、measure では from の空間か用紙の単位）
 class SplitPoint2 extends Message {
   /// 読んだ JSON のオブジェクトを包む
   SplitPoint2.fromJson(super.json);
@@ -888,7 +888,7 @@ class MeasureRequest extends Message {
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
-  /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+  /// 実寸の空間の公開 ID。記号定義の空間は対象外。マイナーバージョン 102 から、distance で両方の対象が点なら公開用紙の ID も使え、校正しない用紙の座標の距離を返す
   String? get from => readField('from', asString);
   set from(String? value) => writeField('from', value);
 
@@ -936,6 +936,9 @@ class MeasureTarget extends Message {
 
   /// kind が point の形なら、そのビュー。違えば null
   MeasurePoint? get asMeasurePoint => taggedView('kind', 'point', MeasurePoint.fromJson);
+
+  /// kind が split_point の形なら、そのビュー。違えば null
+  MeasureSplitPoint? get asMeasureSplitPoint => taggedView('kind', 'split_point', MeasureSplitPoint.fromJson);
 }
 
 /// 計測する要素。元の公開 ID を使う
@@ -972,6 +975,23 @@ class MeasurePoint extends Message {
   set position(Point2? value) => writeField('position', value);
 }
 
+/// 距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から
+class MeasureSplitPoint extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MeasureSplitPoint.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  MeasureSplitPoint() : super({'kind': 'split_point'});
+
+  /// 対象の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 原点と相対座標を分けた点。成分ごとの差を正確に求めてから一度だけ丸める
+  SplitPoint2? get position => readField('position', objectOf(SplitPoint2.fromJson));
+  set position(SplitPoint2? value) => writeField('position', value);
+}
+
 /// 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
 class MeasureResult extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -996,9 +1016,13 @@ class MeasureResult extends Message {
   core.double? get value => readField('value', asDouble);
   set value(core.double? value) => writeField('value', value);
 
-  /// 空間の長さの単位。不明な単位を補わない
+  /// 空間の長さの単位。不明な単位を補わない。from が用紙なら用紙の mm
   String? get unit => readField('unit', asString);
   set unit(String? value) => writeField('unit', value);
+
+  /// from が用紙で、value が校正しない用紙の座標の距離なら true。実寸ではない。実寸の空間では返さない。マイナーバージョン 102 から
+  core.bool? get sheet => readField('sheet', asBool);
+  set sheet(core.bool? value) => writeField('sheet', value);
 
   /// 単位の次数。長さと距離は 1、面積は 2
   core.int? get unitPower => readField('unit_power', asInt);
@@ -1012,7 +1036,7 @@ class MeasureResult extends Message {
   core.double? get tolerance => readField('tolerance', asDouble);
   set tolerance(core.double? value) => writeField('tolerance', value);
 
-  /// 最短距離を作る最初の対象上の点。distance のときだけ返す
+  /// 最短距離を作る最初の対象上の点。distance のときだけ返す。split_point なら原点と相対座標の和を丸めた点
   Point2? get nearestFirst => readField('nearest_first', objectOf(Point2.fromJson));
   set nearestFirst(Point2? value) => writeField('nearest_first', value);
 

@@ -1275,7 +1275,7 @@ impl ToJson for Point2 {
     }
 }
 
-/// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+/// 原点と相対座標を分けた点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は使う所に従う（measure_distance では用紙の mm、measure では from の空間か用紙の単位）
 #[derive(Clone, Debug, PartialEq)]
 pub struct SplitPoint2 {
     /// 用紙の原点
@@ -1693,7 +1693,7 @@ pub struct MeasureRequest {
     pub request_common: RequestCommon,
     /// 開いた文書の名前
     pub doc: String,
-    /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+    /// 実寸の空間の公開 ID。記号定義の空間は対象外。マイナーバージョン 102 から、distance で両方の対象が点なら公開用紙の ID も使え、校正しない用紙の座標の距離を返す
     pub from: String,
     /// 求める値
     pub quantity: MeasureQuantity,
@@ -1833,17 +1833,20 @@ pub enum MeasureTarget {
     Element(MeasureElement),
     /// 距離の計測で使う空間の座標
     Point(MeasurePoint),
+    /// 距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から
+    SplitPoint(MeasureSplitPoint),
 }
 
 impl MeasureTarget {
     /// タグのフィールド（`kind`）の値（スキーマの順）
-    pub const TAGS: &[&str] = &["element", "point"];
+    pub const TAGS: &[&str] = &["element", "point", "split_point"];
 
     /// タグのフィールド（`kind`）の値
     pub const fn tag(&self) -> &'static str {
         match self {
             Self::Element(_) => "element",
             Self::Point(_) => "point",
+            Self::SplitPoint(_) => "split_point",
         }
     }
 }
@@ -1854,6 +1857,7 @@ impl FromJson for MeasureTarget {
         let this = match object.tag("kind")? {
             "element" => Self::Element(MeasureElement::read_fields(&mut object)?),
             "point" => Self::Point(MeasurePoint::read_fields(&mut object)?),
+            "split_point" => Self::SplitPoint(MeasureSplitPoint::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -1866,6 +1870,7 @@ impl ToJson for MeasureTarget {
         match self {
             Self::Element(value) => value.to_json(out),
             Self::Point(value) => value.to_json(out),
+            Self::SplitPoint(value) => value.to_json(out),
         }
     }
 }
@@ -1948,6 +1953,45 @@ impl ToJson for MeasurePoint {
     }
 }
 
+/// 距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeasureSplitPoint {
+    /// 原点と相対座標を分けた点。成分ごとの差を正確に求めてから一度だけ丸める
+    pub position: SplitPoint2,
+}
+
+impl MeasureSplitPoint {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "split_point")?;
+        let position = object.required("position", SplitPoint2::from_json)?;
+        Ok(Self { position })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("split_point");
+        out.key("position");
+        self.position.to_json(out);
+    }
+}
+
+impl FromJson for MeasureSplitPoint {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MeasureSplitPoint {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
 /// 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
 #[derive(Clone, Debug, PartialEq)]
 pub struct MeasureResult {
@@ -1959,15 +2003,17 @@ pub struct MeasureResult {
     pub quantity: MeasureQuantity,
     /// 計測値。0 以上の有限値
     pub value: f64,
-    /// 空間の長さの単位。不明な単位を補わない
+    /// 空間の長さの単位。不明な単位を補わない。from が用紙なら用紙の mm
     pub unit: Unit,
+    /// from が用紙で、value が校正しない用紙の座標の距離なら true。実寸ではない。実寸の空間では返さない。マイナーバージョン 102 から
+    pub sheet: Option<bool>,
     /// 単位の次数。長さと距離は 1、面積は 2
     pub unit_power: u64,
     /// 計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する
     pub approximate: bool,
     /// 指定した、または既定の分割の目標。近似しないときも返す
     pub tolerance: f64,
-    /// 最短距離を作る最初の対象上の点。distance のときだけ返す
+    /// 最短距離を作る最初の対象上の点。distance のときだけ返す。split_point なら原点と相対座標の和を丸めた点
     pub nearest_first: Option<Point2>,
     /// 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点
     pub nearest_second: Option<Point2>,
@@ -1980,6 +2026,7 @@ impl MeasureResult {
         let quantity = object.required("quantity", MeasureQuantity::from_json)?;
         let value = object.required("value", json::number)?;
         let unit = object.required("unit", Unit::from_json)?;
+        let sheet = object.optional("sheet", json::boolean)?;
         let unit_power = object.required("unit_power", |value| json::uint(value, 1, 2))?;
         let approximate = object.required("approximate", json::boolean)?;
         let tolerance = object.required("tolerance", json::number)?;
@@ -1991,6 +2038,7 @@ impl MeasureResult {
             quantity,
             value,
             unit,
+            sheet,
             unit_power,
             approximate,
             tolerance,
@@ -2010,6 +2058,10 @@ impl MeasureResult {
         out.float(self.value);
         out.key("unit");
         self.unit.to_json(out);
+        if let Some(value) = &self.sheet {
+            out.key("sheet");
+            out.bool(*value);
+        }
         out.key("unit_power");
         out.uint(self.unit_power);
         out.key("approximate");

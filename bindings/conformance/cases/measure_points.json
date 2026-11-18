@@ -1,0 +1,467 @@
+{
+  "description": "measure の点だけの距離（#888）。原点と相対座標を分けた点で、大きな原点と小さな差・異なる原点・普通の点との組み合わせを測り、校正のない用紙の座標の距離を sheet: true で返す。要素との組み合わせ・桁あふれ・用紙の要素・古いハッシュ・予算停止で拒み、その後も文書を使えることを照らす",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "a",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n0\n20\n0\n11\n3\n21\n4\n0\nLINE\n67\n1\n8\n0\n10\n0\n20\n0\n11\n10\n21\n0\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "a",
+        "fields": [
+          "id",
+          "kind"
+        ]
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "calibrations",
+        "doc": "a"
+      },
+      "expect": {
+        "/result/total": 0
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "space/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 1e+16,
+              "y": 1e+16
+            },
+            "offset": {
+              "x": 0,
+              "y": 0
+            }
+          }
+        },
+        "second": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 1e+16,
+              "y": 1e+16
+            },
+            "offset": {
+              "x": 3,
+              "y": 4
+            }
+          }
+        }
+      },
+      "expect": {
+        "/result/value": 5,
+        "/result/unit": "millimeter"
+      },
+      "absent": [
+        "/result/sheet"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "space/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 1e+16,
+              "y": 1e+16
+            },
+            "offset": {
+              "x": 0.5,
+              "y": 0
+            }
+          }
+        },
+        "second": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 0,
+              "y": 1e+16
+            },
+            "offset": {
+              "x": 10000000000000004,
+              "y": 4
+            }
+          }
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "space/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 3000000,
+              "y": 3000000
+            },
+            "offset": {
+              "x": 0.1,
+              "y": 0.2
+            }
+          }
+        },
+        "second": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 3000000,
+              "y": 3000000
+            },
+            "offset": {
+              "x": 0.4,
+              "y": 0.6
+            }
+          }
+        }
+      },
+      "expect": {
+        "/result/value": 0.5
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "space/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "point",
+          "position": {
+            "x": 1,
+            "y": 1
+          }
+        },
+        "second": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 1,
+              "y": 1
+            },
+            "offset": {
+              "x": 3,
+              "y": 4
+            }
+          }
+        }
+      },
+      "expect": {
+        "/result/value": 5
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "sheet/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "point",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "second": {
+          "kind": "point",
+          "position": {
+            "x": 3,
+            "y": 4
+          }
+        }
+      },
+      "expect": {
+        "/result/value": 5,
+        "/result/sheet": true,
+        "/result/unit": "millimeter"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "sheet/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 3000000000000000.0,
+              "y": 3000000000000000.0
+            },
+            "offset": {
+              "x": 0.25,
+              "y": 0
+            }
+          }
+        },
+        "second": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 3000000000000000.0,
+              "y": 3000000000000000.0
+            },
+            "offset": {
+              "x": 3.25,
+              "y": 4
+            }
+          }
+        }
+      },
+      "expect": {
+        "/result/value": 5,
+        "/result/sheet": true
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "space/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "element",
+          "id": "space/0/r3"
+        },
+        "second": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 0,
+              "y": 0
+            },
+            "offset": {
+              "x": 1,
+              "y": 1
+            }
+          }
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "drawing.element-measurement.failed",
+        "/diagnostics/0/params/reason": "split-point-with-element"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "space/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 1.7976931348623157e+308,
+              "y": 0
+            },
+            "offset": {
+              "x": 0,
+              "y": 0
+            }
+          }
+        },
+        "second": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": -1.7976931348623157e+308,
+              "y": 0
+            },
+            "offset": {
+              "x": 0,
+              "y": 0
+            }
+          }
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "drawing.element-measurement.failed",
+        "/diagnostics/0/params/reason": "overflow"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "sheet/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "element",
+          "id": "sheet/0/r4"
+        },
+        "second": {
+          "kind": "point",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "drawing.element-measurement.failed",
+        "/diagnostics/0/params/reason": "sheet-element"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "space/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "point",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "second": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 0,
+              "y": 0
+            },
+            "offset": {
+              "x": 3,
+              "y": 4
+            }
+          }
+        },
+        "expected_hash": "v2:00"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "sheet/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "point",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "second": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 0,
+              "y": 0
+            },
+            "offset": {
+              "x": 3,
+              "y": 4
+            }
+          }
+        },
+        "budget": {
+          "work": 200
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "measure",
+        "doc": "a",
+        "from": "sheet/0",
+        "quantity": "distance",
+        "first": {
+          "kind": "point",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "second": {
+          "kind": "split_point",
+          "position": {
+            "origin": {
+              "x": 0,
+              "y": 0
+            },
+            "offset": {
+              "x": 3,
+              "y": 4
+            }
+          }
+        }
+      },
+      "expect": {
+        "/result/value": 5
+      }
+    }
+  ]
+}

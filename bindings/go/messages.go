@@ -586,7 +586,7 @@ type Point2 struct {
 	Y *float64 `json:"y,omitempty"`
 }
 
-// SplitPoint2: 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+// SplitPoint2: 原点と相対座標を分けた点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は使う所に従う（measure_distance では用紙の mm、measure では from の空間か用紙の単位）
 type SplitPoint2 struct {
 	// 用紙の原点
 	Origin *Point2 `json:"origin,omitempty"`
@@ -770,7 +770,7 @@ type MeasureRequest struct {
 	// 開いた文書の名前
 	Doc *string `json:"doc,omitempty"`
 
-	// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+	// 実寸の空間の公開 ID。記号定義の空間は対象外。マイナーバージョン 102 から、distance で両方の対象が点なら公開用紙の ID も使え、校正しない用紙の座標の距離を返す
 	From *string `json:"from,omitempty"`
 
 	// 求める値
@@ -845,6 +845,11 @@ func (u MeasureTarget) AsMeasurePoint() *MeasurePoint {
 	return asTagged[MeasurePoint](u, "kind", "point")
 }
 
+// AsMeasureSplitPoint は、kind が split_point の形なら、その型で読む。違えば nil。
+func (u MeasureTarget) AsMeasureSplitPoint() *MeasureSplitPoint {
+	return asTagged[MeasureSplitPoint](u, "kind", "split_point")
+}
+
 // MeasureElement: 計測する要素。元の公開 ID を使う
 type MeasureElement struct {
 	// 対象の種類
@@ -877,6 +882,22 @@ func (m MeasurePoint) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
+// MeasureSplitPoint: 距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から
+type MeasureSplitPoint struct {
+	// 対象の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 原点と相対座標を分けた点。成分ごとの差を正確に求めてから一度だけ丸める
+	Position *SplitPoint2 `json:"position,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m MeasureSplitPoint) MarshalJSON() ([]byte, error) {
+	type plain MeasureSplitPoint
+	m.Kind = "split_point"
+	return json.Marshal(plain(m))
+}
+
 // MeasureResult: 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
 type MeasureResult struct {
 	// 元の文書のハッシュ
@@ -891,8 +912,11 @@ type MeasureResult struct {
 	// 計測値。0 以上の有限値
 	Value *float64 `json:"value,omitempty"`
 
-	// 空間の長さの単位。不明な単位を補わない
+	// 空間の長さの単位。不明な単位を補わない。from が用紙なら用紙の mm
 	Unit *Unit `json:"unit,omitempty"`
+
+	// from が用紙で、value が校正しない用紙の座標の距離なら true。実寸ではない。実寸の空間では返さない。マイナーバージョン 102 から
+	Sheet *bool `json:"sheet,omitempty"`
 
 	// 単位の次数。長さと距離は 1、面積は 2
 	UnitPower *int64 `json:"unit_power,omitempty"`
@@ -903,7 +927,7 @@ type MeasureResult struct {
 	// 指定した、または既定の分割の目標。近似しないときも返す
 	Tolerance *float64 `json:"tolerance,omitempty"`
 
-	// 最短距離を作る最初の対象上の点。distance のときだけ返す
+	// 最短距離を作る最初の対象上の点。distance のときだけ返す。split_point なら原点と相対座標の和を丸めた点
 	NearestFirst *Point2 `json:"nearest_first,omitempty"`
 
 	// 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点

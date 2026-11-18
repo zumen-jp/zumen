@@ -1,11 +1,16 @@
-//! 実寸の空間と公開 ID を選び、計測の値・近似・未対応の理由を返す。
+//! 実寸の空間と公開 ID を選び、計測の値・近似・未対応の理由を返す。点だけの距離は、原点と相対座標を分けた点
+//! と、校正しない用紙の座標でも求める（#888）。
 
+use super::calibration_ops::sheet_names;
 use super::*;
 use crate::{
     measurement,
     messages::{MeasureQuantity, MeasureRequest, MeasureResult, MeasureTarget, Point2},
 };
-use zumen_drawing::{ModelPoint, ModelSpace};
+use zumen_drawing::{MeasurementError, ModelPoint, ModelSpace, split_distance};
+
+/// 分けた点の差の正確な和と丸めを、計算の前に多めに数える（`measure_distance` と同じ）
+const SPLIT_WORK: u64 = 4096;
 use zumen_geom2d::measure::Metric;
 
 enum Target<'a> {
@@ -14,6 +19,8 @@ enum Target<'a> {
         value: &'a Element<ModelPoint>,
     },
     Point([f64; 2]),
+    /// 原点と相対座標を分けた点（`[原点, 相対座標]`）
+    Split([[f64; 2]; 2]),
 }
 
 impl Target<'_> {
@@ -21,12 +28,13 @@ impl Target<'_> {
         match self {
             Self::Element { id, .. } => id,
             Self::Point(_) => "point",
+            Self::Split(_) => "split_point",
         }
     }
     fn source(&self) -> Option<&Ref> {
         match self {
             Self::Element { value, .. } => Some(&value.source),
-            Self::Point(_) => None,
+            Self::Point(_) | Self::Split(_) => None,
         }
     }
     fn path(
@@ -38,6 +46,15 @@ impl Target<'_> {
         match self {
             Self::Element { value, .. } => measurement::path(&value.shape, space.id, tolerance, cx),
             Self::Point(point) => measurement::point_path(*point, cx),
+            Self::Split(_) => Err(measurement::Error::Geometry("split-point-with-element")),
+        }
+    }
+    /// 点なら `[原点, 相対座標]`。普通の点の相対座標はゼロ
+    fn split(&self) -> Option<[[f64; 2]; 2]> {
+        match self {
+            Self::Element { .. } => None,
+            Self::Point(point) => Some([*point, [0.0, 0.0]]),
+            Self::Split(split) => Some(*split),
         }
     }
 }
@@ -78,10 +95,18 @@ impl Session {
                 break;
             }
         }
-        let space = selected.ok_or_else(|| fail(cx, invalid_value("/from")))?;
+        let Some(space) = selected else {
+            return self.measure_on_sheet(request, &drawing, hash, tolerance, cx);
+        };
         let first = resolve(&request.first, space, &request.from, request.quantity, cx)?;
+        let split = matches!(request.first, MeasureTarget::SplitPoint(_))
+            || matches!(request.second, Some(MeasureTarget::SplitPoint(_)));
         let (value, approximate, nearest_first, nearest_second) =
-            if let Some(second) = &request.second {
+            if let (true, Some(second)) = (split, &request.second) {
+                let second = resolve(second, space, &request.from, request.quantity, cx)?;
+                let (value, a, b) = points(&first, &second, request.quantity, cx)?;
+                (value, false, Some(a), Some(b))
+            } else if let Some(second) = &request.second {
                 let second = resolve(second, space, &request.from, request.quantity, cx)?;
                 let a = first
                     .path(space, tolerance, cx)
@@ -140,12 +165,109 @@ impl Session {
             } else {
                 1
             },
+            sheet: None,
             approximate,
             tolerance,
             nearest_first,
             nearest_second,
         })
     }
+
+    /// `from` が用紙なら、2 点の用紙の座標の距離を返す。校正の実寸ではないので、`sheet: true` で区別する
+    fn measure_on_sheet(
+        &self,
+        request: &MeasureRequest,
+        drawing: &Drawing2D,
+        hash: String,
+        tolerance: f64,
+        cx: &mut Cx<'_>,
+    ) -> Result<MeasureResult, Failed> {
+        let (_, sheet) = sheet_names(drawing, Some(&request.from), cx)?;
+        let (Some(_), Some(second)) = (sheet, &request.second) else {
+            return Err(fail(cx, invalid_value("/from")));
+        };
+        if request.quantity != MeasureQuantity::Distance {
+            return Err(fail(cx, invalid_value("/from")));
+        }
+        let point = |wanted: &MeasureTarget, cx: &mut Cx<'_>| match wanted {
+            MeasureTarget::Point(value) => Ok(Target::Point([value.position.x, value.position.y])),
+            MeasureTarget::SplitPoint(value) => Ok(split_of(value)),
+            MeasureTarget::Element(value) => Err(report_failed(
+                &value.id,
+                None,
+                request.quantity,
+                "sheet-element",
+                cx,
+            )),
+        };
+        let first = point(&request.first, cx)?;
+        let second = point(second, cx)?;
+        let (value, nearest_first, nearest_second) = points(&first, &second, request.quantity, cx)?;
+        cx.check(Kind::DecodedBytes, 1024 + request.from.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
+        cx.check(Kind::Work, 0).map_err(|stop| stopped(cx, stop))?;
+        Ok(MeasureResult {
+            hash,
+            from: request.from.clone(),
+            quantity: request.quantity,
+            value,
+            unit: unit_of(Unit::Millimeter),
+            sheet: Some(true),
+            unit_power: 1,
+            approximate: false,
+            tolerance,
+            nearest_first: Some(nearest_first),
+            nearest_second: Some(nearest_second),
+        })
+    }
+}
+
+fn split_of(value: &crate::messages::MeasureSplitPoint) -> Target<'static> {
+    let crate::messages::SplitPoint2 { origin, offset } = &value.position;
+    Target::Split([[origin.x, origin.y], [offset.x, offset.y]])
+}
+
+/// 2 つの点の距離と、原点と相対座標の和を丸めた点。原点を先に足さずに、差を正確に求めてから丸める。要素は
+/// 分けた点と組み合わせない
+fn points(
+    first: &Target<'_>,
+    second: &Target<'_>,
+    quantity: MeasureQuantity,
+    cx: &mut Cx<'_>,
+) -> Result<(f64, Point2, Point2), Failed> {
+    let (Some(a), Some(b)) = (first.split(), second.split()) else {
+        let element = if first.split().is_none() {
+            first
+        } else {
+            second
+        };
+        return Err(report_failed(
+            element.id(),
+            element.source(),
+            quantity,
+            "split-point-with-element",
+            cx,
+        ));
+    };
+    cx.check(Kind::Work, SPLIT_WORK)
+        .map_err(|stop| stopped(cx, stop))?;
+    let value = split_distance(a, b).map_err(|error| {
+        let reason = match error {
+            MeasurementError::NonFinitePoint => "invalid-point",
+            _ => "overflow",
+        };
+        let target = if a.iter().flatten().all(|value| value.is_finite()) {
+            second
+        } else {
+            first
+        };
+        report_failed(target.id(), None, quantity, reason, cx)
+    })?;
+    let point = |[[x, y], [dx, dy]]: [[f64; 2]; 2]| Point2 {
+        x: x + dx,
+        y: y + dy,
+    };
+    Ok((value, point(a), point(b)))
 }
 
 fn resolve<'a>(
@@ -155,11 +277,12 @@ fn resolve<'a>(
     quantity: MeasureQuantity,
     cx: &mut Cx<'_>,
 ) -> Result<Target<'a>, Failed> {
-    let MeasureTarget::Element(wanted) = wanted else {
-        let MeasureTarget::Point(value) = wanted else {
-            return Err(fail(cx, invalid_value("/first")));
-        };
-        return Ok(Target::Point([value.position.x, value.position.y]));
+    let wanted = match wanted {
+        MeasureTarget::Element(wanted) => wanted,
+        MeasureTarget::Point(value) => {
+            return Ok(Target::Point([value.position.x, value.position.y]));
+        }
+        MeasureTarget::SplitPoint(value) => return Ok(split_of(value)),
     };
     let mut namer = id::Namer::new(place);
     for (index, value) in space.elements.iter().enumerate() {

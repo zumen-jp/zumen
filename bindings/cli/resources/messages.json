@@ -334,7 +334,7 @@
       "additionalProperties": false
     },
     "split_point2": {
-      "description": "原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm",
+      "description": "原点と相対座標を分けた点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は使う所に従う（measure_distance では用紙の mm、measure では from の空間か用紙の単位）",
       "type": "object",
       "properties": {
         "origin": { "description": "用紙の原点", "$ref": "#/$defs/point2" },
@@ -454,7 +454,7 @@
       "properties": {
         "op": { "description": "op の名前", "const": "measure" },
         "doc": { "description": "開いた文書の名前", "type": "string" },
-        "from": { "description": "実寸の空間の公開 ID。用紙と記号定義の空間は対象外", "type": "string" },
+        "from": { "description": "実寸の空間の公開 ID。記号定義の空間は対象外。マイナーバージョン 102 から、distance で両方の対象が点なら公開用紙の ID も使え、校正しない用紙の座標の距離を返す", "type": "string" },
         "quantity": { "description": "求める値", "$ref": "#/$defs/measure_quantity" },
         "first": { "description": "計測する要素または点", "$ref": "#/$defs/measure_target" },
         "second": { "description": "最短距離のもう一方の要素または点。distance のときだけ必須", "$ref": "#/$defs/measure_target" },
@@ -471,7 +471,7 @@
     },
     "measure_target": {
       "description": "同じモデル空間内の要素または座標",
-      "oneOf": [{ "$ref": "#/$defs/measure_element" }, { "$ref": "#/$defs/measure_point" }]
+      "oneOf": [{ "$ref": "#/$defs/measure_element" }, { "$ref": "#/$defs/measure_point" }, { "$ref": "#/$defs/measure_split_point" }]
     },
     "measure_element": {
       "description": "計測する要素。元の公開 ID を使う",
@@ -493,6 +493,16 @@
       "required": ["kind", "position"],
       "additionalProperties": false
     },
+    "measure_split_point": {
+      "description": "距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "対象の種類", "const": "split_point" },
+        "position": { "description": "原点と相対座標を分けた点。成分ごとの差を正確に求めてから一度だけ丸める", "$ref": "#/$defs/split_point2" }
+      },
+      "required": ["kind", "position"],
+      "additionalProperties": false
+    },
     "measure_result": {
       "description": "要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する",
       "type": "object",
@@ -501,11 +511,12 @@
         "from": { "description": "計測した実寸の空間の公開 ID", "type": "string" },
         "quantity": { "description": "求めた値の種類", "$ref": "#/$defs/measure_quantity" },
         "value": { "description": "計測値。0 以上の有限値", "type": "number" },
-        "unit": { "description": "空間の長さの単位。不明な単位を補わない", "$ref": "#/$defs/unit" },
+        "unit": { "description": "空間の長さの単位。不明な単位を補わない。from が用紙なら用紙の mm", "$ref": "#/$defs/unit" },
+        "sheet": { "description": "from が用紙で、value が校正しない用紙の座標の距離なら true。実寸ではない。実寸の空間では返さない。マイナーバージョン 102 から", "type": "boolean" },
         "unit_power": { "description": "単位の次数。長さと距離は 1、面積は 2", "type": "integer", "minimum": 1, "maximum": 2 },
         "approximate": { "description": "計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する", "type": "boolean" },
         "tolerance": { "description": "指定した、または既定の分割の目標。近似しないときも返す", "type": "number" },
-        "nearest_first": { "description": "最短距離を作る最初の対象上の点。distance のときだけ返す", "$ref": "#/$defs/point2" },
+        "nearest_first": { "description": "最短距離を作る最初の対象上の点。distance のときだけ返す。split_point なら原点と相対座標の和を丸めた点", "$ref": "#/$defs/point2" },
         "nearest_second": { "description": "最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点", "$ref": "#/$defs/point2" }
       },
       "required": ["hash", "from", "quantity", "value", "unit", "unit_power", "approximate", "tolerance"],

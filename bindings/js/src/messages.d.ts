@@ -240,7 +240,7 @@ export interface Point2 {
   y: number;
 }
 
-/** 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm */
+/** 原点と相対座標を分けた点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は使う所に従う（measure_distance では用紙の mm、measure では from の空間か用紙の単位） */
 export interface SplitPoint2 {
   /** 用紙の原点 */
   origin: Point2;
@@ -336,7 +336,7 @@ export interface MeasureRequest extends RequestCommon {
   op: "measure";
   /** 開いた文書の名前 */
   doc: string;
-  /** 実寸の空間の公開 ID。用紙と記号定義の空間は対象外 */
+  /** 実寸の空間の公開 ID。記号定義の空間は対象外。マイナーバージョン 102 から、distance で両方の対象が点なら公開用紙の ID も使え、校正しない用紙の座標の距離を返す */
   from: string;
   /** 求める値 */
   quantity: MeasureQuantity;
@@ -361,7 +361,8 @@ export type MeasureQuantity =
 /** 同じモデル空間内の要素または座標 */
 export type MeasureTarget =
   | MeasureElement
-  | MeasurePoint;
+  | MeasurePoint
+  | MeasureSplitPoint;
 
 /** 計測する要素。元の公開 ID を使う */
 export interface MeasureElement {
@@ -379,6 +380,14 @@ export interface MeasurePoint {
   position: Point2;
 }
 
+/** 距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から */
+export interface MeasureSplitPoint {
+  /** 対象の種類 */
+  kind: "split_point";
+  /** 原点と相対座標を分けた点。成分ごとの差を正確に求めてから一度だけ丸める */
+  position: SplitPoint2;
+}
+
 /** 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する */
 export interface MeasureResult {
   /** 元の文書のハッシュ */
@@ -389,15 +398,17 @@ export interface MeasureResult {
   quantity: MeasureQuantity;
   /** 計測値。0 以上の有限値 */
   value: number;
-  /** 空間の長さの単位。不明な単位を補わない */
+  /** 空間の長さの単位。不明な単位を補わない。from が用紙なら用紙の mm */
   unit: Unit;
+  /** from が用紙で、value が校正しない用紙の座標の距離なら true。実寸ではない。実寸の空間では返さない。マイナーバージョン 102 から */
+  sheet?: boolean;
   /** 単位の次数。長さと距離は 1、面積は 2 */
   unit_power: number;
   /** 計測に曲線の折れ線近似を使った。浮動小数の丸めとは区別する */
   approximate: boolean;
   /** 指定した、または既定の分割の目標。近似しないときも返す */
   tolerance: number;
-  /** 最短距離を作る最初の対象上の点。distance のときだけ返す */
+  /** 最短距離を作る最初の対象上の点。distance のときだけ返す。split_point なら原点と相対座標の和を丸めた点 */
   nearest_first?: Point2;
   /** 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点 */
   nearest_second?: Point2;

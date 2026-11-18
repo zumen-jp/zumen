@@ -440,7 +440,7 @@ Point2 = TypedDict(
 )
 
 
-# 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+# 原点と相対座標を分けた点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は使う所に従う（measure_distance では用紙の mm、measure では from の空間か用紙の単位）
 SplitPoint2 = TypedDict(
     "SplitPoint2",
     {
@@ -624,7 +624,7 @@ _MeasureRequestRequired = TypedDict(
         "op": Literal["measure"],
         # 開いた文書の名前
         "doc": str,
-        # 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+        # 実寸の空間の公開 ID。記号定義の空間は対象外。マイナーバージョン 102 から、distance で両方の対象が点なら公開用紙の ID も使え、校正しない用紙の座標の距離を返す
         "from": str,
         # 求める値
         "quantity": "MeasureQuantity",
@@ -672,6 +672,7 @@ MeasureQuantity = Union[
 MeasureTarget = Union[
     "MeasureElement",
     "MeasurePoint",
+    "MeasureSplitPoint",
 ]
 
 
@@ -699,6 +700,18 @@ MeasurePoint = TypedDict(
 )
 
 
+# 距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から
+MeasureSplitPoint = TypedDict(
+    "MeasureSplitPoint",
+    {
+        # 対象の種類
+        "kind": Literal["split_point"],
+        # 原点と相対座標を分けた点。成分ごとの差を正確に求めてから一度だけ丸める
+        "position": "SplitPoint2",
+    },
+)
+
+
 # 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
 _MeasureResultRequired = TypedDict(
     "_MeasureResultRequired",
@@ -711,7 +724,7 @@ _MeasureResultRequired = TypedDict(
         "quantity": "MeasureQuantity",
         # 計測値。0 以上の有限値
         "value": float,
-        # 空間の長さの単位。不明な単位を補わない
+        # 空間の長さの単位。不明な単位を補わない。from が用紙なら用紙の mm
         "unit": "Unit",
         # 単位の次数。長さと距離は 1、面積は 2
         "unit_power": int,
@@ -724,7 +737,9 @@ _MeasureResultRequired = TypedDict(
 _MeasureResultOptional = TypedDict(
     "_MeasureResultOptional",
     {
-        # 最短距離を作る最初の対象上の点。distance のときだけ返す
+        # from が用紙で、value が校正しない用紙の座標の距離なら true。実寸ではない。実寸の空間では返さない。マイナーバージョン 102 から
+        "sheet": bool,
+        # 最短距離を作る最初の対象上の点。distance のときだけ返す。split_point なら原点と相対座標の和を丸めた点
         "nearest_first": "Point2",
         # 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点
         "nearest_second": "Point2",
