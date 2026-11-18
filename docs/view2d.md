@@ -16,7 +16,7 @@
 | `snapAt`・`setMeasurement`、`addOverlay`・`invalidate` | [可視の頂点への吸着と距離の単位](../packages/view2d/README.md#吸着と計測)、[重ね描きの解除と寿命](../packages/view2d/README.md#独自ツールと重ね描きの寿命)を参照してください |
 | `imageUnderlayRenderer`・`setUnderlayRenderer`・`refreshUnderlays` | 利用側が寸法と部分画像を返します。中断・非同期の解放・上限は[画像と PDF](../packages/view2d/README.md#画像と-pdf-のアンダーレイ)にあります |
 | `useDrawingViewer`・`useViewerState`・`useViewerEvent`・`useDrawing` | [React のフック](../packages/react/README.md)が表示部品と購読を管理します。ファイルは Worker で開き、古い要求を中断します |
-| `MarkupLayer`・`useMarkupLayer`・`useMarkupState`・`useMarkupEvent`、赤入れの画面 | 旧版 JSON は[レビュー文書へ移行](review-migration.md)できます。赤入れ・指摘の表示と編集、購読・取り消し・保存と再読込は [#589](https://github.com/zumen-jp/zumen/issues/589) で追います |
+| `MarkupLayer`・`useMarkupLayer`・`useMarkupState`・`useMarkupEvent`、赤入れの画面 | 旧版 JSON は[レビュー文書へ移行](review-migration.md)できます。[`ReviewStore`・`ReviewLayer`](../packages/view2d/README.md#レビューの図形と指摘)が赤入れ・指摘の編集、購読・取り消し、図面への重ね描きと選択を担い、[`useReviewLayer`・`useReviewState`・`useReviewEvent`](../packages/react/README.md#レビューを重ねる)が React から使います。保存と再読込は利用側が文書の JSON で行います |
 
 ## 置き換えの確認
 

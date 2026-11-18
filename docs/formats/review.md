@@ -90,7 +90,16 @@ API の `review_scene` は、[適合テスト](../../bindings/conformance/README
 
 ### 外部の実装・表示（external・application）
 
-レビューの図形について、外部の実装との照合と、表示部品・プレイグラウンドで描いた結果の確認は未実施です。表示部品への接続とともに #589 で追跡します。
+レビューの文書と図形の規則は zumen が定めたものです。同じ規則で描く外部の実装はなく、旧版の `zumen-markup` も zumen の実装なので、外部の実装との照合はしていません。読みの段に数える [`external`](../../formats/README.md#確かめた度合い) の根拠もありません。BCF との変換の照合は [BCF](bcf.md) に記録します。
+
+描いた結果は、表示部品で確かめました。`packages/view2d/test/review.mjs` の `testReviewDrawn` は、実際の wasm の `review_scene` が作ったシーンを `ReviewLayer` で Canvas 2D に描きます。この文書の規則から別に求めた位置の画素を、Chromium・Firefox・WebKit で調べます。調べる内容は次のとおりです。
+
+- 雲は、左回りでも右回りでも、各辺の外側に円弧の頂点が来て、内側を塗らない。
+- 矢じりは、指定した終わりの端だけに、長さの 1/3 の幅で塗る。
+- 写真と指摘のピンは、直径 `marker_size` の円と中心の十字だけを描く。
+- 指摘の範囲は、長方形の辺だけを描く。
+
+`testReviewCore` とプレイグラウンドの試験（`bindings/js/test/browser/react.mjs`）は、当たり判定から `sources` を経て編集の項目へ戻ること、作る・直す・保存する・読み直すことを、同じ 3 種のブラウザーで確かめます。
 
 ## 参照
 

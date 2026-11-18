@@ -18,7 +18,7 @@ import { testSnap } from "./snap.mjs";
 import { testTools } from "./tools.mjs";
 import { testUnderlays } from "./underlays.mjs";
 import { testCalibration, testCalibrationCore } from "./calibration.mjs";
-import { testReviewCore, testReviewStore } from "./review.mjs";
+import { testReviewCore, testReviewDrawn, testReviewStore } from "./review.mjs";
 
 export async function testView2D(wasmPath, inputs, calibrationInput) {
   let assertions = 0;
@@ -195,6 +195,7 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   testCalibrationCore(zumen, calibrationInput, { assert });
   testPlacedSelection(zumen, { assert, throws });
   testReviewCore(zumen, { assert, throws });
+  testReviewDrawn(zumen, { assert });
   const formats = [];
   for (const source of inputs) {
     const session = zumen.open();
