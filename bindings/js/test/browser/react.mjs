@@ -396,14 +396,14 @@ try {
   await ready("DXF");
   assert.equal(await samplePicker.inputValue(), "dxf/opendxfviewer-latin1.dxf");
   assert.match(await sampleSource.innerText(), /ANSI_1252/);
-  assert.match(await status.textContent(), /表示できる要素がありません/);
-  assert.match(await page.getByRole("region", { name: /^診断/ }).textContent(), /dxf.code-page.unsupported/);
+  // ANSI_1252 の TEXT 2 件を読む（#327）
+  assert.match(await status.textContent(), /表示しました。 DXF/);
   // 先に選んだ DWG が遅れて届いても、差し替えない
   const late = page.waitForResponse(slow);
   release();
   await late;
   await page.waitForTimeout(500);
-  assert.match(await status.textContent(), /表示できる要素がありません.*DXF/);
+  assert.match(await status.textContent(), /表示しました。 DXF/);
   assert.equal(await samplePicker.inputValue(), "dxf/opendxfviewer-latin1.dxf");
   await page.unroute(slow);
   // 開いたサンプルを閉じる

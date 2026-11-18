@@ -1488,8 +1488,7 @@ impl<'f> Builder<'f> {
                 spacing = self.number(Some(value)).unwrap_or(spacing);
             }
         }
-        // 書き手は配置基点を、下・中・上の行ごとに、高さの 1/2・-1/2・-1 だけ文字の上の向きへずらす（推定。
-        // 旧版が同じ図面の SFC と P21 で確かめた）
+        // 書き手は配置基点を、下・中・上の行ごとに、高さの 1/2・-1/2・-1 だけ文字の上の向きへずらす（推定）
         let point = placement.as_ref().zip(height).map(|(p, height)| {
             let offset = match row {
                 0 => height / 2.0,
@@ -1875,8 +1874,7 @@ fn sheet_kind(name: &str) -> Option<(i64, i64)> {
     Some((kind, orientation))
 }
 
-/// ISO 10303-21 の文字列のエスケープを戻す。規格の外の 8 ビットのバイトは、Shift_JIS として読む（推定。旧版の扱いを
-/// 引き継ぐ）
+/// ISO 10303-21 の文字列のエスケープを戻す。規格の外の 8 ビットのバイトは、Shift_JIS として読む（推定）
 fn decode(raw: &[u8]) -> String {
     zumen_step::decode(raw, |rest| {
         // 2 バイトの文字の 2 バイト目は 0x40〜0x7E（\ を含む）のこともあるので、1 バイト目の次も含める

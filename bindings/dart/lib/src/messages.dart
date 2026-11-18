@@ -382,6 +382,31 @@ class OpenRequest extends Message {
   /// IFC-SPF・ifcZIP の 8 ビットのエスケープを読む文字コード。省略時は auto。文書の building_apply 後も指定を保つ。IFC 以外の入力には使えない。マイナーバージョン 76 から
   String? get ifcTextEncoding => readField('ifc_text_encoding', asString);
   set ifcTextEncoding(String? value) => writeField('ifc_text_encoding', value);
+
+  /// COPC を、この条件に掛かる八分木の節の範囲だけで読む。足りない範囲は needs で求める。作った文書は読んだ節の点だけを持ち、pointcloud・scene3d はその点を扱う。条件を変えるときは開き直す。書かなければ全体を読む。COPC でない入力には使えない（#899、決定 0232）。マイナーバージョン 104 から
+  OpenPointcloud? get pointcloud => readField('pointcloud', objectOf(OpenPointcloud.fromJson));
+  set pointcloud(OpenPointcloud? value) => writeField('pointcloud', value);
+}
+
+/// COPC の八分木の節を選ぶ条件。pointcloud の op の同じ名前のフィールドと同じ規則で節を選ぶ
+class OpenPointcloud extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  OpenPointcloud.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  OpenPointcloud() : super({});
+
+  /// 節を選ぶ範囲。書かなければ全体
+  PointcloudBox? get region => readField('region', objectOf(PointcloudBox.fromJson));
+  set region(PointcloudBox? value) => writeField('region', value);
+
+  /// 許容差（点の間隔、メートル）。これより細かい段の節を読まない。書かなければすべての段
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
+
+  /// 点の数の上限。節を浅い段から順に数え、範囲にすべて入る節の点の数の和が上限に届いたら、それより後の節を読まない。範囲に一部だけ掛かる節は数えない。書かなければ上限なし
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 }
 
 /// IFC の文字列の読み方。auto はファイル内に CP932 の手がかりがあれば読み替える。iso_8859_1 は従来の ISO 8859-1 と Unicode、shift_jis は手がかりなしでも CP932 として読める文字列を読み替える。どの指定も元のバイト列を保つ
@@ -420,6 +445,10 @@ class OpenResult extends Message {
   /// SXF を ZIP に入れたアーカイブ（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）のアーカイブの中の名前。アーカイブの順。apply は、SXF の項目だけを置き換え、ほかの項目を写したアーカイブを書く（#385）。マイナーバージョン 54 から
   List<String>? get entries => readField('entries', listOf(asString));
   set entries(List<String>? value) => writeField('entries', value);
+
+  /// open の pointcloud の上限のために、読まなかった節がある。COPC を条件で読んだときだけ書く（#899）。マイナーバージョン 104 から
+  core.bool? get truncated => readField('truncated', asBool);
+  set truncated(core.bool? value) => writeField('truncated', value);
 }
 
 /// 入力の範囲と、その範囲を渡す入力の名前
@@ -626,7 +655,7 @@ class Point2 extends Message {
   set y(core.double? value) => writeField('y', value);
 }
 
-/// 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+/// 原点と相対座標を分けた点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は使う所に従う（measure_distance では用紙の mm、measure では from の空間か用紙の単位）
 class SplitPoint2 extends Message {
   /// 読んだ JSON のオブジェクトを包む
   SplitPoint2.fromJson(super.json);
@@ -888,7 +917,7 @@ class MeasureRequest extends Message {
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
-  /// 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+  /// 実寸の空間の公開 ID。記号定義の空間は対象外。マイナーバージョン 102 から、distance で両方の対象が点なら公開用紙の ID も使え、校正しない用紙の座標の距離を返す
   String? get from => readField('from', asString);
   set from(String? value) => writeField('from', value);
 
@@ -936,6 +965,9 @@ class MeasureTarget extends Message {
 
   /// kind が point の形なら、そのビュー。違えば null
   MeasurePoint? get asMeasurePoint => taggedView('kind', 'point', MeasurePoint.fromJson);
+
+  /// kind が split_point の形なら、そのビュー。違えば null
+  MeasureSplitPoint? get asMeasureSplitPoint => taggedView('kind', 'split_point', MeasureSplitPoint.fromJson);
 }
 
 /// 計測する要素。元の公開 ID を使う
@@ -972,6 +1004,23 @@ class MeasurePoint extends Message {
   set position(Point2? value) => writeField('position', value);
 }
 
+/// 距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から
+class MeasureSplitPoint extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MeasureSplitPoint.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  MeasureSplitPoint() : super({'kind': 'split_point'});
+
+  /// 対象の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 原点と相対座標を分けた点。成分ごとの差を正確に求めてから一度だけ丸める
+  SplitPoint2? get position => readField('position', objectOf(SplitPoint2.fromJson));
+  set position(SplitPoint2? value) => writeField('position', value);
+}
+
 /// 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
 class MeasureResult extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -996,9 +1045,13 @@ class MeasureResult extends Message {
   core.double? get value => readField('value', asDouble);
   set value(core.double? value) => writeField('value', value);
 
-  /// 空間の長さの単位。不明な単位を補わない
+  /// 空間の長さの単位。不明な単位を補わない。from が用紙なら用紙の mm
   String? get unit => readField('unit', asString);
   set unit(String? value) => writeField('unit', value);
+
+  /// from が用紙で、value が校正しない用紙の座標の距離なら true。実寸ではない。実寸の空間では返さない。マイナーバージョン 102 から
+  core.bool? get sheet => readField('sheet', asBool);
+  set sheet(core.bool? value) => writeField('sheet', value);
 
   /// 単位の次数。長さと距離は 1、面積は 2
   core.int? get unitPower => readField('unit_power', asInt);
@@ -1012,7 +1065,7 @@ class MeasureResult extends Message {
   core.double? get tolerance => readField('tolerance', asDouble);
   set tolerance(core.double? value) => writeField('tolerance', value);
 
-  /// 最短距離を作る最初の対象上の点。distance のときだけ返す
+  /// 最短距離を作る最初の対象上の点。distance のときだけ返す。split_point なら原点と相対座標の和を丸めた点
   Point2? get nearestFirst => readField('nearest_first', objectOf(Point2.fromJson));
   set nearestFirst(Point2? value) => writeField('nearest_first', value);
 
@@ -4801,7 +4854,7 @@ class SceneRequest extends Message {
   set heights(Map<String, String>? value) => writeField('heights', value);
 }
 
-/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。94 から平面直角座標系の GeoTIFF の DEM も、外枠の地物でなく標高格子を点群と同じ点の区画で返す。マイナーバージョン 82 から
+/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。94 から平面直角座標系の GeoTIFF の DEM も、外枠の地物でなく標高格子を点群と同じ点の区画で返す。105 から surface で、DEM を地形の面（セル代表点を頂点にした三角形のメッシュ）で返す。マイナーバージョン 82 から
 class Scene3dRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   Scene3dRequest.fromJson(super.json);
@@ -4861,11 +4914,15 @@ class Scene3dRequest extends Message {
   Scene3dBox? get box => readField('box', objectOf(Scene3dBox.fromJson));
   set box(Scene3dBox? value) => writeField('box', value);
 
-  /// 点群だけに指定する返す点の数の上限。省略時は選んだすべての点。88 から
+  /// 点群だけに指定する返す点の数の上限。省略時は選んだすべての点。88 から。DEM を surface で返すときは、頂点にする格子点の数の上限。超えれば間引く間隔を 2 倍ずつ広げ、それでも超えれば何も返さない
   core.int? get limit => readField('limit', asInt);
   set limit(core.int? value) => writeField('limit', value);
 
-  /// 文書単位の正の有限値。点群では点の間隔（メートル）で、これより細かい段の節を選ばない。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
+  /// 平面直角座標系の GeoTIFF の DEM だけに指定する。真なら標高格子を点でなく地形の面で返す。セル代表点を頂点にし、隣り合う 4 つの格子点が点にできれば 2 個、3 つなら 1 個の三角形を作る。nodata などのセルは面に含めない。面は 128 間隔四方の区画ごとの要素（ID は区画の初めの行と列の r<行>c<列>、クラスは dem）に分け、隣の区画と縁の頂点を共有する。座標系と高さの基準は変換しない。偽か省略なら点で返す。105 から
+  core.bool? get surface => readField('surface', asBool);
+  set surface(core.bool? value) => writeField('surface', value);
+
+  /// 文書単位の正の有限値。点群では点の間隔（メートル）で、これより細かい段の節を選ばない。DEM の面では頂点の間隔（メートル）で、セル代表点の間隔の整数倍のうち、これ以上でもっとも細かい間隔に間引く。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
   core.double? get tolerance => readField('tolerance', asDouble);
   set tolerance(core.double? value) => writeField('tolerance', value);
 }
@@ -4997,11 +5054,11 @@ class Scene3dResult extends Message {
   core.int? get lod => readField('lod', asInt);
   set lod(core.int? value) => writeField('lod', value);
 
-  /// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。点群では要求の点の間隔、省略時は返したもっとも深い段の点の間隔。丸めのずれは別の診断で返す
+  /// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。点群では要求の点の間隔、省略時は返したもっとも深い段の点の間隔。DEM の面では使った頂点の間隔。丸めのずれは別の診断で返す
   core.double? get tolerance => readField('tolerance', asDouble);
   set tolerance(core.double? value) => writeField('tolerance', value);
 
-  /// 点群で上限のために返さなかった点がある。点群のシーンだけが持つ。88 から
+  /// 点群で上限のために返さなかった点がある。DEM の面では、上限のために面を返さなかった。点群と DEM のシーンだけが持つ。88 から
   core.bool? get truncated => readField('truncated', asBool);
   set truncated(core.bool? value) => writeField('truncated', value);
 
@@ -5829,7 +5886,7 @@ class ReviewAdoptResult extends Message {
   set topics(core.int? value) => writeField('topics', value);
 }
 
-/// レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から
+/// レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から
 class ReviewSceneRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ReviewSceneRequest.fromJson(super.json);
@@ -6967,6 +7024,27 @@ class BuildingEdit extends Message {
 
   /// kind が add_grid の形なら、そのビュー。違えば null
   BuildingAddGridEdit? get asBuildingAddGridEdit => taggedView('kind', 'add_grid', BuildingAddGridEdit.fromJson);
+
+  /// kind が elevation の形なら、そのビュー。違えば null
+  BuildingElevationEdit? get asBuildingElevationEdit => taggedView('kind', 'elevation', BuildingElevationEdit.fromJson);
+
+  /// kind が wall_shape の形なら、そのビュー。違えば null
+  BuildingWallShapeEdit? get asBuildingWallShapeEdit => taggedView('kind', 'wall_shape', BuildingWallShapeEdit.fromJson);
+
+  /// kind が opening_shape の形なら、そのビュー。違えば null
+  BuildingOpeningShapeEdit? get asBuildingOpeningShapeEdit => taggedView('kind', 'opening_shape', BuildingOpeningShapeEdit.fromJson);
+
+  /// kind が add_type の形なら、そのビュー。違えば null
+  BuildingAddTypeEdit? get asBuildingAddTypeEdit => taggedView('kind', 'add_type', BuildingAddTypeEdit.fromJson);
+
+  /// kind が quantity の形なら、そのビュー。違えば null
+  BuildingQuantityEdit? get asBuildingQuantityEdit => taggedView('kind', 'quantity', BuildingQuantityEdit.fromJson);
+
+  /// kind が add_unit の形なら、そのビュー。違えば null
+  BuildingAddUnitEdit? get asBuildingAddUnitEdit => taggedView('kind', 'add_unit', BuildingAddUnitEdit.fromJson);
+
+  /// kind が material の形なら、そのビュー。違えば null
+  BuildingMaterialEdit? get asBuildingMaterialEdit => taggedView('kind', 'material', BuildingMaterialEdit.fromJson);
 }
 
 /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
@@ -7634,6 +7712,332 @@ class BuildingAddGridEdit extends Message {
   /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
   String? get globalId => readField('global_id', asString);
   set globalId(String? value) => writeField('global_id', value);
+}
+
+/// 階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から
+class BuildingElevationEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingElevationEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingElevationEdit() : super({'kind': 'elevation'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 直す階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+  BuildingRef? get storey => readField('storey', objectOf(BuildingRef.fromJson));
+  set storey(BuildingRef? value) => writeField('storey', value);
+
+  /// 新しい高さ。文書の長さの単位
+  core.double? get elevation => readField('elevation', asDouble);
+  set elevation(core.double? value) => writeField('elevation', value);
+}
+
+/// 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+class BuildingWallShapeEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingWallShapeEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingWallShapeEdit() : super({'kind': 'wall_shape'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 直す壁（IfcWall か IfcWallStandardCase）。材料の層の使い方（AXIS2）を持つもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+  BuildingRef? get wall => readField('wall', objectOf(BuildingRef.fromJson));
+  set wall(BuildingRef? value) => writeField('wall', value);
+
+  /// 芯の始点。壁の配置の親の配置の [x, y]
+  List<core.double>? get start => readField('start', listOf(asDouble));
+  set start(List<core.double>? value) => writeField('start', value);
+
+  /// 芯の終点。始点と違う [x, y]
+  List<core.double>? get end => readField('end', listOf(asDouble));
+  set end(List<core.double>? value) => writeField('end', value);
+
+  /// 高さ。文書の長さの単位で、正の値
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
+
+  /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+  List<BuildingWallLayer>? get layers => readField('layers', listOf(objectOf(BuildingWallLayer.fromJson)));
+  set layers(List<BuildingWallLayer>? value) => writeField('layers', value);
+
+  /// 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
+  core.double? get offset => readField('offset', asDouble);
+  set offset(core.double? value) => writeField('offset', value);
+}
+
+/// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+class BuildingOpeningShapeEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingOpeningShapeEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingOpeningShapeEdit() : super({'kind': 'opening_shape'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 直す開口（IfcOpeningElement）。材料の層の使い方を持つ要素に穴をあけるもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+  BuildingRef? get opening => readField('opening', objectOf(BuildingRef.fromJson));
+  set opening(BuildingRef? value) => writeField('opening', value);
+
+  /// 穴をあけた要素の配置の x 軸に沿う、要素の原点から開口の端までの距離
+  core.double? get distance => readField('distance', asDouble);
+  set distance(core.double? value) => writeField('distance', value);
+
+  /// 要素の下端から開口の下端までの高さ
+  core.double? get sill => readField('sill', asDouble);
+  set sill(core.double? value) => writeField('sill', value);
+
+  /// 幅。文書の長さの単位で、正の値
+  core.double? get width => readField('width', asDouble);
+  set width(core.double? value) => writeField('width', value);
+
+  /// 高さ。文書の長さの単位で、正の値
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
+}
+
+/// 型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から
+class BuildingAddTypeEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingAddTypeEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingAddTypeEdit() : super({'kind': 'add_type'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// IFC の型の実体の名前（IfcWallType など）。文書のバージョンにあるもの
+  String? get classField => readField('class', asString);
+  set classField(String? value) => writeField('class', value);
+
+  /// PredefinedType の列挙の値（SOLIDWALL など）
+  String? get predefined => readField('predefined', asString);
+  set predefined(String? value) => writeField('predefined', value);
+
+  /// 利用者が決めた種類（ElementType）
+  String? get elementType => readField('element_type', asString);
+  set elementType(String? value) => writeField('element_type', value);
+
+  /// 名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+  String? get globalId => readField('global_id', asString);
+  set globalId(String? value) => writeField('global_id', value);
+}
+
+/// 要素の数量のセット（IfcElementQuantity）の数量の値を変える。セットか数量がなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える。単位は書かず、文書の単位の割り当てに従う。結果の id は要素の ID。マイナーバージョン 106 から
+class BuildingQuantityEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingQuantityEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingQuantityEdit() : super({'kind': 'quantity'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 変える要素の ID。building_elements が返したもの
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 読んだときの要素のハッシュ。building_elements が返したもの
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 数量のセットの名前（Qto_WallBaseQuantities など）
+  String? get setField => readField('set', asString);
+  set setField(String? value) => writeField('set', value);
+
+  /// セットを足すときの測り方（MethodOfMeasurement）
+  String? get method => readField('method', asString);
+  set method(String? value) => writeField('method', value);
+
+  /// 数量の名前（Length など）
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 数量の種類。IfcQuantityLength・IfcQuantityArea・IfcQuantityVolume・IfcQuantityCount・IfcQuantityWeight・IfcQuantityTime のどれを書くか
+  String? get quantity => readField('quantity', asString);
+  set quantity(String? value) => writeField('quantity', value);
+
+  /// 値。文書の単位で、有限の負でない値。IFC4X3 の個数は整数
+  core.double? get value => readField('value', asDouble);
+  set value(core.double? value) => writeField('value', value);
+
+  /// 式（Formula）。IFC2X3 は持たないので、書けば断る
+  String? get formula => readField('formula', asString);
+  set formula(String? value) => writeField('formula', value);
+}
+
+/// プロジェクトの単位の割り当て（IfcUnitAssignment）に SI の単位（IfcSIUnit）を足す。長さと平面角の単位は受けず、同じ種類の単位があれば断る。結果は id を持たない。マイナーバージョン 106 から
+class BuildingAddUnitEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingAddUnitEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingAddUnitEdit() : super({'kind': 'add_unit'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 単位の種類（IfcUnitEnum の AREAUNIT など）
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// SI の接頭辞（IfcSIPrefix の MILLI など）
+  String? get prefix => readField('prefix', asString);
+  set prefix(String? value) => writeField('prefix', value);
+
+  /// SI の単位の名前（IfcSIUnitName の SQUARE_METRE など）。単位の種類に合うもの
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+}
+
+/// 要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から
+class BuildingMaterialEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingMaterialEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingMaterialEdit() : super({'kind': 'material'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 材料を結ぶ要素か型。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+  BuildingRef? get element => readField('element', objectOf(BuildingRef.fromJson));
+  set element(BuildingRef? value) => writeField('element', value);
+
+  /// 材料の構成
+  BuildingMaterialChange? get material => readField('material', objectOf(BuildingMaterialChange.fromJson));
+  set material(BuildingMaterialChange? value) => writeField('material', value);
+}
+
+/// 結ぶ材料の構成。kind に合うフィールドだけを書く。single は name、list は names、layers は layers と usage、constituents は constituents
+class BuildingMaterialChange extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingMaterialChange.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingMaterialChange() : super({});
+
+  /// 構成の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 単一の材料の名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 材料の並びの名前。1 つ以上
+  List<String>? get names => readField('names', listOf(asString));
+  set names(List<String>? value) => writeField('names', value);
+
+  /// 材料の層。1 つ以上
+  List<BuildingMaterialLayer>? get layers => readField('layers', listOf(objectOf(BuildingMaterialLayer.fromJson)));
+  set layers(List<BuildingMaterialLayer>? value) => writeField('layers', value);
+
+  /// 層の使い方（IfcMaterialLayerSetUsage）。書かなければ、層の組（IfcMaterialLayerSet）をそのまま結ぶ
+  BuildingLayerUsage? get usage => readField('usage', objectOf(BuildingLayerUsage.fromJson));
+  set usage(BuildingLayerUsage? value) => writeField('usage', value);
+
+  /// 構成要素。1 つ以上
+  List<BuildingMaterialConstituent>? get constituents => readField('constituents', listOf(objectOf(BuildingMaterialConstituent.fromJson)));
+  set constituents(List<BuildingMaterialConstituent>? value) => writeField('constituents', value);
+}
+
+/// 結ぶ材料の構成の種類。single は IfcMaterial、list は IfcMaterialList（IFC2X3 だけ。IFC4 からは非推奨なので断る）、layers は IfcMaterialLayerSet、constituents は IfcMaterialConstituentSet（IFC4 から）
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class BuildingMaterialChangeKind {
+  static const single = 'single';
+  static const list = 'list';
+  static const layers = 'layers';
+  static const constituents = 'constituents';
+}
+
+/// 材料の層
+class BuildingMaterialLayer extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingMaterialLayer.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingMaterialLayer() : super({});
+
+  /// 材料の名前。書かなければ、材料のない層（空気層など）
+  String? get material => readField('material', asString);
+  set material(String? value) => writeField('material', value);
+
+  /// 層の厚さ。文書の長さの単位で、IFC2X3 は正、IFC4 からは負でない値
+  core.double? get thickness => readField('thickness', asDouble);
+  set thickness(core.double? value) => writeField('thickness', value);
+
+  /// 層の名前。IFC2X3 は持たないので、書けば断る
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+}
+
+/// 材料の層の使い方
+class BuildingLayerUsage extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingLayerUsage.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingLayerUsage() : super({});
+
+  /// 層を重ねる向き
+  String? get direction => readField('direction', asString);
+  set direction(String? value) => writeField('direction', value);
+
+  /// true なら負の向きに重ねる（NEGATIVE）。書かなければ正の向き
+  core.bool? get negative => readField('negative', asBool);
+  set negative(core.bool? value) => writeField('negative', value);
+
+  /// 基準線からのずれ。文書の長さの単位
+  core.double? get offset => readField('offset', asDouble);
+  set offset(core.double? value) => writeField('offset', value);
+}
+
+/// 層を重ねる向き（IfcLayerSetDirectionEnum）。axis1 は AXIS1、axis2 は AXIS2、axis3 は AXIS3
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class BuildingLayerDirection {
+  static const axis1 = 'axis1';
+  static const axis2 = 'axis2';
+  static const axis3 = 'axis3';
+}
+
+/// 材料の構成要素
+class BuildingMaterialConstituent extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingMaterialConstituent.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingMaterialConstituent() : super({});
+
+  /// 材料の名前
+  String? get material => readField('material', asString);
+  set material(String? value) => writeField('material', value);
+
+  /// 構成要素の名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
 }
 
 /// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から

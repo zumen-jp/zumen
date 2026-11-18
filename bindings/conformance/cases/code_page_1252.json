@@ -1,0 +1,142 @@
+{
+  "description": "R2000 の ANSI_1252 の DXF の文字と名前を Windows-1252 の表で読み、表に割り当てのないバイトの文字を dxf.lift.invalid で落とす。Windows-1252 で表せる文字は書き戻して開き直しても同じ文字になり、表せない文字は変更全体を拒む（#327）",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "latin1.dxf",
+        "hex": "300a53454354494f4e0a320a4845414445520a390a24414341445645520a310a4143313031350a390a24445747434f4445504147450a330a414e53495f313235320a390a24494e53554e4954530a37300a340a390a2448414e44534545440a350a38300a300a454e445345430a300a53454354494f4e0a320a454e5449544945530a300a544558540a350a31410a380a466ce46368650a31300a302e300a32300a302e300a33300a302e300a34300a322e350a310a4d61df7374616220313a322080209378940a300a544558540a350a31420a380a300a31300a302e300a32300a352e300a33300a302e300a34300a322e350a310a4181420a300a454e445345430a300a454f460a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "latin1.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "latin1.dxf",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/items/0/id": "space/0/h1A",
+        "/result/items/0/layer": "Fläche",
+        "/result/items/0/geometry/content": "Maßstab 1:2 € “x”"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "latin1.dxf"
+      },
+      "expect": {
+        "/diagnostics/0/code": "dxf.lift.invalid",
+        "/diagnostics/0/params/kind": "TEXT",
+        "/diagnostics/0/at/0/record": 4
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "latin1.dxf"
+      },
+      "expect": {
+        "/result/layers/0/id": "layer/0",
+        "/result/layers/0/name": "Fläche"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "latin1.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer_id": "layer/0",
+            "geometry": {
+              "shape": "text",
+              "content": "日本",
+              "position": [
+                1,
+                2
+              ],
+              "height": 2.5,
+              "rotation": 0
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/1/code": "change.edit.unsupported",
+        "/diagnostics/2/code": "change.character.unsupported",
+        "/diagnostics/2/params/character": "U+65E5"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "latin1.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer_id": "layer/0",
+            "geometry": {
+              "shape": "text",
+              "content": "Café – Ÿ",
+              "position": [
+                1,
+                2
+              ],
+              "height": 2.5,
+              "rotation": 0
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/h80"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "latin1.dxf",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/1/id": "space/0/h80",
+        "/result/items/1/geometry/content": "Café – Ÿ"
+      }
+    }
+  ]
+}

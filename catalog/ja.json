@@ -269,6 +269,7 @@
     "ifc.height-datum.unsupported": "高さの基準「{datum}」は扱えないので、不明にしました（{count} 件）。",
     "ifc.map-crs.missing": "IfcMapConversion か IfcProjectedCRS がないので、座標系を不明にし、プロジェクトの空間の点を地図の点として読みました（{count} 件）。",
     "ifc.map-crs.unsupported": "座標系「{name}」は扱えないので、座標系を不明にしました（{count} 件）。",
+    "ifc.owner-history.missing": "{schema} は所有履歴が必須なのに、所有履歴の値が渡されなかったので、書きませんでした。",
     "ifc.parent.exists": "要素「{id}」の親はもうあるので、後の親の関係を写しませんでした（{count} 件）。",
     "ifc.placement.invalid": "要素「{id}」の配置が解けない（循環・参照の欠け・軸を作れない）ので、配置なしにしました（{count} 件）。",
     "ifc.placement.unsupported": "配置「{kind}」は解けないので、種類だけを持ちました（{count} 件）。",

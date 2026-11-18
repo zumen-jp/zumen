@@ -309,8 +309,30 @@ func (c *conformance) checkScene(at string, blob []byte, result map[string]any) 
 	}
 }
 
-func (c *conformance) runCase(ctx context.Context, core *Core, name string, steps []any) error {
-	var session *Session
+// engineSession は、適合テストが使う、セッションのメソッド。wasm の Session と子プロセスの ProcessSession の両方が満たす。
+type engineSession interface {
+	PushBytes(ctx context.Context, name, data []byte) error
+	CallBytes(ctx context.Context, request []byte) ([]byte, error)
+	Take(ctx context.Context, blob uint32) ([]byte, error)
+	Close(ctx context.Context) error
+}
+
+// opener は、設定のバイト列でセッションを作る。
+type opener func(ctx context.Context, options []byte) (engineSession, error)
+
+// wasmOpener は、wasm のモジュールのセッションを作る。
+func wasmOpener(core *Core) opener {
+	return func(ctx context.Context, options []byte) (engineSession, error) {
+		session, err := core.OpenBytes(ctx, options)
+		if err != nil {
+			return nil, err
+		}
+		return session, nil
+	}
+}
+
+func (c *conformance) runCase(ctx context.Context, open opener, name string, steps []any) error {
+	var session engineSession
 	defer func() {
 		if session != nil {
 			_ = session.Close(ctx)
@@ -339,7 +361,7 @@ func (c *conformance) runCase(ctx context.Context, core *Core, name string, step
 		}
 		input := step[action]
 		if action != "session" && session == nil {
-			opened, err := core.Open(ctx, nil)
+			opened, err := open(ctx, nil)
 			if err != nil {
 				return err
 			}
@@ -356,8 +378,8 @@ func (c *conformance) runCase(ctx context.Context, core *Core, name string, step
 			if session != nil {
 				_ = session.Close(ctx)
 			}
-			var opened *Session
-			opened, err = core.OpenBytes(ctx, bytesOf(input, "options", "options_text"))
+			var opened engineSession
+			opened, err = open(ctx, bytesOf(input, "options", "options_text"))
 			status, _, err = attempt(nil, err)
 			if err != nil {
 				return err
@@ -366,7 +388,7 @@ func (c *conformance) runCase(ctx context.Context, core *Core, name string, step
 				session = opened
 			} else {
 				// 作れなかったら、閉じたセッションで続ける。閉じたセッションへの呼び出しは invalid になる
-				if session, err = core.Open(ctx, nil); err != nil {
+				if session, err = open(ctx, nil); err != nil {
 					return err
 				}
 				_ = session.Close(ctx)
@@ -515,8 +537,12 @@ func openCore(t *testing.T) *Core {
 }
 
 func TestConformance(t *testing.T) {
+	runConformance(t, "Go のラッパーの適合テスト", wasmOpener(openCore(t)))
+}
+
+// runConformance は、適合テストの全ケースを、open が作るセッションで流す。
+func runConformance(t *testing.T, title string, open opener) {
 	ctx := context.Background()
-	core := openCore(t)
 	c := &conformance{repository: findRepository(t)}
 	files, err := filepath.Glob(filepath.Join(c.repository, "bindings", "conformance", "cases", "*.json"))
 	if err != nil {
@@ -535,7 +561,7 @@ func TestConformance(t *testing.T) {
 		object, _ := value.(map[string]any)
 		steps, _ := object["steps"].([]any)
 		name := strings.TrimSuffix(filepath.Base(file), ".json")
-		if err := c.runCase(ctx, core, name, steps); err != nil {
+		if err := c.runCase(ctx, open, name, steps); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
@@ -546,7 +572,7 @@ func TestConformance(t *testing.T) {
 	t.Log(summary)
 	if path := os.Getenv("GITHUB_STEP_SUMMARY"); path != "" {
 		if file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-			_, _ = fmt.Fprintf(file, "### Go のラッパーの適合テスト（%s）\n\n%s\n", strings.TrimPrefix(runtime.Version(), "go"), summary)
+			_, _ = fmt.Fprintf(file, "### %s（%s）\n\n%s\n", title, strings.TrimPrefix(runtime.Version(), "go"), summary)
 			_ = file.Close()
 		}
 	}

@@ -55,7 +55,7 @@ cargo build -p zumen-cli --release --locked
 node --expose-gc bench/live/native-ipc.mjs target/release/zumen 1000000 1000 4
 ```
 
-引数は実行ファイル、要素数、試行数、開くときのスレッド数です。Windows では `zumen.exe` を使います。[2026-11-16 の結果](results/native-ipc-2026-11-16.md)には、中央値・p99・最大値、1 ms を超えた回数、親子別のメモリと残件を記しています。
+引数は実行ファイル、要素数、試行数、開くときのスレッド数です。Windows では `zumen.exe` を使います。要素数の代わりに入力のファイルを渡すと、JWW・SFC・P21・DWG もその図面で測ります。描く順の行を混ぜた順に試し、移動を受けた行を 1,000 行まで対象にします。取り消し後の保存は、開いた直後の保存と照合します。入力と同じバイト列かどうかは `savedEqualsInput` に出します。JWW・SFC・DWG・P21 の結果は [2026-11-18 の記録](results/native-ipc-formats-2026-11-18.md)にあります。[2026-11-16 の結果](results/native-ipc-2026-11-16.md)には、中央値・p99・最大値、1 ms を超えた回数、親子別のメモリと残件を記しています。
 
 ## 範囲
 

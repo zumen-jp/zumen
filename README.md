@@ -2,7 +2,7 @@
 
 日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群です。Rust の 1 つのコアを、ブラウザー・サーバー・各言語から同じ結果で使います。ファイルは外へ出さずに読みます。
 
-> 状態: [v0.3.0](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0) を公開しています。配布先と使い方は下の[「試す」](#試す)にあります。引き続き開発中で、1.0 までは、壊す変更をリリースノートに書いたうえで、マイナーバージョンで API を変えることがあります。PDF を読みたい場合は、旧版の [zumen-jp/zumen-legacy](https://github.com/zumen-jp/zumen-legacy) を使ってください。
+> 状態: [v0.3.0](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0) を公開しています。配布先と使い方は下の[「試す」](#試す)にあります。引き続き開発中で、1.0 までは、壊す変更をリリースノートに書いたうえで、マイナーバージョンで API を変えることがあります。
 
 ## できること
 
@@ -81,7 +81,7 @@ target/debug/zumen entities samples/dwg/zumen-layout-r2000.dwg --limit 2
 | [docs/formats](docs/formats/README.md) | 形式と権利の一覧（台帳から生成）と、形式ごとの知見 |
 | [docs/support.md](docs/support.md) | 対応する環境と、言語の下限 |
 | [docs/tier3.md](docs/tier3.md) | 公式のラッパーのない言語から使う手順 |
-| [docs/view2d.md](docs/view2d.md) | 2D の表示部品の方針と、旧版からの置き換えの対応表 |
+| [docs/view2d.md](docs/view2d.md) | 2D の表示部品の機能の一覧 |
 | [docs/render.md](docs/render.md) | 図面から SVG・PNG を作る API と、Node.js の例 |
 | [docs/live.md](docs/live.md) | 対話の編集に向けた文書エンジンの設計と、試作の測定 |
 | [schema](schema/README.md) | API の関数とメッセージのスキーマ |

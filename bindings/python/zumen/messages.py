@@ -227,6 +227,8 @@ _OpenRequestOptional = TypedDict(
         "saf": str,
         # IFC-SPF・ifcZIP の 8 ビットのエスケープを読む文字コード。省略時は auto。文書の building_apply 後も指定を保つ。IFC 以外の入力には使えない。マイナーバージョン 76 から
         "ifc_text_encoding": "IfcTextEncoding",
+        # COPC を、この条件に掛かる八分木の節の範囲だけで読む。足りない範囲は needs で求める。作った文書は読んだ節の点だけを持ち、pointcloud・scene3d はその点を扱う。条件を変えるときは開き直す。書かなければ全体を読む。COPC でない入力には使えない（#899、決定 0232）。マイナーバージョン 104 から
+        "pointcloud": "OpenPointcloud",
     },
     total=False,
 )
@@ -234,6 +236,21 @@ _OpenRequestOptional = TypedDict(
 
 class OpenRequest(_OpenRequestRequired, _OpenRequestOptional):
     "入力を読んで、文書を作る。形式は入力から判定する"
+
+
+# COPC の八分木の節を選ぶ条件。pointcloud の op の同じ名前のフィールドと同じ規則で節を選ぶ
+OpenPointcloud = TypedDict(
+    "OpenPointcloud",
+    {
+        # 節を選ぶ範囲。書かなければ全体
+        "region": "PointcloudBox",
+        # 許容差（点の間隔、メートル）。これより細かい段の節を読まない。書かなければすべての段
+        "tolerance": float,
+        # 点の数の上限。節を浅い段から順に数え、範囲にすべて入る節の点の数の和が上限に届いたら、それより後の節を読まない。範囲に一部だけ掛かる節は数えない。書かなければ上限なし
+        "limit": int,
+    },
+    total=False,
+)
 
 # IFC の文字列の読み方。auto はファイル内に CP932 の手がかりがあれば読み替える。iso_8859_1 は従来の ISO 8859-1 と Unicode、shift_jis は手がかりなしでも CP932 として読める文字列を読み替える。どの指定も元のバイト列を保つ
 IfcTextEncoding = Union[
@@ -265,6 +282,8 @@ _OpenResultOptional = TypedDict(
         "done": List["InputRange"],
         # SXF を ZIP に入れたアーカイブ（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）のアーカイブの中の名前。アーカイブの順。apply は、SXF の項目だけを置き換え、ほかの項目を写したアーカイブを書く（#385）。マイナーバージョン 54 から
         "entries": List[str],
+        # open の pointcloud の上限のために、読まなかった節がある。COPC を条件で読んだときだけ書く（#899）。マイナーバージョン 104 から
+        "truncated": bool,
     },
     total=False,
 )
@@ -440,7 +459,7 @@ Point2 = TypedDict(
 )
 
 
-# 原点と相対座標を分けた用紙の点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は用紙の mm
+# 原点と相対座標を分けた点。両成分の正確な和を位置とし、先に足して丸めない。座標の単位は使う所に従う（measure_distance では用紙の mm、measure では from の空間か用紙の単位）
 SplitPoint2 = TypedDict(
     "SplitPoint2",
     {
@@ -624,7 +643,7 @@ _MeasureRequestRequired = TypedDict(
         "op": Literal["measure"],
         # 開いた文書の名前
         "doc": str,
-        # 実寸の空間の公開 ID。用紙と記号定義の空間は対象外
+        # 実寸の空間の公開 ID。記号定義の空間は対象外。マイナーバージョン 102 から、distance で両方の対象が点なら公開用紙の ID も使え、校正しない用紙の座標の距離を返す
         "from": str,
         # 求める値
         "quantity": "MeasureQuantity",
@@ -672,6 +691,7 @@ MeasureQuantity = Union[
 MeasureTarget = Union[
     "MeasureElement",
     "MeasurePoint",
+    "MeasureSplitPoint",
 ]
 
 
@@ -699,6 +719,18 @@ MeasurePoint = TypedDict(
 )
 
 
+# 距離の計測で使う、原点と相対座標を分けた座標。distance で、もう一方も点のときだけ使える。マイナーバージョン 102 から
+MeasureSplitPoint = TypedDict(
+    "MeasureSplitPoint",
+    {
+        # 対象の種類
+        "kind": Literal["split_point"],
+        # 原点と相対座標を分けた点。成分ごとの差を正確に求めてから一度だけ丸める
+        "position": "SplitPoint2",
+    },
+)
+
+
 # 要素から求めた計測値。近似値かどうか、単位と出所の空間を明示する
 _MeasureResultRequired = TypedDict(
     "_MeasureResultRequired",
@@ -711,7 +743,7 @@ _MeasureResultRequired = TypedDict(
         "quantity": "MeasureQuantity",
         # 計測値。0 以上の有限値
         "value": float,
-        # 空間の長さの単位。不明な単位を補わない
+        # 空間の長さの単位。不明な単位を補わない。from が用紙なら用紙の mm
         "unit": "Unit",
         # 単位の次数。長さと距離は 1、面積は 2
         "unit_power": int,
@@ -724,7 +756,9 @@ _MeasureResultRequired = TypedDict(
 _MeasureResultOptional = TypedDict(
     "_MeasureResultOptional",
     {
-        # 最短距離を作る最初の対象上の点。distance のときだけ返す
+        # from が用紙で、value が校正しない用紙の座標の距離なら true。実寸ではない。実寸の空間では返さない。マイナーバージョン 102 から
+        "sheet": bool,
+        # 最短距離を作る最初の対象上の点。distance のときだけ返す。split_point なら原点と相対座標の和を丸めた点
         "nearest_first": "Point2",
         # 最短距離を作るもう一方の対象上の点。近似した対象では折れ線上の点
         "nearest_second": "Point2",
@@ -3619,7 +3653,7 @@ class SceneRequest(_SceneRequestRequired, _SceneRequestOptional):
     "開いた文書を図面モデル（L2）に変換し、起点から配置をたどって、2D のシーンを blob で返す（決定 0172）。シーンの配置は schema/scene.toml にある。マイナーバージョン 33 から"
 
 
-# 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。94 から平面直角座標系の GeoTIFF の DEM も、外枠の地物でなく標高格子を点群と同じ点の区画で返す。マイナーバージョン 82 から
+# 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。94 から平面直角座標系の GeoTIFF の DEM も、外枠の地物でなく標高格子を点群と同じ点の区画で返す。105 から surface で、DEM を地形の面（セル代表点を頂点にした三角形のメッシュ）で返す。マイナーバージョン 82 から
 _Scene3dRequestRequired = TypedDict(
     "_Scene3dRequestRequired",
     {
@@ -3654,9 +3688,11 @@ _Scene3dRequestOptional = TypedDict(
         "lod": int,
         # プロジェクト空間の文書単位の箱。重なる要素を選び、形のない要素も残す。切り抜きは読み手が行う
         "box": "Scene3dBox",
-        # 点群だけに指定する返す点の数の上限。省略時は選んだすべての点。88 から
+        # 点群だけに指定する返す点の数の上限。省略時は選んだすべての点。88 から。DEM を surface で返すときは、頂点にする格子点の数の上限。超えれば間引く間隔を 2 倍ずつ広げ、それでも超えれば何も返さない
         "limit": int,
-        # 文書単位の正の有限値。点群では点の間隔（メートル）で、これより細かい段の節を選ばない。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
+        # 平面直角座標系の GeoTIFF の DEM だけに指定する。真なら標高格子を点でなく地形の面で返す。セル代表点を頂点にし、隣り合う 4 つの格子点が点にできれば 2 個、3 つなら 1 個の三角形を作る。nodata などのセルは面に含めない。面は 128 間隔四方の区画ごとの要素（ID は区画の初めの行と列の r<行>c<列>、クラスは dem）に分け、隣の区画と縁の頂点を共有する。座標系と高さの基準は変換しない。偽か省略なら点で返す。105 から
+        "surface": bool,
+        # 文書単位の正の有限値。点群では点の間隔（メートル）で、これより細かい段の節を選ばない。DEM の面では頂点の間隔（メートル）で、セル代表点の間隔の整数倍のうち、これ以上でもっとも細かい間隔に間引く。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
         "tolerance": float,
     },
     total=False,
@@ -3664,7 +3700,7 @@ _Scene3dRequestOptional = TypedDict(
 
 
 class Scene3dRequest(_Scene3dRequestRequired, _Scene3dRequestOptional):
-    "建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。94 から平面直角座標系の GeoTIFF の DEM も、外枠の地物でなく標高格子を点群と同じ点の区画で返す。マイナーバージョン 82 から"
+    "建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。94 から平面直角座標系の GeoTIFF の DEM も、外枠の地物でなく標高格子を点群と同じ点の区画で返す。105 から surface で、DEM を地形の面（セル代表点を頂点にした三角形のメッシュ）で返す。マイナーバージョン 82 から"
 
 
 # 建物ではプロジェクト空間の文書単位、地物では投影先の、点群では元の座標系の東・北・高さのメートルの箱。Z が上
@@ -3755,7 +3791,7 @@ _Scene3dResultRequired = TypedDict(
         "doc": str,
         # シーンの座標と許容差の長さの単位
         "unit": "BuildingUnit",
-        # 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。点群では要求の点の間隔、省略時は返したもっとも深い段の点の間隔。丸めのずれは別の診断で返す
+        # 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。点群では要求の点の間隔、省略時は返したもっとも深い段の点の間隔。DEM の面では使った頂点の間隔。丸めのずれは別の診断で返す
         "tolerance": float,
         # シーンの行数
         "counts": "Scene3dCounts",
@@ -3772,7 +3808,7 @@ _Scene3dResultOptional = TypedDict(
         "height_crs": int,
         # 地物で選択した LOD。LOD のない形だけなら持たない。86 から
         "lod": int,
-        # 点群で上限のために返さなかった点がある。点群のシーンだけが持つ。88 から
+        # 点群で上限のために返さなかった点がある。DEM の面では、上限のために面を返さなかった。点群と DEM のシーンだけが持つ。88 から
         "truncated": bool,
         # 要求の断面の箱。なければ持たない
         "box": "Scene3dBox",
@@ -4397,7 +4433,7 @@ ReviewAdoptResult = TypedDict(
 )
 
 
-# レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から
+# レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から
 _ReviewSceneRequestRequired = TypedDict(
     "_ReviewSceneRequestRequired",
     {
@@ -4442,7 +4478,7 @@ _ReviewSceneRequestOptional = TypedDict(
 
 
 class ReviewSceneRequest(_ReviewSceneRequestRequired, _ReviewSceneRequestOptional):
-    "レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値や旧版の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から"
+    "レビューの文書（決定 0214・0295）の 1 つの対象の図形と指摘の場所を、開いた図面の起点で、図面とは別の 2D のシーンにして blob で返す。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ描かない。シーンの配置は scene と同じ schema/scene.toml。色・線幅・寸法は style で明示し、文書の値から推測しない。レビューの文書と図面は変えない。マイナーバージョン 95 から"
 
 
 # レビューの図形の色と寸法。幾何の寸法は起点の単位、線幅だけは用紙の mm。文書には保存しない
@@ -5371,6 +5407,13 @@ BuildingEdit = Union[
     "BuildingAddDoorEdit",
     "BuildingAddWindowEdit",
     "BuildingAddGridEdit",
+    "BuildingElevationEdit",
+    "BuildingWallShapeEdit",
+    "BuildingOpeningShapeEdit",
+    "BuildingAddTypeEdit",
+    "BuildingQuantityEdit",
+    "BuildingAddUnitEdit",
+    "BuildingMaterialEdit",
 ]
 
 
@@ -5924,6 +5967,299 @@ _BuildingAddGridEditOptional = TypedDict(
 
 class BuildingAddGridEdit(_BuildingAddGridEditRequired, _BuildingAddGridEditOptional):
     "U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から"
+
+
+# 階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から
+BuildingElevationEdit = TypedDict(
+    "BuildingElevationEdit",
+    {
+        # 変更の種類
+        "kind": Literal["elevation"],
+        # 直す階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        "storey": "BuildingRef",
+        # 新しい高さ。文書の長さの単位
+        "elevation": float,
+    },
+)
+
+
+# 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+_BuildingWallShapeEditRequired = TypedDict(
+    "_BuildingWallShapeEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["wall_shape"],
+        # 直す壁（IfcWall か IfcWallStandardCase）。材料の層の使い方（AXIS2）を持つもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        "wall": "BuildingRef",
+        # 芯の始点。壁の配置の親の配置の [x, y]
+        "start": List[float],
+        # 芯の終点。始点と違う [x, y]
+        "end": List[float],
+        # 高さ。文書の長さの単位で、正の値
+        "height": float,
+        # 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+        "layers": List["BuildingWallLayer"],
+    },
+)
+_BuildingWallShapeEditOptional = TypedDict(
+    "_BuildingWallShapeEditOptional",
+    {
+        # 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
+        "offset": float,
+    },
+    total=False,
+)
+
+
+class BuildingWallShapeEdit(_BuildingWallShapeEditRequired, _BuildingWallShapeEditOptional):
+    "壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から"
+
+
+# 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+BuildingOpeningShapeEdit = TypedDict(
+    "BuildingOpeningShapeEdit",
+    {
+        # 変更の種類
+        "kind": Literal["opening_shape"],
+        # 直す開口（IfcOpeningElement）。材料の層の使い方を持つ要素に穴をあけるもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        "opening": "BuildingRef",
+        # 穴をあけた要素の配置の x 軸に沿う、要素の原点から開口の端までの距離
+        "distance": float,
+        # 要素の下端から開口の下端までの高さ
+        "sill": float,
+        # 幅。文書の長さの単位で、正の値
+        "width": float,
+        # 高さ。文書の長さの単位で、正の値
+        "height": float,
+    },
+)
+
+
+# 型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から
+_BuildingAddTypeEditRequired = TypedDict(
+    "_BuildingAddTypeEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["add_type"],
+        # IFC の型の実体の名前（IfcWallType など）。文書のバージョンにあるもの
+        "class": str,
+    },
+)
+_BuildingAddTypeEditOptional = TypedDict(
+    "_BuildingAddTypeEditOptional",
+    {
+        # PredefinedType の列挙の値（SOLIDWALL など）
+        "predefined": str,
+        # 利用者が決めた種類（ElementType）
+        "element_type": str,
+        # 名前
+        "name": str,
+        # GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        "global_id": str,
+    },
+    total=False,
+)
+
+
+class BuildingAddTypeEdit(_BuildingAddTypeEditRequired, _BuildingAddTypeEditOptional):
+    "型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から"
+
+
+# 要素の数量のセット（IfcElementQuantity）の数量の値を変える。セットか数量がなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える。単位は書かず、文書の単位の割り当てに従う。結果の id は要素の ID。マイナーバージョン 106 から
+_BuildingQuantityEditRequired = TypedDict(
+    "_BuildingQuantityEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["quantity"],
+        # 変える要素の ID。building_elements が返したもの
+        "id": str,
+        # 読んだときの要素のハッシュ。building_elements が返したもの
+        "hash": str,
+        # 数量のセットの名前（Qto_WallBaseQuantities など）
+        "set": str,
+        # 数量の名前（Length など）
+        "name": str,
+        # 数量の種類。IfcQuantityLength・IfcQuantityArea・IfcQuantityVolume・IfcQuantityCount・IfcQuantityWeight・IfcQuantityTime のどれを書くか
+        "quantity": "QuantityKind",
+        # 値。文書の単位で、有限の負でない値。IFC4X3 の個数は整数
+        "value": float,
+    },
+)
+_BuildingQuantityEditOptional = TypedDict(
+    "_BuildingQuantityEditOptional",
+    {
+        # セットを足すときの測り方（MethodOfMeasurement）
+        "method": str,
+        # 式（Formula）。IFC2X3 は持たないので、書けば断る
+        "formula": str,
+    },
+    total=False,
+)
+
+
+class BuildingQuantityEdit(_BuildingQuantityEditRequired, _BuildingQuantityEditOptional):
+    "要素の数量のセット（IfcElementQuantity）の数量の値を変える。セットか数量がなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える。単位は書かず、文書の単位の割り当てに従う。結果の id は要素の ID。マイナーバージョン 106 から"
+
+
+# プロジェクトの単位の割り当て（IfcUnitAssignment）に SI の単位（IfcSIUnit）を足す。長さと平面角の単位は受けず、同じ種類の単位があれば断る。結果は id を持たない。マイナーバージョン 106 から
+_BuildingAddUnitEditRequired = TypedDict(
+    "_BuildingAddUnitEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["add_unit"],
+        # 単位の種類（IfcUnitEnum の AREAUNIT など）
+        "unit": str,
+        # SI の単位の名前（IfcSIUnitName の SQUARE_METRE など）。単位の種類に合うもの
+        "name": str,
+    },
+)
+_BuildingAddUnitEditOptional = TypedDict(
+    "_BuildingAddUnitEditOptional",
+    {
+        # SI の接頭辞（IfcSIPrefix の MILLI など）
+        "prefix": str,
+    },
+    total=False,
+)
+
+
+class BuildingAddUnitEdit(_BuildingAddUnitEditRequired, _BuildingAddUnitEditOptional):
+    "プロジェクトの単位の割り当て（IfcUnitAssignment）に SI の単位（IfcSIUnit）を足す。長さと平面角の単位は受けず、同じ種類の単位があれば断る。結果は id を持たない。マイナーバージョン 106 から"
+
+
+# 要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から
+BuildingMaterialEdit = TypedDict(
+    "BuildingMaterialEdit",
+    {
+        # 変更の種類
+        "kind": Literal["material"],
+        # 材料を結ぶ要素か型。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        "element": "BuildingRef",
+        # 材料の構成
+        "material": "BuildingMaterialChange",
+    },
+)
+
+
+# 結ぶ材料の構成。kind に合うフィールドだけを書く。single は name、list は names、layers は layers と usage、constituents は constituents
+_BuildingMaterialChangeRequired = TypedDict(
+    "_BuildingMaterialChangeRequired",
+    {
+        # 構成の種類
+        "kind": "BuildingMaterialChangeKind",
+    },
+)
+_BuildingMaterialChangeOptional = TypedDict(
+    "_BuildingMaterialChangeOptional",
+    {
+        # 単一の材料の名前
+        "name": str,
+        # 材料の並びの名前。1 つ以上
+        "names": List[str],
+        # 材料の層。1 つ以上
+        "layers": List["BuildingMaterialLayer"],
+        # 層の使い方（IfcMaterialLayerSetUsage）。書かなければ、層の組（IfcMaterialLayerSet）をそのまま結ぶ
+        "usage": "BuildingLayerUsage",
+        # 構成要素。1 つ以上
+        "constituents": List["BuildingMaterialConstituent"],
+    },
+    total=False,
+)
+
+
+class BuildingMaterialChange(_BuildingMaterialChangeRequired, _BuildingMaterialChangeOptional):
+    "結ぶ材料の構成。kind に合うフィールドだけを書く。single は name、list は names、layers は layers と usage、constituents は constituents"
+
+# 結ぶ材料の構成の種類。single は IfcMaterial、list は IfcMaterialList（IFC2X3 だけ。IFC4 からは非推奨なので断る）、layers は IfcMaterialLayerSet、constituents は IfcMaterialConstituentSet（IFC4 から）
+BuildingMaterialChangeKind = Union[
+    Literal[
+        "single",
+        "list",
+        "layers",
+        "constituents",
+    ],
+    str,
+]
+
+
+# 材料の層
+_BuildingMaterialLayerRequired = TypedDict(
+    "_BuildingMaterialLayerRequired",
+    {
+        # 層の厚さ。文書の長さの単位で、IFC2X3 は正、IFC4 からは負でない値
+        "thickness": float,
+    },
+)
+_BuildingMaterialLayerOptional = TypedDict(
+    "_BuildingMaterialLayerOptional",
+    {
+        # 材料の名前。書かなければ、材料のない層（空気層など）
+        "material": str,
+        # 層の名前。IFC2X3 は持たないので、書けば断る
+        "name": str,
+    },
+    total=False,
+)
+
+
+class BuildingMaterialLayer(_BuildingMaterialLayerRequired, _BuildingMaterialLayerOptional):
+    "材料の層"
+
+
+# 材料の層の使い方
+_BuildingLayerUsageRequired = TypedDict(
+    "_BuildingLayerUsageRequired",
+    {
+        # 層を重ねる向き
+        "direction": "BuildingLayerDirection",
+        # 基準線からのずれ。文書の長さの単位
+        "offset": float,
+    },
+)
+_BuildingLayerUsageOptional = TypedDict(
+    "_BuildingLayerUsageOptional",
+    {
+        # true なら負の向きに重ねる（NEGATIVE）。書かなければ正の向き
+        "negative": bool,
+    },
+    total=False,
+)
+
+
+class BuildingLayerUsage(_BuildingLayerUsageRequired, _BuildingLayerUsageOptional):
+    "材料の層の使い方"
+
+# 層を重ねる向き（IfcLayerSetDirectionEnum）。axis1 は AXIS1、axis2 は AXIS2、axis3 は AXIS3
+BuildingLayerDirection = Union[
+    Literal[
+        "axis1",
+        "axis2",
+        "axis3",
+    ],
+    str,
+]
+
+
+# 材料の構成要素
+_BuildingMaterialConstituentRequired = TypedDict(
+    "_BuildingMaterialConstituentRequired",
+    {
+        # 材料の名前
+        "material": str,
+    },
+)
+_BuildingMaterialConstituentOptional = TypedDict(
+    "_BuildingMaterialConstituentOptional",
+    {
+        # 構成要素の名前
+        "name": str,
+    },
+    total=False,
+)
+
+
+class BuildingMaterialConstituent(_BuildingMaterialConstituentRequired, _BuildingMaterialConstituentOptional):
+    "材料の構成要素"
 
 
 # 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から

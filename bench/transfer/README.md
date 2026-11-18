@@ -18,4 +18,4 @@ node run.mjs out
 - ブラウザーでは、`node serve.mjs out` のあと `http://localhost:24180/browser.html` を開きます。
 - `wasm-size.sh` は、形式ごとに wasm を作り、何も符号化しないものとの差を出します。
 
-測定用の図面（旧版の決定 0016 の SFC など）は、Git に入れません。
+測定用の図面は、Git に入れません。

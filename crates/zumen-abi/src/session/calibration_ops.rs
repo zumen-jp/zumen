@@ -127,10 +127,10 @@ fn checked_hash(hash: Hash, expected: Option<&str>, cx: &mut Cx<'_>) -> Result<S
     Ok(hash)
 }
 
-type SheetNames = BTreeMap<SheetId, String>;
+pub(super) type SheetNames = BTreeMap<SheetId, String>;
 
 /// 公開 ID は全用紙を順に通して作る。内部の SheetId の数字から推定しない。
-fn sheet_names(
+pub(super) fn sheet_names(
     drawing: &Drawing2D,
     wanted: Option<&str>,
     cx: &mut Cx<'_>,

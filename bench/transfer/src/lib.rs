@@ -91,7 +91,7 @@ pub fn synthetic(polylines: usize, seed: u64) -> Scene {
     scene
 }
 
-/// 旧版の決定 0016 に近い、図形ごとのオブジェクトを並べる JSON。
+/// 図形ごとのオブジェクトを並べる JSON。
 #[cfg(feature = "json")]
 pub fn json(scene: &Scene) -> Vec<u8> {
     use std::fmt::Write;

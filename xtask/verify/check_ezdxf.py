@@ -412,9 +412,10 @@ def check_file(folder, entry, reading, baseline, counts):
 
     # 画層の名前・ハンドルで結んだ図形・書き戻した値
     numbers, raw, tables = scan(path, doc.output_encoding)
+    latin1 = set()
     if entry.get("source") == "samples/dxf/opendxfviewer-latin1.dxf":
         # 公開元の f_latin1 が書いた 2 件。原本にハンドルはないので、文字列を照らしてから
-        # ezdxf が補ったハンドルを原本の TEXT のレコードに結び、下で zumen の診断の場所を確かめる。
+        # ezdxf が補ったハンドルを原本の TEXT のレコードに結び、下で zumen の読みと照らす。
         texts = list(doc.modelspace().query("TEXT"))
         records = (15, 16)
         if (doc.loaded_dxfversion, doc.header.get("$DWGCODEPAGE"), doc.encoding) != ("AC1015", "ANSI_1252", "cp1252"):
@@ -424,18 +425,21 @@ def check_file(folder, entry, reading, baseline, counts):
                 numbers[e.dxf.handle.upper()] = record
         else:
             failures.append("ANSI_1252 の TEXT 2 件の文字列が公開元の値と違う")
-        found = [
-            (d["code"], d["count"], d.get("params", {}).get("kind"), d.get("at", []))
-            for d in diagnostics(entry, reading)
-        ]
-        if found != [("dxf.code-page.unsupported", 2, "TEXT", [{"record": n} for n in records])]:
-            failures.append("ANSI_1252 の TEXT を移せない診断の code・件数・種類・場所が違う")
+        # zumen は ANSI_1252 の表で 2 件を読む（#327）。ハンドルがないので、元のレコードで結んで文字列を照らす
+        if any(d["code"] == "dxf.code-page.unsupported" for d in diagnostics(entry, reading)):
+            failures.append("ANSI_1252 の TEXT を読めず、dxf.code-page.unsupported を返した")
+        read = {e.get("source", {}).get("record"): e.get("geometry", {}).get("content") for e in reading["entities"]}
+        if [read.get(n) for n in records] == [e.dxf.text for e in texts]:
+            latin1 = {e.dxf.handle.upper() for e in texts}
+        else:
+            failures.append(f"ANSI_1252 の TEXT 2 件の zumen の読みが ezdxf と違う: {[read.get(n) for n in records]}")
     if entry["role"] == "convert":
         for table in tables:
             if table["declared"] != table["actual"]:
                 failures.append(f"TABLE {table['name']} の宣言件数 {table['declared']} と実件数 {table['actual']} が違う")
     found, seen = check_handles(entry, reading, counts, view(doc, raw))
     failures += found
+    seen |= latin1
 
     # 黙って捨てない: モデル空間の図形は、要素になるか、移さなかったことを言う診断が、その図形の種類とレコードを指す
     away = {(kind.upper() if kind else None, record) for kind, record in lifted_away_records(entry, reading)}

@@ -109,6 +109,30 @@ cargo test -p zumen-ifc --test text_encoding -- --nocapture
 
 `local_metadata_audit` は入力の順番・大きさ・件数・種類と往復の成否だけを出します。入力の名前や属性値は出しません。B01〜B04 を直下に置いた場合のテストも、件数だけを出力します。
 
+## 土木の領域モデルへ移すとき
+
+IFC4.3 の線形・地表面・横断を、J-LandXML と同じ土木の領域モデルに移します（`crates/zumen-ifc/src/civil.rs`、#375・#477・#478）。ここでは横断と、線形に沿った位置の規則を記録します。
+
+- `IfcSectionedSurface` の `IfcOpenCrossProfileDef` を、線形の横断の線にする。準線（Directrix）は、線形の表現の項目にある `IfcGradientCurve` に限る。ほかの準線と、`IfcSectionedSolidHorizontal`・閉じた断面は移さず、`ifc.civil-geometry.dropped` を返す（決定 0235）。
+- 断面の位置は、`IfcAxis2PlacementLinear` の `IfcPointByDistanceExpression` の DistanceAlong を、線形の追加距離にする。勾配の曲線の DistanceAlong は平面の曲線の長さで測る。位置の横・鉛直・前後のずれは仕様が禁じる（`NoOffsets`）ので、書いてあれば `ifc.attribute.invalid` を返す。Axis は鉛直だけを受け付け、RefDirection を書いた位置は `ifc.placement.unsupported` を返す。
+- 断面の点は、OffsetPoint（なければ断面の原点）から始め、幅と勾配の角でたどる。角は断面の x 軸から反時計回りで、平面角の単位で読む。HorizontalWidths が真なら幅は水平の長さ、偽なら勾配に沿った長さ。真で鉛直の勾配は `ifc.attribute.invalid` を返す。
+- 断面の x 軸は、準線の進む向きに対して左を向き、y 軸は上を向く（`IfcOpenCrossProfileDef` の定義）。横断の線は右を正にするので、x の符号を変える。断面の原点は準線の上の計画高なので、高さは計画高からの差（`CrossSectionHeight::FormationOffset`）にする。`IfcMapConversion` の Scale を離れに、ScaleZ を高さに掛ける。
+- 線の名前は ProfileName、なければ面を持つ要素の Name。役割は計画（`SurfaceRole::Design`）。同じ追加距離の断面は 1 つの横断にまとめる。Tags は読まない。
+- 1 つの断面でも移せなければ、その面の断面をどれも移さない。使わなかった `IfcOpenCrossProfileDef` は `ifc.civil-geometry.dropped` を返す。
+
+試験（`crates/zumen-ifc/tests/civil.rs`）では、拝み勾配と斜めの幅の片勾配の 2 断面を、メートル・ラジアンとミリメートル・度の IFC4.3 で作り、同じ横断の J-LandXML から移した離れと高さに一致することを確かめます。公開原本 [IfcSectionedSurface_Superelevation.ifc](https://github.com/RickBrice/IFC-Alignment-Geometry-Implementation-Guide/blob/fd8776fc8f0a76e63cd42963a904549ab3997b62/examples/IfcSectionedSurface_Superelevation.ifc)（フィート・ラジアン、SHA-256 `f807c485…75d5`）は配布元を参照し、同梱しません。手元で読むと 6 断面を診断なしで移し、左へ曲がる円弧の片勾配で右が高くなりました。断面の左右の向きは、これと仕様の文で確かめました。外部の実装との照合はまだです（#504）。
+
+### 線形に沿った位置
+
+`Lift<Vec<LinearPosition>>` は、`IfcLinearPlacement` で置いた要素を、線形の上の位置として返します（#376）。単位と `IfcMapConversion` は線形と同じく読みます。建物モデルの要素の形と位置は、ここでは扱いません。
+
+- 6 ObjectPlacement が `IfcLinearPlacement` で、1 GlobalId を書いた要素を、ファイルの順に返す。`IfcReferent` は線形の測点として読むので返さない。
+- 位置は、RelativePlacement の `IfcAxis2PlacementLinear` の Location の `IfcPointByDistanceExpression` から読む。DistanceAlong を追加距離、OffsetLateral の符号を変えた値を離れ（右を正）、OffsetLongitudinal を接線に沿ったずれにする。`IfcMapConversion` の Scale を掛ける。
+- BasisCurve は、線形の表現の曲線か、`IfcGradientCurve`・`IfcSegmentedReferenceCurve` の BaseCurve をたどった曲線に限る。`IfcGradientCurve` なら OffsetVertical に ScaleZ を掛けて計画高からの差（`CrossSectionHeight::FormationOffset`）、平面の `IfcCompositeCurve` なら線形の配置の高さに足した標高（`CrossSectionHeight::Elevation`）にする。`IfcSegmentedReferenceCurve`（カントで傾けた曲線）は `ifc.placement.unsupported` を返し、要素を返さない。どの線形の曲線でもなければ `ifc.attribute.invalid` を返す。
+- `IfcAxis2PlacementLinear` の Axis と RefDirection（要素の向き）は移さず、`ifc.civil-geometry.dropped` を返す。位置は返す。`IfcLinearPlacement` の PlacementRelTo と CartesianPosition は読まない。
+
+試験では、勾配の曲線と平面の曲線に置いた 2 つの信号を、メートルとミリメートルの IFC4.3 で作り、追加距離・離れ・高さ・前後のずれを確かめます。buildingSMART の公開原本 [linear-placement-of-signal.ifc](https://github.com/buildingSMART/IFC4.x-specification-models/blob/7b06d489afbcff581bbbf4fdf158196412709baf/models/alignment-geometries-and-linear-positioning/linear-placement-of-signal/linear-placement-of-signal.ifc)（CC BY-ND 4.0、SHA-256 `3c6b97f7…4c97`）は配布元を参照し、同梱しません。手元で読むと、2 つの信号の位置を `zumen_civil::place` で平面と高さに直した値が、ファイルの CartesianPosition とミリメートルまで一致しました。
+
 ## 建物モデルへ移すとき
 
 - L1 はスキーマを仮定せずに元の文と参照を保持する。L2 は要素に意味ごとのコンポーネントを結び、持つコンポーネントだけを種類の名前とともにハッシュに入れる。正しい GlobalId の初出ではその値を ID に使う。GlobalId がない場合は `i<インスタンス番号>` にし、不正な値では `building.global-id.invalid`、後出の重複値では `building.global-id.exists` を返して、どちらも同じインスタンス番号の規則で ID を作る。値と参照の具体例は [建物の適合テスト](../../bindings/conformance/cases/building.json) にある。
@@ -836,7 +860,7 @@ cargo test -p zumen-ifc --locked --test curves --target wasm32-wasip1 -- --test-
 
 次の値を建物モデルに写す。属性の位置は、台帳の IFC2X3 TC1・IFC4 ADD2 TC1・IFC4.3 ADD2 の各実体の「属性」の節による。
 
-- `level`: `IfcBuildingStorey` の `Name` と `Elevation` を、文書の長さの単位で持つ。所属の親をたどって建物が見つかり、その `ElevationOfRefHeight` があれば、`datum` にその建物の ID を持つ。基準の値と単位は、その建物の `spatial.elevation` から引ける。敷地と建物の標高から `level` は作らない。高さがないか有限の数でなければ、成分を作らず `ifc.attribute.invalid` を返す。
+- `level`: `IfcBuildingStorey` の `Name` と `Elevation` を、文書の長さの単位で持つ。所属の親をたどって建物が見つかり、その `ElevationOfRefHeight` があれば、`datum` にその建物の ID を持つ。基準の値と単位は、その建物の `spatial.elevation` から引ける。敷地と建物の標高から `level` は作らない。IFC4.3 ADD2 は `Elevation` を非推奨にし、高さは階の配置で決まるとする。IFC4.3 で `Elevation` がなければ、所属の親をたどって見つけた建物の配置の座標で、階の配置の原点の z を高さにする。高さがないか有限の数でなければ、成分を作らず `ifc.attribute.invalid` を返す。
 - `1FL` のような階の名前をそのまま持ち、lift では `level.kind` や高さを補わない。種類への対応は、[作図の慣習](../../profiles/zumen-building-drawing/2026-11/README.md)の `level_kind` で明示した語彙から得る。元の名前・高さ・種類は変更しない。
 - `zone`: `IfcZone` と、IFC4 以降の `IfcSpatialZone` に付ける。`IfcZone` は `IfcRelAssignsToGroup`、`IfcSpatialZone` は `IfcRelReferencedInSpatialStructure` の、室と区域の直接の参照を、関係と並びの順で持つ。区域の中の区域を展開しない。物理の要素への空間の参照は、従来の `parent.referenced_in` に持つ。語彙がないので `zone.kind` は持たず、IFC の `PredefinedType` と `ObjectType` は `class` に残す。境界の形は #419 で扱う。
 - `classification`: `IfcRelAssociatesClassification` の対象に、`IfcClassificationReference` のコード（IFC2X3 の `ItemReference`、IFC4 以降の `Identification`）と名前を付ける。`ReferencedSource` から `IfcClassification` の名前と版を引く。IFC4 以降は参照の階層をたどり、体系そのものの関連づけも持つ。体系のない軽い分類は、コードと名前だけを持つ。循環、欠けた参照、対応していない種類は、成分を付けず `ifc.attribute.invalid` を返す。
@@ -979,8 +1003,9 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
 - 書く文字列は、`'` と `\` を重ね、印字できる ASCII の外の文字を `\X2\…\X0\`（基本多言語面の外を含めば `\X4\…\X0\`）にする。
 - 当てられるのは、`IfcPropertySingleValue` の値と、`IfcRoot` の Name・Description。ほかの種類のプロパティ（列挙・表など）と、GlobalId を持たない要素（材料・通り芯の軸）は、`change.edit.unsupported` で当てない。
 - 空間・要素・関係も足し、除き、置き直せる（[#897](https://github.com/zumen-jp/zumen/issues/897)）。Rust の `zumen_ifc::apply` の変更と、`building_apply` の `add_space`・`add_element`・`remove`・`place`・`contain`・`type`・`void`・`fill`（スキーマのマイナーバージョン 96 から）。文書エンジン（`IfcLive::apply`）は、今までの経路で当てて状態を作り直す（[依存](../live.md#依存)）。
-  - 足す: 敷地・建物・階（`IfcRelAggregates` で親に結ぶ）と、書き手の表にある要素（壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・プロキシ。`IfcRelContainedInSpatialStructure` で空間に結ぶ）。同じ要求で足した要素は、Rust では足した順の番号、`building_apply` では足した変更の `edits` の位置（`added`）で指せる。`building_apply` の結果は、足した要素の ID（GlobalId）とハッシュを返す。
+  - 足す: 敷地・建物・階（`IfcRelAggregates` で親に結ぶ。IFC4.3 は建物の `ElevationOfRefHeight` と階の `Elevation` を非推奨にしたので書かない。階の高さは、配置がなければ親の配置から高さだけ上げて置き、配置があれば親からの z が高さと同じときだけ受ける。建物の標高は断る）と、書き手の表にある要素（壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・プロキシ。`IfcRelContainedInSpatialStructure` で空間に結ぶ）。同じ要求で足した要素は、Rust では足した順の番号、`building_apply` では足した変更の `edits` の位置（`added`）で指せる。`building_apply` の結果は、足した要素の ID（GlobalId）とハッシュを返す。
   - 結ぶ・直す: 配置（`IfcLocalPlacement` と `IfcAxis2Placement3D`）、所属する空間、型（`IfcRelDefinesByType`）、開口（`IfcRelVoidsElement`）と充填（`IfcRelFillsElement`）。関係は、同じ相手の関係があればその列へ足し、なければ足す。外して列が空になった関係は除く。置き直す配置がその要素と子の配置だけに使われていれば、その場で書き直し、子の配置は付いてくる。
+  - 型を足す `Edit::ElementType`、数量を書く `Edit::Quantity`（`IfcElementQuantity`。同じ名前の数量は書き直し、ほかと共有するセットは写してから直す）、SI の単位を足す `Edit::Unit`、材料の構成を結ぶ `Edit::Material`（単一・IFC2X3 の並び・層と層の使い方・IFC4 からの構成要素。同じ名前の `IfcMaterial` は文書のものを使い、結んであった材料は外す）。この 4 つは `building_apply` の `add_type`・`quantity`・`add_unit`・`material`（スキーマのマイナーバージョン 106 から）でも受ける。IFC2X3 は数量の式・層の名前・構成要素を持たず、層の厚さは正なので、渡せば断る。IFC4 からは非推奨の並びを断る。要素の形を置き換える `Edit::Shape`（Rust だけで、`building_apply` の op はまだない。`Axis` の表現の 2 次元の折れ線と、`Body` の表現の矩形・円・穴のある折れ線の断面の押し出し `IfcExtrudedAreaSolid`。立体と矩形・円の断面の配置は、IFC4X3 から省略できるが、どのバージョンでも書く）。`Body` には面集合も書ける。lift と同じ `FaceGraph` から `IfcFacetedBrep`（閉殻）・`IfcShellBasedSurfaceModel`（開殻と閉殻）・IFC2X3 の `IfcFaceBasedSurfaceModel` を、`IndexedFaceSet` から IFC4 の `IfcTriangulatedFaceSet`・`IfcPolygonalFaceSet`（法線・点の対応・穴・閉殻の申告と、IFC4X3 の点のタグ）を書く。根からたどれる行だけを、共有を保って書き、読み直すと同じ表になる。集合演算（`IfcBooleanResult`）と平面の半空間（`IfcHalfSpaceSolid`・`IfcBoxedHalfSpace`・`IfcPolygonalBoundedHalfSpace`）、写像（`IfcMappedItem` と `IfcRepresentationMap`・`IfcCartesianTransformationOperator3D`・`NonUniform`）も書ける。差で、第 1 が押し出しか切り取り、第 2 が半空間なら `IfcBooleanClippingResult` にする。同じ原点と項目の写像元は 1 つにまとめる。囲みの箱は書くバージョンの座標系（IFC2X3 は基準面、IFC4 からは要素）とする。表現の種類は、押し出しは `SweptSolid`、Brep は `Brep`、両方は `SolidModel`、面の模型は `SurfaceModel`、添字の面集合は `Tessellation`、切り取りは `Clipping`、ほかの集合演算は `CSG`、写像は `MappedRepresentation` とし、ほかの組み合わせは断る。演算の対象は立体の模型・半空間・集合演算と、閉殻の申告のある添字の面集合だけで、表現に直接置く半空間・正でない写像の尺度・16 段を超える入れ子も断る。配置のない要素と、0 以下の深さ・断面の面に平行な押し出す向き・3 点に満たない輪・閉殻でない Brep・外輪が 2 つの面・範囲の外の参照と添字・IFC2X3 の添字の面集合・IFC4 の点のタグ・IFC4 からの面の模型（非推奨。ifc-gherkin-rules の IFC102）は断る。使われなくなった元の表現は除く。
   - 除く: 要素と、その要素の開口、要素だけが使う配置・表現・定義・関係。ほかから使われる配置と、`IfcRoot` の対象・所有履歴・表現の文脈・材料・単位は残す。子や所属する要素を持つ空間は除かない。除いたレコードは、前との間が空白だけなら、その空白も書かない。
   - 書く実体と属性の数は、lift と同じく手書きのバージョンの表で持つ。そのバージョンにない実体と、持たない定義された種類は書かない。必須の定義された種類（IFC2X3 の屋根・階段・斜路の ShapeType、基礎・杭）を渡されなければ `NOTDEFINED` を書く。
   - 足す `IfcRoot` の所有履歴は、プロジェクトの所有履歴を使う。IFC2X3 でなければ断り、IFC4 と IFC4X3 では `$` にする。GlobalId は、渡された値が文書とこの要求で重ならなければ使う。渡されなければ、Rust では今と同じく作り、`building_apply` では文書のハッシュと変更の位置から作って L1 に渡す。
@@ -1001,12 +1026,35 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
   - 開口の `Body` は、幅と高さの矩形を壁の XZ に置き、壁の材料の層の使い方（`AXIS2`）から求めた層の範囲の一方の面から他方の面まで押し出す。層の使い方を持たない要素と空間には、穴をあけない。
   - 建具は、開口・種類（扉か窓）・全体の幅と高さで受ける。開口の配置に置き、`IfcDoor` か `IfcWindow`（IFC4 と IFC4X3 は PredefinedType の `DOOR` か `WINDOW`）を `IfcRelFillsElement` で開口に結び、壁と同じ空間に包含で結ぶ。建具の形と型はまだ書かない。開口でない要素と、もう埋まった開口は断る。
 - 意図の値で通り芯を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Grid` と、`building_apply` の `add_grid`（スキーマのマイナーバージョン 101 から）で受ける。空間・U と V の軸（名前・始点・終点）・高さで受け、空間の配置からの相対に置いて空間に包含で結ぶ。軸は 2 点の `IfcPolyline` を曲線にした `IfcGridAxis`（SameSense は真）に書く。U と V のどちらかが空・同じ名前の軸・始点と終点が同じ軸・有限でない値は断る。
+- 意図の値で階の高さ、壁の芯・高さ・層、開口の位置と大きさを直せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Elevation`・`Edit::WallShape`・`Edit::OpeningShape` と、`building_apply` の `elevation`・`wall_shape`・`opening_shape`（スキーマのマイナーバージョン 103 から）で受ける。
+  - 階の高さは 10 Elevation に書き、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。IFC4.3 では、`Elevation` が書いてあるときだけ直し、なければ配置だけを動かす。階に属する要素は配置の相対で付いてくる。
+  - 壁は、足すときと同じ値（芯の 2 点・高さ・層・芯からのずれ）で受け、配置・表現・材料の層の使い方を書き直す。芯の点は壁の配置の親の配置の XY。同じ名前の層は元の `IfcMaterial` を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の `Body` の押し出しを新しい層の範囲に合わせる。元の層の範囲の遠い面から近い面へ押し出す、ただ 1 つの `IfcExtrudedAreaSolid` でない開口があれば、何も変えずに断る。
+  - 開口は、足すときと同じ値（芯に沿う距離・下端・幅・高さ）で受け、配置と `Body` を書き直す。埋める扉と窓の OverallHeight と OverallWidth は、書いてあれば新しい大きさにする。
+  - 配置をほかの要素と共有していれば、新しい配置に付け替える。使われなくなった配置と表現は除く。
+- 作る変更と直す変更の確かめ方（[#898](https://github.com/zumen-jp/zumen/issues/898)）。
+  - `crates/zumen-ifc/tests/author.rs` は、IFC2X3・IFC4・IFC4X3 の文書に、建物・2 つの階・通り芯と各階の壁・床・柱・梁・開口・扉か窓を変更だけで足す。直した壁と開口は、平断面の切断線と開口を引いた体積が付いてくることを、直す前と後で照らす。
+  - 適合テストの `building_storeys` は、同じ 2 階建てを 1 つの `building_apply` で作り、建物モデルの要約・要素と `scene3d` の場面を、各環境の全バイトで照らす。
+  - `examples/author_contract.rs` は、作った文書と直した文書の IFC のバイト列・建物モデルのハッシュ・各階の平断面・体積と、変更を当てるときの予算停止と中断を記録する。`tests/check_author.py` で、各ネイティブ環境と wasm32-wasip1 で同じ SHA-256 になることを照らす。
+  - 毎晩の IfcOpenShell の段は、`author.rs` の `writes_the_authored_files_for_other_readers` が書いた 3 版の作った IFC と直した IFC を、`tests/ifcopenshell/author.py` で IfcOpenShell 0.9.0.post1 の検査（スキーマと EXPRESS の規則）にかけ、種類ごとの数・階の高さと配置・所属・開口と建具の関係・壁の層・開口を引いた壁の体積を照らす。手元では次のように流す。
+
+    ```powershell
+    $env:ZUMEN_IFC_AUTHORED = Join-Path (Get-Location) 'target/authored'
+    cargo test -p zumen-ifc --locked --test author writes_the_authored_files_for_other_readers
+    uv run --no-project --python 3.13 --no-python-downloads --with ifcopenshell==0.9.0.post1 --with pytest==9.2.0 python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/author.py target/authored
+    ```
+
+  - 同じ段で、buildingSMART の ifc-gherkin-rules（MIT、コミット `893f8275049b8960c3ce0c7379b4b57aefeaa8f9`）を別の環境に IfcOpenShell 0.8.5 と入れ、`tests/ifcopenshell/gherkin.py` で同じ 6 つのファイルを検証サービスと同じ規則（実装者の合意と非公式の命題）にかける。データベースを使わない試験の動かし方で、規則ごとの結果を読む。誤りがなく、警告は試験の入力に座標参照系がないことの GRF003 だけで、規則の手順が例外で止まらないことを確かめる。GEM004 と QTY001 は IFC2X3 の識別子と数量のセットの表を規則の側に持たないので、IFC2X3 でのその例外は数えない。IFC4.3 で非推奨の階の `Elevation` を書かないことは、この照合の IFC102 で見つけて直した。手元では、ifc-gherkin-rules を取って入れた環境の Python で次のように流す。
+
+    ```powershell
+    <環境の python> -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/gherkin.py <ifc-gherkin-rules のフォルダー> target/authored
+    ```
 
 ### 新しい IFC を作る
 
 建物モデルから新しい IFC を作るときは、バージョンごとの空のひな形に、`building_apply` と同じ書き手で空間・要素・関係・定義を足します。図面の[新しい DXF への変換](dxf.md#新しい-dxf-への変換)と同じ作りです。実装は [#395](https://github.com/zumen-jp/zumen/issues/395) と [#897](https://github.com/zumen-jp/zumen/issues/897) で進め、この節の規則に合わせます。
 
-- `create` は、バージョン・長さの単位・ヘッダーと所有履歴の値を受けて、ひな形だけを作る。`convert` は、建物モデルへ lift できる文書（別のバージョンの IFC・ST-Bridge など）から、ひな形に足して書く。`convert_estimate` は、同じ書き手で最後まで書き、予定のハッシュ・要素数と、種類と忠実度ごとの件数を返す。どれも bim のモジュールの op にし、Rust の呼び出し元も `zumen-ifc` の建物の側にある同じ関数を呼ぶ。
+- `create` は、バージョン・長さの単位・ヘッダーと所有履歴の値を受けて、ひな形だけを作る。ひな形は、プロジェクト・長さとラジアンの単位・3 次元の `Model` の文脈とその `Body` の下位の文脈（ifc-gherkin-rules の GEM052）を持ち、書き手はこの文脈を使う。長さの単位はミリメートル・センチメートル・メートルと、換算する `inch`・`foot`。所有履歴の ChangeAction は、IFC2X3 では必須なので `ADDED` を書き、IFC4 からは規則 CorrectChangeAction に合わせて書かない。`convert` は、建物モデルへ lift できる文書（別のバージョンの IFC・ST-Bridge など）から、ひな形に足して書く。`convert_estimate` は、同じ書き手で最後まで書き、予定のハッシュ・要素数と、種類と忠実度ごとの件数を返す。どれも bim のモジュールの op にし、Rust の呼び出し元も `zumen-ifc` の建物の側にある同じ関数を呼ぶ。
+- 今の `convert` は Rust の関数で、構造だけを書く。敷地・建物・階と、書き手の表にある要素（壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・プロキシ）を、名前・定義された種類・所属・配置・開口と建具の関係と、単一の値のプロパティ（`IfcPropertySingleValue`）とともに書く。書き手の型の表にある型（壁・床・柱・梁・部材・板・被覆・手すり・プロキシの型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型）も書き、要素と `IfcRelDefinesByType` で結ぶ。型の必須の PredefinedType は、元になければ `NOTDEFINED` にし、扉と窓の型の必須の OperationType・PartitioningType も `NOTDEFINED` にする。型のプロパティは `HasPropertySets` に書く。数量（`IfcElementQuantity`）も、プロパティと同じく書いた後に GlobalId で引いて書く。値の単位が書いた文書の単位のものだけを書き、IFC2X3 へは式を落とし、IFC4X3 では整数でない個数（`IfcCountMeasure` は整数）を落とす。元の文書の SI の単位（面積・体積・質量・時間など）は、種類ごとに 1 つ単位の割り当てに足し、換算する単位（度など）は落とす。材料の構成（単一・並び・層・構成要素）は、`IfcRelAssociatesMaterial` で要素と型に結ぶ。材料（`IfcMaterial`）は名前で 1 つにまとめ、どの構成も使わない材料は落とす。層の使い方の向きの正負（DirectionSense）は建物モデルに残らないので正で書いて近似とし、IFC2X3 へは層の名前を落とす。並び（`IfcMaterialList`）は IFC4 から非推奨（ifc-gherkin-rules の IFC102）なので名前のない構成要素に、構成要素は IFC2X3 にないので並びで書き、どちらも近似とする。断面の構成（`IfcMaterialProfileSet`）は、断面の形を建物モデルに持たないので書かない。形は、[形を含む lift](#所有する形とハッシュを建物に保持する) の建物モデルから、配置を書く要素にだけ書く。`Axis` の 2 次元の折れ線と、`Body` の矩形・円・折れ線の断面の押し出し・面集合・集合演算・半空間・写像を書き、`Body` は項目がすべて書けて、表現の種類が決まるときだけ書く。共有する写像元は項目ごとにたどり、1 つの `Body` で 10,000 項目を超えれば書かない。囲みの箱は、IFC2X3 と IFC4 からで座標系が違うので、またぐときは落とす（計算用の囲みで、形は変わらない）。添字の面集合は、IFC2X3 へは点の対応を当てて点を共有する多角形の面（閉殻の申告があれば Brep）にし、法線とタグを落とす。IFC4 へは点のタグを落とす。面の模型は、IFC4 からは開殻の殻の模型にする。どれも近似とする。ほかの表現（`Box`・`FootPrint` など）・形の項目（回転・掃引など）・表示を持つ形と、書けない形は、書けた分だけ書いて、落とした値の `representation` で近似とする。扉と窓の型の OperationType・PartitioningType は、元が `NOTDEFINED` ならそのまま書けたとする。定義された種類は書く前に列挙の綴りだけを確かめ、そのバージョンの列挙にあるかはまだ確かめない。プロパティは、要素を書いた後に GlobalId でインスタンスを引き、`building_apply` と同じ変更で足す。書かなかった祖先からの配置は、書いた祖先まで変換を畳む。階の高さは、IFC2X3 と IFC4 では元の `Elevation`（なければ階の高さ）を書き、IFC4.3 では元の値が親からの配置の z と違えば落とす。書けない要素（`IfcSpace`・表にない型・家具など）は `convert.element.unsupported` で落とし、書いた要素の落とした値（説明などの識別・単一の値でないプロパティ・書けない数量と材料・形・分類など、そのバージョンにない定義された種類）は近似として、値のキーごとに `convert.item.approximated` で数える。書き手が足す関係の GlobalId は、まだ名前空間と足した順から作る。長さの単位がひな形で書けなければ、`convert.element.unsupported` で書かない。
 - 書くのは、建物モデルのコンポーネントと、[形を含む lift](#所有する形とハッシュを建物に保持する)が所有する形の値。元の L1 のレコードは写さない。建物モデルにない値（未対応の形の項目、知らない実体と属性）は書かず、`zumen-sdk::conversion` の忠実度と、種類・件数・出所の診断で返す。同じバージョンへの `convert` も同じで、元のバイト列を保つ書き出しは `building_apply` が受け持つ。
 - バージョンは IFC2X3 TC1・IFC4 ADD2 TC1・IFC4X3 ADD2 の 3 つ（`FILE_SCHEMA` は `IFC2X3`・`IFC4`・`IFC4X3_ADD2`）で、`create` と `convert` の必須の引数にする。実体と属性の並びは、lift と同じ手書きのバージョンの表に足し、実体ごとにバージョンと節を引用する。スキーマは同梱せず、スキーマから生成もしない。表にない実体は書かない。
 - L1 はスキーマを持たないので、IFC のバージョンの変更（IFC2X3 から IFC4 など）は L1 の中で書き分けず、この経路で行う。落ちる値は、ほかの形式への変換と同じく忠実度で示す。
@@ -1025,7 +1073,7 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
 - 配置・表現・型は、IFC のとおり分けて持つ。配置は親の配置からの相対（`IfcLocalPlacement`）、形は要素の表現と、型の表現を写す `IfcMappedItem`、型は `IfcRelDefinesByType` で結ぶ。建物モデルの `placement`・`representation`・`type` のコンポーネントがそれぞれを読む。
 - 壁に付いた窓は、開口（`IfcOpeningElement`）を壁へ `IfcRelVoidsElement`、窓を開口へ `IfcRelFillsElement` で結び、開口と窓の配置を壁の配置からの相対にする。壁を動かせば、開口と窓は配置の相対で付いてくる。壁の厚さのように、付いてくる側の形を変える値を直すときは、文書エンジンの依存辺でたどり、同じ要求の中で開口と窓も書き直す。
 - 足す変更は 2 つの段で受ける。建物モデルのコンポーネントの値（配置・型・表現・定義・関係）で足す変更は、新しい IFC の書き手も使う。意図の値（壁なら芯の 2 点・高さ・層か型）で足す変更では、IFC の実体の組（配置・`Axis` と `Body` の表現・材料の層の使い方・所属の関係）をコアがバージョンの表で書く。製品は STEP のインスタンスを組み立てない。
-- IFC の実体で表せる意図（壁の芯、`IfcMaterialLayerSetUsage` の層と芯からのずれ、階の `Elevation`、通り芯）は、その実体に書く。表せない意図（壁の上端を上の階に合わせる、など）は、`Pset_` と `Qto_` で始めない zumen の名前空間のプロパティセットに書き、セットの名前にバージョンを持たせる。ほかのソフトがこのセットを読まなくても、形と関係は IFC の実体だけで読める。
+- IFC の実体で表せる意図（壁の芯、`IfcMaterialLayerSetUsage` の層と芯からのずれ、階の高さ、通り芯）は、その実体に書く。階の高さは、IFC2X3 と IFC4 では `Elevation` と配置に、`Elevation` を非推奨にした IFC4.3 では配置だけに書く。表せない意図（壁の上端を上の階に合わせる、など）は、`Pset_` と `Qto_` で始めない zumen の名前空間のプロパティセットに書き、セットの名前にバージョンを持たせる。ほかのソフトがこのセットを読まなくても、形と関係は IFC の実体だけで読める。今受ける意図の値（階・通り芯・壁・床・柱・梁・開口・建具と、階の高さ・壁・開口を直す値）は、どれも IFC の実体で表せるので、このセットはまだ書かない。表せない意図を初めて受けるときに、セットの名前・バージョン・値をここに書く。
 - `building_apply` の 1 つの要求を、1 つのトランザクションと取り消しの単位にする。すべての変更を確かめてから反映し、失敗・中断・予算停止では何も変えない。取り消しとやり直しは文書エンジンの履歴で、要求ごとに戻す。製品の 1 つの操作を 1 回で取り消したいときは、1 つの要求にまとめる。
 - 足す GlobalId は、今の `building_apply` と同じく文書のハッシュと足した数から作るか、呼び出し元が渡した値にする。一度書いた GlobalId は変えない。
 - 形は IFC の表現（押し出し・写像・開口の関係）で持ち、評価には[建物の 3D の形状評価](../architecture.md#建物の-3d-の形状評価)と同じカーネルを使う。B-Rep のカーネルは、メッシュで足りない範囲を測ってから決める。

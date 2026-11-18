@@ -149,6 +149,22 @@ impl Session {
         )?;
         cx.check(Kind::DecodedBytes, 1024 + request.doc.len() as u64)
             .map_err(|s| stopped(cx, s))?;
+        if request.surface == Some(true) {
+            // DEM の地形の面（#896）。点群の文書には指定できない
+            let Some(grid) = self.dem_grid(&request.doc, cx)? else {
+                return Err(fail(cx, invalid_value("/surface")));
+            };
+            let (mut result, bytes) = super::terrain::terrain_scene(
+                &request.doc,
+                &grid,
+                selection.region,
+                selection.tolerance,
+                selection.limit,
+                cx,
+            )?;
+            result.blob = self.push_scene3d(bytes);
+            return Ok(result);
+        }
         let cloud = self.cloud(&request.doc, "/doc", cx)?;
         let (mut result, bytes) = cloud_scene(&request.doc, &cloud, &selection, None, cx)?;
         drop(cloud);

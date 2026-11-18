@@ -1,7 +1,8 @@
 //! MTEXT の内容を、書式の区間に分ける（AutoCAD のヘルプが示す MTEXT の書式の符号）。
 //!
 //! 解釈する符号は、`{}` の組、`\P`（段落）・`\N`（段）・`\~`（改行しない空白）・`\\`・`\{`・`\}`、下線・上線・
-//! 取り消し線（`\L`・`\O`・`\K` と小文字）、`\U+XXXX`、値を `;` で閉じる `\H`・`\W`・`\T`・`\Q`・`\A`・`\C`・
+//! 取り消し線（`\L`・`\O`・`\K` と小文字）、`\U+XXXX`、2007 より前のバージョンの 2 バイトの文字（`\M+` と番号、
+//! 16 進の 4 桁）、値を `;` で閉じる `\H`・`\W`・`\T`・`\Q`・`\A`・`\C`・
 //! `\f`・`\F`・`\S`。ほかの符号と、値を読めない符号は、元の符号のまま `Piece::Unparsed` に置き、黙って
 //! 除かない（決定 0109）。真の色（`\c`）は値のバイト順を確かめていないので、段落の書式（`\p`）は区間の
 //! 書式でないので、解釈しない（推定。docs/formats/dxf.md）。
@@ -156,13 +157,16 @@ impl<L: Fn(f64) -> Length> Parser<'_, L> {
             'O' | 'o' => self.state.overline = code == 'O',
             'K' | 'k' => self.state.strike = code == 'K',
             'U' => return self.unicode(after),
-            // 2007 より前のバージョンの、コード・ページの文字（\M+ と 5 文字）
+            // 2007 より前のバージョンの、コード・ページの 2 バイトの文字（\M+ と番号、16 進の 4 桁）
             'M' => {
                 let (taken, tail) = match after.split_at_checked(6) {
                     Some((taken, tail)) if taken.starts_with('+') => (taken, tail),
                     _ => ("", after),
                 };
-                self.push(Piece::Unparsed(format!("\\M{taken}")));
+                match multibyte(taken) {
+                    Some(c) => self.text(c.encode_utf8(&mut [0; 4])),
+                    None => self.push(Piece::Unparsed(format!("\\M{taken}"))),
+                }
                 return tail;
             }
             'H' | 'W' | 'T' | 'Q' | 'A' | 'C' | 'c' | 'f' | 'F' | 'S' | 'p' => {
@@ -265,6 +269,18 @@ fn terminator(after: &str) -> Option<usize> {
         }
     }
     None
+}
+
+/// `\M` の後の `+<番号><16 進 4 桁>` が表す文字（[`crate::charset::multibyte`]）
+fn multibyte(taken: &str) -> Option<char> {
+    let mut chars = taken.strip_prefix('+')?.chars();
+    let number = chars.next()?;
+    let hex = chars.as_str();
+    if hex.len() != 4 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let code = u16::from_str_radix(hex, 16).ok()?;
+    crate::charset::multibyte(number, code.to_be_bytes())
 }
 
 /// 有限の数
@@ -434,6 +450,34 @@ mod tests {
     }
 
     #[test]
+    fn code_page_characters_become_text() {
+        // 1 が ANSI_932、2 が ANSI_950、3 が ANSI_949、4 が ANSI_1361（Johab）、5 が ANSI_936（ezdxf の
+        // decode_mif_to_unicode と同じ番号）
+        assert_eq!(
+            parse("\\M+1907d\\M+196CA\\M+2A4A4\\M+3C7D1\\M+4D065\\M+5D6D0"),
+            [text("図面中한한中", Format::default())]
+        );
+        // 番号のないもの、先頭のバイトでないもの（Johab の 0x81 など）、表にない 2 バイト、桁の足りないものは解釈しない
+        for code in [
+            "\\M+48140",
+            "\\M+68140",
+            "\\M+10041",
+            "\\M+2A3C0",
+            "\\M+5A2E3",
+            "\\M+1814",
+        ] {
+            let spans = parse(code);
+            assert!(
+                matches!(
+                    spans.first().map(|span| &span.piece),
+                    Some(Piece::Unparsed(_))
+                ),
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
     fn fonts_colors_and_stacks_are_read() {
         let spans = parse("\\fMS Gothic|b1|i0|c128|p49;\\C1;a\\S1/2;\\FTXT;b");
         assert_eq!(
@@ -500,13 +544,13 @@ mod tests {
     #[test]
     fn what_cannot_be_read_is_kept_as_it_was() {
         assert_eq!(
-            parse("\\c255;\\pxi-3;\\Habc;\\X\\M+18140\\U+zz}\\H1"),
+            parse("\\c255;\\pxi-3;\\Habc;\\X\\M+48140\\U+zz}\\H1"),
             [
                 plain(Piece::Unparsed("\\c255;".to_owned())),
                 plain(Piece::Unparsed("\\pxi-3;".to_owned())),
                 plain(Piece::Unparsed("\\Habc;".to_owned())),
                 plain(Piece::Unparsed("\\X".to_owned())),
-                plain(Piece::Unparsed("\\M+18140".to_owned())),
+                plain(Piece::Unparsed("\\M+48140".to_owned())),
                 plain(Piece::Unparsed("\\U".to_owned())),
                 text("+zz", Format::default()),
                 plain(Piece::Unparsed("}".to_owned())),

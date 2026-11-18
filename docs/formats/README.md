@@ -606,7 +606,6 @@
 - 権利の根拠: Ver.6.1 の仕様書は公開されていて、条件の記述はない。2015-04 に建築保全センターが Stem・BE-Bridge を承継した。承継した側の条件と、最新の版の入手先は見つからなかった。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決し、権利の行き先が分からない。最終の版から更新がなく、建築と設備の受け渡しは IFC へ移っているので、作らず、問い合わせもしない（2026-11-17、zumen-jp/zumen#401）
 - 仕様: [bebridge\_6\_1](#spec-bebridge_6_1)
 - 権利の根拠にした文書: [BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」](https://blcj.or.jp/wp/wp-content/uploads/2020/03/blcj_bim_standard_v1.pdf)（確認日: 2026-10-24）
-- issue: [zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141)
 - issue: [zumen-jp/zumen#401](https://github.com/zumen-jp/zumen/issues/401)
 
 ### format-boring
@@ -615,11 +614,11 @@
 - 権利の根拠: 国土交通省が要領と DTD を無償で公開している。実装を制限する記述はない。DTD は転載が禁じられているので同梱しない
 - 仕様: [ed\_boring\_r8\_2](#spec-ed_boring_r8_2)
 - 実装の根拠: spec
-- 権利の根拠にした文書: [KuniJiban の利用規約](https://www.kunijiban.pwri.go.jp/jp/terms.html)（確認日: 2026-11-01）
-- サンプルの出どころ: 国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #505 で確かめる
+- 権利の根拠にした文書: [KuniJiban の利用規約](https://www.kunijiban.pwri.go.jp/jp/terms.html)（確認日: 2026-11-18）
+- サンプルの出どころ: samples/boring/（国土地盤情報検索サイト KuniJiban の BED0210 のボーリング 1 本。規約は複製と頒布を認め、地盤情報であることの表示を求める）・テストの中で作る
 - 読みの確かめた度合い: `external`（確認日: 2026-11-18）
-- 読みの確かめた範囲: 国土交通省が BED0500.DTD とともに配るボーリング交換用データの作成例 1 件（地質の令和 8 年 2 月の版）を、lxml 6.1.3 に DTD で検証させ、lxml が読んだ要素の値と、コアが読む適用規格・公開フラグ・調査基本情報・位置・測地系・住所・期間・孔口標高・総削孔長・角度・方位と、地層・色調・観察記事・標準貫入試験・孔内水位の記録を照らした（crates/zumen-geology/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift\_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領とテストの中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。KuniJiban の柱状図との照合はまだ（#505）
-- 読みで使った公開サンプル: [https://www.cals-ed.go.jp/cri\_dtdxml/](https://www.cals-ed.go.jp/cri_dtdxml/)
+- 読みの確かめた範囲: 国土交通省が BED0500.DTD とともに配るボーリング交換用データの作成例 1 件（地質の令和 8 年 2 月の版）を、lxml 6.1.3 に DTD で検証させ、lxml が読んだ要素の値と、コアが読む適用規格・公開フラグ・調査基本情報・位置・測地系・住所・期間・孔口標高・総削孔長・角度・方位と、地層・色調・観察記事・標準貫入試験・孔内水位の記録を照らした（crates/zumen-geology/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift\_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領とテストの中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。旧版（BED0400・BED0300・BED0210）の要素の名前は各版の DTD の宣言と照らし、合成の入力で読みを確かめた。公開サンプル（KuniJiban の BED0210、Shift\_JIS）は、Python の標準の XML の読みで読んだ値と比べた（crates/zumen-geology/tests/samples.rs）。期待の値はテストに書いたもので、CI で外部の実装を動かしてはいない（#505）
+- 読みで使った公開サンプル: [https://www.cals-ed.go.jp/cri\_dtdxml/](https://www.cals-ed.go.jp/cri_dtdxml/)・[samples/boring/](../../samples/boring/)
 - 読みで照らした外部の実装: lxml 6.1.3
 - issue: [zumen-jp/zumen#390](https://github.com/zumen-jp/zumen/issues/390)
 - 形式の文書: [docs/formats/boring.md](../../docs/formats/boring.md)
@@ -630,7 +629,6 @@
 - 権利の根拠: 評議会の Q&amp;A は、形式を会員にだけ開示し、会員だけが使う、とする。会員は、読み書きするソフトを自由に作って売れる。実装を公開すると、会員でない人に形式を開示することになる。入会は法人が主で、入会金と年会費がそれぞれ 8 万円。オープンソースの実装は見つからない。評議会が公開の実装を認めない限り作らない（zumen-jp/zumen#401、2026-11-02）
 - 仕様: [cedxm](#spec-cedxm)
 - 権利の根拠にした文書: [シーデクセマ評議会の Q&amp;A](https://www.cedxm.com/about/faq/)（確認日: 2026-10-24）
-- issue: [zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141)
 - issue: [zumen-jp/zumen#401](https://github.com/zumen-jp/zumen/issues/401)
 
 ### format-citygml
@@ -666,11 +664,11 @@
 - 照合に使う候補: 国土交通省の電子納品チェックシステム（手元でだけ使う）
 - サンプルの出どころ: 再配布を認める公開サンプルは見つかっていない。国土交通省の作成例は転載が禁じられているので、リポジトリのテストの入力はテストの中で作る。作成例は、利用者が入手したものを手元で読んで DTD で照らす（xtask/verify/dtd/README.md）
 - 読みの確かめた度合い: `external`（確認日: 2026-11-18）
-- 読みの確かめた範囲: 国土交通省が DTD とともに配る管理ファイルの作成例 13 件（工事・業務・地質の令和 8 年 2 月の版。INDEX\_C・INDEX\_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift\_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。PHOTO.XML・DRAWING.XML などの作成例、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）
+- 読みの確かめた範囲: 国土交通省が DTD とともに配る管理ファイルの作成例 16 件（工事・業務・地質の令和 8 年 2 月の版の INDEX\_C・INDEX\_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS と、令和 4 年 3 月の版の工事の束の PHOTO・DRAWINGF・DRAWINGS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift\_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。電気通信設備・機械設備の要領の管理ファイル、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）
 - 読みで使った公開サンプル: [https://www.cals-ed.go.jp/cri\_dtdxml/](https://www.cals-ed.go.jp/cri_dtdxml/)
 - 読みで照らした外部の実装: lxml 6.1.3
 - 書きの確かめた度合い: `external`（確認日: 2026-11-18）
-- 書きの確かめた範囲: 既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 13 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書き、lxml 6.1.3 が要領の DTD の検証に通し、読んだ値が書いた値と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。記録の追加は DTD で検証していない。コアは DTD を処理しないので、DTD が子の要素だけを許す項目に文字を書くと検証に通らない。電子納品チェックシステムでの検証はまだ
+- 書きの確かめた範囲: 既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 16 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書くものと、DTD が親の中で単独の繰り返しを許す最後の子の記録を写して親の末尾に足すものを、lxml 6.1.3 が要領の DTD の検証に通し、読んだ木が書いた木と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。コアは DTD を処理しないので、繰り返せない記録を足したり、DTD が子の要素だけを許す項目に文字を書いたりすると検証に通らない。電子納品チェックシステムでの検証はまだ
 - 書きで照らした外部の実装: lxml 6.1.3
 - issue: [zumen-jp/zumen#383](https://github.com/zumen-jp/zumen/issues/383)
 - issue: [zumen-jp/zumen#384](https://github.com/zumen-jp/zumen/issues/384)
@@ -696,7 +694,6 @@
 - 書きの確かめた範囲: AutoCAD 2027（accoreconsole）で、AutoCAD で作った R2000・R2004・R2010・R2018 の DWG に、引出線の置き換え・変換・追加を当てて書き戻したものを開き、監査の誤りが 0 で、形・矢印・注記が当てた値と合うことを確かめた。R2004・R2010・R2013・R2018 は組み直したコンテナーも開けた（#345）。R2007（AC1021）は読み取り専用とし、変更と apply は dwg.edit.unsupported で断る（#874）。点の置き換え・変換・追加も 2026-11-02 に開いて確かめた（#342、5654dff）。2026-11-13 には、点・図形・画層・線種・文字スタイルなどを書き戻した R2000・R2004・R2013・R2018 の DWG 20 ファイルを同じソフトで開き、監査の誤りが 0 で、照らした値が当てた値と合うことを確かめた（#342・#156・#316・#723・#701・#683、18eb79ee）。種類・操作・版ごとの範囲と照らしていない値は docs/formats/dwg.md の「確かめた度合い」にある。寸法・表の書き戻し、属性の文字の位置と画面での見え方は確かめていない（#314）。R2018 で足した MTEXT の位置と幅を次の apply で変えても AutoCAD が変更前の値を読む食い違いは未解決（#880）。書き戻した DWG は、毎晩の CI で ACadSharp 3.8.0 で読み、通知が入力より増えないことと、変更で決めた形・画層・色が ACadSharp の読んだ値と合うことを確かめる（xtask/verify、#528）
 - 書きで照らした外部の実装: ACadSharp 3.8.0
 - 書きで開いたソフト: AutoCAD 2027
-- 旧版の記録: 旧版の決定 0003（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - 形式の文書: [docs/formats/dwg.md](../../docs/formats/dwg.md)
 
 ### format-dxf
@@ -741,18 +738,17 @@
 ### format-express
 
 - 名前: EXPRESS のスキーマ（ISO 10303-11。IFC のスキーマなど）
-- 権利の根拠: ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO の利用許諾が出版物を AI で扱うことを禁じ、出版物の一部へのアクセスでも同意したとするので、台帳の e57 と同じく、ISO の本文は買わず、OBP のプレビューも読まない（zumen-jp/zumen#677）。この台帳の作業（zumen-jp/zumen#529・zumen-jp/zumen#666・zumen-jp/zumen#677）では、本文を買わず、プレビューも読んでいないので、利用許諾（組み込みなどの権利を含めない 4 節と 6(b) を含む）に同意していない。読み取りを足した zumen-jp/zumen#450 が何を読んだかの記録はない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）
+- 権利の根拠: ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO の利用許諾が出版物を AI で扱うことを禁じ、出版物の一部へのアクセスでも同意したとするので、台帳の e57 と同じく、ISO の本文は買わず、OBP のプレビューも読まない（zumen-jp/zumen#677）。この台帳の作業（zumen-jp/zumen#529・zumen-jp/zumen#666・zumen-jp/zumen#677）では、本文を買わず、プレビューも読んでいないので、利用許諾（組み込みなどの権利を含めない 4 節と 6(b) を含む）に同意していない。読み取りを足した zumen-jp/zumen#450 が何を読んだかの記録はない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない
 - 仕様: [iso\_10303\_11\_2004](#spec-iso_10303_11_2004)
 - 実装の根拠: inferred
 - 権利の根拠にした文書: [ISO の Licence Agreement（2026-05-29 の改定）](https://www.iso.org/terms-conditions-licence-agreement.html)（確認日: 2026-11-09）
 - 文書の補足: 出版物の使用は End Customer Licence Agreement に従い、出版物（一部を含む）へのアクセス・ダウンロード・使用でも同意したとする。4 節は、許す使い方に、読み・参照することと、中身を社内の業務・製品・サービスで理解・評価・適用することを含めるとし、別の許諾がなければ、複製・配布・翻案・組み込み・デジタルの統合・派生物を作る権利は含まない。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに統合・埋め込み・符号化・構造化・変換・運用化することに、別の許諾を求める。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じ、法定のテキスト・データマイニングの例外にも頼れないとする
 - 照合に使う候補: IfcOpenShell（依存にせず、別に入れて使う）
-- サンプルの出どころ: buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない（旧版の決定 0028）。テストの中で小さなスキーマを書く
+- サンプルの出どころ: buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない。テストの中で小さなスキーマを書く
 - 読みの確かめた度合い: `external`（確認日: 2026-11-16）
 - 読みの確かめた範囲: buildingSMART の固定コミットの IFC2X3 TC1・IFC4 ADD2 TC1・IFC4X3 ADD2 を実行時だけ取得し、同じスキーマを読んだ IfcOpenShell と 2305 実体・4455 明示属性の名前・抽象指定・上位型・順序・省略可否・直接指す型名・集まりの種別と上下限を照合した。Windows と毎晩用 CI の Linux で一致した。公開 IFC 12 件の validate では明示属性の欠落 53 件の場所・型・属性・理由が一致し、外部だけの逆属性 33 件・ヘッダー 5 件・規則 639 件を対象範囲の差として別計上した。IFC4X3 の外部入力はヘッダーの版名だけを IFC4X3\_ADD2 に変えた写し。スキーマ・全宣言・一時の IFC は同梱しない（xtask/verify/express、#663）。型の別名定義・列挙と選択の全項目・導出と逆属性の宣言・継承属性の再宣言は宣言の外部照合の対象外。型不正・集まりの違反・循環・予算・中断・破損入力は小さな自作スキーマの合成検査にとどまる。WHERE・UNIQUE・RULE は評価しない。汎用の STEP の検証や wasm の同一入力照合へは広げない
 - 読みで使った公開サンプル: [https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC2x3/TC1/EXPRESS/IFC2X3\_TC1.exp](https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC2x3/TC1/EXPRESS/IFC2X3_TC1.exp)・[https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC4/ADD2\_TC1/EXPRESS/IFC4.exp](https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC4/ADD2_TC1/EXPRESS/IFC4.exp)・[https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC4\_3/HTML/IFC4X3\_ADD2.exp](https://raw.githubusercontent.com/buildingSMART/Standards-builds/dcf43f7f167b2cdf8007c1ea1ceec32de772f44f/IFC/RELEASE/IFC4_3/HTML/IFC4X3_ADD2.exp)
 - 読みで照らした外部の実装: IfcOpenShell 0.9.0.post1
-- 旧版の記録: 旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - issue: [zumen-jp/zumen#410](https://github.com/zumen-jp/zumen/issues/410)
 - issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
 - issue: [zumen-jp/zumen#663](https://github.com/zumen-jp/zumen/issues/663)
@@ -833,16 +829,15 @@
 - 権利の根拠にした文書: [buildingSMART International の Intellectual Property Policy（2021-06）](https://www.buildingsmart.org/wp-content/uploads/2021/06/bSI-Intellectual-Property-Policy.pdf)（確認日: 2026-10-31）
 - 文書の補足: 実装の許諾の記述はない。Internet Archive の 2022-03-02 の写しで確かめた
 - 権利の根拠にした文書: [buildingSMART International の検証のツール（validate）](https://github.com/buildingSMART/validate)（確認日: 2026-10-24）
-- 照合に使う候補: IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）
-- サンプルの出どころ: 公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）・許諾の要る国内の BIM ソフトの書き出しは #513 で足す（zumen-jp/zumen-legacy#128）
+- 照合に使う候補: IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）・buildingSMART の ifc-gherkin-rules（MIT。依存にせず、毎晩の CI で別に入れて使う）
+- サンプルの出どころ: 公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）・許諾の要る国内の BIM ソフトの書き出しは #513 で足す
 - 読みの確かめた度合い: `external`（確認日: 2026-11-11）
 - 読みの確かめた範囲: 公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。必要時の曲線の getter は、合成の IFC2X3 の 9 曲線・IFC4 と IFC4X3 の各 10 曲線、公開サンプル gni/model\_9 の 1 曲線で、元の属性の座標・方向の比・半径・ベクトルの大きさ・添字・区間の向き・切る位置を IfcOpenShell と照らし、食い違いは 0（crates/zumen-ifc/tests/ifcopenshell/curves.py、#419）。公開サンプルの IndexedPolyCurve 1 件を読みの external とし、自作した 29 件は synthetic の範囲で外部の実装とも照合したものとする。単位・診断・予算・幾何の評価は、この外部の曲線の照合には含めない。要素から形状表現・共有写像元をたどる L1 の getter は、合成 3 版の各 9 項目と補助レコード各 8 件、公開サンプルの柱の 6 項目と補助レコード 16 件で、参照と元の配置・写像の属性、曲線の点を IfcOpenShell と照らした（product\_shapes.py、#419）。公開の表現と写像は external、合成は synthetic の範囲で外部の実装とも照合したものとする。配置・写像・単位の適用と立体・断面の型への変換はしていない。既存の形の葉から押し出し・閉じた断面・外輪を取得する経路は、合成各版 2 件と公開の柱 1 件、計 7 件で、未適用の深さ・方向・配置と断面の名前・参照・外輪、SI 単位の名前・接頭辞を IfcOpenShell と照らし、食い違いは 0（extrusions.py、#419）。公開 1 件は external、合成 6 件は synthetic とする。配置・写像・単位の適用や自己交差・面積・形の評価、ほかの立体・断面の対応を検証した結果ではない。形の項目に直接付く面の表示は、合成各版 2 件と公開の柱 1 件、計 7 件で、色・透明度・Rendering の全属性と出所の参照を IfcOpenShell と照らし、食い違いは 0（styles.py、#419）。公開 1 件は external、合成 6 件は synthetic とする。表示・材質・レイヤ・写像による継承と反射の式は評価しない。診断と全 Kind の予算使用量はネイティブと WASI のバイト列を比較する。Building の Style 成分と形の意味値の Hash は未実装。通り芯から U/V/W 軸と曲線を取得する経路は、合成 3 Grid の 20 軸・26 曲線と公開 1 Grid の 21 軸・21 曲線で、配置と表現の参照・レイアウト・所属と順序・タグ・SameSense・曲線の元属性と共有を IfcOpenShell と照らし、食い違いは 0（grids.py、#419）。公開 1 Grid は external、合成 3 Grid は synthetic とする。単位・補助レコード・診断・予算と、配置・反転・幾何の評価は外部照合に含めない。各軸の CurveGraph 内の共有と複数軸間の同一出所を区別し、Building/Hash は未統合。別の複合 Grid の全 Part とローカル属性の所属確認、未知の属性配置の拒否、追加 Part の予算と停止位置は、合成の 3 版で native/WASI の記録を照合する synthetic の範囲。判定・インスタンスのグラフ・壊れた所の扱いと、上に記した属性以外の値は、外部の実装と照らしていない。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す
 - 読みで使った公開サンプル: [samples/ifc/](../../samples/ifc/)
 - 読みで照らした外部の実装: IfcOpenShell 0.9.0.post1
-- 書きの確かめた度合い: `external`（確認日: 2026-11-02）
-- 書きの確かめた範囲: building\_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。書いたファイルを BIM ソフトで開いてはいない（#526）
-- 書きで照らした外部の実装: IfcOpenShell 0.9.0.post1
-- 旧版の記録: 旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
+- 書きの確かめた度合い: `external`（確認日: 2026-11-18）
+- 書きの確かめた範囲: building\_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。変更だけで作った 2 階建てとそれを直した IFC の 3 版は、IfcOpenShell の検査（スキーマと EXPRESS の規則）と数・配置・所属・関係・層・開口を引いた体積の照合（crates/zumen-ifc/tests/ifcopenshell/author.py）、buildingSMART の ifc-gherkin-rules の規則（gherkin.py）にかけ、毎晩の CI で誤りがないことを確かめる（#898）。ifc-gherkin-rules の警告は、試験の入力に座標参照系がないことの GRF003 だけを許す。書いたファイルを BIM ソフトで開いてはいない（#526）
+- 書きで照らした外部の実装: IfcOpenShell 0.9.0.post1・ifc-gherkin-rules 893f8275049b8960c3ce0c7379b4b57aefeaa8f9（IfcOpenShell 0.8.5 で動かす）
 - 形式の文書: [docs/formats/ifc.md](../../docs/formats/ifc.md)
 
 ### format-isg
@@ -987,7 +982,6 @@
 - 文書の補足: ANSI の推奨の文に基づく。ダウンロードかアクセスで同意したとする。個人の、非独占の、譲渡できないライセンスで、1 台のコンピューターでだけ使え、複数のコンピューターやネットワークでの使用を許さない。結合・翻案・翻訳・改変を禁じ、権利は表紙に書かれた著作権者が持つとする。AI・機械学習を名指しする条項と、実装を制限する条項はない。手続きの画面のほかの条件と PDF の表紙の注記は確かめていない（zumen-jp/zumen#674）
 - 権利の根拠にした文書: [ISO の Licence Agreement（2026-05-29 の改定）](https://www.iso.org/terms-conditions-licence-agreement.html)（確認日: 2026-11-09）
 - 文書の補足: 出版物の使用は End Customer Licence Agreement に従い、出版物（一部を含む）へのアクセス・ダウンロード・使用でも同意したとする。4 節は、許す使い方に、読み・参照することと、中身を社内の業務・製品・サービスで理解・評価・適用することを含めるとし、別の許諾がなければ、複製・配布・翻案・組み込み・デジタルの統合・派生物を作る権利は含まない。6(b) は、出版物をソフトウェア・データモデル・AI のツールなどに統合・埋め込み・符号化・構造化・変換・運用化することに、別の許諾を求める。7(b) は、別の許諾がなければ、出版物を AI・機械学習のために読み・使い・処理することを禁じ、法定のテキスト・データマイニングの例外にも頼れないとする。無償版に当たるかは確かめていない（zumen-jp/zumen#674）
-- 旧版の記録: 旧版の決定 0020、旧版の決定 0030（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
 - issue: [zumen-jp/zumen#674](https://github.com/zumen-jp/zumen/issues/674)
 - 補足: PDF 単体の閲覧・読み取りはアプリの側（pdf.js など）で扱い、DXF・DWG の PDFUNDERLAY の描画は @zumen-jp/view2d が呼び出し側から受け取る pdf.js に任せる
 
@@ -1073,8 +1067,6 @@
 - 読みで使った公開サンプル: [samples/stbridge/](../../samples/stbridge/)
 - 読みで照らした外部の実装: STBDotNet 0.2.3
 - 既知の crate: stb-parser
-- 旧版の記録: 旧版の決定 0001、旧版の決定 0013、旧版の決定 0028（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）
-- issue: [zumen-jp/zumen-legacy#140](https://github.com/zumen-jp/zumen-legacy/issues/140)
 - issue: [zumen-jp/zumen#400](https://github.com/zumen-jp/zumen/issues/400)
 - issue: [zumen-jp/zumen#402](https://github.com/zumen-jp/zumen/issues/402)
 - 形式の文書: [docs/formats/stbridge.md](../../docs/formats/stbridge.md)
@@ -1085,7 +1077,6 @@
 - 権利の根拠: C-CADEC が作り、2015-04 に建築保全センターが承継した。最終の版は Ver.10（2015-04）。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決した。仕様書の入手先と条件は見つからなかった。BE-Bridge と同じく、作らず、問い合わせもしない（2026-11-17、zumen-jp/zumen#401）
 - 仕様: 登録なし
 - 権利の根拠にした文書: [BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」](https://blcj.or.jp/wp/wp-content/uploads/2020/03/blcj_bim_standard_v1.pdf)（確認日: 2026-10-24）
-- issue: [zumen-jp/zumen-legacy#141](https://github.com/zumen-jp/zumen-legacy/issues/141)
 - issue: [zumen-jp/zumen#401](https://github.com/zumen-jp/zumen/issues/401)
 
 ### format-svg

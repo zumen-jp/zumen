@@ -2,7 +2,7 @@
 #![cfg(feature = "civil")]
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
-use zumen_civil::{CivilModel, HorizontalKind, VerticalKind};
+use zumen_civil::{CivilModel, CrossSectionHeight, HorizontalKind, LinearPosition, VerticalKind};
 use zumen_crs::{Crs, HeightDatum, Zone};
 use zumen_ifc::Ifc;
 use zumen_landxml::LandXml;
@@ -485,4 +485,230 @@ fn geographic_projected_crs_is_rejected() {
             "expected ifc.map-crs.unsupported for {crs_name}"
         );
     }
+}
+
+/// 同じ線形に、追加距離 20 m と 140 m の横断を足した J-LandXML。20 m は幅 3.5 m・2 % の拝み勾配、140 m は
+/// 中心から左へ斜めに 3 m・6 % の片勾配。高さは計画高からの差
+#[cfg(test)]
+fn landxml_cross() -> String {
+    let rise = 3.0 * libm::sin(libm::atan(0.06));
+    let run = 3.0 * libm::cos(libm::atan(0.06));
+    LANDXML.replace(
+        "      </Profile>\n",
+        &format!(
+            r#"      </Profile>
+      <CrossSects name="横断">
+        <CrossSect sta="1020">
+          <DesignCrossSectSurf name="舗装">
+            <CrossSectPnt>-3.5 -0.07</CrossSectPnt><CrossSectPnt>0 0</CrossSectPnt><CrossSectPnt>3.5 -0.07</CrossSectPnt>
+            <Feature><Property label="heightType" value="fhOffset"/></Feature>
+          </DesignCrossSectSurf>
+        </CrossSect>
+        <CrossSect sta="1140">
+          <DesignCrossSectSurf name="舗装">
+            <CrossSectPnt>0 0</CrossSectPnt><CrossSectPnt>{:?} {rise:?}</CrossSectPnt>
+            <Feature><Property label="heightType" value="fhOffset"/></Feature>
+          </DesignCrossSectSurf>
+        </CrossSect>
+      </CrossSects>
+"#,
+            -run
+        ),
+    )
+}
+
+/// 同じ横断の IFC4.3。線形の表現に `IfcGradientCurve` を置き、舗装の `IfcSectionedSurface` の準線にする。
+/// 140 m の断面は後ろに書き、幅を勾配に沿って測る。`scale` は長さの単位、`angle` は 1 ラジアンの角の値
+#[cfg(test)]
+fn ifc_cross(units: &str, scale: f64, angle: f64) -> String {
+    let slope = libm::atan(0.02);
+    let records = format!(
+        "#100=IFCPRODUCTDEFINITIONSHAPE($,$,(#101));
+#101=IFCSHAPEREPRESENTATION(#20,'Axis','Curve3D',(#102));
+#102=IFCGRADIENTCURVE((),.F.,#103,$);
+#103=IFCCOMPOSITECURVE((),.F.);
+#110=IFCPAVEMENT('0000000000000000000110',$,'舗装',$,$,#41,#111,$,$);
+#111=IFCPRODUCTDEFINITIONSHAPE($,$,(#112));
+#112=IFCSHAPEREPRESENTATION(#20,'Body','SectionedSurface',(#113));
+#113=IFCSECTIONEDSURFACE(#102,(#121,#123),(#131,#130));
+#120=IFCPOINTBYDISTANCEEXPRESSION(IFCLENGTHMEASURE({:?}),$,$,$,#102);
+#121=IFCAXIS2PLACEMENTLINEAR(#122,$,$);
+#122=IFCPOINTBYDISTANCEEXPRESSION(IFCLENGTHMEASURE({:?}),$,$,$,#102);
+#123=IFCAXIS2PLACEMENTLINEAR(#120,$,$);
+#130=IFCOPENCROSSPROFILEDEF(.CURVE.,$,.T.,({:?},{:?}),({:?},{:?}),$,#132);
+#131=IFCOPENCROSSPROFILEDEF(.CURVE.,$,.F.,({:?}),({:?}),$,$);
+#132=IFCCARTESIANPOINT(({:?},{:?}));",
+        20.0 * scale,
+        140.0 * scale,
+        3.5 * scale,
+        3.5 * scale,
+        (core::f64::consts::PI - slope) * angle,
+        (core::f64::consts::PI + slope) * angle,
+        3.0 * scale,
+        libm::atan(0.06) * angle,
+        3.5 * scale,
+        -0.07 * scale,
+    );
+    ifc(units, MAP, scale)
+        .replace("#41,$,.USERDEFINED.", "#41,#100,.USERDEFINED.")
+        .replace("ENDSEC;\nEND-ISO", &format!("{records}\nENDSEC;\nEND-ISO"))
+}
+
+/// 横断が、J-LandXML から移したものと同じか
+#[cfg(test)]
+fn same_cross_sections(ifc: &CivilModel, landxml: &CivilModel) {
+    let (a, b) = (&ifc.alignments[0], &landxml.alignments[0]);
+    assert_eq!(a.cross_sections.len(), 2, "{:?}", a.cross_sections);
+    assert_eq!(a.cross_sections.len(), b.cross_sections.len());
+    for (p, q) in a.cross_sections.iter().zip(&b.cross_sections) {
+        assert!(
+            near(p.distance, q.distance),
+            "{} {}",
+            p.distance,
+            q.distance
+        );
+        assert_eq!(p.lines.len(), q.lines.len());
+        for (l, m) in p.lines.iter().zip(&q.lines) {
+            assert_eq!(l.name, m.name);
+            assert_eq!(l.role, m.role);
+            assert_eq!(l.height_reference, m.height_reference);
+            assert_eq!(l.points.len(), m.points.len(), "{l:?} {m:?}");
+            for (s, t) in l.points.iter().zip(&m.points) {
+                assert!(near(s[0], t[0]) && near(s[1], t[1]), "{s:?} {t:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn open_cross_profiles_move_like_the_same_landxml() {
+    let landxml = with_cx(|cx| {
+        let text = landxml_cross();
+        let file = LandXml::read(text.as_bytes(), cx).unwrap();
+        file.lift(cx).unwrap()
+    })
+    .0;
+    let (model, diag) = from_ifc(&ifc_cross(METRE, 1.0, 1.0));
+    assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
+    same_cross_sections(&model, &landxml);
+    let units = "#10=IFCUNITASSIGNMENT((#11,#12));
+#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#12=IFCCONVERSIONBASEDUNIT(#13,.PLANEANGLEUNIT.,'degree',#14);
+#13=IFCDIMENSIONALEXPONENTS(0,0,0,0,0,0,0);
+#14=IFCMEASUREWITHUNIT(IFCPLANEANGLEMEASURE(0.017453292519943295),#15);
+#15=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);";
+    let (model, diag) = from_ifc(&ifc_cross(units, 1000.0, 180.0 / core::f64::consts::PI));
+    assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
+    same_cross_sections(&model, &landxml);
+}
+
+#[test]
+fn cross_sections_that_cannot_be_placed_are_dropped() {
+    let codes_of = |text: &str| {
+        let (model, diag) = from_ifc(text);
+        assert!(model.alignments[0].cross_sections.is_empty());
+        diag.iter().map(|d| d.code()).collect::<Vec<Code>>()
+    };
+    let base = ifc_cross(METRE, 1.0, 1.0);
+    // 準線が線形の表現にない
+    let text = base.replace(",(#102));", ",());");
+    let codes = codes_of(&text);
+    assert!(
+        !codes.is_empty()
+            && codes
+                .iter()
+                .all(|c| *c == codes::IFC_CIVIL_GEOMETRY_DROPPED)
+    );
+    // 横へずらした位置
+    let text = base.replace(
+        "IFCLENGTHMEASURE(20.0),$,$,$",
+        "IFCLENGTHMEASURE(20.0),1.,$,$",
+    );
+    assert!(codes_of(&text).contains(&codes::IFC_ATTRIBUTE_INVALID));
+    // 鉛直でない軸
+    let text = base.replace(
+        "#121=IFCAXIS2PLACEMENTLINEAR(#122,$,$);",
+        "#121=IFCAXIS2PLACEMENTLINEAR(#122,#124,$);\n#124=IFCDIRECTION((0.,1.,0.));",
+    );
+    assert!(codes_of(&text).contains(&codes::IFC_PLACEMENT_UNSUPPORTED));
+    // 水平の幅で、鉛直の勾配
+    let text = base.replace(
+        &format!("{:?}),$,$);", libm::atan(0.06)),
+        &format!("{:?}),$,$);", core::f64::consts::FRAC_PI_2),
+    );
+    let text = text.replace(".CURVE.,$,.F.,", ".CURVE.,$,.T.,");
+    assert!(codes_of(&text).contains(&codes::IFC_ATTRIBUTE_INVALID));
+}
+
+/// 線形に沿って置いた信号。1 つ目は縦断の曲線から左へ 3、上へ 2.5。2 つ目は平面の曲線から右へ 1、上へ 4、
+/// 先へ 0.5 で、向きの軸を書く
+#[cfg(test)]
+fn ifc_signals(units: &str, scale: f64) -> String {
+    let records = format!(
+        "#140=IFCSIGNAL('0000000000000000000140',$,'信号',$,$,#141,$,$,$);
+#141=IFCLINEARPLACEMENT($,#142,$);
+#142=IFCAXIS2PLACEMENTLINEAR(#143,$,$);
+#143=IFCPOINTBYDISTANCEEXPRESSION(IFCLENGTHMEASURE({:?}),IFCLENGTHMEASURE({:?}),IFCLENGTHMEASURE({:?}),$,#102);
+#150=IFCSIGNAL('0000000000000000000150',$,$,$,$,#151,$,$,$);
+#151=IFCLINEARPLACEMENT($,#152,$);
+#152=IFCAXIS2PLACEMENTLINEAR(#153,#154,$);
+#153=IFCPOINTBYDISTANCEEXPRESSION(IFCLENGTHMEASURE({:?}),IFCLENGTHMEASURE({:?}),IFCLENGTHMEASURE({:?}),IFCLENGTHMEASURE({:?}),#103);
+#154=IFCDIRECTION((0.,0.,1.));",
+        30.0 * scale,
+        3.0 * scale,
+        2.5 * scale,
+        50.0 * scale,
+        -scale,
+        4.0 * scale,
+        0.5 * scale,
+    );
+    ifc_cross(units, scale, 1.0)
+        .replace("ENDSEC;\nEND-ISO", &format!("{records}\nENDSEC;\nEND-ISO"))
+}
+
+#[test]
+fn linear_placements_become_positions_along_the_alignment() {
+    let mm = "#10=IFCUNITASSIGNMENT((#11,#12));
+#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#12=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);";
+    for (units, scale) in [(METRE, 1.0), (mm, 1000.0)] {
+        let (positions, diag) = with_cx(|cx| {
+            let file = Ifc::read(ifc_signals(units, scale).as_bytes(), cx).unwrap();
+            Lift::<Vec<LinearPosition>>::lift(&file, cx).unwrap()
+        });
+        assert_eq!(positions.len(), 2, "{positions:?}");
+        let (a, b) = (&positions[0], &positions[1]);
+        assert_eq!(a.element, "0000000000000000000140");
+        assert_eq!(a.name.as_deref(), Some("信号"));
+        assert_eq!(a.kind, "IFCSIGNAL");
+        assert_eq!(a.alignment, "0000000000000000000040");
+        assert!(near(a.distance, 30.0) && near(a.offset, -3.0) && near(a.height, 2.5));
+        assert_eq!(a.height_reference, CrossSectionHeight::FormationOffset);
+        assert!(near(a.longitudinal, 0.0));
+        assert_eq!(b.element, "0000000000000000000150");
+        assert_eq!(b.name, None);
+        assert!(near(b.distance, 50.0) && near(b.offset, 1.0) && near(b.height, 4.0));
+        assert_eq!(b.height_reference, CrossSectionHeight::Elevation);
+        assert!(near(b.longitudinal, 0.5));
+        let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+        assert_eq!(codes, vec![codes::IFC_CIVIL_GEOMETRY_DROPPED], "{diag:?}");
+    }
+}
+
+#[test]
+fn linear_placements_on_unknown_curves_are_reported() {
+    let text = ifc_signals(METRE, 1.0).replace(
+        "IFCLENGTHMEASURE(2.5),$,#102);",
+        "IFCLENGTHMEASURE(2.5),$,#113);",
+    );
+    let (positions, diag) = with_cx(|cx| {
+        let file = Ifc::read(text.as_bytes(), cx).unwrap();
+        Lift::<Vec<LinearPosition>>::lift(&file, cx).unwrap()
+    });
+    assert_eq!(positions.len(), 1, "{positions:?}");
+    assert!(
+        diag.iter()
+            .any(|d| d.code() == codes::IFC_ATTRIBUTE_INVALID),
+        "{diag:?}"
+    );
 }

@@ -62,15 +62,27 @@ pub(crate) fn measure_types() -> impl Iterator<Item = &'static (&'static str, Op
     MEASURES.iter().chain(unit_graph::DERIVED_MEASURES)
 }
 
-/// 建物モデルを作るバージョン
+/// IFC のバージョン。建物モデルを読み、作るもの
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Version {
+pub enum Version {
+    /// IFC2X3 TC1
     Ifc2x3,
+    /// IFC4 ADD2 TC1
     Ifc4,
+    /// IFC4.3 ADD2
     Ifc4x3,
 }
 
 impl Version {
+    /// 書くときの `FILE_SCHEMA` の名前
+    pub fn file_schema(self) -> &'static str {
+        match self {
+            Self::Ifc2x3 => "IFC2X3",
+            Self::Ifc4 => "IFC4",
+            Self::Ifc4x3 => "IFC4X3_ADD2",
+        }
+    }
+
     /// `FILE_SCHEMA` の名前から。IFC4X1・IFC4X2 は正式のバージョンでないので読まない
     pub(crate) fn of(schema: &[u8]) -> Option<Self> {
         if schema
@@ -684,8 +696,6 @@ impl<'f> Lifter<'f> {
             self.relation(id, record, cx);
             self.halted(cx, Some(record.span()))?;
         }
-        self.levels(cx);
-        self.halted(cx, None)?;
         for (element, id) in core::mem::take(&mut self.types) {
             if let Some(record) = self.file.instance(id) {
                 let sets = refs(arg(record, 6));
@@ -699,6 +709,8 @@ impl<'f> Lifter<'f> {
         for (element, id) in core::mem::take(&mut self.placements) {
             self.placement(element, id, cx)?;
         }
+        self.halted(cx, None)?;
+        self.levels(cx);
         self.halted(cx, None)?;
         self.report_unmapped_relations(cx)?;
         if geometry {

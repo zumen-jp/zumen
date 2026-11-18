@@ -45,6 +45,13 @@ export async function liveDocument(executable: string, input: Uint8Array): Promi
       void target;
       const selected = await live.select([0, 0, 10, 10], live.revision!);
       const rows: number[] = selected.selection ? [...selected.selection.rows()] : [];
+      const names: string[] = (await live.layers(live.revision!)).layers?.map((layer) => layer.name) ?? [];
+      void names;
+      const drawn: number[] = [...((await live.order(live.revision!)).order?.rows() ?? [])];
+      void drawn;
+      const copies: number[] = [...((await live.copy({ revision: live.revision!, rows: [0], matrix: [1, 0, 1, 0, 1, 0] })).selection?.rows() ?? [])];
+      await live.remove({ revision: live.revision!, rows: copies }, { display: false });
+      await live.restyle({ revision: live.revision!, rows: [0], layer: 0, color: { rgb: [1, 2, 3] }, lineWeight: "default" });
       if (selected.revision !== null) await live.transform({ revision: selected.revision, rows, matrix: [1, 0, 1, 0, 1, 2] });
       await live.diagnostics(changed.requestId, { budget: { decodedBytes: null } });
     }

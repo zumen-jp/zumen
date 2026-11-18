@@ -303,9 +303,10 @@ impl DwgFile {
             db.push(object);
         }
         db.set_variable(b"$ACADVER", vec![text_value(1, self.version())]);
-        if let Some(name) = code_page_name(self.code_page) {
-            db.set_variable(b"$DWGCODEPAGE", vec![text_value(3, name)]);
-        }
+        db.set_variable(
+            b"$DWGCODEPAGE",
+            vec![text_value(3, code_page_name(self.code_page))],
+        );
         if let Some(header) = header {
             let [x0, y0, x1, y1] = header.limits;
             db.set_variable(b"$INSUNITS", vec![int(70, i64::from(header.units))]);
@@ -1339,57 +1340,36 @@ fn text_value(code: i16, text: &[u8]) -> Value {
     }
 }
 
-/// ヘッダーのコード・ページの番号（ODS 5.4.1 の 3）を、DXF の `$DWGCODEPAGE` の名前にする。番号の順は ODA の
-/// コード・ページの列挙による（推定。30 が ANSI_1252 であることをサンプルの DWG と DXF で確かめた。docs/formats/dwg.md）。
-/// 0（未定義）と表にない番号は `None`
-pub(super) fn code_page_name(number: u16) -> Option<&'static [u8]> {
-    const NAMES: [&[u8]; 44] = [
-        b"ASCII",
-        b"ISO8859-1",
-        b"ISO8859-2",
-        b"ISO8859-3",
-        b"ISO8859-4",
-        b"ISO8859-5",
-        b"ISO8859-6",
-        b"ISO8859-7",
-        b"ISO8859-8",
-        b"ISO8859-9",
-        b"DOS437",
-        b"DOS850",
-        b"DOS852",
-        b"DOS855",
-        b"DOS857",
-        b"DOS860",
-        b"DOS861",
-        b"DOS863",
-        b"DOS864",
-        b"DOS865",
-        b"DOS869",
-        b"DOS932",
-        b"MAC-ROMAN",
-        b"BIG5",
-        b"KSC5601",
-        b"JOHAB",
-        b"DOS866",
-        b"ANSI_1250",
-        b"ANSI_1251",
-        b"ANSI_1252",
-        b"GB2312",
-        b"ANSI_1253",
-        b"ANSI_1254",
-        b"ANSI_1255",
-        b"ANSI_1256",
-        b"ANSI_1257",
-        b"ANSI_874",
-        b"ANSI_932",
-        b"ANSI_936",
-        b"ANSI_949",
-        b"ANSI_950",
-        b"ANSI_1361",
-        b"ANSI_1200",
-        b"ANSI_1258",
-    ];
-    NAMES.get(usize::from(number).checked_sub(1)?).copied()
+/// ヘッダーのコード・ページの番号（ODS 5.4.1 の 3）を、AutoCAD 2027 が R2000 の DWG の文字を戻すのと同じ表を選ぶ、DXF の
+/// `$DWGCODEPAGE` の名前にする。番号は ODA のコード・ページの列挙の順（1 から ASCII・ISO8859-1〜9・DOS437 …）による。
+/// AutoCAD 2027 で番号を 0〜70 に変えた DWG を開き、名前の表で戻す番号と、CP949 で戻す 26（JOHAB）を確かめた。
+/// ほかの番号（DOS の番号・`ANSI_1361`・`ANSI_1200`・表にない番号など）は、AutoCAD と同じく `ANSI_1252` とする
+/// （docs/formats/dwg.md）
+pub(super) fn code_page_name(number: u16) -> &'static [u8] {
+    match number {
+        2 => b"ISO8859-1",
+        3 => b"ISO8859-2",
+        8 => b"ISO8859-7",
+        10 => b"ISO8859-9",
+        22 => b"DOS932",
+        24 => b"BIG5",
+        25 => b"KSC5601",
+        26 | 40 => b"ANSI_949",
+        28 => b"ANSI_1250",
+        29 => b"ANSI_1251",
+        31 => b"GB2312",
+        32 => b"ANSI_1253",
+        33 => b"ANSI_1254",
+        34 => b"ANSI_1255",
+        35 => b"ANSI_1256",
+        36 => b"ANSI_1257",
+        37 => b"ANSI_874",
+        38 => b"ANSI_932",
+        39 => b"ANSI_936",
+        41 => b"ANSI_950",
+        44 => b"ANSI_1258",
+        _ => b"ANSI_1252",
+    }
 }
 
 fn real(code: i16, value: f64) -> Value {
@@ -1629,5 +1609,39 @@ mod copy_tests {
         );
         assert_eq!(budget.used(Kind::Work), 0);
         assert_eq!(budget.used(Kind::DecodedBytes), 0);
+    }
+}
+
+#[cfg(test)]
+mod code_page_tests {
+    use super::code_page_name;
+
+    /// AutoCAD 2027 が R2000 の DWG の文字を戻した表と同じ名前にする（#327。番号を 0〜70 に変えた DWG を開いて確かめた）
+    #[test]
+    fn code_page_numbers_follow_autocad() {
+        let named = [
+            (2, "ISO8859-1"),
+            (3, "ISO8859-2"),
+            (8, "ISO8859-7"),
+            (10, "ISO8859-9"),
+            (22, "DOS932"),
+            (24, "BIG5"),
+            (25, "KSC5601"),
+            (26, "ANSI_949"),
+            (28, "ANSI_1250"),
+            (30, "ANSI_1252"),
+            (31, "GB2312"),
+            (37, "ANSI_874"),
+            (38, "ANSI_932"),
+            (41, "ANSI_950"),
+            (44, "ANSI_1258"),
+        ];
+        for (number, name) in named {
+            assert_eq!(code_page_name(number), name.as_bytes(), "{number}");
+        }
+        // ASCII・ISO8859-3・DOS437・DOS869・MAC-ROMAN・DOS866・ANSI_1361・ANSI_1200 と表にない番号は CP1252 で読む
+        for number in [0, 1, 4, 11, 21, 23, 27, 42, 43, 45, 437, u16::MAX] {
+            assert_eq!(code_page_name(number), b"ANSI_1252", "{number}");
+        }
     }
 }

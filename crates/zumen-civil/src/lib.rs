@@ -254,6 +254,31 @@ pub enum CantKind {
     },
 }
 
+/// 線形に沿って置いた要素の位置（IFC4.3 の `IfcLinearPlacement`、#376）。離れと高さは、線形の上の点からのずれ
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinearPosition {
+    /// 要素の ID（IFC は `GlobalId`、なければ `i<インスタンス番号>`）
+    pub element: String,
+    /// 要素の名前
+    pub name: Option<String>,
+    /// 要素の種類。元の形式の値を文字のまま持つ（IFC は実体の名前）
+    pub kind: String,
+    /// 線形の ID（[`Alignment::id`]）
+    pub alignment: String,
+    /// 追加距離（メートル）
+    pub distance: f64,
+    /// 線形からの水平の離れ（メートル、右を正）
+    pub offset: f64,
+    /// 高さ（メートル）。`height_reference` が計画高からの差なら上を正にした差、標高なら文書の高さの基準での標高
+    pub height: f64,
+    /// 高さの基準
+    pub height_reference: CrossSectionHeight,
+    /// 離れと高さを足した後の、接線に沿ったずれ（メートル）
+    pub longitudinal: f64,
+    /// 出所
+    pub source: Ref,
+}
+
 /// 横断
 #[derive(Clone, Debug, PartialEq)]
 pub struct CrossSection {

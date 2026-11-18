@@ -623,6 +623,18 @@ license-url = "https://github.com/mozman/ezdxf/blob/5265e6e6d02388a95f406c26983e
 attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf が書き出した examples_dxf/mtext_columns_R2007.dxf。MIT License の本文は licenses/ezdxf-MIT.txt"
 
 [[samples]]
+path = "boring/kunijiban-150326024.xml"
+sha256 = "feecfba9d4e415b658941d86a64920131c2e1468e053d462e7c3a7164f882de8"
+bytes = 33382
+title = "新大宮バイパス赤塚大門地区地質調査のボーリング交換用データ（BED0210.DTD）"
+publisher = "国土交通省等（国土地盤情報検索サイト KuniJiban。調査の発注は国土交通省 関東地方整備局 大宮国道事務所）"
+url = "https://www.kunijiban.pwri.go.jp/viewer/refer/?data=boring&type=xml&id=150326024"
+retrieved = "2026-11-18"
+license = "国土地盤情報検索サイト利用規約"
+license-url = "https://www.kunijiban.pwri.go.jp/jp/terms.html"
+attribution = "国土地盤情報検索サイト（KuniJiban）にある地盤情報"
+
+[[samples]]
 path = "dxf/acadsharp-geoloc.dxf"
 sha256 = "30d1985e3838494ed8968287933294ffac4896cd0b43e77b2ffea946551e539e"
 bytes = 114942

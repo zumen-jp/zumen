@@ -102,18 +102,137 @@ export function displayPacket(bytes) {
   return Object.freeze({ full, columns: Object.freeze(columns) });
 }
 
+const SYSTEMS = [null, "aci", "sxf", "jww"];
+
+// 画層の表: 件数と、値・フラグ・RGB・色番号・名前の長さ（各 u32）と 4 バイト境界まで 0 で埋めた UTF-8 の名前
+function layerTable(data, reply) {
+  if (data.length < 4 || reply.revision === null) throw invalid();
+  const count = data.readUInt32LE(0);
+  if (reply.result !== BigInt(count) || count > (data.length - 4) / 20) throw invalid();
+  const layers = [], values = new Set();
+  let position = 4;
+  for (let i = 0; i < count; i++) {
+    if (position + 20 > data.length) throw invalid();
+    const value = data.readUInt32LE(position), flags = data.readUInt32LE(position + 4);
+    const rgb = data.readUInt32LE(position + 8), code = data.readUInt32LE(position + 12), length = data.readUInt32LE(position + 16);
+    const end = position + 20 + length, padded = position + 20 + Math.ceil(length / 4) * 4;
+    const state = (flags & 1) !== 0, hasRgb = (flags & 32) !== 0, hasCode = (flags & 64) !== 0;
+    if (values.has(value) || flags > 0xff || (!state && (flags & 30) !== 0) || rgb > 0xffffff || (!hasRgb && rgb !== 0)
+      || (hasCode ? !SYSTEMS[code >>> 24] : code !== 0) || padded > data.length
+      || data.subarray(end, padded).some((byte) => byte !== 0)) throw invalid();
+    let name;
+    try { name = decoder.decode(data.subarray(position + 20, end)); } catch { throw invalid(); }
+    values.add(value);
+    layers.push(Object.freeze({
+      value, name,
+      state: state ? Object.freeze({ visible: (flags & 2) !== 0, printable: (flags & 4) !== 0, editable: (flags & 8) !== 0, frozen: (flags & 16) !== 0 }) : null,
+      rgb: hasRgb ? Object.freeze([rgb >>> 16, (rgb >>> 8) & 0xff, rgb & 0xff]) : null,
+      code: hasCode ? Object.freeze({ system: SYSTEMS[code >>> 24], value: code & 0xffffff }) : null,
+      followsPlacement: (flags & 128) !== 0,
+    }));
+    position = padded;
+  }
+  if (position !== data.length) throw invalid();
+  return Object.freeze(layers);
+}
+
+// 線種の表: 件数と、値・フラグ・名前の長さ・説明の長さ・列の数（各 u32）、4 バイト境界まで 0 で埋めた UTF-8 の
+// 名前と説明、f64 の列。フラグは bit 0 が定義あり、bit 1 が用紙の mm の列、bit 2 が添え物あり
+function lineTypeTable(data, reply) {
+  if (data.length < 4 || reply.revision === null) throw invalid();
+  const count = data.readUInt32LE(0);
+  if (reply.result !== BigInt(count) || count > (data.length - 4) / 20) throw invalid();
+  const lineTypes = [], values = new Set();
+  let position = 4;
+  const text = (length) => {
+    const end = position + length, padded = position + Math.ceil(length / 4) * 4;
+    if (padded > data.length || data.subarray(end, padded).some((byte) => byte !== 0)) throw invalid();
+    let found;
+    try { found = decoder.decode(data.subarray(position, end)); } catch { throw invalid(); }
+    position = padded;
+    return found;
+  };
+  for (let i = 0; i < count; i++) {
+    if (position + 20 > data.length) throw invalid();
+    const value = data.readUInt32LE(position), flags = data.readUInt32LE(position + 4);
+    const nameLength = data.readUInt32LE(position + 8), descriptionLength = data.readUInt32LE(position + 12);
+    const patternLength = data.readUInt32LE(position + 16);
+    const defined = (flags & 1) !== 0;
+    if (values.has(value) || flags > 7 || (!defined && (flags !== 0 || descriptionLength !== 0 || patternLength !== 0))) throw invalid();
+    position += 20;
+    const name = text(nameLength), description = text(descriptionLength);
+    if (patternLength > (data.length - position) / 8) throw invalid();
+    const pattern = [];
+    for (let j = 0; j < patternLength; j++) pattern.push(data.readDoubleLE(position + j * 8));
+    position += patternLength * 8;
+    values.add(value);
+    lineTypes.push(Object.freeze({
+      value, name,
+      definition: defined ? Object.freeze({
+        description, pattern: Object.freeze(pattern), basis: (flags & 2) !== 0 ? "paper" : "element", marks: (flags & 4) !== 0,
+      }) : null,
+    }));
+  }
+  if (position !== data.length) throw invalid();
+  return Object.freeze(lineTypes);
+}
+
+// 行の文字: 件数と、種類・内容のバイト数（各 u32）、4 バイト境界まで 0 で埋めた UTF-8 の内容。
+// 種類は 0 が文字でない行（内容は空）、1 が文字、2 が書式つきの文字
+const TEXT_KINDS = [null, "text", "formatted"];
+function textList(data, reply) {
+  if (data.length < 4 || reply.revision === null) throw invalid();
+  const count = data.readUInt32LE(0);
+  if (reply.result !== BigInt(count) || count > (data.length - 4) / 8) throw invalid();
+  const texts = [];
+  let position = 4;
+  for (let i = 0; i < count; i++) {
+    if (position + 8 > data.length) throw invalid();
+    const kind = data.readUInt32LE(position), length = data.readUInt32LE(position + 4);
+    position += 8;
+    const end = position + length, padded = position + Math.ceil(length / 4) * 4;
+    if (kind >= TEXT_KINDS.length || (kind === 0 && length !== 0) || padded > data.length
+      || data.subarray(end, padded).some((byte) => byte !== 0)) throw invalid();
+    let content;
+    try { content = decoder.decode(data.subarray(position, end)); } catch { throw invalid(); }
+    position = padded;
+    texts.push(Object.freeze({ kind: TEXT_KINDS[kind], content }));
+  }
+  if (position !== data.length) throw invalid();
+  return Object.freeze(texts);
+}
+
+// 記号の定義: 文書の定義の数、要求した定義の数、定義ごとの先頭の行と行の数（各 u32）、全量の表示のパケット。
+// 定義の行は要求の順に隙間なく並ぶ
+function symbolList(data, reply) {
+  if (data.length < 8 || reply.revision === null) throw invalid();
+  const total = data.readUInt32LE(0), count = data.readUInt32LE(4);
+  if (reply.result !== BigInt(count) || count > (data.length - 8) / 8) throw invalid();
+  const definitions = [];
+  let next = 0;
+  for (let i = 0; i < count; i++) {
+    const first = data.readUInt32LE(8 + i * 8), rows = data.readUInt32LE(12 + i * 8);
+    if (first !== next || rows > 0xffffffff - first) throw invalid();
+    next = first + rows;
+    definitions.push(Object.freeze({ first, rows }));
+  }
+  const display = displayPacket(data.subarray(8 + count * 8));
+  if (!display.full) throw invalid();
+  return Object.freeze({ total, definitions: Object.freeze(definitions), display });
+}
+
 export function response(bytes, pending) {
   if (bytes.length < PREFIX) throw invalid();
   const statusCode = bytes.readUInt32LE(0), displayCode = bytes.readUInt32LE(4);
   const kind = bytes.readUInt32LE(40), length = bytes.readUInt32LE(48);
   if (statusCode >= STATUSES.length || ![0, 1, 6, 7, 8].includes(displayCode)
-    || kind > 5 || length !== bytes.length - PREFIX || bytes.readUInt32LE(52) !== 0 || bytes.readUInt32LE(132) !== 0) throw invalid();
+    || kind > 10 || length !== bytes.length - PREFIX || bytes.readUInt32LE(52) !== 0 || bytes.readUInt32LE(132) !== 0) throw invalid();
   const value = (offset) => { const n = bytes.readBigUInt64LE(offset); return n === NONE ? null : n; };
   const reply = {
     requestId: pending.id, status: STATUSES[statusCode], displayStatus: STATUSES[displayCode],
     revision: value(8), state: value(16), result: bytes.readBigUInt64LE(24), base: value(32),
     diagnosticCount: bytes.readUInt32LE(44), used: {}, stop: null, data: bytes.subarray(PREFIX),
-    display: null, target: null, selection: null,
+    display: null, target: null, selection: null, layers: null, order: null, lineTypes: null, texts: null, symbols: null,
   };
   for (let i = 0; i < 7; i++) reply.used[KINDS[i]] = bytes.readBigUInt64LE(56 + i * 8);
   const stopKind = bytes.readUInt32LE(112), limit = bytes.readBigUInt64LE(116), requested = bytes.readBigUInt64LE(124);
@@ -124,7 +243,7 @@ export function response(bytes, pending) {
   else if (stopKind > 7) reply.stop = { kind: stopKind === 8 ? "cancelled" : "timedOut" };
   const wantsDisplay = (pending.flags & 1) !== 0 || pending.command === 2;
   const expected = statusCode !== 0 || displayCode !== 0 ? 0 : wantsDisplay ? 1
-    : pending.command === 6 ? 2 : pending.command === 7 ? 3 : pending.command === 8 ? 4 : pending.command === 10 ? 5 : 0;
+    : pending.command === 6 ? 2 : pending.command === 7 ? 3 : pending.command === 8 ? 4 : pending.command === 10 || pending.command === 14 ? 5 : pending.command === 11 ? 6 : pending.command === 12 ? 7 : pending.command === 16 ? 8 : pending.command === 17 ? 9 : pending.command === 19 ? 10 : 0;
   if (kind !== expected || (kind === 0 && length !== 0) || ((statusCode !== 0 || !wantsDisplay) && displayCode !== 0)
     || (kind !== 1 && reply.base !== null) || (reply.revision === null) !== (reply.state === null)) throw invalid();
   if (kind === 1) {
@@ -147,6 +266,30 @@ export function response(bytes, pending) {
     // 全件を検査してから借用する。配列の複製とホストのエンディアンへの依存を避ける。
     const data = reply.data;
     reply.selection = Object.freeze({
+      length: count,
+      *rows() { for (let i = 0; i < count; i++) yield data.readUInt32LE(4 + i * 4); },
+    });
+  } else if (kind === 6) {
+    reply.layers = layerTable(reply.data, reply);
+  } else if (kind === 8) {
+    reply.lineTypes = lineTypeTable(reply.data, reply);
+  } else if (kind === 9) {
+    reply.texts = textList(reply.data, reply);
+  } else if (kind === 10) {
+    reply.symbols = symbolList(reply.data, reply);
+  } else if (kind === 7) {
+    if (length < 4 || reply.revision === null) throw invalid();
+    const count = reply.data.readUInt32LE(0);
+    if (length !== 4 + count * 4 || reply.result !== BigInt(count)) throw invalid();
+    // 描く順は昇順でないので、重複は集合で確かめる
+    const seen = new Set();
+    for (let i = 0; i < count; i++) {
+      const row = reply.data.readUInt32LE(4 + i * 4);
+      if (row >= 0x80000000 || seen.has(row)) throw invalid();
+      seen.add(row);
+    }
+    const data = reply.data;
+    reply.order = Object.freeze({
       length: count,
       *rows() { for (let i = 0; i < count; i++) yield data.readUInt32LE(4 + i * 4); },
     });

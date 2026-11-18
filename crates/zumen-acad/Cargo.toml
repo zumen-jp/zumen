@@ -21,12 +21,13 @@ zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d", optional = true }
 zumen-live = { version = "0.3.0", path = "../zumen-live", optional = true }
 libm = { version = "0.2.16", default-features = false, optional = true }
 # 2007 より前のバージョンの Shift_JIS（ANSI_932）の文字を戻し、書くときも同じ表で符号化する（新しい DXF のひな形の
-# 部品の名前など）。WHATWG の Shift_JIS で、環境によらない（決定 0175・0192、#509）
+# 部品の名前など）。WHATWG の Shift_JIS で、環境によらない（決定 0175・0192、#509）。ANSI_936・ANSI_949・ANSI_950・ANSI_1361 も
+# WHATWG の GBK・EUC-KR・Big5 から Microsoft の表にして戻す（#327）
 encoding_rs = { version = "0.8.35", optional = true }
 
 [features]
 default = ["drawing"]
-# R2004 の同系統の再符号化では、L1 だけでも CP932 の名前を照合できる
+# R2004 の同系統の再符号化では、L1 だけでも CP932 と 2 バイトの Windows のコード・ページの名前を照合できる
 cp932 = ["dep:encoding_rs"]
 # DXF から図面モデル（L2）への変換。L1 だけを使うなら外せる
 drawing = ["dep:zumen-drawing", "dep:zumen-geom2d", "dep:zumen-live", "dep:libm", "cp932"]

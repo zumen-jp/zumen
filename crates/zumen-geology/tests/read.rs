@@ -193,6 +193,79 @@ fn the_height_realization_follows_the_datum_and_the_date() {
     assert!(diag.contains(&(codes::BORING_VALUE_INVALID, Some("測地系".to_string()))));
 }
 
+/// 5.00 の合成の入力を、旧版の要素の名前に書き換える。名前は各版の DTD の要素の宣言による
+#[cfg(test)]
+fn old_bed(version: &str, datum: &str) -> String {
+    const LAYER: &str = "工学的地質区分名現場土質名";
+    let (dtd, layer, name, symbol) = match version {
+        "3.00" => (
+            "BED0300.DTD",
+            "岩石土区分",
+            "岩石土区分_岩石土名",
+            "岩石土区分_岩石土記号",
+        ),
+        _ => (
+            "BED0210.DTD",
+            "土質岩種区分",
+            "土質岩種区分_土質岩種区分1",
+            "土質岩種区分_土質岩種記号1",
+        ),
+    };
+    let mut text = bed(datum, "2026-10-20")
+        .replace("BED0500.DTD", dtd)
+        .replace("5.00", version)
+        .replace(&format!("{LAYER}_{LAYER}記号"), symbol)
+        .replace(&format!("{LAYER}_{LAYER}"), name)
+        .replace(LAYER, layer)
+        .replace("総削孔長", "総掘進長")
+        .replace(
+            "<角度>90.00</角度>",
+            "<掘進角度>90.00</掘進角度><掘進方向>45</掘進方向>",
+        )
+        .replace("削孔状況コード", "掘削状況コード")
+        .replace(
+            "<公開フラグ><公開フラグ_コード>1</公開フラグ_コード><公開フラグ_備考/></公開フラグ>",
+            "",
+        );
+    if version == "2.10" {
+        // 2.10 には基礎情報がない
+        text = text.replace(
+            "<基礎情報>\n    <適用規格>JIS A 0205-2019</適用規格>\n    \n  </基礎情報>",
+            "",
+        );
+    }
+    text
+}
+
+#[test]
+fn old_versions_are_read_by_their_element_names() {
+    // 旧版の測地系は 1 桁のコード
+    let current = bed("01", "2026-10-20");
+    let (expected, expected_diag) = with_cx(|cx| read(current.as_bytes(), cx));
+    let mut expected = expected.unwrap();
+    expected.publication = None;
+    expected.direction = Some(45.0);
+    for version in ["3.00", "2.10"] {
+        let src = old_bed(version, "1");
+        assert!(!src.contains("工学的地質区分名") && !src.contains("削孔状況"));
+        let (boring, diag) = with_cx(|cx| read(src.as_bytes(), cx));
+        let boring = boring.unwrap();
+        if version == "2.10" {
+            assert!(!src.contains("基礎情報"));
+            expected.standards.clear();
+        }
+        assert_eq!(boring, expected, "{version}");
+        assert_eq!(diag, expected_diag, "{version}");
+        assert_eq!(boring.layers[0].symbol.as_deref(), Some("B"));
+        assert_eq!(boring.water_levels[0].state.as_deref(), Some("1"));
+        assert_eq!(boring.length, Some(10.0));
+        assert_eq!(boring.datum, Some(Datum::Jgd2000));
+        let src = old_bed(version, "0");
+        let (boring, _) = with_cx(|cx| read(src.as_bytes(), cx));
+        assert_eq!(boring.unwrap().datum, Some(Datum::Tokyo));
+    }
+}
+
 #[test]
 fn other_documents_are_rejected() {
     let (boring, diag) = with_cx(|cx| read(b"<BORING DTD_version=\"2.00\"/>", cx));

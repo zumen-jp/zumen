@@ -1,4 +1,4 @@
-// AcadLive を保持する CLI の、Node.js / Electron main 向け接続。
+// 常駐文書（DXF・DWG・JWW・SXF）を保持する CLI の、Node.js / Electron main 向け接続。
 import { spawn } from "node:child_process";
 
 import { STATUS, ZumenError } from "./index.js";
@@ -30,6 +30,63 @@ function flagsOf(options, defaultDisplay) {
   const full = options.full ?? false;
   if (typeof display !== "boolean" || typeof full !== "boolean" || (full && !display)) throw new TypeError("full は display とともに指定する");
   return display ? full ? 3 : 1 : 0;
+}
+
+const COLOR_SYSTEMS = { aci: 1, sxf: 2, jww: 3 };
+
+/** restyle の本文の行の前（線種を変えなければ 48 バイト、変えれば 56 バイト）を作る。形が合わなければ例外にする */
+function styleWords({ layer, color, lineWeight, lineTypeScale, lineType }) {
+  let mask = 0, layerValue = 0, colorKind = 0, colorFlags = 0, code = 0, rgb = 0, weightKind = 0, width = 0, scale = 0;
+  if (layer !== undefined) { mask |= 1; layerValue = rowOf(layer); }
+  if (color !== undefined) {
+    mask |= 2;
+    if (color === "layer" || color === "block") colorKind = color === "layer" ? 0 : 1;
+    else if (color !== null && typeof color === "object") {
+      colorKind = 2;
+      if (color.code !== undefined) {
+        const system = COLOR_SYSTEMS[color.code?.system];
+        const value = color.code?.value;
+        if (!system || !Number.isInteger(value) || value < 0 || value > 0xffffff) throw new TypeError("color.code は aci・sxf・jww と 24 bit の値にする");
+        colorFlags |= 1; code = ((system << 24) | value) >>> 0;
+      }
+      if (color.rgb !== undefined) {
+        const values = Array.from(color.rgb ?? []);
+        if (values.length !== 3 || values.some((v) => !Number.isInteger(v) || v < 0 || v > 255)) throw new TypeError("color.rgb は 0〜255 の 3 つの整数にする");
+        colorFlags |= 2; rgb = (values[0] << 16) | (values[1] << 8) | values[2];
+      }
+      if (colorFlags === 0) throw new TypeError("color は code か rgb を持つ");
+    } else throw new TypeError("color は \"layer\"・\"block\" か { code, rgb } にする");
+  }
+  if (lineWeight !== undefined) {
+    mask |= 4;
+    if (lineWeight === "layer") weightKind = 0;
+    else if (lineWeight === "block") weightKind = 1;
+    else if (lineWeight === "default") weightKind = 3;
+    else if (typeof lineWeight === "number" && Number.isFinite(lineWeight) && lineWeight >= 0) { weightKind = 2; width = lineWeight; }
+    else throw new TypeError("lineWeight は \"layer\"・\"block\"・\"default\" か 0 以上の mm にする");
+  }
+  if (lineTypeScale !== undefined) {
+    if (typeof lineTypeScale !== "number" || !Number.isFinite(lineTypeScale) || lineTypeScale <= 0) throw new TypeError("lineTypeScale は正の数にする");
+    mask |= 8; scale = lineTypeScale;
+  }
+  let lineTypeKind = 0, lineTypeValue = 0;
+  if (lineType !== undefined) {
+    mask |= 16;
+    if (lineType === "layer") lineTypeKind = 0;
+    else if (lineType === "block") lineTypeKind = 1;
+    else { lineTypeKind = 2; lineTypeValue = rowOf(lineType); }
+  }
+  if (mask === 0) throw new TypeError("layer・color・lineWeight・lineTypeScale・lineType のどれかを変える");
+  const size = lineType === undefined ? 48 : 56;
+  return {
+    size,
+    write(out) {
+      for (const [i, value] of [mask, layerValue, colorKind, colorFlags, code, rgb, weightKind].entries()) out.writeUInt32LE(value, 4 + i * 4);
+      out.writeDoubleLE(width, 32);
+      out.writeDoubleLE(scale, 40);
+      if (size === 56) { out.writeUInt32LE(lineTypeKind, 48); out.writeUInt32LE(lineTypeValue, 52); }
+    },
+  };
 }
 
 /** 1 子プロセスの 1 文書。コアの失敗は状態として返し、通信の失敗だけを例外にする */
@@ -195,6 +252,15 @@ export class LiveProcess {
     return this.#request(7, 0, u64(revision, "revision"), options, 4, (out) => out.writeUInt32LE(row));
   }
 
+  /** 表示に出る生きた行を、先に描くものから並べて、指定した版で取得する */
+  async order(revision, options = {}) { return this.#request(12, 0, u64(revision, "revision"), options, 0); }
+
+  /** 表示のスタイルの画層の値と、その画層の名前・状態・色を、指定した版で取得する */
+  async layers(revision, options = {}) { return this.#request(11, 0, u64(revision, "revision"), options, 0); }
+
+  /** restyle の線種に使える線種の値と、その名前・定義を、指定した版で取得する */
+  async lineTypes(revision, options = {}) { return this.#request(16, 0, u64(revision, "revision"), options, 0); }
+
   /** モデル空間の囲む箱と交差する行を、指定した版で取得する */
   async select(rect, revision, options = {}) {
     this.#check();
@@ -211,6 +277,81 @@ export class LiveProcess {
     if ((!Array.isArray(matrix) && !(matrix instanceof Float64Array)) || matrix.length !== 6
       || Array.from(matrix).some((value) => typeof value !== "number")) throw new TypeError("matrix は 6 つの数値にする");
     return this.#request(3, flagsOf(options, true), u64(revision, "revision"), options, 56 + rows.length * 4, (out) => {
+      out.writeUInt32LE(rows.length, 0);
+      for (let i = 0; i < 6; i++) out.writeDoubleLE(matrix[i], 8 + i * 8);
+      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 56 + i * 4);
+    });
+  }
+
+  /** 行の文字の種類と内容を、要求の順に取得する。生きていない行があれば missing */
+  async texts(rows, revision, options = {}) {
+    this.#check();
+    if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
+    return this.#request(17, 0, u64(revision, "revision"), options, 8 + rows.length * 4, (out) => {
+      out.writeUInt32LE(rows.length, 0);
+      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 8 + i * 4);
+    });
+  }
+
+  /** 記号の定義の表示を、definitions の順に返す。空なら定義の数だけを返す */
+  async symbols(definitions, revision, options = {}) {
+    this.#check();
+    if ((!Array.isArray(definitions) && !(definitions instanceof Uint32Array)) || definitions.length > 65536) throw new RangeError("definitions は 65536 個までの定義の番号にする");
+    for (const index of definitions) {
+      if (!Number.isInteger(index) || index < 0 || index > 0xfffffffe) throw new RangeError("定義の番号は 0 から 4294967294 の整数にする");
+    }
+    return this.#request(19, 0, u64(revision, "revision"), options, 8 + definitions.length * 4, (out) => {
+      out.writeUInt32LE(definitions.length, 0);
+      for (let i = 0; i < definitions.length; i++) out.writeUInt32LE(definitions[i], 8 + i * 4);
+    });
+  }
+
+  /** 文字の行の内容を content に替える。既定で表示の差分を返す */
+  async setText({ revision, rows, content }, options = {}) {
+    this.#check();
+    if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
+    if (typeof content !== "string" || !content.isWellFormed()) throw new TypeError("content は対になったサロゲートだけの文字列にする");
+    const text = Buffer.from(content, "utf8");
+    if (text.length > 1 << 20) throw new RangeError("content は UTF-8 で 1 MiB までにする");
+    const padded = Math.ceil(text.length / 4) * 4;
+    return this.#request(18, flagsOf(options, true), u64(revision, "revision"), options, 8 + padded + rows.length * 4, (out) => {
+      out.writeUInt32LE(rows.length, 0);
+      out.writeUInt32LE(text.length, 4);
+      text.copy(out, 8);
+      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 8 + padded + i * 4);
+    });
+  }
+
+  /** 行を除く。既定で表示の差分を返す */
+  async remove({ revision, rows }, options = {}) {
+    this.#check();
+    if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
+    return this.#request(13, flagsOf(options, true), u64(revision, "revision"), options, 8 + rows.length * 4, (out) => {
+      out.writeUInt32LE(rows.length, 0);
+      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 8 + i * 4);
+    });
+  }
+
+  /** 行の画層・色・線幅・線種・線種の倍率を変える。画層は layers の、線種は lineTypes の value で指す。既定で表示の差分を返す */
+  async restyle({ revision, rows, ...style }, options = {}) {
+    this.#check();
+    if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
+    const { size, write } = styleWords(style);
+    return this.#request(15, flagsOf(options, true), u64(revision, "revision"), options, size + rows.length * 4, (out) => {
+      out.writeUInt32LE(rows.length, 0);
+      write(out);
+      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), size + i * 4);
+    });
+  }
+
+  /** 行を写し、写しを動かす。写しの行を selection に返し、表示は返さない */
+  async copy({ revision, rows, matrix }, options = {}) {
+    this.#check();
+    if (options.display !== undefined || options.full !== undefined) throw new TypeError("copy は表示を返さない。display で取り直す");
+    if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
+    if ((!Array.isArray(matrix) && !(matrix instanceof Float64Array)) || matrix.length !== 6
+      || Array.from(matrix).some((value) => typeof value !== "number")) throw new TypeError("matrix は 6 つの数値にする");
+    return this.#request(14, 0, u64(revision, "revision"), options, 56 + rows.length * 4, (out) => {
       out.writeUInt32LE(rows.length, 0);
       for (let i = 0; i < 6; i++) out.writeDoubleLE(matrix[i], 8 + i * 8);
       for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 56 + i * 4);

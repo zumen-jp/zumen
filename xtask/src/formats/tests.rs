@@ -51,8 +51,7 @@ rights = "public"
 rights-note = "テスト用の根拠"
 place = "core"
 basis = ["spec"]
-legacy-decisions = ["0003"]
-issues = ["zumen-jp/zumen-legacy#140"]
+issues = ["zumen-jp/zumen#400"]
 docs = ["docs/formats/dxf.md"]
 read = { level = "synthetic", scope = "テストの中で作ったファイル", checked = "2026-11-03" }
 
@@ -165,12 +164,7 @@ fn rejects_invalid_values_and_inconsistent_references() {
             "checked",
         ),
         ("https://example.com/spec", "https:///spec", "url"),
-        (
-            "legacy-decisions = [\"0003\"]",
-            "legacy-decisions = [\"3\"]",
-            "旧版の決定",
-        ),
-        ("zumen-jp/zumen-legacy#140", "zumen-legacy#140", "issue"),
+        ("zumen-jp/zumen#400", "zumen#400", "issue"),
         ("docs/formats/dxf.md", "docs/formats/missing.md", "実在する"),
         ("restricted-reader", "restricted-reader@1.0", "crate の名前"),
         (
@@ -732,8 +726,7 @@ fn renders_records_in_key_order_with_working_links() {
     assert!(output.find("### format-dxf").unwrap() < output.find("### format-restricted").unwrap());
     for expected in [
         "[dxf\\_1](#spec-dxf_1)",
-        "旧版の決定 0003",
-        "https://github.com/zumen-jp/zumen-legacy/issues/140",
+        "https://github.com/zumen-jp/zumen/issues/400",
         "../../docs/formats/dxf.md",
         "テスト用の根拠",
         "2024-02-29",

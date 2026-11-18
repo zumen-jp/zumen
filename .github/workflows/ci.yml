@@ -263,8 +263,11 @@ jobs:
       - name: 建物の数量・丸め・根拠・予算停止を同じバイト列で照らす（#424）
         shell: bash
         run: |
-          cargo clippy --package zumen-building --package zumen-ifc --features zumen-building/measure,zumen-ifc/measure --all-targets --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }} -- -D warnings
+          cargo clippy --package zumen-building --package zumen-ifc --features zumen-building/measure,zumen-ifc/measure,zumen-ifc/drawing --all-targets --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }} -- -D warnings
           cargo test --package zumen-building --features measure --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          cargo test --package zumen-ifc --features drawing,measure --test author --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          cargo build --package zumen-ifc --features drawing,measure --example author_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          python crates/zumen-ifc/tests/check_author.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/author_contract"
           cargo build --package zumen-building --features measure --example measure_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
           python crates/zumen-building/tests/check_measure.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/measure_contract"
       - name: 確認申請のプロファイル・面積・診断・予算停止を同じバイト列で照らす（#426）
@@ -386,6 +389,11 @@ jobs:
         run: |
           cargo build --package zumen-building --features measure --example measure_contract --target wasm32-wasip1 --locked
           python3 crates/zumen-building/tests/check_measure.py --wasm target/wasm32-wasip1/debug/examples/measure_contract.wasm
+      - name: 変更だけで作った建物と直した文書の IFC・建物モデル・平断面・体積・予算停止を wasm で照らす（#898）
+        if: env.TEST_CORE == 'true'
+        run: |
+          cargo build --package zumen-ifc --features drawing,measure --example author_contract --target wasm32-wasip1 --locked
+          python3 crates/zumen-ifc/tests/check_author.py --wasm target/wasm32-wasip1/debug/examples/author_contract.wasm
       - name: 確認申請のプロファイル・面積・診断・予算停止を wasm で照らす（#426）
         if: env.TEST_CORE == 'true'
         run: |
@@ -433,13 +441,15 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: bindings/go/go.sum
-      - name: Go の新旧の入力の経路・メモリの削減・適合ハッシュを確かめる
+      - name: Go の新旧の入力の経路・メモリの削減・子プロセスのエンジン・適合ハッシュを確かめる
         if: env.TEST_GO == 'true'
         run: |
           cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm bindings/go/
           test -z "$(gofmt -l bindings/go)"
           go -C bindings/go vet ./...
-          go -C bindings/go test -count=1 -v ./...
+          # 子プロセスのエンジン（#462）の適合テストに、ネイティブの CLI を使う
+          cargo build --package zumen-cli --locked
+          ZUMEN_CLI="$PWD/target/debug/zumen" go -C bindings/go test -count=1 -v ./...
       - name: worker で大きな図面を読む間のタイマーと、入力・blob の転送を確かめる
         if: env.TEST_CORE == 'true'
         run: node bindings/js/test/worker.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm

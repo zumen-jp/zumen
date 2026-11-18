@@ -9,6 +9,7 @@ mod edit;
 #[cfg(test)]
 mod equivalence;
 mod implicit;
+mod ipc;
 mod open;
 mod query;
 mod shape;

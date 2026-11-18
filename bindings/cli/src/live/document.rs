@@ -2,7 +2,7 @@
 
 use zumen_acad::AcadLive;
 use zumen_base::{Cx, Diagnostic, Error, Kind, codes};
-use zumen_drawing::{Affine, Applied, Changes, Edit, Seen};
+use zumen_drawing::{Affine, Applied, Changes, Edit, Layer, LineType, Placed, Restyle, Seen};
 use zumen_jww::{Jww, JwwLive};
 use zumen_live::display::Display;
 use zumen_live::{Revision, RowId, display_wire};
@@ -11,6 +11,31 @@ use zumen_sxf::{Mode, Sxf, SxfLive};
 
 // 編集列の固定部分を、環境共通の 1 行 256 バイトで確保前に検査する。
 const _: () = assert!(core::mem::size_of::<Edit>() <= 256);
+
+/// 行を指す編集。変換は表示の座標で受ける
+#[derive(Clone, Debug)]
+pub(super) enum RowEdit {
+    /// 画層・色・線種の倍率・線幅を変える
+    Restyle(Restyle),
+    /// 動かす
+    Move(Affine),
+    /// 写して、写しを動かす
+    Copy(Affine),
+    /// 除く
+    Remove,
+    /// 文字の内容を替える。替えられるのは文書エンジンの `display_retexted` が受ける文字だけ
+    Text(String),
+}
+
+/// 記号の定義の表示
+pub(super) struct Symbols {
+    /// 文書の記号の定義の数。表示の挿入の定義の値は `0..` この数
+    pub total: u32,
+    /// 要求した定義ごとの、`display` での先頭の行と行の数
+    pub ranges: Vec<[u32; 2]>,
+    /// 要求した定義の要素を、要求の順に 1 要素 1 行で並べた表示
+    pub display: Display,
+}
 
 /// 実行入口の状態エラー。コアの診断とは別に応答する。
 #[derive(Debug, PartialEq)]
@@ -93,6 +118,15 @@ impl Engine {
         }
     }
 
+    /// 表の行の数（削除した行を含む）。足した行は末尾に並ぶ
+    fn row_count(&self) -> usize {
+        match self {
+            Self::Acad(live) => live.table().len(),
+            Self::Jww(live) => live.row_count(),
+            Self::Sxf(live) => live.row_count(),
+        }
+    }
+
     fn seen_of_row(&self, row: RowId, cx: &mut Cx<'_>) -> Result<Option<Seen>, Error> {
         match self {
             Self::Acad(live) => live.seen_of_row(row, cx),
@@ -154,6 +188,51 @@ impl Engine {
             Self::Acad(live) => live.save(cx),
             Self::Jww(live) => live.save(cx),
             Self::Sxf(live) => live.save(cx),
+        }
+    }
+
+    fn layers(&self, cx: &mut Cx<'_>) -> Result<Vec<(u32, Layer)>, Error> {
+        match self {
+            Self::Acad(live) => live.display_layers(cx),
+            Self::Jww(live) => live.display_layers(cx),
+            Self::Sxf(live) => live.display_layers(cx),
+        }
+    }
+
+    fn retexted(
+        &self,
+        row: RowId,
+        content: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Placed>, Error> {
+        match self {
+            Self::Acad(live) => live.display_retexted(row, content, cx),
+            Self::Jww(live) => live.display_retexted(row, content, cx),
+            Self::Sxf(live) => live.display_retexted(row, content, cx),
+        }
+    }
+
+    fn text(&self, row: RowId, cx: &mut Cx<'_>) -> Result<Option<(u32, String)>, Error> {
+        match self {
+            Self::Acad(live) => live.display_text(row, cx),
+            Self::Jww(live) => live.display_text(row, cx),
+            Self::Sxf(live) => live.display_text(row, cx),
+        }
+    }
+
+    fn line_types(&self, cx: &mut Cx<'_>) -> Result<Vec<LineType>, Error> {
+        match self {
+            Self::Acad(live) => live.display_line_types(cx),
+            Self::Jww(live) => live.display_line_types(cx),
+            Self::Sxf(live) => live.display_line_types(cx),
+        }
+    }
+
+    fn order(&self, cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        match self {
+            Self::Acad(live) => live.display_order(cx),
+            Self::Jww(live) => live.display_order(cx),
+            Self::Sxf(live) => live.display_order(cx),
         }
     }
 
@@ -274,12 +353,12 @@ impl Document {
         })
     }
 
-    /// 1 要求中の移動を既存 Changes の 1 トランザクションとして確定する。
-    pub fn transform(
+    /// 1 要求中の行の編集を既存 Changes の 1 トランザクションとして確定する。
+    pub fn edit(
         &mut self,
         expected: Revision,
         rows: &[RowId],
-        transform: Affine,
+        edit: &RowEdit,
         cx: &mut Cx<'_>,
     ) -> Result<Vec<Applied>, Problem> {
         self.require_revision(expected)?;
@@ -295,17 +374,52 @@ impl Document {
                 .live
                 .seen_of_row(row, cx)?
                 .ok_or(Problem::Missing(row))?;
+            let (name, transform) = match edit {
+                RowEdit::Remove => {
+                    edits.push(Edit::Remove { target });
+                    continue;
+                }
+                RowEdit::Restyle(style) => {
+                    edits.push(Edit::Restyle {
+                        target,
+                        style: style.clone(),
+                    });
+                    continue;
+                }
+                RowEdit::Text(content) => {
+                    let Some(element) = self.live.retexted(row, content, cx)? else {
+                        // 文字でない行と、区間が書式や区切りを持つ書式つきの文字は、内容だけを替えられない
+                        cx.report(
+                            Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
+                                .with("edit", "text")
+                                .with("kind", "shape")
+                                .with("format", self.live.format()),
+                        );
+                        return Err(Problem::Core(Error::Rejected));
+                    };
+                    edits.push(Edit::Replace {
+                        target,
+                        element: Box::new(element),
+                    });
+                    continue;
+                }
+                &RowEdit::Move(transform) => ("transform", transform),
+                &RowEdit::Copy(transform) => ("copy", transform),
+            };
             let Some(transform) = self.live.row_transform(row, transform) else {
                 // 表示の座標が 1 つに決まらない行（ビューに置いていない、または 2 つ以上のビューに置いた SXF の空間の要素）は動かせない
                 cx.report(
                     Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
-                        .with("edit", "transform")
+                        .with("edit", name)
                         .with("kind", "view")
                         .with("format", self.live.format()),
                 );
                 return Err(Problem::Core(Error::Rejected));
             };
-            edits.push(Edit::Transform { target, transform });
+            edits.push(match edit {
+                RowEdit::Copy(_) => Edit::Copy { target, transform },
+                _ => Edit::Transform { target, transform },
+            });
         }
         self.live
             .apply(
@@ -316,6 +430,11 @@ impl Document {
                 cx,
             )
             .map_err(Problem::Core)
+    }
+
+    /// 表の行の数（削除した行を含む）。写しの行は、当てる前のこの数から順に足される
+    pub fn row_count(&self) -> usize {
+        self.live.row_count()
     }
 
     pub fn undo(&mut self, expected: Revision, cx: &mut Cx<'_>) -> Result<bool, Problem> {
@@ -344,5 +463,56 @@ impl Document {
 
     pub fn live_count(&self) -> u32 {
         self.live.live_count()
+    }
+
+    /// 表示のスタイルの画層の値と、その画層の組
+    pub fn layers(&self, cx: &mut Cx<'_>) -> Result<Vec<(u32, Layer)>, Error> {
+        self.live.layers(cx)
+    }
+
+    /// 行の文字の種類（0 文字でない・1 文字・2 書式つきの文字）と、元の符号のままの内容。要求の順に返す。
+    /// 生きていない行があれば `Problem::Missing`
+    pub fn texts(&self, rows: &[RowId], cx: &mut Cx<'_>) -> Result<Vec<(u32, String)>, Problem> {
+        let mut out = Vec::with_capacity(rows.len());
+        for &row in rows {
+            out.push(self.live.text(row, cx)?.ok_or(Problem::Missing(row))?);
+        }
+        Ok(out)
+    }
+
+    /// `Restyle` の線種に使える線種の表。値は図面モデルの `LineTypeId`
+    pub fn line_types(&self, cx: &mut Cx<'_>) -> Result<Vec<LineType>, Error> {
+        self.live.line_types(cx)
+    }
+
+    /// 記号の定義 `indices` の要素を、定義の座標のまま要求の順に並べる。範囲外の定義は Invalid。
+    /// 定義をまだ書けない形式（JWW・SXF）は `call.op.unsupported` を診断して Rejected
+    pub fn symbols(&self, indices: &[u32], cx: &mut Cx<'_>) -> Result<Symbols, Problem> {
+        let Engine::Acad(live) = &self.live else {
+            cx.report(Diagnostic::new(codes::CALL_OP_UNSUPPORTED).with("op", "symbols"));
+            return Err(Problem::Core(Error::Rejected));
+        };
+        let mut display = Display::with_rows(0);
+        let mut ranges = Vec::with_capacity(indices.len());
+        let mut first = 0_u32;
+        for &index in indices {
+            let rows = live
+                .display_symbol(index, &mut display, cx)?
+                .ok_or(Problem::Core(Error::Invalid))?;
+            ranges.push([first, rows]);
+            first = first
+                .checked_add(rows)
+                .ok_or(Problem::Core(Error::Invalid))?;
+        }
+        Ok(Symbols {
+            total: live.display_symbol_count(),
+            ranges,
+            display,
+        })
+    }
+
+    /// 表示に出る生きた行を、先に描くものから並べたもの
+    pub fn order(&self, cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        self.live.order(cx)
     }
 }

@@ -49,6 +49,12 @@ test("実プロセスの 64 行差分・古い版・保存・undo / redo", { ski
     const target = await live.target(65, opened.revision);
     assert.equal(target.target.id, "space/0/h51");
     assert.match(target.target.hash, /^v2:[0-9a-f]{32}$/);
+    const layers = await live.layers(opened.revision);
+    assert.equal(layers.result, 1n);
+    assert.equal(layers.layers[0].name, "0");
+    assert.equal((await live.layers(opened.revision + 1n)).status, "stale");
+    const order = await live.order(opened.revision);
+    assert.deepEqual([...order.order.rows()], Array.from({ length: 130 }, (_, i) => i));
     const changed = await live.transform({ revision: opened.revision, rows: [65], matrix: move });
     assert.equal(changed.revision, 1n);
     assert.equal(changed.result, 1n);
@@ -73,6 +79,36 @@ test("実プロセスの 64 行差分・古い版・保存・undo / redo", { ski
     assert.deepEqual(mirror(redone, { ...initial, revision: undone.revision }).columns, updated.columns);
     assert.deepEqual((await live.save()).data, saved.data);
     assert.equal((await live.open(input)).status, "alreadyOpen");
+    const restyled = await live.restyle({ revision: live.revision, rows: [3], color: { code: { system: "aci", value: 3 } }, lineTypeScale: 2 });
+    assert.equal(restyled.status, "ok");
+    assert.equal(restyled.result, 1n);
+    assert.notEqual(restyled.display, null);
+    assert.equal((await live.restyle({ revision: restyled.revision, rows: [3], layer: 999 })).status, "invalid");
+    const lineTypes = await live.lineTypes(restyled.revision);
+    assert.equal(lineTypes.status, "ok");
+    assert.equal(lineTypes.result, BigInt(lineTypes.lineTypes.length));
+    assert.equal((await live.lineTypes(restyled.revision + 1n)).status, "stale");
+    assert.equal((await live.restyle({ revision: restyled.revision, rows: [3], lineType: 999 })).status, "invalid");
+    await live.undo(live.revision);
+    const copied = await live.copy({ revision: live.revision, rows: [65, 3], matrix: move });
+    assert.equal(copied.status, "ok");
+    assert.equal(copied.display, null);
+    assert.deepEqual([...copied.selection.rows()], [130, 131]);
+    const removed = await live.remove({ revision: copied.revision, rows: [130] });
+    assert.equal(removed.result, 1n);
+    assert.notEqual(removed.display, null);
+    assert.equal((await live.remove({ revision: removed.revision, rows: [130] })).status, "missing");
+    const texts = await live.texts([3, 65], removed.revision);
+    assert.equal(texts.status, "ok");
+    assert.equal(texts.result, 2n);
+    assert.equal(texts.texts.length, 2);
+    assert.equal((await live.texts([130], removed.revision)).status, "missing");
+    assert.equal((await live.texts([3], removed.revision + 1n)).status, "stale");
+    assert.equal((await live.target(130, removed.revision)).status, "missing");
+    assert.equal((await live.target(131, removed.revision)).status, "ok");
+    await live.undo(live.revision);
+    await live.undo(live.revision);
+    assert.deepEqual((await live.save()).data, saved.data);
   } finally { await live.close(); }
   assert(live.closed);
 });
@@ -175,6 +211,206 @@ for (const mode of ["selection-count", "selection-result", "selection-truncated"
     const { live } = await fake(mode);
     try {
       await assert.rejects(live.select([1, 2, 3, 4], 0n), transport("protocol"));
+      assert(live.broken);
+    } finally { await live.close(); }
+  });
+}
+
+test("画層の表を検査してから凍結して公開する", async () => {
+  const { live } = await fake("layers");
+  try {
+    const reply = await live.layers(7n);
+    assert.equal(reply.revision, 7n);
+    assert.equal(reply.result, 2n);
+    assert.deepEqual(reply.layers, [
+      { value: 7, name: "0", state: { visible: true, printable: false, editable: true, frozen: false }, rgb: [0x12, 0x34, 0x56], code: null, followsPlacement: true },
+      { value: 3, name: "壁", state: null, rgb: null, code: { system: "jww", value: 5 }, followsPlacement: false },
+    ]);
+    assert(Object.isFrozen(reply.layers) && Object.isFrozen(reply.layers[0]) && Object.isFrozen(reply.layers[0].state));
+    assert.equal((await live.save()).layers, null);
+    await assert.rejects(live.layers(undefined), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+test("線種の表を検査してから凍結して公開する", async () => {
+  const { live } = await fake("line-types");
+  try {
+    const reply = await live.lineTypes(5n);
+    assert.equal(reply.revision, 5n);
+    assert.equal(reply.result, 2n);
+    assert.deepEqual(reply.lineTypes, [
+      { value: 2, name: "DASH", definition: { description: "", pattern: [1.5, -0.5], basis: "paper", marks: false } },
+      { value: 9, name: "線", definition: null },
+    ]);
+    assert(Object.isFrozen(reply.lineTypes) && Object.isFrozen(reply.lineTypes[0].definition.pattern));
+    assert.equal((await live.save()).lineTypes, null);
+    await assert.rejects(live.lineTypes(undefined), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+test("行の文字を検査してから凍結して公開する", async () => {
+  const { live } = await fake("texts");
+  try {
+    const reply = await live.texts([4, 2, 7], 5n);
+    assert.equal(reply.revision, 5n);
+    assert.equal(reply.result, 3n);
+    assert.deepEqual(reply.texts, [
+      { kind: null, content: "" },
+      { kind: "text", content: "AB" },
+      { kind: "formatted", content: "線" },
+    ]);
+    assert(Object.isFrozen(reply.texts) && Object.isFrozen(reply.texts[1]));
+    assert.equal((await live.save()).texts, null);
+    await assert.rejects(live.texts([1], undefined), RangeError);
+    await assert.rejects(live.texts([-1], 5n), RangeError);
+    await assert.rejects(live.texts("1", 5n), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+test("記号の定義を全件の検証後に公開する", async () => {
+  const { live } = await fake("symbols");
+  try {
+    const reply = await live.symbols([2, 0], 5n);
+    assert.equal(reply.symbols.total, 3);
+    assert.deepEqual(reply.symbols.definitions, [{ first: 0, rows: 0 }, { first: 0, rows: 0 }]);
+    assert.equal(reply.symbols.display.full, true);
+    assert(Object.isFrozen(reply.symbols) && Object.isFrozen(reply.symbols.definitions));
+    await assert.rejects(live.symbols([0.5], 5n), RangeError);
+    await assert.rejects(live.symbols([-1], 5n), RangeError);
+    await assert.rejects(live.symbols([0xffffffff], 5n), RangeError);
+    await assert.rejects(live.symbols("1", 5n), RangeError);
+    await assert.rejects(live.symbols([0], undefined), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+for (const mode of ["symbols-delta", "symbols-first", "symbols-count", "symbols-truncated", "symbols-extra", "symbols-result"]) {
+  test(`不正な記号の定義を公開せず接続を終了する: ${mode}`, async () => {
+    const { live } = await fake(mode);
+    try {
+      await assert.rejects(live.symbols([0, 1], 0n), transport("protocol"));
+      assert(live.broken);
+    } finally { await live.close(); }
+  });
+}
+
+test("実プロセスで記号の定義の表示を引く", { skip: !executable, timeout: 30000 }, async () => {
+  const live = await openLiveProcess(executable);
+  try {
+    const input = Buffer.from("0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n8\n0\n2\nB1\n70\n0\n10\n0\n20\n0\n3\nB1\n"
+      + "0\nLINE\n8\n0\n10\n0\n20\n0\n11\n1\n21\n1\n0\nCIRCLE\n8\n0\n10\n0\n20\n0\n40\n1\n0\nENDBLK\n0\nENDSEC\n"
+      + "0\nSECTION\n2\nENTITIES\n0\nINSERT\n8\n0\n2\nB1\n10\n5\n20\n5\n0\nENDSEC\n0\nEOF\n");
+    const opened = await live.open(input, { display: false });
+    const counted = await live.symbols([], opened.revision);
+    assert.equal(counted.status, "ok");
+    assert.deepEqual(counted.symbols.definitions, []);
+    const total = counted.symbols.total;
+    const all = await live.symbols(Array.from({ length: total }, (_, i) => i), opened.revision);
+    assert.equal(all.symbols.definitions.length, total);
+    assert(all.symbols.definitions.some(({ rows }) => rows === 2));
+    assert.equal((await live.symbols([total], opened.revision)).status, "invalid");
+  } finally { await live.close(); }
+});
+
+for (const mode of ["texts-kind", "texts-empty", "texts-padding", "texts-content", "texts-count", "texts-length", "texts-truncated", "texts-extra", "texts-result"]) {
+  test(`不正な文字の列を公開せず接続を終了する: ${mode}`, async () => {
+    const { live } = await fake(mode);
+    try {
+      await assert.rejects(live.texts([0], 0n), transport("protocol"));
+      assert(live.broken);
+    } finally { await live.close(); }
+  });
+}
+
+for (const mode of ["line-types-duplicate", "line-types-flags", "line-types-undefined", "line-types-padding", "line-types-name", "line-types-count", "line-types-pattern", "line-types-truncated", "line-types-extra", "line-types-result"]) {
+  test(`不正な線種の表を公開せず接続を終了する: ${mode}`, async () => {
+    const { live } = await fake(mode);
+    try {
+      await assert.rejects(live.lineTypes(0n), transport("protocol"));
+      assert(live.broken);
+    } finally { await live.close(); }
+  });
+}
+
+for (const mode of ["layers-duplicate", "layers-flags", "layers-state", "layers-rgb", "layers-system", "layers-padding", "layers-name", "layers-count", "layers-truncated", "layers-extra", "layers-result"]) {
+  test(`不正な画層の表を公開せず接続を終了する: ${mode}`, async () => {
+    const { live } = await fake(mode);
+    try {
+      await assert.rejects(live.layers(0n), transport("protocol"));
+      assert(live.broken);
+    } finally { await live.close(); }
+  });
+}
+
+test("描く順を検査してから借りて公開する", async () => {
+  const { live } = await fake("order");
+  try {
+    const reply = await live.order(4n);
+    assert.equal(reply.revision, 4n);
+    assert.equal(reply.order.length, 3);
+    assert.deepEqual([...reply.order.rows()], [5, 1, 9]);
+    assert(Object.isFrozen(reply.order));
+    assert.equal((await live.save()).order, null);
+    assert.deepEqual([...reply.order.rows()], [5, 1, 9]);
+    await assert.rejects(live.order(-1), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+test("実プロセスで文字の内容を替え、取り消す", { skip: !executable, timeout: 30000 }, async () => {
+  const live = await openLiveProcess(executable);
+  try {
+    const input = Buffer.from("0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n10\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n"
+      + "0\nTEXT\n5\n11\n8\n0\n10\n0\n20\n0\n40\n2.5\n1\nHELLO\n0\nENDSEC\n0\nEOF\n");
+    const opened = await live.open(input, { display: false });
+    assert.equal(opened.result, 2n);
+    const before = await live.texts([0, 1], opened.revision);
+    const row = before.texts.findIndex(({ kind }) => kind === "text");
+    assert.equal(before.texts[row].content, "HELLO");
+    const changed = await live.setText({ revision: opened.revision, rows: [row], content: "WORLD" });
+    assert.equal(changed.status, "ok");
+    assert.equal(changed.result, 1n);
+    assert.notEqual(changed.display, null);
+    assert.deepEqual((await live.texts([row], changed.revision)).texts, [{ kind: "text", content: "WORLD" }]);
+    assert.match((await live.save()).data.toString(), /WORLD/);
+    assert.equal((await live.setText({ revision: changed.revision, rows: [1 - row], content: "x" })).status, "rejected");
+    assert.equal((await live.setText({ revision: opened.revision, rows: [row], content: "x" })).status, "stale");
+    await live.undo(changed.revision);
+    assert.deepEqual((await live.save()).data, input);
+  } finally { await live.close(); }
+});
+
+test("copy・remove・restyle の引数を送る前に検査する", async () => {
+  const { live } = await fake("order");
+  try {
+    await assert.rejects(live.copy({ revision: 0n, rows: [0], matrix: move }, { display: true }), TypeError);
+    await assert.rejects(live.copy({ revision: 0n, rows: [0], matrix: [1, 0, 0] }), TypeError);
+    await assert.rejects(live.copy({ revision: 0n, rows: [-1], matrix: move }), RangeError);
+    await assert.rejects(live.remove({ revision: 0n, rows: new Uint32Array(65537) }), RangeError);
+    await assert.rejects(live.remove({ revision: -1, rows: [0] }), RangeError);
+    await assert.rejects(live.setText({ revision: 0n, rows: [0], content: 1 }), TypeError);
+    await assert.rejects(live.setText({ revision: 0n, rows: [0], content: "\ud800" }), TypeError);
+    await assert.rejects(live.setText({ revision: 0n, rows: [0], content: "x".repeat((1 << 20) + 1) }), RangeError);
+    await assert.rejects(live.setText({ revision: 0n, rows: [-1], content: "x" }), RangeError);
+    for (const bad of [{}, { color: "red" }, { color: {} }, { color: { rgb: [1, 2] } }, { color: { code: { system: "x", value: 1 } } },
+      { lineWeight: -1 }, { lineWeight: "none" }, { lineTypeScale: 0 }]) {
+      await assert.rejects(live.restyle({ revision: 0n, rows: [0], ...bad }), TypeError);
+    }
+    await assert.rejects(live.restyle({ revision: 0n, rows: [0], layer: -1 }), RangeError);
+    await assert.rejects(live.restyle({ revision: 0n, rows: [0], lineType: -1 }), RangeError);
+    await assert.rejects(live.restyle({ revision: 0n, rows: [0], lineType: "none" }), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+for (const mode of ["order-duplicate", "order-virtual", "order-truncated", "order-result"]) {
+  test(`不正な描く順を公開せず接続を終了する: ${mode}`, async () => {
+    const { live } = await fake(mode);
+    try {
+      await assert.rejects(live.order(0n), transport("protocol"));
       assert(live.broken);
     } finally { await live.close(); }
   });

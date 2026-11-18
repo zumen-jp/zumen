@@ -129,4 +129,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Windows の端末の既定（cp1252 など）では日本語を書けないので、UTF-8 で書く
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     main()

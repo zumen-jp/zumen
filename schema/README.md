@@ -21,7 +21,7 @@ VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenN
 {"v":1,"op":"review_scene","doc":"plan.dxf","review":"review.json","target":"plan","from":"space/0","tolerance":0.01,"style":{"color":"#ff0000","line_weight":0.35,"text_height":2.5,"text_padding":0.5,"arrow_length":2,"arrows":"end","cloud_pitch":3,"marker_size":2}}
 ```
 
-`tolerance` と `style` は必須です。色・線幅・寸法を文書の値や旧版の値から推測しないためです。`from`・`view`・`region`・`fonts` は `scene` と同じ意味で、`print`・`palette`・`heights` は受け付けません。文書の図形・場所の `view` が起点と合う項目だけを描き、別の対象・起点の項目は混ぜません。
+`tolerance` と `style` は必須です。色・線幅・寸法を文書の値から推測しないためです。`from`・`view`・`region`・`fonts` は `scene` と同じ意味で、`print`・`palette`・`heights` は受け付けません。文書の図形・場所の `view` が起点と合う項目だけを描き、別の対象・起点の項目は混ぜません。
 
 結果の `sources` は描いた図形・場所ごとに、シーンの ID（シーンの `entity_ids`）から元の図形の `markup`、または指摘の `topic` と場所の `location` へ戻す対応です。描く順に並びます。題・作者・写真などの文言はシーンに入れず、呼び手が元の ID から引きます。図形の規則と診断は[レビューの文書と 2D の図形](../docs/formats/review.md)にあります。
 
@@ -156,6 +156,10 @@ DXF・DWG は 4 種類の表、JWW・SXF は各形式が追加できるレイヤ
 線分・折れ線の直線と円弧・円・円弧は元の定義を使います。楕円の全面積とクロソイドの長さも解析的に求めます。ほかの楕円、スプライン、クロソイドの距離は折れ線で近似し、`approximate: true` と、要素の ID・計測の種類・出所・件数を持つ `drawing.element-measurement.approximated` を返します。`tolerance` は正の有限値で、既定は空間の単位で `0.001` です。曲線を分割する弦の誤差の目標であり、計測値の誤差上限の保証ではありません。要求に使った値を結果にも返します。
 
 折れ線と分割数の上限は 65,536、スプラインの制御点・フィット点は各 4,096、次数は 32 です。作業量と確保量を先に数え、作った点は `segments`、距離の組み合わせは `work` で数えます。近似の上限、未対応の形、閉じていない経路、数値の範囲外などは `drawing.element-measurement.failed` に理由と元の要素を残し、計測の部分結果を返しません。予算停止後も文書を再利用できます。期待値と環境間の応答の一致は[計測の適合テスト](../bindings/conformance/README.md#計測)で確認します。
+
+スキーマ 1.102 から、距離の対象に `{"kind":"split_point","position":{"origin":{"x":1e16,"y":1e16},"offset":{"x":3,"y":4}}}` のように原点と相対座標を分けた点を使えます。両方の対象が点（`point` か `split_point`）のときだけ使え、要素との組み合わせは `split-point-with-element` で拒みます。原点と相対座標を先に足さず、X・Y の差を 4 項の正確な和から一度だけ丸めてから長さを求めるので、大きな原点と小さな差も、原点の違う 2 点も桁を落としません。差か長さが有限に収まらなければ `overflow`、有限でない成分は `invalid-point` で拒み、部分結果を返しません。`nearest_first` と `nearest_second` は原点と相対座標の和を丸めた点で、位置を正確には表しません。
+
+同じ版から、`distance` で両方の対象が点なら、`from` に公開用紙の ID（`drawing` の `sheets` の `id`）も指定できます。校正を使わずに用紙の座標の距離を返し、`unit` は用紙の `millimeter`、`sheet` は `true` です。これは実寸ではありません。校正した実寸は、校正を明示的に選ぶ `measure_distance` で求めます。校正がないことを実寸の推定で埋めません。用紙の要素は `sheet-element` で拒み、距離のほかの計測は `/from` の値の誤りです。実寸の空間の結果には `sheet` を返しません。`expected_hash`・診断・予算の扱いはほかの計測と同じです。期待値と環境間の一致は[点の計測の適合テスト](../bindings/conformance/README.md#計測)で確認します。
 
 ## 色の表とレイヤの非表示
 

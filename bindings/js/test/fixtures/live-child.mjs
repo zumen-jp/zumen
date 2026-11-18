@@ -64,6 +64,123 @@ function handle(request, body) {
     send(out);
     return;
   }
+  if (request.command === 12) {
+    // 描く順は昇順に限らない
+    const data = Buffer.alloc(16);
+    data.writeUInt32LE(3, 0);
+    for (const [i, row] of [5, 1, 9].entries()) data.writeUInt32LE(row, 4 + i * 4);
+    if (mode === "order-duplicate") data.writeUInt32LE(5, 12);
+    if (mode === "order-virtual") data.writeUInt32LE(0x80000000, 8);
+    const out = reply(request, 0, 7, mode === "order-truncated" ? data.subarray(0, 14) : data);
+    out.writeBigUInt64LE(body.readBigUInt64LE(56), 32);
+    out.writeBigUInt64LE(mode === "order-result" ? 2n : 3n, 48);
+    send(out);
+    return;
+  }
+  if (request.command === 16) {
+    // 線種 2 件: 用紙の mm の列を持つ "DASH"、定義のない "線"（UTF-8 3 バイト、1 バイト埋める）
+    const name = Buffer.from("線");
+    const data = Buffer.alloc(68);
+    data.writeUInt32LE(2, 0);
+    for (const [i, word] of [2, 1 | 2, 4, 0, 2].entries()) data.writeUInt32LE(word, 4 + i * 4);
+    data.write("DASH", 24);
+    data.writeDoubleLE(1.5, 28);
+    data.writeDoubleLE(-0.5, 36);
+    for (const [i, word] of [9, 0, name.length, 0, 0].entries()) data.writeUInt32LE(word, 44 + i * 4);
+    name.copy(data, 64);
+    if (mode === "line-types-duplicate") data.writeUInt32LE(2, 44);
+    if (mode === "line-types-flags") data.writeUInt32LE(8 | 1, 8);
+    if (mode === "line-types-undefined") data.writeUInt32LE(0, 8);
+    if (mode === "line-types-padding") data[67] = 1;
+    if (mode === "line-types-name") data[64] = 0xff;
+    if (mode === "line-types-count") data.writeUInt32LE(0xffffffff, 0);
+    if (mode === "line-types-pattern") data.writeUInt32LE(0x10000000, 20);
+    let payload = mode === "line-types-truncated" ? data.subarray(0, 60) : data;
+    if (mode === "line-types-extra") payload = Buffer.concat([data, Buffer.alloc(4)]);
+    const out = reply(request, 0, 8, payload);
+    out.writeBigUInt64LE(body.readBigUInt64LE(56), 32);
+    out.writeBigUInt64LE(0n, 40);
+    out.writeBigUInt64LE(mode === "line-types-result" ? 3n : 2n, 48);
+    send(out);
+    return;
+  }
+  if (request.command === 19) {
+    // 記号の定義 2 件（文書には 3 件）。どちらも行がなく、表示は空の全量のパケット
+    const packet = Buffer.alloc(16 + 13 * 16);
+    packet.writeUInt32LE(0x50444c5a, 0);
+    packet.writeUInt16LE(1, 4);
+    packet.writeUInt16LE(mode === "symbols-delta" ? 0 : 1, 6);
+    packet.writeUInt32LE(packet.length, 8);
+    packet.writeUInt32LE(13, 12);
+    const widths = [8, 1, 2, 7, 1, 2, 8, 1, 2, 9, 3, 1, 2];
+    for (const [id, width] of widths.entries()) {
+      packet.writeUInt32LE(id, 16 + id * 16);
+      packet.writeUInt32LE(width, 20 + id * 16);
+    }
+    const data = Buffer.concat([Buffer.alloc(24), packet]);
+    data.writeUInt32LE(3, 0);
+    data.writeUInt32LE(2, 4);
+    if (mode === "symbols-first") data.writeUInt32LE(1, 16);
+    if (mode === "symbols-count") data.writeUInt32LE(0xffffffff, 4);
+    let payload = mode === "symbols-truncated" ? data.subarray(0, 20) : data;
+    if (mode === "symbols-extra") payload = Buffer.concat([data, Buffer.alloc(4)]);
+    const out = reply(request, 0, 10, payload);
+    out.writeBigUInt64LE(body.readBigUInt64LE(56), 32);
+    out.writeBigUInt64LE(0n, 40);
+    out.writeBigUInt64LE(mode === "symbols-result" ? 3n : 2n, 48);
+    send(out);
+    return;
+  }
+  if (request.command === 17) {
+    // 文字 3 件: 文字でない行、"AB"（2 バイト埋める）、書式つきの "線"（UTF-8 3 バイト、1 バイト埋める）
+    const name = Buffer.from("線");
+    const data = Buffer.alloc(4 + 8 + 8 + 4 + 8 + 4);
+    data.writeUInt32LE(3, 0);
+    for (const [i, word] of [0, 0, 1, 2].entries()) data.writeUInt32LE(word, 4 + i * 4);
+    data.write("AB", 20);
+    for (const [i, word] of [2, name.length].entries()) data.writeUInt32LE(word, 24 + i * 4);
+    name.copy(data, 32);
+    if (mode === "texts-kind") data.writeUInt32LE(3, 12);
+    if (mode === "texts-empty") data.writeUInt32LE(1, 8);
+    if (mode === "texts-padding") data[35] = 1;
+    if (mode === "texts-content") data[32] = 0xff;
+    if (mode === "texts-count") data.writeUInt32LE(0xffffffff, 0);
+    if (mode === "texts-length") data.writeUInt32LE(0x10000000, 16);
+    let payload = mode === "texts-truncated" ? data.subarray(0, 30) : data;
+    if (mode === "texts-extra") payload = Buffer.concat([data, Buffer.alloc(4)]);
+    const out = reply(request, 0, 9, payload);
+    out.writeBigUInt64LE(body.readBigUInt64LE(56), 32);
+    out.writeBigUInt64LE(0n, 40);
+    out.writeBigUInt64LE(mode === "texts-result" ? 2n : 3n, 48);
+    send(out);
+    return;
+  }
+  if (request.command === 11) {
+    // 画層 2 件: 状態と RGB を持つ "0"、色番号だけの "壁"（UTF-8 3 バイト、1 バイト埋める）
+    const name = Buffer.from("壁");
+    const data = Buffer.alloc(4 + 24 + 24);
+    data.writeUInt32LE(2, 0);
+    for (const [i, word] of [7, 1 | 2 | 8 | 32 | 128, 0x123456, 0, 1].entries()) data.writeUInt32LE(word, 4 + i * 4);
+    data.write("0", 24);
+    for (const [i, word] of [3, 64, 0, (3 << 24) | 5, name.length].entries()) data.writeUInt32LE(word, 28 + i * 4);
+    name.copy(data, 48);
+    if (mode === "layers-duplicate") data.writeUInt32LE(7, 28);
+    if (mode === "layers-flags") data.writeUInt32LE(256, 32);
+    if (mode === "layers-state") data.writeUInt32LE(2, 32);
+    if (mode === "layers-rgb") data.writeUInt32LE(0x1000000, 12);
+    if (mode === "layers-system") data.writeUInt32LE(4 << 24, 40);
+    if (mode === "layers-padding") data[51] = 1;
+    if (mode === "layers-name") data[48] = 0xff;
+    if (mode === "layers-count") data.writeUInt32LE(0xffffffff, 0);
+    let payload = mode === "layers-truncated" ? data.subarray(0, 50) : data;
+    if (mode === "layers-extra") payload = Buffer.concat([data, Buffer.alloc(4)]);
+    const out = reply(request, 0, 6, payload);
+    out.writeBigUInt64LE(body.readBigUInt64LE(56), 32);
+    out.writeBigUInt64LE(0n, 40);
+    out.writeBigUInt64LE(mode === "layers-result" ? 3n : 2n, 48);
+    send(out);
+    return;
+  }
   let out = reply(request, 0, 2, stored);
   if (mode === "wrong-id") out.writeBigUInt64LE(request.id + 1n, 8);
   if (mode === "wrong-magic") out[0] = 0;

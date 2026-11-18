@@ -1,0 +1,692 @@
+{
+  "description": "building_apply だけで、プロジェクトの単位だけの IFC4 に 2 階建ての建物（建物・2 つの階・通り芯と、各階の 4 つの壁・床・柱・梁・開口と扉か窓）を一から作り（#898）、作った建物モデルの要約・要素と 3D の場面を、各環境の全バイトで照らす",
+  "module": "bim",
+  "steps": [
+    {
+      "push": {
+        "name": "a.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#10);\n#10=IFCUNITASSIGNMENT((#11));\n#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.ifc"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "class": "ifcproject"
+      },
+      "expect": {
+        "/result/elements/0/hash": "v1:cd1b938433f9bf39893405462244b609"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "edits": [
+          {
+            "kind": "add_space",
+            "space": "building",
+            "parent": {
+              "id": "0000000000000000000001",
+              "hash": "v1:cd1b938433f9bf39893405462244b609"
+            },
+            "name": "B",
+            "placement": {
+              "matrix": [
+                [
+                  1,
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            "global_id": "0000000000000000001000"
+          },
+          {
+            "kind": "add_space",
+            "space": "storey",
+            "parent": {
+              "added": 0
+            },
+            "name": "1F",
+            "elevation": 0,
+            "placement": {
+              "relative_to": {
+                "added": 0
+              },
+              "matrix": [
+                [
+                  1,
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  1,
+                  0
+                ]
+              ]
+            },
+            "global_id": "0000000000000000001001"
+          },
+          {
+            "kind": "add_space",
+            "space": "storey",
+            "parent": {
+              "added": 0
+            },
+            "name": "2F",
+            "elevation": 3000,
+            "placement": {
+              "relative_to": {
+                "added": 0
+              },
+              "matrix": [
+                [
+                  1,
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  1,
+                  3000
+                ]
+              ]
+            },
+            "global_id": "0000000000000000001002"
+          },
+          {
+            "kind": "add_grid",
+            "storey": {
+              "added": 1
+            },
+            "u": [
+              {
+                "tag": "A",
+                "start": [
+                  0,
+                  -1000
+                ],
+                "end": [
+                  0,
+                  5000
+                ]
+              },
+              {
+                "tag": "B",
+                "start": [
+                  6000,
+                  -1000
+                ],
+                "end": [
+                  6000,
+                  5000
+                ]
+              }
+            ],
+            "v": [
+              {
+                "tag": "1",
+                "start": [
+                  -1000,
+                  0
+                ],
+                "end": [
+                  7000,
+                  0
+                ]
+              },
+              {
+                "tag": "2",
+                "start": [
+                  -1000,
+                  4000
+                ],
+                "end": [
+                  7000,
+                  4000
+                ]
+              }
+            ],
+            "global_id": "0000000000000000001003"
+          },
+          {
+            "kind": "add_wall",
+            "storey": {
+              "added": 1
+            },
+            "start": [
+              0,
+              0
+            ],
+            "end": [
+              6000,
+              0
+            ],
+            "height": 2800,
+            "layers": [
+              {
+                "material": "Concrete",
+                "thickness": 150
+              },
+              {
+                "material": "Insulation",
+                "thickness": 50
+              }
+            ],
+            "global_id": "0000000000000000002000"
+          },
+          {
+            "kind": "add_wall",
+            "storey": {
+              "added": 1
+            },
+            "start": [
+              6000,
+              0
+            ],
+            "end": [
+              6000,
+              4000
+            ],
+            "height": 2800,
+            "layers": [
+              {
+                "material": "Concrete",
+                "thickness": 150
+              },
+              {
+                "material": "Insulation",
+                "thickness": 50
+              }
+            ],
+            "global_id": "0000000000000000002001"
+          },
+          {
+            "kind": "add_wall",
+            "storey": {
+              "added": 1
+            },
+            "start": [
+              6000,
+              4000
+            ],
+            "end": [
+              0,
+              4000
+            ],
+            "height": 2800,
+            "layers": [
+              {
+                "material": "Concrete",
+                "thickness": 150
+              },
+              {
+                "material": "Insulation",
+                "thickness": 50
+              }
+            ],
+            "global_id": "0000000000000000002002"
+          },
+          {
+            "kind": "add_wall",
+            "storey": {
+              "added": 1
+            },
+            "start": [
+              0,
+              4000
+            ],
+            "end": [
+              0,
+              0
+            ],
+            "height": 2800,
+            "layers": [
+              {
+                "material": "Concrete",
+                "thickness": 150
+              },
+              {
+                "material": "Insulation",
+                "thickness": 50
+              }
+            ],
+            "global_id": "0000000000000000002003"
+          },
+          {
+            "kind": "add_slab",
+            "storey": {
+              "added": 1
+            },
+            "outline": [
+              [
+                0,
+                0
+              ],
+              [
+                6000,
+                0
+              ],
+              [
+                6000,
+                4000
+              ],
+              [
+                0,
+                4000
+              ]
+            ],
+            "layers": [
+              {
+                "material": "Concrete",
+                "thickness": 200
+              }
+            ],
+            "global_id": "0000000000000000002010"
+          },
+          {
+            "kind": "add_column",
+            "storey": {
+              "added": 1
+            },
+            "position": [
+              0,
+              0
+            ],
+            "height": 2800,
+            "section": {
+              "width": 400,
+              "depth": 400
+            },
+            "direction": [
+              0,
+              1
+            ],
+            "material": "Concrete",
+            "global_id": "0000000000000000002011"
+          },
+          {
+            "kind": "add_beam",
+            "storey": {
+              "added": 1
+            },
+            "start": [
+              0,
+              4000,
+              2800
+            ],
+            "end": [
+              6000,
+              4000,
+              2800
+            ],
+            "section": {
+              "width": 300,
+              "depth": 600
+            },
+            "material": "Steel",
+            "global_id": "0000000000000000002012"
+          },
+          {
+            "kind": "add_opening",
+            "host": {
+              "added": 4
+            },
+            "distance": 1000,
+            "sill": 0,
+            "width": 900,
+            "height": 2100,
+            "global_id": "0000000000000000002020"
+          },
+          {
+            "kind": "add_door",
+            "opening": {
+              "added": 11
+            },
+            "width": 900,
+            "height": 2100,
+            "global_id": "0000000000000000002021"
+          },
+          {
+            "kind": "add_wall",
+            "storey": {
+              "added": 2
+            },
+            "start": [
+              0,
+              0
+            ],
+            "end": [
+              6000,
+              0
+            ],
+            "height": 2800,
+            "layers": [
+              {
+                "material": "Concrete",
+                "thickness": 150
+              },
+              {
+                "material": "Insulation",
+                "thickness": 50
+              }
+            ],
+            "global_id": "0000000000000000003000"
+          },
+          {
+            "kind": "add_wall",
+            "storey": {
+              "added": 2
+            },
+            "start": [
+              6000,
+              0
+            ],
+            "end": [
+              6000,
+              4000
+            ],
+            "height": 2800,
+            "layers": [
+              {
+                "material": "Concrete",
+                "thickness": 150
+              },
+              {
+                "material": "Insulation",
+                "thickness": 50
+              }
+            ],
+            "global_id": "0000000000000000003001"
+          },
+          {
+            "kind": "add_wall",
+            "storey": {
+              "added": 2
+            },
+            "start": [
+              6000,
+              4000
+            ],
+            "end": [
+              0,
+              4000
+            ],
+            "height": 2800,
+            "layers": [
+              {
+                "material": "Concrete",
+                "thickness": 150
+              },
+              {
+                "material": "Insulation",
+                "thickness": 50
+              }
+            ],
+            "global_id": "0000000000000000003002"
+          },
+          {
+            "kind": "add_wall",
+            "storey": {
+              "added": 2
+            },
+            "start": [
+              0,
+              4000
+            ],
+            "end": [
+              0,
+              0
+            ],
+            "height": 2800,
+            "layers": [
+              {
+                "material": "Concrete",
+                "thickness": 150
+              },
+              {
+                "material": "Insulation",
+                "thickness": 50
+              }
+            ],
+            "global_id": "0000000000000000003003"
+          },
+          {
+            "kind": "add_slab",
+            "storey": {
+              "added": 2
+            },
+            "outline": [
+              [
+                0,
+                0
+              ],
+              [
+                6000,
+                0
+              ],
+              [
+                6000,
+                4000
+              ],
+              [
+                0,
+                4000
+              ]
+            ],
+            "layers": [
+              {
+                "material": "Concrete",
+                "thickness": 200
+              }
+            ],
+            "global_id": "0000000000000000003010"
+          },
+          {
+            "kind": "add_column",
+            "storey": {
+              "added": 2
+            },
+            "position": [
+              0,
+              0
+            ],
+            "height": 2800,
+            "section": {
+              "width": 400,
+              "depth": 400
+            },
+            "direction": [
+              0,
+              1
+            ],
+            "material": "Concrete",
+            "global_id": "0000000000000000003011"
+          },
+          {
+            "kind": "add_beam",
+            "storey": {
+              "added": 2
+            },
+            "start": [
+              0,
+              4000,
+              2800
+            ],
+            "end": [
+              6000,
+              4000,
+              2800
+            ],
+            "section": {
+              "width": 300,
+              "depth": 600
+            },
+            "material": "Steel",
+            "global_id": "0000000000000000003012"
+          },
+          {
+            "kind": "add_opening",
+            "host": {
+              "added": 13
+            },
+            "distance": 1000,
+            "sill": 900,
+            "width": 1200,
+            "height": 1200,
+            "global_id": "0000000000000000003020"
+          },
+          {
+            "kind": "add_window",
+            "opening": {
+              "added": 20
+            },
+            "width": 1200,
+            "height": 1200,
+            "global_id": "0000000000000000003021"
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "0000000000000000001000",
+        "/result/applied/2/id": "0000000000000000001002",
+        "/result/applied/21/id": "0000000000000000003021"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building",
+        "doc": "a.ifc"
+      },
+      "expect": {
+        "/result/hash": "v1:54f1ff1c37ac48ed6db26782870641e5"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "class": "ifcbuildingstorey",
+        "components": [
+          "placement"
+        ]
+      },
+      "expect": {
+        "/result/elements/1/id": "0000000000000000001002",
+        "/result/elements/1/placement/world/2/3": 3000
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "class": "ifcwall",
+        "components": [
+          "parent",
+          "placement",
+          "material"
+        ]
+      },
+      "expect": {
+        "/result/elements/7/id": "0000000000000000003003",
+        "/result/elements/7/parent/of/target": "0000000000000000001002",
+        "/result/elements/7/placement/world/2/3": 3000
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "class": "ifcwindow",
+        "components": [
+          "opening",
+          "placement"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/opening/fills": "0000000000000000003020",
+        "/result/elements/0/placement/world/2/3": 3900
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "a.ifc",
+        "tolerance": 1.0
+      },
+      "expect": {
+        "/result/unit/prefix": "MILLI",
+        "/result/counts/elements": 49,
+        "/blobs/0/kind": "scene3d"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "a.ifc",
+        "tolerance": 1.0,
+        "storeys": [
+          "0000000000000000001002"
+        ],
+        "classes": [
+          "IfcWall"
+        ]
+      },
+      "expect": {
+        "/result/counts/elements": 5
+      }
+    }
+  ]
+}

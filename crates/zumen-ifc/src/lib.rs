@@ -33,6 +33,8 @@ mod text;
 mod zip;
 
 #[cfg(feature = "building")]
+pub use building::Version;
+#[cfg(feature = "building")]
 pub use building::{
     ContextGeometry, ContextSource, ExtrudedArea, ExtrusionSource, FaceGraphSource, FacetedFaces,
     GeometryStyle, GeometryValue, GridAxes, GridAxisCurve, GridSource, HalfSpaceGeometry,
@@ -45,9 +47,17 @@ pub use building::{
 };
 #[cfg(feature = "building")]
 pub use edit::{
-    Applied, Edit, FillingKind, NewBeam, NewColumn, NewElement, NewFilling, NewGrid, NewGridAxis,
-    NewLayer, NewLiteral, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewValue,
-    NewWall, RootAttribute, SpaceKind, Target, apply,
+    Applied, Edit, FillingKind, NewAxis2, NewAxis3, NewBeam, NewBoolean, NewColumn, NewConstituent,
+    NewElement, NewFaces, NewFilling, NewGrid, NewGridAxis, NewHalfSpace, NewHalfSpaceLimit,
+    NewItem, NewLayer, NewLayerUsage, NewLiteral, NewMapped, NewMaterial, NewMaterialLayer,
+    NewOpening, NewPlacement, NewProfile, NewProfileKind, NewQuantity, NewSection, NewShape,
+    NewSlab, NewSolid, NewSpace, NewType, NewUnit, NewValue, NewWall, OpeningChange, RootAttribute,
+    SpaceKind, Target, WallChange, apply,
+};
+#[cfg(feature = "building")]
+pub use edit::{
+    ConvertOptions, Converted, Header, LengthUnit, OwnerHistory, Template, convert, create,
+    derive_global_id,
 };
 pub use express::{Express, Findings, check, check_range};
 #[cfg(feature = "ids")]

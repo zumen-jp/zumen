@@ -71,10 +71,17 @@ LAS 1.0〜1.4 と LAZ（台帳の `las_1_4_r15`・`laz_1_4`）、COPC 1.0（`cop
 - 同じ頁は二度読まないので、頁が自分を指しても終わる。項は予算の `records`、読むチャンクの大きさは `input-bytes`、展開は `decoded-bytes` と `work` で数える。
 - 試験の入力は、lazrs 0.9.0 で節ごとにチャンクを書いた合成の COPC（`crates/zumen-las/tests/copc_make.py`）。全体を LAZ として読んだ点と同じ値になることも確かめる。
 
+### op から読む
+
+- `open` の `pointcloud` に条件（`region`・`tolerance`・`limit`）を渡すと、COPC を条件に掛かる節の範囲だけで読む（#899、マイナーバージョン 104 から）。`region` は北・東・標高の箱、`tolerance` は点の間隔の上限（メートル、正の値）、`limit` は点の数の上限。
+- 足りない範囲は、ほかの範囲の読みと同じく `needs` に `<入力>#<始め>-<終わり>` で返す（決定 0232）。ラッパーの `openRanged`・`open_ranged` が範囲を足して同じ要求を出し直す。先頭の 589 バイト（ヘッダーと COPC の情報）がなければ、まずそれを求める。
+- 開いた文書は点群（`Document::Cloud`）で、`pointcloud` の op がそのまま使える。`limit` で点を落としたら、`open` の結果の `truncated` を `true` にする。
+- COPC でない入力（LAS・LAZ、点群でない形式）に条件を渡すと、`call.value.invalid`（`/pointcloud`）を返す。
+- 適合テストは `bindings/conformance/cases/pointcloud_copc.json`（試験と同じ合成の COPC）。
+
 ## まだしないこと
 
-- COPC を `open`・`pointcloud`・`scene3d` の op から読むこと。今の op は文書を開くときに全体を読むので、節ごとに範囲を求める読み方を、スキーマの形と合わせて決める必要がある。
-- ホストの言語のラッパーで `needs` に答えること。
+- `scene3d` の op から COPC を範囲で読むこと。
 
 ## 確かめた度合い
 
@@ -95,9 +102,9 @@ LAS 1.0〜1.4 と LAZ（台帳の `las_1_4_r15`・`laz_1_4`）、COPC 1.0（`cop
 | 範囲読み・予算 | 公開サンプルを全体と範囲で読み、L1・点群モデル・診断を比較。テストキットの契約と、入力バイト・要素・作業の予算による停止を確認。落とす属性はコアの診断を確認 |
 | ネイティブ・wasm の一致 | 適合テストの `pointcloud_samples.json` が同じ公開サンプルを `open`・`pointcloud` で開き、全点を選んだ応答・診断のハッシュを比較。既存の `pointcloud.json` は合成入力の範囲読みと LAZ の展開も比較 |
 
-適合テストで使う外部実装との照合はネイティブの Rust テストで行います。座標系の解釈・VLR と EVLR の内容・落とした属性の値・波形の外部データ・GPS 時刻の時刻系の換算は、外部の実装とは照合していません。LAS 1.0、下の公開サンプルで扱う形式以外の LAS 1.1、LAS 1.4 の旧点形式、層別圧縮（v3/v4）の LAZ と COPC の公開サンプル、基準になるアプリで開くことは #504 で追います。
+適合テストで使う外部実装との照合はネイティブの Rust テストで行います。座標系の解釈・VLR と EVLR の内容・落とした属性の値・波形の外部データ・GPS 時刻の時刻系の換算は、外部の実装とは照合していません。LAS 1.0、下の公開サンプルで扱う形式以外の LAS 1.1、LAS 1.4 の旧点形式、下記の点形式 7 以外の層別圧縮の LAZ・COPC と v4 の圧縮、基準になるアプリで開くことは #504 で追います。
 
-公開サンプルは、PDAL のテスト用に作られたものに絞りました。laz-rs の `tests/data` の LAS も調べましたが、コードの Apache-2.0 の表示のほかに、実測の原データの来歴と再配布条件を確認できなかったため、採用していません（2026-11-11、#804）。
+同梱した公開サンプルは、PDAL のテスト用に作られたものに絞りました。laz-rs の `tests/data` の LAS も調べましたが、コードの Apache-2.0 の表示のほかに、実測の原データの来歴と再配布条件を確認できなかったため、採用していません（2026-11-11、#804）。
 
 - LAZ は、`lazrs` が圧縮した全点形式（0〜10、固定長・可変長チャンク、追加バイト・波形・RGB・近赤外・スキャナーチャネル・GPS 時刻の系列切り替え）を展開して元の非圧縮 LAS のバイト列と一致することと、#510 の壊れた入力でパニックせず `las.laz.invalid` を返すことを、単体テスト（`crates/zumen-las/tests/read.rs`）で確かめた。
 
@@ -105,4 +112,6 @@ LAS 1.0〜1.4 と LAZ（台帳の `las_1_4_r15`・`laz_1_4`）、COPC 1.0（`cop
 
 [PDAL の Lone Star の公開 LAZ 4 分割](https://github.com/PDAL/PDAL/tree/850aa24dc82ab98e87b293e9b77200b934cbb8cf/test/data/ept/source/lone-star-split)（LAS 1.1、点形式 1）を取得し、laz-rs 0.13.0 で点レコードを展開しました。尺度・原点と圧縮用以外の VLR が 4 原本で一致することを確かめ、点レコードを配布順に結合しました。ヘッダーの点数・反射番号別の点数・範囲を再計算し、非圧縮 LAS（14,528,622 バイト、518,862 点）を `ZUMEN_SAMPLES` に作りました（#371）。入力の尺度は 3 軸とも 0.00025、原点は LAS の X、Y、Z の順で 515396、4918348、2324 です。
 
-`e11b2552` の Windows 用 CLI で、LAZ 4 原本とこの LAS の `open`・`pointcloud` を実行しました。それぞれの全点数と座標範囲、`limit: 64` が返す各点の座標・強度・分類を、laz-rs の展開結果から Python で読んだ値と照合しました。LAS は先頭 100 バイトから `needs` に従って 3 範囲を渡し、全体読みと同じ `pointcloud` の応答を得ました。各入力で `las.attribute.dropped` が 4 件、`las.crs.unsupported` が 1 件でした。公開原本でのネイティブと wasm の比較と座標系の解釈は #504 で追います。
+`e11b2552` の Windows 用 CLI で、LAZ 4 原本とこの LAS の `open`・`pointcloud` を実行しました。それぞれの全点数と座標範囲、`limit: 64` が返す各点の座標・強度・分類を、laz-rs の展開結果から Python で読んだ値と照合しました。LAS は先頭 100 バイトから `needs` に従って 3 範囲を渡し、全体読みと同じ `pointcloud` の応答を得ました。各入力で `las.attribute.dropped` が 4 件、`las.crs.unsupported` が 1 件でした。
+
+`13865477` では、4 原本と派生 LAS の `open`・`pointcloud`（`limit` は 64）の応答が、診断を含めて Windows ネイティブと `wasm32-wasip1`（Node.js 24.22.2）でバイト単位で一致しました。同じ版で、laspy が公開する階層の異なる COPC 2 件（LAS 1.4、点形式 7、層別圧縮 v3）も読みました。同じ 1,065 点の全体と、箱で選んだ 209 点の座標・強度・分類・RGB が、laz-rs 0.13.0 で展開した値と一致しました。全体渡しと `needs` に応じる範囲読みを両環境で照合しました。[入力・読み取り範囲・診断・応答のハッシュ値](https://github.com/zumen-jp/zumen/issues/504#issuecomment-6982136024)

@@ -10,6 +10,7 @@ mod lift;
 mod raster;
 
 use zumen_base::{ByteRange, Diagnostic, Kind, Ref, Stop, codes};
+use zumen_crs::{Crs, VerticalCrs};
 use zumen_drawing::Drawing2D;
 use zumen_geo::GeoModel;
 use zumen_pointcloud::PointCloud;
@@ -164,5 +165,44 @@ impl Lift<GeoModel> for TiffFile {
 impl Lift<PointCloud> for TiffFile {
     fn lift(&self, cx: &mut Cx<'_>) -> Result<PointCloud, Error> {
         lift::lift_pointcloud(self, cx)
+    }
+}
+
+/// 平面直角座標系の DEM の標高格子（#896）。`PointCloud` と同じ IFD を同じ規則で読み、セルの並びを保つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct DemGrid {
+    /// 列の数
+    pub columns: u32,
+    /// 行の数
+    pub rows: u32,
+    /// 行（画素行 0 から）・列の順のセル代表点の東・北・標高（メートル）。点にしないセルは標高が NaN
+    pub cells: Vec<[f64; 3]>,
+    /// 隣り合うセル代表点の水平の距離の短いほう（メートル）
+    pub spacing: f64,
+    /// 地図の座標系
+    pub crs: Crs,
+    /// 高さの基準
+    pub vertical: Option<VerticalCrs>,
+    /// 元の IFD
+    pub source: Ref,
+}
+
+impl DemGrid {
+    /// 点にするセルの東・北・標高。範囲の外と、点にしないセルは `None`
+    pub fn cell(&self, column: u32, row: u32) -> Option<[f64; 3]> {
+        if column >= self.columns || row >= self.rows {
+            return None;
+        }
+        let index = (row as usize)
+            .checked_mul(self.columns as usize)?
+            .checked_add(column as usize)?;
+        self.cells.get(index).copied().filter(|c| c[2].is_finite())
+    }
+}
+
+impl Lift<DemGrid> for TiffFile {
+    /// `Lift<PointCloud>` と同じ IFD と診断で、標高格子をセルの並びのまま返す
+    fn lift(&self, cx: &mut Cx<'_>) -> Result<DemGrid, Error> {
+        lift::lift_dem_grid(self, cx)
     }
 }

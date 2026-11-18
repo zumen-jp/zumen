@@ -9,6 +9,8 @@ pub(super) const CONTROL_BYTES: usize = 72;
 pub(super) const REPLY_BYTES: usize = 136;
 pub(super) const MAX_INPUT_BYTES: usize = 256 << 20;
 pub(super) const MAX_ROWS: usize = 65_536;
+/// SetText の内容のバイト数の上限
+pub(super) const MAX_TEXT_BYTES: usize = 1 << 20;
 pub(super) const NONE: u64 = u64::MAX;
 pub(super) const WITH_DISPLAY: u32 = 1;
 pub(super) const FULL_DISPLAY: u32 = 2;
@@ -27,6 +29,15 @@ pub(super) enum Command {
     Diagnostics = 8,
     Close = 9,
     Select = 10,
+    Layers = 11,
+    Order = 12,
+    Remove = 13,
+    Copy = 14,
+    Restyle = 15,
+    LineTypes = 16,
+    Texts = 17,
+    SetText = 18,
+    Symbols = 19,
 }
 
 impl Command {
@@ -43,6 +54,15 @@ impl Command {
             8 => Self::Diagnostics,
             9 => Self::Close,
             10 => Self::Select,
+            11 => Self::Layers,
+            12 => Self::Order,
+            13 => Self::Remove,
+            14 => Self::Copy,
+            15 => Self::Restyle,
+            16 => Self::LineTypes,
+            17 => Self::Texts,
+            18 => Self::SetText,
+            19 => Self::Symbols,
             _ => return None,
         })
     }
@@ -51,18 +71,39 @@ impl Command {
         match self {
             Self::Cancel | Self::Close => (0, 0),
             Self::Open => (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_INPUT_BYTES),
-            Self::Transform => (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4),
+            Self::Transform | Self::Copy => (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4),
+            Self::Remove | Self::Texts | Self::Symbols => {
+                (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_ROWS * 4)
+            }
+            Self::Restyle => (CONTROL_BYTES + 48, CONTROL_BYTES + 56 + MAX_ROWS * 4),
+            Self::SetText => (
+                CONTROL_BYTES + 8,
+                CONTROL_BYTES + 8 + MAX_TEXT_BYTES + MAX_ROWS * 4,
+            ),
             Self::Target => (CONTROL_BYTES + 4, CONTROL_BYTES + 4),
             Self::Diagnostics => (CONTROL_BYTES + 8, CONTROL_BYTES + 8),
             Self::Select => (CONTROL_BYTES + 32, CONTROL_BYTES + 32),
-            Self::Display | Self::Undo | Self::Redo | Self::Save => (CONTROL_BYTES, CONTROL_BYTES),
+            Self::Display
+            | Self::Undo
+            | Self::Redo
+            | Self::Save
+            | Self::Layers
+            | Self::Order
+            | Self::LineTypes => (CONTROL_BYTES, CONTROL_BYTES),
         }
     }
 
     fn can_display(self) -> bool {
         matches!(
             self,
-            Self::Open | Self::Display | Self::Transform | Self::Undo | Self::Redo
+            Self::Open
+                | Self::Display
+                | Self::Transform
+                | Self::Remove
+                | Self::Restyle
+                | Self::SetText
+                | Self::Undo
+                | Self::Redo
         )
     }
 }

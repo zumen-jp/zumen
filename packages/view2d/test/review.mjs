@@ -180,3 +180,84 @@ export function testReviewCore(zumen, { assert, throws }) {
     throws(() => new ReviewLayer(base, base), "同じ View2D は重ねない");
   } finally { layer?.destroy(); overlay.destroy(); base.destroy(); session.close(); }
 }
+
+/**
+ * 実際の wasm の review_scene の形を ReviewLayer で描き、docs/formats/review.md の規則から別に求めた位置の画素を確かめる。
+ * 雲は入力の向きによらず外へ膨らみ、矢じりは指定した端だけを塗り、写真と指摘の記号・範囲は内側を塗らない。
+ */
+export function testReviewDrawn(zumen, { assert }) {
+  const session = zumen.open();
+  const base = new View2D(document.createElement("canvas"), { width: 960, height: 240, pixelRatio: 1 });
+  const overlayCanvas = document.createElement("canvas");
+  const overlay = new View2D(overlayCanvas, { width: 10, height: 10, background: "transparent" });
+  let layer = null;
+  try {
+    session.push("a.dxf", new TextEncoder().encode(DXF));
+    const opened = session.call({ v: 1, op: "open", input: "a.dxf" }).result;
+    const drawing = session.call({ v: 1, op: "drawing", doc: "a.dxf" }).result;
+    const identity = { doc: "a.dxf", format: opened.format, hash: drawing.hash };
+    const sceneResult = session.call({ v: 1, op: "scene", doc: "a.dxf", from: "space/0", tolerance: 0.01 }).result;
+    base.setScene({ scene: readScene(session.take(sceneResult.blob)), result: sceneResult, document: identity });
+    base.jumpTo({ center: { x: 42.5, y: 6 }, scale: 10, rotation: 0 });
+    const on = (id, kind, points, extra = {}) => ({ id, kind, target: "plan", view: "space/0", points, ...extra });
+    const review = {
+      format: "zumen-review", version: 1,
+      targets: [{ id: "plan", format: "dxf", hash: drawing.hash }],
+      topics: [{ id: "t1", title: "場所", status: "open", locations: [
+        { id: "l1", target: "plan", kind: "2d", view: "space/0", pin: [70, 6] },
+        { id: "l2", target: "plan", kind: "2d", view: "space/0", extent: [75, 0, 85, 10] },
+      ] }],
+      markups: [
+        on("ccw", "cloud", [[0, 0], [12, 0], [12, 12], [0, 12]]),
+        on("cw", "cloud", [[20, 0], [20, 12], [32, 12], [32, 0]]),
+        on("line", "redline", [[40, 0], [55, 0]]),
+        on("photo", "photo", [[60, 6]], { text: "p.jpg" }),
+      ],
+    };
+    session.push("review.json", new TextEncoder().encode(JSON.stringify(review)));
+    const response = session.call({ v: 1, op: "review_scene", doc: "a.dxf", review: "review.json", target: "plan", from: "space/0", tolerance: 0.01, style: { ...STYLE, line_weight: 0, arrow_length: 4 } });
+    assert(response.result?.sources?.length === 6, `6 件を描く: ${JSON.stringify(response)}`);
+    layer = new ReviewLayer(base, overlay, new ReviewStore(review));
+    layer.setResult({ scene: readScene(session.take(response.result.blob)), result: response.result, document: identity });
+    const ctx = overlayCanvas.getContext("2d");
+    // 線の縁のにじみで 1 画素ずれても読めるように、3×3 の画素の最大の不透明度を見る
+    const alpha = (x, y) => {
+      const p = base.toScreen({ x, y });
+      return Math.max(...Array.from(ctx.getImageData(Math.floor(p.x) - 1, Math.floor(p.y) - 1, 3, 3).data).filter((_, i) => i % 4 === 3));
+    };
+    const painted = (x, y, message) => assert(alpha(x, y) > 0, `${message}: (${x}, ${y})`);
+    const empty = (x, y, message) => assert(alpha(x, y) === 0, `${message}: (${x}, ${y})`);
+
+    // 雲: 辺 12・刻み 3 で 1 辺に 4 個、半径 1.5 の半円。頂点は辺の外へ 1.5、隣の円弧との境は辺の上
+    for (const [dx, name] of [[0, "左回り"], [20, "右回り"]]) {
+      for (const t of [1.5, 4.5, 7.5, 10.5]) {
+        painted(dx + t, -1.5, `${name}の雲の下の辺の円弧の頂点`);
+        painted(dx + t, 13.5, `${name}の雲の上の辺の円弧の頂点`);
+        painted(dx - 1.5, t, `${name}の雲の左の辺の円弧の頂点`);
+        painted(dx + 13.5, t, `${name}の雲の右の辺の円弧の頂点`);
+        empty(dx + t, 1.5, `${name}の雲は内へ膨らまない`);
+      }
+      empty(dx + 3, -1.2, `${name}の雲の円弧の境は辺の上`);
+      empty(dx + 6, 6, `${name}の雲の内側を塗らない`);
+    }
+    // 赤線: 長さ 4・幅 4/3 の塗った三角形を終わりの端だけに置く。先端から 3 の所の幅の半分は 0.5
+    painted(52, 0.35, "終わりの矢じりを塗る");
+    painted(52, -0.35, "終わりの矢じりは線の両側を塗る");
+    empty(52, 0.85, "矢じりの幅は長さの 1/3");
+    empty(50.5, 0.35, "矢じりは長さより手前を塗らない");
+    empty(43, 0.35, "始めの端に矢じりを置かない");
+    painted(47.5, 0, "赤線");
+    // 写真と指摘の位置: 直径 2 の円と中心の十字
+    for (const [x, name] of [[60, "写真"], [70, "指摘のピン"]]) {
+      painted(x, 6, `${name}の中心`);
+      painted(x + Math.SQRT1_2, 6 + Math.SQRT1_2, `${name}の円`);
+      empty(x + 0.4, 6 + 0.4, `${name}の円の内側を塗らない`);
+      empty(x + 1.5, 6 + 1.5, `${name}の円の外`);
+    }
+    // 指摘の範囲: 左下と右上で閉じた長方形
+    painted(80, 0, "範囲の下の辺");
+    painted(85, 5, "範囲の右の辺");
+    empty(80, 5, "範囲の内側を塗らない");
+    return { width: overlayCanvas.width, height: overlayCanvas.height };
+  } finally { layer?.destroy(); overlay.destroy(); base.destroy(); session.close(); }
+}

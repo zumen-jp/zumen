@@ -654,7 +654,6 @@ references = [
 ]
 verify = ["ODA File Converter", "DWG TrueView"]
 samples = ["公開サンプルの DWG（samples/dwg）。zumen-jp が AutoCAD 2027 で作った図面で、CC0 1.0。同じ図面を AutoCAD で書いた DXF と比べる。出所とライセンスは samples/ledger.toml", "ACadSharp のテストの図面（MIT）。同じ図面を DXF にしたものと比べる", "ezdwg のテストの図面（MIT）"]
-legacy-decisions = ["0003"]
 docs = ["docs/formats/dwg.md"]
 
 [formats.dwg.read]
@@ -680,7 +679,6 @@ specs = ["iso_32000_2_2020"]
 rights = "unknown"
 rights-note = "ISO の規格で、PDF Association が無償で配っている。配るページと店の EULA に、実装を制限する記述はない。ISO の利用許諾（ECLA）は、4 節で、組み込み・デジタルの統合・派生物を作る権利を許す使い方に含めず、6(b) で、出版物をソフトウェア・データモデル・AI のツールなどに統合・符号化・構造化・運用化することに別の許諾を求め、7(b) で AI での利用を禁じる。無償版に ECLA が当たるかは未確認で、コアでは PDF を実装しない"
 place = "none"
-legacy-decisions = ["0020", "0030"]
 issues = ["zumen-jp/zumen#674"]
 notes = "PDF 単体の閲覧・読み取りはアプリの側（pdf.js など）で扱い、DXF・DWG の PDFUNDERLAY の描画は @zumen-jp/view2d が呼び出し側から受け取る pdf.js に任せる"
 
@@ -711,9 +709,8 @@ rights = "public"
 rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証のツールを MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 だが、文書を複製・改変・頒布せず事実だけを使う実装は許諾の対象の行為に当たらない（CC 4.0 の 8(a)）。IFC 4.3 の開発リポジトリの LICENSE.md は、文書をソフトウェアの開発に使ってよいと明記し、buildingSMART の今の説明は IFC 全体を CC BY-ND 4.0 とする（zumen-jp/zumen#440、2026-11-02）。IFC は buildingSMART International の商標"
 place = "core"
 basis = ["spec"]
-verify = ["IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）"]
-samples = ["公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）", "許諾の要る国内の BIM ソフトの書き出しは #513 で足す（zumen-jp/zumen-legacy#128）"]
-legacy-decisions = ["0028"]
+verify = ["IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）", "buildingSMART の ifc-gherkin-rules（MIT。依存にせず、毎晩の CI で別に入れて使う）"]
+samples = ["公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）", "許諾の要る国内の BIM ソフトの書き出しは #513 で足す"]
 docs = ["docs/formats/ifc.md"]
 
 [formats.ifc.read]
@@ -725,9 +722,9 @@ checked = "2026-11-11"
 
 [formats.ifc.write]
 level = "external"
-scope = "building_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。書いたファイルを BIM ソフトで開いてはいない（#526）"
-implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }]
-checked = "2026-11-02"
+scope = "building_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。変更だけで作った 2 階建てとそれを直した IFC の 3 版は、IfcOpenShell の検査（スキーマと EXPRESS の規則）と数・配置・所属・関係・層・開口を引いた体積の照合（crates/zumen-ifc/tests/ifcopenshell/author.py）、buildingSMART の ifc-gherkin-rules の規則（gherkin.py）にかけ、毎晩の CI で誤りがないことを確かめる（#898）。ifc-gherkin-rules の警告は、試験の入力に座標参照系がないことの GRF003 だけを許す。書いたファイルを BIM ソフトで開いてはいない（#526）"
+implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }, { name = "ifc-gherkin-rules", version = "893f8275049b8960c3ce0c7379b4b57aefeaa8f9（IfcOpenShell 0.8.5 で動かす）" }]
+checked = "2026-11-18"
 
 [[formats.ifc.evidence]]
 title = "IFC 4.3.x の文書の表紙（ライセンスと連絡の注意）"
@@ -757,12 +754,11 @@ family = "express"
 domains = ["building"]
 specs = ["iso_10303_11_2004"]
 rights = "public"
-rights-note = "ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO の利用許諾が出版物を AI で扱うことを禁じ、出版物の一部へのアクセスでも同意したとするので、台帳の e57 と同じく、ISO の本文は買わず、OBP のプレビューも読まない（zumen-jp/zumen#677）。この台帳の作業（zumen-jp/zumen#529・zumen-jp/zumen#666・zumen-jp/zumen#677）では、本文を買わず、プレビューも読んでいないので、利用許諾（組み込みなどの権利を含めない 4 節と 6(b) を含む）に同意していない。読み取りを足した zumen-jp/zumen#450 が何を読んだかの記録はない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）"
+rights-note = "ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO の利用許諾が出版物を AI で扱うことを禁じ、出版物の一部へのアクセスでも同意したとするので、台帳の e57 と同じく、ISO の本文は買わず、OBP のプレビューも読まない（zumen-jp/zumen#677）。この台帳の作業（zumen-jp/zumen#529・zumen-jp/zumen#666・zumen-jp/zumen#677）では、本文を買わず、プレビューも読んでいないので、利用許諾（組み込みなどの権利を含めない 4 節と 6(b) を含む）に同意していない。読み取りを足した zumen-jp/zumen#450 が何を読んだかの記録はない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない"
 place = "core"
 basis = ["inferred"]
 verify = ["IfcOpenShell（依存にせず、別に入れて使う）"]
-samples = ["buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない（旧版の決定 0028）。テストの中で小さなスキーマを書く"]
-legacy-decisions = ["0028"]
+samples = ["buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない。テストの中で小さなスキーマを書く"]
 docs = ["docs/formats/express.md"]
 issues = ["zumen-jp/zumen#410", "zumen-jp/zumen#529", "zumen-jp/zumen#663", "zumen-jp/zumen#668", "zumen-jp/zumen#669"]
 notes = "IFC をスキーマに照らしてチェックする validate と IDS の属性解決のためだけに読み、汎用 STEP・EXPRESS 処理系へは拡張しない。読み取りを足した PR（zumen-jp/zumen#450）は、参照した実装を記録していないので、実装の根拠は推定にする。寛容なライセンスの実装を参照したら、basis に reference を、references にその実装を足す"
@@ -902,8 +898,7 @@ basis = ["spec"]
 known-crates = ["stb-parser"]
 verify = ["STBDotNet", "HoaryFox", "STB-DiffChecker"]
 samples = ["HoaryFox の Samples（MIT）", "STB-DiffChecker の TestData（MIT）"]
-legacy-decisions = ["0001", "0013", "0028"]
-issues = ["zumen-jp/zumen-legacy#140", "zumen-jp/zumen#400", "zumen-jp/zumen#402"]
+issues = ["zumen-jp/zumen#400", "zumen-jp/zumen#402"]
 docs = ["docs/formats/stbridge.md"]
 
 [formats.stbridge.read]
@@ -946,7 +941,7 @@ specs = ["cedxm"]
 rights = "permission"
 rights-note = "評議会の Q&A は、形式を会員にだけ開示し、会員だけが使う、とする。会員は、読み書きするソフトを自由に作って売れる。実装を公開すると、会員でない人に形式を開示することになる。入会は法人が主で、入会金と年会費がそれぞれ 8 万円。オープンソースの実装は見つからない。評議会が公開の実装を認めない限り作らない（zumen-jp/zumen#401、2026-11-02）"
 place = "none"
-issues = ["zumen-jp/zumen-legacy#141", "zumen-jp/zumen#401"]
+issues = ["zumen-jp/zumen#401"]
 
 [[formats.cedxm.evidence]]
 title = "シーデクセマ評議会の Q&A"
@@ -961,7 +956,7 @@ specs = ["bebridge_6_1"]
 rights = "unknown"
 rights-note = "Ver.6.1 の仕様書は公開されていて、条件の記述はない。2015-04 に建築保全センターが Stem・BE-Bridge を承継した。承継した側の条件と、最新の版の入手先は見つからなかった。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決し、権利の行き先が分からない。最終の版から更新がなく、建築と設備の受け渡しは IFC へ移っているので、作らず、問い合わせもしない（2026-11-17、zumen-jp/zumen#401）"
 place = "none"
-issues = ["zumen-jp/zumen-legacy#141", "zumen-jp/zumen#401"]
+issues = ["zumen-jp/zumen#401"]
 
 [[formats.bebridge.evidence]]
 title = "BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」"
@@ -976,7 +971,7 @@ specs = []
 rights = "unknown"
 rights-note = "C-CADEC が作り、2015-04 に建築保全センターが承継した。最終の版は Ver.10（2015-04）。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決した。仕様書の入手先と条件は見つからなかった。BE-Bridge と同じく、作らず、問い合わせもしない（2026-11-17、zumen-jp/zumen#401）"
 place = "none"
-issues = ["zumen-jp/zumen-legacy#141", "zumen-jp/zumen#401"]
+issues = ["zumen-jp/zumen#401"]
 
 [[formats.stem.evidence]]
 title = "BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」"
@@ -1268,7 +1263,7 @@ issues = ["zumen-jp/zumen#383", "zumen-jp/zumen#384", "zumen-jp/zumen#388"]
 
 [formats.delivery.read]
 level = "external"
-scope = "国土交通省が DTD とともに配る管理ファイルの作成例 13 件（工事・業務・地質の令和 8 年 2 月の版。INDEX_C・INDEX_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。PHOTO.XML・DRAWING.XML などの作成例、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）"
+scope = "国土交通省が DTD とともに配る管理ファイルの作成例 16 件（工事・業務・地質の令和 8 年 2 月の版の INDEX_C・INDEX_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS と、令和 4 年 3 月の版の工事の束の PHOTO・DRAWINGF・DRAWINGS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。電気通信設備・機械設備の要領の管理ファイル、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）"
 checked = "2026-11-18"
 public-samples = ["https://www.cals-ed.go.jp/cri_dtdxml/"]
 implementations = [{ name = "lxml", version = "6.1.3" }]
@@ -1280,7 +1275,7 @@ checked = "2026-11-01"
 
 [formats.delivery.write]
 level = "external"
-scope = "既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 13 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書き、lxml 6.1.3 が要領の DTD の検証に通し、読んだ値が書いた値と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。記録の追加は DTD で検証していない。コアは DTD を処理しないので、DTD が子の要素だけを許す項目に文字を書くと検証に通らない。電子納品チェックシステムでの検証はまだ"
+scope = "既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 16 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書くものと、DTD が親の中で単独の繰り返しを許す最後の子の記録を写して親の末尾に足すものを、lxml 6.1.3 が要領の DTD の検証に通し、読んだ木が書いた木と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。コアは DTD を処理しないので、繰り返せない記録を足したり、DTD が子の要素だけを許す項目に文字を書いたりすると検証に通らない。電子納品チェックシステムでの検証はまだ"
 checked = "2026-11-18"
 implementations = [{ name = "lxml", version = "6.1.3" }]
 
@@ -1352,21 +1347,21 @@ rights = "public"
 rights-note = "国土交通省が要領と DTD を無償で公開している。実装を制限する記述はない。DTD は転載が禁じられているので同梱しない"
 place = "core"
 basis = ["spec"]
-samples = ["国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #505 で確かめる"]
+samples = ["samples/boring/（国土地盤情報検索サイト KuniJiban の BED0210 のボーリング 1 本。規約は複製と頒布を認め、地盤情報であることの表示を求める）", "テストの中で作る"]
 docs = ["docs/formats/boring.md"]
 issues = ["zumen-jp/zumen#390"]
 
 [formats.boring.read]
 level = "external"
-scope = "国土交通省が BED0500.DTD とともに配るボーリング交換用データの作成例 1 件（地質の令和 8 年 2 月の版）を、lxml 6.1.3 に DTD で検証させ、lxml が読んだ要素の値と、コアが読む適用規格・公開フラグ・調査基本情報・位置・測地系・住所・期間・孔口標高・総削孔長・角度・方位と、地層・色調・観察記事・標準貫入試験・孔内水位の記録を照らした（crates/zumen-geology/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領とテストの中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。KuniJiban の柱状図との照合はまだ（#505）"
+scope = "国土交通省が BED0500.DTD とともに配るボーリング交換用データの作成例 1 件（地質の令和 8 年 2 月の版）を、lxml 6.1.3 に DTD で検証させ、lxml が読んだ要素の値と、コアが読む適用規格・公開フラグ・調査基本情報・位置・測地系・住所・期間・孔口標高・総削孔長・角度・方位と、地層・色調・観察記事・標準貫入試験・孔内水位の記録を照らした（crates/zumen-geology/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領とテストの中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。旧版（BED0400・BED0300・BED0210）の要素の名前は各版の DTD の宣言と照らし、合成の入力で読みを確かめた。公開サンプル（KuniJiban の BED0210、Shift_JIS）は、Python の標準の XML の読みで読んだ値と比べた（crates/zumen-geology/tests/samples.rs）。期待の値はテストに書いたもので、CI で外部の実装を動かしてはいない（#505）"
 checked = "2026-11-18"
-public-samples = ["https://www.cals-ed.go.jp/cri_dtdxml/"]
+public-samples = ["https://www.cals-ed.go.jp/cri_dtdxml/", "samples/boring/"]
 implementations = [{ name = "lxml", version = "6.1.3" }]
 
 [[formats.boring.evidence]]
 title = "KuniJiban の利用規約"
 url = "https://www.kunijiban.pwri.go.jp/jp/terms.html"
-checked = "2026-11-01"
+checked = "2026-11-18"
 
 [formats.xlsx]
 name = "Excel の表（xlsx）"

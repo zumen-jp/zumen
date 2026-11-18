@@ -3,12 +3,14 @@
 //! `IfcAlignment` の入れ子（`IfcRelNests`）の平面・縦断・カントの区間を、書いた順に読む。属性の位置は、
 //! IFC 4.3 ADD2 の実体の定義（「属性」の節）による。点は、線形の配置（`IfcLocalPlacement`）と
 //! `IfcMapConversion` で地図の空間に直す。地表面（`IfcTriangulatedIrregularNetwork`）は、形を持つ要素の配置で
-//! 直して TIN にする。横断（断面の形）は、まだ移さず、種類ごとに診断する。
+//! 直して TIN にする。`IfcSectionedSurface` の開いた断面（`IfcOpenCrossProfileDef`）は、線形の横断の線にする
+//! （#478）。ほかの断面の形は移さず、種類ごとに診断する。
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_civil::{
-    Alignment, Cant, CantKind, CivilModel, Horizontal, HorizontalKind, StationBreak, Stationing,
-    SurfaceRole, Tin, TransitionCurve, Vertical, VerticalKind,
+    Alignment, Cant, CantKind, CivilModel, CrossSection, CrossSectionHeight, CrossSectionLine,
+    Horizontal, HorizontalKind, LinearPosition, StationBreak, Stationing, SurfaceRole, Tin,
+    TransitionCurve, Vertical, VerticalKind,
 };
 use zumen_crs::{Crs, HeightDatum, MapPoint, Realization, VerticalCrs};
 use zumen_sdk::{Cx, Error, Lift};
@@ -20,15 +22,14 @@ use crate::{IfcFile, IfcZipFile, Inverse, Record, Value, at_bytes, stopped};
 const DEPTH: usize = 64;
 
 /// 移さない形の種類
-const DROPPED: &[&[u8]] = &[
-    b"IFCSECTIONEDSOLIDHORIZONTAL",
-    b"IFCSECTIONEDSURFACE",
-    b"IFCOPENCROSSPROFILEDEF",
-];
+const DROPPED: &[&[u8]] = &[b"IFCSECTIONEDSOLIDHORIZONTAL"];
 
-impl Lift<CivilModel> for IfcFile {
-    /// IFC4X3 の線形から作る。ほかのバージョンは、診断して作らない
-    fn lift(&self, cx: &mut Cx) -> Result<CivilModel, Error> {
+/// 線形の番号と、その表現の項目
+type Owners = Vec<(usize, Vec<u64>)>;
+
+impl IfcFile {
+    /// IFC4X3 なら、線形を読む用意をする。ほかのバージョンは、診断して作らない
+    fn civil_lifter(&self, cx: &mut Cx) -> Result<Lifter<'_>, Error> {
         if !self.schema().to_ascii_uppercase().starts_with(b"IFC4X3") {
             cx.report(Diagnostic::new(codes::IFC_VERSION_UNSUPPORTED).with(
                 "schema",
@@ -38,20 +39,44 @@ impl Lift<CivilModel> for IfcFile {
         }
         self.report_text_encoding(cx)?;
         let inverse = self.inverse(cx)?;
-        let mut lifter = Lifter {
+        Ok(Lifter {
             file: self,
             inverse,
             length: 1.0,
             angle: 1.0,
             map: Map::default(),
-        };
-        lifter.run(cx)
+        })
+    }
+}
+
+impl Lift<CivilModel> for IfcFile {
+    /// IFC4X3 の線形から作る。ほかのバージョンは、診断して作らない
+    fn lift(&self, cx: &mut Cx) -> Result<CivilModel, Error> {
+        self.civil_lifter(cx)?.run(cx)
     }
 }
 
 impl Lift<CivilModel> for IfcZipFile {
     /// アーカイブの中の IFC-SPF から作る
     fn lift(&self, cx: &mut Cx) -> Result<CivilModel, Error> {
+        self.ifc().lift(cx)
+    }
+}
+
+impl Lift<Vec<LinearPosition>> for IfcFile {
+    /// `IfcLinearPlacement` で置いた要素の、線形の上の位置を、ファイルの順に返す。単位と地図の変換は
+    /// `Lift<CivilModel>` と同じく読み、同じ診断を返す
+    fn lift(&self, cx: &mut Cx) -> Result<Vec<LinearPosition>, Error> {
+        let mut lifter = self.civil_lifter(cx)?;
+        lifter.units(cx);
+        lifter.coordinates(&mut CivilModel::default(), cx);
+        lifter.positions(cx)
+    }
+}
+
+impl Lift<Vec<LinearPosition>> for IfcZipFile {
+    /// アーカイブの中の IFC-SPF から作る
+    fn lift(&self, cx: &mut Cx) -> Result<Vec<LinearPosition>, Error> {
         self.ifc().lift(cx)
     }
 }
@@ -155,6 +180,9 @@ impl<'f> Lifter<'f> {
         self.units(cx);
         self.coordinates(&mut model, cx);
         let ids: Vec<u64> = self.file.ids().collect();
+        let mut owners: Owners = Vec::new();
+        let mut surfaces = Vec::new();
+        let mut profiles = Vec::new();
         for id in ids {
             let Some(record) = self.file.instance(id) else {
                 continue;
@@ -164,6 +192,7 @@ impl<'f> Lifter<'f> {
                 cx.check(Kind::Elements, 1)
                     .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
                 let alignment = self.alignment(id, record, cx)?;
+                owners.push((model.alignments.len(), self.curves(record)));
                 model.alignments.push(alignment);
             } else if kind == b"IFCTRIANGULATEDIRREGULARNETWORK" {
                 if let Some(mut tin) = self.tin(id, record, cx)? {
@@ -172,18 +201,42 @@ impl<'f> Lifter<'f> {
                     }
                     model.surfaces.push(tin);
                 }
+            } else if kind == b"IFCSECTIONEDSURFACE" {
+                surfaces.push(id);
+            } else if kind == b"IFCOPENCROSSPROFILEDEF" {
+                profiles.push(id);
             } else if DROPPED.contains(&kind.as_slice()) {
-                cx.report(
-                    Diagnostic::new(codes::IFC_CIVIL_GEOMETRY_DROPPED)
-                        .with(
-                            "kind",
-                            String::from_utf8_lossy(self.file.kind(record)).into_owned(),
-                        )
-                        .at(at_bytes(record.span())),
-                );
+                self.dropped(record, cx);
             }
         }
+        let mut used = Vec::new();
+        for id in surfaces {
+            self.sectioned(id, &owners, &mut model, &mut used, cx)?;
+        }
+        for id in profiles {
+            if !used.contains(&id)
+                && let Some(record) = self.file.instance(id)
+            {
+                self.dropped(record, cx);
+            }
+        }
+        for alignment in &mut model.alignments {
+            alignment
+                .cross_sections
+                .sort_by(|a, b| a.distance.total_cmp(&b.distance));
+        }
         Ok(model)
+    }
+
+    fn dropped(&self, record: &Record, cx: &mut Cx) {
+        cx.report(
+            Diagnostic::new(codes::IFC_CIVIL_GEOMETRY_DROPPED)
+                .with(
+                    "kind",
+                    String::from_utf8_lossy(self.file.kind(record)).into_owned(),
+                )
+                .at(at_bytes(record.span())),
+        );
     }
 
     fn is(&self, id: u64, kind: &[u8]) -> bool {
@@ -734,6 +787,378 @@ impl<'f> Lifter<'f> {
             breaklines: Vec::new(),
             source: at_bytes(record.span()),
         }))
+    }
+
+    /// 要素の表現の項目。7 Representation → `IfcProductDefinitionShape` の 3 Representations →
+    /// `IfcShapeRepresentation` の 4 Items
+    fn items(&self, record: &Record) -> Vec<u64> {
+        let Some(shape) = self.instance_of(arg(record, 7), b"IFCPRODUCTDEFINITIONSHAPE") else {
+            return Vec::new();
+        };
+        refs(arg(shape, 3))
+            .into_iter()
+            .filter(|&id| self.is(id, b"IFCSHAPEREPRESENTATION"))
+            .filter_map(|id| self.file.instance(id))
+            .flat_map(|representation| refs(arg(representation, 4)))
+            .collect()
+    }
+
+    /// 線形の表現の曲線。表現の項目と、`IfcGradientCurve`・`IfcSegmentedReferenceCurve` の 3 BaseCurve を
+    /// たどった曲線
+    fn curves(&self, record: &Record) -> Vec<u64> {
+        let mut curves = self.items(record);
+        let mut at = 0;
+        while let Some(&id) = curves.get(at) {
+            at += 1;
+            if curves.len() >= DEPTH {
+                break;
+            }
+            let base = self
+                .file
+                .instance(id)
+                .filter(|_| {
+                    self.is(id, b"IFCGRADIENTCURVE") || self.is(id, b"IFCSEGMENTEDREFERENCECURVE")
+                })
+                .and_then(|curve| reference(arg(curve, 3)));
+            if let Some(base) = base.filter(|base| !curves.contains(base)) {
+                curves.push(base);
+            }
+        }
+        curves
+    }
+
+    // 線形に沿った位置
+
+    /// `IfcLinearPlacement` で置いた要素。6 ObjectPlacement の連鎖の初めだけを読み、1 PlacementRelTo と
+    /// 3 CartesianPosition は読まない。`IfcReferent` は線形の測点として読むので、ここでは返さない
+    fn positions(&self, cx: &mut Cx) -> Result<Vec<LinearPosition>, Error> {
+        let ids: Vec<u64> = self.file.ids().collect();
+        let mut alignments = Vec::new();
+        for &id in &ids {
+            let Some(record) = self
+                .file
+                .instance(id)
+                .filter(|_| self.is(id, b"IFCALIGNMENT"))
+            else {
+                continue;
+            };
+            let global = self.text(arg(record, 1), record, cx);
+            let place = self.placement(reference(arg(record, 6)), cx);
+            alignments.push((
+                global.unwrap_or_else(|| format!("i{id}")),
+                place,
+                self.curves(record),
+            ));
+        }
+        let mut positions = Vec::new();
+        for id in ids {
+            let Some(record) = self.file.instance(id) else {
+                continue;
+            };
+            let Some(linear) = self.instance_of(arg(record, 6), b"IFCLINEARPLACEMENT") else {
+                continue;
+            };
+            if !matches!(arg(record, 1), Some(Value::Text { .. })) || self.is(id, b"IFCREFERENT") {
+                continue;
+            }
+            cx.check(Kind::Elements, 1)
+                .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
+            if let Some(position) = self.position(id, record, linear, &alignments, cx) {
+                positions.push(position);
+            }
+        }
+        Ok(positions)
+    }
+
+    /// `IfcLinearPlacement` の 2 RelativePlacement → `IfcAxis2PlacementLinear` の 1 Location →
+    /// `IfcPointByDistanceExpression` の 1 DistanceAlong・2 OffsetLateral（左を正）・3 OffsetVertical・
+    /// 4 OffsetLongitudinal・5 BasisCurve。基準の曲線が `IfcGradientCurve` なら高さは計画高からの差、平面の
+    /// `IfcCompositeCurve` なら線形の配置の高さに足した標高にする。`IfcAxis2PlacementLinear` の 2 Axis・
+    /// 3 RefDirection（向き）は移さない
+    fn position(
+        &self,
+        id: u64,
+        record: &Record,
+        linear: &Record,
+        alignments: &[(String, Place, Vec<u64>)],
+        cx: &mut Cx,
+    ) -> Option<LinearPosition> {
+        let Some(axes) = self.instance_of(arg(linear, 2), b"IFCAXIS2PLACEMENTLINEAR") else {
+            self.invalid(linear, 2, cx);
+            return None;
+        };
+        let Some(point) = self.instance_of(arg(axes, 1), b"IFCPOINTBYDISTANCEEXPRESSION") else {
+            self.invalid(axes, 1, cx);
+            return None;
+        };
+        let Some(distance) = self.real(arg(point, 1)) else {
+            self.invalid(point, 1, cx);
+            return None;
+        };
+        let curve = reference(arg(point, 5));
+        let Some((alignment, place, _)) = curve.and_then(|curve| {
+            alignments
+                .iter()
+                .find(|(_, _, curves)| curves.contains(&curve))
+        }) else {
+            self.invalid(point, 5, cx);
+            return None;
+        };
+        let height_reference = match curve.and_then(|curve| self.file.instance(curve)) {
+            Some(curve)
+                if self
+                    .file
+                    .kind(curve)
+                    .eq_ignore_ascii_case(b"IFCGRADIENTCURVE") =>
+            {
+                CrossSectionHeight::FormationOffset
+            }
+            Some(curve)
+                if self
+                    .file
+                    .kind(curve)
+                    .eq_ignore_ascii_case(b"IFCCOMPOSITECURVE") =>
+            {
+                CrossSectionHeight::Elevation
+            }
+            Some(curve) => {
+                cx.report(
+                    Diagnostic::new(codes::IFC_PLACEMENT_UNSUPPORTED)
+                        .with(
+                            "kind",
+                            String::from_utf8_lossy(self.file.kind(curve)).into_owned(),
+                        )
+                        .at(at_bytes(point.span())),
+                );
+                return None;
+            }
+            None => return None,
+        };
+        if matches!(arg(axes, 2), Some(Value::Ref(_)))
+            || matches!(arg(axes, 3), Some(Value::Ref(_)))
+        {
+            cx.report(
+                Diagnostic::new(codes::IFC_CIVIL_GEOMETRY_DROPPED)
+                    .with("kind", "IfcAxis2PlacementLinear")
+                    .at(at_bytes(axes.span())),
+            );
+        }
+        let offset = |at: usize| self.real(arg(point, at)).unwrap_or(0.0) * self.length;
+        let scale = self.map.scale;
+        let vertical = offset(3);
+        let height = match height_reference {
+            CrossSectionHeight::FormationOffset => vertical * self.map.scale_z,
+            CrossSectionHeight::Elevation => self.map.height(place.origin[2] + vertical),
+        };
+        let element = self.text(arg(record, 1), record, cx);
+        Some(LinearPosition {
+            element: element.unwrap_or_else(|| format!("i{id}")),
+            name: self.text(arg(record, 3), record, cx),
+            kind: String::from_utf8_lossy(self.file.kind(record)).into_owned(),
+            alignment: alignment.clone(),
+            distance: distance * self.length * scale,
+            offset: -offset(2) * scale,
+            height,
+            height_reference,
+            longitudinal: offset(4) * scale,
+            source: at_bytes(record.span()),
+        })
+    }
+
+    // 横断
+
+    /// `IfcSectionedSurface`。1 Directrix・2 CrossSectionPositions・3 CrossSections。準線は、線形の表現の
+    /// `IfcGradientCurve` に限る。断面の原点は準線の上の計画高なので、高さは計画高からの差にする。断面を
+    /// 1 つでも移せなければ、面の全体を移さない
+    fn sectioned(
+        &self,
+        id: u64,
+        owners: &Owners,
+        model: &mut CivilModel,
+        used: &mut Vec<u64>,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        let Some(record) = self.file.instance(id) else {
+            return Ok(());
+        };
+        let directrix = reference(arg(record, 1)).filter(|&d| self.is(d, b"IFCGRADIENTCURVE"));
+        let owner = directrix.and_then(|d| {
+            owners
+                .iter()
+                .find(|(_, items)| items.contains(&d))
+                .map(|(index, _)| *index)
+        });
+        let (Some(directrix), Some(index)) = (directrix, owner) else {
+            self.dropped(record, cx);
+            return Ok(());
+        };
+        let positions = refs(arg(record, 2));
+        let sections = refs(arg(record, 3));
+        if positions.len() != sections.len() || positions.is_empty() {
+            self.invalid(record, 2, cx);
+            return Ok(());
+        }
+        let element = self.owner(id);
+        let element_name = element.and_then(|element| self.text(arg(element, 3), element, cx));
+        let mut found = Vec::with_capacity(positions.len());
+        for (&position, &section) in positions.iter().zip(&sections) {
+            cx.check(Kind::Records, 1)
+                .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
+            let Some(profile) =
+                self.instance_of(Some(&Value::Ref(section)), b"IFCOPENCROSSPROFILEDEF")
+            else {
+                self.dropped(record, cx);
+                return Ok(());
+            };
+            let Some(distance) = self.section_distance(position, directrix, record, cx) else {
+                return Ok(());
+            };
+            let Some(points) = self.open_profile(profile, cx)? else {
+                return Ok(());
+            };
+            let name = self.text(arg(profile, 2), profile, cx);
+            found.push((distance, profile, name, points));
+        }
+        let Some(alignment) = model.alignments.get_mut(index) else {
+            return Ok(());
+        };
+        let scale = self.map.scale * self.length;
+        for (distance, profile, name, points) in found {
+            let line = CrossSectionLine {
+                name: name.or_else(|| element_name.clone()),
+                description: None,
+                side: None,
+                height_reference: CrossSectionHeight::FormationOffset,
+                role: SurfaceRole::Design,
+                points,
+                source: at_bytes(profile.span()),
+            };
+            let distance = distance * scale;
+            match alignment
+                .cross_sections
+                .iter_mut()
+                .find(|section| section.distance == distance)
+            {
+                Some(section) => section.lines.push(line),
+                None => alignment.cross_sections.push(CrossSection {
+                    distance,
+                    name: None,
+                    profile: None,
+                    lines: vec![line],
+                    source: at_bytes(record.span()),
+                }),
+            }
+        }
+        used.extend(sections);
+        Ok(())
+    }
+
+    /// 断面の位置。`IfcAxis2PlacementLinear` の 1 Location → `IfcPointByDistanceExpression` の
+    /// 1 DistanceAlong（準線の平面の長さ）・5 BasisCurve。2 OffsetLateral・3 OffsetVertical・
+    /// 4 OffsetLongitudinal は書けない（`NoOffsets`）。2 Axis は鉛直だけを受け付け、3 RefDirection は
+    /// 書かないものだけを読む
+    fn section_distance(
+        &self,
+        position: u64,
+        directrix: u64,
+        surface: &Record,
+        cx: &mut Cx,
+    ) -> Option<f64> {
+        let Some(axes) = self.instance_of(Some(&Value::Ref(position)), b"IFCAXIS2PLACEMENTLINEAR")
+        else {
+            self.invalid(surface, 2, cx);
+            return None;
+        };
+        let vertical = match arg(axes, 2) {
+            Some(Value::Ref(_)) => self.ratios(arg(axes, 2)).is_some_and(|ratios| {
+                matches!(ratios.as_slice(), [x, y, z] if *z > 0.0 && libm::hypot(*x, *y) <= 1e-9 * z)
+            }),
+            _ => true,
+        };
+        if !vertical || matches!(arg(axes, 3), Some(Value::Ref(_))) {
+            cx.report(
+                Diagnostic::new(codes::IFC_PLACEMENT_UNSUPPORTED)
+                    .with("kind", "IfcAxis2PlacementLinear")
+                    .at(at_bytes(axes.span())),
+            );
+            return None;
+        }
+        let Some(point) = self.instance_of(arg(axes, 1), b"IFCPOINTBYDISTANCEEXPRESSION") else {
+            self.invalid(axes, 1, cx);
+            return None;
+        };
+        let offset = (2..=4).any(|at| self.real(arg(point, at)).is_some_and(|v| v != 0.0));
+        match self.real(arg(point, 1)) {
+            Some(distance) if !offset && reference(arg(point, 5)) == Some(directrix) => {
+                Some(distance)
+            }
+            _ => {
+                self.invalid(point, 1, cx);
+                None
+            }
+        }
+    }
+
+    /// `IfcOpenCrossProfileDef`。1 ProfileType・2 ProfileName・3 HorizontalWidths・4 Widths・5 Slopes・
+    /// 6 Tags・7 OffsetPoint。点は 7 OffsetPoint（なければ原点）から、幅と勾配の角でたどる。角は断面の
+    /// x 軸から反時計回り、幅は HorizontalWidths が真なら水平の長さ、偽なら勾配に沿った長さ。断面の x 軸は
+    /// 準線の左を向くので、右を正にする横断の線では符号を変える。6 Tags は読まない
+    fn open_profile(&self, profile: &Record, cx: &mut Cx) -> Result<Option<Vec<[f64; 2]>>, Error> {
+        if self.enumeration(arg(profile, 1)).as_deref() != Some("CURVE") {
+            self.invalid(profile, 1, cx);
+            return Ok(None);
+        }
+        let horizontal = match self.enumeration(arg(profile, 3)).as_deref() {
+            Some("T") => true,
+            Some("F") => false,
+            _ => {
+                self.invalid(profile, 3, cx);
+                return Ok(None);
+            }
+        };
+        let (Some(widths), Some(slopes)) =
+            (self.reals(arg(profile, 4)), self.reals(arg(profile, 5)))
+        else {
+            self.invalid(profile, 4, cx);
+            return Ok(None);
+        };
+        if widths.len() != slopes.len() || widths.is_empty() || widths.iter().any(|w| *w < 0.0) {
+            self.invalid(profile, 4, cx);
+            return Ok(None);
+        }
+        let [mut x, mut y] = match arg(profile, 7) {
+            Some(Value::Ref(_)) => match self.point(arg(profile, 7)) {
+                Some(point) => xy(&point),
+                None => {
+                    self.invalid(profile, 7, cx);
+                    return Ok(None);
+                }
+            },
+            _ => [0.0, 0.0],
+        };
+        let (scale, scale_z) = (self.map.scale, self.map.scale_z);
+        let mut points = Vec::with_capacity(widths.len() + 1);
+        points.push([-x * scale, y * scale_z]);
+        for (width, slope) in widths.iter().zip(&slopes) {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, Some(profile.span())))?;
+            let angle = slope * self.angle;
+            let (cos, sin) = (libm::cos(angle), libm::sin(angle));
+            let width = width * self.length;
+            let along = if horizontal {
+                if libm::fabs(cos) <= 1e-9 {
+                    self.invalid(profile, 5, cx);
+                    return Ok(None);
+                }
+                width / libm::fabs(cos)
+            } else {
+                width
+            };
+            x += along * cos;
+            y += along * sin;
+            points.push([-x * scale, y * scale_z]);
+        }
+        Ok(Some(points))
     }
 
     /// 配置の区間（`IfcAlignmentSegment` の 8 DesignParameters）を、書いた順に

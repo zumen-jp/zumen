@@ -1,5 +1,5 @@
 # CAD製図基準（土木、令和 7 年 12 月）のプロファイル（決定 0138）。
-# 旧版の組み込みの規則集 `mlit-cad-2025` を移した。値の出典は各項の source に書く。
+# 値の出典は各項の source に書く。
 # この元から、`cargo xtask codegen` が profile.json を作る。
 
 format = "0.1"
@@ -194,7 +194,7 @@ values = [
   { plan = 1000, horizontal = 1000, vertical = 100, cross-section = 100, station-pitch = 20 },
 ]
 
-# 解説は機種依存文字を使わないとだけ書き、文字を列挙しない。範囲は旧版で選んだもの。
+# 解説は機種依存文字を使わないとだけ書き、文字を列挙しない。範囲は推定で選んだもの。
 [vocabularies.dependent-characters]
 source = { document = "manual", section = "1-5-11", item = "(2)", basis = "chosen" }
 values = [

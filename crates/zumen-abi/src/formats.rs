@@ -198,6 +198,7 @@ impl Opened {
                 needs: None,
                 done: None,
                 entries: None,
+                truncated: None,
             },
             document: Some(document),
         }
@@ -222,6 +223,11 @@ pub(crate) fn read(
     cx: &mut Cx<'_>,
 ) -> Result<Opened, Failed> {
     let name = request.doc.as_deref().unwrap_or(&request.input);
+    // 節を選ぶ条件は、点群のモジュールが範囲で読む COPC にだけ使う（#899）。COPC かは読み始めてから見分ける
+    if request.pointcloud.is_some() && !(cfg!(feature = "pointcloud") && bytes.starts_with(b"LASF"))
+    {
+        return Err(fail(cx, invalid_value("/pointcloud")));
+    }
     // IFC-SPF は SXF と同じ始まりなので先に、ifcZIP は ZIP なので最後に試す（決定 0219）。モジュールには、
     // 持つ形式の判定だけを入れる（決定 0221）
     #[cfg(feature = "bim")]
@@ -274,12 +280,19 @@ pub(crate) fn read(
     }
     // LAS・LAZ は範囲で読む（決定 0232）
     #[cfg(feature = "pointcloud")]
-    if let Some(opened) = pointcloud::read(&request.input, inputs, request.size, cx) {
+    if let Some(opened) = pointcloud::read(
+        &request.input,
+        inputs,
+        request.size,
+        request.pointcloud.as_ref(),
+        cx,
+    ) {
         let format = zumen_las::Las::FORMAT.to_string();
         return Ok(match opened? {
-            pointcloud::Opened::Cloud(cloud, done) => {
+            pointcloud::Opened::Cloud(cloud, done, truncated) => {
                 let mut opened = Opened::document(name, format, ReadDocument::Cloud(cloud));
                 opened.result.done = Some(done).filter(|done| !done.is_empty());
+                opened.result.truncated = truncated;
                 opened
             }
             pointcloud::Opened::Need(needs) => Opened {
@@ -289,6 +302,7 @@ pub(crate) fn read(
                     needs: Some(needs),
                     done: None,
                     entries: None,
+                    truncated: None,
                 },
                 document: None,
             },
@@ -321,6 +335,7 @@ pub(crate) fn read(
                 DrawingFile::Sxf(_, Some(archive), _) => Some(archive.names()),
                 _ => None,
             },
+            truncated: None,
         };
         let hash = match &doc {
             // 元の文書のハッシュ。書いた側が付けたもので、ここでは確かめられない

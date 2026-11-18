@@ -200,12 +200,7 @@ impl Calibration {
                 }
             }
         }
-        let [sx, sy] = start.origin;
-        let [sdx, sdy] = start.offset;
-        let [ex, ey] = end.origin;
-        let [edx, edy] = end.offset;
-        let dx = Exact::sum([ex, edx, -sx, -sdx]).rounded();
-        let dy = Exact::sum([ey, edy, -sy, -sdy]).rounded();
+        let [dx, dy] = split_difference([start.origin, start.offset], [end.origin, end.offset]);
         let [a, b, c, d] = self.matrix;
         let (x, y) = (a * dx + b * dy, c * dx + d * dy);
         let distance = libm::hypot(x, y);
@@ -218,6 +213,38 @@ impl Calibration {
             Err(MeasurementError::Overflow)
         }
     }
+}
+
+/// 原点と相対座標を分けた 2 点（`[原点, 相対座標]`）の座標の距離。校正を使わず、座標の単位のまま返す。
+///
+/// 各成分の差を 4 項の正確な和から一度だけ binary64 の最近接・偶数丸めにし、その長さを返す。原点が大きく
+/// 異なる 2 点も、先に足して丸めない。確保はせず、固定長の整数を固定回数たどる。正確に同じ点の距離は正のゼロ
+pub fn split_distance(start: [[f64; 2]; 2], end: [[f64; 2]; 2]) -> Result<f64, MeasurementError> {
+    if !start
+        .iter()
+        .chain(&end)
+        .flatten()
+        .all(|value| value.is_finite())
+    {
+        return Err(MeasurementError::NonFinitePoint);
+    }
+    let [dx, dy] = split_difference(start, end);
+    let distance = libm::hypot(dx, dy);
+    if [dx, dy, distance].iter().all(|value| value.is_finite()) {
+        Ok(distance)
+    } else {
+        Err(MeasurementError::Overflow)
+    }
+}
+
+/// 有限な `[原点, 相対座標]` の 2 点の差を、成分ごとに一度だけ丸める
+fn split_difference(start: [[f64; 2]; 2], end: [[f64; 2]; 2]) -> [f64; 2] {
+    let [[sx, sy], [sdx, sdy]] = start;
+    let [[ex, ey], [edx, edy]] = end;
+    [
+        Exact::sum([ex, edx, -sx, -sdx]).rounded(),
+        Exact::sum([ey, edy, -sy, -sdy]).rounded(),
+    ]
 }
 
 // 有限な binary64 は 2^-1074 の整数倍。最大4項の和に必要な2100ビットと符号を、
@@ -1407,5 +1434,37 @@ mod tests {
         assert_eq!(read_source, source);
         assert_eq!(read_drawing, drawing);
         assert_eq!(read_drawing.calibrations(&mut cx).unwrap(), [calibration()]);
+    }
+
+    #[test]
+    fn split_distances_keep_small_offsets_from_large_and_different_origins() {
+        assert_eq!(
+            split_distance([[1e16, 1e16], [0.0, 0.0]], [[1e16, 1e16], [3.0, 4.0]]),
+            Ok(5.0)
+        );
+        // 原点へ先に足すと、1e16 + 3 は表せずに丸まる
+        assert_eq!(
+            split_distance([[1e16, 0.0], [0.0, 0.0]], [[1e16, 0.0], [3.0, 0.0]]),
+            Ok(3.0)
+        );
+        assert_eq!(
+            split_distance([[1e16, 1e16], [0.5, 0.0]], [[0.0, 1e16], [1e16 + 4.0, 4.0]]),
+            Ok(libm::hypot(3.5, 4.0))
+        );
+        assert_eq!(
+            split_distance([[2.0, 2.0], [-2.0, -2.0]], [[0.0, 0.0], [0.0, 0.0]]),
+            Ok(0.0)
+        );
+        assert_eq!(
+            split_distance(
+                [[f64::MAX, 0.0], [0.0, 0.0]],
+                [[-f64::MAX, 0.0], [0.0, 0.0]]
+            ),
+            Err(MeasurementError::Overflow)
+        );
+        assert_eq!(
+            split_distance([[f64::NAN, 0.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]),
+            Err(MeasurementError::NonFinitePoint)
+        );
     }
 }

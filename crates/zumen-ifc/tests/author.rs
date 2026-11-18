@@ -3,13 +3,16 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, GridSet, Id, Local, MaterialKind, Opening, ParentKind,
-    SpatialKind, Transform,
+    BooleanOperation, Building, CartesianMapping3, ElementRef, FaceBoundRef, FaceSetRef, GlobalId,
+    GridSet, Id, IndexedFaces, Local, MappingScale3, MaterialKind, Opening, ParentKind,
+    QuantityKind, SpatialKind, Transform,
 };
 use zumen_ifc::{
-    Edit, FillingKind, Ifc, IfcFile, IfcLive, NewBeam, NewColumn, NewElement, NewFilling, NewGrid,
-    NewGridAxis, NewLayer, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall,
-    RootAttribute, SpaceKind, Target, apply,
+    Edit, FillingKind, Ifc, IfcFile, IfcLive, NewAxis3, NewBeam, NewColumn, NewConstituent,
+    NewElement, NewFaces, NewFilling, NewGrid, NewGridAxis, NewHalfSpaceLimit, NewItem, NewLayer,
+    NewLayerUsage, NewMapped, NewMaterial, NewMaterialLayer, NewOpening, NewPlacement,
+    NewProfileKind, NewQuantity, NewSection, NewShape, NewSlab, NewSolid, NewSpace, NewUnit,
+    NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -102,7 +105,8 @@ fn space(kind: SpaceKind, n: u32, parent: Target, elevation: f64) -> Edit {
         name: Some(format!("S{n}")),
         parent,
         placement: None,
-        elevation: Some(elevation),
+        // IFC4.3 は建物の ElevationOfRefHeight を非推奨にしたので、どのバージョンでも建物には書かない
+        elevation: (kind != SpaceKind::Building).then_some(elevation),
         global_id: Some(global(n)),
     })
 }
@@ -218,7 +222,18 @@ fn adds_spaces_elements_and_relations_in_every_version() {
         assert_eq!(parent(door).target, first);
         let spatial = building.components.spatial.get(second).unwrap();
         assert_eq!(spatial.kind, SpatialKind::Storey);
-        assert_eq!(spatial.elevation.as_ref().map(|m| m.value), Some(3000.0));
+        // IFC4.3 では Elevation を書かず、階の配置の z が高さになる
+        let written = (schema != "IFC4X3_ADD2").then_some(3000.0);
+        assert_eq!(spatial.elevation.as_ref().map(|m| m.value), written);
+        let level = building.components.level.get(second).unwrap();
+        assert_eq!(level.height.value, 3000.0, "{schema}");
+        // 配置なしで足した階は、IFC2X3 と IFC4 では親の配置に恒等で置き、IFC4.3 では高さだけ上げる
+        let z = if written.is_some() { 0.0 } else { 3000.0 };
+        assert_eq!(
+            translation(&building, second),
+            Some([0.0, 0.0, z]),
+            "{schema}"
+        );
         assert_eq!(
             building.components.placement.get(wall).unwrap().relative_to,
             Some(first)
@@ -443,6 +458,64 @@ fn rejects_without_changing_anything() {
             codes.contains(&codes::CHANGE_EDIT_UNSUPPORTED),
             "{name}: {codes:?}"
         );
+    }
+}
+
+/// IFC4.3 は建物の ElevationOfRefHeight と階の Elevation を非推奨にした。階の高さは親の配置からの z で書き、
+/// 配置で表せない高さは受けない
+#[test]
+fn takes_storey_heights_from_placements_in_ifc4x3() {
+    let src = sample("IFC4X3_ADD2", true);
+    let building = |elevation| {
+        Edit::Space(NewSpace {
+            kind: SpaceKind::Building,
+            name: None,
+            parent: Target::Instance(10),
+            placement: None,
+            elevation,
+            global_id: Some(global(100)),
+        })
+    };
+    let storey = |placement, elevation| {
+        Edit::Space(NewSpace {
+            kind: SpaceKind::Storey,
+            name: None,
+            parent: Target::Added(0),
+            placement,
+            elevation: Some(elevation),
+            global_id: Some(global(101)),
+        })
+    };
+    // 配置と高さが合えば、Elevation を書かずに配置で高さを持つ
+    for placement in [None, Some(at(0.0, 0.0, 3000.0, Target::Added(0)))] {
+        let edits = [building(None), storey(placement, 3000.0)];
+        let bytes = run(src.as_bytes(), &edits).0.unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        let line = text.lines().find(|l| l.contains(&gid(101))).unwrap();
+        assert!(line.ends_with(",.ELEMENT.,$);"), "{line}");
+        let lifted = lift(&bytes).unwrap();
+        let level = element(&lifted, 101).unwrap();
+        let level = lifted.components.level.get(level).unwrap();
+        assert_eq!(level.height.value, 3000.0);
+    }
+    let cases = [
+        // 建物の標高は配置で表せない
+        vec![building(Some(0.0))],
+        // 配置の z が高さと違う
+        vec![
+            building(None),
+            storey(Some(at(0.0, 0.0, 0.0, Target::Added(0))), 3000.0),
+        ],
+        // 親でない配置からの z
+        vec![
+            building(None),
+            storey(Some(at(0.0, 0.0, 3000.0, Target::Instance(10))), 3000.0),
+        ],
+    ];
+    for edits in cases {
+        let (bytes, codes) = run(src.as_bytes(), &edits);
+        assert!(matches!(bytes, Err(Error::Invalid)), "{edits:?}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{edits:?}");
     }
 }
 
@@ -1472,5 +1545,1265 @@ fn refuses_grids_it_cannot_write_and_removes_grids_with_their_axes() {
     let removed = String::from_utf8(result.unwrap()).unwrap();
     for entity in ["IFCGRID", "IFCGRIDAXIS", "IFCPOLYLINE"] {
         assert_eq!(count(&removed, entity), 0, "{entity}");
+    }
+}
+
+/// 要素の押し出しの位置と奥行き
+fn solids(bytes: &[u8], n: u32) -> Option<Vec<([f64; 3], f64)>> {
+    let file = read(bytes)?;
+    let text = String::from_utf8(bytes.to_vec()).ok()?;
+    let id = instance_of(&text, n)?;
+    let (shape, _) = with(|cx| file.product_shape(id, cx));
+    let found = shape
+        .ok()?
+        .nodes
+        .iter()
+        .filter_map(|node| with(|cx| file.extruded_area(node, cx)).0.ok())
+        .filter_map(|area| Some((area.definition.position?.location, area.definition.depth)))
+        .collect();
+    Some(found)
+}
+
+/// 階 101 を高さ 3500 に、壁 300 を長さ 5000・高さ 3000・3 層（厚さ 300）に、壁 301 の開口 502 を動かして
+/// 大きさを変える変更。要素はインスタンスの番号で指す
+fn change_edits(text: &str) -> Option<Vec<Edit>> {
+    let at = |n| instance_of(text, n).map(Target::Instance);
+    Some(vec![
+        Edit::Elevation {
+            storey: at(101)?,
+            elevation: 3500.0,
+        },
+        Edit::WallShape(WallChange {
+            wall: at(300)?,
+            start: [1000.0, 0.0],
+            end: [1000.0, 5000.0],
+            height: 3000.0,
+            layers: vec![
+                layer("Concrete", 200.0),
+                layer("Insulation", 50.0),
+                layer("Board", 50.0),
+            ],
+            offset: None,
+        }),
+        Edit::OpeningShape(OpeningChange {
+            opening: at(502)?,
+            distance: 800.0,
+            sill: 1000.0,
+            width: 1500.0,
+            height: 1000.0,
+        }),
+    ])
+}
+
+#[test]
+fn changes_storeys_walls_and_openings_and_dependents_follow_in_every_version() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let before = run(src.as_bytes(), &opening_edits()).0.unwrap();
+        let text = String::from_utf8(before.clone()).unwrap();
+        let edits = change_edits(&text).unwrap();
+        let (result, codes) = run(&before, &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let after = result.unwrap();
+        let changed = String::from_utf8(after.clone()).unwrap();
+        let building = lift(&after).unwrap();
+        let [storey, wall, door_opening, door, window_opening] =
+            [101, 300, 500, 501, 502].map(|n| element(&building, n).unwrap());
+        // 階の配置は高さの差だけ上がり、属する要素は配置の相対のまま付いてくる
+        assert_eq!(
+            translation(&building, storey),
+            Some([0.0, 0.0, 3500.0]),
+            "{schema}"
+        );
+        let elevation = changed
+            .lines()
+            .find(|line| line.contains(&gid(101)))
+            .unwrap();
+        // IFC4.3 は Elevation を非推奨にしたので、書いていない値を足さない
+        let written = if schema == "IFC4X3_ADD2" {
+            ",$);"
+        } else {
+            ",3500.);"
+        };
+        assert!(elevation.ends_with(written), "{schema}: {elevation}");
+        let level = building.components.level.get(storey).unwrap();
+        assert_eq!(level.height.value, 3500.0, "{schema}");
+        // 壁は新しい芯の向きに置き、高さと層の厚さで押し出す
+        let t = local(&building, wall).unwrap();
+        assert_eq!(
+            [t[0][0], t[1][0], t[0][3], t[1][3]],
+            [0.0, 1.0, 1000.0, 0.0]
+        );
+        assert_eq!(solids(&after, 300).unwrap(), [([0.0, 0.0, 0.0], 3000.0)]);
+        // 同じ名前の材料は元の IfcMaterial を使い、新しい名前だけ足す
+        assert_eq!(count(&changed, "IFCMATERIAL"), 5, "{schema}");
+        assert_eq!(count(&changed, "IFCMATERIALLAYER"), 5, "{schema}");
+        assert_eq!(count(&changed, "IFCMATERIALLAYERSETUSAGE"), 2, "{schema}");
+        // 壁の開口は新しい層の範囲を貫き、扉は開口の配置のまま
+        assert_eq!(
+            solids(&after, 500).unwrap(),
+            [([0.0, 150.0, 0.0], 300.0)],
+            "{schema}"
+        );
+        assert_eq!(
+            translation(&building, door_opening),
+            Some([1000.0, 0.0, 0.0])
+        );
+        let placement = building.components.placement.get(door).unwrap();
+        assert_eq!(placement.relative_to, Some(door_opening));
+        // 動かした開口は、壁 301 の層の範囲のまま新しい大きさで押し出し、窓の全体の高さと幅も合わせる
+        assert_eq!(
+            translation(&building, window_opening),
+            Some([800.0, 0.0, 1000.0])
+        );
+        assert_eq!(solids(&after, 502).unwrap(), [([0.0, 100.0, 0.0], 200.0)]);
+        let window = changed
+            .lines()
+            .find(|line| line.contains(&gid(503)))
+            .unwrap();
+        assert!(window.contains(",1000.,1500."), "{schema}: {window}");
+        // 古い配置と表現は残らない
+        for entity in [
+            "IFCLOCALPLACEMENT",
+            "IFCAXIS2PLACEMENT3D",
+            "IFCSHAPEREPRESENTATION",
+            "IFCEXTRUDEDAREASOLID",
+            "IFCPRODUCTDEFINITIONSHAPE",
+        ] {
+            assert_eq!(
+                count(&changed, entity),
+                count(&text, entity),
+                "{schema}: {entity}"
+            );
+        }
+        // 同じ入力と変更なら同じバイト列。文書エンジンでも同じで、取り消すと元に、やり直すと直した値に戻る
+        assert_eq!(run(&before, &edits).0.unwrap(), after);
+        let (live, _) = with(|cx| IfcLive::open(&before, cx));
+        let mut live = live.unwrap();
+        assert_eq!(
+            apply_like_batch(&mut live, &edits),
+            Some(after.clone()),
+            "{schema}"
+        );
+        assert_eq!(with(|cx| live.undo(cx)).0.ok(), Some(true));
+        assert_eq!(same_as_reopened(&live), Some(before.clone()), "{schema}");
+        assert_eq!(with(|cx| live.redo(cx)).0.ok(), Some(true));
+        assert_eq!(same_as_reopened(&live), Some(after), "{schema}");
+    }
+}
+
+/// 形まで読んだ文書を、床の高さ `floor` から 1200 の水平面で切った壁 `n` の切断線と、開口を引いた体積（m³）
+#[cfg(all(feature = "drawing", feature = "measure"))]
+fn cut_and_volume(bytes: &[u8], n: u32, floor: f64) -> Option<(Vec<[[f64; 2]; 2]>, f64)> {
+    use zumen_building::drawing::{self, Paper, Role, View};
+    use zumen_building::measure::{self, LengthUnit, Rounding, RoundingMode, RoundingStage, Unit};
+    use zumen_crs::ProjectPoint;
+    use zumen_drawing::{PaperLength, Shape};
+    use zumen_geom3d::Tolerance;
+    let file = read(bytes)?;
+    let building = with(|cx| file.lift_geometry(cx)).0.ok()?;
+    let wall = element(&building, n)?;
+    let options = drawing::Options {
+        view: View::Plan {
+            floor: ProjectPoint {
+                x: 0.0,
+                y: 0.0,
+                z: floor,
+            },
+            height: 1200.0,
+            depth: 2000.0,
+        },
+        tolerance: 0.01,
+        chord: 1.0,
+        paper: Paper {
+            denominator: 100.0,
+            origin: [PaperLength(0.0); 2],
+            size: None,
+        },
+        symbols: &[],
+    };
+    let out = with(|cx| drawing::cut(&building, options, cx)).0.ok()?;
+    let mut lines = Vec::new();
+    for line in &out.lines {
+        if out.sources.get(line.source)?.element != wall || line.role != Role::Cut {
+            continue;
+        }
+        let Shape::Line { start, end } =
+            &out.drawing.spaces.first()?.elements.get(line.index)?.shape
+        else {
+            return None;
+        };
+        lines.push([[start.x, start.y], [end.x, end.y]]);
+    }
+    let options = measure::Options {
+        unit: Unit::Volume(LengthUnit::Meter),
+        rounding: Rounding {
+            mode: RoundingMode::HalfAway,
+            digits: 3,
+            stage: RoundingStage::Total,
+        },
+        tolerance: Tolerance {
+            length: 1e-6,
+            chord: 0.001,
+        },
+        profile: None,
+    };
+    let report = with(|cx| measure::volumes(&building, &[wall], true, options, cx))
+        .0
+        .ok()?;
+    Some((lines, report.raw_total?))
+}
+
+/// 切断線の端点の x と y の範囲
+#[cfg(all(feature = "drawing", feature = "measure"))]
+fn extent(lines: &[[[f64; 2]; 2]]) -> [f64; 4] {
+    let points = lines.iter().flatten();
+    let fold = |pick: fn(&[f64; 2]) -> f64, max: bool| {
+        points.clone().map(pick).fold(
+            if max {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            },
+            |a, b| if max { a.max(b) } else { a.min(b) },
+        )
+    };
+    [
+        fold(|p| p[0], false),
+        fold(|p| p[0], true),
+        fold(|p| p[1], false),
+        fold(|p| p[1], true),
+    ]
+}
+
+#[cfg(all(feature = "drawing", feature = "measure"))]
+fn near(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1e-6 * b.abs().max(1.0)
+}
+
+#[test]
+#[cfg(all(feature = "drawing", feature = "measure"))]
+fn the_cut_and_quantities_follow_changed_walls_and_openings() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let before = run(src.as_bytes(), &opening_edits()).0.unwrap();
+        let text = String::from_utf8(before.clone()).unwrap();
+        let after = run(&before, &change_edits(&text).unwrap()).0.unwrap();
+        // 直す前: 壁 300 は x 900〜1100、y 0〜4000。扉の開口（y 1000〜1900）で線が切れる
+        let (lines, volume) = cut_and_volume(&before, 300, 3000.0).unwrap();
+        assert_eq!(extent(&lines), [900.0, 1100.0, 0.0, 4000.0], "{schema}");
+        assert!(
+            near(volume, (4.0 * 2.8 - 0.9 * 2.1) * 0.2),
+            "{schema}: {volume}"
+        );
+        // 直した後: 階の床は 3500 に上がり、壁は厚さ 300 で y 5000 まで伸びる。扉の開口は付いてきて、
+        // 新しい厚さを貫く
+        let (lines, volume) = cut_and_volume(&after, 300, 3500.0).unwrap();
+        assert_eq!(extent(&lines), [850.0, 1150.0, 0.0, 5000.0], "{schema}");
+        for [a, b] in &lines {
+            assert!(
+                !(a[1].min(b[1]) < 1450.0 && 1450.0 < a[1].max(b[1])),
+                "{schema}: {a:?} {b:?}"
+            );
+        }
+        assert!(
+            near(volume, (5.0 * 3.0 - 0.9 * 2.1) * 0.3),
+            "{schema}: {volume}"
+        );
+        // 窓の開口は幅 1500・高さ 1000 になり、壁 301 の体積から引く量が変わる。開口は芯に沿って
+        // 800〜2300（x 200〜-1300）に移り、x -1000 の線は切れる
+        let crosses = |lines: &[[[f64; 2]; 2]], x: f64| {
+            lines
+                .iter()
+                .any(|[a, b]| a[0].min(b[0]) < x && x < a[0].max(b[0]))
+        };
+        let (lines, volume) = cut_and_volume(&before, 301, 3000.0).unwrap();
+        assert!(
+            near(volume, (3.0 * 2.8 - 1.2 * 1.2) * 0.2),
+            "{schema}: {volume}"
+        );
+        assert!(crosses(&lines, -1000.0), "{schema}");
+        let (lines, volume) = cut_and_volume(&after, 301, 3500.0).unwrap();
+        assert!(
+            near(volume, (3.0 * 2.8 - 1.5 * 1.0) * 0.2),
+            "{schema}: {volume}"
+        );
+        assert!(!crosses(&lines, -1000.0), "{schema}");
+    }
+}
+
+#[test]
+fn refuses_changes_it_cannot_write_without_changing_anything() {
+    let src = sample("IFC4", true);
+    let before = run(src.as_bytes(), &opening_edits()).0.unwrap();
+    let text = String::from_utf8(before.clone()).unwrap();
+    let at = |n| Target::Instance(instance_of(&text, n).unwrap());
+    let wall_change = |wall, end: [f64; 2], thickness: f64| {
+        Edit::WallShape(WallChange {
+            wall,
+            start: [1000.0, 0.0],
+            end,
+            height: 3000.0,
+            layers: vec![layer("Concrete", thickness)],
+            offset: None,
+        })
+    };
+    let opening_change = |opening, width: f64| {
+        Edit::OpeningShape(OpeningChange {
+            opening,
+            distance: 0.0,
+            sill: 0.0,
+            width,
+            height: 1000.0,
+        })
+    };
+    let cases = [
+        // 階でないもの、有限でない高さ
+        Edit::Elevation {
+            storey: at(300),
+            elevation: 0.0,
+        },
+        Edit::Elevation {
+            storey: at(101),
+            elevation: f64::NAN,
+        },
+        // 壁でないもの、長さのない芯、厚さのない層
+        wall_change(at(500), [1000.0, 5000.0], 200.0),
+        wall_change(at(300), [1000.0, 0.0], 200.0),
+        wall_change(at(300), [1000.0, 5000.0], 0.0),
+        // 開口でないもの、幅のない開口
+        opening_change(at(300), 900.0),
+        opening_change(at(500), 0.0),
+    ];
+    for case in cases {
+        let (result, codes) = run(&before, std::slice::from_ref(&case));
+        assert!(matches!(result, Err(Error::Invalid)), "{case:?}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{case:?}");
+    }
+}
+
+/// 建物・1F（高さ 0）・2F（高さ 3000）・1F の通り芯を足し、各階に 6000×4000 を囲む 4 つの壁・床・柱・梁と、
+/// 1F に扉、2F に窓を足す変更。番号は階ごとに 1000 ずつずらす
+fn two_storey_edits() -> Vec<Edit> {
+    let storey = |n: u32, elevation: f64| {
+        Edit::Space(NewSpace {
+            kind: SpaceKind::Storey,
+            name: Some(format!("{}F", n - 1000)),
+            parent: Target::Added(0),
+            placement: Some(at(0.0, 0.0, elevation, Target::Added(0))),
+            elevation: Some(elevation),
+            global_id: Some(global(n)),
+        })
+    };
+    let mut edits = vec![
+        space(SpaceKind::Building, 1000, Target::Instance(10), 0.0),
+        storey(1001, 0.0),
+        storey(1002, 3000.0),
+        Edit::Grid(grid(1003, Target::Added(1))),
+    ];
+    let corners = [[0.0, 0.0], [6000.0, 0.0], [6000.0, 4000.0], [0.0, 4000.0]];
+    for (level, at) in [(1u32, 1usize), (2, 2)] {
+        let base = 1000 * (level + 1);
+        let on = Target::Added(at);
+        let first = edits.len();
+        for (i, from) in corners.iter().enumerate() {
+            let to = corners
+                .get((i + 1) % corners.len())
+                .copied()
+                .unwrap_or_default();
+            edits.push(wall(base + i as u32, on, *from, to));
+        }
+        edits.extend([
+            Edit::Slab(slab(base + 10, on)),
+            Edit::Column(column(base + 11, on)),
+            Edit::Beam(beam(base + 12, on)),
+        ]);
+        let (kind, sill, size) = if level == 1 {
+            (FillingKind::Door, 0.0, [900.0, 2100.0])
+        } else {
+            (FillingKind::Window, 900.0, [1200.0, 1200.0])
+        };
+        edits.push(opening(base + 20, Target::Added(first), 1000.0, sill, size));
+        edits.push(filling(
+            base + 21,
+            Target::Added(edits.len() - 1),
+            kind,
+            size,
+        ));
+    }
+    edits
+}
+
+#[test]
+fn builds_a_two_storey_building_from_edits_only_in_every_version() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let edits = two_storey_edits();
+        let (result, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let built = result.unwrap();
+        // 種類ごとの要素の数
+        let building = lift(&built).unwrap();
+        let mut classes = std::collections::BTreeMap::<String, usize>::new();
+        for (_, class) in building.components.class.iter() {
+            let name = class.name.replace("StandardCase", "");
+            *classes.entry(name).or_default() += 1;
+        }
+        let expected = [
+            ("IfcBeam", 2),
+            ("IfcBuilding", 1),
+            ("IfcBuildingStorey", 2),
+            ("IfcColumn", 2),
+            ("IfcDoor", 1),
+            ("IfcGrid", 1),
+            ("IfcOpeningElement", 2),
+            ("IfcSlab", 2),
+            ("IfcWall", 8),
+            ("IfcWindow", 1),
+        ];
+        for (class, n) in expected {
+            assert_eq!(
+                classes.get(class),
+                Some(&n),
+                "{schema}: {class} {classes:?}"
+            );
+        }
+        // 2F は高さ 3000 に置き、2F の要素は 2F の配置からの相対
+        let second = element(&building, 1002).unwrap();
+        assert_eq!(translation(&building, second), Some([0.0, 0.0, 3000.0]));
+        for n in [3000, 3010, 3011, 3012] {
+            let placement = building
+                .components
+                .placement
+                .get(element(&building, n).unwrap())
+                .unwrap();
+            assert_eq!(placement.relative_to, Some(second), "{schema}: {n}");
+        }
+        // 形まで読める。形を持たないのは空間と建具だけで、ほかの診断は出ない
+        let file = read(&built).unwrap();
+        let (shaped, diag) = with(|cx| file.lift_geometry(cx));
+        assert!(
+            diag.iter().all(|d| d.code() == codes::IFC_SHAPE_MISSING),
+            "{schema}: {:?}",
+            diag.iter().collect::<Vec<_>>()
+        );
+        let shaped = shaped.unwrap();
+        for n in [2000, 2010, 2011, 2012, 2020, 3000, 3020] {
+            let at = element(&shaped, n).unwrap();
+            assert!(shaped.geometry(at).is_some(), "{schema}: {n}");
+        }
+        // 同じ変更なら同じバイト列。文書エンジンでも同じ
+        assert_eq!(run(src.as_bytes(), &edits).0.unwrap(), built);
+        let (live, _) = with(|cx| IfcLive::open(src.as_bytes(), cx));
+        let mut live = live.unwrap();
+        assert_eq!(apply_like_batch(&mut live, &edits), Some(built), "{schema}");
+    }
+}
+
+/// 2 階建てを足し、階の高さ・壁・開口を直す変更。2F は 3200 に、1F の最初の壁は 3 層で長さ 6500 に、2F の窓の開口は
+/// 芯に沿う 2000 と下端 1000 の 1600×1000 にする
+fn two_storey_change_edits() -> Option<Vec<Edit>> {
+    let mut edits = two_storey_edits();
+    let window = edits
+        .iter()
+        .rposition(|edit| matches!(edit, Edit::Opening(_)))?;
+    let wall = edits
+        .iter()
+        .position(|edit| matches!(edit, Edit::Wall(_)))?;
+    edits.extend([
+        Edit::Elevation {
+            storey: Target::Added(2),
+            elevation: 3200.0,
+        },
+        Edit::WallShape(WallChange {
+            wall: Target::Added(wall),
+            start: [0.0, 0.0],
+            end: [6500.0, 0.0],
+            height: 3000.0,
+            layers: vec![
+                layer("Concrete", 200.0),
+                layer("Insulation", 50.0),
+                layer("Board", 20.0),
+            ],
+            offset: None,
+        }),
+        Edit::OpeningShape(OpeningChange {
+            opening: Target::Added(window),
+            distance: 2000.0,
+            sill: 1000.0,
+            width: 1600.0,
+            height: 1000.0,
+        }),
+    ]);
+    Some(edits)
+}
+
+/// 所有履歴の作り手と使い手を書いた、プロジェクトと敷地だけの文書。ほかの読み手の検査で、入力の誤りを出さない
+fn complete_sample(schema: &str) -> String {
+    let lines = [
+        format!("#1=IFCPROJECT('{}',#2,'Project',$,$,$,$,$,#3);", gid(1)),
+        "#2=IFCOWNERHISTORY(#5,#8,$,.NOCHANGE.,$,$,$,0);".to_owned(),
+        "#3=IFCUNITASSIGNMENT((#4));".to_owned(),
+        "#4=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);".to_owned(),
+        "#5=IFCPERSONANDORGANIZATION(#6,#7,$);".to_owned(),
+        "#6=IFCPERSON($,'Author',$,$,$,$,$,$);".to_owned(),
+        "#7=IFCORGANIZATION($,'Organization',$,$,$);".to_owned(),
+        "#8=IFCAPPLICATION(#7,'0','Application','Application');".to_owned(),
+        format!(
+            "#10=IFCSITE('{}',#2,'Site',$,$,#11,$,$,.ELEMENT.,$,$,$,$,$);",
+            gid(10)
+        ),
+        "#11=IFCLOCALPLACEMENT($,#12);".to_owned(),
+        "#12=IFCAXIS2PLACEMENT3D(#13,$,$);".to_owned(),
+        "#13=IFCCARTESIANPOINT((0.,0.,0.));".to_owned(),
+        format!("#14=IFCRELAGGREGATES('{}',#2,$,$,#1,(#10));", gid(14)),
+    ];
+    format!(
+        "ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION((''),'2;1');
+FILE_NAME('a.ifc','',(''),(''),'','','');
+FILE_SCHEMA(('{schema}'));
+ENDSEC;
+DATA;
+{}
+ENDSEC;
+END-ISO-10303-21;
+",
+        lines.join(
+            "
+"
+        )
+    )
+}
+
+// 環境変数は照合用の出力先だけに使う。
+#[allow(clippy::disallowed_methods)]
+#[test]
+fn writes_the_authored_files_for_other_readers() {
+    let Some(folder) = std::env::var_os("ZUMEN_IFC_AUTHORED") else {
+        return;
+    };
+    let folder = std::path::PathBuf::from(folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    for schema in SCHEMAS {
+        let src = complete_sample(schema);
+        for (name, edits) in [
+            ("built", two_storey_edits()),
+            ("changed", two_storey_change_edits().unwrap()),
+        ] {
+            let (result, codes) = run(src.as_bytes(), &edits);
+            assert!(codes.is_empty(), "{schema} {name}: {codes:?}");
+            std::fs::write(folder.join(format!("{schema}.{name}.ifc")), result.unwrap()).unwrap();
+        }
+    }
+}
+
+fn quantity(
+    element: u64,
+    name: &str,
+    kind: QuantityKind,
+    value: f64,
+    formula: Option<&str>,
+) -> Edit {
+    Edit::Quantity {
+        element,
+        set: "Qto_WallBaseQuantities".to_owned(),
+        method: Some("BaseQuantities".to_owned()),
+        quantity: NewQuantity {
+            name: name.to_owned(),
+            kind,
+            value,
+            formula: formula.map(str::to_owned),
+        },
+    }
+}
+
+fn unit(kind: &str, prefix: Option<&str>, name: &str) -> Edit {
+    Edit::Unit(NewUnit {
+        kind: kind.to_owned(),
+        prefix: prefix.map(str::to_owned),
+        name: name.to_owned(),
+    })
+}
+
+#[test]
+fn writes_quantities_and_units() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        // 型の数量は 6 HasPropertySets に書き、同じ名前の数量は書き直す
+        let edits = [
+            unit("AREAUNIT", None, "SQUARE_METRE"),
+            unit("massunit", Some("kilo"), "gram"),
+            quantity(20, "Length", QuantityKind::Length, 3000.0, None),
+            quantity(20, "Area", QuantityKind::Area, 7.5, None),
+            quantity(20, "Length", QuantityKind::Length, 3200.0, None),
+            quantity(20, "Count", QuantityKind::Count, 2.0, None),
+        ];
+        let (result, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = result.unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        assert!(
+            text.contains("IFCSIUNIT(*,.MASSUNIT.,.KILO.,.GRAM.)"),
+            "{text}"
+        );
+        assert!(text.contains("IFCQUANTITYCOUNT('Count',$,$,2"), "{text}");
+        let building = lift(&bytes).unwrap();
+        let wall_type = element(&building, 20).unwrap();
+        let sets = &building.components.quantities.get(wall_type).unwrap().sets;
+        let found: Vec<_> = sets
+            .iter()
+            .flat_map(|set| {
+                set.quantities
+                    .iter()
+                    .map(|q| (set.method.as_deref(), q.name.as_str(), q.value.value))
+            })
+            .collect();
+        let method = Some("BaseQuantities");
+        assert_eq!(
+            found,
+            [
+                (method, "Length", 3200.0),
+                (method, "Area", 7.5),
+                (method, "Count", 2.0)
+            ],
+            "{schema}"
+        );
+        let area = building
+            .document
+            .units
+            .iter()
+            .find(|u| u.kind == "AREAUNIT")
+            .map(|u| u.name.as_str());
+        assert_eq!(area, Some("SQUARE_METRE"), "{schema}");
+    }
+}
+
+#[test]
+fn rejects_quantities_and_units_it_cannot_write() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let mut refused = vec![
+            // ひな形が持つ種類・同じ種類・種類に合わない名前・知らない接頭辞
+            unit("LENGTHUNIT", None, "METRE"),
+            unit("AREAUNIT", None, "METRE"),
+            unit("AREAUNIT", Some("MEGAMEGA"), "SQUARE_METRE"),
+            quantity(20, "Length", QuantityKind::Length, -1.0, None),
+            quantity(20, "Length", QuantityKind::Length, f64::NAN, None),
+        ];
+        if schema == "IFC2X3" {
+            refused.push(quantity(20, "Length", QuantityKind::Length, 1.0, Some("L")));
+        }
+        if schema == "IFC4X3_ADD2" {
+            refused.push(quantity(20, "Count", QuantityKind::Count, 2.5, None));
+        }
+        for edit in &refused {
+            let (result, codes) = run(src.as_bytes(), std::slice::from_ref(edit));
+            assert!(result.is_err(), "{schema}: {edit:?}");
+            assert_eq!(codes.len(), 1, "{schema}: {edit:?}: {codes:?}");
+        }
+        let twice = [
+            unit("AREAUNIT", None, "SQUARE_METRE"),
+            unit("AREAUNIT", Some("MILLI"), "SQUARE_METRE"),
+        ];
+        let (result, codes) = run(src.as_bytes(), &twice);
+        assert!(result.is_err(), "{schema}");
+        assert_eq!(codes.len(), 1, "{schema}: {codes:?}");
+    }
+}
+
+fn material_layer(material: Option<&str>, thickness: f64, name: Option<&str>) -> NewMaterialLayer {
+    NewMaterialLayer {
+        material: material.map(str::to_owned),
+        thickness,
+        name: name.map(str::to_owned),
+    }
+}
+
+fn usage(direction: &str, offset: f64) -> Option<NewLayerUsage> {
+    Some(NewLayerUsage {
+        direction: direction.to_owned(),
+        negative: true,
+        offset,
+    })
+}
+
+/// 材料の構成の種類・構成ごとの材料の名前と厚さと名前・層の向きと基準からのずれ
+type MaterialRow = (
+    MaterialKind,
+    Vec<(Option<String>, Option<f64>, Option<String>)>,
+    Option<String>,
+    Option<f64>,
+);
+
+fn material_of(building: &Building, n: u32) -> Option<MaterialRow> {
+    let material = building.components.material.get(element(building, n)?)?;
+    let name = |m: Option<ElementRef>| {
+        m.and_then(|m| building.components.identity.get(m))
+            .and_then(|i| i.name.clone())
+    };
+    Some((
+        material.kind,
+        material
+            .parts
+            .iter()
+            .map(|p| {
+                (
+                    name(p.material),
+                    p.thickness.as_ref().map(|t| t.value),
+                    p.name.clone(),
+                )
+            })
+            .collect(),
+        material.direction.clone(),
+        material.offset.as_ref().map(|o| o.value),
+    ))
+}
+
+#[test]
+fn writes_and_replaces_materials() {
+    for schema in SCHEMAS {
+        let later = schema != "IFC2X3";
+        let src = sample(schema, true);
+        let mut edits = building_edits();
+        let core = later.then_some("Core");
+        edits.extend([
+            Edit::Material {
+                element: Target::Added(3),
+                material: NewMaterial::Single("Concrete".to_owned()),
+            },
+            // 結び直すと前の構成を外す
+            Edit::Material {
+                element: Target::Added(3),
+                material: NewMaterial::Layers {
+                    layers: vec![
+                        material_layer(Some("Concrete"), 200.0, core),
+                        material_layer(None, 50.0, None),
+                        material_layer(Some("Gypsum"), 12.5, None),
+                    ],
+                    usage: usage("axis2", -100.0),
+                },
+            },
+            // IFC4 からは並びが非推奨なので、名前のない構成要素で書く
+            Edit::Material {
+                element: Target::Added(5),
+                material: if later {
+                    NewMaterial::Constituents(
+                        ["Wood", "Glass", "Wood"]
+                            .map(|material| NewConstituent {
+                                material: material.to_owned(),
+                                name: None,
+                            })
+                            .to_vec(),
+                    )
+                } else {
+                    NewMaterial::List(vec![
+                        "Wood".to_owned(),
+                        "Glass".to_owned(),
+                        "Wood".to_owned(),
+                    ])
+                },
+            },
+            Edit::Material {
+                element: Target::Instance(20),
+                material: if later {
+                    NewMaterial::Constituents(vec![
+                        NewConstituent {
+                            material: "Concrete".to_owned(),
+                            name: Some("Body".to_owned()),
+                        },
+                        NewConstituent {
+                            material: "Steel".to_owned(),
+                            name: None,
+                        },
+                    ])
+                } else {
+                    NewMaterial::Single("Concrete".to_owned())
+                },
+            },
+        ]);
+        let (result, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = result.unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        // 同じ名前の材料は 1 つ。外した単一の材料の関係は除く
+        assert_eq!(
+            count(&text, "IFCMATERIAL"),
+            if later { 5 } else { 4 },
+            "{text}"
+        );
+        assert_eq!(count(&text, "IFCRELASSOCIATESMATERIAL"), 3, "{text}");
+        let building = lift(&bytes).unwrap();
+        let some = |s: &str| Some(s.to_owned());
+        assert_eq!(
+            material_of(&building, 200),
+            Some((
+                MaterialKind::Layers,
+                vec![
+                    (some("Concrete"), Some(200.0), core.map(str::to_owned)),
+                    (None, Some(50.0), None),
+                    (some("Gypsum"), Some(12.5), None),
+                ],
+                some("AXIS2"),
+                Some(-100.0),
+            )),
+            "{schema}"
+        );
+        assert_eq!(
+            material_of(&building, 202).map(|m| (m.0, m.1)),
+            Some((
+                if later {
+                    MaterialKind::Constituents
+                } else {
+                    MaterialKind::List
+                },
+                vec![
+                    (some("Wood"), None, None),
+                    (some("Glass"), None, None),
+                    (some("Wood"), None, None),
+                ],
+            )),
+            "{schema}"
+        );
+        let expected = if later {
+            (
+                MaterialKind::Constituents,
+                vec![
+                    (some("Concrete"), None, some("Body")),
+                    (some("Steel"), None, None),
+                ],
+            )
+        } else {
+            (MaterialKind::Single, vec![(some("Concrete"), None, None)])
+        };
+        assert_eq!(
+            material_of(&building, 20).map(|m| (m.0, m.1)),
+            Some(expected),
+            "{schema}"
+        );
+    }
+}
+
+#[test]
+fn rejects_materials_it_cannot_write() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let on_type = |material| Edit::Material {
+            element: Target::Instance(20),
+            material,
+        };
+        let layers = |layers, usage| NewMaterial::Layers { layers, usage };
+        let one = || vec![material_layer(Some("C"), 1.0, None)];
+        let mut refused = vec![
+            // 敷地には結ばない
+            Edit::Material {
+                element: Target::Instance(10),
+                material: NewMaterial::Single("C".to_owned()),
+            },
+            on_type(NewMaterial::List(Vec::new())),
+            on_type(layers(Vec::new(), None)),
+            on_type(layers(vec![material_layer(Some("C"), -1.0, None)], None)),
+            on_type(layers(
+                vec![material_layer(Some("C"), f64::NAN, None)],
+                None,
+            )),
+            on_type(layers(one(), usage("AXIS4", 0.0))),
+            on_type(layers(one(), usage("AXIS2", f64::INFINITY))),
+        ];
+        if schema == "IFC2X3" {
+            // IFC2X3 の層は正の厚さで、名前を持たない。構成要素もない
+            refused.extend([
+                on_type(layers(vec![material_layer(Some("C"), 0.0, None)], None)),
+                on_type(layers(
+                    vec![material_layer(Some("C"), 1.0, Some("L"))],
+                    None,
+                )),
+                on_type(NewMaterial::Constituents(vec![NewConstituent {
+                    material: "C".to_owned(),
+                    name: None,
+                }])),
+            ]);
+        } else {
+            // 並びは IFC4 から非推奨
+            refused.extend([
+                on_type(NewMaterial::Constituents(Vec::new())),
+                on_type(NewMaterial::List(vec!["C".to_owned()])),
+            ]);
+        }
+        for edit in &refused {
+            let (result, codes) = run(src.as_bytes(), std::slice::from_ref(edit));
+            assert!(result.is_err(), "{schema}: {edit:?}");
+            assert_eq!(codes.len(), 1, "{schema}: {edit:?}: {codes:?}");
+        }
+    }
+}
+
+#[path = "support/shape.rs"]
+mod shape;
+
+fn lift_geometry(src: &[u8]) -> Option<Building> {
+    let file = read(src)?;
+    with(|cx| file.lift_geometry(cx)).0.ok()
+}
+
+#[test]
+fn writes_and_replaces_shapes() {
+    let [wall, slab, column] = shape::examples();
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let mut edits = building_edits();
+        edits.extend([
+            Edit::Shape {
+                element: Target::Added(3),
+                shape: column.clone(),
+            },
+            // 置き換えると、前の形を除く
+            Edit::Shape {
+                element: Target::Added(3),
+                shape: wall.clone(),
+            },
+            Edit::Shape {
+                element: Target::Added(4),
+                shape: slab.clone(),
+            },
+            Edit::Shape {
+                element: Target::Added(5),
+                shape: column.clone(),
+            },
+        ]);
+        let (result, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = result.unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        assert_eq!(count(&text, "IFCCIRCLEPROFILEDEF"), 1, "{text}");
+        assert_eq!(count(&text, "IFCPRODUCTDEFINITIONSHAPE"), 3, "{text}");
+        // 文脈は Axis と Body の 1 つずつ
+        assert_eq!(
+            count(&text, "IFCGEOMETRICREPRESENTATIONSUBCONTEXT"),
+            2,
+            "{text}"
+        );
+        let building = lift_geometry(&bytes).unwrap();
+        for (n, shape) in [(200, &wall), (201, &slab), (202, &column)] {
+            assert_eq!(
+                element(&building, n).and_then(|e| shape::shape_of(&building, e)),
+                Some(shape::as_written(shape)),
+                "{schema} {n}"
+            );
+        }
+    }
+}
+
+/// 建物と階に壁・床・柱（200〜202）を置き、形を書く。読み直して同じ形かを確かめ、`ZUMEN_IFC_AUTHORED` が
+/// あれば `<スキーマ>.<name>.ifc` に書き出す
+// 環境変数は照合用の出力先だけに使う。
+#[allow(clippy::disallowed_methods)]
+fn write_shapes(schema: &str, shapes: &[NewShape], name: &str) -> String {
+    let src = complete_sample(schema);
+    let mut edits = building_edits();
+    edits.truncate(3);
+    for (n, class) in [(200, "IfcWall"), (201, "IfcSlab"), (202, "IfcColumn")] {
+        let placement = at(0.0, 0.0, 0.0, Target::Added(1));
+        edits.push(new_element(
+            class,
+            n,
+            Some(Target::Added(1)),
+            Some(placement),
+        ));
+    }
+    for (n, shape) in shapes.iter().enumerate() {
+        edits.push(Edit::Shape {
+            element: Target::Added(3 + n),
+            shape: shape.clone(),
+        });
+    }
+    let (result, codes) = run(src.as_bytes(), &edits);
+    assert!(codes.is_empty(), "{schema}: {codes:?}");
+    let bytes = result.unwrap_or_default();
+    let building = lift_geometry(&bytes);
+    assert!(building.is_some(), "{schema}: 読めない");
+    let Some(building) = building else {
+        return String::new();
+    };
+    for (n, shape) in (200..).zip(shapes) {
+        assert_eq!(
+            element(&building, n).and_then(|e| shape::shape_of(&building, e)),
+            Some(shape::as_written(shape)),
+            "{schema} {n}"
+        );
+    }
+    if let Some(folder) = std::env::var_os("ZUMEN_IFC_AUTHORED") {
+        let folder = std::path::PathBuf::from(folder);
+        let written = std::fs::create_dir_all(&folder)
+            .and_then(|()| std::fs::write(folder.join(format!("{schema}.{name}.ifc")), &bytes));
+        assert!(written.is_ok(), "{written:?}");
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+#[test]
+fn writes_booleans_and_mappings() {
+    for schema in SCHEMAS {
+        let shapes = shape::csg_examples(schema != "IFC2X3");
+        let text = write_shapes(schema, &shapes, "csg");
+        for kind in ["Clipping", "CSG", "MappedRepresentation", "SweptSolid"] {
+            assert!(
+                text.contains(&format!("'Body','{kind}'")),
+                "{schema} {kind}"
+            );
+        }
+        for (name, n) in [
+            ("IFCBOOLEANCLIPPINGRESULT", 2),
+            ("IFCBOOLEANRESULT", 1),
+            ("IFCHALFSPACESOLID", 1),
+            ("IFCBOXEDHALFSPACE", 1),
+            ("IFCPOLYGONALBOUNDEDHALFSPACE", 1),
+            // 同じ原点と項目の写像元は 1 つ
+            ("IFCREPRESENTATIONMAP", 1),
+            ("IFCMAPPEDITEM", 2),
+            ("IFCCARTESIANTRANSFORMATIONOPERATOR3DNONUNIFORM", 1),
+        ] {
+            assert_eq!(count(&text, name), n, "{schema} {name}");
+        }
+    }
+}
+
+#[test]
+fn writes_face_sets() {
+    for schema in SCHEMAS {
+        let later = schema != "IFC2X3";
+        let shapes = shape::face_examples(later, schema == "IFC4X3_ADD2");
+        let text = write_shapes(schema, &shapes, "faces");
+        // 箱の点は 8 つを共有し、面ごとに写さない
+        assert_eq!(
+            count(&text, "IFCCLOSEDSHELL"),
+            if later { 1 } else { 2 },
+            "{text}"
+        );
+        for kind in [
+            "SolidModel",
+            "SurfaceModel",
+            if later { "Tessellation" } else { "Brep" },
+        ] {
+            assert!(
+                text.contains(&format!("'Body','{kind}'")),
+                "{schema} {kind}"
+            );
+        }
+    }
+}
+
+#[test]
+fn rejects_shapes_it_cannot_write() {
+    let [wall, ..] = shape::examples();
+    let changed = |change: &dyn Fn(&mut NewShape)| {
+        let mut shape = wall.clone();
+        change(&mut shape);
+        shape
+    };
+    let solid = |change: &dyn Fn(&mut NewSolid)| {
+        changed(&|shape: &mut NewShape| {
+            if let Some(NewItem::Solid(solid)) = shape.body.first_mut() {
+                change(solid);
+            }
+        })
+    };
+    let body = |body: Vec<NewItem>| NewShape { axis: None, body };
+    let origin = shape::placed([0.0; 3], None);
+    let half = |limit: NewHalfSpaceLimit| shape::half_space(origin.clone(), false, limit);
+    let unbounded = || half(NewHalfSpaceLimit::Unbounded);
+    let mapped = |items: Vec<NewItem>, scale: MappingScale3| {
+        NewItem::Mapped(Box::new(NewMapped {
+            origin: origin.clone(),
+            target: CartesianMapping3 {
+                local_origin: [0.0; 3],
+                axis1: None,
+                axis2: None,
+                axis3: None,
+                scale,
+            },
+            items,
+        }))
+    };
+    let block = || shape::block(1.0, 1.0, 1.0);
+    let cut = |first: NewItem, second: NewItem| {
+        shape::boolean(BooleanOperation::Difference, first, second)
+    };
+    let mut nested = block();
+    for _ in 0..16 {
+        nested = shape::boolean(BooleanOperation::Union, nested, block());
+    }
+    let refused = [
+        NewShape {
+            axis: None,
+            body: Vec::new(),
+        },
+        // 半空間は表現に直接置かない。写像と押し出しは 1 つの表現にしない
+        body(vec![unbounded()]),
+        body(vec![
+            block(),
+            mapped(vec![block()], MappingScale3::Uniform(None)),
+        ]),
+        // 写像と面の模型は演算の対象にしない
+        body(vec![cut(
+            mapped(vec![block()], MappingScale3::Uniform(None)),
+            unbounded(),
+        )]),
+        body(vec![cut(
+            NewItem::Faces(NewFaces::Polygons(shape::surfaces(true)[0].clone())),
+            unbounded(),
+        )]),
+        // 囲みの箱・多角形・写像の尺度・空の写像元・入れ子の深さ
+        body(vec![cut(
+            block(),
+            half(NewHalfSpaceLimit::Box {
+                corner: [0.0; 3],
+                dimensions: [1.0, 0.0, 1.0],
+            }),
+        )]),
+        body(vec![cut(
+            block(),
+            half(NewHalfSpaceLimit::Polygonal {
+                position: origin.clone(),
+                boundary: vec![[0.0, 0.0], [1.0, 0.0]],
+            }),
+        )]),
+        body(vec![mapped(
+            vec![block()],
+            MappingScale3::Uniform(Some(0.0)),
+        )]),
+        body(vec![mapped(
+            vec![block()],
+            MappingScale3::NonUniform {
+                x: None,
+                y: Some(f64::NAN),
+                z: None,
+            },
+        )]),
+        body(vec![mapped(Vec::new(), MappingScale3::Uniform(None))]),
+        body(vec![nested]),
+        changed(&|shape| shape.axis = Some(vec![[0.0, 0.0]])),
+        solid(&|s| s.depth = 0.0),
+        solid(&|s| s.depth = f64::NAN),
+        solid(&|s| s.direction = [1.0, 0.0, 0.0]),
+        solid(&|s| {
+            s.position = Some(NewAxis3 {
+                location: [0.0; 3],
+                axis: Some([0.0; 3]),
+                reference: None,
+            });
+        }),
+        solid(&|s| {
+            s.profile.kind = NewProfileKind::Circle {
+                radius: 0.0,
+                position: None,
+            };
+        }),
+        solid(&|s| {
+            s.profile.kind = NewProfileKind::Polygon {
+                outer: vec![[0.0, 0.0], [1.0, 0.0]],
+                holes: Vec::new(),
+            };
+        }),
+    ];
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let mut cases: Vec<Vec<Edit>> = refused
+            .iter()
+            .map(|shape| {
+                let mut edits = building_edits();
+                edits.push(Edit::Shape {
+                    element: Target::Added(3),
+                    shape: shape.clone(),
+                });
+                edits
+            })
+            .collect();
+        let faces = |faces: NewFaces| {
+            let mut edits = building_edits();
+            edits.push(Edit::Shape {
+                element: Target::Added(3),
+                shape: NewShape {
+                    axis: None,
+                    body: vec![NewItem::Faces(faces)],
+                },
+            });
+            edits
+        };
+        let [shell, sheet] = shape::surfaces(false);
+        let brep = shape::brep_box([1.0, 1.0, 1.0]);
+        // 開殻の Brep・2 点のループ・外輪が 2 つの面・範囲の外の参照
+        let mut open = brep.clone();
+        open.sets[0].closed = Some(false);
+        let mut short = brep.clone();
+        short.loops[0].points.truncate(2);
+        let mut outers = brep.clone();
+        outers.faces[0].bounds.push(FaceBoundRef(1));
+        let mut outside = brep.clone();
+        outside.roots[0] = FaceSetRef(5);
+        for graph in [open, short, outers, outside] {
+            cases.push(faces(NewFaces::Polygons(graph)));
+        }
+        // 押し出しと面の模型は 1 つの表現にしない
+        let mut mixed = building_edits();
+        let mut shape = wall.clone();
+        shape.body.push(NewItem::Faces(NewFaces::Polygons(shell)));
+        mixed.push(Edit::Shape {
+            element: Target::Added(3),
+            shape,
+        });
+        cases.push(mixed);
+        // 添字の面集合は閉殻の申告があるときだけ演算の対象にする
+        if schema != "IFC2X3" {
+            let mut open = shape::triangulated_box([1.0, 1.0, 1.0], false);
+            open.closed = None;
+            let mut edits = building_edits();
+            edits.push(Edit::Shape {
+                element: Target::Added(3),
+                shape: body(vec![cut(
+                    NewItem::Faces(NewFaces::Indexed(open)),
+                    unbounded(),
+                )]),
+            });
+            cases.push(edits);
+        }
+        let mut indexed = shape::triangulated_box([1.0, 1.0, 1.0], false);
+        if let IndexedFaces::Triangles { indices, .. } = &mut indexed.faces {
+            indices[0][0] = 9;
+        }
+        cases.push(faces(NewFaces::Indexed(indexed)));
+        // 面の模型は IFC4 から非推奨
+        if schema != "IFC2X3" {
+            cases.push(faces(NewFaces::Polygons(sheet)));
+        }
+        // 添字の面集合は IFC4 から、点のタグは IFC4X3 から
+        if schema != "IFC4X3_ADD2" {
+            cases.push(faces(NewFaces::Indexed(shape::triangulated_box(
+                [1.0, 1.0, 1.0],
+                schema == "IFC4",
+            ))));
+        }
+        // 敷地には置かない。配置のない要素にも置かない
+        cases.push(vec![Edit::Shape {
+            element: Target::Instance(10),
+            shape: wall.clone(),
+        }]);
+        cases.push(vec![
+            new_element("IfcWall", 300, None, None),
+            Edit::Shape {
+                element: Target::Added(0),
+                shape: wall.clone(),
+            },
+        ]);
+        for edits in cases {
+            let (result, codes) = run(src.as_bytes(), &edits);
+            assert!(result.is_err(), "{schema}: {edits:?}");
+            assert_eq!(
+                codes,
+                [codes::CHANGE_EDIT_UNSUPPORTED],
+                "{schema}: {edits:?}"
+            );
+        }
     }
 }

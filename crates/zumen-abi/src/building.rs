@@ -10,22 +10,24 @@ use zumen_building::{
 };
 use zumen_ids::{Ids, Report};
 use zumen_ifc::{
-    Edit, FillingKind, Ifc, IfcFile, IfcZip, NewBeam, NewColumn, NewElement, NewFilling, NewGrid,
-    NewGridAxis, NewLayer, NewLiteral, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace,
-    NewValue, NewWall, RootAttribute, SpaceKind, Target, TextEncoding,
+    Edit, FillingKind, Ifc, IfcFile, IfcZip, NewBeam, NewColumn, NewConstituent, NewElement,
+    NewFilling, NewGrid, NewGridAxis, NewLayer, NewLayerUsage, NewLiteral, NewMaterial,
+    NewMaterialLayer, NewOpening, NewPlacement, NewQuantity, NewSection, NewSlab, NewSpace,
+    NewType, NewUnit, NewValue, NewWall, OpeningChange, RootAttribute, SpaceKind, Target,
+    TextEncoding, WallChange,
 };
 use zumen_sdk::{Codec, Lift};
 
 use crate::messages::{
     self, BuildingApplyRequest, BuildingApplyResult, BuildingAttribute, BuildingComponent,
     BuildingEdit, BuildingElement, BuildingElementsRequest, BuildingElementsResult,
-    BuildingGridAxis, BuildingPlacementChange, BuildingRef, BuildingResult, BuildingSection,
-    BuildingSpaceKind, BuildingUnit, BuildingValue, BuildingValueKind, BuildingWallLayer,
-    ClassComponent, ClassCount, ClassificationReference, ConnectionLink, IdentityComponent,
-    IdsCheckResult, IdsFinding, IdsSpecification, IdsStatus, LevelComponent, MaterialComponent,
-    MaterialPart, Measured, Membership, OpeningComponent, ParentComponent, PlacementComponent,
-    Property, PropertySet, Quantity, QuantitySet, RelationsComponent, SpatialComponent,
-    StyleComponent, ZoneComponent,
+    BuildingGridAxis, BuildingLayerDirection, BuildingMaterialChange, BuildingMaterialChangeKind,
+    BuildingPlacementChange, BuildingRef, BuildingResult, BuildingSection, BuildingSpaceKind,
+    BuildingUnit, BuildingValue, BuildingValueKind, BuildingWallLayer, ClassComponent, ClassCount,
+    ClassificationReference, ConnectionLink, IdentityComponent, IdsCheckResult, IdsFinding,
+    IdsSpecification, IdsStatus, LevelComponent, MaterialComponent, MaterialPart, Measured,
+    Membership, OpeningComponent, ParentComponent, PlacementComponent, Property, PropertySet,
+    Quantity, QuantitySet, RelationsComponent, SpatialComponent, StyleComponent, ZoneComponent,
 };
 #[cfg(feature = "bim")]
 use crate::plugin;
@@ -256,7 +258,7 @@ enum Outcome {
     Existing(ElementRef),
     /// 足した空間か要素の GlobalId
     Added(GlobalId),
-    /// 除いた要素。ID を返さない
+    /// 除いた要素か、要素でないもの（単位）を変えた。ID を返さない
     Removed,
 }
 
@@ -319,6 +321,7 @@ pub(crate) fn prepare(
             BuildingEdit::AddDoor(edit) => Some(edit.global_id.as_deref()),
             BuildingEdit::AddWindow(edit) => Some(edit.global_id.as_deref()),
             BuildingEdit::AddGrid(edit) => Some(edit.global_id.as_deref()),
+            BuildingEdit::AddType(edit) => Some(edit.global_id.as_deref()),
             _ => None,
         };
         let slot = match given {
@@ -336,8 +339,36 @@ pub(crate) fn prepare(
             index,
         };
         let resolved = match edit {
-            BuildingEdit::Property(_) | BuildingEdit::Attribute(_) => {
+            BuildingEdit::Property(_) | BuildingEdit::Attribute(_) | BuildingEdit::Quantity(_) => {
                 old_edit(model, edit, &at, cx)?
+            }
+            BuildingEdit::AddType(edit) => {
+                let global_id = slot.ok_or(Failed)?;
+                Some((
+                    Edit::ElementType(NewType {
+                        class: edit.class.clone(),
+                        predefined: edit.predefined.clone(),
+                        element_type: edit.element_type.clone(),
+                        name: edit.name.clone(),
+                        global_id: Some(global_id),
+                    }),
+                    Outcome::Added(global_id),
+                ))
+            }
+            BuildingEdit::AddUnit(edit) => Some((
+                Edit::Unit(NewUnit {
+                    kind: edit.unit.clone(),
+                    prefix: edit.prefix.clone(),
+                    name: edit.name.clone(),
+                }),
+                Outcome::Removed,
+            )),
+            BuildingEdit::Material(edit) => {
+                // 材料の形は、要素を引く前に確かめる
+                let material = new_material(&edit.material)
+                    .ok_or_else(|| fail(cx, invalid_value(format!("{at}/material"))))?;
+                let element = refs.resolve(&edit.element, &format!("{at}/element"), cx)?;
+                element.map(|(element, outcome)| (Edit::Material { element, material }, outcome))
             }
             BuildingEdit::AddSpace(edit) => {
                 let parent = refs.resolve(&edit.parent, &format!("{at}/parent"), cx)?;
@@ -553,6 +584,53 @@ pub(crate) fn prepare(
                     )
                 })
             }
+            BuildingEdit::Elevation(edit) => {
+                let storey = refs.resolve(&edit.storey, &format!("{at}/storey"), cx)?;
+                storey.map(|(storey, outcome)| {
+                    (
+                        Edit::Elevation {
+                            storey,
+                            elevation: edit.elevation,
+                        },
+                        outcome,
+                    )
+                })
+            }
+            BuildingEdit::WallShape(edit) => {
+                let wall = refs.resolve(&edit.wall, &format!("{at}/wall"), cx)?;
+                let start = pair(&edit.start)
+                    .ok_or_else(|| fail(cx, invalid_value(format!("{at}/start"))))?;
+                let end =
+                    pair(&edit.end).ok_or_else(|| fail(cx, invalid_value(format!("{at}/end"))))?;
+                wall.map(|(wall, outcome)| {
+                    (
+                        Edit::WallShape(WallChange {
+                            wall,
+                            start,
+                            end,
+                            height: edit.height,
+                            layers: layers(&edit.layers),
+                            offset: edit.offset,
+                        }),
+                        outcome,
+                    )
+                })
+            }
+            BuildingEdit::OpeningShape(edit) => {
+                let opening = refs.resolve(&edit.opening, &format!("{at}/opening"), cx)?;
+                opening.map(|(opening, outcome)| {
+                    (
+                        Edit::OpeningShape(OpeningChange {
+                            opening,
+                            distance: edit.distance,
+                            sill: edit.sill,
+                            width: edit.width,
+                            height: edit.height,
+                        }),
+                        outcome,
+                    )
+                })
+            }
             BuildingEdit::Remove(edit) => {
                 let element = BuildingRef {
                     id: Some(edit.id.clone()),
@@ -630,6 +708,7 @@ fn old_edit(
     let (id, hash) = match edit {
         BuildingEdit::Property(edit) => (&edit.id, &edit.hash),
         BuildingEdit::Attribute(edit) => (&edit.id, &edit.hash),
+        BuildingEdit::Quantity(edit) => (&edit.id, &edit.hash),
         _ => return Err(Failed),
     };
     let expected = hash
@@ -651,6 +730,17 @@ fn old_edit(
             set: edit.set.clone(),
             name: edit.name.clone(),
             value,
+        },
+        (BuildingEdit::Quantity(edit), _) => Edit::Quantity {
+            element: instance,
+            set: edit.set.clone(),
+            method: edit.method.clone(),
+            quantity: NewQuantity {
+                name: edit.name.clone(),
+                kind: quantity_kind(edit.quantity),
+                value: edit.value,
+                formula: edit.formula.clone(),
+            },
         },
         (BuildingEdit::Attribute(edit), _) => Edit::Attribute {
             element: instance,
@@ -852,6 +942,81 @@ pub(crate) fn finish(
         hash: updated.hash.to_string(),
     };
     Ok((updated, result, bytes))
+}
+
+/// API の数量の種類を、建物モデルの種類にする
+fn quantity_kind(kind: messages::QuantityKind) -> QuantityKind {
+    match kind {
+        messages::QuantityKind::Length => QuantityKind::Length,
+        messages::QuantityKind::Area => QuantityKind::Area,
+        messages::QuantityKind::Volume => QuantityKind::Volume,
+        messages::QuantityKind::Count => QuantityKind::Count,
+        messages::QuantityKind::Weight => QuantityKind::Weight,
+        messages::QuantityKind::Time => QuantityKind::Time,
+    }
+}
+
+/// API の材料の構成を、結ぶ材料の構成にする。種類に合うフィールドがないか、ほかの種類のフィールドがあれば
+/// `None`。空の並びは L1 が断る
+fn new_material(change: &BuildingMaterialChange) -> Option<NewMaterial> {
+    let BuildingMaterialChange {
+        kind,
+        name,
+        names,
+        layers,
+        usage,
+        constituents,
+    } = change;
+    let given = [
+        name.is_some(),
+        names.is_some(),
+        layers.is_some() || usage.is_some(),
+        constituents.is_some(),
+    ];
+    let wanted = match kind {
+        BuildingMaterialChangeKind::Single => 0,
+        BuildingMaterialChangeKind::List => 1,
+        BuildingMaterialChangeKind::Layers => 2,
+        BuildingMaterialChangeKind::Constituents => 3,
+    };
+    if given.iter().enumerate().any(|(n, &on)| on != (n == wanted)) {
+        return None;
+    }
+    Some(match kind {
+        BuildingMaterialChangeKind::Single => NewMaterial::Single(name.clone()?),
+        BuildingMaterialChangeKind::List => NewMaterial::List(names.clone()?),
+        BuildingMaterialChangeKind::Layers => NewMaterial::Layers {
+            layers: layers
+                .as_deref()?
+                .iter()
+                .map(|layer| NewMaterialLayer {
+                    material: layer.material.clone(),
+                    thickness: layer.thickness,
+                    name: layer.name.clone(),
+                })
+                .collect(),
+            usage: usage.as_ref().map(|usage| NewLayerUsage {
+                direction: match usage.direction {
+                    BuildingLayerDirection::Axis1 => "AXIS1",
+                    BuildingLayerDirection::Axis2 => "AXIS2",
+                    BuildingLayerDirection::Axis3 => "AXIS3",
+                }
+                .to_owned(),
+                negative: usage.negative.unwrap_or(false),
+                offset: usage.offset,
+            }),
+        },
+        BuildingMaterialChangeKind::Constituents => NewMaterial::Constituents(
+            constituents
+                .as_deref()?
+                .iter()
+                .map(|part| NewConstituent {
+                    material: part.material.clone(),
+                    name: part.name.clone(),
+                })
+                .collect(),
+        ),
+    })
 }
 
 /// API の値を、書く値にする。書けない種類か、フィールドが足りなければ `None`

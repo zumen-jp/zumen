@@ -101,7 +101,7 @@ fn external(oracle: &Oracle, name: &str, folder: &Path, bytes: &[u8]) -> Vec<Row
                 assert_eq!(*root, "ボーリング情報", "{name}");
                 assert!(system.starts_with("BED"), "{name}: {system}");
             }
-            ["element", depth, element, _, _, value] => rows.push((
+            ["element", depth, element, _, _, _, value] => rows.push((
                 depth.parse().unwrap(),
                 unescape(element),
                 (!value.is_empty()).then(|| whatwg(&unescape(value))),

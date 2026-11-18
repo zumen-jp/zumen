@@ -15,10 +15,19 @@ use crate::building::{Category, Version, category};
 use crate::stopped;
 
 mod intent;
+mod material;
+mod shape;
 
 pub use intent::{
     FillingKind, NewBeam, NewColumn, NewFilling, NewGrid, NewGridAxis, NewLayer, NewOpening,
-    NewSection, NewSlab, NewWall,
+    NewSection, NewSlab, NewWall, OpeningChange, WallChange,
+};
+pub(super) use material::rejected as material_rejected;
+pub use material::{NewConstituent, NewLayerUsage, NewMaterial, NewMaterialLayer};
+pub(super) use shape::{NESTING as SHAPE_NESTING, rejected as shape_rejected};
+pub use shape::{
+    NewAxis2, NewAxis3, NewBoolean, NewFaces, NewHalfSpace, NewHalfSpaceLimit, NewItem, NewMapped,
+    NewProfile, NewProfileKind, NewShape, NewSolid,
 };
 
 /// 変更が指す要素。文書にあるインスタンスか、同じ要求の中で足した要素
@@ -28,7 +37,8 @@ pub enum Target {
     Instance(u64),
     /// 同じ要求の中で、足す変更（[`super::Edit::Space`]・[`super::Edit::Element`]・[`super::Edit::Wall`]・
     /// [`super::Edit::Slab`]・[`super::Edit::Column`]・[`super::Edit::Beam`]・[`super::Edit::Opening`]・
-    /// [`super::Edit::Filling`]・[`super::Edit::Grid`]）が足した要素。足した順に 0 から
+    /// [`super::Edit::Filling`]・[`super::Edit::Grid`]・[`super::Edit::ElementType`]）が足した要素。足した順に
+    /// 0 から
     Added(usize),
 }
 
@@ -63,7 +73,8 @@ pub struct NewSpace {
     pub parent: Target,
     /// 配置。なければ、親の配置があればそこに恒等の変換で置く
     pub placement: Option<NewPlacement>,
-    /// 標高（文書の長さの単位）。階は 10 Elevation、建物は 10 ElevationOfRefHeight、敷地は 12 RefElevation
+    /// 標高（文書の長さの単位）。階は 10 Elevation、建物は 10 ElevationOfRefHeight、敷地は 12 RefElevation。
+    /// IFC4.3 は階と建物の値を非推奨にしたので、階の高さは親の配置からの z で書き、建物の値は断る
     pub elevation: Option<f64>,
     /// GlobalId。なければ文書のハッシュと足した数から作る
     pub global_id: Option<GlobalId>,
@@ -86,8 +97,55 @@ pub struct NewElement {
     pub global_id: Option<GlobalId>,
 }
 
+/// 足す型（`IfcWallType` など）。配置と表現は持たない
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewType {
+    /// IFC のクラスの名前（`IfcWallType` など）。書ける型の表にあるもの
+    pub class: String,
+    /// 10 PredefinedType。必須なので、なければ `NOTDEFINED` を書く
+    pub predefined: Option<String>,
+    /// 9 ElementType（利用者が決めた種類）
+    pub element_type: Option<String>,
+    /// 名前
+    pub name: Option<String>,
+    /// GlobalId。なければ文書のハッシュと足した数から作る
+    pub global_id: Option<GlobalId>,
+}
+
 /// そのバージョンに実体がない
 const ABSENT: u8 = 0;
+
+/// 書ける型の表。名前と、IFC2X3・IFC4・IFC4X3 の順の属性の数。属性 1〜10 は `IfcElementType` を継ぐ型で同じ
+/// （1 GlobalId・2 OwnerHistory・3 Name・4 Description・5 ApplicableOccurrence・6 HasPropertySets・
+/// 7 RepresentationMaps・8 Tag・9 ElementType・10 PredefinedType）で、10 は必須。扉と窓の型は 11 も必須の列挙
+/// （OperationType・PartitioningType）なので `NOTDEFINED` を書き、12 と 13 は `$` にする。IFC2X3 の扉と窓は
+/// `IfcDoorStyle`・`IfcWindowStyle` で、属性が違うので書かない
+const TYPES: &[(&str, [u8; 3])] = &[
+    ("IfcWallType", [10, 10, 10]),
+    ("IfcSlabType", [10, 10, 10]),
+    ("IfcColumnType", [10, 10, 10]),
+    ("IfcBeamType", [10, 10, 10]),
+    ("IfcMemberType", [10, 10, 10]),
+    ("IfcPlateType", [10, 10, 10]),
+    ("IfcCoveringType", [10, 10, 10]),
+    ("IfcRailingType", [10, 10, 10]),
+    ("IfcBuildingElementProxyType", [10, 10, 10]),
+    ("IfcRoofType", [ABSENT, 10, 10]),
+    ("IfcStairType", [ABSENT, 10, 10]),
+    ("IfcRampType", [ABSENT, 10, 10]),
+    ("IfcFootingType", [ABSENT, 10, 10]),
+    ("IfcPileType", [ABSENT, 10, 10]),
+    ("IfcDoorType", [ABSENT, 13, 13]),
+    ("IfcWindowType", [ABSENT, 13, 13]),
+];
+
+/// 書ける型の、そのバージョンでの表の名前。書けなければ `None`
+pub(super) fn writable_type(class: &str, version: Version) -> Option<&'static str> {
+    TYPES
+        .iter()
+        .find(|(name, arity)| name.eq_ignore_ascii_case(class) && pick(*arity, version) != ABSENT)
+        .map(|(name, _)| *name)
+}
 
 /// 書ける要素の実体。`arity` は IFC2X3・IFC4・IFC4X3 の順の属性の数、`predefined` は定義された種類の位置（1 から、
 /// 0 は持たない）、`required` は定義された種類が必須のバージョン。属性 1〜8 は `IfcElement` と同じ（1 GlobalId・
@@ -138,6 +196,15 @@ const WRITABLE: &[Writable] = &[
     writable("IfcBuildingElementProxy", [9, 9, 9], [0, 9, 9], NO),
 ];
 
+/// 書ける要素の、そのバージョンでの定義された種類の位置（1 から、0 は持たない）。書けなければ `None`
+pub(super) fn predefined_at(class: &str, version: Version) -> Option<usize> {
+    WRITABLE
+        .iter()
+        .find(|w| w.name.eq_ignore_ascii_case(class))
+        .filter(|w| pick(w.arity, version) != ABSENT)
+        .map(|w| usize::from(pick(w.predefined, version)))
+}
+
 /// バージョンの列の値
 fn pick<T: Copy>(row: [T; 3], version: Version) -> T {
     let [ifc2x3, ifc4, ifc4x3] = row;
@@ -155,16 +222,16 @@ fn set_at(args: &mut [Item], at: usize, item: Item) {
     }
 }
 
-fn raw(bytes: &[u8]) -> Item {
+pub(super) fn raw(bytes: &[u8]) -> Item {
     Item::Raw(bytes.to_vec())
 }
 
-fn null() -> Item {
+pub(super) fn null() -> Item {
     raw(b"$")
 }
 
 /// 実数。有限でなければ `None`。`-0` は `0` にする
-fn real(value: f64) -> Option<Item> {
+pub(super) fn real(value: f64) -> Option<Item> {
     if !value.is_finite() {
         return None;
     }
@@ -176,7 +243,7 @@ fn real(value: f64) -> Option<Item> {
     Some(Item::Raw(written.into_bytes()))
 }
 
-fn enumeration(value: &str) -> Option<Item> {
+pub(super) fn enumeration(value: &str) -> Option<Item> {
     let valid = value
         .bytes()
         .next()
@@ -188,7 +255,7 @@ fn enumeration(value: &str) -> Option<Item> {
 }
 
 /// 正規直交で行列式が 1 の回転か
-fn rigid(local: &Transform) -> bool {
+pub(super) fn rigid(local: &Transform) -> bool {
     const TOLERANCE: f64 = 1e-9;
     let m = local.0;
     if m.iter().flatten().any(|v| !v.is_finite()) {
@@ -253,7 +320,7 @@ const KEPT: &[&[u8]] = &[
 ];
 
 impl Draft<'_> {
-    fn version(&self) -> Option<Version> {
+    pub(super) fn version(&self) -> Option<Version> {
         Version::of(self.file.schema())
     }
 
@@ -554,9 +621,33 @@ impl Draft<'_> {
             },
             None => None,
         };
-        let Some(placement) =
-            self.placement_or(space.placement.as_ref(), Some(parent), "space", name, cx)
-        else {
+        // IFC4.3 は建物の 10 ElevationOfRefHeight と階の 10 Elevation を非推奨にし、階の高さは配置で決まる。
+        // 階の高さは、親からの配置の z として書く。親の配置に置く局所の z が高さと同じでなければ受けない
+        let deprecated = self.version() == Some(Version::Ifc4x3) && space.kind != SpaceKind::Site;
+        let lifted;
+        let mut wanted = space.placement.as_ref();
+        if deprecated && let Some(height) = space.elevation {
+            let local = match wanted {
+                None => Transform::translation(0.0, 0.0, height),
+                Some(placement) => placement.local,
+            };
+            let [_, _, [_, _, _, z]] = local.0;
+            let relative = wanted.is_none_or(|p| p.relative_to == Some(space.parent));
+            if space.kind == SpaceKind::Building
+                || !relative
+                || z != height
+                || self.placement_of(parent).is_none()
+            {
+                cx.report(unsupported("space", name).with("value", "elevation"));
+                return Ok(false);
+            }
+            lifted = NewPlacement {
+                relative_to: Some(space.parent),
+                local,
+            };
+            wanted = Some(&lifted);
+        }
+        let Some(placement) = self.placement_or(wanted, Some(parent), "space", name, cx) else {
             return Ok(false);
         };
         let mut args = vec![null(); arity];
@@ -566,7 +657,7 @@ impl Draft<'_> {
         set_at(&mut args, 6, placement);
         // 9 CompositionType は IFC2X3 で必須。IFC4 と IFC4X3 でも同じ値を書ける
         set_at(&mut args, 9, raw(b".ELEMENT."));
-        if let Some(elevation) = elevation {
+        if let Some(elevation) = elevation.filter(|_| !deprecated) {
             set_at(&mut args, elevation_at, elevation);
         }
         let id = self.add(Stmt {
@@ -579,6 +670,54 @@ impl Draft<'_> {
     }
 
     /// 要素を足す
+    /// 型を足す。型は所属する空間も配置も持たない
+    pub(super) fn add_type(&mut self, new: &NewType, cx: &mut Cx) -> Result<bool, Error> {
+        let kind = new.class.to_ascii_uppercase().into_bytes();
+        let entity = self.version().and_then(|version| {
+            TYPES
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(&new.class))
+                .map(|(_, arity)| usize::from(pick(*arity, version)))
+                .filter(|&arity| arity != usize::from(ABSENT))
+        });
+        let Some(arity) = entity else {
+            cx.report(unsupported("element_type", &kind));
+            return Ok(false);
+        };
+        let predefined = match &new.predefined {
+            None => raw(b".NOTDEFINED."),
+            Some(value) => match enumeration(value) {
+                Some(item) => item,
+                None => {
+                    cx.report(unsupported("element_type", &kind).with("value", "predefined"));
+                    return Ok(false);
+                }
+            },
+        };
+        let Some(history) = self.history("element_type", &kind, cx) else {
+            return Ok(false);
+        };
+        let Some(global_id) = self.new_global_id(new.global_id, "element_type", &kind, cx)? else {
+            return Ok(false);
+        };
+        let mut args = vec![null(); arity];
+        set_at(&mut args, 1, global_id);
+        set_at(&mut args, 2, history);
+        set_at(&mut args, 3, new.name.as_deref().map_or_else(null, text));
+        set_at(
+            &mut args,
+            9,
+            new.element_type.as_deref().map_or_else(null, text),
+        );
+        set_at(&mut args, 10, predefined);
+        if arity > 10 {
+            set_at(&mut args, 11, raw(b".NOTDEFINED."));
+        }
+        let id = self.add(Stmt { name: kind, args });
+        self.handles.push(id);
+        Ok(true)
+    }
+
     pub(super) fn add_element(&mut self, element: &NewElement, cx: &mut Cx) -> Result<bool, Error> {
         let kind = element.class.to_ascii_uppercase().into_bytes();
         let Some(version) = self.version() else {

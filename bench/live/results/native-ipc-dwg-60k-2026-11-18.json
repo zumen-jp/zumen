@@ -1,0 +1,49 @@
+{
+  "platform": "win32",
+  "architecture": "x64",
+  "node": "v24.22.2",
+  "cpu": "AMD Ryzen 5 3600XT 6-Core Processor",
+  "nativeCommit": "60bcc12caab6841c26a0f77d97d9f419a177ae52",
+  "count": 1,
+  "iterations": 1000,
+  "threads": 1,
+  "input": "dwg-60k.dwg",
+  "drawnRows": 60002,
+  "movableRows": 1000,
+  "rejectedRows": 0,
+  "savedEqualsInput": true,
+  "inputBytes": 2021146,
+  "initialPacketBytes": 3099488,
+  "openAndMirrorMs": 207.9737,
+  "childEditPeakBytes": 80797696,
+  "childPeakIncludingSaveBytes": 80797696,
+  "parentPeakBytes": 85417984,
+  "parentRssAfterBytes": 84160512,
+  "undoSaveHash": "0761dcc7ac6ae040da789b89645d9456aa06d059088d312fc4733aa543804575",
+  "undoMirrorHash": "1469b177b6127bf7611d1c100de02f4cf7579d128d587f99d689bdd757be53ef",
+  "targetUs": {
+    "median": 71.10000000000127,
+    "p95": 96.49999999999181,
+    "p99": 179.2000000000371,
+    "maximum": 1089.2999999999802,
+    "over1000us": 1
+  },
+  "transformWithDisplayUs": {
+    "median": 145.0000000000955,
+    "p95": 186.89999999992324,
+    "p99": 310.0999999999203,
+    "maximum": 808.9999999999691,
+    "over1000us": 0
+  },
+  "undoWithDisplayUs": {
+    "median": 94.39999999995052,
+    "p95": 123.10000000002219,
+    "p99": 213.10000000005402,
+    "maximum": 891.3000000000011,
+    "over1000us": 0
+  },
+  "deltaPacketBytes": {
+    "min": 1384,
+    "max": 4336
+  }
+}
