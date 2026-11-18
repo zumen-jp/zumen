@@ -1,0 +1,45 @@
+name: MATLAB で Tier 3 の公開サンプルを確かめる
+
+on:
+  push:
+    branches: [verify-matlab-405]
+    paths:
+      - '.github/workflows/verify-matlab-405.yml'
+      - 'examples/tier3/matlab/zumen_http.m'
+
+permissions:
+  contents: read
+
+jobs:
+  matlab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: CLI をビルドする
+        run: cargo build --locked -p zumen-cli
+      - uses: matlab-actions/setup-matlab@f9e43010f1ae678f7cfa0542fe2a4f60f7d1ad8d # v3
+        with:
+          release: R2025b
+      - name: ループバックでサーバーを起動する
+        run: |
+          target/debug/zumen serve --http --listen 127.0.0.1:0 > "$RUNNER_TEMP/zumen405-url" &
+          for i in {1..40}; do
+            if test -s "$RUNNER_TEMP/zumen405-url"; then exit 0; fi
+            sleep 0.25
+          done
+          exit 1
+      - name: MATLAB の製品版・形式・図形の数を照らす
+        uses: matlab-actions/run-command@bfa857648f4895aa98a446fe41c85e0788421ed5 # v3
+        with:
+          command: >-
+            fprintf('MATLAB %s / %s\n', version, computer);
+            addpath('examples/tier3/matlab');
+            base = strtrim(fileread(fullfile(getenv('RUNNER_TEMP'), 'zumen405-url')));
+            drawing = 'samples/dwg/zumen-layout-r2000_ascii.dxf';
+            actual = evalc('zumen_http(base, drawing)');
+            expected = fileread('examples/tier3/expected.txt');
+            fprintf('%s', actual);
+            assert(strcmp(actual, expected), 'expected.txt と出力が異なる');
