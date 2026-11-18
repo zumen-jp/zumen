@@ -1,4 +1,5 @@
-import { useDrawing, useDrawingViewer, useViewerEvent, useViewerState } from "../src/index.js";
+import { useDrawing, useDrawingViewer, useReviewEvent, useReviewLayer, useReviewState, useViewerEvent, useViewerState } from "../src/index.js";
+import { ReviewStore } from "@zumen-jp/view2d";
 
 declare const canvas: HTMLCanvasElement | null, file: File | null, module: WebAssembly.Module;
 const viewer = useDrawingViewer(canvas);
@@ -16,6 +17,15 @@ if (opened.status === "ready") {
   });
 }
 if (opened.status === "error") void opened.diagnostics[0]?.text;
+declare const overlay: ReturnType<typeof useDrawingViewer>;
+const reviews = new ReviewStore('{"format":"zumen-review","version":1}');
+const reviewState = useReviewState(reviews);
+useReviewEvent(reviews, "document", ({ change }) => void change.items);
+const layer = useReviewLayer(viewer, overlay, reviews);
+if (opened.status === "ready" && opened.canReview && reviewState) {
+  void opened.reviewScene(reviews.filteredJSON(), { target: "plan", style: { color: "#ff0000", line_weight: 0.35, text_height: 2.5, text_padding: 0.5, arrow_length: 2, arrows: "end", cloud_pitch: 3, marker_size: 2 } })
+    .then(({ input, diagnostics }) => { layer?.setResult(input); void diagnostics[0]?.stage; void input.result.sources[0]?.id; });
+}
 
 import { useScene3D, useView3D, useView3DEvent, useView3DInput, useView3DState } from "../src/view3d.js";
 

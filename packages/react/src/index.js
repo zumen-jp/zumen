@@ -1,7 +1,8 @@
 import { useLayoutEffect, useState } from "react";
-import { View2D } from "@zumen-jp/view2d";
+import { ReviewLayer, View2D } from "@zumen-jp/view2d";
 export { useDrawing } from "./drawing.js";
 export { useViewerEvent, useViewerState } from "./store.js";
+export { useViewerEvent as useReviewEvent, useViewerState as useReviewState } from "./store.js";
 
 const emptyOptions = Object.freeze({});
 
@@ -19,4 +20,16 @@ export function useDrawingViewer(canvas, options = emptyOptions) {
     };
   }, [canvas, options]);
   return owner && owner.canvas === canvas && owner.options === options ? owner.viewer : null;
+}
+
+/** 図面と重ねる表示部品が揃う間だけ有効な ReviewLayer。store は同じ参照を渡す。 */
+export function useReviewLayer(base, overlay, store = null) {
+  const [owner, setOwner] = useState(null);
+  useLayoutEffect(() => {
+    if (!base || !overlay) { setOwner(null); return; }
+    const layer = new ReviewLayer(base, overlay, store);
+    setOwner({ base, overlay, store, layer });
+    return () => { setOwner(null); layer.destroy(); };
+  }, [base, overlay, store]);
+  return owner && owner.base === base && owner.overlay === overlay && owner.store === store ? owner.layer : null;
 }

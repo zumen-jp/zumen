@@ -9,6 +9,7 @@ import { chromium, firefox, webkit } from "playwright";
 import { build } from "vite";
 import { checkBoundaries, checkInteractions, installWorkerGate } from "./react-interactions.mjs";
 import { checkPlaygroundResize, installResizeTrace } from "./react-resize.mjs";
+import { checkReview } from "./react-review.mjs";
 import { loadSync } from "../../src/index.js";
 
 const [product, wasm] = process.argv.slice(2);
@@ -264,6 +265,7 @@ try {
       assert.match(await source.innerText(), /#30/);
     }
   }
+  await checkReview(page, ready, inputs.dxf);
   // DXF で保存（#690）。合成の DWG・JWW・SFC・P21 と公開サンプルの DWG を開いて保存し、保存したバイト列が、
   // ネイティブの convert が書いたもの（適合テスト）と同じであることを確かめる。変換の診断の件数は、画面と応答で比べる
   const module = new WebAssembly.Module(readFileSync(wasm));

@@ -4,9 +4,12 @@ import { VIEW_SCALE_LIMITS } from "@zumen-jp/view2d";
 import { samples } from "virtual:samples";
 import { catalog, loadModule } from "./module.js";
 import { Diagnostics, Inspector, Pages } from "./inspector.jsx";
+import { Review, ReviewOverlay } from "./review.jsx";
 
 // 線は案内のサイトの文字の色（DADS の solid-gray-800）、選択はサイトの主の色の青と見分けられる橙（orange-800）にする。
 const viewOptions = Object.freeze({ foreground: "#333333", selectionColor: "#c74700" });
+// レビューのシーンを重ねる側。背景を透明にし、選択はレビューの色と見分けられる橙にする
+const overlayOptions = Object.freeze({ background: "transparent", selectionColor: "#c74700" });
 // 案内のサイト（site/src/data/site.ts の nav）と同じ並び。ずれは site/scripts/check-output.mjs で確かめる。
 const siteNav = [
   { href: "/viewer/", label: "図面を試す" },
@@ -169,6 +172,7 @@ function Export({ opened, name }) {
 }
 export function Playground() {
   const [canvas, setCanvas] = useState(null);
+  const [overlayCanvas, setOverlayCanvas] = useState(null);
   const [file, setFile] = useState(null);
   const [place, setPlace] = useState(null);
   const [sample, setSample] = useState(null);
@@ -176,6 +180,7 @@ export function Playground() {
   const picker = useRef(null);
   const fetching = useRef(0);
   const viewer = useDrawingViewer(canvas, viewOptions);
+  const overlay = useDrawingViewer(overlayCanvas, overlayOptions);
   const state = useViewerState(viewer);
   const opened = useDrawing(file, { from: place?.id, loadModule, catalog });
   const [renderError, setRenderError] = useState(null);
@@ -290,6 +295,7 @@ export function Playground() {
         </div>
         <div className={ready ? "paper" : "paper empty"}><canvas ref={setCanvas} tabIndex="0" aria-label="図面の表示" aria-describedby="drawing-help"
           onPointerDown={(e) => e.currentTarget.focus({ preventScroll: true })}/>
+          <ReviewOverlay setCanvas={setOverlayCanvas}/>
           <div className="status" role="status" aria-live="polite" aria-atomic="true">
             {status}{ready && " " + opened.input.document.format.toUpperCase() + " ／ " + state.scene.result.from + " ／ 診断 " + (opened.diagnostics.length + viewer.getReport().issues.length) + " 件"}
           </div>
@@ -300,6 +306,7 @@ export function Playground() {
     </div>
     {failed && !opened.diagnostics?.length && <details><summary>エラーの詳細</summary><p>{(fetchError ?? renderError ?? opened.error)?.message}</p></details>}
     {(ready || failed) && <Diagnostics entries={opened.diagnostics ?? []} issues={ready ? viewer.getReport().issues : []}/>}
+    {ready && opened.canReview && overlay && <Review key={opened.input.document.hash + "/" + state.scene.result.from} opened={opened} viewer={viewer} overlay={overlay} canvas={canvas}/>}
     {ready && opened.canEstimate && <Export key={opened.input.document.hash} opened={opened} name={file?.name}/>}
     <section aria-labelledby="report-title" className="export">
       <h2 id="report-title">不具合を知らせる</h2>

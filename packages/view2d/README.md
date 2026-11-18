@@ -336,17 +336,16 @@ viewer.destroy();
 import { readScene } from "@zumen-jp/zumen";
 import { ReviewStore, reviewReference } from "@zumen-jp/view2d";
 
-let draws = 0;
 const store = new ReviewStore(savedJson, { createId: () => crypto.randomUUID(), stamp: () => ({ author: user, time: new Date().toISOString() }) });
 store.addMarkup({ kind: "cloud", target: "plan", view: "space/0", points: [[0, 0], [10, 0], [10, 10]] });
-// 同じ名前への push は続きとして足すため、描くたびに名前を変える
-const name = `review-${++draws}.json`;
-session.push(name, new TextEncoder().encode(store.filteredJSON()));
-const { result } = session.call({ v: 1, op: "review_scene", doc: "plan.dxf", review: name, target: "plan", from: "space/0", tolerance: 0.01, style });
+session.push("review.json", new TextEncoder().encode(store.filteredJSON()));
+const { result } = session.call({ v: 1, op: "review_scene", doc: "plan.dxf", review: "review.json", target: "plan", from: "space/0", tolerance: 0.01, style });
 reviewLayer.setScene({ scene: readScene(session.take(result.blob)), result, document });
 const hit = reviewLayer.hitTest(point)[0];
 const source = result.sources.find((s) => s.id === hit?.id);
 if (source) store.select([reviewReference(source)]);
+// 同じ名前への push は続きとして足すため、描き直す前に登録を捨てる
+session.call({ v: 1, op: "close", inputs: ["review.json"] });
 ```
 
 - 追加・変更・削除は凍結した新しい文書を作り、文書にある未知のキー・3D の場所・コメント・移した状態（`carried`）を保ちます。編集で変えられるのは既知のキーだけです。`null` は省略できるキーを消します。

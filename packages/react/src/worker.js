@@ -5,6 +5,7 @@ let session, document;
 let catalogName;
 let converted = 0;
 let preview;
+let origin;
 const budget = { input_bytes: 64 * 1024 * 1024, decoded_bytes: 256 * 1024 * 1024 };
 
 function describe(entries) {
@@ -21,6 +22,21 @@ self.onmessage = ({ data }) => {
   try {
     if (op === "source") {
       self.postMessage({ id, value: findSource(session, document, data.element) });
+      return;
+    }
+    if (op === "review_scene") {
+      // 文書は描くたびに登録し、描いた後に捨てる。文書の検査と診断はコアが行う
+      stage = "review_scene";
+      session.push("review", data.review);
+      let response, blob;
+      try {
+        response = session.call({ v: 1, op, doc: document.doc, review: "review", target: data.target, from: origin,
+          tolerance: data.tolerance, style: data.style, budget });
+        // blob は次の call より先に取り出す
+        blob = session.take(response.result.blob);
+      } finally { session.call({ v: 1, op: "close", inputs: ["review"] }); }
+      for (const diagnostic of response.diagnostics) entries.push({ stage, diagnostic });
+      self.postMessage({ id, value: { blob, result: response.result, diagnostics: describe(entries) } }, [blob.buffer]);
       return;
     }
     if (op === "convert_estimate") {
@@ -68,7 +84,8 @@ self.onmessage = ({ data }) => {
     const { bytes, module, from, catalog } = data;
     preview = null;
     session = loadSync(module).open();
-    const canEstimate = session.call({ v: 1, op: "capabilities" }).result.ops.includes("convert_estimate");
+    const ops = session.call({ v: 1, op: "capabilities" }).result.ops;
+    const canEstimate = ops.includes("convert_estimate"), canReview = ops.includes("review_scene");
     if (catalog) { catalogName = "catalog"; session.push(catalogName, catalog); }
     session.push("input", bytes);
     function call(request) {
@@ -80,11 +97,11 @@ self.onmessage = ({ data }) => {
     const opened = call({ op: "open", input: "input" });
     const drawing = call({ op: "drawing", doc: opened.doc });
     document = { doc: opened.doc, format: opened.format, hash: drawing.hash };
-    const origin = from ?? drawing.spaces[0]?.id ?? drawing.sheets[0]?.id;
+    origin = from ?? drawing.spaces[0]?.id ?? drawing.sheets[0]?.id;
     const result = call({ op: "scene", doc: opened.doc, from: origin });
     // take は次の call より先に行い、wasm のメモリから独立したバッファーだけを移す。
     const blob = session.take(result.blob);
-    self.postMessage({ id, value: { blob, result, document, drawing, canEstimate, diagnostics: describe(entries) } }, [blob.buffer]);
+    self.postMessage({ id, value: { blob, result, document, drawing, canEstimate, canReview, diagnostics: describe(entries) } }, [blob.buffer]);
   } catch (error) {
     for (const diagnostic of error.response?.diagnostics ?? []) entries.push({ stage, diagnostic });
     let diagnostics;

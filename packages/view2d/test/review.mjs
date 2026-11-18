@@ -131,14 +131,14 @@ export function testReviewCore(zumen, { assert, throws }) {
     layer = new ReviewLayer(base, overlay, store);
     const size = overlay.getSize();
     assert(size.width === 200 && size.height === 160 && size.pixelRatio === 1, "重ねた View2D の大きさを図面に合わせる");
-    let pushed = 0;
     const draw = (text) => {
-      // 同じ名前への push は続きとして足すため、描くたびに名前を変える
-      const name = `review-${++pushed}.json`;
-      session.push(name, new TextEncoder().encode(text));
-      const response = session.call({ v: 1, op: "review_scene", doc: "a.dxf", review: name, target: "plan", from: "space/0", tolerance: 0.01, style: STYLE });
-      layer.setResult({ scene: readScene(session.take(response.result.blob)), result: response.result, document: identity });
-      return response.result;
+      // 同じ名前への push は続きとして足すため、描いた後に登録を捨てる
+      session.push("review.json", new TextEncoder().encode(text));
+      try {
+        const response = session.call({ v: 1, op: "review_scene", doc: "a.dxf", review: "review.json", target: "plan", from: "space/0", tolerance: 0.01, style: STYLE });
+        layer.setResult({ scene: readScene(session.take(response.result.blob)), result: response.result, document: identity });
+        return response.result;
+      } finally { session.call({ v: 1, op: "close", inputs: ["review.json"] }); }
     };
     const all = draw(store.toJSON());
     const refs = all.sources.map(reviewReference);

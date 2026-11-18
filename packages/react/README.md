@@ -56,6 +56,25 @@ const { bytes, result, diagnostics } = await opened.convert(preview);
 
 Activity・Suspense が表示を切り離すときも、Worker を終了してその結果を消します。同じ入力で表示を再開すると、新しい読み込みの間は `loading` を返します。利用側の effect は、再び `ready` を受け取ってから新しいセッションへ出所を問い合わせられます。
 
+## レビューを重ねる
+
+`opened.canReview` は、その wasm の `capabilities` が `review_scene` を提供するかを示します。対応する wasm なら `await opened.reviewScene(text, { target, style, tolerance? })` で、レビューの文書（JSON の文字列）の対象を、開いた起点のシーンにします（[#589](https://github.com/zumen-jp/zumen/issues/589)）。文書は呼ぶたびに渡し、Worker は描いた後に登録を捨てます。`input` は `ReviewLayer` の `setResult` にそのまま渡せます。文書の検査と診断はコアが行い、描けなければ `Error` の `diagnostics` にレビューの診断を入れて拒みます。診断の段階は `review_scene` です。
+
+`useReviewLayer(base, overlay, store?)` は、図面の表示部品と、背景を透明にして重ねた表示部品が揃う間だけ `ReviewLayer` を返します。`useReviewState(store)` と `useReviewEvent(store, type, listener)` は、`@zumen-jp/view2d` の `ReviewStore` を `useViewerState`・`useViewerEvent` と同じ方法で購読します。
+
+```jsx
+const store = useMemo(() => new ReviewStore(text), [text]);
+const state = useReviewState(store);
+const layer = useReviewLayer(viewer, overlay, store);
+useEffect(() => {
+  if (!layer || !state || opened.status !== "ready" || !opened.canReview) return;
+  let current = true;
+  opened.reviewScene(store.filteredJSON(), { target: "plan", style })
+    .then(({ input }) => current && layer.setResult(input), () => current && layer.setResult(null));
+  return () => { current = false; };
+}, [layer, opened, store, state?.document, state?.filter]);
+```
+
 ## 3D の表示
 
 3D のフックは `@zumen-jp/react/view3d` から読み込みます（[#818](https://github.com/zumen-jp/zumen/issues/818)）。表示部品は `@zumen-jp/view3d` と three.js 0.187 で、どちらも 3D を使うときだけ要る peer dependency です。2D だけを使う利用側は、この入口を読まない限り three.js を読みません。

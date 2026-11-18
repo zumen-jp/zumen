@@ -82,6 +82,8 @@ button:disabled, select:disabled { color: var(--ink-sub); border-color: var(--li
 canvas { display: block; width: 100%; height: clamp(18rem, 62vh, 52rem); touch-action: none; background: var(--paper); }
 /* .paper の overflow で切れないよう、フォーカスの輪は枠の側に描く */
 canvas:focus-visible { outline: 0; box-shadow: none; }
+/* レビューのシーンは図面の上に重ね、入力は図面の Canvas が受ける */
+canvas.review-overlay { position: absolute; top: 0; left: 0; pointer-events: none; background: transparent; }
 .paper:has(canvas:focus-visible) { outline: 4px solid #000; outline-offset: 2px; box-shadow: 0 0 0 2px #ffd43d; }
 .status { font-weight: 700; font-size: 14px; padding: .45rem .75rem; border-top: 1px solid var(--line-soft); background: var(--paper-sub); }
 .empty .status { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; pointer-events: none; border: 0; color: var(--ink-sub); background: repeating-linear-gradient(0deg, transparent 0 23px, var(--key-tint) 23px 24px), repeating-linear-gradient(90deg, var(--paper) 0 23px, var(--key-tint) 23px 24px); }
