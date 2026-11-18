@@ -493,7 +493,7 @@ fn is_conformal_similarity(m: [f64; 6]) -> Option<(f64, f64, bool)> {
     Some((sx, libm::atan2(d, a), det < 0.0))
 }
 
-fn count_model_shape_for_view(
+pub(super) fn count_model_shape_for_view(
     shape: &Shape<ModelPoint>,
     view: &Affine,
     symbol_indices: &BTreeMap<SymbolKey, u32>,
@@ -657,7 +657,7 @@ pub(super) fn write_display_row(row: &SxfRow, ctx: &DisplayContext<'_>, w: &mut 
     }
 }
 
-fn write_shape<P: transform::Point>(
+pub(super) fn write_shape<P: transform::Point>(
     shape: &Shape<P>,
     view: &Affine,
     symbol_indices: &BTreeMap<SymbolKey, u32>,

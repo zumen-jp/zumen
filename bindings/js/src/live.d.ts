@@ -153,7 +153,7 @@ export declare class LiveProcess {
   lineTypes(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** 行の文字（TEXT・MTEXT・JWW の文字・SXF の文字要素）。属性・寸法・表の中の文字は返さない。生きていない行があれば missing */
   texts(rows: readonly number[] | Uint32Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
-  /** 記号の定義の表示（DXF・DWG）。JWW・SXF はまだ rejected。範囲外の定義は invalid */
+  /** 記号の定義の表示（DXF・DWG・SXF）。JWW はまだ rejected。範囲外の定義は invalid */
   symbols(definitions: readonly number[] | Uint32Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** 図面モデルの描く順（DXF・DWG は SORTENTSTABLE、JWW は画層グループ、SXF は用紙の並び）に合わせた行 */
   order(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;

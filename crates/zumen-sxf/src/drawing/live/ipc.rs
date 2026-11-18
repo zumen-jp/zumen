@@ -7,9 +7,13 @@ use zumen_drawing::{
     Affine, Element, FormattedText, Layer, LineType, LineTypeId, Piece, Placed, Seen, Shape,
 };
 use zumen_live::RowId;
+use zumen_live::display::Display;
 use zumen_sdk::Error;
 
 use super::super::{LINE_TYPES, USER_LINE_TYPE};
+use super::display::{
+    DisplayContext, count_model_shape_for_view, display_counts_and_style, write_shape,
+};
 use super::{BaseSheetSlot, SxfContainer, SxfLive, hash_placed};
 
 impl SxfLive {
@@ -191,6 +195,56 @@ impl SxfLive {
             Some(Placed::Paper(element)) => retexted(element, content, cx)?.map(Placed::Paper),
             None => None,
         })
+    }
+}
+
+impl SxfLive {
+    /// 表示の挿入が指す記号の定義（複合図形）の数。挿入の定義の値は `0..` この数
+    pub fn display_symbol_count(&self) -> u32 {
+        u32::try_from(self.symbol_rows.len()).unwrap_or(u32::MAX)
+    }
+
+    /// 記号の定義 `index` の生きた要素を、定義の座標のまま 1 要素 1 行で `display` の末尾に足し、足した行の数を返す。
+    /// 行のスタイルは文書の表示と同じ画層の値と色。入れ子の挿入は、挿入のまま書く。範囲外なら `None`
+    pub fn display_symbol(
+        &self,
+        index: u32,
+        display: &mut Display,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<u32>, Error> {
+        let Some(rows) = self.symbol_rows.get(index as usize) else {
+            return Ok(None);
+        };
+        let identity = Affine {
+            m: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        };
+        let ctx = DisplayContext {
+            space_views: &self.space_views,
+            symbol_indices: &self.symbol_indices,
+        };
+        let mut written = 0_u32;
+        for &row in rows {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            if !self.table.is_alive(row) {
+                continue;
+            }
+            let Some(found) = self.table.row(row) else {
+                continue;
+            };
+            let Placed::Model(element) = &found.placed else {
+                continue;
+            };
+            let (_, style) = display_counts_and_style(found, &ctx);
+            let counts =
+                count_model_shape_for_view(&element.shape, &identity, &self.symbol_indices);
+            display
+                .push_with_cx(cx, counts, style, |writer| {
+                    write_shape(&element.shape, &identity, &self.symbol_indices, writer);
+                })
+                .map_err(|stop| stopped(cx, stop))?;
+            written = written.checked_add(1).ok_or(Error::Invalid)?;
+        }
+        Ok(Some(written))
     }
 }
 

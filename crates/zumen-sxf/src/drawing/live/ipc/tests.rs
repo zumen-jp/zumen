@@ -444,3 +444,41 @@ fn display_retexted_replaces_only_the_content() {
     };
     assert_eq!(texts(&live, cx), texts(&reopened, cx));
 }
+
+#[test]
+fn display_symbol_writes_each_element_of_the_definition() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let live = SxfLive::open(SAMPLE, cx).unwrap();
+    let drawing = live.drawing(cx).unwrap();
+    let count = live.display_symbol_count();
+    assert_eq!(count as usize, drawing.symbols.len());
+    let mut display = Display::with_rows(0);
+    let mut first = 0;
+    for (definition, symbol) in (0..count).zip(&drawing.symbols) {
+        let rows = live
+            .display_symbol(definition, &mut display, cx)
+            .unwrap()
+            .unwrap();
+        // 1 要素 1 行
+        assert_eq!(rows as usize, symbol.space.elements.len());
+        first += rows;
+        assert_eq!(display.canonical().len(), first as usize);
+    }
+    assert!(first > 0);
+    // 挿入は、どれも定義の範囲を指す
+    for index in 0..display.instance_ref.len() {
+        if let Some(iref) = display.instance_ref.get(index) {
+            assert!(iref[0] < count);
+        }
+    }
+    // 範囲外は `None` で、表示に足さない
+    assert!(
+        live.display_symbol(count, &mut display, cx)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(display.canonical().len(), first as usize);
+}

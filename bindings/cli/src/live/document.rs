@@ -486,26 +486,33 @@ impl Document {
     }
 
     /// 記号の定義 `indices` の要素を、定義の座標のまま要求の順に並べる。範囲外の定義は Invalid。
-    /// 定義をまだ書けない形式（JWW・SXF）は `call.op.unsupported` を診断して Rejected
+    /// 定義をまだ書けない形式（JWW）は `call.op.unsupported` を診断して Rejected
     pub fn symbols(&self, indices: &[u32], cx: &mut Cx<'_>) -> Result<Symbols, Problem> {
-        let Engine::Acad(live) = &self.live else {
-            cx.report(Diagnostic::new(codes::CALL_OP_UNSUPPORTED).with("op", "symbols"));
-            return Err(Problem::Core(Error::Rejected));
+        let total = match &self.live {
+            Engine::Acad(live) => live.display_symbol_count(),
+            Engine::Sxf(live) => live.display_symbol_count(),
+            Engine::Jww(_) => {
+                cx.report(Diagnostic::new(codes::CALL_OP_UNSUPPORTED).with("op", "symbols"));
+                return Err(Problem::Core(Error::Rejected));
+            }
         };
         let mut display = Display::with_rows(0);
         let mut ranges = Vec::with_capacity(indices.len());
         let mut first = 0_u32;
         for &index in indices {
-            let rows = live
-                .display_symbol(index, &mut display, cx)?
-                .ok_or(Problem::Core(Error::Invalid))?;
+            let rows = match &self.live {
+                Engine::Acad(live) => live.display_symbol(index, &mut display, cx)?,
+                Engine::Sxf(live) => live.display_symbol(index, &mut display, cx)?,
+                Engine::Jww(_) => None,
+            }
+            .ok_or(Problem::Core(Error::Invalid))?;
             ranges.push([first, rows]);
             first = first
                 .checked_add(rows)
                 .ok_or(Problem::Core(Error::Invalid))?;
         }
         Ok(Symbols {
-            total: live.display_symbol_count(),
+            total,
             ranges,
             display,
         })

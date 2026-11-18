@@ -1257,20 +1257,44 @@ fn symbols_carry_the_display_of_definitions() {
     assert!(wire::Header::parse(&header).is_some());
     header[20] = 1;
     assert!(wire::Header::parse(&header).is_none());
-    // JWW・SXF の定義はまだ書けない
-    for bytes in [JWW, SFC] {
-        let mut host = Host::default();
-        open_bytes(&mut host, bytes);
-        let rejected = call(
-            &mut host,
-            Command::Symbols,
-            2,
-            0,
-            wire::NONE,
-            0,
-            &rows_body(&[]),
-        );
-        assert_eq!(rejected.status, Status::Rejected);
-        assert_eq!(rejected.diagnostics, 1);
+    // SXF は複合図形の定義を返す
+    let live = zumen_sxf::SxfLive::open(SFC, cx).unwrap();
+    let total = live.display_symbol_count();
+    assert!(total > 0);
+    let mut host = Host::default();
+    open_bytes(&mut host, SFC);
+    let indices: Vec<u32> = (0..total).collect();
+    let reply = call(
+        &mut host,
+        Command::Symbols,
+        2,
+        0,
+        wire::NONE,
+        0,
+        &rows_body(&indices),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    let mut expected = zumen_live::display::Display::with_rows(0);
+    for &index in &indices {
+        live.display_symbol(index, &mut expected, cx)
+            .unwrap()
+            .unwrap();
     }
+    let packet = zumen_live::display_wire::encode(&expected, true, cx).unwrap();
+    assert!(reply.data.ends_with(&packet));
+    assert_eq!(reply.data.len(), 8 + indices.len() * 8 + packet.len());
+    // JWW の定義はまだ書けない
+    let mut host = Host::default();
+    open_bytes(&mut host, JWW);
+    let rejected = call(
+        &mut host,
+        Command::Symbols,
+        2,
+        0,
+        wire::NONE,
+        0,
+        &rows_body(&[]),
+    );
+    assert_eq!(rejected.status, Status::Rejected);
+    assert_eq!(rejected.diagnostics, 1);
 }
