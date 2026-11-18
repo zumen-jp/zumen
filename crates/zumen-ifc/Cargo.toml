@@ -57,6 +57,10 @@ required-features = ["drawing"]
 name = "building_measure"
 required-features = ["measure"]
 
+[[example]]
+name = "author_contract"
+required-features = ["drawing", "measure"]
+
 [dev-dependencies]
 zumen-drawing = { path = "../zumen-drawing" }
 zumen-geom3d = { path = "../zumen-geom3d" }

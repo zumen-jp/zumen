@@ -1006,6 +1006,10 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
   - 壁は、足すときと同じ値（芯の 2 点・高さ・層・芯からのずれ）で受け、配置・表現・材料の層の使い方を書き直す。芯の点は壁の配置の親の配置の XY。同じ名前の層は元の `IfcMaterial` を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の `Body` の押し出しを新しい層の範囲に合わせる。元の層の範囲の遠い面から近い面へ押し出す、ただ 1 つの `IfcExtrudedAreaSolid` でない開口があれば、何も変えずに断る。
   - 開口は、足すときと同じ値（芯に沿う距離・下端・幅・高さ）で受け、配置と `Body` を書き直す。埋める扉と窓の OverallHeight と OverallWidth は、書いてあれば新しい大きさにする。
   - 配置をほかの要素と共有していれば、新しい配置に付け替える。使われなくなった配置と表現は除く。
+- 作る変更と直す変更の確かめ方（[#898](https://github.com/zumen-jp/zumen/issues/898)）。
+  - `crates/zumen-ifc/tests/author.rs` は、IFC2X3・IFC4・IFC4X3 の文書に、建物・2 つの階・通り芯と各階の壁・床・柱・梁・開口・扉か窓を変更だけで足す。直した壁と開口は、平断面の切断線と開口を引いた体積が付いてくることを、直す前と後で照らす。
+  - 適合テストの `building_storeys` は、同じ 2 階建てを 1 つの `building_apply` で作り、建物モデルの要約・要素と `scene3d` の場面を、各環境の全バイトで照らす。
+  - `examples/author_contract.rs` は、作った文書と直した文書の IFC のバイト列・建物モデルのハッシュ・各階の平断面・体積と、変更を当てるときの予算停止と中断を記録する。`tests/check_author.py` で、各ネイティブ環境と wasm32-wasip1 で同じ SHA-256 になることを照らす。
 
 ### 新しい IFC を作る
 
