@@ -9187,6 +9187,11 @@ public final class Messages {
             return "transform".equals(json.get("kind")) ? new TransformEdit(json) : null;
         }
 
+        /** kind が copy の形なら、そのビュー。違えば null */
+        public CopyEdit asCopyEdit() {
+            return "copy".equals(json.get("kind")) ? new CopyEdit(json) : null;
+        }
+
         /** kind が remove の形なら、そのビュー。違えば null */
         public RemoveEdit asRemoveEdit() {
             return "remove".equals(json.get("kind")) ? new RemoveEdit(json) : null;
@@ -9451,6 +9456,70 @@ public final class Messages {
 
         /** {@link #getMatrix()} を書く。null ならフィールドを除く */
         public TransformEdit withMatrix(List<Double> value) {
+            put("matrix", value);
+            return this;
+        }
+    }
+
+    /** 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から */
+    public static final class CopyEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public CopyEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static CopyEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new CopyEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public CopyEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "copy");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public CopyEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 複写する要素の ID。entities が返したもの */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public CopyEdit withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 読んだときの要素のハッシュ。entities が返したもの */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public CopyEdit withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** [a, b, c, d, e, f]。写しの点 (x, y) を (a x + b y + c, d x + e y + f) に写す。元の位置に写すなら [1, 0, 0, 0, 1, 0] */
+        public List<Double> getMatrix() {
+            return Json.read(json.get("matrix"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getMatrix()} を書く。null ならフィールドを除く */
+        public CopyEdit withMatrix(List<Double> value) {
             put("matrix", value);
             return this;
         }

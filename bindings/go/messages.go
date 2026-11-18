@@ -3247,6 +3247,11 @@ func (u Edit) AsTransformEdit() *TransformEdit {
 	return asTagged[TransformEdit](u, "kind", "transform")
 }
 
+// AsCopyEdit は、kind が copy の形なら、その型で読む。違えば nil。
+func (u Edit) AsCopyEdit() *CopyEdit {
+	return asTagged[CopyEdit](u, "kind", "copy")
+}
+
 // AsRemoveEdit は、kind が remove の形なら、その型で読む。違えば nil。
 func (u Edit) AsRemoveEdit() *RemoveEdit {
 	return asTagged[RemoveEdit](u, "kind", "remove")
@@ -3388,6 +3393,28 @@ type TransformEdit struct {
 func (m TransformEdit) MarshalJSON() ([]byte, error) {
 	type plain TransformEdit
 	m.Kind = "transform"
+	return json.Marshal(plain(m))
+}
+
+// CopyEdit: 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から
+type CopyEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 複写する要素の ID。entities が返したもの
+	Id *string `json:"id,omitempty"`
+
+	// 読んだときの要素のハッシュ。entities が返したもの
+	Hash *string `json:"hash,omitempty"`
+
+	// [a, b, c, d, e, f]。写しの点 (x, y) を (a x + b y + c, d x + e y + f) に写す。元の位置に写すなら [1, 0, 0, 0, 1, 0]
+	Matrix []float64 `json:"matrix,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m CopyEdit) MarshalJSON() ([]byte, error) {
+	type plain CopyEdit
+	m.Kind = "copy"
 	return json.Marshal(plain(m))
 }
 

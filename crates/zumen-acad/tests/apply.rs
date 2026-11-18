@@ -4516,6 +4516,7 @@ fn e1_changes_have_no_edit_for_views() {
         Change::Replace { .. }
         | Change::Restyle { .. }
         | Change::Transform { .. }
+        | Change::Copy { .. }
         | Change::Add { .. }
         | Change::Remove { .. } => "element",
         Change::ReplaceLayer { .. } | Change::AddLayer { .. } | Change::RemoveLayer { .. } => {

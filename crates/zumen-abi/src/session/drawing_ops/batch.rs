@@ -285,6 +285,7 @@ fn remap(
             Edit::Replace { target, .. }
             | Edit::Restyle { target, .. }
             | Edit::Transform { target, .. }
+            | Edit::Copy { target, .. }
             | Edit::Remove { target } => target,
             _ => continue,
         };

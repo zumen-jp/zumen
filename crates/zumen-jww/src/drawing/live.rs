@@ -1281,6 +1281,11 @@ impl JwwLive {
                     cx.report(unsupported(change.name(), "dimension_style"));
                     None
                 }
+                // 写しの形式固有の値と参照を保つ書き方は、まだない（#889）
+                Edit::Copy { .. } => {
+                    cx.report(unsupported(change.name(), "copy"));
+                    None
+                }
                 Edit::AddSymbol { .. } => {
                     cx.report(unsupported(change.name(), "symbol"));
                     None

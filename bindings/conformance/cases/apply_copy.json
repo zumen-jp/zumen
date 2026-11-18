@@ -1,0 +1,299 @@
+{
+  "description": "copy は、要素を同じ空間に複写し、写しをアフィン変換で動かす（#889）。自作 DXF の LINE（線種の倍率・透過性・文字と整数と動く点の XDATA）と属性を持つ INSERT を写し、写しの ID・ハッシュと、元の要素の不変を確かめる。リアクターと XDATA のハンドルを持つ要素・予算停止は、何も変えずに失敗する。公開 DWG（R2000）の折れ線と円も写す。",
+  "steps": [
+    {
+      "push": {
+        "name": "copy.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n9\n$HANDSEED\n5\n80\n0\nENDSEC\n0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n5\n30\n8\n0\n2\nB\n70\n2\n10\n0.0\n20\n0.0\n30\n0.0\n0\nENDBLK\n5\n31\n8\n0\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n1A\n8\n0\n62\n1\n48\n2.5\n440\n33554560\n10\n0.0\n20\n0.0\n30\n0.0\n11\n4.0\n21\n3.0\n31\n0.0\n1001\nZUMEN\n1000\nabc\n1071\n42\n1011\n1.0\n1021\n2.0\n1031\n0.0\n0\nINSERT\n5\n1B\n8\n0\n66\n1\n2\nB\n10\n5.0\n20\n5.0\n30\n0.0\n0\nATTRIB\n5\n1C\n330\n1B\n8\n0\n10\n5.0\n20\n6.0\n30\n0.0\n40\n1.0\n1\nV\n2\nTAG\n70\n0\n0\nSEQEND\n5\n1D\n330\n1B\n8\n0\n0\nLINE\n5\n1E\n102\n{ACAD_REACTORS\n330\n1A\n102\n}\n8\n0\n10\n0.0\n20\n0.0\n30\n0.0\n11\n1.0\n21\n0.0\n31\n0.0\n0\nLINE\n5\n1F\n8\n0\n10\n0.0\n20\n0.0\n30\n0.0\n11\n0.0\n21\n1.0\n31\n0.0\n1001\nZUMEN\n1005\n1A\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "copy.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "style",
+          "geometry",
+          "extensions"
+        ],
+        "doc": "copy.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "copy",
+            "id": "space/0/h1A",
+            "hash": "v2:9829aed3e1168a7441c6361e26906c6d",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          },
+          {
+            "kind": "copy",
+            "id": "space/0/h1E",
+            "hash": "v2:1295ae8c5f6a25fcaccffc58ededff20",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          }
+        ],
+        "doc": "copy.dxf"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.copy.unsupported",
+        "/diagnostics/0/params/field": "reference",
+        "/diagnostics/0/params/value": "group",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "copy",
+            "id": "space/0/h1A",
+            "hash": "v2:9829aed3e1168a7441c6361e26906c6d",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          },
+          {
+            "kind": "copy",
+            "id": "space/0/h1F",
+            "hash": "v2:18fc9ab529d39f9eb33566d9c7349453",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          }
+        ],
+        "doc": "copy.dxf"
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.copy.unsupported",
+        "/diagnostics/0/params/value": "xdata_handle",
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "copy",
+            "id": "space/0/h1A",
+            "hash": "v2:9829aed3e1168a7441c6361e26906c6d",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          },
+          {
+            "kind": "copy",
+            "id": "space/0/h1B",
+            "hash": "v2:9a221865af176835256dd47b99b7d089",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          }
+        ],
+        "doc": "copy.dxf",
+        "budget": {
+          "work": 3
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.work.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "copy",
+            "id": "space/0/h1A",
+            "hash": "v2:9829aed3e1168a7441c6361e26906c6d",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          },
+          {
+            "kind": "copy",
+            "id": "space/0/h1B",
+            "hash": "v2:9a221865af176835256dd47b99b7d089",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          },
+          {
+            "kind": "copy",
+            "id": "space/0/h1A",
+            "hash": "v2:9829aed3e1168a7441c6361e26906c6d",
+            "matrix": [
+              1,
+              0,
+              0,
+              0,
+              1,
+              0
+            ]
+          }
+        ],
+        "doc": "copy.dxf"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "style",
+          "geometry",
+          "extensions"
+        ],
+        "doc": "copy.dxf"
+      }
+    },
+    {
+      "push": {
+        "file": "samples/dwg/zumen-layout-r2000.dwg",
+        "name": "copy-r2000.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "copy-r2000.dwg"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "edits": [
+          {
+            "kind": "copy",
+            "id": "space/0/h2D9",
+            "hash": "v2:48b123090e6b9fa9345ce72ca28cdd40",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          },
+          {
+            "kind": "copy",
+            "id": "space/0/h2DA",
+            "hash": "v2:f9d9edaa755965ec5888102b4ad503ec",
+            "matrix": [
+              1,
+              0,
+              10,
+              0,
+              1,
+              20
+            ]
+          }
+        ],
+        "doc": "copy-r2000.dwg"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "hash",
+          "style",
+          "geometry",
+          "extensions"
+        ],
+        "doc": "copy-r2000.dwg"
+      }
+    }
+  ]
+}

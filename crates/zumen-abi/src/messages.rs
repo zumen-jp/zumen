@@ -8437,6 +8437,8 @@ pub enum Edit {
     Restyle(RestyleEdit),
     /// 要素を、アフィン変換で動かす。AutoCAD の系統では、図形とともに動く XDATA と記号の属性も同じ変換で直す。変換した形を元の種類で表せなければ当てない
     Transform(TransformEdit),
+    /// 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から
+    Copy(CopyEdit),
     /// 要素を除く
     Remove(RemoveEdit),
     /// 要素の形を、渡す値で置き換える。形の種類は変えない。レイヤと線のスタイルは変えない。DXF・DWG の文字と書式つきの文字は、定義のある文字スタイルへ指し替えられる。マイナーバージョン 10 から
@@ -8478,6 +8480,7 @@ impl Edit {
     pub const TAGS: &[&str] = &[
         "restyle",
         "transform",
+        "copy",
         "remove",
         "replace",
         "add",
@@ -8502,6 +8505,7 @@ impl Edit {
         match self {
             Self::Restyle(_) => "restyle",
             Self::Transform(_) => "transform",
+            Self::Copy(_) => "copy",
             Self::Remove(_) => "remove",
             Self::Replace(_) => "replace",
             Self::Add(_) => "add",
@@ -8529,6 +8533,7 @@ impl FromJson for Edit {
         let this = match object.tag("kind")? {
             "restyle" => Self::Restyle(RestyleEdit::read_fields(&mut object)?),
             "transform" => Self::Transform(TransformEdit::read_fields(&mut object)?),
+            "copy" => Self::Copy(CopyEdit::read_fields(&mut object)?),
             "remove" => Self::Remove(RemoveEdit::read_fields(&mut object)?),
             "replace" => Self::Replace(ReplaceEdit::read_fields(&mut object)?),
             "add" => Self::Add(AddEdit::read_fields(&mut object)?),
@@ -8568,6 +8573,7 @@ impl ToJson for Edit {
         match self {
             Self::Restyle(value) => value.to_json(out),
             Self::Transform(value) => value.to_json(out),
+            Self::Copy(value) => value.to_json(out),
             Self::Remove(value) => value.to_json(out),
             Self::Replace(value) => value.to_json(out),
             Self::Add(value) => value.to_json(out),
@@ -8726,6 +8732,55 @@ impl FromJson for TransformEdit {
 }
 
 impl ToJson for TransformEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct CopyEdit {
+    /// 複写する要素の ID。entities が返したもの
+    pub id: String,
+    /// 読んだときの要素のハッシュ。entities が返したもの
+    pub hash: String,
+    /// [a, b, c, d, e, f]。写しの点 (x, y) を (a x + b y + c, d x + e y + f) に写す。元の位置に写すなら [1, 0, 0, 0, 1, 0]
+    pub matrix: Vec<f64>,
+}
+
+impl CopyEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "copy")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let matrix = object.required("matrix", |value| json::array(value, json::number))?;
+        Ok(Self { id, hash, matrix })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("copy");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("matrix");
+        out.array(&self.matrix, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for CopyEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for CopyEdit {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

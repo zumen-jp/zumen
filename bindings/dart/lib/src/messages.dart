@@ -3726,6 +3726,9 @@ class Edit extends Message {
   /// kind が transform の形なら、そのビュー。違えば null
   TransformEdit? get asTransformEdit => taggedView('kind', 'transform', TransformEdit.fromJson);
 
+  /// kind が copy の形なら、そのビュー。違えば null
+  CopyEdit? get asCopyEdit => taggedView('kind', 'copy', CopyEdit.fromJson);
+
   /// kind が remove の形なら、そのビュー。違えば null
   RemoveEdit? get asRemoveEdit => taggedView('kind', 'remove', RemoveEdit.fromJson);
 
@@ -3844,6 +3847,31 @@ class TransformEdit extends Message {
   set hash(String? value) => writeField('hash', value);
 
   /// [a, b, c, d, e, f]。要素の空間か用紙の点 (x, y) を (a x + b y + c, d x + e y + f) に写す
+  List<core.double>? get matrix => readField('matrix', listOf(asDouble));
+  set matrix(List<core.double>? value) => writeField('matrix', value);
+}
+
+/// 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から
+class CopyEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  CopyEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  CopyEdit() : super({'kind': 'copy'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 複写する要素の ID。entities が返したもの
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 読んだときの要素のハッシュ。entities が返したもの
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// [a, b, c, d, e, f]。写しの点 (x, y) を (a x + b y + c, d x + e y + f) に写す。元の位置に写すなら [1, 0, 0, 0, 1, 0]
   List<core.double>? get matrix => readField('matrix', listOf(asDouble));
   set matrix(List<core.double>? value) => writeField('matrix', value);
 }

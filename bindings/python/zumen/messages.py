@@ -2797,6 +2797,7 @@ Applied = TypedDict(
 Edit = Union[
     "RestyleEdit",
     "TransformEdit",
+    "CopyEdit",
     "RemoveEdit",
     "ReplaceEdit",
     "AddEdit",
@@ -2864,6 +2865,22 @@ TransformEdit = TypedDict(
         # 読んだときの要素のハッシュ。entities が返したもの
         "hash": str,
         # [a, b, c, d, e, f]。要素の空間か用紙の点 (x, y) を (a x + b y + c, d x + e y + f) に写す
+        "matrix": List[float],
+    },
+)
+
+
+# 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から
+CopyEdit = TypedDict(
+    "CopyEdit",
+    {
+        # 変更の種類
+        "kind": Literal["copy"],
+        # 複写する要素の ID。entities が返したもの
+        "id": str,
+        # 読んだときの要素のハッシュ。entities が返したもの
+        "hash": str,
+        # [a, b, c, d, e, f]。写しの点 (x, y) を (a x + b y + c, d x + e y + f) に写す。元の位置に写すなら [1, 0, 0, 0, 1, 0]
         "matrix": List[float],
     },
 )

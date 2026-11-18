@@ -104,6 +104,19 @@ pub(crate) fn changes_at(
                     transform: Affine { m },
                 }
             }
+            messages::Edit::Copy(edit) => {
+                let target = seen(&edit.id, &edit.hash, cx)?;
+                let m = match edit.matrix.as_slice() {
+                    &[a, b, c, d, e, f] if edit.matrix.iter().all(|v| v.is_finite()) => {
+                        [a, b, c, d, e, f]
+                    }
+                    _ => return Err(fail(cx, invalid_value(at("matrix")))),
+                };
+                Edit::Copy {
+                    target,
+                    transform: Affine { m },
+                }
+            }
             messages::Edit::Remove(edit) => Edit::Remove {
                 target: seen(&edit.id, &edit.hash, cx)?,
             },

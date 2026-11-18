@@ -260,6 +260,11 @@ impl Born {
     }
 
     /// モデル空間の図形の置き場所
+    /// 次に足すレコードのハンドル。ハンドルを持たない図面なら `None`
+    pub(crate) fn next_handle(&self) -> Option<u64> {
+        self.next
+    }
+
     pub(crate) fn model(&self) -> Home {
         Home {
             owner: self.owner,

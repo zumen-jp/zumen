@@ -57,6 +57,15 @@ pub enum Edit {
         /// 要素の空間（用紙）の点を写す変換
         transform: Affine,
     },
+    /// 指した要素を、同じ空間か用紙に複写し、写しをこの変換で動かす（#889）。元の要素は変えない。写しは、元の
+    /// レイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに
+    /// 動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素は当てない
+    Copy {
+        /// 複写する要素
+        target: Seen,
+        /// 写しを動かす、要素の空間（用紙）の点を写す変換
+        transform: Affine,
+    },
     /// 空間か用紙に、この要素を足す。要素の出所は使わない
     Add {
         /// 足す先の空間か用紙の ID（[`id::space`](crate::id::space)・[`id::sheet`](crate::id::sheet)）
@@ -199,6 +208,7 @@ impl Edit {
             Self::AddDimensionStyle { .. } => "add_dimension_style",
             Self::RemoveDimensionStyle { .. } => "remove_dimension_style",
             Self::AddSymbol { .. } => "add_symbol",
+            Self::Copy { .. } => "copy",
             Self::SetPointStyle { .. } => "point_style",
         }
     }
