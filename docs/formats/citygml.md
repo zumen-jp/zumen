@@ -70,7 +70,7 @@ CityGML 2.0（台帳の `citygml_2_0`）の 3D 都市モデル（PLATEAU の製�
 
 段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-citygml)にあります。
 
-### PLATEAU の公開原本での読み取り
+## PLATEAU の公開原本での読み取り
 
 [PLATEAU GIS Converter の試料の出典と利用条件](https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/blob/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data/LICENSE.txt)を確認し、無改変の CityGML 2.0 原本 3 件をリポジトリ外に置きました。main の `e11b2552` を Windows でビルドし、`zumen geo <ファイル>` と `zumen geo <ファイル> --id <gml:id>` で確かめました。
 
