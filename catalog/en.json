@@ -55,6 +55,7 @@
     "call.version.unsupported": "This core cannot handle the request version (v = {version}).",
     "catalog.file.invalid": "Could not read the input \"{name}\" as a catalog.",
     "change.character.unsupported": "The character {character} cannot be written back, because the code page of this pre-2007 drawing cannot represent it. No change was applied.",
+    "change.copy.unsupported": "The {field} ({value}) of the copied {kind} in edit {edit} cannot be written to {format}, so the changes were rejected.",
     "change.document.stale": "The document has changed since the changes were made. No change was applied.",
     "change.edit.unsupported": "{edit} of a \"{kind}\" element cannot be written back to {format} yet. No change was applied.",
     "change.element.missing": "\"{id}\" is not in the drawing. No change was applied.",

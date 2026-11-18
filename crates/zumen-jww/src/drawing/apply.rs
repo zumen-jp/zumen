@@ -254,6 +254,11 @@ impl Apply<Changes> for JwwFile {
                     cx.report(unsupported(change.name(), "dimension_style"));
                     None
                 }
+                // 写しの形式固有の値と参照を保つ書き方は、まだない（#889）
+                Edit::Copy { .. } => {
+                    cx.report(unsupported(change.name(), "copy"));
+                    None
+                }
                 // JWW は文書の点の表し方を持たない（決定 0190）
                 Edit::AddSymbol { .. } => {
                     cx.report(unsupported(change.name(), "symbol"));

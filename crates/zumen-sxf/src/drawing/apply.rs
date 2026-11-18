@@ -359,6 +359,11 @@ impl SxfFile {
                     cx.report(unsupported(format, change.name(), "dimension_style"));
                     None
                 }
+                // 写しの形式固有の値と参照を保つ書き方は、まだない（#889）
+                Edit::Copy { .. } => {
+                    cx.report(unsupported(format, change.name(), "copy"));
+                    None
+                }
                 // SXF は文書の点の表し方を持たない。点は既定義のマーカーだけ（決定 0190）
                 Edit::AddSymbol { .. } => {
                     cx.report(unsupported(format, change.name(), "symbol"));

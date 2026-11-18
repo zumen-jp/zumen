@@ -22,6 +22,7 @@ pub(crate) use transform::{moved_with_attribs, restyled, revalued_with_attribs};
 
 mod add;
 mod callout;
+mod copy;
 mod dimension_style;
 mod layer;
 mod line_type;
@@ -663,6 +664,10 @@ impl<'e> Plan<'e> {
                 change_element(current, self, change, "remove", target_of, cx)
             }
             Edit::AddSymbol { symbol } => add_symbol(current, self, symbol, edit_index, cx),
+            Edit::Copy {
+                target: target_of,
+                transform,
+            } => copy::copy_element(current, self, target_of, transform, edit_index, cx),
             Edit::SetPointStyle { style } => {
                 set_point_style(current, self, style, cx);
                 Ok(())
@@ -1290,6 +1295,7 @@ fn change_element<'e>(
             | Edit::AddDimensionStyle { .. }
             | Edit::RemoveDimensionStyle { .. }
             | Edit::AddSymbol { .. }
+            | Edit::Copy { .. }
             | Edit::SetPointStyle { .. },
             _,
         ) => None,
@@ -1403,7 +1409,7 @@ fn results(
                 });
                 ResultTarget::Element(handle)
             }
-            Edit::Add { .. } => ResultTarget::Element(handles.next().flatten()),
+            Edit::Add { .. } | Edit::Copy { .. } => ResultTarget::Element(handles.next().flatten()),
             Edit::Remove { .. }
             | Edit::RemoveLayer { .. }
             | Edit::RemoveTextStyle { .. }

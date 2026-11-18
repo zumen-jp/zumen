@@ -5710,6 +5710,11 @@ public struct Edit: Message {
         taggedView("kind", "transform")
     }
 
+    /// kind が copy の形なら、そのビュー。違えば nil
+    public var asCopyEdit: CopyEdit? {
+        taggedView("kind", "copy")
+    }
+
     /// kind が remove の形なら、そのビュー。違えば nil
     public var asRemoveEdit: RemoveEdit? {
         taggedView("kind", "remove")
@@ -5900,6 +5905,46 @@ public struct TransformEdit: Message {
     }
 
     /// [a, b, c, d, e, f]。要素の空間か用紙の点 (x, y) を (a x + b y + c, d x + e y + f) に写す
+    public var matrix: [Double]? {
+        get { readField("matrix") }
+        set { writeField("matrix", newValue) }
+    }
+}
+
+/// 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から
+public struct CopyEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("copy")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 複写する要素の ID。entities が返したもの
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 読んだときの要素のハッシュ。entities が返したもの
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// [a, b, c, d, e, f]。写しの点 (x, y) を (a x + b y + c, d x + e y + f) に写す。元の位置に写すなら [1, 0, 0, 0, 1, 0]
     public var matrix: [Double]? {
         get { readField("matrix") }
         set { writeField("matrix", newValue) }

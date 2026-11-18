@@ -599,6 +599,23 @@ pub const CHANGE_CHARACTER_UNSUPPORTED: Code = Code::new(
     &["character"],
 );
 
+/// 指定された要素の複写（copy）を書き戻せないので変更を拒んだ。kind は要素の種類、field は写せないもの、value はその理由
+///
+/// `change.copy.unsupported`（0.4.0 から）
+pub const CHANGE_COPY_UNSUPPORTED: Code = Code::new(
+    "change.copy.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("edit", ParamType::UInt),
+        Param::new("field", ParamType::Text),
+        Param::new("format", ParamType::Text),
+        Param::new("kind", ParamType::Text),
+        Param::new("value", ParamType::Text),
+    ],
+    &["edit", "kind", "field", "value", "format"],
+);
+
 /// 変更の一覧が持つ文書のハッシュが、今の文書のハッシュと違う（決定 0156）
 ///
 /// `change.document.stale`（0.0.0 から）
@@ -6259,6 +6276,7 @@ pub const ALL: &[Code] = &[
     CALL_VERSION_UNSUPPORTED,
     CATALOG_FILE_INVALID,
     CHANGE_CHARACTER_UNSUPPORTED,
+    CHANGE_COPY_UNSUPPORTED,
     CHANGE_DOCUMENT_STALE,
     CHANGE_EDIT_UNSUPPORTED,
     CHANGE_ELEMENT_MISSING,
