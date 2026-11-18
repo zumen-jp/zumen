@@ -114,6 +114,13 @@ export interface LiveRestyle {
   /** 継承か、lineTypes の value。表にない値は invalid */
   lineType?: "layer" | "block" | number;
 }
+export interface LiveSetText {
+  /** 選択した行が属する版。現在の版と異なれば stale */
+  revision: bigint | number;
+  rows: readonly number[] | Uint32Array;
+  /** 新しい内容。UTF-8 で 1 MiB まで。形式の符号（MTEXT の書式など）は解釈せずにそのまま書く */
+  content: string;
+}
 export interface LiveRemove {
   /** 選択した行が属する版。現在の版と異なれば stale */
   revision: bigint | number;
@@ -142,6 +149,9 @@ export declare class LiveProcess {
   transform(change: LiveTransform, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行の画層・色・線幅・線種・線種の倍率を変える。result は変えた数 */
   restyle(change: LiveRestyle, options?: LiveDisplayOptions): Promise<LiveReply>;
+  /** 文字の行の内容を替える。替えられるのは texts の kind が "text" の行と、区間が文字列 1 つだけの "formatted" の行。
+   * ほかの行を含めば rejected で何も替えない。result は替えた数 */
+  setText(change: LiveSetText, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行を除く。result は除いた数 */
   remove(change: LiveRemove, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行を写し、写しを matrix で動かす。写しの行を selection に対象の順で返す。表示は display で取り直す。JWW・SXF は rejected */

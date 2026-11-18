@@ -293,6 +293,22 @@ export class LiveProcess {
     });
   }
 
+  /** 文字の行の内容を content に替える。既定で表示の差分を返す */
+  async setText({ revision, rows, content }, options = {}) {
+    this.#check();
+    if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
+    if (typeof content !== "string" || !content.isWellFormed()) throw new TypeError("content は対になったサロゲートだけの文字列にする");
+    const text = Buffer.from(content, "utf8");
+    if (text.length > 1 << 20) throw new RangeError("content は UTF-8 で 1 MiB までにする");
+    const padded = Math.ceil(text.length / 4) * 4;
+    return this.#request(18, flagsOf(options, true), u64(revision, "revision"), options, 8 + padded + rows.length * 4, (out) => {
+      out.writeUInt32LE(rows.length, 0);
+      out.writeUInt32LE(text.length, 4);
+      text.copy(out, 8);
+      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 8 + padded + i * 4);
+    });
+  }
+
   /** 行を除く。既定で表示の差分を返す */
   async remove({ revision, rows }, options = {}) {
     this.#check();

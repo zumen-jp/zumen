@@ -118,6 +118,8 @@ try {
 
 `live.restyle({ revision, rows, layer, color, lineWeight, lineType, lineTypeScale })` は、指定した画層・色・線幅・線種・線種の倍率だけを変えます。`layer` は `live.layers` の `value`、`color` は `"layer"`・`"block"` か `{ code, rgb }`、`lineWeight` は `"layer"`・`"block"`・`"default"` か mm、`lineType` は `"layer"`・`"block"` か `live.lineTypes` の `value` です。
 
+`live.setText({ revision, rows, content })` は、文字の行の内容を `content` に替えます。替えられるのは `live.texts` の `kind` が `"text"` の行と、区間が文字列 1 つだけの `"formatted"` の行で、ほかの行を含めば rejected で何も替えません。
+
 `live.remove({ revision, rows })` は行を除き、`live.copy({ revision, rows, matrix })` は行を写して写しを動かします。`copy` は写しの行を `reply.selection` に対象の順で返し、表示は返さないので `live.display()` で取り直します。JWW・SXF の写しは、まだ rejected です。
 
 `live.order(revision)` は、表示に出る生きた行を、図面モデルと同じ規則で先に描くものから並べて `reply.order` に返します。`reply.order.rows()` は描く順で反復し、昇順とは限りません。

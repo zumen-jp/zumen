@@ -315,6 +315,29 @@ test("描く順を検査してから借りて公開する", async () => {
   } finally { await live.close(); }
 });
 
+test("実プロセスで文字の内容を替え、取り消す", { skip: !executable, timeout: 30000 }, async () => {
+  const live = await openLiveProcess(executable);
+  try {
+    const input = Buffer.from("0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n10\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n"
+      + "0\nTEXT\n5\n11\n8\n0\n10\n0\n20\n0\n40\n2.5\n1\nHELLO\n0\nENDSEC\n0\nEOF\n");
+    const opened = await live.open(input, { display: false });
+    assert.equal(opened.result, 2n);
+    const before = await live.texts([0, 1], opened.revision);
+    const row = before.texts.findIndex(({ kind }) => kind === "text");
+    assert.equal(before.texts[row].content, "HELLO");
+    const changed = await live.setText({ revision: opened.revision, rows: [row], content: "WORLD" });
+    assert.equal(changed.status, "ok");
+    assert.equal(changed.result, 1n);
+    assert.notEqual(changed.display, null);
+    assert.deepEqual((await live.texts([row], changed.revision)).texts, [{ kind: "text", content: "WORLD" }]);
+    assert.match((await live.save()).data.toString(), /WORLD/);
+    assert.equal((await live.setText({ revision: changed.revision, rows: [1 - row], content: "x" })).status, "rejected");
+    assert.equal((await live.setText({ revision: opened.revision, rows: [row], content: "x" })).status, "stale");
+    await live.undo(changed.revision);
+    assert.deepEqual((await live.save()).data, input);
+  } finally { await live.close(); }
+});
+
 test("copy・remove・restyle の引数を送る前に検査する", async () => {
   const { live } = await fake("order");
   try {
@@ -323,6 +346,10 @@ test("copy・remove・restyle の引数を送る前に検査する", async () =>
     await assert.rejects(live.copy({ revision: 0n, rows: [-1], matrix: move }), RangeError);
     await assert.rejects(live.remove({ revision: 0n, rows: new Uint32Array(65537) }), RangeError);
     await assert.rejects(live.remove({ revision: -1, rows: [0] }), RangeError);
+    await assert.rejects(live.setText({ revision: 0n, rows: [0], content: 1 }), TypeError);
+    await assert.rejects(live.setText({ revision: 0n, rows: [0], content: "\ud800" }), TypeError);
+    await assert.rejects(live.setText({ revision: 0n, rows: [0], content: "x".repeat((1 << 20) + 1) }), RangeError);
+    await assert.rejects(live.setText({ revision: 0n, rows: [-1], content: "x" }), RangeError);
     for (const bad of [{}, { color: "red" }, { color: {} }, { color: { rgb: [1, 2] } }, { color: { code: { system: "x", value: 1 } } },
       { lineWeight: -1 }, { lineWeight: "none" }, { lineTypeScale: 0 }]) {
       await assert.rejects(live.restyle({ revision: 0n, rows: [0], ...bad }), TypeError);

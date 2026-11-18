@@ -3,7 +3,9 @@
 //! 状態・保存・`apply` は変えない。名前と形は `AcadLive` の同名の関数に合わせる。
 
 use zumen_base::{Cx, Kind, Stop};
-use zumen_drawing::{Affine, Layer, LineType, LineTypeId, Placed, Seen, Shape};
+use zumen_drawing::{
+    Affine, Element, FormattedText, Layer, LineType, LineTypeId, Piece, Placed, Seen, Shape,
+};
 use zumen_live::RowId;
 use zumen_sdk::Error;
 
@@ -171,6 +173,25 @@ impl SxfLive {
             None => Ok(None),
         }
     }
+
+    /// 生きた文字の行（`Shape::Text`・`Shape::Formatted`）の要素を、内容だけ `content` に替えて返す。`Edit::Replace` の
+    /// 新しい値に使う。行が生きていないか、文字でなければ `None`。行 1 つと新しい内容のバイト数を共有の予算で数える
+    pub fn display_retexted(
+        &self,
+        row: RowId,
+        content: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Placed>, Error> {
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        if !self.table.is_alive(row) {
+            return Ok(None);
+        }
+        Ok(match self.table.row(row).map(|found| &found.placed) {
+            Some(Placed::Model(element)) => retexted(element, content, cx)?.map(Placed::Model),
+            Some(Placed::Paper(element)) => retexted(element, content, cx)?.map(Placed::Paper),
+            None => None,
+        })
+    }
 }
 
 /// 文字の形の種類と、元の符号のままの内容。`Shape::Text` は 1、`Shape::Formatted` は 2、ほかの形は 0 と空
@@ -180,6 +201,39 @@ fn text_of<P>(shape: &Shape<P>) -> (u32, &str) {
         Shape::Formatted(text) => (2, text.content.as_str()),
         _ => (0, ""),
     }
+}
+
+/// 内容だけを替えられる文字の要素なら、内容を `content` に替えた写し。替えられるのは `Shape::Text` と、区間が
+/// 文字列 1 つだけの `Shape::Formatted`（区間の中身も替える）。ほかの形は `None`。
+/// 新しい内容のバイト数を共有の予算で数えてから写す
+fn retexted<P: Clone>(
+    element: &Element<P>,
+    content: &str,
+    cx: &mut Cx<'_>,
+) -> Result<Option<Element<P>>, Error> {
+    let plain = |text: &FormattedText<P>| match text.spans.as_slice() {
+        [span] => span.piece == Piece::Text(text.content.clone()),
+        _ => false,
+    };
+    match &element.shape {
+        Shape::Text(_) => {}
+        Shape::Formatted(text) if plain(text) => {}
+        _ => return Ok(None),
+    }
+    cx.check(Kind::DecodedBytes, content.len() as u64)
+        .map_err(|stop| stopped(cx, stop))?;
+    let mut out = element.clone();
+    match &mut out.shape {
+        Shape::Text(text) => content.clone_into(&mut text.content),
+        Shape::Formatted(text) => {
+            content.clone_into(&mut text.content);
+            if let Some(span) = text.spans.first_mut() {
+                span.piece = Piece::Text(content.to_owned());
+            }
+        }
+        _ => {}
+    }
+    Ok(Some(out))
 }
 
 /// [`text_of`] の内容を、バイト数を共有の予算で数えてから写す

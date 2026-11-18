@@ -33,6 +33,7 @@ enum Operation<'a> {
     Copy { transform: Affine, rows: &'a [u8] },
     Remove(&'a [u8]),
     Texts(&'a [u8]),
+    SetText { content: &'a str, rows: &'a [u8] },
     Restyle { style: WireStyle, rows: &'a [u8] },
     Target(RowId),
     Select([f64; 4]),
@@ -98,6 +99,26 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
                 Operation::Texts(input.0)
             } else {
                 Operation::Remove(input.0)
+            })
+        }
+        Command::SetText => {
+            let count = input.u32()? as usize;
+            let length = input.u32()? as usize;
+            if count > wire::MAX_ROWS || length > wire::MAX_TEXT_BYTES {
+                return None;
+            }
+            let padded = length.next_multiple_of(4);
+            if input.0.len() != padded.checked_add(count.checked_mul(4)?)? {
+                return None;
+            }
+            let (text, rows) = input.0.split_at(padded);
+            let (content, padding) = text.split_at(length);
+            if padding.iter().any(|&byte| byte != 0) {
+                return None;
+            }
+            Some(Operation::SetText {
+                content: std::str::from_utf8(content).ok()?,
+                rows,
             })
         }
         Command::Target => {
@@ -582,6 +603,12 @@ impl Host {
                     reply.result = document
                         .edit(revision, &ids, &RowEdit::Restyle(restyle), cx)?
                         .len() as u64;
+                }
+                Operation::SetText { content, rows } => {
+                    let ids = decode_rows(rows, cx)?;
+                    checked(cx, Kind::DecodedBytes, content.len() as u64)?;
+                    let edit = RowEdit::Text(content.to_owned());
+                    reply.result = document.edit(revision, &ids, &edit, cx)?.len() as u64;
                 }
                 Operation::Remove(rows) => {
                     let ids = decode_rows(rows, cx)?;

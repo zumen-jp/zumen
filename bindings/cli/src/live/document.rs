@@ -2,7 +2,7 @@
 
 use zumen_acad::AcadLive;
 use zumen_base::{Cx, Diagnostic, Error, Kind, codes};
-use zumen_drawing::{Affine, Applied, Changes, Edit, Layer, LineType, Restyle, Seen};
+use zumen_drawing::{Affine, Applied, Changes, Edit, Layer, LineType, Placed, Restyle, Seen};
 use zumen_jww::{Jww, JwwLive};
 use zumen_live::display::Display;
 use zumen_live::{Revision, RowId, display_wire};
@@ -23,6 +23,8 @@ pub(super) enum RowEdit {
     Copy(Affine),
     /// 除く
     Remove,
+    /// 文字の内容を替える。替えられるのは文書エンジンの `display_retexted` が受ける文字だけ
+    Text(String),
 }
 
 /// 実行入口の状態エラー。コアの診断とは別に応答する。
@@ -184,6 +186,19 @@ impl Engine {
             Self::Acad(live) => live.display_layers(cx),
             Self::Jww(live) => live.display_layers(cx),
             Self::Sxf(live) => live.display_layers(cx),
+        }
+    }
+
+    fn retexted(
+        &self,
+        row: RowId,
+        content: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Placed>, Error> {
+        match self {
+            Self::Acad(live) => live.display_retexted(row, content, cx),
+            Self::Jww(live) => live.display_retexted(row, content, cx),
+            Self::Sxf(live) => live.display_retexted(row, content, cx),
         }
     }
 
@@ -358,6 +373,23 @@ impl Document {
                     edits.push(Edit::Restyle {
                         target,
                         style: style.clone(),
+                    });
+                    continue;
+                }
+                RowEdit::Text(content) => {
+                    let Some(element) = self.live.retexted(row, content, cx)? else {
+                        // 文字でない行と、区間が書式や区切りを持つ書式つきの文字は、内容だけを替えられない
+                        cx.report(
+                            Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
+                                .with("edit", "text")
+                                .with("kind", "shape")
+                                .with("format", self.live.format()),
+                        );
+                        return Err(Problem::Core(Error::Rejected));
+                    };
+                    edits.push(Edit::Replace {
+                        target,
+                        element: Box::new(element),
                     });
                     continue;
                 }

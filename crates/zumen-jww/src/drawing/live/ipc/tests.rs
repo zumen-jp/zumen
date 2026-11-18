@@ -361,3 +361,18 @@ fn display_text_matches_the_drawing() {
     assert_eq!(live.display_text(row, cx).unwrap(), None);
     check_texts(&live, cx);
 }
+
+/// 公開サンプルに文字がないので、文字でない行と消した行が `None` になることだけを確かめる
+#[test]
+fn display_retexted_skips_rows_without_text() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let live = JwwLive::open(SAMPLE, cx).unwrap();
+    for row in live.display_order(cx).unwrap() {
+        assert!(live.display_retexted(row, "x", cx).unwrap().is_none());
+    }
+    let outside = RowId(u32::try_from(live.table.len()).unwrap());
+    assert!(live.display_retexted(outside, "x", cx).unwrap().is_none());
+}

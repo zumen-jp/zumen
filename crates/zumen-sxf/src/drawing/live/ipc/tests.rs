@@ -387,3 +387,60 @@ fn display_text_matches_the_drawing() {
     assert_eq!(live.display_text(row, cx).unwrap(), None);
     check_texts(&live, cx);
 }
+
+#[test]
+fn display_retexted_replaces_only_the_content() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let mut live = SxfLive::open(TEXT_SAMPLE, cx).unwrap();
+    let order = live.display_order(cx).unwrap();
+    let kinds: Vec<u32> = order
+        .iter()
+        .map(|&row| live.display_text(row, cx).unwrap().unwrap().0)
+        .collect();
+    // 文字でない行は `None`
+    for (&row, &kind) in order.iter().zip(&kinds) {
+        if kind == 0 {
+            assert!(live.display_retexted(row, "x", cx).unwrap().is_none());
+        }
+    }
+    let mut changed = 0;
+    for (&row, &kind) in order.iter().zip(&kinds) {
+        if kind == 0 {
+            continue;
+        }
+        // SXF は JIS X 0208 の文字も書ける
+        let content = format!("改め {}", row.0);
+        let target = live.seen_of_row(row, cx).unwrap().unwrap();
+        let element = live.display_retexted(row, &content, cx).unwrap().unwrap();
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Replace {
+                target,
+                element: Box::new(element),
+            }],
+        };
+        live.apply(&changes, cx).unwrap();
+        assert_eq!(
+            live.display_text(row, cx).unwrap().unwrap(),
+            (kind, content)
+        );
+        changed += 1;
+    }
+    assert!(changed > 0);
+    check_texts(&live, cx);
+    // 保存して開き直しても同じ文字
+    let saved = live.save(cx).unwrap();
+    let reopened = SxfLive::open(&saved, cx).unwrap();
+    check_texts(&reopened, cx);
+    let texts = |live: &SxfLive, cx: &mut Cx<'_>| -> Vec<(u32, String)> {
+        live.display_order(cx)
+            .unwrap()
+            .into_iter()
+            .map(|row| live.display_text(row, cx).unwrap().unwrap())
+            .collect()
+    };
+    assert_eq!(texts(&live, cx), texts(&reopened, cx));
+}

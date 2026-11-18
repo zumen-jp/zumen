@@ -1069,3 +1069,85 @@ fn engine_texts(bytes: &[u8], rows: &[u32], cx: &mut zumen_base::Cx<'_>) -> Vec<
     }
     out
 }
+
+/// SetText の本文。件数・内容のバイト数・4 バイト境界まで 0 で埋めた内容・行の順
+fn set_text_body(content: &[u8], rows: &[u32]) -> Vec<u8> {
+    let mut bytes = (rows.len() as u32).to_le_bytes().to_vec();
+    bytes.extend_from_slice(&(content.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(content);
+    bytes.resize(bytes.len().next_multiple_of(4), 0);
+    for row in rows {
+        bytes.extend_from_slice(&row.to_le_bytes());
+    }
+    bytes
+}
+
+/// SetText は文字の行の内容だけを 1 トランザクションで替え、取り消せる。文字でない行を含めば何も替えない
+#[test]
+fn set_text_replaces_the_content_of_text_rows() {
+    for (bytes, content) in [(DXF_TABLES, "NEW TEXT"), (SFC, "改めた文字")] {
+        let mut host = Host::default();
+        open_bytes(&mut host, bytes);
+        let rows = select(&mut host, 2, 0, EVERYWHERE);
+        let before = texts(&mut host, 3, 0, &rows);
+        let text_rows: Vec<u32> = rows
+            .iter()
+            .zip(&before)
+            .filter(|(_, (kind, _))| *kind != 0)
+            .map(|(&row, _)| row)
+            .take(2)
+            .collect();
+        assert_eq!(text_rows.len(), 2);
+        let original = saved(&mut host, 4, 0);
+        let body = set_text_body(content.as_bytes(), &text_rows);
+        let changed = call(&mut host, Command::SetText, 5, 0, wire::NONE, 1, &body);
+        assert_eq!(changed.status, Status::Ok);
+        assert_eq!(changed.result, 2);
+        assert_eq!(changed.revision, 1);
+        assert_eq!(changed.display_status, Status::Ok);
+        let after = texts(&mut host, 6, 1, &text_rows);
+        assert!(after.iter().all(|(_, text)| text == content));
+        // 保存して開き直しても同じ文字
+        let mut reopened = Host::default();
+        open_bytes(&mut reopened, &saved(&mut host, 7, 1));
+        let again = select(&mut reopened, 2, 0, EVERYWHERE);
+        let all = texts(&mut reopened, 3, 0, &again);
+        assert_eq!(all.iter().filter(|(_, text)| text == content).count(), 2);
+        // 取り消すと元のバイト列
+        let undone = call(&mut host, Command::Undo, 8, 1, wire::NONE, 0, &[]);
+        assert_eq!(undone.status, Status::Ok);
+        assert_eq!(saved(&mut host, 9, 2), original);
+        // 文字でない行を含めば断り、版を進めない
+        let other = rows
+            .iter()
+            .zip(&before)
+            .find(|(_, (kind, _))| *kind == 0)
+            .map(|(&row, _)| row)
+            .unwrap();
+        let body = set_text_body(b"x", &[text_rows[0], other]);
+        let rejected = call(&mut host, Command::SetText, 10, 2, wire::NONE, 0, &body);
+        assert_eq!(rejected.status, Status::Rejected);
+        assert_eq!(rejected.revision, 2);
+        // 前提の版が違えば Stale。UTF-8 でない内容・0 でない埋め草・長さの食い違いは Invalid
+        let stale = call(&mut host, Command::SetText, 11, 0, wire::NONE, 0, &body);
+        assert_eq!(stale.status, Status::Stale);
+        let mut broken = set_text_body(&[0xff], &[text_rows[0]]);
+        let invalid = call(&mut host, Command::SetText, 12, 2, wire::NONE, 0, &broken);
+        assert_eq!(invalid.status, Status::Invalid);
+        broken = set_text_body(b"x", &[text_rows[0]]);
+        broken[9] = 1;
+        let padding = call(&mut host, Command::SetText, 13, 2, wire::NONE, 0, &broken);
+        assert_eq!(padding.status, Status::Invalid);
+        broken = set_text_body(b"x", &[text_rows[0]]);
+        broken[4] = 5;
+        let length = call(&mut host, Command::SetText, 14, 2, wire::NONE, 0, &broken);
+        assert_eq!(length.status, Status::Invalid);
+    }
+    // JWW の公開サンプルには文字がないので、どの行も断る
+    let mut host = Host::default();
+    open_bytes(&mut host, JWW);
+    let rows = select(&mut host, 2, 0, EVERYWHERE);
+    let body = set_text_body(b"x", &rows[..1]);
+    let rejected = call(&mut host, Command::SetText, 3, 0, wire::NONE, 0, &body);
+    assert_eq!(rejected.status, Status::Rejected);
+}

@@ -9,6 +9,8 @@ pub(super) const CONTROL_BYTES: usize = 72;
 pub(super) const REPLY_BYTES: usize = 136;
 pub(super) const MAX_INPUT_BYTES: usize = 256 << 20;
 pub(super) const MAX_ROWS: usize = 65_536;
+/// SetText の内容のバイト数の上限
+pub(super) const MAX_TEXT_BYTES: usize = 1 << 20;
 pub(super) const NONE: u64 = u64::MAX;
 pub(super) const WITH_DISPLAY: u32 = 1;
 pub(super) const FULL_DISPLAY: u32 = 2;
@@ -34,6 +36,7 @@ pub(super) enum Command {
     Restyle = 15,
     LineTypes = 16,
     Texts = 17,
+    SetText = 18,
 }
 
 impl Command {
@@ -57,6 +60,7 @@ impl Command {
             15 => Self::Restyle,
             16 => Self::LineTypes,
             17 => Self::Texts,
+            18 => Self::SetText,
             _ => return None,
         })
     }
@@ -68,6 +72,10 @@ impl Command {
             Self::Transform | Self::Copy => (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4),
             Self::Remove | Self::Texts => (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_ROWS * 4),
             Self::Restyle => (CONTROL_BYTES + 48, CONTROL_BYTES + 56 + MAX_ROWS * 4),
+            Self::SetText => (
+                CONTROL_BYTES + 8,
+                CONTROL_BYTES + 8 + MAX_TEXT_BYTES + MAX_ROWS * 4,
+            ),
             Self::Target => (CONTROL_BYTES + 4, CONTROL_BYTES + 4),
             Self::Diagnostics => (CONTROL_BYTES + 8, CONTROL_BYTES + 8),
             Self::Select => (CONTROL_BYTES + 32, CONTROL_BYTES + 32),
@@ -89,6 +97,7 @@ impl Command {
                 | Self::Transform
                 | Self::Remove
                 | Self::Restyle
+                | Self::SetText
                 | Self::Undo
                 | Self::Redo
         )
