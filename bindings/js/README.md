@@ -114,6 +114,8 @@ try {
 
 `live.lineTypes(revision)` は、`restyle` で指せる線種の値と、その名前・説明・線と間の列を `reply.lineTypes` に返します。値は図面モデルの線種の ID です。DXF・DWG は図面モデルの線種、JWW・SXF は形式が書ける番号の線種です。
 
+`live.texts(rows, revision)` は、行の文字を要求の順に `reply.texts` に返します。各項目は `{ kind, content }` で、`kind` は `"text"`・`"formatted"`（MTEXT など）か、文字でない行の `null` です。`content` は制御文字や書式の符号を含む元の内容です。属性・寸法・表の中の文字は返しません。
+
 `live.restyle({ revision, rows, layer, color, lineWeight, lineType, lineTypeScale })` は、指定した画層・色・線幅・線種・線種の倍率だけを変えます。`layer` は `live.layers` の `value`、`color` は `"layer"`・`"block"` か `{ code, rgb }`、`lineWeight` は `"layer"`・`"block"`・`"default"` か mm、`lineType` は `"layer"`・`"block"` か `live.lineTypes` の `value` です。
 
 `live.remove({ revision, rows })` は行を除き、`live.copy({ revision, rows, matrix })` は行を写して写しを動かします。`copy` は写しの行を `reply.selection` に対象の順で返し、表示は返さないので `live.display()` で取り直します。JWW・SXF の写しは、まだ rejected です。

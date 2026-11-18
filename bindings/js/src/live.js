@@ -283,6 +283,16 @@ export class LiveProcess {
     });
   }
 
+  /** 行の文字の種類と内容を、要求の順に取得する。生きていない行があれば missing */
+  async texts(rows, revision, options = {}) {
+    this.#check();
+    if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
+    return this.#request(17, 0, u64(revision, "revision"), options, 8 + rows.length * 4, (out) => {
+      out.writeUInt32LE(rows.length, 0);
+      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 8 + i * 4);
+    });
+  }
+
   /** 行を除く。既定で表示の差分を返す */
   async remove({ revision, rows }, options = {}) {
     this.#check();

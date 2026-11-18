@@ -1,7 +1,7 @@
 //! 常駐 IPC が表示の定義を引く読み取り。状態・保存・`apply` と表示の作り方は変えない。
 
 use zumen_base::{Cx, Kind, Stop};
-use zumen_drawing::{Layer, LineType, MarkContent};
+use zumen_drawing::{Layer, LineType, MarkContent, Shape};
 use zumen_live::RowId;
 use zumen_sdk::Error;
 
@@ -122,6 +122,40 @@ impl AcadLive {
         }
         Ok(line_types)
     }
+}
+
+impl AcadLive {
+    /// 生きた行の文字。`Shape::Text` は 1、`Shape::Formatted` は 2 と、制御文字や書式の符号を含む元の内容。
+    /// ほかの形の行は 0 と空。行が生きていなければ `None`。属性・寸法・表の中の文字は返さない。
+    /// 行 1 つと内容のバイト数を共有の予算で数える
+    pub fn display_text(
+        &self,
+        row: RowId,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<(u32, String)>, Error> {
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        match self.element_with_source(row, cx)? {
+            Some(element) => copied_text(&element.shape, cx).map(Some),
+            None => Ok(None),
+        }
+    }
+}
+
+/// 文字の形の種類と、元の符号のままの内容。`Shape::Text` は 1、`Shape::Formatted` は 2、ほかの形は 0 と空
+fn text_of<P>(shape: &Shape<P>) -> (u32, &str) {
+    match shape {
+        Shape::Text(text) => (1, text.content.as_str()),
+        Shape::Formatted(text) => (2, text.content.as_str()),
+        _ => (0, ""),
+    }
+}
+
+/// [`text_of`] の内容を、バイト数を共有の予算で数えてから写す
+fn copied_text<P>(shape: &Shape<P>, cx: &mut Cx<'_>) -> Result<(u32, String), Error> {
+    let (kind, content) = text_of(shape);
+    cx.check(Kind::DecodedBytes, content.len() as u64)
+        .map_err(|stop| stopped(cx, stop))?;
+    Ok((kind, content.to_owned()))
 }
 
 /// 線種を写すときのバイト数の見積もり。名前・説明・列（1 つ 8 バイト）・添え物（1 つ 64 バイトと文字）

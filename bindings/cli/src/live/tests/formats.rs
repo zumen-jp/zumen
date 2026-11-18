@@ -950,3 +950,122 @@ fn malformed_restyles_are_refused() {
     assert_eq!(reply.result, 2);
     assert_ne!(saved(&mut host, 6, 1), original);
 }
+
+/// 文字の応答を、種類と内容の組に読む
+fn texts(host: &mut Host, id: u64, revision: u64, rows: &[u32]) -> Vec<(u32, String)> {
+    let reply = call(
+        host,
+        Command::Texts,
+        id,
+        revision,
+        wire::NONE,
+        0,
+        &rows_body(rows),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.data_kind, 9);
+    let mut words = Words(&reply.data);
+    let count = words.u32().unwrap();
+    assert_eq!(u64::from(count), reply.result);
+    assert_eq!(count as usize, rows.len());
+    let mut out = Vec::new();
+    for _ in 0..count {
+        let (kind, length) = (words.u32().unwrap(), words.u32().unwrap() as usize);
+        let padded = length.next_multiple_of(4);
+        let content = String::from_utf8(words.0[..length].to_vec()).unwrap();
+        assert!(words.0[length..padded].iter().all(|&byte| byte == 0));
+        words.0 = &words.0[padded..];
+        out.push((kind, content));
+    }
+    assert!(words.0.is_empty());
+    out
+}
+
+/// 行の文字は、文書エンジンの `display_text` を要求の順に運ぶ。消した行は Missing
+#[test]
+fn texts_carry_the_text_of_rows() {
+    let mut budget = zumen_base::Budget::default();
+    let mut diag = zumen_base::Diagnostics::new();
+    let cancel = zumen_base::CancelToken::new();
+    let cx = &mut zumen_base::Cx::new(&mut budget, &mut diag, &cancel);
+    for (bytes, has_text) in [(DXF_TABLES, true), (JWW, false), (SFC, true)] {
+        let mut host = Host::default();
+        open_bytes(&mut host, bytes);
+        let mut rows = select(&mut host, 2, 0, EVERYWHERE);
+        rows.reverse();
+        let actual = texts(&mut host, 3, 0, &rows);
+        let expected = engine_texts(bytes, &rows, cx);
+        assert_eq!(actual, expected);
+        assert_eq!(actual.iter().any(|(kind, _)| *kind != 0), has_text);
+        assert!(
+            actual
+                .iter()
+                .all(|(kind, content)| *kind <= 2 && (*kind != 0 || content.is_empty()))
+        );
+        // 前提の版が違えば返さない。予約の語が 0 でなければ断る
+        let stale = call(
+            &mut host,
+            Command::Texts,
+            4,
+            9,
+            wire::NONE,
+            0,
+            &rows_body(&rows),
+        );
+        assert_eq!(stale.status, Status::Stale);
+        let mut reserved = rows_body(&rows);
+        reserved[4] = 1;
+        let invalid = call(&mut host, Command::Texts, 5, 0, wire::NONE, 0, &reserved);
+        assert_eq!(invalid.status, Status::Invalid);
+        // 消した行を含めば Missing
+        let removed = rows
+            .iter()
+            .copied()
+            .find(|&row| {
+                call(
+                    &mut host,
+                    Command::Remove,
+                    6,
+                    0,
+                    wire::NONE,
+                    0,
+                    &rows_body(&[row]),
+                )
+                .status
+                    == Status::Ok
+            })
+            .unwrap();
+        let missing = call(
+            &mut host,
+            Command::Texts,
+            7,
+            1,
+            wire::NONE,
+            0,
+            &rows_body(&[removed]),
+        );
+        assert_eq!(missing.status, Status::Missing);
+    }
+}
+
+/// 文書エンジンを直接開いて、行の文字を要求の順に読む
+fn engine_texts(bytes: &[u8], rows: &[u32], cx: &mut zumen_base::Cx<'_>) -> Vec<(u32, String)> {
+    let mut out = Vec::new();
+    if bytes == JWW {
+        let live = zumen_jww::JwwLive::open(bytes, cx).unwrap();
+        for &row in rows {
+            out.push(live.display_text(RowId(row), cx).unwrap().unwrap());
+        }
+    } else if bytes == SFC {
+        let live = zumen_sxf::SxfLive::open(bytes, cx).unwrap();
+        for &row in rows {
+            out.push(live.display_text(RowId(row), cx).unwrap().unwrap());
+        }
+    } else {
+        let live = zumen_acad::AcadLive::open(bytes, cx).unwrap();
+        for &row in rows {
+            out.push(live.display_text(RowId(row), cx).unwrap().unwrap());
+        }
+    }
+    out
+}

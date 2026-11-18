@@ -299,3 +299,91 @@ fn display_line_types_cover_the_defined_line_types_of_the_drawing() {
         assert_eq!(diag.iter().count(), 1, "{kind:?}");
     }
 }
+
+/// 文字を持つ公開サンプル
+const TEXT_SAMPLE: &[u8] = SAMPLE;
+
+/// 図面モデルの要素の ID から、文字の種類（1 文字・2 書式つきの文字・0 ほか）と内容への表
+fn drawing_texts(drawing: &Drawing2D) -> BTreeMap<String, (u32, String)> {
+    fn of<P>(shape: &Shape<P>) -> (u32, String) {
+        match shape {
+            Shape::Text(text) => (1, text.content.clone()),
+            Shape::Formatted(text) => (2, text.content.clone()),
+            _ => (0, String::new()),
+        }
+    }
+    let mut out = BTreeMap::new();
+    id::each_element(drawing, |_, id, found| -> Result<(), ()> {
+        let text = match found {
+            id::Found::Model(element) => of(&element.shape),
+            id::Found::Paper(element) => of(&element.shape),
+        };
+        out.insert(id, text);
+        Ok(())
+    })
+    .unwrap();
+    out
+}
+
+/// 描く順の行の文字は、同じ ID の図面モデルの要素の文字と一致する。返した文字の行の数
+fn check_texts(live: &SxfLive, cx: &mut Cx<'_>) -> usize {
+    let expected = drawing_texts(&live.drawing(cx).unwrap());
+    let mut texts = 0;
+    for row in live.display_order(cx).unwrap() {
+        let id = live.seen_of_row(row, cx).unwrap().unwrap().id;
+        let actual = live.display_text(row, cx).unwrap().unwrap();
+        assert_eq!(actual, expected[&id], "{id}");
+        texts += usize::from(actual.0 != 0);
+    }
+    texts
+}
+
+#[test]
+fn a_stopped_text_read_reports_the_stop() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let live = SxfLive::open(TEXT_SAMPLE, &mut Cx::new(&mut budget, &mut diag, &cancel)).unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let row = live
+        .display_order(cx)
+        .unwrap()
+        .into_iter()
+        .find(|&row| live.display_text(row, cx).unwrap().unwrap().0 != 0)
+        .unwrap();
+    for kind in [Kind::Work, Kind::DecodedBytes] {
+        let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(0)));
+        let mut diag = Diagnostics::new();
+        let result = live.display_text(row, &mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(
+            matches!(result, Err(zumen_sdk::Error::Stopped(_))),
+            "{kind:?}"
+        );
+        assert_eq!(diag.iter().count(), 1, "{kind:?}");
+    }
+}
+
+#[test]
+fn display_text_matches_the_drawing() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let mut live = SxfLive::open(TEXT_SAMPLE, cx).unwrap();
+    assert!(check_texts(&live, cx) > 0);
+    // 消した行は `None`
+    let order = live.display_order(cx).unwrap();
+    let removed = order.into_iter().find(|&row| {
+        let target = live.seen_of_row(row, cx).unwrap().unwrap();
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Remove { target }],
+        };
+        live.apply(&changes, cx).is_ok()
+    });
+    let row = removed.unwrap();
+    assert_eq!(live.display_text(row, cx).unwrap(), None);
+    check_texts(&live, cx);
+}

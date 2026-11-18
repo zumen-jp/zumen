@@ -98,6 +98,12 @@ test("実プロセスの 64 行差分・古い版・保存・undo / redo", { ski
     assert.equal(removed.result, 1n);
     assert.notEqual(removed.display, null);
     assert.equal((await live.remove({ revision: removed.revision, rows: [130] })).status, "missing");
+    const texts = await live.texts([3, 65], removed.revision);
+    assert.equal(texts.status, "ok");
+    assert.equal(texts.result, 2n);
+    assert.equal(texts.texts.length, 2);
+    assert.equal((await live.texts([130], removed.revision)).status, "missing");
+    assert.equal((await live.texts([3], removed.revision + 1n)).status, "stale");
     assert.equal((await live.target(130, removed.revision)).status, "missing");
     assert.equal((await live.target(131, removed.revision)).status, "ok");
     await live.undo(live.revision);
@@ -243,6 +249,36 @@ test("線種の表を検査してから凍結して公開する", async () => {
     assert(!live.broken);
   } finally { await live.close(); }
 });
+
+test("行の文字を検査してから凍結して公開する", async () => {
+  const { live } = await fake("texts");
+  try {
+    const reply = await live.texts([4, 2, 7], 5n);
+    assert.equal(reply.revision, 5n);
+    assert.equal(reply.result, 3n);
+    assert.deepEqual(reply.texts, [
+      { kind: null, content: "" },
+      { kind: "text", content: "AB" },
+      { kind: "formatted", content: "線" },
+    ]);
+    assert(Object.isFrozen(reply.texts) && Object.isFrozen(reply.texts[1]));
+    assert.equal((await live.save()).texts, null);
+    await assert.rejects(live.texts([1], undefined), RangeError);
+    await assert.rejects(live.texts([-1], 5n), RangeError);
+    await assert.rejects(live.texts("1", 5n), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+for (const mode of ["texts-kind", "texts-empty", "texts-padding", "texts-content", "texts-count", "texts-length", "texts-truncated", "texts-extra", "texts-result"]) {
+  test(`不正な文字の列を公開せず接続を終了する: ${mode}`, async () => {
+    const { live } = await fake(mode);
+    try {
+      await assert.rejects(live.texts([0], 0n), transport("protocol"));
+      assert(live.broken);
+    } finally { await live.close(); }
+  });
+}
 
 for (const mode of ["line-types-duplicate", "line-types-flags", "line-types-undefined", "line-types-padding", "line-types-name", "line-types-count", "line-types-pattern", "line-types-truncated", "line-types-extra", "line-types-result"]) {
   test(`不正な線種の表を公開せず接続を終了する: ${mode}`, async () => {

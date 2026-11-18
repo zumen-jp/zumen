@@ -104,6 +104,30 @@ function handle(request, body) {
     send(out);
     return;
   }
+  if (request.command === 17) {
+    // 文字 3 件: 文字でない行、"AB"（2 バイト埋める）、書式つきの "線"（UTF-8 3 バイト、1 バイト埋める）
+    const name = Buffer.from("線");
+    const data = Buffer.alloc(4 + 8 + 8 + 4 + 8 + 4);
+    data.writeUInt32LE(3, 0);
+    for (const [i, word] of [0, 0, 1, 2].entries()) data.writeUInt32LE(word, 4 + i * 4);
+    data.write("AB", 20);
+    for (const [i, word] of [2, name.length].entries()) data.writeUInt32LE(word, 24 + i * 4);
+    name.copy(data, 32);
+    if (mode === "texts-kind") data.writeUInt32LE(3, 12);
+    if (mode === "texts-empty") data.writeUInt32LE(1, 8);
+    if (mode === "texts-padding") data[35] = 1;
+    if (mode === "texts-content") data[32] = 0xff;
+    if (mode === "texts-count") data.writeUInt32LE(0xffffffff, 0);
+    if (mode === "texts-length") data.writeUInt32LE(0x10000000, 16);
+    let payload = mode === "texts-truncated" ? data.subarray(0, 30) : data;
+    if (mode === "texts-extra") payload = Buffer.concat([data, Buffer.alloc(4)]);
+    const out = reply(request, 0, 9, payload);
+    out.writeBigUInt64LE(body.readBigUInt64LE(56), 32);
+    out.writeBigUInt64LE(0n, 40);
+    out.writeBigUInt64LE(mode === "texts-result" ? 2n : 3n, 48);
+    send(out);
+    return;
+  }
   if (request.command === 11) {
     // 画層 2 件: 状態と RGB を持つ "0"、色番号だけの "壁"（UTF-8 3 バイト、1 バイト埋める）
     const name = Buffer.from("壁");

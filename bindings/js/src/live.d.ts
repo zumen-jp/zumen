@@ -60,6 +60,11 @@ export interface LiveLineType {
     readonly marks: boolean;
   } | null;
 }
+/** 行の文字。kind は文字でない行で null、内容は制御文字や書式の符号を含む元のまま */
+export interface LiveText {
+  readonly kind: "text" | "formatted" | null;
+  readonly content: string;
+}
 export interface LiveReply {
   requestId: bigint;
   status: LiveStatus;
@@ -73,7 +78,7 @@ export interface LiveReply {
   diagnosticCount: number;
   used: Record<LiveBudgetKind, bigint>;
   stop: { kind: LiveBudgetKind; limit: bigint; requested: bigint } | { kind: "cancelled" | "timedOut" } | null;
-  /** 表示・保存・対象・診断・選択（写しの行）・画層の表・描く順・線種の表の元のバイト列。次の要求後も有効 */
+  /** 表示・保存・対象・診断・選択（写しの行）・画層の表・描く順・線種の表・文字の元のバイト列。次の要求後も有効 */
   data: Uint8Array;
   display: LiveDisplay | null;
   target: { id: string; hash: string } | null;
@@ -84,6 +89,8 @@ export interface LiveReply {
   order: LiveSelection | null;
   /** 値は重複しない。全件の検証後に公開する */
   lineTypes: readonly LiveLineType[] | null;
+  /** 要求した行の順。全件の検証後に公開する */
+  texts: readonly LiveText[] | null;
 }
 export interface LiveTransform {
   /** 選択した行が属する版。現在の版と異なれば stale */
@@ -126,6 +133,8 @@ export declare class LiveProcess {
   layers(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** restyle の線種に使える線種の表。DXF・DWG は図面モデルの線種、JWW・SXF は形式が書ける番号の線種 */
   lineTypes(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
+  /** 行の文字（TEXT・MTEXT・JWW の文字・SXF の文字要素）。属性・寸法・表の中の文字は返さない。生きていない行があれば missing */
+  texts(rows: readonly number[] | Uint32Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** 図面モデルの描く順（DXF・DWG は SORTENTSTABLE、JWW は画層グループ、SXF は用紙の並び）に合わせた行 */
   order(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** モデル空間の [minX,minY,maxX,maxY] と囲む箱が交差する行。NaN・逆転は空、無限大は全域指定 */

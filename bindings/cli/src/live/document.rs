@@ -187,6 +187,14 @@ impl Engine {
         }
     }
 
+    fn text(&self, row: RowId, cx: &mut Cx<'_>) -> Result<Option<(u32, String)>, Error> {
+        match self {
+            Self::Acad(live) => live.display_text(row, cx),
+            Self::Jww(live) => live.display_text(row, cx),
+            Self::Sxf(live) => live.display_text(row, cx),
+        }
+    }
+
     fn line_types(&self, cx: &mut Cx<'_>) -> Result<Vec<LineType>, Error> {
         match self {
             Self::Acad(live) => live.display_line_types(cx),
@@ -418,6 +426,16 @@ impl Document {
     /// 表示のスタイルの画層の値と、その画層の組
     pub fn layers(&self, cx: &mut Cx<'_>) -> Result<Vec<(u32, Layer)>, Error> {
         self.live.layers(cx)
+    }
+
+    /// 行の文字の種類（0 文字でない・1 文字・2 書式つきの文字）と、元の符号のままの内容。要求の順に返す。
+    /// 生きていない行があれば `Problem::Missing`
+    pub fn texts(&self, rows: &[RowId], cx: &mut Cx<'_>) -> Result<Vec<(u32, String)>, Problem> {
+        let mut out = Vec::with_capacity(rows.len());
+        for &row in rows {
+            out.push(self.live.text(row, cx)?.ok_or(Problem::Missing(row))?);
+        }
+        Ok(out)
     }
 
     /// `Restyle` の線種に使える線種の表。値は図面モデルの `LineTypeId`

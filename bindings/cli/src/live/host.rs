@@ -32,6 +32,7 @@ enum Operation<'a> {
     Transform { transform: Affine, rows: &'a [u8] },
     Copy { transform: Affine, rows: &'a [u8] },
     Remove(&'a [u8]),
+    Texts(&'a [u8]),
     Restyle { style: WireStyle, rows: &'a [u8] },
     Target(RowId),
     Select([f64; 4]),
@@ -88,12 +89,16 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
                 rows: input.0,
             })
         }
-        Command::Remove => {
+        Command::Remove | Command::Texts => {
             let count = input.u32()? as usize;
             if count > wire::MAX_ROWS || input.u32()? != 0 {
                 return None;
             }
-            (input.0.len() == count.checked_mul(4)?).then_some(Operation::Remove(input.0))
+            (input.0.len() == count.checked_mul(4)?).then_some(if command == Command::Texts {
+                Operation::Texts(input.0)
+            } else {
+                Operation::Remove(input.0)
+            })
         }
         Command::Target => {
             let row = RowId(input.u32()?);
@@ -347,6 +352,35 @@ fn encode_layers(layers: &[(u32, Layer)], cx: &mut Cx<'_>) -> Result<Vec<u8>, Pr
     Ok(data)
 }
 
+/// 文字の 1 項目の固定部分（種類・内容の長さ）
+const TEXT_FIXED_BYTES: usize = 8;
+
+/// 行の文字を、件数 `u32` と、種類 `u32`・内容のバイト数 `u32`・4 バイトの境界まで 0 で埋めた UTF-8 の内容の列に写す
+fn encode_texts(texts: &[(u32, String)], cx: &mut Cx<'_>) -> Result<Vec<u8>, Problem> {
+    let mut length = 4_usize;
+    for (_, content) in texts {
+        length = content
+            .len()
+            .checked_next_multiple_of(4)
+            .and_then(|text| text.checked_add(TEXT_FIXED_BYTES))
+            .and_then(|item| length.checked_add(item))
+            .filter(|&n| n <= display_wire::MAX_PACKET_BYTES)
+            .ok_or(Problem::Core(Error::Invalid))?;
+    }
+    checked(cx, Kind::DecodedBytes, length as u64)?;
+    checked(cx, Kind::Work, texts.len() as u64)?;
+    let word = |value: usize| u32::try_from(value).map_err(|_| Problem::Core(Error::Invalid));
+    let mut data = Vec::with_capacity(length);
+    data.extend_from_slice(&word(texts.len())?.to_le_bytes());
+    for (kind, content) in texts {
+        data.extend_from_slice(&kind.to_le_bytes());
+        data.extend_from_slice(&word(content.len())?.to_le_bytes());
+        data.extend_from_slice(content.as_bytes());
+        data.resize(data.len().next_multiple_of(4), 0);
+    }
+    Ok(data)
+}
+
 /// 線種の表の 1 項目の固定部分（値・フラグ・名前の長さ・説明の長さ・列の数）
 const LINE_TYPE_FIXED_BYTES: usize = 20;
 
@@ -587,6 +621,13 @@ impl Host {
                     reply.data = data;
                     reply.data_kind = 3;
                     reply.result = u64::from(row.0);
+                }
+                Operation::Texts(rows) => {
+                    let ids = decode_rows(rows, cx)?;
+                    let texts = document.texts(&ids, cx)?;
+                    reply.data = encode_texts(&texts, cx)?;
+                    reply.data_kind = 9;
+                    reply.result = texts.len() as u64;
                 }
                 Operation::Select(rect) => {
                     let rows = document.select(rect, cx)?;

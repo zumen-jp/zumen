@@ -33,6 +33,7 @@ pub(super) enum Command {
     Copy = 14,
     Restyle = 15,
     LineTypes = 16,
+    Texts = 17,
 }
 
 impl Command {
@@ -55,6 +56,7 @@ impl Command {
             14 => Self::Copy,
             15 => Self::Restyle,
             16 => Self::LineTypes,
+            17 => Self::Texts,
             _ => return None,
         })
     }
@@ -64,7 +66,7 @@ impl Command {
             Self::Cancel | Self::Close => (0, 0),
             Self::Open => (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_INPUT_BYTES),
             Self::Transform | Self::Copy => (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4),
-            Self::Remove => (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_ROWS * 4),
+            Self::Remove | Self::Texts => (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_ROWS * 4),
             Self::Restyle => (CONTROL_BYTES + 48, CONTROL_BYTES + 56 + MAX_ROWS * 4),
             Self::Target => (CONTROL_BYTES + 4, CONTROL_BYTES + 4),
             Self::Diagnostics => (CONTROL_BYTES + 8, CONTROL_BYTES + 8),
