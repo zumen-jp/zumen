@@ -1281,6 +1281,10 @@ impl JwwLive {
                     cx.report(unsupported(change.name(), "dimension_style"));
                     None
                 }
+                Edit::AddSymbol { .. } => {
+                    cx.report(unsupported(change.name(), "symbol"));
+                    None
+                }
                 Edit::SetPointStyle { .. } => {
                     cx.report(unsupported(change.name(), "point_style"));
                     None

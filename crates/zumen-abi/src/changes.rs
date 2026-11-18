@@ -75,127 +75,7 @@ pub(crate) fn changes_at(
             messages::Edit::Add(edit) => Some(&edit.geometry),
             _ => None,
         };
-        let size = match value {
-            Some(messages::Geometry::Hatch(hatch)) => hatch
-                .loops
-                .len()
-                .saturating_add(hatch.seeds.as_ref().map_or(0, Vec::len)),
-            Some(messages::Geometry::Polyline(line)) => line.points.len(),
-            Some(messages::Geometry::Spline(spline)) => spline
-                .control
-                .len()
-                .saturating_add(spline.knots.len())
-                .saturating_add(spline.weights.as_ref().map_or(0, Vec::len))
-                .saturating_add(spline.fit.as_ref().map_or(0, Vec::len)),
-            Some(messages::Geometry::Text(text)) => text
-                .content
-                .len()
-                .saturating_add(text.style.as_ref().map_or(0, String::len))
-                .saturating_add(text.style_id.as_ref().map_or(0, String::len)),
-            Some(messages::Geometry::FormattedText(text)) => text
-                .style
-                .as_ref()
-                .map_or(0, String::len)
-                .saturating_add(text.style_id.as_ref().map_or(0, String::len)),
-            Some(messages::Geometry::Symbol(symbol)) => symbol.name.len(),
-            Some(messages::Geometry::Leader(leader)) => leader
-                .path
-                .len()
-                .saturating_add(leader.style.len())
-                .saturating_add(leader.style_id.as_ref().map_or(0, String::len))
-                .saturating_add(leader.annotation.as_ref().map_or(0, String::len)),
-            Some(messages::Geometry::Dimension(dimension)) => dimension
-                .style
-                .len()
-                .saturating_add(dimension.style_id.as_ref().map_or(0, String::len))
-                .saturating_add(dimension.content.as_ref().map_or(0, String::len))
-                .saturating_add(dimension.measurement_key.as_ref().map_or(0, String::len)),
-            Some(messages::Geometry::Table(table)) => table
-                .row_heights
-                .len()
-                .saturating_add(table.column_widths.len())
-                .saturating_add(table.cells.len()),
-            Some(messages::Geometry::Callout(callout)) => callout
-                .branches
-                .iter()
-                .map(|branch| {
-                    branch
-                        .lines
-                        .iter()
-                        .map(Vec::len)
-                        .fold(branch.lines.len(), usize::saturating_add)
-                })
-                .fold(callout.branches.len(), usize::saturating_add)
-                .saturating_add(callout.text.as_ref().map_or(0, String::len))
-                .saturating_add(callout.symbol.as_ref().map_or(0, String::len)),
-            _ => 0,
-        };
-        cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
-            .map_err(|stop| stopped(cx, stop))?;
-        if let Some(messages::Geometry::Hatch(hatch)) = value {
-            for path in &hatch.loops {
-                let size = match &path.boundary {
-                    messages::HatchBoundary::Polyline(line) => line
-                        .points
-                        .len()
-                        .saturating_add(line.bulges.as_ref().map_or(0, Vec::len)),
-                    messages::HatchBoundary::Circle(circle) => circle.center.len(),
-                };
-                cx.check(Kind::Work, size as u64)
-                    .map_err(|stop| stopped(cx, stop))?;
-                if let messages::HatchBoundary::Polyline(line) = &path.boundary {
-                    for point in &line.points {
-                        cx.check(Kind::Work, point.len() as u64)
-                            .map_err(|stop| stopped(cx, stop))?;
-                    }
-                }
-            }
-            if let Some(pattern) = &hatch.pattern {
-                cx.check(
-                    Kind::Work,
-                    (pattern.name.len() as u64).saturating_add(pattern.lines.len() as u64),
-                )
-                .map_err(|stop| stopped(cx, stop))?;
-                for line in &pattern.lines {
-                    let size = line
-                        .base
-                        .len()
-                        .saturating_add(line.offset.len())
-                        .saturating_add(line.dashes.len());
-                    cx.check(Kind::Work, size as u64)
-                        .map_err(|stop| stopped(cx, stop))?;
-                }
-            }
-            for point in hatch.seeds.iter().flatten() {
-                cx.check(Kind::Work, point.len() as u64)
-                    .map_err(|stop| stopped(cx, stop))?;
-            }
-        }
-        if let Some(messages::Geometry::Spline(spline)) = value {
-            for point in spline.control.iter().chain(spline.fit.iter().flatten()) {
-                cx.check(Kind::Work, u64::try_from(point.len()).unwrap_or(u64::MAX))
-                    .map_err(|stop| stopped(cx, stop))?;
-            }
-        }
-
-        if let Some(messages::Geometry::Symbol(symbol)) = value {
-            for item in symbol.attributes.iter().flatten() {
-                let size = 1_usize
-                    .saturating_add(item.tag.len())
-                    .saturating_add(item.value.len());
-                cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
-                    .map_err(|stop| stopped(cx, stop))?;
-            }
-        }
-        if let Some(messages::Geometry::Table(table)) = value {
-            for cell in &table.cells {
-                let size = 1_usize
-                    .saturating_add(cell.text.as_ref().map_or(0, String::len))
-                    .saturating_add(cell.symbol.as_ref().map_or(0, String::len));
-                cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
-                    .map_err(|stop| stopped(cx, stop))?;
-            }
-        }
+        count_geometry(value, cx)?;
         edits.push(match edit {
             messages::Edit::Restyle(edit) => {
                 let target = seen(&edit.id, &edit.hash, cx)?;
@@ -676,6 +556,23 @@ pub(crate) fn changes_at(
                     layer: Box::new(layer),
                 }
             }
+            messages::Edit::AddSymbol(edit) => {
+                if tables.is_none() {
+                    tables = Some(TableLookup::new(table_drawing, cx)?);
+                }
+                let Some(tables) = &tables else {
+                    return Err(Failed);
+                };
+                for element in &edit.elements {
+                    count_geometry(Some(&element.geometry), cx)?;
+                    count_formatted_geometry(&element.geometry, cx)?;
+                }
+                let symbol = symbol_definition(edit, table_drawing, tables, cx)?
+                    .map_err(|field| fail(cx, invalid_value(at(&field))))?;
+                Edit::AddSymbol {
+                    symbol: Box::new(symbol),
+                }
+            }
             messages::Edit::AddLayer(edit) => {
                 if tables.is_none() {
                     tables = Some(TableLookup::new(table_drawing, cx)?);
@@ -724,6 +621,236 @@ pub(crate) fn changes_at(
         });
     }
     Ok(Changes { edits, document })
+}
+
+/// 足す記号の定義（`add_symbol`、#684）。定義の空間の ID は、図面の空間と定義のどれとも重ならない値にする。
+/// 中の要素は `add` と同じ規則で作る。合わないフィールドがあれば、そのフィールドの名前を返す
+fn symbol_definition(
+    edit: &messages::AddSymbolEdit,
+    drawing: &Drawing2D,
+    tables: &TableLookup<'_>,
+    cx: &mut Cx<'_>,
+) -> Result<Result<zumen_drawing::SymbolDefinition, String>, Failed> {
+    cx.check(
+        Kind::Work,
+        u64::try_from(edit.name.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(drawing.symbols.len() as u64),
+    )
+    .map_err(|stop| stopped(cx, stop))?;
+    let model = drawing.spaces.first();
+    let last = drawing
+        .spaces
+        .iter()
+        .map(|space| space.id.0)
+        .chain(drawing.symbols.iter().map(|symbol| symbol.space.id.0))
+        .max();
+    let Some(id) = last.map_or(Some(0), |last| last.checked_add(1)) else {
+        return Ok(Err("name".to_owned()));
+    };
+    let origin = ModelPoint {
+        space: zumen_drawing::SpaceId(id),
+        x: 0.0,
+        y: 0.0,
+    };
+    let base = match edit.base.as_deref() {
+        None => [0.0, 0.0],
+        Some(&[x, y]) if x.is_finite() && y.is_finite() => [x, y],
+        Some(_) => return Ok(Err("base".to_owned())),
+    };
+    // 中の要素は、空の名前の場所に置く `add` として作る
+    let places = PlaceLookup {
+        spaces: BTreeMap::from([(String::new(), origin)]),
+        sheets: BTreeMap::new(),
+    };
+    let mut elements = Vec::with_capacity(edit.elements.len().min(1024));
+    for (at, element) in edit.elements.iter().enumerate() {
+        let field = |name: &str| format!("elements/{at}/{name}");
+        if let messages::Geometry::Leader(leader) = &element.geometry
+            && leader.annotation.is_some()
+        {
+            return Ok(Err(field("geometry/annotation")));
+        }
+        let add = messages::AddEdit {
+            place: String::new(),
+            layer: element.layer.clone(),
+            layer_id: element.layer_id.clone(),
+            color: element.color.clone(),
+            line_type: element.line_type.clone(),
+            line_weight: element.line_weight.clone(),
+            geometry: element.geometry.clone(),
+        };
+        let geometry = match named_style(&add.geometry, Some(tables)) {
+            Ok(geometry) => geometry,
+            Err(name) => return Ok(Err(field(name))),
+        };
+        // 中に置く記号は、図面にあるブロックの定義を名前で指す
+        let definition = match &add.geometry {
+            messages::Geometry::Symbol(symbol) => {
+                cx.check(Kind::Work, drawing.symbols.len() as u64)
+                    .map_err(|stop| stopped(cx, stop))?;
+                drawing.symbols.iter().find(|definition| {
+                    definition.key.namespace == "dxf.block"
+                        && definition.key.name.eq_ignore_ascii_case(&symbol.name)
+                })
+            }
+            _ => None,
+        };
+        match added(&add, &geometry, &places, tables, definition) {
+            Ok(Placed::Model(element)) => elements.push(element),
+            Ok(Placed::Paper(_)) => return Ok(Err(field("geometry"))),
+            Err(name) => return Ok(Err(field(&name))),
+        }
+    }
+    let count = elements.len();
+    Ok(Ok(zumen_drawing::SymbolDefinition {
+        key: SymbolKey {
+            namespace: Cow::Borrowed("dxf.block"),
+            name: edit.name.clone(),
+        },
+        space: zumen_drawing::ModelSpace {
+            id: origin.space,
+            unit: model.map_or(zumen_drawing::Unit::Unknown, |model| model.unit),
+            axes: model.map_or_else(Default::default, |model| model.axes),
+            elements,
+            order: (0..count).collect(),
+        },
+        base: Some(ModelPoint {
+            x: base[0],
+            y: base[1],
+            ..origin
+        }),
+        attributes: Vec::new(),
+        anonymous: false,
+        external: None,
+        source: Ref::default(),
+    }))
+}
+
+/// 足す・置き換える形の大きさの作業量を、変換の前に数える
+fn count_geometry(value: Option<&messages::Geometry>, cx: &mut Cx<'_>) -> Result<(), Failed> {
+    let size = match value {
+        Some(messages::Geometry::Hatch(hatch)) => hatch
+            .loops
+            .len()
+            .saturating_add(hatch.seeds.as_ref().map_or(0, Vec::len)),
+        Some(messages::Geometry::Polyline(line)) => line.points.len(),
+        Some(messages::Geometry::Spline(spline)) => spline
+            .control
+            .len()
+            .saturating_add(spline.knots.len())
+            .saturating_add(spline.weights.as_ref().map_or(0, Vec::len))
+            .saturating_add(spline.fit.as_ref().map_or(0, Vec::len)),
+        Some(messages::Geometry::Text(text)) => text
+            .content
+            .len()
+            .saturating_add(text.style.as_ref().map_or(0, String::len))
+            .saturating_add(text.style_id.as_ref().map_or(0, String::len)),
+        Some(messages::Geometry::FormattedText(text)) => text
+            .style
+            .as_ref()
+            .map_or(0, String::len)
+            .saturating_add(text.style_id.as_ref().map_or(0, String::len)),
+        Some(messages::Geometry::Symbol(symbol)) => symbol.name.len(),
+        Some(messages::Geometry::Leader(leader)) => leader
+            .path
+            .len()
+            .saturating_add(leader.style.len())
+            .saturating_add(leader.style_id.as_ref().map_or(0, String::len))
+            .saturating_add(leader.annotation.as_ref().map_or(0, String::len)),
+        Some(messages::Geometry::Dimension(dimension)) => dimension
+            .style
+            .len()
+            .saturating_add(dimension.style_id.as_ref().map_or(0, String::len))
+            .saturating_add(dimension.content.as_ref().map_or(0, String::len))
+            .saturating_add(dimension.measurement_key.as_ref().map_or(0, String::len)),
+        Some(messages::Geometry::Table(table)) => table
+            .row_heights
+            .len()
+            .saturating_add(table.column_widths.len())
+            .saturating_add(table.cells.len()),
+        Some(messages::Geometry::Callout(callout)) => callout
+            .branches
+            .iter()
+            .map(|branch| {
+                branch
+                    .lines
+                    .iter()
+                    .map(Vec::len)
+                    .fold(branch.lines.len(), usize::saturating_add)
+            })
+            .fold(callout.branches.len(), usize::saturating_add)
+            .saturating_add(callout.text.as_ref().map_or(0, String::len))
+            .saturating_add(callout.symbol.as_ref().map_or(0, String::len)),
+        _ => 0,
+    };
+    cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+        .map_err(|stop| stopped(cx, stop))?;
+    if let Some(messages::Geometry::Hatch(hatch)) = value {
+        for path in &hatch.loops {
+            let size = match &path.boundary {
+                messages::HatchBoundary::Polyline(line) => line
+                    .points
+                    .len()
+                    .saturating_add(line.bulges.as_ref().map_or(0, Vec::len)),
+                messages::HatchBoundary::Circle(circle) => circle.center.len(),
+            };
+            cx.check(Kind::Work, size as u64)
+                .map_err(|stop| stopped(cx, stop))?;
+            if let messages::HatchBoundary::Polyline(line) = &path.boundary {
+                for point in &line.points {
+                    cx.check(Kind::Work, point.len() as u64)
+                        .map_err(|stop| stopped(cx, stop))?;
+                }
+            }
+        }
+        if let Some(pattern) = &hatch.pattern {
+            cx.check(
+                Kind::Work,
+                (pattern.name.len() as u64).saturating_add(pattern.lines.len() as u64),
+            )
+            .map_err(|stop| stopped(cx, stop))?;
+            for line in &pattern.lines {
+                let size = line
+                    .base
+                    .len()
+                    .saturating_add(line.offset.len())
+                    .saturating_add(line.dashes.len());
+                cx.check(Kind::Work, size as u64)
+                    .map_err(|stop| stopped(cx, stop))?;
+            }
+        }
+        for point in hatch.seeds.iter().flatten() {
+            cx.check(Kind::Work, point.len() as u64)
+                .map_err(|stop| stopped(cx, stop))?;
+        }
+    }
+    if let Some(messages::Geometry::Spline(spline)) = value {
+        for point in spline.control.iter().chain(spline.fit.iter().flatten()) {
+            cx.check(Kind::Work, u64::try_from(point.len()).unwrap_or(u64::MAX))
+                .map_err(|stop| stopped(cx, stop))?;
+        }
+    }
+
+    if let Some(messages::Geometry::Symbol(symbol)) = value {
+        for item in symbol.attributes.iter().flatten() {
+            let size = 1_usize
+                .saturating_add(item.tag.len())
+                .saturating_add(item.value.len());
+            cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                .map_err(|stop| stopped(cx, stop))?;
+        }
+    }
+    if let Some(messages::Geometry::Table(table)) = value {
+        for cell in &table.cells {
+            let size = 1_usize
+                .saturating_add(cell.text.as_ref().map_or(0, String::len))
+                .saturating_add(cell.symbol.as_ref().map_or(0, String::len));
+            cx.check(Kind::Work, u64::try_from(size).unwrap_or(u64::MAX))
+                .map_err(|stop| stopped(cx, stop))?;
+        }
+    }
+    Ok(())
 }
 
 /// 要素の ID を一度だけ作り、複数の置き換えで共有する。

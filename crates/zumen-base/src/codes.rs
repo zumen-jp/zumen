@@ -708,6 +708,22 @@ pub const CHANGE_SYMBOL_CYCLE_INVALID: Code = Code::new(
     &["id", "name"],
 );
 
+/// 指定された記号の定義の追加（add_symbol）を書き戻せないので変更を拒んだ。field は書けないフィールド、value はその理由
+///
+/// `change.symbol.unsupported`（0.4.0 から）
+pub const CHANGE_SYMBOL_UNSUPPORTED: Code = Code::new(
+    "change.symbol.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("edit", ParamType::UInt),
+        Param::new("field", ParamType::Text),
+        Param::new("format", ParamType::Text),
+        Param::new("value", ParamType::Text),
+    ],
+    &["edit", "field", "value", "format"],
+);
+
 /// 置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）
 ///
 /// `change.xdata.unsupported`（0.0.0 から）
@@ -6252,6 +6268,7 @@ pub const ALL: &[Code] = &[
     CHANGE_REFERENCES_FAILED,
     CHANGE_STYLE_UNSUPPORTED,
     CHANGE_SYMBOL_CYCLE_INVALID,
+    CHANGE_SYMBOL_UNSUPPORTED,
     CHANGE_XDATA_UNSUPPORTED,
     CITYGML_CRS_UNSUPPORTED,
     CITYGML_ELEMENT_UNSUPPORTED,

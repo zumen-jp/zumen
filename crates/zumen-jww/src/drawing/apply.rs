@@ -255,6 +255,10 @@ impl Apply<Changes> for JwwFile {
                     None
                 }
                 // JWW は文書の点の表し方を持たない（決定 0190）
+                Edit::AddSymbol { .. } => {
+                    cx.report(unsupported(change.name(), "symbol"));
+                    None
+                }
                 Edit::SetPointStyle { .. } => {
                     cx.report(unsupported(change.name(), "point_style"));
                     None

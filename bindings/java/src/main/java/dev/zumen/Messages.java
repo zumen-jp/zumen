@@ -9212,6 +9212,11 @@ public final class Messages {
             return "add_layer".equals(json.get("kind")) ? new AddLayerEdit(json) : null;
         }
 
+        /** kind が add_symbol の形なら、そのビュー。違えば null */
+        public AddSymbolEdit asAddSymbolEdit() {
+            return "add_symbol".equals(json.get("kind")) ? new AddSymbolEdit(json) : null;
+        }
+
         /** kind が remove_layer の形なら、そのビュー。違えば null */
         public RemoveLayerEdit asRemoveLayerEdit() {
             return "remove_layer".equals(json.get("kind")) ? new RemoveLayerEdit(json) : null;
@@ -10910,6 +10915,155 @@ public final class Messages {
         /** {@link #getLineWeight()} を書く。null ならフィールドを除く */
         public AddLayerEdit withLineWeight(LineWeightChange value) {
             put("line_weight", value);
+            return this;
+        }
+    }
+
+    /** 記号の定義（DXF・DWG のブロック）を足す（#684）。中の要素は、定義の空間に足す。足した定義は、同じ apply の後ろの add の記号から名前で指せる。属性の定義・名前のない定義・外部参照は足せない。結果は id と hash を持たない。足した定義は tables の symbols から名前で引く。マイナーバージョン 99 から */
+    public static final class AddSymbolEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public AddSymbolEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static AddSymbolEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new AddSymbolEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public AddSymbolEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "add_symbol");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public AddSymbolEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 定義の名前。図面にない名前で、layer の name と同じ決まり（DXF・DWG のブロックの名前で書けない文字を含まない）。大文字と小文字は区別しない */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public AddSymbolEdit withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 定義の基点 [X, Y]。記号を置く点に重ねる。書かなければ [0, 0] */
+        public List<Double> getBase() {
+            return Json.read(json.get("base"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getBase()} を書く。null ならフィールドを除く */
+        public AddSymbolEdit withBase(List<Double> value) {
+            put("base", value);
+            return this;
+        }
+
+        /** 中の要素。点は定義の空間の座標で書く。並べた順に足す */
+        public List<SymbolElement> getElements() {
+            return Json.read(json.get("elements"), v0 -> Json.list(v0, SymbolElement::of));
+        }
+
+        /** {@link #getElements()} を書く。null ならフィールドを除く */
+        public AddSymbolEdit withElements(List<SymbolElement> value) {
+            put("elements", value);
+            return this;
+        }
+    }
+
+    /** 足す記号の定義の中の要素。フィールドは add と同じ意味で、place と kind を持たない。引出線の注記は指せない。マイナーバージョン 99 から */
+    public static final class SymbolElement extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public SymbolElement(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static SymbolElement of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new SymbolElement(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public SymbolElement() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** レイヤの元の名前。layer_id と一緒には書かない。どちらも書かなければレイヤ 0 */
+        public String getLayer() {
+            return Json.read(json.get("layer"), Json::string);
+        }
+
+        /** {@link #getLayer()} を書く。null ならフィールドを除く */
+        public SymbolElement withLayer(String value) {
+            put("layer", value);
+            return this;
+        }
+
+        /** レイヤの ID。tables が返したもの */
+        public String getLayerId() {
+            return Json.read(json.get("layer_id"), Json::string);
+        }
+
+        /** {@link #getLayerId()} を書く。null ならフィールドを除く */
+        public SymbolElement withLayerId(String value) {
+            put("layer_id", value);
+            return this;
+        }
+
+        /** 色 */
+        public ColorChange getColor() {
+            return Json.read(json.get("color"), ColorChange::of);
+        }
+
+        /** {@link #getColor()} を書く。null ならフィールドを除く */
+        public SymbolElement withColor(ColorChange value) {
+            put("color", value);
+            return this;
+        }
+
+        /** 線種 */
+        public LineTypeChange getLineType() {
+            return Json.read(json.get("line_type"), LineTypeChange::of);
+        }
+
+        /** {@link #getLineType()} を書く。null ならフィールドを除く */
+        public SymbolElement withLineType(LineTypeChange value) {
+            put("line_type", value);
+            return this;
+        }
+
+        /** 線幅 */
+        public LineWeightChange getLineWeight() {
+            return Json.read(json.get("line_weight"), LineWeightChange::of);
+        }
+
+        /** {@link #getLineWeight()} を書く。null ならフィールドを除く */
+        public SymbolElement withLineWeight(LineWeightChange value) {
+            put("line_weight", value);
+            return this;
+        }
+
+        /** 足す形 */
+        public Geometry getGeometry() {
+            return Json.read(json.get("geometry"), Geometry::of);
+        }
+
+        /** {@link #getGeometry()} を書く。null ならフィールドを除く */
+        public SymbolElement withGeometry(Geometry value) {
+            put("geometry", value);
             return this;
         }
     }

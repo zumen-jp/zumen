@@ -4654,6 +4654,7 @@ namespace Zumen.Messages
             ["add"] = typeof(AddEdit),
             ["layer"] = typeof(LayerEdit),
             ["add_layer"] = typeof(AddLayerEdit),
+            ["add_symbol"] = typeof(AddSymbolEdit),
             ["remove_layer"] = typeof(RemoveLayerEdit),
             ["text_style"] = typeof(TextStyleEdit),
             ["add_text_style"] = typeof(AddTextStyleEdit),
@@ -5486,6 +5487,78 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("line_weight")]
         public LineWeightChange? LineWeight { get; init; }
+    }
+
+    /// <summary>
+    /// 記号の定義（DXF・DWG のブロック）を足す（#684）。中の要素は、定義の空間に足す。足した定義は、同じ apply の後ろの add の記号から名前で指せる。属性の定義・名前のない定義・外部参照は足せない。結果は id と hash を持たない。足した定義は tables の symbols から名前で引く。マイナーバージョン 99 から
+    /// </summary>
+    public sealed record AddSymbolEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "add_symbol";
+
+        /// <summary>
+        /// 定義の名前。図面にない名前で、layer の name と同じ決まり（DXF・DWG のブロックの名前で書けない文字を含まない）。大文字と小文字は区別しない
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 定義の基点 [X, Y]。記号を置く点に重ねる。書かなければ [0, 0]
+        /// </summary>
+        [JsonPropertyName("base")]
+        public IReadOnlyList<double>? Base { get; init; }
+
+        /// <summary>
+        /// 中の要素。点は定義の空間の座標で書く。並べた順に足す
+        /// </summary>
+        [JsonPropertyName("elements")]
+        public IReadOnlyList<SymbolElement> Elements { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 足す記号の定義の中の要素。フィールドは add と同じ意味で、place と kind を持たない。引出線の注記は指せない。マイナーバージョン 99 から
+    /// </summary>
+    public sealed record SymbolElement
+    {
+        /// <summary>
+        /// レイヤの元の名前。layer_id と一緒には書かない。どちらも書かなければレイヤ 0
+        /// </summary>
+        [JsonPropertyName("layer")]
+        public string? Layer { get; init; }
+
+        /// <summary>
+        /// レイヤの ID。tables が返したもの
+        /// </summary>
+        [JsonPropertyName("layer_id")]
+        public string? LayerId { get; init; }
+
+        /// <summary>
+        /// 色
+        /// </summary>
+        [JsonPropertyName("color")]
+        public ColorChange? Color { get; init; }
+
+        /// <summary>
+        /// 線種
+        /// </summary>
+        [JsonPropertyName("line_type")]
+        public LineTypeChange? LineType { get; init; }
+
+        /// <summary>
+        /// 線幅
+        /// </summary>
+        [JsonPropertyName("line_weight")]
+        public LineWeightChange? LineWeight { get; init; }
+
+        /// <summary>
+        /// 足す形
+        /// </summary>
+        [JsonPropertyName("geometry")]
+        public JsonAny Geometry { get; init; } = default!;
     }
 
     /// <summary>

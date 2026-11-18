@@ -8447,6 +8447,8 @@ pub enum Edit {
     Layer(LayerEdit),
     /// レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の後ろの要素の変更から、足したレイヤを名前で指せる。マイナーバージョン 22 から
     AddLayer(AddLayerEdit),
+    /// 記号の定義（DXF・DWG のブロック）を足す（#684）。中の要素は、定義の空間に足す。足した定義は、同じ apply の後ろの add の記号から名前で指せる。属性の定義・名前のない定義・外部参照は足せない。結果は id と hash を持たない。足した定義は tables の symbols から名前で引く。マイナーバージョン 99 から
+    AddSymbol(AddSymbolEdit),
     /// レイヤを除く（決定 0162）。要素・ほかのオブジェクト・今のレイヤ（$CLAYER）が指すレイヤと、0・Defpoints・外部参照に依るレイヤは除けない。同じ apply の要素の変更が指すレイヤも除けない。後ろにハンドルのないレイヤがあれば、その ID が変わるので除けない。除いたレイヤより後ろのレイヤと、その上の要素のハッシュは変わるので、読み直す。マイナーバージョン 24 から
     RemoveLayer(RemoveLayerEdit),
     /// 文字スタイルの名前・フォント・高さ・幅の倍率・傾き・裏返し・上下反転・縦書きのうち、書いたものだけを変える（決定 0163）。DXF は、名前を変えると、文字と今の文字スタイル（$TEXTSTYLE）も新しい名前で指す。表の書式などの図形でないオブジェクトが名前で指す文字スタイルの名前は変えられない。マイナーバージョン 25 から
@@ -8481,6 +8483,7 @@ impl Edit {
         "add",
         "layer",
         "add_layer",
+        "add_symbol",
         "remove_layer",
         "text_style",
         "add_text_style",
@@ -8504,6 +8507,7 @@ impl Edit {
             Self::Add(_) => "add",
             Self::Layer(_) => "layer",
             Self::AddLayer(_) => "add_layer",
+            Self::AddSymbol(_) => "add_symbol",
             Self::RemoveLayer(_) => "remove_layer",
             Self::TextStyle(_) => "text_style",
             Self::AddTextStyle(_) => "add_text_style",
@@ -8530,6 +8534,7 @@ impl FromJson for Edit {
             "add" => Self::Add(AddEdit::read_fields(&mut object)?),
             "layer" => Self::Layer(LayerEdit::read_fields(&mut object)?),
             "add_layer" => Self::AddLayer(AddLayerEdit::read_fields(&mut object)?),
+            "add_symbol" => Self::AddSymbol(AddSymbolEdit::read_fields(&mut object)?),
             "remove_layer" => Self::RemoveLayer(RemoveLayerEdit::read_fields(&mut object)?),
             "text_style" => Self::TextStyle(TextStyleEdit::read_fields(&mut object)?),
             "add_text_style" => Self::AddTextStyle(AddTextStyleEdit::read_fields(&mut object)?),
@@ -8568,6 +8573,7 @@ impl ToJson for Edit {
             Self::Add(value) => value.to_json(out),
             Self::Layer(value) => value.to_json(out),
             Self::AddLayer(value) => value.to_json(out),
+            Self::AddSymbol(value) => value.to_json(out),
             Self::RemoveLayer(value) => value.to_json(out),
             Self::TextStyle(value) => value.to_json(out),
             Self::AddTextStyle(value) => value.to_json(out),
@@ -9979,6 +9985,141 @@ impl FromJson for AddLayerEdit {
 }
 
 impl ToJson for AddLayerEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 記号の定義（DXF・DWG のブロック）を足す（#684）。中の要素は、定義の空間に足す。足した定義は、同じ apply の後ろの add の記号から名前で指せる。属性の定義・名前のない定義・外部参照は足せない。結果は id と hash を持たない。足した定義は tables の symbols から名前で引く。マイナーバージョン 99 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct AddSymbolEdit {
+    /// 定義の名前。図面にない名前で、layer の name と同じ決まり（DXF・DWG のブロックの名前で書けない文字を含まない）。大文字と小文字は区別しない
+    pub name: String,
+    /// 定義の基点 [X, Y]。記号を置く点に重ねる。書かなければ [0, 0]
+    pub base: Option<Vec<f64>>,
+    /// 中の要素。点は定義の空間の座標で書く。並べた順に足す
+    pub elements: Vec<SymbolElement>,
+}
+
+impl AddSymbolEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "add_symbol")?;
+        let name = object.required("name", json::string)?;
+        let base = object.optional("base", |value| json::array(value, json::number))?;
+        let elements = object.required("elements", |value| {
+            json::array(value, SymbolElement::from_json)
+        })?;
+        Ok(Self {
+            name,
+            base,
+            elements,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("add_symbol");
+        out.key("name");
+        out.string(&self.name);
+        if let Some(value) = &self.base {
+            out.key("base");
+            out.array(value, |out, item| out.float(*item));
+        }
+        out.key("elements");
+        out.array(&self.elements, |out, item| item.to_json(out));
+    }
+}
+
+impl FromJson for AddSymbolEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for AddSymbolEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 足す記号の定義の中の要素。フィールドは add と同じ意味で、place と kind を持たない。引出線の注記は指せない。マイナーバージョン 99 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymbolElement {
+    /// レイヤの元の名前。layer_id と一緒には書かない。どちらも書かなければレイヤ 0
+    pub layer: Option<String>,
+    /// レイヤの ID。tables が返したもの
+    pub layer_id: Option<String>,
+    /// 色
+    pub color: Option<ColorChange>,
+    /// 線種
+    pub line_type: Option<LineTypeChange>,
+    /// 線幅
+    pub line_weight: Option<LineWeightChange>,
+    /// 足す形
+    pub geometry: Geometry,
+}
+
+impl SymbolElement {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let layer = object.optional("layer", json::string)?;
+        let layer_id = object.optional("layer_id", json::string)?;
+        let color = object.optional("color", ColorChange::from_json)?;
+        let line_type = object.optional("line_type", LineTypeChange::from_json)?;
+        let line_weight = object.optional("line_weight", LineWeightChange::from_json)?;
+        let geometry = object.required("geometry", Geometry::from_json)?;
+        Ok(Self {
+            layer,
+            layer_id,
+            color,
+            line_type,
+            line_weight,
+            geometry,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.layer {
+            out.key("layer");
+            out.string(value);
+        }
+        if let Some(value) = &self.layer_id {
+            out.key("layer_id");
+            out.string(value);
+        }
+        if let Some(value) = &self.color {
+            out.key("color");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.line_type {
+            out.key("line_type");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.line_weight {
+            out.key("line_weight");
+            value.to_json(out);
+        }
+        out.key("geometry");
+        self.geometry.to_json(out);
+    }
+}
+
+impl FromJson for SymbolElement {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for SymbolElement {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

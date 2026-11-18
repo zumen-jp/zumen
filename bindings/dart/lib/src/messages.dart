@@ -3741,6 +3741,9 @@ class Edit extends Message {
   /// kind が add_layer の形なら、そのビュー。違えば null
   AddLayerEdit? get asAddLayerEdit => taggedView('kind', 'add_layer', AddLayerEdit.fromJson);
 
+  /// kind が add_symbol の形なら、そのビュー。違えば null
+  AddSymbolEdit? get asAddSymbolEdit => taggedView('kind', 'add_symbol', AddSymbolEdit.fromJson);
+
   /// kind が remove_layer の形なら、そのビュー。違えば null
   RemoveLayerEdit? get asRemoveLayerEdit => taggedView('kind', 'remove_layer', RemoveLayerEdit.fromJson);
 
@@ -4410,6 +4413,64 @@ class AddLayerEdit extends Message {
   /// 線幅。mm か default。inherit は書けない
   LineWeightChange? get lineWeight => readField('line_weight', objectOf(LineWeightChange.fromJson));
   set lineWeight(LineWeightChange? value) => writeField('line_weight', value);
+}
+
+/// 記号の定義（DXF・DWG のブロック）を足す（#684）。中の要素は、定義の空間に足す。足した定義は、同じ apply の後ろの add の記号から名前で指せる。属性の定義・名前のない定義・外部参照は足せない。結果は id と hash を持たない。足した定義は tables の symbols から名前で引く。マイナーバージョン 99 から
+class AddSymbolEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  AddSymbolEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  AddSymbolEdit() : super({'kind': 'add_symbol'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 定義の名前。図面にない名前で、layer の name と同じ決まり（DXF・DWG のブロックの名前で書けない文字を含まない）。大文字と小文字は区別しない
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 定義の基点 [X, Y]。記号を置く点に重ねる。書かなければ [0, 0]
+  List<core.double>? get baseField => readField('base', listOf(asDouble));
+  set baseField(List<core.double>? value) => writeField('base', value);
+
+  /// 中の要素。点は定義の空間の座標で書く。並べた順に足す
+  List<SymbolElement>? get elements => readField('elements', listOf(objectOf(SymbolElement.fromJson)));
+  set elements(List<SymbolElement>? value) => writeField('elements', value);
+}
+
+/// 足す記号の定義の中の要素。フィールドは add と同じ意味で、place と kind を持たない。引出線の注記は指せない。マイナーバージョン 99 から
+class SymbolElement extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  SymbolElement.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  SymbolElement() : super({});
+
+  /// レイヤの元の名前。layer_id と一緒には書かない。どちらも書かなければレイヤ 0
+  String? get layer => readField('layer', asString);
+  set layer(String? value) => writeField('layer', value);
+
+  /// レイヤの ID。tables が返したもの
+  String? get layerId => readField('layer_id', asString);
+  set layerId(String? value) => writeField('layer_id', value);
+
+  /// 色
+  ColorChange? get color => readField('color', objectOf(ColorChange.fromJson));
+  set color(ColorChange? value) => writeField('color', value);
+
+  /// 線種
+  LineTypeChange? get lineType => readField('line_type', objectOf(LineTypeChange.fromJson));
+  set lineType(LineTypeChange? value) => writeField('line_type', value);
+
+  /// 線幅
+  LineWeightChange? get lineWeight => readField('line_weight', objectOf(LineWeightChange.fromJson));
+  set lineWeight(LineWeightChange? value) => writeField('line_weight', value);
+
+  /// 足す形
+  Geometry? get geometry => readField('geometry', objectOf(Geometry.fromJson));
+  set geometry(Geometry? value) => writeField('geometry', value);
 }
 
 /// 値を継承する先。layer はレイヤから、block は要素を置いた記号の配置から

@@ -426,3 +426,96 @@ fn annotations_keep_their_target_when_another_table_follows_the_addition() {
     );
     assert_eq!(ok(&mut open(&written), query), after);
 }
+
+#[test]
+fn added_symbol_definition_is_available_to_a_later_symbol_in_the_same_batch() {
+    for bytes in [
+        include_bytes!("../../../samples/dwg/zumen-layout-r2000_ascii.dxf").as_slice(),
+        include_bytes!("../../../samples/dwg/zumen-layout-r2000.dwg").as_slice(),
+        include_bytes!("../../../samples/dwg/zumen-layout-r2004.dwg").as_slice(),
+        include_bytes!("../../../samples/dwg/zumen-layout-r2018.dwg").as_slice(),
+    ] {
+        let mut session = open(bytes);
+        let original = ok(
+            &mut session,
+            r#"{"v":1,"op":"entities","doc":"a","fields":["hash"]}"#,
+        );
+        let applied = ok(
+            &mut session,
+            r#"{"v":1,"op":"apply","doc":"a","edits":[
+            {"kind":"add_layer","name":"KitLayer"},
+            {"kind":"add_symbol","name":"Kit","base":[1,2],"elements":[
+                {"layer":"KitLayer","geometry":{"shape":"line","start":[0,0],"end":[4,3]}},
+                {"geometry":{"shape":"circle","center":[1,2],"radius":1.5}}
+            ]},
+            {"kind":"add","place":"space/0","geometry":{"shape":"symbol","name":"Kit","position":[10,20],"scale":[1,1],"rotation":0}}
+        ]}"#,
+        );
+        // 定義の追加は、要素の ID とハッシュを返さない
+        assert_eq!(applied.pointer("/result/applied/1/id"), None, "{applied:?}");
+        let written = session.take(0).unwrap();
+        let tables = ok(&mut session, r#"{"v":1,"op":"tables","doc":"a"}"#);
+        let symbol = named(&tables, "symbols", "Kit");
+        assert_eq!(json(symbol.pointer("/base").unwrap()), r#"{"x":1,"y":2}"#);
+        let place = json(symbol.pointer("/id").unwrap());
+        let inside = ok(
+            &mut session,
+            &format!(
+                r#"{{"v":1,"op":"entities","doc":"a","place":{place},"fields":["layer","geometry"]}}"#
+            ),
+        );
+        let Some(Value::Array(items)) = inside.pointer("/result/items") else {
+            panic!("{inside:?}")
+        };
+        assert_eq!(items.len(), 2, "{inside:?}");
+        assert_eq!(
+            items[0].pointer("/layer"),
+            Some(&Value::String("KitLayer".into()))
+        );
+        let new_id = applied.pointer("/result/applied/2/id").unwrap();
+        let query = format!(
+            r#"{{"v":1,"op":"entities","doc":"a","ids":[{}],"fields":["geometry","hash"]}}"#,
+            json(new_id)
+        );
+        let entity = ok(&mut session, &query);
+        assert_eq!(
+            entity.pointer("/result/items/0/geometry/name"),
+            Some(&Value::String("Kit".into()))
+        );
+        let mut reopened = open(&written);
+        assert_eq!(ok(&mut reopened, &query), entity);
+        assert_eq!(
+            ok(&mut reopened, r#"{"v":1,"op":"tables","doc":"a"}"#),
+            tables
+        );
+        // 元の要素は ID とハッシュを保つ
+        let after = ok(
+            &mut reopened,
+            r#"{"v":1,"op":"entities","doc":"a","fields":["hash"]}"#,
+        );
+        let Some(Value::Array(before)) = original.pointer("/result/items") else {
+            panic!("{original:?}")
+        };
+        let Some(Value::Array(after)) = after.pointer("/result/items") else {
+            panic!("{after:?}")
+        };
+        for item in before {
+            assert!(after.contains(item), "{item:?}");
+        }
+        // 同じ名前は、大文字と小文字を区別せずに拒み、何も変えない
+        let (status, response) = call(
+            &mut session,
+            r#"{"v":1,"op":"apply","doc":"a","edits":[{"kind":"add_symbol","name":"KIT","elements":[]}]}"#,
+        );
+        assert_eq!(status, Status::Failed, "{response:?}");
+        assert!(
+            json(&response).contains("change.symbol.unsupported"),
+            "{response:?}"
+        );
+        assert!(session.take(0).is_none());
+        assert_eq!(
+            ok(&mut session, r#"{"v":1,"op":"tables","doc":"a"}"#),
+            tables
+        );
+    }
+}

@@ -326,6 +326,8 @@ enum ResultTarget {
     Removed,
     /// 文書の設定（点の表し方）。ID もハッシュも持たない
     Document,
+    /// 足した記号の定義。ID もハッシュも持たない（#684）
+    Definition,
 }
 
 /// 当てた変更の、書き戻した後の ID とハッシュ。キー（ハンドル）を持たない要素の ID は、読み直すとずれうる
@@ -447,6 +449,7 @@ fn edit(
         line_types,
         dimension_styles,
         variables,
+        symbol_records,
         ..
     } = plan;
     count_removals(db, &replaced, &removed, cx)?;
@@ -473,7 +476,7 @@ fn edit(
     Ok(results(
         changes,
         &index,
-        handles,
+        (handles, symbol_records),
         layer_handles,
         style_handles,
         line_type_handles,
@@ -571,6 +574,9 @@ struct Plan<'e> {
     nests: Nests,
     /// 書き直すヘッダーの変数（`$PDMODE`・`$PDSIZE`、決定 0190）
     variables: Vec<(&'static [u8], Vec<Value>)>,
+    /// この変更の一覧で足した記号の定義の名前（小文字）と、変更ごとに足したレコードの数（#684）
+    symbols: BTreeSet<String>,
+    symbol_records: Vec<usize>,
 }
 
 /// 記号の定義の名前（小文字）から、その中に置く記号の定義の名前（小文字）
@@ -597,6 +603,8 @@ impl<'e> Plan<'e> {
             dimension_styles: dimension_style::DimensionStyles::new(db, target),
             nests: Nests::new(),
             variables: Vec::new(),
+            symbols: BTreeSet::new(),
+            symbol_records: Vec::new(),
         }
     }
 
@@ -654,6 +662,7 @@ impl<'e> Plan<'e> {
             Edit::Remove { target: target_of } => {
                 change_element(current, self, change, "remove", target_of, cx)
             }
+            Edit::AddSymbol { symbol } => add_symbol(current, self, symbol, edit_index, cx),
             Edit::SetPointStyle { style } => {
                 set_point_style(current, self, style, cx);
                 Ok(())
@@ -862,6 +871,55 @@ fn add_element(
             );
         }
         None => plan.reject(unsupported("add", kind, target), cx),
+    }
+    Ok(())
+}
+
+/// 記号の定義を足す（`Edit::AddSymbol`、#684）。同じ名前の定義を、図面にも、この変更の一覧の先の変更にも
+/// 持てない。足せない定義は、理由を `change.symbol.unsupported` で返して拒む
+fn add_symbol(
+    current: &Current<'_>,
+    plan: &mut Plan<'_>,
+    symbol: &SymbolDefinition,
+    edit_index: usize,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let Current {
+        db, born, target, ..
+    } = *current;
+    work(cx, 1 + symbol.key.name.len() as u64 / 1024, &Ref::default())?;
+    for element in &symbol.space.elements {
+        add::work(&element.shape, cx, &Ref::default())?;
+    }
+    if target == Target::Dxf {
+        count_table_search(db, cx)?;
+    }
+    let lower = symbol.key.name.to_lowercase();
+    let records = if plan.symbols.contains(&lower) {
+        Err(("name".to_owned(), "exists"))
+    } else {
+        born.definition(db, symbol, plan.added_records)
+    };
+    match records {
+        Ok(records) => {
+            plan.symbols.insert(lower);
+            plan.symbol_records.push(records.len());
+            for record in records {
+                plan.added_records += record.count();
+                plan.added.push(record);
+            }
+        }
+        Err((field, value)) => {
+            plan.symbol_records.push(0);
+            plan.reject(
+                Diagnostic::new(codes::CHANGE_SYMBOL_UNSUPPORTED)
+                    .with("edit", edit_index as u64)
+                    .with("field", field)
+                    .with("value", value)
+                    .with("format", if target == Target::Dxf { "DXF" } else { "DWG" }),
+                cx,
+            );
+        }
     }
     Ok(())
 }
@@ -1231,6 +1289,7 @@ fn change_element<'e>(
             | Edit::ReplaceDimensionStyle { .. }
             | Edit::AddDimensionStyle { .. }
             | Edit::RemoveDimensionStyle { .. }
+            | Edit::AddSymbol { .. }
             | Edit::SetPointStyle { .. },
             _,
         ) => None,
@@ -1308,17 +1367,19 @@ fn insert_records(
     Ok(handles)
 }
 
-/// 変更ごとに、書き戻した後の結果を探すキー。要素の場所は追加後に変わりうる。ハンドルで読み直した要素の ID を引く
+/// 変更ごとに、書き戻した後の結果を探すキー。要素の場所は追加後に変わりうる。ハンドルで読み直した要素の ID を引く。
+/// 足したレコードのハンドルは、記号の定義ごとのレコードの数と組にして受け取る
 fn results(
     changes: &Changes,
     index: &Index<'_>,
-    handles: Vec<Option<u64>>,
+    (handles, symbol_records): (Vec<Option<u64>>, Vec<usize>),
     layer_handles: Vec<Option<u64>>,
     style_handles: Vec<Option<u64>>,
     line_type_handles: Vec<Option<u64>>,
     dimension_style_handles: Vec<Option<u64>>,
 ) -> Vec<ResultTarget> {
     let mut handles = handles.into_iter();
+    let mut symbol_records = symbol_records.into_iter();
     let mut dimension_style_handles = dimension_style_handles.into_iter();
     let mut style_handles = style_handles.into_iter();
     let mut line_type_handles = line_type_handles.into_iter();
@@ -1372,6 +1433,13 @@ fn results(
                     .map(|handle| format!("layer/h{handle:X}")),
             ),
             Edit::SetPointStyle { .. } => ResultTarget::Document,
+            // 定義のレコードと BLOCK・図形・ENDBLK のハンドルを飛ばす
+            Edit::AddSymbol { .. } => {
+                for _ in 0..symbol_records.next().unwrap_or(0) {
+                    handles.next();
+                }
+                ResultTarget::Definition
+            }
             Edit::ReplaceTextStyle { target, .. } => ResultTarget::Table(Some(target.id.clone())),
             Edit::AddTextStyle { .. } => ResultTarget::Table(
                 style_handles
@@ -1474,7 +1542,7 @@ fn settled(db: &AcadDb, targets: Vec<ResultTarget>, cx: &mut Cx) -> Result<Vec<A
                     .cloned()
                     .flatten(),
                 ResultTarget::Table(id) => id,
-                ResultTarget::Removed | ResultTarget::Document => None,
+                ResultTarget::Removed | ResultTarget::Document | ResultTarget::Definition => None,
             };
             applied(&after, id, cx)
         })

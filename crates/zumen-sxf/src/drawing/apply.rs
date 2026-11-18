@@ -360,6 +360,10 @@ impl SxfFile {
                     None
                 }
                 // SXF は文書の点の表し方を持たない。点は既定義のマーカーだけ（決定 0190）
+                Edit::AddSymbol { .. } => {
+                    cx.report(unsupported(format, change.name(), "symbol"));
+                    None
+                }
                 Edit::SetPointStyle { .. } => {
                     cx.report(unsupported(format, change.name(), "point_style"));
                     None

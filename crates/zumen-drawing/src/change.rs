@@ -2,7 +2,7 @@
 
 use crate::{
     Affine, Color, DimensionStyle, Element, Hash, Inherit, Layer, LayerId, LineType, LineTypeId,
-    LineWeight, ModelPoint, PaperPoint, PointStyle, Style, TextStyle,
+    LineWeight, ModelPoint, PaperPoint, PointStyle, Style, SymbolDefinition, TextStyle,
 };
 
 /// 図面モデルへの変更の一覧（決定 0139）。要素を ID と読んだときのハッシュで指し（決定 0156）、並べた順に当てる
@@ -148,6 +148,12 @@ pub enum Edit {
         /// 除く寸法スタイル
         target: Seen,
     },
+    /// 記号の定義を足す（#684）。キー・基点・中の要素（[`SymbolDefinition::space`] の要素）を使い、空間の ID・
+    /// 出所は使わない。中の要素の点は、この定義の空間のもの。同じ変更の一覧の要素は、足した定義を指せない
+    AddSymbol {
+        /// 足す定義
+        symbol: Box<SymbolDefinition>,
+    },
     /// 文書の点の表し方（[`Drawing2D::point_style`](crate::Drawing2D::point_style)）を、これにする（決定 0190）。
     /// 文書全体の設定なので要素を指さない。読んだときの文書は、[`Changes::document`] のハッシュで確かめる
     SetPointStyle {
@@ -192,6 +198,7 @@ impl Edit {
             Self::ReplaceDimensionStyle { .. } => "replace_dimension_style",
             Self::AddDimensionStyle { .. } => "add_dimension_style",
             Self::RemoveDimensionStyle { .. } => "remove_dimension_style",
+            Self::AddSymbol { .. } => "add_symbol",
             Self::SetPointStyle { .. } => "point_style",
         }
     }

@@ -13,11 +13,12 @@ fn addition(edit: &messages::Edit) -> Option<(u8, &str)> {
         messages::Edit::AddLineType(edit) => Some((1, &edit.name)),
         messages::Edit::AddTextStyle(edit) => Some((2, &edit.name)),
         messages::Edit::AddDimensionStyle(edit) => Some((3, &edit.name)),
+        messages::Edit::AddSymbol(edit) => Some((4, &edit.name)),
         _ => None,
     }
 }
 
-fn references(edit: &messages::Edit) -> [Option<Reference<'_>>; 3] {
+fn references(edit: &messages::Edit) -> [Option<Reference<'_>>; 4] {
     let (layer, line_type, geometry) = match edit {
         messages::Edit::Add(edit) => (
             edit.layer.as_deref(),
@@ -47,12 +48,20 @@ fn references(edit: &messages::Edit) -> [Option<Reference<'_>>; 3] {
         }
         _ => None,
     };
+    // 足した記号の定義を置く記号（#684）
+    let symbol = match geometry {
+        Some(messages::Geometry::Symbol(symbol)) => {
+            Some((4, symbol.name.as_str(), "geometry/name"))
+        }
+        _ => None,
+    };
     [
         layer.map(|name| (0, name, "layer")),
         line_type
             .and_then(|line| line.name.as_deref())
             .map(|name| (1, name, "line_type")),
         style,
+        symbol,
     ]
 }
 
@@ -243,7 +252,7 @@ fn identities(
     Ok(result)
 }
 
-/// 表の追加だけなら要素の順と値は変わらない。両方を照合し、番号が動いた公開 ID だけを引き直す。
+/// 表と記号の定義の追加だけなら、元の要素の順と値は変わらない。両方を照合し、番号が動いた公開 ID だけを引き直す。
 fn remap(
     before: &Drawing2D,
     after: &Drawing2D,
@@ -252,7 +261,8 @@ fn remap(
 ) -> Result<(), Failed> {
     let before = identities(before, cx)?;
     let mut after = identities(after, cx)?;
-    if before.len() != after.len() {
+    // 足した記号の定義の中の要素だけが増える（#684）
+    if before.len() > after.len() {
         return Err(invalid("element-count", cx));
     }
     let mut names = BTreeMap::new();

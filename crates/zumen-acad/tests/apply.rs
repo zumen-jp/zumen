@@ -4530,6 +4530,7 @@ fn e1_changes_have_no_edit_for_views() {
         Change::ReplaceDimensionStyle { .. }
         | Change::AddDimensionStyle { .. }
         | Change::RemoveDimensionStyle { .. } => "dimension style",
+        Change::AddSymbol { .. } => "symbol",
         Change::SetPointStyle { .. } => "point style",
     };
     let file = testkit::read::<Dxf>(&src()).0.unwrap();

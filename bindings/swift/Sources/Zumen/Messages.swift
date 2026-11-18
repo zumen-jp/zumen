@@ -5735,6 +5735,11 @@ public struct Edit: Message {
         taggedView("kind", "add_layer")
     }
 
+    /// kind が add_symbol の形なら、そのビュー。違えば nil
+    public var asAddSymbolEdit: AddSymbolEdit? {
+        taggedView("kind", "add_symbol")
+    }
+
     /// kind が remove_layer の形なら、そのビュー。違えば nil
     public var asRemoveLayerEdit: RemoveLayerEdit? {
         taggedView("kind", "remove_layer")
@@ -6779,6 +6784,98 @@ public struct AddLayerEdit: Message {
     public var lineWeight: LineWeightChange? {
         get { readField("line_weight") }
         set { writeField("line_weight", newValue) }
+    }
+}
+
+/// 記号の定義（DXF・DWG のブロック）を足す（#684）。中の要素は、定義の空間に足す。足した定義は、同じ apply の後ろの add の記号から名前で指せる。属性の定義・名前のない定義・外部参照は足せない。結果は id と hash を持たない。足した定義は tables の symbols から名前で引く。マイナーバージョン 99 から
+public struct AddSymbolEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_symbol")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 定義の名前。図面にない名前で、layer の name と同じ決まり（DXF・DWG のブロックの名前で書けない文字を含まない）。大文字と小文字は区別しない
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 定義の基点 [X, Y]。記号を置く点に重ねる。書かなければ [0, 0]
+    public var base: [Double]? {
+        get { readField("base") }
+        set { writeField("base", newValue) }
+    }
+
+    /// 中の要素。点は定義の空間の座標で書く。並べた順に足す
+    public var elements: [SymbolElement]? {
+        get { readField("elements") }
+        set { writeField("elements", newValue) }
+    }
+}
+
+/// 足す記号の定義の中の要素。フィールドは add と同じ意味で、place と kind を持たない。引出線の注記は指せない。マイナーバージョン 99 から
+public struct SymbolElement: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// レイヤの元の名前。layer_id と一緒には書かない。どちらも書かなければレイヤ 0
+    public var layer: String? {
+        get { readField("layer") }
+        set { writeField("layer", newValue) }
+    }
+
+    /// レイヤの ID。tables が返したもの
+    public var layerId: String? {
+        get { readField("layer_id") }
+        set { writeField("layer_id", newValue) }
+    }
+
+    /// 色
+    public var color: ColorChange? {
+        get { readField("color") }
+        set { writeField("color", newValue) }
+    }
+
+    /// 線種
+    public var lineType: LineTypeChange? {
+        get { readField("line_type") }
+        set { writeField("line_type", newValue) }
+    }
+
+    /// 線幅
+    public var lineWeight: LineWeightChange? {
+        get { readField("line_weight") }
+        set { writeField("line_weight", newValue) }
+    }
+
+    /// 足す形
+    public var geometry: Geometry? {
+        get { readField("geometry") }
+        set { writeField("geometry", newValue) }
     }
 }
 

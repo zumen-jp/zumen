@@ -2802,6 +2802,7 @@ Edit = Union[
     "AddEdit",
     "LayerEdit",
     "AddLayerEdit",
+    "AddSymbolEdit",
     "RemoveLayerEdit",
     "TextStyleEdit",
     "AddTextStyleEdit",
@@ -3317,6 +3318,62 @@ _AddLayerEditOptional = TypedDict(
 
 class AddLayerEdit(_AddLayerEditRequired, _AddLayerEditOptional):
     "レイヤを足す（決定 0162）。書かないフィールドは、状態なら表示・印刷・編集でき凍結せず、色・線種・線幅ならレイヤ 0 と同じ。同じ apply の後ろの要素の変更から、足したレイヤを名前で指せる。マイナーバージョン 22 から"
+
+
+# 記号の定義（DXF・DWG のブロック）を足す（#684）。中の要素は、定義の空間に足す。足した定義は、同じ apply の後ろの add の記号から名前で指せる。属性の定義・名前のない定義・外部参照は足せない。結果は id と hash を持たない。足した定義は tables の symbols から名前で引く。マイナーバージョン 99 から
+_AddSymbolEditRequired = TypedDict(
+    "_AddSymbolEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["add_symbol"],
+        # 定義の名前。図面にない名前で、layer の name と同じ決まり（DXF・DWG のブロックの名前で書けない文字を含まない）。大文字と小文字は区別しない
+        "name": str,
+        # 中の要素。点は定義の空間の座標で書く。並べた順に足す
+        "elements": List["SymbolElement"],
+    },
+)
+_AddSymbolEditOptional = TypedDict(
+    "_AddSymbolEditOptional",
+    {
+        # 定義の基点 [X, Y]。記号を置く点に重ねる。書かなければ [0, 0]
+        "base": List[float],
+    },
+    total=False,
+)
+
+
+class AddSymbolEdit(_AddSymbolEditRequired, _AddSymbolEditOptional):
+    "記号の定義（DXF・DWG のブロック）を足す（#684）。中の要素は、定義の空間に足す。足した定義は、同じ apply の後ろの add の記号から名前で指せる。属性の定義・名前のない定義・外部参照は足せない。結果は id と hash を持たない。足した定義は tables の symbols から名前で引く。マイナーバージョン 99 から"
+
+
+# 足す記号の定義の中の要素。フィールドは add と同じ意味で、place と kind を持たない。引出線の注記は指せない。マイナーバージョン 99 から
+_SymbolElementRequired = TypedDict(
+    "_SymbolElementRequired",
+    {
+        # 足す形
+        "geometry": "Geometry",
+    },
+)
+_SymbolElementOptional = TypedDict(
+    "_SymbolElementOptional",
+    {
+        # レイヤの元の名前。layer_id と一緒には書かない。どちらも書かなければレイヤ 0
+        "layer": str,
+        # レイヤの ID。tables が返したもの
+        "layer_id": str,
+        # 色
+        "color": "ColorChange",
+        # 線種
+        "line_type": "LineTypeChange",
+        # 線幅
+        "line_weight": "LineWeightChange",
+    },
+    total=False,
+)
+
+
+class SymbolElement(_SymbolElementRequired, _SymbolElementOptional):
+    "足す記号の定義の中の要素。フィールドは add と同じ意味で、place と kind を持たない。引出線の注記は指せない。マイナーバージョン 99 から"
 
 # 値を継承する先。layer はレイヤから、block は要素を置いた記号の配置から
 Inherit = Union[

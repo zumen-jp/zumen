@@ -64,6 +64,7 @@
     "change.references.failed": "Did not apply changes because references to added tables could not be preserved (reason: {reason}, {count} occurrence(s)).",
     "change.style.unsupported": "Elements in {format} carry their own {field} and cannot follow the layer or block, so an element cannot be added without a {field}. Specify the {field}. No change was applied.",
     "change.symbol-cycle.invalid": "Cannot add the symbol \"{name}\" to the definition \"{id}\", because the symbol places that definition directly or indirectly. No change was applied.",
+    "change.symbol.unsupported": "The symbol definition field {field} ({value}) in edit {edit} cannot be written to {format}, so the changes were rejected.",
     "change.xdata.unsupported": "Cannot write back a change to the shape of a \"{kind}\" element, because it has XDATA that moves with the entity (group code {code}). No change was applied.",
     "citygml.crs.unsupported": "The coordinate system \"{name}\" is not supported, so the CRS is unknown and no shapes were moved.",
     "citygml.element.unsupported": "The element \"{element}\" is not moved to the geographic model, so it was not read.",

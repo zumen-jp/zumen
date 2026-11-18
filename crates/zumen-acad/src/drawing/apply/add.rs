@@ -20,6 +20,7 @@ use zumen_drawing::{
 };
 
 mod hatch;
+pub(super) mod symbol;
 
 /// 足す図形
 pub(crate) struct Record {
@@ -275,6 +276,19 @@ impl Born {
         home: Home,
         index: u64,
     ) -> Option<Record> {
+        self.build(element, frame, home, index, false)
+    }
+
+    /// [`Born::record`]。`new_block` なら、所有者は同じ変更の一覧で足すブロックのレコードで、まだ ENDBLK を
+    /// 持たない（[`symbol`]）
+    fn build<P: Copy>(
+        &self,
+        element: &Element<P>,
+        frame: &impl Frame<P>,
+        home: Home,
+        index: u64,
+        new_block: bool,
+    ) -> Option<Record> {
         // 足す図形のハンドルと、その次の HANDSEED を、飽和させずに付けられることを先に確かめる。
         let count = match &element.shape {
             Shape::Symbol(symbol) if !symbol.attributes.is_empty() => {
@@ -284,7 +298,8 @@ impl Born {
         };
         self.next?.checked_add(index)?.checked_add(count)?;
         // BLOCKS の所に足す図形は、所有者のブロックの ENDBLK の前に置く。DWG は、その図形に 67 を持たない
-        if home.blocks && !home.owner.is_some_and(|owner| self.ends.contains(&owner)) {
+        if home.blocks && !new_block && !home.owner.is_some_and(|owner| self.ends.contains(&owner))
+        {
             return None;
         }
         let paper = home.paper && !(home.blocks && self.dwg());
@@ -1024,9 +1039,13 @@ impl Born {
                     });
                 }
                 values.extend(own);
+                // 足すブロックのレコードは表に置く（[`symbol`]）
+                let record = kind == b"BLOCK_RECORD";
                 let object = Object {
                     kind: kind.to_vec(),
-                    section: if home.blocks {
+                    section: if record {
+                        Section::Tables
+                    } else if home.blocks {
                         Section::Blocks
                     } else {
                         Section::Entities
@@ -1034,12 +1053,15 @@ impl Born {
                     values,
                     origin: Origin::New,
                 };
-                let end = if home.blocks && self.target == Target::Dxf {
-                    db.objects()
+                let end = match self.target {
+                    Target::Dxf if record => super::layer::table_end(db, b"BLOCK_RECORD"),
+                    // 足したブロックは、ENDBLK を足すまで BLOCKS の所の終わりに置く
+                    Target::Dxf if home.blocks => db
+                        .objects()
                         .iter()
                         .position(|object| object.kind == b"ENDBLK" && object.owner() == home.owner)
-                } else {
-                    None
+                        .or_else(|| symbol::blocks_end(db)),
+                    _ => None,
                 };
                 match end {
                     Some(index) => db.insert(index, object),

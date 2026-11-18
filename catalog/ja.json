@@ -64,6 +64,7 @@
     "change.references.failed": "追加した表への参照を保てないため、変更を当てませんでした（理由: {reason}、{count} 件）。",
     "change.style.unsupported": "{format} の図形は {field} を自分で持ち、レイヤかブロックに従う {field} を持たないので、{field} を書かずに要素を足せません。{field} を書いてください。変更を反映しませんでした。",
     "change.symbol-cycle.invalid": "記号「{name}」は「{id}」の定義を直接か間接に置くので、その定義の中に足せません。変更を反映しませんでした。",
+    "change.symbol.unsupported": "変更 {edit} の記号の定義の {field}（{value}）を {format} に書けないので、変更を拒みました。",
     "change.xdata.unsupported": "「{kind}」の要素は、図形とともに動く XDATA（グループ・コード {code}）を持つので、形の変更を書き戻せません。変更を反映しませんでした。",
     "citygml.crs.unsupported": "座標系「{name}」を扱えないので、座標系を不明にし、形を移しませんでした。",
     "citygml.element.unsupported": "要素「{element}」は地理のモデルに移さないので、読みませんでした。",
