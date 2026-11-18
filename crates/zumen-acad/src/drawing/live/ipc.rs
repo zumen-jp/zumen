@@ -1,7 +1,10 @@
 //! 常駐 IPC が表示の定義を引く読み取り。状態・保存・`apply` と表示の作り方は変えない。
 
-use zumen_base::{Cx, Kind, Stop};
-use zumen_drawing::{Element, FormattedText, Layer, LineType, MarkContent, Piece, Placed, Shape};
+use zumen_base::{Cx, Kind, Ref, Stop};
+use zumen_drawing::{
+    Element, FormattedText, Layer, LineType, MarkContent, ModelPoint, Piece, Placed, Shape,
+    SpaceId, id,
+};
 use zumen_live::RowId;
 use zumen_live::display::Display;
 use zumen_sdk::Error;
@@ -140,6 +143,39 @@ impl AcadLive {
             Some(element) => copied_text(&element.shape, cx).map(Some),
             None => Ok(None),
         }
+    }
+
+    /// 行を雛形にして要素を足すときの、足す先の場所の ID（`Edit::Add` の `place`）と、雛形の画層・スタイルを持つ要素。
+    /// 要素の形は、足す先の原点の長さ 0 の線分で、雛形の形は写さない。生きた最上位の要素の行だけが雛形になり、
+    /// 生きていない行と記号の定義の中の要素は `None`。行 1 つを共有の予算で数える
+    pub fn display_template(
+        &self,
+        row: RowId,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<(String, Placed)>, Error> {
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        // DXF・DWG の行は、どれもモデル空間（空間 0）の要素
+        let space = SpaceId(0);
+        Ok(self.element_with_source(row, cx)?.map(|element| {
+            let template = Placed::Model(Element {
+                source: Ref::default(),
+                layer: element.layer,
+                style: element.style,
+                shape: Shape::Line {
+                    start: ModelPoint {
+                        space,
+                        x: 0.0,
+                        y: 0.0,
+                    },
+                    end: ModelPoint {
+                        space,
+                        x: 0.0,
+                        y: 0.0,
+                    },
+                },
+            });
+            (id::space(space), template)
+        }))
     }
 
     /// 生きた文字の行（`Shape::Text`・`Shape::Formatted`）の要素を、内容だけ `content` に替えて返す。`Edit::Replace` の

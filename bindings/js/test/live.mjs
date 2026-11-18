@@ -383,6 +383,43 @@ test("実プロセスで文字の内容を替え、取り消す", { skip: !execu
   } finally { await live.close(); }
 });
 
+test("draw の引数を送る前に検査する", async () => {
+  const { live } = await fake("order");
+  try {
+    await assert.rejects(live.draw({ revision: 0n, template: 0, shape: { line: [0, 0, 1, 1] } }, { display: true }), TypeError);
+    for (const shape of [null, {}, { line: [0, 0, 1] }, { line: [0, 0, 1, Number.NaN] }, { circle: [0, 0, "1"] },
+      { line: [0, 0, 1, 1], circle: [0, 0, 1] }, { square: [0, 0, 1, 1] }, { arc: [0, 0, 1, 0, Infinity] }]) {
+      await assert.rejects(live.draw({ revision: 0n, template: 0, shape }), TypeError);
+    }
+    await assert.rejects(live.draw({ revision: 0n, template: 0, shape: { circle: [0, 0, 0] } }), RangeError);
+    await assert.rejects(live.draw({ revision: 0n, template: -1, shape: { line: [0, 0, 1, 1] } }), RangeError);
+  } finally { await live.close(); }
+});
+
+test("実プロセスで雛形の行に倣って線分・円・円弧を足す", { skip: !executable, timeout: 30000 }, async () => {
+  const live = await openLiveProcess(executable);
+  try {
+    const input = dxf();
+    const opened = await live.open(input);
+    const far = [1e6, 1e6, 2e6, 2e6];
+    let revision = opened.revision;
+    const rows = [];
+    for (const shape of [{ line: [1.1e6, 1.1e6, 1.2e6, 1.2e6] }, { circle: [1.3e6, 1.3e6, 10] }, { arc: [1.4e6, 1.4e6, 10, 30, 120] }]) {
+      const drawn = await live.draw({ revision, template: 3, shape });
+      assert.equal(drawn.status, "ok");
+      assert.equal(drawn.result, 1n);
+      assert.equal(drawn.display, null);
+      revision = drawn.revision;
+      rows.push(...drawn.selection.rows());
+    }
+    assert.deepEqual(rows, [130, 131, 132]);
+    assert.deepEqual([...(await live.select(far, revision)).selection.rows()], rows);
+    assert.equal((await live.draw({ revision: revision + 1n, template: 3, shape: { line: [0, 0, 1, 1] } })).status, "stale");
+    for (let i = 0; i < 3; i++) revision = (await live.undo(revision)).revision;
+    assert.deepEqual((await live.save()).data, input);
+  } finally { await live.close(); }
+});
+
 test("copy・remove・restyle の引数を送る前に検査する", async () => {
   const { live } = await fake("order");
   try {

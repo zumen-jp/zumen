@@ -124,6 +124,8 @@ try {
 
 `live.remove({ revision, rows })` は行を除き、`live.copy({ revision, rows, matrix })` は行を写して写しを動かします。`copy` は写しの行を `reply.selection` に対象の順で返し、表示は返さないので `live.display()` で取り直します。JWW・SXF の写しは、まだ rejected です。
 
+`live.draw({ revision, template, shape })` は、行 `template` と同じ空間か用紙に、その画層とスタイルで形を 1 つ足します。`shape` は表示の座標の `{ line: [x0, y0, x1, y1] }`・`{ circle: [x, y, r] }`・`{ arc: [x, y, r, start, end] }`（角度は度、反時計回り）のどれかです。足した行を `reply.selection` に返し、表示は返さないので `live.display()` で取り直します。
+
 `live.order(revision)` は、表示に出る生きた行を、図面モデルと同じ規則で先に描くものから並べて `reply.order` に返します。`reply.order.rows()` は描く順で反復し、昇順とは限りません。
 
 診断は次の通常要求の前に、明示した予算で別途取得します。表示だけが停止したときの扱い、通信上限、中断・終了は[文書の IPC](../cli/live.md)にあります。残りの形式、文字・記号の定義、線種の定義の変更・置き換え・追加などの編集、Electron の表示への組み込みと性能の検査は[文書エンジンの残件](../../docs/live.md)です。

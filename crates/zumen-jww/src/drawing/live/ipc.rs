@@ -2,9 +2,10 @@
 //!
 //! 状態・保存・`apply` は変えない。名前と形は `AcadLive` の同名の関数に合わせる。
 
-use zumen_base::{Cx, Kind, Stop};
+use zumen_base::{Cx, Kind, Ref, Stop};
 use zumen_drawing::{
-    Affine, Element, FormattedText, Hash, Layer, LineType, Piece, Placed, Seen, Shape,
+    Affine, Element, FormattedText, Hash, Layer, LineType, ModelPoint, Piece, Placed, Seen, Shape,
+    id,
 };
 use zumen_live::RowId;
 use zumen_sdk::Error;
@@ -220,6 +221,45 @@ impl JwwLive {
             Some(found) => copied_text(&found.element.shape, cx).map(Some),
             None => Ok(None),
         }
+    }
+
+    /// 行を雛形にして要素を足すときの、足す先の場所の ID（`Edit::Add` の `place`）と、雛形の画層・スタイルを持つ要素。
+    /// 要素の形は、足す先の原点の長さ 0 の線分で、雛形の形は写さない。生きた最上位の要素の行だけが雛形になり、
+    /// 生きていない行と記号の定義の中の要素は `None`。行 1 つを共有の予算で数える
+    pub fn display_template(
+        &self,
+        row: RowId,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<(String, Placed)>, Error> {
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        if !self.table.is_alive(row) {
+            return Ok(None);
+        }
+        Ok(self
+            .table
+            .row(row)
+            .filter(|found| found.space.0 < DEFINITION_SPACES)
+            .map(|found| {
+                let space = found.space;
+                let template = Placed::Model(Element {
+                    source: Ref::default(),
+                    layer: found.element.layer,
+                    style: found.element.style,
+                    shape: Shape::Line {
+                        start: ModelPoint {
+                            space,
+                            x: 0.0,
+                            y: 0.0,
+                        },
+                        end: ModelPoint {
+                            space,
+                            x: 0.0,
+                            y: 0.0,
+                        },
+                    },
+                });
+                (id::space(space), template)
+            }))
     }
 
     /// 生きた文字の行（`Shape::Text`・`Shape::Formatted`）の要素を、内容だけ `content` に替えて返す。`Edit::Replace` の

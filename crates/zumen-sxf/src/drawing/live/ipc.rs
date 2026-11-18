@@ -2,9 +2,10 @@
 //!
 //! 状態・保存・`apply` は変えない。名前と形は `AcadLive` の同名の関数に合わせる。
 
-use zumen_base::{Cx, Kind, Stop};
+use zumen_base::{Cx, Kind, Ref, Stop};
 use zumen_drawing::{
-    Affine, Element, FormattedText, Layer, LineType, LineTypeId, Piece, Placed, Seen, Shape,
+    Affine, Element, FormattedText, Layer, LineType, LineTypeId, ModelPoint, PaperPoint, Piece,
+    Placed, Seen, Shape, id,
 };
 use zumen_live::RowId;
 use zumen_live::display::Display;
@@ -14,7 +15,7 @@ use super::super::{LINE_TYPES, USER_LINE_TYPE};
 use super::display::{
     DisplayContext, count_model_shape_for_view, display_counts_and_style, write_shape,
 };
-use super::{BaseSheetSlot, SxfContainer, SxfLive, hash_placed};
+use super::{BaseSheetSlot, SxfContainer, SxfLive, SxfRow, hash_placed};
 
 impl SxfLive {
     /// 表示の座標の矩形に掛かる生きた行を `out` の後ろに足す。[`Self::select_sheet`] と同じ行を返す。
@@ -90,6 +91,73 @@ impl SxfLive {
             },
             _ => None,
         }
+    }
+
+    /// 行を雛形にして要素を足すときの、足す先の場所の ID（`Edit::Add` の `place`）と、雛形の画層・スタイルを持つ要素。
+    /// 要素の形は、足す先の原点の長さ 0 の線分で、雛形の形は写さない。生きた最上位の要素の行だけが雛形になり、
+    /// 生きていない行と記号の定義の中の要素は `None`。行 1 つを共有の予算で数える
+    pub fn display_template(
+        &self,
+        row: RowId,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<(String, Placed)>, Error> {
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        if !self.table.is_alive(row) {
+            return Ok(None);
+        }
+        Ok(match self.table.row(row) {
+            Some(SxfRow {
+                container: SxfContainer::Space(space),
+                placed: Placed::Model(element),
+                ..
+            }) => {
+                let space = *space;
+                let template = Placed::Model(Element {
+                    source: Ref::default(),
+                    layer: element.layer,
+                    style: element.style,
+                    shape: Shape::Line {
+                        start: ModelPoint {
+                            space,
+                            x: 0.0,
+                            y: 0.0,
+                        },
+                        end: ModelPoint {
+                            space,
+                            x: 0.0,
+                            y: 0.0,
+                        },
+                    },
+                });
+                Some((id::space(space), template))
+            }
+            Some(SxfRow {
+                container: SxfContainer::Sheet(sheet),
+                placed: Placed::Paper(element),
+                ..
+            }) => self
+                .sheet_name_map
+                .iter()
+                .find(|(_, id)| *id == sheet)
+                .map(|(place, _)| {
+                    let origin = PaperPoint {
+                        sheet: *sheet,
+                        x: 0.0,
+                        y: 0.0,
+                    };
+                    let template = Placed::Paper(Element {
+                        source: Ref::default(),
+                        layer: element.layer,
+                        style: element.style,
+                        shape: Shape::Line {
+                            start: origin,
+                            end: origin,
+                        },
+                    });
+                    (place.clone(), template)
+                }),
+            _ => None,
+        })
     }
 
     /// 表示のスタイルの画層の値（図面モデルの `LayerId`）と、その画層の組。図面モデルの `layers` と同じ順。

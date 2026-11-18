@@ -38,6 +38,7 @@ pub(super) enum Command {
     Texts = 17,
     SetText = 18,
     Symbols = 19,
+    Draw = 20,
 }
 
 impl Command {
@@ -63,6 +64,7 @@ impl Command {
             17 => Self::Texts,
             18 => Self::SetText,
             19 => Self::Symbols,
+            20 => Self::Draw,
             _ => return None,
         })
     }
@@ -81,6 +83,7 @@ impl Command {
                 CONTROL_BYTES + 8 + MAX_TEXT_BYTES + MAX_ROWS * 4,
             ),
             Self::Target => (CONTROL_BYTES + 4, CONTROL_BYTES + 4),
+            Self::Draw => (CONTROL_BYTES + 48, CONTROL_BYTES + 48),
             Self::Diagnostics => (CONTROL_BYTES + 8, CONTROL_BYTES + 8),
             Self::Select => (CONTROL_BYTES + 32, CONTROL_BYTES + 32),
             Self::Display

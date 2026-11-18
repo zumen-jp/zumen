@@ -358,6 +358,27 @@ export class LiveProcess {
     });
   }
 
+  /** 行 template の画層・スタイルに倣って、表示の座標の線分・円・円弧を 1 つ足す。足した行を selection に返す */
+  async draw({ revision, template, shape }, options = {}) {
+    this.#check();
+    if (options.display !== undefined || options.full !== undefined) throw new TypeError("draw は表示を返さない。display で取り直す");
+    rowOf(template);
+    const kinds = shape !== null && typeof shape === "object" ? Object.keys(shape) : [];
+    const sizes = { line: 4, circle: 3, arc: 5 };
+    const kind = kinds.length === 1 ? kinds[0] : null;
+    const values = kind !== null && Object.hasOwn(sizes, kind) ? shape[kind] : null;
+    if ((!Array.isArray(values) && !(values instanceof Float64Array)) || values.length !== sizes[kind]
+      || Array.from(values).some((value) => typeof value !== "number" || !Number.isFinite(value))) {
+      throw new TypeError("shape は { line: [x0,y0,x1,y1] }・{ circle: [x,y,r] }・{ arc: [x,y,r,start,end] } のどれか 1 つの有限の数値にする");
+    }
+    if (kind !== "line" && !(values[2] > 0)) throw new RangeError("半径は正の数にする");
+    return this.#request(20, 0, u64(revision, "revision"), options, 48, (out) => {
+      out.writeUInt32LE(template, 0);
+      out.writeUInt32LE(kind === "line" ? 1 : kind === "circle" ? 2 : 3, 4);
+      for (let i = 0; i < values.length; i++) out.writeDoubleLE(values[i], 8 + i * 8);
+    });
+  }
+
   /** 診断は別の予算で明示的に取得する。data に UTF-8 JSON を返す */
   async diagnostics(requestId, options = {}) {
     return this.#request(8, 0, null, options, 8, (out) => out.writeBigUInt64LE(u64(requestId, "requestId")));

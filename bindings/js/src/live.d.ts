@@ -137,6 +137,18 @@ export interface LiveRemove {
   revision: bigint | number;
   rows: readonly number[] | Uint32Array;
 }
+/** 表示の座標で足す形。角度は度で反時計回り。半径は正 */
+export type LiveDrawShape =
+  | { line: readonly [number, number, number, number] }
+  | { circle: readonly [number, number, number] }
+  | { arc: readonly [number, number, number, number, number] };
+export interface LiveDraw {
+  /** 雛形の行が属する版。現在の版と異なれば stale */
+  revision: bigint | number;
+  /** 足す先と画層・スタイルを決める行。記号の定義の中の行は rejected */
+  template: number;
+  shape: LiveDrawShape;
+}
 /** DXF・DWG・JWW・SXF の常駐文書。通常の同時呼び出しは ZumenError の busy */
 export declare class LiveProcess {
   private constructor();
@@ -169,6 +181,8 @@ export declare class LiveProcess {
   remove(change: LiveRemove, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行を写し、写しを matrix で動かす。写しの行を selection に対象の順で返す。表示は display で取り直す。JWW・SXF は rejected */
   copy(change: LiveTransform, options?: LiveOptions): Promise<LiveReply>;
+  /** 行 template の空間か用紙に、その画層・スタイルで形を 1 つ足す。足した行を selection に返す。表示は display で取り直す */
+  draw(change: LiveDraw, options?: LiveOptions): Promise<LiveReply>;
   undo(revision: bigint | number, options?: LiveDisplayOptions): Promise<LiveReply>;
   redo(revision: bigint | number, options?: LiveDisplayOptions): Promise<LiveReply>;
   save(options?: LiveOptions): Promise<LiveReply>;

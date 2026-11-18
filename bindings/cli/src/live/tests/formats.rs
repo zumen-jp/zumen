@@ -1298,3 +1298,126 @@ fn symbols_carry_the_display_of_definitions() {
     assert_eq!(rejected.status, Status::Rejected);
     assert_eq!(rejected.diagnostics, 1);
 }
+
+fn draw_body(template: u32, kind: u32, values: [f64; 5]) -> Vec<u8> {
+    let mut data = template.to_le_bytes().to_vec();
+    data.extend_from_slice(&kind.to_le_bytes());
+    for value in values {
+        data.extend_from_slice(&value.to_le_bytes());
+    }
+    data
+}
+
+/// 線分・円・円弧を、表示の座標で遠くに足す。足した行は表示の座標で選ばれ、保存して開き直しても同じ場所で選ばれ、
+/// 取り消すと消える。雛形にならない行は断られ、版は進まない
+fn draws_shapes_in_display_coordinates(bytes: &[u8]) {
+    let mut host = Host::default();
+    open_bytes(&mut host, bytes);
+    let rows = select(&mut host, 2, 0, EVERYWHERE);
+    assert!(!rows.is_empty());
+    let shapes = [
+        (1, [FAR, FAR, FAR * 1.5, FAR * 1.5, 0.0]),
+        (2, [FAR * 1.2, FAR * 1.2, 10.0, 0.0, 0.0]),
+        (3, [FAR * 1.4, FAR * 1.4, 10.0, 30.0, 120.0]),
+    ];
+    let mut id = 10;
+    let mut revision = 0;
+    let mut drawn = Vec::new();
+    for (kind, values) in shapes {
+        let mut added = None;
+        for &row in &rows {
+            id += 1;
+            let reply = call(
+                &mut host,
+                Command::Draw,
+                id,
+                revision,
+                wire::NONE,
+                0,
+                &draw_body(row, kind, values),
+            );
+            assert!(matches!(reply.status, Status::Ok | Status::Rejected));
+            if reply.status == Status::Ok {
+                added = Some(reply);
+                break;
+            }
+            assert_eq!(reply.revision, revision);
+        }
+        let reply = added.unwrap();
+        revision += 1;
+        assert_eq!(reply.revision, revision);
+        assert_eq!((reply.data_kind, reply.result), (5, 1));
+        let mut words = Words(&reply.data);
+        assert_eq!(words.u32(), Some(1));
+        drawn.push(words.u32().unwrap());
+        assert!(words.0.is_empty());
+    }
+    let far = [FAR * 0.5, FAR * 0.5, FAR * 2.0, FAR * 2.0];
+    let mut found = select(&mut host, 30, revision, far);
+    found.sort_unstable();
+    assert_eq!(found, drawn);
+    let saved = call(&mut host, Command::Save, 31, revision, wire::NONE, 0, &[]).data;
+    let mut reopened = Host::default();
+    open_bytes(&mut reopened, &saved);
+    assert_eq!(select(&mut reopened, 2, 0, far).len(), drawn.len());
+    for step in 0..3 {
+        let undone = call(
+            &mut host,
+            Command::Undo,
+            32 + step,
+            revision,
+            wire::NONE,
+            0,
+            &[],
+        );
+        assert_eq!(undone.status, Status::Ok);
+        revision += 1;
+    }
+    assert!(select(&mut host, 40, revision, far).is_empty());
+}
+
+#[test]
+fn draw_adds_shapes_like_a_template_row() {
+    for bytes in [super::DXF, JWW, SFC] {
+        draws_shapes_in_display_coordinates(bytes);
+    }
+}
+
+/// 形の種類・使わない値・半径・有限でない値の誤りは invalid、生きていない行は missing で、版は進まない
+#[test]
+fn malformed_draws_are_refused() {
+    let mut host = Host::default();
+    open_bytes(&mut host, super::DXF);
+    for (id, (row, kind, values, status)) in [
+        (0, 0, [0.0, 0.0, 1.0, 1.0, 0.0], Status::Invalid),
+        (0, 4, [0.0, 0.0, 1.0, 1.0, 0.0], Status::Invalid),
+        (0, 1, [0.0, 0.0, 1.0, 1.0, 1.0], Status::Invalid),
+        (0, 2, [0.0, 0.0, 0.0, 0.0, 0.0], Status::Invalid),
+        (0, 2, [0.0, 0.0, 1.0, 1.0, 0.0], Status::Invalid),
+        (0, 3, [0.0, 0.0, -1.0, 0.0, 90.0], Status::Invalid),
+        (0, 1, [f64::NAN, 0.0, 1.0, 1.0, 0.0], Status::Invalid),
+        (0, 3, [0.0, 0.0, 1.0, f64::INFINITY, 90.0], Status::Invalid),
+        (u32::MAX - 1, 1, [0.0, 0.0, 1.0, 1.0, 0.0], Status::Missing),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let reply = call(
+            &mut host,
+            Command::Draw,
+            id as u64 + 2,
+            0,
+            wire::NONE,
+            0,
+            &draw_body(row, kind, values),
+        );
+        assert_eq!(reply.status, status, "{kind} {values:?}");
+        assert_eq!(reply.revision, 0);
+    }
+    // 長さの違う本文は、要求ごと断る
+    let mut long = draw_body(0, 1, [0.0, 0.0, 1.0, 1.0, 0.0]);
+    long.extend_from_slice(&[0; 4]);
+    let reply = call(&mut host, Command::Draw, 20, 0, wire::NONE, 0, &long);
+    assert_ne!(reply.status, Status::Ok);
+    assert_eq!(select(&mut host, 21, 0, EVERYWHERE).len(), 2);
+}

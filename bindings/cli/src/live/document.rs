@@ -2,7 +2,10 @@
 
 use zumen_acad::AcadLive;
 use zumen_base::{Cx, Diagnostic, Error, Kind, codes};
-use zumen_drawing::{Affine, Applied, Changes, Edit, Layer, LineType, Placed, Restyle, Seen};
+use zumen_drawing::{
+    Affine, Applied, Changes, Edge, Edit, Element, Layer, Length, LineType, ModelLength,
+    ModelPoint, PaperLength, PaperPoint, Placed, Restyle, Seen, Shape,
+};
 use zumen_jww::{Jww, JwwLive};
 use zumen_live::display::Display;
 use zumen_live::{Revision, RowId, display_wire};
@@ -25,6 +28,109 @@ pub(super) enum RowEdit {
     Remove,
     /// 文字の内容を替える。替えられるのは文書エンジンの `display_retexted` が受ける文字だけ
     Text(String),
+}
+
+/// Draw で足す形。値は表示の座標で、有限。半径は正
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum DrawShape {
+    /// 始点と終点 `[x0, y0, x1, y1]`
+    Line([f64; 4]),
+    /// 中心と半径 `[x, y, r]`
+    Circle([f64; 3]),
+    /// 中心・半径と、始まり・終わりの角度（度、反時計回り）`[x, y, r, start, end]`
+    Arc([f64; 5]),
+}
+
+/// 表示の座標の形を、`sheet`（行の座標から表示の座標への写し）の逆で、行の座標に写す。
+/// 線分はどの写しでも受ける。円・円弧は、軸に沿った正の一様な拡大縮小と平行移動の写しだけを受け、半径を同じ比で直す。
+/// 受けない写しか、逆に写せないか、結果が有限でなければ `None`
+fn unsheet(shape: DrawShape, sheet: Affine) -> Option<DrawShape> {
+    let inverse = invert(sheet)?;
+    let [a, b, c, d, e, f] = inverse.m;
+    let point = |x: f64, y: f64| {
+        let (px, py) = (a * x + b * y + c, d * x + e * y + f);
+        (px.is_finite() && py.is_finite()).then_some((px, py))
+    };
+    let radius = |r: f64| {
+        let [sa, sb, _, sd, se, _] = sheet.m;
+        let uniform = sb == 0.0 && sd == 0.0 && sa == se && sa > 0.0;
+        let value = r * a;
+        (uniform && value.is_finite() && value > 0.0).then_some(value)
+    };
+    Some(match shape {
+        DrawShape::Line([x0, y0, x1, y1]) => {
+            let ((x0, y0), (x1, y1)) = (point(x0, y0)?, point(x1, y1)?);
+            DrawShape::Line([x0, y0, x1, y1])
+        }
+        DrawShape::Circle([x, y, r]) => {
+            let (x, y) = point(x, y)?;
+            DrawShape::Circle([x, y, radius(r)?])
+        }
+        DrawShape::Arc([x, y, r, start, end]) => {
+            let (x, y) = point(x, y)?;
+            DrawShape::Arc([x, y, radius(r)?, start, end])
+        }
+    })
+}
+
+/// 行の座標の形 `shape` を、点の作り方 `point` と長さの作り方 `length` で、図面モデルの形にする
+fn model_shape<P: Copy>(
+    shape: DrawShape,
+    point: impl Fn(f64, f64) -> P,
+    length: impl Fn(f64) -> Length,
+) -> Shape<P> {
+    match shape {
+        DrawShape::Line([x0, y0, x1, y1]) => Shape::Line {
+            start: point(x0, y0),
+            end: point(x1, y1),
+        },
+        DrawShape::Circle([x, y, r]) => Shape::Circle {
+            radius: length(r),
+            center: point(x, y),
+        },
+        DrawShape::Arc([x, y, r, start, end]) => Shape::Curve(Edge::Arc {
+            radius: length(r),
+            center: point(x, y),
+            start,
+            end,
+            counterclockwise: true,
+        }),
+    }
+}
+
+/// 雛形 `template`（足す先の原点の線分）の画層・スタイルと足す先で、行の座標の形 `shape` の要素を作る。
+/// 雛形が線分でなければ `None`
+fn drawn(template: Placed, shape: DrawShape) -> Option<Placed> {
+    Some(match template {
+        Placed::Model(element) => {
+            let Shape::Line { start, .. } = element.shape else {
+                return None;
+            };
+            let space = start.space;
+            Placed::Model(Element {
+                shape: model_shape(
+                    shape,
+                    |x, y| ModelPoint { space, x, y },
+                    |value| Length::Model(ModelLength { space, value }),
+                ),
+                ..element
+            })
+        }
+        Placed::Paper(element) => {
+            let Shape::Line { start, .. } = element.shape else {
+                return None;
+            };
+            let sheet = start.sheet;
+            Placed::Paper(Element {
+                shape: model_shape(
+                    shape,
+                    |x, y| PaperPoint { sheet, x, y },
+                    |value| Length::Paper(PaperLength(value)),
+                ),
+                ..element
+            })
+        }
+    })
 }
 
 /// 記号の定義の表示
@@ -132,6 +238,26 @@ impl Engine {
             Self::Acad(live) => live.seen_of_row(row, cx),
             Self::Jww(live) => live.seen_of_row(row, cx),
             Self::Sxf(live) => live.seen_of_row(row, cx),
+        }
+    }
+
+    /// 行を雛形にして足すときの、足す先の場所の ID と、雛形の画層・スタイルを持つ要素
+    fn template(&self, row: RowId, cx: &mut Cx<'_>) -> Result<Option<(String, Placed)>, Error> {
+        match self {
+            Self::Acad(live) => live.display_template(row, cx),
+            Self::Jww(live) => live.display_template(row, cx),
+            Self::Sxf(live) => live.display_template(row, cx),
+        }
+    }
+
+    /// 行の座標から表示の座標への写し。DXF・DWG は恒等。1 つに決まらなければ `None`
+    fn sheet(&self, row: RowId) -> Option<Affine> {
+        match self {
+            Self::Acad(_) => Some(Affine {
+                m: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            }),
+            Self::Jww(live) => live.sheet_of_row(row),
+            Self::Sxf(live) => live.sheet_of_row(row),
         }
     }
 
@@ -248,6 +374,17 @@ impl Engine {
 /// `sheet` で写した座標での `transform` を、写す前の座標の変換にする（`sheet` の逆 ∘ `transform` ∘ `sheet`）。
 /// `sheet` が逆に写せないか、結果が有限でなければ `None`
 pub(super) fn conjugate(sheet: Affine, transform: Affine) -> Option<Affine> {
+    let inverse = invert(sheet)?;
+    let result = compose(inverse, compose(transform, sheet));
+    result
+        .m
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(result)
+}
+
+/// `sheet` の逆の写し。逆に写せないか、値が有限でなければ `None`
+fn invert(sheet: Affine) -> Option<Affine> {
     let [a, b, c, d, e, f] = sheet.m;
     let det = a * e - b * d;
     if !(det.is_finite() && det != 0.0) {
@@ -263,12 +400,11 @@ pub(super) fn conjugate(sheet: Affine, transform: Affine) -> Option<Affine> {
             (c * d - a * f) / det,
         ],
     };
-    let result = compose(inverse, compose(transform, sheet));
-    result
+    inverse
         .m
         .iter()
         .all(|value| value.is_finite())
-        .then_some(result)
+        .then_some(inverse)
 }
 
 /// `outer ∘ inner`（`inner` を先に当てる）
@@ -426,6 +562,54 @@ impl Document {
                 &Changes {
                     document: None,
                     edits,
+                },
+                cx,
+            )
+            .map_err(Problem::Core)
+    }
+
+    /// 行 `template` の空間か用紙に、その画層とスタイルで形 `shape` の要素を 1 つ足す。1 トランザクションで当てる。
+    /// 生きていない行は `Problem::Missing`。雛形にならない行（記号の定義の中の要素）と、表示の座標を
+    /// 行の座標に写せない形は `change.edit.unsupported`（`edit` は `add`）を診断して Rejected
+    pub fn draw(
+        &mut self,
+        expected: Revision,
+        template: RowId,
+        shape: DrawShape,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<Applied>, Problem> {
+        self.require_revision(expected)?;
+        let reject = |kind: &str, format: &str, cx: &mut Cx<'_>| {
+            cx.report(
+                Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
+                    .with("edit", "add")
+                    .with("kind", kind)
+                    .with("format", format),
+            );
+            Problem::Core(Error::Rejected)
+        };
+        let Some((place, template_element)) = self.live.template(template, cx)? else {
+            if self.live.seen_of_row(template, cx)?.is_none() {
+                return Err(Problem::Missing(template));
+            }
+            return Err(reject("place", self.live.format(), cx));
+        };
+        let Some(element) = self
+            .live
+            .sheet(template)
+            .and_then(|sheet| unsheet(shape, sheet))
+            .and_then(|shape| drawn(template_element, shape))
+        else {
+            return Err(reject("view", self.live.format(), cx));
+        };
+        self.live
+            .apply(
+                &Changes {
+                    document: None,
+                    edits: vec![Edit::Add {
+                        place,
+                        element: Box::new(element),
+                    }],
                 },
                 cx,
             )

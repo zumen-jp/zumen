@@ -8,7 +8,7 @@ use zumen_drawing::{
 use zumen_live::{Revision, RowId, display_wire};
 
 use super::diagnostics;
-use super::document::{Document, Problem, RowEdit, Symbols};
+use super::document::{Document, DrawShape, Problem, RowEdit, Symbols};
 use super::wire::{self, Command, Control, Header, Reply, Status, Words};
 
 pub(super) struct Request {
@@ -37,6 +37,7 @@ enum Operation<'a> {
     SetText { content: &'a str, rows: &'a [u8] },
     Restyle { style: WireStyle, rows: &'a [u8] },
     Target(RowId),
+    Draw { template: RowId, shape: DrawShape },
     Select([f64; 4]),
     Diagnostics(u64),
     Empty,
@@ -121,6 +122,27 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
                 content: std::str::from_utf8(content).ok()?,
                 rows,
             })
+        }
+        Command::Draw => {
+            let template = RowId(input.u32()?);
+            let kind = input.u32()?;
+            let mut v = [0_f64; 5];
+            for value in &mut v {
+                *value = input.f64()?;
+            }
+            if !input.0.is_empty() || v.iter().any(|value| !value.is_finite()) {
+                return None;
+            }
+            // 使わない値は 0。半径は正
+            let shape = match kind {
+                1 if v[4] == 0.0 => DrawShape::Line([v[0], v[1], v[2], v[3]]),
+                2 if v[3] == 0.0 && v[4] == 0.0 && v[2] > 0.0 => {
+                    DrawShape::Circle([v[0], v[1], v[2]])
+                }
+                3 if v[2] > 0.0 => DrawShape::Arc(v),
+                _ => return None,
+            };
+            Some(Operation::Draw { template, shape })
         }
         Command::Target => {
             let row = RowId(input.u32()?);
@@ -660,6 +682,17 @@ impl Host {
                     reply.data = encode_rows(&copies, cx)?;
                     reply.data_kind = 5;
                     reply.result = copies.len() as u64;
+                }
+                Operation::Draw { template, shape } => {
+                    let before = document.row_count();
+                    document.draw(revision, template, shape, cx)?;
+                    // 足した要素は、当てる前の表の末尾に足される。確定した後なので、ここでは断らない
+                    let added: Vec<RowId> = (before..document.row_count())
+                        .filter_map(RowId::from_index)
+                        .collect();
+                    reply.data = encode_rows(&added, cx)?;
+                    reply.data_kind = 5;
+                    reply.result = added.len() as u64;
                 }
                 Operation::Target(row) => {
                     let target = document.target(row, cx)?;
