@@ -6,7 +6,8 @@
 フォルダーには、`author.rs` の `writes_the_authored_files_for_other_readers` が、環境変数 `ZUMEN_IFC_AUTHORED` の
 フォルダーに書いた `<スキーマ>.built.ifc` と `<スキーマ>.changed.ifc` と、`create.rs` の `writes_the_templates_for_other_readers` が書いた
 `<スキーマ>.template.ifc` と、`convert.rs` の `writes_the_conversions_for_other_readers` が IFC4 の 2 階建てを
-各バージョンへ変換した `<スキーマ>.converted.ifc` がある。
+各バージョンへ変換した `<スキーマ>.converted.ifc` と、`author.rs` の `writes_face_sets` が書いた面集合の
+`<スキーマ>.faces.ifc` がある。
 
 - ひな形は、検査で誤りが出ず、プロジェクトの GlobalId・名前、ミリメートルの長さの単位、`Body` の下位の文脈、
   所有履歴の作ったソフトと日時が、渡した値のとおりに読める。
@@ -16,6 +17,7 @@
 - IfcOpenShell の検査（スキーマと EXPRESS の規則）で誤りが出ない。
 - 種類ごとの数、階の高さと配置、要素の所属、開口と建具の関係、壁の材料の層が、足した値と直した値のとおりに読める。
 - 開口を引いた壁の形の体積が、芯の長さ・高さ・層の厚さと開口の大きさから求めた値になる。
+- 面集合は、検査で誤りが出ず、表現の種類が項目のとおりで、どの形も作れ、箱の体積が寸法から求めた値になる。
 """
 
 import math
@@ -233,10 +235,11 @@ def check_converted(path):
     return failures
 
 
-# 変換した形の体積（m³）と相対の許容差。壁は矩形、床は 1 m 角の穴のある 6 m × 4 m、柱は半径 0.3 m の円。
-# 円は多角形で近似されて小さくなるので、許容差を広げる
+# 変換した形の体積（m³）と相対の許容差。壁は矩形、扉は箱の面集合、床は 1 m 角の穴のある 6 m × 4 m、柱は
+# 半径 0.3 m の円。円は多角形で近似されて小さくなるので、許容差を広げる
 CONVERTED_VOLUMES = {
     20: (3.0 * 0.25 * 2.7, 1e-9),
+    22: (0.9 * 0.1 * 2.0, 1e-9),
     23: ((6.0 * 4.0 - 1.0) * 0.2, 1e-9),
     24: (math.pi * 0.3**2 * 3.0, 1e-2),
 }
@@ -256,6 +259,44 @@ def check_converted_shapes(model):
         volume = ifcopenshell.util.shape.get_volume(shape.geometry)
         if abs(volume - expected) > expected * tolerance:
             failures.append(f"{n} の体積が {volume}（期待は {expected}）")
+    return failures
+
+
+def check_faces(path, schema):
+    """面集合。200 は押し出しと箱の Brep、201 は殻の模型と、IFC2X3 では面の模型、IFC4 からは殻の模型、202 は IFC4 から
+    三角形の箱と穴のある多角形、IFC2X3 では箱の Brep"""
+    failures = []
+    model = ifcopenshell.open(str(path))
+    for error in errors(model):
+        failures.append(f"検査の誤り: {error}")
+    later = schema != "IFC2X3"
+    wanted = {
+        200: ("SolidModel", ["IfcExtrudedAreaSolid", "IfcFacetedBrep"]),
+        201: (
+            "SurfaceModel",
+            ["IfcShellBasedSurfaceModel", "IfcShellBasedSurfaceModel" if later else "IfcFaceBasedSurfaceModel"],
+        ),
+        202: ("Tessellation", ["IfcTriangulatedFaceSet", "IfcPolygonalFaceSet"])
+        if later
+        else ("Brep", ["IfcFacetedBrep"]),
+    }
+    settings = ifcopenshell.geom.settings()
+    for n, (kind, items) in wanted.items():
+        element = model.by_guid(gid(n))
+        [body] = element.Representation.Representations
+        found = (body.RepresentationType, [i.is_a() for i in body.Items])
+        if found != (kind, items):
+            failures.append(f"{n} の表現が {found}")
+        try:
+            shape = ifcopenshell.geom.create_shape(settings, element)
+        except RuntimeError as error:
+            failures.append(f"{n} の形を作れない: {error}")
+            continue
+        if n == 202:
+            volume = ifcopenshell.util.shape.get_volume(shape.geometry)
+            expected = 0.9 * 0.1 * 2.0
+            if abs(volume - expected) > expected * 1e-9:
+                failures.append(f"{n} の体積が {volume}（期待は {expected}）")
     return failures
 
 
@@ -314,11 +355,14 @@ def main():
     for schema in SCHEMAS:
         name = f"{schema}.converted.ifc"
         failures += [f"{name}: {f}" for f in check_converted(folder / name)]
+    for schema in SCHEMAS:
+        name = f"{schema}.faces.ifc"
+        failures += [f"{name}: {f}" for f in check_faces(folder / name, schema)]
     for failure in failures:
         print(failure)
     if failures:
         sys.exit(1)
-    print(f"IfcOpenShell {ifcopenshell.version}: ひな形と、作った IFC・直した IFC・変換した IFC を 3 バージョンで照らした")
+    print(f"IfcOpenShell {ifcopenshell.version}: ひな形と、作った IFC・直した IFC・変換した IFC・面集合を 3 バージョンで照らした")
 
 
 if __name__ == "__main__":

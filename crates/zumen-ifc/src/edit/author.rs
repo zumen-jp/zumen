@@ -25,7 +25,7 @@ pub use intent::{
 pub(super) use material::rejected as material_rejected;
 pub use material::{NewConstituent, NewLayerUsage, NewMaterial, NewMaterialLayer};
 pub(super) use shape::rejected as shape_rejected;
-pub use shape::{NewAxis2, NewAxis3, NewProfile, NewProfileKind, NewShape, NewSolid};
+pub use shape::{NewAxis2, NewAxis3, NewFaces, NewProfile, NewProfileKind, NewShape, NewSolid};
 
 /// 変更が指す要素。文書にあるインスタンスか、同じ要求の中で足した要素
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

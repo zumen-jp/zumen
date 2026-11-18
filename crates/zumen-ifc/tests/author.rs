@@ -3,12 +3,12 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, GridSet, Id, Local, MaterialKind, Opening, ParentKind,
-    QuantityKind, SpatialKind, Transform,
+    Building, ElementRef, FaceBoundRef, FaceSetRef, GlobalId, GridSet, Id, IndexedFaces, Local,
+    MaterialKind, Opening, ParentKind, QuantityKind, SpatialKind, Transform,
 };
 use zumen_ifc::{
     Edit, FillingKind, Ifc, IfcFile, IfcLive, NewAxis3, NewBeam, NewColumn, NewConstituent,
-    NewElement, NewFilling, NewGrid, NewGridAxis, NewLayer, NewLayerUsage, NewMaterial,
+    NewElement, NewFaces, NewFilling, NewGrid, NewGridAxis, NewLayer, NewLayerUsage, NewMaterial,
     NewMaterialLayer, NewOpening, NewPlacement, NewProfileKind, NewQuantity, NewSection, NewShape,
     NewSlab, NewSolid, NewSpace, NewUnit, NewWall, OpeningChange, RootAttribute, SpaceKind, Target,
     WallChange, apply,
@@ -2494,6 +2494,68 @@ fn writes_and_replaces_shapes() {
     }
 }
 
+// 環境変数は照合用の出力先だけに使う。
+#[allow(clippy::disallowed_methods)]
+#[test]
+fn writes_face_sets() {
+    let folder = std::env::var_os("ZUMEN_IFC_AUTHORED").map(std::path::PathBuf::from);
+    for schema in SCHEMAS {
+        let later = schema != "IFC2X3";
+        let shapes = shape::face_examples(later, schema == "IFC4X3_ADD2");
+        let src = complete_sample(schema);
+        // 建物と階に、壁・床・柱を置く
+        let mut edits = building_edits();
+        edits.truncate(3);
+        for (n, class) in [(200, "IfcWall"), (201, "IfcSlab"), (202, "IfcColumn")] {
+            let placement = at(0.0, 0.0, 0.0, Target::Added(1));
+            edits.push(new_element(
+                class,
+                n,
+                Some(Target::Added(1)),
+                Some(placement),
+            ));
+        }
+        for (n, shape) in shapes.iter().enumerate() {
+            edits.push(Edit::Shape {
+                element: Target::Added(3 + n),
+                shape: shape.clone(),
+            });
+        }
+        let (result, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = result.unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        // 箱の点は 8 つを共有し、面ごとに写さない
+        assert_eq!(
+            count(&text, "IFCCLOSEDSHELL"),
+            if later { 1 } else { 2 },
+            "{text}"
+        );
+        for kind in [
+            "SolidModel",
+            "SurfaceModel",
+            if later { "Tessellation" } else { "Brep" },
+        ] {
+            assert!(
+                text.contains(&format!("'Body','{kind}'")),
+                "{schema} {kind}"
+            );
+        }
+        let building = lift_geometry(&bytes).unwrap();
+        for (n, shape) in (200..).zip(&shapes) {
+            assert_eq!(
+                element(&building, n).and_then(|e| shape::shape_of(&building, e)),
+                Some(shape::as_written(shape)),
+                "{schema} {n}"
+            );
+        }
+        if let Some(folder) = &folder {
+            std::fs::create_dir_all(folder).unwrap();
+            std::fs::write(folder.join(format!("{schema}.faces.ifc")), bytes).unwrap();
+        }
+    }
+}
+
 #[test]
 fn rejects_shapes_it_cannot_write() {
     let [wall, ..] = shape::examples();
@@ -2513,6 +2575,7 @@ fn rejects_shapes_it_cannot_write() {
         NewShape {
             axis: None,
             solids: Vec::new(),
+            faces: Vec::new(),
         },
         changed(&|shape| shape.axis = Some(vec![[0.0, 0.0]])),
         solid(&|s| s.depth = 0.0),
@@ -2551,6 +2614,58 @@ fn rejects_shapes_it_cannot_write() {
                 edits
             })
             .collect();
+        let faces = |faces: NewFaces| {
+            let mut edits = building_edits();
+            edits.push(Edit::Shape {
+                element: Target::Added(3),
+                shape: NewShape {
+                    axis: None,
+                    solids: Vec::new(),
+                    faces: vec![faces],
+                },
+            });
+            edits
+        };
+        let [shell, sheet] = shape::surfaces(false);
+        let brep = shape::brep_box([1.0, 1.0, 1.0]);
+        // 開殻の Brep・2 点のループ・外輪が 2 つの面・範囲の外の参照
+        let mut open = brep.clone();
+        open.sets[0].closed = Some(false);
+        let mut short = brep.clone();
+        short.loops[0].points.truncate(2);
+        let mut outers = brep.clone();
+        outers.faces[0].bounds.push(FaceBoundRef(1));
+        let mut outside = brep.clone();
+        outside.roots[0] = FaceSetRef(5);
+        for graph in [open, short, outers, outside] {
+            cases.push(faces(NewFaces::Polygons(graph)));
+        }
+        // 押し出しと面の模型は 1 つの表現にしない
+        let mut mixed = building_edits();
+        mixed.push(Edit::Shape {
+            element: Target::Added(3),
+            shape: NewShape {
+                faces: vec![NewFaces::Polygons(shell)],
+                ..wall.clone()
+            },
+        });
+        cases.push(mixed);
+        let mut indexed = shape::triangulated_box([1.0, 1.0, 1.0], false);
+        if let IndexedFaces::Triangles { indices, .. } = &mut indexed.faces {
+            indices[0][0] = 9;
+        }
+        cases.push(faces(NewFaces::Indexed(indexed)));
+        // 面の模型は IFC4 から非推奨
+        if schema != "IFC2X3" {
+            cases.push(faces(NewFaces::Polygons(sheet)));
+        }
+        // 添字の面集合は IFC4 から、点のタグは IFC4X3 から
+        if schema != "IFC4X3_ADD2" {
+            cases.push(faces(NewFaces::Indexed(shape::triangulated_box(
+                [1.0, 1.0, 1.0],
+                schema == "IFC4",
+            ))));
+        }
         // 敷地には置かない。配置のない要素にも置かない
         cases.push(vec![Edit::Shape {
             element: Target::Instance(10),

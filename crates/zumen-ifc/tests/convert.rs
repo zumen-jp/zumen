@@ -3,11 +3,11 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, Id, Literal, Local, MaterialKind, ParentKind, QuantityKind,
-    Transform, TypedValue,
+    Building, ElementRef, FaceModelKind, GlobalId, Id, Literal, Local, MaterialKind, ParentKind,
+    QuantityKind, Transform, TypedValue,
 };
 use zumen_ifc::{
-    ConvertOptions, Converted, Edit, Header, Ifc, LengthUnit, NewConstituent, NewElement,
+    ConvertOptions, Converted, Edit, Header, Ifc, LengthUnit, NewConstituent, NewElement, NewFaces,
     NewMaterial, NewMaterialLayer, NewPlacement, NewQuantity, NewSpace, NewType, NewUnit,
     OwnerHistory, SpaceKind, Target, Template, Version, apply, convert, create,
 };
@@ -219,7 +219,13 @@ fn source(version: Version) -> Option<Vec<u8>> {
     // 形。壁は芯の線と矩形、床は穴のある多角形、柱は円の押し出し
     let [wall, slab, column] = shape::examples();
     edits.extend(
-        [(4, wall), (7, slab), (8, column)].map(|(n, shape)| Edit::Shape {
+        [
+            (4, wall),
+            (7, slab),
+            (8, column),
+            (6, shape::door(version != Version::Ifc2x3)),
+        ]
+        .map(|(n, shape)| Edit::Shape {
             element: Target::Added(n),
             shape,
         }),
@@ -480,7 +486,7 @@ fn converts_the_structure_between_every_version() {
             }
             assert_eq!(found, expected, "{from:?} → {to:?}");
             // 形は、書き手が省かずに書く配置のほかは保つ
-            for n in [20, 23, 24] {
+            for n in [20, 22, 23, 24] {
                 let of = |building: &Building| {
                     building
                         .find(Id::Global(global(n)))
@@ -488,7 +494,18 @@ fn converts_the_structure_between_every_version() {
                 };
                 let wanted = of(&source).map(|s| shape::as_written(&s));
                 assert!(wanted.is_some(), "{from:?} {n}");
-                assert_eq!(of(&target), wanted, "{from:?} → {to:?} {n}");
+                let found = of(&target);
+                // IFC2X3 へは三角形の箱を、点を共有する多角形の閉殻にする
+                if n == 22 && to == Version::Ifc2x3 && from != Version::Ifc2x3 {
+                    let faces = found.map(|s| s.faces);
+                    let Some([NewFaces::Polygons(graph)]) = faces.as_deref() else {
+                        panic!("{from:?} → {to:?}: {faces:?}");
+                    };
+                    assert_eq!(graph.kind, FaceModelKind::FacetedSolid);
+                    assert_eq!((graph.faces.len(), graph.points.len()), (12, 8));
+                    continue;
+                }
+                assert_eq!(found, wanted, "{from:?} → {to:?} {n}");
             }
             // 数量は保つ。IFC2X3 へは式を落とす
             let mut wanted = quantities(&source, 20);
@@ -566,10 +583,11 @@ fn converts_the_structure_between_every_version() {
                     ("IfcDoorType", ConversionFidelity::Dropped, Vec::new()),
                 ]);
             }
-            // 長さの数量の式・層の名前・構成要素は IFC2X3 に書けない
+            // 長さの数量の式・層の名前・構成要素・三角形の面集合は IFC2X3 に書けない
             if from != Version::Ifc2x3 && to == Version::Ifc2x3 {
                 if let Some(door) = wanted.iter_mut().find(|w| w.0 == "IfcDoor") {
-                    door.2.insert(0, "material".to_owned());
+                    door.2
+                        .splice(0..0, ["material".to_owned(), "representation".to_owned()]);
                 }
                 wanted.extend([
                     (

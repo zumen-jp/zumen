@@ -17,18 +17,20 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_building::{
-    Acquired, AreaProfileKind, AxisPlacement2, Building, Coordinates, CurveGraph, CurveKind,
-    CurveRef, ElementRef, GeometryData, GeometryDefinition, GeometryLinks, GeometryNode,
-    GeometryRef, GlobalId, Id, Literal, Local, Material, MaterialKind, Measured, Opening,
-    ParentKind, Property, Quantity, SpatialKind, Unit,
+    Acquired, AreaProfileKind, AxisPlacement2, Building, ConnectedFaces, Coordinates, CurveGraph,
+    CurveKind, CurveRef, ElementRef, FaceBoundRef, FaceBoundary, FaceGraph, FaceLoopRef,
+    FaceModelKind, FacePointRef, FacePolygon, FaceRef, FaceSetRef, GeometryData,
+    GeometryDefinition, GeometryLinks, GeometryNode, GeometryRef, GlobalId, Id, IndexedFaceSet,
+    IndexedFaces, Literal, Local, Material, MaterialKind, Measured, Opening, ParentKind,
+    PolygonFace, Property, Quantity, SpatialKind, Unit,
 };
 use zumen_sdk::conversion::{ConversionFidelity, ConversionReport, Report, note};
 use zumen_sdk::{Codec, Cx, Error};
 
 use super::author::{
-    NewAxis2, NewAxis3, NewConstituent, NewLayerUsage, NewMaterial, NewMaterialLayer, NewProfile,
-    NewProfileKind, NewShape, NewSolid, NewType, enumeration, material_rejected, predefined_at,
-    rigid, shape_rejected, writable_type,
+    NewAxis2, NewAxis3, NewConstituent, NewFaces, NewLayerUsage, NewMaterial, NewMaterialLayer,
+    NewProfile, NewProfileKind, NewShape, NewSolid, NewType, enumeration, material_rejected,
+    predefined_at, rigid, shape_rejected, writable_type,
 };
 use super::create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
 use super::quantity::{NewQuantity, NewUnit, quantity_value, si_unit};
@@ -482,24 +484,36 @@ impl Plan<'_, '_> {
         }
     }
 
-    /// 書いた要素に形を置く。そのまま書けたものは、落とした値から外す
+    /// 書いた要素に形を置く。書けないか近似した形は、落とした値に足す
     fn shape(&mut self, element: ElementRef) {
         let Some(geometry) = self.building.geometry(element) else {
             return;
         };
-        let Some(target) = self.target(element) else {
+        let Some(target) = self.target(element).filter(|_| self.shaped(element)) else {
             return;
         };
         let Some((shape, exact)) = self.new_shape(geometry.data()) else {
+            self.lost(element, "representation");
             return;
         };
         self.edits.push(Edit::Shape {
             element: target,
             shape,
         });
-        if exact && let Some((_, dropped)) = self.notes.get_mut(&element) {
-            dropped.retain(|&value| value != "representation");
+        if exact {
+            if let Some((_, dropped)) = self.notes.get_mut(&element) {
+                dropped.retain(|&value| value != "representation");
+            }
+        } else {
+            self.lost(element, "representation");
         }
+    }
+
+    /// 要素が形の表現を持つか。読んだ形に根がなければ、表現はない
+    fn shaped(&self, element: ElementRef) -> bool {
+        self.building
+            .geometry(element)
+            .is_some_and(|geometry| geometry.data().root.is_some())
     }
 
     /// 書ける形と、そのまま書けたか。`Axis` の折れ線と、`Body` の押し出しだけを書く。`Body` は項目が
@@ -517,6 +531,7 @@ impl Plan<'_, '_> {
         let mut shape = NewShape {
             axis: None,
             solids: Vec::new(),
+            faces: Vec::new(),
         };
         for &representation in representations {
             let Some(GeometryLinks::Representation {
@@ -534,18 +549,85 @@ impl Plan<'_, '_> {
                 };
                 exact &= axis.is_some();
                 shape.axis = axis;
-            } else if identifier.eq_ignore_ascii_case("Body") && shape.solids.is_empty() {
-                let solids = items
-                    .iter()
-                    .map(|&item| node(item).and_then(|n| self.new_solid(n)))
-                    .collect::<Option<Vec<_>>>();
-                exact &= solids.is_some();
-                shape.solids = solids.unwrap_or_default();
+            } else if identifier.eq_ignore_ascii_case("Body")
+                && shape.solids.is_empty()
+                && shape.faces.is_empty()
+            {
+                let mut solids = Vec::new();
+                let mut faces = Vec::new();
+                let mut whole = true;
+                for &item in items {
+                    let Some(node) = node(item) else {
+                        whole = false;
+                        break;
+                    };
+                    if let Some(solid) = self.new_solid(node) {
+                        solids.push(solid);
+                    } else if let Some((set, same)) = self.new_faces(node) {
+                        exact &= same;
+                        faces.push(set);
+                    } else {
+                        whole = false;
+                        break;
+                    }
+                }
+                exact &= whole;
+                if whole {
+                    shape.solids = solids;
+                    shape.faces = faces;
+                }
             } else {
                 exact = false;
             }
         }
-        shape_rejected(&shape).is_none().then_some((shape, exact))
+        // 書けない組み合わせの `Body` は落とし、芯の線だけを書く
+        if shape_rejected(&shape, self.version).is_some()
+            && (!shape.solids.is_empty() || !shape.faces.is_empty())
+        {
+            exact = false;
+            shape.solids.clear();
+            shape.faces.clear();
+        }
+        shape_rejected(&shape, self.version)
+            .is_none()
+            .then_some((shape, exact))
+    }
+
+    /// 面集合と、そのまま書けたか。添字の面は IFC2X3 へ多角形の面にし、IFC4 へは点のタグを落とす。面の模型は
+    /// IFC4 から非推奨なので、開殻の殻の模型にする
+    fn new_faces(&self, node: &GeometryNode) -> Option<(NewFaces, bool)> {
+        match &node.definition {
+            GeometryDefinition::Faces {
+                definition,
+                length_unit,
+            } if self.length_written(length_unit.as_ref()) => {
+                let mut graph = definition.clone();
+                if graph.kind != FaceModelKind::FaceSurface || self.version == Version::Ifc2x3 {
+                    return Some((NewFaces::Polygons(graph), true));
+                }
+                graph.kind = FaceModelKind::ShellSurface;
+                for set in &mut graph.sets {
+                    set.closed.get_or_insert(false);
+                }
+                Some((NewFaces::Polygons(graph), false))
+            }
+            GeometryDefinition::Tessellation {
+                definition,
+                length_unit,
+            } if self.length_written(length_unit.as_ref()) => {
+                if self.version == Version::Ifc2x3 {
+                    return polygon_faces(definition)
+                        .map(|graph| (NewFaces::Polygons(graph), false));
+                }
+                let mut set = definition.clone();
+                let mut same = true;
+                if self.version != Version::Ifc4x3 && set.tags.take().is_some() {
+                    same = false;
+                }
+                Some((NewFaces::Indexed(set), same))
+            }
+            _ => None,
+        }
     }
 
     /// `Axis` の 2 次元の折れ線
@@ -955,6 +1037,8 @@ impl Plan<'_, '_> {
         self.material(element);
         if placed {
             self.shape(element);
+        } else if self.shaped(element) {
+            self.lost(element, "representation");
         }
         if let Some(type_of) = type_of {
             self.edits.push(Edit::Type {
@@ -1186,4 +1270,75 @@ fn ring(graph: &CurveGraph, at: CurveRef) -> Option<Vec<[f64; 2]>> {
         ring.pop();
     }
     Some(ring)
+}
+
+/// 添字の面集合を IFC2X3 の多角形の面の模型にする。点の対応を当て、法線とタグは落とす。閉殻の申告があれば
+/// 立体、開殻なら殻の面の模型、なければ面の模型
+fn polygon_faces(set: &IndexedFaceSet) -> Option<FaceGraph> {
+    let point = |index: u32| -> Option<u32> {
+        let at = index.checked_sub(1)? as usize;
+        match &set.point_index {
+            Some(map) => map.get(at)?.checked_sub(1),
+            None => Some(at as u32),
+        }
+    };
+    let polygons: Vec<Vec<&[u32]>> = match &set.faces {
+        IndexedFaces::Triangles { indices, .. } => {
+            indices.iter().map(|row| vec![row.as_slice()]).collect()
+        }
+        IndexedFaces::Polygons { indices, faces } => indices
+            .iter()
+            .map(|at| {
+                faces.get(at.0 as usize).map(|face| {
+                    let mut rings = vec![face.boundary.as_slice()];
+                    rings.extend(face.holes.iter().map(Vec::as_slice));
+                    rings
+                })
+            })
+            .collect::<Option<_>>()?,
+    };
+    let mut graph = FaceGraph {
+        kind: match set.closed {
+            Some(true) => FaceModelKind::FacetedSolid,
+            Some(false) => FaceModelKind::ShellSurface,
+            None => FaceModelKind::FaceSurface,
+        },
+        roots: vec![FaceSetRef(0)],
+        sets: vec![ConnectedFaces {
+            faces: Vec::with_capacity(polygons.len()),
+            closed: set.closed,
+        }],
+        faces: Vec::with_capacity(polygons.len()),
+        bounds: Vec::new(),
+        loops: Vec::new(),
+        points: Vec::new(),
+    };
+    // 点は最初に使った順に並べ、同じ点は共有する
+    let mut known = BTreeMap::new();
+    for rings in polygons {
+        let mut bounds = Vec::with_capacity(rings.len());
+        for (n, ring) in rings.into_iter().enumerate() {
+            let mut points = Vec::with_capacity(ring.len());
+            for &index in ring {
+                let at = point(index)?;
+                let next = u32::try_from(graph.points.len()).ok()?;
+                let mapped = *known.entry(at).or_insert(next);
+                if mapped == next {
+                    graph.points.push(*set.points.get(at as usize)?);
+                }
+                points.push(FacePointRef(mapped));
+            }
+            bounds.push(FaceBoundRef(u32::try_from(graph.bounds.len()).ok()?));
+            graph.bounds.push(FaceBoundary {
+                polygon: FaceLoopRef(u32::try_from(graph.loops.len()).ok()?),
+                orientation: true,
+                outer: n == 0,
+            });
+            graph.loops.push(FacePolygon { points });
+        }
+        let face = FaceRef(u32::try_from(graph.faces.len()).ok()?);
+        graph.faces.push(PolygonFace { bounds });
+        graph.sets.first_mut()?.faces.push(face);
+    }
+    Some(graph)
 }

@@ -1,4 +1,4 @@
-//! 要素の形（芯の線と押し出し）を書く変更（#395）。
+//! 要素の形（芯の線・押し出し・面集合）を書く変更（#395）。
 //!
 //! 属性の並びは、IFC2X3 TC1 と IFC4 ADD2 TC1・IFC4X3 ADD2 の、形の資源・断面の資源・表現の資源の実体の定義による。
 //!
@@ -12,19 +12,48 @@
 //! - `IfcArbitraryClosedProfileDef`: 1 ProfileType・2 ProfileName・3 OuterCurve
 //! - `IfcArbitraryProfileDefWithVoids`: 4 InnerCurves
 //! - `IfcAxis2Placement3D`: 1 Location・2 Axis・3 RefDirection。`IfcAxis2Placement2D`: 1 Location・2 RefDirection
+//! - `IfcFacetedBrep`: 1 Outer（`IfcClosedShell`）。`IfcShellBasedSurfaceModel`: 1 SbsmBoundary（殻の集合）。
+//!   `IfcFaceBasedSurfaceModel`: 1 FbsmFaces（`IfcConnectedFaceSet` の集合）。面の模型は IFC4 から非推奨
+//!   （ifc-gherkin-rules の IFC102）なので、IFC2X3 だけに書く
+//! - `IfcConnectedFaceSet`・`IfcOpenShell`・`IfcClosedShell`: 1 CfsFaces。`IfcFace`: 1 Bounds。外輪
+//!   （`IfcFaceOuterBound`）は面に 1 つまで
+//! - `IfcFaceBound`・`IfcFaceOuterBound`: 1 Bound・2 Orientation。`IfcPolyLoop`: 1 Polygon（3 点以上で、点は重ならない）
+//! - IFC4 から: `IfcTriangulatedFaceSet`: 1 Coordinates・2 Normals・3 Closed・4 CoordIndex・5 PnIndex。
+//!   `IfcPolygonalFaceSet`: 1 Coordinates・2 Closed・3 Faces・4 PnIndex。`IfcIndexedPolygonalFace`: 1 CoordIndex。
+//!   `WithVoids`: 2 InnerCoordIndices。`IfcCartesianPointList3D`: 1 CoordList・2 TagList（IFC4X3 から）
+//! - 表現の種類（RepresentationType）は項目から決める。押し出しは `SweptSolid`、`IfcFacetedBrep` は `Brep`、
+//!   両方なら `SolidModel`、面の模型は `SurfaceModel`、添字の面集合は `Tessellation`。ほかの組み合わせは書かない
 
+use std::collections::BTreeSet;
+
+use zumen_base::Kind;
+use zumen_building::{FaceGraph, FaceModelKind, IndexedFaceSet, IndexedFaces};
 use zumen_sdk::{Cx, Error};
 
 use super::{Category, Draft, Item, Stmt, Target, null, raw, real, text, unsupported};
+use crate::building::Version;
 use crate::edit::refs_of;
+use crate::stopped;
 
 /// 要素の形。芯の線は `Axis`、押し出しは `Body` の表現に書き、元の表現は置き換える
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewShape {
     /// 芯の線（`Axis` の表現の `IfcPolyline`）。2 点以上
     pub axis: Option<Vec<[f64; 2]>>,
-    /// 押し出し（`Body` の表現の `IfcExtrudedAreaSolid`）。空なら `Body` を書かない
+    /// 押し出し（`Body` の表現の `IfcExtrudedAreaSolid`）
     pub solids: Vec<NewSolid>,
+    /// 面集合（`Body` の表現）。押し出しとともに空なら `Body` を書かない
+    pub faces: Vec<NewFaces>,
+}
+
+/// 面集合。点は文書の長さの単位で、参照と共有は値のまま書く
+#[derive(Clone, Debug, PartialEq)]
+pub enum NewFaces {
+    /// 多角形の面（`IfcFacetedBrep`・`IfcShellBasedSurfaceModel`・IFC2X3 の `IfcFaceBasedSurfaceModel`）。
+    /// 根からたどれる表の行だけを、たどった順で書く
+    Polygons(FaceGraph),
+    /// 添字の面（`IfcTriangulatedFaceSet`・`IfcPolygonalFaceSet`）。IFC4 から。点のタグは IFC4X3 から
+    Indexed(IndexedFaceSet),
 }
 
 /// 断面の押し出し
@@ -110,7 +139,11 @@ impl Draft<'_> {
         let Some((id, mut stmt, _)) = self.object(target, &[Category::Element], EDIT, cx) else {
             return Ok(false);
         };
-        let reason = rejected(shape)
+        let Some(version) = self.version() else {
+            cx.report(unsupported(EDIT, &stmt.name));
+            return Ok(false);
+        };
+        let reason = rejected(shape, version)
             .or_else(|| matches!(stmt.arg(6), None | Some(Item::Raw(_))).then_some("placement"));
         if let Some(value) = reason {
             cx.report(unsupported(EDIT, &stmt.name).with("value", value));
@@ -134,18 +167,27 @@ impl Draft<'_> {
                 ],
             }));
         }
-        if !shape.solids.is_empty() {
+        if let Some(kind) = body_type(shape) {
+            let work = shape.faces.iter().map(faces_size).sum::<u64>();
+            cx.check(Kind::Work, work)
+                .map_err(|stop| stopped(cx, stop, None))?;
             let context = self.subcontext(model, "Body", b".MODEL_VIEW.");
-            let mut items = Vec::with_capacity(shape.solids.len());
+            let mut items = Vec::with_capacity(shape.solids.len() + shape.faces.len());
             for solid in &shape.solids {
                 items.push(Item::Ref(self.solid(solid)));
+            }
+            for faces in &shape.faces {
+                items.push(Item::Ref(match faces {
+                    NewFaces::Polygons(graph) => self.face_graph(graph),
+                    NewFaces::Indexed(set) => self.indexed_faces(set),
+                }));
             }
             representations.push(self.add(Stmt {
                 name: b"IFCSHAPEREPRESENTATION".to_vec(),
                 args: vec![
                     Item::Ref(context),
                     text("Body"),
-                    text("SweptSolid"),
+                    text(kind),
                     Item::List(items),
                 ],
             }));
@@ -264,6 +306,223 @@ impl Draft<'_> {
         })
     }
 
+    /// 多角形の面の模型。根からたどり、共有する行は 1 つのインスタンスにする。値は [`rejected`] で確かめてある
+    fn face_graph(&mut self, graph: &FaceGraph) -> u64 {
+        let mut written = FaceIds {
+            sets: vec![None; graph.sets.len()],
+            faces: vec![None; graph.faces.len()],
+            bounds: vec![None; graph.bounds.len()],
+            loops: vec![None; graph.loops.len()],
+            points: vec![None; graph.points.len()],
+        };
+        let roots: Vec<Item> = graph
+            .roots
+            .iter()
+            .map(|root| Item::Ref(self.face_set(graph, root.0 as usize, &mut written)))
+            .collect();
+        let (name, outer) = match graph.kind {
+            FaceModelKind::FacetedSolid => (
+                b"IFCFACETEDBREP".as_slice(),
+                roots.into_iter().next().unwrap_or_else(null),
+            ),
+            FaceModelKind::ShellSurface => {
+                (b"IFCSHELLBASEDSURFACEMODEL".as_slice(), Item::List(roots))
+            }
+            FaceModelKind::FaceSurface => {
+                (b"IFCFACEBASEDSURFACEMODEL".as_slice(), Item::List(roots))
+            }
+        };
+        self.add(Stmt {
+            name: name.to_vec(),
+            args: vec![outer],
+        })
+    }
+
+    fn face_set(&mut self, graph: &FaceGraph, at: usize, written: &mut FaceIds) -> u64 {
+        if let Some(Some(id)) = written.sets.get(at) {
+            return *id;
+        }
+        let Some(set) = graph.sets.get(at) else {
+            return 0;
+        };
+        let faces = set
+            .faces
+            .iter()
+            .map(|face| Item::Ref(self.face(graph, face.0 as usize, written)))
+            .collect();
+        let name: &[u8] = match set.closed {
+            Some(true) => b"IFCCLOSEDSHELL",
+            Some(false) => b"IFCOPENSHELL",
+            None => b"IFCCONNECTEDFACESET",
+        };
+        let id = self.add(Stmt {
+            name: name.to_vec(),
+            args: vec![Item::List(faces)],
+        });
+        if let Some(slot) = written.sets.get_mut(at) {
+            *slot = Some(id);
+        }
+        id
+    }
+
+    fn face(&mut self, graph: &FaceGraph, at: usize, written: &mut FaceIds) -> u64 {
+        if let Some(Some(id)) = written.faces.get(at) {
+            return *id;
+        }
+        let Some(face) = graph.faces.get(at) else {
+            return 0;
+        };
+        let mut bounds = Vec::with_capacity(face.bounds.len());
+        for bound in &face.bounds {
+            let at = bound.0 as usize;
+            if let Some(Some(id)) = written.bounds.get(at) {
+                bounds.push(Item::Ref(*id));
+                continue;
+            }
+            let Some(bound) = graph.bounds.get(at) else {
+                continue;
+            };
+            let polygon = self.face_loop(graph, bound.polygon.0 as usize, written);
+            let id = self.add(Stmt {
+                name: if bound.outer {
+                    b"IFCFACEOUTERBOUND".to_vec()
+                } else {
+                    b"IFCFACEBOUND".to_vec()
+                },
+                args: vec![Item::Ref(polygon), boolean(bound.orientation)],
+            });
+            if let Some(slot) = written.bounds.get_mut(at) {
+                *slot = Some(id);
+            }
+            bounds.push(Item::Ref(id));
+        }
+        let id = self.add(Stmt {
+            name: b"IFCFACE".to_vec(),
+            args: vec![Item::List(bounds)],
+        });
+        if let Some(slot) = written.faces.get_mut(at) {
+            *slot = Some(id);
+        }
+        id
+    }
+
+    fn face_loop(&mut self, graph: &FaceGraph, at: usize, written: &mut FaceIds) -> u64 {
+        if let Some(Some(id)) = written.loops.get(at) {
+            return *id;
+        }
+        let Some(polygon) = graph.loops.get(at) else {
+            return 0;
+        };
+        let mut points = Vec::with_capacity(polygon.points.len());
+        for point in &polygon.points {
+            let at = point.0 as usize;
+            let id = match (written.points.get(at), graph.points.get(at)) {
+                (Some(Some(id)), _) => *id,
+                (_, Some(values)) => {
+                    let id = self.point(b"IFCCARTESIANPOINT", values);
+                    if let Some(slot) = written.points.get_mut(at) {
+                        *slot = Some(id);
+                    }
+                    id
+                }
+                _ => continue,
+            };
+            points.push(Item::Ref(id));
+        }
+        let id = self.add(Stmt {
+            name: b"IFCPOLYLOOP".to_vec(),
+            args: vec![Item::List(points)],
+        });
+        if let Some(slot) = written.loops.get_mut(at) {
+            *slot = Some(id);
+        }
+        id
+    }
+
+    /// 添字の面集合。値は [`rejected`] で確かめてある
+    fn indexed_faces(&mut self, set: &IndexedFaceSet) -> u64 {
+        let mut coordinates = vec![Item::List(
+            set.points
+                .iter()
+                .map(|p| Item::List(p.iter().map(|&v| number(v)).collect()))
+                .collect(),
+        )];
+        if self.version() == Some(Version::Ifc4x3) {
+            coordinates.push(set.tags.as_ref().map_or_else(null, |tags| {
+                Item::List(tags.iter().map(|tag| text(tag)).collect())
+            }));
+        }
+        let coordinates = self.add(Stmt {
+            name: b"IFCCARTESIANPOINTLIST3D".to_vec(),
+            args: coordinates,
+        });
+        let closed = set.closed.map_or_else(null, boolean);
+        let point_index = set.point_index.as_deref().map_or_else(null, integers);
+        match &set.faces {
+            IndexedFaces::Triangles { indices, normals } => {
+                let normals = normals.as_ref().map_or_else(null, |normals| {
+                    Item::List(
+                        normals
+                            .iter()
+                            .map(|n| Item::List(n.iter().map(|&v| number(v)).collect()))
+                            .collect(),
+                    )
+                });
+                let indices = Item::List(indices.iter().map(|row| integers(row)).collect());
+                self.add(Stmt {
+                    name: b"IFCTRIANGULATEDFACESET".to_vec(),
+                    args: vec![
+                        Item::Ref(coordinates),
+                        normals,
+                        closed,
+                        indices,
+                        point_index,
+                    ],
+                })
+            }
+            IndexedFaces::Polygons { indices, faces } => {
+                let mut written = vec![None; faces.len()];
+                let mut refs = Vec::with_capacity(indices.len());
+                for index in indices {
+                    let at = index.0 as usize;
+                    let id = match (written.get(at), faces.get(at)) {
+                        (Some(Some(id)), _) => *id,
+                        (_, Some(face)) => {
+                            let mut args = vec![integers(&face.boundary)];
+                            let name: &[u8] = if face.holes.is_empty() {
+                                b"IFCINDEXEDPOLYGONALFACE"
+                            } else {
+                                args.push(Item::List(
+                                    face.holes.iter().map(|hole| integers(hole)).collect(),
+                                ));
+                                b"IFCINDEXEDPOLYGONALFACEWITHVOIDS"
+                            };
+                            let id = self.add(Stmt {
+                                name: name.to_vec(),
+                                args,
+                            });
+                            if let Some(slot) = written.get_mut(at) {
+                                *slot = Some(id);
+                            }
+                            id
+                        }
+                        _ => continue,
+                    };
+                    refs.push(Item::Ref(id));
+                }
+                self.add(Stmt {
+                    name: b"IFCPOLYGONALFACESET".to_vec(),
+                    args: vec![
+                        Item::Ref(coordinates),
+                        closed,
+                        Item::List(refs),
+                        point_index,
+                    ],
+                })
+            }
+        }
+    }
+
     /// 座標の並びの点か向き。値は有限と確かめてある
     fn point(&mut self, name: &[u8], values: &[f64]) -> u64 {
         self.add(Stmt {
@@ -273,9 +532,166 @@ impl Draft<'_> {
     }
 }
 
+/// 書いた面の模型の行のインスタンス
+struct FaceIds {
+    sets: Vec<Option<u64>>,
+    faces: Vec<Option<u64>>,
+    bounds: Vec<Option<u64>>,
+    loops: Vec<Option<u64>>,
+    points: Vec<Option<u64>>,
+}
+
 /// 有限と確かめた値
 fn number(value: f64) -> Item {
     real(value).unwrap_or_else(null)
+}
+
+fn boolean(value: bool) -> Item {
+    raw(if value { b".T." } else { b".F." })
+}
+
+fn integers(values: &[u32]) -> Item {
+    Item::List(
+        values
+            .iter()
+            .map(|v| Item::Raw(v.to_string().into_bytes()))
+            .collect(),
+    )
+}
+
+/// 面集合を書く作業量。行の数
+fn faces_size(faces: &NewFaces) -> u64 {
+    let rows = match faces {
+        NewFaces::Polygons(g) => {
+            g.sets.len() + g.faces.len() + g.bounds.len() + g.loops.len() + g.points.len()
+        }
+        NewFaces::Indexed(set) => {
+            set.points.len()
+                + match &set.faces {
+                    IndexedFaces::Triangles { indices, .. } => indices.len(),
+                    IndexedFaces::Polygons { indices, .. } => indices.len(),
+                }
+        }
+    };
+    rows as u64
+}
+
+/// `Body` の表現の種類。項目がなければ `None`
+fn body_type(shape: &NewShape) -> Option<&'static str> {
+    let solids = !shape.solids.is_empty();
+    let (mut brep, mut surface, mut tessellation) = (false, false, false);
+    for faces in &shape.faces {
+        match faces {
+            NewFaces::Polygons(graph) if graph.kind == FaceModelKind::FacetedSolid => brep = true,
+            NewFaces::Polygons(_) => surface = true,
+            NewFaces::Indexed(_) => tessellation = true,
+        }
+    }
+    match (solids, brep, surface, tessellation) {
+        (false, false, false, false) => None,
+        (true, false, false, false) => Some("SweptSolid"),
+        (false, true, false, false) => Some("Brep"),
+        (true, true, false, false) => Some("SolidModel"),
+        (false, false, true, false) => Some("SurfaceModel"),
+        (false, false, false, true) => Some("Tessellation"),
+        _ => Some(""),
+    }
+}
+
+/// 参照が表の中にあり、重ならない
+fn unique_in(refs: impl Iterator<Item = u32>, len: usize) -> bool {
+    let mut seen = BTreeSet::new();
+    refs.into_iter()
+        .all(|at| (at as usize) < len && seen.insert(at))
+}
+
+/// 書ける多角形の面の模型か
+fn graph_ok(graph: &FaceGraph) -> bool {
+    let roots = !graph.roots.is_empty()
+        && unique_in(graph.roots.iter().map(|r| r.0), graph.sets.len())
+        && graph.roots.iter().all(|root| {
+            let closed = graph.sets.get(root.0 as usize).and_then(|set| set.closed);
+            match graph.kind {
+                FaceModelKind::FacetedSolid => closed == Some(true),
+                FaceModelKind::ShellSurface => closed.is_some(),
+                FaceModelKind::FaceSurface => true,
+            }
+        })
+        && (graph.kind != FaceModelKind::FacetedSolid || graph.roots.len() == 1);
+    roots
+        && graph.sets.iter().all(|set| {
+            !set.faces.is_empty() && unique_in(set.faces.iter().map(|f| f.0), graph.faces.len())
+        })
+        && graph.faces.iter().all(|face| {
+            !face.bounds.is_empty()
+                && unique_in(face.bounds.iter().map(|b| b.0), graph.bounds.len())
+                && face
+                    .bounds
+                    .iter()
+                    .filter(|b| graph.bounds.get(b.0 as usize).is_some_and(|b| b.outer))
+                    .count()
+                    <= 1
+        })
+        && graph
+            .bounds
+            .iter()
+            .all(|bound| (bound.polygon.0 as usize) < graph.loops.len())
+        && graph.points.iter().all(|p| finite(p))
+        && graph.loops.iter().all(|polygon| {
+            // 点のインスタンスも座標も重ならない
+            let mut seen = BTreeSet::new();
+            polygon.points.len() >= 3
+                && polygon.points.iter().all(|p| {
+                    graph.points.get(p.0 as usize).is_some_and(|v| {
+                        seen.insert(v.map(|c| if c == 0.0 { 0 } else { c.to_bits() }))
+                    })
+                })
+        })
+}
+
+/// 書ける添字の面集合か。書けなければ理由
+fn indexed_rejected(set: &IndexedFaceSet, version: Version) -> Option<&'static str> {
+    if version == Version::Ifc2x3 {
+        return Some("tessellation");
+    }
+    if set.tags.is_some() && version != Version::Ifc4x3 {
+        return Some("tags");
+    }
+    let in_range = |values: &[u32], len: usize| values.iter().all(|&v| v >= 1 && v as usize <= len);
+    let count = set.point_index.as_ref().map_or(set.points.len(), Vec::len);
+    let ok = !set.points.is_empty()
+        && set.points.iter().all(|p| finite(p))
+        && set
+            .tags
+            .as_ref()
+            .is_none_or(|tags| tags.len() == set.points.len())
+        && set
+            .point_index
+            .as_ref()
+            .is_none_or(|index| !index.is_empty() && in_range(index, set.points.len()))
+        && match &set.faces {
+            IndexedFaces::Triangles { indices, normals } => {
+                let limit = normals.as_ref().map_or(count, |n| count.min(n.len()));
+                !indices.is_empty()
+                    && indices.iter().all(|row| in_range(row, limit))
+                    && normals
+                        .as_ref()
+                        .is_none_or(|n| !n.is_empty() && n.iter().all(|v| finite(v)))
+            }
+            IndexedFaces::Polygons { indices, faces } => {
+                !indices.is_empty()
+                    && indices.iter().all(|at| (at.0 as usize) < faces.len())
+                    && faces.iter().all(|face| {
+                        face.boundary.len() >= 3
+                            && in_range(&face.boundary, count)
+                            && face
+                                .holes
+                                .iter()
+                                .all(|hole| hole.len() >= 3 && in_range(hole, count))
+                    })
+            }
+        };
+    (!ok).then_some("faces")
 }
 
 fn finite(values: &[f64]) -> bool {
@@ -296,9 +712,26 @@ fn axis2(position: Option<&NewAxis2>) -> bool {
 }
 
 /// 書けない形なら、診断に書く理由
-pub(in crate::edit) fn rejected(shape: &NewShape) -> Option<&'static str> {
-    if shape.axis.is_none() && shape.solids.is_empty() {
+pub(in crate::edit) fn rejected(shape: &NewShape, version: Version) -> Option<&'static str> {
+    if shape.axis.is_none() && shape.solids.is_empty() && shape.faces.is_empty() {
         return Some("empty");
+    }
+    if body_type(shape) == Some("") {
+        return Some("mixed");
+    }
+    for faces in &shape.faces {
+        let reason = match faces {
+            NewFaces::Polygons(graph)
+                if graph.kind == FaceModelKind::FaceSurface && version != Version::Ifc2x3 =>
+            {
+                Some("deprecated")
+            }
+            NewFaces::Polygons(graph) => (!graph_ok(graph)).then_some("faces"),
+            NewFaces::Indexed(set) => indexed_rejected(set, version),
+        };
+        if reason.is_some() {
+            return reason;
+        }
     }
     if let Some(points) = &shape.axis
         && (points.len() < 2 || !points.iter().all(|p| finite(p)))
