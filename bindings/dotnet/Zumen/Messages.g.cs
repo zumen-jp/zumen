@@ -10058,7 +10058,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
+    /// 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・AdvancedSweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
     /// </summary>
     public sealed record BuildingShapeEdit
     {
@@ -10094,7 +10094,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位
+    /// 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、revolution は profile・position・axis・angle、swept_disk は directrix・radius・inner_radius・start・end、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位
     /// </summary>
     public sealed record BuildingShapeItem
     {
@@ -10105,13 +10105,13 @@ namespace Zumen.Messages
         public string Kind { get; init; } = default!;
 
         /// <summary>
-        /// 押し出す断面
+        /// 押し出す・回す断面
         /// </summary>
         [JsonPropertyName("profile")]
         public BuildingShapeProfile? Profile { get; init; }
 
         /// <summary>
-        /// 押し出しの局所の配置。書かなければ要素の配置のまま
+        /// 押し出し・回転の局所の配置。書かなければ要素の配置のまま
         /// </summary>
         [JsonPropertyName("position")]
         public BuildingAxis3? Position { get; init; }
@@ -10127,6 +10127,48 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("depth")]
         public double? Depth { get; init; }
+
+        /// <summary>
+        /// 断面を回す軸。断面の平面（局所の XY 平面）にある。マイナーバージョン 108 から
+        /// </summary>
+        [JsonPropertyName("axis")]
+        public BuildingShapeRevolutionAxis? Axis { get; init; }
+
+        /// <summary>
+        /// 回す角度（ラジアン）。0 より大きく 2π 以下。文書の平面角の単位に直して書くので、文書は平面角の単位を持つこと。マイナーバージョン 108 から
+        /// </summary>
+        [JsonPropertyName("angle")]
+        public double? Angle { get; init; }
+
+        /// <summary>
+        /// 円盤を沿わせる折れ線の [x, y, z] を 2 点以上。続く点は重ならない。マイナーバージョン 108 から
+        /// </summary>
+        [JsonPropertyName("directrix")]
+        public IReadOnlyList<IReadOnlyList<double>>? Directrix { get; init; }
+
+        /// <summary>
+        /// 円盤の半径。正の値。マイナーバージョン 108 から
+        /// </summary>
+        [JsonPropertyName("radius")]
+        public double? Radius { get; init; }
+
+        /// <summary>
+        /// 管の内側の半径。正で radius より小さい。書かなければ中実。マイナーバージョン 108 から
+        /// </summary>
+        [JsonPropertyName("inner_radius")]
+        public double? InnerRadius { get; init; }
+
+        /// <summary>
+        /// 掃引を始める折れ線のパラメーター（1 区間で 1 進む）。書かなければ始点。IFC2X3 では書かなければ 0 を書く。マイナーバージョン 108 から
+        /// </summary>
+        [JsonPropertyName("start")]
+        public double? Start { get; init; }
+
+        /// <summary>
+        /// 掃引を終える折れ線のパラメーター。start より大きく区間の数以下。書かなければ終点。IFC2X3 では書かなければ区間の数を書く。マイナーバージョン 108 から
+        /// </summary>
+        [JsonPropertyName("end")]
+        public double? End { get; init; }
 
         /// <summary>
         /// 面集合の点 [x, y, z]
@@ -10208,7 +10250,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）
+    /// 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）。revolution は断面の回転（IfcRevolvedAreaSolid）、swept_disk は円盤の掃引（IfcSweptDiskSolid）で、マイナーバージョン 108 から
     /// </summary>
     public static class BuildingShapeItemKind
     {
@@ -10222,6 +10264,28 @@ namespace Zumen.Messages
         public const string HalfSpace = "half_space";
         /// <summary>mapped</summary>
         public const string Mapped = "mapped";
+        /// <summary>revolution</summary>
+        public const string Revolution = "revolution";
+        /// <summary>swept_disk</summary>
+        public const string SweptDisk = "swept_disk";
+    }
+
+    /// <summary>
+    /// 断面を回す軸（IfcAxis1Placement）。断面の平面にある
+    /// </summary>
+    public sealed record BuildingShapeRevolutionAxis
+    {
+        /// <summary>
+        /// 軸の通る点 [x, y]
+        /// </summary>
+        [JsonPropertyName("location")]
+        public IReadOnlyList<double> Location { get; init; } = default!;
+
+        /// <summary>
+        /// 軸の向き [x, y]。0 にできない
+        /// </summary>
+        [JsonPropertyName("direction")]
+        public IReadOnlyList<double> Direction { get; init; } = default!;
     }
 
     /// <summary>

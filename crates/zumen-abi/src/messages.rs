@@ -15674,7 +15674,7 @@ pub enum BuildingEdit {
     AddUnit(BuildingAddUnitEdit),
     /// 要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から
     Material(BuildingMaterialEdit),
-    /// 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
+    /// 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・AdvancedSweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
     Shape(BuildingShapeEdit),
 }
 
@@ -18076,7 +18076,7 @@ impl ToJson for BuildingMaterialConstituent {
     }
 }
 
-/// 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
+/// 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・AdvancedSweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingShapeEdit {
     /// 形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
@@ -18145,19 +18145,33 @@ impl ToJson for BuildingShapeEdit {
     }
 }
 
-/// 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位
+/// 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、revolution は profile・position・axis・angle、swept_disk は directrix・radius・inner_radius・start・end、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingShapeItem {
     /// 項目の種類
     pub kind: BuildingShapeItemKind,
-    /// 押し出す断面
+    /// 押し出す・回す断面
     pub profile: Option<BuildingShapeProfile>,
-    /// 押し出しの局所の配置。書かなければ要素の配置のまま
+    /// 押し出し・回転の局所の配置。書かなければ要素の配置のまま
     pub position: Option<BuildingAxis3>,
     /// 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1]
     pub direction: Option<Vec<f64>>,
     /// 押し出す深さ。正の値
     pub depth: Option<f64>,
+    /// 断面を回す軸。断面の平面（局所の XY 平面）にある。マイナーバージョン 108 から
+    pub axis: Option<BuildingShapeRevolutionAxis>,
+    /// 回す角度（ラジアン）。0 より大きく 2π 以下。文書の平面角の単位に直して書くので、文書は平面角の単位を持つこと。マイナーバージョン 108 から
+    pub angle: Option<f64>,
+    /// 円盤を沿わせる折れ線の [x, y, z] を 2 点以上。続く点は重ならない。マイナーバージョン 108 から
+    pub directrix: Option<Vec<Vec<f64>>>,
+    /// 円盤の半径。正の値。マイナーバージョン 108 から
+    pub radius: Option<f64>,
+    /// 管の内側の半径。正で radius より小さい。書かなければ中実。マイナーバージョン 108 から
+    pub inner_radius: Option<f64>,
+    /// 掃引を始める折れ線のパラメーター（1 区間で 1 進む）。書かなければ始点。IFC2X3 では書かなければ 0 を書く。マイナーバージョン 108 から
+    pub start: Option<f64>,
+    /// 掃引を終える折れ線のパラメーター。start より大きく区間の数以下。書かなければ終点。IFC2X3 では書かなければ区間の数を書く。マイナーバージョン 108 から
+    pub end: Option<f64>,
     /// 面集合の点 [x, y, z]
     pub points: Option<Vec<Vec<f64>>>,
     /// 面集合の面
@@ -18193,6 +18207,15 @@ impl BuildingShapeItem {
         let position = object.optional("position", BuildingAxis3::from_json)?;
         let direction = object.optional("direction", |value| json::array(value, json::number))?;
         let depth = object.optional("depth", json::number)?;
+        let axis = object.optional("axis", BuildingShapeRevolutionAxis::from_json)?;
+        let angle = object.optional("angle", json::number)?;
+        let directrix = object.optional("directrix", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let radius = object.optional("radius", json::number)?;
+        let inner_radius = object.optional("inner_radius", json::number)?;
+        let start = object.optional("start", json::number)?;
+        let end = object.optional("end", json::number)?;
         let points = object.optional("points", |value| {
             json::array(value, |value| json::array(value, json::number))
         })?;
@@ -18218,6 +18241,13 @@ impl BuildingShapeItem {
             position,
             direction,
             depth,
+            axis,
+            angle,
+            directrix,
+            radius,
+            inner_radius,
+            start,
+            end,
             points,
             faces,
             closed,
@@ -18251,6 +18281,36 @@ impl BuildingShapeItem {
         }
         if let Some(value) = &self.depth {
             out.key("depth");
+            out.float(*value);
+        }
+        if let Some(value) = &self.axis {
+            out.key("axis");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.angle {
+            out.key("angle");
+            out.float(*value);
+        }
+        if let Some(value) = &self.directrix {
+            out.key("directrix");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.float(*item))
+            });
+        }
+        if let Some(value) = &self.radius {
+            out.key("radius");
+            out.float(*value);
+        }
+        if let Some(value) = &self.inner_radius {
+            out.key("inner_radius");
+            out.float(*value);
+        }
+        if let Some(value) = &self.start {
+            out.key("start");
+            out.float(*value);
+        }
+        if let Some(value) = &self.end {
+            out.key("end");
             out.float(*value);
         }
         if let Some(value) = &self.points {
@@ -18327,7 +18387,7 @@ impl ToJson for BuildingShapeItem {
     }
 }
 
-/// 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）
+/// 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）。revolution は断面の回転（IfcRevolvedAreaSolid）、swept_disk は円盤の掃引（IfcSweptDiskSolid）で、マイナーバージョン 108 から
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BuildingShapeItemKind {
     /// `extrusion`
@@ -18340,6 +18400,10 @@ pub enum BuildingShapeItemKind {
     HalfSpace,
     /// `mapped`
     Mapped,
+    /// `revolution`
+    Revolution,
+    /// `swept_disk`
+    SweptDisk,
 }
 
 impl BuildingShapeItemKind {
@@ -18350,6 +18414,8 @@ impl BuildingShapeItemKind {
         Self::Boolean,
         Self::HalfSpace,
         Self::Mapped,
+        Self::Revolution,
+        Self::SweptDisk,
     ];
 
     /// JSON での名前
@@ -18360,6 +18426,8 @@ impl BuildingShapeItemKind {
             Self::Boolean => "boolean",
             Self::HalfSpace => "half_space",
             Self::Mapped => "mapped",
+            Self::Revolution => "revolution",
+            Self::SweptDisk => "swept_disk",
         }
     }
 
@@ -18371,6 +18439,8 @@ impl BuildingShapeItemKind {
             "boolean" => Some(Self::Boolean),
             "half_space" => Some(Self::HalfSpace),
             "mapped" => Some(Self::Mapped),
+            "revolution" => Some(Self::Revolution),
+            "swept_disk" => Some(Self::SweptDisk),
             _ => None,
         }
     }
@@ -18385,6 +18455,50 @@ impl FromJson for BuildingShapeItemKind {
 impl ToJson for BuildingShapeItemKind {
     fn to_json(&self, out: &mut Writer) {
         out.string(self.name());
+    }
+}
+
+/// 断面を回す軸（IfcAxis1Placement）。断面の平面にある
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingShapeRevolutionAxis {
+    /// 軸の通る点 [x, y]
+    pub location: Vec<f64>,
+    /// 軸の向き [x, y]。0 にできない
+    pub direction: Vec<f64>,
+}
+
+impl BuildingShapeRevolutionAxis {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let location = object.required("location", |value| json::array(value, json::number))?;
+        let direction = object.required("direction", |value| json::array(value, json::number))?;
+        Ok(Self {
+            location,
+            direction,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("location");
+        out.array(&self.location, |out, item| out.float(*item));
+        out.key("direction");
+        out.array(&self.direction, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for BuildingShapeRevolutionAxis {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingShapeRevolutionAxis {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
     }
 }
 

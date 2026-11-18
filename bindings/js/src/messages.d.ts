@@ -3696,7 +3696,7 @@ export interface BuildingMaterialConstituent {
   name?: string;
 }
 
-/** 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から */
+/** 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・AdvancedSweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から */
 export interface BuildingShapeEdit {
   /** 変更の種類 */
   kind: "shape";
@@ -3710,18 +3710,32 @@ export interface BuildingShapeEdit {
   body: number[];
 }
 
-/** 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位 */
+/** 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、revolution は profile・position・axis・angle、swept_disk は directrix・radius・inner_radius・start・end、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位 */
 export interface BuildingShapeItem {
   /** 項目の種類 */
   kind: BuildingShapeItemKind;
-  /** 押し出す断面 */
+  /** 押し出す・回す断面 */
   profile?: BuildingShapeProfile;
-  /** 押し出しの局所の配置。書かなければ要素の配置のまま */
+  /** 押し出し・回転の局所の配置。書かなければ要素の配置のまま */
   position?: BuildingAxis3;
   /** 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1] */
   direction?: number[];
   /** 押し出す深さ。正の値 */
   depth?: number;
+  /** 断面を回す軸。断面の平面（局所の XY 平面）にある。マイナーバージョン 108 から */
+  axis?: BuildingShapeRevolutionAxis;
+  /** 回す角度（ラジアン）。0 より大きく 2π 以下。文書の平面角の単位に直して書くので、文書は平面角の単位を持つこと。マイナーバージョン 108 から */
+  angle?: number;
+  /** 円盤を沿わせる折れ線の [x, y, z] を 2 点以上。続く点は重ならない。マイナーバージョン 108 から */
+  directrix?: number[][];
+  /** 円盤の半径。正の値。マイナーバージョン 108 から */
+  radius?: number;
+  /** 管の内側の半径。正で radius より小さい。書かなければ中実。マイナーバージョン 108 から */
+  inner_radius?: number;
+  /** 掃引を始める折れ線のパラメーター（1 区間で 1 進む）。書かなければ始点。IFC2X3 では書かなければ 0 を書く。マイナーバージョン 108 から */
+  start?: number;
+  /** 掃引を終える折れ線のパラメーター。start より大きく区間の数以下。書かなければ終点。IFC2X3 では書かなければ区間の数を書く。マイナーバージョン 108 から */
+  end?: number;
   /** 面集合の点 [x, y, z] */
   points?: number[][];
   /** 面集合の面 */
@@ -3750,14 +3764,24 @@ export interface BuildingShapeItem {
   members?: number[];
 }
 
-/** 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem） */
+/** 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）。revolution は断面の回転（IfcRevolvedAreaSolid）、swept_disk は円盤の掃引（IfcSweptDiskSolid）で、マイナーバージョン 108 から */
 export type BuildingShapeItemKind =
   | "extrusion"
   | "faces"
   | "boolean"
   | "half_space"
   | "mapped"
+  | "revolution"
+  | "swept_disk"
   | (string & {});
+
+/** 断面を回す軸（IfcAxis1Placement）。断面の平面にある */
+export interface BuildingShapeRevolutionAxis {
+  /** 軸の通る点 [x, y] */
+  location: number[];
+  /** 軸の向き [x, y]。0 にできない */
+  direction: number[];
+}
 
 /** 集合演算。union は和、intersection は積、difference は差 */
 export type BuildingBooleanOperation =

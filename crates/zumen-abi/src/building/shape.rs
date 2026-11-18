@@ -13,7 +13,7 @@ use zumen_building::{
 };
 use zumen_ifc::{
     NewAxis2, NewAxis3, NewBoolean, NewFaces, NewHalfSpace, NewHalfSpaceLimit, NewItem, NewMapped,
-    NewProfile, NewProfileKind, NewShape, NewSolid,
+    NewProfile, NewProfileKind, NewRevolution, NewShape, NewSolid, NewSweptDisk,
 };
 
 use super::{pair, triple};
@@ -131,16 +131,17 @@ impl Builder<'_> {
         }
         let invalid =
             |cx: &mut Cx<'_>, field: &str| fail(cx, invalid_value(format!("{at}/{field}")));
+        let profile = match &item.profile {
+            Some(profile) => Some(new_profile(profile).ok_or_else(|| invalid(cx, "profile"))?),
+            None => None,
+        };
+        let position = match &item.position {
+            Some(p) => Some(axis3(p).ok_or_else(|| invalid(cx, "position"))?),
+            None => None,
+        };
         Ok(match item.kind {
             BuildingShapeItemKind::Extrusion => {
-                let Some(profile) = &item.profile else {
-                    return Err(invalid(cx, "profile"));
-                };
-                let profile = new_profile(profile).ok_or_else(|| invalid(cx, "profile"))?;
-                let position = match &item.position {
-                    Some(p) => Some(axis3(p).ok_or_else(|| invalid(cx, "position"))?),
-                    None => None,
-                };
+                let profile = profile.ok_or_else(|| invalid(cx, "profile"))?;
                 let direction = match &item.direction {
                     Some(d) => triple(d).ok_or_else(|| invalid(cx, "direction"))?,
                     None => [0.0, 0.0, 1.0],
@@ -151,6 +152,42 @@ impl Builder<'_> {
                     position,
                     direction,
                     depth,
+                })
+            }
+            BuildingShapeItemKind::Revolution => {
+                let profile = profile.ok_or_else(|| invalid(cx, "profile"))?;
+                let Some(axis) = &item.axis else {
+                    return Err(invalid(cx, "axis"));
+                };
+                let (Some(location), Some(direction)) =
+                    (pair(&axis.location), pair(&axis.direction))
+                else {
+                    return Err(invalid(cx, "axis"));
+                };
+                let angle = item.angle.ok_or_else(|| invalid(cx, "angle"))?;
+                NewItem::Revolution(NewRevolution {
+                    profile,
+                    position,
+                    location,
+                    direction,
+                    angle,
+                })
+            }
+            BuildingShapeItemKind::SweptDisk => {
+                let (Some(directrix), Some(radius)) = (&item.directrix, item.radius) else {
+                    return Err(invalid(cx, "directrix"));
+                };
+                let directrix = directrix
+                    .iter()
+                    .map(|p| triple(p))
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| invalid(cx, "directrix"))?;
+                NewItem::SweptDisk(NewSweptDisk {
+                    directrix,
+                    radius,
+                    inner_radius: item.inner_radius,
+                    start: item.start,
+                    end: item.end,
                 })
             }
             BuildingShapeItemKind::Faces => {
@@ -245,28 +282,36 @@ impl Builder<'_> {
 /// 項目が、種類に合うフィールドだけを持つか
 fn fields_match(item: &BuildingShapeItem) -> bool {
     use BuildingShapeItemKind as K;
-    let fields = [
-        (item.profile.is_some(), K::Extrusion),
-        (item.position.is_some(), K::Extrusion),
-        (item.direction.is_some(), K::Extrusion),
-        (item.depth.is_some(), K::Extrusion),
-        (item.points.is_some(), K::Faces),
-        (item.faces.is_some(), K::Faces),
-        (item.closed.is_some(), K::Faces),
-        (item.operation.is_some(), K::Boolean),
-        (item.first.is_some(), K::Boolean),
-        (item.second.is_some(), K::Boolean),
-        (item.plane.is_some(), K::HalfSpace),
-        (item.agreement.is_some(), K::HalfSpace),
-        (item.r#box.is_some(), K::HalfSpace),
-        (item.polygon.is_some(), K::HalfSpace),
-        (item.origin.is_some(), K::Mapped),
-        (item.target.is_some(), K::Mapped),
-        (item.members.is_some(), K::Mapped),
+    const SWEPT: &[K] = &[K::Extrusion, K::Revolution];
+    let fields: [(bool, &[K]); 24] = [
+        (item.profile.is_some(), SWEPT),
+        (item.position.is_some(), SWEPT),
+        (item.direction.is_some(), &[K::Extrusion]),
+        (item.depth.is_some(), &[K::Extrusion]),
+        (item.axis.is_some(), &[K::Revolution]),
+        (item.angle.is_some(), &[K::Revolution]),
+        (item.directrix.is_some(), &[K::SweptDisk]),
+        (item.radius.is_some(), &[K::SweptDisk]),
+        (item.inner_radius.is_some(), &[K::SweptDisk]),
+        (item.start.is_some(), &[K::SweptDisk]),
+        (item.end.is_some(), &[K::SweptDisk]),
+        (item.points.is_some(), &[K::Faces]),
+        (item.faces.is_some(), &[K::Faces]),
+        (item.closed.is_some(), &[K::Faces]),
+        (item.operation.is_some(), &[K::Boolean]),
+        (item.first.is_some(), &[K::Boolean]),
+        (item.second.is_some(), &[K::Boolean]),
+        (item.plane.is_some(), &[K::HalfSpace]),
+        (item.agreement.is_some(), &[K::HalfSpace]),
+        (item.r#box.is_some(), &[K::HalfSpace]),
+        (item.polygon.is_some(), &[K::HalfSpace]),
+        (item.origin.is_some(), &[K::Mapped]),
+        (item.target.is_some(), &[K::Mapped]),
+        (item.members.is_some(), &[K::Mapped]),
     ];
     fields
         .iter()
-        .all(|&(given, kind)| !given || kind == item.kind)
+        .all(|&(given, kinds)| !given || kinds.contains(&item.kind))
 }
 
 /// 3 次元の配置。数の数が違えば `None`
