@@ -3814,7 +3814,8 @@
         { "$ref": "#/$defs/building_add_beam_edit" },
         { "$ref": "#/$defs/building_add_opening_edit" },
         { "$ref": "#/$defs/building_add_door_edit" },
-        { "$ref": "#/$defs/building_add_window_edit" }
+        { "$ref": "#/$defs/building_add_window_edit" },
+        { "$ref": "#/$defs/building_add_grid_edit" }
       ]
     },
     "building_property_edit": {
@@ -4092,6 +4093,32 @@
         "global_id": { "description": "GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める", "type": "string" }
       },
       "required": ["kind", "opening"],
+      "additionalProperties": false
+    },
+    "building_grid_axis": {
+      "description": "通り芯の軸。2 点の折れ線の IfcGridAxis に書く。マイナーバージョン 101 から",
+      "type": "object",
+      "properties": {
+        "tag": { "description": "軸の名前（AxisTag）。同じ通り芯の中で重ならない", "type": "string" },
+        "start": { "description": "始点。通り芯の配置の [x, y]", "type": "array", "items": { "type": "number" } },
+        "end": { "description": "終点。始点と違う [x, y]", "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["tag", "start", "end"],
+      "additionalProperties": false
+    },
+    "building_add_grid_edit": {
+      "description": "U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "add_grid" },
+        "storey": { "description": "所属する空間（階など）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す", "$ref": "#/$defs/building_ref" },
+        "u": { "description": "U の軸。1 つ以上", "type": "array", "items": { "$ref": "#/$defs/building_grid_axis" } },
+        "v": { "description": "V の軸。1 つ以上", "type": "array", "items": { "$ref": "#/$defs/building_grid_axis" } },
+        "elevation": { "description": "高さ（空間の配置の z）。書かなければ 0", "type": "number" },
+        "name": { "description": "名前", "type": "string" },
+        "global_id": { "description": "GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める", "type": "string" }
+      },
+      "required": ["kind", "storey", "u", "v"],
       "additionalProperties": false
     },
     "building_fill_edit": {

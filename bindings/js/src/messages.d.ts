@@ -3168,7 +3168,8 @@ export type BuildingEdit =
   | BuildingAddBeamEdit
   | BuildingAddOpeningEdit
   | BuildingAddDoorEdit
-  | BuildingAddWindowEdit;
+  | BuildingAddWindowEdit
+  | BuildingAddGridEdit;
 
 /** 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える */
 export interface BuildingPropertyEdit {
@@ -3463,6 +3464,34 @@ export interface BuildingAddWindowEdit {
   width?: number;
   /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値 */
   height?: number;
+  /** 名前 */
+  name?: string;
+  /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
+  global_id?: string;
+}
+
+/** 通り芯の軸。2 点の折れ線の IfcGridAxis に書く。マイナーバージョン 101 から */
+export interface BuildingGridAxis {
+  /** 軸の名前（AxisTag）。同じ通り芯の中で重ならない */
+  tag: string;
+  /** 始点。通り芯の配置の [x, y] */
+  start: number[];
+  /** 終点。始点と違う [x, y] */
+  end: number[];
+}
+
+/** U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から */
+export interface BuildingAddGridEdit {
+  /** 変更の種類 */
+  kind: "add_grid";
+  /** 所属する空間（階など）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す */
+  storey: BuildingRef;
+  /** U の軸。1 つ以上 */
+  u: BuildingGridAxis[];
+  /** V の軸。1 つ以上 */
+  v: BuildingGridAxis[];
+  /** 高さ（空間の配置の z）。書かなければ 0 */
+  elevation?: number;
   /** 名前 */
   name?: string;
   /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */

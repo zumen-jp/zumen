@@ -38,7 +38,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 
 ## 管理 XML の書き戻しを照らす
 
-要領の作成例を使わずに組み立てた管理 XML を、公開操作の `delivery_apply` で更新します。7 組の符号化・BOM と LF・CRLF・CR を対象に、Python の文字コード変換と Expat で、指定箇所以外のバイト列、宣言、属性、注記・処理命令、名前空間、文字とファイル参照を照らします。新しい依存は不要です。外部 DTD は取得せず、電子納品要領の適合性の外部検証には数えません。
+要領の作成例を使わずに組み立てた管理 XML を、公開操作の `delivery_apply` で更新します。7 組の符号化・BOM と LF・CRLF・CR を対象に、Python の文字コード変換と Expat で、指定箇所以外のバイト列、宣言、属性、注記・処理命令、名前空間、文字とファイル参照を照らします。新しい依存は不要です。外部 DTD は取得せず、電子納品要領の適合性の外部検証には数えません。要領の DTD での検証は、国土交通省の作成例を使う [DTD による照合](dtd/README.md)で別に行います。
 
 ```bash
 cargo run -p zumen-abi --example delivery_apply_case -- --output target/verify-delivery
@@ -204,6 +204,7 @@ python -I -m unittest discover -s xtask/verify -p 'test_check_autocad.py'
 | PDF アンダーレイ | [pdf.js](https://github.com/mozilla/pdf.js) 6.5.438 | Apache-2.0 | `@zumen-jp/view2d` のブラウザーテストで使う（`pdfjs/`） |
 | LAS | [laspy](https://github.com/laspy/laspy) 2.7.0 | BSD-2-Clause | 非圧縮 LAS のヘッダーと全点を照らす（[`laspy/`](laspy/README.md)）。NumPy 2.5.4 を別に導入 |
 | JPEG（Exif・XMP） | [Pillow](https://github.com/python-pillow/Pillow) 13.0.0 | MIT-CMU | 公開サンプルと合成の写真の画素数・Exif・GPS と、Pillow が取り出した XMP を Expat で読んだ値を照らす（[`photo/`](photo/README.md)） |
+| 電子納品の管理ファイル・ボーリング交換用データ | [lxml](https://lxml.de/) 6.1.3 | BSD-3-Clause | 国土交通省の作成例を要領の DTD で検証させ、要素の木・ボーリングの値と、値を置き換えた書き戻しの妥当性を照らす（[`dtd/`](dtd/README.md)）。作成例と DTD は転載が禁じられているので取得も同梱もせず、手元で流す |
 | GeoJSON | [Shapely](https://github.com/shapely/shapely) 2.2.0 | BSD-3-Clause | GeoJSON の書き出しの妥当性（GEOS）・回転方向・座標・属性と、7 種の図形の読みを照らす（[`shapely/`](shapely/README.md)）。NumPy 2.5.4 を別に導入 |
 | TIFF・GeoTIFF | [Pillow](https://github.com/python-pillow/Pillow) 13.0.0・[tifffile](https://github.com/cgohlke/tifffile) 2026.11.12 | MIT-CMU・BSD-3-Clause | 各種圧縮・タイル・面分離・マルチページの PNG 画素と、GeoTIFF の外周座標・DEM 点群を照らす（[`tiff/`](tiff/README.md)）。NumPy 2.5.4 を別に導入 |
 

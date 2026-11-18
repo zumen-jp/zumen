@@ -1,0 +1,257 @@
+{
+  "description": "building_apply の add_grid（#898）。階に A・B と 1・2 の軸の通り芯を足し、所属と配置を building_elements で読む。数の数が違う軸の点と、同じ名前の軸は、何も変えずに失敗する。入力はテストの中で書いた小さな IFC4",
+  "steps": [
+    {
+      "push": {
+        "name": "a.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#10);\n#10=IFCUNITASSIGNMENT((#11));\n#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n#20=IFCLOCALPLACEMENT($,#21);\n#21=IFCAXIS2PLACEMENT3D(#22,$,$);\n#22=IFCCARTESIANPOINT((0.,0.,3000.));\n#34=IFCBUILDINGSTOREY('0000000000000000000034',$,'1F',$,$,#20,$,$,.ELEMENT.,3000.);\n#40=IFCRELAGGREGATES('0000000000000000000040',$,$,$,#1,(#34));\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.ifc"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building",
+        "doc": "a.ifc"
+      },
+      "expect": {
+        "/result/hash": "v1:0e0abcd0bdcfad88cbe2aae894e706a4"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "edits": [
+          {
+            "kind": "add_grid",
+            "storey": {
+              "id": "0000000000000000000034",
+              "hash": "v1:cd8382f148d3886c7cdcf5239b13a3d0"
+            },
+            "u": [
+              {
+                "tag": "A",
+                "start": [
+                  0,
+                  -1000
+                ],
+                "end": [
+                  0,
+                  5000
+                ]
+              },
+              {
+                "tag": "B",
+                "start": [
+                  6000,
+                  -1000,
+                  0
+                ],
+                "end": [
+                  6000,
+                  5000
+                ]
+              }
+            ],
+            "v": [
+              {
+                "tag": "1",
+                "start": [
+                  -1000,
+                  0
+                ],
+                "end": [
+                  7000,
+                  0
+                ]
+              },
+              {
+                "tag": "2",
+                "start": [
+                  -1000,
+                  4000
+                ],
+                "end": [
+                  7000,
+                  4000
+                ]
+              }
+            ],
+            "name": "G1",
+            "global_id": "0000000000000000000600"
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "call.value.invalid",
+        "/diagnostics/0/params/pointer": "/edits/0/u/1/start",
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "edits": [
+          {
+            "kind": "add_grid",
+            "storey": {
+              "id": "0000000000000000000034",
+              "hash": "v1:cd8382f148d3886c7cdcf5239b13a3d0"
+            },
+            "u": [
+              {
+                "tag": "A",
+                "start": [
+                  0,
+                  -1000
+                ],
+                "end": [
+                  0,
+                  5000
+                ]
+              },
+              {
+                "tag": "B",
+                "start": [
+                  6000,
+                  -1000
+                ],
+                "end": [
+                  6000,
+                  5000
+                ]
+              }
+            ],
+            "v": [
+              {
+                "tag": "A",
+                "start": [
+                  -1000,
+                  0
+                ],
+                "end": [
+                  7000,
+                  0
+                ]
+              }
+            ],
+            "name": "G1",
+            "global_id": "0000000000000000000600"
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.edit.unsupported",
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "hash": "v1:0e0abcd0bdcfad88cbe2aae894e706a4",
+        "edits": [
+          {
+            "kind": "add_grid",
+            "storey": {
+              "id": "0000000000000000000034",
+              "hash": "v1:cd8382f148d3886c7cdcf5239b13a3d0"
+            },
+            "u": [
+              {
+                "tag": "A",
+                "start": [
+                  0,
+                  -1000
+                ],
+                "end": [
+                  0,
+                  5000
+                ]
+              },
+              {
+                "tag": "B",
+                "start": [
+                  6000,
+                  -1000
+                ],
+                "end": [
+                  6000,
+                  5000
+                ]
+              }
+            ],
+            "v": [
+              {
+                "tag": "1",
+                "start": [
+                  -1000,
+                  0
+                ],
+                "end": [
+                  7000,
+                  0
+                ]
+              },
+              {
+                "tag": "2",
+                "start": [
+                  -1000,
+                  4000
+                ],
+                "end": [
+                  7000,
+                  4000
+                ]
+              }
+            ],
+            "name": "G1",
+            "global_id": "0000000000000000000600"
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "0000000000000000000600"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "class": "ifcgrid",
+        "components": [
+          "identity",
+          "parent",
+          "placement"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/id": "0000000000000000000600",
+        "/result/elements/0/identity/name": "G1",
+        "/result/elements/0/parent/of/target": "0000000000000000000034",
+        "/result/elements/0/parent/of/kind": "contained",
+        "/result/elements/0/placement/world/2/3": 3000
+      }
+    }
+  ]
+}
