@@ -98,6 +98,8 @@ pub(crate) struct Codes {
     pub(crate) colors: BTreeMap<u64, i64>,
     /// 線種の実体の番号から、線種のコード
     pub(crate) line_types: BTreeMap<u64, i64>,
+    /// 字体のコード（1 から）の順の、EXTERNALLY_DEFINED_TEXT_FONT の番号
+    pub(crate) fonts: Vec<u64>,
 }
 
 /// 単一の表記実体（`occ_id`）とその参照先だけを持つ小さな [`SxfFile`] から、その要素の [`FeatureRecord`] を組む
@@ -114,6 +116,12 @@ pub(crate) fn single_occurrence_feature(
     builder.colors = codes.colors.clone();
     builder.line_types = codes.line_types.clone();
     builder.widths = user_widths.to_vec();
+    for (at, font) in codes.fonts.iter().enumerate() {
+        builder.fonts.insert(
+            *font,
+            i64::try_from(at).unwrap_or(i64::MAX).saturating_add(1),
+        );
+    }
     match usize::try_from(occ_id)
         .ok()
         .and_then(|at| builder.layer_dense.get_mut(at))
@@ -168,10 +176,17 @@ pub(crate) fn records_and_codes(
     out.append(&mut builder.front);
     out.append(&mut builder.out);
     number_composites(&mut out);
+    let mut fonts: Vec<(i64, u64)> = builder
+        .fonts
+        .iter()
+        .map(|(id, code)| (*code, *id))
+        .collect();
+    fonts.sort_unstable();
     let codes = Codes {
         layers: builder.layers,
         colors: builder.colors,
         line_types: builder.line_types,
+        fonts: fonts.into_iter().map(|(_, id)| id).collect(),
     };
     Ok((out, codes))
 }
