@@ -1095,7 +1095,8 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
 
 | 形式 | 向き | 段 |
 | --- | --- | --- |
-| `ifc` | 読み | `external` || `ifc` | 書き | `application` |
+| `ifc` | 読み | `external` |
+| `ifc` | 書き | `application` |
 
 段の定義は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、入力と照合ツールのバージョンは[台帳の IFC](README.md#format-ifc)にあります。
 
