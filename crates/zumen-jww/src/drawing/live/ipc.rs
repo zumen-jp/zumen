@@ -8,10 +8,14 @@ use zumen_drawing::{
     id,
 };
 use zumen_live::RowId;
+use zumen_live::display::Display;
 use zumen_sdk::Error;
 
 use super::super::{SXF_LINE_TYPE, SXF_SINCE, build_layers, make_line_type};
-use super::{BaseOutcome, DEFINITION_SPACES, JwwLive};
+use super::{
+    BaseOutcome, DEFINITION_SPACES, JwwLive, display_definition_counts_and_style,
+    write_definition_display,
+};
 
 impl JwwLive {
     /// 表の行の数（削除した行を含む）。足した行は末尾に並ぶ
@@ -338,6 +342,39 @@ fn fixed_line_types() -> impl Iterator<Item = u8> {
 
 /// SXF の線種の番号の上限
 const MAX_LINE_TYPE: u8 = 62;
+
+impl JwwLive {
+    /// 表示の記号のインスタンスが指す記号の定義の数。インスタンスの定義の値は `0..` この数
+    pub fn display_symbol_count(&self) -> u32 {
+        u32::try_from(self.definition_count()).unwrap_or(u32::MAX)
+    }
+
+    /// 記号の定義 `index` の生きた要素を、定義の座標のまま 1 要素 1 行で `display` の末尾に足し、足した行の数を返す。
+    /// 行のスタイルは文書の表示と同じ画層の値と色。入れ子の記号は、インスタンスのまま書く。範囲外なら `None`
+    pub fn display_symbol(
+        &self,
+        index: u32,
+        display: &mut Display,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<u32>, Error> {
+        let Some(rows) = self.definition_rows_alive(index as usize) else {
+            return Ok(None);
+        };
+        let mut written = 0_u32;
+        for (_, element) in rows {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            let (counts, style) =
+                display_definition_counts_and_style(element, &self.symbol_index_by_key);
+            display
+                .push_with_cx(cx, counts, style, |writer| {
+                    write_definition_display(element, &self.symbol_index_by_key, writer);
+                })
+                .map_err(|stop| stopped(cx, stop))?;
+            written = written.checked_add(1).ok_or(Error::Invalid)?;
+        }
+        Ok(Some(written))
+    }
+}
 
 fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Error {
     cx.report(stop.to_diagnostic());

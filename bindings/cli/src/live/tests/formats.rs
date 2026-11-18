@@ -1163,7 +1163,7 @@ const BLOCKS_DXF: &[u8] = b"0\nSECTION\n2\nBLOCKS\n\
 0\nENDBLK\n0\nENDSEC\n\
 0\nSECTION\n2\nENTITIES\n0\nINSERT\n8\n0\n2\nB2\n10\n0\n20\n0\n0\nENDSEC\n0\nEOF\n";
 
-/// 記号の定義を要求の順に返し、範囲・予約の語・まだ書けない形式を断る
+/// 記号の定義を要求の順に返し、範囲・予約の語を断る
 #[test]
 fn symbols_carry_the_display_of_definitions() {
     let mut budget = zumen_base::Budget::default();
@@ -1283,20 +1283,41 @@ fn symbols_carry_the_display_of_definitions() {
     let packet = zumen_live::display_wire::encode(&expected, true, cx).unwrap();
     assert!(reply.data.ends_with(&packet));
     assert_eq!(reply.data.len(), 8 + indices.len() * 8 + packet.len());
-    // JWW の定義はまだ書けない
+    // JWW は記号の定義を返す。公開サンプルの定義の数は文書エンジンと同じ
+    let live = zumen_jww::JwwLive::open(JWW, cx).unwrap();
+    let total = live.display_symbol_count();
     let mut host = Host::default();
     open_bytes(&mut host, JWW);
-    let rejected = call(
+    let indices: Vec<u32> = (0..total).collect();
+    let reply = call(
         &mut host,
         Command::Symbols,
         2,
         0,
         wire::NONE,
         0,
-        &rows_body(&[]),
+        &rows_body(&indices),
     );
-    assert_eq!(rejected.status, Status::Rejected);
-    assert_eq!(rejected.diagnostics, 1);
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.data.get(..4), Some(total.to_le_bytes().as_slice()));
+    let mut expected = zumen_live::display::Display::with_rows(0);
+    for &index in &indices {
+        live.display_symbol(index, &mut expected, cx)
+            .unwrap()
+            .unwrap();
+    }
+    let packet = zumen_live::display_wire::encode(&expected, true, cx).unwrap();
+    assert!(reply.data.ends_with(&packet));
+    let outside = call(
+        &mut host,
+        Command::Symbols,
+        3,
+        0,
+        wire::NONE,
+        0,
+        &rows_body(&[total]),
+    );
+    assert_eq!(outside.status, Status::Invalid);
 }
 
 fn draw_body(template: u32, kind: u32, values: [f64; 5]) -> Vec<u8> {

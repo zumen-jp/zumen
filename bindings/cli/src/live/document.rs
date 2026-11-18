@@ -669,16 +669,12 @@ impl Document {
         self.live.line_types(cx)
     }
 
-    /// 記号の定義 `indices` の要素を、定義の座標のまま要求の順に並べる。範囲外の定義は Invalid。
-    /// 定義をまだ書けない形式（JWW）は `call.op.unsupported` を診断して Rejected
+    /// 記号の定義 `indices` の要素を、定義の座標のまま要求の順に並べる。範囲外の定義は Invalid
     pub fn symbols(&self, indices: &[u32], cx: &mut Cx<'_>) -> Result<Symbols, Problem> {
         let total = match &self.live {
             Engine::Acad(live) => live.display_symbol_count(),
             Engine::Sxf(live) => live.display_symbol_count(),
-            Engine::Jww(_) => {
-                cx.report(Diagnostic::new(codes::CALL_OP_UNSUPPORTED).with("op", "symbols"));
-                return Err(Problem::Core(Error::Rejected));
-            }
+            Engine::Jww(live) => live.display_symbol_count(),
         };
         let mut display = Display::with_rows(0);
         let mut ranges = Vec::with_capacity(indices.len());
@@ -687,7 +683,7 @@ impl Document {
             let rows = match &self.live {
                 Engine::Acad(live) => live.display_symbol(index, &mut display, cx)?,
                 Engine::Sxf(live) => live.display_symbol(index, &mut display, cx)?,
-                Engine::Jww(_) => None,
+                Engine::Jww(live) => live.display_symbol(index, &mut display, cx)?,
             }
             .ok_or(Problem::Core(Error::Invalid))?;
             ranges.push([first, rows]);

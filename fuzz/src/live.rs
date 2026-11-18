@@ -400,7 +400,7 @@ impl Trace {
     fn ipc_reads(&mut self, engine: &Engine, seed: u64) {
         let (row_count, symbol_count) = match engine {
             Engine::Acad(live) => (live.row_count(), live.display_symbol_count()),
-            Engine::Jww(live) => (live.row_count(), 0),
+            Engine::Jww(live) => (live.row_count(), live.display_symbol_count()),
             Engine::Sxf(live) => (live.row_count(), live.display_symbol_count()),
             Engine::Ifc(_) => return,
         };
@@ -476,7 +476,8 @@ impl Trace {
                     let written = match engine {
                         Engine::Acad(live) => live.display_symbol(symbol, &mut display, cx)?,
                         Engine::Sxf(live) => live.display_symbol(symbol, &mut display, cx)?,
-                        Engine::Jww(_) | Engine::Ifc(_) => return Err(Error::Unsupported),
+                        Engine::Jww(live) => live.display_symbol(symbol, &mut display, cx)?,
+                        Engine::Ifc(_) => return Err(Error::Unsupported),
                     };
                     let rows = display.canonical();
                     match written {

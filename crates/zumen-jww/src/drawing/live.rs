@@ -711,20 +711,12 @@ impl JwwLive {
     }
 
     /// 記号の定義の数。定義の番号は `0..definition_count()` で、記号の要素が表示の行に書くインスタンスの番号と同じ
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "ipc の記号の定義の表示が使う（#889）")
-    )]
     pub(super) fn definition_count(&self) -> usize {
         self.definition_rows.len()
     }
 
     /// 定義の番号 `def_idx` の空間の、生きた要素の行と要素を表示の順（ファイルの順）に返す。番号が範囲の外なら `None`。
     /// 定義の空間には追加の行が生まれず、更新は行の番号を保つので、開いたときの行の一覧から消した行を除けば足りる
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "ipc の記号の定義の表示が使う（#889）")
-    )]
     pub(super) fn definition_rows_alive(
         &self,
         def_idx: usize,
@@ -3433,10 +3425,6 @@ fn display_counts_and_style(
 
 /// 記号の定義の空間の要素 1 つが、定義の座標のまま表示の行に確保する個数と、行の書式。
 /// 入れ子の記号は [`write_definition_display`] と同じく、番号が引けるときだけインスタンス 1 つを数える
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "ipc の記号の定義の表示が使う（#889）")
-)]
 pub(super) fn display_definition_counts_and_style(
     element: &Element<ModelPoint>,
     symbol_index_by_key: &BTreeMap<String, u32>,
@@ -3449,10 +3437,6 @@ pub(super) fn display_definition_counts_and_style(
 
 /// 記号の定義の空間の要素 1 つを、定義の座標のまま（尺度 1・原点 0）表示の行に書く。
 /// 入れ子の記号は `symbol_index_by_key` の番号のインスタンスとして書く
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "ipc の記号の定義の表示が使う（#889）")
-)]
 pub(super) fn write_definition_display(
     element: &Element<ModelPoint>,
     symbol_index_by_key: &BTreeMap<String, u32>,
