@@ -28,7 +28,7 @@
 | [fgd](#format-fgd) | 基盤地図情報（GML） | fgd | geo | `public` | `core` | `synthetic` |  |
 | [geojson](#format-geojson) | GeoJSON | geojson | geo | `public` | `core` | `synthetic` | `external` |
 | [ids](#format-ids) | IDS（Information Delivery Specification） | ids | building | `public` | `core` | `synthetic` |  |
-| [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` | `external` | `external` |
+| [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` | `external` | `application` |
 | [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` | `synthetic` |  |
 | [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` | `external` |  |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `none` |  |  |
@@ -835,9 +835,10 @@
 - 読みの確かめた範囲: 公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。必要時の曲線の getter は、合成の IFC2X3 の 9 曲線・IFC4 と IFC4X3 の各 10 曲線、公開サンプル gni/model\_9 の 1 曲線で、元の属性の座標・方向の比・半径・ベクトルの大きさ・添字・区間の向き・切る位置を IfcOpenShell と照らし、食い違いは 0（crates/zumen-ifc/tests/ifcopenshell/curves.py、#419）。公開サンプルの IndexedPolyCurve 1 件を読みの external とし、自作した 29 件は synthetic の範囲で外部の実装とも照合したものとする。単位・診断・予算・幾何の評価は、この外部の曲線の照合には含めない。要素から形状表現・共有写像元をたどる L1 の getter は、合成 3 版の各 9 項目と補助レコード各 8 件、公開サンプルの柱の 6 項目と補助レコード 16 件で、参照と元の配置・写像の属性、曲線の点を IfcOpenShell と照らした（product\_shapes.py、#419）。公開の表現と写像は external、合成は synthetic の範囲で外部の実装とも照合したものとする。配置・写像・単位の適用と立体・断面の型への変換はしていない。既存の形の葉から押し出し・閉じた断面・外輪を取得する経路は、合成各版 2 件と公開の柱 1 件、計 7 件で、未適用の深さ・方向・配置と断面の名前・参照・外輪、SI 単位の名前・接頭辞を IfcOpenShell と照らし、食い違いは 0（extrusions.py、#419）。公開 1 件は external、合成 6 件は synthetic とする。配置・写像・単位の適用や自己交差・面積・形の評価、ほかの立体・断面の対応を検証した結果ではない。形の項目に直接付く面の表示は、合成各版 2 件と公開の柱 1 件、計 7 件で、色・透明度・Rendering の全属性と出所の参照を IfcOpenShell と照らし、食い違いは 0（styles.py、#419）。公開 1 件は external、合成 6 件は synthetic とする。表示・材質・レイヤ・写像による継承と反射の式は評価しない。診断と全 Kind の予算使用量はネイティブと WASI のバイト列を比較する。Building の Style 成分と形の意味値の Hash は未実装。通り芯から U/V/W 軸と曲線を取得する経路は、合成 3 Grid の 20 軸・26 曲線と公開 1 Grid の 21 軸・21 曲線で、配置と表現の参照・レイアウト・所属と順序・タグ・SameSense・曲線の元属性と共有を IfcOpenShell と照らし、食い違いは 0（grids.py、#419）。公開 1 Grid は external、合成 3 Grid は synthetic とする。単位・補助レコード・診断・予算と、配置・反転・幾何の評価は外部照合に含めない。各軸の CurveGraph 内の共有と複数軸間の同一出所を区別し、Building/Hash は未統合。別の複合 Grid の全 Part とローカル属性の所属確認、未知の属性配置の拒否、追加 Part の予算と停止位置は、合成の 3 版で native/WASI の記録を照合する synthetic の範囲。判定・インスタンスのグラフ・壊れた所の扱いと、上に記した属性以外の値は、外部の実装と照らしていない。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す
 - 読みで使った公開サンプル: [samples/ifc/](../../samples/ifc/)
 - 読みで照らした外部の実装: IfcOpenShell 0.9.0.post1
-- 書きの確かめた度合い: `external`（確認日: 2026-11-18）
-- 書きの確かめた範囲: building\_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。変更だけで作った 2 階建てとそれを直した IFC の 3 版は、IfcOpenShell の検査（スキーマと EXPRESS の規則）と数・配置・所属・関係・層・開口を引いた体積の照合（crates/zumen-ifc/tests/ifcopenshell/author.py）、buildingSMART の ifc-gherkin-rules の規則（gherkin.py）にかけ、毎晩の CI で誤りがないことを確かめる（#898）。ifc-gherkin-rules の警告は、試験の入力に座標参照系がないことの GRF003 だけを許す。書いたファイルを BIM ソフトで開いてはいない（#526）
+- 書きの確かめた度合い: `application`（確認日: 2026-11-19）
+- 書きの確かめた範囲: building\_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。変更だけで作った 2 階建てとそれを直した IFC の 3 版は、IfcOpenShell の検査（スキーマと EXPRESS の規則）と数・配置・所属・関係・層・開口を引いた体積の照合（crates/zumen-ifc/tests/ifcopenshell/author.py）、buildingSMART の ifc-gherkin-rules の規則（gherkin.py）にかけ、毎晩の CI で誤りがないことを確かめる（#898）。ifc-gherkin-rules の警告は、試験の入力に座標参照系がないことの GRF003 だけを許す。公開モデル各 1 件の名前・説明・プロパティの編集は、FreeCAD 1.1.4 で IFC4 と IFC2X3 の値・形・配置・対象外の壁を照らした。同じ視点の表示は一致し、読み込み時の誤りと警告は増えず、再保存をキットで読み直した差は両版とも 0 件。IFC4 は FZKViewer でも確認した。新規作成と IFC4X3 の書きは外部実装との照合まで（#526）
 - 書きで照らした外部の実装: IfcOpenShell 0.9.0.post1・ifc-gherkin-rules 893f8275049b8960c3ce0c7379b4b57aefeaa8f9（IfcOpenShell 0.8.5 で動かす）
+- 書きで開いたソフト: FreeCAD 1.1.4・FZKViewer 6.5.1 Build 2587
 - 形式の文書: [docs/formats/ifc.md](../../docs/formats/ifc.md)
 
 ### format-isg
