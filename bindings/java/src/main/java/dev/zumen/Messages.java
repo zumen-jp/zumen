@@ -17027,7 +17027,7 @@ public final class Messages {
         }
     }
 
-    /** 建物の要素 1 つへの変更。kind の値で形が決まる */
+    /** 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から */
     public static final class BuildingEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingEdit(Map<String, Object> json) {
@@ -17048,6 +17048,46 @@ public final class Messages {
         /** kind が attribute の形なら、そのビュー。違えば null */
         public BuildingAttributeEdit asBuildingAttributeEdit() {
             return "attribute".equals(json.get("kind")) ? new BuildingAttributeEdit(json) : null;
+        }
+
+        /** kind が add_space の形なら、そのビュー。違えば null */
+        public BuildingAddSpaceEdit asBuildingAddSpaceEdit() {
+            return "add_space".equals(json.get("kind")) ? new BuildingAddSpaceEdit(json) : null;
+        }
+
+        /** kind が add_element の形なら、そのビュー。違えば null */
+        public BuildingAddElementEdit asBuildingAddElementEdit() {
+            return "add_element".equals(json.get("kind")) ? new BuildingAddElementEdit(json) : null;
+        }
+
+        /** kind が remove の形なら、そのビュー。違えば null */
+        public BuildingRemoveEdit asBuildingRemoveEdit() {
+            return "remove".equals(json.get("kind")) ? new BuildingRemoveEdit(json) : null;
+        }
+
+        /** kind が place の形なら、そのビュー。違えば null */
+        public BuildingPlaceEdit asBuildingPlaceEdit() {
+            return "place".equals(json.get("kind")) ? new BuildingPlaceEdit(json) : null;
+        }
+
+        /** kind が contain の形なら、そのビュー。違えば null */
+        public BuildingContainEdit asBuildingContainEdit() {
+            return "contain".equals(json.get("kind")) ? new BuildingContainEdit(json) : null;
+        }
+
+        /** kind が type の形なら、そのビュー。違えば null */
+        public BuildingTypeEdit asBuildingTypeEdit() {
+            return "type".equals(json.get("kind")) ? new BuildingTypeEdit(json) : null;
+        }
+
+        /** kind が void の形なら、そのビュー。違えば null */
+        public BuildingVoidEdit asBuildingVoidEdit() {
+            return "void".equals(json.get("kind")) ? new BuildingVoidEdit(json) : null;
+        }
+
+        /** kind が fill の形なら、そのビュー。違えば null */
+        public BuildingFillEdit asBuildingFillEdit() {
+            return "fill".equals(json.get("kind")) ? new BuildingFillEdit(json) : null;
         }
     }
 
@@ -17223,6 +17263,626 @@ public final class Messages {
         public static final String NAME = "name";
 
         public static final String DESCRIPTION = "description";
+    }
+
+    /** 変更が指す要素。id と hash を書くか、added だけを書く */
+    public static final class BuildingRef extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingRef(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingRef of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingRef(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingRef() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 要素の ID。building_elements が返したもの */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public BuildingRef withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 読んだときの要素のハッシュ。building_elements が返したもの */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public BuildingRef withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す */
+        public Long getAdded() {
+            return Json.read(json.get("added"), Json::integer);
+        }
+
+        /** {@link #getAdded()} を書く。null ならフィールドを除く */
+        public BuildingRef withAdded(Long value) {
+            put("added", value);
+            return this;
+        }
+    }
+
+    /** 要素の配置（IfcLocalPlacement）。relative_to の要素の配置からの相対で、書かなければプロジェクトの空間に置く */
+    public static final class BuildingPlacementChange extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingPlacementChange(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingPlacementChange of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingPlacementChange(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingPlacementChange() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 配置の親の要素 */
+        public BuildingRef getRelativeTo() {
+            return Json.read(json.get("relative_to"), BuildingRef::of);
+        }
+
+        /** {@link #getRelativeTo()} を書く。null ならフィールドを除く */
+        public BuildingPlacementChange withRelativeTo(BuildingRef value) {
+            put("relative_to", value);
+            return this;
+        }
+
+        /** 局所の変換。3 行 4 列（回転と移動。building_elements の placement の world と同じ形）。回転は正規直交で行列式が 1、移動は文書の長さの単位 */
+        public List<List<Double>> getMatrix() {
+            return Json.read(json.get("matrix"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
+        }
+
+        /** {@link #getMatrix()} を書く。null ならフィールドを除く */
+        public BuildingPlacementChange withMatrix(List<List<Double>> value) {
+            put("matrix", value);
+            return this;
+        }
+    }
+
+    /**
+     * 足す空間の種類。site は IfcSite、building は IfcBuilding、storey は IfcBuildingStorey
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class BuildingSpaceKind {
+        private BuildingSpaceKind() {}
+
+        public static final String SITE = "site";
+
+        public static final String BUILDING = "building";
+
+        public static final String STOREY = "storey";
+    }
+
+    /** 敷地・建物・階を足し、IfcRelAggregates で親に結ぶ。結果の id は足した空間の ID。マイナーバージョン 96 から */
+    public static final class BuildingAddSpaceEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingAddSpaceEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingAddSpaceEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingAddSpaceEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingAddSpaceEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "add_space");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingAddSpaceEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 空間の種類 */
+        public String getSpace() {
+            return Json.read(json.get("space"), Json::string);
+        }
+
+        /** {@link #getSpace()} を書く。null ならフィールドを除く */
+        public BuildingAddSpaceEdit withSpace(String value) {
+            put("space", value);
+            return this;
+        }
+
+        /** 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        public BuildingRef getParent() {
+            return Json.read(json.get("parent"), BuildingRef::of);
+        }
+
+        /** {@link #getParent()} を書く。null ならフィールドを除く */
+        public BuildingAddSpaceEdit withParent(BuildingRef value) {
+            put("parent", value);
+            return this;
+        }
+
+        /** 名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public BuildingAddSpaceEdit withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 配置。書かなければ、親の配置に重ねる */
+        public BuildingPlacementChange getPlacement() {
+            return Json.read(json.get("placement"), BuildingPlacementChange::of);
+        }
+
+        /** {@link #getPlacement()} を書く。null ならフィールドを除く */
+        public BuildingAddSpaceEdit withPlacement(BuildingPlacementChange value) {
+            put("placement", value);
+            return this;
+        }
+
+        /** 高さ。敷地は RefElevation、建物は ElevationOfRefHeight、階は Elevation に書く。文書の長さの単位 */
+        public Double getElevation() {
+            return Json.read(json.get("elevation"), Json::number);
+        }
+
+        /** {@link #getElevation()} を書く。null ならフィールドを除く */
+        public BuildingAddSpaceEdit withElevation(Double value) {
+            put("elevation", value);
+            return this;
+        }
+
+        /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
+        public String getGlobalId() {
+            return Json.read(json.get("global_id"), Json::string);
+        }
+
+        /** {@link #getGlobalId()} を書く。null ならフィールドを除く */
+        public BuildingAddSpaceEdit withGlobalId(String value) {
+            put("global_id", value);
+            return this;
+        }
+    }
+
+    /** 要素を足し、container があれば IfcRelContainedInSpatialStructure で空間に結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・代理要素（IfcBuildingElementProxy）。結果の id は足した要素の ID。マイナーバージョン 96 から */
+    public static final class BuildingAddElementEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingAddElementEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingAddElementEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingAddElementEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingAddElementEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "add_element");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingAddElementEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** IFC の実体の名前（IfcWall など）。文書のバージョンにあるもの */
+        public String getClassValue() {
+            return Json.read(json.get("class"), Json::string);
+        }
+
+        /** {@link #getClassValue()} を書く。null ならフィールドを除く */
+        public BuildingAddElementEdit withClassValue(String value) {
+            put("class", value);
+            return this;
+        }
+
+        /** PredefinedType の列挙の値（SOLIDWALL など）。バージョンが持たない実体では書けない */
+        public String getPredefined() {
+            return Json.read(json.get("predefined"), Json::string);
+        }
+
+        /** {@link #getPredefined()} を書く。null ならフィールドを除く */
+        public BuildingAddElementEdit withPredefined(String value) {
+            put("predefined", value);
+            return this;
+        }
+
+        /** 名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public BuildingAddElementEdit withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        public BuildingRef getContainer() {
+            return Json.read(json.get("container"), BuildingRef::of);
+        }
+
+        /** {@link #getContainer()} を書く。null ならフィールドを除く */
+        public BuildingAddElementEdit withContainer(BuildingRef value) {
+            put("container", value);
+            return this;
+        }
+
+        /** 配置。書かなければ、空間の配置に重ねる（空間もなければ原点） */
+        public BuildingPlacementChange getPlacement() {
+            return Json.read(json.get("placement"), BuildingPlacementChange::of);
+        }
+
+        /** {@link #getPlacement()} を書く。null ならフィールドを除く */
+        public BuildingAddElementEdit withPlacement(BuildingPlacementChange value) {
+            put("placement", value);
+            return this;
+        }
+
+        /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
+        public String getGlobalId() {
+            return Json.read(json.get("global_id"), Json::string);
+        }
+
+        /** {@link #getGlobalId()} を書く。null ならフィールドを除く */
+        public BuildingAddElementEdit withGlobalId(String value) {
+            put("global_id", value);
+            return this;
+        }
+    }
+
+    /** 要素を除く。関係からも外し、空になった関係を除く。壁の開口は一緒に除く。子のある空間と、関係のほかから指される要素は除けない。結果は id を持たない。マイナーバージョン 96 から */
+    public static final class BuildingRemoveEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingRemoveEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingRemoveEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingRemoveEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingRemoveEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "remove");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingRemoveEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 除く要素の ID。building_elements が返したもの */
+        public String getId() {
+            return Json.read(json.get("id"), Json::string);
+        }
+
+        /** {@link #getId()} を書く。null ならフィールドを除く */
+        public BuildingRemoveEdit withId(String value) {
+            put("id", value);
+            return this;
+        }
+
+        /** 読んだときの要素のハッシュ。building_elements が返したもの */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public BuildingRemoveEdit withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+    }
+
+    /** 要素の配置を置き直す。ほかの要素と共有しない配置はその場で書き換え、共有する配置は新しく作る。配置の親をたどって輪になる配置は断る。マイナーバージョン 96 から */
+    public static final class BuildingPlaceEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingPlaceEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingPlaceEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingPlaceEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingPlaceEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "place");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingPlaceEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        public BuildingRef getElement() {
+            return Json.read(json.get("element"), BuildingRef::of);
+        }
+
+        /** {@link #getElement()} を書く。null ならフィールドを除く */
+        public BuildingPlaceEdit withElement(BuildingRef value) {
+            put("element", value);
+            return this;
+        }
+
+        /** 新しい配置 */
+        public BuildingPlacementChange getPlacement() {
+            return Json.read(json.get("placement"), BuildingPlacementChange::of);
+        }
+
+        /** {@link #getPlacement()} を書く。null ならフィールドを除く */
+        public BuildingPlaceEdit withPlacement(BuildingPlacementChange value) {
+            put("placement", value);
+            return this;
+        }
+    }
+
+    /** 要素を空間に移す。空間は IfcRelAggregates、要素は IfcRelContainedInSpatialStructure で結び、前の関係から外す。マイナーバージョン 96 から */
+    public static final class BuildingContainEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingContainEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingContainEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingContainEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingContainEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "contain");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingContainEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        public BuildingRef getElement() {
+            return Json.read(json.get("element"), BuildingRef::of);
+        }
+
+        /** {@link #getElement()} を書く。null ならフィールドを除く */
+        public BuildingContainEdit withElement(BuildingRef value) {
+            put("element", value);
+            return this;
+        }
+
+        /** 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        public BuildingRef getSpace() {
+            return Json.read(json.get("space"), BuildingRef::of);
+        }
+
+        /** {@link #getSpace()} を書く。null ならフィールドを除く */
+        public BuildingContainEdit withSpace(BuildingRef value) {
+            put("space", value);
+            return this;
+        }
+    }
+
+    /** 要素の型を IfcRelDefinesByType で付け替える。element_type を書かなければ、型を外す。マイナーバージョン 96 から */
+    public static final class BuildingTypeEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingTypeEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingTypeEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingTypeEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingTypeEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "type");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingTypeEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        public BuildingRef getElement() {
+            return Json.read(json.get("element"), BuildingRef::of);
+        }
+
+        /** {@link #getElement()} を書く。null ならフィールドを除く */
+        public BuildingTypeEdit withElement(BuildingRef value) {
+            put("element", value);
+            return this;
+        }
+
+        /** 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingTypeEdit withElementType(BuildingRef value) {
+            put("element_type", value);
+            return this;
+        }
+    }
+
+    /** 開口（IfcOpeningElement）を要素に IfcRelVoidsElement で結ぶ。1 つの開口は 1 つの要素だけに結ぶ。マイナーバージョン 96 から */
+    public static final class BuildingVoidEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingVoidEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingVoidEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingVoidEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingVoidEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "void");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingVoidEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        public BuildingRef getHost() {
+            return Json.read(json.get("host"), BuildingRef::of);
+        }
+
+        /** {@link #getHost()} を書く。null ならフィールドを除く */
+        public BuildingVoidEdit withHost(BuildingRef value) {
+            put("host", value);
+            return this;
+        }
+
+        /** 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        public BuildingRef getOpening() {
+            return Json.read(json.get("opening"), BuildingRef::of);
+        }
+
+        /** {@link #getOpening()} を書く。null ならフィールドを除く */
+        public BuildingVoidEdit withOpening(BuildingRef value) {
+            put("opening", value);
+            return this;
+        }
+    }
+
+    /** 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から */
+    public static final class BuildingFillEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingFillEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingFillEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingFillEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingFillEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "fill");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingFillEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        public BuildingRef getOpening() {
+            return Json.read(json.get("opening"), BuildingRef::of);
+        }
+
+        /** {@link #getOpening()} を書く。null ならフィールドを除く */
+        public BuildingFillEdit withOpening(BuildingRef value) {
+            put("opening", value);
+            return this;
+        }
+
+        /** 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        public BuildingRef getFiller() {
+            return Json.read(json.get("filler"), BuildingRef::of);
+        }
+
+        /** {@link #getFiller()} を書く。null ならフィールドを除く */
+        public BuildingFillEdit withFiller(BuildingRef value) {
+            put("filler", value);
+            return this;
+        }
     }
 
     /** 当てた変更の結果。書き戻したファイルは blobs の file で返す */

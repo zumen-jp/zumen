@@ -5,21 +5,25 @@ use std::collections::BTreeMap;
 
 use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Stop, codes};
 use zumen_building::{
-    Building, ElementRef, Hash, Id, Literal, Local, MaterialKind, Opening, ParentKind,
-    QuantityKind, Relations, SpatialKind, TypedValue, Unit,
+    Building, ElementRef, GlobalId, Hash, Id, Literal, Local, MaterialKind, Opening, ParentKind,
+    QuantityKind, Relations, SpatialKind, Transform, TypedValue, Unit,
 };
 use zumen_ids::{Ids, Report};
-use zumen_ifc::{Edit, Ifc, IfcFile, IfcZip, NewLiteral, NewValue, RootAttribute, TextEncoding};
+use zumen_ifc::{
+    Edit, Ifc, IfcFile, IfcZip, NewElement, NewLiteral, NewPlacement, NewSpace, NewValue,
+    RootAttribute, SpaceKind, Target, TextEncoding,
+};
 use zumen_sdk::{Codec, Lift};
 
 use crate::messages::{
     self, BuildingApplyRequest, BuildingApplyResult, BuildingAttribute, BuildingComponent,
-    BuildingEdit, BuildingElement, BuildingElementsRequest, BuildingElementsResult, BuildingResult,
-    BuildingUnit, BuildingValue, BuildingValueKind, ClassComponent, ClassCount,
-    ClassificationReference, ConnectionLink, IdentityComponent, IdsCheckResult, IdsFinding,
-    IdsSpecification, IdsStatus, LevelComponent, MaterialComponent, MaterialPart, Measured,
-    Membership, OpeningComponent, ParentComponent, PlacementComponent, Property, PropertySet,
-    Quantity, QuantitySet, RelationsComponent, SpatialComponent, StyleComponent, ZoneComponent,
+    BuildingEdit, BuildingElement, BuildingElementsRequest, BuildingElementsResult,
+    BuildingPlacementChange, BuildingRef, BuildingResult, BuildingSpaceKind, BuildingUnit,
+    BuildingValue, BuildingValueKind, ClassComponent, ClassCount, ClassificationReference,
+    ConnectionLink, IdentityComponent, IdsCheckResult, IdsFinding, IdsSpecification, IdsStatus,
+    LevelComponent, MaterialComponent, MaterialPart, Measured, Membership, OpeningComponent,
+    ParentComponent, PlacementComponent, Property, PropertySet, Quantity, QuantitySet,
+    RelationsComponent, SpatialComponent, StyleComponent, ZoneComponent,
 };
 #[cfg(feature = "bim")]
 use crate::plugin;
@@ -188,7 +192,18 @@ pub(crate) type Updated = (Model, BuildingApplyResult, Vec<u8>);
 /// 確かめ終えた変更の一覧。L1 の変更と、変える要素（結果の並び）
 pub(crate) struct Prepared {
     pub(crate) edits: Vec<Edit>,
-    targets: Vec<ElementRef>,
+    targets: Vec<Outcome>,
+}
+
+/// 変更 1 つの結果で返す要素
+#[derive(Clone, Copy)]
+enum Outcome {
+    /// 文書にあった要素。ID は書き戻しても変わらない
+    Existing(ElementRef),
+    /// 足した空間か要素の GlobalId
+    Added(GlobalId),
+    /// 除いた要素。ID を返さない
+    Removed,
 }
 
 /// 確かめ終えた変更を、今までの経路（L1 の [`zumen_ifc::apply`]）で当て、書き戻した文書と結果と、書き戻した
@@ -230,66 +245,308 @@ pub(crate) fn prepare(
             return Err(fail(cx, Diagnostic::new(codes::CHANGE_DOCUMENT_STALE)));
         }
     }
+    // 足す変更の、L1 の足した順の位置と GlobalId。前の変更の added から引く
+    let mut slots: Vec<Option<(usize, GlobalId)>> = Vec::with_capacity(request.edits.len());
     let mut edits = Vec::with_capacity(request.edits.len());
     let mut targets = Vec::with_capacity(request.edits.len());
     let mut rejected = false;
     for (index, edit) in request.edits.iter().enumerate() {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        let (id, hash) = match edit {
-            BuildingEdit::Property(edit) => (&edit.id, &edit.hash),
-            BuildingEdit::Attribute(edit) => (&edit.id, &edit.hash),
+        let at = format!("/edits/{index}");
+        let added = slots.iter().flatten().count();
+        let given = match edit {
+            BuildingEdit::AddSpace(edit) => Some(edit.global_id.as_deref()),
+            BuildingEdit::AddElement(edit) => Some(edit.global_id.as_deref()),
+            _ => None,
         };
-        let expected = hash
-            .parse::<Hash>()
-            .map_err(|()| fail(cx, invalid_value(format!("/edits/{index}/hash"))))?;
-        // 値の形は、要素を引く前に確かめる
-        let value = match edit {
-            BuildingEdit::Property(edit) => Some(
-                new_value(&edit.value)
-                    .ok_or_else(|| fail(cx, invalid_value(format!("/edits/{index}/value"))))?,
+        let slot = match given {
+            Some(Some(text)) => Some(
+                GlobalId::parse(text)
+                    .ok_or_else(|| fail(cx, invalid_value(format!("{at}/global_id"))))?,
             ),
-            BuildingEdit::Attribute(_) => None,
+            Some(None) => Some(minted(model, index)),
+            None => None,
         };
-        let Some(element) = id.parse::<Id>().ok().and_then(|id| model.building.find(id)) else {
-            cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id.as_str()));
-            rejected = true;
-            continue;
+        slots.push(slot.map(|global_id| (added, global_id)));
+        let refs = Refs {
+            model,
+            slots: &slots,
+            index,
         };
-        let current = Hash::element_checked(&model.building, element, cx)
-            .map_err(|stop| stopped(cx, stop))?;
-        if current != Some(expected) {
-            cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", id.as_str()));
-            rejected = true;
-            continue;
+        let resolved = match edit {
+            BuildingEdit::Property(_) | BuildingEdit::Attribute(_) => {
+                old_edit(model, edit, &at, cx)?
+            }
+            BuildingEdit::AddSpace(edit) => {
+                let parent = refs.resolve(&edit.parent, &format!("{at}/parent"), cx)?;
+                let placement = refs.placement(edit.placement.as_ref(), &at, cx)?;
+                let global_id = slot.ok_or(Failed)?;
+                parent.zip(placement).map(|(parent, placement)| {
+                    (
+                        Edit::Space(NewSpace {
+                            kind: match edit.space {
+                                BuildingSpaceKind::Site => SpaceKind::Site,
+                                BuildingSpaceKind::Building => SpaceKind::Building,
+                                BuildingSpaceKind::Storey => SpaceKind::Storey,
+                            },
+                            name: edit.name.clone(),
+                            parent: parent.0,
+                            placement,
+                            elevation: edit.elevation,
+                            global_id: Some(global_id),
+                        }),
+                        Outcome::Added(global_id),
+                    )
+                })
+            }
+            BuildingEdit::AddElement(edit) => {
+                let container = match &edit.container {
+                    Some(r) => refs
+                        .resolve(r, &format!("{at}/container"), cx)?
+                        .map(|(target, _)| Some(target)),
+                    None => Some(None),
+                };
+                let placement = refs.placement(edit.placement.as_ref(), &at, cx)?;
+                let global_id = slot.ok_or(Failed)?;
+                container.zip(placement).map(|(container, placement)| {
+                    (
+                        Edit::Element(NewElement {
+                            class: edit.class.clone(),
+                            predefined: edit.predefined.clone(),
+                            name: edit.name.clone(),
+                            container,
+                            placement,
+                            global_id: Some(global_id),
+                        }),
+                        Outcome::Added(global_id),
+                    )
+                })
+            }
+            BuildingEdit::Remove(edit) => {
+                let element = BuildingRef {
+                    id: Some(edit.id.clone()),
+                    hash: Some(edit.hash.clone()),
+                    added: None,
+                };
+                refs.resolve(&element, &at, cx)?
+                    .map(|(element, _)| (Edit::Remove { element }, Outcome::Removed))
+            }
+            BuildingEdit::Place(edit) => {
+                let element = refs.resolve(&edit.element, &format!("{at}/element"), cx)?;
+                let placement = refs.placement(Some(&edit.placement), &at, cx)?;
+                element
+                    .zip(placement.flatten())
+                    .map(|((element, outcome), placement)| {
+                        (Edit::Place { element, placement }, outcome)
+                    })
+            }
+            BuildingEdit::Contain(edit) => {
+                let element = refs.resolve(&edit.element, &format!("{at}/element"), cx)?;
+                let space = refs.resolve(&edit.space, &format!("{at}/space"), cx)?;
+                element.zip(space).map(|((element, outcome), (space, _))| {
+                    (Edit::Contain { element, space }, outcome)
+                })
+            }
+            BuildingEdit::Type(edit) => {
+                let element = refs.resolve(&edit.element, &format!("{at}/element"), cx)?;
+                let type_of = match &edit.element_type {
+                    Some(r) => refs
+                        .resolve(r, &format!("{at}/element_type"), cx)?
+                        .map(|(target, _)| Some(target)),
+                    None => Some(None),
+                };
+                element
+                    .zip(type_of)
+                    .map(|((element, outcome), type_of)| (Edit::Type { element, type_of }, outcome))
+            }
+            BuildingEdit::Void(edit) => {
+                let host = refs.resolve(&edit.host, &format!("{at}/host"), cx)?;
+                let opening = refs.resolve(&edit.opening, &format!("{at}/opening"), cx)?;
+                host.zip(opening)
+                    .map(|((host, outcome), (opening, _))| (Edit::Void { host, opening }, outcome))
+            }
+            BuildingEdit::Fill(edit) => {
+                let opening = refs.resolve(&edit.opening, &format!("{at}/opening"), cx)?;
+                let filler = refs.resolve(&edit.filler, &format!("{at}/filler"), cx)?;
+                opening
+                    .zip(filler)
+                    .map(|((opening, outcome), (filler, _))| {
+                        (Edit::Fill { opening, filler }, outcome)
+                    })
+            }
+        };
+        match resolved {
+            Some((edit, outcome)) => {
+                edits.push(edit);
+                targets.push(outcome);
+            }
+            None => rejected = true,
         }
-        let instance = model
-            .building
-            .element(element)
-            .and_then(|e| e.source().instance)
-            .unwrap_or_default();
-        edits.push(match (edit, value) {
-            (BuildingEdit::Property(edit), Some(value)) => Edit::Property {
-                element: instance,
-                set: edit.set.clone(),
-                name: edit.name.clone(),
-                value,
-            },
-            (BuildingEdit::Property(_), None) => return Err(Failed),
-            (BuildingEdit::Attribute(edit), _) => Edit::Attribute {
-                element: instance,
-                attribute: match edit.attribute {
-                    BuildingAttribute::Name => RootAttribute::Name,
-                    BuildingAttribute::Description => RootAttribute::Description,
-                },
-                value: edit.value.clone(),
-            },
-        });
-        targets.push(element);
     }
     if rejected {
         return Err(Failed);
     }
     Ok(Prepared { edits, targets })
+}
+
+/// プロパティと属性の変更を確かめ、L1 の変更にする。要素がないか古ければ診断して `None`
+fn old_edit(
+    model: &Model,
+    edit: &BuildingEdit,
+    at: &str,
+    cx: &mut Cx<'_>,
+) -> Result<Option<(Edit, Outcome)>, Failed> {
+    let (id, hash) = match edit {
+        BuildingEdit::Property(edit) => (&edit.id, &edit.hash),
+        BuildingEdit::Attribute(edit) => (&edit.id, &edit.hash),
+        _ => return Err(Failed),
+    };
+    let expected = hash
+        .parse::<Hash>()
+        .map_err(|()| fail(cx, invalid_value(format!("{at}/hash"))))?;
+    // 値の形は、要素を引く前に確かめる
+    let value = match edit {
+        BuildingEdit::Property(edit) => Some(
+            new_value(&edit.value).ok_or_else(|| fail(cx, invalid_value(format!("{at}/value"))))?,
+        ),
+        _ => None,
+    };
+    let Some((instance, element)) = current(model, id, expected, cx)? else {
+        return Ok(None);
+    };
+    let edit = match (edit, value) {
+        (BuildingEdit::Property(edit), Some(value)) => Edit::Property {
+            element: instance,
+            set: edit.set.clone(),
+            name: edit.name.clone(),
+            value,
+        },
+        (BuildingEdit::Attribute(edit), _) => Edit::Attribute {
+            element: instance,
+            attribute: match edit.attribute {
+                BuildingAttribute::Name => RootAttribute::Name,
+                BuildingAttribute::Description => RootAttribute::Description,
+            },
+            value: edit.value.clone(),
+        },
+        _ => return Err(Failed),
+    };
+    Ok(Some((edit, Outcome::Existing(element))))
+}
+
+/// ID の要素を引き、ハッシュが `expected` と同じか確かめる。インスタンスの番号と要素を返す。
+/// なければ・古ければ診断して `None`
+fn current(
+    model: &Model,
+    id: &str,
+    expected: Hash,
+    cx: &mut Cx<'_>,
+) -> Result<Option<(u64, ElementRef)>, Failed> {
+    let Some(element) = id.parse::<Id>().ok().and_then(|id| model.building.find(id)) else {
+        cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id));
+        return Ok(None);
+    };
+    let now =
+        Hash::element_checked(&model.building, element, cx).map_err(|stop| stopped(cx, stop))?;
+    if now != Some(expected) {
+        cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", id));
+        return Ok(None);
+    }
+    let instance = model
+        .building
+        .element(element)
+        .and_then(|e| e.source().instance)
+        .unwrap_or_default();
+    Ok(Some((instance, element)))
+}
+
+/// 呼び出し元が GlobalId を書かずに足す空間か要素の GlobalId。文書のハッシュと変更の位置から決める
+fn minted(model: &Model, index: usize) -> GlobalId {
+    let mut input = model.hash.0.to_vec();
+    input.extend_from_slice(b"building_apply/");
+    input.extend_from_slice(&(index as u64).to_le_bytes());
+    let Hash(bytes) = Hash::document(&input);
+    GlobalId::from_uuid(bytes)
+}
+
+/// 変更が指す要素を引くための、文書と、前の変更で足したもの
+struct Refs<'a> {
+    model: &'a Model,
+    slots: &'a [Option<(usize, GlobalId)>],
+    index: usize,
+}
+
+impl Refs<'_> {
+    /// `r` が指す要素を L1 の指し方にする。形が違えば失敗し、要素がないか古ければ診断して `None`
+    fn resolve(
+        &self,
+        r: &BuildingRef,
+        at: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<(Target, Outcome)>, Failed> {
+        match (&r.id, &r.hash, r.added) {
+            (Some(id), Some(hash), None) => {
+                let expected = hash
+                    .parse::<Hash>()
+                    .map_err(|()| fail(cx, invalid_value(format!("{at}/hash"))))?;
+                Ok(
+                    current(self.model, id, expected, cx)?.map(|(instance, element)| {
+                        (Target::Instance(instance), Outcome::Existing(element))
+                    }),
+                )
+            }
+            (None, None, Some(added)) => {
+                // 前にある足す変更だけを指せる
+                let slot = usize::try_from(added)
+                    .ok()
+                    .filter(|&n| n < self.index)
+                    .and_then(|n| self.slots.get(n).copied().flatten());
+                let (position, global_id) =
+                    slot.ok_or_else(|| fail(cx, invalid_value(format!("{at}/added"))))?;
+                Ok(Some((Target::Added(position), Outcome::Added(global_id))))
+            }
+            _ => Err(fail(cx, invalid_value(at))),
+        }
+    }
+
+    /// 配置を L1 の配置にする。書かなければ `Some(None)`。行列の形が違えば失敗し、親の要素がないか古ければ
+    /// 診断して `None`
+    fn placement(
+        &self,
+        placement: Option<&BuildingPlacementChange>,
+        at: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Option<NewPlacement>>, Failed> {
+        let Some(placement) = placement else {
+            return Ok(Some(None));
+        };
+        let at = format!("{at}/placement");
+        let local = matrix(&placement.matrix)
+            .ok_or_else(|| fail(cx, invalid_value(format!("{at}/matrix"))))?;
+        let relative_to = match &placement.relative_to {
+            Some(r) => match self.resolve(r, &format!("{at}/relative_to"), cx)? {
+                Some((target, _)) => Some(target),
+                None => return Ok(None),
+            },
+            None => None,
+        };
+        Ok(Some(Some(NewPlacement { relative_to, local })))
+    }
+}
+
+/// 3 行 4 列の有限の数を変換にする。形が違えば `None`
+fn matrix(rows: &[Vec<f64>]) -> Option<Transform> {
+    let mut out = [[0.0; 4]; 3];
+    if rows.len() != out.len() {
+        return None;
+    }
+    for (row, values) in out.iter_mut().zip(rows) {
+        if values.len() != row.len() || values.iter().any(|v| !v.is_finite()) {
+            return None;
+        }
+        row.copy_from_slice(values);
+    }
+    Some(Transform(out))
 }
 
 /// 書き戻した IFC-SPF のバイト列 `spf` から、書き戻した文書と結果と、書き戻したファイルを作る。ifcZIP なら
@@ -340,9 +597,14 @@ pub(crate) fn finish(
         live: Live::Absent,
     };
     let mut results = Vec::with_capacity(prepared.targets.len());
-    for &element in &prepared.targets {
-        // 変えた要素の ID は変わらない。足したインスタンスは、元の要素の後ろに並ぶ
-        let id = model.building.id(element);
+    for &outcome in &prepared.targets {
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        // 変えた要素の ID は変わらない。足した空間と要素は、GlobalId の ID で引く
+        let id = match outcome {
+            Outcome::Existing(element) => model.building.id(element),
+            Outcome::Added(global_id) => Some(Id::Global(global_id)),
+            Outcome::Removed => None,
+        };
         let after = id.and_then(|id| updated.building.find(id));
         let hash = match after {
             Some(after) => Hash::element_checked(&updated.building, after, cx)

@@ -10489,7 +10489,7 @@ public struct BuildingApplyRequest: Message {
     }
 }
 
-/// 建物の要素 1 つへの変更。kind の値で形が決まる
+/// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から
 public struct BuildingEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -10507,6 +10507,46 @@ public struct BuildingEdit: Message {
     /// kind が attribute の形なら、そのビュー。違えば nil
     public var asBuildingAttributeEdit: BuildingAttributeEdit? {
         taggedView("kind", "attribute")
+    }
+
+    /// kind が add_space の形なら、そのビュー。違えば nil
+    public var asBuildingAddSpaceEdit: BuildingAddSpaceEdit? {
+        taggedView("kind", "add_space")
+    }
+
+    /// kind が add_element の形なら、そのビュー。違えば nil
+    public var asBuildingAddElementEdit: BuildingAddElementEdit? {
+        taggedView("kind", "add_element")
+    }
+
+    /// kind が remove の形なら、そのビュー。違えば nil
+    public var asBuildingRemoveEdit: BuildingRemoveEdit? {
+        taggedView("kind", "remove")
+    }
+
+    /// kind が place の形なら、そのビュー。違えば nil
+    public var asBuildingPlaceEdit: BuildingPlaceEdit? {
+        taggedView("kind", "place")
+    }
+
+    /// kind が contain の形なら、そのビュー。違えば nil
+    public var asBuildingContainEdit: BuildingContainEdit? {
+        taggedView("kind", "contain")
+    }
+
+    /// kind が type の形なら、そのビュー。違えば nil
+    public var asBuildingTypeEdit: BuildingTypeEdit? {
+        taggedView("kind", "type")
+    }
+
+    /// kind が void の形なら、そのビュー。違えば nil
+    public var asBuildingVoidEdit: BuildingVoidEdit? {
+        taggedView("kind", "void")
+    }
+
+    /// kind が fill の形なら、そのビュー。違えば nil
+    public var asBuildingFillEdit: BuildingFillEdit? {
+        taggedView("kind", "fill")
     }
 }
 
@@ -10614,6 +10654,397 @@ public struct BuildingAttributeEdit: Message {
 public enum BuildingAttribute {
     public static let name = "name"
     public static let description = "description"
+}
+
+/// 変更が指す要素。id と hash を書くか、added だけを書く
+public struct BuildingRef: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 要素の ID。building_elements が返したもの
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 読んだときの要素のハッシュ。building_elements が返したもの
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す
+    public var added: Int64? {
+        get { readField("added") }
+        set { writeField("added", newValue) }
+    }
+}
+
+/// 要素の配置（IfcLocalPlacement）。relative_to の要素の配置からの相対で、書かなければプロジェクトの空間に置く
+public struct BuildingPlacementChange: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 配置の親の要素
+    public var relativeTo: BuildingRef? {
+        get { readField("relative_to") }
+        set { writeField("relative_to", newValue) }
+    }
+
+    /// 局所の変換。3 行 4 列（回転と移動。building_elements の placement の world と同じ形）。回転は正規直交で行列式が 1、移動は文書の長さの単位
+    public var matrix: [[Double]]? {
+        get { readField("matrix") }
+        set { writeField("matrix", newValue) }
+    }
+}
+
+/// 足す空間の種類。site は IfcSite、building は IfcBuilding、storey は IfcBuildingStorey
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingSpaceKind {
+    public static let site = "site"
+    public static let building = "building"
+    public static let storey = "storey"
+}
+
+/// 敷地・建物・階を足し、IfcRelAggregates で親に結ぶ。結果の id は足した空間の ID。マイナーバージョン 96 から
+public struct BuildingAddSpaceEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_space")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 空間の種類
+    public var space: String? {
+        get { readField("space") }
+        set { writeField("space", newValue) }
+    }
+
+    /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    public var parent: BuildingRef? {
+        get { readField("parent") }
+        set { writeField("parent", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 配置。書かなければ、親の配置に重ねる
+    public var placement: BuildingPlacementChange? {
+        get { readField("placement") }
+        set { writeField("placement", newValue) }
+    }
+
+    /// 高さ。敷地は RefElevation、建物は ElevationOfRefHeight、階は Elevation に書く。文書の長さの単位
+    public var elevation: Double? {
+        get { readField("elevation") }
+        set { writeField("elevation", newValue) }
+    }
+
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    public var globalId: String? {
+        get { readField("global_id") }
+        set { writeField("global_id", newValue) }
+    }
+}
+
+/// 要素を足し、container があれば IfcRelContainedInSpatialStructure で空間に結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・代理要素（IfcBuildingElementProxy）。結果の id は足した要素の ID。マイナーバージョン 96 から
+public struct BuildingAddElementEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_element")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// IFC の実体の名前（IfcWall など）。文書のバージョンにあるもの
+    public var `class`: String? {
+        get { readField("class") }
+        set { writeField("class", newValue) }
+    }
+
+    /// PredefinedType の列挙の値（SOLIDWALL など）。バージョンが持たない実体では書けない
+    public var predefined: String? {
+        get { readField("predefined") }
+        set { writeField("predefined", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    public var container: BuildingRef? {
+        get { readField("container") }
+        set { writeField("container", newValue) }
+    }
+
+    /// 配置。書かなければ、空間の配置に重ねる（空間もなければ原点）
+    public var placement: BuildingPlacementChange? {
+        get { readField("placement") }
+        set { writeField("placement", newValue) }
+    }
+
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    public var globalId: String? {
+        get { readField("global_id") }
+        set { writeField("global_id", newValue) }
+    }
+}
+
+/// 要素を除く。関係からも外し、空になった関係を除く。壁の開口は一緒に除く。子のある空間と、関係のほかから指される要素は除けない。結果は id を持たない。マイナーバージョン 96 から
+public struct BuildingRemoveEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("remove")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 除く要素の ID。building_elements が返したもの
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 読んだときの要素のハッシュ。building_elements が返したもの
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+}
+
+/// 要素の配置を置き直す。ほかの要素と共有しない配置はその場で書き換え、共有する配置は新しく作る。配置の親をたどって輪になる配置は断る。マイナーバージョン 96 から
+public struct BuildingPlaceEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("place")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    public var element: BuildingRef? {
+        get { readField("element") }
+        set { writeField("element", newValue) }
+    }
+
+    /// 新しい配置
+    public var placement: BuildingPlacementChange? {
+        get { readField("placement") }
+        set { writeField("placement", newValue) }
+    }
+}
+
+/// 要素を空間に移す。空間は IfcRelAggregates、要素は IfcRelContainedInSpatialStructure で結び、前の関係から外す。マイナーバージョン 96 から
+public struct BuildingContainEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("contain")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    public var element: BuildingRef? {
+        get { readField("element") }
+        set { writeField("element", newValue) }
+    }
+
+    /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    public var space: BuildingRef? {
+        get { readField("space") }
+        set { writeField("space", newValue) }
+    }
+}
+
+/// 要素の型を IfcRelDefinesByType で付け替える。element_type を書かなければ、型を外す。マイナーバージョン 96 から
+public struct BuildingTypeEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("type")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    public var element: BuildingRef? {
+        get { readField("element") }
+        set { writeField("element", newValue) }
+    }
+
+    /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    public var elementType: BuildingRef? {
+        get { readField("element_type") }
+        set { writeField("element_type", newValue) }
+    }
+}
+
+/// 開口（IfcOpeningElement）を要素に IfcRelVoidsElement で結ぶ。1 つの開口は 1 つの要素だけに結ぶ。マイナーバージョン 96 から
+public struct BuildingVoidEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("void")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    public var host: BuildingRef? {
+        get { readField("host") }
+        set { writeField("host", newValue) }
+    }
+
+    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    public var opening: BuildingRef? {
+        get { readField("opening") }
+        set { writeField("opening", newValue) }
+    }
+}
+
+/// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
+public struct BuildingFillEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("fill")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    public var opening: BuildingRef? {
+        get { readField("opening") }
+        set { writeField("opening", newValue) }
+    }
+
+    /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    public var filler: BuildingRef? {
+        get { readField("filler") }
+        set { writeField("filler", newValue) }
+    }
 }
 
 /// 当てた変更の結果。書き戻したファイルは blobs の file で返す

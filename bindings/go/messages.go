@@ -5666,7 +5666,7 @@ func (m BuildingApplyRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingEdit: 建物の要素 1 つへの変更。kind の値で形が決まる
+// BuildingEdit: 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から
 //
 // 読んだ JSON をそのまま持つ。形は As で始まるメソッドで読み、BuildingEditOf で作る。
 type BuildingEdit json.RawMessage
@@ -5696,6 +5696,46 @@ func (u BuildingEdit) AsBuildingPropertyEdit() *BuildingPropertyEdit {
 // AsBuildingAttributeEdit は、kind が attribute の形なら、その型で読む。違えば nil。
 func (u BuildingEdit) AsBuildingAttributeEdit() *BuildingAttributeEdit {
 	return asTagged[BuildingAttributeEdit](u, "kind", "attribute")
+}
+
+// AsBuildingAddSpaceEdit は、kind が add_space の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAddSpaceEdit() *BuildingAddSpaceEdit {
+	return asTagged[BuildingAddSpaceEdit](u, "kind", "add_space")
+}
+
+// AsBuildingAddElementEdit は、kind が add_element の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAddElementEdit() *BuildingAddElementEdit {
+	return asTagged[BuildingAddElementEdit](u, "kind", "add_element")
+}
+
+// AsBuildingRemoveEdit は、kind が remove の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingRemoveEdit() *BuildingRemoveEdit {
+	return asTagged[BuildingRemoveEdit](u, "kind", "remove")
+}
+
+// AsBuildingPlaceEdit は、kind が place の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingPlaceEdit() *BuildingPlaceEdit {
+	return asTagged[BuildingPlaceEdit](u, "kind", "place")
+}
+
+// AsBuildingContainEdit は、kind が contain の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingContainEdit() *BuildingContainEdit {
+	return asTagged[BuildingContainEdit](u, "kind", "contain")
+}
+
+// AsBuildingTypeEdit は、kind が type の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingTypeEdit() *BuildingTypeEdit {
+	return asTagged[BuildingTypeEdit](u, "kind", "type")
+}
+
+// AsBuildingVoidEdit は、kind が void の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingVoidEdit() *BuildingVoidEdit {
+	return asTagged[BuildingVoidEdit](u, "kind", "void")
+}
+
+// AsBuildingFillEdit は、kind が fill の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingFillEdit() *BuildingFillEdit {
+	return asTagged[BuildingFillEdit](u, "kind", "fill")
 }
 
 // BuildingPropertyEdit: 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
@@ -5761,6 +5801,217 @@ const BuildingAttributeName BuildingAttribute = "name"
 
 // BuildingAttributeDescription は description。
 const BuildingAttributeDescription BuildingAttribute = "description"
+
+// BuildingRef: 変更が指す要素。id と hash を書くか、added だけを書く
+type BuildingRef struct {
+	// 要素の ID。building_elements が返したもの
+	Id *string `json:"id,omitempty"`
+
+	// 読んだときの要素のハッシュ。building_elements が返したもの
+	Hash *string `json:"hash,omitempty"`
+
+	// 同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す
+	Added *int64 `json:"added,omitempty"`
+}
+
+// BuildingPlacementChange: 要素の配置（IfcLocalPlacement）。relative_to の要素の配置からの相対で、書かなければプロジェクトの空間に置く
+type BuildingPlacementChange struct {
+	// 配置の親の要素
+	RelativeTo *BuildingRef `json:"relative_to,omitempty"`
+
+	// 局所の変換。3 行 4 列（回転と移動。building_elements の placement の world と同じ形）。回転は正規直交で行列式が 1、移動は文書の長さの単位
+	Matrix [][]float64 `json:"matrix,omitempty"`
+}
+
+// BuildingSpaceKind: 足す空間の種類。site は IfcSite、building は IfcBuilding、storey は IfcBuildingStorey
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingSpaceKind string
+
+// BuildingSpaceKindSite は site。
+const BuildingSpaceKindSite BuildingSpaceKind = "site"
+
+// BuildingSpaceKindBuilding は building。
+const BuildingSpaceKindBuilding BuildingSpaceKind = "building"
+
+// BuildingSpaceKindStorey は storey。
+const BuildingSpaceKindStorey BuildingSpaceKind = "storey"
+
+// BuildingAddSpaceEdit: 敷地・建物・階を足し、IfcRelAggregates で親に結ぶ。結果の id は足した空間の ID。マイナーバージョン 96 から
+type BuildingAddSpaceEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 空間の種類
+	Space *BuildingSpaceKind `json:"space,omitempty"`
+
+	// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+	Parent *BuildingRef `json:"parent,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// 配置。書かなければ、親の配置に重ねる
+	Placement *BuildingPlacementChange `json:"placement,omitempty"`
+
+	// 高さ。敷地は RefElevation、建物は ElevationOfRefHeight、階は Elevation に書く。文書の長さの単位
+	Elevation *float64 `json:"elevation,omitempty"`
+
+	// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+	GlobalId *string `json:"global_id,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingAddSpaceEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAddSpaceEdit
+	m.Kind = "add_space"
+	return json.Marshal(plain(m))
+}
+
+// BuildingAddElementEdit: 要素を足し、container があれば IfcRelContainedInSpatialStructure で空間に結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・代理要素（IfcBuildingElementProxy）。結果の id は足した要素の ID。マイナーバージョン 96 から
+type BuildingAddElementEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// IFC の実体の名前（IfcWall など）。文書のバージョンにあるもの
+	Class *string `json:"class,omitempty"`
+
+	// PredefinedType の列挙の値（SOLIDWALL など）。バージョンが持たない実体では書けない
+	Predefined *string `json:"predefined,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+	Container *BuildingRef `json:"container,omitempty"`
+
+	// 配置。書かなければ、空間の配置に重ねる（空間もなければ原点）
+	Placement *BuildingPlacementChange `json:"placement,omitempty"`
+
+	// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+	GlobalId *string `json:"global_id,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingAddElementEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAddElementEdit
+	m.Kind = "add_element"
+	return json.Marshal(plain(m))
+}
+
+// BuildingRemoveEdit: 要素を除く。関係からも外し、空になった関係を除く。壁の開口は一緒に除く。子のある空間と、関係のほかから指される要素は除けない。結果は id を持たない。マイナーバージョン 96 から
+type BuildingRemoveEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 除く要素の ID。building_elements が返したもの
+	Id *string `json:"id,omitempty"`
+
+	// 読んだときの要素のハッシュ。building_elements が返したもの
+	Hash *string `json:"hash,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingRemoveEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingRemoveEdit
+	m.Kind = "remove"
+	return json.Marshal(plain(m))
+}
+
+// BuildingPlaceEdit: 要素の配置を置き直す。ほかの要素と共有しない配置はその場で書き換え、共有する配置は新しく作る。配置の親をたどって輪になる配置は断る。マイナーバージョン 96 から
+type BuildingPlaceEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+	Element *BuildingRef `json:"element,omitempty"`
+
+	// 新しい配置
+	Placement *BuildingPlacementChange `json:"placement,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingPlaceEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingPlaceEdit
+	m.Kind = "place"
+	return json.Marshal(plain(m))
+}
+
+// BuildingContainEdit: 要素を空間に移す。空間は IfcRelAggregates、要素は IfcRelContainedInSpatialStructure で結び、前の関係から外す。マイナーバージョン 96 から
+type BuildingContainEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+	Element *BuildingRef `json:"element,omitempty"`
+
+	// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+	Space *BuildingRef `json:"space,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingContainEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingContainEdit
+	m.Kind = "contain"
+	return json.Marshal(plain(m))
+}
+
+// BuildingTypeEdit: 要素の型を IfcRelDefinesByType で付け替える。element_type を書かなければ、型を外す。マイナーバージョン 96 から
+type BuildingTypeEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+	Element *BuildingRef `json:"element,omitempty"`
+
+	// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+	ElementType *BuildingRef `json:"element_type,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingTypeEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingTypeEdit
+	m.Kind = "type"
+	return json.Marshal(plain(m))
+}
+
+// BuildingVoidEdit: 開口（IfcOpeningElement）を要素に IfcRelVoidsElement で結ぶ。1 つの開口は 1 つの要素だけに結ぶ。マイナーバージョン 96 から
+type BuildingVoidEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+	Host *BuildingRef `json:"host,omitempty"`
+
+	// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+	Opening *BuildingRef `json:"opening,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingVoidEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingVoidEdit
+	m.Kind = "void"
+	return json.Marshal(plain(m))
+}
+
+// BuildingFillEdit: 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
+type BuildingFillEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+	Opening *BuildingRef `json:"opening,omitempty"`
+
+	// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+	Filler *BuildingRef `json:"filler,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingFillEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingFillEdit
+	m.Kind = "fill"
+	return json.Marshal(plain(m))
+}
 
 // BuildingApplyResult: 当てた変更の結果。書き戻したファイルは blobs の file で返す
 type BuildingApplyResult struct {

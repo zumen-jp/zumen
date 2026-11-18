@@ -978,12 +978,12 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
 - `building_apply` の op は、変更を当てたインスタンスだけを `#n=名前(引数);` の形で書き直す。足すインスタンスには今の最大の番号の次から振り、データのセクションの終わり（`ENDSEC;`）の前に、ファイルの改行で 1 行ずつ書く。ほかのレコードとレコードの間は、元のバイト列のまま書く。ifcZIP で開いたものは、書き直した IFC-SPF を元の項目の名前で入れ直す。
 - 書く文字列は、`'` と `\` を重ね、印字できる ASCII の外の文字を `\X2\…\X0\`（基本多言語面の外を含めば `\X4\…\X0\`）にする。
 - 当てられるのは、`IfcPropertySingleValue` の値と、`IfcRoot` の Name・Description。ほかの種類のプロパティ（列挙・表など）と、GlobalId を持たない要素（材料・通り芯の軸）は、`change.edit.unsupported` で当てない。
-- Rust の `zumen_ifc::apply` では、空間・要素・関係も足し、除き、置き直せる（[#897](https://github.com/zumen-jp/zumen/issues/897)）。文書エンジン（`IfcLive::apply`）も受け、今までの経路で当てて状態を作り直す（[依存](../live.md#依存)）。`building_apply` の JSON はまだ受けない。
-  - 足す: 敷地・建物・階（`IfcRelAggregates` で親に結ぶ）と、書き手の表にある要素（壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・プロキシ。`IfcRelContainedInSpatialStructure` で空間に結ぶ）。同じ要求で足した要素は、足した順の番号で指せる。
+- 空間・要素・関係も足し、除き、置き直せる（[#897](https://github.com/zumen-jp/zumen/issues/897)）。Rust の `zumen_ifc::apply` の変更と、`building_apply` の `add_space`・`add_element`・`remove`・`place`・`contain`・`type`・`void`・`fill`（スキーマのマイナーバージョン 96 から）。文書エンジン（`IfcLive::apply`）は、今までの経路で当てて状態を作り直す（[依存](../live.md#依存)）。
+  - 足す: 敷地・建物・階（`IfcRelAggregates` で親に結ぶ）と、書き手の表にある要素（壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・プロキシ。`IfcRelContainedInSpatialStructure` で空間に結ぶ）。同じ要求で足した要素は、Rust では足した順の番号、`building_apply` では足した変更の `edits` の位置（`added`）で指せる。`building_apply` の結果は、足した要素の ID（GlobalId）とハッシュを返す。
   - 結ぶ・直す: 配置（`IfcLocalPlacement` と `IfcAxis2Placement3D`）、所属する空間、型（`IfcRelDefinesByType`）、開口（`IfcRelVoidsElement`）と充填（`IfcRelFillsElement`）。関係は、同じ相手の関係があればその列へ足し、なければ足す。外して列が空になった関係は除く。置き直す配置がその要素と子の配置だけに使われていれば、その場で書き直し、子の配置は付いてくる。
   - 除く: 要素と、その要素の開口、要素だけが使う配置・表現・定義・関係。ほかから使われる配置と、`IfcRoot` の対象・所有履歴・表現の文脈・材料・単位は残す。子や所属する要素を持つ空間は除かない。除いたレコードは、前との間が空白だけなら、その空白も書かない。
   - 書く実体と属性の数は、lift と同じく手書きのバージョンの表で持つ。そのバージョンにない実体と、持たない定義された種類は書かない。必須の定義された種類（IFC2X3 の屋根・階段・斜路の ShapeType、基礎・杭）を渡されなければ `NOTDEFINED` を書く。
-  - 足す `IfcRoot` の所有履歴は、プロジェクトの所有履歴を使う。IFC2X3 でなければ断り、IFC4 と IFC4X3 では `$` にする。GlobalId は、渡された値が文書とこの要求で重ならなければ使い、渡されなければ今と同じく作る。
+  - 足す `IfcRoot` の所有履歴は、プロジェクトの所有履歴を使う。IFC2X3 でなければ断り、IFC4 と IFC4X3 では `$` にする。GlobalId は、渡された値が文書とこの要求で重ならなければ使う。渡されなければ、Rust では今と同じく作り、`building_apply` では文書のハッシュと変更の位置から作って L1 に渡す。
   - 当てられない変更（表にない実体、所属できない空間、輪になる配置、剛体でない変換、重なる GlobalId、ないか除いた要素）は、`change.edit.unsupported` で断り、要求のどの変更も当てない。
 
 ### 新しい IFC を作る

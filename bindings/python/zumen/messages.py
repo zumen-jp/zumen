@@ -5277,10 +5277,18 @@ _BuildingApplyRequestOptional = TypedDict(
 class BuildingApplyRequest(_BuildingApplyRequestRequired, _BuildingApplyRequestOptional):
     "開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。マイナーバージョン 58 から"
 
-# 建物の要素 1 つへの変更。kind の値で形が決まる
+# 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から
 BuildingEdit = Union[
     "BuildingPropertyEdit",
     "BuildingAttributeEdit",
+    "BuildingAddSpaceEdit",
+    "BuildingAddElementEdit",
+    "BuildingRemoveEdit",
+    "BuildingPlaceEdit",
+    "BuildingContainEdit",
+    "BuildingTypeEdit",
+    "BuildingVoidEdit",
+    "BuildingFillEdit",
 ]
 
 
@@ -5339,6 +5347,211 @@ BuildingAttribute = Union[
     ],
     str,
 ]
+
+
+# 変更が指す要素。id と hash を書くか、added だけを書く
+BuildingRef = TypedDict(
+    "BuildingRef",
+    {
+        # 要素の ID。building_elements が返したもの
+        "id": str,
+        # 読んだときの要素のハッシュ。building_elements が返したもの
+        "hash": str,
+        # 同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す
+        "added": int,
+    },
+    total=False,
+)
+
+
+# 要素の配置（IfcLocalPlacement）。relative_to の要素の配置からの相対で、書かなければプロジェクトの空間に置く
+_BuildingPlacementChangeRequired = TypedDict(
+    "_BuildingPlacementChangeRequired",
+    {
+        # 局所の変換。3 行 4 列（回転と移動。building_elements の placement の world と同じ形）。回転は正規直交で行列式が 1、移動は文書の長さの単位
+        "matrix": List[List[float]],
+    },
+)
+_BuildingPlacementChangeOptional = TypedDict(
+    "_BuildingPlacementChangeOptional",
+    {
+        # 配置の親の要素
+        "relative_to": "BuildingRef",
+    },
+    total=False,
+)
+
+
+class BuildingPlacementChange(_BuildingPlacementChangeRequired, _BuildingPlacementChangeOptional):
+    "要素の配置（IfcLocalPlacement）。relative_to の要素の配置からの相対で、書かなければプロジェクトの空間に置く"
+
+# 足す空間の種類。site は IfcSite、building は IfcBuilding、storey は IfcBuildingStorey
+BuildingSpaceKind = Union[
+    Literal[
+        "site",
+        "building",
+        "storey",
+    ],
+    str,
+]
+
+
+# 敷地・建物・階を足し、IfcRelAggregates で親に結ぶ。結果の id は足した空間の ID。マイナーバージョン 96 から
+_BuildingAddSpaceEditRequired = TypedDict(
+    "_BuildingAddSpaceEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["add_space"],
+        # 空間の種類
+        "space": "BuildingSpaceKind",
+        # 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        "parent": "BuildingRef",
+    },
+)
+_BuildingAddSpaceEditOptional = TypedDict(
+    "_BuildingAddSpaceEditOptional",
+    {
+        # 名前
+        "name": str,
+        # 配置。書かなければ、親の配置に重ねる
+        "placement": "BuildingPlacementChange",
+        # 高さ。敷地は RefElevation、建物は ElevationOfRefHeight、階は Elevation に書く。文書の長さの単位
+        "elevation": float,
+        # GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        "global_id": str,
+    },
+    total=False,
+)
+
+
+class BuildingAddSpaceEdit(_BuildingAddSpaceEditRequired, _BuildingAddSpaceEditOptional):
+    "敷地・建物・階を足し、IfcRelAggregates で親に結ぶ。結果の id は足した空間の ID。マイナーバージョン 96 から"
+
+
+# 要素を足し、container があれば IfcRelContainedInSpatialStructure で空間に結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・代理要素（IfcBuildingElementProxy）。結果の id は足した要素の ID。マイナーバージョン 96 から
+_BuildingAddElementEditRequired = TypedDict(
+    "_BuildingAddElementEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["add_element"],
+        # IFC の実体の名前（IfcWall など）。文書のバージョンにあるもの
+        "class": str,
+    },
+)
+_BuildingAddElementEditOptional = TypedDict(
+    "_BuildingAddElementEditOptional",
+    {
+        # PredefinedType の列挙の値（SOLIDWALL など）。バージョンが持たない実体では書けない
+        "predefined": str,
+        # 名前
+        "name": str,
+        # 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        "container": "BuildingRef",
+        # 配置。書かなければ、空間の配置に重ねる（空間もなければ原点）
+        "placement": "BuildingPlacementChange",
+        # GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        "global_id": str,
+    },
+    total=False,
+)
+
+
+class BuildingAddElementEdit(_BuildingAddElementEditRequired, _BuildingAddElementEditOptional):
+    "要素を足し、container があれば IfcRelContainedInSpatialStructure で空間に結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・代理要素（IfcBuildingElementProxy）。結果の id は足した要素の ID。マイナーバージョン 96 から"
+
+
+# 要素を除く。関係からも外し、空になった関係を除く。壁の開口は一緒に除く。子のある空間と、関係のほかから指される要素は除けない。結果は id を持たない。マイナーバージョン 96 から
+BuildingRemoveEdit = TypedDict(
+    "BuildingRemoveEdit",
+    {
+        # 変更の種類
+        "kind": Literal["remove"],
+        # 除く要素の ID。building_elements が返したもの
+        "id": str,
+        # 読んだときの要素のハッシュ。building_elements が返したもの
+        "hash": str,
+    },
+)
+
+
+# 要素の配置を置き直す。ほかの要素と共有しない配置はその場で書き換え、共有する配置は新しく作る。配置の親をたどって輪になる配置は断る。マイナーバージョン 96 から
+BuildingPlaceEdit = TypedDict(
+    "BuildingPlaceEdit",
+    {
+        # 変更の種類
+        "kind": Literal["place"],
+        # 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        "element": "BuildingRef",
+        # 新しい配置
+        "placement": "BuildingPlacementChange",
+    },
+)
+
+
+# 要素を空間に移す。空間は IfcRelAggregates、要素は IfcRelContainedInSpatialStructure で結び、前の関係から外す。マイナーバージョン 96 から
+BuildingContainEdit = TypedDict(
+    "BuildingContainEdit",
+    {
+        # 変更の種類
+        "kind": Literal["contain"],
+        # 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        "element": "BuildingRef",
+        # 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        "space": "BuildingRef",
+    },
+)
+
+
+# 要素の型を IfcRelDefinesByType で付け替える。element_type を書かなければ、型を外す。マイナーバージョン 96 から
+_BuildingTypeEditRequired = TypedDict(
+    "_BuildingTypeEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["type"],
+        # 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        "element": "BuildingRef",
+    },
+)
+_BuildingTypeEditOptional = TypedDict(
+    "_BuildingTypeEditOptional",
+    {
+        # 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        "element_type": "BuildingRef",
+    },
+    total=False,
+)
+
+
+class BuildingTypeEdit(_BuildingTypeEditRequired, _BuildingTypeEditOptional):
+    "要素の型を IfcRelDefinesByType で付け替える。element_type を書かなければ、型を外す。マイナーバージョン 96 から"
+
+
+# 開口（IfcOpeningElement）を要素に IfcRelVoidsElement で結ぶ。1 つの開口は 1 つの要素だけに結ぶ。マイナーバージョン 96 から
+BuildingVoidEdit = TypedDict(
+    "BuildingVoidEdit",
+    {
+        # 変更の種類
+        "kind": Literal["void"],
+        # 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        "host": "BuildingRef",
+        # 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        "opening": "BuildingRef",
+    },
+)
+
+
+# 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
+BuildingFillEdit = TypedDict(
+    "BuildingFillEdit",
+    {
+        # 変更の種類
+        "kind": Literal["fill"],
+        # 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        "opening": "BuildingRef",
+        # 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        "filler": "BuildingRef",
+    },
+)
 
 
 # 当てた変更の結果。書き戻したファイルは blobs の file で返す
