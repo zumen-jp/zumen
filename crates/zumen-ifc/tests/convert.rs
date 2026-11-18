@@ -7,7 +7,7 @@ use zumen_building::{
 };
 use zumen_ifc::{
     ConvertOptions, Converted, Edit, Header, Ifc, LengthUnit, NewElement, NewPlacement, NewSpace,
-    OwnerHistory, SpaceKind, Target, Template, Version, apply, convert, create,
+    NewType, OwnerHistory, SpaceKind, Target, Template, Version, apply, convert, create,
 };
 use zumen_sdk::conversion::ConversionFidelity;
 use zumen_sdk::{Codec, Lift};
@@ -108,7 +108,18 @@ fn space(
     })
 }
 
-/// 敷地・建物・2 つの階・壁・開口・扉・床・柱の文書を、書き手で作る。2F は高さ 3000 で、建物から z 3000 に置く
+fn element_type(class: &str, n: u32, predefined: Option<&str>) -> Edit {
+    Edit::ElementType(NewType {
+        class: class.to_owned(),
+        predefined: predefined.map(str::to_owned),
+        element_type: None,
+        name: Some(format!("T{n}")),
+        global_id: Some(global(n)),
+    })
+}
+
+/// 敷地・建物・2 つの階・壁・開口・扉・床・柱と、壁と扉の型の文書を、書き手で作る。2F は高さ 3000 で、建物から
+/// z 3000 に置く。IFC2X3 は扉の型（`IfcDoorType`）を持たないので、壁の型だけにする
 fn source(version: Version) -> Option<Vec<u8>> {
     let template = Template {
         version,
@@ -124,7 +135,7 @@ fn source(version: Version) -> Option<Vec<u8>> {
     let file = file.ok()?;
     // IFC2X3 の柱は定義された種類を持たない
     let column = (version != Version::Ifc2x3).then_some("COLUMN");
-    let edits = [
+    let mut edits = vec![
         space(
             SpaceKind::Site,
             10,
@@ -187,7 +198,19 @@ fn source(version: Version) -> Option<Vec<u8>> {
             Some(Target::Added(3)),
             at(2000.0, 2000.0, 0.0, Target::Added(3)),
         ),
+        element_type("IfcWallType", 25, Some("SHEAR")),
+        Edit::Type {
+            element: Target::Added(4),
+            type_of: Some(Target::Added(9)),
+        },
     ];
+    if version != Version::Ifc2x3 {
+        edits.push(element_type("IfcDoorType", 26, None));
+        edits.push(Edit::Type {
+            element: Target::Added(6),
+            type_of: Some(Target::Added(10)),
+        });
+    }
     let (applied, diag) = with(|cx| apply(&file, &edits, b"seed", cx));
     assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
     applied.ok().map(|a| a.bytes)
@@ -198,7 +221,7 @@ fn run(building: &Building, options: &ConvertOptions) -> (Option<Converted>, Vec
     (result.ok(), diag.iter().map(|d| d.code()).collect())
 }
 
-/// 要素の ID・クラス・定義された種類・名前・所属・配置
+/// 要素の ID・クラス・定義された種類・名前・所属・配置・型
 type Row = (
     Id,
     String,
@@ -206,6 +229,7 @@ type Row = (
     Option<String>,
     Option<(ParentKind, Id)>,
     Option<(Option<Id>, [[f64; 4]; 3])>,
+    Option<Id>,
 );
 
 fn rows(building: &Building) -> Vec<Row> {
@@ -234,6 +258,7 @@ fn rows(building: &Building) -> Vec<Row> {
                 c.identity.get(e).and_then(|i| i.name.clone()),
                 parent,
                 placement,
+                c.r#type.get(e).and_then(|t| id(t.target)),
             ))
         })
         .collect();
@@ -269,11 +294,18 @@ fn converts_the_structure_between_every_version() {
             let found = rows(&target);
             // IFC2X3 の柱は定義された種類を持たないので落とし、近似として数える
             let column = Id::Global(global(24));
+            // IFC2X3 は扉の型を持たないので落とし、扉の型を近似として数える
+            let door = Id::Global(global(22));
+            let door_type = Id::Global(global(26));
             let lost_column = from != Version::Ifc2x3 && to == Version::Ifc2x3;
             if lost_column {
+                expected.retain(|row| row.0 != door_type);
                 for row in &mut expected {
                     if row.0 == column {
                         row.2 = None;
+                    }
+                    if row.0 == door {
+                        row.6 = None;
                     }
                 }
             }
@@ -306,20 +338,38 @@ fn converts_the_structure_between_every_version() {
             if lost_column {
                 assert_eq!(
                     approximated,
-                    [(
-                        "IfcColumn",
-                        ConversionFidelity::Approximated,
-                        vec!["predefined".to_owned()]
-                    )],
+                    [
+                        ("IfcDoorType", ConversionFidelity::Dropped, Vec::new()),
+                        (
+                            "IfcDoor",
+                            ConversionFidelity::Approximated,
+                            vec!["type".to_owned()]
+                        ),
+                        (
+                            "IfcColumn",
+                            ConversionFidelity::Approximated,
+                            vec!["predefined".to_owned()]
+                        ),
+                    ],
                     "{from:?} → {to:?}"
                 );
-                assert_eq!(codes, [codes::CONVERT_ITEM_APPROXIMATED]);
+                let count = |code| codes.iter().filter(|&&c| c == code).count();
+                assert_eq!(
+                    (
+                        count(codes::CONVERT_ELEMENT_UNSUPPORTED),
+                        count(codes::CONVERT_ITEM_APPROXIMATED),
+                        codes.len()
+                    ),
+                    (1, 2, 3),
+                    "{codes:?}"
+                );
             } else {
                 assert_eq!(approximated, [], "{from:?} → {to:?}");
                 assert!(codes.is_empty(), "{from:?} → {to:?}: {codes:?}");
             }
-            // プロジェクト・空間 4 つ・要素 5 つ
-            assert_eq!(converted.report.total, 10, "{from:?} → {to:?}");
+            // プロジェクト・空間 4 つ・要素 5 つ・型（IFC2X3 からは壁の型だけ）
+            let types = if from == Version::Ifc2x3 { 1 } else { 2 };
+            assert_eq!(converted.report.total, 10 + types, "{from:?} → {to:?}");
         }
     }
 }
@@ -385,8 +435,13 @@ fn rich() -> String {
         "#62=IFCAXIS2PLACEMENT3D(#63,$,$);".to_owned(),
         "#63=IFCCARTESIANPOINT((1000.,0.,0.));".to_owned(),
         format!(
-            "#64=IFCWALLTYPE('{}',$,'WT',$,$,$,$,$,$,.SOLIDWALL.);",
+            "#64=IFCWALLTYPE('{}',$,'WT',$,$,(#69),$,$,$,.SHEAR.);",
             g(64)
+        ),
+        "#73=IFCPROPERTYSINGLEVALUE('Reference',$,IFCIDENTIFIER('W-1'),$);".to_owned(),
+        format!(
+            "#69=IFCPROPERTYSET('{}',$,'Pset_WallCommon',$,(#73));",
+            g(69)
         ),
         format!("#65=IFCRELDEFINESBYTYPE('{}',$,$,$,(#60),#64);", g(65)),
         "#66=IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.T.),$);".to_owned(),
@@ -450,13 +505,18 @@ fn counts_the_elements_and_values_it_cannot_write() {
         );
         let (fidelity, reasons) = detail("IfcWall").unwrap();
         assert_eq!(fidelity, ConversionFidelity::Approximated);
-        for reason in ["identity", "type"] {
-            assert!(reasons.iter().any(|r| r == reason), "{to:?}: {reasons:?}");
-        }
-        // 単一の値のプロパティは書く
         assert!(
-            !reasons.iter().any(|r| r == "properties"),
+            reasons.iter().any(|r| r == "identity"),
             "{to:?}: {reasons:?}"
+        );
+        // 型と、単一の値のプロパティは書く
+        for reason in ["type", "properties"] {
+            assert!(!reasons.iter().any(|r| r == reason), "{to:?}: {reasons:?}");
+        }
+        assert_eq!(
+            detail("IfcWallType"),
+            Some((ConversionFidelity::Native, Vec::new())),
+            "{to:?}"
         );
         // IFC2X3 の壁は定義された種類を持たない
         assert_eq!(
@@ -520,6 +580,42 @@ fn counts_the_elements_and_values_it_cannot_write() {
                 Some(TypedValue {
                     type_name: Some("IfcBoolean".to_owned()),
                     value: Literal::Boolean(true),
+                })
+            )],
+            "{to:?}"
+        );
+        // 型は PredefinedType と HasPropertySets のプロパティを保つ
+        let wall_type = target.find(Id::Global(global(64))).unwrap();
+        assert_eq!(
+            target.components.r#type.get(wall).map(|t| t.target),
+            Some(wall_type)
+        );
+        assert_eq!(
+            target
+                .components
+                .class
+                .get(wall_type)
+                .and_then(|c| c.predefined.as_deref()),
+            Some("SHEAR"),
+            "{to:?}"
+        );
+        let reference: Vec<_> = target
+            .components
+            .properties
+            .get(wall_type)
+            .unwrap()
+            .sets
+            .iter()
+            .flat_map(|set| &set.properties)
+            .map(|p| (p.name.as_str(), p.value.clone()))
+            .collect();
+        assert_eq!(
+            reference,
+            [(
+                "Reference",
+                Some(TypedValue {
+                    type_name: Some("IfcIdentifier".to_owned()),
+                    value: Literal::Text("W-1".to_owned()),
                 })
             )],
             "{to:?}"

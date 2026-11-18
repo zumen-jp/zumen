@@ -12,8 +12,8 @@ mod create;
 
 pub use author::{
     FillingKind, NewBeam, NewColumn, NewElement, NewFilling, NewGrid, NewGridAxis, NewLayer,
-    NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall, OpeningChange, SpaceKind,
-    Target, WallChange,
+    NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewType, NewWall, OpeningChange,
+    SpaceKind, Target, WallChange,
 };
 pub use convert::{ConvertOptions, Converted, convert};
 pub use create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
@@ -72,6 +72,8 @@ pub enum Edit {
     Filling(NewFilling),
     /// U と V の軸で通り芯（`IfcGrid`）を足し、空間に包含で結ぶ
     Grid(NewGrid),
+    /// 型（`IfcWallType` など）を足す。要素とは [`Edit::Type`] で結ぶ
+    ElementType(NewType),
     /// 階の高さ（`Elevation`）を直し、階の配置の z を同じだけ動かす。階に属する要素は配置の相対で付いてくる
     Elevation {
         /// 直す階（`IfcBuildingStorey`）
@@ -147,6 +149,7 @@ impl Edit {
             Self::Opening(_) => "opening",
             Self::Filling(_) => "filling",
             Self::Grid(_) => "grid",
+            Self::ElementType(_) => "element_type",
             Self::Elevation { .. } => "elevation",
             Self::WallShape(_) => "wall_shape",
             Self::OpeningShape(_) => "opening_shape",
@@ -236,6 +239,7 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
             Edit::Opening(opening) => draft.add_opening(opening, cx)?,
             Edit::Filling(filling) => draft.add_filling(filling, cx)?,
             Edit::Grid(grid) => draft.add_grid(grid, cx)?,
+            Edit::ElementType(new) => draft.add_type(new, cx)?,
             Edit::Elevation { storey, elevation } => draft.elevate(*storey, *elevation, cx)?,
             Edit::WallShape(change) => draft.reshape_wall(change, cx)?,
             Edit::OpeningShape(change) => draft.reshape_opening(change, cx)?,

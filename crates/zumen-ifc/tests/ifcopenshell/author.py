@@ -204,6 +204,20 @@ def check_converted(path):
     column = model.by_guid(gid(24))
     if model.schema_identifier != "IFC2X3" and column.PredefinedType != "COLUMN":
         failures.append(f"柱の定義された種類が {column.PredefinedType}")
+    wall_type = ifcopenshell.util.element.get_type(model.by_guid(gid(20)))
+    if wall_type is None or (wall_type.GlobalId, wall_type.PredefinedType) != (gid(25), "SHEAR"):
+        failures.append(f"壁の型が {wall_type}")
+    # IFC2X3 は扉の型を持たないので、変換で落とす
+    door_type = ifcopenshell.util.element.get_type(model.by_guid(gid(22)))
+    if model.schema_identifier == "IFC2X3":
+        if door_type is not None:
+            failures.append(f"IFC2X3 の扉に型 {door_type} がある")
+    elif door_type is None or (
+        door_type.GlobalId,
+        door_type.PredefinedType,
+        door_type.OperationType,
+    ) != (gid(26), "NOTDEFINED", "NOTDEFINED"):
+        failures.append(f"扉の型が {door_type}")
     return failures
 
 

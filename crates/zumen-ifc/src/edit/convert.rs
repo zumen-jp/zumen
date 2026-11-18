@@ -22,7 +22,7 @@ use zumen_building::{
 use zumen_sdk::conversion::{ConversionFidelity, ConversionReport, Report, note};
 use zumen_sdk::{Codec, Cx, Error};
 
-use super::author::{enumeration, predefined_at, rigid};
+use super::author::{NewType, enumeration, predefined_at, rigid, writable_type};
 use super::create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
 use super::{
     Edit, NewElement, NewLiteral, NewPlacement, NewSpace, NewValue, SpaceKind, Target, apply,
@@ -222,6 +222,10 @@ fn order(building: &Building, project: Option<ElementRef>) -> Vec<ElementRef> {
         {
             needs.push(to);
         }
+        // 型は、型を使う要素より先に書く
+        if let Some(of) = building.components.r#type.get(element) {
+            needs.push(of.target);
+        }
         needs.retain(|&n| n != element && Some(n) != project && (n.0 as usize) < count);
         needs.sort_unstable();
         needs.dedup();
@@ -366,8 +370,37 @@ impl Plan<'_, '_> {
             Some(SpatialKind::Building) => self.space(element, SpaceKind::Building, cx),
             Some(SpatialKind::Storey) => self.space(element, SpaceKind::Storey, cx),
             Some(_) => self.drop_element(element, &class.name, cx),
-            None => self.product(element, &class.name, cx),
+            None => match writable_type(&class.name, self.version) {
+                Some(kind) => {
+                    self.element_type(element, kind);
+                    Ok(())
+                }
+                None => self.product(element, &class.name, cx),
+            },
         }
+    }
+
+    /// 型（`IfcWallType` など）を書く。PredefinedType は必須なので、元になければ `NOTDEFINED` にする
+    fn element_type(&mut self, element: ElementRef, kind: &'static str) {
+        let source = self.building.components.class.get(element);
+        let mut dropped = Vec::new();
+        let predefined = match source.and_then(|c| c.predefined.clone()) {
+            Some(value) if enumeration(&value).is_some() => Some(value),
+            Some(_) => {
+                dropped.push("predefined");
+                None
+            }
+            None => None,
+        };
+        dropped.extend(self.components(element));
+        self.edits.push(Edit::ElementType(NewType {
+            class: kind.to_owned(),
+            predefined,
+            element_type: source.and_then(|c| c.user_defined.clone()),
+            name: self.name(element),
+            global_id: self.global_id(element),
+        }));
+        self.wrote(element, kind, dropped);
     }
 
     /// 書いた要素を、変更の中で指す値
@@ -552,6 +585,14 @@ impl Plan<'_, '_> {
             None
         });
         dropped.extend(self.components(element));
+        let type_of = building
+            .components
+            .r#type
+            .get(element)
+            .and_then(|t| self.target(t.target));
+        if type_of.is_some() {
+            dropped.retain(|&value| value != "type");
+        }
         self.edits.push(Edit::Element(NewElement {
             class: kind.to_owned(),
             predefined,
@@ -560,7 +601,14 @@ impl Plan<'_, '_> {
             placement,
             global_id: self.global_id(element),
         }));
+        let added = Target::Added(self.added);
         self.wrote(element, kind, dropped);
+        if let Some(type_of) = type_of {
+            self.edits.push(Edit::Type {
+                element: added,
+                type_of: Some(type_of),
+            });
+        }
         Ok(())
     }
 
