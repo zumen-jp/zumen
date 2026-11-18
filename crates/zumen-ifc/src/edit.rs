@@ -8,7 +8,7 @@
 
 mod author;
 
-pub use author::{NewElement, NewPlacement, NewSpace, SpaceKind, Target};
+pub use author::{NewElement, NewLayer, NewPlacement, NewSpace, NewWall, SpaceKind, Target};
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -47,6 +47,9 @@ pub enum Edit {
     Space(NewSpace),
     /// 要素を足し、空間に包含（`IfcRelContainedInSpatialStructure`）で結ぶ
     Element(NewElement),
+    /// 芯の 2 点・高さ・材料の層で壁を足し、空間に包含で結ぶ。配置・`Axis` と `Body` の表現・材料の層の使い方は
+    /// コアが書く
+    Wall(NewWall),
     /// 要素を除く。要素だけが使う配置・表現・定義・関係と、要素の開口も除く。子や所属する要素を持つ空間は除かない
     Remove {
         /// 除く要素
@@ -104,6 +107,7 @@ impl Edit {
             } => "description",
             Self::Space(_) => "space",
             Self::Element(_) => "element",
+            Self::Wall(_) => "wall",
             Self::Remove { .. } => "remove",
             Self::Place { .. } => "place",
             Self::Contain { .. } => "contain",
@@ -183,6 +187,7 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
             } => draft.attribute(*element, *attribute, value.as_deref(), cx),
             Edit::Space(space) => draft.add_space(space, cx)?,
             Edit::Element(element) => draft.add_element(element, cx)?,
+            Edit::Wall(wall) => draft.add_wall(wall, cx)?,
             Edit::Remove { element } => draft.remove(*element, cx)?,
             Edit::Place { element, placement } => draft.place(*element, placement, cx)?,
             Edit::Contain { element, space } => draft.contain(*element, *space, cx)?,

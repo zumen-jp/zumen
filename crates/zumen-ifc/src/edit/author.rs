@@ -14,12 +14,17 @@ use super::{Draft, Item, Stmt, refs_in, refs_of, text, text_of, unsupported};
 use crate::building::{Category, Version, category};
 use crate::stopped;
 
+mod intent;
+
+pub use intent::{NewLayer, NewWall};
+
 /// 変更が指す要素。文書にあるインスタンスか、同じ要求の中で足した要素
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     /// 文書にあるインスタンスの番号
     Instance(u64),
-    /// 同じ要求の中で、足す変更（[`super::Edit::Space`]・[`super::Edit::Element`]）が足した要素。足した順に 0 から
+    /// 同じ要求の中で、足す変更（[`super::Edit::Space`]・[`super::Edit::Element`]・[`super::Edit::Wall`]）が
+    /// 足した要素。足した順に 0 から
     Added(usize),
 }
 

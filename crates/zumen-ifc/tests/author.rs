@@ -3,11 +3,12 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, Id, Local, Opening, ParentKind, SpatialKind, Transform,
+    Building, ElementRef, GlobalId, Id, Local, MaterialKind, Opening, ParentKind, SpatialKind,
+    Transform,
 };
 use zumen_ifc::{
-    Edit, Ifc, IfcFile, IfcLive, NewElement, NewPlacement, NewSpace, RootAttribute, SpaceKind,
-    Target, apply,
+    Edit, Ifc, IfcFile, IfcLive, NewElement, NewLayer, NewPlacement, NewSpace, NewWall,
+    RootAttribute, SpaceKind, Target, apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -670,4 +671,194 @@ fn the_document_engine_keeps_its_state_on_refused_or_stopped_edits() {
     assert!(live.is_clean());
     assert_eq!((live.undo_len(), live.redo_len()), (0, 0));
     assert_eq!(with(|cx| live.save(cx)).0.ok(), Some(src.into_bytes()));
+}
+
+fn layer(material: &str, thickness: f64) -> NewLayer {
+    NewLayer {
+        material: material.to_owned(),
+        thickness,
+    }
+}
+
+/// 空間 `storey` の芯 `from`-`to` の、高さ 2800 で 2 層（コンクリート 150・断熱 50）の壁
+fn wall(n: u32, storey: Target, from: [f64; 2], to: [f64; 2]) -> Edit {
+    Edit::Wall(NewWall {
+        storey,
+        start: from,
+        end: to,
+        height: 2800.0,
+        layers: vec![layer("Concrete", 150.0), layer("Insulation", 50.0)],
+        offset: None,
+        name: Some(format!("W{n}")),
+        global_id: Some(global(n)),
+    })
+}
+
+/// 建物と、高さ 3000 の階を足し、その階に壁を 2 つ足す変更
+fn wall_edits() -> Vec<Edit> {
+    vec![
+        space(SpaceKind::Building, 100, Target::Instance(10), 0.0),
+        Edit::Space(NewSpace {
+            kind: SpaceKind::Storey,
+            name: Some("2F".to_owned()),
+            parent: Target::Added(0),
+            placement: Some(at(0.0, 0.0, 3000.0, Target::Added(0))),
+            elevation: Some(3000.0),
+            global_id: Some(global(101)),
+        }),
+        wall(300, Target::Added(1), [1000.0, 0.0], [1000.0, 4000.0]),
+        wall(301, Target::Added(1), [1000.0, 4000.0], [-2000.0, 4000.0]),
+    ]
+}
+
+fn count(src: &str, entity: &str) -> usize {
+    let needle = format!("={entity}(");
+    src.lines().filter(|line| line.contains(&needle)).count()
+}
+
+#[test]
+fn adds_walls_from_the_centreline_height_and_layers_in_every_version() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let (result, codes) = run(src.as_bytes(), &wall_edits());
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = result.unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        let building = lift(&bytes).unwrap();
+        let storey = element(&building, 101).unwrap();
+        let wall = element(&building, 300).unwrap();
+        let class = building.components.class.get(wall).unwrap();
+        assert_eq!(class.name, "IfcWall", "{schema}");
+        let original = if schema == "IFC2X3" {
+            "IfcWallStandardCase"
+        } else {
+            "IfcWall"
+        };
+        assert!(class.original.eq_ignore_ascii_case(original), "{schema}");
+        let parent = building.components.parent.get(wall).unwrap();
+        let of = parent.of.as_ref().unwrap();
+        assert_eq!((of.target, of.kind), (storey, ParentKind::Contained));
+        // 芯の始点に置き、芯の向きを局所の x 軸にする
+        let placement = building.components.placement.get(wall).unwrap();
+        assert_eq!(placement.relative_to, Some(storey));
+        let Local::Transform(local) = &placement.local else {
+            panic!("{schema}");
+        };
+        assert_eq!(
+            local.0,
+            [
+                [0.0, -1.0, 0.0, 1000.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0]
+            ]
+        );
+        let second = element(&building, 301).unwrap();
+        assert_eq!(translation(&building, second), Some([1000.0, 4000.0, 0.0]));
+        // 材料の層は芯の左へ並べ、厚さの合計の半分だけ右からはじめる
+        let material = building.components.material.get(wall).unwrap();
+        assert_eq!(material.kind, MaterialKind::Layers);
+        assert_eq!(material.direction.as_deref(), Some("AXIS2"));
+        assert_eq!(material.offset.as_ref().map(|m| m.value), Some(-100.0));
+        let thickness: Vec<_> = material
+            .parts
+            .iter()
+            .map(|part| part.thickness.as_ref().map(|t| t.value))
+            .collect();
+        assert_eq!(thickness, [Some(150.0), Some(50.0)]);
+        // 表現は芯の線（Axis）と押し出し（Body）
+        assert_eq!(count(&text, "IFCSHAPEREPRESENTATION"), 4);
+        assert_eq!(count(&text, "IFCPOLYLINE"), 4);
+        let file = read(&bytes).unwrap();
+        let id = instance_of(&text, 300).unwrap();
+        let (shape, _) = with(|cx| file.product_shape(id, cx));
+        let shape = shape.unwrap();
+        let depths: Vec<f64> = shape
+            .nodes
+            .iter()
+            .filter_map(|node| with(|cx| file.extruded_area(node, cx)).0.ok())
+            .map(|area| area.definition.depth)
+            .collect();
+        assert_eq!(depths, [2800.0], "{schema}");
+        // 文脈と材料は、同じ要求の壁で使い回す
+        assert_eq!(count(&text, "IFCGEOMETRICREPRESENTATIONCONTEXT"), 1);
+        assert_eq!(count(&text, "IFCGEOMETRICREPRESENTATIONSUBCONTEXT"), 2);
+        assert_eq!(count(&text, "IFCMATERIALLAYERSETUSAGE"), 2);
+        // 同じ入力と変更なら同じバイト列。文書エンジンでも同じ
+        assert_eq!(run(src.as_bytes(), &wall_edits()).0.unwrap(), bytes);
+        let (live, _) = with(|cx| IfcLive::open(src.as_bytes(), cx));
+        let mut live = live.unwrap();
+        assert_eq!(
+            apply_like_batch(&mut live, &wall_edits()),
+            Some(bytes),
+            "{schema}"
+        );
+    }
+}
+
+#[test]
+fn refuses_walls_it_cannot_write_without_changing_anything() {
+    let src = sample("IFC4", true);
+    let base = |edit: &dyn Fn(&mut NewWall)| {
+        let Edit::Wall(mut new) = wall(300, Target::Instance(10), [0.0, 0.0], [1000.0, 0.0]) else {
+            panic!("wall");
+        };
+        edit(&mut new);
+        Edit::Wall(new)
+    };
+    let cases = [
+        base(&|w| w.end = w.start),
+        base(&|w| w.start = [f64::NAN, 0.0]),
+        base(&|w| w.height = 0.0),
+        base(&|w| w.layers.clear()),
+        base(&|w| w.layers[0].thickness = -1.0),
+        base(&|w| w.offset = Some(f64::INFINITY)),
+        base(&|w| w.storey = Target::Instance(20)),
+        base(&|w| w.storey = Target::Added(0)),
+        base(&|w| w.global_id = Some(global(10))),
+    ];
+    for case in cases {
+        let (result, codes) = run(src.as_bytes(), std::slice::from_ref(&case));
+        assert!(matches!(result, Err(Error::Invalid)), "{case:?}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{case:?}");
+    }
+    // IFC2X3 で所有履歴がなければ書かない
+    let src = sample("IFC2X3", false);
+    let (result, codes) = run(
+        src.as_bytes(),
+        &[wall(300, Target::Instance(10), [0.0, 0.0], [1.0, 0.0])],
+    );
+    assert!(matches!(result, Err(Error::Invalid)));
+    assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED]);
+}
+
+#[test]
+fn removes_a_wall_with_its_shape_and_layers_but_keeps_the_materials() {
+    let src = sample("IFC4", true);
+    let (result, _) = run(
+        src.as_bytes(),
+        &[wall(300, Target::Instance(10), [0.0, 0.0], [1000.0, 0.0])],
+    );
+    let added = String::from_utf8(result.unwrap()).unwrap();
+    let id = instance_of(&added, 300).unwrap();
+    let (result, codes) = run(
+        added.as_bytes(),
+        &[Edit::Remove {
+            element: Target::Instance(id),
+        }],
+    );
+    assert!(codes.is_empty(), "{codes:?}");
+    let removed = String::from_utf8(result.unwrap()).unwrap();
+    for entity in [
+        "IFCWALL",
+        "IFCEXTRUDEDAREASOLID",
+        "IFCSHAPEREPRESENTATION",
+        "IFCMATERIALLAYERSETUSAGE",
+        "IFCMATERIALLAYER",
+        "IFCRELASSOCIATESMATERIAL",
+        "IFCRELCONTAINEDINSPATIALSTRUCTURE",
+    ] {
+        assert_eq!(count(&removed, entity), 0, "{entity}");
+    }
+    assert_eq!(count(&removed, "IFCMATERIAL"), 2);
+    assert_eq!(count(&removed, "IFCGEOMETRICREPRESENTATIONSUBCONTEXT"), 2);
 }
