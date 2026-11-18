@@ -763,7 +763,21 @@ def added_steps(_fmt):
             edits.append(add(found[1][1], {"shape": "symbol", "name": name, "position": [2, 2], "scale": [0.5, 0.5], "rotation": 45}))
         return edits
 
-    return [line_type, tables, shapes, definition]
+    def symbol(_reading):
+        # #684: 記号の定義を足し、同じ apply の後ろの変更で置く。中の要素は、足した画層と線種を指せる
+        kit = "ZUMEN_684_KIT"
+        elements = [
+            {"layer": "ZUMEN_683", "geometry": {"shape": "line", "start": [0, 0], "end": [10, 5]}},
+            {"color": {"aci": 1}, "geometry": {"shape": "circle", "center": [5, 5], "radius": 2.5}},
+            {"line_type": dash, "geometry": {"shape": "polyline", "points": [[0, 0], [10, 0], [10, 10]], "bulges": [0, 0.5, 0], "closed": True}},
+        ]
+        return [
+            {"kind": "add_symbol", "name": kit, "base": [5, 2], "elements": elements},
+            add("space/0", {"shape": "symbol", "name": kit, "position": [0, -420], "scale": [1, 1], "rotation": 0}, layer="ZUMEN_683"),
+            add("space/0", {"shape": "symbol", "name": kit, "position": [60, -420], "scale": [2, 1.5], "rotation": 30}, color={"aci": 5}),
+        ]
+
+    return [line_type, tables, shapes, definition, symbol]
 
 
 def replace(e, geometry):

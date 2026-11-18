@@ -124,6 +124,10 @@ impl Born {
             real(10, 0.0)?,
             real(20, 0.0)?,
             real(30, 0.0)?,
+            // 押し出しの向き。AutoCAD 2027 は、DXF の HATCH に 210 がないと図面を開かない（#684）
+            real(210, 0.0)?,
+            real(220, 0.0)?,
+            real(230, 1.0)?,
             self.string(2, pattern.map_or("SOLID", |pattern| pattern.name.as_str()))?,
             int(70, i64::from(pattern.is_none())),
             int(71, 0),
