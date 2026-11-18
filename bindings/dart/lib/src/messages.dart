@@ -382,6 +382,31 @@ class OpenRequest extends Message {
   /// IFC-SPF・ifcZIP の 8 ビットのエスケープを読む文字コード。省略時は auto。文書の building_apply 後も指定を保つ。IFC 以外の入力には使えない。マイナーバージョン 76 から
   String? get ifcTextEncoding => readField('ifc_text_encoding', asString);
   set ifcTextEncoding(String? value) => writeField('ifc_text_encoding', value);
+
+  /// COPC を、この条件に掛かる八分木の節の範囲だけで読む。足りない範囲は needs で求める。作った文書は読んだ節の点だけを持ち、pointcloud・scene3d はその点を扱う。条件を変えるときは開き直す。書かなければ全体を読む。COPC でない入力には使えない（#899、決定 0232）。マイナーバージョン 104 から
+  OpenPointcloud? get pointcloud => readField('pointcloud', objectOf(OpenPointcloud.fromJson));
+  set pointcloud(OpenPointcloud? value) => writeField('pointcloud', value);
+}
+
+/// COPC の八分木の節を選ぶ条件。pointcloud の op の同じ名前のフィールドと同じ規則で節を選ぶ
+class OpenPointcloud extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  OpenPointcloud.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  OpenPointcloud() : super({});
+
+  /// 節を選ぶ範囲。書かなければ全体
+  PointcloudBox? get region => readField('region', objectOf(PointcloudBox.fromJson));
+  set region(PointcloudBox? value) => writeField('region', value);
+
+  /// 許容差（点の間隔、メートル）。これより細かい段の節を読まない。書かなければすべての段
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
+
+  /// 点の数の上限。節を浅い段から順に数え、範囲にすべて入る節の点の数の和が上限に届いたら、それより後の節を読まない。範囲に一部だけ掛かる節は数えない。書かなければ上限なし
+  core.int? get limit => readField('limit', asInt);
+  set limit(core.int? value) => writeField('limit', value);
 }
 
 /// IFC の文字列の読み方。auto はファイル内に CP932 の手がかりがあれば読み替える。iso_8859_1 は従来の ISO 8859-1 と Unicode、shift_jis は手がかりなしでも CP932 として読める文字列を読み替える。どの指定も元のバイト列を保つ
@@ -420,6 +445,10 @@ class OpenResult extends Message {
   /// SXF を ZIP に入れたアーカイブ（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）のアーカイブの中の名前。アーカイブの順。apply は、SXF の項目だけを置き換え、ほかの項目を写したアーカイブを書く（#385）。マイナーバージョン 54 から
   List<String>? get entries => readField('entries', listOf(asString));
   set entries(List<String>? value) => writeField('entries', value);
+
+  /// open の pointcloud の上限のために、読まなかった節がある。COPC を条件で読んだときだけ書く（#899）。マイナーバージョン 104 から
+  core.bool? get truncated => readField('truncated', asBool);
+  set truncated(core.bool? value) => writeField('truncated', value);
 }
 
 /// 入力の範囲と、その範囲を渡す入力の名前

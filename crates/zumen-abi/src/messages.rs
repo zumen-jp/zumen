@@ -717,6 +717,8 @@ pub struct OpenRequest {
     pub saf: Option<String>,
     /// IFC-SPF・ifcZIP の 8 ビットのエスケープを読む文字コード。省略時は auto。文書の building_apply 後も指定を保つ。IFC 以外の入力には使えない。マイナーバージョン 76 から
     pub ifc_text_encoding: Option<IfcTextEncoding>,
+    /// COPC を、この条件に掛かる八分木の節の範囲だけで読む。足りない範囲は needs で求める。作った文書は読んだ節の点だけを持ち、pointcloud・scene3d はその点を扱う。条件を変えるときは開き直す。書かなければ全体を読む。COPC でない入力には使えない（#899、決定 0232）。マイナーバージョン 104 から
+    pub pointcloud: Option<OpenPointcloud>,
 }
 
 impl OpenRequest {
@@ -729,6 +731,7 @@ impl OpenRequest {
         let format = object.optional("format", json::string)?;
         let saf = object.optional("saf", json::string)?;
         let ifc_text_encoding = object.optional("ifc_text_encoding", IfcTextEncoding::from_json)?;
+        let pointcloud = object.optional("pointcloud", OpenPointcloud::from_json)?;
         Ok(Self {
             request_common,
             input,
@@ -737,6 +740,7 @@ impl OpenRequest {
             format,
             saf,
             ifc_text_encoding,
+            pointcloud,
         })
     }
 
@@ -766,6 +770,10 @@ impl OpenRequest {
             out.key("ifc_text_encoding");
             value.to_json(out);
         }
+        if let Some(value) = &self.pointcloud {
+            out.key("pointcloud");
+            value.to_json(out);
+        }
     }
 }
 
@@ -779,6 +787,62 @@ impl FromJson for OpenRequest {
 }
 
 impl ToJson for OpenRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// COPC の八分木の節を選ぶ条件。pointcloud の op の同じ名前のフィールドと同じ規則で節を選ぶ
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OpenPointcloud {
+    /// 節を選ぶ範囲。書かなければ全体
+    pub region: Option<PointcloudBox>,
+    /// 許容差（点の間隔、メートル）。これより細かい段の節を読まない。書かなければすべての段
+    pub tolerance: Option<f64>,
+    /// 点の数の上限。節を浅い段から順に数え、範囲にすべて入る節の点の数の和が上限に届いたら、それより後の節を読まない。範囲に一部だけ掛かる節は数えない。書かなければ上限なし
+    pub limit: Option<u64>,
+}
+
+impl OpenPointcloud {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let region = object.optional("region", PointcloudBox::from_json)?;
+        let tolerance = object.optional("tolerance", json::number)?;
+        let limit = object.optional("limit", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            region,
+            tolerance,
+            limit,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.region {
+            out.key("region");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.tolerance {
+            out.key("tolerance");
+            out.float(*value);
+        }
+        if let Some(value) = &self.limit {
+            out.key("limit");
+            out.uint(*value);
+        }
+    }
+}
+
+impl FromJson for OpenPointcloud {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for OpenPointcloud {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
@@ -846,6 +910,8 @@ pub struct OpenResult {
     pub done: Option<Vec<InputRange>>,
     /// SXF を ZIP に入れたアーカイブ（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）のアーカイブの中の名前。アーカイブの順。apply は、SXF の項目だけを置き換え、ほかの項目を写したアーカイブを書く（#385）。マイナーバージョン 54 から
     pub entries: Option<Vec<String>>,
+    /// open の pointcloud の上限のために、読まなかった節がある。COPC を条件で読んだときだけ書く（#899）。マイナーバージョン 104 から
+    pub truncated: Option<bool>,
 }
 
 impl OpenResult {
@@ -855,12 +921,14 @@ impl OpenResult {
         let needs = object.optional("needs", |value| json::array(value, InputRange::from_json))?;
         let done = object.optional("done", |value| json::array(value, InputRange::from_json))?;
         let entries = object.optional("entries", |value| json::array(value, json::string))?;
+        let truncated = object.optional("truncated", json::boolean)?;
         Ok(Self {
             doc,
             format,
             needs,
             done,
             entries,
+            truncated,
         })
     }
 
@@ -880,6 +948,10 @@ impl OpenResult {
         if let Some(value) = &self.entries {
             out.key("entries");
             out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.truncated {
+            out.key("truncated");
+            out.bool(*value);
         }
     }
 }

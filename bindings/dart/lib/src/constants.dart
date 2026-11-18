@@ -13,7 +13,7 @@ abstract final class Constants {
   static const schemaMajor = 1;
 
   /// メッセージのスキーマのマイナーバージョン
-  static const schemaMinor = 103;
+  static const schemaMinor = 104;
 
   /// シーンのメジャーバージョン。セクションの意味を変えるときに上げる
   static const sceneMajor = 1;

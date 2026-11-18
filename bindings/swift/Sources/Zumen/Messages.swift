@@ -598,6 +598,46 @@ public struct OpenRequest: Message {
         get { readField("ifc_text_encoding") }
         set { writeField("ifc_text_encoding", newValue) }
     }
+
+    /// COPC を、この条件に掛かる八分木の節の範囲だけで読む。足りない範囲は needs で求める。作った文書は読んだ節の点だけを持ち、pointcloud・scene3d はその点を扱う。条件を変えるときは開き直す。書かなければ全体を読む。COPC でない入力には使えない（#899、決定 0232）。マイナーバージョン 104 から
+    public var pointcloud: OpenPointcloud? {
+        get { readField("pointcloud") }
+        set { writeField("pointcloud", newValue) }
+    }
+}
+
+/// COPC の八分木の節を選ぶ条件。pointcloud の op の同じ名前のフィールドと同じ規則で節を選ぶ
+public struct OpenPointcloud: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 節を選ぶ範囲。書かなければ全体
+    public var region: PointcloudBox? {
+        get { readField("region") }
+        set { writeField("region", newValue) }
+    }
+
+    /// 許容差（点の間隔、メートル）。これより細かい段の節を読まない。書かなければすべての段
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 点の数の上限。節を浅い段から順に数え、範囲にすべて入る節の点の数の和が上限に届いたら、それより後の節を読まない。範囲に一部だけ掛かる節は数えない。書かなければ上限なし
+    public var limit: Int64? {
+        get { readField("limit") }
+        set { writeField("limit", newValue) }
+    }
 }
 
 /// IFC の文字列の読み方。auto はファイル内に CP932 の手がかりがあれば読み替える。iso_8859_1 は従来の ISO 8859-1 と Unicode、shift_jis は手がかりなしでも CP932 として読める文字列を読み替える。どの指定も元のバイト列を保つ
@@ -652,6 +692,12 @@ public struct OpenResult: Message {
     public var entries: [String]? {
         get { readField("entries") }
         set { writeField("entries", newValue) }
+    }
+
+    /// open の pointcloud の上限のために、読まなかった節がある。COPC を条件で読んだときだけ書く（#899）。マイナーバージョン 104 から
+    public var truncated: Bool? {
+        get { readField("truncated") }
+        set { writeField("truncated", newValue) }
     }
 }
 

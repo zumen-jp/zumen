@@ -1,7 +1,8 @@
 //! 点群（LAS・LAZ・PLY・XYZ・E57）の `open` と `pointcloud` の op（決定 0232）。
 //!
 //! 入力は範囲で読む。`open` の入力を全体の初めの部分とし、`<入力の名前>#<start>-<end>` の名前で渡された入力を
-//! 範囲の表に足す。足りない範囲は `needs` で返す。
+//! 範囲の表に足す。足りない範囲は `needs` で返す。COPC は、`open` の `pointcloud` の条件に掛かる八分木の節の
+//! 範囲だけを読む（#899）。
 
 use std::collections::BTreeMap;
 
@@ -15,14 +16,15 @@ use zumen_sdk::{Codec, Lift};
 use zumen_xyz::Xyz;
 
 use crate::messages::{
-    InputRange, PointcloudBox, PointcloudPoints, PointcloudRequest, PointcloudResult,
+    InputRange, OpenPointcloud, PointcloudBox, PointcloudPoints, PointcloudRequest,
+    PointcloudResult,
 };
 use crate::session::{Failed, fail, invalid_value, stopped};
 
 /// 開いた結果
 pub(crate) enum Opened {
-    /// 点群と、読み終えた範囲の入力
-    Cloud(Box<PointCloud>, Vec<InputRange>),
+    /// 点群と、読み終えた範囲の入力と、COPC を条件で読んだときは上限のために読まなかった節があるか
+    Cloud(Box<PointCloud>, Vec<InputRange>, Option<bool>),
     /// 足りない範囲
     Need(Vec<InputRange>),
 }
@@ -32,11 +34,13 @@ fn range_name(input: &str, range: ByteRange) -> String {
     format!("{input}#{}-{}", range.start, range.end)
 }
 
-/// LAS・LAZ なら、範囲の表から読み、点群の領域モデルに移す。ほかの形式なら `None`
+/// LAS・LAZ なら、範囲の表から読み、点群の領域モデルに移す。ほかの形式なら `None`。条件 `condition` は COPC にだけ
+/// 使い、条件に掛かる節の範囲だけを読む
 pub(crate) fn read(
     input: &str,
     inputs: &BTreeMap<String, Vec<u8>>,
     size: Option<u64>,
+    condition: Option<&OpenPointcloud>,
     cx: &mut Cx<'_>,
 ) -> Option<Result<Opened, Failed>> {
     let first = inputs.get(input)?;
@@ -71,13 +75,8 @@ pub(crate) fn read(
         size: size.unwrap_or(0).max(first.len() as u64),
         parts: &parts,
     };
-    // 失敗の理由は、コーデックと移す処理が診断として足してある
-    Some(match Las::read_ranged(&source, cx) {
-        Ok(file) => file
-            .lift(cx)
-            .map(|cloud| Opened::Cloud(Box::new(cloud), ranges))
-            .map_err(|_| Failed),
-        Err(Missing::Need(needs)) => Ok(Opened::Need(
+    let need = |needs: Vec<ByteRange>| {
+        Opened::Need(
             needs
                 .into_iter()
                 .map(|range| InputRange {
@@ -86,9 +85,71 @@ pub(crate) fn read(
                     end: range.end,
                 })
                 .collect(),
-        )),
+        )
+    };
+    if let Some(condition) = condition {
+        return Some(
+            read_copc(&source, condition, ranges, cx).map(|read| match read {
+                Ok(opened) => opened,
+                Err(needs) => need(needs),
+            }),
+        );
+    }
+    // 失敗の理由は、コーデックと移す処理が診断として足してある
+    Some(match Las::read_ranged(&source, cx) {
+        Ok(file) => file
+            .lift(cx)
+            .map(|cloud| Opened::Cloud(Box::new(cloud), ranges, None))
+            .map_err(|_| Failed),
+        Err(Missing::Need(needs)) => Ok(need(needs)),
         Err(Missing::Failed(_)) => Err(Failed),
     })
+}
+
+/// COPC を条件に掛かる節の範囲だけで読む。足りない範囲は `Err` で返す。COPC でなければ、条件の値の誤りにする
+fn read_copc(
+    source: &Source<'_>,
+    condition: &OpenPointcloud,
+    ranges: Vec<InputRange>,
+    cx: &mut Cx<'_>,
+) -> Result<Result<Opened, Vec<ByteRange>>, Failed> {
+    let bounds = match &condition.region {
+        Some(region) => Some(corners(region, "/pointcloud/region", cx)?),
+        None => None,
+    };
+    let spacing = tolerance(condition.tolerance, "/pointcloud/tolerance", cx)?;
+    let head = match source.get(0, zumen_las::copc::PREFIX) {
+        Ok(head) => head,
+        Err(range) => return Ok(Err(vec![range])),
+    };
+    if !zumen_las::copc::is_copc(head) {
+        return Err(fail(cx, invalid_value("/pointcloud")));
+    }
+    let query = Query {
+        bounds,
+        spacing,
+        limit: condition.limit.unwrap_or(u64::MAX),
+    };
+    // 失敗の理由は、読む処理が診断として足してある
+    match zumen_las::copc::read(source, &query, cx) {
+        Ok(copc) => Ok(Ok(Opened::Cloud(
+            Box::new(copc.cloud),
+            ranges,
+            Some(copc.truncated),
+        ))),
+        Err(Missing::Need(needs)) => Ok(Err(needs)),
+        Err(Missing::Failed(_)) => Err(Failed),
+    }
+}
+
+/// 許容差。正の有限の値でなければ `pointer` の値の誤りにする
+fn tolerance(value: Option<f64>, pointer: &str, cx: &mut Cx<'_>) -> Result<Option<f64>, Failed> {
+    match value {
+        Some(tolerance) if !(tolerance.is_finite() && tolerance > 0.0) => {
+            Err(fail(cx, invalid_value(pointer)))
+        }
+        value => Ok(value),
+    }
 }
 
 /// 全体を渡す点群の形式（PLY・E57 と、名指した XYZ）なら読み、点群の領域モデルに移す。ほかの形式なら `None`
@@ -119,17 +180,21 @@ pub(crate) fn read_whole(
     None
 }
 
-/// 箱のフィールドを、北・東・標高の最小と最大にする
-fn corners(region: &PointcloudBox, cx: &mut Cx<'_>) -> Result<[[f64; 3]; 2], Failed> {
+/// 箱のフィールドを、北・東・標高の最小と最大にする。誤りは `pointer` の下の `min`・`max` で示す
+fn corners(
+    region: &PointcloudBox,
+    pointer: &str,
+    cx: &mut Cx<'_>,
+) -> Result<[[f64; 3]; 2], Failed> {
     let corner = |values: &[f64]| match values {
         [n, e, h] if [n, e, h].iter().all(|v| v.is_finite()) => Some([*n, *e, *h]),
         _ => None,
     };
     let Some(low) = corner(&region.min) else {
-        return Err(fail(cx, invalid_value("/region/min")));
+        return Err(fail(cx, invalid_value(format!("{pointer}/min"))));
     };
     let Some(high) = corner(&region.max) else {
-        return Err(fail(cx, invalid_value("/region/max")));
+        return Err(fail(cx, invalid_value(format!("{pointer}/max"))));
     };
     Ok([low, high])
 }
@@ -148,15 +213,10 @@ pub(crate) fn pointcloud(
     cx: &mut Cx<'_>,
 ) -> Result<PointcloudResult, Failed> {
     let bounds = match &request.region {
-        Some(region) => Some(corners(region, cx)?),
+        Some(region) => Some(corners(region, "/region", cx)?),
         None => None,
     };
-    if request
-        .tolerance
-        .is_some_and(|tolerance| !(tolerance.is_finite() && tolerance > 0.0))
-    {
-        return Err(fail(cx, invalid_value("/tolerance")));
-    }
+    tolerance(request.tolerance, "/tolerance", cx)?;
     let points = &cloud.points;
     let selected = match request.limit {
         None => None,

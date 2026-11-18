@@ -149,6 +149,18 @@ export interface OpenRequest extends RequestCommon {
   saf?: string;
   /** IFC-SPF・ifcZIP の 8 ビットのエスケープを読む文字コード。省略時は auto。文書の building_apply 後も指定を保つ。IFC 以外の入力には使えない。マイナーバージョン 76 から */
   ifc_text_encoding?: IfcTextEncoding;
+  /** COPC を、この条件に掛かる八分木の節の範囲だけで読む。足りない範囲は needs で求める。作った文書は読んだ節の点だけを持ち、pointcloud・scene3d はその点を扱う。条件を変えるときは開き直す。書かなければ全体を読む。COPC でない入力には使えない（#899、決定 0232）。マイナーバージョン 104 から */
+  pointcloud?: OpenPointcloud;
+}
+
+/** COPC の八分木の節を選ぶ条件。pointcloud の op の同じ名前のフィールドと同じ規則で節を選ぶ */
+export interface OpenPointcloud {
+  /** 節を選ぶ範囲。書かなければ全体 */
+  region?: PointcloudBox;
+  /** 許容差（点の間隔、メートル）。これより細かい段の節を読まない。書かなければすべての段 */
+  tolerance?: number;
+  /** 点の数の上限。節を浅い段から順に数え、範囲にすべて入る節の点の数の和が上限に届いたら、それより後の節を読まない。範囲に一部だけ掛かる節は数えない。書かなければ上限なし */
+  limit?: number;
 }
 
 /** IFC の文字列の読み方。auto はファイル内に CP932 の手がかりがあれば読み替える。iso_8859_1 は従来の ISO 8859-1 と Unicode、shift_jis は手がかりなしでも CP932 として読める文字列を読み替える。どの指定も元のバイト列を保つ */
@@ -170,6 +182,8 @@ export interface OpenResult {
   done?: InputRange[];
   /** SXF を ZIP に入れたアーカイブ（P2Z・SFZ）なら、SXF の項目のほかの項目（属性ファイル・画像など）のアーカイブの中の名前。アーカイブの順。apply は、SXF の項目だけを置き換え、ほかの項目を写したアーカイブを書く（#385）。マイナーバージョン 54 から */
   entries?: string[];
+  /** open の pointcloud の上限のために、読まなかった節がある。COPC を条件で読んだときだけ書く（#899）。マイナーバージョン 104 から */
+  truncated?: boolean;
 }
 
 /** 入力の範囲と、その範囲を渡す入力の名前 */

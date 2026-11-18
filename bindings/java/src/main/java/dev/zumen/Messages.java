@@ -884,6 +884,69 @@ public final class Messages {
             put("ifc_text_encoding", value);
             return this;
         }
+
+        /** COPC を、この条件に掛かる八分木の節の範囲だけで読む。足りない範囲は needs で求める。作った文書は読んだ節の点だけを持ち、pointcloud・scene3d はその点を扱う。条件を変えるときは開き直す。書かなければ全体を読む。COPC でない入力には使えない（#899、決定 0232）。マイナーバージョン 104 から */
+        public OpenPointcloud getPointcloud() {
+            return Json.read(json.get("pointcloud"), OpenPointcloud::of);
+        }
+
+        /** {@link #getPointcloud()} を書く。null ならフィールドを除く */
+        public OpenRequest withPointcloud(OpenPointcloud value) {
+            put("pointcloud", value);
+            return this;
+        }
+    }
+
+    /** COPC の八分木の節を選ぶ条件。pointcloud の op の同じ名前のフィールドと同じ規則で節を選ぶ */
+    public static final class OpenPointcloud extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public OpenPointcloud(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static OpenPointcloud of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new OpenPointcloud(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public OpenPointcloud() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 節を選ぶ範囲。書かなければ全体 */
+        public PointcloudBox getRegion() {
+            return Json.read(json.get("region"), PointcloudBox::of);
+        }
+
+        /** {@link #getRegion()} を書く。null ならフィールドを除く */
+        public OpenPointcloud withRegion(PointcloudBox value) {
+            put("region", value);
+            return this;
+        }
+
+        /** 許容差（点の間隔、メートル）。これより細かい段の節を読まない。書かなければすべての段 */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public OpenPointcloud withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 点の数の上限。節を浅い段から順に数え、範囲にすべて入る節の点の数の和が上限に届いたら、それより後の節を読まない。範囲に一部だけ掛かる節は数えない。書かなければ上限なし */
+        public Long getLimit() {
+            return Json.read(json.get("limit"), Json::integer);
+        }
+
+        /** {@link #getLimit()} を書く。null ならフィールドを除く */
+        public OpenPointcloud withLimit(Long value) {
+            put("limit", value);
+            return this;
+        }
     }
 
     /**
@@ -971,6 +1034,17 @@ public final class Messages {
         /** {@link #getEntries()} を書く。null ならフィールドを除く */
         public OpenResult withEntries(List<String> value) {
             put("entries", value);
+            return this;
+        }
+
+        /** open の pointcloud の上限のために、読まなかった節がある。COPC を条件で読んだときだけ書く（#899）。マイナーバージョン 104 から */
+        public Boolean getTruncated() {
+            return Json.read(json.get("truncated"), Json::bool);
+        }
+
+        /** {@link #getTruncated()} を書く。null ならフィールドを除く */
+        public OpenResult withTruncated(Boolean value) {
+            put("truncated", value);
             return this;
         }
     }

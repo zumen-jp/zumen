@@ -71,10 +71,17 @@ LAS 1.0〜1.4 と LAZ（台帳の `las_1_4_r15`・`laz_1_4`）、COPC 1.0（`cop
 - 同じ頁は二度読まないので、頁が自分を指しても終わる。項は予算の `records`、読むチャンクの大きさは `input-bytes`、展開は `decoded-bytes` と `work` で数える。
 - 試験の入力は、lazrs 0.9.0 で節ごとにチャンクを書いた合成の COPC（`crates/zumen-las/tests/copc_make.py`）。全体を LAZ として読んだ点と同じ値になることも確かめる。
 
+### op から読む
+
+- `open` の `pointcloud` に条件（`region`・`tolerance`・`limit`）を渡すと、COPC を条件に掛かる節の範囲だけで読む（#899、マイナーバージョン 104 から）。`region` は北・東・標高の箱、`tolerance` は点の間隔の上限（メートル、正の値）、`limit` は点の数の上限。
+- 足りない範囲は、ほかの範囲の読みと同じく `needs` に `<入力>#<始め>-<終わり>` で返す（決定 0232）。ラッパーの `openRanged`・`open_ranged` が範囲を足して同じ要求を出し直す。先頭の 589 バイト（ヘッダーと COPC の情報）がなければ、まずそれを求める。
+- 開いた文書は点群（`Document::Cloud`）で、`pointcloud` の op がそのまま使える。`limit` で点を落としたら、`open` の結果の `truncated` を `true` にする。
+- COPC でない入力（LAS・LAZ、点群でない形式）に条件を渡すと、`call.value.invalid`（`/pointcloud`）を返す。
+- 適合テストは `bindings/conformance/cases/pointcloud_copc.json`（試験と同じ合成の COPC）。
+
 ## まだしないこと
 
-- COPC を `open`・`pointcloud`・`scene3d` の op から読むこと。今の op は文書を開くときに全体を読むので、節ごとに範囲を求める読み方を、スキーマの形と合わせて決める必要がある。
-- ホストの言語のラッパーで `needs` に答えること。
+- `scene3d` の op から COPC を範囲で読むこと。
 - 実データ（5 MB 以上）での確かめ。
 
 ## 確かめた度合い

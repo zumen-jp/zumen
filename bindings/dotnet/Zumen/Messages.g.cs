@@ -397,6 +397,36 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("ifc_text_encoding")]
         public string? IfcTextEncoding { get; init; }
+
+        /// <summary>
+        /// COPC を、この条件に掛かる八分木の節の範囲だけで読む。足りない範囲は needs で求める。作った文書は読んだ節の点だけを持ち、pointcloud・scene3d はその点を扱う。条件を変えるときは開き直す。書かなければ全体を読む。COPC でない入力には使えない（#899、決定 0232）。マイナーバージョン 104 から
+        /// </summary>
+        [JsonPropertyName("pointcloud")]
+        public OpenPointcloud? Pointcloud { get; init; }
+    }
+
+    /// <summary>
+    /// COPC の八分木の節を選ぶ条件。pointcloud の op の同じ名前のフィールドと同じ規則で節を選ぶ
+    /// </summary>
+    public sealed record OpenPointcloud
+    {
+        /// <summary>
+        /// 節を選ぶ範囲。書かなければ全体
+        /// </summary>
+        [JsonPropertyName("region")]
+        public PointcloudBox? Region { get; init; }
+
+        /// <summary>
+        /// 許容差（点の間隔、メートル）。これより細かい段の節を読まない。書かなければすべての段
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double? Tolerance { get; init; }
+
+        /// <summary>
+        /// 点の数の上限。節を浅い段から順に数え、範囲にすべて入る節の点の数の和が上限に届いたら、それより後の節を読まない。範囲に一部だけ掛かる節は数えない。書かなければ上限なし
+        /// </summary>
+        [JsonPropertyName("limit")]
+        public ulong? Limit { get; init; }
     }
 
     /// <summary>
@@ -446,6 +476,12 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("entries")]
         public IReadOnlyList<string>? Entries { get; init; }
+
+        /// <summary>
+        /// open の pointcloud の上限のために、読まなかった節がある。COPC を条件で読んだときだけ書く（#899）。マイナーバージョン 104 から
+        /// </summary>
+        [JsonPropertyName("truncated")]
+        public bool? Truncated { get; init; }
     }
 
     /// <summary>
