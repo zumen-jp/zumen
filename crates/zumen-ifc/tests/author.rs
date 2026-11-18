@@ -11,8 +11,9 @@ use zumen_ifc::{
     Edit, FillingKind, Ifc, IfcFile, IfcLive, NewAxis3, NewBeam, NewColumn, NewConstituent,
     NewElement, NewFaces, NewFilling, NewGrid, NewGridAxis, NewHalfSpaceLimit, NewItem, NewLayer,
     NewLayerUsage, NewMapped, NewMaterial, NewMaterialLayer, NewOpening, NewPlacement,
-    NewProfileKind, NewQuantity, NewSection, NewShape, NewSlab, NewSolid, NewSpace, NewUnit,
-    NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
+    NewProfileKind, NewQuantity, NewRevolution, NewSection, NewShape, NewSlab, NewSolid, NewSpace,
+    NewSweptDisk, NewUnit, NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange,
+    apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -2500,7 +2501,12 @@ fn writes_and_replaces_shapes() {
 // 環境変数は照合用の出力先だけに使う。
 #[allow(clippy::disallowed_methods)]
 fn write_shapes(schema: &str, shapes: &[NewShape], name: &str) -> String {
-    let src = complete_sample(schema);
+    write_shapes_in(&complete_sample(schema), schema, shapes, name)
+}
+
+/// [`write_shapes`] を、渡した文書に
+#[allow(clippy::disallowed_methods)]
+fn write_shapes_in(src: &str, schema: &str, shapes: &[NewShape], name: &str) -> String {
     let mut edits = building_edits();
     edits.truncate(3);
     for (n, class) in [(200, "IfcWall"), (201, "IfcSlab"), (202, "IfcColumn")] {
@@ -2527,9 +2533,15 @@ fn write_shapes(schema: &str, shapes: &[NewShape], name: &str) -> String {
         return String::new();
     };
     for (n, shape) in (200..).zip(shapes) {
+        // IFC2X3 は掃引の始点と終点を省かない
+        let shape = if schema == "IFC2X3" {
+            shape::with_parameters(shape.clone())
+        } else {
+            shape.clone()
+        };
         assert_eq!(
             element(&building, n).and_then(|e| shape::shape_of(&building, e)),
-            Some(shape::as_written(shape)),
+            Some(shape::as_written(&shape)),
             "{schema} {n}"
         );
     }
@@ -2566,6 +2578,68 @@ fn writes_booleans_and_mappings() {
         ] {
             assert_eq!(count(&text, name), n, "{schema} {name}");
         }
+    }
+}
+
+/// 単位の割り当てに平面角の単位を足した文書
+fn with_angle_unit(src: &str, unit: &str) -> String {
+    let replaced = src.replace(
+        "#3=IFCUNITASSIGNMENT((#4));",
+        &format!("#3=IFCUNITASSIGNMENT((#4,#9000));\n{unit}"),
+    );
+    assert_ne!(replaced, src);
+    replaced
+}
+
+#[test]
+fn writes_revolutions_and_sweeps() {
+    let radian = "#9000=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);";
+    for schema in SCHEMAS {
+        let src = with_angle_unit(&complete_sample(schema), radian);
+        let shapes = shape::sweep_examples();
+        let text = write_shapes_in(&src, schema, &shapes, "sweep");
+        for kind in ["SweptSolid", "AdvancedSweptSolid", "SolidModel"] {
+            assert!(
+                text.contains(&format!("'Body','{kind}'")),
+                "{schema} {kind}"
+            );
+        }
+        assert_eq!(count(&text, "IFCREVOLVEDAREASOLID"), 1, "{schema}");
+        assert_eq!(count(&text, "IFCSWEPTDISKSOLID"), 2, "{schema}");
+    }
+}
+
+#[test]
+fn writes_revolution_angles_in_the_document_unit() {
+    let [revolution, ..] = shape::sweep_examples();
+    let degree = "#9000=IFCCONVERSIONBASEDUNIT(#9001,.PLANEANGLEUNIT.,'degree',#9002);\n\
+        #9001=IFCDIMENSIONALEXPONENTS(0,0,0,0,0,0,0);\n\
+        #9002=IFCMEASUREWITHUNIT(IFCPLANEANGLEMEASURE(0.0174532925199433),#9003);\n\
+        #9003=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);";
+    for schema in SCHEMAS {
+        let src = with_angle_unit(&sample(schema, true), degree);
+        let mut edits = building_edits();
+        edits.push(Edit::Shape {
+            element: Target::Added(3),
+            shape: revolution.clone(),
+        });
+        let (result, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let text = String::from_utf8(result.unwrap()).unwrap();
+        let line = text
+            .lines()
+            .find(|line| line.contains("IFCREVOLVEDAREASOLID("))
+            .unwrap();
+        let angle: f64 = line
+            .rsplit(',')
+            .next()
+            .and_then(|v| v.strip_suffix(");"))
+            .and_then(|v| v.parse().ok())
+            .unwrap();
+        assert!((angle - 180.0).abs() < 1e-9, "{schema} {line}");
+        // 平面角の単位がなければ、角度を書けない
+        let (_, codes) = run(sample(schema, true).as_bytes(), &edits);
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{schema}");
     }
 }
 
@@ -2629,6 +2703,21 @@ fn rejects_shapes_it_cannot_write() {
     let block = || shape::block(1.0, 1.0, 1.0);
     let cut = |first: NewItem, second: NewItem| {
         shape::boolean(BooleanOperation::Difference, first, second)
+    };
+    let [rotated, piped, _] = shape::sweep_examples();
+    let revolved = |change: &dyn Fn(&mut NewRevolution)| {
+        let mut shape = rotated.clone();
+        if let Some(NewItem::Revolution(r)) = shape.body.first_mut() {
+            change(r);
+        }
+        shape
+    };
+    let swept = |change: &dyn Fn(&mut NewSweptDisk)| {
+        let mut shape = piped.clone();
+        if let Some(NewItem::SweptDisk(d)) = shape.body.first_mut() {
+            change(d);
+        }
+        shape
     };
     let mut nested = block();
     for _ in 0..16 {
@@ -2705,6 +2794,19 @@ fn rejects_shapes_it_cannot_write() {
                 outer: vec![[0.0, 0.0], [1.0, 0.0]],
                 holes: Vec::new(),
             };
+        }),
+        // 回転の角度と軸、掃引の経路・半径・区間
+        revolved(&|r| r.angle = 0.0),
+        revolved(&|r| r.angle = 7.0),
+        revolved(&|r| r.direction = [0.0, 0.0]),
+        swept(&|d| d.directrix.truncate(1)),
+        swept(&|d| d.directrix.insert(1, [0.0; 3])),
+        swept(&|d| d.radius = 0.0),
+        swept(&|d| d.inner_radius = Some(50.0)),
+        swept(&|d| d.end = Some(2.5)),
+        swept(&|d| {
+            d.start = Some(1.0);
+            d.end = Some(1.0);
         }),
     ];
     for schema in SCHEMAS {

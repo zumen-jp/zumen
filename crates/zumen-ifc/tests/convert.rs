@@ -452,6 +452,119 @@ fn storey_elevation(building: &Building, n: u32) -> Option<f64> {
         .map(|m| m.value)
 }
 
+/// 敷地・建物・階と、回転と掃引の形を持つ壁・床・柱（30〜32）の文書。`degree` なら平面角の単位を度にする
+fn sweep_source(version: Version, degree: bool) -> Option<Vec<u8>> {
+    let template = Template {
+        version,
+        unit: LengthUnit::Millimeter,
+        project: global(1),
+        name: None,
+        header: Header::default(),
+        owner: Some(owner()),
+    };
+    let (bytes, _) = with(|cx| create(&template, cx));
+    let mut text = String::from_utf8(bytes.ok()?).ok()?;
+    if degree {
+        let radian = "IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.)";
+        assert!(text.contains(radian));
+        text = text
+            .replace(
+                radian,
+                "IFCCONVERSIONBASEDUNIT(#9001,.PLANEANGLEUNIT.,'degree',#9002)",
+            )
+            .replace(
+                "ENDSEC;
+END-ISO-10303-21;",
+                "#9001=IFCDIMENSIONALEXPONENTS(0,0,0,0,0,0,0);
+                 #9002=IFCMEASUREWITHUNIT(IFCPLANEANGLEMEASURE(0.0174532925199433),#9003);
+                 #9003=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);
+ENDSEC;
+END-ISO-10303-21;",
+            );
+    }
+    let (file, _) = with(|cx| Ifc::read(text.as_bytes(), cx));
+    let file = file.ok()?;
+    let mut edits = vec![
+        space(
+            SpaceKind::Site,
+            10,
+            Target::Instance(1),
+            Some(NewPlacement {
+                relative_to: None,
+                local: Transform::IDENTITY,
+            }),
+            None,
+        ),
+        space(SpaceKind::Building, 11, Target::Added(0), None, None),
+        space(SpaceKind::Storey, 12, Target::Added(1), None, Some(0.0)),
+    ];
+    for (n, class) in [(30, "IfcWall"), (31, "IfcSlab"), (32, "IfcColumn")] {
+        edits.push(element(
+            class,
+            n,
+            None,
+            Some(Target::Added(2)),
+            at(0.0, 0.0, 0.0, Target::Added(2)),
+        ));
+    }
+    for (n, shape) in (3..).zip(shape::sweep_examples()) {
+        edits.push(Edit::Shape {
+            element: Target::Added(n),
+            shape,
+        });
+    }
+    let (applied, diag) = with(|cx| apply(&file, &edits, b"seed", cx));
+    assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
+    applied.ok().map(|a| a.bytes)
+}
+
+/// 回転の角度を近い値で比べられるよう、ラジアンを 1e-12 で丸めた形
+fn rounded(mut shape: zumen_ifc::NewShape) -> zumen_ifc::NewShape {
+    for item in &mut shape.body {
+        if let NewItem::Revolution(r) = item {
+            r.angle = (r.angle * 1e12).round() / 1e12;
+        }
+    }
+    shape
+}
+
+#[test]
+fn converts_revolutions_and_sweeps() {
+    let sources = VERSIONS
+        .map(|from| (from, false))
+        .into_iter()
+        .chain([(Version::Ifc4, true)]);
+    for (from, degree) in sources {
+        let source = lift(&sweep_source(from, degree).unwrap()).unwrap();
+        for to in VERSIONS {
+            let (converted, _) = run(&source, &options(to));
+            let target = lift(&converted.unwrap().bytes).unwrap();
+            for n in [30, 31, 32] {
+                let of = |building: &Building| {
+                    building
+                        .find(Id::Global(global(n)))
+                        .and_then(|e| shape::shape_of(building, e))
+                };
+                // 角度はラジアンにし、IFC2X3 へは掃引の始点と終点を埋める
+                let wanted = of(&source).map(|s| {
+                    let s = shape::as_written(&s);
+                    rounded(if to == Version::Ifc2x3 {
+                        shape::with_parameters(s)
+                    } else {
+                        s
+                    })
+                });
+                assert!(wanted.is_some(), "{from:?} {n}");
+                assert_eq!(
+                    of(&target).map(rounded),
+                    wanted,
+                    "{from:?} {degree} → {to:?} {n}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn converts_the_structure_between_every_version() {
     for from in VERSIONS {

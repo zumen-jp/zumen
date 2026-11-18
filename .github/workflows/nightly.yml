@@ -260,7 +260,7 @@ jobs:
         run: python -I crates/zumen-ifc/tests/ifcopenshell/units.py "$RUNNER_TEMP/units"
       - name: 変更だけで作った 2 階建てと、それを直した IFC と、新しい IFC のひな形と、変換した IFC を 3 版で書く（#898・#395）
         run: |
-          ZUMEN_IFC_AUTHORED="$RUNNER_TEMP/authored" cargo test --locked -p zumen-ifc --all-features --test author writes_the_authored_files_for_other_readers
+          ZUMEN_IFC_AUTHORED="$RUNNER_TEMP/authored" cargo test --locked -p zumen-ifc --all-features --test author -- writes_the_authored_files_for_other_readers writes_face_sets writes_booleans_and_mappings writes_revolutions_and_sweeps
           ZUMEN_IFC_AUTHORED="$RUNNER_TEMP/authored" cargo test --locked -p zumen-ifc --all-features --test create writes_the_templates_for_other_readers
           ZUMEN_IFC_AUTHORED="$RUNNER_TEMP/authored" cargo test --locked -p zumen-ifc --all-features --test convert writes_the_conversions_for_other_readers
       - name: ひな形と、作った IFC・直した IFC・変換した IFC を IfcOpenShell で検査し、単位・数・配置・所属・関係・層・開口を引いた体積を照らす

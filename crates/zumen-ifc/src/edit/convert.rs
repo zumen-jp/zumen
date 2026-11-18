@@ -17,13 +17,13 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_building::{
-    Acquired, AreaProfileKind, AxisPlacement2, AxisPlacement3, Building, ConnectedFaces,
-    Coordinates, CurveGraph, CurveKind, CurveRef, ElementRef, EnclosureCoordinates, FaceBoundRef,
-    FaceBoundary, FaceGraph, FaceLoopRef, FaceModelKind, FacePointRef, FacePolygon, FaceRef,
-    FaceSetRef, GeometryData, GeometryDefinition, GeometryLinks, GeometryNode, GeometryRef,
-    GlobalId, HalfSpaceLimit, Id, IndexedFaceSet, IndexedFaces, Literal, Local, Material,
-    MaterialKind, Measured, Opening, ParentKind, PolygonFace, Property, Quantity, SpatialKind,
-    Unit,
+    Acquired, AreaProfile, AreaProfileKind, AxisPlacement2, AxisPlacement3, Building,
+    ConnectedFaces, Coordinates, CurveGraph, CurveKind, CurveRef, ElementRef, EnclosureCoordinates,
+    FaceBoundRef, FaceBoundary, FaceGraph, FaceLoopRef, FaceModelKind, FacePointRef, FacePolygon,
+    FaceRef, FaceSetRef, GeometryData, GeometryDefinition, GeometryLinks, GeometryNode,
+    GeometryRef, GlobalId, HalfSpaceLimit, Id, IndexedFaceSet, IndexedFaces, Literal, Local,
+    Material, MaterialKind, Measured, Opening, ParentKind, PolygonFace, Property, Quantity,
+    SpatialKind, Unit,
 };
 use zumen_sdk::conversion::{ConversionFidelity, ConversionReport, Report, note};
 use zumen_sdk::{Codec, Cx, Error};
@@ -31,8 +31,8 @@ use zumen_sdk::{Codec, Cx, Error};
 use super::author::{
     NewAxis2, NewAxis3, NewBoolean, NewConstituent, NewFaces, NewHalfSpace, NewHalfSpaceLimit,
     NewItem, NewLayerUsage, NewMapped, NewMaterial, NewMaterialLayer, NewProfile, NewProfileKind,
-    NewShape, NewSolid, NewType, SHAPE_NESTING, enumeration, material_rejected, predefined_at,
-    rigid, shape_rejected, writable_type,
+    NewRevolution, NewShape, NewSolid, NewSweptDisk, NewType, SHAPE_NESTING, enumeration,
+    material_rejected, predefined_at, rigid, shape_rejected, writable_type,
 };
 use super::create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
 use super::quantity::{NewQuantity, NewUnit, quantity_value, si_unit};
@@ -701,6 +701,12 @@ impl Plan<'_, '_> {
         if let Some(solid) = self.new_solid(node) {
             return Some((NewItem::Solid(solid), true));
         }
+        if let Some(revolution) = self.new_revolution(node) {
+            return Some((NewItem::Revolution(revolution), true));
+        }
+        if let Some(disk) = self.new_disk(node) {
+            return Some((NewItem::SweptDisk(disk), true));
+        }
         self.new_faces(node)
             .map(|(faces, same)| (NewItem::Faces(faces), same))
     }
@@ -766,14 +772,93 @@ impl Plan<'_, '_> {
         else {
             return None;
         };
-        if !self.length_written(length_unit.as_ref())
-            || boundary
-                .as_ref()
-                .is_some_and(|graph| !self.length_written(graph.length_unit.as_ref()))
-        {
+        if !self.length_written(length_unit.as_ref()) {
             return None;
         }
-        let profile = &definition.profile;
+        Some(NewSolid {
+            profile: self.new_profile(&definition.profile, boundary.as_ref())?,
+            position: definition.position.as_ref().map(new_axis3),
+            direction: definition.direction,
+            depth: definition.depth,
+        })
+    }
+
+    /// 断面の回転。軸が断面の平面にあり、角度をラジアンに直せるもの
+    fn new_revolution(&self, node: &GeometryNode) -> Option<NewRevolution> {
+        let GeometryDefinition::Revolution {
+            definition,
+            boundary,
+            length_unit,
+        } = &node.definition
+        else {
+            return None;
+        };
+        if !self.length_written(length_unit.as_ref()) {
+            return None;
+        }
+        let axis = &definition.axis;
+        let [x, y, 0.0] = axis.location else {
+            return None;
+        };
+        let [dx, dy, 0.0] = axis.direction else {
+            return None;
+        };
+        // 角度は文書の平面角の単位のまま持つ。換算する単位は SI の単位（ラジアン）での大きさを掛ける
+        let unit = definition.angle.unit.as_ref()?;
+        let scale = match unit.scale {
+            Some(scale) => scale,
+            None if unit.prefix.is_none() && unit.name.eq_ignore_ascii_case("RADIAN") => 1.0,
+            None => return None,
+        };
+        Some(NewRevolution {
+            profile: self.new_profile(&definition.profile, boundary.as_ref())?,
+            position: definition.position.as_ref().map(new_axis3),
+            location: [x, y],
+            direction: [dx, dy],
+            angle: definition.angle.value * scale,
+        })
+    }
+
+    /// 3 次元の折れ線に沿う円盤の掃引
+    fn new_disk(&self, node: &GeometryNode) -> Option<NewSweptDisk> {
+        let GeometryDefinition::SweptDisk {
+            definition,
+            directrix,
+        } = &node.definition
+        else {
+            return None;
+        };
+        if !self.length_written(directrix.length_unit.as_ref()) {
+            return None;
+        }
+        let CurveKind::Polyline(points) = &directrix.item(definition.directrix)?.kind else {
+            return None;
+        };
+        let points = points
+            .iter()
+            .map(|point| match point {
+                Coordinates::Three(point) => Some(*point),
+                Coordinates::Two(_) => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(NewSweptDisk {
+            directrix: points,
+            radius: definition.radius,
+            inner_radius: definition.inner_radius,
+            start: definition.start_parameter,
+            end: definition.end_parameter,
+        })
+    }
+
+    /// 矩形・円・折れ線の面の断面
+    fn new_profile(
+        &self,
+        profile: &AreaProfile,
+        boundary: Option<&CurveGraph>,
+    ) -> Option<NewProfile> {
+        if boundary.is_some_and(|graph| !self.length_written(graph.length_unit.as_ref())) {
+            return None;
+        }
         let axis2 = |p: &AxisPlacement2| NewAxis2 {
             location: p.location,
             reference: p.reference_direction,
@@ -789,14 +874,14 @@ impl Plan<'_, '_> {
                 position: profile.position.as_ref().map(axis2),
             },
             AreaProfileKind::ArbitraryClosed { boundary: outer } => NewProfileKind::Polygon {
-                outer: ring(boundary.as_ref()?, *outer)?,
+                outer: ring(boundary?, *outer)?,
                 holes: Vec::new(),
             },
             AreaProfileKind::ArbitraryWithVoids {
                 boundary: outer,
                 holes,
             } => {
-                let graph = boundary.as_ref()?;
+                let graph = boundary?;
                 NewProfileKind::Polygon {
                     outer: ring(graph, *outer)?,
                     holes: holes
@@ -807,14 +892,9 @@ impl Plan<'_, '_> {
             }
             _ => return None,
         };
-        Some(NewSolid {
-            profile: NewProfile {
-                name: profile.name.clone(),
-                kind,
-            },
-            position: definition.position.as_ref().map(new_axis3),
-            direction: definition.direction,
-            depth: definition.depth,
+        Some(NewProfile {
+            name: profile.name.clone(),
+            kind,
         })
     }
 

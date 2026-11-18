@@ -27,7 +27,7 @@ pub use material::{NewConstituent, NewLayerUsage, NewMaterial, NewMaterialLayer}
 pub(super) use shape::{NESTING as SHAPE_NESTING, rejected as shape_rejected};
 pub use shape::{
     NewAxis2, NewAxis3, NewBoolean, NewFaces, NewHalfSpace, NewHalfSpaceLimit, NewItem, NewMapped,
-    NewProfile, NewProfileKind, NewShape, NewSolid,
+    NewProfile, NewProfileKind, NewRevolution, NewShape, NewSolid, NewSweptDisk,
 };
 
 /// 変更が指す要素。文書にあるインスタンスか、同じ要求の中で足した要素

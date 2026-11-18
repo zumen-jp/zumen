@@ -7,7 +7,8 @@
 フォルダーに書いた `<スキーマ>.built.ifc` と `<スキーマ>.changed.ifc` と、`create.rs` の `writes_the_templates_for_other_readers` が書いた
 `<スキーマ>.template.ifc` と、`convert.rs` の `writes_the_conversions_for_other_readers` が IFC4 の 2 階建てを
 各バージョンへ変換した `<スキーマ>.converted.ifc` と、`author.rs` の `writes_face_sets` が書いた面集合の
-`<スキーマ>.faces.ifc` がある。
+`<スキーマ>.faces.ifc` と、`writes_booleans_and_mappings` が書いた `<スキーマ>.csg.ifc` と、
+`writes_revolutions_and_sweeps` が書いた `<スキーマ>.sweep.ifc` がある。
 
 - ひな形は、検査で誤りが出ず、プロジェクトの GlobalId・名前、ミリメートルの長さの単位、`Body` の下位の文脈、
   所有履歴の作ったソフトと日時が、渡した値のとおりに読める。
@@ -18,6 +19,7 @@
 - 種類ごとの数、階の高さと配置、要素の所属、開口と建具の関係、壁の材料の層が、足した値と直した値のとおりに読める。
 - 開口を引いた壁の形の体積が、芯の長さ・高さ・層の厚さと開口の大きさから求めた値になる。
 - 面集合は、検査で誤りが出ず、表現の種類が項目のとおりで、どの形も作れ、箱の体積が寸法から求めた値になる。
+- 集合演算・写像と、回転・掃引は、検査で誤りが出ず、表現の種類と項目が書いたとおりで、体積が寸法から求めた値になる。
 """
 
 import math
@@ -333,6 +335,43 @@ def check_csg(path):
     return failures
 
 
+# 回転は矩形（x が 0.2〜0.4、y が 1）を y 軸のまわりに半回転（パップスの定理）。掃引の経路は L 字の 2 で、管は
+# 外半径 0.05・内半径 0.04、棒は始点と終点（0 と 2）を書いた経路の全体を半径 0.05 で掃引し、押し出しの柱を
+# 足す。IfcOpenShell 0.9.0.post1 は始点と終点を使わずに経路の全体を掃引するので、途中からの区間は照らさない。掃引の
+# 体積は、折れ目で重なりも隙間もなく繋ぐ（円盤を経路の向きに直交させ、折れ目の両側を角の二等分面で切る）ものとして
+# 区間の長さの和に断面積を掛けた値
+SWEEPS = {
+    200: ("SweptSolid", ["IfcRevolvedAreaSolid"], math.pi * 0.3 * 0.2 * 1.0),
+    201: ("AdvancedSweptSolid", ["IfcSweptDiskSolid"], math.pi * (0.05**2 - 0.04**2) * 2.0),
+    202: ("SolidModel", ["IfcSweptDiskSolid", "IfcExtrudedAreaSolid"], math.pi * 0.05**2 * 2.0 + 0.2 * 0.2 * 1.0),
+}
+
+
+def check_sweeps(path):
+    """回転と円盤の掃引。200 は回転、201 は穴のある管、202 は経路の途中からの棒と押し出し"""
+    failures = []
+    model = ifcopenshell.open(str(path))
+    for error in errors(model):
+        failures.append(f"検査の誤り: {error}")
+    settings = ifcopenshell.geom.settings()
+    for n, (kind, items, expected) in SWEEPS.items():
+        element = model.by_guid(gid(n))
+        [body] = element.Representation.Representations
+        found = (body.RepresentationType, [i.is_a() for i in body.Items])
+        if found != (kind, items):
+            failures.append(f"{n} の表現が {found}")
+        try:
+            shape = ifcopenshell.geom.create_shape(settings, element)
+        except RuntimeError as error:
+            failures.append(f"{n} の形を作れない: {error}")
+            continue
+        volume = ifcopenshell.util.shape.get_volume(shape.geometry)
+        # 曲面は三角形で近似するので、体積は 1 % まで許す
+        if abs(volume - expected) > expected * 1e-2:
+            failures.append(f"{n} の体積が {volume}（期待は {expected}）")
+    return failures
+
+
 def check_converted_materials(model):
     """変換した材料。元は IFC4。IFC2X3 は層の名前と構成要素を持たないので、構成要素は並びになる"""
     failures = []
@@ -394,11 +433,14 @@ def main():
     for schema in SCHEMAS:
         name = f"{schema}.csg.ifc"
         failures += [f"{name}: {f}" for f in check_csg(folder / name)]
+    for schema in SCHEMAS:
+        name = f"{schema}.sweep.ifc"
+        failures += [f"{name}: {f}" for f in check_sweeps(folder / name)]
     for failure in failures:
         print(failure)
     if failures:
         sys.exit(1)
-    print(f"IfcOpenShell {ifcopenshell.version}: ひな形と、作った IFC・直した IFC・変換した IFC・面集合・集合演算と写像を 3 バージョンで照らした")
+    print(f"IfcOpenShell {ifcopenshell.version}: ひな形と、作った IFC・直した IFC・変換した IFC・面集合・集合演算と写像・回転と掃引を 3 バージョンで照らした")
 
 
 if __name__ == "__main__":
