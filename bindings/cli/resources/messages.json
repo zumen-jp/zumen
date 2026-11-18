@@ -3859,7 +3859,8 @@
         { "$ref": "#/$defs/building_add_type_edit" },
         { "$ref": "#/$defs/building_quantity_edit" },
         { "$ref": "#/$defs/building_add_unit_edit" },
-        { "$ref": "#/$defs/building_material_edit" }
+        { "$ref": "#/$defs/building_material_edit" },
+        { "$ref": "#/$defs/building_shape_edit" }
       ]
     },
     "building_property_edit": {
@@ -4313,6 +4314,132 @@
         "name": { "description": "構成要素の名前", "type": "string" }
       },
       "required": ["material"],
+      "additionalProperties": false
+    },
+    "building_shape_edit": {
+      "description": "要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "shape" },
+        "element": { "description": "形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す", "$ref": "#/$defs/building_ref" },
+        "axis": { "description": "芯の線（Axis の IfcPolyline）。要素の配置の [x, y] を 2 点以上。書かなければ Axis を書かない", "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+        "items": { "description": "形の項目の表", "type": "array", "items": { "$ref": "#/$defs/building_shape_item" } },
+        "body": { "description": "Body の表現に置く項目の、items の位置（0 から）。空なら Body を書かない", "type": "array", "items": { "type": "integer", "minimum": 0 } }
+      },
+      "required": ["kind", "element", "items", "body"],
+      "additionalProperties": false
+    },
+    "building_shape_item": {
+      "description": "形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "項目の種類", "$ref": "#/$defs/building_shape_item_kind" },
+        "profile": { "description": "押し出す断面", "$ref": "#/$defs/building_shape_profile" },
+        "position": { "description": "押し出しの局所の配置。書かなければ要素の配置のまま", "$ref": "#/$defs/building_axis3" },
+        "direction": { "description": "局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1]", "type": "array", "items": { "type": "number" } },
+        "depth": { "description": "押し出す深さ。正の値", "type": "number" },
+        "points": { "description": "面集合の点 [x, y, z]", "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+        "faces": { "description": "面集合の面", "type": "array", "items": { "$ref": "#/$defs/building_shape_face" } },
+        "closed": { "description": "true なら閉殻（立体。IfcFacetedBrep）。false か書かなければ開殻の面（IFC2X3 は IfcShellBasedSurfaceModel、IFC4 からは IfcPolygonalFaceSet）", "type": "boolean" },
+        "operation": { "description": "集合演算", "$ref": "#/$defs/building_boolean_operation" },
+        "first": { "description": "集合演算の第 1 の対象。items の前にある項目の位置", "type": "integer", "minimum": 0 },
+        "second": { "description": "集合演算の第 2 の対象。差では第 1 から取り除く。items の前にある項目の位置", "type": "integer", "minimum": 0 },
+        "plane": { "description": "半空間の基準面の配置。局所の z 軸が面の法線", "$ref": "#/$defs/building_axis3" },
+        "agreement": { "description": "true なら法線と逆の側、false か書かなければ法線の向く側を内部とする", "type": "boolean" },
+        "box": { "description": "半空間の計算用の囲みの箱（IfcBoxedHalfSpace）。座標系は IFC2X3 では基準面、IFC4 からは要素", "$ref": "#/$defs/building_shape_box" },
+        "polygon": { "description": "半空間を制限する多角形（IfcPolygonalBoundedHalfSpace）", "$ref": "#/$defs/building_shape_polygon" },
+        "origin": { "description": "写像元の基準位置。書かなければ原点", "$ref": "#/$defs/building_axis3" },
+        "target": { "description": "写像先の変換", "$ref": "#/$defs/building_shape_mapping" },
+        "members": { "description": "写像元の表現の項目。items の前にある項目の位置で、1 つ以上", "type": "array", "items": { "type": "integer", "minimum": 0 } }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "building_shape_item_kind": {
+      "description": "形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）",
+      "type": "string",
+      "enum": ["extrusion", "faces", "boolean", "half_space", "mapped"]
+    },
+    "building_boolean_operation": {
+      "description": "集合演算。union は和、intersection は積、difference は差",
+      "type": "string",
+      "enum": ["union", "intersection", "difference"]
+    },
+    "building_axis3": {
+      "description": "3 次元の局所の配置",
+      "type": "object",
+      "properties": {
+        "location": { "description": "原点 [x, y, z]", "type": "array", "items": { "type": "number" } },
+        "axis": { "description": "局所の z 軸 [x, y, z]", "type": "array", "items": { "type": "number" } },
+        "reference": { "description": "局所の x 軸の参照方向 [x, y, z]", "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["location"],
+      "additionalProperties": false
+    },
+    "building_shape_profile": {
+      "description": "押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "断面の種類", "$ref": "#/$defs/building_shape_profile_kind" },
+        "name": { "description": "断面の名前", "type": "string" },
+        "x": { "description": "矩形の局所の x の全幅。正の値", "type": "number" },
+        "y": { "description": "矩形の局所の y の全高。正の値", "type": "number" },
+        "radius": { "description": "円の半径。正の値", "type": "number" },
+        "location": { "description": "矩形と円の中心 [x, y]。書かなければ原点", "type": "array", "items": { "type": "number" } },
+        "reference": { "description": "矩形と円の局所の x 軸の参照方向 [x, y]。location と一緒に書く", "type": "array", "items": { "type": "number" } },
+        "outer": { "description": "多角形の外輪の [x, y] を 3 点以上。始点に戻る点は書かない", "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+        "holes": { "description": "多角形の内輪", "type": "array", "items": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } } }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "building_shape_profile_kind": {
+      "description": "断面の種類。rectangle は IfcRectangleProfileDef、circle は IfcCircleProfileDef、polygon は IfcArbitraryClosedProfileDef（内輪があれば IfcArbitraryProfileDefWithVoids）",
+      "type": "string",
+      "enum": ["rectangle", "circle", "polygon"]
+    },
+    "building_shape_face": {
+      "description": "面集合の面。points の位置（0 から）で外輪と内輪を書く",
+      "type": "object",
+      "properties": {
+        "boundary": { "description": "外輪の点の位置。3 つ以上", "type": "array", "items": { "type": "integer", "minimum": 0 } },
+        "holes": { "description": "内輪ごとの点の位置", "type": "array", "items": { "type": "array", "items": { "type": "integer", "minimum": 0 } } }
+      },
+      "required": ["boundary"],
+      "additionalProperties": false
+    },
+    "building_shape_box": {
+      "description": "囲みの箱",
+      "type": "object",
+      "properties": {
+        "corner": { "description": "箱の隅 [x, y, z]", "type": "array", "items": { "type": "number" } },
+        "dimensions": { "description": "各軸の長さ [x, y, z]。正の値", "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["corner", "dimensions"],
+      "additionalProperties": false
+    },
+    "building_shape_polygon": {
+      "description": "半空間を制限する多角形",
+      "type": "object",
+      "properties": {
+        "position": { "description": "境界の配置", "$ref": "#/$defs/building_axis3" },
+        "boundary": { "description": "境界の局所の XY 平面の [x, y] を 3 点以上。始点に戻る点は書かない", "type": "array", "items": { "type": "array", "items": { "type": "number" } } }
+      },
+      "required": ["position", "boundary"],
+      "additionalProperties": false
+    },
+    "building_shape_mapping": {
+      "description": "写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform）",
+      "type": "object",
+      "properties": {
+        "origin": { "description": "写像先の原点 [x, y, z]。要素の座標系", "type": "array", "items": { "type": "number" } },
+        "axis1": { "description": "x 軸を導く方向 [x, y, z]", "type": "array", "items": { "type": "number" } },
+        "axis2": { "description": "y 軸を導く方向 [x, y, z]", "type": "array", "items": { "type": "number" } },
+        "axis3": { "description": "z 軸を定める方向 [x, y, z]", "type": "array", "items": { "type": "number" } },
+        "scale": { "description": "一様な尺度。正の値で、書かなければ 1", "type": "number" },
+        "scales": { "description": "軸ごとの尺度 [x, y, z]。正の値。scale とは一緒に書けない", "type": "array", "items": { "type": "number" } }
+      },
+      "required": ["origin"],
       "additionalProperties": false
     },
     "building_fill_edit": {

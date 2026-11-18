@@ -3203,7 +3203,8 @@ export type BuildingEdit =
   | BuildingAddTypeEdit
   | BuildingQuantityEdit
   | BuildingAddUnitEdit
-  | BuildingMaterialEdit;
+  | BuildingMaterialEdit
+  | BuildingShapeEdit;
 
 /** 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える */
 export interface BuildingPropertyEdit {
@@ -3693,6 +3694,155 @@ export interface BuildingMaterialConstituent {
   material: string;
   /** 構成要素の名前 */
   name?: string;
+}
+
+/** 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から */
+export interface BuildingShapeEdit {
+  /** 変更の種類 */
+  kind: "shape";
+  /** 形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す */
+  element: BuildingRef;
+  /** 芯の線（Axis の IfcPolyline）。要素の配置の [x, y] を 2 点以上。書かなければ Axis を書かない */
+  axis?: number[][];
+  /** 形の項目の表 */
+  items: BuildingShapeItem[];
+  /** Body の表現に置く項目の、items の位置（0 から）。空なら Body を書かない */
+  body: number[];
+}
+
+/** 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位 */
+export interface BuildingShapeItem {
+  /** 項目の種類 */
+  kind: BuildingShapeItemKind;
+  /** 押し出す断面 */
+  profile?: BuildingShapeProfile;
+  /** 押し出しの局所の配置。書かなければ要素の配置のまま */
+  position?: BuildingAxis3;
+  /** 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1] */
+  direction?: number[];
+  /** 押し出す深さ。正の値 */
+  depth?: number;
+  /** 面集合の点 [x, y, z] */
+  points?: number[][];
+  /** 面集合の面 */
+  faces?: BuildingShapeFace[];
+  /** true なら閉殻（立体。IfcFacetedBrep）。false か書かなければ開殻の面（IFC2X3 は IfcShellBasedSurfaceModel、IFC4 からは IfcPolygonalFaceSet） */
+  closed?: boolean;
+  /** 集合演算 */
+  operation?: BuildingBooleanOperation;
+  /** 集合演算の第 1 の対象。items の前にある項目の位置 */
+  first?: number;
+  /** 集合演算の第 2 の対象。差では第 1 から取り除く。items の前にある項目の位置 */
+  second?: number;
+  /** 半空間の基準面の配置。局所の z 軸が面の法線 */
+  plane?: BuildingAxis3;
+  /** true なら法線と逆の側、false か書かなければ法線の向く側を内部とする */
+  agreement?: boolean;
+  /** 半空間の計算用の囲みの箱（IfcBoxedHalfSpace）。座標系は IFC2X3 では基準面、IFC4 からは要素 */
+  box?: BuildingShapeBox;
+  /** 半空間を制限する多角形（IfcPolygonalBoundedHalfSpace） */
+  polygon?: BuildingShapePolygon;
+  /** 写像元の基準位置。書かなければ原点 */
+  origin?: BuildingAxis3;
+  /** 写像先の変換 */
+  target?: BuildingShapeMapping;
+  /** 写像元の表現の項目。items の前にある項目の位置で、1 つ以上 */
+  members?: number[];
+}
+
+/** 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem） */
+export type BuildingShapeItemKind =
+  | "extrusion"
+  | "faces"
+  | "boolean"
+  | "half_space"
+  | "mapped"
+  | (string & {});
+
+/** 集合演算。union は和、intersection は積、difference は差 */
+export type BuildingBooleanOperation =
+  | "union"
+  | "intersection"
+  | "difference"
+  | (string & {});
+
+/** 3 次元の局所の配置 */
+export interface BuildingAxis3 {
+  /** 原点 [x, y, z] */
+  location: number[];
+  /** 局所の z 軸 [x, y, z] */
+  axis?: number[];
+  /** 局所の x 軸の参照方向 [x, y, z] */
+  reference?: number[];
+}
+
+/** 押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く */
+export interface BuildingShapeProfile {
+  /** 断面の種類 */
+  kind: BuildingShapeProfileKind;
+  /** 断面の名前 */
+  name?: string;
+  /** 矩形の局所の x の全幅。正の値 */
+  x?: number;
+  /** 矩形の局所の y の全高。正の値 */
+  y?: number;
+  /** 円の半径。正の値 */
+  radius?: number;
+  /** 矩形と円の中心 [x, y]。書かなければ原点 */
+  location?: number[];
+  /** 矩形と円の局所の x 軸の参照方向 [x, y]。location と一緒に書く */
+  reference?: number[];
+  /** 多角形の外輪の [x, y] を 3 点以上。始点に戻る点は書かない */
+  outer?: number[][];
+  /** 多角形の内輪 */
+  holes?: number[][][];
+}
+
+/** 断面の種類。rectangle は IfcRectangleProfileDef、circle は IfcCircleProfileDef、polygon は IfcArbitraryClosedProfileDef（内輪があれば IfcArbitraryProfileDefWithVoids） */
+export type BuildingShapeProfileKind =
+  | "rectangle"
+  | "circle"
+  | "polygon"
+  | (string & {});
+
+/** 面集合の面。points の位置（0 から）で外輪と内輪を書く */
+export interface BuildingShapeFace {
+  /** 外輪の点の位置。3 つ以上 */
+  boundary: number[];
+  /** 内輪ごとの点の位置 */
+  holes?: number[][];
+}
+
+/** 囲みの箱 */
+export interface BuildingShapeBox {
+  /** 箱の隅 [x, y, z] */
+  corner: number[];
+  /** 各軸の長さ [x, y, z]。正の値 */
+  dimensions: number[];
+}
+
+/** 半空間を制限する多角形 */
+export interface BuildingShapePolygon {
+  /** 境界の配置 */
+  position: BuildingAxis3;
+  /** 境界の局所の XY 平面の [x, y] を 3 点以上。始点に戻る点は書かない */
+  boundary: number[][];
+}
+
+/** 写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform） */
+export interface BuildingShapeMapping {
+  /** 写像先の原点 [x, y, z]。要素の座標系 */
+  origin: number[];
+  /** x 軸を導く方向 [x, y, z] */
+  axis1?: number[];
+  /** y 軸を導く方向 [x, y, z] */
+  axis2?: number[];
+  /** z 軸を定める方向 [x, y, z] */
+  axis3?: number[];
+  /** 一様な尺度。正の値で、書かなければ 1 */
+  scale?: number;
+  /** 軸ごとの尺度 [x, y, z]。正の値。scale とは一緒に書けない */
+  scales?: number[];
 }
 
 /** 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から */

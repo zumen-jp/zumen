@@ -5933,6 +5933,11 @@ func (u BuildingEdit) AsBuildingMaterialEdit() *BuildingMaterialEdit {
 	return asTagged[BuildingMaterialEdit](u, "kind", "material")
 }
 
+// AsBuildingShapeEdit は、kind が shape の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingShapeEdit() *BuildingShapeEdit {
+	return asTagged[BuildingShapeEdit](u, "kind", "shape")
+}
+
 // BuildingPropertyEdit: 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
 type BuildingPropertyEdit struct {
 	// 変更の種類
@@ -6749,6 +6754,226 @@ type BuildingMaterialConstituent struct {
 
 	// 構成要素の名前
 	Name *string `json:"name,omitempty"`
+}
+
+// BuildingShapeEdit: 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
+type BuildingShapeEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Element *BuildingRef `json:"element,omitempty"`
+
+	// 芯の線（Axis の IfcPolyline）。要素の配置の [x, y] を 2 点以上。書かなければ Axis を書かない
+	Axis [][]float64 `json:"axis,omitempty"`
+
+	// 形の項目の表
+	Items []BuildingShapeItem `json:"items,omitempty"`
+
+	// Body の表現に置く項目の、items の位置（0 から）。空なら Body を書かない
+	Body []int64 `json:"body,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingShapeEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingShapeEdit
+	m.Kind = "shape"
+	return json.Marshal(plain(m))
+}
+
+// BuildingShapeItem: 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位
+type BuildingShapeItem struct {
+	// 項目の種類
+	Kind *BuildingShapeItemKind `json:"kind,omitempty"`
+
+	// 押し出す断面
+	Profile *BuildingShapeProfile `json:"profile,omitempty"`
+
+	// 押し出しの局所の配置。書かなければ要素の配置のまま
+	Position *BuildingAxis3 `json:"position,omitempty"`
+
+	// 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1]
+	Direction []float64 `json:"direction,omitempty"`
+
+	// 押し出す深さ。正の値
+	Depth *float64 `json:"depth,omitempty"`
+
+	// 面集合の点 [x, y, z]
+	Points [][]float64 `json:"points,omitempty"`
+
+	// 面集合の面
+	Faces []BuildingShapeFace `json:"faces,omitempty"`
+
+	// true なら閉殻（立体。IfcFacetedBrep）。false か書かなければ開殻の面（IFC2X3 は IfcShellBasedSurfaceModel、IFC4 からは IfcPolygonalFaceSet）
+	Closed *bool `json:"closed,omitempty"`
+
+	// 集合演算
+	Operation *BuildingBooleanOperation `json:"operation,omitempty"`
+
+	// 集合演算の第 1 の対象。items の前にある項目の位置
+	First *int64 `json:"first,omitempty"`
+
+	// 集合演算の第 2 の対象。差では第 1 から取り除く。items の前にある項目の位置
+	Second *int64 `json:"second,omitempty"`
+
+	// 半空間の基準面の配置。局所の z 軸が面の法線
+	Plane *BuildingAxis3 `json:"plane,omitempty"`
+
+	// true なら法線と逆の側、false か書かなければ法線の向く側を内部とする
+	Agreement *bool `json:"agreement,omitempty"`
+
+	// 半空間の計算用の囲みの箱（IfcBoxedHalfSpace）。座標系は IFC2X3 では基準面、IFC4 からは要素
+	Box *BuildingShapeBox `json:"box,omitempty"`
+
+	// 半空間を制限する多角形（IfcPolygonalBoundedHalfSpace）
+	Polygon *BuildingShapePolygon `json:"polygon,omitempty"`
+
+	// 写像元の基準位置。書かなければ原点
+	Origin *BuildingAxis3 `json:"origin,omitempty"`
+
+	// 写像先の変換
+	Target *BuildingShapeMapping `json:"target,omitempty"`
+
+	// 写像元の表現の項目。items の前にある項目の位置で、1 つ以上
+	Members []int64 `json:"members,omitempty"`
+}
+
+// BuildingShapeItemKind: 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingShapeItemKind string
+
+// BuildingShapeItemKindExtrusion は extrusion。
+const BuildingShapeItemKindExtrusion BuildingShapeItemKind = "extrusion"
+
+// BuildingShapeItemKindFaces は faces。
+const BuildingShapeItemKindFaces BuildingShapeItemKind = "faces"
+
+// BuildingShapeItemKindBoolean は boolean。
+const BuildingShapeItemKindBoolean BuildingShapeItemKind = "boolean"
+
+// BuildingShapeItemKindHalfSpace は half_space。
+const BuildingShapeItemKindHalfSpace BuildingShapeItemKind = "half_space"
+
+// BuildingShapeItemKindMapped は mapped。
+const BuildingShapeItemKindMapped BuildingShapeItemKind = "mapped"
+
+// BuildingBooleanOperation: 集合演算。union は和、intersection は積、difference は差
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingBooleanOperation string
+
+// BuildingBooleanOperationUnion は union。
+const BuildingBooleanOperationUnion BuildingBooleanOperation = "union"
+
+// BuildingBooleanOperationIntersection は intersection。
+const BuildingBooleanOperationIntersection BuildingBooleanOperation = "intersection"
+
+// BuildingBooleanOperationDifference は difference。
+const BuildingBooleanOperationDifference BuildingBooleanOperation = "difference"
+
+// BuildingAxis3: 3 次元の局所の配置
+type BuildingAxis3 struct {
+	// 原点 [x, y, z]
+	Location []float64 `json:"location,omitempty"`
+
+	// 局所の z 軸 [x, y, z]
+	Axis []float64 `json:"axis,omitempty"`
+
+	// 局所の x 軸の参照方向 [x, y, z]
+	Reference []float64 `json:"reference,omitempty"`
+}
+
+// BuildingShapeProfile: 押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く
+type BuildingShapeProfile struct {
+	// 断面の種類
+	Kind *BuildingShapeProfileKind `json:"kind,omitempty"`
+
+	// 断面の名前
+	Name *string `json:"name,omitempty"`
+
+	// 矩形の局所の x の全幅。正の値
+	X *float64 `json:"x,omitempty"`
+
+	// 矩形の局所の y の全高。正の値
+	Y *float64 `json:"y,omitempty"`
+
+	// 円の半径。正の値
+	Radius *float64 `json:"radius,omitempty"`
+
+	// 矩形と円の中心 [x, y]。書かなければ原点
+	Location []float64 `json:"location,omitempty"`
+
+	// 矩形と円の局所の x 軸の参照方向 [x, y]。location と一緒に書く
+	Reference []float64 `json:"reference,omitempty"`
+
+	// 多角形の外輪の [x, y] を 3 点以上。始点に戻る点は書かない
+	Outer [][]float64 `json:"outer,omitempty"`
+
+	// 多角形の内輪
+	Holes [][][]float64 `json:"holes,omitempty"`
+}
+
+// BuildingShapeProfileKind: 断面の種類。rectangle は IfcRectangleProfileDef、circle は IfcCircleProfileDef、polygon は IfcArbitraryClosedProfileDef（内輪があれば IfcArbitraryProfileDefWithVoids）
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingShapeProfileKind string
+
+// BuildingShapeProfileKindRectangle は rectangle。
+const BuildingShapeProfileKindRectangle BuildingShapeProfileKind = "rectangle"
+
+// BuildingShapeProfileKindCircle は circle。
+const BuildingShapeProfileKindCircle BuildingShapeProfileKind = "circle"
+
+// BuildingShapeProfileKindPolygon は polygon。
+const BuildingShapeProfileKindPolygon BuildingShapeProfileKind = "polygon"
+
+// BuildingShapeFace: 面集合の面。points の位置（0 から）で外輪と内輪を書く
+type BuildingShapeFace struct {
+	// 外輪の点の位置。3 つ以上
+	Boundary []int64 `json:"boundary,omitempty"`
+
+	// 内輪ごとの点の位置
+	Holes [][]int64 `json:"holes,omitempty"`
+}
+
+// BuildingShapeBox: 囲みの箱
+type BuildingShapeBox struct {
+	// 箱の隅 [x, y, z]
+	Corner []float64 `json:"corner,omitempty"`
+
+	// 各軸の長さ [x, y, z]。正の値
+	Dimensions []float64 `json:"dimensions,omitempty"`
+}
+
+// BuildingShapePolygon: 半空間を制限する多角形
+type BuildingShapePolygon struct {
+	// 境界の配置
+	Position *BuildingAxis3 `json:"position,omitempty"`
+
+	// 境界の局所の XY 平面の [x, y] を 3 点以上。始点に戻る点は書かない
+	Boundary [][]float64 `json:"boundary,omitempty"`
+}
+
+// BuildingShapeMapping: 写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform）
+type BuildingShapeMapping struct {
+	// 写像先の原点 [x, y, z]。要素の座標系
+	Origin []float64 `json:"origin,omitempty"`
+
+	// x 軸を導く方向 [x, y, z]
+	Axis1 []float64 `json:"axis1,omitempty"`
+
+	// y 軸を導く方向 [x, y, z]
+	Axis2 []float64 `json:"axis2,omitempty"`
+
+	// z 軸を定める方向 [x, y, z]
+	Axis3 []float64 `json:"axis3,omitempty"`
+
+	// 一様な尺度。正の値で、書かなければ 1
+	Scale *float64 `json:"scale,omitempty"`
+
+	// 軸ごとの尺度 [x, y, z]。正の値。scale とは一緒に書けない
+	Scales []float64 `json:"scales,omitempty"`
 }
 
 // BuildingFillEdit: 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から

@@ -5414,6 +5414,7 @@ BuildingEdit = Union[
     "BuildingQuantityEdit",
     "BuildingAddUnitEdit",
     "BuildingMaterialEdit",
+    "BuildingShapeEdit",
 ]
 
 
@@ -6260,6 +6261,256 @@ _BuildingMaterialConstituentOptional = TypedDict(
 
 class BuildingMaterialConstituent(_BuildingMaterialConstituentRequired, _BuildingMaterialConstituentOptional):
     "材料の構成要素"
+
+
+# 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
+_BuildingShapeEditRequired = TypedDict(
+    "_BuildingShapeEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["shape"],
+        # 形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        "element": "BuildingRef",
+        # 形の項目の表
+        "items": List["BuildingShapeItem"],
+        # Body の表現に置く項目の、items の位置（0 から）。空なら Body を書かない
+        "body": List[int],
+    },
+)
+_BuildingShapeEditOptional = TypedDict(
+    "_BuildingShapeEditOptional",
+    {
+        # 芯の線（Axis の IfcPolyline）。要素の配置の [x, y] を 2 点以上。書かなければ Axis を書かない
+        "axis": List[List[float]],
+    },
+    total=False,
+)
+
+
+class BuildingShapeEdit(_BuildingShapeEditRequired, _BuildingShapeEditOptional):
+    "要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から"
+
+
+# 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位
+_BuildingShapeItemRequired = TypedDict(
+    "_BuildingShapeItemRequired",
+    {
+        # 項目の種類
+        "kind": "BuildingShapeItemKind",
+    },
+)
+_BuildingShapeItemOptional = TypedDict(
+    "_BuildingShapeItemOptional",
+    {
+        # 押し出す断面
+        "profile": "BuildingShapeProfile",
+        # 押し出しの局所の配置。書かなければ要素の配置のまま
+        "position": "BuildingAxis3",
+        # 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1]
+        "direction": List[float],
+        # 押し出す深さ。正の値
+        "depth": float,
+        # 面集合の点 [x, y, z]
+        "points": List[List[float]],
+        # 面集合の面
+        "faces": List["BuildingShapeFace"],
+        # true なら閉殻（立体。IfcFacetedBrep）。false か書かなければ開殻の面（IFC2X3 は IfcShellBasedSurfaceModel、IFC4 からは IfcPolygonalFaceSet）
+        "closed": bool,
+        # 集合演算
+        "operation": "BuildingBooleanOperation",
+        # 集合演算の第 1 の対象。items の前にある項目の位置
+        "first": int,
+        # 集合演算の第 2 の対象。差では第 1 から取り除く。items の前にある項目の位置
+        "second": int,
+        # 半空間の基準面の配置。局所の z 軸が面の法線
+        "plane": "BuildingAxis3",
+        # true なら法線と逆の側、false か書かなければ法線の向く側を内部とする
+        "agreement": bool,
+        # 半空間の計算用の囲みの箱（IfcBoxedHalfSpace）。座標系は IFC2X3 では基準面、IFC4 からは要素
+        "box": "BuildingShapeBox",
+        # 半空間を制限する多角形（IfcPolygonalBoundedHalfSpace）
+        "polygon": "BuildingShapePolygon",
+        # 写像元の基準位置。書かなければ原点
+        "origin": "BuildingAxis3",
+        # 写像先の変換
+        "target": "BuildingShapeMapping",
+        # 写像元の表現の項目。items の前にある項目の位置で、1 つ以上
+        "members": List[int],
+    },
+    total=False,
+)
+
+
+class BuildingShapeItem(_BuildingShapeItemRequired, _BuildingShapeItemOptional):
+    "形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位"
+
+# 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）
+BuildingShapeItemKind = Union[
+    Literal[
+        "extrusion",
+        "faces",
+        "boolean",
+        "half_space",
+        "mapped",
+    ],
+    str,
+]
+
+# 集合演算。union は和、intersection は積、difference は差
+BuildingBooleanOperation = Union[
+    Literal[
+        "union",
+        "intersection",
+        "difference",
+    ],
+    str,
+]
+
+
+# 3 次元の局所の配置
+_BuildingAxis3Required = TypedDict(
+    "_BuildingAxis3Required",
+    {
+        # 原点 [x, y, z]
+        "location": List[float],
+    },
+)
+_BuildingAxis3Optional = TypedDict(
+    "_BuildingAxis3Optional",
+    {
+        # 局所の z 軸 [x, y, z]
+        "axis": List[float],
+        # 局所の x 軸の参照方向 [x, y, z]
+        "reference": List[float],
+    },
+    total=False,
+)
+
+
+class BuildingAxis3(_BuildingAxis3Required, _BuildingAxis3Optional):
+    "3 次元の局所の配置"
+
+
+# 押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く
+_BuildingShapeProfileRequired = TypedDict(
+    "_BuildingShapeProfileRequired",
+    {
+        # 断面の種類
+        "kind": "BuildingShapeProfileKind",
+    },
+)
+_BuildingShapeProfileOptional = TypedDict(
+    "_BuildingShapeProfileOptional",
+    {
+        # 断面の名前
+        "name": str,
+        # 矩形の局所の x の全幅。正の値
+        "x": float,
+        # 矩形の局所の y の全高。正の値
+        "y": float,
+        # 円の半径。正の値
+        "radius": float,
+        # 矩形と円の中心 [x, y]。書かなければ原点
+        "location": List[float],
+        # 矩形と円の局所の x 軸の参照方向 [x, y]。location と一緒に書く
+        "reference": List[float],
+        # 多角形の外輪の [x, y] を 3 点以上。始点に戻る点は書かない
+        "outer": List[List[float]],
+        # 多角形の内輪
+        "holes": List[List[List[float]]],
+    },
+    total=False,
+)
+
+
+class BuildingShapeProfile(_BuildingShapeProfileRequired, _BuildingShapeProfileOptional):
+    "押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く"
+
+# 断面の種類。rectangle は IfcRectangleProfileDef、circle は IfcCircleProfileDef、polygon は IfcArbitraryClosedProfileDef（内輪があれば IfcArbitraryProfileDefWithVoids）
+BuildingShapeProfileKind = Union[
+    Literal[
+        "rectangle",
+        "circle",
+        "polygon",
+    ],
+    str,
+]
+
+
+# 面集合の面。points の位置（0 から）で外輪と内輪を書く
+_BuildingShapeFaceRequired = TypedDict(
+    "_BuildingShapeFaceRequired",
+    {
+        # 外輪の点の位置。3 つ以上
+        "boundary": List[int],
+    },
+)
+_BuildingShapeFaceOptional = TypedDict(
+    "_BuildingShapeFaceOptional",
+    {
+        # 内輪ごとの点の位置
+        "holes": List[List[int]],
+    },
+    total=False,
+)
+
+
+class BuildingShapeFace(_BuildingShapeFaceRequired, _BuildingShapeFaceOptional):
+    "面集合の面。points の位置（0 から）で外輪と内輪を書く"
+
+
+# 囲みの箱
+BuildingShapeBox = TypedDict(
+    "BuildingShapeBox",
+    {
+        # 箱の隅 [x, y, z]
+        "corner": List[float],
+        # 各軸の長さ [x, y, z]。正の値
+        "dimensions": List[float],
+    },
+)
+
+
+# 半空間を制限する多角形
+BuildingShapePolygon = TypedDict(
+    "BuildingShapePolygon",
+    {
+        # 境界の配置
+        "position": "BuildingAxis3",
+        # 境界の局所の XY 平面の [x, y] を 3 点以上。始点に戻る点は書かない
+        "boundary": List[List[float]],
+    },
+)
+
+
+# 写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform）
+_BuildingShapeMappingRequired = TypedDict(
+    "_BuildingShapeMappingRequired",
+    {
+        # 写像先の原点 [x, y, z]。要素の座標系
+        "origin": List[float],
+    },
+)
+_BuildingShapeMappingOptional = TypedDict(
+    "_BuildingShapeMappingOptional",
+    {
+        # x 軸を導く方向 [x, y, z]
+        "axis1": List[float],
+        # y 軸を導く方向 [x, y, z]
+        "axis2": List[float],
+        # z 軸を定める方向 [x, y, z]
+        "axis3": List[float],
+        # 一様な尺度。正の値で、書かなければ 1
+        "scale": float,
+        # 軸ごとの尺度 [x, y, z]。正の値。scale とは一緒に書けない
+        "scales": List[float],
+    },
+    total=False,
+)
+
+
+class BuildingShapeMapping(_BuildingShapeMappingRequired, _BuildingShapeMappingOptional):
+    "写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform）"
 
 
 # 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から

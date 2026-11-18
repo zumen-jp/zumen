@@ -7045,6 +7045,9 @@ class BuildingEdit extends Message {
 
   /// kind が material の形なら、そのビュー。違えば null
   BuildingMaterialEdit? get asBuildingMaterialEdit => taggedView('kind', 'material', BuildingMaterialEdit.fromJson);
+
+  /// kind が shape の形なら、そのビュー。違えば null
+  BuildingShapeEdit? get asBuildingShapeEdit => taggedView('kind', 'shape', BuildingShapeEdit.fromJson);
 }
 
 /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
@@ -8038,6 +8041,295 @@ class BuildingMaterialConstituent extends Message {
   /// 構成要素の名前
   String? get name => readField('name', asString);
   set name(String? value) => writeField('name', value);
+}
+
+/// 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
+class BuildingShapeEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingShapeEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingShapeEdit() : super({'kind': 'shape'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+  BuildingRef? get element => readField('element', objectOf(BuildingRef.fromJson));
+  set element(BuildingRef? value) => writeField('element', value);
+
+  /// 芯の線（Axis の IfcPolyline）。要素の配置の [x, y] を 2 点以上。書かなければ Axis を書かない
+  List<List<core.double>>? get axis => readField('axis', listOf(listOf(asDouble)));
+  set axis(List<List<core.double>>? value) => writeField('axis', value);
+
+  /// 形の項目の表
+  List<BuildingShapeItem>? get items => readField('items', listOf(objectOf(BuildingShapeItem.fromJson)));
+  set items(List<BuildingShapeItem>? value) => writeField('items', value);
+
+  /// Body の表現に置く項目の、items の位置（0 から）。空なら Body を書かない
+  List<core.int>? get body => readField('body', listOf(asInt));
+  set body(List<core.int>? value) => writeField('body', value);
+}
+
+/// 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位
+class BuildingShapeItem extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingShapeItem.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingShapeItem() : super({});
+
+  /// 項目の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 押し出す断面
+  BuildingShapeProfile? get profile => readField('profile', objectOf(BuildingShapeProfile.fromJson));
+  set profile(BuildingShapeProfile? value) => writeField('profile', value);
+
+  /// 押し出しの局所の配置。書かなければ要素の配置のまま
+  BuildingAxis3? get position => readField('position', objectOf(BuildingAxis3.fromJson));
+  set position(BuildingAxis3? value) => writeField('position', value);
+
+  /// 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1]
+  List<core.double>? get direction => readField('direction', listOf(asDouble));
+  set direction(List<core.double>? value) => writeField('direction', value);
+
+  /// 押し出す深さ。正の値
+  core.double? get depth => readField('depth', asDouble);
+  set depth(core.double? value) => writeField('depth', value);
+
+  /// 面集合の点 [x, y, z]
+  List<List<core.double>>? get points => readField('points', listOf(listOf(asDouble)));
+  set points(List<List<core.double>>? value) => writeField('points', value);
+
+  /// 面集合の面
+  List<BuildingShapeFace>? get faces => readField('faces', listOf(objectOf(BuildingShapeFace.fromJson)));
+  set faces(List<BuildingShapeFace>? value) => writeField('faces', value);
+
+  /// true なら閉殻（立体。IfcFacetedBrep）。false か書かなければ開殻の面（IFC2X3 は IfcShellBasedSurfaceModel、IFC4 からは IfcPolygonalFaceSet）
+  core.bool? get closed => readField('closed', asBool);
+  set closed(core.bool? value) => writeField('closed', value);
+
+  /// 集合演算
+  String? get operation => readField('operation', asString);
+  set operation(String? value) => writeField('operation', value);
+
+  /// 集合演算の第 1 の対象。items の前にある項目の位置
+  core.int? get first => readField('first', asInt);
+  set first(core.int? value) => writeField('first', value);
+
+  /// 集合演算の第 2 の対象。差では第 1 から取り除く。items の前にある項目の位置
+  core.int? get second => readField('second', asInt);
+  set second(core.int? value) => writeField('second', value);
+
+  /// 半空間の基準面の配置。局所の z 軸が面の法線
+  BuildingAxis3? get plane => readField('plane', objectOf(BuildingAxis3.fromJson));
+  set plane(BuildingAxis3? value) => writeField('plane', value);
+
+  /// true なら法線と逆の側、false か書かなければ法線の向く側を内部とする
+  core.bool? get agreement => readField('agreement', asBool);
+  set agreement(core.bool? value) => writeField('agreement', value);
+
+  /// 半空間の計算用の囲みの箱（IfcBoxedHalfSpace）。座標系は IFC2X3 では基準面、IFC4 からは要素
+  BuildingShapeBox? get box => readField('box', objectOf(BuildingShapeBox.fromJson));
+  set box(BuildingShapeBox? value) => writeField('box', value);
+
+  /// 半空間を制限する多角形（IfcPolygonalBoundedHalfSpace）
+  BuildingShapePolygon? get polygon => readField('polygon', objectOf(BuildingShapePolygon.fromJson));
+  set polygon(BuildingShapePolygon? value) => writeField('polygon', value);
+
+  /// 写像元の基準位置。書かなければ原点
+  BuildingAxis3? get origin => readField('origin', objectOf(BuildingAxis3.fromJson));
+  set origin(BuildingAxis3? value) => writeField('origin', value);
+
+  /// 写像先の変換
+  BuildingShapeMapping? get target => readField('target', objectOf(BuildingShapeMapping.fromJson));
+  set target(BuildingShapeMapping? value) => writeField('target', value);
+
+  /// 写像元の表現の項目。items の前にある項目の位置で、1 つ以上
+  List<core.int>? get members => readField('members', listOf(asInt));
+  set members(List<core.int>? value) => writeField('members', value);
+}
+
+/// 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class BuildingShapeItemKind {
+  static const extrusion = 'extrusion';
+  static const faces = 'faces';
+  static const boolean = 'boolean';
+  static const halfSpace = 'half_space';
+  static const mapped = 'mapped';
+}
+
+/// 集合演算。union は和、intersection は積、difference は差
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class BuildingBooleanOperation {
+  static const union = 'union';
+  static const intersection = 'intersection';
+  static const difference = 'difference';
+}
+
+/// 3 次元の局所の配置
+class BuildingAxis3 extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingAxis3.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingAxis3() : super({});
+
+  /// 原点 [x, y, z]
+  List<core.double>? get location => readField('location', listOf(asDouble));
+  set location(List<core.double>? value) => writeField('location', value);
+
+  /// 局所の z 軸 [x, y, z]
+  List<core.double>? get axis => readField('axis', listOf(asDouble));
+  set axis(List<core.double>? value) => writeField('axis', value);
+
+  /// 局所の x 軸の参照方向 [x, y, z]
+  List<core.double>? get reference => readField('reference', listOf(asDouble));
+  set reference(List<core.double>? value) => writeField('reference', value);
+}
+
+/// 押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く
+class BuildingShapeProfile extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingShapeProfile.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingShapeProfile() : super({});
+
+  /// 断面の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 断面の名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 矩形の局所の x の全幅。正の値
+  core.double? get x => readField('x', asDouble);
+  set x(core.double? value) => writeField('x', value);
+
+  /// 矩形の局所の y の全高。正の値
+  core.double? get y => readField('y', asDouble);
+  set y(core.double? value) => writeField('y', value);
+
+  /// 円の半径。正の値
+  core.double? get radius => readField('radius', asDouble);
+  set radius(core.double? value) => writeField('radius', value);
+
+  /// 矩形と円の中心 [x, y]。書かなければ原点
+  List<core.double>? get location => readField('location', listOf(asDouble));
+  set location(List<core.double>? value) => writeField('location', value);
+
+  /// 矩形と円の局所の x 軸の参照方向 [x, y]。location と一緒に書く
+  List<core.double>? get reference => readField('reference', listOf(asDouble));
+  set reference(List<core.double>? value) => writeField('reference', value);
+
+  /// 多角形の外輪の [x, y] を 3 点以上。始点に戻る点は書かない
+  List<List<core.double>>? get outer => readField('outer', listOf(listOf(asDouble)));
+  set outer(List<List<core.double>>? value) => writeField('outer', value);
+
+  /// 多角形の内輪
+  List<List<List<core.double>>>? get holes => readField('holes', listOf(listOf(listOf(asDouble))));
+  set holes(List<List<List<core.double>>>? value) => writeField('holes', value);
+}
+
+/// 断面の種類。rectangle は IfcRectangleProfileDef、circle は IfcCircleProfileDef、polygon は IfcArbitraryClosedProfileDef（内輪があれば IfcArbitraryProfileDefWithVoids）
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class BuildingShapeProfileKind {
+  static const rectangle = 'rectangle';
+  static const circle = 'circle';
+  static const polygon = 'polygon';
+}
+
+/// 面集合の面。points の位置（0 から）で外輪と内輪を書く
+class BuildingShapeFace extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingShapeFace.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingShapeFace() : super({});
+
+  /// 外輪の点の位置。3 つ以上
+  List<core.int>? get boundary => readField('boundary', listOf(asInt));
+  set boundary(List<core.int>? value) => writeField('boundary', value);
+
+  /// 内輪ごとの点の位置
+  List<List<core.int>>? get holes => readField('holes', listOf(listOf(asInt)));
+  set holes(List<List<core.int>>? value) => writeField('holes', value);
+}
+
+/// 囲みの箱
+class BuildingShapeBox extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingShapeBox.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingShapeBox() : super({});
+
+  /// 箱の隅 [x, y, z]
+  List<core.double>? get corner => readField('corner', listOf(asDouble));
+  set corner(List<core.double>? value) => writeField('corner', value);
+
+  /// 各軸の長さ [x, y, z]。正の値
+  List<core.double>? get dimensions => readField('dimensions', listOf(asDouble));
+  set dimensions(List<core.double>? value) => writeField('dimensions', value);
+}
+
+/// 半空間を制限する多角形
+class BuildingShapePolygon extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingShapePolygon.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingShapePolygon() : super({});
+
+  /// 境界の配置
+  BuildingAxis3? get position => readField('position', objectOf(BuildingAxis3.fromJson));
+  set position(BuildingAxis3? value) => writeField('position', value);
+
+  /// 境界の局所の XY 平面の [x, y] を 3 点以上。始点に戻る点は書かない
+  List<List<core.double>>? get boundary => readField('boundary', listOf(listOf(asDouble)));
+  set boundary(List<List<core.double>>? value) => writeField('boundary', value);
+}
+
+/// 写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform）
+class BuildingShapeMapping extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingShapeMapping.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingShapeMapping() : super({});
+
+  /// 写像先の原点 [x, y, z]。要素の座標系
+  List<core.double>? get origin => readField('origin', listOf(asDouble));
+  set origin(List<core.double>? value) => writeField('origin', value);
+
+  /// x 軸を導く方向 [x, y, z]
+  List<core.double>? get axis1 => readField('axis1', listOf(asDouble));
+  set axis1(List<core.double>? value) => writeField('axis1', value);
+
+  /// y 軸を導く方向 [x, y, z]
+  List<core.double>? get axis2 => readField('axis2', listOf(asDouble));
+  set axis2(List<core.double>? value) => writeField('axis2', value);
+
+  /// z 軸を定める方向 [x, y, z]
+  List<core.double>? get axis3 => readField('axis3', listOf(asDouble));
+  set axis3(List<core.double>? value) => writeField('axis3', value);
+
+  /// 一様な尺度。正の値で、書かなければ 1
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
+
+  /// 軸ごとの尺度 [x, y, z]。正の値。scale とは一緒に書けない
+  List<core.double>? get scales => readField('scales', listOf(asDouble));
+  set scales(List<core.double>? value) => writeField('scales', value);
 }
 
 /// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から

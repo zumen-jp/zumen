@@ -31,6 +31,8 @@ use crate::messages::{
 };
 #[cfg(feature = "bim")]
 use crate::plugin;
+
+mod shape;
 use crate::session::{Failed, fail, invalid_value, message_of, stopped};
 
 /// 2 つの数の並び（`[x, y]`）。数が 2 つでなければ `None`
@@ -363,6 +365,16 @@ pub(crate) fn prepare(
                 }),
                 Outcome::Removed,
             )),
+            BuildingEdit::Shape(edit) => {
+                // 項目の形は、要素を引く前に確かめる。面集合の書き方は文書のバージョンで決める
+                let ifc2x3 = model
+                    .file
+                    .as_ref()
+                    .is_some_and(|file| file.schema().eq_ignore_ascii_case(b"IFC2X3"));
+                let shape = shape::new_shape(edit, ifc2x3, &at, cx)?;
+                let element = refs.resolve(&edit.element, &format!("{at}/element"), cx)?;
+                element.map(|(element, outcome)| (Edit::Shape { element, shape }, outcome))
+            }
             BuildingEdit::Material(edit) => {
                 // 材料の形は、要素を引く前に確かめる
                 let material = new_material(&edit.material)

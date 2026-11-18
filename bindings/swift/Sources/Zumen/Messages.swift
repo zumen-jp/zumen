@@ -10856,6 +10856,11 @@ public struct BuildingEdit: Message {
     public var asBuildingMaterialEdit: BuildingMaterialEdit? {
         taggedView("kind", "material")
     }
+
+    /// kind が shape の形なら、そのビュー。違えば nil
+    public var asBuildingShapeEdit: BuildingShapeEdit? {
+        taggedView("kind", "shape")
+    }
 }
 
 /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
@@ -12409,6 +12414,445 @@ public struct BuildingMaterialConstituent: Message {
     public var name: String? {
         get { readField("name") }
         set { writeField("name", newValue) }
+    }
+}
+
+/// 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
+public struct BuildingShapeEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("shape")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var element: BuildingRef? {
+        get { readField("element") }
+        set { writeField("element", newValue) }
+    }
+
+    /// 芯の線（Axis の IfcPolyline）。要素の配置の [x, y] を 2 点以上。書かなければ Axis を書かない
+    public var axis: [[Double]]? {
+        get { readField("axis") }
+        set { writeField("axis", newValue) }
+    }
+
+    /// 形の項目の表
+    public var items: [BuildingShapeItem]? {
+        get { readField("items") }
+        set { writeField("items", newValue) }
+    }
+
+    /// Body の表現に置く項目の、items の位置（0 から）。空なら Body を書かない
+    public var body: [Int64]? {
+        get { readField("body") }
+        set { writeField("body", newValue) }
+    }
+}
+
+/// 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位
+public struct BuildingShapeItem: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 項目の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 押し出す断面
+    public var profile: BuildingShapeProfile? {
+        get { readField("profile") }
+        set { writeField("profile", newValue) }
+    }
+
+    /// 押し出しの局所の配置。書かなければ要素の配置のまま
+    public var position: BuildingAxis3? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+
+    /// 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1]
+    public var direction: [Double]? {
+        get { readField("direction") }
+        set { writeField("direction", newValue) }
+    }
+
+    /// 押し出す深さ。正の値
+    public var depth: Double? {
+        get { readField("depth") }
+        set { writeField("depth", newValue) }
+    }
+
+    /// 面集合の点 [x, y, z]
+    public var points: [[Double]]? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+
+    /// 面集合の面
+    public var faces: [BuildingShapeFace]? {
+        get { readField("faces") }
+        set { writeField("faces", newValue) }
+    }
+
+    /// true なら閉殻（立体。IfcFacetedBrep）。false か書かなければ開殻の面（IFC2X3 は IfcShellBasedSurfaceModel、IFC4 からは IfcPolygonalFaceSet）
+    public var closed: Bool? {
+        get { readField("closed") }
+        set { writeField("closed", newValue) }
+    }
+
+    /// 集合演算
+    public var operation: String? {
+        get { readField("operation") }
+        set { writeField("operation", newValue) }
+    }
+
+    /// 集合演算の第 1 の対象。items の前にある項目の位置
+    public var first: Int64? {
+        get { readField("first") }
+        set { writeField("first", newValue) }
+    }
+
+    /// 集合演算の第 2 の対象。差では第 1 から取り除く。items の前にある項目の位置
+    public var second: Int64? {
+        get { readField("second") }
+        set { writeField("second", newValue) }
+    }
+
+    /// 半空間の基準面の配置。局所の z 軸が面の法線
+    public var plane: BuildingAxis3? {
+        get { readField("plane") }
+        set { writeField("plane", newValue) }
+    }
+
+    /// true なら法線と逆の側、false か書かなければ法線の向く側を内部とする
+    public var agreement: Bool? {
+        get { readField("agreement") }
+        set { writeField("agreement", newValue) }
+    }
+
+    /// 半空間の計算用の囲みの箱（IfcBoxedHalfSpace）。座標系は IFC2X3 では基準面、IFC4 からは要素
+    public var box: BuildingShapeBox? {
+        get { readField("box") }
+        set { writeField("box", newValue) }
+    }
+
+    /// 半空間を制限する多角形（IfcPolygonalBoundedHalfSpace）
+    public var polygon: BuildingShapePolygon? {
+        get { readField("polygon") }
+        set { writeField("polygon", newValue) }
+    }
+
+    /// 写像元の基準位置。書かなければ原点
+    public var origin: BuildingAxis3? {
+        get { readField("origin") }
+        set { writeField("origin", newValue) }
+    }
+
+    /// 写像先の変換
+    public var target: BuildingShapeMapping? {
+        get { readField("target") }
+        set { writeField("target", newValue) }
+    }
+
+    /// 写像元の表現の項目。items の前にある項目の位置で、1 つ以上
+    public var members: [Int64]? {
+        get { readField("members") }
+        set { writeField("members", newValue) }
+    }
+}
+
+/// 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingShapeItemKind {
+    public static let extrusion = "extrusion"
+    public static let faces = "faces"
+    public static let boolean = "boolean"
+    public static let halfSpace = "half_space"
+    public static let mapped = "mapped"
+}
+
+/// 集合演算。union は和、intersection は積、difference は差
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingBooleanOperation {
+    public static let union = "union"
+    public static let intersection = "intersection"
+    public static let difference = "difference"
+}
+
+/// 3 次元の局所の配置
+public struct BuildingAxis3: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 原点 [x, y, z]
+    public var location: [Double]? {
+        get { readField("location") }
+        set { writeField("location", newValue) }
+    }
+
+    /// 局所の z 軸 [x, y, z]
+    public var axis: [Double]? {
+        get { readField("axis") }
+        set { writeField("axis", newValue) }
+    }
+
+    /// 局所の x 軸の参照方向 [x, y, z]
+    public var reference: [Double]? {
+        get { readField("reference") }
+        set { writeField("reference", newValue) }
+    }
+}
+
+/// 押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く
+public struct BuildingShapeProfile: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 断面の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 断面の名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 矩形の局所の x の全幅。正の値
+    public var x: Double? {
+        get { readField("x") }
+        set { writeField("x", newValue) }
+    }
+
+    /// 矩形の局所の y の全高。正の値
+    public var y: Double? {
+        get { readField("y") }
+        set { writeField("y", newValue) }
+    }
+
+    /// 円の半径。正の値
+    public var radius: Double? {
+        get { readField("radius") }
+        set { writeField("radius", newValue) }
+    }
+
+    /// 矩形と円の中心 [x, y]。書かなければ原点
+    public var location: [Double]? {
+        get { readField("location") }
+        set { writeField("location", newValue) }
+    }
+
+    /// 矩形と円の局所の x 軸の参照方向 [x, y]。location と一緒に書く
+    public var reference: [Double]? {
+        get { readField("reference") }
+        set { writeField("reference", newValue) }
+    }
+
+    /// 多角形の外輪の [x, y] を 3 点以上。始点に戻る点は書かない
+    public var outer: [[Double]]? {
+        get { readField("outer") }
+        set { writeField("outer", newValue) }
+    }
+
+    /// 多角形の内輪
+    public var holes: [[[Double]]]? {
+        get { readField("holes") }
+        set { writeField("holes", newValue) }
+    }
+}
+
+/// 断面の種類。rectangle は IfcRectangleProfileDef、circle は IfcCircleProfileDef、polygon は IfcArbitraryClosedProfileDef（内輪があれば IfcArbitraryProfileDefWithVoids）
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingShapeProfileKind {
+    public static let rectangle = "rectangle"
+    public static let circle = "circle"
+    public static let polygon = "polygon"
+}
+
+/// 面集合の面。points の位置（0 から）で外輪と内輪を書く
+public struct BuildingShapeFace: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 外輪の点の位置。3 つ以上
+    public var boundary: [Int64]? {
+        get { readField("boundary") }
+        set { writeField("boundary", newValue) }
+    }
+
+    /// 内輪ごとの点の位置
+    public var holes: [[Int64]]? {
+        get { readField("holes") }
+        set { writeField("holes", newValue) }
+    }
+}
+
+/// 囲みの箱
+public struct BuildingShapeBox: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 箱の隅 [x, y, z]
+    public var corner: [Double]? {
+        get { readField("corner") }
+        set { writeField("corner", newValue) }
+    }
+
+    /// 各軸の長さ [x, y, z]。正の値
+    public var dimensions: [Double]? {
+        get { readField("dimensions") }
+        set { writeField("dimensions", newValue) }
+    }
+}
+
+/// 半空間を制限する多角形
+public struct BuildingShapePolygon: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 境界の配置
+    public var position: BuildingAxis3? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+
+    /// 境界の局所の XY 平面の [x, y] を 3 点以上。始点に戻る点は書かない
+    public var boundary: [[Double]]? {
+        get { readField("boundary") }
+        set { writeField("boundary", newValue) }
+    }
+}
+
+/// 写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform）
+public struct BuildingShapeMapping: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 写像先の原点 [x, y, z]。要素の座標系
+    public var origin: [Double]? {
+        get { readField("origin") }
+        set { writeField("origin", newValue) }
+    }
+
+    /// x 軸を導く方向 [x, y, z]
+    public var axis1: [Double]? {
+        get { readField("axis1") }
+        set { writeField("axis1", newValue) }
+    }
+
+    /// y 軸を導く方向 [x, y, z]
+    public var axis2: [Double]? {
+        get { readField("axis2") }
+        set { writeField("axis2", newValue) }
+    }
+
+    /// z 軸を定める方向 [x, y, z]
+    public var axis3: [Double]? {
+        get { readField("axis3") }
+        set { writeField("axis3", newValue) }
+    }
+
+    /// 一様な尺度。正の値で、書かなければ 1
+    public var scale: Double? {
+        get { readField("scale") }
+        set { writeField("scale", newValue) }
+    }
+
+    /// 軸ごとの尺度 [x, y, z]。正の値。scale とは一緒に書けない
+    public var scales: [Double]? {
+        get { readField("scales") }
+        set { writeField("scales", newValue) }
     }
 }
 
