@@ -10489,7 +10489,7 @@ public struct BuildingApplyRequest: Message {
     }
 }
 
-/// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から
+/// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から、add_slab・add_column・add_beam・add_opening・add_door・add_window はマイナーバージョン 98 から
 public struct BuildingEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -10552,6 +10552,36 @@ public struct BuildingEdit: Message {
     /// kind が add_wall の形なら、そのビュー。違えば nil
     public var asBuildingAddWallEdit: BuildingAddWallEdit? {
         taggedView("kind", "add_wall")
+    }
+
+    /// kind が add_slab の形なら、そのビュー。違えば nil
+    public var asBuildingAddSlabEdit: BuildingAddSlabEdit? {
+        taggedView("kind", "add_slab")
+    }
+
+    /// kind が add_column の形なら、そのビュー。違えば nil
+    public var asBuildingAddColumnEdit: BuildingAddColumnEdit? {
+        taggedView("kind", "add_column")
+    }
+
+    /// kind が add_beam の形なら、そのビュー。違えば nil
+    public var asBuildingAddBeamEdit: BuildingAddBeamEdit? {
+        taggedView("kind", "add_beam")
+    }
+
+    /// kind が add_opening の形なら、そのビュー。違えば nil
+    public var asBuildingAddOpeningEdit: BuildingAddOpeningEdit? {
+        taggedView("kind", "add_opening")
+    }
+
+    /// kind が add_door の形なら、そのビュー。違えば nil
+    public var asBuildingAddDoorEdit: BuildingAddDoorEdit? {
+        taggedView("kind", "add_door")
+    }
+
+    /// kind が add_window の形なら、そのビュー。違えば nil
+    public var asBuildingAddWindowEdit: BuildingAddWindowEdit? {
+        taggedView("kind", "add_window")
     }
 }
 
@@ -10688,7 +10718,7 @@ public struct BuildingRef: Message {
         set { writeField("hash", newValue) }
     }
 
-    /// 同じ要求の edits の、前にある add_space・add_element・add_wall の位置（0 から）。その変更で足した要素を指す
+    /// 同じ要求の edits の、前にある要素を足す変更（add_ で始まる種類）の位置（0 から）。その変更で足した要素を指す
     public var added: Int64? {
         get { readField("added") }
         set { writeField("added", newValue) }
@@ -10759,7 +10789,7 @@ public struct BuildingAddSpaceEdit: Message {
         set { writeField("space", newValue) }
     }
 
-    /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var parent: BuildingRef? {
         get { readField("parent") }
         set { writeField("parent", newValue) }
@@ -10829,7 +10859,7 @@ public struct BuildingAddElementEdit: Message {
         set { writeField("name", newValue) }
     }
 
-    /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var container: BuildingRef? {
         get { readField("container") }
         set { writeField("container", newValue) }
@@ -10903,7 +10933,7 @@ public struct BuildingPlaceEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var element: BuildingRef? {
         get { readField("element") }
         set { writeField("element", newValue) }
@@ -10937,13 +10967,13 @@ public struct BuildingContainEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var element: BuildingRef? {
         get { readField("element") }
         set { writeField("element", newValue) }
     }
 
-    /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var space: BuildingRef? {
         get { readField("space") }
         set { writeField("space", newValue) }
@@ -10971,13 +11001,13 @@ public struct BuildingTypeEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var element: BuildingRef? {
         get { readField("element") }
         set { writeField("element", newValue) }
     }
 
-    /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var elementType: BuildingRef? {
         get { readField("element_type") }
         set { writeField("element_type", newValue) }
@@ -11005,20 +11035,20 @@ public struct BuildingVoidEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var host: BuildingRef? {
         get { readField("host") }
         set { writeField("host", newValue) }
     }
 
-    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var opening: BuildingRef? {
         get { readField("opening") }
         set { writeField("opening", newValue) }
     }
 }
 
-/// 壁の材料の層
+/// 材料の層
 public struct BuildingWallLayer: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -11033,7 +11063,7 @@ public struct BuildingWallLayer: Message {
         json = [:]
     }
 
-    /// 材料の名前（IfcMaterial の Name）。同じ壁の中で同じ名前の層は、同じ材料を指す
+    /// 材料の名前（IfcMaterial の Name）。同じ要素の中で同じ名前の層は、同じ材料を指す
     public var material: String? {
         get { readField("material") }
         set { writeField("material", newValue) }
@@ -11067,7 +11097,7 @@ public struct BuildingAddWallEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var storey: BuildingRef? {
         get { readField("storey") }
         set { writeField("storey", newValue) }
@@ -11116,6 +11146,400 @@ public struct BuildingAddWallEdit: Message {
     }
 }
 
+/// 矩形の断面
+public struct BuildingSection: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 幅。文書の長さの単位で、正の値
+    public var width: Double? {
+        get { readField("width") }
+        set { writeField("width", newValue) }
+    }
+
+    /// せい。文書の長さの単位で、正の値
+    public var depth: Double? {
+        get { readField("depth") }
+        set { writeField("depth", newValue) }
+    }
+}
+
+/// 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から
+public struct BuildingAddSlabEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_slab")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 所属する空間（階など）。床はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var storey: BuildingRef? {
+        get { readField("storey") }
+        set { writeField("storey", newValue) }
+    }
+
+    /// 外形の頂点。空間の配置の [x, y] の並びで、3 つ以上。最後の点が最初の点と同じなら、その点は除く
+    public var outline: [[Double]]? {
+        get { readField("outline") }
+        set { writeField("outline", newValue) }
+    }
+
+    /// 材料の層。上から下へ並べる。1 つ以上
+    public var layers: [BuildingWallLayer]? {
+        get { readField("layers") }
+        set { writeField("layers", newValue) }
+    }
+
+    /// 上の面の高さ（空間の配置の z）。書かなければ 0
+    public var elevation: Double? {
+        get { readField("elevation") }
+        set { writeField("elevation", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    public var globalId: String? {
+        get { readField("global_id") }
+        set { writeField("global_id", newValue) }
+    }
+}
+
+/// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から
+public struct BuildingAddColumnEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_column")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 所属する空間（階など）。柱はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var storey: BuildingRef? {
+        get { readField("storey") }
+        set { writeField("storey", newValue) }
+    }
+
+    /// 断面の中心。空間の配置の [x, y]
+    public var position: [Double]? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+
+    /// 柱の脚の高さ（空間の配置の z）。書かなければ 0
+    public var base: Double? {
+        get { readField("base") }
+        set { writeField("base", newValue) }
+    }
+
+    /// 高さ。文書の長さの単位で、正の値
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 断面。幅は柱の x 軸、せいは y 軸の向き
+    public var section: BuildingSection? {
+        get { readField("section") }
+        set { writeField("section", newValue) }
+    }
+
+    /// 柱の x 軸の向き。空間の配置の [x, y]。書かなければ空間の x 軸
+    public var direction: [Double]? {
+        get { readField("direction") }
+        set { writeField("direction", newValue) }
+    }
+
+    /// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
+    public var material: String? {
+        get { readField("material") }
+        set { writeField("material", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    public var globalId: String? {
+        get { readField("global_id") }
+        set { writeField("global_id", newValue) }
+    }
+}
+
+/// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から
+public struct BuildingAddBeamEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_beam")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 所属する空間（階など）。梁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var storey: BuildingRef? {
+        get { readField("storey") }
+        set { writeField("storey", newValue) }
+    }
+
+    /// 天端の芯の始点。空間の配置の [x, y, z]
+    public var start: [Double]? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 天端の芯の終点。始点と x か y が違う [x, y, z]
+    public var end: [Double]? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+
+    /// 断面。幅は芯の左右、せいは天端から下へ
+    public var section: BuildingSection? {
+        get { readField("section") }
+        set { writeField("section", newValue) }
+    }
+
+    /// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
+    public var material: String? {
+        get { readField("material") }
+        set { writeField("material", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    public var globalId: String? {
+        get { readField("global_id") }
+        set { writeField("global_id", newValue) }
+    }
+}
+
+/// 壁の芯に沿う位置・下端・矩形の大きさで開口を足し、IfcRelVoidsElement で壁に穴をあける。開口は壁の配置からの相対に置き、壁の材料の層の使い方（AXIS2）の厚さだけ押し出す Body と IfcOpeningElement をコアが書く。空間には所属させない。層の使い方を持たない要素は断る。結果の id は足した開口の ID。マイナーバージョン 98 から
+public struct BuildingAddOpeningEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_opening")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 穴をあける壁。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var host: BuildingRef? {
+        get { readField("host") }
+        set { writeField("host", newValue) }
+    }
+
+    /// 壁の配置の x 軸に沿う、壁の原点から開口の端までの距離
+    public var distance: Double? {
+        get { readField("distance") }
+        set { writeField("distance", newValue) }
+    }
+
+    /// 壁の下端から開口の下端までの高さ
+    public var sill: Double? {
+        get { readField("sill") }
+        set { writeField("sill", newValue) }
+    }
+
+    /// 幅。文書の長さの単位で、正の値
+    public var width: Double? {
+        get { readField("width") }
+        set { writeField("width", newValue) }
+    }
+
+    /// 高さ。文書の長さの単位で、正の値
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    public var globalId: String? {
+        get { readField("global_id") }
+        set { writeField("global_id", newValue) }
+    }
+}
+
+/// 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から
+public struct BuildingAddDoorEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_door")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var opening: BuildingRef? {
+        get { readField("opening") }
+        set { writeField("opening", newValue) }
+    }
+
+    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+    public var width: Double? {
+        get { readField("width") }
+        set { writeField("width", newValue) }
+    }
+
+    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    public var globalId: String? {
+        get { readField("global_id") }
+        set { writeField("global_id", newValue) }
+    }
+}
+
+/// 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から
+public struct BuildingAddWindowEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_window")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var opening: BuildingRef? {
+        get { readField("opening") }
+        set { writeField("opening", newValue) }
+    }
+
+    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+    public var width: Double? {
+        get { readField("width") }
+        set { writeField("width", newValue) }
+    }
+
+    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    public var globalId: String? {
+        get { readField("global_id") }
+        set { writeField("global_id", newValue) }
+    }
+}
+
 /// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
 public struct BuildingFillEdit: Message {
     /// 包んでいる JSON のオブジェクト
@@ -11137,13 +11561,13 @@ public struct BuildingFillEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var opening: BuildingRef? {
         get { readField("opening") }
         set { writeField("opening", newValue) }
     }
 
-    /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     public var filler: BuildingRef? {
         get { readField("filler") }
         set { writeField("filler", newValue) }

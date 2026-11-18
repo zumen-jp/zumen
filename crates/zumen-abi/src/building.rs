@@ -10,20 +10,21 @@ use zumen_building::{
 };
 use zumen_ids::{Ids, Report};
 use zumen_ifc::{
-    Edit, Ifc, IfcFile, IfcZip, NewElement, NewLayer, NewLiteral, NewPlacement, NewSpace, NewValue,
-    NewWall, RootAttribute, SpaceKind, Target, TextEncoding,
+    Edit, FillingKind, Ifc, IfcFile, IfcZip, NewBeam, NewColumn, NewElement, NewFilling, NewLayer,
+    NewLiteral, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewValue, NewWall,
+    RootAttribute, SpaceKind, Target, TextEncoding,
 };
 use zumen_sdk::{Codec, Lift};
 
 use crate::messages::{
     self, BuildingApplyRequest, BuildingApplyResult, BuildingAttribute, BuildingComponent,
     BuildingEdit, BuildingElement, BuildingElementsRequest, BuildingElementsResult,
-    BuildingPlacementChange, BuildingRef, BuildingResult, BuildingSpaceKind, BuildingUnit,
-    BuildingValue, BuildingValueKind, ClassComponent, ClassCount, ClassificationReference,
-    ConnectionLink, IdentityComponent, IdsCheckResult, IdsFinding, IdsSpecification, IdsStatus,
-    LevelComponent, MaterialComponent, MaterialPart, Measured, Membership, OpeningComponent,
-    ParentComponent, PlacementComponent, Property, PropertySet, Quantity, QuantitySet,
-    RelationsComponent, SpatialComponent, StyleComponent, ZoneComponent,
+    BuildingPlacementChange, BuildingRef, BuildingResult, BuildingSection, BuildingSpaceKind,
+    BuildingUnit, BuildingValue, BuildingValueKind, BuildingWallLayer, ClassComponent, ClassCount,
+    ClassificationReference, ConnectionLink, IdentityComponent, IdsCheckResult, IdsFinding,
+    IdsSpecification, IdsStatus, LevelComponent, MaterialComponent, MaterialPart, Measured,
+    Membership, OpeningComponent, ParentComponent, PlacementComponent, Property, PropertySet,
+    Quantity, QuantitySet, RelationsComponent, SpatialComponent, StyleComponent, ZoneComponent,
 };
 #[cfg(feature = "bim")]
 use crate::plugin;
@@ -34,6 +35,33 @@ fn pair(values: &[f64]) -> Option<[f64; 2]> {
     match values {
         [x, y] => Some([*x, *y]),
         _ => None,
+    }
+}
+
+/// 3 つの数の並び（`[x, y, z]`）。数が 3 つでなければ `None`
+fn triple(values: &[f64]) -> Option<[f64; 3]> {
+    match values {
+        [x, y, z] => Some([*x, *y, *z]),
+        _ => None,
+    }
+}
+
+/// 材料の層
+fn layers(layers: &[BuildingWallLayer]) -> Vec<NewLayer> {
+    layers
+        .iter()
+        .map(|layer| NewLayer {
+            material: layer.material.clone(),
+            thickness: layer.thickness,
+        })
+        .collect()
+}
+
+/// 矩形の断面
+fn section(section: &BuildingSection) -> NewSection {
+    NewSection {
+        width: section.width,
+        depth: section.depth,
     }
 }
 
@@ -266,6 +294,12 @@ pub(crate) fn prepare(
             BuildingEdit::AddSpace(edit) => Some(edit.global_id.as_deref()),
             BuildingEdit::AddElement(edit) => Some(edit.global_id.as_deref()),
             BuildingEdit::AddWall(edit) => Some(edit.global_id.as_deref()),
+            BuildingEdit::AddSlab(edit) => Some(edit.global_id.as_deref()),
+            BuildingEdit::AddColumn(edit) => Some(edit.global_id.as_deref()),
+            BuildingEdit::AddBeam(edit) => Some(edit.global_id.as_deref()),
+            BuildingEdit::AddOpening(edit) => Some(edit.global_id.as_deref()),
+            BuildingEdit::AddDoor(edit) => Some(edit.global_id.as_deref()),
+            BuildingEdit::AddWindow(edit) => Some(edit.global_id.as_deref()),
             _ => None,
         };
         let slot = match given {
@@ -345,15 +379,135 @@ pub(crate) fn prepare(
                             start,
                             end,
                             height: edit.height,
-                            layers: edit
-                                .layers
-                                .iter()
-                                .map(|layer| NewLayer {
-                                    material: layer.material.clone(),
-                                    thickness: layer.thickness,
-                                })
-                                .collect(),
+                            layers: layers(&edit.layers),
                             offset: edit.offset,
+                            name: edit.name.clone(),
+                            global_id: Some(global_id),
+                        }),
+                        Outcome::Added(global_id),
+                    )
+                })
+            }
+            BuildingEdit::AddSlab(edit) => {
+                let storey = refs.resolve(&edit.storey, &format!("{at}/storey"), cx)?;
+                let mut outline = Vec::with_capacity(edit.outline.len());
+                for (i, point) in edit.outline.iter().enumerate() {
+                    outline.push(
+                        pair(point)
+                            .ok_or_else(|| fail(cx, invalid_value(format!("{at}/outline/{i}"))))?,
+                    );
+                }
+                let global_id = slot.ok_or(Failed)?;
+                storey.map(|(storey, _)| {
+                    (
+                        Edit::Slab(NewSlab {
+                            storey,
+                            outline,
+                            layers: layers(&edit.layers),
+                            elevation: edit.elevation,
+                            name: edit.name.clone(),
+                            global_id: Some(global_id),
+                        }),
+                        Outcome::Added(global_id),
+                    )
+                })
+            }
+            BuildingEdit::AddColumn(edit) => {
+                let storey = refs.resolve(&edit.storey, &format!("{at}/storey"), cx)?;
+                let position = pair(&edit.position)
+                    .ok_or_else(|| fail(cx, invalid_value(format!("{at}/position"))))?;
+                let direction = match &edit.direction {
+                    Some(direction) => Some(
+                        pair(direction)
+                            .ok_or_else(|| fail(cx, invalid_value(format!("{at}/direction"))))?,
+                    ),
+                    None => None,
+                };
+                let global_id = slot.ok_or(Failed)?;
+                storey.map(|(storey, _)| {
+                    (
+                        Edit::Column(NewColumn {
+                            storey,
+                            position,
+                            base: edit.base,
+                            height: edit.height,
+                            section: section(&edit.section),
+                            direction,
+                            material: edit.material.clone(),
+                            name: edit.name.clone(),
+                            global_id: Some(global_id),
+                        }),
+                        Outcome::Added(global_id),
+                    )
+                })
+            }
+            BuildingEdit::AddBeam(edit) => {
+                let storey = refs.resolve(&edit.storey, &format!("{at}/storey"), cx)?;
+                let start = triple(&edit.start)
+                    .ok_or_else(|| fail(cx, invalid_value(format!("{at}/start"))))?;
+                let end = triple(&edit.end)
+                    .ok_or_else(|| fail(cx, invalid_value(format!("{at}/end"))))?;
+                let global_id = slot.ok_or(Failed)?;
+                storey.map(|(storey, _)| {
+                    (
+                        Edit::Beam(NewBeam {
+                            storey,
+                            start,
+                            end,
+                            section: section(&edit.section),
+                            material: edit.material.clone(),
+                            name: edit.name.clone(),
+                            global_id: Some(global_id),
+                        }),
+                        Outcome::Added(global_id),
+                    )
+                })
+            }
+            BuildingEdit::AddOpening(edit) => {
+                let host = refs.resolve(&edit.host, &format!("{at}/host"), cx)?;
+                let global_id = slot.ok_or(Failed)?;
+                host.map(|(host, _)| {
+                    (
+                        Edit::Opening(NewOpening {
+                            host,
+                            distance: edit.distance,
+                            sill: edit.sill,
+                            width: edit.width,
+                            height: edit.height,
+                            name: edit.name.clone(),
+                            global_id: Some(global_id),
+                        }),
+                        Outcome::Added(global_id),
+                    )
+                })
+            }
+            BuildingEdit::AddDoor(edit) => {
+                let opening = refs.resolve(&edit.opening, &format!("{at}/opening"), cx)?;
+                let global_id = slot.ok_or(Failed)?;
+                opening.map(|(opening, _)| {
+                    (
+                        Edit::Filling(NewFilling {
+                            opening,
+                            kind: FillingKind::Door,
+                            width: edit.width,
+                            height: edit.height,
+                            name: edit.name.clone(),
+                            global_id: Some(global_id),
+                        }),
+                        Outcome::Added(global_id),
+                    )
+                })
+            }
+            BuildingEdit::AddWindow(edit) => {
+                let opening = refs.resolve(&edit.opening, &format!("{at}/opening"), cx)?;
+                let global_id = slot.ok_or(Failed)?;
+                opening.map(|(opening, _)| {
+                    (
+                        Edit::Filling(NewFilling {
+                            opening,
+                            kind: FillingKind::Window,
+                            width: edit.width,
+                            height: edit.height,
                             name: edit.name.clone(),
                             global_id: Some(global_id),
                         }),
