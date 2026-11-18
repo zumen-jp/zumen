@@ -12,7 +12,7 @@ import json
 import os
 import struct
 import sys
-from typing import Any, Mapping, Optional, Union
+from typing import Any, BinaryIO, Callable, Mapping, Optional, Union
 
 from .constants import (
     ABI_VERSION,
@@ -56,6 +56,12 @@ __all__ = [
 ]
 
 BytesLike = Union[str, bytes, bytearray, memoryview, None]
+RangeSource = Union[str, "os.PathLike[str]", BinaryIO, Callable[[int, int], bytes]]
+
+# open_ranged が 1 回目に渡す初めの部分の既定の大きさ。LAS の頭と VLR が入る
+_HEAD = 64 * 1024
+# needs に答える回数の上限
+_ROUNDS = 64
 
 
 class ZumenError(Exception):
@@ -172,6 +178,93 @@ class Session:
         if code != 0:
             raise ZumenError("zm_take", code, None)
         return data
+
+    def open_ranged(
+        self,
+        request: Mapping[str, Any],
+        source: RangeSource,
+        head: int = _HEAD,
+        size: Optional[int] = None,
+    ) -> Any:
+        """入力の範囲を読みながら open する（決定 0232）。
+
+        request の input の名前で初めの部分を渡し、size を書いて open を呼ぶ。needs の範囲をその名前で push して同じ
+        要求を呼び直し、読み終えた done の入力を close で捨てる。1 回の範囲の合計が要求の budget の input_bytes を
+        超えるときと、同じ範囲を求め続けるときは止める。失敗したら、渡した入力を捨てる。source はパス・バイナリの
+        ファイル・範囲 [start, end) のバイト列を返す関数。関数なら size に全体の大きさを渡す。応答は最後の open の応答
+        """
+        name = request.get("input")
+        if not isinstance(name, str):
+            raise TypeError("request には input を書いた open の要求を渡す")
+        if not isinstance(head, int) or head <= 0:
+            raise ValueError("head は正の整数")
+        if isinstance(source, (str, os.PathLike)):
+            with open(source, "rb") as file:
+                return self.open_ranged(request, file, head, size)
+        if callable(source):
+            read = source
+        elif hasattr(source, "seek") and hasattr(source, "read"):
+            file = source
+
+            def read(start: int, end: int) -> bytes:
+                file.seek(start)
+                return file.read(end - start)
+
+            if size is None:
+                size = file.seek(0, os.SEEK_END)
+        else:
+            raise TypeError("source にはパス・バイナリのファイル・(start, end) を読む関数を渡す")
+        if size is not None and (not isinstance(size, int) or size < 0):
+            raise ValueError("size は 0 以上の整数")
+        budget = request.get("budget") or {}
+        limit = budget.get("input_bytes")
+        limit = limit if isinstance(limit, int) and not isinstance(limit, bool) else None
+        call = dict(request, op="open")
+        if size is not None:
+            call["size"] = size
+        pushed = []
+        try:
+            self.push(name, read(0, head if size is None else min(head, size)))
+            pushed.append(name)
+            previous = None
+            for round_ in range(_ROUNDS + 1):
+                response = self.call(call)
+                result = response.get("result") or {}
+                done = [r["input"] for r in result.get("done") or []]
+                if done:
+                    self.call({"v": 1, "op": "close", "inputs": done})
+                    pushed = [n for n in pushed if n not in done]
+                needs = result.get("needs") or []
+                if not needs:
+                    # 文書ができたら、初めの部分は普段の open の入力と同じく残す
+                    pushed.remove(name)
+                    return response
+                if needs == previous or round_ >= _ROUNDS:
+                    raise RuntimeError("open が同じ範囲を求め続ける")
+                previous = needs
+                total = 0
+                for r in needs:
+                    start, end = r.get("start"), r.get("end")
+                    if not (isinstance(start, int) and isinstance(end, int) and 0 <= start <= end) or (size is not None and end > size):
+                        raise ValueError("open の needs の範囲が入力の外")
+                    total += end - start
+                if limit is not None and total > limit:
+                    raise ValueError("needs の範囲の合計が予算の input_bytes を超える")
+                for r in needs:
+                    part = _to_bytes(read(r["start"], r["end"]))
+                    if len(part) != r["end"] - r["start"]:
+                        raise ValueError("読み口が求めた長さを返さない")
+                    self.push(r["input"], part)
+                    pushed.append(r["input"])
+            raise RuntimeError("open が同じ範囲を求め続ける")
+        except BaseException:
+            # 読み終える前に止まったら、渡した初めの部分と範囲を捨てる。捨てられなくても、先の例外を返す
+            if pushed and not self.closed:
+                try:
+                    self.call({"v": 1, "op": "close", "inputs": pushed})
+                except Exception:
+                    pass
+            raise
 
     def cancel(self) -> None:
         """動いている呼び出しを止める。動いている呼び出しがなければ、何もしない"""

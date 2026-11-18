@@ -192,6 +192,20 @@ const { response, blob } = await result;
 node bindings/js/examples/worker/main.mjs samples/dxf/text_alignments.dxf target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
+### 入りきらない入力を範囲で読む
+
+点群の LAS・LAZ のように大きな入力は、`openRanged` で初めの部分だけを渡して開けます（決定 0232）。`open` が `needs` で求めた範囲だけを読み、その名前で `push` して同じ要求を呼び直します。読み終えた `done` の入力は `close` で捨てます。範囲で読めない形式では、初めの部分を全体として扱います。そのため、全体の大きさが `head` を超える入力には範囲で読める形式を使います。
+
+```js
+import { openRanged } from "@zumen-jp/zumen";
+
+const response = await openRanged(session, { v: 1, input: "a.las" }, file); // File・Blob
+await openRanged(session, { v: 1, input: "b.las" }, "https://example.com/b.las"); // Range に 206 で答える URL
+await openRanged(session, { v: 1, input: "c.las" }, (start, end) => read(start, end), { size }); // 関数と全体の大きさ
+```
+
+`options.head` は 1 回目に渡す大きさで、既定は 64 KiB です。1 回の範囲の合計が要求の `budget.input_bytes` を超えるとき、同じ範囲を求め続けるとき、読み口が求めた長さを返さないときは止めます。止まったら、渡した初めの部分と範囲を捨てます。文書ができたら、初めの部分は普段の `open` の入力と同じく残ります。
+
 ### 分けたモジュール
 
 図面・BIM・土木地理・点群を分けたモジュール（`zumen_abi1_drawing.wasm`・`zumen_abi1_bim.wasm`・`zumen_abi1_civil.wasm`・`zumen_abi1_pointcloud.wasm`）もあります（[API のスキーマ](../../schema/README.md)）。`loadModules` は、要るモジュールだけを、初めて要るときに読み込みます。入っていない op は `call.op.unsupported` の診断で返ります。
@@ -249,6 +263,8 @@ Node.js で分割版を使うときは、たとえば `readFile(new URL(import.m
 cargo build -p zumen-abi --target wasm32-unknown-unknown --release
 node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
+
+`test/ranged.mjs` は、点を足した LAS を全体で渡したときと、関数・`Blob`・URL の読み口から範囲で渡したときの `pointcloud` の応答を比べます。止まったときに入力を捨てることも確かめます。
 
 `test/conformance.mjs` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。型は、CI がサイトと同じバージョンの TypeScript で `tsconfig.json`（`test/types.ts` を含む）を確かめます。
 

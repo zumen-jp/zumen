@@ -12,6 +12,7 @@ export { Scene, readScene } from "./scene.js";
 export { Scene3D, readScene3D } from "./scene3d.js";
 export * from "./scene3d-layout.js";
 export { detect, modulesWith } from "./modules.js";
+export { openRanged } from "./ranged.js";
 
 import { Modules } from "./modules.js";
 

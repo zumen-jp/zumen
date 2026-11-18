@@ -10,6 +10,7 @@ import {
   ZumenError,
   load,
   loadModules,
+  openRanged,
   readScene,
   readScene3D,
   type Scene3dResult,
@@ -126,4 +127,15 @@ export async function sample(bytes: Uint8Array): Promise<void> {
   } finally {
     session.close();
   }
+}
+
+export async function ranged(file: Blob): Promise<number | undefined> {
+  const zumen = await load(fetch(wasmUrls.pointcloud));
+  const session = zumen.open();
+  try {
+    const opened = await openRanged(session, { v: SCHEMA_MAJOR, input: "a.las", budget: { input_bytes: 1 << 26 } }, file, { head: 4096 });
+    const doc: string | undefined = opened.result?.doc;
+    await openRanged(session, { v: SCHEMA_MAJOR, input: "b.las" }, (start, end) => new Uint8Array(end - start), { size: 1024 });
+    return doc ? session.call({ v: SCHEMA_MAJOR, op: "pointcloud", doc }).result?.points : undefined;
+  } finally { session.close(); }
 }

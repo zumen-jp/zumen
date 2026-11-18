@@ -32,6 +32,7 @@ with zumen.open() as session:
 | `load` | ライブラリを読み込み、関数と ABI のメジャーバージョンを確かめる。道筋を渡さなければ wheel に入れたものを読む。32 bit の Windows では stdcall で呼ぶ |
 | `Zumen.open` | セッションを作る（`zm_session_new`）。`with` の文で閉じられる |
 | `Session.push`・`call`・`call_bytes`・`take`・`cancel`・`close` | API の関数（`zm_push`・`zm_call`・`zm_take`・`zm_cancel`・`zm_session_close`）。状態が `ok` でなければ `ZumenError` を投げる |
+| `Session.open_ranged` | 初めの部分を渡して `open` を呼び、`needs` の範囲をパス・バイナリのファイル・関数から読んで渡す。読み終えた `done` の入力は `close` で捨てる（決定 0232）。JavaScript の `openRanged` と同じ規則で止める |
 | `read_scene` | シーンの blob を、セクションごとの memoryview で読む（`schema/scene.toml`） |
 
 要求と応答の形は [schema/messages.json](../../schema/messages.json) にあり、`messages.py` に `TypedDict` の型があります。応答の `result` は、`OPERATIONS` が op から引く結果の型（`OpenResult` など）で `typing.cast` して読みます。ctypes はネイティブの関数を呼ぶ間 GIL を手放すので、長い `call` を、ほかのスレッドから `cancel` で止められます。
@@ -42,6 +43,8 @@ with zumen.open() as session:
 cargo build -p zumen-abi
 python3 bindings/python/tests/conformance.py target/debug/libzumen_abi1.so
 ```
+
+`tests/ranged.py` は、点を足した LAS を全体で渡したときと、関数・ファイル・パスから範囲で渡したときの `pointcloud` の応答を比べます。
 
 `tests/conformance.py` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。CI は、テストの行列（Linux x64・macOS arm64・Windows x64・Windows x86）で、Python 3.9 と最新を分けて流します。
 
