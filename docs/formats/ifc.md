@@ -1000,6 +1000,7 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
   - 開口は、壁・芯に沿う距離・下端の高さ・幅・高さで受ける。壁の配置からの相対で、距離と下端の点を原点にし、`IfcOpeningElement`（IFC4 と IFC4X3 は `OPENING`）を `IfcRelVoidsElement` で壁に結ぶ。空間には所属させない。
   - 開口の `Body` は、幅と高さの矩形を壁の XZ に置き、壁の材料の層の使い方（`AXIS2`）から求めた層の範囲の一方の面から他方の面まで押し出す。層の使い方を持たない要素と空間には、穴をあけない。
   - 建具は、開口・種類（扉か窓）・全体の幅と高さで受ける。開口の配置に置き、`IfcDoor` か `IfcWindow`（IFC4 と IFC4X3 は PredefinedType の `DOOR` か `WINDOW`）を `IfcRelFillsElement` で開口に結び、壁と同じ空間に包含で結ぶ。建具の形と型はまだ書かない。開口でない要素と、もう埋まった開口は断る。
+- 意図の値で通り芯を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Grid` で受け、`building_apply` の種類はまだない。空間・U と V の軸（名前・始点・終点）・高さで受け、空間の配置からの相対に置いて空間に包含で結ぶ。軸は 2 点の `IfcPolyline` を曲線にした `IfcGridAxis`（SameSense は真）に書く。U と V のどちらかが空・同じ名前の軸・始点と終点が同じ軸・有限でない値は断る。
 
 ### 新しい IFC を作る
 

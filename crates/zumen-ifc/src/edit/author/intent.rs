@@ -11,7 +11,7 @@
 //! 3 版とも 9 PredefinedType まで、`IfcColumn` と `IfcBeam` は IFC2X3 では 8 Tag まで、IFC4 と IFC4X3 では
 //! 9 PredefinedType まで。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::Kind;
 use zumen_building::{GlobalId, Transform};
@@ -160,6 +160,34 @@ pub struct NewFilling {
     pub width: Option<f64>,
     /// 全体の高さ（`OverallHeight`）。正の値
     pub height: Option<f64>,
+    /// 名前
+    pub name: Option<String>,
+    /// GlobalId。なければ文書のハッシュと足した数から作る
+    pub global_id: Option<GlobalId>,
+}
+
+/// 通り芯の軸
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewGridAxis {
+    /// 軸の名前（`AxisTag`）。同じ通り芯の中で重ならない
+    pub tag: String,
+    /// 始点。通り芯の配置の XY
+    pub start: [f64; 2],
+    /// 終点。始点と違う点
+    pub end: [f64; 2],
+}
+
+/// U と V の軸で足す通り芯
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewGrid {
+    /// 所属する空間（階など）。通り芯は、この空間の配置からの相対に置く
+    pub storey: Target,
+    /// U の軸。1 つ以上
+    pub u: Vec<NewGridAxis>,
+    /// V の軸。1 つ以上
+    pub v: Vec<NewGridAxis>,
+    /// 高さ（空間の配置の Z）。なければ 0
+    pub elevation: Option<f64>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId。なければ文書のハッシュと足した数から作る
@@ -1099,6 +1127,95 @@ impl Draft<'_> {
         self.relation(FILLS, opening, id, begun.history);
         self.handles.push(id);
         Ok(true)
+    }
+
+    /// U と V の軸で通り芯を足し、空間に包含で結ぶ。軸は 2 点の折れ線の `IfcGridAxis` に書く
+    pub(in crate::edit) fn add_grid(&mut self, grid: &NewGrid, cx: &mut Cx) -> Result<bool, Error> {
+        const EDIT: &str = "grid";
+        const KIND: &[u8] = b"IFCGRID";
+        let Some(version) = self.version() else {
+            cx.report(unsupported(EDIT, KIND));
+            return Ok(false);
+        };
+        let axes = grid.u.len().saturating_add(grid.v.len());
+        cx.check(Kind::Work, u64::try_from(axes).unwrap_or(u64::MAX))
+            .map_err(|stop| stopped(cx, stop, None))?;
+        let checked = (|| {
+            if grid.u.is_empty() || grid.v.is_empty() {
+                return Err("axes");
+            }
+            let mut tags = BTreeSet::new();
+            for axis in grid.u.iter().chain(&grid.v) {
+                let finite = axis.start.iter().chain(&axis.end).all(|v| v.is_finite());
+                if !finite || axis.start == axis.end {
+                    return Err("axes");
+                }
+                if !tags.insert(axis.tag.as_str()) {
+                    return Err("tag");
+                }
+            }
+            let elevation = grid.elevation.unwrap_or(0.0);
+            if !elevation.is_finite() {
+                return Err("elevation");
+            }
+            Ok(elevation)
+        })();
+        let elevation = match checked {
+            Ok(elevation) => elevation,
+            Err(value) => {
+                cx.report(unsupported(EDIT, KIND).with("value", value));
+                return Ok(false);
+            }
+        };
+        let Some(begun) = self.begin((grid.storey, SPATIAL), grid.global_id, EDIT, KIND, cx)?
+        else {
+            return Ok(false);
+        };
+        let local = Transform([
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, elevation],
+        ]);
+        let placement = self.local_placement(begun.anchor, &local);
+        let mut sets = Vec::with_capacity(2);
+        for set in [&grid.u, &grid.v] {
+            let mut written = Vec::with_capacity(set.len());
+            for axis in set {
+                written.push(self.grid_axis(axis).map(Item::Ref));
+            }
+            sets.push(written.into_iter().collect::<Option<Vec<_>>>());
+        }
+        let (Some(placement), [Some(u), Some(v)]) = (placement, sets.as_slice()) else {
+            cx.report(unsupported(EDIT, KIND).with("value", "geometry"));
+            return Ok(false);
+        };
+        // 8 UAxes・9 VAxes・10 WAxes。IFC4 と IFC4X3 は 11 PredefinedType が続く
+        let arity = if version == Version::Ifc2x3 { 10 } else { 11 };
+        let extra = vec![(8, Item::List(u.clone())), (9, Item::List(v.clone()))];
+        let id = self.element_of(
+            (KIND, arity),
+            &begun,
+            grid.name.as_deref(),
+            (placement, None),
+            extra,
+        );
+        self.join(CONTAINED, begun.anchor, id, begun.history);
+        self.handles.push(id);
+        Ok(true)
+    }
+
+    /// 2 点の折れ線の `IfcGridAxis`（1 AxisTag・2 AxisCurve・3 SameSense）
+    fn grid_axis(&mut self, axis: &NewGridAxis) -> Option<u64> {
+        let start = self.coordinates(b"IFCCARTESIANPOINT", &axis.start)?;
+        let end = self.coordinates(b"IFCCARTESIANPOINT", &axis.end)?;
+        let curve = self.add(Stmt {
+            name: b"IFCPOLYLINE".to_vec(),
+            args: vec![Item::List(vec![Item::Ref(start), Item::Ref(end)])],
+        });
+        Some(self.add(Stmt {
+            name: b"IFCGRIDAXIS".to_vec(),
+            args: vec![text(&axis.tag), Item::Ref(curve), raw(b".T.")],
+        }))
     }
 
     /// 5 Relating・6 Related の 1 対 1 の関係を足す

@@ -3,13 +3,13 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, Id, Local, MaterialKind, Opening, ParentKind, SpatialKind,
-    Transform,
+    Building, ElementRef, GlobalId, GridSet, Id, Local, MaterialKind, Opening, ParentKind,
+    SpatialKind, Transform,
 };
 use zumen_ifc::{
-    Edit, FillingKind, Ifc, IfcFile, IfcLive, NewBeam, NewColumn, NewElement, NewFilling, NewLayer,
-    NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall, RootAttribute, SpaceKind,
-    Target, apply,
+    Edit, FillingKind, Ifc, IfcFile, IfcLive, NewBeam, NewColumn, NewElement, NewFilling, NewGrid,
+    NewGridAxis, NewLayer, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall,
+    RootAttribute, SpaceKind, Target, apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -1343,6 +1343,134 @@ fn removing_a_wall_removes_its_openings() {
         "IFCRELVOIDSELEMENT",
         "IFCEXTRUDEDAREASOLID",
     ] {
+        assert_eq!(count(&removed, entity), 0, "{entity}");
+    }
+}
+
+fn axis(tag: &str, start: [f64; 2], end: [f64; 2]) -> NewGridAxis {
+    NewGridAxis {
+        tag: tag.to_owned(),
+        start,
+        end,
+    }
+}
+
+/// 空間 `storey` の、X 方向に A・B、Y 方向に 1・2 の通り芯
+fn grid(n: u32, storey: Target) -> NewGrid {
+    NewGrid {
+        storey,
+        u: vec![
+            axis("A", [0.0, -1000.0], [0.0, 5000.0]),
+            axis("B", [6000.0, -1000.0], [6000.0, 5000.0]),
+        ],
+        v: vec![
+            axis("1", [-1000.0, 0.0], [7000.0, 0.0]),
+            axis("2", [-1000.0, 4000.0], [7000.0, 4000.0]),
+        ],
+        elevation: None,
+        name: Some(format!("G{n}")),
+        global_id: Some(global(n)),
+    }
+}
+
+fn grid_edits() -> Vec<Edit> {
+    let mut edits = wall_edits();
+    edits.truncate(2);
+    edits.push(Edit::Grid(grid(600, Target::Added(1))));
+    edits
+}
+
+#[test]
+fn adds_grids_from_tagged_axes_in_every_version() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let (result, codes) = run(src.as_bytes(), &grid_edits());
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = result.unwrap();
+        let building = lift(&bytes).unwrap();
+        let storey = element(&building, 101).unwrap();
+        let grid = element(&building, 600).unwrap();
+        let class = building.components.class.get(grid).unwrap();
+        assert_eq!(class.name, "IfcGrid", "{schema}");
+        let parent = building.components.parent.get(grid).unwrap();
+        let of = parent.of.as_ref().unwrap();
+        assert_eq!((of.target, of.kind), (storey, ParentKind::Contained));
+        assert_eq!(translation(&building, grid), Some([0.0, 0.0, 0.0]));
+        // 軸は U・V の順に、名前と同じ向きで読める
+        let file = read(&bytes).unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        let id = instance_of(&text, 600).unwrap();
+        let (axes, diag) = with(|cx| file.grid_axes(id, cx));
+        assert!(diag.is_empty(), "{schema}");
+        let axes: Vec<_> = axes
+            .unwrap()
+            .axes
+            .iter()
+            .map(|axis| {
+                (
+                    axis.definition.set,
+                    axis.definition.tag.clone(),
+                    axis.definition.same_sense,
+                )
+            })
+            .collect();
+        assert_eq!(
+            axes,
+            [
+                (GridSet::U, Some("A".to_owned()), true),
+                (GridSet::U, Some("B".to_owned()), true),
+                (GridSet::V, Some("1".to_owned()), true),
+                (GridSet::V, Some("2".to_owned()), true),
+            ],
+            "{schema}"
+        );
+        // 同じ入力と変更なら同じバイト列。文書エンジンでも同じ
+        assert_eq!(run(src.as_bytes(), &grid_edits()).0.unwrap(), bytes);
+        let (live, _) = with(|cx| IfcLive::open(src.as_bytes(), cx));
+        let mut live = live.unwrap();
+        assert_eq!(
+            apply_like_batch(&mut live, &grid_edits()),
+            Some(bytes),
+            "{schema}"
+        );
+    }
+}
+
+#[test]
+fn refuses_grids_it_cannot_write_and_removes_grids_with_their_axes() {
+    let src = sample("IFC4", true);
+    let site = Target::Instance(10);
+    let grid_with = |edit: &dyn Fn(&mut NewGrid)| {
+        let mut new = grid(600, site);
+        edit(&mut new);
+        Edit::Grid(new)
+    };
+    let cases = [
+        grid_with(&|g| g.v.clear()),
+        grid_with(&|g| g.u[1].tag = "1".to_owned()),
+        grid_with(&|g| g.u[0].end = g.u[0].start),
+        grid_with(&|g| g.v[0].start = [f64::NAN, 0.0]),
+        grid_with(&|g| g.elevation = Some(f64::INFINITY)),
+        grid_with(&|g| g.storey = Target::Instance(20)),
+    ];
+    for case in cases {
+        let (result, codes) = run(src.as_bytes(), std::slice::from_ref(&case));
+        assert!(matches!(result, Err(Error::Invalid)), "{case:?}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{case:?}");
+    }
+    let (result, codes) = run(src.as_bytes(), &[Edit::Grid(grid(600, site))]);
+    assert!(codes.is_empty(), "{codes:?}");
+    let added = String::from_utf8(result.unwrap()).unwrap();
+    let id = instance_of(&added, 600).unwrap();
+    let (result, codes) = run(
+        added.as_bytes(),
+        &[Edit::Remove {
+            element: Target::Instance(id),
+        }],
+    );
+    assert!(codes.is_empty(), "{codes:?}");
+    let removed = String::from_utf8(result.unwrap()).unwrap();
+    for entity in ["IFCGRID", "IFCGRIDAXIS", "IFCPOLYLINE"] {
         assert_eq!(count(&removed, entity), 0, "{entity}");
     }
 }
