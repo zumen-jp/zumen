@@ -7,10 +7,10 @@
 #[path = "support/drawing.rs"]
 mod support;
 use support::{building, cut, grid, profile};
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Value, codes};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_building::{Building, SpatialKind};
 use zumen_crs::ProjectPoint;
-use zumen_drawing::{Drawing2D, Length, PatternBasis, Shape, Target};
+use zumen_drawing::{Boundary, Drawing2D, Length, PatternBasis, Shape, Target};
 use zumen_ifc::Ifc;
 use zumen_profile::building_drawing::{Drawing, DrawingProfile};
 use zumen_sdk::{Codec, Lift};
@@ -212,7 +212,7 @@ fn view_scale_keeps_lines_ids_and_decoration_records() {
 }
 
 #[test]
-fn unwritable_hatches_report_their_building_element() {
+fn hatches_of_building_elements_write_to_dxf() {
     let b = building();
     let drawing = scaled(&cut(&profile(), &b));
     let hatches: Vec<_> = drawing
@@ -221,23 +221,6 @@ fn unwritable_hatches_report_their_building_element() {
         .filter(|d| d.kind == "hatch")
         .collect();
     assert!(!hatches.is_empty());
-    let (lowered, diagnostics) = lower(&drawing);
-    let dropped: Vec<_> = diagnostics
-        .iter()
-        .filter(|d| d.code() == codes::CONVERT_ELEMENT_UNSUPPORTED)
-        .collect();
-    // DXF の書き手はハッチングを足せない（docs/formats/dxf.md）。種類・件数・元の要素を診断する。
-    let [d] = dropped.as_slice() else {
-        panic!("{}", dropped.len())
-    };
-    assert!(
-        d.params()
-            .iter()
-            .any(|(k, v)| *k == "kind" && *v == Value::Key("hatch"))
-    );
-    let places: Vec<_> = d.places().iter().filter_map(|p| p.id()).collect();
-    let expected: Vec<_> = hatches.iter().map(|h| h.id.as_str()).collect();
-    assert_eq!(places, expected);
     for hatch in &hatches {
         let element = b.id(hatch.element).unwrap().to_string();
         assert!(
@@ -246,14 +229,59 @@ fn unwritable_hatches_report_their_building_element() {
                 .starts_with(&format!("building/{element}/profile/hatch/"))
         );
     }
-    // 書けるものは書く。
-    let total = drawing
-        .output
-        .drawing
-        .spaces
-        .first()
-        .unwrap()
+    let (lowered, diagnostics) = lower(&drawing);
+    // 書き手はハッチングを境界と模様の値のまま足す（#684）。落とす要素はない。
+    assert!(
+        diagnostics
+            .iter()
+            .all(|d| d.code() != codes::CONVERT_ELEMENT_UNSUPPORTED)
+    );
+    let elements = &drawing.output.drawing.spaces.first().unwrap().elements;
+    assert_eq!(lowered.elements, elements.len() as u64);
+    let written: Vec<_> = elements
+        .iter()
+        .filter_map(|element| match &element.shape {
+            Shape::Hatch(hatch) => Some(hatch),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(written.len(), hatches.len());
+    let back = reread(&lowered.bytes);
+    let read: Vec<_> = back.spaces[0]
         .elements
-        .len();
-    assert_eq!(lowered.elements, (total - hatches.len()) as u64);
+        .iter()
+        .filter_map(|element| match &element.shape {
+            Shape::Hatch(hatch) => Some(hatch),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(read.len(), written.len());
+    for (read, written) in read.iter().zip(&written) {
+        assert_eq!(read.fill, written.fill);
+        assert_eq!(read.islands, written.islands);
+        assert_eq!(read.loops.len(), written.loops.len());
+        for (read, written) in read.loops.iter().zip(&written.loops) {
+            // 境界を探した印は書かない（明細の reasons の hatch_derived_loop）。形は同じ。
+            assert!(!read.derived);
+            let (
+                Boundary::Polyline {
+                    vertices: read,
+                    closed: true,
+                },
+                Boundary::Polyline {
+                    vertices: written,
+                    closed: true,
+                },
+            ) = (&read.boundary, &written.boundary)
+            else {
+                panic!("{:?}", read.boundary)
+            };
+            assert_eq!(read.len(), written.len());
+            for (read, written) in read.iter().zip(written) {
+                assert!(near(read.point.x, written.point.x));
+                assert!(near(read.point.y, written.point.y));
+                assert!(near(read.bulge, written.bulge));
+            }
+        }
+    }
 }
