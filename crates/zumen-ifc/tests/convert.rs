@@ -2,7 +2,9 @@
 #![cfg(feature = "building")]
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
-use zumen_building::{Building, ElementRef, GlobalId, Id, Local, ParentKind, Transform};
+use zumen_building::{
+    Building, ElementRef, GlobalId, Id, Literal, Local, ParentKind, Transform, TypedValue,
+};
 use zumen_ifc::{
     ConvertOptions, Converted, Edit, Header, Ifc, LengthUnit, NewElement, NewPlacement, NewSpace,
     OwnerHistory, SpaceKind, Target, Template, Version, apply, convert, create,
@@ -341,7 +343,7 @@ fn writes_the_same_bytes_and_keeps_the_project_global_id() {
     assert_ne!(Some(text.into_bytes()), c.map(|c| c.bytes));
 }
 
-/// プロジェクト・敷地・建物・階・部屋・壁（説明・型・プロパティ）・家具の IFC4
+/// プロジェクト・敷地・建物・階・部屋・壁（説明・型・プロパティ）・家具の IFC4。プロジェクトにもプロパティを付ける
 fn rich() -> String {
     let g = |n: u32| global(n).to_string();
     let lines = [
@@ -402,6 +404,13 @@ fn rich() -> String {
             "#72=IFCRELCONTAINEDINSPATIALSTRUCTURE('{}',$,$,$,(#60,#70),#40);",
             g(72)
         ),
+        "#80=IFCPROPERTYSINGLEVALUE('Phase',$,IFCLABEL('基本設計'),$);".to_owned(),
+        "#81=IFCPROPERTYENUMERATEDVALUE('Status',$,(IFCLABEL('NEW')),$);".to_owned(),
+        format!(
+            "#82=IFCPROPERTYSET('{}',$,'Zumen_Project',$,(#80,#81));",
+            g(82)
+        ),
+        format!("#83=IFCRELDEFINESBYPROPERTIES('{}',$,$,$,(#1),#82);", g(83)),
     ];
     format!(
         "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('a.ifc','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;\n",
@@ -441,9 +450,14 @@ fn counts_the_elements_and_values_it_cannot_write() {
         );
         let (fidelity, reasons) = detail("IfcWall").unwrap();
         assert_eq!(fidelity, ConversionFidelity::Approximated);
-        for reason in ["identity", "properties", "type"] {
+        for reason in ["identity", "type"] {
             assert!(reasons.iter().any(|r| r == reason), "{to:?}: {reasons:?}");
         }
+        // 単一の値のプロパティは書く
+        assert!(
+            !reasons.iter().any(|r| r == "properties"),
+            "{to:?}: {reasons:?}"
+        );
         // IFC2X3 の壁は定義された種類を持たない
         assert_eq!(
             reasons.iter().any(|r| r == "predefined"),
@@ -452,7 +466,11 @@ fn counts_the_elements_and_values_it_cannot_write() {
         );
         assert_eq!(
             detail("IfcProject"),
-            Some((ConversionFidelity::Approximated, vec!["units".to_owned()])),
+            // 列挙のプロパティは書かない
+            Some((
+                ConversionFidelity::Approximated,
+                vec!["properties".to_owned(), "units".to_owned()]
+            )),
             "{to:?}"
         );
         // 落とした要素ごとに 1 件、近似は落とした値ごとに 1 件
@@ -488,6 +506,39 @@ fn counts_the_elements_and_values_it_cannot_write() {
             (parent.kind, parent.target),
             (ParentKind::Contained, storey)
         );
+        let sets = &target.components.properties.get(wall).unwrap().sets;
+        let common: Vec<_> = sets
+            .iter()
+            .filter(|set| set.name == "Pset_WallCommon")
+            .flat_map(|set| &set.properties)
+            .map(|p| (p.name.as_str(), p.value.clone()))
+            .collect();
+        assert_eq!(
+            common,
+            [(
+                "IsExternal",
+                Some(TypedValue {
+                    type_name: Some("IfcBoolean".to_owned()),
+                    value: Literal::Boolean(true),
+                })
+            )],
+            "{to:?}"
+        );
+        let project = target.document.project.unwrap();
+        let names: Vec<_> = target
+            .components
+            .properties
+            .get(project)
+            .unwrap()
+            .sets
+            .iter()
+            .flat_map(|set| {
+                set.properties
+                    .iter()
+                    .map(|p| (set.name.as_str(), p.name.as_str()))
+            })
+            .collect();
+        assert_eq!(names, [("Zumen_Project", "Phase")], "{to:?}");
         assert!(target.find(Id::Global(global(50))).is_none());
         assert!(target.find(Id::Global(global(70))).is_none());
     }

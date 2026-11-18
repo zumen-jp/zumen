@@ -16,15 +16,19 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use zumen_base::{Diagnostic, Kind, codes};
-use zumen_building::{Building, ElementRef, GlobalId, Id, Local, Opening, ParentKind, SpatialKind};
+use zumen_building::{
+    Building, ElementRef, GlobalId, Id, Literal, Local, Opening, ParentKind, Property, SpatialKind,
+};
 use zumen_sdk::conversion::{ConversionFidelity, ConversionReport, Report, note};
 use zumen_sdk::{Codec, Cx, Error};
 
 use super::author::{enumeration, predefined_at, rigid};
 use super::create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
-use super::{Edit, NewElement, NewPlacement, NewSpace, SpaceKind, Target, apply};
-use crate::building::Version;
-use crate::{Ifc, stopped};
+use super::{
+    Edit, NewElement, NewLiteral, NewPlacement, NewSpace, NewValue, SpaceKind, Target, apply,
+};
+use crate::building::{Version, arg};
+use crate::{Ifc, IfcFile, Value, stopped};
 
 /// 変換の設定
 #[derive(Clone, Debug, PartialEq)]
@@ -110,10 +114,58 @@ pub fn convert(
     }
     plan.openings();
     let edits = std::mem::take(&mut plan.edits);
-    let applied = apply(&file, &edits, &namespace, cx)?;
+    let mut bytes = apply(&file, &edits, &namespace, cx)?.bytes;
+    // プロパティの変更は、文書にあるインスタンスの番号で指すので、書いた後に GlobalId で引いて当てる
+    let wanted = plan.properties();
+    if !wanted.is_empty() {
+        let file = Ifc::read(&bytes, cx)?;
+        let instances = instances(&file, cx)?;
+        let edits = plan.property_edits(&wanted, &instances);
+        if !edits.is_empty() {
+            let mut seed = namespace.clone();
+            seed.extend_from_slice(b"\0properties");
+            bytes = apply(&file, &edits, &seed, cx)?.bytes;
+        }
+    }
     Ok(Converted {
-        bytes: applied.bytes,
+        bytes,
         report: plan.finish(cx)?,
+    })
+}
+
+/// 要素（`IfcRoot`）の GlobalId から、インスタンスの番号
+fn instances(file: &IfcFile, cx: &mut Cx) -> Result<BTreeMap<String, u64>, Error> {
+    let mut found = BTreeMap::new();
+    for id in file.ids() {
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        let Some(Value::Text { raw, .. }) = file.instance(id).and_then(|r| arg(r, 1)) else {
+            continue;
+        };
+        let text = file.bytes(raw.clone());
+        if text.len() == 22
+            && let Ok(text) = core::str::from_utf8(text)
+        {
+            found.entry(text.to_owned()).or_insert(id);
+        }
+    }
+    Ok(found)
+}
+
+/// 書けるプロパティの値。値の型の名前があり、単一の値のもの
+fn property_value(property: &Property) -> Option<NewValue> {
+    let value = property.value.as_ref()?;
+    let literal = match &value.value {
+        Literal::Real(real) => NewLiteral::Real(*real),
+        Literal::Integer(integer) => NewLiteral::Integer(*integer),
+        Literal::Text(text) => NewLiteral::Text(text.clone()),
+        Literal::Boolean(boolean) => NewLiteral::Boolean(*boolean),
+        Literal::Logical(logical) => NewLiteral::Logical(*logical),
+        Literal::Enumeration(_) | Literal::Element(_) | Literal::List(_) => return None,
+    };
+    Some(NewValue {
+        type_name: value.type_name.clone()?,
+        literal,
     })
 }
 
@@ -522,12 +574,11 @@ impl Plan<'_, '_> {
         {
             dropped.push("identity");
         }
-        let present: [(&'static str, bool); 12] = [
+        let present: [(&'static str, bool); 11] = [
             ("classification", c.classification.get(element).is_some()),
             ("representation", c.representation.get(element).is_some()),
             ("style", c.style.get(element).is_some()),
             ("type", c.r#type.get(element).is_some()),
-            ("properties", c.properties.get(element).is_some()),
             (
                 "property_details",
                 c.property_details.get(element).is_some(),
@@ -547,6 +598,70 @@ impl Plan<'_, '_> {
             dropped.push("referenced_in");
         }
         dropped
+    }
+
+    /// プロパティのセットを持つ、書いた要素と GlobalId
+    fn properties(&self) -> Vec<(ElementRef, GlobalId)> {
+        let project = self.building.document.project;
+        self.notes
+            .keys()
+            .filter(|&&e| {
+                self.building
+                    .components
+                    .properties
+                    .get(e)
+                    .is_some_and(|p| !p.sets.is_empty())
+            })
+            .filter_map(|&e| {
+                let global = if Some(e) == project {
+                    match self.building.id(e)? {
+                        Id::Global(global) => global,
+                        Id::Instance(_) => derive_global_id(self.namespace, b"project"),
+                    }
+                } else {
+                    self.global_id(e)?
+                };
+                Some((e, global))
+            })
+            .collect()
+    }
+
+    /// 書いた要素のプロパティを、書いた文書のインスタンスへ当てる変更。書けない値は落とした値として数える
+    fn property_edits(
+        &mut self,
+        wanted: &[(ElementRef, GlobalId)],
+        instances: &BTreeMap<String, u64>,
+    ) -> Vec<Edit> {
+        let building = self.building;
+        let mut edits = Vec::new();
+        for &(element, global) in wanted {
+            let Some(sets) = building.components.properties.get(element) else {
+                continue;
+            };
+            let Some(&instance) = instances.get(&global.to_string()) else {
+                self.lost(element, "properties");
+                continue;
+            };
+            let mut lost = false;
+            for set in &sets.sets {
+                lost |= set.properties.is_empty();
+                for property in &set.properties {
+                    match property_value(property) {
+                        Some(value) => edits.push(Edit::Property {
+                            element: instance,
+                            set: set.name.clone(),
+                            name: property.name.clone(),
+                            value,
+                        }),
+                        None => lost = true,
+                    }
+                }
+            }
+            if lost {
+                self.lost(element, "properties");
+            }
+        }
+        edits
     }
 
     /// 開口と建具の関係。両方を書いたものだけを結ぶ
