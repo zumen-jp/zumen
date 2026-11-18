@@ -2,6 +2,7 @@
 
 use zumen_base::{Cx, Kind, Stop};
 use zumen_drawing::Layer;
+use zumen_live::RowId;
 use zumen_sdk::Error;
 
 use super::AcadLive;
@@ -41,6 +42,62 @@ impl AcadLive {
             .zip(layers)
             .collect())
     }
+}
+
+impl AcadLive {
+    /// 生きた行を、先に描くものから並べる。図面モデルのモデル空間の `order` と同じ規則で、SORTENTSTABLE の
+    /// キー（なければハンドル）の昇順、同じキーは行の順。ハンドルのない行があれば、表を使わず行の順にする。
+    /// 行の走査・並べ替えの作業と、並べる組の領域を、作る前に共有の予算で数える
+    pub fn display_order(&self, cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        let table = &self.state.table;
+        let total = table.len() as u64;
+        cx.check(Kind::Work, total)
+            .map_err(|stop| stopped(cx, stop))?;
+        let mut alive = 0_u64;
+        let mut handles = true;
+        for index in 0..table.len() {
+            if let Some(row) = RowId::from_index(index).and_then(|id| table.row(id)) {
+                alive += 1;
+                handles &= row.raw_handle().is_some();
+            }
+        }
+        let sort = self
+            .state
+            .model_sort_keys
+            .as_ref()
+            .map(|(_, keys)| keys)
+            .filter(|_| handles);
+        // 並べる組（キー 8 バイトと行 4 バイト、詰めて 16 バイト）と、比べる回数の上限 n·⌈log2 n⌉
+        let compares = sort.map_or(0, |_| {
+            alive.saturating_mul(u64::from(u64::BITS - alive.leading_zeros()))
+        });
+        (|| -> Result<(), Stop> {
+            cx.check(Kind::Elements, alive)?;
+            cx.check(Kind::DecodedBytes, alive.saturating_mul(16))?;
+            cx.check(Kind::Work, compares)
+        })()
+        .map_err(|stop| stopped(cx, stop))?;
+        let mut keyed = Vec::with_capacity(usize::try_from(alive).unwrap_or(0));
+        for index in 0..table.len() {
+            let Some(id) = RowId::from_index(index) else {
+                break;
+            };
+            if let Some(row) = table.row(id) {
+                let handle = row.raw_handle().unwrap_or_default();
+                let key = sort.map_or(0, |keys| keys.get(&handle).copied().unwrap_or(handle));
+                keyed.push((key, id));
+            }
+        }
+        if sort.is_some() {
+            keyed.sort_by_key(|&(key, _)| key);
+        }
+        Ok(keyed.into_iter().map(|(_, id)| id).collect())
+    }
+}
+
+fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Error {
+    cx.report(stop.to_diagnostic());
+    Error::Stopped(stop)
 }
 
 #[cfg(test)]

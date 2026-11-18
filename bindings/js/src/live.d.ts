@@ -60,13 +60,15 @@ export interface LiveReply {
   diagnosticCount: number;
   used: Record<LiveBudgetKind, bigint>;
   stop: { kind: LiveBudgetKind; limit: bigint; requested: bigint } | { kind: "cancelled" | "timedOut" } | null;
-  /** 表示・保存・対象・診断・選択・画層の表の元のバイト列。次の要求後も有効 */
+  /** 表示・保存・対象・診断・選択・画層の表・描く順の元のバイト列。次の要求後も有効 */
   data: Uint8Array;
   display: LiveDisplay | null;
   target: { id: string; hash: string } | null;
   selection: LiveSelection | null;
   /** 図面モデルの画層と同じ順。全件の検証後に公開する */
   layers: readonly LiveLayer[] | null;
+  /** 先に描く行から並べた、表示に出る生きた行。重複はない */
+  order: LiveSelection | null;
 }
 export interface LiveTransform {
   /** 選択した行が属する版。現在の版と異なれば stale */
@@ -87,6 +89,8 @@ export declare class LiveProcess {
   display(options?: LiveDisplayOptions): Promise<LiveReply>;
   target(row: number, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   layers(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
+  /** 図面モデルの描く順（DXF・DWG は SORTENTSTABLE、JWW は画層グループ、SXF は用紙の並び）に合わせた行 */
+  order(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** モデル空間の [minX,minY,maxX,maxY] と囲む箱が交差する行。NaN・逆転は空、無限大は全域指定 */
   select(rect: readonly number[] | Float64Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   transform(change: LiveTransform, options?: LiveDisplayOptions): Promise<LiveReply>;

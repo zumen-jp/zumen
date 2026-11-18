@@ -195,6 +195,9 @@ export class LiveProcess {
     return this.#request(7, 0, u64(revision, "revision"), options, 4, (out) => out.writeUInt32LE(row));
   }
 
+  /** 表示に出る生きた行を、先に描くものから並べて、指定した版で取得する */
+  async order(revision, options = {}) { return this.#request(12, 0, u64(revision, "revision"), options, 0); }
+
   /** 表示のスタイルの画層の値と、その画層の名前・状態・色を、指定した版で取得する */
   async layers(revision, options = {}) { return this.#request(11, 0, u64(revision, "revision"), options, 0); }
 

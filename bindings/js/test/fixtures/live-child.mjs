@@ -64,6 +64,19 @@ function handle(request, body) {
     send(out);
     return;
   }
+  if (request.command === 12) {
+    // 描く順は昇順に限らない
+    const data = Buffer.alloc(16);
+    data.writeUInt32LE(3, 0);
+    for (const [i, row] of [5, 1, 9].entries()) data.writeUInt32LE(row, 4 + i * 4);
+    if (mode === "order-duplicate") data.writeUInt32LE(5, 12);
+    if (mode === "order-virtual") data.writeUInt32LE(0x80000000, 8);
+    const out = reply(request, 0, 7, mode === "order-truncated" ? data.subarray(0, 14) : data);
+    out.writeBigUInt64LE(body.readBigUInt64LE(56), 32);
+    out.writeBigUInt64LE(mode === "order-result" ? 2n : 3n, 48);
+    send(out);
+    return;
+  }
   if (request.command === 11) {
     // 画層 2 件: 状態と RGB を持つ "0"、色番号だけの "壁"（UTF-8 3 バイト、1 バイト埋める）
     const name = Buffer.from("壁");

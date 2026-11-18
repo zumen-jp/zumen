@@ -7,7 +7,7 @@ use zumen_drawing::{Affine, Layer, Placed, Seen};
 use zumen_live::RowId;
 use zumen_sdk::Error;
 
-use super::{SxfContainer, SxfLive, hash_placed};
+use super::{BaseSheetSlot, SxfContainer, SxfLive, hash_placed};
 
 impl SxfLive {
     /// 表示の座標の矩形に掛かる生きた行を `out` の後ろに足す。[`Self::select_sheet`] と同じ行を返す。
@@ -104,6 +104,94 @@ impl SxfLive {
             .map(|layer| (layer.id.0, layer))
             .collect())
     }
+}
+
+impl SxfLive {
+    /// 表示に出る生きた行を、先に描くものから並べる。図面モデルの用紙の `order` をたどり、用紙の要素はその位置に、
+    /// ビューは置く空間の行を空間の順に置く。2 つ以上のビューが置く空間の行は、最初のビューの位置に 1 回だけ並べる。
+    /// ビューのない空間と記号の定義の行は、表示に出ないので返さない。走査の作業と、並べる行の領域を、作る前に
+    /// 共有の予算で数える
+    pub fn display_order(&self, cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        let rows: u64 = self.space_rows.iter().map(|rows| rows.len() as u64).sum();
+        let work = (self.base_sheet_slots.len() as u64)
+            .saturating_add(self.table.len() as u64)
+            .saturating_add(rows);
+        cx.check(Kind::Work, work)
+            .map_err(|stop| stopped(cx, stop))?;
+        let mut count = 0_u64;
+        self.walk_order(|_| count += 1);
+        (|| -> Result<(), Stop> {
+            cx.check(Kind::Elements, count)?;
+            cx.check(Kind::DecodedBytes, count.saturating_mul(4))
+        })()
+        .map_err(|stop| stopped(cx, stop))?;
+        let mut out = Vec::with_capacity(usize::try_from(count).unwrap_or(0));
+        self.walk_order(|row| out.push(row));
+        Ok(out)
+    }
+
+    /// 用紙の並び（`drawing` の `sheet_order` と同じ）で、表示に出る行を `visit` に渡す
+    fn walk_order(&self, mut visit: impl FnMut(RowId)) {
+        let insertion = self
+            .diagnostics
+            .sheet_insertion()
+            .min(self.base_sheet_slots.len());
+        let (before, after) = self.base_sheet_slots.split_at(insertion);
+        let born = (self.base_row_count..self.table.len() as u32)
+            .map(|row| BaseSheetSlot::Row(RowId(row)));
+        let mut placed = vec![false; self.space_templates.len()];
+        for slot in before
+            .iter()
+            .copied()
+            .chain(born)
+            .chain(after.iter().copied())
+        {
+            match slot {
+                BaseSheetSlot::View(view) => {
+                    let Some(space) = self.sheet_template.views.get(view).map(|view| view.space)
+                    else {
+                        continue;
+                    };
+                    let Some(index) = self
+                        .space_templates
+                        .iter()
+                        .position(|found| found.id == space)
+                    else {
+                        continue;
+                    };
+                    if placed.get(index).copied().unwrap_or(true) {
+                        continue;
+                    }
+                    if let Some(done) = placed.get_mut(index) {
+                        *done = true;
+                    }
+                    for &row in self.space_rows.get(index).into_iter().flatten() {
+                        if self
+                            .table
+                            .row(row)
+                            .is_some_and(|found| matches!(found.placed, Placed::Model(_)))
+                        {
+                            visit(row);
+                        }
+                    }
+                }
+                BaseSheetSlot::Row(row) => {
+                    if self
+                        .table
+                        .row(row)
+                        .is_some_and(|found| matches!(found.placed, Placed::Paper(_)))
+                    {
+                        visit(row);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Error {
+    cx.report(stop.to_diagnostic());
+    Error::Stopped(stop)
 }
 
 #[cfg(test)]

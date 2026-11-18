@@ -53,6 +53,8 @@ test("実プロセスの 64 行差分・古い版・保存・undo / redo", { ski
     assert.equal(layers.result, 1n);
     assert.equal(layers.layers[0].name, "0");
     assert.equal((await live.layers(opened.revision + 1n)).status, "stale");
+    const order = await live.order(opened.revision);
+    assert.deepEqual([...order.order.rows()], Array.from({ length: 130 }, (_, i) => i));
     const changed = await live.transform({ revision: opened.revision, rows: [65], matrix: move });
     assert.equal(changed.revision, 1n);
     assert.equal(changed.result, 1n);
@@ -206,6 +208,31 @@ for (const mode of ["layers-duplicate", "layers-flags", "layers-state", "layers-
     const { live } = await fake(mode);
     try {
       await assert.rejects(live.layers(0n), transport("protocol"));
+      assert(live.broken);
+    } finally { await live.close(); }
+  });
+}
+
+test("描く順を検査してから借りて公開する", async () => {
+  const { live } = await fake("order");
+  try {
+    const reply = await live.order(4n);
+    assert.equal(reply.revision, 4n);
+    assert.equal(reply.order.length, 3);
+    assert.deepEqual([...reply.order.rows()], [5, 1, 9]);
+    assert(Object.isFrozen(reply.order));
+    assert.equal((await live.save()).order, null);
+    assert.deepEqual([...reply.order.rows()], [5, 1, 9]);
+    await assert.rejects(live.order(-1), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+for (const mode of ["order-duplicate", "order-virtual", "order-truncated", "order-result"]) {
+  test(`不正な描く順を公開せず接続を終了する: ${mode}`, async () => {
+    const { live } = await fake(mode);
+    try {
+      await assert.rejects(live.order(0n), transport("protocol"));
       assert(live.broken);
     } finally { await live.close(); }
   });

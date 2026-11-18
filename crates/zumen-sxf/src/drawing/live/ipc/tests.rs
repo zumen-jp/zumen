@@ -182,3 +182,87 @@ fn display_layers_match_the_drawing_and_cover_the_display() {
         assert_eq!(diag.iter().count(), 1, "{kind:?}");
     }
 }
+
+/// 図面モデルの用紙の `order` で、表示に出る要素の ID を並べる。ビューは置く空間の要素を、最初の 1 回だけ並べる
+fn drawing_order(drawing: &Drawing2D) -> Vec<String> {
+    let mut ids = BTreeMap::new();
+    id::each_element(drawing, |at, id, _| -> Result<(), ()> {
+        ids.insert(format!("{at:?}"), id);
+        Ok(())
+    })
+    .unwrap();
+    let sheet = drawing.sheets.first().unwrap();
+    let mut placed = BTreeSet::new();
+    let mut out = Vec::new();
+    for item in &sheet.order {
+        match item {
+            zumen_drawing::SheetItem::Element(index) => {
+                let at = zumen_drawing::Position::Paper {
+                    sheet: sheet.id,
+                    index: *index,
+                };
+                out.push(ids[&format!("{at:?}")].clone());
+            }
+            zumen_drawing::SheetItem::View(view) => {
+                let id = sheet.views[*view].space;
+                if !placed.insert(id) {
+                    continue;
+                }
+                let space = drawing.spaces.iter().find(|space| space.id == id).unwrap();
+                for &index in &space.order {
+                    let at = zumen_drawing::Position::Model { space: id, index };
+                    out.push(ids[&format!("{at:?}")].clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn display_order_matches_the_drawing_order() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let mut live = SxfLive::open(SAMPLE, cx).unwrap();
+    for round in 0..2 {
+        let drawing: Drawing2D = live.drawing(cx).unwrap();
+        let order = live.display_order(cx).unwrap();
+        let ids: Vec<String> = order
+            .iter()
+            .map(|&row| live.seen_of_row(row, cx).unwrap().unwrap().id)
+            .collect();
+        let expected = drawing_order(&drawing);
+        assert!(!expected.is_empty());
+        assert_eq!(ids, expected, "round {round}");
+        // 2 回目は、消せる最初の要素を消した後（断られた削除は文書を変えない）
+        let removed = order.iter().any(|&row| {
+            let target = live.seen_of_row(row, cx).unwrap().unwrap();
+            let changes = Changes {
+                document: None,
+                edits: vec![Edit::Remove { target }],
+            };
+            live.apply(&changes, cx).is_ok()
+        });
+        assert!(removed);
+    }
+}
+
+#[test]
+fn a_stopped_order_reports_the_stop() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let live = SxfLive::open(SAMPLE, &mut Cx::new(&mut budget, &mut diag, &cancel)).unwrap();
+    for kind in [Kind::Work, Kind::Elements, Kind::DecodedBytes] {
+        let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(0)));
+        let mut diag = Diagnostics::new();
+        let result = live.display_order(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(
+            matches!(result, Err(zumen_sdk::Error::Stopped(_))),
+            "{kind:?}"
+        );
+        assert_eq!(diag.iter().count(), 1, "{kind:?}");
+    }
+}

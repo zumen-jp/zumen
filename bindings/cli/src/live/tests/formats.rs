@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 
 use zumen_drawing::Affine;
+use zumen_live::RowId;
 
 use super::super::document::conjugate;
 use super::super::host::Host;
@@ -256,6 +257,56 @@ fn layers_carry_the_display_layer_table() {
         }
         // 前提の版が違えば、表を返さない
         let stale = call(&mut host, Command::Layers, 3, 9, wire::NONE, 0, &[]);
+        assert_eq!(stale.status, Status::Stale);
+        assert!(stale.data.is_empty());
+    }
+}
+
+/// 描く順は、文書エンジンの `display_order` の行を、件数と行番号で運ぶ
+#[test]
+fn order_carries_the_draw_order() {
+    let mut budget = zumen_base::Budget::default();
+    let mut diag = zumen_base::Diagnostics::new();
+    let cancel = zumen_base::CancelToken::new();
+    let cx = &mut zumen_base::Cx::new(&mut budget, &mut diag, &cancel);
+    let engines: [(&[u8], Vec<RowId>); 3] = [
+        (
+            super::DXF,
+            zumen_acad::AcadLive::open(super::DXF, cx)
+                .unwrap()
+                .display_order(cx)
+                .unwrap(),
+        ),
+        (
+            JWW,
+            zumen_jww::JwwLive::open(JWW, cx)
+                .unwrap()
+                .display_order(cx)
+                .unwrap(),
+        ),
+        (
+            SFC,
+            zumen_sxf::SxfLive::open(SFC, cx)
+                .unwrap()
+                .display_order(cx)
+                .unwrap(),
+        ),
+    ];
+    for (bytes, expected) in engines {
+        let mut host = Host::default();
+        open_bytes(&mut host, bytes);
+        let reply = call(&mut host, Command::Order, 2, 0, wire::NONE, 0, &[]);
+        assert_eq!(reply.status, Status::Ok);
+        assert_eq!(reply.data_kind, 7);
+        let mut words = Words(&reply.data);
+        let count = words.u32().unwrap();
+        assert_eq!(u64::from(count), reply.result);
+        let rows: Vec<u32> = (0..count).map(|_| words.u32().unwrap()).collect();
+        assert!(words.0.is_empty());
+        assert!(!rows.is_empty());
+        assert_eq!(rows, expected.iter().map(|row| row.0).collect::<Vec<_>>());
+        // 前提の版が違えば、順を返さない
+        let stale = call(&mut host, Command::Order, 3, 9, wire::NONE, 0, &[]);
         assert_eq!(stale.status, Status::Stale);
         assert!(stale.data.is_empty());
     }

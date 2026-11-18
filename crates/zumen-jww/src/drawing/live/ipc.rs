@@ -8,7 +8,7 @@ use zumen_live::RowId;
 use zumen_sdk::Error;
 
 use super::super::build_layers;
-use super::{DEFINITION_SPACES, JwwLive};
+use super::{BaseOutcome, DEFINITION_SPACES, JwwLive};
 
 impl JwwLive {
     /// 表示の座標（用紙の mm）の矩形に掛かる、生きた最上位の行を `out` の後ろに足す。記号の定義の中の行は返さない。
@@ -118,6 +118,53 @@ impl JwwLive {
             .map(|layer| (layer.id.0, layer))
             .collect())
     }
+}
+
+impl JwwLive {
+    /// 生きた最上位の行を、先に描くものから並べる。図面モデルと同じく、画層グループ（空間）の順に置いたビューの
+    /// 順で、同じグループの中はレコードの順（追加した行は一覧の末尾の前）。記号の定義の中の行は返さない。
+    /// レコードの走査・並べ替えの作業と、並べる組の領域を、作る前に共有の予算で数える
+    pub fn display_order(&self, cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        let records = self.base_records.len() as u64 + self.born_records.len() as u64;
+        cx.check(Kind::Work, records)
+            .map_err(|stop| stopped(cx, stop))?;
+        let top = self.top_end.min(self.base_records.len());
+        let base = |range: core::ops::Range<usize>| {
+            range.filter_map(|index| match self.base_records.get(index)?.outcome {
+                BaseOutcome::Element(row) if self.base_alive.get(index) => Some(row),
+                _ => None,
+            })
+        };
+        let born = (0..self.born_records.len()).filter_map(|index| {
+            self.born_alive
+                .get(index)
+                .then(|| self.born_records.get(index).map(|born| born.row_id))
+                .flatten()
+        });
+        let rows = base(0..top)
+            .chain(born)
+            .chain(base(top..self.base_records.len()))
+            .filter_map(|row| {
+                let found = self.table.row(row)?;
+                (found.space.0 < DEFINITION_SPACES).then_some((found.space.0, row))
+            });
+        let count = rows.clone().count() as u64;
+        let compares = count.saturating_mul(u64::from(u64::BITS - count.leading_zeros()));
+        (|| -> Result<(), Stop> {
+            cx.check(Kind::Elements, count)?;
+            cx.check(Kind::DecodedBytes, count.saturating_mul(8))?;
+            cx.check(Kind::Work, compares)
+        })()
+        .map_err(|stop| stopped(cx, stop))?;
+        let mut keyed: Vec<(u32, RowId)> = rows.collect();
+        keyed.sort_by_key(|&(space, _)| space);
+        Ok(keyed.into_iter().map(|(_, row)| row).collect())
+    }
+}
+
+fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Error {
+    cx.report(stop.to_diagnostic());
+    Error::Stopped(stop)
 }
 
 /// JWW の画層の数（16 グループ × 16 画層）

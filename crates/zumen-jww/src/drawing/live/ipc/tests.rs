@@ -177,3 +177,79 @@ fn display_layers_match_the_drawing_and_cover_the_display() {
         assert_eq!(diag.iter().count(), 1, "{kind:?}");
     }
 }
+
+/// 図面モデルの用紙の並び（ビューの順、その空間の `order`）で、最上位の要素の ID を並べる
+fn drawing_order(drawing: &Drawing2D) -> Vec<String> {
+    let mut out = Vec::new();
+    let sheet = drawing.sheets.first().unwrap();
+    for item in &sheet.order {
+        let zumen_drawing::SheetItem::View(view) = item else {
+            panic!("JWW の用紙に要素はない");
+        };
+        let id = sheet.views[*view].space;
+        let space = drawing.spaces.iter().find(|space| space.id == id).unwrap();
+        let place = id::space(space.id);
+        let mut namer = id::Namer::new(&place);
+        let ids: Vec<String> = space
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| namer.next(index, element))
+            .collect();
+        out.extend(space.order.iter().map(|&index| ids[index].clone()));
+    }
+    out
+}
+
+#[test]
+fn display_order_matches_the_drawing_order() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let mut live = JwwLive::open(SAMPLE, cx).unwrap();
+    let mut first = None;
+    for round in 0..2 {
+        let drawing: Drawing2D = live.drawing(cx).unwrap();
+        let order = live.display_order(cx).unwrap();
+        let ids: Vec<String> = order
+            .iter()
+            .map(|&row| live.seen_of_row(row, cx).unwrap().unwrap().id)
+            .collect();
+        assert_eq!(ids, drawing_order(&drawing), "round {round}");
+        // 2 回目は、1 回目の最初の行を動かした後
+        let row = *first.get_or_insert(order[0]);
+        let target = live.seen_of_row(row, cx).unwrap().unwrap();
+        live.apply(
+            &Changes {
+                document: None,
+                edits: vec![Edit::Transform {
+                    target,
+                    transform: Affine {
+                        m: [1.0, 0.0, 5.0, 0.0, 1.0, -3.0],
+                    },
+                }],
+            },
+            cx,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn a_stopped_order_reports_the_stop() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let live = JwwLive::open(SAMPLE, &mut Cx::new(&mut budget, &mut diag, &cancel)).unwrap();
+    for kind in [Kind::Work, Kind::Elements, Kind::DecodedBytes] {
+        let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(0)));
+        let mut diag = Diagnostics::new();
+        let result = live.display_order(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(
+            matches!(result, Err(zumen_sdk::Error::Stopped(_))),
+            "{kind:?}"
+        );
+        assert_eq!(diag.iter().count(), 1, "{kind:?}");
+    }
+}

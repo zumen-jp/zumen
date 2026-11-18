@@ -165,6 +165,14 @@ impl Engine {
         }
     }
 
+    fn order(&self, cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        match self {
+            Self::Acad(live) => live.display_order(cx),
+            Self::Jww(live) => live.display_order(cx),
+            Self::Sxf(live) => live.display_order(cx),
+        }
+    }
+
     fn select(&self, rect: [f64; 4], out: &mut Vec<RowId>, cx: &mut Cx<'_>) -> Result<(), Error> {
         match self {
             Self::Acad(live) => live.select_rect_with_cx(rect, out, cx),
@@ -357,5 +365,10 @@ impl Document {
     /// 表示のスタイルの画層の値と、その画層の組
     pub fn layers(&self, cx: &mut Cx<'_>) -> Result<Vec<(u32, Layer)>, Error> {
         self.live.layers(cx)
+    }
+
+    /// 表示に出る生きた行を、先に描くものから並べたもの
+    pub fn order(&self, cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        self.live.order(cx)
     }
 }
