@@ -1010,6 +1010,13 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
   - `crates/zumen-ifc/tests/author.rs` は、IFC2X3・IFC4・IFC4X3 の文書に、建物・2 つの階・通り芯と各階の壁・床・柱・梁・開口・扉か窓を変更だけで足す。直した壁と開口は、平断面の切断線と開口を引いた体積が付いてくることを、直す前と後で照らす。
   - 適合テストの `building_storeys` は、同じ 2 階建てを 1 つの `building_apply` で作り、建物モデルの要約・要素と `scene3d` の場面を、各環境の全バイトで照らす。
   - `examples/author_contract.rs` は、作った文書と直した文書の IFC のバイト列・建物モデルのハッシュ・各階の平断面・体積と、変更を当てるときの予算停止と中断を記録する。`tests/check_author.py` で、各ネイティブ環境と wasm32-wasip1 で同じ SHA-256 になることを照らす。
+  - 毎晩の IfcOpenShell の段は、`author.rs` の `writes_the_authored_files_for_other_readers` が書いた 3 版の作った IFC と直した IFC を、`tests/ifcopenshell/author.py` で IfcOpenShell 0.9.0.post1 の検査（スキーマと EXPRESS の規則）にかけ、種類ごとの数・階の高さと配置・所属・開口と建具の関係・壁の層・開口を引いた壁の体積を照らす。手元では次のように流す。
+
+    ```powershell
+    $env:ZUMEN_IFC_AUTHORED = Join-Path (Get-Location) 'target/authored'
+    cargo test -p zumen-ifc --locked --test author writes_the_authored_files_for_other_readers
+    uv run --no-project --python 3.13 --no-python-downloads --with ifcopenshell==0.9.0.post1 --with pytest==9.2.0 python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/author.py target/authored
+    ```
 
 ### 新しい IFC を作る
 

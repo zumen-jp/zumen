@@ -258,6 +258,10 @@ jobs:
         run: ZUMEN_IFC_UNITS_OUT="$RUNNER_TEMP/units" cargo test --locked -p zumen-ifc --all-features --test units writes_units_for_other_readers
       - name: SI 単位の種類・名前・接頭辞を IfcOpenShell の元属性と照らす
         run: python -I crates/zumen-ifc/tests/ifcopenshell/units.py "$RUNNER_TEMP/units"
+      - name: 変更だけで作った 2 階建てと、それを直した IFC を 3 版で書く（#898）
+        run: ZUMEN_IFC_AUTHORED="$RUNNER_TEMP/authored" cargo test --locked -p zumen-ifc --all-features --test author writes_the_authored_files_for_other_readers
+      - name: 作った IFC と直した IFC を IfcOpenShell で検査し、数・配置・所属・関係・層・開口を引いた体積を照らす
+        run: python -I crates/zumen-ifc/tests/ifcopenshell/author.py "$RUNNER_TEMP/authored"
 
   ids:
     name: IDS の名前の要件を IfcTester と照らす

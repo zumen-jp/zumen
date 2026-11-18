@@ -1918,3 +1918,102 @@ fn builds_a_two_storey_building_from_edits_only_in_every_version() {
         assert_eq!(apply_like_batch(&mut live, &edits), Some(built), "{schema}");
     }
 }
+
+/// 2 階建てを足し、階の高さ・壁・開口を直す変更。2F は 3200 に、1F の最初の壁は 3 層で長さ 6500 に、2F の窓の開口は
+/// 芯に沿う 2000 と下端 1000 の 1600×1000 にする
+fn two_storey_change_edits() -> Option<Vec<Edit>> {
+    let mut edits = two_storey_edits();
+    let window = edits
+        .iter()
+        .rposition(|edit| matches!(edit, Edit::Opening(_)))?;
+    let wall = edits
+        .iter()
+        .position(|edit| matches!(edit, Edit::Wall(_)))?;
+    edits.extend([
+        Edit::Elevation {
+            storey: Target::Added(2),
+            elevation: 3200.0,
+        },
+        Edit::WallShape(WallChange {
+            wall: Target::Added(wall),
+            start: [0.0, 0.0],
+            end: [6500.0, 0.0],
+            height: 3000.0,
+            layers: vec![
+                layer("Concrete", 200.0),
+                layer("Insulation", 50.0),
+                layer("Board", 20.0),
+            ],
+            offset: None,
+        }),
+        Edit::OpeningShape(OpeningChange {
+            opening: Target::Added(window),
+            distance: 2000.0,
+            sill: 1000.0,
+            width: 1600.0,
+            height: 1000.0,
+        }),
+    ]);
+    Some(edits)
+}
+
+/// 所有履歴の作り手と使い手を書いた、プロジェクトと敷地だけの文書。ほかの読み手の検査で、入力の誤りを出さない
+fn complete_sample(schema: &str) -> String {
+    let lines = [
+        format!("#1=IFCPROJECT('{}',#2,'Project',$,$,$,$,$,#3);", gid(1)),
+        "#2=IFCOWNERHISTORY(#5,#8,$,.NOCHANGE.,$,$,$,0);".to_owned(),
+        "#3=IFCUNITASSIGNMENT((#4));".to_owned(),
+        "#4=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);".to_owned(),
+        "#5=IFCPERSONANDORGANIZATION(#6,#7,$);".to_owned(),
+        "#6=IFCPERSON($,'Author',$,$,$,$,$,$);".to_owned(),
+        "#7=IFCORGANIZATION($,'Organization',$,$,$);".to_owned(),
+        "#8=IFCAPPLICATION(#7,'0','Application','Application');".to_owned(),
+        format!(
+            "#10=IFCSITE('{}',#2,'Site',$,$,#11,$,$,.ELEMENT.,$,$,$,$,$);",
+            gid(10)
+        ),
+        "#11=IFCLOCALPLACEMENT($,#12);".to_owned(),
+        "#12=IFCAXIS2PLACEMENT3D(#13,$,$);".to_owned(),
+        "#13=IFCCARTESIANPOINT((0.,0.,0.));".to_owned(),
+        format!("#14=IFCRELAGGREGATES('{}',#2,$,$,#1,(#10));", gid(14)),
+    ];
+    format!(
+        "ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION((''),'2;1');
+FILE_NAME('a.ifc','',(''),(''),'','','');
+FILE_SCHEMA(('{schema}'));
+ENDSEC;
+DATA;
+{}
+ENDSEC;
+END-ISO-10303-21;
+",
+        lines.join(
+            "
+"
+        )
+    )
+}
+
+// 環境変数は照合用の出力先だけに使う。
+#[allow(clippy::disallowed_methods)]
+#[test]
+fn writes_the_authored_files_for_other_readers() {
+    let Some(folder) = std::env::var_os("ZUMEN_IFC_AUTHORED") else {
+        return;
+    };
+    let folder = std::path::PathBuf::from(folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    for schema in SCHEMAS {
+        let src = complete_sample(schema);
+        for (name, edits) in [
+            ("built", two_storey_edits()),
+            ("changed", two_storey_change_edits().unwrap()),
+        ] {
+            let (result, codes) = run(src.as_bytes(), &edits);
+            assert!(codes.is_empty(), "{schema} {name}: {codes:?}");
+            std::fs::write(folder.join(format!("{schema}.{name}.ifc")), result.unwrap()).unwrap();
+        }
+    }
+}
