@@ -1339,7 +1339,7 @@ impl Draft<'_> {
     }
 
     /// 階の高さ（10 Elevation）を直し、階の配置の z を同じだけ動かす。階に属する要素は配置の相対で付いてくる。
-    /// 今の高さがなければ、配置の z を今の高さとみなす
+    /// 今の高さがなければ、配置の z を今の高さとみなす。IFC4.3 では、Elevation がなければ配置だけを動かす
     pub(in crate::edit) fn elevate(
         &mut self,
         storey: Target,
@@ -1376,7 +1376,10 @@ impl Draft<'_> {
             return Ok(false);
         };
         self.reposition(id, &mut stmt, axis, cx)?;
-        stmt.set(10, value);
+        // IFC4.3 は 10 Elevation を非推奨にした。書いてある値だけを配置に合わせて直し、ない値は足さない
+        if self.version() != Some(Version::Ifc4x3) || number(stmt.arg(10)).is_some() {
+            stmt.set(10, value);
+        }
         self.put(id, stmt);
         Ok(true)
     }

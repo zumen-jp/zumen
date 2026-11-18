@@ -77,7 +77,11 @@ def check(path, state):
             failures.append(f"{kind} が {found} 個（期待は {n}）")
     expected = EXPECTED[state]
     upper = model.by_guid(gid(1002))
-    if abs(upper.Elevation - expected["elevation"]) > 1e-9:
+    # IFC4.3 は Elevation を非推奨にしたので書かず、配置だけで高さを持つ
+    if model.schema_identifier == "IFC4X3_ADD2":
+        if upper.Elevation is not None:
+            failures.append(f"2F に非推奨の Elevation {upper.Elevation} がある")
+    elif abs(upper.Elevation - expected["elevation"]) > 1e-9:
         failures.append(f"2F の Elevation が {upper.Elevation}")
     z = ifcopenshell.util.placement.get_local_placement(upper.ObjectPlacement)[2][3]
     if abs(z - expected["elevation"]) > 1e-9:

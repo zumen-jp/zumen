@@ -12,7 +12,9 @@ fn classification_size(value: &ClassificationReference) -> u64 {
 
 impl Lifter<'_> {
     /// IFC2X3 TC1・IFC4 ADD2 TC1・IFC4.3 ADD2 の IfcBuildingStorey.Elevation。
-    /// 親の関係を読んだあとで、名前と高さを写す。語彙は #423 で足すため、種類を推定しない。
+    /// 親の関係と配置を読んだあとで、名前と高さを写す。語彙は #423 で足すため、種類を推定しない。
+    /// IFC4.3 ADD2 は Elevation を非推奨にし、階の配置が高さを決める（IfcBuildingStorey の Elevation の注記）。
+    /// IFC4.3 で Elevation がなければ、[`Self::placed_height`] を高さにする。
     pub(super) fn levels(&mut self, cx: &mut Cx) {
         for element in 0..self.building.elements().len() {
             if !self.charge(cx, Kind::Work, 1) {
@@ -36,17 +38,24 @@ impl Lifter<'_> {
             else {
                 continue;
             };
-            let Some(height) = self
+            let written = self
                 .building
                 .components
                 .spatial
                 .get(element)
-                .and_then(|s| s.elevation.as_ref())
-                .filter(|h| h.value.is_finite())
-            else {
+                .and_then(|s| s.elevation.clone());
+            let placed = match &written {
+                None if self.version == Version::Ifc4x3 => self.placed_height(element, record, cx),
+                _ => None,
+            };
+            if self.is_halted() {
+                return;
+            }
+            let Some(height) = written.or(placed).filter(|h| h.value.is_finite()) else {
                 self.invalid(record, 10, cx);
                 continue;
             };
+            let height = &height;
             let name = self
                 .building
                 .components
@@ -106,6 +115,76 @@ impl Lifter<'_> {
             }
             self.building.components.level.insert(element, level);
         }
+    }
+
+    /// 階の配置の原点を、親をたどって見つけた建物の配置の座標で見た z（文書の長さの単位）。
+    /// 建物がないか、どちらかの配置が解けなければ `None`
+    fn placed_height(
+        &mut self,
+        storey: ElementRef,
+        record: &Record,
+        cx: &mut Cx,
+    ) -> Option<Measured> {
+        let mut next = self.aggregate_parent(storey);
+        let mut seen = BTreeSet::new();
+        let building = loop {
+            let parent = next?;
+            if !self.charge(cx, Kind::Work, 1) || !seen.insert(parent) {
+                return None;
+            }
+            if self
+                .building
+                .components
+                .spatial
+                .get(parent)
+                .is_some_and(|s| s.kind == SpatialKind::Building)
+            {
+                break parent;
+            }
+            next = self.aggregate_parent(parent);
+        };
+        let [ox, oy, oz] = self.world(storey, cx)?.apply([0.0; 3]);
+        let [[_, _, a, x], [_, _, b, y], [_, _, c, z]] = self.world(building, cx)?.0;
+        let [dx, dy, dz] = [ox - x, oy - y, oz - z];
+        let value = a * dx + b * dy + c * dz;
+        let unit = self.document_unit("LENGTHUNIT", "IfcLengthMeasure", record, cx);
+        value.is_finite().then_some(Measured { value, unit })
+    }
+
+    fn aggregate_parent(&self, element: ElementRef) -> Option<ElementRef> {
+        self.building
+            .components
+            .parent
+            .get(element)
+            .and_then(|p| p.of.as_ref())
+            .map(|p| p.target)
+    }
+
+    /// 配置の連鎖をプロジェクトの空間まで掛けた変換。診断は配置を読む段と形の評価で返すので、ここでは返さない
+    fn world(&mut self, element: ElementRef, cx: &mut Cx) -> Option<Transform> {
+        let mut chain = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut current = element;
+        loop {
+            if !self.charge(cx, Kind::Work, 1) || !seen.insert(current) {
+                return None;
+            }
+            let placement = self.building.components.placement.get(current)?;
+            let Local::Transform(local) = &placement.local else {
+                return None;
+            };
+            chain.push(*local);
+            match placement.relative_to {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+        Some(
+            chain
+                .iter()
+                .rev()
+                .fold(Transform::IDENTITY, |outer, local| outer.then(local)),
+        )
     }
 
     /// IfcZone の IsGroupedBy（IfcRelAssignsToGroup）と、IfcSpatialZone の ReferencesElements

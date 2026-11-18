@@ -684,8 +684,6 @@ impl<'f> Lifter<'f> {
             self.relation(id, record, cx);
             self.halted(cx, Some(record.span()))?;
         }
-        self.levels(cx);
-        self.halted(cx, None)?;
         for (element, id) in core::mem::take(&mut self.types) {
             if let Some(record) = self.file.instance(id) {
                 let sets = refs(arg(record, 6));
@@ -699,6 +697,8 @@ impl<'f> Lifter<'f> {
         for (element, id) in core::mem::take(&mut self.placements) {
             self.placement(element, id, cx)?;
         }
+        self.halted(cx, None)?;
+        self.levels(cx);
         self.halted(cx, None)?;
         self.report_unmapped_relations(cx)?;
         if geometry {

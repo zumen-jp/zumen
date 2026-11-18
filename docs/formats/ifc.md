@@ -836,7 +836,7 @@ cargo test -p zumen-ifc --locked --test curves --target wasm32-wasip1 -- --test-
 
 次の値を建物モデルに写す。属性の位置は、台帳の IFC2X3 TC1・IFC4 ADD2 TC1・IFC4.3 ADD2 の各実体の「属性」の節による。
 
-- `level`: `IfcBuildingStorey` の `Name` と `Elevation` を、文書の長さの単位で持つ。所属の親をたどって建物が見つかり、その `ElevationOfRefHeight` があれば、`datum` にその建物の ID を持つ。基準の値と単位は、その建物の `spatial.elevation` から引ける。敷地と建物の標高から `level` は作らない。高さがないか有限の数でなければ、成分を作らず `ifc.attribute.invalid` を返す。
+- `level`: `IfcBuildingStorey` の `Name` と `Elevation` を、文書の長さの単位で持つ。所属の親をたどって建物が見つかり、その `ElevationOfRefHeight` があれば、`datum` にその建物の ID を持つ。基準の値と単位は、その建物の `spatial.elevation` から引ける。敷地と建物の標高から `level` は作らない。IFC4.3 ADD2 は `Elevation` を非推奨にし、高さは階の配置で決まるとする。IFC4.3 で `Elevation` がなければ、所属の親をたどって見つけた建物の配置の座標で、階の配置の原点の z を高さにする。高さがないか有限の数でなければ、成分を作らず `ifc.attribute.invalid` を返す。
 - `1FL` のような階の名前をそのまま持ち、lift では `level.kind` や高さを補わない。種類への対応は、[作図の慣習](../../profiles/zumen-building-drawing/2026-11/README.md)の `level_kind` で明示した語彙から得る。元の名前・高さ・種類は変更しない。
 - `zone`: `IfcZone` と、IFC4 以降の `IfcSpatialZone` に付ける。`IfcZone` は `IfcRelAssignsToGroup`、`IfcSpatialZone` は `IfcRelReferencedInSpatialStructure` の、室と区域の直接の参照を、関係と並びの順で持つ。区域の中の区域を展開しない。物理の要素への空間の参照は、従来の `parent.referenced_in` に持つ。語彙がないので `zone.kind` は持たず、IFC の `PredefinedType` と `ObjectType` は `class` に残す。境界の形は #419 で扱う。
 - `classification`: `IfcRelAssociatesClassification` の対象に、`IfcClassificationReference` のコード（IFC2X3 の `ItemReference`、IFC4 以降の `Identification`）と名前を付ける。`ReferencedSource` から `IfcClassification` の名前と版を引く。IFC4 以降は参照の階層をたどり、体系そのものの関連づけも持つ。体系のない軽い分類は、コードと名前だけを持つ。循環、欠けた参照、対応していない種類は、成分を付けず `ifc.attribute.invalid` を返す。
@@ -979,7 +979,7 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
 - 書く文字列は、`'` と `\` を重ね、印字できる ASCII の外の文字を `\X2\…\X0\`（基本多言語面の外を含めば `\X4\…\X0\`）にする。
 - 当てられるのは、`IfcPropertySingleValue` の値と、`IfcRoot` の Name・Description。ほかの種類のプロパティ（列挙・表など）と、GlobalId を持たない要素（材料・通り芯の軸）は、`change.edit.unsupported` で当てない。
 - 空間・要素・関係も足し、除き、置き直せる（[#897](https://github.com/zumen-jp/zumen/issues/897)）。Rust の `zumen_ifc::apply` の変更と、`building_apply` の `add_space`・`add_element`・`remove`・`place`・`contain`・`type`・`void`・`fill`（スキーマのマイナーバージョン 96 から）。文書エンジン（`IfcLive::apply`）は、今までの経路で当てて状態を作り直す（[依存](../live.md#依存)）。
-  - 足す: 敷地・建物・階（`IfcRelAggregates` で親に結ぶ）と、書き手の表にある要素（壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・プロキシ。`IfcRelContainedInSpatialStructure` で空間に結ぶ）。同じ要求で足した要素は、Rust では足した順の番号、`building_apply` では足した変更の `edits` の位置（`added`）で指せる。`building_apply` の結果は、足した要素の ID（GlobalId）とハッシュを返す。
+  - 足す: 敷地・建物・階（`IfcRelAggregates` で親に結ぶ。IFC4.3 は建物の `ElevationOfRefHeight` と階の `Elevation` を非推奨にしたので書かない。階の高さは、配置がなければ親の配置から高さだけ上げて置き、配置があれば親からの z が高さと同じときだけ受ける。建物の標高は断る）と、書き手の表にある要素（壁・床・柱・梁・部材・板・被覆・手すり・屋根・階段・斜路・基礎・杭・扉・窓・開口・プロキシ。`IfcRelContainedInSpatialStructure` で空間に結ぶ）。同じ要求で足した要素は、Rust では足した順の番号、`building_apply` では足した変更の `edits` の位置（`added`）で指せる。`building_apply` の結果は、足した要素の ID（GlobalId）とハッシュを返す。
   - 結ぶ・直す: 配置（`IfcLocalPlacement` と `IfcAxis2Placement3D`）、所属する空間、型（`IfcRelDefinesByType`）、開口（`IfcRelVoidsElement`）と充填（`IfcRelFillsElement`）。関係は、同じ相手の関係があればその列へ足し、なければ足す。外して列が空になった関係は除く。置き直す配置がその要素と子の配置だけに使われていれば、その場で書き直し、子の配置は付いてくる。
   - 除く: 要素と、その要素の開口、要素だけが使う配置・表現・定義・関係。ほかから使われる配置と、`IfcRoot` の対象・所有履歴・表現の文脈・材料・単位は残す。子や所属する要素を持つ空間は除かない。除いたレコードは、前との間が空白だけなら、その空白も書かない。
   - 書く実体と属性の数は、lift と同じく手書きのバージョンの表で持つ。そのバージョンにない実体と、持たない定義された種類は書かない。必須の定義された種類（IFC2X3 の屋根・階段・斜路の ShapeType、基礎・杭）を渡されなければ `NOTDEFINED` を書く。
@@ -1002,7 +1002,7 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
   - 建具は、開口・種類（扉か窓）・全体の幅と高さで受ける。開口の配置に置き、`IfcDoor` か `IfcWindow`（IFC4 と IFC4X3 は PredefinedType の `DOOR` か `WINDOW`）を `IfcRelFillsElement` で開口に結び、壁と同じ空間に包含で結ぶ。建具の形と型はまだ書かない。開口でない要素と、もう埋まった開口は断る。
 - 意図の値で通り芯を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Grid` と、`building_apply` の `add_grid`（スキーマのマイナーバージョン 101 から）で受ける。空間・U と V の軸（名前・始点・終点）・高さで受け、空間の配置からの相対に置いて空間に包含で結ぶ。軸は 2 点の `IfcPolyline` を曲線にした `IfcGridAxis`（SameSense は真）に書く。U と V のどちらかが空・同じ名前の軸・始点と終点が同じ軸・有限でない値は断る。
 - 意図の値で階の高さ、壁の芯・高さ・層、開口の位置と大きさを直せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Elevation`・`Edit::WallShape`・`Edit::OpeningShape` と、`building_apply` の `elevation`・`wall_shape`・`opening_shape`（スキーマのマイナーバージョン 103 から）で受ける。
-  - 階の高さは 10 Elevation に書き、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。
+  - 階の高さは 10 Elevation に書き、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。IFC4.3 では、`Elevation` が書いてあるときだけ直し、なければ配置だけを動かす。階に属する要素は配置の相対で付いてくる。
   - 壁は、足すときと同じ値（芯の 2 点・高さ・層・芯からのずれ）で受け、配置・表現・材料の層の使い方を書き直す。芯の点は壁の配置の親の配置の XY。同じ名前の層は元の `IfcMaterial` を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の `Body` の押し出しを新しい層の範囲に合わせる。元の層の範囲の遠い面から近い面へ押し出す、ただ 1 つの `IfcExtrudedAreaSolid` でない開口があれば、何も変えずに断る。
   - 開口は、足すときと同じ値（芯に沿う距離・下端・幅・高さ）で受け、配置と `Body` を書き直す。埋める扉と窓の OverallHeight と OverallWidth は、書いてあれば新しい大きさにする。
   - 配置をほかの要素と共有していれば、新しい配置に付け替える。使われなくなった配置と表現は除く。

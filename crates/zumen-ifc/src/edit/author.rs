@@ -63,7 +63,8 @@ pub struct NewSpace {
     pub parent: Target,
     /// 配置。なければ、親の配置があればそこに恒等の変換で置く
     pub placement: Option<NewPlacement>,
-    /// 標高（文書の長さの単位）。階は 10 Elevation、建物は 10 ElevationOfRefHeight、敷地は 12 RefElevation
+    /// 標高（文書の長さの単位）。階は 10 Elevation、建物は 10 ElevationOfRefHeight、敷地は 12 RefElevation。
+    /// IFC4.3 は階と建物の値を非推奨にしたので、階の高さは親の配置からの z で書き、建物の値は断る
     pub elevation: Option<f64>,
     /// GlobalId。なければ文書のハッシュと足した数から作る
     pub global_id: Option<GlobalId>,
@@ -253,7 +254,7 @@ const KEPT: &[&[u8]] = &[
 ];
 
 impl Draft<'_> {
-    fn version(&self) -> Option<Version> {
+    pub(super) fn version(&self) -> Option<Version> {
         Version::of(self.file.schema())
     }
 
@@ -554,9 +555,33 @@ impl Draft<'_> {
             },
             None => None,
         };
-        let Some(placement) =
-            self.placement_or(space.placement.as_ref(), Some(parent), "space", name, cx)
-        else {
+        // IFC4.3 は建物の 10 ElevationOfRefHeight と階の 10 Elevation を非推奨にし、階の高さは配置で決まる。
+        // 階の高さは、親からの配置の z として書く。親の配置に置く局所の z が高さと同じでなければ受けない
+        let deprecated = self.version() == Some(Version::Ifc4x3) && space.kind != SpaceKind::Site;
+        let lifted;
+        let mut wanted = space.placement.as_ref();
+        if deprecated && let Some(height) = space.elevation {
+            let local = match wanted {
+                None => Transform::translation(0.0, 0.0, height),
+                Some(placement) => placement.local,
+            };
+            let [_, _, [_, _, _, z]] = local.0;
+            let relative = wanted.is_none_or(|p| p.relative_to == Some(space.parent));
+            if space.kind == SpaceKind::Building
+                || !relative
+                || z != height
+                || self.placement_of(parent).is_none()
+            {
+                cx.report(unsupported("space", name).with("value", "elevation"));
+                return Ok(false);
+            }
+            lifted = NewPlacement {
+                relative_to: Some(space.parent),
+                local,
+            };
+            wanted = Some(&lifted);
+        }
+        let Some(placement) = self.placement_or(wanted, Some(parent), "space", name, cx) else {
             return Ok(false);
         };
         let mut args = vec![null(); arity];
@@ -566,7 +591,7 @@ impl Draft<'_> {
         set_at(&mut args, 6, placement);
         // 9 CompositionType は IFC2X3 で必須。IFC4 と IFC4X3 でも同じ値を書ける
         set_at(&mut args, 9, raw(b".ELEMENT."));
-        if let Some(elevation) = elevation {
+        if let Some(elevation) = elevation.filter(|_| !deprecated) {
             set_at(&mut args, elevation_at, elevation);
         }
         let id = self.add(Stmt {

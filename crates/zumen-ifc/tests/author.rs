@@ -102,7 +102,8 @@ fn space(kind: SpaceKind, n: u32, parent: Target, elevation: f64) -> Edit {
         name: Some(format!("S{n}")),
         parent,
         placement: None,
-        elevation: Some(elevation),
+        // IFC4.3 は建物の ElevationOfRefHeight を非推奨にしたので、どのバージョンでも建物には書かない
+        elevation: (kind != SpaceKind::Building).then_some(elevation),
         global_id: Some(global(n)),
     })
 }
@@ -218,7 +219,18 @@ fn adds_spaces_elements_and_relations_in_every_version() {
         assert_eq!(parent(door).target, first);
         let spatial = building.components.spatial.get(second).unwrap();
         assert_eq!(spatial.kind, SpatialKind::Storey);
-        assert_eq!(spatial.elevation.as_ref().map(|m| m.value), Some(3000.0));
+        // IFC4.3 では Elevation を書かず、階の配置の z が高さになる
+        let written = (schema != "IFC4X3_ADD2").then_some(3000.0);
+        assert_eq!(spatial.elevation.as_ref().map(|m| m.value), written);
+        let level = building.components.level.get(second).unwrap();
+        assert_eq!(level.height.value, 3000.0, "{schema}");
+        // 配置なしで足した階は、IFC2X3 と IFC4 では親の配置に恒等で置き、IFC4.3 では高さだけ上げる
+        let z = if written.is_some() { 0.0 } else { 3000.0 };
+        assert_eq!(
+            translation(&building, second),
+            Some([0.0, 0.0, z]),
+            "{schema}"
+        );
         assert_eq!(
             building.components.placement.get(wall).unwrap().relative_to,
             Some(first)
@@ -443,6 +455,64 @@ fn rejects_without_changing_anything() {
             codes.contains(&codes::CHANGE_EDIT_UNSUPPORTED),
             "{name}: {codes:?}"
         );
+    }
+}
+
+/// IFC4.3 は建物の ElevationOfRefHeight と階の Elevation を非推奨にした。階の高さは親の配置からの z で書き、
+/// 配置で表せない高さは受けない
+#[test]
+fn takes_storey_heights_from_placements_in_ifc4x3() {
+    let src = sample("IFC4X3_ADD2", true);
+    let building = |elevation| {
+        Edit::Space(NewSpace {
+            kind: SpaceKind::Building,
+            name: None,
+            parent: Target::Instance(10),
+            placement: None,
+            elevation,
+            global_id: Some(global(100)),
+        })
+    };
+    let storey = |placement, elevation| {
+        Edit::Space(NewSpace {
+            kind: SpaceKind::Storey,
+            name: None,
+            parent: Target::Added(0),
+            placement,
+            elevation: Some(elevation),
+            global_id: Some(global(101)),
+        })
+    };
+    // 配置と高さが合えば、Elevation を書かずに配置で高さを持つ
+    for placement in [None, Some(at(0.0, 0.0, 3000.0, Target::Added(0)))] {
+        let edits = [building(None), storey(placement, 3000.0)];
+        let bytes = run(src.as_bytes(), &edits).0.unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        let line = text.lines().find(|l| l.contains(&gid(101))).unwrap();
+        assert!(line.ends_with(",.ELEMENT.,$);"), "{line}");
+        let lifted = lift(&bytes).unwrap();
+        let level = element(&lifted, 101).unwrap();
+        let level = lifted.components.level.get(level).unwrap();
+        assert_eq!(level.height.value, 3000.0);
+    }
+    let cases = [
+        // 建物の標高は配置で表せない
+        vec![building(Some(0.0))],
+        // 配置の z が高さと違う
+        vec![
+            building(None),
+            storey(Some(at(0.0, 0.0, 0.0, Target::Added(0))), 3000.0),
+        ],
+        // 親でない配置からの z
+        vec![
+            building(None),
+            storey(Some(at(0.0, 0.0, 3000.0, Target::Instance(10))), 3000.0),
+        ],
+    ];
+    for edits in cases {
+        let (bytes, codes) = run(src.as_bytes(), &edits);
+        assert!(matches!(bytes, Err(Error::Invalid)), "{edits:?}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{edits:?}");
     }
 }
 
@@ -1546,7 +1616,15 @@ fn changes_storeys_walls_and_openings_and_dependents_follow_in_every_version() {
             .lines()
             .find(|line| line.contains(&gid(101)))
             .unwrap();
-        assert!(elevation.ends_with(",3500.);"), "{schema}: {elevation}");
+        // IFC4.3 は Elevation を非推奨にしたので、書いていない値を足さない
+        let written = if schema == "IFC4X3_ADD2" {
+            ",$);"
+        } else {
+            ",3500.);"
+        };
+        assert!(elevation.ends_with(written), "{schema}: {elevation}");
+        let level = building.components.level.get(storey).unwrap();
+        assert_eq!(level.height.value, 3500.0, "{schema}");
         // 壁は新しい芯の向きに置き、高さと層の厚さで押し出す
         let t = local(&building, wall).unwrap();
         assert_eq!(
