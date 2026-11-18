@@ -9,7 +9,7 @@ use zumen_building::{
 use zumen_ifc::{
     Edit, FillingKind, Ifc, IfcFile, IfcLive, NewBeam, NewColumn, NewElement, NewFilling, NewGrid,
     NewGridAxis, NewLayer, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall,
-    RootAttribute, SpaceKind, Target, apply,
+    OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -1472,5 +1472,191 @@ fn refuses_grids_it_cannot_write_and_removes_grids_with_their_axes() {
     let removed = String::from_utf8(result.unwrap()).unwrap();
     for entity in ["IFCGRID", "IFCGRIDAXIS", "IFCPOLYLINE"] {
         assert_eq!(count(&removed, entity), 0, "{entity}");
+    }
+}
+
+/// 要素の押し出しの位置と奥行き
+fn solids(bytes: &[u8], n: u32) -> Option<Vec<([f64; 3], f64)>> {
+    let file = read(bytes)?;
+    let text = String::from_utf8(bytes.to_vec()).ok()?;
+    let id = instance_of(&text, n)?;
+    let (shape, _) = with(|cx| file.product_shape(id, cx));
+    let found = shape
+        .ok()?
+        .nodes
+        .iter()
+        .filter_map(|node| with(|cx| file.extruded_area(node, cx)).0.ok())
+        .filter_map(|area| Some((area.definition.position?.location, area.definition.depth)))
+        .collect();
+    Some(found)
+}
+
+/// 階 101 を高さ 3500 に、壁 300 を長さ 5000・高さ 3000・3 層（厚さ 300）に、壁 301 の開口 502 を動かして
+/// 大きさを変える変更。要素はインスタンスの番号で指す
+fn change_edits(text: &str) -> Option<Vec<Edit>> {
+    let at = |n| instance_of(text, n).map(Target::Instance);
+    Some(vec![
+        Edit::Elevation {
+            storey: at(101)?,
+            elevation: 3500.0,
+        },
+        Edit::WallShape(WallChange {
+            wall: at(300)?,
+            start: [1000.0, 0.0],
+            end: [1000.0, 5000.0],
+            height: 3000.0,
+            layers: vec![
+                layer("Concrete", 200.0),
+                layer("Insulation", 50.0),
+                layer("Board", 50.0),
+            ],
+            offset: None,
+        }),
+        Edit::OpeningShape(OpeningChange {
+            opening: at(502)?,
+            distance: 800.0,
+            sill: 1000.0,
+            width: 1500.0,
+            height: 1000.0,
+        }),
+    ])
+}
+
+#[test]
+fn changes_storeys_walls_and_openings_and_dependents_follow_in_every_version() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let before = run(src.as_bytes(), &opening_edits()).0.unwrap();
+        let text = String::from_utf8(before.clone()).unwrap();
+        let edits = change_edits(&text).unwrap();
+        let (result, codes) = run(&before, &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let after = result.unwrap();
+        let changed = String::from_utf8(after.clone()).unwrap();
+        let building = lift(&after).unwrap();
+        let [storey, wall, door_opening, door, window_opening] =
+            [101, 300, 500, 501, 502].map(|n| element(&building, n).unwrap());
+        // 階の配置は高さの差だけ上がり、属する要素は配置の相対のまま付いてくる
+        assert_eq!(
+            translation(&building, storey),
+            Some([0.0, 0.0, 3500.0]),
+            "{schema}"
+        );
+        let elevation = changed
+            .lines()
+            .find(|line| line.contains(&gid(101)))
+            .unwrap();
+        assert!(elevation.ends_with(",3500.);"), "{schema}: {elevation}");
+        // 壁は新しい芯の向きに置き、高さと層の厚さで押し出す
+        let t = local(&building, wall).unwrap();
+        assert_eq!(
+            [t[0][0], t[1][0], t[0][3], t[1][3]],
+            [0.0, 1.0, 1000.0, 0.0]
+        );
+        assert_eq!(solids(&after, 300).unwrap(), [([0.0, 0.0, 0.0], 3000.0)]);
+        // 同じ名前の材料は元の IfcMaterial を使い、新しい名前だけ足す
+        assert_eq!(count(&changed, "IFCMATERIAL"), 5, "{schema}");
+        assert_eq!(count(&changed, "IFCMATERIALLAYER"), 5, "{schema}");
+        assert_eq!(count(&changed, "IFCMATERIALLAYERSETUSAGE"), 2, "{schema}");
+        // 壁の開口は新しい層の範囲を貫き、扉は開口の配置のまま
+        assert_eq!(
+            solids(&after, 500).unwrap(),
+            [([0.0, 150.0, 0.0], 300.0)],
+            "{schema}"
+        );
+        assert_eq!(
+            translation(&building, door_opening),
+            Some([1000.0, 0.0, 0.0])
+        );
+        let placement = building.components.placement.get(door).unwrap();
+        assert_eq!(placement.relative_to, Some(door_opening));
+        // 動かした開口は、壁 301 の層の範囲のまま新しい大きさで押し出し、窓の全体の高さと幅も合わせる
+        assert_eq!(
+            translation(&building, window_opening),
+            Some([800.0, 0.0, 1000.0])
+        );
+        assert_eq!(solids(&after, 502).unwrap(), [([0.0, 100.0, 0.0], 200.0)]);
+        let window = changed
+            .lines()
+            .find(|line| line.contains(&gid(503)))
+            .unwrap();
+        assert!(window.contains(",1000.,1500."), "{schema}: {window}");
+        // 古い配置と表現は残らない
+        for entity in [
+            "IFCLOCALPLACEMENT",
+            "IFCAXIS2PLACEMENT3D",
+            "IFCSHAPEREPRESENTATION",
+            "IFCEXTRUDEDAREASOLID",
+            "IFCPRODUCTDEFINITIONSHAPE",
+        ] {
+            assert_eq!(
+                count(&changed, entity),
+                count(&text, entity),
+                "{schema}: {entity}"
+            );
+        }
+        // 同じ入力と変更なら同じバイト列。文書エンジンでも同じで、取り消すと元に、やり直すと直した値に戻る
+        assert_eq!(run(&before, &edits).0.unwrap(), after);
+        let (live, _) = with(|cx| IfcLive::open(&before, cx));
+        let mut live = live.unwrap();
+        assert_eq!(
+            apply_like_batch(&mut live, &edits),
+            Some(after.clone()),
+            "{schema}"
+        );
+        assert_eq!(with(|cx| live.undo(cx)).0.ok(), Some(true));
+        assert_eq!(same_as_reopened(&live), Some(before.clone()), "{schema}");
+        assert_eq!(with(|cx| live.redo(cx)).0.ok(), Some(true));
+        assert_eq!(same_as_reopened(&live), Some(after), "{schema}");
+    }
+}
+
+#[test]
+fn refuses_changes_it_cannot_write_without_changing_anything() {
+    let src = sample("IFC4", true);
+    let before = run(src.as_bytes(), &opening_edits()).0.unwrap();
+    let text = String::from_utf8(before.clone()).unwrap();
+    let at = |n| Target::Instance(instance_of(&text, n).unwrap());
+    let wall_change = |wall, end: [f64; 2], thickness: f64| {
+        Edit::WallShape(WallChange {
+            wall,
+            start: [1000.0, 0.0],
+            end,
+            height: 3000.0,
+            layers: vec![layer("Concrete", thickness)],
+            offset: None,
+        })
+    };
+    let opening_change = |opening, width: f64| {
+        Edit::OpeningShape(OpeningChange {
+            opening,
+            distance: 0.0,
+            sill: 0.0,
+            width,
+            height: 1000.0,
+        })
+    };
+    let cases = [
+        // 階でないもの、有限でない高さ
+        Edit::Elevation {
+            storey: at(300),
+            elevation: 0.0,
+        },
+        Edit::Elevation {
+            storey: at(101),
+            elevation: f64::NAN,
+        },
+        // 壁でないもの、長さのない芯、厚さのない層
+        wall_change(at(500), [1000.0, 5000.0], 200.0),
+        wall_change(at(300), [1000.0, 0.0], 200.0),
+        wall_change(at(300), [1000.0, 5000.0], 0.0),
+        // 開口でないもの、幅のない開口
+        opening_change(at(300), 900.0),
+        opening_change(at(500), 0.0),
+    ];
+    for case in cases {
+        let (result, codes) = run(&before, std::slice::from_ref(&case));
+        assert!(matches!(result, Err(Error::Invalid)), "{case:?}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{case:?}");
     }
 }

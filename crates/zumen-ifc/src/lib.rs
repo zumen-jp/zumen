@@ -47,7 +47,7 @@ pub use building::{
 pub use edit::{
     Applied, Edit, FillingKind, NewBeam, NewColumn, NewElement, NewFilling, NewGrid, NewGridAxis,
     NewLayer, NewLiteral, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewValue,
-    NewWall, RootAttribute, SpaceKind, Target, apply,
+    NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
 };
 pub use express::{Express, Findings, check, check_range};
 #[cfg(feature = "ids")]

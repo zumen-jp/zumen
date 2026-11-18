@@ -18,7 +18,7 @@ mod intent;
 
 pub use intent::{
     FillingKind, NewBeam, NewColumn, NewFilling, NewGrid, NewGridAxis, NewLayer, NewOpening,
-    NewSection, NewSlab, NewWall,
+    NewSection, NewSlab, NewWall, OpeningChange, WallChange,
 };
 
 /// 変更が指す要素。文書にあるインスタンスか、同じ要求の中で足した要素

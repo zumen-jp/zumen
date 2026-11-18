@@ -17,7 +17,7 @@ use zumen_base::Kind;
 use zumen_building::{GlobalId, Transform};
 use zumen_sdk::{Cx, Error};
 
-use super::super::{Draft, Item, Stmt, text, unsupported};
+use super::super::{Draft, Item, Stmt, refs_in, refs_of, text, text_of, unsupported};
 use super::{CONTAINED, FILLS, Target, VOIDS, null, raw, real, set_at};
 use crate::building::{Category, Version};
 use crate::stopped;
@@ -194,6 +194,38 @@ pub struct NewGrid {
     pub global_id: Option<GlobalId>,
 }
 
+/// 壁の芯・高さ・材料の層を直す値
+#[derive(Clone, Debug, PartialEq)]
+pub struct WallChange {
+    /// 直す壁（`IfcWall` か `IfcWallStandardCase`）。材料の層の使い方（`AXIS2`）を持つもの
+    pub wall: Target,
+    /// 芯の始点。壁の配置の親の配置の XY で、文書の長さの単位
+    pub start: [f64; 2],
+    /// 芯の終点。始点と違う点
+    pub end: [f64; 2],
+    /// 高さ（文書の長さの単位）。正の値
+    pub height: f64,
+    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+    pub layers: Vec<NewLayer>,
+    /// 芯から最初の層の面までのずれ（左が正）。なければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
+    pub offset: Option<f64>,
+}
+
+/// 開口の位置と大きさを直す値
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpeningChange {
+    /// 直す開口（`IfcOpeningElement`）。材料の層の使い方を持つ要素に穴をあけるもの
+    pub opening: Target,
+    /// 穴をあけた要素の配置の x 軸に沿う、要素の原点から開口の端までの距離
+    pub distance: f64,
+    /// 要素の下端から開口の下端までの高さ
+    pub sill: f64,
+    /// 幅（文書の長さの単位）。正の値
+    pub width: f64,
+    /// 高さ（文書の長さの単位）。正の値
+    pub height: f64,
+}
+
 /// 正の有限の値
 fn positive(value: f64) -> bool {
     value.is_finite() && value > 0.0
@@ -253,6 +285,35 @@ fn wall_shape(wall: &NewWall) -> Result<WallShape, &'static str> {
         total,
         offset,
     })
+}
+
+/// 壁の配置の変換。芯の始点を原点、芯の向きを x 軸にする
+fn wall_local(shape: &WallShape) -> Transform {
+    let [ux, uy] = shape.direction;
+    let [sx, sy] = shape.start;
+    Transform([[ux, -uy, 0.0, sx], [uy, ux, 0.0, sy], [0.0, 0.0, 1.0, 0.0]])
+}
+
+/// 開口の配置の変換。穴をあけた要素の配置からの相対で、芯に沿う距離と下端の点を原点にする
+fn opening_local(distance: f64, sill: f64) -> Transform {
+    Transform([
+        [1.0, 0.0, 0.0, distance],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, sill],
+    ])
+}
+
+/// 書いた実数の値
+fn number(item: Option<&Item>) -> Option<f64> {
+    match item {
+        Some(Item::Raw(bytes)) => std::str::from_utf8(bytes).ok()?.parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
+/// 同じ値とみなすか。書いた実数を読み直した値どうしを比べる
+fn same(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1e-9 * b.abs().max(1.0)
 }
 
 /// 床の外形を確かめる。最後の点が最初の点と同じなら除く。並ぶ 2 点が重なるか、面積がなければ `None`
@@ -491,17 +552,19 @@ impl Draft<'_> {
         Some(self.product_shape(&[axis, body]))
     }
 
-    /// 材料の層の使い方（`IfcMaterialLayerSetUsage`）。同じ名前の層は、同じ `IfcMaterial` を指す
+    /// 材料の層の使い方（`IfcMaterialLayerSetUsage`）。同じ名前の層は、同じ `IfcMaterial` を指す。`known` に
+    /// ある名前は、その `IfcMaterial` を使う
     fn layer_usage(
         &mut self,
         version: Version,
         layers: &[NewLayer],
         (direction, sense): (&[u8], &[u8]),
         offset: f64,
+        known: BTreeMap<String, u64>,
         cx: &mut Cx,
     ) -> Result<Option<u64>, Error> {
         let later = version != Version::Ifc2x3;
-        let mut materials: BTreeMap<&str, u64> = BTreeMap::new();
+        let mut materials = known;
         let mut written = Vec::with_capacity(layers.len());
         for layer in layers {
             cx.check(Kind::Work, 1)
@@ -510,7 +573,7 @@ impl Draft<'_> {
                 Some(&id) => id,
                 None => {
                     let id = self.material(version, &layer.material);
-                    materials.insert(&layer.material, id);
+                    materials.insert(layer.material.clone(), id);
                     id
                 }
             };
@@ -676,10 +739,7 @@ impl Draft<'_> {
         else {
             return Ok(false);
         };
-        let [ux, uy] = shape.direction;
-        let [sx, sy] = shape.start;
-        let local = Transform([[ux, -uy, 0.0, sx], [uy, ux, 0.0, sy], [0.0, 0.0, 1.0, 0.0]]);
-        let placement = self.local_placement(begun.anchor, &local);
+        let placement = self.local_placement(begun.anchor, &wall_local(&shape));
         let representation = self.wall_representation(&shape);
         let (Some(placement), Some(representation)) = (placement, representation) else {
             cx.report(unsupported(EDIT, kind).with("value", "geometry"));
@@ -693,7 +753,15 @@ impl Draft<'_> {
             Vec::new(),
         );
         let axis2 = (b".AXIS2.".as_slice(), b".POSITIVE.".as_slice());
-        let Some(usage) = self.layer_usage(version, &wall.layers, axis2, shape.offset, cx)? else {
+        let Some(usage) = self.layer_usage(
+            version,
+            &wall.layers,
+            axis2,
+            shape.offset,
+            BTreeMap::new(),
+            cx,
+        )?
+        else {
             cx.report(unsupported(EDIT, kind).with("value", "layers"));
             return Ok(false);
         };
@@ -754,7 +822,9 @@ impl Draft<'_> {
             vec![(9, raw(b".FLOOR."))],
         );
         let axis3 = (b".AXIS3.".as_slice(), b".NEGATIVE.".as_slice());
-        let Some(usage) = self.layer_usage(version, &slab.layers, axis3, 0.0, cx)? else {
+        let Some(usage) =
+            self.layer_usage(version, &slab.layers, axis3, 0.0, BTreeMap::new(), cx)?
+        else {
             cx.report(unsupported(EDIT, KIND).with("value", "layers"));
             return Ok(false);
         };
@@ -915,27 +985,28 @@ impl Draft<'_> {
         Ok(true)
     }
 
-    /// 要素の材料の層の使い方（`AXIS2`）の、配置の y で見た層の範囲（小さいほう、大きいほう）
-    fn layer_span(&self, element: u64) -> Option<(f64, f64)> {
-        let number = |item: Option<&Item>| match item {
-            Some(Item::Raw(bytes)) => std::str::from_utf8(bytes).ok()?.parse::<f64>().ok(),
-            _ => None,
-        };
-        let usage = self.referrers(element).into_iter().find_map(|rel| {
+    /// 要素に材料の層の使い方（`AXIS2`）を結ぶ `IfcRelAssociatesMaterial` と、その層の使い方
+    fn layer_usage_of(&self, element: u64) -> Option<(u64, u64)> {
+        self.referrers(element).into_iter().find_map(|rel| {
             let stmt = self.stmt(rel)?;
             if stmt.name != b"IFCRELASSOCIATESMATERIAL"
                 || !matches!(stmt.arg(5), Some(Item::List(items)) if items.contains(&Item::Ref(element)))
             {
                 return None;
             }
-            let Some(Item::Ref(usage)) = stmt.arg(6) else {
+            let Some(&Item::Ref(usage)) = stmt.arg(6) else {
                 return None;
             };
-            let usage = self.stmt(*usage)?;
-            (usage.name == b"IFCMATERIALLAYERSETUSAGE"
-                && usage.arg(2) == Some(&raw(b".AXIS2.")))
-            .then_some(usage)
-        })?;
+            let found = self.stmt(usage)?;
+            (found.name == b"IFCMATERIALLAYERSETUSAGE" && found.arg(2) == Some(&raw(b".AXIS2.")))
+                .then_some((rel, usage))
+        })
+    }
+
+    /// 要素の材料の層の使い方（`AXIS2`）の、配置の y で見た層の範囲（小さいほう、大きいほう）
+    fn layer_span(&self, element: u64) -> Option<(f64, f64)> {
+        let (_, usage) = self.layer_usage_of(element)?;
+        let usage = self.stmt(usage)?;
         let Some(Item::Ref(set)) = usage.arg(1) else {
             return None;
         };
@@ -990,25 +1061,9 @@ impl Draft<'_> {
             cx.report(unsupported(EDIT, KIND).with("missing", "IfcMaterialLayerSetUsage"));
             return Ok(false);
         };
-        let local = Transform([
-            [1.0, 0.0, 0.0, opening.distance],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, opening.sill],
-        ]);
-        // 断面は壁の XZ に置き（断面の y を壁の z）、層の遠い面から近い面へ押し出す
-        let position = Transform([
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, -1.0, far],
-            [0.0, 1.0, 0.0, 0.0],
-        ]);
-        let (w, h) = (opening.width, opening.height);
+        let local = opening_local(opening.distance, opening.sill);
         let placement = self.local_placement(begun.anchor, &local);
-        let shape = self.body_shape(
-            &[[0.0, 0.0], [w, 0.0], [w, h], [0.0, h]],
-            &position,
-            [0.0, 0.0, 1.0],
-            far - near,
-        );
+        let shape = self.opening_body((near, far), [opening.width, opening.height]);
         let (Some(placement), Some(shape)) = (placement, shape) else {
             cx.report(unsupported(EDIT, KIND).with("value", "geometry"));
             return Ok(false);
@@ -1216,6 +1271,418 @@ impl Draft<'_> {
             name: b"IFCGRIDAXIS".to_vec(),
             args: vec![text(&axis.tag), Item::Ref(curve), raw(b".T.")],
         }))
+    }
+
+    /// `IfcAxis2Placement3D` の引数と位置。位置が 2 次元なら z を 0 とする
+    fn axis_location(&self, axis: u64) -> Option<(Vec<Item>, [f64; 3])> {
+        let axis = self.stmt(axis)?;
+        if axis.name != b"IFCAXIS2PLACEMENT3D" {
+            return None;
+        }
+        let Some(&Item::Ref(point)) = axis.arg(1) else {
+            return None;
+        };
+        let Some(Item::List(values)) = self.stmt(point)?.arg(1).cloned() else {
+            return None;
+        };
+        if !(2..=3).contains(&values.len()) {
+            return None;
+        }
+        let mut location = [0.0; 3];
+        for (slot, value) in location.iter_mut().zip(&values) {
+            *slot = number(Some(value))?;
+        }
+        Some((axis.args, location))
+    }
+
+    /// 位置だけを変えた `IfcAxis2Placement3D` を足す。向きは元の引数のまま
+    fn moved_axis(&mut self, mut args: Vec<Item>, location: [f64; 3]) -> Option<u64> {
+        let point = self.coordinates(b"IFCCARTESIANPOINT", &location)?;
+        set_at(&mut args, 1, Item::Ref(point));
+        Some(self.add(Stmt {
+            name: b"IFCAXIS2PLACEMENT3D".to_vec(),
+            args,
+        }))
+    }
+
+    /// 要素の配置を、同じ親の配置からの相対の軸の配置 `axis` にする。子の配置は付いてくる。配置をほかの要素と
+    /// 共有していれば、新しい配置に付け替える。配置がなければ `false`
+    fn reposition(
+        &mut self,
+        element: u64,
+        stmt: &mut Stmt,
+        axis: u64,
+        cx: &mut Cx,
+    ) -> Result<bool, Error> {
+        let Some(current) = self.placement_of(element) else {
+            return Ok(false);
+        };
+        let Some(old) = self.stmt(current) else {
+            return Ok(false);
+        };
+        let placement = Stmt {
+            name: b"IFCLOCALPLACEMENT".to_vec(),
+            args: vec![old.arg(1).cloned().unwrap_or_else(null), Item::Ref(axis)],
+        };
+        let exclusive = self
+            .referrers(current)
+            .into_iter()
+            .all(|by| by == element || self.kind(by) == b"IFCLOCALPLACEMENT");
+        if exclusive {
+            self.put(current, placement);
+            self.collect(refs_in(&old.args), cx)?;
+        } else {
+            let id = self.add(placement);
+            stmt.set(6, Item::Ref(id));
+        }
+        Ok(true)
+    }
+
+    /// 階の高さ（10 Elevation）を直し、階の配置の z を同じだけ動かす。階に属する要素は配置の相対で付いてくる。
+    /// 今の高さがなければ、配置の z を今の高さとみなす
+    pub(in crate::edit) fn elevate(
+        &mut self,
+        storey: Target,
+        elevation: f64,
+        cx: &mut Cx,
+    ) -> Result<bool, Error> {
+        const EDIT: &str = "elevation";
+        let Some((id, mut stmt, _)) = self.object(storey, SPATIAL, EDIT, cx) else {
+            return Ok(false);
+        };
+        let kind = stmt.name.clone();
+        if kind != b"IFCBUILDINGSTOREY" {
+            cx.report(unsupported(EDIT, &kind).with("value", "storey"));
+            return Ok(false);
+        }
+        let Some(value) = real(elevation) else {
+            cx.report(unsupported(EDIT, &kind).with("value", "elevation"));
+            return Ok(false);
+        };
+        let located = self
+            .placement_of(id)
+            .and_then(|placement| self.stmt(placement))
+            .and_then(|placement| match placement.arg(2) {
+                Some(&Item::Ref(axis)) => self.axis_location(axis),
+                _ => None,
+            });
+        let Some((args, [x, y, z])) = located else {
+            cx.report(unsupported(EDIT, &kind).with("missing", "ObjectPlacement"));
+            return Ok(false);
+        };
+        let shift = elevation - number(stmt.arg(10)).unwrap_or(z);
+        let Some(axis) = self.moved_axis(args, [x, y, z + shift]) else {
+            cx.report(unsupported(EDIT, &kind).with("value", "elevation"));
+            return Ok(false);
+        };
+        self.reposition(id, &mut stmt, axis, cx)?;
+        stmt.set(10, value);
+        self.put(id, stmt);
+        Ok(true)
+    }
+
+    /// 層の使い方の層の材料。名前ごとに最初のもの
+    fn layer_materials(&self, usage: u64) -> BTreeMap<String, u64> {
+        let layers = self
+            .stmt(usage)
+            .and_then(|usage| match usage.arg(1) {
+                Some(&Item::Ref(set)) => self.stmt(set),
+                _ => None,
+            })
+            .and_then(|set| match set.arg(1) {
+                Some(Item::List(layers)) => Some(refs_in(layers)),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let mut found = BTreeMap::new();
+        for layer in layers {
+            let Some(Item::Ref(material)) =
+                self.stmt(layer).and_then(|layer| layer.arg(1).cloned())
+            else {
+                continue;
+            };
+            let name = self
+                .stmt(material)
+                .filter(|material| material.name == b"IFCMATERIAL")
+                .and_then(|material| material.arg(1).and_then(text_of));
+            if let Some(name) = name {
+                found.entry(name).or_insert(material);
+            }
+        }
+        found
+    }
+
+    /// 要素に穴をあける開口
+    fn openings_of(&self, element: u64) -> Vec<u64> {
+        self.referrers(element)
+            .into_iter()
+            .filter(|&rel| self.kind(rel) == VOIDS)
+            .filter_map(|rel| self.stmt(rel))
+            .filter(|rel| refs_of(rel.arg(5)) == [element])
+            .flat_map(|rel| refs_of(rel.arg(6)))
+            .collect()
+    }
+
+    /// 開口の `Body` のただ 1 つの押し出しと、その位置の引数と位置。層の範囲 `(near, far)` の遠い面から近い面へ
+    /// 押し出すものだけ
+    fn opening_solid(
+        &self,
+        opening: u64,
+        (near, far): (f64, f64),
+    ) -> Option<(u64, Vec<Item>, [f64; 3])> {
+        let stmt = self.stmt(opening)?;
+        let Some(&Item::Ref(shape)) = stmt.arg(7) else {
+            return None;
+        };
+        let Some(Item::List(representations)) = self.stmt(shape)?.arg(3).cloned() else {
+            return None;
+        };
+        let body = text("Body");
+        let mut bodies = refs_in(&representations)
+            .into_iter()
+            .filter_map(|representation| self.stmt(representation))
+            .filter(|representation| representation.arg(2) == Some(&body));
+        let found = bodies.next()?;
+        if bodies.next().is_some() {
+            return None;
+        }
+        let Some(Item::List(items)) = found.arg(4) else {
+            return None;
+        };
+        let [Item::Ref(solid)] = items.as_slice() else {
+            return None;
+        };
+        let solid = *solid;
+        let extrusion = self.stmt(solid)?;
+        if extrusion.name != b"IFCEXTRUDEDAREASOLID" || self.referrers(solid).len() != 1 {
+            return None;
+        }
+        let Some(&Item::Ref(position)) = extrusion.arg(2) else {
+            return None;
+        };
+        let (args, [x, y, z]) = self.axis_location(position)?;
+        let depth = number(extrusion.arg(4))?;
+        (same(y, far) && same(depth, far - near)).then_some((solid, args, [x, y, z]))
+    }
+
+    /// 開口の押し出しを、新しい層の範囲 `(near, far)` の遠い面から近い面へ押し出すように書き直す
+    fn follow_solid(
+        &mut self,
+        (solid, args, [x, _, z]): (u64, Vec<Item>, [f64; 3]),
+        (near, far): (f64, f64),
+        cx: &mut Cx,
+    ) -> Result<bool, Error> {
+        let (Some(mut stmt), Some(depth)) = (self.stmt(solid), real(far - near)) else {
+            return Ok(false);
+        };
+        let Some(axis) = self.moved_axis(args, [x, far, z]) else {
+            return Ok(false);
+        };
+        let old = refs_of(stmt.arg(2));
+        stmt.set(2, Item::Ref(axis));
+        stmt.set(4, depth);
+        self.put(solid, stmt);
+        self.collect(old, cx)?;
+        Ok(true)
+    }
+
+    /// 壁の芯・高さ・材料の層を直す。配置・表現・材料の層の使い方を書き直し、開口の奥行きを新しい層の範囲に
+    /// 合わせる。開口と建具は、壁の配置からの相対のまま付いてくる。同じ名前の材料は、元の `IfcMaterial` を使う
+    pub(in crate::edit) fn reshape_wall(
+        &mut self,
+        change: &WallChange,
+        cx: &mut Cx,
+    ) -> Result<bool, Error> {
+        const EDIT: &str = "wall_shape";
+        let Some(version) = self.version() else {
+            cx.report(unsupported(EDIT, b"IFCWALL"));
+            return Ok(false);
+        };
+        let Some((id, mut stmt, _)) = self.object(change.wall, ELEMENT, EDIT, cx) else {
+            return Ok(false);
+        };
+        let kind = stmt.name.clone();
+        let wall = NewWall {
+            storey: change.wall,
+            start: change.start,
+            end: change.end,
+            height: change.height,
+            layers: change.layers.clone(),
+            offset: change.offset,
+            name: None,
+            global_id: None,
+        };
+        let checked = if kind == b"IFCWALL" || kind == b"IFCWALLSTANDARDCASE" {
+            wall_shape(&wall)
+        } else {
+            Err("wall")
+        };
+        let shape = match checked {
+            Ok(shape) => shape,
+            Err(value) => {
+                cx.report(unsupported(EDIT, &kind).with("value", value));
+                return Ok(false);
+            }
+        };
+        let (Some(span), Some((relation, usage))) = (self.layer_span(id), self.layer_usage_of(id))
+        else {
+            cx.report(unsupported(EDIT, &kind).with("missing", "IfcMaterialLayerSetUsage"));
+            return Ok(false);
+        };
+        // 書き直す前に、どの開口も付いてこられるかを確かめる
+        let mut solids = Vec::new();
+        for opening in self.openings_of(id) {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, None))?;
+            let Some(solid) = self.opening_solid(opening, span) else {
+                cx.report(unsupported(EDIT, &kind).with("value", "opening"));
+                return Ok(false);
+            };
+            solids.push(solid);
+        }
+        let axis = self.axis_placement(&wall_local(&shape));
+        let representation = self.wall_representation(&shape);
+        let (Some(axis), Some(representation)) = (axis, representation) else {
+            cx.report(unsupported(EDIT, &kind).with("value", "geometry"));
+            return Ok(false);
+        };
+        if !self.reposition(id, &mut stmt, axis, cx)? {
+            cx.report(unsupported(EDIT, &kind).with("missing", "ObjectPlacement"));
+            return Ok(false);
+        }
+        let old = refs_of(stmt.arg(7));
+        stmt.set(7, Item::Ref(representation));
+        self.put(id, stmt);
+        self.collect(old, cx)?;
+        let known = self.layer_materials(usage);
+        let axis2 = (b".AXIS2.".as_slice(), b".POSITIVE.".as_slice());
+        let Some(written) =
+            self.layer_usage(version, &change.layers, axis2, shape.offset, known, cx)?
+        else {
+            cx.report(unsupported(EDIT, &kind).with("value", "layers"));
+            return Ok(false);
+        };
+        let Some(mut rel) = self.stmt(relation) else {
+            return Ok(false);
+        };
+        if refs_of(rel.arg(5)) == [id] {
+            rel.set(6, Item::Ref(written));
+            self.put(relation, rel);
+        } else {
+            // ほかの要素と共有する関係からは外し、この壁だけの関係で結ぶ
+            if let Some(Item::List(items)) = rel.args.get_mut(4) {
+                items.retain(|item| *item != Item::Ref(id));
+            }
+            self.put(relation, rel);
+            let Some(history) = self.history(EDIT, &kind, cx) else {
+                return Ok(false);
+            };
+            self.associate(id, written, history);
+        }
+        self.collect(vec![usage], cx)?;
+        let span = (shape.offset, shape.offset + shape.total);
+        for solid in solids {
+            if !self.follow_solid(solid, span, cx)? {
+                cx.report(unsupported(EDIT, &kind).with("value", "geometry"));
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// 開口の位置と大きさを直す。配置と `Body` を書き直し、埋める扉と窓の全体の高さと幅（9 OverallHeight・
+    /// 10 OverallWidth）のうち、書いてあるものも合わせる
+    pub(in crate::edit) fn reshape_opening(
+        &mut self,
+        change: &OpeningChange,
+        cx: &mut Cx,
+    ) -> Result<bool, Error> {
+        const EDIT: &str = "opening_shape";
+        let Some((id, mut stmt, _)) = self.object(change.opening, ELEMENT, EDIT, cx) else {
+            return Ok(false);
+        };
+        let kind = stmt.name.clone();
+        let checked = if kind != b"IFCOPENINGELEMENT" {
+            Err("opening")
+        } else if !(change.distance.is_finite() && change.sill.is_finite()) {
+            Err("position")
+        } else if !(positive(change.width) && positive(change.height)) {
+            Err("size")
+        } else {
+            Ok(())
+        };
+        if let Err(value) = checked {
+            cx.report(unsupported(EDIT, &kind).with("value", value));
+            return Ok(false);
+        }
+        let host = self
+            .referrers(id)
+            .into_iter()
+            .filter(|&rel| self.kind(rel) == VOIDS)
+            .filter_map(|rel| self.stmt(rel))
+            .find(|rel| refs_of(rel.arg(6)) == [id])
+            .and_then(|rel| match rel.arg(5) {
+                Some(&Item::Ref(host)) => Some(host),
+                _ => None,
+            });
+        let Some(span) = host.and_then(|host| self.layer_span(host)) else {
+            cx.report(unsupported(EDIT, &kind).with("missing", "IfcMaterialLayerSetUsage"));
+            return Ok(false);
+        };
+        let axis = self.axis_placement(&opening_local(change.distance, change.sill));
+        let shape = self.opening_body(span, [change.width, change.height]);
+        let (Some(axis), Some(shape)) = (axis, shape) else {
+            cx.report(unsupported(EDIT, &kind).with("value", "geometry"));
+            return Ok(false);
+        };
+        if !self.reposition(id, &mut stmt, axis, cx)? {
+            cx.report(unsupported(EDIT, &kind).with("missing", "ObjectPlacement"));
+            return Ok(false);
+        }
+        let old = refs_of(stmt.arg(7));
+        stmt.set(7, Item::Ref(shape));
+        self.put(id, stmt);
+        self.collect(old, cx)?;
+        let fillers: Vec<u64> = self
+            .referrers(id)
+            .into_iter()
+            .filter(|&rel| self.kind(rel) == FILLS)
+            .filter_map(|rel| self.stmt(rel))
+            .filter(|rel| refs_of(rel.arg(5)) == [id])
+            .flat_map(|rel| refs_of(rel.arg(6)))
+            .collect();
+        for filler in fillers {
+            let Some(mut stmt) = self.stmt(filler) else {
+                continue;
+            };
+            if stmt.name != b"IFCDOOR" && stmt.name != b"IFCWINDOW" {
+                continue;
+            }
+            for (at, value) in [(9, change.height), (10, change.width)] {
+                let written = stmt.arg(at).is_some_and(|item| *item != null());
+                if let (true, Some(value)) = (written, real(value)) {
+                    stmt.set(at, value);
+                }
+            }
+            self.put(filler, stmt);
+        }
+        Ok(true)
+    }
+
+    /// 開口の `Body`。幅と高さの矩形を要素の XZ に置き（断面の y を要素の z）、層の範囲 `(near, far)` の遠い面から
+    /// 近い面へ押し出す
+    fn opening_body(&mut self, (near, far): (f64, f64), [w, h]: [f64; 2]) -> Option<u64> {
+        let position = Transform([
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, -1.0, far],
+            [0.0, 1.0, 0.0, 0.0],
+        ]);
+        self.body_shape(
+            &[[0.0, 0.0], [w, 0.0], [w, h], [0.0, h]],
+            &position,
+            [0.0, 0.0, 1.0],
+            far - near,
+        )
     }
 
     /// 5 Relating・6 Related の 1 対 1 の関係を足す

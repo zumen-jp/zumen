@@ -10,7 +10,8 @@ mod author;
 
 pub use author::{
     FillingKind, NewBeam, NewColumn, NewElement, NewFilling, NewGrid, NewGridAxis, NewLayer,
-    NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall, SpaceKind, Target,
+    NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall, OpeningChange, SpaceKind,
+    Target, WallChange,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -67,6 +68,17 @@ pub enum Edit {
     Filling(NewFilling),
     /// U と V の軸で通り芯（`IfcGrid`）を足し、空間に包含で結ぶ
     Grid(NewGrid),
+    /// 階の高さ（`Elevation`）を直し、階の配置の z を同じだけ動かす。階に属する要素は配置の相対で付いてくる
+    Elevation {
+        /// 直す階（`IfcBuildingStorey`）
+        storey: Target,
+        /// 新しい高さ（文書の長さの単位）
+        elevation: f64,
+    },
+    /// 壁の芯・高さ・材料の層を直す。開口と建具は配置の相対で付いてきて、開口の奥行きは新しい層の範囲に合わせる
+    WallShape(WallChange),
+    /// 開口の位置と大きさを直す。埋める扉や窓の全体の幅と高さも合わせる
+    OpeningShape(OpeningChange),
     /// 要素を除く。要素だけが使う配置・表現・定義・関係と、要素の開口も除く。子や所属する要素を持つ空間は除かない
     Remove {
         /// 除く要素
@@ -131,6 +143,9 @@ impl Edit {
             Self::Opening(_) => "opening",
             Self::Filling(_) => "filling",
             Self::Grid(_) => "grid",
+            Self::Elevation { .. } => "elevation",
+            Self::WallShape(_) => "wall_shape",
+            Self::OpeningShape(_) => "opening_shape",
             Self::Remove { .. } => "remove",
             Self::Place { .. } => "place",
             Self::Contain { .. } => "contain",
@@ -217,6 +232,9 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
             Edit::Opening(opening) => draft.add_opening(opening, cx)?,
             Edit::Filling(filling) => draft.add_filling(filling, cx)?,
             Edit::Grid(grid) => draft.add_grid(grid, cx)?,
+            Edit::Elevation { storey, elevation } => draft.elevate(*storey, *elevation, cx)?,
+            Edit::WallShape(change) => draft.reshape_wall(change, cx)?,
+            Edit::OpeningShape(change) => draft.reshape_opening(change, cx)?,
             Edit::Remove { element } => draft.remove(*element, cx)?,
             Edit::Place { element, placement } => draft.place(*element, placement, cx)?,
             Edit::Contain { element, space } => draft.contain(*element, *space, cx)?,
