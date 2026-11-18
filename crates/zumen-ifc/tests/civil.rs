@@ -486,3 +486,156 @@ fn geographic_projected_crs_is_rejected() {
         );
     }
 }
+
+/// 同じ線形に、追加距離 20 m と 140 m の横断を足した J-LandXML。20 m は幅 3.5 m・2 % の拝み勾配、140 m は
+/// 中心から左へ斜めに 3 m・6 % の片勾配。高さは計画高からの差
+#[cfg(test)]
+fn landxml_cross() -> String {
+    let rise = 3.0 * libm::sin(libm::atan(0.06));
+    let run = 3.0 * libm::cos(libm::atan(0.06));
+    LANDXML.replace(
+        "      </Profile>\n",
+        &format!(
+            r#"      </Profile>
+      <CrossSects name="横断">
+        <CrossSect sta="1020">
+          <DesignCrossSectSurf name="舗装">
+            <CrossSectPnt>-3.5 -0.07</CrossSectPnt><CrossSectPnt>0 0</CrossSectPnt><CrossSectPnt>3.5 -0.07</CrossSectPnt>
+            <Feature><Property label="heightType" value="fhOffset"/></Feature>
+          </DesignCrossSectSurf>
+        </CrossSect>
+        <CrossSect sta="1140">
+          <DesignCrossSectSurf name="舗装">
+            <CrossSectPnt>0 0</CrossSectPnt><CrossSectPnt>{:?} {rise:?}</CrossSectPnt>
+            <Feature><Property label="heightType" value="fhOffset"/></Feature>
+          </DesignCrossSectSurf>
+        </CrossSect>
+      </CrossSects>
+"#,
+            -run
+        ),
+    )
+}
+
+/// 同じ横断の IFC4.3。線形の表現に `IfcGradientCurve` を置き、舗装の `IfcSectionedSurface` の準線にする。
+/// 140 m の断面は後ろに書き、幅を勾配に沿って測る。`scale` は長さの単位、`angle` は 1 ラジアンの角の値
+#[cfg(test)]
+fn ifc_cross(units: &str, scale: f64, angle: f64) -> String {
+    let slope = libm::atan(0.02);
+    let records = format!(
+        "#100=IFCPRODUCTDEFINITIONSHAPE($,$,(#101));
+#101=IFCSHAPEREPRESENTATION(#20,'Axis','Curve3D',(#102));
+#102=IFCGRADIENTCURVE((),.F.,#103,$);
+#103=IFCCOMPOSITECURVE((),.F.);
+#110=IFCPAVEMENT('0000000000000000000110',$,'舗装',$,$,#41,#111,$,$);
+#111=IFCPRODUCTDEFINITIONSHAPE($,$,(#112));
+#112=IFCSHAPEREPRESENTATION(#20,'Body','SectionedSurface',(#113));
+#113=IFCSECTIONEDSURFACE(#102,(#121,#123),(#131,#130));
+#120=IFCPOINTBYDISTANCEEXPRESSION(IFCLENGTHMEASURE({:?}),$,$,$,#102);
+#121=IFCAXIS2PLACEMENTLINEAR(#122,$,$);
+#122=IFCPOINTBYDISTANCEEXPRESSION(IFCLENGTHMEASURE({:?}),$,$,$,#102);
+#123=IFCAXIS2PLACEMENTLINEAR(#120,$,$);
+#130=IFCOPENCROSSPROFILEDEF(.CURVE.,$,.T.,({:?},{:?}),({:?},{:?}),$,#132);
+#131=IFCOPENCROSSPROFILEDEF(.CURVE.,$,.F.,({:?}),({:?}),$,$);
+#132=IFCCARTESIANPOINT(({:?},{:?}));",
+        20.0 * scale,
+        140.0 * scale,
+        3.5 * scale,
+        3.5 * scale,
+        (core::f64::consts::PI - slope) * angle,
+        (core::f64::consts::PI + slope) * angle,
+        3.0 * scale,
+        libm::atan(0.06) * angle,
+        3.5 * scale,
+        -0.07 * scale,
+    );
+    ifc(units, MAP, scale)
+        .replace("#41,$,.USERDEFINED.", "#41,#100,.USERDEFINED.")
+        .replace("ENDSEC;\nEND-ISO", &format!("{records}\nENDSEC;\nEND-ISO"))
+}
+
+/// 横断が、J-LandXML から移したものと同じか
+#[cfg(test)]
+fn same_cross_sections(ifc: &CivilModel, landxml: &CivilModel) {
+    let (a, b) = (&ifc.alignments[0], &landxml.alignments[0]);
+    assert_eq!(a.cross_sections.len(), 2, "{:?}", a.cross_sections);
+    assert_eq!(a.cross_sections.len(), b.cross_sections.len());
+    for (p, q) in a.cross_sections.iter().zip(&b.cross_sections) {
+        assert!(
+            near(p.distance, q.distance),
+            "{} {}",
+            p.distance,
+            q.distance
+        );
+        assert_eq!(p.lines.len(), q.lines.len());
+        for (l, m) in p.lines.iter().zip(&q.lines) {
+            assert_eq!(l.name, m.name);
+            assert_eq!(l.role, m.role);
+            assert_eq!(l.height_reference, m.height_reference);
+            assert_eq!(l.points.len(), m.points.len(), "{l:?} {m:?}");
+            for (s, t) in l.points.iter().zip(&m.points) {
+                assert!(near(s[0], t[0]) && near(s[1], t[1]), "{s:?} {t:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn open_cross_profiles_move_like_the_same_landxml() {
+    let landxml = with_cx(|cx| {
+        let text = landxml_cross();
+        let file = LandXml::read(text.as_bytes(), cx).unwrap();
+        file.lift(cx).unwrap()
+    })
+    .0;
+    let (model, diag) = from_ifc(&ifc_cross(METRE, 1.0, 1.0));
+    assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
+    same_cross_sections(&model, &landxml);
+    let units = "#10=IFCUNITASSIGNMENT((#11,#12));
+#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#12=IFCCONVERSIONBASEDUNIT(#13,.PLANEANGLEUNIT.,'degree',#14);
+#13=IFCDIMENSIONALEXPONENTS(0,0,0,0,0,0,0);
+#14=IFCMEASUREWITHUNIT(IFCPLANEANGLEMEASURE(0.017453292519943295),#15);
+#15=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);";
+    let (model, diag) = from_ifc(&ifc_cross(units, 1000.0, 180.0 / core::f64::consts::PI));
+    assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
+    same_cross_sections(&model, &landxml);
+}
+
+#[test]
+fn cross_sections_that_cannot_be_placed_are_dropped() {
+    let codes_of = |text: &str| {
+        let (model, diag) = from_ifc(text);
+        assert!(model.alignments[0].cross_sections.is_empty());
+        diag.iter().map(|d| d.code()).collect::<Vec<Code>>()
+    };
+    let base = ifc_cross(METRE, 1.0, 1.0);
+    // 準線が線形の表現にない
+    let text = base.replace(",(#102));", ",());");
+    let codes = codes_of(&text);
+    assert!(
+        !codes.is_empty()
+            && codes
+                .iter()
+                .all(|c| *c == codes::IFC_CIVIL_GEOMETRY_DROPPED)
+    );
+    // 横へずらした位置
+    let text = base.replace(
+        "IFCLENGTHMEASURE(20.0),$,$,$",
+        "IFCLENGTHMEASURE(20.0),1.,$,$",
+    );
+    assert!(codes_of(&text).contains(&codes::IFC_ATTRIBUTE_INVALID));
+    // 鉛直でない軸
+    let text = base.replace(
+        "#121=IFCAXIS2PLACEMENTLINEAR(#122,$,$);",
+        "#121=IFCAXIS2PLACEMENTLINEAR(#122,#124,$);\n#124=IFCDIRECTION((0.,1.,0.));",
+    );
+    assert!(codes_of(&text).contains(&codes::IFC_PLACEMENT_UNSUPPORTED));
+    // 水平の幅で、鉛直の勾配
+    let text = base.replace(
+        &format!("{:?}),$,$);", libm::atan(0.06)),
+        &format!("{:?}),$,$);", core::f64::consts::FRAC_PI_2),
+    );
+    let text = text.replace(".CURVE.,$,.F.,", ".CURVE.,$,.T.,");
+    assert!(codes_of(&text).contains(&codes::IFC_ATTRIBUTE_INVALID));
+}

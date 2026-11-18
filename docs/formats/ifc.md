@@ -109,6 +109,19 @@ cargo test -p zumen-ifc --test text_encoding -- --nocapture
 
 `local_metadata_audit` は入力の順番・大きさ・件数・種類と往復の成否だけを出します。入力の名前や属性値は出しません。B01〜B04 を直下に置いた場合のテストも、件数だけを出力します。
 
+## 土木の領域モデルへ移すとき
+
+IFC4.3 の線形・地表面・横断を、J-LandXML と同じ土木の領域モデルに移します（`crates/zumen-ifc/src/civil.rs`、#375・#477・#478）。ここでは横断の規則を記録します。
+
+- `IfcSectionedSurface` の `IfcOpenCrossProfileDef` を、線形の横断の線にする。準線（Directrix）は、線形の表現の項目にある `IfcGradientCurve` に限る。ほかの準線と、`IfcSectionedSolidHorizontal`・閉じた断面は移さず、`ifc.civil-geometry.dropped` を返す（決定 0235）。
+- 断面の位置は、`IfcAxis2PlacementLinear` の `IfcPointByDistanceExpression` の DistanceAlong を、線形の追加距離にする。勾配の曲線の DistanceAlong は平面の曲線の長さで測る。位置の横・鉛直・前後のずれは仕様が禁じる（`NoOffsets`）ので、書いてあれば `ifc.attribute.invalid` を返す。Axis は鉛直だけを受け付け、RefDirection を書いた位置は `ifc.placement.unsupported` を返す。
+- 断面の点は、OffsetPoint（なければ断面の原点）から始め、幅と勾配の角でたどる。角は断面の x 軸から反時計回りで、平面角の単位で読む。HorizontalWidths が真なら幅は水平の長さ、偽なら勾配に沿った長さ。真で鉛直の勾配は `ifc.attribute.invalid` を返す。
+- 断面の x 軸は、準線の進む向きに対して左を向き、y 軸は上を向く（`IfcOpenCrossProfileDef` の定義）。横断の線は右を正にするので、x の符号を変える。断面の原点は準線の上の計画高なので、高さは計画高からの差（`CrossSectionHeight::FormationOffset`）にする。`IfcMapConversion` の Scale を離れに、ScaleZ を高さに掛ける。
+- 線の名前は ProfileName、なければ面を持つ要素の Name。役割は計画（`SurfaceRole::Design`）。同じ追加距離の断面は 1 つの横断にまとめる。Tags は読まない。
+- 1 つの断面でも移せなければ、その面の断面をどれも移さない。使わなかった `IfcOpenCrossProfileDef` は `ifc.civil-geometry.dropped` を返す。
+
+試験（`crates/zumen-ifc/tests/civil.rs`）では、拝み勾配と斜めの幅の片勾配の 2 断面を、メートル・ラジアンとミリメートル・度の IFC4.3 で作り、同じ横断の J-LandXML から移した離れと高さに一致することを確かめます。公開原本 [IfcSectionedSurface_Superelevation.ifc](https://github.com/RickBrice/IFC-Alignment-Geometry-Implementation-Guide/blob/fd8776fc8f0a76e63cd42963a904549ab3997b62/examples/IfcSectionedSurface_Superelevation.ifc)（フィート・ラジアン、SHA-256 `f807c485…75d5`）は配布元を参照し、同梱しません。手元で読むと 6 断面を診断なしで移し、左へ曲がる円弧の片勾配で右が高くなりました。断面の左右の向きは、これと仕様の文で確かめました。外部の実装との照合はまだです（#504）。
+
 ## 建物モデルへ移すとき
 
 - L1 はスキーマを仮定せずに元の文と参照を保持する。L2 は要素に意味ごとのコンポーネントを結び、持つコンポーネントだけを種類の名前とともにハッシュに入れる。正しい GlobalId の初出ではその値を ID に使う。GlobalId がない場合は `i<インスタンス番号>` にし、不正な値では `building.global-id.invalid`、後出の重複値では `building.global-id.exists` を返して、どちらも同じインスタンス番号の規則で ID を作る。値と参照の具体例は [建物の適合テスト](../../bindings/conformance/cases/building.json) にある。
