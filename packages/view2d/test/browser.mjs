@@ -18,6 +18,7 @@ import { testSnap } from "./snap.mjs";
 import { testTools } from "./tools.mjs";
 import { testUnderlays } from "./underlays.mjs";
 import { testCalibration, testCalibrationCore } from "./calibration.mjs";
+import { testReviewCore, testReviewStore } from "./review.mjs";
 
 export async function testView2D(wasmPath, inputs, calibrationInput) {
   let assertions = 0;
@@ -44,6 +45,7 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   testSnap({ assert, near });
   testTools({ assert, near, throws });
   testCalibration({ assert, throws });
+  testReviewStore({ assert, throws });
   await testUnderlays({ assert, near, throws });
   const canvas = document.createElement("canvas");
   document.body.append(canvas);
@@ -192,6 +194,7 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   const zumen = await load(fetch(wasmPath));
   testCalibrationCore(zumen, calibrationInput, { assert });
   testPlacedSelection(zumen, { assert, throws });
+  testReviewCore(zumen, { assert });
   const formats = [];
   for (const source of inputs) {
     const session = zumen.open();

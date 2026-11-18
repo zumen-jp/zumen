@@ -328,6 +328,35 @@ viewer.destroy();
 
 非同期の結果も、描画と状態を更新してから通知します。例外の本文は状態へ写しません。解放の失敗は、その資源や画素の要求に対応させます。再表示、再読込、表示範囲の変更で次の要求へ移った後に古い解放が失敗しても、新しい画像は表示を続けます。寿命と上限の判断は[2D の表示部品](../../docs/view2d.md) にあります。
 
+## レビューの図形と指摘
+
+`ReviewStore` は、[レビューの文書](../../docs/formats/review.md)の赤入れ・変更雲・注記・写真位置と指摘の場所を編集する状態です。描画と文書全体の検査はコアの `review_scene` に任せ、ここでは文書の値・選択・絞り込み・取り消しの履歴だけを持ちます。文言・作者・時刻・ID・保存先は利用側から渡し、文書をどこへも送りません。
+
+```js
+import { readScene } from "@zumen-jp/zumen";
+import { ReviewStore, reviewReference } from "@zumen-jp/view2d";
+
+let draws = 0;
+const store = new ReviewStore(savedJson, { createId: () => crypto.randomUUID(), stamp: () => ({ author: user, time: new Date().toISOString() }) });
+store.addMarkup({ kind: "cloud", target: "plan", view: "space/0", points: [[0, 0], [10, 0], [10, 10]] });
+// 同じ名前への push は続きとして足すため、描くたびに名前を変える
+const name = `review-${++draws}.json`;
+session.push(name, new TextEncoder().encode(store.filteredJSON()));
+const { result } = session.call({ v: 1, op: "review_scene", doc: "plan.dxf", review: name, target: "plan", from: "space/0", tolerance: 0.01, style });
+reviewLayer.setScene({ scene: readScene(session.take(result.blob)), result, document });
+const hit = reviewLayer.hitTest(point)[0];
+const source = result.sources.find((s) => s.id === hit?.id);
+if (source) store.select([reviewReference(source)]);
+```
+
+- 追加・変更・削除は凍結した新しい文書を作り、文書にある未知のキー・3D の場所・コメント・移した状態（`carried`）を保ちます。編集で変えられるのは既知のキーだけです。`null` は省略できるキーを消します。
+- `createId` は ID を渡さない追加で、値の検査を通った後に呼びます。重複は `RangeError` です。`stamp` の作者と時刻は、指摘の追加で `author`・`created`、変更で `modified_by`・`modified` に書きます。
+- 図形が参照する指摘は消せません。`batch` の変更は 1 回で戻し、例外なら変更をすべて捨てます。履歴は既定で 256 段、文書の項目は 100,000 件までです（`limits`）。
+- `items()` は絞り込みに合う図形と 2D の場所を `review_scene` と同じ順で返し、`sceneId` は結果の `sources[].id` と一致します。`filteredJSON()` は絞り込みに合わない図形と 2D の場所だけを除いた文書で、描画に使います。保存には `toJSON()` を使います。
+- 購読は `subscribe`（状態）か `on("document" | "selection" | "filter" | "history")` です。通知の中で状態を変えると `RangeError` です。
+
+レビューのシーンは図面とは別の `View2D` か、同じ大きさの Canvas を重ねて描きます。対象のハッシュが図面と合わない文書は、コアが `review.target.stale` で描きません。
+
 ## 入力の検査と上限
 
 列の型・行数・単調な始まり・参照先・文字列の範囲・座標の有限性を確かめます。座標などの数値の絶対値は、変換の計算がオーバーフローしないよう `1e150` 以下に制限します。`text_second` の未指定の組 `[NaN, NaN]` は正規の値として扱います。応答の件数も列と照らします。未知のメジャー・マイナーバージョンは、知らない描画内容を黙って落とさず拒否します。不正な値や上限の超過は `RangeError` になり、`setScene` の検査に失敗しても現在の組と画面を保ちます。

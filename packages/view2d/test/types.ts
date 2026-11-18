@@ -1,4 +1,5 @@
-import type { MeasureDistanceResult, Response, Scene, SceneResult, Session } from "@zumen-jp/zumen";
+import type { MeasureDistanceResult, Response, ReviewSceneResult, Scene, SceneResult, Session } from "@zumen-jp/zumen";
+import { ReviewStore, reviewReference, reviewSceneId, type ReviewRef, type ReviewStoreState } from "../src/index.js";
 import { measureDistance, View2D, VIEW_SCALE_LIMITS, type CalibratedDistanceResult, type Camera, type RenderIssue, type View2DState, type View2DEvent } from "../src/index.js";
 
 declare const scene: Scene;
@@ -126,3 +127,18 @@ start.offset.x = 0;
 viewer.attachInput(new OffscreenCanvas(100, 100));
 // @ts-expect-error 独自ツールには入力の関数が要る
 viewer.addTool("invalid", {});
+
+declare const reviewResult: ReviewSceneResult;
+const store = new ReviewStore('{"format":"zumen-review","version":1}', { createId: () => crypto.randomUUID(), stamp: () => ({ author: "a", time: "t" }) });
+const topicId: string = store.addTopic({ title: "t", status: "open" });
+store.addLocation(topicId, { target: "plan", view: "space/0", pin: [0, 0] });
+const markupId: string = store.addMarkup({ kind: "cloud", target: "plan", points: [[0, 0], [1, 1]], topic: topicId });
+store.updateMarkup(markupId, { text: null, points: [[0, 0]] });
+store.batch(() => store.removeMarkup(markupId));
+store.on("document", (event) => { const reason: string = event.change.reason; void reason; });
+const reviewState: ReviewStoreState = store.getState();
+const reviewRefs: ReviewRef[] = reviewResult.sources.map(reviewReference);
+store.select(reviewRefs, "toggle");
+store.setFilter({ kinds: ["location"], statuses: ["open"] });
+const sceneIds: string[] = store.items().map((item) => item.sceneId).concat(reviewRefs.map(reviewSceneId));
+void reviewState; void sceneIds; void store.filteredJSON();

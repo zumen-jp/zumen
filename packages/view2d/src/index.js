@@ -11,6 +11,7 @@ import { Underlays } from "./underlays.js";
 import { calibratedMeasurement, calibrationOf } from "./calibration.js";
 export { findSource } from "./source.js";
 export { measureDistance } from "./calibration.js";
+export { ReviewStore, reviewReference, reviewSceneId } from "./review.js";
 export { VIEW_SCALE_LIMITS };
 
 const EMPTY_REPORT = Object.freeze({ drawn: Object.freeze({ lines: 0, faces: 0, texts: 0, points: 0, images: 0, glyphs: 0 }), issues: Object.freeze([]) });

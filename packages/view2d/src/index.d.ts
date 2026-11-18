@@ -1,4 +1,4 @@
-import type { Budget, Extent, Response, Scene, SceneCounts, SceneResult, Session, Source } from "@zumen-jp/zumen";
+import type { Budget, Extent, ReviewSceneSource, Response, Scene, SceneCounts, SceneResult, Session, Source } from "@zumen-jp/zumen";
 
 export interface Point { readonly x: number; readonly y: number }
 /** 起点の座標の中心、CSS px / 起点の長さ、反時計回りのラジアン。 */
@@ -319,3 +319,100 @@ export declare class View2D {
   /** 冪等。ほかのメソッドは破棄後に Error を返す。 */
   destroy(): void;
 }
+
+/** レビューの文書の項目の参照。場所は指摘の ID と組にする */
+export type ReviewRef =
+  | { readonly kind: "markup"; readonly id: string }
+  | { readonly kind: "location"; readonly topic: string; readonly id: string };
+export type ReviewJson = null | boolean | number | string | readonly ReviewJson[] | { readonly [key: string]: ReviewJson };
+export type ReviewMarkupKind = "redline" | "cloud" | "text" | "photo";
+export type ReviewStatus = "open" | "resolved" | "closed";
+export interface ReviewMarkup {
+  readonly id: string; readonly kind: ReviewMarkupKind; readonly target: string; readonly view?: string;
+  readonly points: readonly (readonly [number, number])[]; readonly text?: string; readonly topic?: string;
+  readonly [key: string]: unknown;
+}
+export interface ReviewLocation {
+  readonly id: string; readonly target: string; readonly kind: "2d" | "3d"; readonly view?: string;
+  readonly pin?: readonly [number, number]; readonly extent?: readonly [number, number, number, number];
+  readonly [key: string]: unknown;
+}
+export interface ReviewTopic {
+  readonly id: string; readonly title: string; readonly status: ReviewStatus; readonly locations?: readonly ReviewLocation[];
+  readonly [key: string]: unknown;
+}
+export interface ReviewDocument {
+  readonly format: "zumen-review"; readonly version: number;
+  readonly targets?: readonly { readonly id: string; readonly [key: string]: unknown }[];
+  readonly topics?: readonly ReviewTopic[]; readonly markups?: readonly ReviewMarkup[];
+  readonly [key: string]: unknown;
+}
+type ReviewNullable<T> = { [K in keyof T]?: T[K] | null };
+export interface ReviewMarkupInput {
+  id?: string; kind: ReviewMarkupKind; target: string; view?: string; points: readonly (readonly [number, number])[];
+  text?: string; topic?: string;
+}
+export type ReviewMarkupPatch = ReviewNullable<Omit<ReviewMarkupInput, "id">>;
+export interface ReviewTopicInput {
+  id?: string; title: string; status: ReviewStatus; description?: string; status_label?: string; kind?: string;
+  priority?: string; labels?: readonly string[]; assignee?: string; due?: string;
+}
+export type ReviewTopicPatch = ReviewNullable<Omit<ReviewTopicInput, "id">>;
+export interface ReviewLocationInput {
+  id?: string; kind?: "2d"; target: string; view?: string; pin?: readonly [number, number];
+  extent?: readonly [number, number, number, number];
+}
+export type ReviewLocationPatch = ReviewNullable<Omit<ReviewLocationInput, "id" | "kind">>;
+export interface ReviewFilter {
+  targets?: readonly string[]; views?: readonly string[]; kinds?: readonly (ReviewMarkupKind | "location")[];
+  topics?: readonly string[]; statuses?: readonly ReviewStatus[];
+}
+export interface ReviewItem {
+  readonly ref: ReviewRef; readonly item: ReviewMarkup | ReviewLocation; readonly topic?: ReviewTopic;
+  /** review_scene の sources の id と同じ */
+  readonly sceneId: string;
+}
+export interface ReviewStoreState {
+  readonly document: ReviewDocument; readonly selection: readonly ReviewRef[]; readonly filter: Readonly<ReviewFilter>;
+  readonly revision: number; readonly canUndo: boolean; readonly canRedo: boolean;
+}
+export type ReviewChangeReason = "add" | "update" | "remove" | "batch" | "undo" | "redo" | "load";
+export type ReviewStoreEvent =
+  | { readonly type: "document"; readonly state: ReviewStoreState; readonly change: { readonly reason: ReviewChangeReason; readonly items: readonly ReviewRef[] } }
+  | { readonly type: "selection" | "filter" | "history"; readonly state: ReviewStoreState };
+export interface ReviewStoreOptions {
+  /** 新しい項目の ID。省略すると、ID を渡さない追加は RangeError */
+  createId?: () => string;
+  /** 指摘の作者と時刻。省略すると付けない */
+  stamp?: () => { author?: string; time?: string };
+  limits?: { history?: number; items?: number };
+}
+/** レビューの文書の編集の状態。描画はコアの review_scene に任せ、文書をどこへも送らない */
+export declare class ReviewStore {
+  constructor(document: string | ReviewDocument, options?: ReviewStoreOptions);
+  getState(): ReviewStoreState;
+  getDocument(): ReviewDocument;
+  subscribe(listener: (state: ReviewStoreState) => void): () => void;
+  on<T extends ReviewStoreEvent["type"]>(type: T, listener: (event: Extract<ReviewStoreEvent, { type: T }>) => void): () => void;
+  toJSON(): string;
+  /** 絞り込みに合う図形と 2D の場所だけを残した文書。review_scene に渡す */
+  filteredJSON(): string;
+  load(document: string | ReviewDocument): void;
+  batch<T>(fn: (store: this) => T): T;
+  addMarkup(markup: ReviewMarkupInput): string;
+  updateMarkup(id: string, patch: ReviewMarkupPatch): void;
+  removeMarkup(id: string): void;
+  addTopic(topic: ReviewTopicInput): string;
+  updateTopic(id: string, patch: ReviewTopicPatch): void;
+  removeTopic(id: string): void;
+  addLocation(topic: string, location: ReviewLocationInput): string;
+  updateLocation(topic: string, id: string, patch: ReviewLocationPatch): void;
+  removeLocation(topic: string, id: string): void;
+  undo(): boolean;
+  redo(): boolean;
+  select(refs: readonly ReviewRef[], mode?: "replace" | "add" | "remove" | "toggle"): void;
+  setFilter(filter: ReviewFilter): void;
+  items(): readonly ReviewItem[];
+}
+export declare function reviewReference(source: ReviewSceneSource): ReviewRef;
+export declare function reviewSceneId(ref: ReviewRef): string;
