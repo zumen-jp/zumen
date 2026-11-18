@@ -7,8 +7,8 @@ use zumen_building::{
     Transform,
 };
 use zumen_ifc::{
-    Edit, Ifc, IfcFile, IfcLive, NewElement, NewLayer, NewPlacement, NewSpace, NewWall,
-    RootAttribute, SpaceKind, Target, apply,
+    Edit, Ifc, IfcFile, IfcLive, NewBeam, NewColumn, NewElement, NewLayer, NewPlacement,
+    NewSection, NewSlab, NewSpace, NewWall, RootAttribute, SpaceKind, Target, apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -861,4 +861,289 @@ fn removes_a_wall_with_its_shape_and_layers_but_keeps_the_materials() {
     }
     assert_eq!(count(&removed, "IFCMATERIAL"), 2);
     assert_eq!(count(&removed, "IFCGEOMETRICREPRESENTATIONSUBCONTEXT"), 2);
+}
+
+/// 空間 `storey` の 6000×4000 で 2 層（コンクリート 200・仕上げ 50）の床
+fn slab(n: u32, storey: Target) -> NewSlab {
+    NewSlab {
+        storey,
+        outline: vec![[0.0, 0.0], [6000.0, 0.0], [6000.0, 4000.0], [0.0, 4000.0]],
+        layers: vec![layer("Concrete", 200.0), layer("Finish", 50.0)],
+        elevation: None,
+        name: Some(format!("S{n}")),
+        global_id: Some(global(n)),
+    }
+}
+
+/// 空間 `storey` の原点の、高さ 2800 で 400×600 の、y 軸を向く柱
+fn column(n: u32, storey: Target) -> NewColumn {
+    NewColumn {
+        storey,
+        position: [0.0, 0.0],
+        base: None,
+        height: 2800.0,
+        section: NewSection {
+            width: 400.0,
+            depth: 600.0,
+        },
+        direction: Some([0.0, 1.0]),
+        material: Some("Concrete".to_owned()),
+        name: Some(format!("C{n}")),
+        global_id: Some(global(n)),
+    }
+}
+
+/// 空間 `storey` の高さ 2800 の、x 軸に沿う長さ 6000 で 300×600 の梁
+fn beam(n: u32, storey: Target) -> NewBeam {
+    NewBeam {
+        storey,
+        start: [0.0, 0.0, 2800.0],
+        end: [6000.0, 0.0, 2800.0],
+        section: NewSection {
+            width: 300.0,
+            depth: 600.0,
+        },
+        material: Some("Steel".to_owned()),
+        name: Some(format!("B{n}")),
+        global_id: Some(global(n)),
+    }
+}
+
+/// 建物と高さ 3000 の階を足し、その階に床・柱・梁を足す変更
+fn frame_edits() -> Vec<Edit> {
+    let mut edits = wall_edits();
+    edits.truncate(2);
+    edits.extend([
+        Edit::Slab(slab(400, Target::Added(1))),
+        Edit::Column(column(401, Target::Added(1))),
+        Edit::Beam(beam(402, Target::Added(1))),
+    ]);
+    edits
+}
+
+/// 要素 `n` の `Body` の押し出しの向きと深さ
+fn extrusions(bytes: &[u8], n: u32) -> Option<Vec<([f64; 3], f64)>> {
+    let file = read(bytes)?;
+    let text = String::from_utf8(bytes.to_vec()).ok()?;
+    let id = instance_of(&text, n)?;
+    let (shape, _) = with(|cx| file.product_shape(id, cx));
+    let found = shape
+        .ok()?
+        .nodes
+        .iter()
+        .filter_map(|node| with(|cx| file.extruded_area(node, cx)).0.ok())
+        .map(|area| (area.definition.direction, area.definition.depth))
+        .collect();
+    Some(found)
+}
+
+fn local(building: &Building, element: ElementRef) -> Option<[[f64; 4]; 3]> {
+    let placement = building.components.placement.get(element)?;
+    match &placement.local {
+        Local::Transform(t) => Some(t.0),
+        _ => None,
+    }
+}
+
+#[test]
+fn adds_slabs_columns_and_beams_from_intent_values_in_every_version() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let (result, codes) = run(src.as_bytes(), &frame_edits());
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = result.unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        let building = lift(&bytes).unwrap();
+        let storey = element(&building, 101).unwrap();
+        let [slab, column, beam] = [400, 401, 402].map(|n| element(&building, n).unwrap());
+        for (element, name) in [(slab, "IfcSlab"), (column, "IfcColumn"), (beam, "IfcBeam")] {
+            let class = building.components.class.get(element).unwrap();
+            assert_eq!(class.name, name, "{schema}");
+            let parent = building.components.parent.get(element).unwrap();
+            let of = parent.of.as_ref().unwrap();
+            assert_eq!((of.target, of.kind), (storey, ParentKind::Contained));
+        }
+        let class = building.components.class.get(slab).unwrap();
+        assert_eq!(class.predefined.as_deref(), Some("FLOOR"), "{schema}");
+        // 床は上の面から層の厚さの合計だけ下へ押し出し、層は上から下へ並べる
+        assert_eq!(
+            local(&building, slab),
+            Some([
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0]
+            ])
+        );
+        assert_eq!(
+            extrusions(&bytes, 400).unwrap(),
+            [([0.0, 0.0, -1.0], 250.0)]
+        );
+        let material = building.components.material.get(slab).unwrap();
+        assert_eq!(material.kind, MaterialKind::Layers);
+        assert_eq!(material.direction.as_deref(), Some("AXIS3"));
+        assert_eq!(material.offset.as_ref().map(|m| m.value), Some(0.0));
+        let thickness: Vec<_> = material
+            .parts
+            .iter()
+            .map(|part| part.thickness.as_ref().map(|t| t.value))
+            .collect();
+        assert_eq!(thickness, [Some(200.0), Some(50.0)]);
+        // 柱は断面の中心に置き、向きを局所の x 軸にする
+        assert_eq!(
+            local(&building, column),
+            Some([
+                [0.0, -1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0]
+            ])
+        );
+        assert_eq!(
+            extrusions(&bytes, 401).unwrap(),
+            [([0.0, 0.0, 1.0], 2800.0)]
+        );
+        // 梁は天端の芯の始点に置き、芯に沿って押し出す
+        assert_eq!(
+            local(&building, beam),
+            Some([
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 2800.0]
+            ])
+        );
+        assert_eq!(
+            extrusions(&bytes, 402).unwrap(),
+            [([0.0, 0.0, 1.0], 6000.0)]
+        );
+        for element in [column, beam] {
+            let material = building.components.material.get(element).unwrap();
+            assert_eq!(material.kind, MaterialKind::Single, "{schema}");
+        }
+        // 表現は Body だけで、文脈は使い回す
+        assert_eq!(count(&text, "IFCSHAPEREPRESENTATION"), 3);
+        assert_eq!(count(&text, "IFCGEOMETRICREPRESENTATIONSUBCONTEXT"), 1);
+        assert_eq!(count(&text, "IFCRELASSOCIATESMATERIAL"), 3);
+        // 同じ入力と変更なら同じバイト列。文書エンジンでも同じ
+        assert_eq!(run(src.as_bytes(), &frame_edits()).0.unwrap(), bytes);
+        let (live, _) = with(|cx| IfcLive::open(src.as_bytes(), cx));
+        let mut live = live.unwrap();
+        assert_eq!(
+            apply_like_batch(&mut live, &frame_edits()),
+            Some(bytes),
+            "{schema}"
+        );
+    }
+}
+
+#[test]
+fn slopes_beams_and_closes_slab_outlines() {
+    let src = sample("IFC4", true);
+    let mut sloped = beam(402, Target::Instance(10));
+    sloped.start = [0.0, 0.0, 0.0];
+    sloped.end = [3000.0, 0.0, 4000.0];
+    let mut closed = slab(400, Target::Instance(10));
+    closed.outline.push([0.0, 0.0]);
+    closed.elevation = Some(-50.0);
+    let (result, codes) = run(src.as_bytes(), &[Edit::Beam(sloped), Edit::Slab(closed)]);
+    assert!(codes.is_empty(), "{codes:?}");
+    let bytes = result.unwrap();
+    let building = lift(&bytes).unwrap();
+    // x は芯の向き、y は水平で芯の左、z は上を向く
+    let m = local(&building, element(&building, 402).unwrap()).unwrap();
+    let expected = [
+        [0.6, 0.0, -0.8, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.8, 0.0, 0.6, 0.0],
+    ];
+    for (row, want) in m.iter().zip(expected) {
+        for (got, want) in row.iter().zip(want) {
+            assert!((got - want).abs() < 1e-12, "{m:?}");
+        }
+    }
+    assert_eq!(
+        extrusions(&bytes, 402).unwrap(),
+        [([0.0, 0.0, 1.0], 5000.0)]
+    );
+    // 閉じる点は除き、4 つの角と始点に戻る点で書く
+    let text = String::from_utf8(bytes.clone()).unwrap();
+    let slab = element(&building, 400).unwrap();
+    assert_eq!(translation(&building, slab), Some([0.0, 0.0, -50.0]));
+    let outline = text
+        .lines()
+        .filter(|line| line.contains("=IFCPOLYLINE("))
+        .map(|line| line.matches('#').count() - 1)
+        .collect::<Vec<_>>();
+    assert_eq!(outline, [5, 5]);
+}
+
+#[test]
+fn refuses_slabs_columns_and_beams_it_cannot_write_without_changing_anything() {
+    let src = sample("IFC4", true);
+    let storey = Target::Instance(10);
+    let slab_with = |edit: &dyn Fn(&mut NewSlab)| {
+        let mut new = slab(400, storey);
+        edit(&mut new);
+        Edit::Slab(new)
+    };
+    let column_with = |edit: &dyn Fn(&mut NewColumn)| {
+        let mut new = column(401, storey);
+        edit(&mut new);
+        Edit::Column(new)
+    };
+    let beam_with = |edit: &dyn Fn(&mut NewBeam)| {
+        let mut new = beam(402, storey);
+        edit(&mut new);
+        Edit::Beam(new)
+    };
+    let cases = [
+        slab_with(&|s| s.outline.truncate(2)),
+        slab_with(&|s| s.outline = vec![[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]]),
+        slab_with(&|s| s.outline[1] = s.outline[0]),
+        slab_with(&|s| s.outline[2] = [f64::NAN, 0.0]),
+        slab_with(&|s| s.layers.clear()),
+        slab_with(&|s| s.elevation = Some(f64::INFINITY)),
+        slab_with(&|s| s.storey = Target::Instance(20)),
+        column_with(&|c| c.height = 0.0),
+        column_with(&|c| c.section.width = -1.0),
+        column_with(&|c| c.direction = Some([0.0, 0.0])),
+        column_with(&|c| c.position = [f64::NAN, 0.0]),
+        column_with(&|c| c.global_id = Some(global(10))),
+        beam_with(&|b| b.end = [0.0, 0.0, 6000.0]),
+        beam_with(&|b| b.start = [0.0, f64::NAN, 0.0]),
+        beam_with(&|b| b.section.depth = 0.0),
+        beam_with(&|b| b.storey = Target::Added(0)),
+    ];
+    for case in cases {
+        let (result, codes) = run(src.as_bytes(), std::slice::from_ref(&case));
+        assert!(matches!(result, Err(Error::Invalid)), "{case:?}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{case:?}");
+    }
+}
+
+#[test]
+fn removes_a_beam_with_its_shape_but_keeps_the_material() {
+    let src = sample("IFC4", true);
+    let (result, _) = run(
+        src.as_bytes(),
+        &[Edit::Beam(beam(402, Target::Instance(10)))],
+    );
+    let added = String::from_utf8(result.unwrap()).unwrap();
+    let id = instance_of(&added, 402).unwrap();
+    let (result, codes) = run(
+        added.as_bytes(),
+        &[Edit::Remove {
+            element: Target::Instance(id),
+        }],
+    );
+    assert!(codes.is_empty(), "{codes:?}");
+    let removed = String::from_utf8(result.unwrap()).unwrap();
+    for entity in [
+        "IFCBEAM",
+        "IFCEXTRUDEDAREASOLID",
+        "IFCSHAPEREPRESENTATION",
+        "IFCRELASSOCIATESMATERIAL",
+        "IFCRELCONTAINEDINSPATIALSTRUCTURE",
+    ] {
+        assert_eq!(count(&removed, entity), 0, "{entity}");
+    }
+    assert_eq!(count(&removed, "IFCMATERIAL"), 1);
 }

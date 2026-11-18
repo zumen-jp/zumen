@@ -8,7 +8,10 @@
 
 mod author;
 
-pub use author::{NewElement, NewLayer, NewPlacement, NewSpace, NewWall, SpaceKind, Target};
+pub use author::{
+    NewBeam, NewColumn, NewElement, NewLayer, NewPlacement, NewSection, NewSlab, NewSpace, NewWall,
+    SpaceKind, Target,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -50,6 +53,13 @@ pub enum Edit {
     /// 芯の 2 点・高さ・材料の層で壁を足し、空間に包含で結ぶ。配置・`Axis` と `Body` の表現・材料の層の使い方は
     /// コアが書く
     Wall(NewWall),
+    /// 外形・材料の層で床（`IfcSlab` の `FLOOR`）を足し、空間に包含で結ぶ。配置・`Body` の表現・材料の層の使い方は
+    /// コアが書く
+    Slab(NewSlab),
+    /// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。配置・`Body` の表現・材料はコアが書く
+    Column(NewColumn),
+    /// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。配置・`Body` の表現・材料はコアが書く
+    Beam(NewBeam),
     /// 要素を除く。要素だけが使う配置・表現・定義・関係と、要素の開口も除く。子や所属する要素を持つ空間は除かない
     Remove {
         /// 除く要素
@@ -108,6 +118,9 @@ impl Edit {
             Self::Space(_) => "space",
             Self::Element(_) => "element",
             Self::Wall(_) => "wall",
+            Self::Slab(_) => "slab",
+            Self::Column(_) => "column",
+            Self::Beam(_) => "beam",
             Self::Remove { .. } => "remove",
             Self::Place { .. } => "place",
             Self::Contain { .. } => "contain",
@@ -188,6 +201,9 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
             Edit::Space(space) => draft.add_space(space, cx)?,
             Edit::Element(element) => draft.add_element(element, cx)?,
             Edit::Wall(wall) => draft.add_wall(wall, cx)?,
+            Edit::Slab(slab) => draft.add_slab(slab, cx)?,
+            Edit::Column(column) => draft.add_column(column, cx)?,
+            Edit::Beam(beam) => draft.add_beam(beam, cx)?,
             Edit::Remove { element } => draft.remove(*element, cx)?,
             Edit::Place { element, placement } => draft.place(*element, placement, cx)?,
             Edit::Contain { element, space } => draft.contain(*element, *space, cx)?,
