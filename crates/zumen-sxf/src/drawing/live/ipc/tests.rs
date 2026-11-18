@@ -1,8 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits};
 use zumen_drawing::{Affine, Changes, Drawing2D, Edit, Placed, Seen, Shape, id};
 use zumen_live::RowId;
+use zumen_live::display::{Display, NO_OWNER};
 
 use super::super::SxfLive;
 
@@ -129,4 +130,55 @@ fn a_stopped_selection_keeps_the_output_and_reports_the_stop() {
     assert!(matches!(result, Err(zumen_sdk::Error::Stopped(_))));
     assert_eq!(rows, [RowId(7)]);
     assert_eq!(diag.iter().count(), 1);
+}
+
+/// 表示の行が使うスタイルの画層の値
+fn styled_layers(display: &Display) -> BTreeSet<u32> {
+    let mut out = BTreeSet::new();
+    for (owner, style) in [
+        (&display.segment_owner, &display.segment_style),
+        (&display.arc_owner, &display.arc_style),
+        (&display.text_owner, &display.text_style),
+        (&display.instance_owner, &display.instance_style),
+    ] {
+        for index in 0..owner.len() {
+            if owner.get(index).is_some_and(|&owner| owner != NO_OWNER)
+                && let Some([layer, _]) = style.get(index)
+            {
+                out.insert(*layer);
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn display_layers_match_the_drawing_and_cover_the_display() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let live = SxfLive::open(SAMPLE, cx).unwrap();
+    let drawing: Drawing2D = live.drawing(cx).unwrap();
+    let pairs = live.display_layers(cx).unwrap();
+    // 画層の組は図面モデルの画層と同じ順・同じ値で、値は `LayerId`
+    let layers: Vec<_> = pairs.iter().map(|(_, layer)| layer.clone()).collect();
+    assert_eq!(layers, drawing.layers);
+    assert!(pairs.iter().all(|(value, layer)| *value == layer.id.0));
+    // 表示の行のスタイルの画層は、どれも組の値にある
+    let values: BTreeSet<u32> = pairs.iter().map(|&(value, _)| value).collect();
+    let used = styled_layers(live.display());
+    assert!(!used.is_empty());
+    assert!(used.is_subset(&values), "{used:?} {values:?}");
+    // 止まったときは止まった理由を 1 つ診断する
+    for kind in [Kind::Work, Kind::DecodedBytes] {
+        let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(0)));
+        let mut diag = Diagnostics::new();
+        let result = live.display_layers(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(
+            matches!(result, Err(zumen_sdk::Error::Stopped(_))),
+            "{kind:?}"
+        );
+        assert_eq!(diag.iter().count(), 1, "{kind:?}");
+    }
 }

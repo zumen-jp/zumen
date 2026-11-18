@@ -64,6 +64,32 @@ function handle(request, body) {
     send(out);
     return;
   }
+  if (request.command === 11) {
+    // 画層 2 件: 状態と RGB を持つ "0"、色番号だけの "壁"（UTF-8 3 バイト、1 バイト埋める）
+    const name = Buffer.from("壁");
+    const data = Buffer.alloc(4 + 24 + 24);
+    data.writeUInt32LE(2, 0);
+    for (const [i, word] of [7, 1 | 2 | 8 | 32 | 128, 0x123456, 0, 1].entries()) data.writeUInt32LE(word, 4 + i * 4);
+    data.write("0", 24);
+    for (const [i, word] of [3, 64, 0, (3 << 24) | 5, name.length].entries()) data.writeUInt32LE(word, 28 + i * 4);
+    name.copy(data, 48);
+    if (mode === "layers-duplicate") data.writeUInt32LE(7, 28);
+    if (mode === "layers-flags") data.writeUInt32LE(256, 32);
+    if (mode === "layers-state") data.writeUInt32LE(2, 32);
+    if (mode === "layers-rgb") data.writeUInt32LE(0x1000000, 12);
+    if (mode === "layers-system") data.writeUInt32LE(4 << 24, 40);
+    if (mode === "layers-padding") data[51] = 1;
+    if (mode === "layers-name") data[48] = 0xff;
+    if (mode === "layers-count") data.writeUInt32LE(0xffffffff, 0);
+    let payload = mode === "layers-truncated" ? data.subarray(0, 50) : data;
+    if (mode === "layers-extra") payload = Buffer.concat([data, Buffer.alloc(4)]);
+    const out = reply(request, 0, 6, payload);
+    out.writeBigUInt64LE(body.readBigUInt64LE(56), 32);
+    out.writeBigUInt64LE(0n, 40);
+    out.writeBigUInt64LE(mode === "layers-result" ? 3n : 2n, 48);
+    send(out);
+    return;
+  }
   let out = reply(request, 0, 2, stored);
   if (mode === "wrong-id") out.writeBigUInt64LE(request.id + 1n, 8);
   if (mode === "wrong-magic") out[0] = 0;

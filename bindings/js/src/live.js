@@ -1,4 +1,4 @@
-// AcadLive を保持する CLI の、Node.js / Electron main 向け接続。
+// 常駐文書（DXF・DWG・JWW・SXF）を保持する CLI の、Node.js / Electron main 向け接続。
 import { spawn } from "node:child_process";
 
 import { STATUS, ZumenError } from "./index.js";
@@ -194,6 +194,9 @@ export class LiveProcess {
     rowOf(row);
     return this.#request(7, 0, u64(revision, "revision"), options, 4, (out) => out.writeUInt32LE(row));
   }
+
+  /** 表示のスタイルの画層の値と、その画層の名前・状態・色を、指定した版で取得する */
+  async layers(revision, options = {}) { return this.#request(11, 0, u64(revision, "revision"), options, 0); }
 
   /** モデル空間の囲む箱と交差する行を、指定した版で取得する */
   async select(rect, revision, options = {}) {

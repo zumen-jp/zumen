@@ -2,7 +2,7 @@
 
 use zumen_acad::AcadLive;
 use zumen_base::{Cx, Diagnostic, Error, Kind, codes};
-use zumen_drawing::{Affine, Applied, Changes, Edit, Seen};
+use zumen_drawing::{Affine, Applied, Changes, Edit, Layer, Seen};
 use zumen_jww::{Jww, JwwLive};
 use zumen_live::display::Display;
 use zumen_live::{Revision, RowId, display_wire};
@@ -154,6 +154,14 @@ impl Engine {
             Self::Acad(live) => live.save(cx),
             Self::Jww(live) => live.save(cx),
             Self::Sxf(live) => live.save(cx),
+        }
+    }
+
+    fn layers(&self, cx: &mut Cx<'_>) -> Result<Vec<(u32, Layer)>, Error> {
+        match self {
+            Self::Acad(live) => live.display_layers(cx),
+            Self::Jww(live) => live.display_layers(cx),
+            Self::Sxf(live) => live.display_layers(cx),
         }
     }
 
@@ -344,5 +352,10 @@ impl Document {
 
     pub fn live_count(&self) -> u32 {
         self.live.live_count()
+    }
+
+    /// 表示のスタイルの画層の値と、その画層の組
+    pub fn layers(&self, cx: &mut Cx<'_>) -> Result<Vec<(u32, Layer)>, Error> {
+        self.live.layers(cx)
     }
 }

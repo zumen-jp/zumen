@@ -3,7 +3,7 @@
 //! 状態・保存・`apply` は変えない。名前と形は `AcadLive` の同名の関数に合わせる。
 
 use zumen_base::{Cx, Kind, Stop};
-use zumen_drawing::{Affine, Placed, Seen};
+use zumen_drawing::{Affine, Layer, Placed, Seen};
 use zumen_live::RowId;
 use zumen_sdk::Error;
 
@@ -83,6 +83,26 @@ impl SxfLive {
             },
             _ => None,
         }
+    }
+
+    /// 表示のスタイルの画層の値（図面モデルの `LayerId`）と、その画層の組。図面モデルの `layers` と同じ順。
+    /// 要素が名前で指すだけの画層も含める。生きた行の走査と、写した名前・説明のバイト数を共有の予算で数える
+    pub fn display_layers(&self, cx: &mut Cx<'_>) -> Result<Vec<(u32, Layer)>, Error> {
+        let layers = self.current_layers(cx)?;
+        let bytes = layers
+            .iter()
+            .map(|layer| {
+                (layer.name.len() + layer.description.as_ref().map_or(0, String::len)) as u64
+            })
+            .fold(0_u64, u64::saturating_add);
+        cx.check(Kind::DecodedBytes, bytes).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        Ok(layers
+            .into_iter()
+            .map(|layer| (layer.id.0, layer))
+            .collect())
     }
 }
 

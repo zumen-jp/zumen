@@ -37,6 +37,16 @@ export interface LiveSelection {
   /** 全件の検証後、昇順で借りる。次の要求後も有効 */
   rows(): IterableIterator<number>;
 }
+/** 表示のスタイル [画層, 色] の画層の値に対応する画層。DXF・DWG は画層の表の位置、JWW・SXF は図面モデルの画層の ID */
+export interface LiveLayer {
+  readonly value: number;
+  readonly name: string;
+  /** 形式が状態を持たなければ null */
+  readonly state: { readonly visible: boolean; readonly printable: boolean; readonly editable: boolean; readonly frozen: boolean } | null;
+  readonly rgb: readonly [number, number, number] | null;
+  readonly code: { readonly system: "aci" | "sxf" | "jww"; readonly value: number } | null;
+  readonly followsPlacement: boolean;
+}
 export interface LiveReply {
   requestId: bigint;
   status: LiveStatus;
@@ -50,11 +60,13 @@ export interface LiveReply {
   diagnosticCount: number;
   used: Record<LiveBudgetKind, bigint>;
   stop: { kind: LiveBudgetKind; limit: bigint; requested: bigint } | { kind: "cancelled" | "timedOut" } | null;
-  /** 表示・保存・対象・診断・選択の元のバイト列。次の要求後も有効 */
+  /** 表示・保存・対象・診断・選択・画層の表の元のバイト列。次の要求後も有効 */
   data: Uint8Array;
   display: LiveDisplay | null;
   target: { id: string; hash: string } | null;
   selection: LiveSelection | null;
+  /** 図面モデルの画層と同じ順。全件の検証後に公開する */
+  layers: readonly LiveLayer[] | null;
 }
 export interface LiveTransform {
   /** 選択した行が属する版。現在の版と異なれば stale */
@@ -63,7 +75,7 @@ export interface LiveTransform {
   /** x' = a*x + b*y + c、y' = d*x + e*y + f の [a,b,c,d,e,f]。既存の apply と同じ */
   matrix: readonly number[] | Float64Array;
 }
-/** DXF / DWG の常駐文書。通常の同時呼び出しは ZumenError の busy */
+/** DXF・DWG・JWW・SXF の常駐文書。通常の同時呼び出しは ZumenError の busy */
 export declare class LiveProcess {
   private constructor();
   readonly closed: boolean;
@@ -74,6 +86,7 @@ export declare class LiveProcess {
   acknowledge(revision: bigint | number): void;
   display(options?: LiveDisplayOptions): Promise<LiveReply>;
   target(row: number, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
+  layers(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** モデル空間の [minX,minY,maxX,maxY] と囲む箱が交差する行。NaN・逆転は空、無限大は全域指定 */
   select(rect: readonly number[] | Float64Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   transform(change: LiveTransform, options?: LiveDisplayOptions): Promise<LiveReply>;

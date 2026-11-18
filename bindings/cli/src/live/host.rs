@@ -1,7 +1,7 @@
 //! 1 子プロセスの 1 文書を、要求順に処理する。
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Error, Kind, Stop};
-use zumen_drawing::Affine;
+use zumen_drawing::{Affine, ColorSystem, Layer};
 use zumen_live::{Revision, RowId, display_wire};
 
 use super::diagnostics;
@@ -77,6 +77,63 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
         }
         _ => bytes.is_empty().then_some(Operation::Empty),
     }
+}
+
+/// 画層の表の 1 項目の固定部分（値・フラグ・RGB・色の符号・名前の長さ）
+const LAYER_FIXED_BYTES: usize = 20;
+
+/// 画層の表を、項目数 `u32` と項目の列に写す。名前は UTF-8 で、4 バイトの境界まで 0 で埋める
+fn encode_layers(layers: &[(u32, Layer)], cx: &mut Cx<'_>) -> Result<Vec<u8>, Problem> {
+    let mut length = 4_usize;
+    for (_, layer) in layers {
+        length = layer
+            .name
+            .len()
+            .checked_next_multiple_of(4)
+            .and_then(|name| name.checked_add(LAYER_FIXED_BYTES))
+            .and_then(|item| length.checked_add(item))
+            .filter(|&n| n <= display_wire::MAX_PACKET_BYTES)
+            .ok_or(Problem::Core(Error::Invalid))?;
+    }
+    checked(cx, Kind::DecodedBytes, length as u64)?;
+    checked(cx, Kind::Work, layers.len() as u64)?;
+    let count = u32::try_from(layers.len()).map_err(|_| Problem::Core(Error::Invalid))?;
+    let mut data = Vec::with_capacity(length);
+    data.extend_from_slice(&count.to_le_bytes());
+    for (value, layer) in layers {
+        let mut flags = 0_u32;
+        if let Some(state) = layer.state {
+            flags |= 1;
+            flags |= u32::from(state.visible) << 1;
+            flags |= u32::from(state.printable) << 2;
+            flags |= u32::from(state.editable) << 3;
+            flags |= u32::from(state.frozen) << 4;
+        }
+        let color = layer.style.and_then(|style| style.color);
+        let mut rgb = 0_u32;
+        if let Some([r, g, b]) = color.and_then(|color| color.rgb) {
+            flags |= 1 << 5;
+            rgb = (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b);
+        }
+        let mut code = 0_u32;
+        if let Some(found) = color.and_then(|color| color.code) {
+            flags |= 1 << 6;
+            let system = match found.system {
+                ColorSystem::Aci => 1_u32,
+                ColorSystem::Sxf => 2,
+                ColorSystem::Jww => 3,
+            };
+            code = (system << 24) | (found.value & 0x00FF_FFFF);
+        }
+        flags |= u32::from(layer.follows_placement) << 7;
+        let name = u32::try_from(layer.name.len()).map_err(|_| Problem::Core(Error::Invalid))?;
+        for word in [*value, flags, rgb, code, name] {
+            data.extend_from_slice(&word.to_le_bytes());
+        }
+        data.extend_from_slice(layer.name.as_bytes());
+        data.resize(data.len().next_multiple_of(4), 0);
+    }
+    Ok(data)
 }
 
 fn checked(cx: &mut Cx<'_>, kind: Kind, amount: u64) -> Result<(), Problem> {
@@ -261,6 +318,12 @@ impl Host {
                         reply.data = document.save(cx)?;
                         reply.data_kind = 2;
                         reply.result = reply.data.len() as u64;
+                    }
+                    Command::Layers => {
+                        let layers = document.layers(cx)?;
+                        reply.data = encode_layers(&layers, cx)?;
+                        reply.data_kind = 6;
+                        reply.result = layers.len() as u64;
                     }
                     Command::Display => {}
                     _ => {

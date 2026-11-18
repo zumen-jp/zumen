@@ -49,6 +49,10 @@ test("実プロセスの 64 行差分・古い版・保存・undo / redo", { ski
     const target = await live.target(65, opened.revision);
     assert.equal(target.target.id, "space/0/h51");
     assert.match(target.target.hash, /^v2:[0-9a-f]{32}$/);
+    const layers = await live.layers(opened.revision);
+    assert.equal(layers.result, 1n);
+    assert.equal(layers.layers[0].name, "0");
+    assert.equal((await live.layers(opened.revision + 1n)).status, "stale");
     const changed = await live.transform({ revision: opened.revision, rows: [65], matrix: move });
     assert.equal(changed.revision, 1n);
     assert.equal(changed.result, 1n);
@@ -175,6 +179,33 @@ for (const mode of ["selection-count", "selection-result", "selection-truncated"
     const { live } = await fake(mode);
     try {
       await assert.rejects(live.select([1, 2, 3, 4], 0n), transport("protocol"));
+      assert(live.broken);
+    } finally { await live.close(); }
+  });
+}
+
+test("画層の表を検査してから凍結して公開する", async () => {
+  const { live } = await fake("layers");
+  try {
+    const reply = await live.layers(7n);
+    assert.equal(reply.revision, 7n);
+    assert.equal(reply.result, 2n);
+    assert.deepEqual(reply.layers, [
+      { value: 7, name: "0", state: { visible: true, printable: false, editable: true, frozen: false }, rgb: [0x12, 0x34, 0x56], code: null, followsPlacement: true },
+      { value: 3, name: "壁", state: null, rgb: null, code: { system: "jww", value: 5 }, followsPlacement: false },
+    ]);
+    assert(Object.isFrozen(reply.layers) && Object.isFrozen(reply.layers[0]) && Object.isFrozen(reply.layers[0].state));
+    assert.equal((await live.save()).layers, null);
+    await assert.rejects(live.layers(undefined), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+for (const mode of ["layers-duplicate", "layers-flags", "layers-state", "layers-rgb", "layers-system", "layers-padding", "layers-name", "layers-count", "layers-truncated", "layers-extra", "layers-result"]) {
+  test(`不正な画層の表を公開せず接続を終了する: ${mode}`, async () => {
+    const { live } = await fake(mode);
+    try {
+      await assert.rejects(live.layers(0n), transport("protocol"));
       assert(live.broken);
     } finally { await live.close(); }
   });

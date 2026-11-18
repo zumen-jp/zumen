@@ -166,3 +166,97 @@ fn conjugated_transforms_commute_with_the_sheet() {
     }
     assert!(conjugate(Affine { m: [0.0; 6] }, display).is_none());
 }
+
+/// 画層の表の項目（値・フラグ・RGB・色の符号・名前）
+fn layers(host: &mut Host, id: u64, revision: u64) -> Vec<(u32, u32, u32, u32, String)> {
+    let reply = call(host, Command::Layers, id, revision, wire::NONE, 0, &[]);
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.data_kind, 6);
+    let mut words = Words(&reply.data);
+    let count = words.u32().unwrap();
+    assert_eq!(u64::from(count), reply.result);
+    let mut out = Vec::new();
+    for _ in 0..count {
+        let [value, flags, rgb, code, length] = [(); 5].map(|()| words.u32().unwrap());
+        let length = length as usize;
+        let padded = length.next_multiple_of(4);
+        let name = String::from_utf8(words.0[..length].to_vec()).unwrap();
+        assert!(words.0[length..padded].iter().all(|&byte| byte == 0));
+        words.0 = &words.0[padded..];
+        out.push((value, flags, rgb, code, name));
+    }
+    assert!(words.0.is_empty());
+    out
+}
+
+/// 表示のスタイルの画層の値と、その画層
+type LayerPairs = Vec<(u32, zumen_drawing::Layer)>;
+
+/// 画層の表は、文書エンジンの画層の組を写し、名前・表示の可否・色を運ぶ
+#[test]
+fn layers_carry_the_display_layer_table() {
+    let mut budget = zumen_base::Budget::default();
+    let mut diag = zumen_base::Diagnostics::new();
+    let cancel = zumen_base::CancelToken::new();
+    let cx = &mut zumen_base::Cx::new(&mut budget, &mut diag, &cancel);
+    let engines: [(&[u8], LayerPairs); 3] = [
+        (
+            super::DXF,
+            zumen_acad::AcadLive::open(super::DXF, cx)
+                .unwrap()
+                .display_layers(cx)
+                .unwrap(),
+        ),
+        (
+            JWW,
+            zumen_jww::JwwLive::open(JWW, cx)
+                .unwrap()
+                .display_layers(cx)
+                .unwrap(),
+        ),
+        (
+            SFC,
+            zumen_sxf::SxfLive::open(SFC, cx)
+                .unwrap()
+                .display_layers(cx)
+                .unwrap(),
+        ),
+    ];
+    for (bytes, expected) in engines {
+        let mut host = Host::default();
+        open_bytes(&mut host, bytes);
+        let actual = layers(&mut host, 2, 0);
+        assert_eq!(actual.len(), expected.len());
+        assert!(!actual.is_empty());
+        for ((value, flags, rgb, code, name), (expected_value, layer)) in
+            actual.iter().zip(&expected)
+        {
+            assert_eq!(value, expected_value);
+            assert_eq!(name, &layer.name);
+            assert_eq!(flags & 1 != 0, layer.state.is_some());
+            if let Some(state) = layer.state {
+                assert_eq!(flags & 2 != 0, state.visible);
+                assert_eq!(flags & 16 != 0, state.frozen);
+            }
+            let color = layer.style.and_then(|style| style.color);
+            assert_eq!(flags & 32 != 0, color.and_then(|color| color.rgb).is_some());
+            assert_eq!(
+                flags & 64 != 0,
+                color.and_then(|color| color.code).is_some()
+            );
+            if let Some(found) = color.and_then(|color| color.code) {
+                assert_eq!(code & 0x00FF_FFFF, found.value);
+            }
+            if let Some([r, g, b]) = color.and_then(|color| color.rgb) {
+                assert_eq!(
+                    *rgb,
+                    (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
+                );
+            }
+        }
+        // 前提の版が違えば、表を返さない
+        let stale = call(&mut host, Command::Layers, 3, 9, wire::NONE, 0, &[]);
+        assert_eq!(stale.status, Status::Stale);
+        assert!(stale.data.is_empty());
+    }
+}

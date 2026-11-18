@@ -27,6 +27,7 @@ pub(super) enum Command {
     Diagnostics = 8,
     Close = 9,
     Select = 10,
+    Layers = 11,
 }
 
 impl Command {
@@ -43,6 +44,7 @@ impl Command {
             8 => Self::Diagnostics,
             9 => Self::Close,
             10 => Self::Select,
+            11 => Self::Layers,
             _ => return None,
         })
     }
@@ -55,7 +57,9 @@ impl Command {
             Self::Target => (CONTROL_BYTES + 4, CONTROL_BYTES + 4),
             Self::Diagnostics => (CONTROL_BYTES + 8, CONTROL_BYTES + 8),
             Self::Select => (CONTROL_BYTES + 32, CONTROL_BYTES + 32),
-            Self::Display | Self::Undo | Self::Redo | Self::Save => (CONTROL_BYTES, CONTROL_BYTES),
+            Self::Display | Self::Undo | Self::Redo | Self::Save | Self::Layers => {
+                (CONTROL_BYTES, CONTROL_BYTES)
+            }
         }
     }
 

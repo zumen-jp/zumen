@@ -3,10 +3,11 @@
 //! 状態・保存・`apply` は変えない。名前と形は `AcadLive` の同名の関数に合わせる。
 
 use zumen_base::{Cx, Kind, Stop};
-use zumen_drawing::{Affine, Hash, Seen};
+use zumen_drawing::{Affine, Hash, Layer, Seen};
 use zumen_live::RowId;
 use zumen_sdk::Error;
 
+use super::super::build_layers;
 use super::{DEFINITION_SPACES, JwwLive};
 
 impl JwwLive {
@@ -92,7 +93,35 @@ impl JwwLive {
             m: [k, 0.0, ox, 0.0, k, oy],
         })
     }
+
+    /// 表示のスタイルの画層の値（図面モデルの `LayerId`）と、その画層の組。図面モデルの `layers` と同じ順。
+    /// 名前のバイト数と画層の数を、作る前に共有の予算で数える
+    pub fn display_layers(&self, cx: &mut Cx<'_>) -> Result<Vec<(u32, Layer)>, Error> {
+        // 名前のない画層は `{グループ}-{画層}`（3 バイト）になる
+        let bytes = self
+            .header
+            .layer_names
+            .iter()
+            .map(|name| name.len().max(3) as u64)
+            .fold(0_u64, u64::saturating_add)
+            .saturating_add(LAYERS.saturating_sub(self.header.layer_names.len() as u64) * 3);
+        (|| -> Result<(), Stop> {
+            cx.check(Kind::Work, LAYERS)?;
+            cx.check(Kind::DecodedBytes, bytes)
+        })()
+        .map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        Ok(build_layers(&self.header)
+            .into_iter()
+            .map(|layer| (layer.id.0, layer))
+            .collect())
+    }
 }
+
+/// JWW の画層の数（16 グループ × 16 画層）
+const LAYERS: u64 = 256;
 
 /// 10 進の桁数
 fn decimal_digits(mut value: usize) -> usize {

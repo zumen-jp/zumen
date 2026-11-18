@@ -102,18 +102,52 @@ export function displayPacket(bytes) {
   return Object.freeze({ full, columns: Object.freeze(columns) });
 }
 
+const SYSTEMS = [null, "aci", "sxf", "jww"];
+
+// 画層の表: 件数と、値・フラグ・RGB・色番号・名前の長さ（各 u32）と 4 バイト境界まで 0 で埋めた UTF-8 の名前
+function layerTable(data, reply) {
+  if (data.length < 4 || reply.revision === null) throw invalid();
+  const count = data.readUInt32LE(0);
+  if (reply.result !== BigInt(count) || count > (data.length - 4) / 20) throw invalid();
+  const layers = [], values = new Set();
+  let position = 4;
+  for (let i = 0; i < count; i++) {
+    if (position + 20 > data.length) throw invalid();
+    const value = data.readUInt32LE(position), flags = data.readUInt32LE(position + 4);
+    const rgb = data.readUInt32LE(position + 8), code = data.readUInt32LE(position + 12), length = data.readUInt32LE(position + 16);
+    const end = position + 20 + length, padded = position + 20 + Math.ceil(length / 4) * 4;
+    const state = (flags & 1) !== 0, hasRgb = (flags & 32) !== 0, hasCode = (flags & 64) !== 0;
+    if (values.has(value) || flags > 0xff || (!state && (flags & 30) !== 0) || rgb > 0xffffff || (!hasRgb && rgb !== 0)
+      || (hasCode ? !SYSTEMS[code >>> 24] : code !== 0) || padded > data.length
+      || data.subarray(end, padded).some((byte) => byte !== 0)) throw invalid();
+    let name;
+    try { name = decoder.decode(data.subarray(position + 20, end)); } catch { throw invalid(); }
+    values.add(value);
+    layers.push(Object.freeze({
+      value, name,
+      state: state ? Object.freeze({ visible: (flags & 2) !== 0, printable: (flags & 4) !== 0, editable: (flags & 8) !== 0, frozen: (flags & 16) !== 0 }) : null,
+      rgb: hasRgb ? Object.freeze([rgb >>> 16, (rgb >>> 8) & 0xff, rgb & 0xff]) : null,
+      code: hasCode ? Object.freeze({ system: SYSTEMS[code >>> 24], value: code & 0xffffff }) : null,
+      followsPlacement: (flags & 128) !== 0,
+    }));
+    position = padded;
+  }
+  if (position !== data.length) throw invalid();
+  return Object.freeze(layers);
+}
+
 export function response(bytes, pending) {
   if (bytes.length < PREFIX) throw invalid();
   const statusCode = bytes.readUInt32LE(0), displayCode = bytes.readUInt32LE(4);
   const kind = bytes.readUInt32LE(40), length = bytes.readUInt32LE(48);
   if (statusCode >= STATUSES.length || ![0, 1, 6, 7, 8].includes(displayCode)
-    || kind > 5 || length !== bytes.length - PREFIX || bytes.readUInt32LE(52) !== 0 || bytes.readUInt32LE(132) !== 0) throw invalid();
+    || kind > 6 || length !== bytes.length - PREFIX || bytes.readUInt32LE(52) !== 0 || bytes.readUInt32LE(132) !== 0) throw invalid();
   const value = (offset) => { const n = bytes.readBigUInt64LE(offset); return n === NONE ? null : n; };
   const reply = {
     requestId: pending.id, status: STATUSES[statusCode], displayStatus: STATUSES[displayCode],
     revision: value(8), state: value(16), result: bytes.readBigUInt64LE(24), base: value(32),
     diagnosticCount: bytes.readUInt32LE(44), used: {}, stop: null, data: bytes.subarray(PREFIX),
-    display: null, target: null, selection: null,
+    display: null, target: null, selection: null, layers: null,
   };
   for (let i = 0; i < 7; i++) reply.used[KINDS[i]] = bytes.readBigUInt64LE(56 + i * 8);
   const stopKind = bytes.readUInt32LE(112), limit = bytes.readBigUInt64LE(116), requested = bytes.readBigUInt64LE(124);
@@ -124,7 +158,7 @@ export function response(bytes, pending) {
   else if (stopKind > 7) reply.stop = { kind: stopKind === 8 ? "cancelled" : "timedOut" };
   const wantsDisplay = (pending.flags & 1) !== 0 || pending.command === 2;
   const expected = statusCode !== 0 || displayCode !== 0 ? 0 : wantsDisplay ? 1
-    : pending.command === 6 ? 2 : pending.command === 7 ? 3 : pending.command === 8 ? 4 : pending.command === 10 ? 5 : 0;
+    : pending.command === 6 ? 2 : pending.command === 7 ? 3 : pending.command === 8 ? 4 : pending.command === 10 ? 5 : pending.command === 11 ? 6 : 0;
   if (kind !== expected || (kind === 0 && length !== 0) || ((statusCode !== 0 || !wantsDisplay) && displayCode !== 0)
     || (kind !== 1 && reply.base !== null) || (reply.revision === null) !== (reply.state === null)) throw invalid();
   if (kind === 1) {
@@ -150,6 +184,8 @@ export function response(bytes, pending) {
       length: count,
       *rows() { for (let i = 0; i < count; i++) yield data.readUInt32LE(4 + i * 4); },
     });
+  } else if (kind === 6) {
+    reply.layers = layerTable(reply.data, reply);
   }
   return reply;
 }
