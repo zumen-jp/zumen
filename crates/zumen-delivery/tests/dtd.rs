@@ -17,8 +17,10 @@ use std::process::{Command, Stdio};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics};
 use zumen_delivery::{Edit, NewElement, PathStep, Record, read, write_xml};
 
-/// 照らす管理ファイルと、その DTD。工事・業務・地質の要領の令和 8 年 2 月の版の束と、令和 4 年 3 月の版の工事の束
-/// （`const10.zip`）にあるデジタル写真管理情報基準（令和 2 年 3 月）と CAD 製図基準（平成 29 年 3 月）の作成例
+/// 照らす管理ファイル（大文字の名前）と、その DTD。工事・業務・地質・電気通信設備（工事・業務）・機械設備
+/// （工事・業務）の要領の令和 8 年 2 月の版の束と、測量の令和 7 年の版の束（`SURVEY_R7.zip`）と、令和 4 年 3 月の版の
+/// 工事の束（`const10.zip`）にあるデジタル写真管理情報基準（令和 2 年 3 月）と CAD 製図基準（平成 29 年 3 月）の
+/// 作成例。束をまたいで同じ名前と DTD の組があるので、組ごとの数も照らす
 const MANAGED: &[(&str, &str)] = &[
     ("INDEX_C.XML", "INDE_C09.DTD"),
     ("REGISTER.XML", "REGIST06.DTD"),
@@ -36,6 +38,41 @@ const MANAGED: &[(&str, &str)] = &[
     ("PHOTO.XML", "PHOTO05.DTD"),
     ("DRAWINGF.XML", "DRAW04.DTD"),
     ("DRAWINGS.XML", "DRAW04.DTD"),
+    // 電気通信設備（工事）
+    ("INDEX_EC.XML", "IND_EC07.DTD"),
+    ("REGISTER.XML", "REGIST06.DTD"),
+    ("MEET.XML", "MEET05.DTD"),
+    ("PLAN.XML", "PLAN05.DTD"),
+    ("OTHRS.XML", "OTHRS05.DTD"),
+    ("FACILITY.XML", "FCL05.DTD"),
+    // 電気通信設備（業務）
+    ("INDEX_ED.XML", "IND_ED05.DTD"),
+    ("REGISTER.XML", "REGIST07.DTD"),
+    ("REPORT.XML", "REP05.DTD"),
+    ("OPENREP.XML", "OPREP01.DTD"),
+    // 機械設備（工事）
+    ("INDEX_MC.XML", "IND_MC05.DTD"),
+    ("MEET.XML", "MEET03.DTD"),
+    ("PLAN.XML", "PLAN03.DTD"),
+    ("OTHRS.XML", "OTHRS03.DTD"),
+    ("REGIST_M.XML", "REG_M02.DTD"),
+    ("DLINNN_M.XML", "I020_03.DTD"),
+    ("DLANNN_M.XML", "A026_03.DTD"),
+    ("BM.XML", "MANUAL03.DTD"),
+    ("BS.XML", "SPC03.DTD"),
+    ("BI.XML", "INST03.DTD"),
+    ("BE.XML", "EXAM03.DTD"),
+    ("BD.XML", "DEVICE03.DTD"),
+    ("BC.XML", "CHECK03.DTD"),
+    // 機械設備（業務）
+    ("INDEX_MD.XML", "IND_MD04.DTD"),
+    ("REGISTER.XML", "REGIST07.DTD"),
+    ("REPORT.XML", "REP05.DTD"),
+    ("OPENREP.XML", "OPREP01.DTD"),
+    // 測量
+    ("SURVEY.XML", "SURVEY05.DTD"),
+    ("SURV_DOC.XML", "SDOC_D01.DTD"),
+    ("SURV_KTN.XML", "SURV_D03.DTD"),
 ];
 
 /// libxml2 の Shift_JIS は JIS X 0201・JIS X 0208 の対応で、zumen は WHATWG Encoding（Windows の符号）の対応で
@@ -91,7 +128,7 @@ fn setup() -> Option<(PathBuf, Oracle)> {
     Some((PathBuf::from(folder), (python, script)))
 }
 
-/// フォルダーの下の、名前が `MANAGED` にあるファイル。道筋の順
+/// フォルダーの下の、名前が `MANAGED` にあるファイル（大文字と小文字を区別しない）。道筋の順
 fn find(folder: &Path, out: &mut Vec<PathBuf>) {
     let mut entries: Vec<PathBuf> = std::fs::read_dir(folder)
         .unwrap()
@@ -104,7 +141,11 @@ fn find(folder: &Path, out: &mut Vec<PathBuf>) {
         } else if path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| MANAGED.iter().any(|(file, _)| *file == name))
+            .is_some_and(|name| {
+                MANAGED
+                    .iter()
+                    .any(|(file, _)| file.eq_ignore_ascii_case(name))
+            })
         {
             out.push(path);
         }
@@ -260,7 +301,7 @@ fn management_files_read_as_lxml_reads_them_after_dtd_validation() {
     let Some((folder, oracle)) = setup() else {
         return;
     };
-    let mut seen = BTreeSet::new();
+    let mut seen = Vec::new();
     for (name, bytes, dtd) in examples(&folder) {
         let ((root, system), lxml) =
             external(&oracle, &dtd, &bytes).unwrap_or_else(|error| panic!("{name}: {error}"));
@@ -270,20 +311,20 @@ fn management_files_read_as_lxml_reads_them_after_dtd_validation() {
         let core: Vec<Row> = rows(&record).into_iter().map(|(row, _)| row).collect();
         let lxml: Vec<Row> = lxml.into_iter().map(|(row, _, _)| row).collect();
         assert_eq!(core, lxml, "{name}");
+        let upper = name.to_ascii_uppercase();
         assert!(
-            MANAGED.contains(&(name.as_str(), system.as_str())),
+            MANAGED.contains(&(upper.as_str(), system.as_str())),
             "{name}: 知らない DTD {system}"
         );
-        assert!(
-            seen.insert((name.clone(), system)),
-            "{name}: 同じ名前と DTD の作成例が 2 つある"
-        );
+        seen.push((upper, system));
     }
-    let expected: BTreeSet<(String, String)> = MANAGED
+    seen.sort();
+    let mut expected: Vec<(String, String)> = MANAGED
         .iter()
         .map(|(file, dtd)| (file.to_string(), dtd.to_string()))
         .collect();
-    assert_eq!(seen, expected, "作成例が足りない");
+    expected.sort();
+    assert_eq!(seen, expected, "作成例の名前と DTD の組と数が合わない");
 }
 
 #[test]
