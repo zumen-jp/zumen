@@ -1,5 +1,6 @@
 // 実際の CLI と Node.js 接続で、往復と差分の適用を測る。
-// node --expose-gc bench/live/native-ipc.mjs <release の zumen> [要素数] [試行数] [スレッド数]
+// node --expose-gc bench/live/native-ipc.mjs <release の zumen> [要素数か入力のファイル] [試行数] [スレッド数]
+// 要素数なら LINE だけの DXF を作る。ファイルなら、描く順の行のうち移動を受ける行を選んで測る
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -9,7 +10,8 @@ import { performance } from "node:perf_hooks";
 import { LiveProcess } from "../../bindings/js/src/live.js";
 
 const [executable, size = "10000", trials = "1000", threadCount = "1"] = process.argv.slice(2);
-const count = Number(size), iterations = Number(trials), threads = Number(threadCount);
+const inputPath = /^\d+$/.test(size) ? null : size;
+const count = inputPath === null ? Number(size) : 1, iterations = Number(trials), threads = Number(threadCount);
 if (!executable || !Number.isInteger(count) || count < 1 || count > 1_000_000
   || !Number.isInteger(iterations) || iterations < 10 || iterations > 10000
   || !Number.isInteger(threads) || threads < 1 || threads > 64) throw new Error("実行ファイル・要素数 1〜1000000・試行数 10〜10000・スレッド数 1〜64 を指定する");
@@ -24,6 +26,7 @@ function* inputParts() {
 }
 
 function input() {
+  if (inputPath !== null) return readFileSync(inputPath);
   const bytes = Buffer.alloc(count * 100 + 256);
   let offset = 0;
   for (const part of inputParts()) offset += bytes.write(part, offset);
@@ -97,6 +100,11 @@ try {
   bytes = null;
   opened = null;
   if (global.gc) global.gc();
+  // 入力のファイルでは、保存の比較先を開いた直後の保存にする（形式によっては読み書きで正規化する）
+  const firstSaved = inputPath === null ? null : await live.save();
+  if (firstSaved) assert.equal(firstSaved.status, "ok");
+  const firstSavedHash = firstSaved ? hash([firstSaved.data]) : inputHash;
+  const savedEqualsInput = firstSaved ? Buffer.compare(firstSaved.data, input()) === 0 : true;
   const targetUs = [], transformUs = [], undoUs = [], packetBytes = [];
   const run = async (row, record) => {
     let start = performance.now();
@@ -105,19 +113,38 @@ try {
     if (record) targetUs.push((performance.now() - start) * 1000);
     start = performance.now();
     const changed = await live.transform({ revision, rows: [row], matrix: [1, 0, 1, 0, 1, 2] });
+    if (changed.status === "rejected") return false;
     apply(changed);
     if (record) { transformUs.push((performance.now() - start) * 1000); packetBytes.push(changed.data.length); }
     start = performance.now();
     apply(await live.undo(revision));
     if (record) undoUs.push((performance.now() - start) * 1000);
+    return true;
   };
-  for (let i = 0; i < 100; i++) await run(i % count, false);
+  // 移動を受ける行。合成の DXF はすべての行が受ける。ファイルでは、描く順の行を混ぜた順に試し、受けた行を 1000 行まで使う
+  let rows = null, drawnRows = count, rejectedRows = 0;
+  if (inputPath !== null) {
+    const order = await live.order(revision);
+    assert.equal(order.status, "ok");
+    const drawn = [...order.order.rows()];
+    drawnRows = drawn.length;
+    rows = [];
+    for (let i = 0; i < drawn.length && rows.length < 1000; i++) {
+      const row = drawn[(Math.imul(i, 2654435761) >>> 0) % drawn.length];
+      if (rows.includes(row)) continue;
+      if (await run(row, false)) rows.push(row);
+      else rejectedRows += 1;
+    }
+    assert(rows.length > 0, "移動を受ける行がない");
+  }
+  const rowAt = (i) => rows === null ? i % count : rows[i % rows.length];
+  for (let i = 0; i < 100; i++) assert(await run(rowAt(i), false));
   if (global.gc) global.gc();
-  for (let i = 0; i < iterations; i++) await run((Math.imul(i, 2654435761) >>> 0) % count, true);
+  for (let i = 0; i < iterations; i++) assert(await run(rowAt(Math.imul(i, 2654435761) >>> 0), true));
   const editPeakBytes = peak(child.pid);
   const saved = await live.save();
   assert.equal(saved.status, "ok");
-  assertOriginal(saved.data);
+  if (inputPath === null) assertOriginal(saved.data);
   for (const column of initialDisplay.columns) {
     const actual = columns[column.id];
     assert.equal(actual.length, column.rows * column.stride);
@@ -126,14 +153,15 @@ try {
       assert.equal(Buffer.compare(actual.subarray(start, start + block.bytes.length), block.bytes), 0);
     }
   }
-  assert.equal(hash([saved.data]), inputHash);
+  assert.equal(hash([saved.data]), firstSavedHash);
   assert.equal(hash(columns), initialMirrorHash);
   console.log(JSON.stringify({
     platform: process.platform, architecture: process.arch, node: process.version, cpu: cpus()[0]?.model.trim(),
     nativeCommit: process.env.ZUMEN_BENCH_COMMIT ?? null, count, iterations, threads,
+    input: inputPath, drawnRows, movableRows: rows?.length ?? count, rejectedRows, savedEqualsInput,
     inputBytes, initialPacketBytes, openAndMirrorMs, childEditPeakBytes: editPeakBytes,
     childPeakIncludingSaveBytes: peak(child.pid), parentPeakBytes: peak(process.pid), parentRssAfterBytes: process.memoryUsage().rss,
-    undoSaveHash: inputHash, undoMirrorHash: initialMirrorHash,
+    undoSaveHash: firstSavedHash, undoMirrorHash: initialMirrorHash,
     targetUs: summary(targetUs), transformWithDisplayUs: summary(transformUs), undoWithDisplayUs: summary(undoUs),
     deltaPacketBytes: { min: Math.min(...packetBytes), max: Math.max(...packetBytes) },
   }, null, 2));
