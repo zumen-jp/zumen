@@ -1,0 +1,131 @@
+{
+  "description": "R2000 の ANSI_1361（Johab）の DXF の文字と名前を Windows の 1361 の表で読む。ハングルの音節と字母（結合用の字母）、記号と漢字、古い字母を読み、書き戻して開き直しても同じ文字になる。互換の字母（U+3131）は表せず、変更全体を拒む（#327）",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "johab.dxf",
+        "hex": "300a53454354494f4e0a320a4845414445520a390a24414341445645520a310a4143313031350a390a24445747434f4445504147450a330a414e53495f313336310a390a24494e53554e4954530a37300a340a390a2448414e44534545440a350a38300a300a454e445345430a300a53454354494f4e0a320a454e5449544945530a300a544558540a350a31410a380ad0658a820a31300a302e300a32300a302e300a33300a302e300a34300a322e350a310a88618bbdb89320d931e031f9fe20884184610a300a454e445345430a300a454f460a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "johab.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "johab.dxf",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/items/0/id": "space/0/h1A",
+        "/result/items/0/layer": "한국",
+        "/result/items/0/geometry/content": "가깋잽 　伽詰 가"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "tables",
+        "doc": "johab.dxf"
+      },
+      "expect": {
+        "/result/layers/0/id": "layer/0",
+        "/result/layers/0/name": "한국"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "johab.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer_id": "layer/0",
+            "geometry": {
+              "shape": "text",
+              "content": "ㄱ",
+              "position": [
+                1,
+                2
+              ],
+              "height": 2.5,
+              "rotation": 0
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.edit.unsupported",
+        "/diagnostics/1/code": "change.character.unsupported",
+        "/diagnostics/1/params/character": "U+3131"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "johab.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer_id": "layer/0",
+            "geometry": {
+              "shape": "text",
+              "content": "한글 ᅟ",
+              "position": [
+                1,
+                2
+              ],
+              "height": 2.5,
+              "rotation": 0
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/h80"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "johab.dxf",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/1/id": "space/0/h80",
+        "/result/items/1/layer": "한국",
+        "/result/items/1/geometry/content": "한글 ᅟ"
+      }
+    }
+  ]
+}

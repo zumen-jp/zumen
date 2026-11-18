@@ -31,16 +31,20 @@ SINGLE = (874, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1258)
 # DOS の 1 バイトのコード・ページ。$DWGCODEPAGE の名前は DOS<番号>
 DOS = (437, 850, 852, 855, 857, 860, 861, 863, 864, 865, 866, 869)
 # ANSI_ と DOS のほかに、AutoCAD 2027 が Windows のコード・ページとして読んだ名前（#327 の実験）
-ALIASES = {"ISO8859-1": 1252, "ISO8859-2": 1250, "ISO8859-7": 1253, "ISO8859-9": 1254, "BIG5": 950, "KSC5601": 949, "GB2312": 936}
+ALIASES = {"ISO8859-1": 1252, "ISO8859-2": 1250, "ISO8859-7": 1253, "ISO8859-9": 1254, "BIG5": 950, "KSC5601": 949, "GB2312": 936, "JOHAB": 1361}
 # 2 バイトのコード・ページと、先頭のバイトの範囲（Unicode の MICSFT/WINDOWS/CP<番号>.TXT）
-DOUBLE = {936: (0x81, 0xFE), 949: (0x81, 0xFD), 950: (0xA1, 0xF9)}
+DOUBLE = {936: (0x81, 0xFE), 949: (0x81, 0xFD), 950: (0xA1, 0xF9), 1361: (0x84, 0xF9)}
+# 2 バイト目の最小。Johab の記号と漢字は 0x31 から
+TRAIL = {1361: 0x31}
 # Python の codec が Windows の表と違うバイト列の数。CP1255 の 0xCA（U+05BA）と CP936 の 0x80（€）を Python は
-# 戻さず、cp950 は Windows の表にない 249 の 2 バイトを戻す
-KNOWN = {1255: 1, 936: 1, 950: 249}
-# MTEXT の `\M+` の番号とコード・ページ（ezdxf の MIF_CODE_PAGE。4 の Johab は読まない）
-MULTIBYTE = {"1": 932, "2": 950, "3": 949, "5": 936}
-# ezdxf の decode_mif_to_unicode が Windows の表と違う 2 バイトの数。Python の cp950 が Windows の表にない 249 を戻す
-KNOWN_MULTIBYTE = {950: 249}
+# 戻さず、cp950 は Windows の表にない 249 の 2 バイトを戻す。johab（cp1361）は、字母だけの 110 の 2 バイトを互換の字母
+# （U+3131〜）に戻し（Windows は結合用の字母 U+1100〜）、Windows が戻さない 0x8441 を U+3000 に戻す
+KNOWN = {1255: 1, 936: 1, 950: 249, 1361: 111}
+# MTEXT の `\M+` の番号とコード・ページ（ezdxf の MIF_CODE_PAGE）
+MULTIBYTE = {"1": 932, "2": 950, "3": 949, "4": 1361, "5": 936}
+# ezdxf の decode_mif_to_unicode が Windows の表と違う 2 バイトの数。Python の cp950 が Windows の表にない 249 を戻し、
+# johab は上の 111 が違う
+KNOWN_MULTIBYTE = {950: 249, 1361: 111}
 # 1 つの TEXT に入れる文字の数
 CHUNK = 200
 WINDOWS = hasattr(codecs, "code_page_decode")
@@ -85,7 +89,7 @@ def sequences(page):
     if page not in DOUBLE:
         return singles
     low, high = DOUBLE[page]
-    return singles + [bytes([lead, trail]) for lead in range(low, high + 1) for trail in range(0x40, 0x100)]
+    return singles + [bytes([lead, trail]) for lead in range(low, high + 1) for trail in range(TRAIL.get(page, 0x40), 0x100)]
 
 
 def fixture(name, page, chunks, layer):

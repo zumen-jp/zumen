@@ -22,7 +22,8 @@ pub enum Charset {
     ShiftJis,
     /// Windows のコード・ページ。値はコード・ページの番号で、その表（Unicode の `CP<番号>.TXT`）で戻す。表に割り当ての
     /// ないバイトは戻さない（#327）。1 バイトの ANSI_874・ANSI_1250〜ANSI_1258・DOS437〜DOS869 と、`cp932` の feature
-    /// があるときの 2 バイトの ANSI_936・ANSI_949・ANSI_950。ISO8859-1 などの名前も、AutoCAD と同じ番号にする
+    /// があるときの 2 バイトの ANSI_936・ANSI_949・ANSI_950・ANSI_1361（Johab）。ISO8859-1 などの名前も、AutoCAD と
+    /// 同じ番号にする
     Windows(u16),
     /// 対応表のないコード・ページか、コード・ページがない。ASCII の文字だけを読む
     Other,
@@ -150,14 +151,15 @@ impl Charset {
 }
 
 /// MTEXT の書式の符号 `\M+<番号><16 進 4 桁>` の 2 バイト `pair` が表す 1 文字。番号は 1 が ANSI_932、2 が
-/// ANSI_950、3 が ANSI_949、5 が ANSI_936（ezdxf の `decode_mif_to_unicode` と ODA の Font Handling による）。
-/// 4（Johab）と、そのコード・ページの 2 バイトの文字でないものは `None`
+/// ANSI_950、3 が ANSI_949、4 が ANSI_1361（Johab）、5 が ANSI_936（ezdxf の `decode_mif_to_unicode` と ODA の Font
+/// Handling による）。そのコード・ページの 2 バイトの文字でないものは `None`
 #[cfg(feature = "drawing")]
 pub(crate) fn multibyte(number: char, pair: [u8; 2]) -> Option<char> {
     let charset = match number {
         '1' => Charset::ShiftJis,
         '2' => Charset::Windows(950),
         '3' => Charset::Windows(949),
+        '4' => Charset::Windows(1361),
         '5' => Charset::Windows(936),
         _ => return None,
     };
@@ -222,7 +224,7 @@ pub fn charset(version: Option<&[u8]>, code_page: Option<&[u8]>) -> Charset {
 /// AutoCAD が Windows のコード・ページとして読む、`ANSI_<番号>` でない名前と、その番号。AutoCAD 2027 で、自作の
 /// DXF の文字を Windows の MultiByteToWideChar と同じに読んだ（docs/formats/dxf.md）。ISO8859-3・4・5・6・8 と
 /// MAC-ROMAN は、端末のコード・ページで読んだので、ここに入れない
-const ALIASES: [(&[u8], u16); 7] = [
+const ALIASES: [(&[u8], u16); 8] = [
     (b"ISO8859-1", 1252),
     (b"ISO8859-2", 1250),
     (b"ISO8859-7", 1253),
@@ -230,6 +232,7 @@ const ALIASES: [(&[u8], u16); 7] = [
     (b"BIG5", 950),
     (b"KSC5601", 949),
     (b"GB2312", 936),
+    (b"JOHAB", 1361),
 ];
 
 /// `ANSI_<番号>`・`DOS<番号>` などの名前のうち、表のある Windows のコード・ページの番号
@@ -322,8 +325,7 @@ mod tests {
             Some("Стена")
         );
         for name in [
-            &b"ANSI_1361"[..],
-            b"ANSI_1200",
+            &b"ANSI_1200"[..],
             b"ANSI_",
             b"ANSI_+1251",
             b"ANSI_850",
@@ -399,7 +401,12 @@ mod tests {
     fn windows_double_byte_code_pages_match_the_microsoft_tables() {
         // 割り当てのあるバイト列の数（Unicode の CP<番号>.TXT の 0x80 以上）と、書き戻すと別の 2 バイトになる数
         // （CP950 は、同じ文字を表す 2 バイトが 10 組ある）
-        for (number, count, moved) in [(936, 21_792, 0), (949, 17_048, 0), (950, 13_503, 10)] {
+        for (number, count, moved) in [
+            (936, 21_792, 0),
+            (949, 17_048, 0),
+            (950, 13_503, 10),
+            (1361, 17_064, 0),
+        ] {
             let page = Charset::Windows(number);
             let name = format!("ANSI_{number}");
             assert_eq!(charset(Some(b"AC1015"), Some(name.as_bytes())), page);
@@ -459,5 +466,43 @@ mod tests {
         // 2 バイト目の ASCII の英字は、名前の大小を比べるときに変えない
         assert_eq!(big5.fold(b"\xA4\x41A"), b"\xA4\x41a");
         assert_eq!(big5.decode_name(b"\xA4\x41").as_deref(), Some("乙"));
+    }
+
+    #[cfg(feature = "cp932")]
+    #[test]
+    fn johab_matches_windows() {
+        let johab = Charset::Windows(1361);
+        assert_eq!(charset(Some(b"AC1015"), Some(b"JOHAB")), johab);
+        assert_eq!(charset(Some(b"AC1015"), Some(b"ANSI_1361")), johab);
+        // 音節と、1 つだけの字母（Windows は結合用の字母 U+1100〜 に戻す）、記号・漢字（KS X 1001 の行と列に直して
+        // 戻す）と、4 行目の古い字母。値は Windows の WideCharToMultiByte が書くもの
+        for (bytes, text) in [
+            (&b"\xD0\x65\x8A\x82"[..], "한국"),
+            (b"\x88\x61\x8B\xBD\xB8\x93", "가깋잽"),
+            (
+                b"\x88\x41\x84\x61\x84\x42\x84\x5D",
+                "\u{1100}\u{1161}\u{11A8}\u{11C2}",
+            ),
+            (b"\xD9\x31\xE0\x31\xF9\xFE\xDA\xD4", "\u{3000}伽詰\u{115F}"),
+        ] {
+            assert_eq!(johab.decode(bytes).as_deref(), Some(text), "{bytes:02X?}");
+            assert_eq!(johab.encoded(text).as_deref(), Some(bytes), "{text}");
+        }
+        // 詰め物だけ・字母の組み合わせの一部・4 行目の現代の字母・私用領域・先頭でないバイトは戻さない
+        for bytes in [
+            &b"\x84\x41"[..],
+            b"\x88\x42",
+            b"\x84\x62",
+            b"\xDA\xA1",
+            b"\xD8\x31",
+            b"\xD4\x41",
+            b"\xD9\x7F",
+        ] {
+            assert_eq!(johab.decode(bytes), None, "{bytes:02X?}");
+        }
+        // 互換の字母は表せない
+        assert_eq!(johab.encoded("\u{3131}"), None);
+        // 2 バイト目の ASCII の英字は、名前の大小を比べるときに変えない
+        assert_eq!(johab.fold(b"\x88\x61A"), b"\x88\x61a");
     }
 }

@@ -21,7 +21,7 @@ zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d", optional = true }
 zumen-live = { version = "0.3.0", path = "../zumen-live", optional = true }
 libm = { version = "0.2.16", default-features = false, optional = true }
 # 2007 より前のバージョンの Shift_JIS（ANSI_932）の文字を戻し、書くときも同じ表で符号化する（新しい DXF のひな形の
-# 部品の名前など）。WHATWG の Shift_JIS で、環境によらない（決定 0175・0192、#509）。ANSI_936・ANSI_949・ANSI_950 も
+# 部品の名前など）。WHATWG の Shift_JIS で、環境によらない（決定 0175・0192、#509）。ANSI_936・ANSI_949・ANSI_950・ANSI_1361 も
 # WHATWG の GBK・EUC-KR・Big5 から Microsoft の表にして戻す（#327）
 encoding_rs = { version = "0.8.35", optional = true }
 
