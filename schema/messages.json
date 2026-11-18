@@ -3741,7 +3741,7 @@
       "unevaluatedProperties": false
     },
     "building_edit": {
-      "description": "建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から",
+      "description": "建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から",
       "oneOf": [
         { "$ref": "#/$defs/building_property_edit" },
         { "$ref": "#/$defs/building_attribute_edit" },
@@ -3752,7 +3752,8 @@
         { "$ref": "#/$defs/building_contain_edit" },
         { "$ref": "#/$defs/building_type_edit" },
         { "$ref": "#/$defs/building_void_edit" },
-        { "$ref": "#/$defs/building_fill_edit" }
+        { "$ref": "#/$defs/building_fill_edit" },
+        { "$ref": "#/$defs/building_add_wall_edit" }
       ]
     },
     "building_property_edit": {
@@ -3793,7 +3794,7 @@
       "properties": {
         "id": { "description": "要素の ID。building_elements が返したもの", "type": "string" },
         "hash": { "description": "読んだときの要素のハッシュ。building_elements が返したもの", "type": "string" },
-        "added": { "description": "同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す", "type": "integer", "minimum": 0 }
+        "added": { "description": "同じ要求の edits の、前にある add_space・add_element・add_wall の位置（0 から）。その変更で足した要素を指す", "type": "integer", "minimum": 0 }
       },
       "required": [],
       "additionalProperties": false
@@ -3823,7 +3824,7 @@
       "properties": {
         "kind": { "description": "変更の種類", "const": "add_space" },
         "space": { "description": "空間の種類", "$ref": "#/$defs/building_space_kind" },
-        "parent": { "description": "親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す", "$ref": "#/$defs/building_ref" },
+        "parent": { "description": "親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" },
         "name": { "description": "名前", "type": "string" },
         "placement": { "description": "配置。書かなければ、親の配置に重ねる", "$ref": "#/$defs/building_placement_change" },
         "elevation": { "description": "高さ。敷地は RefElevation、建物は ElevationOfRefHeight、階は Elevation に書く。文書の長さの単位", "type": "number" },
@@ -3840,7 +3841,7 @@
         "class": { "description": "IFC の実体の名前（IfcWall など）。文書のバージョンにあるもの", "type": "string" },
         "predefined": { "description": "PredefinedType の列挙の値（SOLIDWALL など）。バージョンが持たない実体では書けない", "type": "string" },
         "name": { "description": "名前", "type": "string" },
-        "container": { "description": "包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す", "$ref": "#/$defs/building_ref" },
+        "container": { "description": "包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" },
         "placement": { "description": "配置。書かなければ、空間の配置に重ねる（空間もなければ原点）", "$ref": "#/$defs/building_placement_change" },
         "global_id": { "description": "GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める", "type": "string" }
       },
@@ -3863,7 +3864,7 @@
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "place" },
-        "element": { "description": "置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す", "$ref": "#/$defs/building_ref" },
+        "element": { "description": "置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" },
         "placement": { "description": "新しい配置", "$ref": "#/$defs/building_placement_change" }
       },
       "required": ["kind", "element", "placement"],
@@ -3874,8 +3875,8 @@
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "contain" },
-        "element": { "description": "移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す", "$ref": "#/$defs/building_ref" },
-        "space": { "description": "移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す", "$ref": "#/$defs/building_ref" }
+        "element": { "description": "移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" },
+        "space": { "description": "移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" }
       },
       "required": ["kind", "element", "space"],
       "additionalProperties": false
@@ -3885,8 +3886,8 @@
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "type" },
-        "element": { "description": "型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す", "$ref": "#/$defs/building_ref" },
-        "element_type": { "description": "型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す", "$ref": "#/$defs/building_ref" }
+        "element": { "description": "型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" },
+        "element_type": { "description": "型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" }
       },
       "required": ["kind", "element"],
       "additionalProperties": false
@@ -3896,10 +3897,37 @@
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "void" },
-        "host": { "description": "開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す", "$ref": "#/$defs/building_ref" },
-        "opening": { "description": "開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す", "$ref": "#/$defs/building_ref" }
+        "host": { "description": "開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" },
+        "opening": { "description": "開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" }
       },
       "required": ["kind", "host", "opening"],
+      "additionalProperties": false
+    },
+    "building_wall_layer": {
+      "description": "壁の材料の層",
+      "type": "object",
+      "properties": {
+        "material": { "description": "材料の名前（IfcMaterial の Name）。同じ壁の中で同じ名前の層は、同じ材料を指す", "type": "string" },
+        "thickness": { "description": "層の厚さ。文書の長さの単位で、正の値", "type": "number" }
+      },
+      "required": ["material", "thickness"],
+      "additionalProperties": false
+    },
+    "building_add_wall_edit": {
+      "description": "芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "add_wall" },
+        "storey": { "description": "所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" },
+        "start": { "description": "芯の始点。空間の配置の [x, y] で、文書の長さの単位", "type": "array", "items": { "type": "number" } },
+        "end": { "description": "芯の終点。始点と違う [x, y]", "type": "array", "items": { "type": "number" } },
+        "height": { "description": "高さ。文書の長さの単位で、正の値", "type": "number" },
+        "layers": { "description": "材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上", "type": "array", "items": { "$ref": "#/$defs/building_wall_layer" } },
+        "offset": { "description": "芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする", "type": "number" },
+        "name": { "description": "名前", "type": "string" },
+        "global_id": { "description": "GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める", "type": "string" }
+      },
+      "required": ["kind", "storey", "start", "end", "height", "layers"],
       "additionalProperties": false
     },
     "building_fill_edit": {
@@ -3907,8 +3935,8 @@
       "type": "object",
       "properties": {
         "kind": { "description": "変更の種類", "const": "fill" },
-        "opening": { "description": "開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す", "$ref": "#/$defs/building_ref" },
-        "filler": { "description": "埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す", "$ref": "#/$defs/building_ref" }
+        "opening": { "description": "開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" },
+        "filler": { "description": "埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す", "$ref": "#/$defs/building_ref" }
       },
       "required": ["kind", "opening", "filler"],
       "additionalProperties": false

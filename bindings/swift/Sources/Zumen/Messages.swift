@@ -10489,7 +10489,7 @@ public struct BuildingApplyRequest: Message {
     }
 }
 
-/// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から
+/// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から
 public struct BuildingEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -10547,6 +10547,11 @@ public struct BuildingEdit: Message {
     /// kind が fill の形なら、そのビュー。違えば nil
     public var asBuildingFillEdit: BuildingFillEdit? {
         taggedView("kind", "fill")
+    }
+
+    /// kind が add_wall の形なら、そのビュー。違えば nil
+    public var asBuildingAddWallEdit: BuildingAddWallEdit? {
+        taggedView("kind", "add_wall")
     }
 }
 
@@ -10683,7 +10688,7 @@ public struct BuildingRef: Message {
         set { writeField("hash", newValue) }
     }
 
-    /// 同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す
+    /// 同じ要求の edits の、前にある add_space・add_element・add_wall の位置（0 から）。その変更で足した要素を指す
     public var added: Int64? {
         get { readField("added") }
         set { writeField("added", newValue) }
@@ -10754,7 +10759,7 @@ public struct BuildingAddSpaceEdit: Message {
         set { writeField("space", newValue) }
     }
 
-    /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     public var parent: BuildingRef? {
         get { readField("parent") }
         set { writeField("parent", newValue) }
@@ -10824,7 +10829,7 @@ public struct BuildingAddElementEdit: Message {
         set { writeField("name", newValue) }
     }
 
-    /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     public var container: BuildingRef? {
         get { readField("container") }
         set { writeField("container", newValue) }
@@ -10898,7 +10903,7 @@ public struct BuildingPlaceEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     public var element: BuildingRef? {
         get { readField("element") }
         set { writeField("element", newValue) }
@@ -10932,13 +10937,13 @@ public struct BuildingContainEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     public var element: BuildingRef? {
         get { readField("element") }
         set { writeField("element", newValue) }
     }
 
-    /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     public var space: BuildingRef? {
         get { readField("space") }
         set { writeField("space", newValue) }
@@ -10966,13 +10971,13 @@ public struct BuildingTypeEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     public var element: BuildingRef? {
         get { readField("element") }
         set { writeField("element", newValue) }
     }
 
-    /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     public var elementType: BuildingRef? {
         get { readField("element_type") }
         set { writeField("element_type", newValue) }
@@ -11000,16 +11005,114 @@ public struct BuildingVoidEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     public var host: BuildingRef? {
         get { readField("host") }
         set { writeField("host", newValue) }
     }
 
-    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     public var opening: BuildingRef? {
         get { readField("opening") }
         set { writeField("opening", newValue) }
+    }
+}
+
+/// 壁の材料の層
+public struct BuildingWallLayer: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 材料の名前（IfcMaterial の Name）。同じ壁の中で同じ名前の層は、同じ材料を指す
+    public var material: String? {
+        get { readField("material") }
+        set { writeField("material", newValue) }
+    }
+
+    /// 層の厚さ。文書の長さの単位で、正の値
+    public var thickness: Double? {
+        get { readField("thickness") }
+        set { writeField("thickness", newValue) }
+    }
+}
+
+/// 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+public struct BuildingAddWallEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_wall")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    public var storey: BuildingRef? {
+        get { readField("storey") }
+        set { writeField("storey", newValue) }
+    }
+
+    /// 芯の始点。空間の配置の [x, y] で、文書の長さの単位
+    public var start: [Double]? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 芯の終点。始点と違う [x, y]
+    public var end: [Double]? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+
+    /// 高さ。文書の長さの単位で、正の値
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+    public var layers: [BuildingWallLayer]? {
+        get { readField("layers") }
+        set { writeField("layers", newValue) }
+    }
+
+    /// 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする
+    public var offset: Double? {
+        get { readField("offset") }
+        set { writeField("offset", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    public var globalId: String? {
+        get { readField("global_id") }
+        set { writeField("global_id", newValue) }
     }
 }
 
@@ -11034,13 +11137,13 @@ public struct BuildingFillEdit: Message {
         set { writeField("kind", newValue) }
     }
 
-    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     public var opening: BuildingRef? {
         get { readField("opening") }
         set { writeField("opening", newValue) }
     }
 
-    /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     public var filler: BuildingRef? {
         get { readField("filler") }
         set { writeField("filler", newValue) }

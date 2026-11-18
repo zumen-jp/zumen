@@ -3108,7 +3108,7 @@ export interface BuildingApplyRequest extends RequestCommon {
   edits: BuildingEdit[];
 }
 
-/** 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から */
+/** 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から */
 export type BuildingEdit =
   | BuildingPropertyEdit
   | BuildingAttributeEdit
@@ -3119,7 +3119,8 @@ export type BuildingEdit =
   | BuildingContainEdit
   | BuildingTypeEdit
   | BuildingVoidEdit
-  | BuildingFillEdit;
+  | BuildingFillEdit
+  | BuildingAddWallEdit;
 
 /** 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える */
 export interface BuildingPropertyEdit {
@@ -3163,7 +3164,7 @@ export interface BuildingRef {
   id?: string;
   /** 読んだときの要素のハッシュ。building_elements が返したもの */
   hash?: string;
-  /** 同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す */
+  /** 同じ要求の edits の、前にある add_space・add_element・add_wall の位置（0 から）。その変更で足した要素を指す */
   added?: number;
 }
 
@@ -3188,7 +3189,7 @@ export interface BuildingAddSpaceEdit {
   kind: "add_space";
   /** 空間の種類 */
   space: BuildingSpaceKind;
-  /** 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+  /** 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
   parent: BuildingRef;
   /** 名前 */
   name?: string;
@@ -3210,7 +3211,7 @@ export interface BuildingAddElementEdit {
   predefined?: string;
   /** 名前 */
   name?: string;
-  /** 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+  /** 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
   container?: BuildingRef;
   /** 配置。書かなければ、空間の配置に重ねる（空間もなければ原点） */
   placement?: BuildingPlacementChange;
@@ -3232,7 +3233,7 @@ export interface BuildingRemoveEdit {
 export interface BuildingPlaceEdit {
   /** 変更の種類 */
   kind: "place";
-  /** 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+  /** 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
   element: BuildingRef;
   /** 新しい配置 */
   placement: BuildingPlacementChange;
@@ -3242,9 +3243,9 @@ export interface BuildingPlaceEdit {
 export interface BuildingContainEdit {
   /** 変更の種類 */
   kind: "contain";
-  /** 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+  /** 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
   element: BuildingRef;
-  /** 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+  /** 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
   space: BuildingRef;
 }
 
@@ -3252,9 +3253,9 @@ export interface BuildingContainEdit {
 export interface BuildingTypeEdit {
   /** 変更の種類 */
   kind: "type";
-  /** 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+  /** 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
   element: BuildingRef;
-  /** 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+  /** 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
   element_type?: BuildingRef;
 }
 
@@ -3262,19 +3263,49 @@ export interface BuildingTypeEdit {
 export interface BuildingVoidEdit {
   /** 変更の種類 */
   kind: "void";
-  /** 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+  /** 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
   host: BuildingRef;
-  /** 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+  /** 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
   opening: BuildingRef;
+}
+
+/** 壁の材料の層 */
+export interface BuildingWallLayer {
+  /** 材料の名前（IfcMaterial の Name）。同じ壁の中で同じ名前の層は、同じ材料を指す */
+  material: string;
+  /** 層の厚さ。文書の長さの単位で、正の値 */
+  thickness: number;
+}
+
+/** 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から */
+export interface BuildingAddWallEdit {
+  /** 変更の種類 */
+  kind: "add_wall";
+  /** 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
+  storey: BuildingRef;
+  /** 芯の始点。空間の配置の [x, y] で、文書の長さの単位 */
+  start: number[];
+  /** 芯の終点。始点と違う [x, y] */
+  end: number[];
+  /** 高さ。文書の長さの単位で、正の値 */
+  height: number;
+  /** 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上 */
+  layers: BuildingWallLayer[];
+  /** 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする */
+  offset?: number;
+  /** 名前 */
+  name?: string;
+  /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
+  global_id?: string;
 }
 
 /** 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から */
 export interface BuildingFillEdit {
   /** 変更の種類 */
   kind: "fill";
-  /** 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+  /** 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
   opening: BuildingRef;
-  /** 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+  /** 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
   filler: BuildingRef;
 }
 

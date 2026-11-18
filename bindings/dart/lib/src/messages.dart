@@ -6817,7 +6817,7 @@ class BuildingApplyRequest extends Message {
   set edits(List<BuildingEdit>? value) => writeField('edits', value);
 }
 
-/// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から
+/// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から
 class BuildingEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   BuildingEdit.fromJson(super.json);
@@ -6854,6 +6854,9 @@ class BuildingEdit extends Message {
 
   /// kind が fill の形なら、そのビュー。違えば null
   BuildingFillEdit? get asBuildingFillEdit => taggedView('kind', 'fill', BuildingFillEdit.fromJson);
+
+  /// kind が add_wall の形なら、そのビュー。違えば null
+  BuildingAddWallEdit? get asBuildingAddWallEdit => taggedView('kind', 'add_wall', BuildingAddWallEdit.fromJson);
 }
 
 /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
@@ -6942,7 +6945,7 @@ class BuildingRef extends Message {
   String? get hash => readField('hash', asString);
   set hash(String? value) => writeField('hash', value);
 
-  /// 同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す
+  /// 同じ要求の edits の、前にある add_space・add_element・add_wall の位置（0 から）。その変更で足した要素を指す
   core.int? get added => readField('added', asInt);
   set added(core.int? value) => writeField('added', value);
 }
@@ -6989,7 +6992,7 @@ class BuildingAddSpaceEdit extends Message {
   String? get space => readField('space', asString);
   set space(String? value) => writeField('space', value);
 
-  /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+  /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
   BuildingRef? get parent => readField('parent', objectOf(BuildingRef.fromJson));
   set parent(BuildingRef? value) => writeField('parent', value);
 
@@ -7034,7 +7037,7 @@ class BuildingAddElementEdit extends Message {
   String? get name => readField('name', asString);
   set name(String? value) => writeField('name', value);
 
-  /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+  /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
   BuildingRef? get container => readField('container', objectOf(BuildingRef.fromJson));
   set container(BuildingRef? value) => writeField('container', value);
 
@@ -7080,7 +7083,7 @@ class BuildingPlaceEdit extends Message {
   String? get kind => readField('kind', asString);
   set kind(String? value) => writeField('kind', value);
 
-  /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+  /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
   BuildingRef? get element => readField('element', objectOf(BuildingRef.fromJson));
   set element(BuildingRef? value) => writeField('element', value);
 
@@ -7101,11 +7104,11 @@ class BuildingContainEdit extends Message {
   String? get kind => readField('kind', asString);
   set kind(String? value) => writeField('kind', value);
 
-  /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+  /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
   BuildingRef? get element => readField('element', objectOf(BuildingRef.fromJson));
   set element(BuildingRef? value) => writeField('element', value);
 
-  /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+  /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
   BuildingRef? get space => readField('space', objectOf(BuildingRef.fromJson));
   set space(BuildingRef? value) => writeField('space', value);
 }
@@ -7122,11 +7125,11 @@ class BuildingTypeEdit extends Message {
   String? get kind => readField('kind', asString);
   set kind(String? value) => writeField('kind', value);
 
-  /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+  /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
   BuildingRef? get element => readField('element', objectOf(BuildingRef.fromJson));
   set element(BuildingRef? value) => writeField('element', value);
 
-  /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+  /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
   BuildingRef? get elementType => readField('element_type', objectOf(BuildingRef.fromJson));
   set elementType(BuildingRef? value) => writeField('element_type', value);
 }
@@ -7143,13 +7146,75 @@ class BuildingVoidEdit extends Message {
   String? get kind => readField('kind', asString);
   set kind(String? value) => writeField('kind', value);
 
-  /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+  /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
   BuildingRef? get host => readField('host', objectOf(BuildingRef.fromJson));
   set host(BuildingRef? value) => writeField('host', value);
 
-  /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+  /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
   BuildingRef? get opening => readField('opening', objectOf(BuildingRef.fromJson));
   set opening(BuildingRef? value) => writeField('opening', value);
+}
+
+/// 壁の材料の層
+class BuildingWallLayer extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingWallLayer.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingWallLayer() : super({});
+
+  /// 材料の名前（IfcMaterial の Name）。同じ壁の中で同じ名前の層は、同じ材料を指す
+  String? get material => readField('material', asString);
+  set material(String? value) => writeField('material', value);
+
+  /// 層の厚さ。文書の長さの単位で、正の値
+  core.double? get thickness => readField('thickness', asDouble);
+  set thickness(core.double? value) => writeField('thickness', value);
+}
+
+/// 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+class BuildingAddWallEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingAddWallEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingAddWallEdit() : super({'kind': 'add_wall'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+  BuildingRef? get storey => readField('storey', objectOf(BuildingRef.fromJson));
+  set storey(BuildingRef? value) => writeField('storey', value);
+
+  /// 芯の始点。空間の配置の [x, y] で、文書の長さの単位
+  List<core.double>? get start => readField('start', listOf(asDouble));
+  set start(List<core.double>? value) => writeField('start', value);
+
+  /// 芯の終点。始点と違う [x, y]
+  List<core.double>? get end => readField('end', listOf(asDouble));
+  set end(List<core.double>? value) => writeField('end', value);
+
+  /// 高さ。文書の長さの単位で、正の値
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
+
+  /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+  List<BuildingWallLayer>? get layers => readField('layers', listOf(objectOf(BuildingWallLayer.fromJson)));
+  set layers(List<BuildingWallLayer>? value) => writeField('layers', value);
+
+  /// 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする
+  core.double? get offset => readField('offset', asDouble);
+  set offset(core.double? value) => writeField('offset', value);
+
+  /// 名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+  String? get globalId => readField('global_id', asString);
+  set globalId(String? value) => writeField('global_id', value);
 }
 
 /// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
@@ -7164,11 +7229,11 @@ class BuildingFillEdit extends Message {
   String? get kind => readField('kind', asString);
   set kind(String? value) => writeField('kind', value);
 
-  /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+  /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
   BuildingRef? get opening => readField('opening', objectOf(BuildingRef.fromJson));
   set opening(BuildingRef? value) => writeField('opening', value);
 
-  /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+  /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
   BuildingRef? get filler => readField('filler', objectOf(BuildingRef.fromJson));
   set filler(BuildingRef? value) => writeField('filler', value);
 }

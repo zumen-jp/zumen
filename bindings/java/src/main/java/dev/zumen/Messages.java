@@ -17027,7 +17027,7 @@ public final class Messages {
         }
     }
 
-    /** 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から */
+    /** 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から */
     public static final class BuildingEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingEdit(Map<String, Object> json) {
@@ -17088,6 +17088,11 @@ public final class Messages {
         /** kind が fill の形なら、そのビュー。違えば null */
         public BuildingFillEdit asBuildingFillEdit() {
             return "fill".equals(json.get("kind")) ? new BuildingFillEdit(json) : null;
+        }
+
+        /** kind が add_wall の形なら、そのビュー。違えば null */
+        public BuildingAddWallEdit asBuildingAddWallEdit() {
+            return "add_wall".equals(json.get("kind")) ? new BuildingAddWallEdit(json) : null;
         }
     }
 
@@ -17305,7 +17310,7 @@ public final class Messages {
             return this;
         }
 
-        /** 同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す */
+        /** 同じ要求の edits の、前にある add_space・add_element・add_wall の位置（0 から）。その変更で足した要素を指す */
         public Long getAdded() {
             return Json.read(json.get("added"), Json::integer);
         }
@@ -17414,7 +17419,7 @@ public final class Messages {
             return this;
         }
 
-        /** 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        /** 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
         public BuildingRef getParent() {
             return Json.read(json.get("parent"), BuildingRef::of);
         }
@@ -17533,7 +17538,7 @@ public final class Messages {
             return this;
         }
 
-        /** 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        /** 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
         public BuildingRef getContainer() {
             return Json.read(json.get("container"), BuildingRef::of);
         }
@@ -17650,7 +17655,7 @@ public final class Messages {
             return this;
         }
 
-        /** 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        /** 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
         public BuildingRef getElement() {
             return Json.read(json.get("element"), BuildingRef::of);
         }
@@ -17703,7 +17708,7 @@ public final class Messages {
             return this;
         }
 
-        /** 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        /** 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
         public BuildingRef getElement() {
             return Json.read(json.get("element"), BuildingRef::of);
         }
@@ -17714,7 +17719,7 @@ public final class Messages {
             return this;
         }
 
-        /** 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        /** 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
         public BuildingRef getSpace() {
             return Json.read(json.get("space"), BuildingRef::of);
         }
@@ -17756,7 +17761,7 @@ public final class Messages {
             return this;
         }
 
-        /** 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        /** 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
         public BuildingRef getElement() {
             return Json.read(json.get("element"), BuildingRef::of);
         }
@@ -17767,7 +17772,7 @@ public final class Messages {
             return this;
         }
 
-        /** 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        /** 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
         public BuildingRef getElementType() {
             return Json.read(json.get("element_type"), BuildingRef::of);
         }
@@ -17809,7 +17814,7 @@ public final class Messages {
             return this;
         }
 
-        /** 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        /** 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
         public BuildingRef getHost() {
             return Json.read(json.get("host"), BuildingRef::of);
         }
@@ -17820,7 +17825,7 @@ public final class Messages {
             return this;
         }
 
-        /** 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        /** 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
         public BuildingRef getOpening() {
             return Json.read(json.get("opening"), BuildingRef::of);
         }
@@ -17828,6 +17833,166 @@ public final class Messages {
         /** {@link #getOpening()} を書く。null ならフィールドを除く */
         public BuildingVoidEdit withOpening(BuildingRef value) {
             put("opening", value);
+            return this;
+        }
+    }
+
+    /** 壁の材料の層 */
+    public static final class BuildingWallLayer extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingWallLayer(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingWallLayer of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingWallLayer(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingWallLayer() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 材料の名前（IfcMaterial の Name）。同じ壁の中で同じ名前の層は、同じ材料を指す */
+        public String getMaterial() {
+            return Json.read(json.get("material"), Json::string);
+        }
+
+        /** {@link #getMaterial()} を書く。null ならフィールドを除く */
+        public BuildingWallLayer withMaterial(String value) {
+            put("material", value);
+            return this;
+        }
+
+        /** 層の厚さ。文書の長さの単位で、正の値 */
+        public Double getThickness() {
+            return Json.read(json.get("thickness"), Json::number);
+        }
+
+        /** {@link #getThickness()} を書く。null ならフィールドを除く */
+        public BuildingWallLayer withThickness(Double value) {
+            put("thickness", value);
+            return this;
+        }
+    }
+
+    /** 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から */
+    public static final class BuildingAddWallEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingAddWallEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingAddWallEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingAddWallEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingAddWallEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "add_wall");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingAddWallEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
+        public BuildingRef getStorey() {
+            return Json.read(json.get("storey"), BuildingRef::of);
+        }
+
+        /** {@link #getStorey()} を書く。null ならフィールドを除く */
+        public BuildingAddWallEdit withStorey(BuildingRef value) {
+            put("storey", value);
+            return this;
+        }
+
+        /** 芯の始点。空間の配置の [x, y] で、文書の長さの単位 */
+        public List<Double> getStart() {
+            return Json.read(json.get("start"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
+        public BuildingAddWallEdit withStart(List<Double> value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 芯の終点。始点と違う [x, y] */
+        public List<Double> getEnd() {
+            return Json.read(json.get("end"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
+        public BuildingAddWallEdit withEnd(List<Double> value) {
+            put("end", value);
+            return this;
+        }
+
+        /** 高さ。文書の長さの単位で、正の値 */
+        public Double getHeight() {
+            return Json.read(json.get("height"), Json::number);
+        }
+
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
+        public BuildingAddWallEdit withHeight(Double value) {
+            put("height", value);
+            return this;
+        }
+
+        /** 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上 */
+        public List<BuildingWallLayer> getLayers() {
+            return Json.read(json.get("layers"), v0 -> Json.list(v0, BuildingWallLayer::of));
+        }
+
+        /** {@link #getLayers()} を書く。null ならフィールドを除く */
+        public BuildingAddWallEdit withLayers(List<BuildingWallLayer> value) {
+            put("layers", value);
+            return this;
+        }
+
+        /** 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする */
+        public Double getOffset() {
+            return Json.read(json.get("offset"), Json::number);
+        }
+
+        /** {@link #getOffset()} を書く。null ならフィールドを除く */
+        public BuildingAddWallEdit withOffset(Double value) {
+            put("offset", value);
+            return this;
+        }
+
+        /** 名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public BuildingAddWallEdit withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
+        public String getGlobalId() {
+            return Json.read(json.get("global_id"), Json::string);
+        }
+
+        /** {@link #getGlobalId()} を書く。null ならフィールドを除く */
+        public BuildingAddWallEdit withGlobalId(String value) {
+            put("global_id", value);
             return this;
         }
     }
@@ -17862,7 +18027,7 @@ public final class Messages {
             return this;
         }
 
-        /** 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        /** 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
         public BuildingRef getOpening() {
             return Json.read(json.get("opening"), BuildingRef::of);
         }
@@ -17873,7 +18038,7 @@ public final class Messages {
             return this;
         }
 
-        /** 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す */
+        /** 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す */
         public BuildingRef getFiller() {
             return Json.read(json.get("filler"), BuildingRef::of);
         }

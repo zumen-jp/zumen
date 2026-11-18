@@ -8607,7 +8607,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から
+    /// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から
     /// </summary>
     public static class BuildingEdit
     {
@@ -8627,6 +8627,7 @@ namespace Zumen.Messages
             ["type"] = typeof(BuildingTypeEdit),
             ["void"] = typeof(BuildingVoidEdit),
             ["fill"] = typeof(BuildingFillEdit),
+            ["add_wall"] = typeof(BuildingAddWallEdit),
         };
     }
 
@@ -8737,7 +8738,7 @@ namespace Zumen.Messages
         public string? Hash { get; init; }
 
         /// <summary>
-        /// 同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す
+        /// 同じ要求の edits の、前にある add_space・add_element・add_wall の位置（0 から）。その変更で足した要素を指す
         /// </summary>
         [JsonPropertyName("added")]
         public ulong? Added { get; init; }
@@ -8792,7 +8793,7 @@ namespace Zumen.Messages
         public string Space { get; init; } = default!;
 
         /// <summary>
-        /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         /// </summary>
         [JsonPropertyName("parent")]
         public BuildingRef Parent { get; init; } = default!;
@@ -8852,7 +8853,7 @@ namespace Zumen.Messages
         public string? Name { get; init; }
 
         /// <summary>
-        /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         /// </summary>
         [JsonPropertyName("container")]
         public BuildingRef? Container { get; init; }
@@ -8906,7 +8907,7 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "place";
 
         /// <summary>
-        /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         /// </summary>
         [JsonPropertyName("element")]
         public BuildingRef Element { get; init; } = default!;
@@ -8930,13 +8931,13 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "contain";
 
         /// <summary>
-        /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         /// </summary>
         [JsonPropertyName("element")]
         public BuildingRef Element { get; init; } = default!;
 
         /// <summary>
-        /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         /// </summary>
         [JsonPropertyName("space")]
         public BuildingRef Space { get; init; } = default!;
@@ -8954,13 +8955,13 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "type";
 
         /// <summary>
-        /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         /// </summary>
         [JsonPropertyName("element")]
         public BuildingRef Element { get; init; } = default!;
 
         /// <summary>
-        /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         /// </summary>
         [JsonPropertyName("element_type")]
         public BuildingRef? ElementType { get; init; }
@@ -8978,16 +8979,94 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "void";
 
         /// <summary>
-        /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         /// </summary>
         [JsonPropertyName("host")]
         public BuildingRef Host { get; init; } = default!;
 
         /// <summary>
-        /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         /// </summary>
         [JsonPropertyName("opening")]
         public BuildingRef Opening { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 壁の材料の層
+    /// </summary>
+    public sealed record BuildingWallLayer
+    {
+        /// <summary>
+        /// 材料の名前（IfcMaterial の Name）。同じ壁の中で同じ名前の層は、同じ材料を指す
+        /// </summary>
+        [JsonPropertyName("material")]
+        public string Material { get; init; } = default!;
+
+        /// <summary>
+        /// 層の厚さ。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("thickness")]
+        public double Thickness { get; init; }
+    }
+
+    /// <summary>
+    /// 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+    /// </summary>
+    public sealed record BuildingAddWallEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "add_wall";
+
+        /// <summary>
+        /// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// </summary>
+        [JsonPropertyName("storey")]
+        public BuildingRef Storey { get; init; } = default!;
+
+        /// <summary>
+        /// 芯の始点。空間の配置の [x, y] で、文書の長さの単位
+        /// </summary>
+        [JsonPropertyName("start")]
+        public IReadOnlyList<double> Start { get; init; } = default!;
+
+        /// <summary>
+        /// 芯の終点。始点と違う [x, y]
+        /// </summary>
+        [JsonPropertyName("end")]
+        public IReadOnlyList<double> End { get; init; } = default!;
+
+        /// <summary>
+        /// 高さ。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double Height { get; init; }
+
+        /// <summary>
+        /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+        /// </summary>
+        [JsonPropertyName("layers")]
+        public IReadOnlyList<BuildingWallLayer> Layers { get; init; } = default!;
+
+        /// <summary>
+        /// 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public double? Offset { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        /// </summary>
+        [JsonPropertyName("global_id")]
+        public string? GlobalId { get; init; }
     }
 
     /// <summary>
@@ -9002,13 +9081,13 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "fill";
 
         /// <summary>
-        /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         /// </summary>
         [JsonPropertyName("opening")]
         public BuildingRef Opening { get; init; } = default!;
 
         /// <summary>
-        /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         /// </summary>
         [JsonPropertyName("filler")]
         public BuildingRef Filler { get; init; } = default!;

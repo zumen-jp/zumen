@@ -985,7 +985,7 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
   - 書く実体と属性の数は、lift と同じく手書きのバージョンの表で持つ。そのバージョンにない実体と、持たない定義された種類は書かない。必須の定義された種類（IFC2X3 の屋根・階段・斜路の ShapeType、基礎・杭）を渡されなければ `NOTDEFINED` を書く。
   - 足す `IfcRoot` の所有履歴は、プロジェクトの所有履歴を使う。IFC2X3 でなければ断り、IFC4 と IFC4X3 では `$` にする。GlobalId は、渡された値が文書とこの要求で重ならなければ使う。渡されなければ、Rust では今と同じく作り、`building_apply` では文書のハッシュと変更の位置から作って L1 に渡す。
   - 当てられない変更（表にない実体、所属できない空間、輪になる配置、剛体でない変換、重なる GlobalId、ないか除いた要素）は、`change.edit.unsupported` で断り、要求のどの変更も当てない。
-- 意図の値で壁を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Wall` で、芯の 2 点（空間の配置の XY）・高さ・材料の層と芯からのずれを受ける。IFC2X3 は `IfcWallStandardCase`、IFC4 と IFC4X3 は `IfcWall` に書き、空間に包含で結ぶ。
+- 意図の値で壁を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Wall` と、`building_apply` の `add_wall`（スキーマのマイナーバージョン 97 から）で、芯の 2 点（空間の配置の XY）・高さ・材料の層と芯からのずれを受ける。IFC2X3 は `IfcWallStandardCase`、IFC4 と IFC4X3 は `IfcWall` に書き、空間に包含で結ぶ。
   - 配置は、空間の配置からの相対で、芯の始点を原点、芯の向きを x 軸にする。
   - 表現は `Axis`（芯の 2 点の折れ線、`Curve2D`）と `Body`（層の厚さの合計の矩形を閉じた折れ線の断面にして、高さだけ押し出す `SweptSolid`）。文脈は、プロジェクトの `Model` の文脈と、その下の `Axis`・`Body` の副文脈を使い、なければ足す。
   - 材料は、層ごとの `IfcMaterialLayer` を `IfcMaterialLayerSetUsage`（`AXIS2`・`POSITIVE`）で使い、`IfcRelAssociatesMaterial` で結ぶ。層は芯の左へ並び、ずれ（`OffsetFromReferenceLine`）を渡されなければ厚さの合計の半分を負にして、芯を厚さの中央にする。`IfcMaterial` は壁ごとに書き、同じ壁で同じ名前の層は同じ材料を指す。

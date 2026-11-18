@@ -15292,7 +15292,7 @@ impl ToJson for BuildingApplyRequest {
     }
 }
 
-/// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から
+/// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum BuildingEdit {
@@ -15316,6 +15316,8 @@ pub enum BuildingEdit {
     Void(BuildingVoidEdit),
     /// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
     Fill(BuildingFillEdit),
+    /// 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+    AddWall(BuildingAddWallEdit),
 }
 
 impl BuildingEdit {
@@ -15331,6 +15333,7 @@ impl BuildingEdit {
         "type",
         "void",
         "fill",
+        "add_wall",
     ];
 
     /// タグのフィールド（`kind`）の値
@@ -15346,6 +15349,7 @@ impl BuildingEdit {
             Self::Type(_) => "type",
             Self::Void(_) => "void",
             Self::Fill(_) => "fill",
+            Self::AddWall(_) => "add_wall",
         }
     }
 }
@@ -15364,6 +15368,7 @@ impl FromJson for BuildingEdit {
             "type" => Self::Type(BuildingTypeEdit::read_fields(&mut object)?),
             "void" => Self::Void(BuildingVoidEdit::read_fields(&mut object)?),
             "fill" => Self::Fill(BuildingFillEdit::read_fields(&mut object)?),
+            "add_wall" => Self::AddWall(BuildingAddWallEdit::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -15384,6 +15389,7 @@ impl ToJson for BuildingEdit {
             Self::Type(value) => value.to_json(out),
             Self::Void(value) => value.to_json(out),
             Self::Fill(value) => value.to_json(out),
+            Self::AddWall(value) => value.to_json(out),
         }
     }
 }
@@ -15564,7 +15570,7 @@ pub struct BuildingRef {
     pub id: Option<String>,
     /// 読んだときの要素のハッシュ。building_elements が返したもの
     pub hash: Option<String>,
-    /// 同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す
+    /// 同じ要求の edits の、前にある add_space・add_element・add_wall の位置（0 から）。その変更で足した要素を指す
     pub added: Option<u64>,
 }
 
@@ -15711,7 +15717,7 @@ impl ToJson for BuildingSpaceKind {
 pub struct BuildingAddSpaceEdit {
     /// 空間の種類
     pub space: BuildingSpaceKind,
-    /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     pub parent: BuildingRef,
     /// 名前
     pub name: Option<String>,
@@ -15794,7 +15800,7 @@ pub struct BuildingAddElementEdit {
     pub predefined: Option<String>,
     /// 名前
     pub name: Option<String>,
-    /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     pub container: Option<BuildingRef>,
     /// 配置。書かなければ、空間の配置に重ねる（空間もなければ原点）
     pub placement: Option<BuildingPlacementChange>,
@@ -15913,7 +15919,7 @@ impl ToJson for BuildingRemoveEdit {
 /// 要素の配置を置き直す。ほかの要素と共有しない配置はその場で書き換え、共有する配置は新しく作る。配置の親をたどって輪になる配置は断る。マイナーバージョン 96 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingPlaceEdit {
-    /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     pub element: BuildingRef,
     /// 新しい配置
     pub placement: BuildingPlacementChange,
@@ -15957,9 +15963,9 @@ impl ToJson for BuildingPlaceEdit {
 /// 要素を空間に移す。空間は IfcRelAggregates、要素は IfcRelContainedInSpatialStructure で結び、前の関係から外す。マイナーバージョン 96 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingContainEdit {
-    /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     pub element: BuildingRef,
-    /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     pub space: BuildingRef,
 }
 
@@ -16001,9 +16007,9 @@ impl ToJson for BuildingContainEdit {
 /// 要素の型を IfcRelDefinesByType で付け替える。element_type を書かなければ、型を外す。マイナーバージョン 96 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingTypeEdit {
-    /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     pub element: BuildingRef,
-    /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     pub element_type: Option<BuildingRef>,
 }
 
@@ -16050,9 +16056,9 @@ impl ToJson for BuildingTypeEdit {
 /// 開口（IfcOpeningElement）を要素に IfcRelVoidsElement で結ぶ。1 つの開口は 1 つの要素だけに結ぶ。マイナーバージョン 96 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingVoidEdit {
-    /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     pub host: BuildingRef,
-    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     pub opening: BuildingRef,
 }
 
@@ -16091,12 +16097,147 @@ impl ToJson for BuildingVoidEdit {
     }
 }
 
+/// 壁の材料の層
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingWallLayer {
+    /// 材料の名前（IfcMaterial の Name）。同じ壁の中で同じ名前の層は、同じ材料を指す
+    pub material: String,
+    /// 層の厚さ。文書の長さの単位で、正の値
+    pub thickness: f64,
+}
+
+impl BuildingWallLayer {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let material = object.required("material", json::string)?;
+        let thickness = object.required("thickness", json::number)?;
+        Ok(Self {
+            material,
+            thickness,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("material");
+        out.string(&self.material);
+        out.key("thickness");
+        out.float(self.thickness);
+    }
+}
+
+impl FromJson for BuildingWallLayer {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingWallLayer {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingAddWallEdit {
+    /// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+    pub storey: BuildingRef,
+    /// 芯の始点。空間の配置の [x, y] で、文書の長さの単位
+    pub start: Vec<f64>,
+    /// 芯の終点。始点と違う [x, y]
+    pub end: Vec<f64>,
+    /// 高さ。文書の長さの単位で、正の値
+    pub height: f64,
+    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+    pub layers: Vec<BuildingWallLayer>,
+    /// 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする
+    pub offset: Option<f64>,
+    /// 名前
+    pub name: Option<String>,
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    pub global_id: Option<String>,
+}
+
+impl BuildingAddWallEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "add_wall")?;
+        let storey = object.required("storey", BuildingRef::from_json)?;
+        let start = object.required("start", |value| json::array(value, json::number))?;
+        let end = object.required("end", |value| json::array(value, json::number))?;
+        let height = object.required("height", json::number)?;
+        let layers = object.required("layers", |value| {
+            json::array(value, BuildingWallLayer::from_json)
+        })?;
+        let offset = object.optional("offset", json::number)?;
+        let name = object.optional("name", json::string)?;
+        let global_id = object.optional("global_id", json::string)?;
+        Ok(Self {
+            storey,
+            start,
+            end,
+            height,
+            layers,
+            offset,
+            name,
+            global_id,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("add_wall");
+        out.key("storey");
+        self.storey.to_json(out);
+        out.key("start");
+        out.array(&self.start, |out, item| out.float(*item));
+        out.key("end");
+        out.array(&self.end, |out, item| out.float(*item));
+        out.key("height");
+        out.float(self.height);
+        out.key("layers");
+        out.array(&self.layers, |out, item| item.to_json(out));
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.float(*value);
+        }
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.global_id {
+            out.key("global_id");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BuildingAddWallEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingAddWallEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
 /// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingFillEdit {
-    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     pub opening: BuildingRef,
-    /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+    /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
     pub filler: BuildingRef,
 }
 

@@ -5277,7 +5277,7 @@ _BuildingApplyRequestOptional = TypedDict(
 class BuildingApplyRequest(_BuildingApplyRequestRequired, _BuildingApplyRequestOptional):
     "開いた IFC に、変更の一覧を当てて書き戻す（決定 0207・0244）。要素は、building_elements が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイル（ifcZIP で開いたものは ifcZIP）を blobs の file で返す。名前を挙げないインスタンスは、元のバイト列のまま書く。マイナーバージョン 58 から"
 
-# 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から
+# 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から
 BuildingEdit = Union[
     "BuildingPropertyEdit",
     "BuildingAttributeEdit",
@@ -5289,6 +5289,7 @@ BuildingEdit = Union[
     "BuildingTypeEdit",
     "BuildingVoidEdit",
     "BuildingFillEdit",
+    "BuildingAddWallEdit",
 ]
 
 
@@ -5357,7 +5358,7 @@ BuildingRef = TypedDict(
         "id": str,
         # 読んだときの要素のハッシュ。building_elements が返したもの
         "hash": str,
-        # 同じ要求の edits の、前にある add_space か add_element の位置（0 から）。その変更で足した要素を指す
+        # 同じ要求の edits の、前にある add_space・add_element・add_wall の位置（0 から）。その変更で足した要素を指す
         "added": int,
     },
     total=False,
@@ -5404,7 +5405,7 @@ _BuildingAddSpaceEditRequired = TypedDict(
         "kind": Literal["add_space"],
         # 空間の種類
         "space": "BuildingSpaceKind",
-        # 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        # 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         "parent": "BuildingRef",
     },
 )
@@ -5445,7 +5446,7 @@ _BuildingAddElementEditOptional = TypedDict(
         "predefined": str,
         # 名前
         "name": str,
-        # 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        # 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         "container": "BuildingRef",
         # 配置。書かなければ、空間の配置に重ねる（空間もなければ原点）
         "placement": "BuildingPlacementChange",
@@ -5480,7 +5481,7 @@ BuildingPlaceEdit = TypedDict(
     {
         # 変更の種類
         "kind": Literal["place"],
-        # 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        # 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         "element": "BuildingRef",
         # 新しい配置
         "placement": "BuildingPlacementChange",
@@ -5494,9 +5495,9 @@ BuildingContainEdit = TypedDict(
     {
         # 変更の種類
         "kind": Literal["contain"],
-        # 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        # 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         "element": "BuildingRef",
-        # 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        # 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         "space": "BuildingRef",
     },
 )
@@ -5508,14 +5509,14 @@ _BuildingTypeEditRequired = TypedDict(
     {
         # 変更の種類
         "kind": Literal["type"],
-        # 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        # 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         "element": "BuildingRef",
     },
 )
 _BuildingTypeEditOptional = TypedDict(
     "_BuildingTypeEditOptional",
     {
-        # 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        # 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         "element_type": "BuildingRef",
     },
     total=False,
@@ -5532,12 +5533,60 @@ BuildingVoidEdit = TypedDict(
     {
         # 変更の種類
         "kind": Literal["void"],
-        # 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        # 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         "host": "BuildingRef",
-        # 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        # 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         "opening": "BuildingRef",
     },
 )
+
+
+# 壁の材料の層
+BuildingWallLayer = TypedDict(
+    "BuildingWallLayer",
+    {
+        # 材料の名前（IfcMaterial の Name）。同じ壁の中で同じ名前の層は、同じ材料を指す
+        "material": str,
+        # 層の厚さ。文書の長さの単位で、正の値
+        "thickness": float,
+    },
+)
+
+
+# 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+_BuildingAddWallEditRequired = TypedDict(
+    "_BuildingAddWallEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["add_wall"],
+        # 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        "storey": "BuildingRef",
+        # 芯の始点。空間の配置の [x, y] で、文書の長さの単位
+        "start": List[float],
+        # 芯の終点。始点と違う [x, y]
+        "end": List[float],
+        # 高さ。文書の長さの単位で、正の値
+        "height": float,
+        # 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+        "layers": List["BuildingWallLayer"],
+    },
+)
+_BuildingAddWallEditOptional = TypedDict(
+    "_BuildingAddWallEditOptional",
+    {
+        # 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする
+        "offset": float,
+        # 名前
+        "name": str,
+        # GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        "global_id": str,
+    },
+    total=False,
+)
+
+
+class BuildingAddWallEdit(_BuildingAddWallEditRequired, _BuildingAddWallEditOptional):
+    "芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から"
 
 
 # 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
@@ -5546,9 +5595,9 @@ BuildingFillEdit = TypedDict(
     {
         # 変更の種類
         "kind": Literal["fill"],
-        # 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        # 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         "opening": "BuildingRef",
-        # 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element の位置で指す
+        # 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
         "filler": "BuildingRef",
     },
 )

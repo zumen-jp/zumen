@@ -10,8 +10,8 @@ use zumen_building::{
 };
 use zumen_ids::{Ids, Report};
 use zumen_ifc::{
-    Edit, Ifc, IfcFile, IfcZip, NewElement, NewLiteral, NewPlacement, NewSpace, NewValue,
-    RootAttribute, SpaceKind, Target, TextEncoding,
+    Edit, Ifc, IfcFile, IfcZip, NewElement, NewLayer, NewLiteral, NewPlacement, NewSpace, NewValue,
+    NewWall, RootAttribute, SpaceKind, Target, TextEncoding,
 };
 use zumen_sdk::{Codec, Lift};
 
@@ -28,6 +28,14 @@ use crate::messages::{
 #[cfg(feature = "bim")]
 use crate::plugin;
 use crate::session::{Failed, fail, invalid_value, message_of, stopped};
+
+/// 2 つの数の並び（`[x, y]`）。数が 2 つでなければ `None`
+fn pair(values: &[f64]) -> Option<[f64; 2]> {
+    match values {
+        [x, y] => Some([*x, *y]),
+        _ => None,
+    }
+}
 
 /// limit を書かなかったときに返す数
 const LIMIT: u64 = 1000;
@@ -257,6 +265,7 @@ pub(crate) fn prepare(
         let given = match edit {
             BuildingEdit::AddSpace(edit) => Some(edit.global_id.as_deref()),
             BuildingEdit::AddElement(edit) => Some(edit.global_id.as_deref()),
+            BuildingEdit::AddWall(edit) => Some(edit.global_id.as_deref()),
             _ => None,
         };
         let slot = match given {
@@ -316,6 +325,36 @@ pub(crate) fn prepare(
                             name: edit.name.clone(),
                             container,
                             placement,
+                            global_id: Some(global_id),
+                        }),
+                        Outcome::Added(global_id),
+                    )
+                })
+            }
+            BuildingEdit::AddWall(edit) => {
+                let storey = refs.resolve(&edit.storey, &format!("{at}/storey"), cx)?;
+                let start = pair(&edit.start)
+                    .ok_or_else(|| fail(cx, invalid_value(format!("{at}/start"))))?;
+                let end =
+                    pair(&edit.end).ok_or_else(|| fail(cx, invalid_value(format!("{at}/end"))))?;
+                let global_id = slot.ok_or(Failed)?;
+                storey.map(|(storey, _)| {
+                    (
+                        Edit::Wall(NewWall {
+                            storey,
+                            start,
+                            end,
+                            height: edit.height,
+                            layers: edit
+                                .layers
+                                .iter()
+                                .map(|layer| NewLayer {
+                                    material: layer.material.clone(),
+                                    thickness: layer.thickness,
+                                })
+                                .collect(),
+                            offset: edit.offset,
+                            name: edit.name.clone(),
                             global_id: Some(global_id),
                         }),
                         Outcome::Added(global_id),
