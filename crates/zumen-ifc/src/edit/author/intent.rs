@@ -18,7 +18,7 @@ use zumen_building::{GlobalId, Transform};
 use zumen_sdk::{Cx, Error};
 
 use super::super::{Draft, Item, Stmt, text, unsupported};
-use super::{CONTAINED, Target, null, raw, real};
+use super::{CONTAINED, FILLS, Target, VOIDS, null, raw, real, set_at};
 use crate::building::{Category, Version};
 use crate::stopped;
 
@@ -121,6 +121,51 @@ pub struct NewBeam {
     pub global_id: Option<GlobalId>,
 }
 
+/// 壁の芯に沿う位置・下端・矩形の大きさで足す開口。奥行きは壁の材料の層の厚さ
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewOpening {
+    /// 穴をあける要素。材料の層の使い方（`AXIS2`）を持つ壁
+    pub host: Target,
+    /// 壁の配置の x 軸に沿う、壁の原点から開口の端までの距離（文書の長さの単位）
+    pub distance: f64,
+    /// 壁の下端から開口の下端までの高さ（文書の長さの単位）
+    pub sill: f64,
+    /// 幅（文書の長さの単位）。正の値
+    pub width: f64,
+    /// 高さ（文書の長さの単位）。正の値
+    pub height: f64,
+    /// 名前
+    pub name: Option<String>,
+    /// GlobalId。なければ文書のハッシュと足した数から作る
+    pub global_id: Option<GlobalId>,
+}
+
+/// 建具の種類
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FillingKind {
+    /// 扉（`IfcDoor`）
+    Door,
+    /// 窓（`IfcWindow`）
+    Window,
+}
+
+/// 開口を埋める建具
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewFilling {
+    /// 埋める開口（`IfcOpeningElement`）
+    pub opening: Target,
+    /// 種類
+    pub kind: FillingKind,
+    /// 全体の幅（`OverallWidth`）。正の値
+    pub width: Option<f64>,
+    /// 全体の高さ（`OverallHeight`）。正の値
+    pub height: Option<f64>,
+    /// 名前
+    pub name: Option<String>,
+    /// GlobalId。なければ文書のハッシュと足した数から作る
+    pub global_id: Option<GlobalId>,
+}
+
 /// 正の有限の値
 fn positive(value: f64) -> bool {
     value.is_finite() && value > 0.0
@@ -210,7 +255,8 @@ fn unit(v: [f64; 2]) -> Option<[f64; 2]> {
 
 /// 足す要素に共通の値
 struct Begun {
-    storey: u64,
+    /// 所属する空間か、基準にする要素
+    anchor: u64,
     history: Item,
     global_id: Item,
 }
@@ -485,16 +531,16 @@ impl Draft<'_> {
         })
     }
 
-    /// 足す要素に共通の値。所属する空間・所有履歴・GlobalId。書けなければ診断して `None`
+    /// 足す要素に共通の値。所属する空間か基準にする要素・所有履歴・GlobalId。書けなければ診断して `None`
     fn begin(
         &mut self,
-        storey: Target,
+        (anchor, allowed): (Target, &[Category]),
         given: Option<GlobalId>,
         edit: &str,
         kind: &[u8],
         cx: &mut Cx,
     ) -> Result<Option<Begun>, Error> {
-        let Some((storey, ..)) = self.object(storey, &[Category::Spatial], edit, cx) else {
+        let Some((anchor, ..)) = self.object(anchor, allowed, edit, cx) else {
             return Ok(None);
         };
         if self.project.is_none() {
@@ -508,15 +554,15 @@ impl Draft<'_> {
             return Ok(None);
         };
         Ok(Some(Begun {
-            storey,
+            anchor,
             history,
             global_id,
         }))
     }
 
-    /// 空間の配置からの相対の `IfcLocalPlacement`
-    fn local_placement(&mut self, storey: u64, local: &Transform) -> Option<u64> {
-        let parent = self.placement_of(storey);
+    /// 空間か要素の配置からの相対の `IfcLocalPlacement`
+    fn local_placement(&mut self, relative_to: u64, local: &Transform) -> Option<u64> {
+        let parent = self.placement_of(relative_to);
         let axis = self.axis_placement(local)?;
         Some(self.add(Stmt {
             name: b"IFCLOCALPLACEMENT".to_vec(),
@@ -524,31 +570,41 @@ impl Draft<'_> {
         }))
     }
 
-    /// 要素の文を足し、空間に包含で結ぶ。`predefined` は 9 PredefinedType に書く値
+    /// 要素の文を足す。`extra` は、ほかの属性（1 から数えた位置）に書く値
     fn element_of(
         &mut self,
         (kind, arity): (&[u8], usize),
         begun: &Begun,
         name: Option<&str>,
-        (placement, shape): (u64, u64),
-        predefined: Option<Item>,
+        (placement, shape): (u64, Option<u64>),
+        extra: Vec<(usize, Item)>,
     ) -> u64 {
         let mut args = vec![null(); arity];
-        if let [gid, owner, written, _, _, place, representation, rest @ ..] = args.as_mut_slice() {
-            *gid = begun.global_id.clone();
-            *owner = begun.history.clone();
-            *written = name.map_or_else(null, text);
-            *place = Item::Ref(placement);
-            *representation = Item::Ref(shape);
-            if let (Some(predefined), [_, slot, ..]) = (predefined, rest) {
-                *slot = predefined;
-            }
+        set_at(&mut args, 1, begun.global_id.clone());
+        set_at(&mut args, 2, begun.history.clone());
+        set_at(&mut args, 3, name.map_or_else(null, text));
+        set_at(&mut args, 6, Item::Ref(placement));
+        set_at(&mut args, 7, shape.map_or_else(null, Item::Ref));
+        for (at, item) in extra {
+            set_at(&mut args, at, item);
         }
-        let id = self.add(Stmt {
+        self.add(Stmt {
             name: kind.to_vec(),
             args,
-        });
-        self.join(CONTAINED, begun.storey, id, begun.history.clone());
+        })
+    }
+
+    /// 要素を足し、空間に包含で結ぶ
+    fn contained_element(
+        &mut self,
+        entity: (&[u8], usize),
+        begun: &Begun,
+        name: Option<&str>,
+        (placement, shape): (u64, u64),
+        extra: Vec<(usize, Item)>,
+    ) -> u64 {
+        let id = self.element_of(entity, begun, name, (placement, Some(shape)), extra);
+        self.join(CONTAINED, begun.anchor, id, begun.history.clone());
         id
     }
 
@@ -588,24 +644,25 @@ impl Draft<'_> {
                 return Ok(false);
             }
         };
-        let Some(begun) = self.begin(wall.storey, wall.global_id, EDIT, kind, cx)? else {
+        let Some(begun) = self.begin((wall.storey, SPATIAL), wall.global_id, EDIT, kind, cx)?
+        else {
             return Ok(false);
         };
         let [ux, uy] = shape.direction;
         let [sx, sy] = shape.start;
         let local = Transform([[ux, -uy, 0.0, sx], [uy, ux, 0.0, sy], [0.0, 0.0, 1.0, 0.0]]);
-        let placement = self.local_placement(begun.storey, &local);
+        let placement = self.local_placement(begun.anchor, &local);
         let representation = self.wall_representation(&shape);
         let (Some(placement), Some(representation)) = (placement, representation) else {
             cx.report(unsupported(EDIT, kind).with("value", "geometry"));
             return Ok(false);
         };
-        let id = self.element_of(
+        let id = self.contained_element(
             entity,
             &begun,
             wall.name.as_deref(),
             (placement, representation),
-            None,
+            Vec::new(),
         );
         let axis2 = (b".AXIS2.".as_slice(), b".POSITIVE.".as_slice());
         let Some(usage) = self.layer_usage(version, &wall.layers, axis2, shape.offset, cx)? else {
@@ -646,7 +703,8 @@ impl Draft<'_> {
                 return Ok(false);
             }
         };
-        let Some(begun) = self.begin(slab.storey, slab.global_id, EDIT, KIND, cx)? else {
+        let Some(begun) = self.begin((slab.storey, SPATIAL), slab.global_id, EDIT, KIND, cx)?
+        else {
             return Ok(false);
         };
         let local = Transform([
@@ -654,18 +712,18 @@ impl Draft<'_> {
             [0.0, 1.0, 0.0, 0.0],
             [0.0, 0.0, 1.0, elevation],
         ]);
-        let placement = self.local_placement(begun.storey, &local);
+        let placement = self.local_placement(begun.anchor, &local);
         let shape = self.body_shape(&corners, &IDENTITY, [0.0, 0.0, -1.0], total);
         let (Some(placement), Some(shape)) = (placement, shape) else {
             cx.report(unsupported(EDIT, KIND).with("value", "geometry"));
             return Ok(false);
         };
-        let id = self.element_of(
+        let id = self.contained_element(
             (KIND, 9),
             &begun,
             slab.name.as_deref(),
             (placement, shape),
-            Some(raw(b".FLOOR.")),
+            vec![(9, raw(b".FLOOR."))],
         );
         let axis3 = (b".AXIS3.".as_slice(), b".NEGATIVE.".as_slice());
         let Some(usage) = self.layer_usage(version, &slab.layers, axis3, 0.0, cx)? else {
@@ -713,13 +771,14 @@ impl Draft<'_> {
                 return Ok(false);
             }
         };
-        let Some(begun) = self.begin(column.storey, column.global_id, EDIT, KIND, cx)? else {
+        let Some(begun) = self.begin((column.storey, SPATIAL), column.global_id, EDIT, KIND, cx)?
+        else {
             return Ok(false);
         };
         let [px, py] = column.position;
         let local = Transform([[ux, -uy, 0.0, px], [uy, ux, 0.0, py], [0.0, 0.0, 1.0, base]]);
         let (w, d) = (column.section.width / 2.0, column.section.depth / 2.0);
-        let placement = self.local_placement(begun.storey, &local);
+        let placement = self.local_placement(begun.anchor, &local);
         let shape = self.body_shape(
             &[[-w, -d], [w, -d], [w, d], [-w, d]],
             &IDENTITY,
@@ -730,12 +789,12 @@ impl Draft<'_> {
             cx.report(unsupported(EDIT, KIND).with("value", "geometry"));
             return Ok(false);
         };
-        let id = self.element_of(
+        let id = self.contained_element(
             (KIND, if version == Version::Ifc2x3 { 8 } else { 9 }),
             &begun,
             column.name.as_deref(),
             (placement, shape),
-            None,
+            Vec::new(),
         );
         if let Some(name) = &column.material {
             let material = self.material(version, name);
@@ -787,7 +846,8 @@ impl Draft<'_> {
                 return Ok(false);
             }
         };
-        let Some(begun) = self.begin(beam.storey, beam.global_id, EDIT, KIND, cx)? else {
+        let Some(begun) = self.begin((beam.storey, SPATIAL), beam.global_id, EDIT, KIND, cx)?
+        else {
             return Ok(false);
         };
         // x は芯の向き、y は水平で芯の左、z は x と y の外積（上を向く）
@@ -801,7 +861,7 @@ impl Draft<'_> {
             [0.0, 1.0, 0.0, 0.0],
         ]);
         let (w, d) = (beam.section.width / 2.0, beam.section.depth);
-        let placement = self.local_placement(begun.storey, &local);
+        let placement = self.local_placement(begun.anchor, &local);
         let shape = self.body_shape(
             &[[-w, -d], [w, -d], [w, 0.0], [-w, 0.0]],
             &position,
@@ -812,12 +872,12 @@ impl Draft<'_> {
             cx.report(unsupported(EDIT, KIND).with("value", "geometry"));
             return Ok(false);
         };
-        let id = self.element_of(
+        let id = self.contained_element(
             (KIND, if version == Version::Ifc2x3 { 8 } else { 9 }),
             &begun,
             beam.name.as_deref(),
             (placement, shape),
-            None,
+            Vec::new(),
         );
         if let Some(name) = &beam.material {
             let material = self.material(version, name);
@@ -826,7 +886,243 @@ impl Draft<'_> {
         self.handles.push(id);
         Ok(true)
     }
+
+    /// 要素の材料の層の使い方（`AXIS2`）の、配置の y で見た層の範囲（小さいほう、大きいほう）
+    fn layer_span(&self, element: u64) -> Option<(f64, f64)> {
+        let number = |item: Option<&Item>| match item {
+            Some(Item::Raw(bytes)) => std::str::from_utf8(bytes).ok()?.parse::<f64>().ok(),
+            _ => None,
+        };
+        let usage = self.referrers(element).into_iter().find_map(|rel| {
+            let stmt = self.stmt(rel)?;
+            if stmt.name != b"IFCRELASSOCIATESMATERIAL"
+                || !matches!(stmt.arg(5), Some(Item::List(items)) if items.contains(&Item::Ref(element)))
+            {
+                return None;
+            }
+            let Some(Item::Ref(usage)) = stmt.arg(6) else {
+                return None;
+            };
+            let usage = self.stmt(*usage)?;
+            (usage.name == b"IFCMATERIALLAYERSETUSAGE"
+                && usage.arg(2) == Some(&raw(b".AXIS2.")))
+            .then_some(usage)
+        })?;
+        let Some(Item::Ref(set)) = usage.arg(1) else {
+            return None;
+        };
+        let Some(Item::List(layers)) = self.stmt(*set)?.arg(1).cloned() else {
+            return None;
+        };
+        let mut total = 0.0;
+        for layer in layers {
+            let Item::Ref(layer) = layer else {
+                return None;
+            };
+            total += number(self.stmt(layer)?.arg(2))?;
+        }
+        let offset = number(usage.arg(4))?;
+        let span = if usage.arg(3) == Some(&raw(b".NEGATIVE.")) {
+            (offset - total, offset)
+        } else {
+            (offset, offset + total)
+        };
+        (positive(total) && span.0.is_finite() && span.1.is_finite()).then_some(span)
+    }
+
+    /// 壁の芯に沿う位置・下端・矩形の大きさで開口を足し、`IfcRelVoidsElement` で壁に穴をあける。奥行きは
+    /// 壁の材料の層の厚さ
+    pub(in crate::edit) fn add_opening(
+        &mut self,
+        opening: &NewOpening,
+        cx: &mut Cx,
+    ) -> Result<bool, Error> {
+        const EDIT: &str = "opening";
+        const KIND: &[u8] = b"IFCOPENINGELEMENT";
+        let Some(version) = self.version() else {
+            cx.report(unsupported(EDIT, KIND));
+            return Ok(false);
+        };
+        let checked = if !(opening.distance.is_finite() && opening.sill.is_finite()) {
+            Err("position")
+        } else if !(positive(opening.width) && positive(opening.height)) {
+            Err("size")
+        } else {
+            Ok(())
+        };
+        if let Err(value) = checked {
+            cx.report(unsupported(EDIT, KIND).with("value", value));
+            return Ok(false);
+        }
+        let host = (opening.host, ELEMENT);
+        let Some(begun) = self.begin(host, opening.global_id, EDIT, KIND, cx)? else {
+            return Ok(false);
+        };
+        let Some((near, far)) = self.layer_span(begun.anchor) else {
+            cx.report(unsupported(EDIT, KIND).with("missing", "IfcMaterialLayerSetUsage"));
+            return Ok(false);
+        };
+        let local = Transform([
+            [1.0, 0.0, 0.0, opening.distance],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, opening.sill],
+        ]);
+        // 断面は壁の XZ に置き（断面の y を壁の z）、層の遠い面から近い面へ押し出す
+        let position = Transform([
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, -1.0, far],
+            [0.0, 1.0, 0.0, 0.0],
+        ]);
+        let (w, h) = (opening.width, opening.height);
+        let placement = self.local_placement(begun.anchor, &local);
+        let shape = self.body_shape(
+            &[[0.0, 0.0], [w, 0.0], [w, h], [0.0, h]],
+            &position,
+            [0.0, 0.0, 1.0],
+            far - near,
+        );
+        let (Some(placement), Some(shape)) = (placement, shape) else {
+            cx.report(unsupported(EDIT, KIND).with("value", "geometry"));
+            return Ok(false);
+        };
+        let (arity, extra) = match version {
+            Version::Ifc2x3 => (8, Vec::new()),
+            Version::Ifc4 | Version::Ifc4x3 => (9, vec![(9, raw(b".OPENING."))]),
+        };
+        let id = self.element_of(
+            (KIND, arity),
+            &begun,
+            opening.name.as_deref(),
+            (placement, Some(shape)),
+            extra,
+        );
+        self.relation(VOIDS, begun.anchor, id, begun.history);
+        self.handles.push(id);
+        Ok(true)
+    }
+
+    /// 開口を建具で埋める（`IfcRelFillsElement`）。建具は開口の配置に置き、壁と同じ空間に包含で結ぶ
+    pub(in crate::edit) fn add_filling(
+        &mut self,
+        filling: &NewFilling,
+        cx: &mut Cx,
+    ) -> Result<bool, Error> {
+        const EDIT: &str = "filling";
+        let kind: &[u8] = match filling.kind {
+            FillingKind::Door => b"IFCDOOR",
+            FillingKind::Window => b"IFCWINDOW",
+        };
+        let Some(version) = self.version() else {
+            cx.report(unsupported(EDIT, kind));
+            return Ok(false);
+        };
+        let size = |value: Option<f64>| match value {
+            None => Some(null()),
+            Some(value) if positive(value) => real(value),
+            Some(_) => None,
+        };
+        let (Some(width), Some(height)) = (size(filling.width), size(filling.height)) else {
+            cx.report(unsupported(EDIT, kind).with("value", "size"));
+            return Ok(false);
+        };
+        let target = (filling.opening, ELEMENT);
+        let Some(begun) = self.begin(target, filling.global_id, EDIT, kind, cx)? else {
+            return Ok(false);
+        };
+        let opening = begun.anchor;
+        if self.kind(opening) != b"IFCOPENINGELEMENT" {
+            cx.report(unsupported(EDIT, &self.kind(opening)));
+            return Ok(false);
+        }
+        // 開口を埋める建具は 1 つにする
+        let taken = self.referrers(opening).into_iter().any(|rel| {
+            self.kind(rel) == FILLS
+                && self
+                    .stmt(rel)
+                    .is_some_and(|stmt| stmt.arg(5) == Some(&Item::Ref(opening)))
+        });
+        if taken {
+            cx.report(unsupported(EDIT, kind).with("value", "taken"));
+            return Ok(false);
+        }
+        // 壁の空間。開口が穴をあける壁の、包含の関係の空間
+        let host = self.referrers(opening).into_iter().find_map(|rel| {
+            let stmt = self.stmt(rel)?;
+            match (stmt.name == VOIDS, stmt.arg(5), stmt.arg(6)) {
+                (true, Some(Item::Ref(host)), Some(Item::Ref(of))) if *of == opening => Some(*host),
+                _ => None,
+            }
+        });
+        let space = host.and_then(|host| {
+            self.referrers(host).into_iter().find_map(|rel| {
+                let stmt = self.stmt(rel)?;
+                if stmt.name != CONTAINED.name {
+                    return None;
+                }
+                match (stmt.arg(CONTAINED.related), stmt.arg(CONTAINED.relating)) {
+                    (Some(Item::List(items)), Some(Item::Ref(space)))
+                        if items.contains(&Item::Ref(host)) =>
+                    {
+                        Some(*space)
+                    }
+                    _ => None,
+                }
+            })
+        });
+        let Some(placement) = self.local_placement(opening, &IDENTITY) else {
+            cx.report(unsupported(EDIT, kind).with("value", "geometry"));
+            return Ok(false);
+        };
+        // IFC2X3 は 9 OverallHeight・10 OverallWidth まで。IFC4 と IFC4X3 は 11 PredefinedType が続く
+        let mut extra = vec![(9, height), (10, width)];
+        let arity = match version {
+            Version::Ifc2x3 => 10,
+            Version::Ifc4 | Version::Ifc4x3 => {
+                let predefined: &[u8] = match filling.kind {
+                    FillingKind::Door => b".DOOR.",
+                    FillingKind::Window => b".WINDOW.",
+                };
+                extra.push((11, raw(predefined)));
+                13
+            }
+        };
+        let id = self.element_of(
+            (kind, arity),
+            &begun,
+            filling.name.as_deref(),
+            (placement, None),
+            extra,
+        );
+        if let Some(space) = space {
+            self.join(CONTAINED, space, id, begun.history.clone());
+        }
+        self.relation(FILLS, opening, id, begun.history);
+        self.handles.push(id);
+        Ok(true)
+    }
+
+    /// 5 Relating・6 Related の 1 対 1 の関係を足す
+    fn relation(&mut self, name: &[u8], relating: u64, related: u64, history: Item) {
+        let global_id = self.global_id();
+        self.add(Stmt {
+            name: name.to_vec(),
+            args: vec![
+                global_id,
+                history,
+                null(),
+                null(),
+                Item::Ref(relating),
+                Item::Ref(related),
+            ],
+        });
+    }
 }
+
+/// 所属できる空間
+const SPATIAL: &[Category] = &[Category::Spatial];
+
+/// 穴をあける要素と、埋める開口
+const ELEMENT: &[Category] = &[Category::Element];
 
 /// 向きを変えない配置
 const IDENTITY: Transform = Transform([

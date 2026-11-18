@@ -996,6 +996,10 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
   - 梁は、天端の芯の 2 点（空間の配置の XYZ）と矩形の断面で受ける。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面（幅は芯の左右、せいは天端から下）を芯に沿って押し出す。傾いた梁も書き、鉛直の芯は断る。
   - 柱と梁の材料は、名前を渡されれば `IfcMaterial` を `IfcRelAssociatesMaterial` で結ぶ。`IfcColumn` と `IfcBeam` の PredefinedType（IFC4 から）は書かない。
   - 頂点が足りない・並ぶ頂点が重なる・面積のない外形、正でない高さ・断面・層の厚さ、長さのない向き、有限でない値は、`change.edit.unsupported` で断る。
+- 意図の値で壁に開口をあけ、扉や窓で埋められる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Opening` と `Edit::Filling` で受ける。
+  - 開口は、壁・芯に沿う距離・下端の高さ・幅・高さで受ける。壁の配置からの相対で、距離と下端の点を原点にし、`IfcOpeningElement`（IFC4 と IFC4X3 は `OPENING`）を `IfcRelVoidsElement` で壁に結ぶ。空間には所属させない。
+  - 開口の `Body` は、幅と高さの矩形を壁の XZ に置き、壁の材料の層の使い方（`AXIS2`）から求めた層の範囲の一方の面から他方の面まで押し出す。層の使い方を持たない要素と空間には、穴をあけない。
+  - 建具は、開口・種類（扉か窓）・全体の幅と高さで受ける。開口の配置に置き、`IfcDoor` か `IfcWindow`（IFC4 と IFC4X3 は PredefinedType の `DOOR` か `WINDOW`）を `IfcRelFillsElement` で開口に結び、壁と同じ空間に包含で結ぶ。建具の形と型はまだ書かない。開口でない要素と、もう埋まった開口は断る。
 
 ### 新しい IFC を作る
 

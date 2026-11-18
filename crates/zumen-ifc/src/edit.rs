@@ -9,8 +9,8 @@
 mod author;
 
 pub use author::{
-    NewBeam, NewColumn, NewElement, NewLayer, NewPlacement, NewSection, NewSlab, NewSpace, NewWall,
-    SpaceKind, Target,
+    FillingKind, NewBeam, NewColumn, NewElement, NewFilling, NewLayer, NewOpening, NewPlacement,
+    NewSection, NewSlab, NewSpace, NewWall, SpaceKind, Target,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -60,6 +60,11 @@ pub enum Edit {
     Column(NewColumn),
     /// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。配置・`Body` の表現・材料はコアが書く
     Beam(NewBeam),
+    /// 壁の芯に沿う位置・下端・矩形の大きさで開口を足し、壁に穴をあける（`IfcRelVoidsElement`）。奥行きは壁の材料の
+    /// 層の厚さ
+    Opening(NewOpening),
+    /// 開口を扉か窓で埋める（`IfcRelFillsElement`）。建具は開口の配置に置き、壁と同じ空間に包含で結ぶ
+    Filling(NewFilling),
     /// 要素を除く。要素だけが使う配置・表現・定義・関係と、要素の開口も除く。子や所属する要素を持つ空間は除かない
     Remove {
         /// 除く要素
@@ -121,6 +126,8 @@ impl Edit {
             Self::Slab(_) => "slab",
             Self::Column(_) => "column",
             Self::Beam(_) => "beam",
+            Self::Opening(_) => "opening",
+            Self::Filling(_) => "filling",
             Self::Remove { .. } => "remove",
             Self::Place { .. } => "place",
             Self::Contain { .. } => "contain",
@@ -204,6 +211,8 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
             Edit::Slab(slab) => draft.add_slab(slab, cx)?,
             Edit::Column(column) => draft.add_column(column, cx)?,
             Edit::Beam(beam) => draft.add_beam(beam, cx)?,
+            Edit::Opening(opening) => draft.add_opening(opening, cx)?,
+            Edit::Filling(filling) => draft.add_filling(filling, cx)?,
             Edit::Remove { element } => draft.remove(*element, cx)?,
             Edit::Place { element, placement } => draft.place(*element, placement, cx)?,
             Edit::Contain { element, space } => draft.contain(*element, *space, cx)?,

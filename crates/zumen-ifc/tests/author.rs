@@ -7,8 +7,9 @@ use zumen_building::{
     Transform,
 };
 use zumen_ifc::{
-    Edit, Ifc, IfcFile, IfcLive, NewBeam, NewColumn, NewElement, NewLayer, NewPlacement,
-    NewSection, NewSlab, NewSpace, NewWall, RootAttribute, SpaceKind, Target, apply,
+    Edit, FillingKind, Ifc, IfcFile, IfcLive, NewBeam, NewColumn, NewElement, NewFilling, NewLayer,
+    NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall, RootAttribute, SpaceKind,
+    Target, apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -1146,4 +1147,202 @@ fn removes_a_beam_with_its_shape_but_keeps_the_material() {
         assert_eq!(count(&removed, entity), 0, "{entity}");
     }
     assert_eq!(count(&removed, "IFCMATERIAL"), 1);
+}
+
+/// 壁 `host` の、芯に沿う `distance` と下端 `sill` の `width`×`height` の開口
+fn opening(n: u32, host: Target, distance: f64, sill: f64, size: [f64; 2]) -> Edit {
+    Edit::Opening(NewOpening {
+        host,
+        distance,
+        sill,
+        width: size[0],
+        height: size[1],
+        name: Some(format!("O{n}")),
+        global_id: Some(global(n)),
+    })
+}
+
+fn filling(n: u32, opening: Target, kind: FillingKind, size: [f64; 2]) -> Edit {
+    Edit::Filling(NewFilling {
+        opening,
+        kind,
+        width: Some(size[0]),
+        height: Some(size[1]),
+        name: Some(format!("F{n}")),
+        global_id: Some(global(n)),
+    })
+}
+
+/// 壁を 2 つ足した階に、扉と窓の開口を足して埋める変更
+fn opening_edits() -> Vec<Edit> {
+    let mut edits = wall_edits();
+    edits.extend([
+        opening(500, Target::Added(2), 1000.0, 0.0, [900.0, 2100.0]),
+        filling(501, Target::Added(4), FillingKind::Door, [900.0, 2100.0]),
+        opening(502, Target::Added(3), 500.0, 900.0, [1200.0, 1200.0]),
+        filling(503, Target::Added(6), FillingKind::Window, [1200.0, 1200.0]),
+    ]);
+    edits
+}
+
+#[test]
+fn adds_openings_doors_and_windows_to_walls_in_every_version() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let (result, codes) = run(src.as_bytes(), &opening_edits());
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = result.unwrap();
+        let building = lift(&bytes).unwrap();
+        let storey = element(&building, 101).unwrap();
+        let [wall, door_opening, door, window_opening, window] =
+            [300, 500, 501, 502, 503].map(|n| element(&building, n).unwrap());
+        let opening_of = |element| building.components.opening.get(element);
+        assert_eq!(opening_of(door_opening), Some(&Opening::Voids(wall)));
+        assert_eq!(opening_of(door), Some(&Opening::Fills(door_opening)));
+        assert_eq!(opening_of(window), Some(&Opening::Fills(window_opening)));
+        // 開口は壁の配置からの相対で、芯に沿う距離と下端に置く
+        let placement = building.components.placement.get(door_opening).unwrap();
+        assert_eq!(placement.relative_to, Some(wall));
+        assert_eq!(
+            translation(&building, door_opening),
+            Some([1000.0, 0.0, 0.0])
+        );
+        assert_eq!(
+            translation(&building, window_opening),
+            Some([500.0, 0.0, 900.0])
+        );
+        // 奥行きは壁の層の厚さで、断面を壁の XZ に置き、層の左の面から右の面へ押し出す
+        assert_eq!(extrusions(&bytes, 500).unwrap(), [([0.0, 0.0, 1.0], 200.0)]);
+        let file = read(&bytes).unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        let id = instance_of(&text, 500).unwrap();
+        let shape = with(|cx| file.product_shape(id, cx)).0.unwrap();
+        let positions: Vec<_> = shape
+            .nodes
+            .iter()
+            .filter_map(|node| with(|cx| file.extruded_area(node, cx)).0.ok())
+            .filter_map(|area| area.definition.position)
+            .map(|p| (p.location, p.axis, p.reference_direction))
+            .collect();
+        assert_eq!(
+            positions,
+            [(
+                [0.0, 100.0, 0.0],
+                Some([0.0, -1.0, 0.0]),
+                Some([1.0, 0.0, 0.0])
+            )]
+        );
+        // 建具は開口の配置に置き、壁と同じ階に包含で結ぶ
+        for (filling, opening, name, predefined) in [
+            (door, door_opening, "IfcDoor", "DOOR"),
+            (window, window_opening, "IfcWindow", "WINDOW"),
+        ] {
+            let class = building.components.class.get(filling).unwrap();
+            assert_eq!(class.name, name, "{schema}");
+            let expected = (schema != "IFC2X3").then_some(predefined);
+            assert_eq!(class.predefined.as_deref(), expected, "{schema}");
+            let placement = building.components.placement.get(filling).unwrap();
+            assert_eq!(placement.relative_to, Some(opening));
+            let parent = building.components.parent.get(filling).unwrap();
+            let of = parent.of.as_ref().unwrap();
+            assert_eq!((of.target, of.kind), (storey, ParentKind::Contained));
+        }
+        // 開口は空間に所属しない
+        assert!(
+            building
+                .components
+                .parent
+                .get(door_opening)
+                .is_none_or(|parent| parent.of.is_none()),
+            "{schema}"
+        );
+        // 同じ入力と変更なら同じバイト列。文書エンジンでも同じ
+        assert_eq!(run(src.as_bytes(), &opening_edits()).0.unwrap(), bytes);
+        let (live, _) = with(|cx| IfcLive::open(src.as_bytes(), cx));
+        let mut live = live.unwrap();
+        assert_eq!(
+            apply_like_batch(&mut live, &opening_edits()),
+            Some(bytes),
+            "{schema}"
+        );
+    }
+}
+
+#[test]
+fn refuses_openings_and_fillings_it_cannot_write_without_changing_anything() {
+    let src = sample("IFC4", true);
+    let site = Target::Instance(10);
+    let with_wall = |rest: Vec<Edit>| {
+        let mut edits = vec![wall(300, site, [0.0, 0.0], [4000.0, 0.0])];
+        edits.extend(rest);
+        edits
+    };
+    let door = |opening| filling(501, opening, FillingKind::Door, [900.0, 2100.0]);
+    let cases = [
+        with_wall(vec![opening(
+            500,
+            Target::Added(0),
+            0.0,
+            0.0,
+            [0.0, 2100.0],
+        )]),
+        with_wall(vec![opening(
+            500,
+            Target::Added(0),
+            f64::NAN,
+            0.0,
+            [900.0, 2100.0],
+        )]),
+        // 空間と、材料の層のない要素には穴をあけない
+        with_wall(vec![opening(500, site, 0.0, 0.0, [900.0, 2100.0])]),
+        vec![
+            new_element("IfcWall", 300, Some(site), None),
+            opening(500, Target::Added(0), 0.0, 0.0, [900.0, 2100.0]),
+        ],
+        // 開口でないものと、埋めた開口は埋めない
+        with_wall(vec![door(Target::Added(0))]),
+        with_wall(vec![
+            opening(500, Target::Added(0), 0.0, 0.0, [900.0, 2100.0]),
+            door(Target::Added(1)),
+            filling(502, Target::Added(1), FillingKind::Window, [900.0, 900.0]),
+        ]),
+        with_wall(vec![
+            opening(500, Target::Added(0), 0.0, 0.0, [900.0, 2100.0]),
+            filling(501, Target::Added(1), FillingKind::Door, [-1.0, 2100.0]),
+        ]),
+    ];
+    for case in cases {
+        let (result, codes) = run(src.as_bytes(), &case);
+        assert!(matches!(result, Err(Error::Invalid)), "{case:?}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{case:?}");
+    }
+}
+
+#[test]
+fn removing_a_wall_removes_its_openings() {
+    let src = sample("IFC4", true);
+    let edits = [
+        wall(300, Target::Instance(10), [0.0, 0.0], [4000.0, 0.0]),
+        opening(500, Target::Added(0), 1000.0, 0.0, [900.0, 2100.0]),
+    ];
+    let (result, codes) = run(src.as_bytes(), &edits);
+    assert!(codes.is_empty(), "{codes:?}");
+    let added = String::from_utf8(result.unwrap()).unwrap();
+    let id = instance_of(&added, 300).unwrap();
+    let (result, codes) = run(
+        added.as_bytes(),
+        &[Edit::Remove {
+            element: Target::Instance(id),
+        }],
+    );
+    assert!(codes.is_empty(), "{codes:?}");
+    let removed = String::from_utf8(result.unwrap()).unwrap();
+    for entity in [
+        "IFCWALL",
+        "IFCOPENINGELEMENT",
+        "IFCRELVOIDSELEMENT",
+        "IFCEXTRUDEDAREASOLID",
+    ] {
+        assert_eq!(count(&removed, entity), 0, "{entity}");
+    }
 }
