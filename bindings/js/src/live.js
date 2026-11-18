@@ -32,6 +32,51 @@ function flagsOf(options, defaultDisplay) {
   return display ? full ? 3 : 1 : 0;
 }
 
+const COLOR_SYSTEMS = { aci: 1, sxf: 2, jww: 3 };
+
+/** restyle の本文の固定部分（48 バイト）を作る。形が合わなければ例外にする */
+function styleWords({ layer, color, lineWeight, lineTypeScale }) {
+  let mask = 0, layerValue = 0, colorKind = 0, colorFlags = 0, code = 0, rgb = 0, weightKind = 0, width = 0, scale = 0;
+  if (layer !== undefined) { mask |= 1; layerValue = rowOf(layer); }
+  if (color !== undefined) {
+    mask |= 2;
+    if (color === "layer" || color === "block") colorKind = color === "layer" ? 0 : 1;
+    else if (color !== null && typeof color === "object") {
+      colorKind = 2;
+      if (color.code !== undefined) {
+        const system = COLOR_SYSTEMS[color.code?.system];
+        const value = color.code?.value;
+        if (!system || !Number.isInteger(value) || value < 0 || value > 0xffffff) throw new TypeError("color.code は aci・sxf・jww と 24 bit の値にする");
+        colorFlags |= 1; code = ((system << 24) | value) >>> 0;
+      }
+      if (color.rgb !== undefined) {
+        const values = Array.from(color.rgb ?? []);
+        if (values.length !== 3 || values.some((v) => !Number.isInteger(v) || v < 0 || v > 255)) throw new TypeError("color.rgb は 0〜255 の 3 つの整数にする");
+        colorFlags |= 2; rgb = (values[0] << 16) | (values[1] << 8) | values[2];
+      }
+      if (colorFlags === 0) throw new TypeError("color は code か rgb を持つ");
+    } else throw new TypeError("color は \"layer\"・\"block\" か { code, rgb } にする");
+  }
+  if (lineWeight !== undefined) {
+    mask |= 4;
+    if (lineWeight === "layer") weightKind = 0;
+    else if (lineWeight === "block") weightKind = 1;
+    else if (lineWeight === "default") weightKind = 3;
+    else if (typeof lineWeight === "number" && Number.isFinite(lineWeight) && lineWeight >= 0) { weightKind = 2; width = lineWeight; }
+    else throw new TypeError("lineWeight は \"layer\"・\"block\"・\"default\" か 0 以上の mm にする");
+  }
+  if (lineTypeScale !== undefined) {
+    if (typeof lineTypeScale !== "number" || !Number.isFinite(lineTypeScale) || lineTypeScale <= 0) throw new TypeError("lineTypeScale は正の数にする");
+    mask |= 8; scale = lineTypeScale;
+  }
+  if (mask === 0) throw new TypeError("layer・color・lineWeight・lineTypeScale のどれかを変える");
+  return (out) => {
+    for (const [i, value] of [mask, layerValue, colorKind, colorFlags, code, rgb, weightKind].entries()) out.writeUInt32LE(value, 4 + i * 4);
+    out.writeDoubleLE(width, 32);
+    out.writeDoubleLE(scale, 40);
+  };
+}
+
 /** 1 子プロセスの 1 文書。コアの失敗は状態として返し、通信の失敗だけを例外にする */
 export class LiveProcess {
   #child;
@@ -230,6 +275,18 @@ export class LiveProcess {
     return this.#request(13, flagsOf(options, true), u64(revision, "revision"), options, 8 + rows.length * 4, (out) => {
       out.writeUInt32LE(rows.length, 0);
       for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 8 + i * 4);
+    });
+  }
+
+  /** 行の画層・色・線幅・線種の倍率を変える。画層は layers の value で指す。既定で表示の差分を返す */
+  async restyle({ revision, rows, ...style }, options = {}) {
+    this.#check();
+    if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
+    const write = styleWords(style);
+    return this.#request(15, flagsOf(options, true), u64(revision, "revision"), options, 48 + rows.length * 4, (out) => {
+      out.writeUInt32LE(rows.length, 0);
+      write(out);
+      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 48 + i * 4);
     });
   }
 

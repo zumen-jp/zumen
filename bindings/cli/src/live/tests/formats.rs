@@ -418,7 +418,7 @@ fn assert_copies(document: &mut Document, targets: &[RowId], cx: &mut zumen_base
     let Ok(applied) = document.edit(
         document.revision(),
         targets,
-        RowEdit::Copy(Affine::translation(FAR, FAR)),
+        &RowEdit::Copy(Affine::translation(FAR, FAR)),
         cx,
     ) else {
         assert_eq!(document.row_count(), before);
@@ -482,4 +482,291 @@ fn copy_carries_the_new_rows() {
         assert_eq!(reply.revision, 0);
         assert!(reply.data.is_empty());
     }
+}
+
+/// 画層 0 と A に 1 本ずつ線を置いた R2000 の DXF。R12 の要素はスタイルを変えられない
+const R2000: &[u8] = b"0
+SECTION
+2
+HEADER
+9
+$ACADVER
+1
+AC1015
+9
+$INSUNITS
+70
+4
+0
+ENDSEC
+    0
+SECTION
+2
+TABLES
+0
+TABLE
+2
+LAYER
+70
+2
+    0
+LAYER
+5
+10
+2
+0
+70
+0
+62
+7
+6
+CONTINUOUS
+    0
+LAYER
+5
+11
+2
+A
+70
+0
+62
+1
+6
+CONTINUOUS
+0
+ENDTAB
+0
+ENDSEC
+    0
+SECTION
+2
+ENTITIES
+    0
+LINE
+5
+30
+8
+0
+10
+0
+20
+0
+11
+1
+21
+0
+    0
+LINE
+5
+31
+8
+A
+10
+2
+20
+0
+11
+3
+21
+0
+    0
+ENDSEC
+0
+EOF
+";
+
+/// Restyle の本文。`color` は（種類, フラグ, 色番号, RGB）、`weight` は（種類, 幅）
+fn restyle_body(
+    mask: u32,
+    layer: u32,
+    color: (u32, u32, u32, u32),
+    weight: (u32, f64),
+    scale: f64,
+    rows: &[u32],
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for value in [
+        rows.len() as u32,
+        mask,
+        layer,
+        color.0,
+        color.1,
+        color.2,
+        color.3,
+        weight.0,
+    ] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes.extend_from_slice(&weight.1.to_bits().to_le_bytes());
+    bytes.extend_from_slice(&scale.to_bits().to_le_bytes());
+    for row in rows {
+        bytes.extend_from_slice(&row.to_le_bytes());
+    }
+    bytes
+}
+
+fn saved(host: &mut Host, id: u64, revision: u64) -> Vec<u8> {
+    let reply = call(host, Command::Save, id, revision, wire::NONE, 0, &[]);
+    assert_eq!(reply.status, Status::Ok);
+    reply.data
+}
+
+fn target_hash(host: &mut Host, id: u64, revision: u64, row: u32) -> Vec<u8> {
+    let reply = call(
+        host,
+        Command::Target,
+        id,
+        revision,
+        wire::NONE,
+        0,
+        &row.to_le_bytes(),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    reply.data[4..20].to_vec()
+}
+
+/// 画層を表示の画層の表の値で、色を RGB で変えると、要素のハッシュと保存が変わり、取り消すと戻る
+#[test]
+fn restyle_changes_the_layer_and_color_of_rows() {
+    for bytes in [R2000, JWW, SFC] {
+        let mut host = Host::default();
+        open_bytes(&mut host, bytes);
+        let original = saved(&mut host, 2, 0);
+        let table = layers(&mut host, 3, 0);
+        let rows = select(&mut host, 4, 0, EVERYWHERE);
+        // 書き戻せる行と画層の組を探す。断られても版は進まない
+        let mut changed = None;
+        'search: for &row in &rows {
+            for &(value, ..) in &table {
+                let before = target_hash(&mut host, 5, 0, row);
+                let reply = call(
+                    &mut host,
+                    Command::Restyle,
+                    6,
+                    0,
+                    wire::NONE,
+                    0,
+                    &restyle_body(1, value, (0, 0, 0, 0), (0, 0.0), 0.0, &[row]),
+                );
+                assert!(
+                    matches!(reply.status, Status::Ok | Status::Rejected),
+                    "{:?}",
+                    reply.status
+                );
+                if reply.status == Status::Ok {
+                    assert_eq!(reply.result, 1);
+                    // 同じ画層への変更もあるので、変わった組を探す
+                    if target_hash(&mut host, 7, 1, row) != before {
+                        changed = Some(row);
+                        break 'search;
+                    }
+                    let undone = call(&mut host, Command::Undo, 8, 1, wire::NONE, 0, &[]);
+                    assert_eq!(undone.status, Status::Ok);
+                    // 取り消しも版を進めるので、開き直して版を 0 に戻す
+                    host = Host::default();
+                    open_bytes(&mut host, bytes);
+                }
+            }
+        }
+        let row = changed.unwrap();
+        assert_ne!(saved(&mut host, 9, 1), original);
+        let undone = call(&mut host, Command::Undo, 10, 1, wire::NONE, 0, &[]);
+        assert_eq!(undone.status, Status::Ok);
+        assert_eq!(saved(&mut host, 11, 2), original);
+        // 色を形式の色番号で変える（ACI 3、Jw_cad のペン 2、SXF の既定義色 3）
+        let code = if core::ptr::eq(bytes, R2000) {
+            1 << 24 | 3
+        } else if core::ptr::eq(bytes, JWW) {
+            3 << 24 | 2
+        } else {
+            2 << 24 | 3
+        };
+        let before = target_hash(&mut host, 12, 2, row);
+        let reply = call(
+            &mut host,
+            Command::Restyle,
+            13,
+            2,
+            wire::NONE,
+            1,
+            &restyle_body(2, 0, (2, 1, code, 0), (0, 0.0), 0.0, &[row]),
+        );
+        assert_eq!(reply.status, Status::Ok);
+        assert_eq!(reply.data_kind, 1);
+        assert_ne!(target_hash(&mut host, 14, 3, row), before);
+        if core::ptr::eq(bytes, R2000) {
+            // DXF の RGB は R2004 から書けるので、R2000 の文書では断り、版は進まない
+            let reply = call(
+                &mut host,
+                Command::Restyle,
+                15,
+                3,
+                wire::NONE,
+                0,
+                &restyle_body(2, 0, (2, 2, 0, 0x0012_3456), (0, 0.0), 0.0, &[row]),
+            );
+            assert_eq!(reply.status, Status::Rejected);
+            assert_eq!(reply.revision, 3);
+        }
+    }
+}
+
+/// 形の合わない本文と、表にない画層の値は、編集を始めずに断る
+#[test]
+fn malformed_restyles_are_refused() {
+    let mut host = Host::default();
+    open_bytes(&mut host, R2000);
+    let original = saved(&mut host, 2, 0);
+    let bad = [
+        // 変える項目がない・予約ビット
+        restyle_body(0, 0, (0, 0, 0, 0), (0, 0.0), 0.0, &[0]),
+        restyle_body(16, 0, (0, 0, 0, 0), (0, 0.0), 0.0, &[0]),
+        // 使わない値が 0 でない
+        restyle_body(2, 5, (0, 0, 0, 0), (0, 0.0), 0.0, &[0]),
+        restyle_body(1, 0, (0, 0, 0, 1), (0, 0.0), 0.0, &[0]),
+        // 色: 継承に値・フラグなし・未知の体系・RGB の範囲
+        restyle_body(2, 0, (0, 1, 0, 0), (0, 0.0), 0.0, &[0]),
+        restyle_body(2, 0, (2, 0, 0, 0), (0, 0.0), 0.0, &[0]),
+        restyle_body(2, 0, (2, 1, 4 << 24, 0), (0, 0.0), 0.0, &[0]),
+        restyle_body(2, 0, (2, 2, 0, 0x0100_0000), (0, 0.0), 0.0, &[0]),
+        restyle_body(2, 0, (3, 0, 0, 0), (0, 0.0), 0.0, &[0]),
+        // 線幅・線種の倍率
+        restyle_body(4, 0, (0, 0, 0, 0), (2, -1.0), 0.0, &[0]),
+        restyle_body(4, 0, (0, 0, 0, 0), (2, f64::NAN), 0.0, &[0]),
+        restyle_body(4, 0, (0, 0, 0, 0), (4, 0.0), 0.0, &[0]),
+        restyle_body(8, 0, (0, 0, 0, 0), (0, 0.0), 0.0, &[0]),
+        restyle_body(8, 0, (0, 0, 0, 0), (0, 0.0), f64::INFINITY, &[0]),
+        // 表にない画層の値
+        restyle_body(1, 9999, (0, 0, 0, 0), (0, 0.0), 0.0, &[0]),
+    ];
+    for (index, body) in bad.iter().enumerate() {
+        let reply = call(&mut host, Command::Restyle, 3, 0, wire::NONE, 0, body);
+        assert_eq!(reply.status, Status::Invalid, "{index}");
+        assert_eq!(reply.revision, 0, "{index}");
+    }
+    assert_eq!(saved(&mut host, 4, 0), original);
+    // 線幅と線種の倍率は当たる
+    let reply = call(
+        &mut host,
+        Command::Restyle,
+        5,
+        0,
+        wire::NONE,
+        0,
+        &restyle_body(12, 0, (0, 0, 0, 0), (2, 0.35), 2.0, &[0, 1]),
+    );
+    if reply.status != Status::Ok {
+        let d = call(
+            &mut host,
+            Command::Diagnostics,
+            9,
+            0,
+            wire::NONE,
+            0,
+            &5_u64.to_le_bytes(),
+        );
+        panic!("{}", String::from_utf8_lossy(&d.data));
+    }
+    assert_eq!(reply.result, 2);
+    assert_ne!(saved(&mut host, 6, 1), original);
 }

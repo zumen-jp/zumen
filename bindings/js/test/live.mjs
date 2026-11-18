@@ -79,6 +79,12 @@ test("実プロセスの 64 行差分・古い版・保存・undo / redo", { ski
     assert.deepEqual(mirror(redone, { ...initial, revision: undone.revision }).columns, updated.columns);
     assert.deepEqual((await live.save()).data, saved.data);
     assert.equal((await live.open(input)).status, "alreadyOpen");
+    const restyled = await live.restyle({ revision: live.revision, rows: [3], color: { code: { system: "aci", value: 3 } }, lineTypeScale: 2 });
+    assert.equal(restyled.status, "ok");
+    assert.equal(restyled.result, 1n);
+    assert.notEqual(restyled.display, null);
+    assert.equal((await live.restyle({ revision: restyled.revision, rows: [3], layer: 999 })).status, "invalid");
+    await live.undo(live.revision);
     const copied = await live.copy({ revision: live.revision, rows: [65, 3], matrix: move });
     assert.equal(copied.status, "ok");
     assert.equal(copied.display, null);
@@ -241,7 +247,7 @@ test("描く順を検査してから借りて公開する", async () => {
   } finally { await live.close(); }
 });
 
-test("copy と remove の引数を送る前に検査する", async () => {
+test("copy・remove・restyle の引数を送る前に検査する", async () => {
   const { live } = await fake("order");
   try {
     await assert.rejects(live.copy({ revision: 0n, rows: [0], matrix: move }, { display: true }), TypeError);
@@ -249,6 +255,11 @@ test("copy と remove の引数を送る前に検査する", async () => {
     await assert.rejects(live.copy({ revision: 0n, rows: [-1], matrix: move }), RangeError);
     await assert.rejects(live.remove({ revision: 0n, rows: new Uint32Array(65537) }), RangeError);
     await assert.rejects(live.remove({ revision: -1, rows: [0] }), RangeError);
+    for (const bad of [{}, { color: "red" }, { color: {} }, { color: { rgb: [1, 2] } }, { color: { code: { system: "x", value: 1 } } },
+      { lineWeight: -1 }, { lineWeight: "none" }, { lineTypeScale: 0 }]) {
+      await assert.rejects(live.restyle({ revision: 0n, rows: [0], ...bad }), TypeError);
+    }
+    await assert.rejects(live.restyle({ revision: 0n, rows: [0], layer: -1 }), RangeError);
     assert(!live.broken);
   } finally { await live.close(); }
 });

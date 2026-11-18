@@ -77,6 +77,19 @@ export interface LiveTransform {
   /** x' = a*x + b*y + c、y' = d*x + e*y + f の [a,b,c,d,e,f]。既存の apply と同じ */
   matrix: readonly number[] | Float64Array;
 }
+export interface LiveRestyle {
+  /** 選択した行が属する版。現在の版と異なれば stale */
+  revision: bigint | number;
+  rows: readonly number[] | Uint32Array;
+  /** layers の value。表にない値は invalid */
+  layer?: number;
+  /** 継承か、形式の色番号と RGB のどちらかまたは両方。DXF の RGB は R2004 から */
+  color?: "layer" | "block" | { code?: { system: "aci" | "sxf" | "jww"; value: number }; rgb?: readonly [number, number, number] };
+  /** 継承・文書の既定か、用紙の上の幅（mm） */
+  lineWeight?: "layer" | "block" | "default" | number;
+  /** 正の数 */
+  lineTypeScale?: number;
+}
 export interface LiveRemove {
   /** 選択した行が属する版。現在の版と異なれば stale */
   revision: bigint | number;
@@ -99,6 +112,8 @@ export declare class LiveProcess {
   /** モデル空間の [minX,minY,maxX,maxY] と囲む箱が交差する行。NaN・逆転は空、無限大は全域指定 */
   select(rect: readonly number[] | Float64Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   transform(change: LiveTransform, options?: LiveDisplayOptions): Promise<LiveReply>;
+  /** 行の画層・色・線幅・線種の倍率を変える。result は変えた数。線種はまだ変えられない */
+  restyle(change: LiveRestyle, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行を除く。result は除いた数 */
   remove(change: LiveRemove, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行を写し、写しを matrix で動かす。写しの行を selection に対象の順で返す。表示は display で取り直す。JWW・SXF は rejected */

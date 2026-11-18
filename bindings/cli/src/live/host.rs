@@ -1,7 +1,9 @@
 //! 1 子プロセスの 1 文書を、要求順に処理する。
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Error, Kind, Stop};
-use zumen_drawing::{Affine, ColorSystem, Layer};
+use zumen_drawing::{
+    Affine, Color, ColorCode, ColorSystem, Inherit, Layer, LineWeight, PaperLength, Restyle,
+};
 use zumen_live::{Revision, RowId, display_wire};
 
 use super::diagnostics;
@@ -29,6 +31,7 @@ enum Operation<'a> {
     Transform { transform: Affine, rows: &'a [u8] },
     Copy { transform: Affine, rows: &'a [u8] },
     Remove(&'a [u8]),
+    Restyle { style: WireStyle, rows: &'a [u8] },
     Target(RowId),
     Select([f64; 4]),
     Diagnostics(u64),
@@ -73,6 +76,17 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
                 }
             })
         }
+        Command::Restyle => {
+            let count = input.u32()? as usize;
+            if count > wire::MAX_ROWS {
+                return None;
+            }
+            let style = WireStyle::read(&mut input)?;
+            (input.0.len() == count.checked_mul(4)?).then_some(Operation::Restyle {
+                style,
+                rows: input.0,
+            })
+        }
         Command::Remove => {
             let count = input.u32()? as usize;
             if count > wire::MAX_ROWS || input.u32()? != 0 {
@@ -96,6 +110,125 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
             input.0.is_empty().then_some(Operation::Diagnostics(id))
         }
         _ => bytes.is_empty().then_some(Operation::Empty),
+    }
+}
+
+/// Restyle の要求のスタイル。画層は表示のスタイルの画層の値で受け、図面モデルの画層に引く前の形
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct WireStyle {
+    layer: Option<u32>,
+    color: Option<Inherit<Color>>,
+    line_weight: Option<Inherit<LineWeight>>,
+    line_type_scale: Option<f64>,
+}
+
+impl WireStyle {
+    /// 変える項目 u32、画層 u32、色の種類 u32・色のフラグ u32・色番号 u32・RGB u32、線幅の種類 u32、線幅 f64、
+    /// 線種の倍率 f64。使わない値と予約ビットは 0
+    fn read(input: &mut Words<'_>) -> Option<Self> {
+        let mask = input.u32()?;
+        let layer = input.u32()?;
+        let (color_kind, color_flags, code, rgb) =
+            (input.u32()?, input.u32()?, input.u32()?, input.u32()?);
+        let weight_kind = input.u32()?;
+        let (width, scale) = (input.f64()?, input.f64()?);
+        if mask == 0 || mask > 0b1111 {
+            return None;
+        }
+        let layer = if mask & 1 != 0 {
+            Some(layer)
+        } else {
+            (layer == 0).then_some(None)?
+        };
+        let color = if mask & 2 != 0 {
+            Some(match color_kind {
+                0 | 1 if color_flags == 0 && code == 0 && rgb == 0 => {
+                    if color_kind == 0 {
+                        Inherit::Layer
+                    } else {
+                        Inherit::Block
+                    }
+                }
+                2 if (1..=3).contains(&color_flags) => {
+                    let code = if color_flags & 1 != 0 {
+                        let system = match code >> 24 {
+                            1 => ColorSystem::Aci,
+                            2 => ColorSystem::Sxf,
+                            3 => ColorSystem::Jww,
+                            _ => return None,
+                        };
+                        Some(ColorCode {
+                            system,
+                            value: code & 0x00ff_ffff,
+                        })
+                    } else if code == 0 {
+                        None
+                    } else {
+                        return None;
+                    };
+                    let rgb = if color_flags & 2 != 0 {
+                        if rgb > 0x00ff_ffff {
+                            return None;
+                        }
+                        let [_, r, g, b] = rgb.to_be_bytes();
+                        Some([r, g, b])
+                    } else if rgb == 0 {
+                        None
+                    } else {
+                        return None;
+                    };
+                    Inherit::Own(Color { code, rgb })
+                }
+                _ => return None,
+            })
+        } else if color_kind == 0 && color_flags == 0 && code == 0 && rgb == 0 {
+            None
+        } else {
+            return None;
+        };
+        let line_weight = if mask & 4 != 0 {
+            match weight_kind {
+                0 if width == 0.0 => Some(Inherit::Layer),
+                1 if width == 0.0 => Some(Inherit::Block),
+                2 if width.is_finite() && width >= 0.0 => {
+                    Some(Inherit::Own(LineWeight::Width(PaperLength(width))))
+                }
+                3 if width == 0.0 => Some(Inherit::Own(LineWeight::Default)),
+                _ => return None,
+            }
+        } else if weight_kind == 0 && width.to_bits() == 0 {
+            None
+        } else {
+            return None;
+        };
+        let line_type_scale = if mask & 8 != 0 {
+            (scale.is_finite() && scale > 0.0).then_some(Some(scale))?
+        } else if scale.to_bits() == 0 {
+            None
+        } else {
+            return None;
+        };
+        Some(Self {
+            layer,
+            color,
+            line_weight,
+            line_type_scale,
+        })
+    }
+
+    /// 画層の値を、表示の画層の表で図面モデルの画層に引く。表にない値は `None`
+    fn resolve(self, layers: &[(u32, Layer)]) -> Option<Restyle> {
+        let layer = match self.layer {
+            None => None,
+            Some(value) => Some(layers.iter().find(|(slot, _)| *slot == value)?.1.id),
+        };
+        Some(Restyle {
+            layer,
+            color: self.color,
+            line_type: None,
+            line_type_scale: self.line_type_scale,
+            line_weight: self.line_weight,
+        })
     }
 }
 
@@ -313,17 +446,30 @@ impl Host {
                 Operation::Transform { transform, rows } => {
                     let ids = decode_rows(rows, cx)?;
                     reply.result = document
-                        .edit(revision, &ids, RowEdit::Move(transform), cx)?
+                        .edit(revision, &ids, &RowEdit::Move(transform), cx)?
+                        .len() as u64;
+                }
+                Operation::Restyle { style, rows } => {
+                    let ids = decode_rows(rows, cx)?;
+                    let restyle = if style.layer.is_some() {
+                        style.resolve(&document.layers(cx)?)
+                    } else {
+                        style.resolve(&[])
+                    }
+                    .ok_or(Problem::Core(Error::Invalid))?;
+                    reply.result = document
+                        .edit(revision, &ids, &RowEdit::Restyle(restyle), cx)?
                         .len() as u64;
                 }
                 Operation::Remove(rows) => {
                     let ids = decode_rows(rows, cx)?;
-                    reply.result = document.edit(revision, &ids, RowEdit::Remove, cx)?.len() as u64;
+                    reply.result =
+                        document.edit(revision, &ids, &RowEdit::Remove, cx)?.len() as u64;
                 }
                 Operation::Copy { transform, rows } => {
                     let ids = decode_rows(rows, cx)?;
                     let before = document.row_count();
-                    document.edit(revision, &ids, RowEdit::Copy(transform), cx)?;
+                    document.edit(revision, &ids, &RowEdit::Copy(transform), cx)?;
                     // 写しは、当てる前の表の末尾から対象の順に足される（試験で `Applied` と照らす）。
                     // 確定した後なので、ここでは断らない
                     let copies: Vec<RowId> = (before..document.row_count())

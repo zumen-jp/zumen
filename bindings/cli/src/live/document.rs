@@ -2,7 +2,7 @@
 
 use zumen_acad::AcadLive;
 use zumen_base::{Cx, Diagnostic, Error, Kind, codes};
-use zumen_drawing::{Affine, Applied, Changes, Edit, Layer, Seen};
+use zumen_drawing::{Affine, Applied, Changes, Edit, Layer, Restyle, Seen};
 use zumen_jww::{Jww, JwwLive};
 use zumen_live::display::Display;
 use zumen_live::{Revision, RowId, display_wire};
@@ -13,8 +13,10 @@ use zumen_sxf::{Mode, Sxf, SxfLive};
 const _: () = assert!(core::mem::size_of::<Edit>() <= 256);
 
 /// 行を指す編集。変換は表示の座標で受ける
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(super) enum RowEdit {
+    /// 画層・色・線種の倍率・線幅を変える
+    Restyle(Restyle),
     /// 動かす
     Move(Affine),
     /// 写して、写しを動かす
@@ -315,7 +317,7 @@ impl Document {
         &mut self,
         expected: Revision,
         rows: &[RowId],
-        edit: RowEdit,
+        edit: &RowEdit,
         cx: &mut Cx<'_>,
     ) -> Result<Vec<Applied>, Problem> {
         self.require_revision(expected)?;
@@ -336,8 +338,15 @@ impl Document {
                     edits.push(Edit::Remove { target });
                     continue;
                 }
-                RowEdit::Move(transform) => ("transform", transform),
-                RowEdit::Copy(transform) => ("copy", transform),
+                RowEdit::Restyle(style) => {
+                    edits.push(Edit::Restyle {
+                        target,
+                        style: style.clone(),
+                    });
+                    continue;
+                }
+                &RowEdit::Move(transform) => ("transform", transform),
+                &RowEdit::Copy(transform) => ("copy", transform),
             };
             let Some(transform) = self.live.row_transform(row, transform) else {
                 // 表示の座標が 1 つに決まらない行（ビューに置いていない、または 2 つ以上のビューに置いた SXF の空間の要素）は動かせない

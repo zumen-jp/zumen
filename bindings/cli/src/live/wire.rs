@@ -31,6 +31,7 @@ pub(super) enum Command {
     Order = 12,
     Remove = 13,
     Copy = 14,
+    Restyle = 15,
 }
 
 impl Command {
@@ -51,6 +52,7 @@ impl Command {
             12 => Self::Order,
             13 => Self::Remove,
             14 => Self::Copy,
+            15 => Self::Restyle,
             _ => return None,
         })
     }
@@ -61,6 +63,7 @@ impl Command {
             Self::Open => (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_INPUT_BYTES),
             Self::Transform | Self::Copy => (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4),
             Self::Remove => (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_ROWS * 4),
+            Self::Restyle => (CONTROL_BYTES + 48, CONTROL_BYTES + 48 + MAX_ROWS * 4),
             Self::Target => (CONTROL_BYTES + 4, CONTROL_BYTES + 4),
             Self::Diagnostics => (CONTROL_BYTES + 8, CONTROL_BYTES + 8),
             Self::Select => (CONTROL_BYTES + 32, CONTROL_BYTES + 32),
@@ -73,7 +76,13 @@ impl Command {
     fn can_display(self) -> bool {
         matches!(
             self,
-            Self::Open | Self::Display | Self::Transform | Self::Remove | Self::Undo | Self::Redo
+            Self::Open
+                | Self::Display
+                | Self::Transform
+                | Self::Remove
+                | Self::Restyle
+                | Self::Undo
+                | Self::Redo
         )
     }
 }
