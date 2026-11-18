@@ -605,6 +605,180 @@ fn restyle_body(
     bytes
 }
 
+/// 線種だけを変える Restyle の本文。`kind` は 0 画層・1 ブロック・2 線種の表の値
+fn line_type_body(kind: u32, value: u32, rows: &[u32]) -> Vec<u8> {
+    let mut bytes = restyle_body(16, 0, (0, 0, 0, 0), (0, 0.0), 0.0, &[]);
+    bytes[..4].copy_from_slice(&(rows.len() as u32).to_le_bytes());
+    for word in [kind, value] {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    for row in rows {
+        bytes.extend_from_slice(&row.to_le_bytes());
+    }
+    bytes
+}
+
+/// 線種の表を持つ R2004 の DXF
+const DXF_TABLES: &[u8] = include_bytes!("../../../../../samples/dxf/text_alignments.dxf");
+
+/// 線種の表の項目（値・フラグ・名前・説明・列）
+type LineTypeItem = (u32, u32, String, String, Vec<f64>);
+
+fn line_types(host: &mut Host, id: u64, revision: u64) -> Vec<LineTypeItem> {
+    let reply = call(host, Command::LineTypes, id, revision, wire::NONE, 0, &[]);
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.data_kind, 8);
+    let mut words = Words(&reply.data);
+    let count = words.u32().unwrap();
+    assert_eq!(u64::from(count), reply.result);
+    let mut out = Vec::new();
+    for _ in 0..count {
+        let [value, flags, name, description, pattern] = [(); 5].map(|()| words.u32().unwrap());
+        let mut text = |length: u32| {
+            let length = length as usize;
+            let padded = length.next_multiple_of(4);
+            let found = String::from_utf8(words.0[..length].to_vec()).unwrap();
+            assert!(words.0[length..padded].iter().all(|&byte| byte == 0));
+            words.0 = &words.0[padded..];
+            found
+        };
+        let (name, description) = (text(name), text(description));
+        let pattern = (0..pattern).map(|_| words.f64().unwrap()).collect();
+        out.push((value, flags, name, description, pattern));
+    }
+    assert!(words.0.is_empty());
+    out
+}
+
+/// 線種の表は、文書エンジンの `display_line_types` を値・名前・定義で運ぶ
+#[test]
+fn line_types_carry_the_line_type_table() {
+    let mut budget = zumen_base::Budget::default();
+    let mut diag = zumen_base::Diagnostics::new();
+    let cancel = zumen_base::CancelToken::new();
+    let cx = &mut zumen_base::Cx::new(&mut budget, &mut diag, &cancel);
+    let engines: [(&[u8], Vec<zumen_drawing::LineType>); 3] = [
+        (
+            DXF_TABLES,
+            zumen_acad::AcadLive::open(DXF_TABLES, cx)
+                .unwrap()
+                .display_line_types(cx)
+                .unwrap(),
+        ),
+        (
+            JWW,
+            zumen_jww::JwwLive::open(JWW, cx)
+                .unwrap()
+                .display_line_types(cx)
+                .unwrap(),
+        ),
+        (
+            SFC,
+            zumen_sxf::SxfLive::open(SFC, cx)
+                .unwrap()
+                .display_line_types(cx)
+                .unwrap(),
+        ),
+    ];
+    for (bytes, expected) in engines {
+        let mut host = Host::default();
+        open_bytes(&mut host, bytes);
+        let actual = line_types(&mut host, 2, 0);
+        assert_eq!(actual.len(), expected.len());
+        assert!(!actual.is_empty());
+        for ((value, flags, name, description, pattern), line_type) in actual.iter().zip(&expected)
+        {
+            assert_eq!(*value, line_type.id.0);
+            assert_eq!(name, &line_type.name);
+            let definition = line_type.definition.as_ref();
+            assert_eq!(flags & 1 != 0, definition.is_some());
+            assert_eq!(
+                flags & 2 != 0,
+                definition.is_some_and(|d| d.basis == zumen_drawing::PatternBasis::Paper)
+            );
+            assert_eq!(
+                flags & 4 != 0,
+                definition.is_some_and(|d| !d.marks.is_empty())
+            );
+            assert_eq!(flags >> 3, 0);
+            assert_eq!(
+                description,
+                definition.map_or("", |d| d.description.as_str())
+            );
+            assert_eq!(
+                pattern.as_slice(),
+                definition.map_or(&[][..], |d| d.pattern.as_slice())
+            );
+        }
+        // 前提の版が違えば、表を返さない
+        let stale = call(&mut host, Command::LineTypes, 3, 9, wire::NONE, 0, &[]);
+        assert_eq!(stale.status, Status::Stale);
+        assert!(stale.data.is_empty());
+    }
+}
+
+/// 線種を線種の表の値で変えると、要素のハッシュと保存が変わり、取り消すと戻る。画層に従わせることもできる
+#[test]
+fn restyle_changes_the_line_type_of_rows() {
+    for bytes in [DXF_TABLES, JWW, SFC] {
+        let mut host = Host::default();
+        open_bytes(&mut host, bytes);
+        let original = saved(&mut host, 2, 0);
+        let table = line_types(&mut host, 3, 0);
+        let rows = select(&mut host, 4, 0, EVERYWHERE);
+        let mut changed = None;
+        'search: for &row in &rows {
+            for (value, ..) in &table {
+                let before = target_hash(&mut host, 5, 0, row);
+                let reply = call(
+                    &mut host,
+                    Command::Restyle,
+                    6,
+                    0,
+                    wire::NONE,
+                    0,
+                    &line_type_body(2, *value, &[row]),
+                );
+                assert!(
+                    matches!(reply.status, Status::Ok | Status::Rejected),
+                    "{:?}",
+                    reply.status
+                );
+                if reply.status == Status::Ok {
+                    assert_eq!(reply.result, 1);
+                    if target_hash(&mut host, 7, 1, row) != before {
+                        changed = Some(row);
+                        break 'search;
+                    }
+                    // 開き直して版を 0 に戻す
+                    host = Host::default();
+                    open_bytes(&mut host, bytes);
+                }
+            }
+        }
+        let row = changed.unwrap();
+        assert_ne!(saved(&mut host, 9, 1), original);
+        let undone = call(&mut host, Command::Undo, 10, 1, wire::NONE, 0, &[]);
+        assert_eq!(undone.status, Status::Ok);
+        assert_eq!(saved(&mut host, 11, 2), original);
+        // 画層に従わせる指定も受ける
+        let reply = call(
+            &mut host,
+            Command::Restyle,
+            12,
+            2,
+            wire::NONE,
+            0,
+            &line_type_body(0, 0, &[row]),
+        );
+        assert!(
+            matches!(reply.status, Status::Ok | Status::Rejected),
+            "{:?}",
+            reply.status
+        );
+    }
+}
+
 fn saved(host: &mut Host, id: u64, revision: u64) -> Vec<u8> {
     let reply = call(host, Command::Save, id, revision, wire::NONE, 0, &[]);
     assert_eq!(reply.status, Status::Ok);
@@ -720,7 +894,13 @@ fn malformed_restyles_are_refused() {
     let bad = [
         // 変える項目がない・予約ビット
         restyle_body(0, 0, (0, 0, 0, 0), (0, 0.0), 0.0, &[0]),
-        restyle_body(16, 0, (0, 0, 0, 0), (0, 0.0), 0.0, &[0]),
+        restyle_body(32, 0, (0, 0, 0, 0), (0, 0.0), 0.0, &[0]),
+        // 線種: 値が続かない・継承に値・未知の種類・表にない値
+        restyle_body(16, 0, (0, 0, 0, 0), (0, 0.0), 0.0, &[]),
+        line_type_body(0, 1, &[0]),
+        line_type_body(1, 1, &[0]),
+        line_type_body(3, 0, &[0]),
+        line_type_body(2, 9999, &[0]),
         // 使わない値が 0 でない
         restyle_body(2, 5, (0, 0, 0, 0), (0, 0.0), 0.0, &[0]),
         restyle_body(1, 0, (0, 0, 0, 1), (0, 0.0), 0.0, &[0]),

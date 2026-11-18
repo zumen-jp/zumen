@@ -47,6 +47,19 @@ export interface LiveLayer {
   readonly code: { readonly system: "aci" | "sxf" | "jww"; readonly value: number } | null;
   readonly followsPlacement: boolean;
 }
+/** restyle の線種に使える線種。value は図面モデルの線種の ID */
+export interface LiveLineType {
+  readonly value: number;
+  readonly name: string;
+  /** 線と間の列を持たなければ null。列は正が線、負が間、0 が点。basis は列の長さの空間（用紙の mm か要素の空間） */
+  readonly definition: {
+    readonly description: string;
+    readonly pattern: readonly number[];
+    readonly basis: "paper" | "element";
+    /** 形か文字を添える（中身は運ばない） */
+    readonly marks: boolean;
+  } | null;
+}
 export interface LiveReply {
   requestId: bigint;
   status: LiveStatus;
@@ -60,7 +73,7 @@ export interface LiveReply {
   diagnosticCount: number;
   used: Record<LiveBudgetKind, bigint>;
   stop: { kind: LiveBudgetKind; limit: bigint; requested: bigint } | { kind: "cancelled" | "timedOut" } | null;
-  /** 表示・保存・対象・診断・選択（写しの行）・画層の表・描く順の元のバイト列。次の要求後も有効 */
+  /** 表示・保存・対象・診断・選択（写しの行）・画層の表・描く順・線種の表の元のバイト列。次の要求後も有効 */
   data: Uint8Array;
   display: LiveDisplay | null;
   target: { id: string; hash: string } | null;
@@ -69,6 +82,8 @@ export interface LiveReply {
   layers: readonly LiveLayer[] | null;
   /** 先に描く行から並べた、表示に出る生きた行。重複はない */
   order: LiveSelection | null;
+  /** 値は重複しない。全件の検証後に公開する */
+  lineTypes: readonly LiveLineType[] | null;
 }
 export interface LiveTransform {
   /** 選択した行が属する版。現在の版と異なれば stale */
@@ -89,6 +104,8 @@ export interface LiveRestyle {
   lineWeight?: "layer" | "block" | "default" | number;
   /** 正の数 */
   lineTypeScale?: number;
+  /** 継承か、lineTypes の value。表にない値は invalid */
+  lineType?: "layer" | "block" | number;
 }
 export interface LiveRemove {
   /** 選択した行が属する版。現在の版と異なれば stale */
@@ -107,12 +124,14 @@ export declare class LiveProcess {
   display(options?: LiveDisplayOptions): Promise<LiveReply>;
   target(row: number, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   layers(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
+  /** restyle の線種に使える線種の表。DXF・DWG は図面モデルの線種、JWW・SXF は形式が書ける番号の線種 */
+  lineTypes(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** 図面モデルの描く順（DXF・DWG は SORTENTSTABLE、JWW は画層グループ、SXF は用紙の並び）に合わせた行 */
   order(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** モデル空間の [minX,minY,maxX,maxY] と囲む箱が交差する行。NaN・逆転は空、無限大は全域指定 */
   select(rect: readonly number[] | Float64Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   transform(change: LiveTransform, options?: LiveDisplayOptions): Promise<LiveReply>;
-  /** 行の画層・色・線幅・線種の倍率を変える。result は変えた数。線種はまだ変えられない */
+  /** 行の画層・色・線幅・線種・線種の倍率を変える。result は変えた数 */
   restyle(change: LiveRestyle, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行を除く。result は除いた数 */
   remove(change: LiveRemove, options?: LiveDisplayOptions): Promise<LiveReply>;

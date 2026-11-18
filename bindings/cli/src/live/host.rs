@@ -2,7 +2,8 @@
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Error, Kind, Stop};
 use zumen_drawing::{
-    Affine, Color, ColorCode, ColorSystem, Inherit, Layer, LineWeight, PaperLength, Restyle,
+    Affine, Color, ColorCode, ColorSystem, Inherit, Layer, LineType, LineWeight, PaperLength,
+    PatternBasis, Restyle,
 };
 use zumen_live::{Revision, RowId, display_wire};
 
@@ -120,11 +121,13 @@ struct WireStyle {
     color: Option<Inherit<Color>>,
     line_weight: Option<Inherit<LineWeight>>,
     line_type_scale: Option<f64>,
+    /// 線種。自分の値は線種の表の値（図面モデルの `LineTypeId`）
+    line_type: Option<Inherit<u32>>,
 }
 
 impl WireStyle {
     /// 変える項目 u32、画層 u32、色の種類 u32・色のフラグ u32・色番号 u32・RGB u32、線幅の種類 u32、線幅 f64、
-    /// 線種の倍率 f64。使わない値と予約ビットは 0
+    /// 線種の倍率 f64。変える項目の bit 4 が立っていれば、続けて線種の種類 u32・線種 u32。使わない値と予約ビットは 0
     fn read(input: &mut Words<'_>) -> Option<Self> {
         let mask = input.u32()?;
         let layer = input.u32()?;
@@ -132,7 +135,7 @@ impl WireStyle {
             (input.u32()?, input.u32()?, input.u32()?, input.u32()?);
         let weight_kind = input.u32()?;
         let (width, scale) = (input.f64()?, input.f64()?);
-        if mask == 0 || mask > 0b1111 {
+        if mask == 0 || mask > 0b1_1111 {
             return None;
         }
         let layer = if mask & 1 != 0 {
@@ -208,24 +211,47 @@ impl WireStyle {
         } else {
             return None;
         };
+        let line_type = if mask & 16 != 0 {
+            let (kind, value) = (input.u32()?, input.u32()?);
+            Some(match kind {
+                0 if value == 0 => Inherit::Layer,
+                1 if value == 0 => Inherit::Block,
+                2 => Inherit::Own(value),
+                _ => return None,
+            })
+        } else {
+            None
+        };
         Some(Self {
             layer,
             color,
             line_weight,
             line_type_scale,
+            line_type,
         })
     }
 
-    /// 画層の値を、表示の画層の表で図面モデルの画層に引く。表にない値は `None`
-    fn resolve(self, layers: &[(u32, Layer)]) -> Option<Restyle> {
+    /// 画層の値を表示の画層の表で、線種の値を線種の表で、図面モデルの ID に引く。表にない値は `None`
+    fn resolve(self, layers: &[(u32, Layer)], line_types: &[LineType]) -> Option<Restyle> {
         let layer = match self.layer {
             None => None,
             Some(value) => Some(layers.iter().find(|(slot, _)| *slot == value)?.1.id),
         };
+        let line_type = match self.line_type {
+            None => None,
+            Some(Inherit::Layer) => Some(Inherit::Layer),
+            Some(Inherit::Block) => Some(Inherit::Block),
+            Some(Inherit::Own(value)) => Some(Inherit::Own(
+                line_types
+                    .iter()
+                    .find(|line_type| line_type.id.0 == value)?
+                    .id,
+            )),
+        };
         Some(Restyle {
             layer,
             color: self.color,
-            line_type: None,
+            line_type,
             line_type_scale: self.line_type_scale,
             line_weight: self.line_weight,
         })
@@ -317,6 +343,63 @@ fn encode_layers(layers: &[(u32, Layer)], cx: &mut Cx<'_>) -> Result<Vec<u8>, Pr
         }
         data.extend_from_slice(layer.name.as_bytes());
         data.resize(data.len().next_multiple_of(4), 0);
+    }
+    Ok(data)
+}
+
+/// 線種の表の 1 項目の固定部分（値・フラグ・名前の長さ・説明の長さ・列の数）
+const LINE_TYPE_FIXED_BYTES: usize = 20;
+
+/// 線種の表を、項目数 `u32` と項目の列に写す。名前と説明は UTF-8 で 4 バイトの境界まで 0 で埋め、列は f64 で続ける
+fn encode_line_types(line_types: &[LineType], cx: &mut Cx<'_>) -> Result<Vec<u8>, Problem> {
+    let mut length = 4_usize;
+    for line_type in line_types {
+        let (description, pattern) = line_type.definition.as_ref().map_or((0, 0), |definition| {
+            (definition.description.len(), definition.pattern.len())
+        });
+        length = line_type
+            .name
+            .len()
+            .checked_next_multiple_of(4)
+            .and_then(|name| name.checked_add(description.checked_next_multiple_of(4)?))
+            .and_then(|text| text.checked_add(pattern.checked_mul(8)?))
+            .and_then(|item| item.checked_add(LINE_TYPE_FIXED_BYTES))
+            .and_then(|item| length.checked_add(item))
+            .filter(|&n| n <= display_wire::MAX_PACKET_BYTES)
+            .ok_or(Problem::Core(Error::Invalid))?;
+    }
+    checked(cx, Kind::DecodedBytes, length as u64)?;
+    checked(cx, Kind::Work, line_types.len() as u64)?;
+    let count = u32::try_from(line_types.len()).map_err(|_| Problem::Core(Error::Invalid))?;
+    let word = |value: usize| u32::try_from(value).map_err(|_| Problem::Core(Error::Invalid));
+    let mut data = Vec::with_capacity(length);
+    data.extend_from_slice(&count.to_le_bytes());
+    for line_type in line_types {
+        let definition = line_type.definition.as_ref();
+        let mut flags = 0_u32;
+        if let Some(definition) = definition {
+            flags |= 1;
+            flags |= u32::from(definition.basis == PatternBasis::Paper) << 1;
+            flags |= u32::from(!definition.marks.is_empty()) << 2;
+        }
+        let description = definition.map_or("", |definition| definition.description.as_str());
+        let pattern = definition.map_or(&[][..], |definition| definition.pattern.as_slice());
+        for value in [
+            line_type.id.0,
+            flags,
+            word(line_type.name.len())?,
+            word(description.len())?,
+            word(pattern.len())?,
+        ] {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        for text in [line_type.name.as_str(), description] {
+            data.extend_from_slice(text.as_bytes());
+            data.resize(data.len().next_multiple_of(4), 0);
+        }
+        for value in pattern {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
     }
     Ok(data)
 }
@@ -451,12 +534,17 @@ impl Host {
                 }
                 Operation::Restyle { style, rows } => {
                     let ids = decode_rows(rows, cx)?;
-                    let restyle = if style.layer.is_some() {
-                        style.resolve(&document.layers(cx)?)
-                    } else {
-                        style.resolve(&[])
-                    }
-                    .ok_or(Problem::Core(Error::Invalid))?;
+                    let layers = match style.layer {
+                        Some(_) => document.layers(cx)?,
+                        None => Vec::new(),
+                    };
+                    let line_types = match style.line_type {
+                        Some(Inherit::Own(_)) => document.line_types(cx)?,
+                        _ => Vec::new(),
+                    };
+                    let restyle = style
+                        .resolve(&layers, &line_types)
+                        .ok_or(Problem::Core(Error::Invalid))?;
                     reply.result = document
                         .edit(revision, &ids, &RowEdit::Restyle(restyle), cx)?
                         .len() as u64;
@@ -519,6 +607,12 @@ impl Host {
                         reply.data = encode_layers(&layers, cx)?;
                         reply.data_kind = 6;
                         reply.result = layers.len() as u64;
+                    }
+                    Command::LineTypes => {
+                        let line_types = document.line_types(cx)?;
+                        reply.data = encode_line_types(&line_types, cx)?;
+                        reply.data_kind = 8;
+                        reply.result = line_types.len() as u64;
                     }
                     Command::Order => {
                         let rows = document.order(cx)?;

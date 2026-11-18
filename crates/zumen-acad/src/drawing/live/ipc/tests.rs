@@ -140,3 +140,31 @@ fn a_stopped_order_reports_the_stop() {
         assert_eq!(diag.iter().count(), 1, "{kind:?}");
     }
 }
+
+#[test]
+fn display_line_types_match_the_drawing() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let mut checked = 0;
+    for (index, sample) in SAMPLES.into_iter().enumerate() {
+        let live = AcadLive::open(sample, cx).unwrap();
+        let drawing = live.drawing(cx).unwrap();
+        let line_types = live.display_line_types(cx).unwrap();
+        assert_eq!(line_types, drawing.line_types, "sample {index}");
+        checked += line_types.len();
+    }
+    assert!(checked > 0);
+    for kind in [Kind::Work, Kind::DecodedBytes] {
+        let live = AcadLive::open(SAMPLES[0], cx).unwrap();
+        let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(0)));
+        let mut diag = Diagnostics::new();
+        let result = live.display_line_types(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(
+            matches!(result, Err(zumen_sdk::Error::Stopped(_))),
+            "{kind:?}"
+        );
+        assert_eq!(diag.iter().count(), 1, "{kind:?}");
+    }
+}

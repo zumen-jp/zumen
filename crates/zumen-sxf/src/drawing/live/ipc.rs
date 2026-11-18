@@ -3,10 +3,11 @@
 //! 状態・保存・`apply` は変えない。名前と形は `AcadLive` の同名の関数に合わせる。
 
 use zumen_base::{Cx, Kind, Stop};
-use zumen_drawing::{Affine, Layer, Placed, Seen};
+use zumen_drawing::{Affine, Layer, LineType, LineTypeId, Placed, Seen};
 use zumen_live::RowId;
 use zumen_sdk::Error;
 
+use super::super::{LINE_TYPES, USER_LINE_TYPE};
 use super::{BaseSheetSlot, SxfContainer, SxfLive, hash_placed};
 
 impl SxfLive {
@@ -104,6 +105,61 @@ impl SxfLive {
             .map(|layer| (layer.id.0, layer))
             .collect())
     }
+}
+
+impl SxfLive {
+    /// `apply` の `restyle` が受ける線種の表。ID は線種のコードで、既定の線種（1〜15）、文書が定義する利用者定義の
+    /// 線種の順。既定の線種は図面モデルの線種があればそれを、なければ既定の名前だけを返す。
+    /// 線種の数と、名前・説明・列のバイト数を、作る前に共有の予算で数える
+    pub fn display_line_types(&self, cx: &mut Cx<'_>) -> Result<Vec<LineType>, Error> {
+        let base = &self.lifter_tables.base_line_types;
+        let user = |line_type: &&LineType| {
+            i64::from(line_type.id.0) > USER_LINE_TYPE && line_type.source != Default::default()
+        };
+        let mut bytes = LINE_TYPES
+            .iter()
+            .map(|name| name.len() as u64)
+            .fold(0_u64, u64::saturating_add);
+        for line_type in base {
+            bytes = bytes.saturating_add(definition_bytes(line_type));
+        }
+        let count = (LINE_TYPES.len() as u64).saturating_add(base.len() as u64);
+        (|| -> Result<(), Stop> {
+            cx.check(Kind::Work, count)?;
+            cx.check(Kind::DecodedBytes, bytes)
+        })()
+        .map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        let mut out = Vec::with_capacity(LINE_TYPES.len());
+        for (at, name) in (1_u32..).zip(LINE_TYPES) {
+            let id = LineTypeId(at);
+            out.push(
+                base.iter()
+                    .find(|line_type| line_type.id == id)
+                    .cloned()
+                    .unwrap_or_else(|| LineType {
+                        id,
+                        name: (*name).to_owned(),
+                        definition: None,
+                        source: Default::default(),
+                    }),
+            );
+        }
+        out.extend(base.iter().filter(user).cloned());
+        Ok(out)
+    }
+}
+
+/// 線種を写すときのバイト数の見積もり。名前・説明・列（1 つ 8 バイト）・添え物（1 つ 64 バイト）
+fn definition_bytes(line_type: &LineType) -> u64 {
+    let definition = line_type.definition.as_ref().map_or(0, |definition| {
+        (definition.description.len() as u64)
+            .saturating_add((definition.pattern.len() as u64).saturating_mul(8))
+            .saturating_add((definition.marks.len() as u64).saturating_mul(64))
+    });
+    (line_type.name.len() as u64).saturating_add(definition)
 }
 
 impl SxfLive {

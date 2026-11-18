@@ -2,7 +2,7 @@
 
 use zumen_acad::AcadLive;
 use zumen_base::{Cx, Diagnostic, Error, Kind, codes};
-use zumen_drawing::{Affine, Applied, Changes, Edit, Layer, Restyle, Seen};
+use zumen_drawing::{Affine, Applied, Changes, Edit, Layer, LineType, Restyle, Seen};
 use zumen_jww::{Jww, JwwLive};
 use zumen_live::display::Display;
 use zumen_live::{Revision, RowId, display_wire};
@@ -184,6 +184,14 @@ impl Engine {
             Self::Acad(live) => live.display_layers(cx),
             Self::Jww(live) => live.display_layers(cx),
             Self::Sxf(live) => live.display_layers(cx),
+        }
+    }
+
+    fn line_types(&self, cx: &mut Cx<'_>) -> Result<Vec<LineType>, Error> {
+        match self {
+            Self::Acad(live) => live.display_line_types(cx),
+            Self::Jww(live) => live.display_line_types(cx),
+            Self::Sxf(live) => live.display_line_types(cx),
         }
     }
 
@@ -410,6 +418,11 @@ impl Document {
     /// 表示のスタイルの画層の値と、その画層の組
     pub fn layers(&self, cx: &mut Cx<'_>) -> Result<Vec<(u32, Layer)>, Error> {
         self.live.layers(cx)
+    }
+
+    /// `Restyle` の線種に使える線種の表。値は図面モデルの `LineTypeId`
+    pub fn line_types(&self, cx: &mut Cx<'_>) -> Result<Vec<LineType>, Error> {
+        self.live.line_types(cx)
     }
 
     /// 表示に出る生きた行を、先に描くものから並べたもの

@@ -77,6 +77,33 @@ function handle(request, body) {
     send(out);
     return;
   }
+  if (request.command === 16) {
+    // 線種 2 件: 用紙の mm の列を持つ "DASH"、定義のない "線"（UTF-8 3 バイト、1 バイト埋める）
+    const name = Buffer.from("線");
+    const data = Buffer.alloc(68);
+    data.writeUInt32LE(2, 0);
+    for (const [i, word] of [2, 1 | 2, 4, 0, 2].entries()) data.writeUInt32LE(word, 4 + i * 4);
+    data.write("DASH", 24);
+    data.writeDoubleLE(1.5, 28);
+    data.writeDoubleLE(-0.5, 36);
+    for (const [i, word] of [9, 0, name.length, 0, 0].entries()) data.writeUInt32LE(word, 44 + i * 4);
+    name.copy(data, 64);
+    if (mode === "line-types-duplicate") data.writeUInt32LE(2, 44);
+    if (mode === "line-types-flags") data.writeUInt32LE(8 | 1, 8);
+    if (mode === "line-types-undefined") data.writeUInt32LE(0, 8);
+    if (mode === "line-types-padding") data[67] = 1;
+    if (mode === "line-types-name") data[64] = 0xff;
+    if (mode === "line-types-count") data.writeUInt32LE(0xffffffff, 0);
+    if (mode === "line-types-pattern") data.writeUInt32LE(0x10000000, 20);
+    let payload = mode === "line-types-truncated" ? data.subarray(0, 60) : data;
+    if (mode === "line-types-extra") payload = Buffer.concat([data, Buffer.alloc(4)]);
+    const out = reply(request, 0, 8, payload);
+    out.writeBigUInt64LE(body.readBigUInt64LE(56), 32);
+    out.writeBigUInt64LE(0n, 40);
+    out.writeBigUInt64LE(mode === "line-types-result" ? 3n : 2n, 48);
+    send(out);
+    return;
+  }
   if (request.command === 11) {
     // 画層 2 件: 状態と RGB を持つ "0"、色番号だけの "壁"（UTF-8 3 バイト、1 バイト埋める）
     const name = Buffer.from("壁");

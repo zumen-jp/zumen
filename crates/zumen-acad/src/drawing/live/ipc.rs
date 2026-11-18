@@ -1,7 +1,7 @@
 //! 常駐 IPC が表示の定義を引く読み取り。状態・保存・`apply` と表示の作り方は変えない。
 
 use zumen_base::{Cx, Kind, Stop};
-use zumen_drawing::Layer;
+use zumen_drawing::{Layer, LineType, MarkContent};
 use zumen_live::RowId;
 use zumen_sdk::Error;
 
@@ -93,6 +93,55 @@ impl AcadLive {
         }
         Ok(keyed.into_iter().map(|(_, id)| id).collect())
     }
+}
+
+impl AcadLive {
+    /// 線種の表。図面モデルの `line_types` と同じ順・同じ ID で、`Restyle` の線種にこの ID を使う。
+    /// 名前・説明・列・添え物のバイト数と線種の数を、作る前に共有の予算で数える
+    pub fn display_line_types(&self, cx: &mut Cx<'_>) -> Result<Vec<LineType>, Error> {
+        let catalog = &self.state.catalog;
+        let mut bytes = 0_u64;
+        for &slot in &catalog.active_line_type_slots {
+            if let Some(entry) = catalog.line_types.get(slot as usize) {
+                let defined = entry.defined.as_ref().map_or(0, line_type_bytes);
+                bytes = bytes
+                    .saturating_add(entry.name.len() as u64)
+                    .saturating_add(defined);
+            }
+        }
+        let count = catalog.active_line_type_slots.len() as u64;
+        (|| -> Result<(), Stop> {
+            cx.check(Kind::Work, count)?;
+            cx.check(Kind::DecodedBytes, bytes)
+        })()
+        .map_err(|stop| stopped(cx, stop))?;
+        let line_types = catalog.build_line_types();
+        // 生きたスロットには必ず項目がある。そろわなければ表を作らない
+        if line_types.len() != catalog.active_line_type_slots.len() {
+            return Err(Error::Invalid);
+        }
+        Ok(line_types)
+    }
+}
+
+/// 線種を写すときのバイト数の見積もり。名前・説明・列（1 つ 8 バイト）・添え物（1 つ 64 バイトと文字）
+pub(crate) fn line_type_bytes(line_type: &LineType) -> u64 {
+    let mut bytes = line_type.name.len() as u64;
+    if let Some(definition) = &line_type.definition {
+        bytes = bytes
+            .saturating_add(definition.description.len() as u64)
+            .saturating_add((definition.pattern.len() as u64).saturating_mul(8));
+        for mark in &definition.marks {
+            let text = match &mark.content {
+                MarkContent::Text { content, style } => {
+                    content.len() + style.as_ref().map_or(0, String::len)
+                }
+                MarkContent::Shape { .. } => 0,
+            };
+            bytes = bytes.saturating_add(64).saturating_add(text as u64);
+        }
+    }
+    bytes
 }
 
 fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Error {

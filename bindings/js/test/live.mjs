@@ -84,6 +84,11 @@ test("実プロセスの 64 行差分・古い版・保存・undo / redo", { ski
     assert.equal(restyled.result, 1n);
     assert.notEqual(restyled.display, null);
     assert.equal((await live.restyle({ revision: restyled.revision, rows: [3], layer: 999 })).status, "invalid");
+    const lineTypes = await live.lineTypes(restyled.revision);
+    assert.equal(lineTypes.status, "ok");
+    assert.equal(lineTypes.result, BigInt(lineTypes.lineTypes.length));
+    assert.equal((await live.lineTypes(restyled.revision + 1n)).status, "stale");
+    assert.equal((await live.restyle({ revision: restyled.revision, rows: [3], lineType: 999 })).status, "invalid");
     await live.undo(live.revision);
     const copied = await live.copy({ revision: live.revision, rows: [65, 3], matrix: move });
     assert.equal(copied.status, "ok");
@@ -222,6 +227,33 @@ test("画層の表を検査してから凍結して公開する", async () => {
   } finally { await live.close(); }
 });
 
+test("線種の表を検査してから凍結して公開する", async () => {
+  const { live } = await fake("line-types");
+  try {
+    const reply = await live.lineTypes(5n);
+    assert.equal(reply.revision, 5n);
+    assert.equal(reply.result, 2n);
+    assert.deepEqual(reply.lineTypes, [
+      { value: 2, name: "DASH", definition: { description: "", pattern: [1.5, -0.5], basis: "paper", marks: false } },
+      { value: 9, name: "線", definition: null },
+    ]);
+    assert(Object.isFrozen(reply.lineTypes) && Object.isFrozen(reply.lineTypes[0].definition.pattern));
+    assert.equal((await live.save()).lineTypes, null);
+    await assert.rejects(live.lineTypes(undefined), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+for (const mode of ["line-types-duplicate", "line-types-flags", "line-types-undefined", "line-types-padding", "line-types-name", "line-types-count", "line-types-pattern", "line-types-truncated", "line-types-extra", "line-types-result"]) {
+  test(`不正な線種の表を公開せず接続を終了する: ${mode}`, async () => {
+    const { live } = await fake(mode);
+    try {
+      await assert.rejects(live.lineTypes(0n), transport("protocol"));
+      assert(live.broken);
+    } finally { await live.close(); }
+  });
+}
+
 for (const mode of ["layers-duplicate", "layers-flags", "layers-state", "layers-rgb", "layers-system", "layers-padding", "layers-name", "layers-count", "layers-truncated", "layers-extra", "layers-result"]) {
   test(`不正な画層の表を公開せず接続を終了する: ${mode}`, async () => {
     const { live } = await fake(mode);
@@ -260,6 +292,8 @@ test("copy・remove・restyle の引数を送る前に検査する", async () =>
       await assert.rejects(live.restyle({ revision: 0n, rows: [0], ...bad }), TypeError);
     }
     await assert.rejects(live.restyle({ revision: 0n, rows: [0], layer: -1 }), RangeError);
+    await assert.rejects(live.restyle({ revision: 0n, rows: [0], lineType: -1 }), RangeError);
+    await assert.rejects(live.restyle({ revision: 0n, rows: [0], lineType: "none" }), RangeError);
     assert(!live.broken);
   } finally { await live.close(); }
 });

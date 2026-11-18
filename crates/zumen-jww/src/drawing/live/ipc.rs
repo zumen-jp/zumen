@@ -3,11 +3,11 @@
 //! 状態・保存・`apply` は変えない。名前と形は `AcadLive` の同名の関数に合わせる。
 
 use zumen_base::{Cx, Kind, Stop};
-use zumen_drawing::{Affine, Hash, Layer, Seen};
+use zumen_drawing::{Affine, Hash, Layer, LineType, Seen};
 use zumen_live::RowId;
 use zumen_sdk::Error;
 
-use super::super::build_layers;
+use super::super::{SXF_LINE_TYPE, SXF_SINCE, build_layers, make_line_type};
 use super::{BaseOutcome, DEFINITION_SPACES, JwwLive};
 
 impl JwwLive {
@@ -166,6 +166,48 @@ impl JwwLive {
         Ok(keyed.into_iter().map(|(_, row)| row).collect())
     }
 }
+
+impl JwwLive {
+    /// `apply` の `restyle` が受ける線種の表。ID は線種の番号で、実線と破線（1〜9）、ランダム線と倍長線（11〜19）、
+    /// SXF の線種を持つ版では定義のある SXF の線種（30 から 62 まで）の順。図面モデルの `line_types` と同じ規則で作る。
+    /// 線種の数と、名前・列のバイト数（ビットの列は 1 つ 32 個まで）を、作る前に共有の予算で数える
+    pub fn display_line_types(&self, cx: &mut Cx<'_>) -> Result<Vec<LineType>, Error> {
+        let header = &self.header;
+        let sxf = if header.version >= SXF_SINCE {
+            header
+                .sxf_line_types
+                .len()
+                .min(usize::from(MAX_LINE_TYPE - SXF_LINE_TYPE) + 1)
+        } else {
+            0
+        };
+        let fixed = fixed_line_types().count() as u64;
+        let mut bytes = fixed.saturating_mul(2 + 32 * 8);
+        for (name, pattern) in header.sxf_line_types.iter().take(sxf) {
+            bytes = bytes
+                .saturating_add(name.len().max(2) as u64)
+                .saturating_add((pattern.as_ref().map_or(0, Vec::len) as u64).saturating_mul(8));
+        }
+        (|| -> Result<(), Stop> {
+            cx.check(Kind::Work, fixed.saturating_add(sxf as u64))?;
+            cx.check(Kind::DecodedBytes, bytes)
+        })()
+        .map_err(|stop| stopped(cx, stop))?;
+        let sxf = (0..sxf).filter_map(|at| u8::try_from(at).ok()?.checked_add(SXF_LINE_TYPE));
+        Ok(fixed_line_types()
+            .chain(sxf)
+            .map(|code| make_line_type(header, code))
+            .collect())
+    }
+}
+
+/// 版によらず使える線種の番号。実線と破線（1〜9）、ランダム線と倍長線（11〜19）
+fn fixed_line_types() -> impl Iterator<Item = u8> {
+    (1..=9).chain(11..=19)
+}
+
+/// SXF の線種の番号の上限
+const MAX_LINE_TYPE: u8 = 62;
 
 fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Error {
     cx.report(stop.to_diagnostic());

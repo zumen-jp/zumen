@@ -112,13 +112,15 @@ try {
 
 `live.layers(revision)` は、表示のスタイル `[画層, 色]` の画層の値と、その画層の名前・状態・RGB・色番号を、図面モデルの画層と同じ順で `reply.layers` に返します。画層の値は、DXF・DWG では画層の表の位置、JWW・SXF では画層の ID です。
 
-`live.restyle({ revision, rows, layer, color, lineWeight, lineTypeScale })` は、指定した画層・色・線幅・線種の倍率だけを変えます。`layer` は `live.layers` の `value`、`color` は `"layer"`・`"block"` か `{ code, rgb }`、`lineWeight` は `"layer"`・`"block"`・`"default"` か mm です。
+`live.lineTypes(revision)` は、`restyle` で指せる線種の値と、その名前・説明・線と間の列を `reply.lineTypes` に返します。値は図面モデルの線種の ID です。DXF・DWG は図面モデルの線種、JWW・SXF は形式が書ける番号の線種です。
+
+`live.restyle({ revision, rows, layer, color, lineWeight, lineType, lineTypeScale })` は、指定した画層・色・線幅・線種・線種の倍率だけを変えます。`layer` は `live.layers` の `value`、`color` は `"layer"`・`"block"` か `{ code, rgb }`、`lineWeight` は `"layer"`・`"block"`・`"default"` か mm、`lineType` は `"layer"`・`"block"` か `live.lineTypes` の `value` です。
 
 `live.remove({ revision, rows })` は行を除き、`live.copy({ revision, rows, matrix })` は行を写して写しを動かします。`copy` は写しの行を `reply.selection` に対象の順で返し、表示は返さないので `live.display()` で取り直します。JWW・SXF の写しは、まだ rejected です。
 
 `live.order(revision)` は、表示に出る生きた行を、図面モデルと同じ規則で先に描くものから並べて `reply.order` に返します。`reply.order.rows()` は描く順で反復し、昇順とは限りません。
 
-診断は次の通常要求の前に、明示した予算で別途取得します。表示だけが停止したときの扱い、通信上限、中断・終了は[文書の IPC](../cli/live.md)にあります。残りの形式、文字・記号の定義、線種の変更・置き換え・追加などの編集、Electron の表示への組み込みと性能の検査は[文書エンジンの残件](../../docs/live.md)です。
+診断は次の通常要求の前に、明示した予算で別途取得します。表示だけが停止したときの扱い、通信上限、中断・終了は[文書の IPC](../cli/live.md)にあります。残りの形式、文字・記号の定義、線種の定義の変更・置き換え・追加などの編集、Electron の表示への組み込みと性能の検査は[文書エンジンの残件](../../docs/live.md)です。
 
 ```sh
 node bindings/js/test/live.mjs target/debug/zumen

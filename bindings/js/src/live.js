@@ -34,8 +34,8 @@ function flagsOf(options, defaultDisplay) {
 
 const COLOR_SYSTEMS = { aci: 1, sxf: 2, jww: 3 };
 
-/** restyle の本文の固定部分（48 バイト）を作る。形が合わなければ例外にする */
-function styleWords({ layer, color, lineWeight, lineTypeScale }) {
+/** restyle の本文の行の前（線種を変えなければ 48 バイト、変えれば 56 バイト）を作る。形が合わなければ例外にする */
+function styleWords({ layer, color, lineWeight, lineTypeScale, lineType }) {
   let mask = 0, layerValue = 0, colorKind = 0, colorFlags = 0, code = 0, rgb = 0, weightKind = 0, width = 0, scale = 0;
   if (layer !== undefined) { mask |= 1; layerValue = rowOf(layer); }
   if (color !== undefined) {
@@ -69,11 +69,23 @@ function styleWords({ layer, color, lineWeight, lineTypeScale }) {
     if (typeof lineTypeScale !== "number" || !Number.isFinite(lineTypeScale) || lineTypeScale <= 0) throw new TypeError("lineTypeScale は正の数にする");
     mask |= 8; scale = lineTypeScale;
   }
-  if (mask === 0) throw new TypeError("layer・color・lineWeight・lineTypeScale のどれかを変える");
-  return (out) => {
-    for (const [i, value] of [mask, layerValue, colorKind, colorFlags, code, rgb, weightKind].entries()) out.writeUInt32LE(value, 4 + i * 4);
-    out.writeDoubleLE(width, 32);
-    out.writeDoubleLE(scale, 40);
+  let lineTypeKind = 0, lineTypeValue = 0;
+  if (lineType !== undefined) {
+    mask |= 16;
+    if (lineType === "layer") lineTypeKind = 0;
+    else if (lineType === "block") lineTypeKind = 1;
+    else { lineTypeKind = 2; lineTypeValue = rowOf(lineType); }
+  }
+  if (mask === 0) throw new TypeError("layer・color・lineWeight・lineTypeScale・lineType のどれかを変える");
+  const size = lineType === undefined ? 48 : 56;
+  return {
+    size,
+    write(out) {
+      for (const [i, value] of [mask, layerValue, colorKind, colorFlags, code, rgb, weightKind].entries()) out.writeUInt32LE(value, 4 + i * 4);
+      out.writeDoubleLE(width, 32);
+      out.writeDoubleLE(scale, 40);
+      if (size === 56) { out.writeUInt32LE(lineTypeKind, 48); out.writeUInt32LE(lineTypeValue, 52); }
+    },
   };
 }
 
@@ -246,6 +258,9 @@ export class LiveProcess {
   /** 表示のスタイルの画層の値と、その画層の名前・状態・色を、指定した版で取得する */
   async layers(revision, options = {}) { return this.#request(11, 0, u64(revision, "revision"), options, 0); }
 
+  /** restyle の線種に使える線種の値と、その名前・定義を、指定した版で取得する */
+  async lineTypes(revision, options = {}) { return this.#request(16, 0, u64(revision, "revision"), options, 0); }
+
   /** モデル空間の囲む箱と交差する行を、指定した版で取得する */
   async select(rect, revision, options = {}) {
     this.#check();
@@ -278,15 +293,15 @@ export class LiveProcess {
     });
   }
 
-  /** 行の画層・色・線幅・線種の倍率を変える。画層は layers の value で指す。既定で表示の差分を返す */
+  /** 行の画層・色・線幅・線種・線種の倍率を変える。画層は layers の、線種は lineTypes の value で指す。既定で表示の差分を返す */
   async restyle({ revision, rows, ...style }, options = {}) {
     this.#check();
     if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
-    const write = styleWords(style);
-    return this.#request(15, flagsOf(options, true), u64(revision, "revision"), options, 48 + rows.length * 4, (out) => {
+    const { size, write } = styleWords(style);
+    return this.#request(15, flagsOf(options, true), u64(revision, "revision"), options, size + rows.length * 4, (out) => {
       out.writeUInt32LE(rows.length, 0);
       write(out);
-      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 48 + i * 4);
+      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), size + i * 4);
     });
   }
 

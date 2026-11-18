@@ -266,3 +266,36 @@ fn a_stopped_order_reports_the_stop() {
         assert_eq!(diag.iter().count(), 1, "{kind:?}");
     }
 }
+
+#[test]
+fn display_line_types_cover_the_defined_line_types_of_the_drawing() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let live = SxfLive::open(SAMPLE, cx).unwrap();
+    let drawing = live.drawing(cx).unwrap();
+    let line_types = live.display_line_types(cx).unwrap();
+    let ids: BTreeSet<u32> = line_types.iter().map(|line_type| line_type.id.0).collect();
+    assert_eq!(ids.len(), line_types.len());
+    assert!((1..=15).all(|code| ids.contains(&code)));
+    // 既定の線種と、文書が定義する利用者定義の線種は、同じ値で表にある
+    let mut checked = 0;
+    for line_type in &drawing.line_types {
+        if line_type.id.0 <= 15 || line_type.source != zumen_base::Ref::default() {
+            assert!(line_types.contains(line_type), "{line_type:?}");
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
+    for kind in [Kind::Work, Kind::DecodedBytes] {
+        let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(0)));
+        let mut diag = Diagnostics::new();
+        let result = live.display_line_types(&mut Cx::new(&mut budget, &mut diag, &cancel));
+        assert!(
+            matches!(result, Err(zumen_sdk::Error::Stopped(_))),
+            "{kind:?}"
+        );
+        assert_eq!(diag.iter().count(), 1, "{kind:?}");
+    }
+}
