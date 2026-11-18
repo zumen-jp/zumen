@@ -4,6 +4,8 @@ use std::borrow::Cow;
 
 use crate::db::{AcadDb, Data};
 
+#[cfg(feature = "cp932")]
+mod dbcs;
 mod windows;
 
 /// UTF-8 で書く最初のバージョン（2007）
@@ -18,8 +20,9 @@ pub enum Charset {
     Utf8,
     /// ANSI_932。WHATWG の Shift_JIS（Windows の 932 と同じ表）として戻す
     ShiftJis,
-    /// Windows の 1 バイトのコード・ページ（ANSI_874・ANSI_1250〜ANSI_1258）。値はコード・ページの番号で、その表
-    /// （Unicode の `CP<番号>.TXT`）で戻す。表に割り当てのないバイトは戻さない（#327）
+    /// Windows のコード・ページ。値はコード・ページの番号で、その表（Unicode の `CP<番号>.TXT`）で戻す。表に割り当ての
+    /// ないバイトは戻さない（#327）。1 バイトの ANSI_874・ANSI_1250〜ANSI_1258 と、`cp932` の feature があるときの
+    /// 2 バイトの ANSI_936・ANSI_949・ANSI_950
     Windows(u16),
     /// 対応表のないコード・ページか、コード・ページがない。ASCII の文字だけを読む
     Other,
@@ -35,6 +38,10 @@ impl Charset {
             Charset::ShiftJis => encoding_rs::SHIFT_JIS
                 .decode_without_bom_handling_and_without_replacement(value)
                 .map(Cow::into_owned),
+            #[cfg(feature = "cp932")]
+            Charset::Windows(page) if dbcs::table(page).is_some() => {
+                dbcs::table(page)?.decode(value)
+            }
             Charset::Windows(page) => value.iter().map(|&byte| from_windows(page, byte)).collect(),
             _ => None,
         }
@@ -48,6 +55,12 @@ impl Charset {
         if self == Self::ShiftJis {
             let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(text);
             return (!unmappable).then_some(bytes);
+        }
+        #[cfg(feature = "cp932")]
+        if let Self::Windows(page) = self
+            && let Some(table) = dbcs::table(page)
+        {
+            return table.encode(text).map(Cow::Owned);
         }
         if let Self::Windows(page) = self {
             return text
@@ -89,10 +102,10 @@ impl Charset {
             .unwrap_or(char::REPLACEMENT_CHARACTER))
     }
 
-    /// 名前を、大文字と小文字を区別せずに比べるための形にする。ASCII の文字だけを小文字にし、Shift_JIS の
+    /// 名前を、大文字と小文字を区別せずに比べるための形にする。ASCII の文字だけを小文字にし、Shift_JIS などの
     /// 2 バイトの文字の 2 バイト目は変えない（読むときに、戻した文字の ASCII だけを小文字にするのと同じ）
     pub fn fold(self, name: &[u8]) -> Vec<u8> {
-        if self != Charset::ShiftJis {
+        if !self.double_byte() {
             return name.to_ascii_lowercase();
         }
         let mut folded = Vec::with_capacity(name.len());
@@ -103,10 +116,30 @@ impl Charset {
                 trail = false;
             } else {
                 folded.push(byte.to_ascii_lowercase());
-                trail = matches!(byte, 0x81..=0x9F | 0xE0..=0xFC);
+                trail = self.leads(byte);
             }
         }
         folded
+    }
+
+    /// 2 バイトの文字を持つ符号化か
+    fn double_byte(self) -> bool {
+        match self {
+            Charset::ShiftJis => true,
+            #[cfg(feature = "cp932")]
+            Charset::Windows(page) => dbcs::table(page).is_some(),
+            _ => false,
+        }
+    }
+
+    /// `byte` が 2 バイトの文字の先頭のバイトか
+    fn leads(self, byte: u8) -> bool {
+        match self {
+            Charset::ShiftJis => matches!(byte, 0x81..=0x9F | 0xE0..=0xFC),
+            #[cfg(feature = "cp932")]
+            Charset::Windows(page) => dbcs::table(page).is_some_and(|table| table.leads(byte)),
+            _ => false,
+        }
     }
 
     /// 2 つの名前が、大文字と小文字を区別せずに同じか
@@ -165,13 +198,17 @@ pub fn charset(version: Option<&[u8]>, code_page: Option<&[u8]>) -> Charset {
     }
 }
 
-/// `ANSI_<番号>` の名前のうち、表のある Windows の 1 バイトのコード・ページの番号
+/// `ANSI_<番号>` の名前のうち、表のある Windows のコード・ページの番号
 fn windows_page(name: &[u8]) -> Option<u16> {
     let (prefix, digits) = name.split_at_checked(5)?;
     if !prefix.eq_ignore_ascii_case(b"ANSI_") || !digits.iter().all(u8::is_ascii_digit) {
         return None;
     }
     let page = core::str::from_utf8(digits).ok()?.parse().ok()?;
+    #[cfg(feature = "cp932")]
+    if dbcs::table(page).is_some() {
+        return Some(page);
+    }
     windows::table(page).map(|_| page)
 }
 
@@ -207,7 +244,7 @@ mod tests {
             (1252, 251),
             (1253, 239),
             (1254, 249),
-            (1255, 233),
+            (1255, 234),
             (1256, 256),
             (1257, 244),
             (1258, 247),
@@ -232,7 +269,7 @@ mod tests {
             Some("Стена")
         );
         for name in [
-            &b"ANSI_936"[..],
+            &b"ANSI_1361"[..],
             b"ANSI_1200",
             b"ANSI_",
             b"ANSI_+1251",
@@ -240,5 +277,72 @@ mod tests {
         ] {
             assert_eq!(charset(Some(b"AC1015"), Some(name)), Charset::Other);
         }
+    }
+
+    #[cfg(feature = "cp932")]
+    #[test]
+    fn windows_double_byte_code_pages_match_the_microsoft_tables() {
+        // 割り当てのあるバイト列の数（Unicode の CP<番号>.TXT の 0x80 以上）と、書き戻すと別の 2 バイトになる数
+        // （CP950 は、同じ文字を表す 2 バイトが 10 組ある）
+        for (number, count, moved) in [(936, 21_792, 0), (949, 17_048, 0), (950, 13_503, 10)] {
+            let page = Charset::Windows(number);
+            let name = format!("ANSI_{number}");
+            assert_eq!(charset(Some(b"AC1015"), Some(name.as_bytes())), page);
+            let mut assigned = 0;
+            let mut elsewhere = 0;
+            for lead in 0x80..=u8::MAX {
+                let mut sequences = vec![vec![lead]];
+                sequences.extend((0..=u8::MAX).map(|trail| vec![lead, trail]));
+                for bytes in sequences {
+                    let Some(text) = page.decode(&bytes) else {
+                        continue;
+                    };
+                    if text.chars().count() != 1 {
+                        continue;
+                    }
+                    assigned += 1;
+                    let encoded = page.encoded(&text);
+                    assert!(encoded.is_some(), "{name} {bytes:02X?}");
+                    if encoded.as_deref() != Some(bytes.as_slice()) {
+                        elsewhere += 1;
+                    }
+                }
+            }
+            assert_eq!((assigned, elsewhere), (count, moved), "{name}");
+        }
+        let gbk = Charset::Windows(936);
+        let uhc = Charset::Windows(949);
+        let big5 = Charset::Windows(950);
+        assert_eq!(
+            gbk.decode(b"\xD6\xD0\xCE\xC4 \x80").as_deref(),
+            Some("中文 €")
+        );
+        assert_eq!(uhc.decode(b"\xC7\xD1\xB1\xB9").as_deref(), Some("한국"));
+        assert_eq!(big5.decode(b"\xA4\xA4\xA4\xE5").as_deref(), Some("中文"));
+        // WHATWG の表だけにある 2 バイト・私用領域・GB 18030 の 4 バイト・途中で切れた 2 バイトは戻さない
+        for (page, bytes) in [
+            (gbk, &b"\xA2\xE3"[..]),
+            (gbk, b"\xAA\xA1"),
+            (gbk, b"\x81\x30\x81\x30"),
+            (gbk, b"A\xD6"),
+            (big5, b"\xC6\xA1"),
+            (big5, b"\x87\x40"),
+            (big5, b"\xFA\x40"),
+            (uhc, b"\xC9\xA1"),
+        ] {
+            assert_eq!(page.decode(bytes), None, "{page:?} {bytes:02X?}");
+        }
+        // Microsoft の表に合わせて直す 2 バイト
+        assert_eq!(big5.decode(b"\xF9\xFE").as_deref(), Some("\u{2593}"));
+        assert_eq!(
+            big5.encoded("\u{2593}\u{4EDD}").as_deref(),
+            Some(&b"\xF9\xFE\xC9\x69"[..])
+        );
+        assert_eq!(gbk.encoded("\u{FE10}"), None);
+        assert_eq!(gbk.encoded("\u{E000}"), None);
+        assert_eq!(uhc.encoded("ภ"), None);
+        // 2 バイト目の ASCII の英字は、名前の大小を比べるときに変えない
+        assert_eq!(big5.fold(b"\xA4\x41A"), b"\xA4\x41a");
+        assert_eq!(big5.decode_name(b"\xA4\x41").as_deref(), Some("乙"));
     }
 }

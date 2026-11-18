@@ -1,0 +1,348 @@
+{
+  "description": "R2000 の ANSI_936・ANSI_949・ANSI_950 の DXF の文字とレイヤ名を、Windows の表（Unicode の CP936・CP949・CP950.TXT）で読み、書き戻して開き直しても同じ文字になる。表せない文字は変更全体を拒む。Big5 のレイヤ名の乙（A4 41）は 2 バイト目が ASCII の英字で、F9 FE は Microsoft の表の ▓ として読む（#327）",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "gbk.dxf",
+        "hex": "300a53454354494f4e0a320a4845414445520a390a24414341445645520a310a4143313031350a390a24445747434f4445504147450a330a414e53495f3933360a390a24494e53554e4954530a37300a340a390a2448414e44534545440a350a38300a300a454e445345430a300a53454354494f4e0a320a454e5449544945530a300a544558540a350a31410a380ac7bdcce50a31300a302e300a32300a302e300a33300a302e300a34300a322e350a310ac3c520a1ed203220800a300a454e445345430a300a454f460a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "gbk.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "gbk.dxf",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/items/0/id": "space/0/h1A",
+        "/result/items/0/layer": "墙体",
+        "/result/items/0/geometry/content": "门 № 2 €"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "gbk.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer_id": "layer/0",
+            "geometry": {
+              "shape": "text",
+              "content": "ภ",
+              "position": [
+                1,
+                2
+              ],
+              "height": 2.5,
+              "rotation": 0
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.edit.unsupported",
+        "/diagnostics/1/code": "change.character.unsupported",
+        "/diagnostics/1/params/character": "U+0E20"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "gbk.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer_id": "layer/0",
+            "geometry": {
+              "shape": "text",
+              "content": "窗 – 中文",
+              "position": [
+                1,
+                2
+              ],
+              "height": 2.5,
+              "rotation": 0
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/h80"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "gbk.dxf",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/1/id": "space/0/h80",
+        "/result/items/1/layer": "墙体",
+        "/result/items/1/geometry/content": "窗 – 中文"
+      }
+    },
+    {
+      "push": {
+        "name": "uhc.dxf",
+        "hex": "300a53454354494f4e0a320a4845414445520a390a24414341445645520a310a4143313031350a390a24445747434f4445504147450a330a414e53495f3934390a390a24494e53554e4954530a37300a340a390a2448414e44534545440a350a38300a300a454e445345430a300a53454354494f4e0a320a454e5449544945530a300a544558540a350a31410a380abaaec3bc0a31300a302e300a32300a302e300a33300a302e300a34300a322e350a310ab9ae20a2e0203220f9d3edae0a300a454e445345430a300a454f460a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "uhc.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "uhc.dxf",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/items/0/id": "space/0/h1A",
+        "/result/items/0/layer": "벽체",
+        "/result/items/0/geometry/content": "문 № 2 漢字"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "uhc.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer_id": "layer/0",
+            "geometry": {
+              "shape": "text",
+              "content": "ภ",
+              "position": [
+                1,
+                2
+              ],
+              "height": 2.5,
+              "rotation": 0
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.edit.unsupported",
+        "/diagnostics/1/code": "change.character.unsupported",
+        "/diagnostics/1/params/character": "U+0E20"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "uhc.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer_id": "layer/0",
+            "geometry": {
+              "shape": "text",
+              "content": "창문 · 한국",
+              "position": [
+                1,
+                2
+              ],
+              "height": 2.5,
+              "rotation": 0
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/h80"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "uhc.dxf",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/1/id": "space/0/h80",
+        "/result/items/1/layer": "벽체",
+        "/result/items/1/geometry/content": "창문 · 한국"
+      }
+    },
+    {
+      "push": {
+        "name": "big5.dxf",
+        "hex": "300a53454354494f4e0a320a4845414445520a390a24414341445645520a310a4143313031350a390a24445747434f4445504147450a330a414e53495f3935300a390a24494e53554e4954530a37300a340a390a2448414e44534545440a350a38300a300a454e445345430a300a53454354494f4e0a320a454e5449544945530a300a544558540a350a31410a380aa441c0f00a31300a302e300a32300a302e300a33300a302e300a34300a322e350a310aaaf9203220f9fe0a300a454e445345430a300a454f460a"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "big5.dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "big5.dxf",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 1,
+        "/result/items/0/id": "space/0/h1A",
+        "/result/items/0/layer": "乙牆",
+        "/result/items/0/geometry/content": "門 2 ▓"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "big5.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer_id": "layer/0",
+            "geometry": {
+              "shape": "text",
+              "content": "ぁ",
+              "position": [
+                1,
+                2
+              ],
+              "height": 2.5,
+              "rotation": 0
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.edit.unsupported",
+        "/diagnostics/1/code": "change.character.unsupported",
+        "/diagnostics/1/params/character": "U+3041"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "big5.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer_id": "layer/0",
+            "geometry": {
+              "shape": "text",
+              "content": "窗 – 中文",
+              "position": [
+                1,
+                2
+              ],
+              "height": 2.5,
+              "rotation": 0
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/h80"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "big5.dxf",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/1/id": "space/0/h80",
+        "/result/items/1/layer": "乙牆",
+        "/result/items/1/geometry/content": "窗 – 中文"
+      }
+    }
+  ]
+}
