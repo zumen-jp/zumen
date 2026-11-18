@@ -1690,7 +1690,7 @@ pub(super) fn shape_bytes(
     Some(out)
 }
 
-/// 点の形の値（決定 0183）。位置・仮点か（u32）と、記号の点は記号の番号（u32）・角度（度、推定）・倍率を書く。
+/// 点の形の値（決定 0183）。位置・仮点か（u32）と、記号の点は記号の番号（u32）・角度（ラジアン）・倍率を書く。
 /// 記号の点は名前空間 `jww.point` の既定義のマーカーを、ほかの点は文書の点の表し方に従う角度 0 の点を表す。記号の点と
 /// ほかの点を入れ替えると図形の大きさが変わるので、書かない
 fn point_bytes(
@@ -1716,7 +1716,7 @@ fn point_bytes(
                 return None;
             }
             out.extend(code.to_le_bytes());
-            out.extend(dot.rotation.to_le_bytes());
+            out.extend(dot.rotation.to_radians().to_le_bytes());
             out.extend(size.to_le_bytes());
         }
         _ => return None,

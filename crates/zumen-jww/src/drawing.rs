@@ -1017,8 +1017,8 @@ impl Lifter<'_> {
         let construction = r.u32()? != 0;
         let (look, rotation) = if base.pen_style == POINT_SYMBOL {
             let code = r.u32()?;
-            // 記号の角度は度とする（推定）
-            let (rotation, scale) = (real(r)?, real(r)?);
+            // Jw_cad の座標ファイル書き出しとの照合（#342）。JWW の角度はラジアン。
+            let (rotation, scale) = (finite(real(r)?.to_degrees())?, real(r)?);
             let key = MarkerKey {
                 namespace: "jww.point".into(),
                 code: code.to_string(),
