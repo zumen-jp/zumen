@@ -68,7 +68,18 @@ CityGML 2.0（台帳の `citygml_2_0`）の 3D 都市モデル（PLATEAU の製�
 | --- | --- | --- |
 | `citygml` | 読み | `synthetic` |
 
-段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-citygml)にあります。この文書の規則は、仕様と、テストの中で作ったファイルだけで確かめたものです。公開サンプル・受け取った図面・外部の実装・基準になるソフトとは、まだ照らしていません。実際のファイルでは、ここに書いた扱いと違うことがあります。
+段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-citygml)にあります。
 
-- PLATEAU のデータは大きいので Git に入れず、`ZUMEN_SAMPLES` で渡す。再配布できる 5 MB 未満の公式のサンプルは、見つかっていない。
-- PLATEAU のデータと、PLATEAU VIEW・QGIS での照合は #379・#504 で行う。
+### PLATEAU の公開原本での読み取り
+
+[PLATEAU GIS Converter の試料の出典と利用条件](https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/blob/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data/LICENSE.txt)を確認し、無改変の CityGML 2.0 原本 3 件をリポジトリ外に置きました。main の `e11b2552` を Windows でビルドし、`zumen geo <ファイル>` と `zumen geo <ファイル> --id <gml:id>` で確かめました。
+
+| 公開原本 | XML の最上位の地物の種類と数 | `geo` の地物総数 |
+| --- | --- | --- |
+| [横須賀市の建築物](https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/blob/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data/yokosuka-shi/udx/bldg/52397519_bldg_6697_op.gml) | `bldg:Building` 13 | 38 |
+| [沼津市の土地利用](https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/blob/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data/numazu-shi/udx/luse/523836_luse_6668_op.gml) | `luse:LandUse` 225 | 225 |
+| [沼津市の浸水想定区域](https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/blob/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data/numazu-shi/udx/fld/52385721_fld_6697_l1_op.gml) | `wtr:WaterBody` 3 | 3 |
+
+Python の標準 XML パーサーで数えた最上位の地物の型ごとの数と、`gml:id` 241 件が `geo` の結果と一致しました。建築物の 38 件には部位・境界面と i-UR の `uro:BuildingDataQualityAttribute` 14 件を含みます。3 原本とも `gml:Envelope` の `srsName` は EPSG:6697 で、応答は経緯度 EPSG:6668 と高さ EPSG:6695 を示しました。診断は 0 件でした。
+
+公開原本によるこの検査は #379 の範囲です。道路 GML、PLATEAU VIEW や QGIS での座標値・軸順・高さ・LOD の照合、公開原本でのネイティブと wasm の一致は [#504](https://github.com/zumen-jp/zumen/issues/504) で追います。形式台帳の検査の段は `synthetic` です。
