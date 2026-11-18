@@ -26,6 +26,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `saf/` | 自作の SAF 付き P2Z・SFZ を ezsxf・ZIP・XML の別実装と照らし、属性の値と結び先を確認するキットを作る（#494）。SXF ブラウザの操作は利用者待ち。手順は [README](saf/README.md) |
 | `points/` | JWW・SFC・P21への点追加を外部実装と照らし、部分照合と実機待ちを分けた期待値表・実測用の様式を作る（#342）。手順は [README](points/README.md) |
 | `mtext/` | 自作の MTEXT の読み・追加・置き換え・変換を ezdxf の度数と照らし、自前の往復では見えない角度の不一致を検出する（#882）。手順は [README](mtext/README.md) |
+| `codepage/` | R2000 の DXF の `ANSI_874`・`ANSI_1250`〜`ANSI_1258` の表のすべての文字の読み・書き戻しと、割り当てのないバイトの診断を、ezdxf と Python の codec に照らす（#327）。手順は [README](codepage/README.md) |
 | `polyline/` | 2 頂点の自作 POLYLINE の画層・線種・色を、監査前の ezdxf の値と照らし、親だけの変更による不一致を検出する（#885）。手順と期待値は [README](polyline/README.md) |
 | `express/` | buildingSMART の公開 IFC EXPRESS 3版を実行時だけ取得し、実体・明示属性・型を同じ入力から読んだ IfcOpenShell と照らす（#663）。手順は [README](express/README.md) |
 | `ids/` | 公開 IFC2X3 と自作 IDS の名前の要件 6 仕様を、3 文字コードで IfcTester と照らす（#522）。手順と期待値は [README](ids/README.md) |

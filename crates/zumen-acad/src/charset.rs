@@ -4,6 +4,8 @@ use std::borrow::Cow;
 
 use crate::db::{AcadDb, Data};
 
+mod windows;
+
 /// UTF-8 で書く最初のバージョン（2007）
 const UTF8: &[u8] = b"AC1021";
 
@@ -16,8 +18,9 @@ pub enum Charset {
     Utf8,
     /// ANSI_932。WHATWG の Shift_JIS（Windows の 932 と同じ表）として戻す
     ShiftJis,
-    /// ANSI_1252。Windows-1252 の表（[`CP1252`]）で戻す。表に割り当てのない 5 バイトは戻さない（#327）
-    Windows1252,
+    /// Windows の 1 バイトのコード・ページ（ANSI_874・ANSI_1250〜ANSI_1258）。値はコード・ページの番号で、その表
+    /// （Unicode の `CP<番号>.TXT`）で戻す。表に割り当てのないバイトは戻さない（#327）
+    Windows(u16),
     /// 対応表のないコード・ページか、コード・ページがない。ASCII の文字だけを読む
     Other,
 }
@@ -32,7 +35,7 @@ impl Charset {
             Charset::ShiftJis => encoding_rs::SHIFT_JIS
                 .decode_without_bom_handling_and_without_replacement(value)
                 .map(Cow::into_owned),
-            Charset::Windows1252 => value.iter().map(|&byte| from_1252(byte)).collect(),
+            Charset::Windows(page) => value.iter().map(|&byte| from_windows(page, byte)).collect(),
             _ => None,
         }
     }
@@ -46,10 +49,10 @@ impl Charset {
             let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(text);
             return (!unmappable).then_some(bytes);
         }
-        if self == Self::Windows1252 {
+        if let Self::Windows(page) = self {
             return text
                 .chars()
-                .map(to_1252)
+                .map(|c| to_windows(page, c))
                 .collect::<Option<Vec<u8>>>()
                 .map(Cow::Owned);
         }
@@ -113,34 +116,26 @@ impl Charset {
     }
 }
 
-/// Windows-1252 の 0x80〜0x9F が表す文字。0 は割り当てのないバイト。ほかのバイトは同じ番号の Unicode の文字
-/// （Unicode の MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1252.TXT。Python の cp1252 と同じ表）
-const CP1252: [u16; 32] = [
-    0x20AC, 0, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039,
-    0x0152, 0, 0x017D, 0, 0, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC,
-    0x2122, 0x0161, 0x203A, 0x0153, 0, 0x017E, 0x0178,
-];
-
-/// Windows-1252 の 1 バイトが表す文字。割り当てのないバイトは `None`
-fn from_1252(byte: u8) -> Option<char> {
-    match byte {
-        0x80..=0x9F => CP1252
-            .get(usize::from(byte - 0x80))
-            .filter(|unit| **unit != 0)
-            .and_then(|unit| char::from_u32(u32::from(*unit))),
-        _ => Some(char::from(byte)),
+/// Windows のコード・ページ `page` の 1 バイトが表す文字。割り当てのないバイトと、表のない番号は `None`
+fn from_windows(page: u16, byte: u8) -> Option<char> {
+    if byte.is_ascii() {
+        return Some(char::from(byte));
     }
+    windows::table(page)?
+        .get(usize::from(byte - 0x80))
+        .filter(|unit| **unit != 0)
+        .and_then(|unit| char::from_u32(u32::from(*unit)))
 }
 
-/// 文字を Windows-1252 の 1 バイトにする。表にない文字は `None`
-fn to_1252(c: char) -> Option<u8> {
-    match u32::from(c) {
-        code @ (0..=0x7F | 0xA0..=0xFF) => u8::try_from(code).ok(),
-        code => CP1252
-            .iter()
-            .position(|unit| *unit != 0 && u32::from(*unit) == code)
-            .and_then(|index| u8::try_from(0x80 + index).ok()),
+/// 文字を Windows のコード・ページ `page` の 1 バイトにする。表にない文字は `None`
+fn to_windows(page: u16, c: char) -> Option<u8> {
+    if c.is_ascii() {
+        return u8::try_from(c).ok();
     }
+    windows::table(page)?
+        .iter()
+        .position(|unit| *unit != 0 && u32::from(*unit) == u32::from(c))
+        .and_then(|index| u8::try_from(0x80 + index).ok())
 }
 
 /// 表 `db` の文字の値の符号化
@@ -163,11 +158,21 @@ pub fn charset(version: Option<&[u8]>, code_page: Option<&[u8]>) -> Charset {
         page.eq_ignore_ascii_case(b"ANSI_932") || page.eq_ignore_ascii_case(b"DOS932")
     }) {
         Charset::ShiftJis
-    } else if code_page.is_some_and(|page| page.eq_ignore_ascii_case(b"ANSI_1252")) {
-        Charset::Windows1252
+    } else if let Some(page) = code_page.and_then(windows_page) {
+        Charset::Windows(page)
     } else {
         Charset::Other
     }
+}
+
+/// `ANSI_<番号>` の名前のうち、表のある Windows の 1 バイトのコード・ページの番号
+fn windows_page(name: &[u8]) -> Option<u16> {
+    let (prefix, digits) = name.split_at_checked(5)?;
+    if !prefix.eq_ignore_ascii_case(b"ANSI_") || !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    let page = core::str::from_utf8(digits).ok()?.parse().ok()?;
+    windows::table(page).map(|_| page)
 }
 
 #[cfg(test)]
@@ -177,7 +182,7 @@ mod tests {
     #[test]
     fn windows_1252_reads_and_writes_every_assigned_byte_and_refuses_the_rest() {
         let page = charset(Some(b"AC1015"), Some(b"ansi_1252"));
-        assert_eq!(page, Charset::Windows1252);
+        assert_eq!(page, Charset::Windows(1252));
         assert_eq!(charset(Some(b"AC1021"), Some(b"ANSI_1252")), Charset::Utf8);
         assert_eq!(
             page.decode(b"Bohrung \xD820 f\xFCr M6 Ma\xDFstab \x80\x9F")
@@ -187,14 +192,53 @@ mod tests {
         for byte in [0x81_u8, 0x8D, 0x8F, 0x90, 0x9D] {
             assert_eq!(page.decode(&[b'A', byte]), None, "{byte:#X}");
         }
-        let assigned: Vec<u8> = (0..=u8::MAX)
-            .filter(|byte| from_1252(*byte).is_some())
-            .collect();
-        assert_eq!(assigned.len(), 251);
-        let text = page.decode(&assigned).unwrap_or_default();
-        assert_eq!(page.encoded(&text).as_deref(), Some(assigned.as_slice()));
         assert_eq!(page.decode_name(b"Fl\xE4che").as_deref(), Some("Fläche"));
         assert_eq!(page.encoded("日"), None);
         assert_eq!(page.encoded("\u{81}"), None);
+    }
+
+    #[test]
+    fn windows_code_pages_round_trip_every_assigned_byte() {
+        // 割り当てのあるバイトの数（Unicode の CP<番号>.TXT の割り当てのない 0x80〜0xFF を除く）
+        let pages = [
+            (874, 225),
+            (1250, 251),
+            (1251, 255),
+            (1252, 251),
+            (1253, 239),
+            (1254, 249),
+            (1255, 233),
+            (1256, 256),
+            (1257, 244),
+            (1258, 247),
+        ];
+        for (number, count) in pages {
+            let name = format!("ANSI_{number}");
+            let page = charset(Some(b"AC1015"), Some(name.as_bytes()));
+            assert_eq!(page, Charset::Windows(number));
+            let assigned: Vec<u8> = (0..=u8::MAX)
+                .filter(|byte| from_windows(number, *byte).is_some())
+                .collect();
+            assert_eq!(assigned.len(), count, "{name}");
+            let text = page.decode(&assigned).unwrap_or_default();
+            assert_eq!(text.chars().count(), count, "{name}");
+            assert_eq!(page.encoded(&text).as_deref(), Some(assigned.as_slice()));
+            assert_eq!(page.encoded("日"), None, "{name}");
+        }
+        assert_eq!(
+            Charset::Windows(1251)
+                .decode(b"\xD1\xF2\xE5\xED\xE0")
+                .as_deref(),
+            Some("Стена")
+        );
+        for name in [
+            &b"ANSI_936"[..],
+            b"ANSI_1200",
+            b"ANSI_",
+            b"ANSI_+1251",
+            b"DOS866",
+        ] {
+            assert_eq!(charset(Some(b"AC1015"), Some(name)), Charset::Other);
+        }
     }
 }

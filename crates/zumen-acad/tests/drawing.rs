@@ -861,7 +861,7 @@ fn text_that_is_not_shift_jis_or_in_an_unknown_code_page_is_reported() {
     );
     // 対応表のないコード・ページは、ASCII の文字だけを読む
     assert_eq!(
-        lifted("ANSI_1251"),
+        lifted("ANSI_936"),
         (
             1,
             vec![(
