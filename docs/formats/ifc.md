@@ -1001,7 +1001,7 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
   - 開口の `Body` は、幅と高さの矩形を壁の XZ に置き、壁の材料の層の使い方（`AXIS2`）から求めた層の範囲の一方の面から他方の面まで押し出す。層の使い方を持たない要素と空間には、穴をあけない。
   - 建具は、開口・種類（扉か窓）・全体の幅と高さで受ける。開口の配置に置き、`IfcDoor` か `IfcWindow`（IFC4 と IFC4X3 は PredefinedType の `DOOR` か `WINDOW`）を `IfcRelFillsElement` で開口に結び、壁と同じ空間に包含で結ぶ。建具の形と型はまだ書かない。開口でない要素と、もう埋まった開口は断る。
 - 意図の値で通り芯を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Grid` と、`building_apply` の `add_grid`（スキーマのマイナーバージョン 101 から）で受ける。空間・U と V の軸（名前・始点・終点）・高さで受け、空間の配置からの相対に置いて空間に包含で結ぶ。軸は 2 点の `IfcPolyline` を曲線にした `IfcGridAxis`（SameSense は真）に書く。U と V のどちらかが空・同じ名前の軸・始点と終点が同じ軸・有限でない値は断る。
-- 意図の値で階の高さ、壁の芯・高さ・層、開口の位置と大きさを直せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Elevation`・`Edit::WallShape`・`Edit::OpeningShape` で受ける。
+- 意図の値で階の高さ、壁の芯・高さ・層、開口の位置と大きさを直せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Elevation`・`Edit::WallShape`・`Edit::OpeningShape` と、`building_apply` の `elevation`・`wall_shape`・`opening_shape`（スキーマのマイナーバージョン 103 から）で受ける。
   - 階の高さは 10 Elevation に書き、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。
   - 壁は、足すときと同じ値（芯の 2 点・高さ・層・芯からのずれ）で受け、配置・表現・材料の層の使い方を書き直す。芯の点は壁の配置の親の配置の XY。同じ名前の層は元の `IfcMaterial` を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の `Body` の押し出しを新しい層の範囲に合わせる。元の層の範囲の遠い面から近い面へ押し出す、ただ 1 つの `IfcExtrudedAreaSolid` でない開口があれば、何も変えずに断る。
   - 開口は、足すときと同じ値（芯に沿う距離・下端・幅・高さ）で受け、配置と `Body` を書き直す。埋める扉と窓の OverallHeight と OverallWidth は、書いてあれば新しい大きさにする。

@@ -8764,6 +8764,9 @@ namespace Zumen.Messages
             ["add_door"] = typeof(BuildingAddDoorEdit),
             ["add_window"] = typeof(BuildingAddWindowEdit),
             ["add_grid"] = typeof(BuildingAddGridEdit),
+            ["elevation"] = typeof(BuildingElevationEdit),
+            ["wall_shape"] = typeof(BuildingWallShapeEdit),
+            ["opening_shape"] = typeof(BuildingOpeningShapeEdit),
         };
     }
 
@@ -9599,6 +9602,120 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("global_id")]
         public string? GlobalId { get; init; }
+    }
+
+    /// <summary>
+    /// 階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から
+    /// </summary>
+    public sealed record BuildingElevationEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "elevation";
+
+        /// <summary>
+        /// 直す階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        /// </summary>
+        [JsonPropertyName("storey")]
+        public BuildingRef Storey { get; init; } = default!;
+
+        /// <summary>
+        /// 新しい高さ。文書の長さの単位
+        /// </summary>
+        [JsonPropertyName("elevation")]
+        public double Elevation { get; init; }
+    }
+
+    /// <summary>
+    /// 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+    /// </summary>
+    public sealed record BuildingWallShapeEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "wall_shape";
+
+        /// <summary>
+        /// 直す壁（IfcWall か IfcWallStandardCase）。材料の層の使い方（AXIS2）を持つもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        /// </summary>
+        [JsonPropertyName("wall")]
+        public BuildingRef Wall { get; init; } = default!;
+
+        /// <summary>
+        /// 芯の始点。壁の配置の親の配置の [x, y]
+        /// </summary>
+        [JsonPropertyName("start")]
+        public IReadOnlyList<double> Start { get; init; } = default!;
+
+        /// <summary>
+        /// 芯の終点。始点と違う [x, y]
+        /// </summary>
+        [JsonPropertyName("end")]
+        public IReadOnlyList<double> End { get; init; } = default!;
+
+        /// <summary>
+        /// 高さ。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double Height { get; init; }
+
+        /// <summary>
+        /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+        /// </summary>
+        [JsonPropertyName("layers")]
+        public IReadOnlyList<BuildingWallLayer> Layers { get; init; } = default!;
+
+        /// <summary>
+        /// 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public double? Offset { get; init; }
+    }
+
+    /// <summary>
+    /// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+    /// </summary>
+    public sealed record BuildingOpeningShapeEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "opening_shape";
+
+        /// <summary>
+        /// 直す開口（IfcOpeningElement）。材料の層の使い方を持つ要素に穴をあけるもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        /// </summary>
+        [JsonPropertyName("opening")]
+        public BuildingRef Opening { get; init; } = default!;
+
+        /// <summary>
+        /// 穴をあけた要素の配置の x 軸に沿う、要素の原点から開口の端までの距離
+        /// </summary>
+        [JsonPropertyName("distance")]
+        public double Distance { get; init; }
+
+        /// <summary>
+        /// 要素の下端から開口の下端までの高さ
+        /// </summary>
+        [JsonPropertyName("sill")]
+        public double Sill { get; init; }
+
+        /// <summary>
+        /// 幅。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("width")]
+        public double Width { get; init; }
+
+        /// <summary>
+        /// 高さ。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double Height { get; init; }
     }
 
     /// <summary>

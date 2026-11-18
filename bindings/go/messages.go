@@ -5877,6 +5877,21 @@ func (u BuildingEdit) AsBuildingAddGridEdit() *BuildingAddGridEdit {
 	return asTagged[BuildingAddGridEdit](u, "kind", "add_grid")
 }
 
+// AsBuildingElevationEdit は、kind が elevation の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingElevationEdit() *BuildingElevationEdit {
+	return asTagged[BuildingElevationEdit](u, "kind", "elevation")
+}
+
+// AsBuildingWallShapeEdit は、kind が wall_shape の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingWallShapeEdit() *BuildingWallShapeEdit {
+	return asTagged[BuildingWallShapeEdit](u, "kind", "wall_shape")
+}
+
+// AsBuildingOpeningShapeEdit は、kind が opening_shape の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingOpeningShapeEdit() *BuildingOpeningShapeEdit {
+	return asTagged[BuildingOpeningShapeEdit](u, "kind", "opening_shape")
+}
+
 // BuildingPropertyEdit: 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
 type BuildingPropertyEdit struct {
 	// 変更の種類
@@ -6423,6 +6438,84 @@ type BuildingAddGridEdit struct {
 func (m BuildingAddGridEdit) MarshalJSON() ([]byte, error) {
 	type plain BuildingAddGridEdit
 	m.Kind = "add_grid"
+	return json.Marshal(plain(m))
+}
+
+// BuildingElevationEdit: 階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から
+type BuildingElevationEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 直す階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Storey *BuildingRef `json:"storey,omitempty"`
+
+	// 新しい高さ。文書の長さの単位
+	Elevation *float64 `json:"elevation,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingElevationEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingElevationEdit
+	m.Kind = "elevation"
+	return json.Marshal(plain(m))
+}
+
+// BuildingWallShapeEdit: 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+type BuildingWallShapeEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 直す壁（IfcWall か IfcWallStandardCase）。材料の層の使い方（AXIS2）を持つもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Wall *BuildingRef `json:"wall,omitempty"`
+
+	// 芯の始点。壁の配置の親の配置の [x, y]
+	Start []float64 `json:"start,omitempty"`
+
+	// 芯の終点。始点と違う [x, y]
+	End []float64 `json:"end,omitempty"`
+
+	// 高さ。文書の長さの単位で、正の値
+	Height *float64 `json:"height,omitempty"`
+
+	// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+	Layers []BuildingWallLayer `json:"layers,omitempty"`
+
+	// 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
+	Offset *float64 `json:"offset,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingWallShapeEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingWallShapeEdit
+	m.Kind = "wall_shape"
+	return json.Marshal(plain(m))
+}
+
+// BuildingOpeningShapeEdit: 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+type BuildingOpeningShapeEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 直す開口（IfcOpeningElement）。材料の層の使い方を持つ要素に穴をあけるもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Opening *BuildingRef `json:"opening,omitempty"`
+
+	// 穴をあけた要素の配置の x 軸に沿う、要素の原点から開口の端までの距離
+	Distance *float64 `json:"distance,omitempty"`
+
+	// 要素の下端から開口の下端までの高さ
+	Sill *float64 `json:"sill,omitempty"`
+
+	// 幅。文書の長さの単位で、正の値
+	Width *float64 `json:"width,omitempty"`
+
+	// 高さ。文書の長さの単位で、正の値
+	Height *float64 `json:"height,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingOpeningShapeEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingOpeningShapeEdit
+	m.Kind = "opening_shape"
 	return json.Marshal(plain(m))
 }
 

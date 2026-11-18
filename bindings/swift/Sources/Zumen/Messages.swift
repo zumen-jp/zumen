@@ -10769,6 +10769,21 @@ public struct BuildingEdit: Message {
     public var asBuildingAddGridEdit: BuildingAddGridEdit? {
         taggedView("kind", "add_grid")
     }
+
+    /// kind が elevation の形なら、そのビュー。違えば nil
+    public var asBuildingElevationEdit: BuildingElevationEdit? {
+        taggedView("kind", "elevation")
+    }
+
+    /// kind が wall_shape の形なら、そのビュー。違えば nil
+    public var asBuildingWallShapeEdit: BuildingWallShapeEdit? {
+        taggedView("kind", "wall_shape")
+    }
+
+    /// kind が opening_shape の形なら、そのビュー。違えば nil
+    public var asBuildingOpeningShapeEdit: BuildingOpeningShapeEdit? {
+        taggedView("kind", "opening_shape")
+    }
 }
 
 /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
@@ -11815,6 +11830,150 @@ public struct BuildingAddGridEdit: Message {
     public var globalId: String? {
         get { readField("global_id") }
         set { writeField("global_id", newValue) }
+    }
+}
+
+/// 階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から
+public struct BuildingElevationEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("elevation")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 直す階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var storey: BuildingRef? {
+        get { readField("storey") }
+        set { writeField("storey", newValue) }
+    }
+
+    /// 新しい高さ。文書の長さの単位
+    public var elevation: Double? {
+        get { readField("elevation") }
+        set { writeField("elevation", newValue) }
+    }
+}
+
+/// 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+public struct BuildingWallShapeEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("wall_shape")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 直す壁（IfcWall か IfcWallStandardCase）。材料の層の使い方（AXIS2）を持つもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var wall: BuildingRef? {
+        get { readField("wall") }
+        set { writeField("wall", newValue) }
+    }
+
+    /// 芯の始点。壁の配置の親の配置の [x, y]
+    public var start: [Double]? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 芯の終点。始点と違う [x, y]
+    public var end: [Double]? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+
+    /// 高さ。文書の長さの単位で、正の値
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+    public var layers: [BuildingWallLayer]? {
+        get { readField("layers") }
+        set { writeField("layers", newValue) }
+    }
+
+    /// 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
+    public var offset: Double? {
+        get { readField("offset") }
+        set { writeField("offset", newValue) }
+    }
+}
+
+/// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+public struct BuildingOpeningShapeEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("opening_shape")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 直す開口（IfcOpeningElement）。材料の層の使い方を持つ要素に穴をあけるもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var opening: BuildingRef? {
+        get { readField("opening") }
+        set { writeField("opening", newValue) }
+    }
+
+    /// 穴をあけた要素の配置の x 軸に沿う、要素の原点から開口の端までの距離
+    public var distance: Double? {
+        get { readField("distance") }
+        set { writeField("distance", newValue) }
+    }
+
+    /// 要素の下端から開口の下端までの高さ
+    public var sill: Double? {
+        get { readField("sill") }
+        set { writeField("sill", newValue) }
+    }
+
+    /// 幅。文書の長さの単位で、正の値
+    public var width: Double? {
+        get { readField("width") }
+        set { writeField("width", newValue) }
+    }
+
+    /// 高さ。文書の長さの単位で、正の値
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
     }
 }
 

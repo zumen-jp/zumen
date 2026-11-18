@@ -12,7 +12,7 @@ use zumen_ids::{Ids, Report};
 use zumen_ifc::{
     Edit, FillingKind, Ifc, IfcFile, IfcZip, NewBeam, NewColumn, NewElement, NewFilling, NewGrid,
     NewGridAxis, NewLayer, NewLiteral, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace,
-    NewValue, NewWall, RootAttribute, SpaceKind, Target, TextEncoding,
+    NewValue, NewWall, OpeningChange, RootAttribute, SpaceKind, Target, TextEncoding, WallChange,
 };
 use zumen_sdk::{Codec, Lift};
 
@@ -550,6 +550,53 @@ pub(crate) fn prepare(
                             global_id: Some(global_id),
                         }),
                         Outcome::Added(global_id),
+                    )
+                })
+            }
+            BuildingEdit::Elevation(edit) => {
+                let storey = refs.resolve(&edit.storey, &format!("{at}/storey"), cx)?;
+                storey.map(|(storey, outcome)| {
+                    (
+                        Edit::Elevation {
+                            storey,
+                            elevation: edit.elevation,
+                        },
+                        outcome,
+                    )
+                })
+            }
+            BuildingEdit::WallShape(edit) => {
+                let wall = refs.resolve(&edit.wall, &format!("{at}/wall"), cx)?;
+                let start = pair(&edit.start)
+                    .ok_or_else(|| fail(cx, invalid_value(format!("{at}/start"))))?;
+                let end =
+                    pair(&edit.end).ok_or_else(|| fail(cx, invalid_value(format!("{at}/end"))))?;
+                wall.map(|(wall, outcome)| {
+                    (
+                        Edit::WallShape(WallChange {
+                            wall,
+                            start,
+                            end,
+                            height: edit.height,
+                            layers: layers(&edit.layers),
+                            offset: edit.offset,
+                        }),
+                        outcome,
+                    )
+                })
+            }
+            BuildingEdit::OpeningShape(edit) => {
+                let opening = refs.resolve(&edit.opening, &format!("{at}/opening"), cx)?;
+                opening.map(|(opening, outcome)| {
+                    (
+                        Edit::OpeningShape(OpeningChange {
+                            opening,
+                            distance: edit.distance,
+                            sill: edit.sill,
+                            width: edit.width,
+                            height: edit.height,
+                        }),
+                        outcome,
                     )
                 })
             }

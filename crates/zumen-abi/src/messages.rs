@@ -15580,6 +15580,12 @@ pub enum BuildingEdit {
     AddWindow(BuildingAddWindowEdit),
     /// U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から
     AddGrid(BuildingAddGridEdit),
+    /// 階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から
+    Elevation(BuildingElevationEdit),
+    /// 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+    WallShape(BuildingWallShapeEdit),
+    /// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+    OpeningShape(BuildingOpeningShapeEdit),
 }
 
 impl BuildingEdit {
@@ -15603,6 +15609,9 @@ impl BuildingEdit {
         "add_door",
         "add_window",
         "add_grid",
+        "elevation",
+        "wall_shape",
+        "opening_shape",
     ];
 
     /// タグのフィールド（`kind`）の値
@@ -15626,6 +15635,9 @@ impl BuildingEdit {
             Self::AddDoor(_) => "add_door",
             Self::AddWindow(_) => "add_window",
             Self::AddGrid(_) => "add_grid",
+            Self::Elevation(_) => "elevation",
+            Self::WallShape(_) => "wall_shape",
+            Self::OpeningShape(_) => "opening_shape",
         }
     }
 }
@@ -15652,6 +15664,11 @@ impl FromJson for BuildingEdit {
             "add_door" => Self::AddDoor(BuildingAddDoorEdit::read_fields(&mut object)?),
             "add_window" => Self::AddWindow(BuildingAddWindowEdit::read_fields(&mut object)?),
             "add_grid" => Self::AddGrid(BuildingAddGridEdit::read_fields(&mut object)?),
+            "elevation" => Self::Elevation(BuildingElevationEdit::read_fields(&mut object)?),
+            "wall_shape" => Self::WallShape(BuildingWallShapeEdit::read_fields(&mut object)?),
+            "opening_shape" => {
+                Self::OpeningShape(BuildingOpeningShapeEdit::read_fields(&mut object)?)
+            }
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -15680,6 +15697,9 @@ impl ToJson for BuildingEdit {
             Self::AddDoor(value) => value.to_json(out),
             Self::AddWindow(value) => value.to_json(out),
             Self::AddGrid(value) => value.to_json(out),
+            Self::Elevation(value) => value.to_json(out),
+            Self::WallShape(value) => value.to_json(out),
+            Self::OpeningShape(value) => value.to_json(out),
         }
     }
 }
@@ -17171,6 +17191,190 @@ impl FromJson for BuildingAddGridEdit {
 }
 
 impl ToJson for BuildingAddGridEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingElevationEdit {
+    /// 直す階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    pub storey: BuildingRef,
+    /// 新しい高さ。文書の長さの単位
+    pub elevation: f64,
+}
+
+impl BuildingElevationEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "elevation")?;
+        let storey = object.required("storey", BuildingRef::from_json)?;
+        let elevation = object.required("elevation", json::number)?;
+        Ok(Self { storey, elevation })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("elevation");
+        out.key("storey");
+        self.storey.to_json(out);
+        out.key("elevation");
+        out.float(self.elevation);
+    }
+}
+
+impl FromJson for BuildingElevationEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingElevationEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingWallShapeEdit {
+    /// 直す壁（IfcWall か IfcWallStandardCase）。材料の層の使い方（AXIS2）を持つもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    pub wall: BuildingRef,
+    /// 芯の始点。壁の配置の親の配置の [x, y]
+    pub start: Vec<f64>,
+    /// 芯の終点。始点と違う [x, y]
+    pub end: Vec<f64>,
+    /// 高さ。文書の長さの単位で、正の値
+    pub height: f64,
+    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+    pub layers: Vec<BuildingWallLayer>,
+    /// 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
+    pub offset: Option<f64>,
+}
+
+impl BuildingWallShapeEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "wall_shape")?;
+        let wall = object.required("wall", BuildingRef::from_json)?;
+        let start = object.required("start", |value| json::array(value, json::number))?;
+        let end = object.required("end", |value| json::array(value, json::number))?;
+        let height = object.required("height", json::number)?;
+        let layers = object.required("layers", |value| {
+            json::array(value, BuildingWallLayer::from_json)
+        })?;
+        let offset = object.optional("offset", json::number)?;
+        Ok(Self {
+            wall,
+            start,
+            end,
+            height,
+            layers,
+            offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("wall_shape");
+        out.key("wall");
+        self.wall.to_json(out);
+        out.key("start");
+        out.array(&self.start, |out, item| out.float(*item));
+        out.key("end");
+        out.array(&self.end, |out, item| out.float(*item));
+        out.key("height");
+        out.float(self.height);
+        out.key("layers");
+        out.array(&self.layers, |out, item| item.to_json(out));
+        if let Some(value) = &self.offset {
+            out.key("offset");
+            out.float(*value);
+        }
+    }
+}
+
+impl FromJson for BuildingWallShapeEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingWallShapeEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingOpeningShapeEdit {
+    /// 直す開口（IfcOpeningElement）。材料の層の使い方を持つ要素に穴をあけるもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    pub opening: BuildingRef,
+    /// 穴をあけた要素の配置の x 軸に沿う、要素の原点から開口の端までの距離
+    pub distance: f64,
+    /// 要素の下端から開口の下端までの高さ
+    pub sill: f64,
+    /// 幅。文書の長さの単位で、正の値
+    pub width: f64,
+    /// 高さ。文書の長さの単位で、正の値
+    pub height: f64,
+}
+
+impl BuildingOpeningShapeEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "opening_shape")?;
+        let opening = object.required("opening", BuildingRef::from_json)?;
+        let distance = object.required("distance", json::number)?;
+        let sill = object.required("sill", json::number)?;
+        let width = object.required("width", json::number)?;
+        let height = object.required("height", json::number)?;
+        Ok(Self {
+            opening,
+            distance,
+            sill,
+            width,
+            height,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("opening_shape");
+        out.key("opening");
+        self.opening.to_json(out);
+        out.key("distance");
+        out.float(self.distance);
+        out.key("sill");
+        out.float(self.sill);
+        out.key("width");
+        out.float(self.width);
+        out.key("height");
+        out.float(self.height);
+    }
+}
+
+impl FromJson for BuildingOpeningShapeEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingOpeningShapeEdit {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

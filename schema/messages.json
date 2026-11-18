@@ -3826,7 +3826,10 @@
         { "$ref": "#/$defs/building_add_opening_edit" },
         { "$ref": "#/$defs/building_add_door_edit" },
         { "$ref": "#/$defs/building_add_window_edit" },
-        { "$ref": "#/$defs/building_add_grid_edit" }
+        { "$ref": "#/$defs/building_add_grid_edit" },
+        { "$ref": "#/$defs/building_elevation_edit" },
+        { "$ref": "#/$defs/building_wall_shape_edit" },
+        { "$ref": "#/$defs/building_opening_shape_edit" }
       ]
     },
     "building_property_edit": {
@@ -4130,6 +4133,46 @@
         "global_id": { "description": "GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める", "type": "string" }
       },
       "required": ["kind", "storey", "u", "v"],
+      "additionalProperties": false
+    },
+    "building_elevation_edit": {
+      "description": "階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "elevation" },
+        "storey": { "description": "直す階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す", "$ref": "#/$defs/building_ref" },
+        "elevation": { "description": "新しい高さ。文書の長さの単位", "type": "number" }
+      },
+      "required": ["kind", "storey", "elevation"],
+      "additionalProperties": false
+    },
+    "building_wall_shape_edit": {
+      "description": "壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "wall_shape" },
+        "wall": { "description": "直す壁（IfcWall か IfcWallStandardCase）。材料の層の使い方（AXIS2）を持つもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す", "$ref": "#/$defs/building_ref" },
+        "start": { "description": "芯の始点。壁の配置の親の配置の [x, y]", "type": "array", "items": { "type": "number" } },
+        "end": { "description": "芯の終点。始点と違う [x, y]", "type": "array", "items": { "type": "number" } },
+        "height": { "description": "高さ。文書の長さの単位で、正の値", "type": "number" },
+        "layers": { "description": "材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上", "type": "array", "items": { "$ref": "#/$defs/building_wall_layer" } },
+        "offset": { "description": "芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする", "type": "number" }
+      },
+      "required": ["kind", "wall", "start", "end", "height", "layers"],
+      "additionalProperties": false
+    },
+    "building_opening_shape_edit": {
+      "description": "開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "opening_shape" },
+        "opening": { "description": "直す開口（IfcOpeningElement）。材料の層の使い方を持つ要素に穴をあけるもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す", "$ref": "#/$defs/building_ref" },
+        "distance": { "description": "穴をあけた要素の配置の x 軸に沿う、要素の原点から開口の端までの距離", "type": "number" },
+        "sill": { "description": "要素の下端から開口の下端までの高さ", "type": "number" },
+        "width": { "description": "幅。文書の長さの単位で、正の値", "type": "number" },
+        "height": { "description": "高さ。文書の長さの単位で、正の値", "type": "number" }
+      },
+      "required": ["kind", "opening", "distance", "sill", "width", "height"],
       "additionalProperties": false
     },
     "building_fill_edit": {

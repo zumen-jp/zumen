@@ -5386,6 +5386,9 @@ BuildingEdit = Union[
     "BuildingAddDoorEdit",
     "BuildingAddWindowEdit",
     "BuildingAddGridEdit",
+    "BuildingElevationEdit",
+    "BuildingWallShapeEdit",
+    "BuildingOpeningShapeEdit",
 ]
 
 
@@ -5939,6 +5942,72 @@ _BuildingAddGridEditOptional = TypedDict(
 
 class BuildingAddGridEdit(_BuildingAddGridEditRequired, _BuildingAddGridEditOptional):
     "U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から"
+
+
+# 階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から
+BuildingElevationEdit = TypedDict(
+    "BuildingElevationEdit",
+    {
+        # 変更の種類
+        "kind": Literal["elevation"],
+        # 直す階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        "storey": "BuildingRef",
+        # 新しい高さ。文書の長さの単位
+        "elevation": float,
+    },
+)
+
+
+# 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+_BuildingWallShapeEditRequired = TypedDict(
+    "_BuildingWallShapeEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["wall_shape"],
+        # 直す壁（IfcWall か IfcWallStandardCase）。材料の層の使い方（AXIS2）を持つもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        "wall": "BuildingRef",
+        # 芯の始点。壁の配置の親の配置の [x, y]
+        "start": List[float],
+        # 芯の終点。始点と違う [x, y]
+        "end": List[float],
+        # 高さ。文書の長さの単位で、正の値
+        "height": float,
+        # 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+        "layers": List["BuildingWallLayer"],
+    },
+)
+_BuildingWallShapeEditOptional = TypedDict(
+    "_BuildingWallShapeEditOptional",
+    {
+        # 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
+        "offset": float,
+    },
+    total=False,
+)
+
+
+class BuildingWallShapeEdit(_BuildingWallShapeEditRequired, _BuildingWallShapeEditOptional):
+    "壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から"
+
+
+# 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+BuildingOpeningShapeEdit = TypedDict(
+    "BuildingOpeningShapeEdit",
+    {
+        # 変更の種類
+        "kind": Literal["opening_shape"],
+        # 直す開口（IfcOpeningElement）。材料の層の使い方を持つ要素に穴をあけるもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        "opening": "BuildingRef",
+        # 穴をあけた要素の配置の x 軸に沿う、要素の原点から開口の端までの距離
+        "distance": float,
+        # 要素の下端から開口の下端までの高さ
+        "sill": float,
+        # 幅。文書の長さの単位で、正の値
+        "width": float,
+        # 高さ。文書の長さの単位で、正の値
+        "height": float,
+    },
+)
 
 
 # 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から

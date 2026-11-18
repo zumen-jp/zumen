@@ -6991,6 +6991,15 @@ class BuildingEdit extends Message {
 
   /// kind が add_grid の形なら、そのビュー。違えば null
   BuildingAddGridEdit? get asBuildingAddGridEdit => taggedView('kind', 'add_grid', BuildingAddGridEdit.fromJson);
+
+  /// kind が elevation の形なら、そのビュー。違えば null
+  BuildingElevationEdit? get asBuildingElevationEdit => taggedView('kind', 'elevation', BuildingElevationEdit.fromJson);
+
+  /// kind が wall_shape の形なら、そのビュー。違えば null
+  BuildingWallShapeEdit? get asBuildingWallShapeEdit => taggedView('kind', 'wall_shape', BuildingWallShapeEdit.fromJson);
+
+  /// kind が opening_shape の形なら、そのビュー。違えば null
+  BuildingOpeningShapeEdit? get asBuildingOpeningShapeEdit => taggedView('kind', 'opening_shape', BuildingOpeningShapeEdit.fromJson);
 }
 
 /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
@@ -7658,6 +7667,97 @@ class BuildingAddGridEdit extends Message {
   /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
   String? get globalId => readField('global_id', asString);
   set globalId(String? value) => writeField('global_id', value);
+}
+
+/// 階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から
+class BuildingElevationEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingElevationEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingElevationEdit() : super({'kind': 'elevation'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 直す階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+  BuildingRef? get storey => readField('storey', objectOf(BuildingRef.fromJson));
+  set storey(BuildingRef? value) => writeField('storey', value);
+
+  /// 新しい高さ。文書の長さの単位
+  core.double? get elevation => readField('elevation', asDouble);
+  set elevation(core.double? value) => writeField('elevation', value);
+}
+
+/// 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+class BuildingWallShapeEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingWallShapeEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingWallShapeEdit() : super({'kind': 'wall_shape'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 直す壁（IfcWall か IfcWallStandardCase）。材料の層の使い方（AXIS2）を持つもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+  BuildingRef? get wall => readField('wall', objectOf(BuildingRef.fromJson));
+  set wall(BuildingRef? value) => writeField('wall', value);
+
+  /// 芯の始点。壁の配置の親の配置の [x, y]
+  List<core.double>? get start => readField('start', listOf(asDouble));
+  set start(List<core.double>? value) => writeField('start', value);
+
+  /// 芯の終点。始点と違う [x, y]
+  List<core.double>? get end => readField('end', listOf(asDouble));
+  set end(List<core.double>? value) => writeField('end', value);
+
+  /// 高さ。文書の長さの単位で、正の値
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
+
+  /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+  List<BuildingWallLayer>? get layers => readField('layers', listOf(objectOf(BuildingWallLayer.fromJson)));
+  set layers(List<BuildingWallLayer>? value) => writeField('layers', value);
+
+  /// 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
+  core.double? get offset => readField('offset', asDouble);
+  set offset(core.double? value) => writeField('offset', value);
+}
+
+/// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+class BuildingOpeningShapeEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingOpeningShapeEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingOpeningShapeEdit() : super({'kind': 'opening_shape'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 直す開口（IfcOpeningElement）。材料の層の使い方を持つ要素に穴をあけるもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+  BuildingRef? get opening => readField('opening', objectOf(BuildingRef.fromJson));
+  set opening(BuildingRef? value) => writeField('opening', value);
+
+  /// 穴をあけた要素の配置の x 軸に沿う、要素の原点から開口の端までの距離
+  core.double? get distance => readField('distance', asDouble);
+  set distance(core.double? value) => writeField('distance', value);
+
+  /// 要素の下端から開口の下端までの高さ
+  core.double? get sill => readField('sill', asDouble);
+  set sill(core.double? value) => writeField('sill', value);
+
+  /// 幅。文書の長さの単位で、正の値
+  core.double? get width => readField('width', asDouble);
+  set width(core.double? value) => writeField('width', value);
+
+  /// 高さ。文書の長さの単位で、正の値
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
 }
 
 /// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
