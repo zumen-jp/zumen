@@ -5,7 +5,7 @@ use zumen_drawing::{Affine, ColorSystem, Layer};
 use zumen_live::{Revision, RowId, display_wire};
 
 use super::diagnostics;
-use super::document::{Document, Problem};
+use super::document::{Document, Problem, RowEdit};
 use super::wire::{self, Command, Control, Header, Reply, Status, Words};
 
 pub(super) struct Request {
@@ -27,6 +27,8 @@ pub(super) struct Host {
 enum Operation<'a> {
     Open { threads: usize, bytes: &'a [u8] },
     Transform { transform: Affine, rows: &'a [u8] },
+    Copy { transform: Affine, rows: &'a [u8] },
+    Remove(&'a [u8]),
     Target(RowId),
     Select([f64; 4]),
     Diagnostics(u64),
@@ -46,7 +48,7 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
                 bytes: input.0,
             })
         }
-        Command::Transform => {
+        Command::Transform | Command::Copy => {
             let count = input.u32()? as usize;
             if count > wire::MAX_ROWS || input.u32()? != 0 {
                 return None;
@@ -55,10 +57,28 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
             for value in &mut m {
                 *value = input.f64()?;
             }
-            (input.0.len() == count.checked_mul(4)?).then_some(Operation::Transform {
-                transform: Affine { m },
-                rows: input.0,
+            if input.0.len() != count.checked_mul(4)? {
+                return None;
+            }
+            let transform = Affine { m };
+            Some(if command == Command::Copy {
+                Operation::Copy {
+                    transform,
+                    rows: input.0,
+                }
+            } else {
+                Operation::Transform {
+                    transform,
+                    rows: input.0,
+                }
             })
+        }
+        Command::Remove => {
+            let count = input.u32()? as usize;
+            if count > wire::MAX_ROWS || input.u32()? != 0 {
+                return None;
+            }
+            (input.0.len() == count.checked_mul(4)?).then_some(Operation::Remove(input.0))
         }
         Command::Target => {
             let row = RowId(input.u32()?);
@@ -77,6 +97,19 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
         }
         _ => bytes.is_empty().then_some(Operation::Empty),
     }
+}
+
+/// 要求の行番号 `u32` の列を読む。読む前に要求の予算で数える
+fn decode_rows(rows: &[u8], cx: &mut Cx<'_>) -> Result<Vec<RowId>, Problem> {
+    let count = rows.len() / 4;
+    checked(cx, Kind::DecodedBytes, rows.len() as u64)?;
+    checked(cx, Kind::Work, count as u64)?;
+    let mut ids = Vec::with_capacity(count);
+    let mut words = Words(rows);
+    while let Some(row) = words.u32() {
+        ids.push(RowId(row));
+    }
+    Ok(ids)
 }
 
 /// 行の列を、件数 `u32` と行番号 `u32` の列に写す
@@ -278,15 +311,27 @@ impl Host {
             }
             match operation {
                 Operation::Transform { transform, rows } => {
-                    let count = rows.len() / 4;
-                    checked(cx, Kind::DecodedBytes, rows.len() as u64)?;
-                    checked(cx, Kind::Work, count as u64)?;
-                    let mut ids = Vec::with_capacity(count);
-                    let mut words = Words(rows);
-                    while let Some(row) = words.u32() {
-                        ids.push(RowId(row));
-                    }
-                    reply.result = document.transform(revision, &ids, transform, cx)?.len() as u64;
+                    let ids = decode_rows(rows, cx)?;
+                    reply.result = document
+                        .edit(revision, &ids, RowEdit::Move(transform), cx)?
+                        .len() as u64;
+                }
+                Operation::Remove(rows) => {
+                    let ids = decode_rows(rows, cx)?;
+                    reply.result = document.edit(revision, &ids, RowEdit::Remove, cx)?.len() as u64;
+                }
+                Operation::Copy { transform, rows } => {
+                    let ids = decode_rows(rows, cx)?;
+                    let before = document.row_count();
+                    document.edit(revision, &ids, RowEdit::Copy(transform), cx)?;
+                    // 写しは、当てる前の表の末尾から対象の順に足される（試験で `Applied` と照らす）。
+                    // 確定した後なので、ここでは断らない
+                    let copies: Vec<RowId> = (before..document.row_count())
+                        .filter_map(RowId::from_index)
+                        .collect();
+                    reply.data = encode_rows(&copies, cx)?;
+                    reply.data_kind = 5;
+                    reply.result = copies.len() as u64;
                 }
                 Operation::Target(row) => {
                     let target = document.target(row, cx)?;

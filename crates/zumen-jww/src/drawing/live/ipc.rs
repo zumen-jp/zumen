@@ -11,6 +11,11 @@ use super::super::build_layers;
 use super::{BaseOutcome, DEFINITION_SPACES, JwwLive};
 
 impl JwwLive {
+    /// 表の行の数（削除した行を含む）。足した行は末尾に並ぶ
+    pub fn row_count(&self) -> usize {
+        self.table.len()
+    }
+
     /// 表示の座標（用紙の mm）の矩形に掛かる、生きた最上位の行を `out` の後ろに足す。記号の定義の中の行は返さない。
     /// 索引の探索と候補の数を共有の予算で数え、止まったときは `out` を呼ぶ前の長さに戻す
     pub fn select_rect_with_cx(

@@ -60,7 +60,7 @@ export interface LiveReply {
   diagnosticCount: number;
   used: Record<LiveBudgetKind, bigint>;
   stop: { kind: LiveBudgetKind; limit: bigint; requested: bigint } | { kind: "cancelled" | "timedOut" } | null;
-  /** 表示・保存・対象・診断・選択・画層の表・描く順の元のバイト列。次の要求後も有効 */
+  /** 表示・保存・対象・診断・選択（写しの行）・画層の表・描く順の元のバイト列。次の要求後も有効 */
   data: Uint8Array;
   display: LiveDisplay | null;
   target: { id: string; hash: string } | null;
@@ -76,6 +76,11 @@ export interface LiveTransform {
   rows: readonly number[] | Uint32Array;
   /** x' = a*x + b*y + c、y' = d*x + e*y + f の [a,b,c,d,e,f]。既存の apply と同じ */
   matrix: readonly number[] | Float64Array;
+}
+export interface LiveRemove {
+  /** 選択した行が属する版。現在の版と異なれば stale */
+  revision: bigint | number;
+  rows: readonly number[] | Uint32Array;
 }
 /** DXF・DWG・JWW・SXF の常駐文書。通常の同時呼び出しは ZumenError の busy */
 export declare class LiveProcess {
@@ -94,6 +99,10 @@ export declare class LiveProcess {
   /** モデル空間の [minX,minY,maxX,maxY] と囲む箱が交差する行。NaN・逆転は空、無限大は全域指定 */
   select(rect: readonly number[] | Float64Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   transform(change: LiveTransform, options?: LiveDisplayOptions): Promise<LiveReply>;
+  /** 行を除く。result は除いた数 */
+  remove(change: LiveRemove, options?: LiveDisplayOptions): Promise<LiveReply>;
+  /** 行を写し、写しを matrix で動かす。写しの行を selection に対象の順で返す。表示は display で取り直す。JWW・SXF は rejected */
+  copy(change: LiveTransform, options?: LiveOptions): Promise<LiveReply>;
   undo(revision: bigint | number, options?: LiveDisplayOptions): Promise<LiveReply>;
   redo(revision: bigint | number, options?: LiveDisplayOptions): Promise<LiveReply>;
   save(options?: LiveOptions): Promise<LiveReply>;

@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use zumen_drawing::Affine;
 use zumen_live::RowId;
 
-use super::super::document::conjugate;
+use super::super::document::{Document, RowEdit, conjugate};
 use super::super::host::Host;
 use super::super::wire::{self, Command, Status, Words};
 use super::{call, rectangle, transform};
@@ -309,5 +309,177 @@ fn order_carries_the_draw_order() {
         let stale = call(&mut host, Command::Order, 3, 9, wire::NONE, 0, &[]);
         assert_eq!(stale.status, Status::Stale);
         assert!(stale.data.is_empty());
+    }
+}
+
+fn rows_body(rows: &[u32]) -> Vec<u8> {
+    let mut bytes = (rows.len() as u32).to_le_bytes().to_vec();
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    for row in rows {
+        bytes.extend_from_slice(&row.to_le_bytes());
+    }
+    bytes
+}
+
+/// 選んだ行を除くと選ばれず・対象を引けず、取り消すと元の行に戻る。形式に書き戻せない行は断られ、版は進まない
+#[test]
+fn remove_drops_selected_rows_and_undo_restores_them() {
+    for bytes in [super::DXF, JWW, SFC] {
+        let mut host = Host::default();
+        open_bytes(&mut host, bytes);
+        let rows = select(&mut host, 2, 0, EVERYWHERE);
+        let row = rows
+            .iter()
+            .copied()
+            .find(|&row| {
+                let removed = call(&mut host, Command::Remove, 3, 0, 0, 1, &rows_body(&[row]));
+                assert!(matches!(removed.status, Status::Ok | Status::Rejected));
+                assert_eq!(removed.revision, u64::from(removed.status == Status::Ok));
+                if removed.status == Status::Ok {
+                    assert_eq!(removed.result, 1);
+                    // 表示の確認を付けた要求には、表示の差分を返す
+                    assert_eq!(removed.data_kind, 1);
+                }
+                removed.status == Status::Ok
+            })
+            .unwrap();
+        let left = select(&mut host, 4, 1, EVERYWHERE);
+        assert!(!left.contains(&row));
+        assert_eq!(left.len() + 1, rows.len());
+        let target = call(
+            &mut host,
+            Command::Target,
+            5,
+            1,
+            wire::NONE,
+            0,
+            &row.to_le_bytes(),
+        );
+        assert_eq!(target.status, Status::Missing);
+        // 除いた行は、もう一度は除けない
+        let again = call(
+            &mut host,
+            Command::Remove,
+            6,
+            1,
+            wire::NONE,
+            0,
+            &rows_body(&[row]),
+        );
+        assert_eq!(again.status, Status::Missing);
+        assert_eq!(again.revision, 1);
+        let undone = call(&mut host, Command::Undo, 7, 1, wire::NONE, 0, &[]);
+        assert_eq!(undone.status, Status::Ok);
+        let mut back = select(&mut host, 8, 2, EVERYWHERE);
+        back.sort_unstable();
+        let mut rows = rows;
+        rows.sort_unstable();
+        assert_eq!(back, rows);
+    }
+}
+
+/// 写しの行は、当てる前の表の末尾から対象の順に並び、`Applied` の ID と一致する
+#[test]
+fn copies_are_appended_in_target_order() {
+    let mut budget = zumen_base::Budget::default();
+    let mut diag = zumen_base::Diagnostics::new();
+    let cancel = zumen_base::CancelToken::new();
+    let cx = &mut zumen_base::Cx::new(&mut budget, &mut diag, &cancel);
+    let mut document = Document::open(super::DXF, 1, cx).unwrap();
+    let targets = [RowId(1), RowId(0)];
+    assert_copies(&mut document, &targets, cx);
+    // ハンドルを持つ公開サンプルの行を 1 つずつ写す（ハンドルのない R12 の DXF は写せない）
+    let mut copied = 0;
+    for bytes in [
+        &include_bytes!("../../../../../samples/dwg/zumen-layout-r2018.dwg")[..],
+        &include_bytes!("../../../../../samples/dxf/text_alignments.dxf")[..],
+        &include_bytes!("../../../../../samples/dxf/ezdxf-mtext-columns-r2007.dxf")[..],
+    ] {
+        let mut document = Document::open(bytes, 1, cx).unwrap();
+        for index in 0..document.row_count() {
+            let row = RowId::from_index(index).unwrap();
+            if document.target(row, cx).is_err() {
+                continue;
+            }
+            let mut diag = zumen_base::Diagnostics::new();
+            let mut budget = zumen_base::Budget::default();
+            let inner = &mut zumen_base::Cx::new(&mut budget, &mut diag, &cancel);
+            if assert_copies(&mut document, &[row], inner) {
+                copied += 1;
+            }
+        }
+    }
+    assert!(copied > 10, "{copied}");
+}
+
+/// 写せたら、足した行が `Applied` と対象の順に一致することを確かめる。断られたら表の行は増えない
+fn assert_copies(document: &mut Document, targets: &[RowId], cx: &mut zumen_base::Cx<'_>) -> bool {
+    let before = document.row_count();
+    let Ok(applied) = document.edit(
+        document.revision(),
+        targets,
+        RowEdit::Copy(Affine::translation(FAR, FAR)),
+        cx,
+    ) else {
+        assert_eq!(document.row_count(), before);
+        return false;
+    };
+    assert_eq!(document.row_count(), before + targets.len());
+    assert_eq!(applied.len(), targets.len());
+    for (index, applied) in applied.iter().enumerate() {
+        let row = RowId::from_index(before + index).unwrap();
+        let seen = document.target(row, cx).unwrap();
+        assert_eq!(applied.id.as_deref(), Some(seen.id.as_str()));
+        assert_eq!(applied.hash, Some(seen.hash));
+    }
+    true
+}
+
+/// Copy は写しの行を返し、写しは移動先で選ばれる。元の行は残る。写せない形式は断られ、版は進まない
+#[test]
+fn copy_carries_the_new_rows() {
+    let mut host = Host::default();
+    open_bytes(&mut host, super::DXF);
+    let reply = call(
+        &mut host,
+        Command::Copy,
+        2,
+        0,
+        wire::NONE,
+        0,
+        &transform(&[0, 1], Affine::translation(FAR, FAR)),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.revision, 1);
+    assert_eq!(reply.data_kind, 5);
+    assert_eq!(reply.result, 2);
+    let mut words = Words(&reply.data);
+    assert_eq!(words.u32(), Some(2));
+    let copies = [words.u32().unwrap(), words.u32().unwrap()];
+    assert!(words.0.is_empty());
+    assert_eq!(copies, [2, 3]);
+    let far = [FAR * 0.5, FAR * 0.5, FAR * 2.0, FAR * 2.0];
+    assert_eq!(select(&mut host, 3, 1, far), copies);
+    assert_eq!(select(&mut host, 4, 1, EVERYWHERE), [0, 1, 2, 3]);
+    let undone = call(&mut host, Command::Undo, 5, 1, wire::NONE, 0, &[]);
+    assert_eq!(undone.status, Status::Ok);
+    assert_eq!(select(&mut host, 6, 2, EVERYWHERE), [0, 1]);
+    // JWW・SXF の文書エンジンは、まだ写せない
+    for bytes in [JWW, SFC] {
+        let mut host = Host::default();
+        open_bytes(&mut host, bytes);
+        let rows = select(&mut host, 2, 0, EVERYWHERE);
+        let reply = call(
+            &mut host,
+            Command::Copy,
+            3,
+            0,
+            wire::NONE,
+            0,
+            &transform(&rows[..1], Affine::translation(FAR, FAR)),
+        );
+        assert_eq!(reply.status, Status::Rejected);
+        assert_eq!(reply.revision, 0);
+        assert!(reply.data.is_empty());
     }
 }

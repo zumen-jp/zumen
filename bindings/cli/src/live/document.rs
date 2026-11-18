@@ -12,6 +12,17 @@ use zumen_sxf::{Mode, Sxf, SxfLive};
 // 編集列の固定部分を、環境共通の 1 行 256 バイトで確保前に検査する。
 const _: () = assert!(core::mem::size_of::<Edit>() <= 256);
 
+/// 行を指す編集。変換は表示の座標で受ける
+#[derive(Clone, Copy, Debug)]
+pub(super) enum RowEdit {
+    /// 動かす
+    Move(Affine),
+    /// 写して、写しを動かす
+    Copy(Affine),
+    /// 除く
+    Remove,
+}
+
 /// 実行入口の状態エラー。コアの診断とは別に応答する。
 #[derive(Debug, PartialEq)]
 pub(super) enum Problem {
@@ -90,6 +101,15 @@ impl Engine {
             Self::Acad(live) => live.display_mut().clear_dirty(),
             Self::Jww(live) => live.clear_display_dirty(),
             Self::Sxf(live) => live.clear_display_dirty(),
+        }
+    }
+
+    /// 表の行の数（削除した行を含む）。足した行は末尾に並ぶ
+    fn row_count(&self) -> usize {
+        match self {
+            Self::Acad(live) => live.table().len(),
+            Self::Jww(live) => live.row_count(),
+            Self::Sxf(live) => live.row_count(),
         }
     }
 
@@ -290,12 +310,12 @@ impl Document {
         })
     }
 
-    /// 1 要求中の移動を既存 Changes の 1 トランザクションとして確定する。
-    pub fn transform(
+    /// 1 要求中の行の編集を既存 Changes の 1 トランザクションとして確定する。
+    pub fn edit(
         &mut self,
         expected: Revision,
         rows: &[RowId],
-        transform: Affine,
+        edit: RowEdit,
         cx: &mut Cx<'_>,
     ) -> Result<Vec<Applied>, Problem> {
         self.require_revision(expected)?;
@@ -311,17 +331,28 @@ impl Document {
                 .live
                 .seen_of_row(row, cx)?
                 .ok_or(Problem::Missing(row))?;
+            let (name, transform) = match edit {
+                RowEdit::Remove => {
+                    edits.push(Edit::Remove { target });
+                    continue;
+                }
+                RowEdit::Move(transform) => ("transform", transform),
+                RowEdit::Copy(transform) => ("copy", transform),
+            };
             let Some(transform) = self.live.row_transform(row, transform) else {
                 // 表示の座標が 1 つに決まらない行（ビューに置いていない、または 2 つ以上のビューに置いた SXF の空間の要素）は動かせない
                 cx.report(
                     Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
-                        .with("edit", "transform")
+                        .with("edit", name)
                         .with("kind", "view")
                         .with("format", self.live.format()),
                 );
                 return Err(Problem::Core(Error::Rejected));
             };
-            edits.push(Edit::Transform { target, transform });
+            edits.push(match edit {
+                RowEdit::Copy(_) => Edit::Copy { target, transform },
+                _ => Edit::Transform { target, transform },
+            });
         }
         self.live
             .apply(
@@ -332,6 +363,11 @@ impl Document {
                 cx,
             )
             .map_err(Problem::Core)
+    }
+
+    /// 表の行の数（削除した行を含む）。写しの行は、当てる前のこの数から順に足される
+    pub fn row_count(&self) -> usize {
+        self.live.row_count()
     }
 
     pub fn undo(&mut self, expected: Revision, cx: &mut Cx<'_>) -> Result<bool, Problem> {

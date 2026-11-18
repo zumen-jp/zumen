@@ -223,6 +223,30 @@ export class LiveProcess {
     });
   }
 
+  /** 行を除く。既定で表示の差分を返す */
+  async remove({ revision, rows }, options = {}) {
+    this.#check();
+    if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
+    return this.#request(13, flagsOf(options, true), u64(revision, "revision"), options, 8 + rows.length * 4, (out) => {
+      out.writeUInt32LE(rows.length, 0);
+      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 8 + i * 4);
+    });
+  }
+
+  /** 行を写し、写しを動かす。写しの行を selection に返し、表示は返さない */
+  async copy({ revision, rows, matrix }, options = {}) {
+    this.#check();
+    if (options.display !== undefined || options.full !== undefined) throw new TypeError("copy は表示を返さない。display で取り直す");
+    if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
+    if ((!Array.isArray(matrix) && !(matrix instanceof Float64Array)) || matrix.length !== 6
+      || Array.from(matrix).some((value) => typeof value !== "number")) throw new TypeError("matrix は 6 つの数値にする");
+    return this.#request(14, 0, u64(revision, "revision"), options, 56 + rows.length * 4, (out) => {
+      out.writeUInt32LE(rows.length, 0);
+      for (let i = 0; i < 6; i++) out.writeDoubleLE(matrix[i], 8 + i * 8);
+      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 56 + i * 4);
+    });
+  }
+
   /** 診断は別の予算で明示的に取得する。data に UTF-8 JSON を返す */
   async diagnostics(requestId, options = {}) {
     return this.#request(8, 0, null, options, 8, (out) => out.writeBigUInt64LE(u64(requestId, "requestId")));

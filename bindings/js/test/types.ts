@@ -49,6 +49,8 @@ export async function liveDocument(executable: string, input: Uint8Array): Promi
       void names;
       const drawn: number[] = [...((await live.order(live.revision!)).order?.rows() ?? [])];
       void drawn;
+      const copies: number[] = [...((await live.copy({ revision: live.revision!, rows: [0], matrix: [1, 0, 1, 0, 1, 0] })).selection?.rows() ?? [])];
+      await live.remove({ revision: live.revision!, rows: copies }, { display: false });
       if (selected.revision !== null) await live.transform({ revision: selected.revision, rows, matrix: [1, 0, 1, 0, 1, 2] });
       await live.diagnostics(changed.requestId, { budget: { decodedBytes: null } });
     }

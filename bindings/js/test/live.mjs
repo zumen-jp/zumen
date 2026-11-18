@@ -79,6 +79,19 @@ test("実プロセスの 64 行差分・古い版・保存・undo / redo", { ski
     assert.deepEqual(mirror(redone, { ...initial, revision: undone.revision }).columns, updated.columns);
     assert.deepEqual((await live.save()).data, saved.data);
     assert.equal((await live.open(input)).status, "alreadyOpen");
+    const copied = await live.copy({ revision: live.revision, rows: [65, 3], matrix: move });
+    assert.equal(copied.status, "ok");
+    assert.equal(copied.display, null);
+    assert.deepEqual([...copied.selection.rows()], [130, 131]);
+    const removed = await live.remove({ revision: copied.revision, rows: [130] });
+    assert.equal(removed.result, 1n);
+    assert.notEqual(removed.display, null);
+    assert.equal((await live.remove({ revision: removed.revision, rows: [130] })).status, "missing");
+    assert.equal((await live.target(130, removed.revision)).status, "missing");
+    assert.equal((await live.target(131, removed.revision)).status, "ok");
+    await live.undo(live.revision);
+    await live.undo(live.revision);
+    assert.deepEqual((await live.save()).data, saved.data);
   } finally { await live.close(); }
   assert(live.closed);
 });
@@ -224,6 +237,18 @@ test("描く順を検査してから借りて公開する", async () => {
     assert.equal((await live.save()).order, null);
     assert.deepEqual([...reply.order.rows()], [5, 1, 9]);
     await assert.rejects(live.order(-1), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+test("copy と remove の引数を送る前に検査する", async () => {
+  const { live } = await fake("order");
+  try {
+    await assert.rejects(live.copy({ revision: 0n, rows: [0], matrix: move }, { display: true }), TypeError);
+    await assert.rejects(live.copy({ revision: 0n, rows: [0], matrix: [1, 0, 0] }), TypeError);
+    await assert.rejects(live.copy({ revision: 0n, rows: [-1], matrix: move }), RangeError);
+    await assert.rejects(live.remove({ revision: 0n, rows: new Uint32Array(65537) }), RangeError);
+    await assert.rejects(live.remove({ revision: -1, rows: [0] }), RangeError);
     assert(!live.broken);
   } finally { await live.close(); }
 });
