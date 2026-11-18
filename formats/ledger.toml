@@ -1263,7 +1263,7 @@ issues = ["zumen-jp/zumen#383", "zumen-jp/zumen#384", "zumen-jp/zumen#388"]
 
 [formats.delivery.read]
 level = "external"
-scope = "国土交通省が DTD とともに配る管理ファイルの作成例 13 件（工事・業務・地質の令和 8 年 2 月の版。INDEX_C・INDEX_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。PHOTO.XML・DRAWING.XML などの作成例、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）"
+scope = "国土交通省が DTD とともに配る管理ファイルの作成例 16 件（工事・業務・地質の令和 8 年 2 月の版の INDEX_C・INDEX_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS と、令和 4 年 3 月の版の工事の束の PHOTO・DRAWINGF・DRAWINGS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。電気通信設備・機械設備の要領の管理ファイル、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）"
 checked = "2026-11-18"
 public-samples = ["https://www.cals-ed.go.jp/cri_dtdxml/"]
 implementations = [{ name = "lxml", version = "6.1.3" }]
@@ -1275,7 +1275,7 @@ checked = "2026-11-01"
 
 [formats.delivery.write]
 level = "external"
-scope = "既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 13 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書き、lxml 6.1.3 が要領の DTD の検証に通し、読んだ値が書いた値と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。記録の追加は DTD で検証していない。コアは DTD を処理しないので、DTD が子の要素だけを許す項目に文字を書くと検証に通らない。電子納品チェックシステムでの検証はまだ"
+scope = "既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 16 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書くものと、DTD が親の中で単独の繰り返しを許す最後の子の記録を写して親の末尾に足すものを、lxml 6.1.3 が要領の DTD の検証に通し、読んだ木が書いた木と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。コアは DTD を処理しないので、繰り返せない記録を足したり、DTD が子の要素だけを許す項目に文字を書いたりすると検証に通らない。電子納品チェックシステムでの検証はまだ"
 checked = "2026-11-18"
 implementations = [{ name = "lxml", version = "6.1.3" }]
 
