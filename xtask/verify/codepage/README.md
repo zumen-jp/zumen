@@ -29,4 +29,21 @@ Windows では CLI に `.exe` を付けます。終了コードは、全件一�
 
 ## 確認した範囲
 
-2026-11-18、Windows 11 x64 のネイティブ CLI と Python 3.14・ezdxf 1.4.5 で、Windows の API を基準に 37 の名前（`ANSI_` の 14、DOS の 12、別名の 8）と `\M+` の 5 つの番号のすべてが一致しました。通常の CI の成功条件には追加していません。wasm との一致は、適合テストの `code_page_1251.json`・`code_page_1252.json`・`code_page_dbcs.json`・`code_page_mif.json`・`code_page_dos.json`・`code_page_johab.json` で確かめます。AutoCAD 2027 で DOS と別名の名前を開いた結果は [DXF の文書](../../../docs/formats/dxf.md) に推定として書きました。zumen が書いた DXF を AutoCAD で開いた確認と、DWG の番号の文字の確認はしていません。
+2026-11-18、Windows 11 x64 のネイティブ CLI と Python 3.14・ezdxf 1.4.5 で、Windows の API を基準に 37 の名前（`ANSI_` の 14、DOS の 12、別名の 8）と `\M+` の 5 つの番号のすべてが一致しました。通常の CI の成功条件には追加していません。wasm との一致は、適合テストの `code_page_1251.json`・`code_page_1252.json`・`code_page_dbcs.json`・`code_page_mif.json`・`code_page_dos.json`・`code_page_johab.json` で確かめます。AutoCAD 2027 で DOS と別名の名前を開いた結果は [DXF の文書](../../../docs/formats/dxf.md) に推定として書きました。zumen が書いた DXF と DWG の番号は、下の `autocad.py` で AutoCAD 2027 に照らしました。
+
+## AutoCAD 2027 との照合
+
+`autocad.py` は、R2007 より前の DWG のヘッダーのコード・ページの番号ごとの文字の読みと、zumen が書き戻した DXF の文字を、AutoCAD 2027 の accoreconsole に照らします。AutoCAD は図面を開くと端末のコード・ページに変えて保存するので、番号の違う DWG は次の順で作ります。
+
+- ASCII だけの R12 の DXF を AutoCAD で R2000 の DWG にし、ヘッダーの番号を 30（`ANSI_1252`）に変えて（ヘッダーの CRC も直す）、1 バイトの 0xC0〜0xDF と CP936・CP949・CP950・CP932・Johab の 2 文字ずつのバイト列を持つ TEXT を zumen で足して書き戻す。
+- その DWG の番号を 0〜70 に変えて AutoCAD で開き、R2018 の DWG（文字は UTF-16）に保存する。zumen が番号を変えた DWG から読んだ TEXT が、保存した DWG の TEXT と同じで、ASCII でない TEXT を 1 つ以上読むことを確かめる。割り当てのないバイト列を持ち、zumen が落とす TEXT は比べない。
+- `$DWGCODEPAGE` の 36 の名前ごとに、表の文字を zumen で足して書き戻した R2000 の DXF を AutoCAD で開き、R2018 に保存した DWG の文字列が足した文字列と同じことを確かめる。
+
+```powershell
+cargo build -p zumen-cli
+uv run --no-python-downloads --no-build --python 3.14 --with ezdxf==1.4.5 python -I xtask/verify/codepage/autocad.py --cli target/debug/zumen.exe
+```
+
+AutoCAD が保存した図面とコンソールの出力はログイン名を含むので、作業のフォルダーは終わりに消します（`--keep` を除く）。終了コードは、全件一致なら 0、不一致があれば 1、accoreconsole がなければ 2 です。
+
+2026-11-18、日本語の Windows 11 と AutoCAD 2027 で、71 の番号と 36 の名前のすべてが一致しました。AutoCAD は、番号 2・3・8・10・22・24・25・28〜41・44 を ODA の列挙の順の名前の表で、26（JOHAB）を CP949 で、ほかの番号を CP1252 で戻しました。zumen はこれに合わせて読みます（[DWG の文書](../../../docs/formats/dwg.md)）。

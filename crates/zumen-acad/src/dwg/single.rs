@@ -910,7 +910,7 @@ impl DwgSingle {
         Ok(Self {
             release: file.release,
             version: file.version().to_vec(),
-            code_page: code_page_name(file.code_page),
+            code_page: Some(code_page_name(file.code_page)),
             header,
             handle_seed: file.handle_seed(),
             classes,
