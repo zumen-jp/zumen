@@ -1062,7 +1062,7 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
 - ヘッダーの時刻・作者・組織・作ったソフトと、所有履歴（`IfcOwnerHistory`）の値は、呼び出し元か出力先のプロファイルから受け取り、コアは時計を読まない。ヘッダーの値は、渡されなければ空にする。IFC2X3 は所有履歴が必須なので、値が渡されなければ書かずに診断する。IFC4 と IFC4X3 では、渡されたときだけ書く。
 - 既定値・語彙・ビュー（MVD）は、出力先の[プロファイル](../../profiles/README.md)が決める。ヘッダーの `ViewDefinition` は、プロファイルか呼び出し元が渡したときだけ書き、書き手は MVD を推測しない。MVD に合わせて書く範囲を絞る規則も、プロファイルに置く。IFC データ作成基準のような公的な基準は、公表された版を[資料を読む条件](../../formats/README.md#資料を読む条件)に従って読み、既存のプロファイルを変えずに、別の ID のプロファイルとして足す。
 - 書いた IFC を lift し直し、建物モデル（ID・クラス・空間の親子・配置・型・プロパティ・数量・所有する形のハッシュ）が元と一致すること、落ちた値が忠実度と診断の件数に一致することを、合成の 3 版と公開サンプルで試験する。ネイティブと wasm のバイト列の一致は、適合テストで照らす。
-- 外部の読み手では、IfcOpenShell（LGPL-3.0）で既知の GlobalId・空間の親子・配置・単位を元の値と照らす。buildingSMART の `validate` と `ifc-gherkin-rules`（どちらも MIT）で、スキーマと規則の誤りを調べる。どれも Cargo の外でバージョンを固定して手元と毎晩の CI で動かし（[依存と照合ツール](../../CONTRIBUTING.md#依存と照合ツール)）、使うバージョンを台帳に書く。受け取った図面は外部のサービスに送らない。BIM ソフトで開く確認は [#526](https://github.com/zumen-jp/zumen/issues/526) で行う。
+- 外部の読み手では、IfcOpenShell（LGPL-3.0）で既知の GlobalId・空間の親子・配置・単位を元の値と照らす。buildingSMART の `validate` と `ifc-gherkin-rules`（どちらも MIT）で、スキーマと規則の誤りを調べる。どれも Cargo の外でバージョンを固定して手元と毎晩の CI で動かし（[依存と照合ツール](../../CONTRIBUTING.md#依存と照合ツール)）、使うバージョンを台帳に書く。受け取った図面は外部のサービスに送らない。BIM ソフトで開いた結果は[書きの検証記録](https://github.com/zumen-jp/zumen/issues/526)にある。
 - 書き手が IFC の 1 つだけのうちは、`zumen-sdk` に lower の trait と往復試験のツールを置かず、集計の型だけを共有する。2 つ目の建物の書き手を作るときに、両方から形を決める。
 
 ### 建物を作る編集
@@ -1095,12 +1095,11 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
 
 | 形式 | 向き | 段 |
 | --- | --- | --- |
-| `ifc` | 読み | `external` |
-| `ifc` | 書き | `external` |
+| `ifc` | 読み | `external` || `ifc` | 書き | `application` |
 
 段の定義は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、入力と照合ツールのバージョンは[台帳の IFC](README.md#format-ifc)にあります。
 
 - **読み**では、公開 IFC の建物モデルを IfcOpenShell と照らします。対象は実体のクラス・GlobalId・名前・所属先と型・空間変換・開口・プロパティ・数量です。国内の BIM ソフトの公開サンプルは [#513](https://github.com/zumen-jp/zumen/issues/513) で許諾を得て追加します。[公開入力の照合](../../crates/zumen-ifc/tests/ifcopenshell/samples.py)
 - **必要時の取得**のうち、公開例の元の属性と参照を IfcOpenShell と照らした範囲が `external` です。[曲線](#曲線の確かめ方)・[形状表現と写像](#形状表現の確かめ方)・[押し出し](#押し出しの確かめ方)・[断面](#断面の共通の取得の確かめ方)・[面の表示](#面の表示の確かめ方)・[通り芯](#通り芯の確かめ方)・[SI 単位](#共有-si-の確かめ方)の各節に、比べた値と手順があります。合成例と IfcOpenShell の照合は `synthetic` です。配置や写像を適用した形、表示や継承の評価は外部照合の範囲外です。
 - **自前の検査**では、公開 IFC の無編集の往復と、写さない値の診断を確かめます。判定・インスタンスのグラフ・壊れた所の扱い・ifcZIP は外部照合していません。壊れた入力と ifcZIP は合成例で検査します。階・区域・分類の値・出所・診断・予算も合成 3 版の `synthetic` です。公開例の階と分類も読みます。成分の応答と IDS の分類の照合はネイティブと wasm で比べます。[公開入力の往復](../../crates/zumen-ifc/tests/samples.rs)
-- **書き**では、名前・説明・プロパティを `building_apply` で変えた IFC4・IFC2X3 を毎晩 IfcOpenShell で開き、変更後の値と、スキーマ・EXPRESS の規則の誤りが増えないことを確かめます。[検証キット](../../xtask/verify/ifc/README.md)の生成と再読み込みは `synthetic` です。BIM ソフトで開く確認は [#526](https://github.com/zumen-jp/zumen/issues/526) に残っています。[書き出しの照合](../../crates/zumen-ifc/tests/ifcopenshell/check.py)
+- **書き**では、名前・説明・プロパティを `building_apply` で変えた IFC4・IFC2X3 を毎晩 IfcOpenShell で開き、変更後の値と、スキーマ・EXPRESS の規則の誤りが増えないことを確かめます。[検証キット](../../xtask/verify/ifc/README.md)の生成と再読み込みは `synthetic` です。公開モデル各 1 件を FreeCAD 1.1.4 で開き、対象と対照の壁を GlobalId で確かめました。編集した値、形と配置、全体・対象・対照の表示を照合し、同じ版の IFC に再保存して読み直した差は両版とも 0 件でした。読み込み時の誤りは IFC4 が前後とも 8 件、IFC2X3 が前後とも 5 件で、警告は各 0 件でした。IFC4 は FZKViewer 6.5.1 でも照合しました。新規作成と IFC4X3 の書きは `external` です。[実機の測定結果](https://github.com/zumen-jp/zumen/issues/526#issuecomment-6994605433)・[書き出しの照合](../../crates/zumen-ifc/tests/ifcopenshell/check.py)
