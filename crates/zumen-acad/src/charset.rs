@@ -21,8 +21,8 @@ pub enum Charset {
     /// ANSI_932。WHATWG の Shift_JIS（Windows の 932 と同じ表）として戻す
     ShiftJis,
     /// Windows のコード・ページ。値はコード・ページの番号で、その表（Unicode の `CP<番号>.TXT`）で戻す。表に割り当ての
-    /// ないバイトは戻さない（#327）。1 バイトの ANSI_874・ANSI_1250〜ANSI_1258 と、`cp932` の feature があるときの
-    /// 2 バイトの ANSI_936・ANSI_949・ANSI_950
+    /// ないバイトは戻さない（#327）。1 バイトの ANSI_874・ANSI_1250〜ANSI_1258・DOS437〜DOS869 と、`cp932` の feature
+    /// があるときの 2 バイトの ANSI_936・ANSI_949・ANSI_950。ISO8859-1 などの名前も、AutoCAD と同じ番号にする
     Windows(u16),
     /// 対応表のないコード・ページか、コード・ページがない。ASCII の文字だけを読む
     Other,
@@ -219,13 +219,45 @@ pub fn charset(version: Option<&[u8]>, code_page: Option<&[u8]>) -> Charset {
     }
 }
 
-/// `ANSI_<番号>` の名前のうち、表のある Windows のコード・ページの番号
+/// AutoCAD が Windows のコード・ページとして読む、`ANSI_<番号>` でない名前と、その番号。AutoCAD 2027 で、自作の
+/// DXF の文字を Windows の MultiByteToWideChar と同じに読んだ（docs/formats/dxf.md）。ISO8859-3・4・5・6・8 と
+/// MAC-ROMAN は、端末のコード・ページで読んだので、ここに入れない
+const ALIASES: [(&[u8], u16); 7] = [
+    (b"ISO8859-1", 1252),
+    (b"ISO8859-2", 1250),
+    (b"ISO8859-7", 1253),
+    (b"ISO8859-9", 1254),
+    (b"BIG5", 950),
+    (b"KSC5601", 949),
+    (b"GB2312", 936),
+];
+
+/// `ANSI_<番号>`・`DOS<番号>` などの名前のうち、表のある Windows のコード・ページの番号
 fn windows_page(name: &[u8]) -> Option<u16> {
-    let (prefix, digits) = name.split_at_checked(5)?;
-    if !prefix.eq_ignore_ascii_case(b"ANSI_") || !digits.iter().all(u8::is_ascii_digit) {
-        return None;
-    }
-    let page = core::str::from_utf8(digits).ok()?.parse().ok()?;
+    let page = match ALIASES
+        .iter()
+        .find(|(alias, _)| alias.eq_ignore_ascii_case(name))
+    {
+        Some((_, page)) => *page,
+        None => {
+            let (dos, digits) = [b"ANSI_".as_slice(), b"DOS"]
+                .into_iter()
+                .find_map(|prefix| {
+                    let (head, digits) = name.split_at_checked(prefix.len())?;
+                    head.eq_ignore_ascii_case(prefix)
+                        .then_some((prefix == b"DOS", digits))
+                })?;
+            if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+                return None;
+            }
+            let page: u16 = core::str::from_utf8(digits).ok()?.parse().ok()?;
+            // DOS の表（437〜869）は DOS の名前だけで、Windows の表は ANSI_ の名前だけで引く
+            if dos != (437..=869).contains(&page) {
+                return None;
+            }
+            page
+        }
+    };
     #[cfg(feature = "cp932")]
     if dbcs::table(page).is_some() {
         return Some(page);
@@ -294,9 +326,71 @@ mod tests {
             b"ANSI_1200",
             b"ANSI_",
             b"ANSI_+1251",
-            b"DOS866",
+            b"ANSI_850",
+            b"DOS",
+            b"DOS1252",
+            b"ISO8859-5",
+            b"MAC-ROMAN",
+            b"ASCII",
         ] {
             assert_eq!(charset(Some(b"AC1015"), Some(name)), Charset::Other);
+        }
+    }
+
+    #[test]
+    fn dos_and_iso_names_read_as_windows_code_pages() {
+        // DOS の名前は同じ番号の表で、割り当てのあるバイトの数（Windows の MultiByteToWideChar が C1 制御文字と私用
+        // 領域でない文字に戻す 0x80〜0xFF）
+        let pages = [
+            (437, 128),
+            (850, 128),
+            (852, 128),
+            (855, 128),
+            (857, 125),
+            (860, 128),
+            (861, 128),
+            (863, 128),
+            (864, 122),
+            (865, 128),
+            (866, 128),
+            (869, 119),
+        ];
+        for (number, count) in pages {
+            let name = format!("dos{number}");
+            let page = charset(Some(b"AC1015"), Some(name.as_bytes()));
+            assert_eq!(page, Charset::Windows(number));
+            let assigned: Vec<u8> = (0x80..=u8::MAX)
+                .filter(|byte| from_windows(number, *byte).is_some())
+                .collect();
+            assert_eq!(assigned.len(), count, "{name}");
+            let text = page.decode(&assigned).unwrap_or_default();
+            assert_eq!(page.encoded(&text).as_deref(), Some(assigned.as_slice()));
+        }
+        let dos = Charset::Windows(866);
+        assert_eq!(
+            dos.decode(b"\x91\xE2\xA5\xAD\xA0 %").as_deref(),
+            Some("Стена %")
+        );
+        assert_eq!(Charset::Windows(864).decode(b"%").as_deref(), Some("%"));
+        assert_eq!(Charset::Windows(857).decode(b"\xD5"), None);
+        // ISO8859 の一部と、2 バイトの名前は、Windows のコード・ページとして読む
+        for (name, number) in [
+            (&b"ISO8859-1"[..], 1252),
+            (b"iso8859-2", 1250),
+            (b"ISO8859-7", 1253),
+            (b"ISO8859-9", 1254),
+        ] {
+            assert_eq!(
+                charset(Some(b"AC1015"), Some(name)),
+                Charset::Windows(number)
+            );
+        }
+        #[cfg(feature = "cp932")]
+        for (name, number) in [(&b"BIG5"[..], 950), (b"KSC5601", 949), (b"gb2312", 936)] {
+            assert_eq!(
+                charset(Some(b"AC1015"), Some(name)),
+                Charset::Windows(number)
+            );
         }
     }
 

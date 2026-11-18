@@ -1,6 +1,7 @@
 """R2007 より前の DXF の Windows のコード・ページの文字を、Windows の API・Python の codec・ezdxf に照らす（#327）。
 
-コード・ページごとに、割り当てのあるすべてのバイト列を分けて持つ TEXT と、表の文字を名前に含むレイヤの R2000 の
+$DWGCODEPAGE の名前（ANSI_<番号>・DOS<番号>と、AutoCAD 2027 が Windows のコード・ページとして読んだ ISO8859-1 などの
+別名）ごとに、割り当てのあるすべてのバイト列を分けて持つ TEXT と、表の文字を名前に含むレイヤの R2000 の
 DXF を作り、zumen の読み・書き戻し・開き直しを照らす。割り当ては、Windows では MultiByteToWideChar（Python の
 codecs.code_page_decode）が私用領域と C1 制御文字でない文字に戻すバイト列、ほかの OS では Python の codec が戻す
 バイト列とする。Python の codec と Windows の表の違いは、既知の数と照らす。割り当てのないバイト列を持つ TEXT は、
@@ -14,6 +15,7 @@ import argparse
 import codecs
 import io
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -26,6 +28,10 @@ sys.path.insert(0, str(HERE.parent))
 from make import Zumen  # noqa: E402
 
 SINGLE = (874, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1258)
+# DOS の 1 バイトのコード・ページ。$DWGCODEPAGE の名前は DOS<番号>
+DOS = (437, 850, 852, 855, 857, 860, 861, 863, 864, 865, 866, 869)
+# ANSI_ と DOS のほかに、AutoCAD 2027 が Windows のコード・ページとして読んだ名前（#327 の実験）
+ALIASES = {"ISO8859-1": 1252, "ISO8859-2": 1250, "ISO8859-7": 1253, "ISO8859-9": 1254, "BIG5": 950, "KSC5601": 949, "GB2312": 936}
 # 2 バイトのコード・ページと、先頭のバイトの範囲（Unicode の MICSFT/WINDOWS/CP<番号>.TXT）
 DOUBLE = {936: (0x81, 0xFE), 949: (0x81, 0xFD), 950: (0xA1, 0xF9)}
 # Python の codec が Windows の表と違うバイト列の数。CP1255 の 0xCA（U+05BA）と CP936 の 0x80（€）を Python は
@@ -51,10 +57,15 @@ def windows(page, data):
     return text
 
 
+def codec(page):
+    """コード・ページの番号の Python の codec の名前"""
+    return codecs.lookup(f"cp{page}").name
+
+
 def python(page, data):
-    """ezdxf が ANSI_<番号> に使う Python の codec で戻した 1 文字"""
+    """Python の codec の cp<番号> で戻した 1 文字"""
     try:
-        text = data.decode(toencoding(f"ANSI_{page}"))
+        text = data.decode(codec(page))
     except UnicodeDecodeError:
         return None
     return text if len(text) == 1 else None
@@ -77,20 +88,22 @@ def sequences(page):
     return singles + [bytes([lead, trail]) for lead in range(low, high + 1) for trail in range(0x40, 0x100)]
 
 
-def fixture(page, chunks, layer):
-    """R2000 の DXF。ezdxf で ASCII の印を書き、印を表のバイト列に置き換える"""
+def fixture(name, page, chunks, layer):
+    """$DWGCODEPAGE が `name` の R2000 の DXF。ezdxf で ASCII の印を書き、印を表のバイト列に置き換える"""
     # https://ezdxf.readthedocs.io/en/stable/options.html
     ezdxf.options.write_fixed_meta_data_for_testing = True
     doc = ezdxf.new("R2000")
-    # 書く codec（encoding）と、ヘッダーのコード・ページの名前は別に置く。encoding がないと ANSI_1252 を書く
-    doc.encoding = toencoding(f"ANSI_{page}")
-    doc.header["$DWGCODEPAGE"] = f"ANSI_{page}"
+    # ezdxf は $DWGCODEPAGE を encoding から書く（DOS437 や ISO8859-1 は ANSI_1252 になる）ので、書いた後で置き換える
+    doc.encoding = codec(page)
     doc.layers.new("QALAYER")
     for index in range(len(chunks)):
         doc.modelspace().add_text(f"QACHUNK{index:04d}", dxfattribs={"layer": "QALAYER", "height": 2.5})
     stream = io.StringIO()
     doc.write(stream)
-    data = stream.getvalue().encode("ascii")
+    header = rb"(\n\$DWGCODEPAGE\n *3\n)[^\n]*\n"
+    data = re.sub(header, lambda m: m[1] + name.encode() + b"\n", stream.getvalue().encode("ascii"))
+    if data.count(b"\n" + name.encode() + b"\n") != 1:
+        raise RuntimeError(f"$DWGCODEPAGE を {name} にできない")
     for index, chunk in enumerate(chunks):
         data = data.replace(f"QACHUNK{index:04d}\n".encode(), chunk + b"\n")
     return data.replace(b"QALAYER", layer)
@@ -118,8 +131,9 @@ def add(layer_id, content):
     }
 
 
-def check(z, page, out):
+def check(z, name, page, out):
     failures = []
+    stem = name.lower()
     table = [(data, reference(page, data)) for data in sequences(page)]
     table = [(data, text) for data, text in table if text is not None]
     if WINDOWS:
@@ -131,47 +145,51 @@ def check(z, page, out):
     texts = ["".join(text for _, text in group) for group in groups]
     letters = [(data, text) for data, text in table if text.isalpha()][:3]
     layer = "L" + "".join(text for _, text in letters)
-    data = fixture(page, chunks, b"L" + b"".join(data for data, _ in letters))
-    source = out / f"cp{page}-input.dxf"
+    data = fixture(name, page, chunks, b"L" + b"".join(data for data, _ in letters))
+    source = out / f"{stem}-input.dxf"
     source.write_bytes(data)
-    name = f"cp{page}.dxf"
-    z.push(name, data)
-    status, response = z.call({"op": "open", "input": name})
+    doc = f"{stem}.dxf"
+    z.push(doc, data)
+    status, response = z.call({"op": "open", "input": doc})
     if status != "ok":
         return [f"開けない: {status} {response}"], len(table)
     expected = [(layer, text) for text in texts]
-    read = zumen_texts(z, name)
+    read = zumen_texts(z, doc)
     if read != expected:
         wrong = [i for i, (a, b) in enumerate(zip(read, expected)) if a != b]
         failures.append(f"zumen の読みが表と違う: {len(read)} 件中、違う TEXT {wrong[:5]}")
-    # Python の codec で戻せる TEXT は、ezdxf の読みとも照らす
+    # Python の codec で戻せる TEXT は、ezdxf の読みとも照らす。ezdxf が名前から同じ codec を選ばないもの（DOS・ISO8859
+    # など）は ezdxf と照らさない
     plain = [i for i, group in enumerate(groups) if all(python(page, d) == t for d, t in group)]
-    by_ezdxf, codec = read_ezdxf(source)
-    if codec != toencoding(f"ANSI_{page}"):
-        failures.append(f"ezdxf の codec が {toencoding(f'ANSI_{page}')} でない: {codec}")
+    same = codecs.lookup(toencoding(name)).name == codec(page)
+    if not same:
+        plain = []
+    by_ezdxf, chosen = read_ezdxf(source)
+    if same and codecs.lookup(chosen).name != codec(page):
+        failures.append(f"ezdxf の codec が {codec(page)} でない: {chosen}")
     if [by_ezdxf[i] for i in plain] != [texts[i] for i in plain]:
         failures.append("ezdxf の読みが zumen と違う")
     # 書き戻し: 表のすべての文字を、TEXT ごとに逆の順で足す
-    _, tables = z.call({"op": "tables", "doc": name})
+    _, tables = z.call({"op": "tables", "doc": doc})
     ids = [item["id"] for item in tables["result"]["layers"] if item.get("name") == layer]
     if len(ids) != 1:
         return failures + [f"zumen の表にレイヤ {layer!r} が 1 つない"], len(table)
-    status, response = z.call({"op": "apply", "doc": name, "edits": [add(ids[0], text[::-1]) for text in texts]})
+    status, response = z.call({"op": "apply", "doc": doc, "edits": [add(ids[0], text[::-1]) for text in texts]})
     if status != "ok":
         return failures + [f"書き戻せない: {status} {response}"], len(table)
     output = z.take(response["blobs"][0]["id"])
-    target = out / f"cp{page}-output.dxf"
+    target = out / f"{stem}-output.dxf"
     target.write_bytes(output)
     for text in texts:
         # CP950 には同じ文字を表す 2 バイトが 2 つあるものがあり、Windows の WideCharToMultiByte が書く方と照らす
         if WINDOWS:
             encoded = codecs.code_page_encode(page, text[::-1], "strict")[0]
         else:
-            encoded = text[::-1].encode(toencoding(f"ANSI_{page}"))
+            encoded = text[::-1].encode(codec(page))
         if b"\n" + encoded + b"\n" not in output:
             failures.append(f"書き戻した TEXT が、Windows が書くバイト列を持たない: {text[:10]!r}")
             break
-    reopened = f"cp{page}-output.dxf"
+    reopened = f"{stem}-output.dxf"
     z.push(reopened, output)
     z.call({"op": "open", "input": reopened})
     if zumen_texts(z, reopened) != expected + [(layer, text[::-1]) for text in texts]:
@@ -180,15 +198,15 @@ def check(z, page, out):
     if [by_ezdxf[len(texts) + i] for i in plain] != [texts[i][::-1] for i in plain]:
         failures.append("書き戻した DXF の ezdxf の読みが違う")
     # 表せない文字は、変更全体を拒む
-    status, _ = z.call({"op": "apply", "doc": name, "edits": [add(ids[0], "ภ" if page != 874 else "日")]})
+    status, _ = z.call({"op": "apply", "doc": doc, "edits": [add(ids[0], "ภ" if page != 874 else "日")]})
     if status != "failed":
         failures.append(f"表せない文字を拒まない: {status}")
     # 割り当てのないすべての 1 バイトと 2 バイトを、1 つずつ TEXT に入れる。どれも dxf.lift.invalid で落とす
     defined = {d for d, _ in table}
     unassigned = [d for d in sequences(page) if d not in defined]
     if unassigned:
-        bad = f"cp{page}-unassigned.dxf"
-        bad_data = fixture(page, unassigned, b"L")
+        bad = f"{stem}-unassigned.dxf"
+        bad_data = fixture(name, page, unassigned, b"L")
         (out / bad).write_bytes(bad_data)
         z.push(bad, bad_data)
         z.call({"op": "open", "input": bad})
@@ -292,9 +310,11 @@ def main():
     results = {}
     z = Zumen(args.cli)
     try:
-        for page in SINGLE + tuple(DOUBLE):
-            failures, count = check(z, page, out)
-            results[f"ANSI_{page}"] = {"assigned": count, "failures": failures}
+        names = [(f"ANSI_{page}", page) for page in SINGLE + tuple(DOUBLE)]
+        names += [(f"DOS{page}", page) for page in DOS] + list(ALIASES.items())
+        for name, page in names:
+            failures, count = check(z, name, page, out)
+            results[name] = {"assigned": count, "failures": failures}
         for number, page in MULTIBYTE.items():
             failures, count = check_multibyte(z, number, page, out)
             results[f"\\M+{number}"] = {"assigned": count, "failures": failures}
