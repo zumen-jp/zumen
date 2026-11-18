@@ -1370,6 +1370,13 @@ group-by = ["type"]
 since = "0.2.0"
 status = "active"
 
+[codes."ifc.owner-history.missing"]
+description = "IFC2X3 は要素の所有履歴（IfcOwnerHistory）が必須なのに、作る IFC の所有履歴の値が渡されなかったので、書かなかった（#395）。schema は作るバージョンの FILE_SCHEMA"
+severity = "error"
+params = { schema = "key" }
+since = "0.4.0"
+status = "active"
+
 [codes."ifc.unit.invalid"]
 description = "SI 単位の定義か次元を確認できないので、単位を採用しなかった"
 severity = "warning"

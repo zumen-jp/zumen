@@ -156,16 +156,16 @@ fn set_at(args: &mut [Item], at: usize, item: Item) {
     }
 }
 
-fn raw(bytes: &[u8]) -> Item {
+pub(super) fn raw(bytes: &[u8]) -> Item {
     Item::Raw(bytes.to_vec())
 }
 
-fn null() -> Item {
+pub(super) fn null() -> Item {
     raw(b"$")
 }
 
 /// 実数。有限でなければ `None`。`-0` は `0` にする
-fn real(value: f64) -> Option<Item> {
+pub(super) fn real(value: f64) -> Option<Item> {
     if !value.is_finite() {
         return None;
     }

@@ -7,12 +7,14 @@
 //! [`author`] にある（#897）。
 
 mod author;
+mod create;
 
 pub use author::{
     FillingKind, NewBeam, NewColumn, NewElement, NewFilling, NewGrid, NewGridAxis, NewLayer,
     NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall, OpeningChange, SpaceKind,
     Target, WallChange,
 };
+pub use create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
 
 use std::collections::{BTreeMap, BTreeSet};
 

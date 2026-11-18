@@ -33,6 +33,8 @@ mod text;
 mod zip;
 
 #[cfg(feature = "building")]
+pub use building::Version;
+#[cfg(feature = "building")]
 pub use building::{
     ContextGeometry, ContextSource, ExtrudedArea, ExtrusionSource, FaceGraphSource, FacetedFaces,
     GeometryStyle, GeometryValue, GridAxes, GridAxisCurve, GridSource, HalfSpaceGeometry,
@@ -49,6 +51,8 @@ pub use edit::{
     NewLayer, NewLiteral, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewValue,
     NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
 };
+#[cfg(feature = "building")]
+pub use edit::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
 pub use express::{Express, Findings, check, check_range};
 #[cfg(feature = "ids")]
 pub use ids::IdsLookup;

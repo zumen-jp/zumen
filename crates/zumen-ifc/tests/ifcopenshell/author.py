@@ -1,9 +1,13 @@
-"""変更だけで作った 2 階建てと、それを直した IFC を IfcOpenShell で開いて照らす（#898）。
+"""新しい IFC のひな形と、変更だけで作った 2 階建てと、それを直した IFC を IfcOpenShell で開いて照らす（#898・#395）。
 
 使い方: python author.py <フォルダー>
 
 フォルダーには、`author.rs` の `writes_the_authored_files_for_other_readers` が、環境変数 `ZUMEN_IFC_AUTHORED` の
-フォルダーに書いた `<スキーマ>.built.ifc` と `<スキーマ>.changed.ifc` がある。
+フォルダーに書いた `<スキーマ>.built.ifc` と `<スキーマ>.changed.ifc` と、`create.rs` の `writes_the_templates_for_other_readers` が書いた
+`<スキーマ>.template.ifc` がある。
+
+- ひな形は、検査で誤りが出ず、プロジェクトの GlobalId・名前、ミリメートルの長さの単位、`Body` の下位の文脈、
+  所有履歴の作ったソフトと日時が、渡した値のとおりに読める。
 
 - IfcOpenShell の検査（スキーマと EXPRESS の規則）で誤りが出ない。
 - 種類ごとの数、階の高さと配置、要素の所属、開口と建具の関係、壁の材料の層が、足した値と直した値のとおりに読める。
@@ -19,6 +23,7 @@ import ifcopenshell.guid
 import ifcopenshell.util.element
 import ifcopenshell.util.placement
 import ifcopenshell.util.shape
+import ifcopenshell.util.unit
 import ifcopenshell.validate
 
 SCHEMAS = ["IFC2X3", "IFC4", "IFC4X3_ADD2"]
@@ -112,10 +117,42 @@ def check(path, state):
     return failures
 
 
+# `create.rs` の `derive_global_id(b"namespace", b"project")`
+TEMPLATE_PROJECT = "3pg1SZxHur0WpyDIEWpuL6"
+
+
+def check_template(path):
+    failures = []
+    model = ifcopenshell.open(str(path))
+    for error in errors(model):
+        failures.append(f"検査の誤り: {error}")
+    projects = model.by_type("IfcProject")
+    if [p.GlobalId for p in projects] != [TEMPLATE_PROJECT]:
+        failures.append(f"プロジェクトが {[p.GlobalId for p in projects]}")
+        return failures
+    project = projects[0]
+    if project.Name != "新しい建物":
+        failures.append(f"プロジェクトの名前が {project.Name}")
+    scale = ifcopenshell.util.unit.calculate_unit_scale(model)
+    if abs(scale - 0.001) > 1e-12:
+        failures.append(f"長さの単位の大きさが {scale}")
+    bodies = [c.ContextIdentifier for c in model.by_type("IfcGeometricRepresentationSubContext")]
+    if bodies != ["Body"]:
+        failures.append(f"下位の文脈が {bodies}")
+    history = project.OwnerHistory
+    application = history.OwningApplication.ApplicationFullName if history else None
+    if application != "zumen" or history.CreationDate != 1_700_000_000:
+        failures.append(f"所有履歴が {history}")
+    return failures
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     folder = Path(sys.argv[1])
     failures = []
+    for schema in SCHEMAS:
+        name = f"{schema}.template.ifc"
+        failures += [f"{name}: {f}" for f in check_template(folder / name)]
     for schema in SCHEMAS:
         for state in EXPECTED:
             name = f"{schema}.{state}.ifc"
@@ -124,7 +161,7 @@ def main():
         print(failure)
     if failures:
         sys.exit(1)
-    print(f"IfcOpenShell {ifcopenshell.version}: 作った IFC と直した IFC を 3 版で照らした")
+    print(f"IfcOpenShell {ifcopenshell.version}: ひな形と、作った IFC と直した IFC を 3 版で照らした")
 
 
 if __name__ == "__main__":

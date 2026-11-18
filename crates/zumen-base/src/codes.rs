@@ -3124,6 +3124,17 @@ pub const IFC_MAP_CRS_UNSUPPORTED: Code = Code::new(
     &[],
 );
 
+/// IFC2X3 は要素の所有履歴（IfcOwnerHistory）が必須なのに、作る IFC の所有履歴の値が渡されなかったので、書かなかった（#395）。schema は作るバージョンの FILE_SCHEMA
+///
+/// `ifc.owner-history.missing`（0.4.0 から）
+pub const IFC_OWNER_HISTORY_MISSING: Code = Code::new(
+    "ifc.owner-history.missing",
+    Severity::Error,
+    None,
+    &[Param::new("schema", ParamType::Key)],
+    &[],
+);
+
 /// 要素の親がもうあるので、後の集約・入れ子・空間への包含を写さなかった
 ///
 /// `ifc.parent.exists`（0.2.0 から）
@@ -6490,6 +6501,7 @@ pub const ALL: &[Code] = &[
     IFC_HEIGHT_DATUM_UNSUPPORTED,
     IFC_MAP_CRS_MISSING,
     IFC_MAP_CRS_UNSUPPORTED,
+    IFC_OWNER_HISTORY_MISSING,
     IFC_PARENT_EXISTS,
     IFC_PLACEMENT_INVALID,
     IFC_PLACEMENT_UNSUPPORTED,

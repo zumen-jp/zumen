@@ -1028,7 +1028,7 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
 
 建物モデルから新しい IFC を作るときは、バージョンごとの空のひな形に、`building_apply` と同じ書き手で空間・要素・関係・定義を足します。図面の[新しい DXF への変換](dxf.md#新しい-dxf-への変換)と同じ作りです。実装は [#395](https://github.com/zumen-jp/zumen/issues/395) と [#897](https://github.com/zumen-jp/zumen/issues/897) で進め、この節の規則に合わせます。
 
-- `create` は、バージョン・長さの単位・ヘッダーと所有履歴の値を受けて、ひな形だけを作る。`convert` は、建物モデルへ lift できる文書（別のバージョンの IFC・ST-Bridge など）から、ひな形に足して書く。`convert_estimate` は、同じ書き手で最後まで書き、予定のハッシュ・要素数と、種類と忠実度ごとの件数を返す。どれも bim のモジュールの op にし、Rust の呼び出し元も `zumen-ifc` の建物の側にある同じ関数を呼ぶ。
+- `create` は、バージョン・長さの単位・ヘッダーと所有履歴の値を受けて、ひな形だけを作る。ひな形は、プロジェクト・長さとラジアンの単位・3 次元の `Model` の文脈とその `Body` の下位の文脈（ifc-gherkin-rules の GEM052）を持ち、書き手はこの文脈を使う。長さの単位はミリメートル・センチメートル・メートルと、換算する `inch`・`foot`。所有履歴の ChangeAction は、IFC2X3 では必須なので `ADDED` を書き、IFC4 からは規則 CorrectChangeAction に合わせて書かない。`convert` は、建物モデルへ lift できる文書（別のバージョンの IFC・ST-Bridge など）から、ひな形に足して書く。`convert_estimate` は、同じ書き手で最後まで書き、予定のハッシュ・要素数と、種類と忠実度ごとの件数を返す。どれも bim のモジュールの op にし、Rust の呼び出し元も `zumen-ifc` の建物の側にある同じ関数を呼ぶ。
 - 書くのは、建物モデルのコンポーネントと、[形を含む lift](#所有する形とハッシュを建物に保持する)が所有する形の値。元の L1 のレコードは写さない。建物モデルにない値（未対応の形の項目、知らない実体と属性）は書かず、`zumen-sdk::conversion` の忠実度と、種類・件数・出所の診断で返す。同じバージョンへの `convert` も同じで、元のバイト列を保つ書き出しは `building_apply` が受け持つ。
 - バージョンは IFC2X3 TC1・IFC4 ADD2 TC1・IFC4X3 ADD2 の 3 つ（`FILE_SCHEMA` は `IFC2X3`・`IFC4`・`IFC4X3_ADD2`）で、`create` と `convert` の必須の引数にする。実体と属性の並びは、lift と同じ手書きのバージョンの表に足し、実体ごとにバージョンと節を引用する。スキーマは同梱せず、スキーマから生成もしない。表にない実体は書かない。
 - L1 はスキーマを持たないので、IFC のバージョンの変更（IFC2X3 から IFC4 など）は L1 の中で書き分けず、この経路で行う。落ちる値は、ほかの形式への変換と同じく忠実度で示す。
