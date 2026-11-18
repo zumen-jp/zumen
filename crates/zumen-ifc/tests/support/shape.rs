@@ -5,14 +5,18 @@
 use std::collections::BTreeMap;
 
 use zumen_building::{
-    AreaProfileKind, Building, ConnectedFaces, Coordinates, CurveGraph, CurveKind, CurveRef,
-    ElementRef, FaceBoundRef, FaceBoundary, FaceGraph, FaceLoopRef, FaceModelKind, FacePointRef,
-    FacePolygon, FaceRef, FaceSetRef, GeometryDefinition, GeometryLinks, GeometryNode, GeometryRef,
-    IndexedFaceSet, IndexedFaces, IndexedPolygon, IndexedPolygonRef, PolygonFace,
+    AreaProfileKind, AxisPlacement3, BooleanOperation, Building, CartesianMapping3, ConnectedFaces,
+    Coordinates, CurveGraph, CurveKind, CurveRef, ElementRef, FaceBoundRef, FaceBoundary,
+    FaceGraph, FaceLoopRef, FaceModelKind, FacePointRef, FacePolygon, FaceRef, FaceSetRef,
+    GeometryData, GeometryDefinition, GeometryLinks, GeometryNode, GeometryRef, HalfSpaceLimit,
+    IndexedFaceSet, IndexedFaces, IndexedPolygon, IndexedPolygonRef, MappingScale3, PolygonFace,
 };
-use zumen_ifc::{NewAxis2, NewAxis3, NewFaces, NewProfile, NewProfileKind, NewShape, NewSolid};
+use zumen_ifc::{
+    NewAxis2, NewAxis3, NewBoolean, NewFaces, NewHalfSpace, NewHalfSpaceLimit, NewItem, NewMapped,
+    NewProfile, NewProfileKind, NewShape, NewSolid,
+};
 
-/// 要素の `Axis` の折れ線と `Body` の押し出し・面集合。ほかの表現や項目があれば `None`
+/// 要素の `Axis` の折れ線と `Body` の項目。ほかの表現や項目があれば `None`
 pub fn shape_of(building: &Building, element: ElementRef) -> Option<NewShape> {
     let data = building.geometry(element)?.data();
     let node = |at: GeometryRef| data.nodes.get(at.0 as usize);
@@ -21,8 +25,7 @@ pub fn shape_of(building: &Building, element: ElementRef) -> Option<NewShape> {
     };
     let mut shape = NewShape {
         axis: None,
-        solids: Vec::new(),
-        faces: Vec::new(),
+        body: Vec::new(),
     };
     for &representation in representations {
         let GeometryLinks::Representation {
@@ -46,22 +49,94 @@ pub fn shape_of(building: &Building, element: ElementRef) -> Option<NewShape> {
             }
             Some("Body") => {
                 for &item in items {
-                    let node = node(item)?;
-                    match &node.definition {
-                        GeometryDefinition::Faces { definition, .. } => {
-                            shape.faces.push(NewFaces::Polygons(definition.clone()));
-                        }
-                        GeometryDefinition::Tessellation { definition, .. } => {
-                            shape.faces.push(NewFaces::Indexed(definition.clone()));
-                        }
-                        _ => shape.solids.push(solid(node)?),
-                    }
+                    shape.body.push(item_of(data, item)?);
                 }
             }
             _ => return None,
         }
     }
     Some(shape)
+}
+
+fn axis3(p: &AxisPlacement3) -> NewAxis3 {
+    NewAxis3 {
+        location: p.location,
+        axis: p.axis,
+        reference: p.reference_direction,
+    }
+}
+
+/// 読んだ形の項目。箱の囲みの座標系は書くバージョンで決まるので比べない
+fn item_of(data: &GeometryData, at: GeometryRef) -> Option<NewItem> {
+    let node = data.nodes.get(at.0 as usize)?;
+    match &node.links {
+        GeometryLinks::Boolean {
+            operation,
+            first,
+            second,
+        } => {
+            return Some(NewItem::Boolean(Box::new(NewBoolean {
+                operation: *operation,
+                first: item_of(data, *first)?,
+                second: item_of(data, *second)?,
+            })));
+        }
+        GeometryLinks::Mapped(map) => {
+            let GeometryDefinition::Mapping { definition, .. } = &node.definition else {
+                return None;
+            };
+            let GeometryLinks::Map(representation) = &data.nodes.get(map.0 as usize)?.links else {
+                return None;
+            };
+            let GeometryLinks::Representation { items, .. } =
+                &data.nodes.get(representation.0 as usize)?.links
+            else {
+                return None;
+            };
+            return Some(NewItem::Mapped(Box::new(NewMapped {
+                origin: axis3(&definition.origin),
+                target: definition.target.clone(),
+                items: items
+                    .iter()
+                    .map(|&item| item_of(data, item))
+                    .collect::<Option<_>>()?,
+            })));
+        }
+        _ => {}
+    }
+    Some(match &node.definition {
+        GeometryDefinition::Faces { definition, .. } => {
+            NewItem::Faces(NewFaces::Polygons(definition.clone()))
+        }
+        GeometryDefinition::Tessellation { definition, .. } => {
+            NewItem::Faces(NewFaces::Indexed(definition.clone()))
+        }
+        GeometryDefinition::HalfSpace {
+            definition,
+            boundary,
+            ..
+        } => NewItem::HalfSpace(NewHalfSpace {
+            plane: axis3(&definition.plane),
+            agreement: definition.agreement,
+            limit: match &definition.limit {
+                HalfSpaceLimit::Unbounded => NewHalfSpaceLimit::Unbounded,
+                HalfSpaceLimit::Box {
+                    corner, dimensions, ..
+                } => NewHalfSpaceLimit::Box {
+                    corner: *corner,
+                    dimensions: *dimensions,
+                },
+                HalfSpaceLimit::Polygonal {
+                    position,
+                    boundary: at,
+                } => NewHalfSpaceLimit::Polygonal {
+                    position: axis3(position),
+                    boundary: ring(boundary.as_ref()?, *at)?,
+                },
+            },
+        }),
+        _ => NewItem::Solid(solid(node)?),
+    })
 }
 
 fn solid(node: &GeometryNode) -> Option<NewSolid> {
@@ -112,11 +187,7 @@ fn solid(node: &GeometryNode) -> Option<NewSolid> {
             name: profile.name.clone(),
             kind,
         },
-        position: definition.position.as_ref().map(|p| NewAxis3 {
-            location: p.location,
-            axis: p.axis,
-            reference: p.reference_direction,
-        }),
+        position: definition.position.as_ref().map(axis3),
         direction: definition.direction,
         depth: definition.depth,
     })
@@ -147,19 +218,47 @@ pub fn as_written(shape: &NewShape) -> NewShape {
         reference: None,
     };
     let mut shape = shape.clone();
-    for solid in &mut shape.solids {
-        solid.position.get_or_insert(NewAxis3 {
-            location: [0.0; 3],
-            axis: None,
-            reference: None,
-        });
-        if let NewProfileKind::Rectangle { position, .. }
-        | NewProfileKind::Circle { position, .. } = &mut solid.profile.kind
-        {
-            position.get_or_insert(origin2.clone());
+    let mut stack: Vec<&mut NewItem> = shape.body.iter_mut().collect();
+    while let Some(item) = stack.pop() {
+        match item {
+            NewItem::Solid(solid) => {
+                solid.position.get_or_insert(NewAxis3 {
+                    location: [0.0; 3],
+                    axis: None,
+                    reference: None,
+                });
+                if let NewProfileKind::Rectangle { position, .. }
+                | NewProfileKind::Circle { position, .. } = &mut solid.profile.kind
+                {
+                    position.get_or_insert(origin2.clone());
+                }
+            }
+            NewItem::Boolean(boolean) => {
+                let NewBoolean { first, second, .. } = &mut **boolean;
+                stack.push(first);
+                stack.push(second);
+            }
+            NewItem::Mapped(mapped) => stack.extend(mapped.items.iter_mut()),
+            NewItem::Faces(_) | NewItem::HalfSpace(_) => {}
         }
     }
     shape
+}
+
+/// 項目が押し出しだけの形
+fn solids(axis: Option<Vec<[f64; 2]>>, solids: Vec<NewSolid>) -> NewShape {
+    NewShape {
+        axis,
+        body: solids.into_iter().map(NewItem::Solid).collect(),
+    }
+}
+
+/// 項目が面集合だけの形
+fn faces(faces: Vec<NewFaces>) -> NewShape {
+    NewShape {
+        axis: None,
+        body: faces.into_iter().map(NewItem::Faces).collect(),
+    }
 }
 
 /// 押し出しの例。壁の矩形・床の穴のある多角形・柱の円
@@ -171,10 +270,9 @@ pub fn examples() -> [NewShape; 3] {
             reference: None,
         })
     };
-    let wall = NewShape {
-        faces: Vec::new(),
-        axis: Some(vec![[0.0, 0.0], [3000.0, 0.0]]),
-        solids: vec![NewSolid {
+    let wall = solids(
+        Some(vec![[0.0, 0.0], [3000.0, 0.0]]),
+        vec![NewSolid {
             profile: NewProfile {
                 name: Some("壁".to_owned()),
                 kind: NewProfileKind::Rectangle {
@@ -190,11 +288,10 @@ pub fn examples() -> [NewShape; 3] {
             direction: [0.0, 0.0, 1.0],
             depth: 2700.0,
         }],
-    };
-    let slab = NewShape {
-        faces: Vec::new(),
-        axis: None,
-        solids: vec![NewSolid {
+    );
+    let slab = solids(
+        None,
+        vec![NewSolid {
             profile: NewProfile {
                 name: None,
                 kind: NewProfileKind::Polygon {
@@ -211,11 +308,10 @@ pub fn examples() -> [NewShape; 3] {
             direction: [0.0, 0.0, 1.0],
             depth: 200.0,
         }],
-    };
-    let column = NewShape {
-        faces: Vec::new(),
-        axis: None,
-        solids: vec![NewSolid {
+    );
+    let column = solids(
+        None,
+        vec![NewSolid {
             profile: NewProfile {
                 name: None,
                 kind: NewProfileKind::Circle {
@@ -231,7 +327,7 @@ pub fn examples() -> [NewShape; 3] {
             direction: [0.0, 0.0, 1.0],
             depth: 3000.0,
         }],
-    };
+    );
     [wall, slab, column]
 }
 
@@ -422,41 +518,225 @@ pub fn surfaces(later: bool) -> [FaceGraph; 2] {
 /// 面集合の例。押し出しと箱の Brep・2 つの面の模型・2 つの添字の面集合（IFC2X3 では箱の Brep）
 pub fn face_examples(later: bool, tags: bool) -> [NewShape; 3] {
     let [wall, ..] = examples();
-    let solid = NewShape {
+    let mut solid = NewShape {
         axis: None,
-        solids: wall.solids,
-        faces: vec![NewFaces::Polygons(brep_box([500.0, 500.0, 500.0]))],
+        body: wall.body,
     };
-    let surface = NewShape {
-        axis: None,
-        solids: Vec::new(),
-        faces: surfaces(later).map(NewFaces::Polygons).to_vec(),
-    };
-    let tessellation = NewShape {
-        axis: None,
-        solids: Vec::new(),
-        faces: if later {
-            vec![
-                NewFaces::Indexed(triangulated_box([900.0, 100.0, 2000.0], tags)),
-                NewFaces::Indexed(polygonal_sheet()),
-            ]
-        } else {
-            vec![NewFaces::Polygons(brep_box([900.0, 100.0, 2000.0]))]
-        },
-    };
+    solid.body.push(NewItem::Faces(NewFaces::Polygons(brep_box([
+        500.0, 500.0, 500.0,
+    ]))));
+    let surface = faces(surfaces(later).map(NewFaces::Polygons).to_vec());
+    let tessellation = faces(if later {
+        vec![
+            NewFaces::Indexed(triangulated_box([900.0, 100.0, 2000.0], tags)),
+            NewFaces::Indexed(polygonal_sheet()),
+        ]
+    } else {
+        vec![NewFaces::Polygons(brep_box([900.0, 100.0, 2000.0]))]
+    });
     [solid, surface, tessellation]
 }
 
 /// 扉の形。IFC4 からは三角形の箱、IFC2X3 は箱の Brep
 pub fn door(later: bool) -> NewShape {
     let size = [900.0, 100.0, 2000.0];
-    NewShape {
-        axis: None,
-        solids: Vec::new(),
-        faces: vec![if later {
-            NewFaces::Indexed(triangulated_box(size, false))
-        } else {
-            NewFaces::Polygons(brep_box(size))
-        }],
+    faces(vec![if later {
+        NewFaces::Indexed(triangulated_box(size, false))
+    } else {
+        NewFaces::Polygons(brep_box(size))
+    }])
+}
+
+/// 原点と、z 軸と x 軸の向き
+pub fn placed(location: [f64; 3], axes: Option<([f64; 3], [f64; 3])>) -> NewAxis3 {
+    NewAxis3 {
+        location,
+        axis: axes.map(|(z, _)| z),
+        reference: axes.map(|(_, x)| x),
     }
+}
+
+/// 平面の半空間。真なら法線と逆の側が内部
+pub fn half_space(plane: NewAxis3, agreement: bool, limit: NewHalfSpaceLimit) -> NewItem {
+    NewItem::HalfSpace(NewHalfSpace {
+        plane,
+        agreement,
+        limit,
+    })
+}
+
+/// 集合演算
+pub fn boolean(operation: BooleanOperation, first: NewItem, second: NewItem) -> NewItem {
+    NewItem::Boolean(Box::new(NewBoolean {
+        operation,
+        first,
+        second,
+    }))
+}
+
+/// 角を原点に置いた矩形の押し出し
+pub fn block(x: f64, y: f64, depth: f64) -> NewItem {
+    NewItem::Solid(NewSolid {
+        profile: NewProfile {
+            name: None,
+            kind: NewProfileKind::Rectangle {
+                x,
+                y,
+                position: Some(NewAxis2 {
+                    location: [x / 2.0, y / 2.0],
+                    reference: None,
+                }),
+            },
+        },
+        position: None,
+        direction: [0.0, 0.0, 1.0],
+        depth,
+    })
+}
+
+/// 集合演算と写像の例。
+///
+/// - 切り取り: 3000×250×2700 の壁を z = 2000 の面と、箱で囲んだ x = 2000 の面で切り、2000×250×2000 を残す
+/// - 集合演算: 1000 の立方体（IFC4 から三角形の面集合、IFC2X3 は Brep）から、z = 500 より上で 500 の正方形の
+///   柱で制限した半空間を除き、0.875 の立方メートルを残す
+/// - 写像: 200×200×1000 の押し出しを、そのままと y を 2 倍にして x = 1000 に置く。写像元は 1 つ
+pub fn csg_examples(later: bool) -> [NewShape; 3] {
+    let wall = block(3000.0, 250.0, 2700.0);
+    let top = half_space(
+        placed([0.0, 0.0, 2000.0], None),
+        false,
+        NewHalfSpaceLimit::Unbounded,
+    );
+    let side = half_space(
+        placed([2000.0, 0.0, 0.0], Some(([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]))),
+        false,
+        NewHalfSpaceLimit::Box {
+            corner: [-10000.0, -10000.0, -10000.0],
+            dimensions: [20000.0, 20000.0, 20000.0],
+        },
+    );
+    let clipped = boolean(
+        BooleanOperation::Difference,
+        boolean(BooleanOperation::Difference, wall, top),
+        side,
+    );
+    let cube = if later {
+        NewItem::Faces(NewFaces::Indexed(triangulated_box(
+            [1000.0, 1000.0, 1000.0],
+            false,
+        )))
+    } else {
+        NewItem::Faces(NewFaces::Polygons(brep_box([1000.0, 1000.0, 1000.0])))
+    };
+    let corner = half_space(
+        placed([0.0, 0.0, 500.0], None),
+        false,
+        NewHalfSpaceLimit::Polygonal {
+            position: placed([0.0, 0.0, 0.0], None),
+            boundary: vec![[0.0, 0.0], [500.0, 0.0], [500.0, 500.0], [0.0, 500.0]],
+        },
+    );
+    let csg = boolean(BooleanOperation::Difference, cube, corner);
+    let mapped = |local_origin: [f64; 3], scale: MappingScale3| {
+        NewItem::Mapped(Box::new(NewMapped {
+            origin: placed([0.0; 3], None),
+            target: CartesianMapping3 {
+                local_origin,
+                axis1: None,
+                axis2: None,
+                axis3: None,
+                scale,
+            },
+            items: vec![block(200.0, 200.0, 1000.0)],
+        }))
+    };
+    let shape = |body: Vec<NewItem>| NewShape { axis: None, body };
+    [
+        shape(vec![clipped]),
+        shape(vec![csg]),
+        shape(vec![
+            mapped([0.0; 3], MappingScale3::Uniform(None)),
+            mapped(
+                [1000.0, 0.0, 0.0],
+                MappingScale3::NonUniform {
+                    x: Some(1.0),
+                    y: Some(2.0),
+                    z: Some(1.0),
+                },
+            ),
+        ]),
+    ]
+}
+
+/// 形の押し出しを、z = 2000 の面と、箱で囲んだ x = 2000 の面で切る
+pub fn clipped(mut shape: NewShape) -> NewShape {
+    let top = half_space(
+        placed([0.0, 0.0, 2000.0], None),
+        false,
+        NewHalfSpaceLimit::Unbounded,
+    );
+    let side = half_space(
+        placed([2000.0, 0.0, 0.0], Some(([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]))),
+        false,
+        NewHalfSpaceLimit::Box {
+            corner: [-10000.0, -10000.0, -10000.0],
+            dimensions: [20000.0, 20000.0, 20000.0],
+        },
+    );
+    for item in &mut shape.body {
+        let solid = std::mem::replace(
+            item,
+            NewItem::HalfSpace(NewHalfSpace {
+                plane: placed([0.0; 3], None),
+                agreement: false,
+                limit: NewHalfSpaceLimit::Unbounded,
+            }),
+        );
+        *item = boolean(
+            BooleanOperation::Difference,
+            boolean(BooleanOperation::Difference, solid, top.clone()),
+            side.clone(),
+        );
+    }
+    shape
+}
+
+/// 形の `Body` を 1 つの写像にし、x に 100 ずらして置く
+pub fn mapped(shape: NewShape) -> NewShape {
+    NewShape {
+        axis: shape.axis,
+        body: vec![NewItem::Mapped(Box::new(NewMapped {
+            origin: placed([0.0; 3], None),
+            target: CartesianMapping3 {
+                local_origin: [100.0, 0.0, 0.0],
+                axis1: Some([1.0, 0.0, 0.0]),
+                axis2: Some([0.0, 1.0, 0.0]),
+                axis3: Some([0.0, 0.0, 1.0]),
+                scale: MappingScale3::Uniform(Some(1.0)),
+            },
+            items: shape.body,
+        }))],
+    }
+}
+
+/// 半空間の囲みの箱を外した形。バージョンで箱の座標系が違うと、変換は箱を落とす
+pub fn unboxed(mut shape: NewShape) -> NewShape {
+    let mut stack: Vec<&mut NewItem> = shape.body.iter_mut().collect();
+    while let Some(item) = stack.pop() {
+        match item {
+            NewItem::HalfSpace(half) => {
+                if matches!(half.limit, NewHalfSpaceLimit::Box { .. }) {
+                    half.limit = NewHalfSpaceLimit::Unbounded;
+                }
+            }
+            NewItem::Boolean(boolean) => {
+                let NewBoolean { first, second, .. } = &mut **boolean;
+                stack.push(first);
+                stack.push(second);
+            }
+            NewItem::Mapped(mapped) => stack.extend(mapped.items.iter_mut()),
+            NewItem::Solid(_) | NewItem::Faces(_) => {}
+        }
+    }
+    shape
 }

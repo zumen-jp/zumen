@@ -17,20 +17,22 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_building::{
-    Acquired, AreaProfileKind, AxisPlacement2, Building, ConnectedFaces, Coordinates, CurveGraph,
-    CurveKind, CurveRef, ElementRef, FaceBoundRef, FaceBoundary, FaceGraph, FaceLoopRef,
-    FaceModelKind, FacePointRef, FacePolygon, FaceRef, FaceSetRef, GeometryData,
-    GeometryDefinition, GeometryLinks, GeometryNode, GeometryRef, GlobalId, Id, IndexedFaceSet,
-    IndexedFaces, Literal, Local, Material, MaterialKind, Measured, Opening, ParentKind,
-    PolygonFace, Property, Quantity, SpatialKind, Unit,
+    Acquired, AreaProfileKind, AxisPlacement2, AxisPlacement3, Building, ConnectedFaces,
+    Coordinates, CurveGraph, CurveKind, CurveRef, ElementRef, EnclosureCoordinates, FaceBoundRef,
+    FaceBoundary, FaceGraph, FaceLoopRef, FaceModelKind, FacePointRef, FacePolygon, FaceRef,
+    FaceSetRef, GeometryData, GeometryDefinition, GeometryLinks, GeometryNode, GeometryRef,
+    GlobalId, HalfSpaceLimit, Id, IndexedFaceSet, IndexedFaces, Literal, Local, Material,
+    MaterialKind, Measured, Opening, ParentKind, PolygonFace, Property, Quantity, SpatialKind,
+    Unit,
 };
 use zumen_sdk::conversion::{ConversionFidelity, ConversionReport, Report, note};
 use zumen_sdk::{Codec, Cx, Error};
 
 use super::author::{
-    NewAxis2, NewAxis3, NewConstituent, NewFaces, NewLayerUsage, NewMaterial, NewMaterialLayer,
-    NewProfile, NewProfileKind, NewShape, NewSolid, NewType, enumeration, material_rejected,
-    predefined_at, rigid, shape_rejected, writable_type,
+    NewAxis2, NewAxis3, NewBoolean, NewConstituent, NewFaces, NewHalfSpace, NewHalfSpaceLimit,
+    NewItem, NewLayerUsage, NewMapped, NewMaterial, NewMaterialLayer, NewProfile, NewProfileKind,
+    NewShape, NewSolid, NewType, SHAPE_NESTING, enumeration, material_rejected, predefined_at,
+    rigid, shape_rejected, writable_type,
 };
 use super::create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
 use super::quantity::{NewQuantity, NewUnit, quantity_value, si_unit};
@@ -530,8 +532,7 @@ impl Plan<'_, '_> {
             });
         let mut shape = NewShape {
             axis: None,
-            solids: Vec::new(),
-            faces: Vec::new(),
+            body: Vec::new(),
         };
         for &representation in representations {
             let Some(GeometryLinks::Representation {
@@ -549,48 +550,159 @@ impl Plan<'_, '_> {
                 };
                 exact &= axis.is_some();
                 shape.axis = axis;
-            } else if identifier.eq_ignore_ascii_case("Body")
-                && shape.solids.is_empty()
-                && shape.faces.is_empty()
-            {
-                let mut solids = Vec::new();
-                let mut faces = Vec::new();
-                let mut whole = true;
-                for &item in items {
-                    let Some(node) = node(item) else {
-                        whole = false;
-                        break;
-                    };
-                    if let Some(solid) = self.new_solid(node) {
-                        solids.push(solid);
-                    } else if let Some((set, same)) = self.new_faces(node) {
-                        exact &= same;
-                        faces.push(set);
-                    } else {
-                        whole = false;
-                        break;
+            } else if identifier.eq_ignore_ascii_case("Body") && shape.body.is_empty() {
+                let mut budget = BODY_ITEMS;
+                let body = items
+                    .iter()
+                    .map(|&item| self.new_item(data, item, 0, &mut budget))
+                    .collect::<Option<Vec<_>>>();
+                match body {
+                    Some(body) => {
+                        for (item, same) in body {
+                            exact &= same;
+                            shape.body.push(item);
+                        }
                     }
-                }
-                exact &= whole;
-                if whole {
-                    shape.solids = solids;
-                    shape.faces = faces;
+                    None => exact = false,
                 }
             } else {
                 exact = false;
             }
         }
         // 書けない組み合わせの `Body` は落とし、芯の線だけを書く
-        if shape_rejected(&shape, self.version).is_some()
-            && (!shape.solids.is_empty() || !shape.faces.is_empty())
-        {
+        if shape_rejected(&shape, self.version).is_some() && !shape.body.is_empty() {
             exact = false;
-            shape.solids.clear();
-            shape.faces.clear();
+            shape.body.clear();
         }
         shape_rejected(&shape, self.version)
             .is_none()
             .then_some((shape, exact))
+    }
+
+    /// 形の項目と、そのまま書けたか。集合演算と写像はたどり、共有する写像元は項目ごとに展開する。深さと、
+    /// 展開した項目の数（`budget`）を超えたら書かない
+    fn new_item(
+        &self,
+        data: &GeometryData,
+        at: GeometryRef,
+        depth: usize,
+        budget: &mut usize,
+    ) -> Option<(NewItem, bool)> {
+        if depth >= SHAPE_NESTING {
+            return None;
+        }
+        *budget = budget.checked_sub(1)?;
+        let node = data.nodes.get(at.0 as usize)?;
+        match &node.links {
+            GeometryLinks::Boolean {
+                operation,
+                first,
+                second,
+            } => {
+                let (first, a) = self.new_item(data, *first, depth + 1, budget)?;
+                let (second, b) = self.new_item(data, *second, depth + 1, budget)?;
+                let boolean = NewBoolean {
+                    operation: *operation,
+                    first,
+                    second,
+                };
+                return Some((NewItem::Boolean(Box::new(boolean)), a && b));
+            }
+            GeometryLinks::Mapped(map) => {
+                let GeometryDefinition::Mapping {
+                    definition,
+                    length_unit,
+                } = &node.definition
+                else {
+                    return None;
+                };
+                if !self.length_written(length_unit.as_ref()) {
+                    return None;
+                }
+                let GeometryLinks::Map(representation) = &data.nodes.get(map.0 as usize)?.links
+                else {
+                    return None;
+                };
+                let GeometryLinks::Representation { items, .. } =
+                    &data.nodes.get(representation.0 as usize)?.links
+                else {
+                    return None;
+                };
+                let mut same = true;
+                let mut inner = Vec::with_capacity(items.len());
+                for &item in items {
+                    let (item, exact) = self.new_item(data, item, depth + 1, budget)?;
+                    same &= exact;
+                    inner.push(item);
+                }
+                let mapped = NewMapped {
+                    origin: new_axis3(&definition.origin),
+                    target: definition.target.clone(),
+                    items: inner,
+                };
+                return Some((NewItem::Mapped(Box::new(mapped)), same));
+            }
+            _ => {}
+        }
+        if let GeometryDefinition::HalfSpace {
+            definition,
+            boundary,
+            length_unit,
+        } = &node.definition
+        {
+            if !self.length_written(length_unit.as_ref()) {
+                return None;
+            }
+            // 箱の座標系は書くバージョンで決まる。違えば囲みを落とす（計算用の囲みで、形は変わらない）
+            let mut same = true;
+            let limit = match &definition.limit {
+                HalfSpaceLimit::Unbounded => NewHalfSpaceLimit::Unbounded,
+                HalfSpaceLimit::Box {
+                    corner,
+                    dimensions,
+                    coordinates,
+                } => {
+                    let written = if self.version == Version::Ifc2x3 {
+                        EnclosureCoordinates::BaseSurface
+                    } else {
+                        EnclosureCoordinates::Object
+                    };
+                    if *coordinates == written {
+                        NewHalfSpaceLimit::Box {
+                            corner: *corner,
+                            dimensions: *dimensions,
+                        }
+                    } else {
+                        same = false;
+                        NewHalfSpaceLimit::Unbounded
+                    }
+                }
+                HalfSpaceLimit::Polygonal {
+                    position,
+                    boundary: at,
+                } => {
+                    let graph = boundary.as_ref()?;
+                    if !self.length_written(graph.length_unit.as_ref()) {
+                        return None;
+                    }
+                    NewHalfSpaceLimit::Polygonal {
+                        position: new_axis3(position),
+                        boundary: ring(graph, *at)?,
+                    }
+                }
+            };
+            let half = NewHalfSpace {
+                plane: new_axis3(&definition.plane),
+                agreement: definition.agreement,
+                limit,
+            };
+            return Some((NewItem::HalfSpace(half), same));
+        }
+        if let Some(solid) = self.new_solid(node) {
+            return Some((NewItem::Solid(solid), true));
+        }
+        self.new_faces(node)
+            .map(|(faces, same)| (NewItem::Faces(faces), same))
     }
 
     /// 面集合と、そのまま書けたか。添字の面は IFC2X3 へ多角形の面にし、IFC4 へは点のタグを落とす。面の模型は
@@ -700,11 +812,7 @@ impl Plan<'_, '_> {
                 name: profile.name.clone(),
                 kind,
             },
-            position: definition.position.as_ref().map(|p| NewAxis3 {
-                location: p.location,
-                axis: p.axis,
-                reference: p.reference_direction,
-            }),
+            position: definition.position.as_ref().map(new_axis3),
             direction: definition.direction,
             depth: definition.depth,
         })
@@ -1249,6 +1357,17 @@ fn checked(placement: NewPlacement) -> Result<Option<NewPlacement>, ()> {
         Ok(Some(placement))
     } else {
         Err(())
+    }
+}
+
+/// 1 つの `Body` で展開する項目の数の上限。共有する写像元を項目ごとに展開するので、入れ子の写像で増えすぎない
+const BODY_ITEMS: usize = 10_000;
+
+fn new_axis3(p: &AxisPlacement3) -> NewAxis3 {
+    NewAxis3 {
+        location: p.location,
+        axis: p.axis,
+        reference: p.reference_direction,
     }
 }
 

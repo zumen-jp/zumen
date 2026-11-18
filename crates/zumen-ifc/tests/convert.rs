@@ -8,7 +8,7 @@ use zumen_building::{
 };
 use zumen_ifc::{
     ConvertOptions, Converted, Edit, Header, Ifc, LengthUnit, NewConstituent, NewElement, NewFaces,
-    NewMaterial, NewMaterialLayer, NewPlacement, NewQuantity, NewSpace, NewType, NewUnit,
+    NewItem, NewMaterial, NewMaterialLayer, NewPlacement, NewQuantity, NewSpace, NewType, NewUnit,
     OwnerHistory, SpaceKind, Target, Template, Version, apply, convert, create,
 };
 use zumen_sdk::conversion::ConversionFidelity;
@@ -216,13 +216,13 @@ fn source(version: Version) -> Option<Vec<u8>> {
             type_of: Some(Target::Added(10)),
         });
     }
-    // 形。壁は芯の線と矩形、床は穴のある多角形、柱は円の押し出し
+    // 形。壁は芯の線と、2 つの半空間で切り取った矩形、床は穴のある多角形、柱は円の押し出しの写像
     let [wall, slab, column] = shape::examples();
     edits.extend(
         [
-            (4, wall),
+            (4, shape::clipped(wall)),
             (7, slab),
-            (8, column),
+            (8, shape::mapped(column)),
             (6, shape::door(version != Version::Ifc2x3)),
         ]
         .map(|(n, shape)| Edit::Shape {
@@ -485,21 +485,25 @@ fn converts_the_structure_between_every_version() {
                 }
             }
             assert_eq!(found, expected, "{from:?} → {to:?}");
-            // 形は、書き手が省かずに書く配置のほかは保つ
+            // 形は、書き手が省かずに書く配置のほかは保つ。IFC2X3 と IFC4 からは囲みの箱の座標系が違うので、
+            // 箱を落とす
+            let boxes = (from == Version::Ifc2x3) == (to == Version::Ifc2x3);
             for n in [20, 22, 23, 24] {
                 let of = |building: &Building| {
                     building
                         .find(Id::Global(global(n)))
                         .and_then(|e| shape::shape_of(building, e))
                 };
-                let wanted = of(&source).map(|s| shape::as_written(&s));
+                let wanted = of(&source)
+                    .map(|s| shape::as_written(&s))
+                    .map(|s| if boxes { s } else { shape::unboxed(s) });
                 assert!(wanted.is_some(), "{from:?} {n}");
                 let found = of(&target);
                 // IFC2X3 へは三角形の箱を、点を共有する多角形の閉殻にする
                 if n == 22 && to == Version::Ifc2x3 && from != Version::Ifc2x3 {
-                    let faces = found.map(|s| s.faces);
-                    let Some([NewFaces::Polygons(graph)]) = faces.as_deref() else {
-                        panic!("{from:?} → {to:?}: {faces:?}");
+                    let body = found.map(|s| s.body);
+                    let Some([NewItem::Faces(NewFaces::Polygons(graph))]) = body.as_deref() else {
+                        panic!("{from:?} → {to:?}: {body:?}");
                     };
                     assert_eq!(graph.kind, FaceModelKind::FacetedSolid);
                     assert_eq!((graph.faces.len(), graph.points.len()), (12, 8));
@@ -593,7 +597,11 @@ fn converts_the_structure_between_every_version() {
                     (
                         "IfcWall",
                         ConversionFidelity::Approximated,
-                        vec!["material".to_owned(), "quantities".to_owned()],
+                        vec![
+                            "material".to_owned(),
+                            "quantities".to_owned(),
+                            "representation".to_owned(),
+                        ],
                     ),
                     (
                         "IfcWallType",
@@ -602,13 +610,20 @@ fn converts_the_structure_between_every_version() {
                     ),
                 ]);
             }
-            // IFC4 からは材料の並びが非推奨なので、構成要素にする
+            // IFC4 からは材料の並びが非推奨なので、構成要素にする。壁を切る囲みの箱は落とす
             if from == Version::Ifc2x3 && to != Version::Ifc2x3 {
-                wanted.push((
-                    "IfcDoor",
-                    ConversionFidelity::Approximated,
-                    vec!["material".to_owned()],
-                ));
+                wanted.extend([
+                    (
+                        "IfcDoor",
+                        ConversionFidelity::Approximated,
+                        vec!["material".to_owned()],
+                    ),
+                    (
+                        "IfcWall",
+                        ConversionFidelity::Approximated,
+                        vec!["representation".to_owned()],
+                    ),
+                ]);
             }
             assert_eq!(approximated, wanted, "{from:?} → {to:?}");
             let values: usize = wanted

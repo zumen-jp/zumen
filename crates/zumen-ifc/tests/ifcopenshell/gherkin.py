@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 SCHEMAS = ["IFC2X3", "IFC4", "IFC4X3_ADD2"]
-STATES = ["template", "built", "changed", "converted", "faces"]
+STATES = ["template", "built", "changed", "converted", "faces", "csg"]
 
 # 試験の入力は地理参照を持たない。作る変更と直す変更の範囲の外なので、警告とその手順の止まりを許す
 ALLOWED_WARNINGS = {"GRF003"}
@@ -117,7 +117,7 @@ def main():
         print(failure)
     if failures:
         sys.exit(1)
-    print("ifc-gherkin-rules: ひな形と、作った IFC・直した IFC・変換した IFC・面集合を 3 つのスキーマで照らした")
+    print("ifc-gherkin-rules: ひな形と、作った IFC・直した IFC・変換した IFC・面集合・集合演算と写像を 3 つのスキーマで照らした")
 
 
 if __name__ == "__main__":

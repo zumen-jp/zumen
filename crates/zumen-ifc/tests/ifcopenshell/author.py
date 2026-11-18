@@ -238,7 +238,8 @@ def check_converted(path):
 # 変換した形の体積（m³）と相対の許容差。壁は矩形、扉は箱の面集合、床は 1 m 角の穴のある 6 m × 4 m、柱は
 # 半径 0.3 m の円。円は多角形で近似されて小さくなるので、許容差を広げる
 CONVERTED_VOLUMES = {
-    20: (3.0 * 0.25 * 2.7, 1e-9),
+    # 壁は z = 2 と x = 2 で切り取る
+    20: (2.0 * 0.25 * 2.0, 1e-9),
     22: (0.9 * 0.1 * 2.0, 1e-9),
     23: ((6.0 * 4.0 - 1.0) * 0.2, 1e-9),
     24: (math.pi * 0.3**2 * 3.0, 1e-2),
@@ -300,6 +301,38 @@ def check_faces(path, schema):
     return failures
 
 
+CSG = {
+    200: ("Clipping", ["IfcBooleanClippingResult"], 2.0 * 0.25 * 2.0),
+    201: ("CSG", ["IfcBooleanResult"], 1.0 - 0.5**3),
+    202: ("MappedRepresentation", ["IfcMappedItem", "IfcMappedItem"], 0.2 * 0.2 * 1.0 + 0.2 * 0.4 * 1.0),
+}
+
+
+def check_csg(path):
+    """集合演算と写像。200 は 2 つの半空間で切り取った壁、201 は立方体から多角形で制限した半空間を除いたもの、
+    202 は 1 つの写像元を 2 つの写像で置いたもの"""
+    failures = []
+    model = ifcopenshell.open(str(path))
+    for error in errors(model):
+        failures.append(f"検査の誤り: {error}")
+    settings = ifcopenshell.geom.settings()
+    for n, (kind, items, expected) in CSG.items():
+        element = model.by_guid(gid(n))
+        [body] = element.Representation.Representations
+        found = (body.RepresentationType, [i.is_a() for i in body.Items])
+        if found != (kind, items):
+            failures.append(f"{n} の表現が {found}")
+        try:
+            shape = ifcopenshell.geom.create_shape(settings, element)
+        except RuntimeError as error:
+            failures.append(f"{n} の形を作れない: {error}")
+            continue
+        volume = ifcopenshell.util.shape.get_volume(shape.geometry)
+        if abs(volume - expected) > expected * 1e-6:
+            failures.append(f"{n} の体積が {volume}（期待は {expected}）")
+    return failures
+
+
 def check_converted_materials(model):
     """変換した材料。元は IFC4。IFC2X3 は層の名前と構成要素を持たないので、構成要素は並びになる"""
     failures = []
@@ -358,11 +391,14 @@ def main():
     for schema in SCHEMAS:
         name = f"{schema}.faces.ifc"
         failures += [f"{name}: {f}" for f in check_faces(folder / name, schema)]
+    for schema in SCHEMAS:
+        name = f"{schema}.csg.ifc"
+        failures += [f"{name}: {f}" for f in check_csg(folder / name)]
     for failure in failures:
         print(failure)
     if failures:
         sys.exit(1)
-    print(f"IfcOpenShell {ifcopenshell.version}: ひな形と、作った IFC・直した IFC・変換した IFC・面集合を 3 バージョンで照らした")
+    print(f"IfcOpenShell {ifcopenshell.version}: ひな形と、作った IFC・直した IFC・変換した IFC・面集合・集合演算と写像を 3 バージョンで照らした")
 
 
 if __name__ == "__main__":

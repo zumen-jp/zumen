@@ -12,10 +12,11 @@ mod create;
 mod quantity;
 
 pub use author::{
-    FillingKind, NewAxis2, NewAxis3, NewBeam, NewColumn, NewConstituent, NewElement, NewFaces,
-    NewFilling, NewGrid, NewGridAxis, NewLayer, NewLayerUsage, NewMaterial, NewMaterialLayer,
-    NewOpening, NewPlacement, NewProfile, NewProfileKind, NewSection, NewShape, NewSlab, NewSolid,
-    NewSpace, NewType, NewWall, OpeningChange, SpaceKind, Target, WallChange,
+    FillingKind, NewAxis2, NewAxis3, NewBeam, NewBoolean, NewColumn, NewConstituent, NewElement,
+    NewFaces, NewFilling, NewGrid, NewGridAxis, NewHalfSpace, NewHalfSpaceLimit, NewItem, NewLayer,
+    NewLayerUsage, NewMapped, NewMaterial, NewMaterialLayer, NewOpening, NewPlacement, NewProfile,
+    NewProfileKind, NewSection, NewShape, NewSlab, NewSolid, NewSpace, NewType, NewWall,
+    OpeningChange, SpaceKind, Target, WallChange,
 };
 pub use convert::{ConvertOptions, Converted, convert};
 pub use create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};

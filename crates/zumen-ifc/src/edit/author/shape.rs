@@ -1,4 +1,4 @@
-//! 要素の形（芯の線・押し出し・面集合）を書く変更（#395）。
+//! 要素の形（芯の線・押し出し・面集合・集合演算・写像）を書く変更（#395）。
 //!
 //! 属性の並びは、IFC2X3 TC1 と IFC4 ADD2 TC1・IFC4X3 ADD2 の、形の資源・断面の資源・表現の資源の実体の定義による。
 //!
@@ -21,13 +21,28 @@
 //! - IFC4 から: `IfcTriangulatedFaceSet`: 1 Coordinates・2 Normals・3 Closed・4 CoordIndex・5 PnIndex。
 //!   `IfcPolygonalFaceSet`: 1 Coordinates・2 Closed・3 Faces・4 PnIndex。`IfcIndexedPolygonalFace`: 1 CoordIndex。
 //!   `WithVoids`: 2 InnerCoordIndices。`IfcCartesianPointList3D`: 1 CoordList・2 TagList（IFC4X3 から）
+//! - `IfcBooleanResult`・`IfcBooleanClippingResult`: 1 Operator・2 FirstOperand・3 SecondOperand。演算の対象
+//!   （`IfcBooleanOperand`）は立体の模型・半空間・集合演算と、IFC4 からの添字の面集合。添字の面集合は閉殻の申告が
+//!   要る（IFC4 の `IfcBooleanResult` の規則）。差で、第 1 が押し出しか切り取り、第 2 が半空間なら切り取りにする
+//! - `IfcHalfSpaceSolid`: 1 BaseSurface・2 AgreementFlag。`IfcPlane`: 1 Position。`IfcBoxedHalfSpace`: 3 Enclosure
+//!   （`IfcBoundingBox`: 1 Corner・2 XDim・3 YDim・4 ZDim）。箱の座標系は IFC2X3 が基準面、IFC4 から要素の座標系で、
+//!   書くバージョンのものとする。`IfcPolygonalBoundedHalfSpace`: 3 Position・4 PolygonalBoundary（閉じた 2 次元の
+//!   `IfcPolyline`）
+//! - `IfcMappedItem`: 1 MappingSource・2 MappingTarget。`IfcRepresentationMap`: 1 MappingOrigin・
+//!   2 MappedRepresentation。`IfcCartesianTransformationOperator3D`: 1 Axis1・2 Axis2・3 LocalOrigin・4 Scale・
+//!   5 Axis3。`NonUniform` は 6 Scale2・7 Scale3。同じ原点と項目の写像元は 1 つにまとめる
 //! - 表現の種類（RepresentationType）は項目から決める。押し出しは `SweptSolid`、`IfcFacetedBrep` は `Brep`、
-//!   両方なら `SolidModel`、面の模型は `SurfaceModel`、添字の面集合は `Tessellation`。ほかの組み合わせは書かない
+//!   両方なら `SolidModel`、面の模型は `SurfaceModel`、添字の面集合は `Tessellation`、切り取りは `Clipping`、
+//!   ほかの集合演算（切り取りを含む）は `CSG`、写像は `MappedRepresentation`。ほかの組み合わせと、表現の項目に
+//!   直接置く半空間は書かない
 
 use std::collections::BTreeSet;
 
 use zumen_base::Kind;
-use zumen_building::{FaceGraph, FaceModelKind, IndexedFaceSet, IndexedFaces};
+use zumen_building::{
+    BooleanOperation, CartesianMapping3, FaceGraph, FaceModelKind, IndexedFaceSet, IndexedFaces,
+    MappingScale3,
+};
 use zumen_sdk::{Cx, Error};
 
 use super::{Category, Draft, Item, Stmt, Target, null, raw, real, text, unsupported};
@@ -35,16 +50,86 @@ use crate::building::Version;
 use crate::edit::refs_of;
 use crate::stopped;
 
-/// 要素の形。芯の線は `Axis`、押し出しは `Body` の表現に書き、元の表現は置き換える
+/// 要素の形。芯の線は `Axis`、立体や面は `Body` の表現に書き、元の表現は置き換える
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewShape {
     /// 芯の線（`Axis` の表現の `IfcPolyline`）。2 点以上
     pub axis: Option<Vec<[f64; 2]>>,
-    /// 押し出し（`Body` の表現の `IfcExtrudedAreaSolid`）
-    pub solids: Vec<NewSolid>,
-    /// 面集合（`Body` の表現）。押し出しとともに空なら `Body` を書かない
-    pub faces: Vec<NewFaces>,
+    /// `Body` の表現の項目。空なら `Body` を書かない
+    pub body: Vec<NewItem>,
 }
+
+/// 形の項目
+#[derive(Clone, Debug, PartialEq)]
+pub enum NewItem {
+    /// 断面の押し出し（`IfcExtrudedAreaSolid`）
+    Solid(NewSolid),
+    /// 面集合
+    Faces(NewFaces),
+    /// 集合演算（`IfcBooleanResult`・`IfcBooleanClippingResult`）
+    Boolean(Box<NewBoolean>),
+    /// 平面の半空間。集合演算の対象にだけ置く
+    HalfSpace(NewHalfSpace),
+    /// 共有する形の写像（`IfcMappedItem`）
+    Mapped(Box<NewMapped>),
+}
+
+/// 2 つの対象の集合演算。差では第 1 から第 2 を取り除く
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewBoolean {
+    /// 演算
+    pub operation: BooleanOperation,
+    /// 第 1 の対象
+    pub first: NewItem,
+    /// 第 2 の対象
+    pub second: NewItem,
+}
+
+/// 平面を境とする半空間
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewHalfSpace {
+    /// 基準面の配置。局所の z 軸が面の法線
+    pub plane: NewAxis3,
+    /// 真なら法線と逆の側、偽なら法線の向く側が内部
+    pub agreement: bool,
+    /// 囲み
+    pub limit: NewHalfSpaceLimit,
+}
+
+/// 半空間の囲み
+#[derive(Clone, Debug, PartialEq)]
+pub enum NewHalfSpaceLimit {
+    /// 囲みなし（`IfcHalfSpaceSolid`）
+    Unbounded,
+    /// 計算用の囲みの箱（`IfcBoxedHalfSpace`）。座標系は書くバージョンのもの
+    Box {
+        /// 箱の隅
+        corner: [f64; 3],
+        /// 各軸の正の長さ
+        dimensions: [f64; 3],
+    },
+    /// 局所の XY 平面の多角形で制限する（`IfcPolygonalBoundedHalfSpace`）
+    Polygonal {
+        /// 境界の配置
+        position: NewAxis3,
+        /// 境界の 3 点以上。始点に戻る点は書かない
+        boundary: Vec<[f64; 2]>,
+    },
+}
+
+/// 写像元の表現と、写像先の変換
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewMapped {
+    /// 写像元の基準位置
+    pub origin: NewAxis3,
+    /// 写像先の変換。尺度は正
+    pub target: CartesianMapping3,
+    /// 写像元の表現の項目。種類は `Body` と同じ規則で決める
+    pub items: Vec<NewItem>,
+}
+
+/// 入れ子にできる項目の深さ
+pub(in crate::edit) const NESTING: usize = 16;
 
 /// 面集合。点は文書の長さの単位で、参照と共有は値のまま書く
 #[derive(Clone, Debug, PartialEq)]
@@ -167,21 +252,20 @@ impl Draft<'_> {
                 ],
             }));
         }
-        if let Some(kind) = body_type(shape) {
-            let work = shape.faces.iter().map(faces_size).sum::<u64>();
+        if let Some(kind) = items_type(&shape.body) {
+            let work = shape
+                .body
+                .iter()
+                .fold(0, |sum: u64, item| sum.saturating_add(item_size(item)));
             cx.check(Kind::Work, work)
                 .map_err(|stop| stopped(cx, stop, None))?;
             let context = self.subcontext(model, "Body", b".MODEL_VIEW.");
-            let mut items = Vec::with_capacity(shape.solids.len() + shape.faces.len());
-            for solid in &shape.solids {
-                items.push(Item::Ref(self.solid(solid)));
-            }
-            for faces in &shape.faces {
-                items.push(Item::Ref(match faces {
-                    NewFaces::Polygons(graph) => self.face_graph(graph),
-                    NewFaces::Indexed(set) => self.indexed_faces(set),
-                }));
-            }
+            let mut maps = Vec::new();
+            let items = shape
+                .body
+                .iter()
+                .map(|item| Item::Ref(self.item(item, context, &mut maps)))
+                .collect();
             representations.push(self.add(Stmt {
                 name: b"IFCSHAPEREPRESENTATION".to_vec(),
                 args: vec![
@@ -198,6 +282,135 @@ impl Draft<'_> {
         self.put(id, stmt);
         self.collect(old, cx)?;
         Ok(true)
+    }
+
+    /// 形の項目。値は [`rejected`] で確かめてある。写像元は `maps` で共有する
+    fn item(&mut self, item: &NewItem, context: u64, maps: &mut Vec<(u64, NewMapped)>) -> u64 {
+        match item {
+            NewItem::Solid(solid) => self.solid(solid),
+            NewItem::Faces(NewFaces::Polygons(graph)) => self.face_graph(graph),
+            NewItem::Faces(NewFaces::Indexed(set)) => self.indexed_faces(set),
+            NewItem::HalfSpace(half) => self.half_space(half),
+            NewItem::Boolean(boolean) => {
+                let first = self.item(&boolean.first, context, maps);
+                let second = self.item(&boolean.second, context, maps);
+                let operation: &[u8] = match boolean.operation {
+                    BooleanOperation::Union => b".UNION.",
+                    BooleanOperation::Intersection => b".INTERSECTION.",
+                    BooleanOperation::Difference => b".DIFFERENCE.",
+                };
+                let name: &[u8] = if clipping(boolean) {
+                    b"IFCBOOLEANCLIPPINGRESULT"
+                } else {
+                    b"IFCBOOLEANRESULT"
+                };
+                self.add(Stmt {
+                    name: name.to_vec(),
+                    args: vec![raw(operation), Item::Ref(first), Item::Ref(second)],
+                })
+            }
+            NewItem::Mapped(mapped) => {
+                let known = maps
+                    .iter()
+                    .find(|(_, m)| m.origin == mapped.origin && m.items == mapped.items)
+                    .map(|(id, _)| *id);
+                let source = match known {
+                    Some(id) => id,
+                    None => {
+                        let origin = self.axis3(&mapped.origin);
+                        let items = mapped
+                            .items
+                            .iter()
+                            .map(|item| Item::Ref(self.item(item, context, maps)))
+                            .collect();
+                        let kind = items_type(&mapped.items).unwrap_or_default();
+                        let representation = self.add(Stmt {
+                            name: b"IFCSHAPEREPRESENTATION".to_vec(),
+                            args: vec![
+                                Item::Ref(context),
+                                text("Body"),
+                                text(kind),
+                                Item::List(items),
+                            ],
+                        });
+                        let id = self.add(Stmt {
+                            name: b"IFCREPRESENTATIONMAP".to_vec(),
+                            args: vec![Item::Ref(origin), Item::Ref(representation)],
+                        });
+                        maps.push((id, (**mapped).clone()));
+                        id
+                    }
+                };
+                let target = self.operator(&mapped.target);
+                self.add(Stmt {
+                    name: b"IFCMAPPEDITEM".to_vec(),
+                    args: vec![Item::Ref(source), Item::Ref(target)],
+                })
+            }
+        }
+    }
+
+    /// 平面の半空間
+    fn half_space(&mut self, half: &NewHalfSpace) -> u64 {
+        let position = self.axis3(&half.plane);
+        let plane = self.add(Stmt {
+            name: b"IFCPLANE".to_vec(),
+            args: vec![Item::Ref(position)],
+        });
+        let mut args = vec![Item::Ref(plane), boolean(half.agreement)];
+        let name: &[u8] = match &half.limit {
+            NewHalfSpaceLimit::Unbounded => b"IFCHALFSPACESOLID",
+            NewHalfSpaceLimit::Box { corner, dimensions } => {
+                let corner = self.point(b"IFCCARTESIANPOINT", corner);
+                let mut bounds = vec![Item::Ref(corner)];
+                bounds.extend(dimensions.iter().map(|&v| number(v)));
+                let enclosure = self.add(Stmt {
+                    name: b"IFCBOUNDINGBOX".to_vec(),
+                    args: bounds,
+                });
+                args.push(Item::Ref(enclosure));
+                b"IFCBOXEDHALFSPACE"
+            }
+            NewHalfSpaceLimit::Polygonal { position, boundary } => {
+                let position = self.axis3(position);
+                let line = self.polyline(boundary, true);
+                args.extend([Item::Ref(position), Item::Ref(line)]);
+                b"IFCPOLYGONALBOUNDEDHALFSPACE"
+            }
+        };
+        self.add(Stmt {
+            name: name.to_vec(),
+            args,
+        })
+    }
+
+    /// 写像先の変換
+    fn operator(&mut self, target: &CartesianMapping3) -> u64 {
+        let axis1 = self.direction(target.axis1);
+        let axis2 = self.direction(target.axis2);
+        let origin = self.point(b"IFCCARTESIANPOINT", &target.local_origin);
+        let axis3 = self.direction(target.axis3);
+        let scale = |v: Option<f64>| v.map_or_else(null, number);
+        let mut args = vec![axis1, axis2, Item::Ref(origin)];
+        let name: &[u8] = match target.scale {
+            MappingScale3::Uniform(s) => {
+                args.extend([scale(s), axis3]);
+                b"IFCCARTESIANTRANSFORMATIONOPERATOR3D"
+            }
+            MappingScale3::NonUniform { x, y, z } => {
+                args.extend([scale(x), axis3, scale(y), scale(z)]);
+                b"IFCCARTESIANTRANSFORMATIONOPERATOR3DNONUNIFORM"
+            }
+        };
+        self.add(Stmt {
+            name: name.to_vec(),
+            args,
+        })
+    }
+
+    /// 省略できる向き
+    fn direction(&mut self, value: Option<[f64; 3]>) -> Item {
+        value.map_or_else(null, |v| Item::Ref(self.point(b"IFCDIRECTION", &v)))
     }
 
     /// 押し出し。値は [`rejected`] で確かめてある
@@ -559,6 +772,36 @@ fn integers(values: &[u32]) -> Item {
     )
 }
 
+/// 項目を書く作業量
+fn item_size(item: &NewItem) -> u64 {
+    match item {
+        NewItem::Solid(_) => 1,
+        NewItem::Faces(faces) => faces_size(faces),
+        NewItem::HalfSpace(half) => match &half.limit {
+            NewHalfSpaceLimit::Polygonal { boundary, .. } => 1 + boundary.len() as u64,
+            _ => 1,
+        },
+        NewItem::Boolean(boolean) => item_size(&boolean.first)
+            .saturating_add(item_size(&boolean.second))
+            .saturating_add(1),
+        NewItem::Mapped(mapped) => mapped
+            .items
+            .iter()
+            .fold(1, |sum: u64, item| sum.saturating_add(item_size(item))),
+    }
+}
+
+/// 切り取り（`IfcBooleanClippingResult`）として書くか
+fn clipping(boolean: &NewBoolean) -> bool {
+    boolean.operation == BooleanOperation::Difference
+        && matches!(boolean.second, NewItem::HalfSpace(_))
+        && match &boolean.first {
+            NewItem::Solid(_) => true,
+            NewItem::Boolean(first) => clipping(first),
+            _ => false,
+        }
+}
+
 /// 面集合を書く作業量。行の数
 fn faces_size(faces: &NewFaces) -> u64 {
     let rows = match faces {
@@ -576,24 +819,32 @@ fn faces_size(faces: &NewFaces) -> u64 {
     rows as u64
 }
 
-/// `Body` の表現の種類。項目がなければ `None`
-fn body_type(shape: &NewShape) -> Option<&'static str> {
-    let solids = !shape.solids.is_empty();
-    let (mut brep, mut surface, mut tessellation) = (false, false, false);
-    for faces in &shape.faces {
-        match faces {
-            NewFaces::Polygons(graph) if graph.kind == FaceModelKind::FacetedSolid => brep = true,
-            NewFaces::Polygons(_) => surface = true,
-            NewFaces::Indexed(_) => tessellation = true,
+/// 1 つの項目の表現の種類。半空間は表現に直接置かないので空
+fn item_type(item: &NewItem) -> &'static str {
+    match item {
+        NewItem::Solid(_) => "SweptSolid",
+        NewItem::Faces(NewFaces::Polygons(graph)) if graph.kind == FaceModelKind::FacetedSolid => {
+            "Brep"
         }
+        NewItem::Faces(NewFaces::Polygons(_)) => "SurfaceModel",
+        NewItem::Faces(NewFaces::Indexed(_)) => "Tessellation",
+        NewItem::Boolean(boolean) if clipping(boolean) => "Clipping",
+        NewItem::Boolean(_) => "CSG",
+        NewItem::HalfSpace(_) => "",
+        NewItem::Mapped(_) => "MappedRepresentation",
     }
-    match (solids, brep, surface, tessellation) {
-        (false, false, false, false) => None,
-        (true, false, false, false) => Some("SweptSolid"),
-        (false, true, false, false) => Some("Brep"),
-        (true, true, false, false) => Some("SolidModel"),
-        (false, false, true, false) => Some("SurfaceModel"),
-        (false, false, false, true) => Some("Tessellation"),
+}
+
+/// 表現の種類。項目がなければ `None`、書けない組み合わせなら空
+fn items_type(items: &[NewItem]) -> Option<&'static str> {
+    let kinds: BTreeSet<&'static str> = items.iter().map(item_type).collect();
+    let kinds: Vec<&'static str> = kinds.into_iter().collect();
+    match kinds.as_slice() {
+        [] => None,
+        [""] => Some(""),
+        [kind] => Some(kind),
+        ["Brep", "SweptSolid"] => Some("SolidModel"),
+        ["CSG", "Clipping"] => Some("CSG"),
         _ => Some(""),
     }
 }
@@ -711,62 +962,146 @@ fn axis2(position: Option<&NewAxis2>) -> bool {
     position.is_none_or(|p| finite(&p.location) && p.reference.is_none_or(|r| direction(&r)))
 }
 
+fn axis3(p: &NewAxis3) -> bool {
+    finite(&p.location)
+        && p.axis.is_none_or(|v| direction(&v))
+        && p.reference.is_none_or(|v| direction(&v))
+}
+
+/// 正の有限な尺度か、省略
+fn scale(value: Option<f64>) -> bool {
+    value.is_none_or(|v| v.is_finite() && v > 0.0)
+}
+
+/// 項目の並びが書けないなら理由
+fn items_rejected(items: &[NewItem], version: Version, depth: usize) -> Option<&'static str> {
+    if items_type(items) == Some("") {
+        return Some(
+            if items
+                .iter()
+                .any(|item| matches!(item, NewItem::HalfSpace(_)))
+            {
+                "half_space"
+            } else {
+                "mixed"
+            },
+        );
+    }
+    items
+        .iter()
+        .find_map(|item| item_rejected(item, version, depth))
+}
+
+/// 1 つの項目が書けないなら理由
+fn item_rejected(item: &NewItem, version: Version, depth: usize) -> Option<&'static str> {
+    if depth >= NESTING {
+        return Some("nesting");
+    }
+    match item {
+        NewItem::Solid(solid) => solid_rejected(solid),
+        NewItem::Faces(faces) => faces_rejected(faces, version),
+        NewItem::HalfSpace(half) => {
+            let limit = match &half.limit {
+                NewHalfSpaceLimit::Unbounded => true,
+                NewHalfSpaceLimit::Box { corner, dimensions } => {
+                    finite(corner) && dimensions.iter().all(|v| v.is_finite() && *v > 0.0)
+                }
+                NewHalfSpaceLimit::Polygonal { position, boundary } => {
+                    axis3(position) && ring(boundary)
+                }
+            };
+            (!(axis3(&half.plane) && limit)).then_some("half_space")
+        }
+        NewItem::Boolean(boolean) => {
+            [&boolean.first, &boolean.second]
+                .into_iter()
+                .find_map(|operand| {
+                    let ok = match operand {
+                        NewItem::Solid(_) | NewItem::HalfSpace(_) | NewItem::Boolean(_) => true,
+                        NewItem::Faces(NewFaces::Polygons(graph)) => {
+                            graph.kind == FaceModelKind::FacetedSolid
+                        }
+                        NewItem::Faces(NewFaces::Indexed(set)) => set.closed == Some(true),
+                        NewItem::Mapped(_) => false,
+                    };
+                    if ok {
+                        item_rejected(operand, version, depth + 1)
+                    } else {
+                        Some("operand")
+                    }
+                })
+        }
+        NewItem::Mapped(mapped) => {
+            let target = &mapped.target;
+            let scales = match target.scale {
+                MappingScale3::Uniform(s) => scale(s),
+                MappingScale3::NonUniform { x, y, z } => scale(x) && scale(y) && scale(z),
+            };
+            let ok = !mapped.items.is_empty()
+                && axis3(&mapped.origin)
+                && finite(&target.local_origin)
+                && [target.axis1, target.axis2, target.axis3]
+                    .iter()
+                    .all(|v| v.is_none_or(|v| direction(&v)))
+                && scales;
+            if ok {
+                items_rejected(&mapped.items, version, depth + 1)
+            } else {
+                Some("mapping")
+            }
+        }
+    }
+}
+
+fn faces_rejected(faces: &NewFaces, version: Version) -> Option<&'static str> {
+    match faces {
+        NewFaces::Polygons(graph)
+            if graph.kind == FaceModelKind::FaceSurface && version != Version::Ifc2x3 =>
+        {
+            Some("deprecated")
+        }
+        NewFaces::Polygons(graph) => (!graph_ok(graph)).then_some("faces"),
+        NewFaces::Indexed(set) => indexed_rejected(set, version),
+    }
+}
+
+fn solid_rejected(solid: &NewSolid) -> Option<&'static str> {
+    if !(solid.depth.is_finite() && solid.depth > 0.0) {
+        return Some("depth");
+    }
+    if !direction(&solid.direction) || solid.direction[2] == 0.0 {
+        return Some("direction");
+    }
+    if solid.position.as_ref().is_some_and(|p| !axis3(p)) {
+        return Some("position");
+    }
+    let positive = |v: f64| v.is_finite() && v > 0.0;
+    let profile = match &solid.profile.kind {
+        NewProfileKind::Rectangle { x, y, position } => {
+            positive(*x) && positive(*y) && axis2(position.as_ref())
+        }
+        NewProfileKind::Circle { radius, position } => {
+            positive(*radius) && axis2(position.as_ref())
+        }
+        NewProfileKind::Polygon { outer, holes } => {
+            ring(outer) && holes.iter().all(|hole| ring(hole))
+        }
+    };
+    (!profile).then_some("profile")
+}
+
 /// 書けない形なら、診断に書く理由
 pub(in crate::edit) fn rejected(shape: &NewShape, version: Version) -> Option<&'static str> {
-    if shape.axis.is_none() && shape.solids.is_empty() && shape.faces.is_empty() {
+    if shape.axis.is_none() && shape.body.is_empty() {
         return Some("empty");
     }
-    if body_type(shape) == Some("") {
-        return Some("mixed");
-    }
-    for faces in &shape.faces {
-        let reason = match faces {
-            NewFaces::Polygons(graph)
-                if graph.kind == FaceModelKind::FaceSurface && version != Version::Ifc2x3 =>
-            {
-                Some("deprecated")
-            }
-            NewFaces::Polygons(graph) => (!graph_ok(graph)).then_some("faces"),
-            NewFaces::Indexed(set) => indexed_rejected(set, version),
-        };
-        if reason.is_some() {
-            return reason;
-        }
+    if let Some(reason) = items_rejected(&shape.body, version, 0) {
+        return Some(reason);
     }
     if let Some(points) = &shape.axis
         && (points.len() < 2 || !points.iter().all(|p| finite(p)))
     {
         return Some("axis");
-    }
-    for solid in &shape.solids {
-        if !(solid.depth.is_finite() && solid.depth > 0.0) {
-            return Some("depth");
-        }
-        if !direction(&solid.direction) || solid.direction[2] == 0.0 {
-            return Some("direction");
-        }
-        if let Some(p) = &solid.position
-            && !(finite(&p.location)
-                && p.axis.is_none_or(|v| direction(&v))
-                && p.reference.is_none_or(|v| direction(&v)))
-        {
-            return Some("position");
-        }
-        let positive = |v: f64| v.is_finite() && v > 0.0;
-        let profile = match &solid.profile.kind {
-            NewProfileKind::Rectangle { x, y, position } => {
-                positive(*x) && positive(*y) && axis2(position.as_ref())
-            }
-            NewProfileKind::Circle { radius, position } => {
-                positive(*radius) && axis2(position.as_ref())
-            }
-            NewProfileKind::Polygon { outer, holes } => {
-                ring(outer) && holes.iter().all(|hole| ring(hole))
-            }
-        };
-        if !profile {
-            return Some("profile");
-        }
     }
     None
 }

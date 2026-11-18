@@ -3,15 +3,16 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_building::{
-    Building, ElementRef, FaceBoundRef, FaceSetRef, GlobalId, GridSet, Id, IndexedFaces, Local,
-    MaterialKind, Opening, ParentKind, QuantityKind, SpatialKind, Transform,
+    BooleanOperation, Building, CartesianMapping3, ElementRef, FaceBoundRef, FaceSetRef, GlobalId,
+    GridSet, Id, IndexedFaces, Local, MappingScale3, MaterialKind, Opening, ParentKind,
+    QuantityKind, SpatialKind, Transform,
 };
 use zumen_ifc::{
     Edit, FillingKind, Ifc, IfcFile, IfcLive, NewAxis3, NewBeam, NewColumn, NewConstituent,
-    NewElement, NewFaces, NewFilling, NewGrid, NewGridAxis, NewLayer, NewLayerUsage, NewMaterial,
-    NewMaterialLayer, NewOpening, NewPlacement, NewProfileKind, NewQuantity, NewSection, NewShape,
-    NewSlab, NewSolid, NewSpace, NewUnit, NewWall, OpeningChange, RootAttribute, SpaceKind, Target,
-    WallChange, apply,
+    NewElement, NewFaces, NewFilling, NewGrid, NewGridAxis, NewHalfSpaceLimit, NewItem, NewLayer,
+    NewLayerUsage, NewMapped, NewMaterial, NewMaterialLayer, NewOpening, NewPlacement,
+    NewProfileKind, NewQuantity, NewSection, NewShape, NewSlab, NewSolid, NewSpace, NewUnit,
+    NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -2494,37 +2495,86 @@ fn writes_and_replaces_shapes() {
     }
 }
 
+/// 建物と階に壁・床・柱（200〜202）を置き、形を書く。読み直して同じ形かを確かめ、`ZUMEN_IFC_AUTHORED` が
+/// あれば `<スキーマ>.<name>.ifc` に書き出す
 // 環境変数は照合用の出力先だけに使う。
 #[allow(clippy::disallowed_methods)]
+fn write_shapes(schema: &str, shapes: &[NewShape], name: &str) -> String {
+    let src = complete_sample(schema);
+    let mut edits = building_edits();
+    edits.truncate(3);
+    for (n, class) in [(200, "IfcWall"), (201, "IfcSlab"), (202, "IfcColumn")] {
+        let placement = at(0.0, 0.0, 0.0, Target::Added(1));
+        edits.push(new_element(
+            class,
+            n,
+            Some(Target::Added(1)),
+            Some(placement),
+        ));
+    }
+    for (n, shape) in shapes.iter().enumerate() {
+        edits.push(Edit::Shape {
+            element: Target::Added(3 + n),
+            shape: shape.clone(),
+        });
+    }
+    let (result, codes) = run(src.as_bytes(), &edits);
+    assert!(codes.is_empty(), "{schema}: {codes:?}");
+    let bytes = result.unwrap_or_default();
+    let building = lift_geometry(&bytes);
+    assert!(building.is_some(), "{schema}: 読めない");
+    let Some(building) = building else {
+        return String::new();
+    };
+    for (n, shape) in (200..).zip(shapes) {
+        assert_eq!(
+            element(&building, n).and_then(|e| shape::shape_of(&building, e)),
+            Some(shape::as_written(shape)),
+            "{schema} {n}"
+        );
+    }
+    if let Some(folder) = std::env::var_os("ZUMEN_IFC_AUTHORED") {
+        let folder = std::path::PathBuf::from(folder);
+        let written = std::fs::create_dir_all(&folder)
+            .and_then(|()| std::fs::write(folder.join(format!("{schema}.{name}.ifc")), &bytes));
+        assert!(written.is_ok(), "{written:?}");
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+#[test]
+fn writes_booleans_and_mappings() {
+    for schema in SCHEMAS {
+        let shapes = shape::csg_examples(schema != "IFC2X3");
+        let text = write_shapes(schema, &shapes, "csg");
+        for kind in ["Clipping", "CSG", "MappedRepresentation", "SweptSolid"] {
+            assert!(
+                text.contains(&format!("'Body','{kind}'")),
+                "{schema} {kind}"
+            );
+        }
+        for (name, n) in [
+            ("IFCBOOLEANCLIPPINGRESULT", 2),
+            ("IFCBOOLEANRESULT", 1),
+            ("IFCHALFSPACESOLID", 1),
+            ("IFCBOXEDHALFSPACE", 1),
+            ("IFCPOLYGONALBOUNDEDHALFSPACE", 1),
+            // 同じ原点と項目の写像元は 1 つ
+            ("IFCREPRESENTATIONMAP", 1),
+            ("IFCMAPPEDITEM", 2),
+            ("IFCCARTESIANTRANSFORMATIONOPERATOR3DNONUNIFORM", 1),
+        ] {
+            assert_eq!(count(&text, name), n, "{schema} {name}");
+        }
+    }
+}
+
 #[test]
 fn writes_face_sets() {
-    let folder = std::env::var_os("ZUMEN_IFC_AUTHORED").map(std::path::PathBuf::from);
     for schema in SCHEMAS {
         let later = schema != "IFC2X3";
         let shapes = shape::face_examples(later, schema == "IFC4X3_ADD2");
-        let src = complete_sample(schema);
-        // 建物と階に、壁・床・柱を置く
-        let mut edits = building_edits();
-        edits.truncate(3);
-        for (n, class) in [(200, "IfcWall"), (201, "IfcSlab"), (202, "IfcColumn")] {
-            let placement = at(0.0, 0.0, 0.0, Target::Added(1));
-            edits.push(new_element(
-                class,
-                n,
-                Some(Target::Added(1)),
-                Some(placement),
-            ));
-        }
-        for (n, shape) in shapes.iter().enumerate() {
-            edits.push(Edit::Shape {
-                element: Target::Added(3 + n),
-                shape: shape.clone(),
-            });
-        }
-        let (result, codes) = run(src.as_bytes(), &edits);
-        assert!(codes.is_empty(), "{schema}: {codes:?}");
-        let bytes = result.unwrap();
-        let text = String::from_utf8(bytes.clone()).unwrap();
+        let text = write_shapes(schema, &shapes, "faces");
         // 箱の点は 8 つを共有し、面ごとに写さない
         assert_eq!(
             count(&text, "IFCCLOSEDSHELL"),
@@ -2541,18 +2591,6 @@ fn writes_face_sets() {
                 "{schema} {kind}"
             );
         }
-        let building = lift_geometry(&bytes).unwrap();
-        for (n, shape) in (200..).zip(&shapes) {
-            assert_eq!(
-                element(&building, n).and_then(|e| shape::shape_of(&building, e)),
-                Some(shape::as_written(shape)),
-                "{schema} {n}"
-            );
-        }
-        if let Some(folder) = &folder {
-            std::fs::create_dir_all(folder).unwrap();
-            std::fs::write(folder.join(format!("{schema}.faces.ifc")), bytes).unwrap();
-        }
     }
 }
 
@@ -2566,17 +2604,85 @@ fn rejects_shapes_it_cannot_write() {
     };
     let solid = |change: &dyn Fn(&mut NewSolid)| {
         changed(&|shape: &mut NewShape| {
-            if let Some(solid) = shape.solids.first_mut() {
+            if let Some(NewItem::Solid(solid)) = shape.body.first_mut() {
                 change(solid);
             }
         })
     };
+    let body = |body: Vec<NewItem>| NewShape { axis: None, body };
+    let origin = shape::placed([0.0; 3], None);
+    let half = |limit: NewHalfSpaceLimit| shape::half_space(origin.clone(), false, limit);
+    let unbounded = || half(NewHalfSpaceLimit::Unbounded);
+    let mapped = |items: Vec<NewItem>, scale: MappingScale3| {
+        NewItem::Mapped(Box::new(NewMapped {
+            origin: origin.clone(),
+            target: CartesianMapping3 {
+                local_origin: [0.0; 3],
+                axis1: None,
+                axis2: None,
+                axis3: None,
+                scale,
+            },
+            items,
+        }))
+    };
+    let block = || shape::block(1.0, 1.0, 1.0);
+    let cut = |first: NewItem, second: NewItem| {
+        shape::boolean(BooleanOperation::Difference, first, second)
+    };
+    let mut nested = block();
+    for _ in 0..16 {
+        nested = shape::boolean(BooleanOperation::Union, nested, block());
+    }
     let refused = [
         NewShape {
             axis: None,
-            solids: Vec::new(),
-            faces: Vec::new(),
+            body: Vec::new(),
         },
+        // 半空間は表現に直接置かない。写像と押し出しは 1 つの表現にしない
+        body(vec![unbounded()]),
+        body(vec![
+            block(),
+            mapped(vec![block()], MappingScale3::Uniform(None)),
+        ]),
+        // 写像と面の模型は演算の対象にしない
+        body(vec![cut(
+            mapped(vec![block()], MappingScale3::Uniform(None)),
+            unbounded(),
+        )]),
+        body(vec![cut(
+            NewItem::Faces(NewFaces::Polygons(shape::surfaces(true)[0].clone())),
+            unbounded(),
+        )]),
+        // 囲みの箱・多角形・写像の尺度・空の写像元・入れ子の深さ
+        body(vec![cut(
+            block(),
+            half(NewHalfSpaceLimit::Box {
+                corner: [0.0; 3],
+                dimensions: [1.0, 0.0, 1.0],
+            }),
+        )]),
+        body(vec![cut(
+            block(),
+            half(NewHalfSpaceLimit::Polygonal {
+                position: origin.clone(),
+                boundary: vec![[0.0, 0.0], [1.0, 0.0]],
+            }),
+        )]),
+        body(vec![mapped(
+            vec![block()],
+            MappingScale3::Uniform(Some(0.0)),
+        )]),
+        body(vec![mapped(
+            vec![block()],
+            MappingScale3::NonUniform {
+                x: None,
+                y: Some(f64::NAN),
+                z: None,
+            },
+        )]),
+        body(vec![mapped(Vec::new(), MappingScale3::Uniform(None))]),
+        body(vec![nested]),
         changed(&|shape| shape.axis = Some(vec![[0.0, 0.0]])),
         solid(&|s| s.depth = 0.0),
         solid(&|s| s.depth = f64::NAN),
@@ -2620,8 +2726,7 @@ fn rejects_shapes_it_cannot_write() {
                 element: Target::Added(3),
                 shape: NewShape {
                     axis: None,
-                    solids: Vec::new(),
-                    faces: vec![faces],
+                    body: vec![NewItem::Faces(faces)],
                 },
             });
             edits
@@ -2642,14 +2747,27 @@ fn rejects_shapes_it_cannot_write() {
         }
         // 押し出しと面の模型は 1 つの表現にしない
         let mut mixed = building_edits();
+        let mut shape = wall.clone();
+        shape.body.push(NewItem::Faces(NewFaces::Polygons(shell)));
         mixed.push(Edit::Shape {
             element: Target::Added(3),
-            shape: NewShape {
-                faces: vec![NewFaces::Polygons(shell)],
-                ..wall.clone()
-            },
+            shape,
         });
         cases.push(mixed);
+        // 添字の面集合は閉殻の申告があるときだけ演算の対象にする
+        if schema != "IFC2X3" {
+            let mut open = shape::triangulated_box([1.0, 1.0, 1.0], false);
+            open.closed = None;
+            let mut edits = building_edits();
+            edits.push(Edit::Shape {
+                element: Target::Added(3),
+                shape: body(vec![cut(
+                    NewItem::Faces(NewFaces::Indexed(open)),
+                    unbounded(),
+                )]),
+            });
+            cases.push(edits);
+        }
         let mut indexed = shape::triangulated_box([1.0, 1.0, 1.0], false);
         if let IndexedFaces::Triangles { indices, .. } = &mut indexed.faces {
             indices[0][0] = 9;
