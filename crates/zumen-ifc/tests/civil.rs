@@ -2,7 +2,7 @@
 #![cfg(feature = "civil")]
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
-use zumen_civil::{CivilModel, HorizontalKind, VerticalKind};
+use zumen_civil::{CivilModel, CrossSectionHeight, HorizontalKind, LinearPosition, VerticalKind};
 use zumen_crs::{Crs, HeightDatum, Zone};
 use zumen_ifc::Ifc;
 use zumen_landxml::LandXml;
@@ -638,4 +638,77 @@ fn cross_sections_that_cannot_be_placed_are_dropped() {
     );
     let text = text.replace(".CURVE.,$,.F.,", ".CURVE.,$,.T.,");
     assert!(codes_of(&text).contains(&codes::IFC_ATTRIBUTE_INVALID));
+}
+
+/// 線形に沿って置いた信号。1 つ目は縦断の曲線から左へ 3、上へ 2.5。2 つ目は平面の曲線から右へ 1、上へ 4、
+/// 先へ 0.5 で、向きの軸を書く
+#[cfg(test)]
+fn ifc_signals(units: &str, scale: f64) -> String {
+    let records = format!(
+        "#140=IFCSIGNAL('0000000000000000000140',$,'信号',$,$,#141,$,$,$);
+#141=IFCLINEARPLACEMENT($,#142,$);
+#142=IFCAXIS2PLACEMENTLINEAR(#143,$,$);
+#143=IFCPOINTBYDISTANCEEXPRESSION(IFCLENGTHMEASURE({:?}),IFCLENGTHMEASURE({:?}),IFCLENGTHMEASURE({:?}),$,#102);
+#150=IFCSIGNAL('0000000000000000000150',$,$,$,$,#151,$,$,$);
+#151=IFCLINEARPLACEMENT($,#152,$);
+#152=IFCAXIS2PLACEMENTLINEAR(#153,#154,$);
+#153=IFCPOINTBYDISTANCEEXPRESSION(IFCLENGTHMEASURE({:?}),IFCLENGTHMEASURE({:?}),IFCLENGTHMEASURE({:?}),IFCLENGTHMEASURE({:?}),#103);
+#154=IFCDIRECTION((0.,0.,1.));",
+        30.0 * scale,
+        3.0 * scale,
+        2.5 * scale,
+        50.0 * scale,
+        -scale,
+        4.0 * scale,
+        0.5 * scale,
+    );
+    ifc_cross(units, scale, 1.0)
+        .replace("ENDSEC;\nEND-ISO", &format!("{records}\nENDSEC;\nEND-ISO"))
+}
+
+#[test]
+fn linear_placements_become_positions_along_the_alignment() {
+    let mm = "#10=IFCUNITASSIGNMENT((#11,#12));
+#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#12=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);";
+    for (units, scale) in [(METRE, 1.0), (mm, 1000.0)] {
+        let (positions, diag) = with_cx(|cx| {
+            let file = Ifc::read(ifc_signals(units, scale).as_bytes(), cx).unwrap();
+            Lift::<Vec<LinearPosition>>::lift(&file, cx).unwrap()
+        });
+        assert_eq!(positions.len(), 2, "{positions:?}");
+        let (a, b) = (&positions[0], &positions[1]);
+        assert_eq!(a.element, "0000000000000000000140");
+        assert_eq!(a.name.as_deref(), Some("信号"));
+        assert_eq!(a.kind, "IFCSIGNAL");
+        assert_eq!(a.alignment, "0000000000000000000040");
+        assert!(near(a.distance, 30.0) && near(a.offset, -3.0) && near(a.height, 2.5));
+        assert_eq!(a.height_reference, CrossSectionHeight::FormationOffset);
+        assert!(near(a.longitudinal, 0.0));
+        assert_eq!(b.element, "0000000000000000000150");
+        assert_eq!(b.name, None);
+        assert!(near(b.distance, 50.0) && near(b.offset, 1.0) && near(b.height, 4.0));
+        assert_eq!(b.height_reference, CrossSectionHeight::Elevation);
+        assert!(near(b.longitudinal, 0.5));
+        let codes: Vec<Code> = diag.iter().map(|d| d.code()).collect();
+        assert_eq!(codes, vec![codes::IFC_CIVIL_GEOMETRY_DROPPED], "{diag:?}");
+    }
+}
+
+#[test]
+fn linear_placements_on_unknown_curves_are_reported() {
+    let text = ifc_signals(METRE, 1.0).replace(
+        "IFCLENGTHMEASURE(2.5),$,#102);",
+        "IFCLENGTHMEASURE(2.5),$,#113);",
+    );
+    let (positions, diag) = with_cx(|cx| {
+        let file = Ifc::read(text.as_bytes(), cx).unwrap();
+        Lift::<Vec<LinearPosition>>::lift(&file, cx).unwrap()
+    });
+    assert_eq!(positions.len(), 1, "{positions:?}");
+    assert!(
+        diag.iter()
+            .any(|d| d.code() == codes::IFC_ATTRIBUTE_INVALID),
+        "{diag:?}"
+    );
 }

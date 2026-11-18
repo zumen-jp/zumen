@@ -111,7 +111,7 @@ cargo test -p zumen-ifc --test text_encoding -- --nocapture
 
 ## 土木の領域モデルへ移すとき
 
-IFC4.3 の線形・地表面・横断を、J-LandXML と同じ土木の領域モデルに移します（`crates/zumen-ifc/src/civil.rs`、#375・#477・#478）。ここでは横断の規則を記録します。
+IFC4.3 の線形・地表面・横断を、J-LandXML と同じ土木の領域モデルに移します（`crates/zumen-ifc/src/civil.rs`、#375・#477・#478）。ここでは横断と、線形に沿った位置の規則を記録します。
 
 - `IfcSectionedSurface` の `IfcOpenCrossProfileDef` を、線形の横断の線にする。準線（Directrix）は、線形の表現の項目にある `IfcGradientCurve` に限る。ほかの準線と、`IfcSectionedSolidHorizontal`・閉じた断面は移さず、`ifc.civil-geometry.dropped` を返す（決定 0235）。
 - 断面の位置は、`IfcAxis2PlacementLinear` の `IfcPointByDistanceExpression` の DistanceAlong を、線形の追加距離にする。勾配の曲線の DistanceAlong は平面の曲線の長さで測る。位置の横・鉛直・前後のずれは仕様が禁じる（`NoOffsets`）ので、書いてあれば `ifc.attribute.invalid` を返す。Axis は鉛直だけを受け付け、RefDirection を書いた位置は `ifc.placement.unsupported` を返す。
@@ -121,6 +121,17 @@ IFC4.3 の線形・地表面・横断を、J-LandXML と同じ土木の領域モ
 - 1 つの断面でも移せなければ、その面の断面をどれも移さない。使わなかった `IfcOpenCrossProfileDef` は `ifc.civil-geometry.dropped` を返す。
 
 試験（`crates/zumen-ifc/tests/civil.rs`）では、拝み勾配と斜めの幅の片勾配の 2 断面を、メートル・ラジアンとミリメートル・度の IFC4.3 で作り、同じ横断の J-LandXML から移した離れと高さに一致することを確かめます。公開原本 [IfcSectionedSurface_Superelevation.ifc](https://github.com/RickBrice/IFC-Alignment-Geometry-Implementation-Guide/blob/fd8776fc8f0a76e63cd42963a904549ab3997b62/examples/IfcSectionedSurface_Superelevation.ifc)（フィート・ラジアン、SHA-256 `f807c485…75d5`）は配布元を参照し、同梱しません。手元で読むと 6 断面を診断なしで移し、左へ曲がる円弧の片勾配で右が高くなりました。断面の左右の向きは、これと仕様の文で確かめました。外部の実装との照合はまだです（#504）。
+
+### 線形に沿った位置
+
+`Lift<Vec<LinearPosition>>` は、`IfcLinearPlacement` で置いた要素を、線形の上の位置として返します（#376）。単位と `IfcMapConversion` は線形と同じく読みます。建物モデルの要素の形と位置は、ここでは扱いません。
+
+- 6 ObjectPlacement が `IfcLinearPlacement` で、1 GlobalId を書いた要素を、ファイルの順に返す。`IfcReferent` は線形の測点として読むので返さない。
+- 位置は、RelativePlacement の `IfcAxis2PlacementLinear` の Location の `IfcPointByDistanceExpression` から読む。DistanceAlong を追加距離、OffsetLateral の符号を変えた値を離れ（右を正）、OffsetLongitudinal を接線に沿ったずれにする。`IfcMapConversion` の Scale を掛ける。
+- BasisCurve は、線形の表現の曲線か、`IfcGradientCurve`・`IfcSegmentedReferenceCurve` の BaseCurve をたどった曲線に限る。`IfcGradientCurve` なら OffsetVertical に ScaleZ を掛けて計画高からの差（`CrossSectionHeight::FormationOffset`）、平面の `IfcCompositeCurve` なら線形の配置の高さに足した標高（`CrossSectionHeight::Elevation`）にする。`IfcSegmentedReferenceCurve`（カントで傾けた曲線）は `ifc.placement.unsupported` を返し、要素を返さない。どの線形の曲線でもなければ `ifc.attribute.invalid` を返す。
+- `IfcAxis2PlacementLinear` の Axis と RefDirection（要素の向き）は移さず、`ifc.civil-geometry.dropped` を返す。位置は返す。`IfcLinearPlacement` の PlacementRelTo と CartesianPosition は読まない。
+
+試験では、勾配の曲線と平面の曲線に置いた 2 つの信号を、メートルとミリメートルの IFC4.3 で作り、追加距離・離れ・高さ・前後のずれを確かめます。buildingSMART の公開原本 [linear-placement-of-signal.ifc](https://github.com/buildingSMART/IFC4.x-specification-models/blob/7b06d489afbcff581bbbf4fdf158196412709baf/models/alignment-geometries-and-linear-positioning/linear-placement-of-signal/linear-placement-of-signal.ifc)（CC BY-ND 4.0、SHA-256 `3c6b97f7…4c97`）は配布元を参照し、同梱しません。手元で読むと、2 つの信号の位置を `zumen_civil::place` で平面と高さに直した値が、ファイルの CartesianPosition とミリメートルまで一致しました。
 
 ## 建物モデルへ移すとき
 
