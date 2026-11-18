@@ -7,10 +7,11 @@ use zumen_building::{
     QuantityKind, SpatialKind, Transform,
 };
 use zumen_ifc::{
-    Edit, FillingKind, Ifc, IfcFile, IfcLive, NewBeam, NewColumn, NewConstituent, NewElement,
-    NewFilling, NewGrid, NewGridAxis, NewLayer, NewLayerUsage, NewMaterial, NewMaterialLayer,
-    NewOpening, NewPlacement, NewQuantity, NewSection, NewSlab, NewSpace, NewUnit, NewWall,
-    OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
+    Edit, FillingKind, Ifc, IfcFile, IfcLive, NewAxis3, NewBeam, NewColumn, NewConstituent,
+    NewElement, NewFilling, NewGrid, NewGridAxis, NewLayer, NewLayerUsage, NewMaterial,
+    NewMaterialLayer, NewOpening, NewPlacement, NewProfileKind, NewQuantity, NewSection, NewShape,
+    NewSlab, NewSolid, NewSpace, NewUnit, NewWall, OpeningChange, RootAttribute, SpaceKind, Target,
+    WallChange, apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -2433,6 +2434,143 @@ fn rejects_materials_it_cannot_write() {
             let (result, codes) = run(src.as_bytes(), std::slice::from_ref(edit));
             assert!(result.is_err(), "{schema}: {edit:?}");
             assert_eq!(codes.len(), 1, "{schema}: {edit:?}: {codes:?}");
+        }
+    }
+}
+
+#[path = "support/shape.rs"]
+mod shape;
+
+fn lift_geometry(src: &[u8]) -> Option<Building> {
+    let file = read(src)?;
+    with(|cx| file.lift_geometry(cx)).0.ok()
+}
+
+#[test]
+fn writes_and_replaces_shapes() {
+    let [wall, slab, column] = shape::examples();
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let mut edits = building_edits();
+        edits.extend([
+            Edit::Shape {
+                element: Target::Added(3),
+                shape: column.clone(),
+            },
+            // 置き換えると、前の形を除く
+            Edit::Shape {
+                element: Target::Added(3),
+                shape: wall.clone(),
+            },
+            Edit::Shape {
+                element: Target::Added(4),
+                shape: slab.clone(),
+            },
+            Edit::Shape {
+                element: Target::Added(5),
+                shape: column.clone(),
+            },
+        ]);
+        let (result, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = result.unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        assert_eq!(count(&text, "IFCCIRCLEPROFILEDEF"), 1, "{text}");
+        assert_eq!(count(&text, "IFCPRODUCTDEFINITIONSHAPE"), 3, "{text}");
+        // 文脈は Axis と Body の 1 つずつ
+        assert_eq!(
+            count(&text, "IFCGEOMETRICREPRESENTATIONSUBCONTEXT"),
+            2,
+            "{text}"
+        );
+        let building = lift_geometry(&bytes).unwrap();
+        for (n, shape) in [(200, &wall), (201, &slab), (202, &column)] {
+            assert_eq!(
+                element(&building, n).and_then(|e| shape::shape_of(&building, e)),
+                Some(shape::as_written(shape)),
+                "{schema} {n}"
+            );
+        }
+    }
+}
+
+#[test]
+fn rejects_shapes_it_cannot_write() {
+    let [wall, ..] = shape::examples();
+    let changed = |change: &dyn Fn(&mut NewShape)| {
+        let mut shape = wall.clone();
+        change(&mut shape);
+        shape
+    };
+    let solid = |change: &dyn Fn(&mut NewSolid)| {
+        changed(&|shape: &mut NewShape| {
+            if let Some(solid) = shape.solids.first_mut() {
+                change(solid);
+            }
+        })
+    };
+    let refused = [
+        NewShape {
+            axis: None,
+            solids: Vec::new(),
+        },
+        changed(&|shape| shape.axis = Some(vec![[0.0, 0.0]])),
+        solid(&|s| s.depth = 0.0),
+        solid(&|s| s.depth = f64::NAN),
+        solid(&|s| s.direction = [1.0, 0.0, 0.0]),
+        solid(&|s| {
+            s.position = Some(NewAxis3 {
+                location: [0.0; 3],
+                axis: Some([0.0; 3]),
+                reference: None,
+            });
+        }),
+        solid(&|s| {
+            s.profile.kind = NewProfileKind::Circle {
+                radius: 0.0,
+                position: None,
+            };
+        }),
+        solid(&|s| {
+            s.profile.kind = NewProfileKind::Polygon {
+                outer: vec![[0.0, 0.0], [1.0, 0.0]],
+                holes: Vec::new(),
+            };
+        }),
+    ];
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let mut cases: Vec<Vec<Edit>> = refused
+            .iter()
+            .map(|shape| {
+                let mut edits = building_edits();
+                edits.push(Edit::Shape {
+                    element: Target::Added(3),
+                    shape: shape.clone(),
+                });
+                edits
+            })
+            .collect();
+        // 敷地には置かない。配置のない要素にも置かない
+        cases.push(vec![Edit::Shape {
+            element: Target::Instance(10),
+            shape: wall.clone(),
+        }]);
+        cases.push(vec![
+            new_element("IfcWall", 300, None, None),
+            Edit::Shape {
+                element: Target::Added(0),
+                shape: wall.clone(),
+            },
+        ]);
+        for edits in cases {
+            let (result, codes) = run(src.as_bytes(), &edits);
+            assert!(result.is_err(), "{schema}: {edits:?}");
+            assert_eq!(
+                codes,
+                [codes::CHANGE_EDIT_UNSUPPORTED],
+                "{schema}: {edits:?}"
+            );
         }
     }
 }

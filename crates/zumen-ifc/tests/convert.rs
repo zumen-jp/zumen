@@ -16,6 +16,9 @@ use zumen_sdk::{Codec, Lift};
 
 const VERSIONS: [Version; 3] = [Version::Ifc2x3, Version::Ifc4, Version::Ifc4x3];
 
+#[path = "support/shape.rs"]
+mod shape;
+
 fn with<T>(f: impl FnOnce(&mut Cx) -> T) -> (T, Diagnostics) {
     let mut budget = Budget::new(Limits::default());
     let mut diag = Diagnostics::new();
@@ -55,15 +58,15 @@ fn options(version: Version) -> ConvertOptions {
     }
 }
 
-/// 読んで建物モデルにする。人・組織・次元の指数を落とした診断のほかは出ないこと
+/// 読んで形のある建物モデルにする。人・組織・次元の指数を落とした診断と、形のない要素の診断のほかは出ないこと
 fn lift(src: &[u8]) -> Option<Building> {
     let (file, diag) = with(|cx| Ifc::read(src, cx));
     assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
     let file = file.ok()?;
-    let (building, diag) = with(|cx| file.lift(cx));
+    let (building, diag) = with(|cx| file.lift_geometry(cx));
     let others: Vec<_> = diag
         .iter()
-        .filter(|d| d.code() != codes::IFC_ENTITY_DROPPED)
+        .filter(|d| ![codes::IFC_ENTITY_DROPPED, codes::IFC_SHAPE_MISSING].contains(&d.code()))
         .collect();
     assert!(others.is_empty(), "{others:?}");
     building.ok()
@@ -213,6 +216,14 @@ fn source(version: Version) -> Option<Vec<u8>> {
             type_of: Some(Target::Added(10)),
         });
     }
+    // 形。壁は芯の線と矩形、床は穴のある多角形、柱は円の押し出し
+    let [wall, slab, column] = shape::examples();
+    edits.extend(
+        [(4, wall), (7, slab), (8, column)].map(|(n, shape)| Edit::Shape {
+            element: Target::Added(n),
+            shape,
+        }),
+    );
     // 材料。壁は層、扉は並び（IFC4 からは非推奨なので名前のない構成要素）、柱は単一、壁の型は構成要素
     // （IFC2X3 は持たないので単一）。層の名前は IFC4 から
     let later = version != Version::Ifc2x3;
@@ -468,6 +479,17 @@ fn converts_the_structure_between_every_version() {
                 }
             }
             assert_eq!(found, expected, "{from:?} → {to:?}");
+            // 形は、書き手が省かずに書く配置のほかは保つ
+            for n in [20, 23, 24] {
+                let of = |building: &Building| {
+                    building
+                        .find(Id::Global(global(n)))
+                        .and_then(|e| shape::shape_of(building, e))
+                };
+                let wanted = of(&source).map(|s| shape::as_written(&s));
+                assert!(wanted.is_some(), "{from:?} {n}");
+                assert_eq!(of(&target), wanted, "{from:?} → {to:?} {n}");
+            }
             // 数量は保つ。IFC2X3 へは式を落とす
             let mut wanted = quantities(&source, 20);
             if to == Version::Ifc2x3 {

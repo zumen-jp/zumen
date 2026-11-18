@@ -10,14 +10,15 @@
 
 - ひな形は、検査で誤りが出ず、プロジェクトの GlobalId・名前、ミリメートルの長さの単位、`Body` の下位の文脈、
   所有履歴の作ったソフトと日時が、渡した値のとおりに読める。
-- 変換した IFC は、検査で誤りが出ず、元の GlobalId・所属・開口と建具の関係・階の高さと配置・定義された種類が、
-  元の値のとおりに読める。
+- 変換した IFC は、検査で誤りが出ず、元の GlobalId・所属・開口と建具の関係・階の高さと配置・定義された種類・
+  材料が、元の値のとおりに読め、形の体積が元の寸法から求めた値になる。
 
 - IfcOpenShell の検査（スキーマと EXPRESS の規則）で誤りが出ない。
 - 種類ごとの数、階の高さと配置、要素の所属、開口と建具の関係、壁の材料の層が、足した値と直した値のとおりに読める。
 - 開口を引いた壁の形の体積が、芯の長さ・高さ・層の厚さと開口の大きさから求めた値になる。
 """
 
+import math
 import sys
 from pathlib import Path
 
@@ -228,6 +229,33 @@ def check_converted(path):
     ) != (gid(26), "NOTDEFINED", "NOTDEFINED"):
         failures.append(f"扉の型が {door_type}")
     failures += check_converted_materials(model)
+    failures += check_converted_shapes(model)
+    return failures
+
+
+# 変換した形の体積（m³）と相対の許容差。壁は矩形、床は 1 m 角の穴のある 6 m × 4 m、柱は半径 0.3 m の円。
+# 円は多角形で近似されて小さくなるので、許容差を広げる
+CONVERTED_VOLUMES = {
+    20: (3.0 * 0.25 * 2.7, 1e-9),
+    23: ((6.0 * 4.0 - 1.0) * 0.2, 1e-9),
+    24: (math.pi * 0.3**2 * 3.0, 1e-2),
+}
+
+
+def check_converted_shapes(model):
+    """変換した形。壁は芯の線と押し出し、床と柱は押し出しだけで、体積が元の寸法から求めた値になる"""
+    failures = []
+    settings = ifcopenshell.geom.settings()
+    for n, (expected, tolerance) in CONVERTED_VOLUMES.items():
+        element = model.by_guid(gid(n))
+        representations = element.Representation.Representations if element.Representation else []
+        found = [r.RepresentationIdentifier for r in representations]
+        if found != (["Axis", "Body"] if n == 20 else ["Body"]):
+            failures.append(f"{n} の表現が {found}")
+        shape = ifcopenshell.geom.create_shape(settings, element)
+        volume = ifcopenshell.util.shape.get_volume(shape.geometry)
+        if abs(volume - expected) > expected * tolerance:
+            failures.append(f"{n} の体積が {volume}（期待は {expected}）")
     return failures
 
 

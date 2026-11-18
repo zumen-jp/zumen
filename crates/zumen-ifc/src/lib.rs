@@ -47,10 +47,11 @@ pub use building::{
 };
 #[cfg(feature = "building")]
 pub use edit::{
-    Applied, Edit, FillingKind, NewBeam, NewColumn, NewConstituent, NewElement, NewFilling,
-    NewGrid, NewGridAxis, NewLayer, NewLayerUsage, NewLiteral, NewMaterial, NewMaterialLayer,
-    NewOpening, NewPlacement, NewQuantity, NewSection, NewSlab, NewSpace, NewType, NewUnit,
-    NewValue, NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
+    Applied, Edit, FillingKind, NewAxis2, NewAxis3, NewBeam, NewColumn, NewConstituent, NewElement,
+    NewFilling, NewGrid, NewGridAxis, NewLayer, NewLayerUsage, NewLiteral, NewMaterial,
+    NewMaterialLayer, NewOpening, NewPlacement, NewProfile, NewProfileKind, NewQuantity,
+    NewSection, NewShape, NewSlab, NewSolid, NewSpace, NewType, NewUnit, NewValue, NewWall,
+    OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
 };
 #[cfg(feature = "building")]
 pub use edit::{

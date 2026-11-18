@@ -364,7 +364,7 @@ impl Draft<'_> {
     }
 
     /// プロジェクトの 3 次元の `Model` の表現の文脈。なければ足し、プロジェクトの 8 RepresentationContexts に加える
-    fn model_context(&mut self) -> Option<u64> {
+    pub(super) fn model_context(&mut self) -> Option<u64> {
         let project = self.project?;
         let mut stmt = self.stmt(project)?;
         let listed = match stmt.arg(8) {
@@ -410,7 +410,7 @@ impl Draft<'_> {
     }
 
     /// `parent` の下の、識別子が `identifier` の `IfcGeometricRepresentationSubContext`。なければ足す
-    fn subcontext(&mut self, parent: u64, identifier: &str, view: &[u8]) -> u64 {
+    pub(super) fn subcontext(&mut self, parent: u64, identifier: &str, view: &[u8]) -> u64 {
         let found = self.referrers(parent).into_iter().find(|&id| {
             self.stmt(id).is_some_and(|context| {
                 context.name == b"IFCGEOMETRICREPRESENTATIONSUBCONTEXT"
@@ -491,7 +491,7 @@ impl Draft<'_> {
     }
 
     /// 表現の並びの `IfcProductDefinitionShape`
-    fn product_shape(&mut self, representations: &[u64]) -> u64 {
+    pub(super) fn product_shape(&mut self, representations: &[u64]) -> u64 {
         self.add(Stmt {
             name: b"IFCPRODUCTDEFINITIONSHAPE".to_vec(),
             args: vec![

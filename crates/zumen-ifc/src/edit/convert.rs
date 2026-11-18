@@ -17,15 +17,18 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, Id, Literal, Local, Material, MaterialKind, Measured, Opening,
+    Acquired, AreaProfileKind, AxisPlacement2, Building, Coordinates, CurveGraph, CurveKind,
+    CurveRef, ElementRef, GeometryData, GeometryDefinition, GeometryLinks, GeometryNode,
+    GeometryRef, GlobalId, Id, Literal, Local, Material, MaterialKind, Measured, Opening,
     ParentKind, Property, Quantity, SpatialKind, Unit,
 };
 use zumen_sdk::conversion::{ConversionFidelity, ConversionReport, Report, note};
 use zumen_sdk::{Codec, Cx, Error};
 
 use super::author::{
-    NewConstituent, NewLayerUsage, NewMaterial, NewMaterialLayer, NewType, enumeration,
-    material_rejected, predefined_at, rigid, writable_type,
+    NewAxis2, NewAxis3, NewConstituent, NewLayerUsage, NewMaterial, NewMaterialLayer, NewProfile,
+    NewProfileKind, NewShape, NewSolid, NewType, enumeration, material_rejected, predefined_at,
+    rigid, shape_rejected, writable_type,
 };
 use super::create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
 use super::quantity::{NewQuantity, NewUnit, quantity_value, si_unit};
@@ -443,6 +446,23 @@ impl Plan<'_, '_> {
             None => None,
         };
         dropped.extend(self.components(element));
+        // 建具の型の OperationType・PartitioningType は必須なので、書き手が NOTDEFINED を書く
+        let defaults = self
+            .building
+            .components
+            .extension
+            .get(element)
+            .is_some_and(|extension| {
+                extension.values.iter().all(|v| {
+                    v.namespace == "ifc.attribute"
+                        && matches!(v.name.as_str(), "OperationType" | "PartitioningType")
+                        && matches!(&v.value.value, Literal::Enumeration(e)
+                            if e.eq_ignore_ascii_case("NOTDEFINED"))
+                })
+            });
+        if defaults {
+            dropped.retain(|&value| value != "extension");
+        }
         self.edits.push(Edit::ElementType(NewType {
             class: kind.to_owned(),
             predefined,
@@ -460,6 +480,157 @@ impl Plan<'_, '_> {
             None => true,
             Some(unit) => self.units.contains(&unit),
         }
+    }
+
+    /// 書いた要素に形を置く。そのまま書けたものは、落とした値から外す
+    fn shape(&mut self, element: ElementRef) {
+        let Some(geometry) = self.building.geometry(element) else {
+            return;
+        };
+        let Some(target) = self.target(element) else {
+            return;
+        };
+        let Some((shape, exact)) = self.new_shape(geometry.data()) else {
+            return;
+        };
+        self.edits.push(Edit::Shape {
+            element: target,
+            shape,
+        });
+        if exact && let Some((_, dropped)) = self.notes.get_mut(&element) {
+            dropped.retain(|&value| value != "representation");
+        }
+    }
+
+    /// 書ける形と、そのまま書けたか。`Axis` の折れ線と、`Body` の押し出しだけを書く。`Body` は項目が
+    /// すべて書けるときだけ書き、ほかの表現・表示は落とす
+    fn new_shape(&self, data: &GeometryData) -> Option<(NewShape, bool)> {
+        let node = |at: GeometryRef| data.nodes.get(at.0 as usize);
+        let GeometryLinks::Definition(representations) = &node(data.root?)?.links else {
+            return None;
+        };
+        let mut exact = data.grid.is_none()
+            && data.styles.iter().all(|style| {
+                matches!(&style.presentation, Acquired::Value(p)
+                    if p.direct.is_empty() && p.layers.is_empty())
+            });
+        let mut shape = NewShape {
+            axis: None,
+            solids: Vec::new(),
+        };
+        for &representation in representations {
+            let Some(GeometryLinks::Representation {
+                identifier, items, ..
+            }) = node(representation).map(|n| &n.links)
+            else {
+                exact = false;
+                continue;
+            };
+            let identifier = identifier.as_deref().unwrap_or_default();
+            if identifier.eq_ignore_ascii_case("Axis") && shape.axis.is_none() {
+                let axis = match items.as_slice() {
+                    [item] => node(*item).and_then(|n| self.axis_line(n)),
+                    _ => None,
+                };
+                exact &= axis.is_some();
+                shape.axis = axis;
+            } else if identifier.eq_ignore_ascii_case("Body") && shape.solids.is_empty() {
+                let solids = items
+                    .iter()
+                    .map(|&item| node(item).and_then(|n| self.new_solid(n)))
+                    .collect::<Option<Vec<_>>>();
+                exact &= solids.is_some();
+                shape.solids = solids.unwrap_or_default();
+            } else {
+                exact = false;
+            }
+        }
+        shape_rejected(&shape).is_none().then_some((shape, exact))
+    }
+
+    /// `Axis` の 2 次元の折れ線
+    fn axis_line(&self, node: &GeometryNode) -> Option<Vec<[f64; 2]>> {
+        let GeometryDefinition::Curve(graph) = &node.definition else {
+            return None;
+        };
+        if !self.length_written(graph.length_unit.as_ref()) {
+            return None;
+        }
+        let CurveKind::Polyline(points) = &graph.item(graph.root)?.kind else {
+            return None;
+        };
+        points.iter().map(planar).collect()
+    }
+
+    /// 矩形・円・折れ線の断面の押し出し
+    fn new_solid(&self, node: &GeometryNode) -> Option<NewSolid> {
+        let GeometryDefinition::Extrusion {
+            definition,
+            boundary,
+            length_unit,
+        } = &node.definition
+        else {
+            return None;
+        };
+        if !self.length_written(length_unit.as_ref())
+            || boundary
+                .as_ref()
+                .is_some_and(|graph| !self.length_written(graph.length_unit.as_ref()))
+        {
+            return None;
+        }
+        let profile = &definition.profile;
+        let axis2 = |p: &AxisPlacement2| NewAxis2 {
+            location: p.location,
+            reference: p.reference_direction,
+        };
+        let kind = match &profile.kind {
+            AreaProfileKind::Rectangle { x_dim, y_dim } => NewProfileKind::Rectangle {
+                x: *x_dim,
+                y: *y_dim,
+                position: profile.position.as_ref().map(axis2),
+            },
+            AreaProfileKind::Circle { radius } => NewProfileKind::Circle {
+                radius: *radius,
+                position: profile.position.as_ref().map(axis2),
+            },
+            AreaProfileKind::ArbitraryClosed { boundary: outer } => NewProfileKind::Polygon {
+                outer: ring(boundary.as_ref()?, *outer)?,
+                holes: Vec::new(),
+            },
+            AreaProfileKind::ArbitraryWithVoids {
+                boundary: outer,
+                holes,
+            } => {
+                let graph = boundary.as_ref()?;
+                NewProfileKind::Polygon {
+                    outer: ring(graph, *outer)?,
+                    holes: holes
+                        .iter()
+                        .map(|&hole| ring(graph, hole))
+                        .collect::<Option<_>>()?,
+                }
+            }
+            _ => return None,
+        };
+        Some(NewSolid {
+            profile: NewProfile {
+                name: profile.name.clone(),
+                kind,
+            },
+            position: definition.position.as_ref().map(|p| NewAxis3 {
+                location: p.location,
+                axis: p.axis,
+                reference: p.reference_direction,
+            }),
+            direction: definition.direction,
+            depth: definition.depth,
+        })
+    }
+
+    /// 長さの単位を書いたか。単位のない値は文書の単位とみる
+    fn length_written(&self, unit: Option<&Unit>) -> bool {
+        unit.is_none_or(|unit| self.units.contains(&unit))
     }
 
     /// 書いた要素か型に材料の構成を結ぶ。そのまま書けたものは、落とした値から外す
@@ -760,6 +931,8 @@ impl Plan<'_, '_> {
             dropped.push("placement");
             None
         });
+        // 形は配置に置くので、配置を書く要素にだけ書く
+        let placed = placement.is_some();
         dropped.extend(self.components(element));
         let type_of = building
             .components
@@ -780,6 +953,9 @@ impl Plan<'_, '_> {
         let added = Target::Added(self.added);
         self.wrote(element, kind, dropped);
         self.material(element);
+        if placed {
+            self.shape(element);
+        }
         if let Some(type_of) = type_of {
             self.edits.push(Edit::Type {
                 element: added,
@@ -990,4 +1166,24 @@ fn checked(placement: NewPlacement) -> Result<Option<NewPlacement>, ()> {
     } else {
         Err(())
     }
+}
+
+/// 2 次元の点
+fn planar(point: &Coordinates) -> Option<[f64; 2]> {
+    match point {
+        Coordinates::Two(point) => Some(*point),
+        Coordinates::Three(_) => None,
+    }
+}
+
+/// 折れ線の輪。始点に戻る点は外す
+fn ring(graph: &CurveGraph, at: CurveRef) -> Option<Vec<[f64; 2]>> {
+    let CurveKind::Polyline(points) = &graph.item(at)?.kind else {
+        return None;
+    };
+    let mut ring = points.iter().map(planar).collect::<Option<Vec<_>>>()?;
+    if ring.len() > 1 && ring.first() == ring.last() {
+        ring.pop();
+    }
+    Some(ring)
 }

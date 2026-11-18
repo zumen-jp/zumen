@@ -12,9 +12,10 @@ mod create;
 mod quantity;
 
 pub use author::{
-    FillingKind, NewBeam, NewColumn, NewConstituent, NewElement, NewFilling, NewGrid, NewGridAxis,
-    NewLayer, NewLayerUsage, NewMaterial, NewMaterialLayer, NewOpening, NewPlacement, NewSection,
-    NewSlab, NewSpace, NewType, NewWall, OpeningChange, SpaceKind, Target, WallChange,
+    FillingKind, NewAxis2, NewAxis3, NewBeam, NewColumn, NewConstituent, NewElement, NewFilling,
+    NewGrid, NewGridAxis, NewLayer, NewLayerUsage, NewMaterial, NewMaterialLayer, NewOpening,
+    NewPlacement, NewProfile, NewProfileKind, NewSection, NewShape, NewSlab, NewSolid, NewSpace,
+    NewType, NewWall, OpeningChange, SpaceKind, Target, WallChange,
 };
 pub use convert::{ConvertOptions, Converted, convert};
 pub use create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
@@ -101,6 +102,13 @@ pub enum Edit {
         /// 材料の構成
         material: NewMaterial,
     },
+    /// 要素の形を置き換える。芯の線は `Axis`、断面の押し出しは `Body` の表現に書く。要素は配置を持つこと
+    Shape {
+        /// 形を置く要素
+        element: Target,
+        /// 形
+        shape: NewShape,
+    },
     /// 階の高さ（`Elevation`）を直し、階の配置の z を同じだけ動かす。階に属する要素は配置の相対で付いてくる
     Elevation {
         /// 直す階（`IfcBuildingStorey`）
@@ -180,6 +188,7 @@ impl Edit {
             Self::Quantity { .. } => "quantity",
             Self::Unit(_) => "unit",
             Self::Material { .. } => "material",
+            Self::Shape { .. } => "shape",
             Self::Elevation { .. } => "elevation",
             Self::WallShape(_) => "wall_shape",
             Self::OpeningShape(_) => "opening_shape",
@@ -278,6 +287,7 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
             } => draft.quantity(*element, set, method.as_deref(), quantity, cx)?,
             Edit::Unit(unit) => draft.add_unit(unit, cx)?,
             Edit::Material { element, material } => draft.set_material(*element, material, cx)?,
+            Edit::Shape { element, shape } => draft.set_shape(*element, shape, cx)?,
             Edit::Elevation { storey, elevation } => draft.elevate(*storey, *elevation, cx)?,
             Edit::WallShape(change) => draft.reshape_wall(change, cx)?,
             Edit::OpeningShape(change) => draft.reshape_opening(change, cx)?,
