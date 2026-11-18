@@ -1,5 +1,5 @@
 import type { MeasureDistanceResult, Response, ReviewSceneResult, Scene, SceneResult, Session } from "@zumen-jp/zumen";
-import { ReviewStore, reviewReference, reviewSceneId, type ReviewRef, type ReviewStoreState } from "../src/index.js";
+import { ReviewLayer, ReviewStore, reviewReference, reviewSceneId, type ReviewRef, type ReviewStoreState } from "../src/index.js";
 import { measureDistance, View2D, VIEW_SCALE_LIMITS, type CalibratedDistanceResult, type Camera, type RenderIssue, type View2DState, type View2DEvent } from "../src/index.js";
 
 declare const scene: Scene;
@@ -142,3 +142,11 @@ store.select(reviewRefs, "toggle");
 store.setFilter({ kinds: ["location"], statuses: ["open"] });
 const sceneIds: string[] = store.items().map((item) => item.sceneId).concat(reviewRefs.map(reviewSceneId));
 void reviewState; void sceneIds; void store.filteredJSON();
+const overlayViewer = new View2D(document.createElement("canvas"), { background: "transparent" });
+const layer = new ReviewLayer(viewer, overlayViewer, store);
+layer.setResult({ scene, result: reviewResult, document: { doc: "a.dxf", format: "dxf", hash: "v2:0" } });
+const picked: readonly ReviewRef[] = layer.pick({ x: 1, y: 2 }, 3);
+store.select(picked);
+void layer.sourceOf("review/markup/6d31")?.markup;
+layer.setResult(null);
+layer.destroy();

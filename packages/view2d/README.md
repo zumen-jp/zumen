@@ -355,7 +355,19 @@ if (source) store.select([reviewReference(source)]);
 - `items()` は絞り込みに合う図形と 2D の場所を `review_scene` と同じ順で返し、`sceneId` は結果の `sources[].id` と一致します。`filteredJSON()` は絞り込みに合わない図形と 2D の場所だけを除いた文書で、描画に使います。保存には `toJSON()` を使います。
 - 購読は `subscribe`（状態）か `on("document" | "selection" | "filter" | "history")` です。通知の中で状態を変えると `RangeError` です。
 
-レビューのシーンは図面とは別の `View2D` か、同じ大きさの Canvas を重ねて描きます。対象のハッシュが図面と合わない文書は、コアが `review.target.stale` で描きません。
+`ReviewLayer` は、`review_scene` のシーンを背景を透明にした別の `View2D` で図面に重ねます。重ねる Canvas は図面の Canvas と同じ位置・CSS の大きさに置き、入力は図面の Canvas に付けて重ねる側は `pointer-events: none` にします。
+
+```js
+const reviewLayer = new ReviewLayer(viewer, new View2D(overlayCanvas, { background: "transparent" }), store);
+reviewLayer.setResult({ scene: readScene(session.take(result.blob)), result, document });
+canvas.addEventListener("click", (event) => store.select(reviewLayer.pick({ x: event.offsetX, y: event.offsetY }).slice(0, 1)));
+```
+
+- 図面の `View2D` の `view`・`size` の通知で、重ねる側の表示範囲・大きさ・画素比を合わせます。
+- `pick` は重ねる側の当たり判定を結果の `sources` で文書の項目へ戻します。`store` を渡すと、その選択のうち描いている項目を重ねる側で選びます。
+- `destroy` は購読だけを外します。2 つの `View2D` は利用側が破棄します。
+
+対象のハッシュが図面と合わない文書は、コアが `review.target.stale` で描きません。
 
 ## 入力の検査と上限
 

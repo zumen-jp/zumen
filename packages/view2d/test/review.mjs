@@ -1,5 +1,5 @@
 import { readScene } from "@zumen-jp/zumen";
-import { ReviewStore, reviewReference, reviewSceneId, View2D } from "../src/index.js";
+import { ReviewLayer, ReviewStore, reviewReference, reviewSceneId, View2D } from "../src/index.js";
 
 const DXF = "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n" +
   "0\nLINE\n5\nA1\n8\n0\n10\n0.0\n20\n0.0\n11\n50.0\n21\n30.0\n0\nENDSEC\n0\nEOF\n";
@@ -111,32 +111,72 @@ export function testReviewStore({ assert, throws }) {
   throws(() => new ReviewStore(documentOf("v2:1"), { limits: { items: 2 } }), "項目数の上限");
 }
 
-/** 実際の wasm の review_scene に編集した文書を渡し、sources から編集の項目へ戻す */
-export function testReviewCore(zumen, { assert }) {
+/** 実際の wasm の review_scene に編集した文書を渡し、図面に重ねて描き、当たり判定から編集の項目へ戻す */
+export function testReviewCore(zumen, { assert, throws }) {
   const session = zumen.open();
-  const viewer = new View2D(document.createElement("canvas"), { width: 200, height: 200 });
+  const base = new View2D(document.createElement("canvas"), { width: 200, height: 160, pixelRatio: 1 });
+  const overlayCanvas = document.createElement("canvas");
+  const overlay = new View2D(overlayCanvas, { width: 10, height: 10, background: "transparent" });
+  let layer = null;
   try {
     session.push("a.dxf", new TextEncoder().encode(DXF));
     const opened = session.call({ v: 1, op: "open", input: "a.dxf" }).result;
     const drawing = session.call({ v: 1, op: "drawing", doc: "a.dxf" }).result;
+    const identity = { doc: "a.dxf", format: opened.format, hash: drawing.hash };
+    const sceneResult = session.call({ v: 1, op: "scene", doc: "a.dxf", from: "space/0", tolerance: 0.01 }).result;
+    base.setScene({ scene: readScene(session.take(sceneResult.blob)), result: sceneResult, document: identity });
+    base.jumpTo({ center: { x: 25, y: 15 }, scale: 3, rotation: 0 });
     const store = new ReviewStore(documentOf(drawing.hash), { createId: () => "n1" });
     store.addMarkup({ kind: "text", target: "plan", view: "space/0", points: [[0, 20]], text: "確認" });
+    layer = new ReviewLayer(base, overlay, store);
+    const size = overlay.getSize();
+    assert(size.width === 200 && size.height === 160 && size.pixelRatio === 1, "重ねた View2D の大きさを図面に合わせる");
     let pushed = 0;
     const draw = (text) => {
       // 同じ名前への push は続きとして足すため、描くたびに名前を変える
       const name = `review-${++pushed}.json`;
       session.push(name, new TextEncoder().encode(text));
       const response = session.call({ v: 1, op: "review_scene", doc: "a.dxf", review: name, target: "plan", from: "space/0", tolerance: 0.01, style: STYLE });
-      const scene = readScene(session.take(response.result.blob));
-      viewer.setScene({ scene, result: response.result, document: { doc: "a.dxf", format: opened.format, hash: drawing.hash } });
+      layer.setResult({ scene: readScene(session.take(response.result.blob)), result: response.result, document: identity });
       return response.result;
     };
     const all = draw(store.toJSON());
     const refs = all.sources.map(reviewReference);
     assert(refs.map((r) => r.id).join() === "m1,n1,l1" && all.sources.every((s, i) => s.id === reviewSceneId(refs[i])), "コアの対応と同じ ID を作る");
     assert(all.sources.every((s) => store.items().some((item) => item.sceneId === s.id)), "描いた項目を一覧から引ける");
+    assert(layer.sourceOf("review/markup/6d31")?.markup === "m1" && layer.sourceOf("none") === null, "シーンの ID から sources を引く");
+
+    // 赤入れの線 (0,0)-(10,0) の中ほどを当てる
+    const onLine = base.toScreen({ x: 6, y: 0 });
+    const picked = layer.pick(onLine, 3);
+    assert(picked.some((ref) => ref.kind === "markup" && ref.id === "m1"), "当たり判定から図形へ戻す");
+    const ctx = overlayCanvas.getContext("2d");
+    const alpha = (point) => ctx.getImageData(Math.floor(point.x), Math.floor(point.y), 1, 1).data[3];
+    assert(alpha(base.toScreen({ x: 45, y: 25 })) === 0, "背景を透明にして図面を隠さない");
+    assert(alpha(onLine) > 0, "赤入れを描く");
+
+    // 文書の選択を重ねたシーンの選択に写し、描いていない項目は選ばない
+    store.select([{ kind: "markup", id: "m1" }, { kind: "location", topic: "t1", id: "l3" }]);
+    assert(overlay.getState().selection.map((ref) => ref.id).join() === "review/markup/6d31", "文書の選択を写す");
+
+    // 図面の表示範囲に付いていく
+    base.panBy(15, -10);
+    base.zoomBy(2);
+    const a = base.getView(), b = overlay.getView();
+    assert(a.center.x === b.center.x && a.center.y === b.center.y && a.scale === b.scale && a.rotation === b.rotation, "表示範囲を図面に合わせる");
+    base.resize(120, 90);
+    assert(overlay.getSize().width === 120 && overlay.getSize().height === 90, "大きさの変更に付いていく");
+
     store.setFilter({ kinds: ["text"] });
     const text = draw(store.filteredJSON());
     assert(text.sources.length === 1 && text.sources[0].markup === "n1" && text.counts.texts === 1, "絞った文書だけを描く");
-  } finally { viewer.destroy(); session.close(); }
+    assert(overlay.getState().selection.length === 0, "描かなくなった項目の選択を外す");
+    layer.setResult(null);
+    assert(overlay.getScene() === null && layer.sourceOf("review/markup/6e31") === null, "消す");
+    layer.destroy(); layer.destroy();
+    throws(() => layer.pick({ x: 0, y: 0 }), "破棄後の当たり判定");
+    base.panBy(5, 5);
+    assert(overlay.getView().center.x !== base.getView().center.x, "破棄で購読を外す");
+    throws(() => new ReviewLayer(base, base), "同じ View2D は重ねない");
+  } finally { layer?.destroy(); overlay.destroy(); base.destroy(); session.close(); }
 }

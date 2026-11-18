@@ -194,7 +194,7 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   const zumen = await load(fetch(wasmPath));
   testCalibrationCore(zumen, calibrationInput, { assert });
   testPlacedSelection(zumen, { assert, throws });
-  testReviewCore(zumen, { assert });
+  testReviewCore(zumen, { assert, throws });
   const formats = [];
   for (const source of inputs) {
     const session = zumen.open();

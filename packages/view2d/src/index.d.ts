@@ -1,4 +1,4 @@
-import type { Budget, Extent, ReviewSceneSource, Response, Scene, SceneCounts, SceneResult, Session, Source } from "@zumen-jp/zumen";
+import type { Budget, Extent, ReviewSceneResult, ReviewSceneSource, Response, Scene, SceneCounts, SceneResult, Session, Source } from "@zumen-jp/zumen";
 
 export interface Point { readonly x: number; readonly y: number }
 /** 起点の座標の中心、CSS px / 起点の長さ、反時計回りのラジアン。 */
@@ -416,3 +416,15 @@ export declare class ReviewStore {
 }
 export declare function reviewReference(source: ReviewSceneSource): ReviewRef;
 export declare function reviewSceneId(ref: ReviewRef): string;
+/** review_scene のシーンを、背景を透明にした別の View2D で図面に重ねる。表示範囲と大きさは図面に合わせる */
+export declare class ReviewLayer {
+  /** store を渡すと、その選択を重ねたシーンの選択に写す */
+  constructor(base: View2D, overlay: View2D, store?: ReviewStore | null);
+  /** review_scene の結果を重ねた View2D に描く。null で消す */
+  setResult(input: (SceneInput & { readonly result: ReviewSceneResult }) | null): RenderReport;
+  /** Canvas 左上からの CSS px の位置にある文書の項目。上に描いたものから返す */
+  pick(point: Point, tolerance?: number): readonly ReviewRef[];
+  sourceOf(sceneId: string): ReviewSceneSource | null;
+  /** 購読を外す。2 つの View2D は利用側が破棄する。冪等 */
+  destroy(): void;
+}
