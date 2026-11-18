@@ -8607,7 +8607,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から
+    /// 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から、add_slab・add_column・add_beam・add_opening・add_door・add_window はマイナーバージョン 98 から
     /// </summary>
     public static class BuildingEdit
     {
@@ -8628,6 +8628,12 @@ namespace Zumen.Messages
             ["void"] = typeof(BuildingVoidEdit),
             ["fill"] = typeof(BuildingFillEdit),
             ["add_wall"] = typeof(BuildingAddWallEdit),
+            ["add_slab"] = typeof(BuildingAddSlabEdit),
+            ["add_column"] = typeof(BuildingAddColumnEdit),
+            ["add_beam"] = typeof(BuildingAddBeamEdit),
+            ["add_opening"] = typeof(BuildingAddOpeningEdit),
+            ["add_door"] = typeof(BuildingAddDoorEdit),
+            ["add_window"] = typeof(BuildingAddWindowEdit),
         };
     }
 
@@ -8738,7 +8744,7 @@ namespace Zumen.Messages
         public string? Hash { get; init; }
 
         /// <summary>
-        /// 同じ要求の edits の、前にある add_space・add_element・add_wall の位置（0 から）。その変更で足した要素を指す
+        /// 同じ要求の edits の、前にある要素を足す変更（add_ で始まる種類）の位置（0 から）。その変更で足した要素を指す
         /// </summary>
         [JsonPropertyName("added")]
         public ulong? Added { get; init; }
@@ -8793,7 +8799,7 @@ namespace Zumen.Messages
         public string Space { get; init; } = default!;
 
         /// <summary>
-        /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("parent")]
         public BuildingRef Parent { get; init; } = default!;
@@ -8853,7 +8859,7 @@ namespace Zumen.Messages
         public string? Name { get; init; }
 
         /// <summary>
-        /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("container")]
         public BuildingRef? Container { get; init; }
@@ -8907,7 +8913,7 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "place";
 
         /// <summary>
-        /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("element")]
         public BuildingRef Element { get; init; } = default!;
@@ -8931,13 +8937,13 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "contain";
 
         /// <summary>
-        /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("element")]
         public BuildingRef Element { get; init; } = default!;
 
         /// <summary>
-        /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("space")]
         public BuildingRef Space { get; init; } = default!;
@@ -8955,13 +8961,13 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "type";
 
         /// <summary>
-        /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("element")]
         public BuildingRef Element { get; init; } = default!;
 
         /// <summary>
-        /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("element_type")]
         public BuildingRef? ElementType { get; init; }
@@ -8979,25 +8985,25 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "void";
 
         /// <summary>
-        /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("host")]
         public BuildingRef Host { get; init; } = default!;
 
         /// <summary>
-        /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("opening")]
         public BuildingRef Opening { get; init; } = default!;
     }
 
     /// <summary>
-    /// 壁の材料の層
+    /// 材料の層
     /// </summary>
     public sealed record BuildingWallLayer
     {
         /// <summary>
-        /// 材料の名前（IfcMaterial の Name）。同じ壁の中で同じ名前の層は、同じ材料を指す
+        /// 材料の名前（IfcMaterial の Name）。同じ要素の中で同じ名前の層は、同じ材料を指す
         /// </summary>
         [JsonPropertyName("material")]
         public string Material { get; init; } = default!;
@@ -9021,7 +9027,7 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "add_wall";
 
         /// <summary>
-        /// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("storey")]
         public BuildingRef Storey { get; init; } = default!;
@@ -9070,6 +9076,330 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 矩形の断面
+    /// </summary>
+    public sealed record BuildingSection
+    {
+        /// <summary>
+        /// 幅。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("width")]
+        public double Width { get; init; }
+
+        /// <summary>
+        /// せい。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("depth")]
+        public double Depth { get; init; }
+    }
+
+    /// <summary>
+    /// 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から
+    /// </summary>
+    public sealed record BuildingAddSlabEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "add_slab";
+
+        /// <summary>
+        /// 所属する空間（階など）。床はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        /// </summary>
+        [JsonPropertyName("storey")]
+        public BuildingRef Storey { get; init; } = default!;
+
+        /// <summary>
+        /// 外形の頂点。空間の配置の [x, y] の並びで、3 つ以上。最後の点が最初の点と同じなら、その点は除く
+        /// </summary>
+        [JsonPropertyName("outline")]
+        public IReadOnlyList<IReadOnlyList<double>> Outline { get; init; } = default!;
+
+        /// <summary>
+        /// 材料の層。上から下へ並べる。1 つ以上
+        /// </summary>
+        [JsonPropertyName("layers")]
+        public IReadOnlyList<BuildingWallLayer> Layers { get; init; } = default!;
+
+        /// <summary>
+        /// 上の面の高さ（空間の配置の z）。書かなければ 0
+        /// </summary>
+        [JsonPropertyName("elevation")]
+        public double? Elevation { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        /// </summary>
+        [JsonPropertyName("global_id")]
+        public string? GlobalId { get; init; }
+    }
+
+    /// <summary>
+    /// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から
+    /// </summary>
+    public sealed record BuildingAddColumnEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "add_column";
+
+        /// <summary>
+        /// 所属する空間（階など）。柱はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        /// </summary>
+        [JsonPropertyName("storey")]
+        public BuildingRef Storey { get; init; } = default!;
+
+        /// <summary>
+        /// 断面の中心。空間の配置の [x, y]
+        /// </summary>
+        [JsonPropertyName("position")]
+        public IReadOnlyList<double> Position { get; init; } = default!;
+
+        /// <summary>
+        /// 柱の脚の高さ（空間の配置の z）。書かなければ 0
+        /// </summary>
+        [JsonPropertyName("base")]
+        public double? Base { get; init; }
+
+        /// <summary>
+        /// 高さ。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double Height { get; init; }
+
+        /// <summary>
+        /// 断面。幅は柱の x 軸、せいは y 軸の向き
+        /// </summary>
+        [JsonPropertyName("section")]
+        public BuildingSection Section { get; init; } = default!;
+
+        /// <summary>
+        /// 柱の x 軸の向き。空間の配置の [x, y]。書かなければ空間の x 軸
+        /// </summary>
+        [JsonPropertyName("direction")]
+        public IReadOnlyList<double>? Direction { get; init; }
+
+        /// <summary>
+        /// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
+        /// </summary>
+        [JsonPropertyName("material")]
+        public string? Material { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        /// </summary>
+        [JsonPropertyName("global_id")]
+        public string? GlobalId { get; init; }
+    }
+
+    /// <summary>
+    /// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から
+    /// </summary>
+    public sealed record BuildingAddBeamEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "add_beam";
+
+        /// <summary>
+        /// 所属する空間（階など）。梁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        /// </summary>
+        [JsonPropertyName("storey")]
+        public BuildingRef Storey { get; init; } = default!;
+
+        /// <summary>
+        /// 天端の芯の始点。空間の配置の [x, y, z]
+        /// </summary>
+        [JsonPropertyName("start")]
+        public IReadOnlyList<double> Start { get; init; } = default!;
+
+        /// <summary>
+        /// 天端の芯の終点。始点と x か y が違う [x, y, z]
+        /// </summary>
+        [JsonPropertyName("end")]
+        public IReadOnlyList<double> End { get; init; } = default!;
+
+        /// <summary>
+        /// 断面。幅は芯の左右、せいは天端から下へ
+        /// </summary>
+        [JsonPropertyName("section")]
+        public BuildingSection Section { get; init; } = default!;
+
+        /// <summary>
+        /// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
+        /// </summary>
+        [JsonPropertyName("material")]
+        public string? Material { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        /// </summary>
+        [JsonPropertyName("global_id")]
+        public string? GlobalId { get; init; }
+    }
+
+    /// <summary>
+    /// 壁の芯に沿う位置・下端・矩形の大きさで開口を足し、IfcRelVoidsElement で壁に穴をあける。開口は壁の配置からの相対に置き、壁の材料の層の使い方（AXIS2）の厚さだけ押し出す Body と IfcOpeningElement をコアが書く。空間には所属させない。層の使い方を持たない要素は断る。結果の id は足した開口の ID。マイナーバージョン 98 から
+    /// </summary>
+    public sealed record BuildingAddOpeningEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "add_opening";
+
+        /// <summary>
+        /// 穴をあける壁。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        /// </summary>
+        [JsonPropertyName("host")]
+        public BuildingRef Host { get; init; } = default!;
+
+        /// <summary>
+        /// 壁の配置の x 軸に沿う、壁の原点から開口の端までの距離
+        /// </summary>
+        [JsonPropertyName("distance")]
+        public double Distance { get; init; }
+
+        /// <summary>
+        /// 壁の下端から開口の下端までの高さ
+        /// </summary>
+        [JsonPropertyName("sill")]
+        public double Sill { get; init; }
+
+        /// <summary>
+        /// 幅。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("width")]
+        public double Width { get; init; }
+
+        /// <summary>
+        /// 高さ。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double Height { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        /// </summary>
+        [JsonPropertyName("global_id")]
+        public string? GlobalId { get; init; }
+    }
+
+    /// <summary>
+    /// 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から
+    /// </summary>
+    public sealed record BuildingAddDoorEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "add_door";
+
+        /// <summary>
+        /// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        /// </summary>
+        [JsonPropertyName("opening")]
+        public BuildingRef Opening { get; init; } = default!;
+
+        /// <summary>
+        /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("width")]
+        public double? Width { get; init; }
+
+        /// <summary>
+        /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double? Height { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        /// </summary>
+        [JsonPropertyName("global_id")]
+        public string? GlobalId { get; init; }
+    }
+
+    /// <summary>
+    /// 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から
+    /// </summary>
+    public sealed record BuildingAddWindowEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "add_window";
+
+        /// <summary>
+        /// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        /// </summary>
+        [JsonPropertyName("opening")]
+        public BuildingRef Opening { get; init; } = default!;
+
+        /// <summary>
+        /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("width")]
+        public double? Width { get; init; }
+
+        /// <summary>
+        /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double? Height { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        /// </summary>
+        [JsonPropertyName("global_id")]
+        public string? GlobalId { get; init; }
+    }
+
+    /// <summary>
     /// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
     /// </summary>
     public sealed record BuildingFillEdit
@@ -9081,13 +9411,13 @@ namespace Zumen.Messages
         public string Kind { get; init; } = "fill";
 
         /// <summary>
-        /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 開口。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("opening")]
         public BuildingRef Opening { get; init; } = default!;
 
         /// <summary>
-        /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+        /// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
         /// </summary>
         [JsonPropertyName("filler")]
         public BuildingRef Filler { get; init; } = default!;

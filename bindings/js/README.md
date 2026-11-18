@@ -82,7 +82,7 @@ Windows の実行ファイルは `target/debug/zumen.exe` です。
 
 ### Node.js の常駐文書
 
-`openLiveProcess` は `live --stdio` で `AcadLive` を保持し、64 要素ブロックの表示差分と移動をバイナリで往復させます。DXF・DWG の入口です。コアの成否は `status`、表示生成の成否は `displayStatus` に分けて返します。
+`openLiveProcess` は `live --stdio` で文書エンジンを保持し、64 要素ブロックの表示差分と移動をバイナリで往復させます。DXF・DWG・JWW・SXF の入口です。JWW・SXF の表示・選択・移動の座標は用紙の座標です。コアの成否は `status`、表示生成の成否は `displayStatus` に分けて返します。
 
 ```js
 import { openLiveProcess } from "@zumen-jp/zumen/node";

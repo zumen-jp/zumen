@@ -8,6 +8,8 @@ use super::host::{Host, Request};
 use super::wire::{self, Command, Header, Reply, Status};
 use super::{read_request, wire::Words};
 
+mod formats;
+
 const DXF: &[u8] = b"0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
     0\nSECTION\n2\nENTITIES\n\
     0\nLINE\n5\n10\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n\

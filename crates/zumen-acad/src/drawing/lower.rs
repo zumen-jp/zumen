@@ -10,11 +10,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Stop, Value, codes};
 use zumen_drawing::transform::Point as _;
 use zumen_drawing::{
-    Attribute, Branch, Callout, CalloutContent, Changes, Color, ColorCode, ColorSystem, Dimension,
-    DimensionKind, DimensionStyle, Dogleg, Drawing2D, Edge, Edit, Element, FormattedText, Grid,
-    HeightMeaning, Inherit, Layer, LayerId, LayerState, LayerStyle, Leader, Length, LineType,
-    LineTypeId, ModelLength, ModelPoint, PaperPoint, Placed, Placement, Polyline, Shape, SheetId,
-    SheetItem, SpaceId, Spline, Symbol, Text, TextStyle, Vertex, id,
+    Attribute, Boundary, Branch, Callout, CalloutContent, Changes, Color, ColorCode, ColorSystem,
+    Dimension, DimensionKind, DimensionStyle, Dogleg, Drawing2D, Edge, Edit, Element,
+    FormattedText, Grid, Hatch, HatchLoop, HeightMeaning, Inherit, Layer, LayerId, LayerState,
+    LayerStyle, Leader, Length, LineType, LineTypeId, ModelLength, ModelPoint, PaperPoint, Placed,
+    Placement, Polyline, Shape, SheetId, SheetItem, SpaceId, Spline, Symbol, Text, TextStyle,
+    Vertex, id,
 };
 use zumen_sdk::{Apply, Codec, Error, Lift};
 
@@ -72,7 +73,7 @@ pub trait Relocate {
     }
 }
 
-/// 点と実寸の長さの空間（用紙の点なら用紙）を、書く先のものに付け替える。座標と値は変えない。表・下絵・ハッチングは、
+/// 点と実寸の長さの空間（用紙の点なら用紙）を、書く先のものに付け替える。座標と値は変えない。表・下絵は、
 /// 書き戻しで足せないので移さない。文字（TEXT と MTEXT）の高さは、値を変えずに DXF の高さ（40）として書く。API の
 /// 形の値から足す文字と同じである
 #[derive(Clone, Copy, Debug, Default)]
@@ -853,6 +854,16 @@ impl Maps<'_> {
                 reasons.push("spline_knot_parameterization");
             }
         }
+        // 境界を探した輪の印（92 の 4）は、書き戻しの追加が書かない。境界の形は同じなので、印を外して見た目だけで書く
+        if let Shape::Hatch(hatch) = &mut shape
+            && hatch.loops.iter().any(|ring| ring.derived)
+        {
+            for ring in &mut hatch.loops {
+                ring.derived = false;
+            }
+            reasons.push("hatch_derived_loop");
+            fidelity = fidelity.max(ConversionFidelity::Drawn);
+        }
         if let (Shape::Symbol(symbol), Some(name)) = (&mut shape, block) {
             name.clone_into(&mut symbol.key.name);
         }
@@ -1211,7 +1222,7 @@ fn modelled(drawing: &Drawing2D, space: SpaceId) -> bool {
         })
 }
 
-/// 形の点を `point` で、長さを `length` で写す。表・下絵・ハッチングは `None`
+/// 形の点を `point` で、長さを `length` で写す。表・下絵は `None`
 fn reseat<P: Copy>(
     shape: &Shape<P>,
     point: &dyn Fn(P) -> P,
@@ -1226,60 +1237,7 @@ fn reseat<P: Copy>(
             center: point(*center),
             radius: length(*radius),
         },
-        Shape::Curve(edge) => Shape::Curve(match edge {
-            Edge::Line { start, end } => Edge::Line {
-                start: point(*start),
-                end: point(*end),
-            },
-            Edge::Arc {
-                center,
-                radius,
-                start,
-                end,
-                counterclockwise,
-            } => Edge::Arc {
-                center: point(*center),
-                radius: length(*radius),
-                start: *start,
-                end: *end,
-                counterclockwise: *counterclockwise,
-            },
-            Edge::Elliptic {
-                center,
-                major,
-                ratio,
-                start,
-                end,
-                counterclockwise,
-            } => Edge::Elliptic {
-                center: point(*center),
-                major: point(*major),
-                ratio: *ratio,
-                start: *start,
-                end: *end,
-                counterclockwise: *counterclockwise,
-            },
-            Edge::Spline(spline) => Edge::Spline(Spline {
-                control: spline.control.iter().map(|p| point(*p)).collect(),
-                fit: spline.fit.iter().map(|p| point(*p)).collect(),
-                ..spline.clone()
-            }),
-            Edge::Clothoid {
-                origin,
-                parameter,
-                angle,
-                counterclockwise,
-                start,
-                end,
-            } => Edge::Clothoid {
-                origin: point(*origin),
-                parameter: length(*parameter),
-                angle: *angle,
-                counterclockwise: *counterclockwise,
-                start: length(*start),
-                end: length(*end),
-            },
-        }),
+        Shape::Curve(edge) => Shape::Curve(reseat_edge(edge, point, length)),
         Shape::Polyline(polyline) => Shape::Polyline(Polyline {
             vertices: polyline
                 .vertices
@@ -1428,8 +1386,99 @@ fn reseat<P: Copy>(
             position: point(dot.position),
             ..dot.clone()
         }),
-        Shape::Table(_) | Shape::Underlay(_) | Shape::Hatch(_) => return None,
+        Shape::Hatch(hatch) => Shape::Hatch(Hatch {
+            loops: hatch
+                .loops
+                .iter()
+                .map(|ring| HatchLoop {
+                    boundary: match &ring.boundary {
+                        Boundary::Polyline { vertices, closed } => Boundary::Polyline {
+                            vertices: vertices
+                                .iter()
+                                .map(|vertex| Vertex {
+                                    point: point(vertex.point),
+                                    bulge: vertex.bulge,
+                                })
+                                .collect(),
+                            closed: *closed,
+                        },
+                        Boundary::Edges(edges) => Boundary::Edges(
+                            edges
+                                .iter()
+                                .map(|edge| reseat_edge(edge, point, length))
+                                .collect(),
+                        ),
+                    },
+                    ..ring.clone()
+                })
+                .collect(),
+            seeds: hatch.seeds.iter().map(|seed| point(*seed)).collect(),
+            ..hatch.clone()
+        }),
+        Shape::Table(_) | Shape::Underlay(_) => return None,
     })
+}
+
+/// 辺の点を `point` で、長さを `length` で写す
+fn reseat_edge<P: Copy>(
+    edge: &Edge<P>,
+    point: &dyn Fn(P) -> P,
+    length: &dyn Fn(Length) -> Length,
+) -> Edge<P> {
+    match edge {
+        Edge::Line { start, end } => Edge::Line {
+            start: point(*start),
+            end: point(*end),
+        },
+        Edge::Arc {
+            center,
+            radius,
+            start,
+            end,
+            counterclockwise,
+        } => Edge::Arc {
+            center: point(*center),
+            radius: length(*radius),
+            start: *start,
+            end: *end,
+            counterclockwise: *counterclockwise,
+        },
+        Edge::Elliptic {
+            center,
+            major,
+            ratio,
+            start,
+            end,
+            counterclockwise,
+        } => Edge::Elliptic {
+            center: point(*center),
+            major: point(*major),
+            ratio: *ratio,
+            start: *start,
+            end: *end,
+            counterclockwise: *counterclockwise,
+        },
+        Edge::Spline(spline) => Edge::Spline(Spline {
+            control: spline.control.iter().map(|p| point(*p)).collect(),
+            fit: spline.fit.iter().map(|p| point(*p)).collect(),
+            ..spline.clone()
+        }),
+        Edge::Clothoid {
+            origin,
+            parameter,
+            angle,
+            counterclockwise,
+            start,
+            end,
+        } => Edge::Clothoid {
+            origin: point(*origin),
+            parameter: length(*parameter),
+            angle: *angle,
+            counterclockwise: *counterclockwise,
+            start: length(*start),
+            end: length(*end),
+        },
+    }
 }
 
 fn reseat_text<P: Copy>(
@@ -1515,6 +1564,127 @@ mod tests {
     use zumen_civil::{Alignment, CivilModel, Horizontal, HorizontalKind, Vertical, VerticalKind};
     use zumen_crs::MapPoint;
     use zumen_drawing::{Axes, ModelSpace, Symbol, SymbolDefinition, SymbolKey, Unit};
+
+    #[test]
+    fn hatches_are_written_and_derived_loops_are_drawn() {
+        use zumen_drawing::{Fill, Islands, Pattern, PatternLine, PatternOrigin};
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let template = NewDxfTemplate::new(&Drawing2D::default());
+        let mut drawing = Dxf::read(template.bytes(), &mut cx)
+            .unwrap()
+            .lift(&mut cx)
+            .unwrap();
+        let layer = drawing.layers.first().unwrap().id;
+        let space = drawing.spaces.first_mut().unwrap();
+        let origin = ModelPoint {
+            space: space.id,
+            x: 0.0,
+            y: 0.0,
+        };
+        let hatch = |derived: bool, fill: Fill| {
+            Shape::Hatch(Hatch {
+                loops: vec![
+                    HatchLoop {
+                        boundary: Boundary::Polyline {
+                            vertices: [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]
+                                .into_iter()
+                                .map(|xy| Vertex {
+                                    point: origin.at(xy),
+                                    bulge: 0.0,
+                                })
+                                .collect(),
+                            closed: true,
+                        },
+                        external: true,
+                        outermost: true,
+                        derived,
+                        text_box: false,
+                        sources: Vec::new(),
+                    },
+                    HatchLoop {
+                        boundary: Boundary::Edges(vec![Edge::Arc {
+                            center: origin.at([5.0, 5.0]),
+                            radius: Length::Model(ModelLength {
+                                space: origin.space,
+                                value: 2.0,
+                            }),
+                            start: 0.0,
+                            end: 360.0,
+                            counterclockwise: true,
+                        }]),
+                        external: false,
+                        outermost: false,
+                        derived: false,
+                        text_box: false,
+                        sources: Vec::new(),
+                    },
+                ],
+                islands: Islands::Nested,
+                fill,
+                associative: false,
+                seeds: vec![origin.at([1.0, 1.0])],
+            })
+        };
+        let pattern = Fill::Pattern(Pattern {
+            name: "zumen-test".into(),
+            origin: PatternOrigin::UserDefined,
+            angle: 0.0,
+            scale: 1.0,
+            double: false,
+            lines: vec![PatternLine {
+                angle: 45.0,
+                base: [0.0, 0.0],
+                offset: [-0.5, 0.5],
+                dashes: Vec::new(),
+            }],
+        });
+        for (record, shape) in [
+            (900, hatch(true, pattern)),
+            (901, hatch(false, Fill::Solid)),
+        ] {
+            space.elements.push(Element {
+                source: Ref::at_record(record),
+                layer,
+                style: zumen_drawing::Style {
+                    transparency: Inherit::Layer,
+                    ..zumen_drawing::Style::BLOCK
+                },
+                shape,
+            });
+        }
+        let expected: Vec<_> = space.elements.iter().map(|e| e.shape.clone()).collect();
+        let written = lower_to_dxf_with_report(&drawing, &Reseat, 1000, &mut cx).unwrap();
+        assert_eq!(written.elements, 2);
+        let row = |record: u64| {
+            written
+                .report
+                .details
+                .iter()
+                .find(|row| row.source.record() == Some(record))
+                .unwrap()
+        };
+        assert_eq!(row(900).fidelity, ConversionFidelity::Drawn);
+        assert_eq!(row(900).reasons, ["hatch_derived_loop"]);
+        assert_eq!(row(901).fidelity, ConversionFidelity::Equivalent);
+        assert!(row(901).reasons.is_empty());
+        let back = Dxf::read(&written.bytes, &mut cx)
+            .unwrap()
+            .lift(&mut cx)
+            .unwrap();
+        let read: Vec<_> = back.spaces[0]
+            .elements
+            .iter()
+            .map(|e| e.shape.clone())
+            .collect();
+        let mut expected = expected;
+        if let Shape::Hatch(hatch) = &mut expected[0] {
+            hatch.loops[0].derived = false;
+        }
+        assert_eq!(read, expected);
+    }
 
     #[test]
     fn a_remapped_line_type_remains_equivalent_and_layer_defaults_are_exposed() {

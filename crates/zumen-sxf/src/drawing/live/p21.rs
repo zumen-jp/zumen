@@ -4,14 +4,18 @@ use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use zumen_base::{Cx, Diagnostic, Ref, codes};
+use zumen_base::{Cx, Diagnostic, Key, Ref, codes};
 use zumen_live::{PatchPayload, RecordSlice, SourceBytes};
 use zumen_sdk::{Error, quietly};
 
+use crate::drawing::apply::p21::annotation::{
+    Build, slice_in, text_color, text_literal, text_shape, text_style, write_value_slice,
+};
 use crate::drawing::apply::p21::{
     CONTAINERS, GARBAGE, RefCounts, collect, count_and_note_refs, count_arguments, count_number,
     count_values, for_each_ref, real, scan,
 };
+use crate::drawing::apply::text;
 use crate::drawing::apply::{
     Arguments, MARKER, line_end, line_end_in_source, newline, patched_source,
 };
@@ -271,6 +275,9 @@ pub(super) struct P21Patch {
     ref_deltas: Vec<(u64, i64)>,
     added_colors: Vec<(u64, i64)>,
     added_line_types: Vec<(u64, i64)>,
+    /// 足した字体とレイヤの実体（コードの表の終わりに足す）
+    added_fonts: Vec<u64>,
+    added_layers: Vec<u64>,
 }
 
 impl PatchPayload for P21Patch {
@@ -291,6 +298,7 @@ impl PatchPayload for P21Patch {
             + self.small_list_diffs.capacity() * 64
             + self.container_ops.capacity() * 64
             + self.ref_deltas.capacity() * 16
+            + (self.added_fonts.capacity() + self.added_layers.capacity()) * 8
     }
 }
 
@@ -308,6 +316,8 @@ pub(super) struct P21StepTx {
     added_line_types: Vec<(u64, i64)>,
     ref_deltas: BTreeMap<u64, i64>,
     removed_last_alive: bool,
+    added_fonts: Vec<u64>,
+    added_layers: Vec<u64>,
 }
 
 #[derive(Clone)]
@@ -565,6 +575,8 @@ impl P21State {
             added_line_types: Vec::new(),
             ref_deltas: BTreeMap::new(),
             removed_last_alive: false,
+            added_fonts: Vec::new(),
+            added_layers: Vec::new(),
         }
     }
 
@@ -644,7 +656,8 @@ impl P21State {
 
     fn occurrence(&self, stmt: usize) -> Option<(Slot, Slot)> {
         self.part(stmt, "ANNOTATION_CURVE_OCCURRENCE")
-            .or_else(|| self.part(stmt, "ANNOTATION_SYMBOL_OCCURRENCE"))?;
+            .or_else(|| self.part(stmt, "ANNOTATION_SYMBOL_OCCURRENCE"))
+            .or_else(|| self.part(stmt, "ANNOTATION_TEXT_OCCURRENCE"))?;
         let part = self.part(stmt, "STYLED_ITEM").or_else(|| {
             let rec = self.record_of(stmt)?;
             (rec.parts().len() == 1).then_some(0)
@@ -949,6 +962,23 @@ impl P21State {
         let mut pending: Vec<(Slot, StagedContainerOp)> = Vec::new();
         for &layer_ent in &self.codes.layers {
             let slot = self.slot(tx, layer_ent, "PRESENTATION_LAYER_ASSIGNMENT", 2)?;
+            if !self.container_lists.contains_key(&slot) {
+                // 文書エンジンで足したレイヤの並びは、バッチと同じく並び全体を書き直す。空にはできないので、用紙に
+                // 属さない点を残す
+                let mut list = self.small_list(tx, slot)?;
+                let had = list.contains(&id);
+                list.retain(|item| *item != id);
+                if layer_ent == target {
+                    list.push(id);
+                } else if !had {
+                    continue;
+                }
+                if list.is_empty() {
+                    list.push(self.alloc_point(tx, 0.0, 0.0)?);
+                }
+                tx.small_lists.insert(slot, list);
+                continue;
+            }
             let had = self.container_contains(tx, slot, id)?;
             if layer_ent == target {
                 pending.push((slot, StagedContainerOp::MoveToEnd));
@@ -965,6 +995,105 @@ impl P21State {
             }
         }
         Some(())
+    }
+
+    /// レイヤの一覧に要素があるか。文書エンジンで足したレイヤの一覧も見る
+    fn layer_contains(&self, tx: &P21StepTx, slot: Slot, id: u64) -> Option<bool> {
+        if self.container_lists.contains_key(&slot) {
+            self.container_contains(tx, slot, id)
+        } else {
+            Some(self.small_list(tx, slot)?.contains(&id))
+        }
+    }
+
+    /// レイヤの名前と表示の可否を仮置きし、その実体の番号を返す。`source` がなければレイヤを足す（バッチと同じ書き方）
+    pub(super) fn stage_layer(
+        &self,
+        tx: &mut P21StepTx,
+        source: Option<&Ref>,
+        layer: &zumen_drawing::Layer,
+        cx: &mut Cx,
+    ) -> Result<Option<u64>, Error> {
+        work(cx, 1 + self.born_stmts.len() as u64, &Ref::default())?;
+        Ok((|| {
+            let state = layer.state?;
+            let name = text::p21_string(&layer.name)?;
+            let id = if let Some(source) = source {
+                let id = match (source.record(), source.key()) {
+                    (Some(record), _) => {
+                        self.base_records.get(usize::try_from(record).ok()?)?.id()?
+                    }
+                    (None, Some(Key::Instance(id))) => id,
+                    _ => return None,
+                };
+                let stmt = self.instances.get(id)?;
+                if self.is_removed(tx, stmt) {
+                    return None;
+                }
+                let part = self.part(stmt, "PRESENTATION_LAYER_ASSIGNMENT")?;
+                tx.args.insert((stmt, part, 0), name);
+                id
+            } else {
+                // 用紙に表示しない補助の点で、空でない assigned_items を持つ空レイヤを表す。
+                let point = self.alloc_point(tx, 0.0, 0.0)?;
+                let id = self.alloc_instance(
+                    tx,
+                    format!("PRESENTATION_LAYER_ASSIGNMENT({name},'',(#{point}))"),
+                )?;
+                if let Some((sheet, _)) = self.first_sheet {
+                    self.alloc_instance(tx, format!("PRESENTATION_LAYER_USAGE(#{id},#{sheet})"))?;
+                }
+                tx.added_layers.push(id);
+                id
+            };
+            let mut hidden = false;
+            let invisible: Vec<Slot> = self
+                .container_lists
+                .keys()
+                .copied()
+                .chain((0..self.born_stmts.len()).map(|at| (self.base_records.len() + at, 0, 0)))
+                .filter_map(|(stmt, _, _)| {
+                    if self.is_removed(tx, stmt) {
+                        return None;
+                    }
+                    Some((stmt, self.part(stmt, "INVISIBILITY")?, 0))
+                })
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            for slot in invisible {
+                if self.container_lists.contains_key(&slot) {
+                    if !self.container_contains(tx, slot, id)? {
+                        continue;
+                    }
+                    hidden = true;
+                    if state.visible {
+                        tx.container_ops
+                            .insert((slot, id), StagedContainerOp::Remove);
+                        if self.container_len_after(tx, slot)? == 0 {
+                            tx.removed.insert(slot.0);
+                        }
+                    }
+                } else {
+                    let mut list = self.small_list(tx, slot)?;
+                    if !list.contains(&id) {
+                        continue;
+                    }
+                    hidden = true;
+                    if state.visible {
+                        list.retain(|item| *item != id);
+                        if list.is_empty() {
+                            tx.removed.insert(slot.0);
+                        }
+                        tx.small_lists.insert(slot, list);
+                    }
+                }
+            }
+            if !state.visible && !hidden {
+                self.alloc_instance(tx, format!("INVISIBILITY((#{id}))"))?;
+            }
+            Some(id)
+        })())
     }
 
     pub(super) fn stage_codes(
@@ -989,6 +1118,19 @@ impl P21State {
                 codes.iter().copied().filter(|(at, _)| *at > 0).collect();
             if style.is_empty() {
                 return Some(());
+            }
+            if self.part(stmt, "ANNOTATION_TEXT_OCCURRENCE").is_some() {
+                let [(1, code)] = style.as_slice() else {
+                    return None;
+                };
+                return text_color(
+                    &mut Staging {
+                        state: self,
+                        tx: &mut *tx,
+                    },
+                    styles,
+                    *code,
+                );
             }
             if self.part(stmt, "ANNOTATION_SYMBOL_OCCURRENCE").is_some() {
                 let [(1, code)] = style.as_slice() else {
@@ -1067,6 +1209,18 @@ impl P21State {
             work(cx, rec.parts().len() as u64, &Ref::default())?;
         }
         count_arguments(args, cx)?;
+        if args.name == text::NAME {
+            let color = args.values.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+            self.count_codes_work(stmt, &[(1, color)], &[], cx)?;
+            return Ok(text_shape(
+                &mut Staging {
+                    state: self,
+                    tx: &mut *tx,
+                },
+                stmt,
+                args,
+            ));
+        }
         Ok((|| {
             let (_, item) = self.occurrence(stmt)?;
             let was = self.reference(tx, item)?;
@@ -1101,6 +1255,15 @@ impl P21State {
             }
             if self.non_container_refs.get(&id).copied().unwrap_or(0) > 0 {
                 return None;
+            }
+            // 文書エンジンで足したレイヤの並びからは除かない
+            for &layer_ent in &self.codes.layers {
+                if let Some(slot) = self.slot(tx, layer_ent, "PRESENTATION_LAYER_ASSIGNMENT", 2)
+                    && !self.container_lists.contains_key(&slot)
+                    && self.small_list(tx, slot)?.contains(&id)
+                {
+                    return None;
+                }
             }
             let slots: Vec<Slot> = self
                 .current_id_containers
@@ -1139,8 +1302,33 @@ impl P21State {
         work(cx, 1 + self.codes.layers.len() as u64, &Ref::default())?;
         Ok((|| {
             let code = |at: usize| args.values.get(at)?.parse::<i64>().ok();
+            if args.name == "text_font" {
+                let name = text::p21_string(args.values.first()?)?;
+                let source = self.alloc_instance(tx, "EXTERNAL_SOURCE(IDENTIFIER('SCADEC'))")?;
+                let id = self.alloc_instance(
+                    tx,
+                    format!("EXTERNALLY_DEFINED_TEXT_FONT(IDENTIFIER({name}),#{source})"),
+                )?;
+                tx.added_fonts.push(id);
+                return Some(id);
+            }
             let (_, sheet_slot) = self.first_sheet?;
             self.container_lists.get(&sheet_slot)?;
+            if args.name == text::NAME {
+                let mut staging = Staging {
+                    state: self,
+                    tx: &mut *tx,
+                };
+                let literal = text_literal(&mut staging, args)?;
+                let style = text_style(&mut staging, args, code(1)?, None)?;
+                let assignment =
+                    self.alloc_instance(tx, format!("PRESENTATION_STYLE_ASSIGNMENT((#{style}))"))?;
+                let id = self.alloc_instance(tx, format!("(ANNOTATION_OCCURRENCE()ANNOTATION_TEXT_OCCURRENCE()DRAUGHTING_ANNOTATION_OCCURRENCE()GEOMETRIC_REPRESENTATION_ITEM()REPRESENTATION_ITEM('')STYLED_ITEM((#{assignment}),#{literal}))"))?;
+                tx.container_ops
+                    .insert((sheet_slot, id), StagedContainerOp::MoveToEnd);
+                self.assign_layer(tx, id, code(0)?)?;
+                return Some(id);
+            }
             if args.name == MARKER {
                 let (layer, color) = (code(0)?, code(1)?);
                 let symbol = self.build_marker(tx, args)?;
@@ -1451,7 +1639,7 @@ impl P21State {
         let mut layer_code = 0_i64;
         for (idx, &layer_ent) in self.codes.layers.iter().enumerate() {
             if let Some(slot) = self.slot(tx, layer_ent, "PRESENTATION_LAYER_ASSIGNMENT", 2)
-                && self.container_contains(tx, slot, occ_id) == Some(true)
+                && self.layer_contains(tx, slot, occ_id) == Some(true)
             {
                 layer_code = (idx + 1) as i64;
                 break;
@@ -1465,6 +1653,7 @@ impl P21State {
         for &(lid, lcode) in &tx.added_line_types {
             effective_codes.line_types.insert(lid, lcode);
         }
+        effective_codes.fonts.extend_from_slice(&tx.added_fonts);
 
         let added_map: BTreeMap<u64, &[u8]> = tx
             .added
@@ -1650,11 +1839,27 @@ impl P21State {
             self.codes.line_types.insert(lid, lcode);
             patch.added_line_types.push((lid, lcode));
         }
+        self.codes.fonts.extend_from_slice(&tx.added_fonts);
+        self.codes.layers.extend_from_slice(&tx.added_layers);
+        patch.added_fonts = tx.added_fonts;
+        patch.added_layers = tx.added_layers;
 
         Ok(patch)
     }
 
     pub(super) fn revert_patch(&mut self, patch: &P21Patch) {
+        let fonts = self
+            .codes
+            .fonts
+            .len()
+            .saturating_sub(patch.added_fonts.len());
+        self.codes.fonts.truncate(fonts);
+        let layers = self
+            .codes
+            .layers
+            .len()
+            .saturating_sub(patch.added_layers.len());
+        self.codes.layers.truncate(layers);
         for (lid, _) in patch.added_line_types.iter().rev() {
             self.codes.line_types.remove(lid);
         }
@@ -1760,6 +1965,8 @@ impl P21State {
         for &(lid, lcode) in &patch.added_line_types {
             self.codes.line_types.insert(lid, lcode);
         }
+        self.codes.fonts.extend_from_slice(&patch.added_fonts);
+        self.codes.layers.extend_from_slice(&patch.added_layers);
     }
 
     fn note_stmt_aux_added(&mut self, stmt_idx: usize, bytes: &[u8], rec: &Record) {
@@ -2039,13 +2246,19 @@ impl P21State {
             patches.push((span, rendered));
         }
 
-        let surviving_born: Vec<(usize, &BornStmt)> = self
-            .born_stmts
-            .iter()
-            .enumerate()
-            .map(|(i, b)| (base_len + i, b))
-            .filter(|(stmt, _)| !self.removed.contains(stmt))
-            .collect();
+        // 消した文の前の空行はバッチと同じく残し、次に残る文の前か、ブロックの終わりに置く
+        let mut surviving_born: Vec<(usize, &BornStmt, usize)> = Vec::new();
+        let mut blank_lines = 0_usize;
+        for (index, born) in self.born_stmts.iter().enumerate() {
+            let stmt = base_len + index;
+            let blanks = blank_lines + usize::from(born.extra_leading_nl);
+            if self.removed.contains(&stmt) {
+                blank_lines = blanks;
+            } else {
+                surviving_born.push((stmt, born, blanks));
+                blank_lines = 0;
+            }
+        }
 
         if !surviving_born.is_empty() {
             let Some((last_idx, last_span, last_le)) = self.last_base_instance.clone() else {
@@ -2057,20 +2270,13 @@ impl P21State {
             let nl = self.newline.as_bytes();
             let mut block = Vec::new();
 
-            for (pos, (stmt, born)) in surviving_born.into_iter().enumerate() {
+            for (pos, (stmt, born, blanks)) in surviving_born.into_iter().enumerate() {
                 work(cx, 1 + born.body.len() as u64 / 64, &Ref::default())?;
-                if pos == 0 {
-                    if !last_removed && last_nl.is_empty() {
-                        block.extend_from_slice(nl);
-                    }
-                    if born.extra_leading_nl {
-                        block.extend_from_slice(nl);
-                    }
-                } else {
+                if pos > 0 || (!last_removed && last_nl.is_empty()) {
                     block.extend_from_slice(nl);
-                    if born.extra_leading_nl {
-                        block.extend_from_slice(nl);
-                    }
+                }
+                for _ in 0..blanks {
+                    block.extend_from_slice(nl);
                 }
                 let has_override = self
                     .args
@@ -2093,18 +2299,15 @@ impl P21State {
                     block.push(b';');
                 }
             }
+            for _ in 0..blank_lines {
+                block.extend_from_slice(nl);
+            }
             block.extend_from_slice(&last_nl);
             patches.push((last_le..last_le, block));
         }
 
         patched_source(patches, &self.src, cx)
     }
-}
-
-fn slice_in<'a>(rs: RecordSlice<'a>, range: Range<usize>) -> Option<&'a [u8]> {
-    let s = range.start.checked_sub(rs.base)?;
-    let e = range.end.checked_sub(rs.base)?;
-    rs.bytes.get(s..e)
 }
 
 fn number_in_slice(rs: RecordSlice<'_>, value: &Value) -> Option<f64> {
@@ -2169,36 +2372,92 @@ fn dec_u32(map: &mut BTreeMap<u64, u32>, key: u64) {
     }
 }
 
-fn write_value_slice(rs: RecordSlice<'_>, value: &Value, out: &mut Vec<u8>) {
-    let bytes = |r: Range<usize>| slice_in(rs, r).unwrap_or_default();
-    let mut delimited = |mark: u8, raw: &[u8]| {
-        out.push(mark);
-        out.extend_from_slice(raw);
-        out.push(mark);
-    };
-    match value {
-        Value::Null => out.push(b'$'),
-        Value::Derived => out.push(b'*'),
-        Value::Ref(id) => out.extend_from_slice(format!("#{id}").as_bytes()),
-        Value::Enum(range) => delimited(b'.', bytes(range.clone())),
-        Value::Text { raw, .. } => delimited(b'\'', bytes(raw.clone())),
-        Value::Number(range) | Value::Token(range) => out.extend_from_slice(bytes(range.clone())),
-        Value::Binary(range) => delimited(b'"', bytes(range.clone())),
-        Value::Typed(part) => {
-            out.extend_from_slice(bytes(part.name()));
-            write_list_slice(rs, part.args(), out);
-        }
-        Value::List(items) => write_list_slice(rs, items, out),
-    }
+/// 文字の実体を組む仮置きの書き方。バッチと同じ関数で同じ実体を足す
+struct Staging<'a> {
+    state: &'a P21State,
+    tx: &'a mut P21StepTx,
 }
 
-fn write_list_slice(rs: RecordSlice<'_>, items: &[Value], out: &mut Vec<u8>) {
-    out.push(b'(');
-    for (at, item) in items.iter().enumerate() {
-        if at > 0 {
-            out.push(b',');
-        }
-        write_value_slice(rs, item, out);
+impl Build for Staging<'_> {
+    fn instance(&mut self, body: Vec<u8>) -> Option<u64> {
+        self.state.alloc_instance(self.tx, body)
     }
-    out.push(b')');
+
+    fn point(&mut self, x: f64, y: f64) -> Option<u64> {
+        self.state.alloc_point(self.tx, x, y)
+    }
+
+    fn color(&mut self, code: i64) -> Option<u64> {
+        self.state.resolve_color(self.tx, code)
+    }
+
+    fn font(&self, at: usize) -> Option<u64> {
+        let known = &self.state.codes.fonts;
+        match at.checked_sub(known.len()) {
+            None => known.get(at).copied(),
+            Some(added) => self.tx.added_fonts.get(added).copied(),
+        }
+    }
+
+    fn slot(&self, id: u64, name: &str, at: usize) -> Option<Slot> {
+        self.state.slot(self.tx, id, name, at)
+    }
+
+    fn reference(&self, slot: Slot) -> Option<u64> {
+        self.state.reference(self.tx, slot)
+    }
+
+    fn list(&self, slot: Slot) -> Option<Vec<u64>> {
+        self.state.small_list(self.tx, slot)
+    }
+
+    fn set_list(&mut self, slot: Slot, list: Vec<u64>) {
+        self.tx.small_lists.insert(slot, list);
+    }
+
+    fn set_arg(&mut self, slot: Slot, value: String) {
+        self.tx.args.insert(slot, value);
+    }
+
+    fn loosen(&mut self, id: u64) {
+        self.tx.loose.push(id);
+    }
+
+    fn occurrence(&self, record: usize) -> Option<(Slot, Slot)> {
+        self.state.occurrence(record)
+    }
+
+    fn record_id(&self, record: usize) -> Option<u64> {
+        self.state.record_of(record)?.id()
+    }
+
+    fn layer(&mut self, id: u64, code: i64) -> Option<()> {
+        self.state.assign_layer(self.tx, id, code)
+    }
+
+    fn render_with(&mut self, slot: Slot, value: String) -> Option<Vec<u8>> {
+        let prior = self.tx.args.insert(slot, value);
+        let rendered = self.state.render_stmt_with_tx(Some(self.tx), slot.0);
+        if let Some(prior) = prior {
+            self.tx.args.insert(slot, prior);
+        } else {
+            self.tx.args.remove(&slot);
+        }
+        let rendered = rendered?;
+        let id = self.state.record_of(slot.0)?.id()?;
+        let start = format!("#{id}=").len();
+        Some(
+            rendered
+                .get(start..rendered.len().checked_sub(1)?)?
+                .to_vec(),
+        )
+    }
+
+    fn with_instance(&self, id: u64, f: &mut dyn FnMut(RecordSlice<'_>, &Record)) -> Option<()> {
+        let stmt = self.state.instances.get(id)?;
+        if self.state.is_removed(self.tx, stmt) {
+            return None;
+        }
+        self.state.with_stmt_bytes(stmt, |rs, record| f(rs, record))
+    }
 }

@@ -20,7 +20,7 @@ use crate::drawing::{LINE_TYPES, WIDTHS};
 use crate::p21::{COLORS, Codes, MARKERS};
 use crate::{Form, SxfFile, Value};
 
-mod annotation;
+pub(in crate::drawing) mod annotation;
 
 /// 引数の場所。レコード・部分・引数の番号
 type Slot = (usize, usize, usize);
@@ -1571,6 +1571,7 @@ mod tests {
             layers: Vec::new(),
             colors: BTreeMap::new(),
             line_types: BTreeMap::new(),
+            fonts: Vec::new(),
         };
         let cancel = CancelToken::new();
         let mut diagnostics = Diagnostics::new();

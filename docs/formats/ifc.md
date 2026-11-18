@@ -990,16 +990,17 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
   - 表現は `Axis`（芯の 2 点の折れ線、`Curve2D`）と `Body`（層の厚さの合計の矩形を閉じた折れ線の断面にして、高さだけ押し出す `SweptSolid`）。文脈は、プロジェクトの `Model` の文脈と、その下の `Axis`・`Body` の副文脈を使い、なければ足す。
   - 材料は、層ごとの `IfcMaterialLayer` を `IfcMaterialLayerSetUsage`（`AXIS2`・`POSITIVE`）で使い、`IfcRelAssociatesMaterial` で結ぶ。層は芯の左へ並び、ずれ（`OffsetFromReferenceLine`）を渡されなければ厚さの合計の半分を負にして、芯を厚さの中央にする。`IfcMaterial` は壁ごとに書き、同じ壁で同じ名前の層は同じ材料を指す。
   - 芯の 2 点が重なる、高さや層の厚さが正でない、層がない、値が有限でない壁は、`change.edit.unsupported` で断る。
-- 意図の値で床・柱・梁を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Slab`・`Edit::Column`・`Edit::Beam` で受け、空間の配置からの相対に置き、空間に包含で結ぶ。表現は `Body`（閉じた折れ線の断面を押し出す `SweptSolid`）だけで、文脈は壁と同じく使い回す。
+- 意図の値で床・柱・梁を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Slab`・`Edit::Column`・`Edit::Beam` と、`building_apply` の `add_slab`・`add_column`・`add_beam`（スキーマのマイナーバージョン 98 から）で受け、空間の配置からの相対に置き、空間に包含で結ぶ。表現は `Body`（閉じた折れ線の断面を押し出す `SweptSolid`）だけで、文脈は壁と同じく使い回す。
   - 床は、外形の頂点（空間の配置の XY、3 つ以上）・材料の層・上の面の高さで受ける。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す。`IfcSlab` の `FLOOR` に書き、材料は `IfcMaterialLayerSetUsage`（`AXIS3`・`NEGATIVE`・ずれ 0）で、層は上から下へ並ぶ。最後の頂点が最初と同じなら除く。
   - 柱は、断面の中心の位置・脚の高さ・高さ・矩形の断面（幅とせい）・x 軸の向きで受け、断面の中心を配置の原点にして上へ押し出す。
   - 梁は、天端の芯の 2 点（空間の配置の XYZ）と矩形の断面で受ける。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面（幅は芯の左右、せいは天端から下）を芯に沿って押し出す。傾いた梁も書き、鉛直の芯は断る。
   - 柱と梁の材料は、名前を渡されれば `IfcMaterial` を `IfcRelAssociatesMaterial` で結ぶ。`IfcColumn` と `IfcBeam` の PredefinedType（IFC4 から）は書かない。
   - 頂点が足りない・並ぶ頂点が重なる・面積のない外形、正でない高さ・断面・層の厚さ、長さのない向き、有限でない値は、`change.edit.unsupported` で断る。
-- 意図の値で壁に開口をあけ、扉や窓で埋められる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Opening` と `Edit::Filling` で受ける。
+- 意図の値で壁に開口をあけ、扉や窓で埋められる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Opening` と `Edit::Filling`、`building_apply` の `add_opening`・`add_door`・`add_window`（スキーマのマイナーバージョン 98 から）で受ける。
   - 開口は、壁・芯に沿う距離・下端の高さ・幅・高さで受ける。壁の配置からの相対で、距離と下端の点を原点にし、`IfcOpeningElement`（IFC4 と IFC4X3 は `OPENING`）を `IfcRelVoidsElement` で壁に結ぶ。空間には所属させない。
   - 開口の `Body` は、幅と高さの矩形を壁の XZ に置き、壁の材料の層の使い方（`AXIS2`）から求めた層の範囲の一方の面から他方の面まで押し出す。層の使い方を持たない要素と空間には、穴をあけない。
   - 建具は、開口・種類（扉か窓）・全体の幅と高さで受ける。開口の配置に置き、`IfcDoor` か `IfcWindow`（IFC4 と IFC4X3 は PredefinedType の `DOOR` か `WINDOW`）を `IfcRelFillsElement` で開口に結び、壁と同じ空間に包含で結ぶ。建具の形と型はまだ書かない。開口でない要素と、もう埋まった開口は断る。
+- 意図の値で通り芯を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Grid` で受け、`building_apply` の種類はまだない。空間・U と V の軸（名前・始点・終点）・高さで受け、空間の配置からの相対に置いて空間に包含で結ぶ。軸は 2 点の `IfcPolyline` を曲線にした `IfcGridAxis`（SameSense は真）に書く。U と V のどちらかが空・同じ名前の軸・始点と終点が同じ軸・有限でない値は断る。
 
 ### 新しい IFC を作る
 

@@ -937,8 +937,11 @@ dependencies = [
  "zumen-conformance",
  "zumen-drawing",
  "zumen-json",
+ "zumen-jww",
  "zumen-live",
  "zumen-scene",
+ "zumen-sdk",
+ "zumen-sxf",
 ]
 
 [[package]]

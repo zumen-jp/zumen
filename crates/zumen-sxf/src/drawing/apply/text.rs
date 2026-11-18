@@ -270,7 +270,7 @@ pub(in crate::drawing) fn is_string(args: &Arguments, at: usize) -> bool {
 }
 
 /// P21 の文字列は ASCII と UTF-16 の X2 エスケープで環境によらず書く。
-pub(super) fn p21_string(value: &str) -> Option<String> {
+pub(in crate::drawing) fn p21_string(value: &str) -> Option<String> {
     if !valid_string(value) {
         return None;
     }

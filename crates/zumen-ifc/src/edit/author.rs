@@ -17,7 +17,8 @@ use crate::stopped;
 mod intent;
 
 pub use intent::{
-    FillingKind, NewBeam, NewColumn, NewFilling, NewLayer, NewOpening, NewSection, NewSlab, NewWall,
+    FillingKind, NewBeam, NewColumn, NewFilling, NewGrid, NewGridAxis, NewLayer, NewOpening,
+    NewSection, NewSlab, NewWall,
 };
 
 /// 変更が指す要素。文書にあるインスタンスか、同じ要求の中で足した要素
@@ -27,7 +28,7 @@ pub enum Target {
     Instance(u64),
     /// 同じ要求の中で、足す変更（[`super::Edit::Space`]・[`super::Edit::Element`]・[`super::Edit::Wall`]・
     /// [`super::Edit::Slab`]・[`super::Edit::Column`]・[`super::Edit::Beam`]・[`super::Edit::Opening`]・
-    /// [`super::Edit::Filling`]）が足した要素。足した順に 0 から
+    /// [`super::Edit::Filling`]・[`super::Edit::Grid`]）が足した要素。足した順に 0 から
     Added(usize),
 }
 

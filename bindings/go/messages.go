@@ -5666,7 +5666,7 @@ func (m BuildingApplyRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingEdit: 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から
+// BuildingEdit: 建物の要素 1 つへの変更。kind の値で形が決まる。add_space・add_element・remove・place・contain・type・void・fill はマイナーバージョン 96 から、add_wall はマイナーバージョン 97 から、add_slab・add_column・add_beam・add_opening・add_door・add_window はマイナーバージョン 98 から
 //
 // 読んだ JSON をそのまま持つ。形は As で始まるメソッドで読み、BuildingEditOf で作る。
 type BuildingEdit json.RawMessage
@@ -5743,6 +5743,36 @@ func (u BuildingEdit) AsBuildingAddWallEdit() *BuildingAddWallEdit {
 	return asTagged[BuildingAddWallEdit](u, "kind", "add_wall")
 }
 
+// AsBuildingAddSlabEdit は、kind が add_slab の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAddSlabEdit() *BuildingAddSlabEdit {
+	return asTagged[BuildingAddSlabEdit](u, "kind", "add_slab")
+}
+
+// AsBuildingAddColumnEdit は、kind が add_column の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAddColumnEdit() *BuildingAddColumnEdit {
+	return asTagged[BuildingAddColumnEdit](u, "kind", "add_column")
+}
+
+// AsBuildingAddBeamEdit は、kind が add_beam の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAddBeamEdit() *BuildingAddBeamEdit {
+	return asTagged[BuildingAddBeamEdit](u, "kind", "add_beam")
+}
+
+// AsBuildingAddOpeningEdit は、kind が add_opening の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAddOpeningEdit() *BuildingAddOpeningEdit {
+	return asTagged[BuildingAddOpeningEdit](u, "kind", "add_opening")
+}
+
+// AsBuildingAddDoorEdit は、kind が add_door の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAddDoorEdit() *BuildingAddDoorEdit {
+	return asTagged[BuildingAddDoorEdit](u, "kind", "add_door")
+}
+
+// AsBuildingAddWindowEdit は、kind が add_window の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAddWindowEdit() *BuildingAddWindowEdit {
+	return asTagged[BuildingAddWindowEdit](u, "kind", "add_window")
+}
+
 // BuildingPropertyEdit: 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
 type BuildingPropertyEdit struct {
 	// 変更の種類
@@ -5815,7 +5845,7 @@ type BuildingRef struct {
 	// 読んだときの要素のハッシュ。building_elements が返したもの
 	Hash *string `json:"hash,omitempty"`
 
-	// 同じ要求の edits の、前にある add_space・add_element・add_wall の位置（0 から）。その変更で足した要素を指す
+	// 同じ要求の edits の、前にある要素を足す変更（add_ で始まる種類）の位置（0 から）。その変更で足した要素を指す
 	Added *int64 `json:"added,omitempty"`
 }
 
@@ -5850,7 +5880,7 @@ type BuildingAddSpaceEdit struct {
 	// 空間の種類
 	Space *BuildingSpaceKind `json:"space,omitempty"`
 
-	// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 親。敷地はプロジェクトか敷地、建物はプロジェクト・敷地・建物、階は建物か階。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Parent *BuildingRef `json:"parent,omitempty"`
 
 	// 名前
@@ -5887,7 +5917,7 @@ type BuildingAddElementEdit struct {
 	// 名前
 	Name *string `json:"name,omitempty"`
 
-	// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 包含する空間（敷地・建物・階・室）。開口には書けない。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Container *BuildingRef `json:"container,omitempty"`
 
 	// 配置。書かなければ、空間の配置に重ねる（空間もなければ原点）
@@ -5928,7 +5958,7 @@ type BuildingPlaceEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
 
-	// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 置き直す要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Element *BuildingRef `json:"element,omitempty"`
 
 	// 新しい配置
@@ -5947,10 +5977,10 @@ type BuildingContainEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
 
-	// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 移す要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Element *BuildingRef `json:"element,omitempty"`
 
-	// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 移す先の空間。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Space *BuildingRef `json:"space,omitempty"`
 }
 
@@ -5966,10 +5996,10 @@ type BuildingTypeEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
 
-	// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 型を変える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Element *BuildingRef `json:"element,omitempty"`
 
-	// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 型の要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	ElementType *BuildingRef `json:"element_type,omitempty"`
 }
 
@@ -5985,10 +6015,10 @@ type BuildingVoidEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
 
-	// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 開口を持つ要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Host *BuildingRef `json:"host,omitempty"`
 
-	// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 開口。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Opening *BuildingRef `json:"opening,omitempty"`
 }
 
@@ -5999,9 +6029,9 @@ func (m BuildingVoidEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingWallLayer: 壁の材料の層
+// BuildingWallLayer: 材料の層
 type BuildingWallLayer struct {
-	// 材料の名前（IfcMaterial の Name）。同じ壁の中で同じ名前の層は、同じ材料を指す
+	// 材料の名前（IfcMaterial の Name）。同じ要素の中で同じ名前の層は、同じ材料を指す
 	Material *string `json:"material,omitempty"`
 
 	// 層の厚さ。文書の長さの単位で、正の値
@@ -6013,7 +6043,7 @@ type BuildingAddWallEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
 
-	// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Storey *BuildingRef `json:"storey,omitempty"`
 
 	// 芯の始点。空間の配置の [x, y] で、文書の長さの単位
@@ -6045,15 +6075,219 @@ func (m BuildingAddWallEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
+// BuildingSection: 矩形の断面
+type BuildingSection struct {
+	// 幅。文書の長さの単位で、正の値
+	Width *float64 `json:"width,omitempty"`
+
+	// せい。文書の長さの単位で、正の値
+	Depth *float64 `json:"depth,omitempty"`
+}
+
+// BuildingAddSlabEdit: 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から
+type BuildingAddSlabEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 所属する空間（階など）。床はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Storey *BuildingRef `json:"storey,omitempty"`
+
+	// 外形の頂点。空間の配置の [x, y] の並びで、3 つ以上。最後の点が最初の点と同じなら、その点は除く
+	Outline [][]float64 `json:"outline,omitempty"`
+
+	// 材料の層。上から下へ並べる。1 つ以上
+	Layers []BuildingWallLayer `json:"layers,omitempty"`
+
+	// 上の面の高さ（空間の配置の z）。書かなければ 0
+	Elevation *float64 `json:"elevation,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+	GlobalId *string `json:"global_id,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingAddSlabEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAddSlabEdit
+	m.Kind = "add_slab"
+	return json.Marshal(plain(m))
+}
+
+// BuildingAddColumnEdit: 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から
+type BuildingAddColumnEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 所属する空間（階など）。柱はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Storey *BuildingRef `json:"storey,omitempty"`
+
+	// 断面の中心。空間の配置の [x, y]
+	Position []float64 `json:"position,omitempty"`
+
+	// 柱の脚の高さ（空間の配置の z）。書かなければ 0
+	Base *float64 `json:"base,omitempty"`
+
+	// 高さ。文書の長さの単位で、正の値
+	Height *float64 `json:"height,omitempty"`
+
+	// 断面。幅は柱の x 軸、せいは y 軸の向き
+	Section *BuildingSection `json:"section,omitempty"`
+
+	// 柱の x 軸の向き。空間の配置の [x, y]。書かなければ空間の x 軸
+	Direction []float64 `json:"direction,omitempty"`
+
+	// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
+	Material *string `json:"material,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+	GlobalId *string `json:"global_id,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingAddColumnEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAddColumnEdit
+	m.Kind = "add_column"
+	return json.Marshal(plain(m))
+}
+
+// BuildingAddBeamEdit: 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から
+type BuildingAddBeamEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 所属する空間（階など）。梁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Storey *BuildingRef `json:"storey,omitempty"`
+
+	// 天端の芯の始点。空間の配置の [x, y, z]
+	Start []float64 `json:"start,omitempty"`
+
+	// 天端の芯の終点。始点と x か y が違う [x, y, z]
+	End []float64 `json:"end,omitempty"`
+
+	// 断面。幅は芯の左右、せいは天端から下へ
+	Section *BuildingSection `json:"section,omitempty"`
+
+	// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
+	Material *string `json:"material,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+	GlobalId *string `json:"global_id,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingAddBeamEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAddBeamEdit
+	m.Kind = "add_beam"
+	return json.Marshal(plain(m))
+}
+
+// BuildingAddOpeningEdit: 壁の芯に沿う位置・下端・矩形の大きさで開口を足し、IfcRelVoidsElement で壁に穴をあける。開口は壁の配置からの相対に置き、壁の材料の層の使い方（AXIS2）の厚さだけ押し出す Body と IfcOpeningElement をコアが書く。空間には所属させない。層の使い方を持たない要素は断る。結果の id は足した開口の ID。マイナーバージョン 98 から
+type BuildingAddOpeningEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 穴をあける壁。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Host *BuildingRef `json:"host,omitempty"`
+
+	// 壁の配置の x 軸に沿う、壁の原点から開口の端までの距離
+	Distance *float64 `json:"distance,omitempty"`
+
+	// 壁の下端から開口の下端までの高さ
+	Sill *float64 `json:"sill,omitempty"`
+
+	// 幅。文書の長さの単位で、正の値
+	Width *float64 `json:"width,omitempty"`
+
+	// 高さ。文書の長さの単位で、正の値
+	Height *float64 `json:"height,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+	GlobalId *string `json:"global_id,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingAddOpeningEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAddOpeningEdit
+	m.Kind = "add_opening"
+	return json.Marshal(plain(m))
+}
+
+// BuildingAddDoorEdit: 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から
+type BuildingAddDoorEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Opening *BuildingRef `json:"opening,omitempty"`
+
+	// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+	Width *float64 `json:"width,omitempty"`
+
+	// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+	Height *float64 `json:"height,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+	GlobalId *string `json:"global_id,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingAddDoorEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAddDoorEdit
+	m.Kind = "add_door"
+	return json.Marshal(plain(m))
+}
+
+// BuildingAddWindowEdit: 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から
+type BuildingAddWindowEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Opening *BuildingRef `json:"opening,omitempty"`
+
+	// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+	Width *float64 `json:"width,omitempty"`
+
+	// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+	Height *float64 `json:"height,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+	GlobalId *string `json:"global_id,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingAddWindowEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAddWindowEdit
+	m.Kind = "add_window"
+	return json.Marshal(plain(m))
+}
+
 // BuildingFillEdit: 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
 type BuildingFillEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
 
-	// 開口。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 開口。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Opening *BuildingRef `json:"opening,omitempty"`
 
-	// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の add_space・add_element・add_wall の位置で指す
+	// 埋める要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Filler *BuildingRef `json:"filler,omitempty"`
 }
 

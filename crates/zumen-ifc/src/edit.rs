@@ -9,8 +9,8 @@
 mod author;
 
 pub use author::{
-    FillingKind, NewBeam, NewColumn, NewElement, NewFilling, NewLayer, NewOpening, NewPlacement,
-    NewSection, NewSlab, NewSpace, NewWall, SpaceKind, Target,
+    FillingKind, NewBeam, NewColumn, NewElement, NewFilling, NewGrid, NewGridAxis, NewLayer,
+    NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall, SpaceKind, Target,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -65,6 +65,8 @@ pub enum Edit {
     Opening(NewOpening),
     /// 開口を扉か窓で埋める（`IfcRelFillsElement`）。建具は開口の配置に置き、壁と同じ空間に包含で結ぶ
     Filling(NewFilling),
+    /// U と V の軸で通り芯（`IfcGrid`）を足し、空間に包含で結ぶ
+    Grid(NewGrid),
     /// 要素を除く。要素だけが使う配置・表現・定義・関係と、要素の開口も除く。子や所属する要素を持つ空間は除かない
     Remove {
         /// 除く要素
@@ -128,6 +130,7 @@ impl Edit {
             Self::Beam(_) => "beam",
             Self::Opening(_) => "opening",
             Self::Filling(_) => "filling",
+            Self::Grid(_) => "grid",
             Self::Remove { .. } => "remove",
             Self::Place { .. } => "place",
             Self::Contain { .. } => "contain",
@@ -213,6 +216,7 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
             Edit::Beam(beam) => draft.add_beam(beam, cx)?,
             Edit::Opening(opening) => draft.add_opening(opening, cx)?,
             Edit::Filling(filling) => draft.add_filling(filling, cx)?,
+            Edit::Grid(grid) => draft.add_grid(grid, cx)?,
             Edit::Remove { element } => draft.remove(*element, cx)?,
             Edit::Place { element, placement } => draft.place(*element, placement, cx)?,
             Edit::Contain { element, space } => draft.contain(*element, *space, cx)?,
