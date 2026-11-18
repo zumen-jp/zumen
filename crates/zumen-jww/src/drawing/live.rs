@@ -710,6 +710,34 @@ impl JwwLive {
         &self.display
     }
 
+    /// 記号の定義の数。定義の番号は `0..definition_count()` で、記号の要素が表示の行に書くインスタンスの番号と同じ
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "ipc の記号の定義の表示が使う（#889）")
+    )]
+    pub(super) fn definition_count(&self) -> usize {
+        self.definition_rows.len()
+    }
+
+    /// 定義の番号 `def_idx` の空間の、生きた要素の行と要素を表示の順（ファイルの順）に返す。番号が範囲の外なら `None`。
+    /// 定義の空間には追加の行が生まれず、更新は行の番号を保つので、開いたときの行の一覧から消した行を除けば足りる
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "ipc の記号の定義の表示が使う（#889）")
+    )]
+    pub(super) fn definition_rows_alive(
+        &self,
+        def_idx: usize,
+    ) -> Option<impl Iterator<Item = (RowId, &Element<ModelPoint>)>> {
+        let rows = self.definition_rows.get(def_idx)?;
+        Some(rows.iter().filter_map(|&row| {
+            if !self.table.is_alive(row) {
+                return None;
+            }
+            self.table.row(row).map(|found| (row, &found.element))
+        }))
+    }
+
     /// 表示バッファーの GPU 変更追跡ビットを消去する
     pub fn clear_display_dirty(&mut self) {
         self.display.clear_dirty();
@@ -3396,11 +3424,52 @@ fn display_counts_and_style(
     space: SpaceId,
     symbol_index_by_key: &BTreeMap<String, u32>,
 ) -> ([u32; 4], [u32; 2]) {
-    let style = [element.layer.0, pack_jww_color(&element.style.color)];
+    let style = display_style(element);
     if space.0 >= DEFINITION_SPACES {
         return ([0, 0, 0, 0], style);
     }
-    let counts = match &element.shape {
+    (shape_counts(element, symbol_index_by_key), style)
+}
+
+/// 記号の定義の空間の要素 1 つが、定義の座標のまま表示の行に確保する個数と、行の書式。
+/// 入れ子の記号は [`write_definition_display`] と同じく、番号が引けるときだけインスタンス 1 つを数える
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "ipc の記号の定義の表示が使う（#889）")
+)]
+pub(super) fn display_definition_counts_and_style(
+    element: &Element<ModelPoint>,
+    symbol_index_by_key: &BTreeMap<String, u32>,
+) -> ([u32; 4], [u32; 2]) {
+    (
+        shape_counts(element, symbol_index_by_key),
+        display_style(element),
+    )
+}
+
+/// 記号の定義の空間の要素 1 つを、定義の座標のまま（尺度 1・原点 0）表示の行に書く。
+/// 入れ子の記号は `symbol_index_by_key` の番号のインスタンスとして書く
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "ipc の記号の定義の表示が使う（#889）")
+)]
+pub(super) fn write_definition_display(
+    element: &Element<ModelPoint>,
+    symbol_index_by_key: &BTreeMap<String, u32>,
+    w: &mut DisplayWriter<'_>,
+) {
+    write_display_shape(element, 1.0, [0.0, 0.0], symbol_index_by_key, w);
+}
+
+fn display_style(element: &Element<ModelPoint>) -> [u32; 2] {
+    [element.layer.0, pack_jww_color(&element.style.color)]
+}
+
+fn shape_counts(
+    element: &Element<ModelPoint>,
+    symbol_index_by_key: &BTreeMap<String, u32>,
+) -> [u32; 4] {
+    match &element.shape {
         Shape::Line { .. } | Shape::Point(_) => [1, 0, 0, 0],
         Shape::Circle { .. } | Shape::Curve(Edge::Arc { .. }) => [0, 1, 0, 0],
         Shape::Curve(Edge::Elliptic {
@@ -3439,8 +3508,7 @@ fn display_counts_and_style(
         Shape::Hatch(hatch) => count_hatch_primitives(hatch),
         Shape::Dimension(dim) => [1, 0, u32::from(dim.text.position.is_some()), 0],
         _ => [0, 0, 0, 0],
-    };
-    (counts, style)
+    }
 }
 
 fn count_hatch_primitives(hatch: &zumen_drawing::Hatch<ModelPoint>) -> [u32; 4] {
@@ -3500,7 +3568,17 @@ fn write_display_element(
         return;
     }
     let k = 1.0 / header.scale(space.0 as usize);
-    let [ox, oy] = paper_origin;
+    write_display_shape(element, k, paper_origin, symbol_index_by_key, w);
+}
+
+/// 要素の形を、座標を `k` 倍して `origin` だけ動かした表示の行に書く
+fn write_display_shape(
+    element: &Element<ModelPoint>,
+    k: f64,
+    [ox, oy]: [f64; 2],
+    symbol_index_by_key: &BTreeMap<String, u32>,
+    w: &mut DisplayWriter<'_>,
+) {
     let to_paper = |p: ModelPoint| [p.x * k + ox, p.y * k + oy];
     let len_paper = |len: &Length| match len {
         Length::Model(m) => m.value * k,
@@ -4225,6 +4303,99 @@ mod equivalence_tests {
         let mut bytes = spec.build();
         bytes.extend(archive.out);
         bytes
+    }
+
+    /// 定義の空間の要素を、定義の座標のまま表示の行に書く。入れ子の記号はインスタンスになる
+    #[test]
+    fn definition_display_keeps_definition_coordinates() {
+        use super::equivalence_common::{Archive, Spec};
+        let mut spec = Spec::new(700);
+        spec.groups[0] = (3, 1.0, [3; 16]);
+        // 縮尺 1/50 の用紙の座標とは違う値になることを見る
+        spec.groups[3] = (3, 50.0, [3; 16]);
+        let mut archive = Archive::new(700);
+        archive.count(1);
+        archive.tag("CDataBlock");
+        archive.base(1, 1);
+        archive.reals(&[5.0, 5.0, 1.0, 1.0, 0.0]);
+        archive.out.extend(2u32.to_le_bytes());
+        archive.count(2);
+        archive.block("部品");
+        archive.tag("CDataList");
+        archive.base(1, 1);
+        archive.out.extend(2u32.to_le_bytes());
+        archive.out.extend([0; 8]);
+        archive.cstring("外側");
+        archive.count(2);
+        archive.tag("CDataBlock");
+        archive.base(1, 1);
+        archive.reals(&[7.0, 8.0, 2.0, 0.5, core::f64::consts::FRAC_PI_2]);
+        archive.out.extend(1u32.to_le_bytes());
+        archive.line();
+        archive.out.extend(0u32.to_le_bytes());
+        let mut bytes = spec.build();
+        bytes.extend(archive.out);
+        let (live, diagnostics) = run(|cx| JwwLive::open(&bytes, cx));
+        let live = live.unwrap();
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(live.definition_count(), 2);
+        assert!(live.definition_rows_alive(2).is_none());
+
+        let write = |def_idx: usize| {
+            let mut display = Display::with_rows(0);
+            for (_, element) in live.definition_rows_alive(def_idx).unwrap() {
+                let (counts, style) =
+                    display_definition_counts_and_style(element, &live.symbol_index_by_key);
+                assert_eq!(style, display_style(element));
+                display.push_with(counts, style, |w| {
+                    write_definition_display(element, &live.symbol_index_by_key, w);
+                });
+            }
+            display.canonical()
+        };
+        let expected = |push: &dyn Fn(&mut Display)| {
+            let mut display = Display::with_rows(0);
+            push(&mut display);
+            display.canonical()
+        };
+        let line = element_style(&live, 0, 0);
+        assert_eq!(
+            write(0),
+            expected(&|d| {
+                d.push_with([1, 0, 0, 0], line, |w| {
+                    w.push_segment([0.0, 0.0], [10.0, 0.0]);
+                });
+            })
+        );
+        let inner = element_style(&live, 1, 0);
+        let outer_line = element_style(&live, 1, 1);
+        assert_eq!(
+            write(1),
+            expected(&|d| {
+                d.push_with([0, 0, 0, 1], inner, |w| {
+                    w.push_instance(
+                        [7.0, 8.0],
+                        [2.0, 0.5],
+                        core::f64::consts::FRAC_PI_2,
+                        [0.0, 0.0],
+                        0,
+                        [1, 1],
+                    );
+                });
+                d.push_with([1, 0, 0, 0], outer_line, |w| {
+                    w.push_segment([0.0, 0.0], [10.0, 0.0]);
+                });
+            })
+        );
+    }
+
+    fn element_style(live: &JwwLive, def_idx: usize, nth: usize) -> [u32; 2] {
+        let (_, element) = live
+            .definition_rows_alive(def_idx)
+            .unwrap()
+            .nth(nth)
+            .unwrap();
+        display_style(element)
     }
 
     fn check_selection(live: &JwwLive) {
