@@ -1118,6 +1118,39 @@ pub const CRS_DATUM_SHIFT_MISSING: Code = Code::new(
     &["grid"],
 );
 
+/// DXF の GEODATA の座標系の定義から、扱う座標系の EPSG のコードを引けないので、図面から地図への変換を作らなかった。name は見つけた EPSG のコードか座標系の名前で、どちらもなければ空（#685）
+///
+/// `crs.geodata-crs.unsupported`（0.3.0 から）
+pub const CRS_GEODATA_CRS_UNSUPPORTED: Code = Code::new(
+    "crs.geodata-crs.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("name", ParamType::Text)],
+    &["name"],
+);
+
+/// DXF の GEODATA の値が数でないか有限でないか、単位の倍率か北の向きが 0 なので、図面から地図への変換を作らなかった。code は値のグループ・コード（#685）
+///
+/// `crs.geodata.invalid`（0.3.0 から）
+pub const CRS_GEODATA_INVALID: Code = Code::new(
+    "crs.geodata.invalid",
+    Severity::Error,
+    None,
+    &[Param::new("code", ParamType::UInt)],
+    &["code"],
+);
+
+/// DXF の GEODATA が、図面から地図への変換を確かめていない設定（版 1・局所の格子でない座標の種類・尺度の推定・海面補正・Z でない上の向き・メッシュの面での対応・水平と垂直で違う単位の倍率・北か南が最初の軸の座標系）なので、変換を作らなかった。reason はその設定（#685）
+///
+/// `crs.geodata.unsupported`（0.3.0 から）
+pub const CRS_GEODATA_UNSUPPORTED: Code = Code::new(
+    "crs.geodata.unsupported",
+    Severity::Warning,
+    None,
+    &[Param::new("reason", ParamType::Key)],
+    &["reason"],
+);
+
 /// 渡されたジオイドの格子（ISG format 2.0）が壊れていて読めない
 ///
 /// `crs.geoid.invalid`（0.2.0 から）
@@ -6251,6 +6284,9 @@ pub const ALL: &[Code] = &[
     CRS_DATUM_GRID_MISSING,
     CRS_DATUM_GRID_UNSUPPORTED,
     CRS_DATUM_SHIFT_MISSING,
+    CRS_GEODATA_CRS_UNSUPPORTED,
+    CRS_GEODATA_INVALID,
+    CRS_GEODATA_UNSUPPORTED,
     CRS_GEOID_INVALID,
     CRS_GEOID_UNSUPPORTED,
     CRS_HEIGHT_DATUM_UNSUPPORTED,

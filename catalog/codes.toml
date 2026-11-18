@@ -1168,6 +1168,30 @@ params = { points = "uint" }
 since = "0.3.0"
 status = "active"
 
+[codes."crs.geodata.invalid"]
+description = "DXF の GEODATA の値が数でないか有限でないか、単位の倍率か北の向きが 0 なので、図面から地図への変換を作らなかった。code は値のグループ・コード（#685）"
+severity = "error"
+params = { code = "uint" }
+group-by = ["code"]
+since = "0.3.0"
+status = "active"
+
+[codes."crs.geodata.unsupported"]
+description = "DXF の GEODATA が、図面から地図への変換を確かめていない設定（版 1・局所の格子でない座標の種類・尺度の推定・海面補正・Z でない上の向き・メッシュの面での対応・水平と垂直で違う単位の倍率・北か南が最初の軸の座標系）なので、変換を作らなかった。reason はその設定（#685）"
+severity = "warning"
+params = { reason = "key" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
+[codes."crs.geodata-crs.unsupported"]
+description = "DXF の GEODATA の座標系の定義から、扱う座標系の EPSG のコードを引けないので、図面から地図への変換を作らなかった。name は見つけた EPSG のコードか座標系の名前で、どちらもなければ空（#685）"
+severity = "warning"
+params = { name = "text" }
+group-by = ["name"]
+since = "0.3.0"
+status = "active"
+
 # XML の L0（決定 0209）
 
 [codes."xml.document.invalid"]

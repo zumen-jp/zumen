@@ -80,9 +80,21 @@ ISG format 2.0（ISG、2020-06-25）の格子を読み、国土地理院の「�
 - 未知数は 4 つで、最小二乗で求める。図面と地図の点の重心を引いてから和を取り、地図の座標の大きな値で桁を落とさない。離れた 2 点か、一直線に並ぶ 3 点以上で決まる。
 - 残差は、地図の点から、求めた変換で写した図面の点を引いた値（メートル）を、渡した組の順に返す。1 点だけ誤った組では、その点の残差が大きくなる。どの残差から誤りとするかは、呼ぶ側が決める。
 - 組が 2 つより少ないか、図面の点がすべて重なるか、求めた変換が有限でなければ `crs.control-points.failed`（`points` は渡した組の数）を返す。有限でない値の組は `crs.control-point.invalid`（`index` は 0 から数えた組の番号）にする。組の数は、予算の作業量（`work`）で数える。
-- 地図の座標系は、呼ぶ側が決めて変換と一緒に持つ。DXF の GEODATA を読んで変換にするのは、DXF の読み（`docs/formats/dxf.md`）で扱う。
+- 地図の座標系は、呼ぶ側が決めて変換と一緒に持つ。DXF の GEODATA からの変換は、次の節で扱う。
 
 テスト（`crates/zumen-crs/tests/control.rs`）は、既知の変換で写した組から元の変換に戻ること、1 点ずつずらした組でその点の残差がもっとも大きいこと、2 点と一直線に並ぶ 3 点で決まること、診断と予算を確かめる。
+
+## GEODATA から地図への変換
+
+AutoCAD で地理位置を付けた DXF の GEODATA（[DXF の地理位置](dxf.md#地理位置geodata)）の値から、図面から地図への変換と地図の座標系を作る（[#685](https://github.com/zumen-jp/zumen/issues/685)）。`GeoData::read` は、`AcDbGeoData` のグループ・コードと値の並び（`GeoValue`）を読み、`GeoData::georeference` は `MapConversion` と `Crs` の組（`Georeference`）を返す。DXF の読みは呼ぶ側が渡すので、`zumen-crs` は `zumen-acad` に依らない。
+
+- 読む値は、版（90）・座標の種類（70）・設計の点（10・20・30）・基準の点（11・21・31）・水平と垂直の単位の倍率（40・41）・上の向き（210・220・230）・北の向き（12・22）・尺度の推定の方法と利用者の倍率（95・141）・海面補正（294・142）・座標系の定義（303 の続きと 301）・メッシュの点と面の数（13・97）。サブクラスの印（100 の `AcDbGeoData`）の後だけを読み、同じグループ・コードが何度もあれば最初の値を使う。書かれていない値は ezdxf 1.4.5 の既定の値にする（推定）。
+- 変換は、ezdxf 1.4.5 の `GeoData.get_crs_transformation` と同じ式にする。図面の点から設計の点を引き、水平の単位の倍率を掛け、`π/2 − atan2(北の Y, 北の X)` だけ反時計回りに回し、基準の点を足す。`MapConversion` では、`scale` が水平の単位の倍率、X 軸の向き（`x_axis_abscissa`・`x_axis_ordinate`）が北の向きの単位ベクトルの（Y, X）、平行移動が基準の点から回した設計の点を引いた値になる。高さは、基準の点の高さに、設計の点からの差に倍率を掛けた値を足す（推定。ezdxf は高さを写さない）。
+- 座標系は、定義（Autodesk の座標系の XML）の `Alias`（`type="CoordinateSystem"` で、`Namespace` が `EPSG Code`）の `id` を EPSG のコードとして引く。XML の宣言は文字コードを UTF-16 と書くことがあり、DXF の文字列の符号化と合わないので、宣言を除いて読む。最初の軸（`AxisOrder` が 1 の `AxisAbbreviation`）が東か西でなければ扱わない。名前空間は見ない。いずれも ezdxf 1.4.5 の `GeoData.get_crs` と同じ。
+- ezdxf が確かめた設定のほかは、変換を作らずに `crs.geodata.unsupported`（`reason`）を返す。版 1（R2009 の DXF。グループ・コードの意味が違う）は `version` だけを返す。座標の種類が局所の格子（1）でないものは `coordinate-type`、尺度の推定があるか利用者の倍率が 1 でないものは `scale-estimation`、海面補正は `sea-level`、上の向きが Z でないものは `up-direction`、メッシュの面で対応を持つものは `mesh`、水平と垂直で単位の倍率が違うものは `vertical-scale`、最初の軸が北か南か決まらないものは `axis-order`。面のないメッシュの点は使わない（ezdxf と同じ）。
+- 定義から扱う座標系（[座標系の名指し](#座標系の名指し)の EPSG のコード）を引けなければ `crs.geodata-crs.unsupported`（`name` は見つけた EPSG のコードか座標系の名前）を返す。値が数でないか有限でないか、単位の倍率か北の向きが 0 なら `crs.geodata.invalid`（`code` はグループ・コード）を返す。診断は呼ぶ側が渡す場所（DXF のレコードの番号など）を持つ。値の数は予算の作業量（`work`）で数える。
+
+テスト（`crates/zumen-geo/tests/geodata.rs`）は、テストの中で作る GEODATA つきの DXF を `zumen-acad` で読み、GEODATA の値と、図面の 4 点を写した地図の点を、ezdxf 1.4.5 で読んで写した値（`tests/geodata_ezdxf.py`）と 1e-9 m の中で照らす。図面は mm、地図は EPSG:6677 で、北を 30 度回す。扱わない設定・座標系・壊れた値の診断と場所、予算、公開サンプル（[`samples/dxf/acadsharp-geoloc.dxf`](../../samples/dxf/acadsharp-geoloc.dxf)）の値と診断も確かめる。
 
 ## 座標の補正量の格子
 

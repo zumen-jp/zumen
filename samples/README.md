@@ -77,6 +77,7 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 ## DXF・JWW・SXF
 
 - `dxf/` は、ezdxf（MIT）と opendxfviewer（MIT）が公開する DXF です。R12（`ezdxf-ascii-r12.dxf`）・R2000（`opendxfviewer-latin1.dxf`）・R2004（`text_alignments.dxf`）・R2007（`ezdxf-mtext-columns-r2007.dxf`）を含み、毎晩の CI で ezdxf との照合に流します（#511・#874）。
+- `dxf/acadsharp-geoloc.dxf` は、ACadSharp（MIT）が公開する、AutoCAD で地理位置を付けた R2018 の DXF です（#685）。図形はなく、GEODATA（版 3・局所の格子・メッシュの点 12・面なし）と、EPSG のコードを持たない Autodesk の座標系の定義を持ちます。`crates/zumen-geo/tests/geodata.rs` で GEODATA の値と診断を確かめます。同じ所の `geoloc_AC1021.dxf` は、後のコミットで別に足されて作ったソフトが分からないので、入れていません。
 - `jww/ezjww-geometry.jww` は、ezjww が生成して MIT で公開する JWW です（#874）。`crates/zumen-jww/tests/samples.rs` で読み書きを確かめ、毎晩の CI で ezjww と照らします。
 - `sxf/ezsxf-writer-all-features.sfc` は、ezsxf が MIT で公開する書き出しテスト用の SFC を、SXF Ver.3.1 の仕様に合わせて Shift_JIS（cp932）にしたものです（#874）。`crates/zumen-sxf/tests/samples.rs` で読み書きを確かめ、毎晩の CI で ezsxf と照らします。
 

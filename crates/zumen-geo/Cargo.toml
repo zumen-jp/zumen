@@ -22,5 +22,10 @@ zumen-geom3d = { version = "0.3.0", path = "../zumen-geom3d" }
 zumen-drawing = { version = "0.3.0", path = "../zumen-drawing", optional = true }
 zumen-scene3d = { version = "0.3.0", path = "../zumen-scene3d", optional = true }
 
+[dev-dependencies]
+# GEODATA つきの DXF を読み、図面から地図への変換を確かめる試験（#685）。コードは変えない
+zumen-acad = { path = "../zumen-acad", default-features = false }
+zumen-sdk = { path = "../zumen-sdk" }
+
 [lints]
 workspace = true

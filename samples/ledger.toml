@@ -611,6 +611,18 @@ license-url = "https://github.com/mozman/ezdxf/blob/5265e6e6d02388a95f406c26983e
 attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf が書き出した examples_dxf/mtext_columns_R2007.dxf。MIT License の本文は licenses/ezdxf-MIT.txt"
 
 [[samples]]
+path = "dxf/acadsharp-geoloc.dxf"
+sha256 = "30d1985e3838494ed8968287933294ffac4896cd0b43e77b2ffea946551e539e"
+bytes = 114942
+title = "geoloc.dxf（AutoCAD で地理位置を付けた図形のない R2018（AC1032）の DXF）"
+publisher = "Albert Domenech（ACadSharp）"
+url = "https://raw.githubusercontent.com/DomCR/ACadSharp/21a9cb9a8bddf328902b6f8925bc2af7bfd587c2/samples/geolocation/geoloc.dxf"
+retrieved = "2026-11-18"
+license = "MIT"
+license-url = "https://github.com/DomCR/ACadSharp/blob/21a9cb9a8bddf328902b6f8925bc2af7bfd587c2/LICENSE"
+attribution = "Copyright (c) 2021 Albert Domenech. ACadSharp の samples/geolocation/geoloc.dxf。同じ図面の geoloc.dwg と同じコミットで追加された。MIT License の本文は licenses/acadsharp-MIT.txt"
+
+[[samples]]
 path = "jww/ezjww-geometry.jww"
 sha256 = "d4d9d889c1ea088fe588fe9d6772deb75ae331999d97a024fb6911d8dbaf836a"
 bytes = 17565

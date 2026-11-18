@@ -7,6 +7,7 @@
 //! - [`grid`] は、ジオイド高と基準面補正量の格子（ISG format 2.0）と、双一次の補間
 //! - [`datum`] は、日本測地系と JGD2000 の座標を、TKY2JGD・PatchJGD の格子で JGD2011 に直す変換
 //! - [`control`] は、図面と地図の対応点から、図面から地図への相似の変換を最小二乗で求める計算
+//! - [`geodata`] は、DXF の GEODATA（AutoCAD の地理位置）の値から、図面から地図への変換と座標系を作る読み
 //!
 //! 三角関数と双曲線関数は、どの環境でも同じ値になる `libm` で求める（決定 0007）。国土地理院のジオイド・モデルと
 //! 変換のパラメーターは同梱しない。利用者が入手して渡す（決定 0019）。
@@ -14,6 +15,7 @@
 pub mod control;
 pub mod crs;
 pub mod datum;
+pub mod geodata;
 pub mod grid;
 pub mod height;
 pub mod point;
@@ -22,6 +24,7 @@ pub mod projection;
 pub use control::{ControlPoint, Fitted, fit_map_conversion};
 pub use crs::{Crs, VerticalCrs, Zone, wkt_codes};
 pub use datum::{ShiftGrid, Shifts, to_jgd2011};
+pub use geodata::{GeoData, GeoValue, Georeference};
 pub use grid::{Extent, Grid, Model, Undulation};
 pub use height::{Height, HeightDatum, Realization};
 pub use point::{Axes, GeoPoint, MapConversion, MapPoint, MapPosition, ProjectPoint};
