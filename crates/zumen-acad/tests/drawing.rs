@@ -846,9 +846,22 @@ fn text_that_is_not_shift_jis_or_in_an_unknown_code_page_is_reported() {
             )]
         )
     );
-    // 対応表のないコード・ページは、ASCII の文字だけを読む
+    // ANSI_1252 も、表に割り当てのないバイト（0x90）を含む文字は読めない（#327）
     assert_eq!(
         lifted("ANSI_1252"),
+        (
+            1,
+            vec![(
+                codes::DXF_LIFT_INVALID,
+                r#"Text("TEXT") Int(1)"#.to_owned(),
+                1,
+                at.clone()
+            )]
+        )
+    );
+    // 対応表のないコード・ページは、ASCII の文字だけを読む
+    assert_eq!(
+        lifted("ANSI_1251"),
         (
             1,
             vec![(

@@ -16,6 +16,8 @@ pub enum Charset {
     Utf8,
     /// ANSI_932。WHATWG の Shift_JIS（Windows の 932 と同じ表）として戻す
     ShiftJis,
+    /// ANSI_1252。Windows-1252 の表（[`CP1252`]）で戻す。表に割り当てのない 5 バイトは戻さない（#327）
+    Windows1252,
     /// 対応表のないコード・ページか、コード・ページがない。ASCII の文字だけを読む
     Other,
 }
@@ -30,6 +32,7 @@ impl Charset {
             Charset::ShiftJis => encoding_rs::SHIFT_JIS
                 .decode_without_bom_handling_and_without_replacement(value)
                 .map(Cow::into_owned),
+            Charset::Windows1252 => value.iter().map(|&byte| from_1252(byte)).collect(),
             _ => None,
         }
     }
@@ -42,6 +45,13 @@ impl Charset {
         if self == Self::ShiftJis {
             let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(text);
             return (!unmappable).then_some(bytes);
+        }
+        if self == Self::Windows1252 {
+            return text
+                .chars()
+                .map(to_1252)
+                .collect::<Option<Vec<u8>>>()
+                .map(Cow::Owned);
         }
         None
     }
@@ -103,6 +113,36 @@ impl Charset {
     }
 }
 
+/// Windows-1252 の 0x80〜0x9F が表す文字。0 は割り当てのないバイト。ほかのバイトは同じ番号の Unicode の文字
+/// （Unicode の MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1252.TXT。Python の cp1252 と同じ表）
+const CP1252: [u16; 32] = [
+    0x20AC, 0, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039,
+    0x0152, 0, 0x017D, 0, 0, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC,
+    0x2122, 0x0161, 0x203A, 0x0153, 0, 0x017E, 0x0178,
+];
+
+/// Windows-1252 の 1 バイトが表す文字。割り当てのないバイトは `None`
+fn from_1252(byte: u8) -> Option<char> {
+    match byte {
+        0x80..=0x9F => CP1252
+            .get(usize::from(byte - 0x80))
+            .filter(|unit| **unit != 0)
+            .and_then(|unit| char::from_u32(u32::from(*unit))),
+        _ => Some(char::from(byte)),
+    }
+}
+
+/// 文字を Windows-1252 の 1 バイトにする。表にない文字は `None`
+fn to_1252(c: char) -> Option<u8> {
+    match u32::from(c) {
+        code @ (0..=0x7F | 0xA0..=0xFF) => u8::try_from(code).ok(),
+        code => CP1252
+            .iter()
+            .position(|unit| *unit != 0 && u32::from(*unit) == code)
+            .and_then(|index| u8::try_from(0x80 + index).ok()),
+    }
+}
+
 /// 表 `db` の文字の値の符号化
 pub(crate) fn charset_of(db: &AcadDb) -> Charset {
     let variable = |name: &[u8]| {
@@ -123,7 +163,38 @@ pub fn charset(version: Option<&[u8]>, code_page: Option<&[u8]>) -> Charset {
         page.eq_ignore_ascii_case(b"ANSI_932") || page.eq_ignore_ascii_case(b"DOS932")
     }) {
         Charset::ShiftJis
+    } else if code_page.is_some_and(|page| page.eq_ignore_ascii_case(b"ANSI_1252")) {
+        Charset::Windows1252
     } else {
         Charset::Other
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_1252_reads_and_writes_every_assigned_byte_and_refuses_the_rest() {
+        let page = charset(Some(b"AC1015"), Some(b"ansi_1252"));
+        assert_eq!(page, Charset::Windows1252);
+        assert_eq!(charset(Some(b"AC1021"), Some(b"ANSI_1252")), Charset::Utf8);
+        assert_eq!(
+            page.decode(b"Bohrung \xD820 f\xFCr M6 Ma\xDFstab \x80\x9F")
+                .as_deref(),
+            Some("Bohrung Ø20 für M6 Maßstab €Ÿ")
+        );
+        for byte in [0x81_u8, 0x8D, 0x8F, 0x90, 0x9D] {
+            assert_eq!(page.decode(&[b'A', byte]), None, "{byte:#X}");
+        }
+        let assigned: Vec<u8> = (0..=u8::MAX)
+            .filter(|byte| from_1252(*byte).is_some())
+            .collect();
+        assert_eq!(assigned.len(), 251);
+        let text = page.decode(&assigned).unwrap_or_default();
+        assert_eq!(page.encoded(&text).as_deref(), Some(assigned.as_slice()));
+        assert_eq!(page.decode_name(b"Fl\xE4che").as_deref(), Some("Fläche"));
+        assert_eq!(page.encoded("日"), None);
+        assert_eq!(page.encoded("\u{81}"), None);
     }
 }
