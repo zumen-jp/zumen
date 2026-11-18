@@ -241,6 +241,7 @@ jobs:
         run: |
           cargo build --package zumen-abi --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
           python bindings/python/tests/conformance.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
+          python bindings/python/tests/ranged.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
       - name: 整数格子の幾何演算・丸め・予算停止を同じバイト列で照らす（#886）
         shell: bash
         run: |
@@ -423,6 +424,9 @@ jobs:
       - name: 入力の所有権・旧モジュールへの互換・メモリの削減を確かめる（決定 0271）
         if: env.TEST_CORE == 'true'
         run: node bindings/js/test/input.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+      - name: 包みが open の needs に答え、入力の範囲を読んで渡すことを確かめる（決定 0232・#474）
+        if: env.TEST_CORE == 'true'
+        run: node bindings/js/test/ranged.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: Go の入力の所有権と適合テストに使う下限の Go を入れる（決定 0271）
         if: env.TEST_GO == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

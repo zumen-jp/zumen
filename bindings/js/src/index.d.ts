@@ -1,7 +1,7 @@
 // zumen の wasm のモジュールを呼ぶ薄いラッパーの型（決定 0011・0194）。要求と応答の型は messages.d.ts に生成する。
 
 import type { Detection, ModuleName, StatusName } from "./constants.js";
-import type { OpenRequest, Operations, Request, Response, SessionOptions } from "./messages.js";
+import type { OpenRequest, OpenResult, Operations, Request, Response, SessionOptions } from "./messages.js";
 
 export * from "./constants.js";
 export type * from "./messages.js";
@@ -134,3 +134,28 @@ export declare function loadModules(
   loaders: Partial<Record<ModuleName, () => Parameters<typeof load>[0]>>,
   plugins?: PluginModule[],
 ): Modules;
+
+/** 範囲を読む関数。[start, end) のバイト列を返す */
+export type RangeReader = (start: number, end: number) => Uint8Array | ArrayBuffer | ArrayBufferView | Promise<Uint8Array | ArrayBuffer | ArrayBufferView>;
+
+export interface OpenRangedOptions {
+  /** 1 回目に渡す初めの部分の大きさ（バイト）。既定は 64 KiB */
+  head?: number;
+  /** 入力の全体の大きさ。関数の読み口のときに渡す。Blob と URL は読み口から決める */
+  size?: number;
+  /** 範囲の読み出しを止める */
+  signal?: AbortSignal;
+}
+
+/**
+ * 入力の範囲を読みながら open する（決定 0232）。request.input の名前で初めの部分を渡し、size を書いて open を呼ぶ。
+ * needs の範囲をその名前で push して同じ要求を呼び直し、読み終えた done の入力を close で捨てる。1 回の範囲の合計が
+ * 要求の budget.input_bytes を超えるときと、同じ範囲を求め続けるときは止める。失敗したら渡した入力を捨てる。
+ * source は Blob（File）・URL（Range で読む）・範囲を読む関数
+ */
+export declare function openRanged(
+  session: Session,
+  request: Omit<OpenRequest, "op" | "size"> & { op?: "open" },
+  source: Blob | URL | string | RangeReader,
+  options?: OpenRangedOptions,
+): Promise<Response<OpenResult>>;
