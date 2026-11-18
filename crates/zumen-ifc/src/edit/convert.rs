@@ -1,0 +1,610 @@
+//! 建物モデルから新しい IFC を書く（#395）。
+//!
+//! バージョンごとのひな形（[`super::create`]）に、[`super::apply`] と同じ書き手の変更で、空間・要素・所属・配置・
+//! 開口と建具の関係を足す。元の L1 のレコードは写さない。書き手がまだ書けない要素と値（`IfcSpace`・型・
+//! プロパティと数量のセット・形など）は書かず、変換の忠実度と診断で返す。書いた要素のうち値を落としたものは
+//! 近似として、落とした値のキーごとに数える。
+//!
+//! - GlobalId は、元の ID が GlobalId ならその値、ほかは名前空間と元の ID から [`super::derive_global_id`] で
+//!   導く。名前空間は、呼び出し元の値、なければ元の `IfcProject` の GlobalId、それもなければ元の文書のハッシュ
+//! - 配置は、親の配置を持つ要素を書いたならその要素からの局所の変換で書く。書かなかった要素からの配置は、
+//!   書いた祖先まで変換を畳む。解けない配置と、正規直交でない変換は書かない
+//! - 階の高さは、IFC2X3 と IFC4 では 10 Elevation に書く。元に値がなければ、建物モデルの階の高さを書く。IFC4.3
+//!   では配置だけが高さを持つので、元の値が親からの配置の z と同じでなければ落とす
+//! - 書き手が足す関係の GlobalId は、名前空間と、足した順から導く
+
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+use zumen_base::{Diagnostic, Kind, codes};
+use zumen_building::{Building, ElementRef, GlobalId, Id, Local, Opening, ParentKind, SpatialKind};
+use zumen_sdk::conversion::{ConversionFidelity, ConversionReport, Report, note};
+use zumen_sdk::{Codec, Cx, Error};
+
+use super::author::{enumeration, predefined_at, rigid};
+use super::create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
+use super::{Edit, NewElement, NewPlacement, NewSpace, SpaceKind, Target, apply};
+use crate::building::Version;
+use crate::{Ifc, stopped};
+
+/// 変換の設定
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConvertOptions {
+    /// 書くバージョン
+    pub version: Version,
+    /// ヘッダーの値
+    pub header: Header,
+    /// 所有履歴の値。IFC2X3 では必須
+    pub owner: Option<OwnerHistory>,
+    /// GlobalId を導く名前空間。なければ元の `IfcProject` の GlobalId か、元の文書のハッシュ
+    pub namespace: Option<Vec<u8>>,
+    /// 忠実度の明細の最大件数
+    pub limit: u64,
+}
+
+/// 変換の結果
+#[derive(Clone, Debug, PartialEq)]
+pub struct Converted {
+    /// 書いた IFC
+    pub bytes: Vec<u8>,
+    /// 種類と忠実度ごとの件数と明細
+    pub report: ConversionReport,
+}
+
+/// 建物モデルを新しい IFC に書く。`document` は元の文書のハッシュのバイト列
+pub fn convert(
+    building: &Building,
+    document: &[u8],
+    options: &ConvertOptions,
+    cx: &mut Cx,
+) -> Result<Converted, Error> {
+    let format = options.version.file_schema();
+    let Some(unit) = length_unit(building) else {
+        cx.report(
+            Diagnostic::new(codes::CONVERT_ELEMENT_UNSUPPORTED)
+                .with("format", format)
+                .with("kind", "LENGTHUNIT"),
+        );
+        return Err(Error::Invalid);
+    };
+    let project = building.document.project;
+    let project_global = project
+        .and_then(|p| building.id(p))
+        .and_then(|id| match id {
+            Id::Global(global) => Some(global),
+            Id::Instance(_) => None,
+        });
+    let namespace = match (&options.namespace, project_global) {
+        (Some(namespace), _) => namespace.clone(),
+        (None, Some(global)) => global.to_string().into_bytes(),
+        (None, None) => document.to_vec(),
+    };
+    let template = Template {
+        version: options.version,
+        unit,
+        project: project_global.unwrap_or_else(|| derive_global_id(&namespace, b"project")),
+        name: building.document.project_name.clone(),
+        header: options.header.clone(),
+        owner: options.owner.clone(),
+    };
+    let bytes = create(&template, cx)?;
+    let file = Ifc::read(&bytes, cx)?;
+
+    let mut plan = Plan {
+        building,
+        version: options.version,
+        format,
+        namespace: &namespace,
+        written: BTreeMap::new(),
+        notes: BTreeMap::new(),
+        edits: Vec::new(),
+        added: 0,
+        report: Report::new(options.limit),
+    };
+    if let Some(project) = project {
+        plan.project(project);
+    }
+    for element in order(building, project) {
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| stopped(cx, stop, None))?;
+        plan.element(element, cx)?;
+    }
+    plan.openings();
+    let edits = std::mem::take(&mut plan.edits);
+    let applied = apply(&file, &edits, &namespace, cx)?;
+    Ok(Converted {
+        bytes: applied.bytes,
+        report: plan.finish(cx)?,
+    })
+}
+
+/// 元の文書の長さの単位。ひな形に書けなければ `None`
+fn length_unit(building: &Building) -> Option<LengthUnit> {
+    let unit = building
+        .document
+        .units
+        .iter()
+        .find(|unit| unit.kind.eq_ignore_ascii_case("LENGTHUNIT"))?;
+    if unit.scale.is_none() && unit.name.eq_ignore_ascii_case("METRE") {
+        return match unit.prefix.as_deref() {
+            None => Some(LengthUnit::Meter),
+            Some(p) if p.eq_ignore_ascii_case("MILLI") => Some(LengthUnit::Millimeter),
+            Some(p) if p.eq_ignore_ascii_case("CENTI") => Some(LengthUnit::Centimeter),
+            Some(_) => None,
+        };
+    }
+    let near = |a: f64, b: f64| (a - b).abs() <= 1e-12;
+    match unit.scale {
+        Some(s) if near(s, 0.0254) && unit.name.eq_ignore_ascii_case("inch") => {
+            Some(LengthUnit::Inch)
+        }
+        Some(s) if near(s, 0.3048) && unit.name.eq_ignore_ascii_case("foot") => {
+            Some(LengthUnit::Foot)
+        }
+        _ => None,
+    }
+}
+
+/// 書く順。所属の先と、親の配置を持つ要素を先にする。輪になった残りは、元の順で後に置く
+fn order(building: &Building, project: Option<ElementRef>) -> Vec<ElementRef> {
+    let count = building.elements().len();
+    let mut waiting: BTreeMap<ElementRef, usize> = BTreeMap::new();
+    let mut dependents: BTreeMap<ElementRef, Vec<ElementRef>> = BTreeMap::new();
+    for element in (0..count).filter_map(|n| u32::try_from(n).ok().map(ElementRef)) {
+        if Some(element) == project {
+            continue;
+        }
+        let mut needs = Vec::new();
+        if let Some(of) = building
+            .components
+            .parent
+            .get(element)
+            .and_then(|p| p.of.as_ref())
+        {
+            needs.push(of.target);
+        }
+        if let Some(to) = building
+            .components
+            .placement
+            .get(element)
+            .and_then(|p| p.relative_to)
+        {
+            needs.push(to);
+        }
+        needs.retain(|&n| n != element && Some(n) != project && (n.0 as usize) < count);
+        needs.sort_unstable();
+        needs.dedup();
+        waiting.insert(element, needs.len());
+        for need in needs {
+            dependents.entry(need).or_default().push(element);
+        }
+    }
+    let mut ready: VecDeque<ElementRef> = waiting
+        .iter()
+        .filter(|&(_, &n)| n == 0)
+        .map(|(&e, _)| e)
+        .collect();
+    let mut out = Vec::with_capacity(waiting.len());
+    let mut done = BTreeSet::new();
+    loop {
+        while let Some(element) = ready.pop_front() {
+            if !done.insert(element) {
+                continue;
+            }
+            out.push(element);
+            for next in dependents.get(&element).into_iter().flatten() {
+                if let Some(n) = waiting.get_mut(next) {
+                    *n = n.saturating_sub(1);
+                    if *n == 0 {
+                        ready.push_back(*next);
+                    }
+                }
+            }
+        }
+        // 輪になったもの。元の順で最初の 1 つを出して続ける
+        match waiting.keys().find(|e| !done.contains(*e)) {
+            Some(&next) => ready.push_back(next),
+            None => break,
+        }
+    }
+    out
+}
+
+struct Plan<'b, 'n> {
+    building: &'b Building,
+    version: Version,
+    format: &'static str,
+    namespace: &'n [u8],
+    /// 書いた要素と、変更の中での指し方
+    written: BTreeMap<ElementRef, Target>,
+    /// 書いた要素の種類と、落とした値
+    notes: BTreeMap<ElementRef, (&'static str, Vec<&'static str>)>,
+    edits: Vec<Edit>,
+    /// 足す変更が足した要素の数
+    added: usize,
+    report: Report,
+}
+
+impl Plan<'_, '_> {
+    /// 要素ごと落とす
+    fn drop_element(&mut self, element: ElementRef, kind: &str, cx: &mut Cx) -> Result<(), Error> {
+        let at = self.building.place(element);
+        self.report
+            .record(kind, ConversionFidelity::Dropped, &at, 0, cx)?;
+        cx.report(
+            Diagnostic::new(codes::CONVERT_ELEMENT_UNSUPPORTED)
+                .with("format", self.format)
+                .with("kind", kind.to_owned())
+                .at(at),
+        );
+        Ok(())
+    }
+
+    /// 足した要素を覚える
+    fn wrote(&mut self, element: ElementRef, kind: &'static str, dropped: Vec<&'static str>) {
+        self.written.insert(element, Target::Added(self.added));
+        self.added += 1;
+        self.notes.insert(element, (kind, dropped));
+    }
+
+    /// 書いた要素の、落とした値を足す
+    fn lost(&mut self, element: ElementRef, value: &'static str) {
+        if let Some((_, dropped)) = self.notes.get_mut(&element)
+            && !dropped.contains(&value)
+        {
+            dropped.push(value);
+        }
+    }
+
+    /// 書いた要素ごとに忠実度を記録する。値を落としたものは近似として、落とした値ごとに診断する
+    fn finish(self, cx: &mut Cx) -> Result<ConversionReport, Error> {
+        let Plan {
+            building,
+            format,
+            notes,
+            mut report,
+            ..
+        } = self;
+        for (element, (kind, mut dropped)) in notes {
+            dropped.sort_unstable();
+            let fidelity = if dropped.is_empty() {
+                ConversionFidelity::Native
+            } else {
+                ConversionFidelity::Approximated
+            };
+            let at = building.place(element);
+            note(&mut report, format, kind, fidelity, &at, 1, &dropped, cx)?;
+        }
+        report.finish(cx)
+    }
+
+    /// プロジェクト。文書の値のうち、ひな形に書かないものを落とす
+    fn project(&mut self, project: ElementRef) {
+        self.written.insert(project, Target::Instance(1));
+        let document = &self.building.document;
+        let mut dropped = Vec::new();
+        if document.units.iter().any(|unit| {
+            !unit.kind.eq_ignore_ascii_case("LENGTHUNIT")
+                && !(unit.kind.eq_ignore_ascii_case("PLANEANGLEUNIT")
+                    && unit.scale.is_none()
+                    && unit.prefix.is_none()
+                    && unit.name.eq_ignore_ascii_case("RADIAN"))
+        }) {
+            dropped.push("units");
+        }
+        if document.phase.is_some() {
+            dropped.push("phase");
+        }
+        if document.true_north.is_some() {
+            dropped.push("true_north");
+        }
+        if document.map.is_some() {
+            dropped.push("map");
+        }
+        dropped.extend(self.components(project));
+        self.notes.insert(project, ("IfcProject", dropped));
+    }
+
+    fn element(&mut self, element: ElementRef, cx: &mut Cx) -> Result<(), Error> {
+        let building = self.building;
+        let Some(class) = building.components.class.get(element) else {
+            return self.drop_element(element, "element", cx);
+        };
+        match building.components.spatial.get(element).map(|s| &s.kind) {
+            Some(SpatialKind::Site) => self.space(element, SpaceKind::Site, cx),
+            Some(SpatialKind::Building) => self.space(element, SpaceKind::Building, cx),
+            Some(SpatialKind::Storey) => self.space(element, SpaceKind::Storey, cx),
+            Some(_) => self.drop_element(element, &class.name, cx),
+            None => self.product(element, &class.name, cx),
+        }
+    }
+
+    /// 書いた要素を、変更の中で指す値
+    fn target(&self, element: ElementRef) -> Option<Target> {
+        self.written.get(&element).copied()
+    }
+
+    fn global_id(&self, element: ElementRef) -> Option<GlobalId> {
+        match self.building.id(element)? {
+            Id::Global(global) => Some(global),
+            id @ Id::Instance(_) => Some(derive_global_id(
+                self.namespace,
+                format!("element/{id}").as_bytes(),
+            )),
+        }
+    }
+
+    fn name(&self, element: ElementRef) -> Option<String> {
+        self.building
+            .components
+            .identity
+            .get(element)
+            .and_then(|i| i.name.clone())
+    }
+
+    /// 配置。書いた祖先まで変換を畳む。解けなければ `Err(())`、元に配置がなければ `Ok(None)`
+    fn placement(&self, element: ElementRef) -> Result<Option<NewPlacement>, ()> {
+        let placements = &self.building.components.placement;
+        let Some(placement) = placements.get(element) else {
+            return Ok(None);
+        };
+        let Local::Transform(mut local) = placement.local else {
+            return Err(());
+        };
+        let mut relative_to = placement.relative_to;
+        let mut seen = BTreeSet::new();
+        while let Some(parent) = relative_to {
+            if let Some(target) = self.target(parent) {
+                return checked(NewPlacement {
+                    relative_to: Some(target),
+                    local,
+                });
+            }
+            if !seen.insert(parent) {
+                return Err(());
+            }
+            let Some(outer) = placements.get(parent) else {
+                break;
+            };
+            let Local::Transform(outer_local) = &outer.local else {
+                return Err(());
+            };
+            local = outer_local.then(&local);
+            relative_to = outer.relative_to;
+        }
+        checked(NewPlacement {
+            relative_to: None,
+            local,
+        })
+    }
+
+    fn space(&mut self, element: ElementRef, kind: SpaceKind, cx: &mut Cx) -> Result<(), Error> {
+        let building = self.building;
+        let class = match kind {
+            SpaceKind::Site => "IfcSite",
+            SpaceKind::Building => "IfcBuilding",
+            SpaceKind::Storey => "IfcBuildingStorey",
+        };
+        let parent = building
+            .components
+            .parent
+            .get(element)
+            .and_then(|p| p.of.as_ref())
+            .filter(|of| of.kind == ParentKind::Aggregates)
+            .and_then(|of| self.target(of.target));
+        let Some(parent) = parent else {
+            return self.drop_element(element, class, cx);
+        };
+        let mut dropped = Vec::new();
+        let placement = self.placement(element).unwrap_or_else(|()| {
+            dropped.push("placement");
+            None
+        });
+        let spatial = building.components.spatial.get(element);
+        let elevation = match kind {
+            SpaceKind::Site => spatial
+                .and_then(|s| s.ref_elevation.as_ref())
+                .map(|m| m.value),
+            SpaceKind::Building | SpaceKind::Storey => {
+                let written = spatial.and_then(|s| s.elevation.as_ref()).map(|m| m.value);
+                let level = if kind == SpaceKind::Storey {
+                    building
+                        .components
+                        .level
+                        .get(element)
+                        .map(|level| level.height.value)
+                } else {
+                    None
+                };
+                match self.version {
+                    Version::Ifc4x3 => {
+                        // 高さは配置だけが持つ。元の値が親からの配置の z と同じなら落とさない
+                        let placed = placement
+                            .as_ref()
+                            .filter(|p| p.relative_to == Some(parent))
+                            .map(|p| p.local.0[2][3]);
+                        if written.is_some_and(|h| Some(h) != placed) {
+                            dropped.push("elevation");
+                        }
+                        None
+                    }
+                    Version::Ifc2x3 | Version::Ifc4 => written.or(level),
+                }
+            }
+        };
+        if building
+            .components
+            .class
+            .get(element)
+            .is_some_and(|c| c.predefined.is_some() || c.user_defined.is_some())
+        {
+            dropped.push("predefined");
+        }
+        dropped.extend(self.components(element));
+        self.edits.push(Edit::Space(NewSpace {
+            kind,
+            name: self.name(element),
+            parent,
+            placement,
+            elevation,
+            global_id: self.global_id(element),
+        }));
+        self.wrote(element, class, dropped);
+        Ok(())
+    }
+
+    fn product(&mut self, element: ElementRef, class: &str, cx: &mut Cx) -> Result<(), Error> {
+        let building = self.building;
+        let Some((kind, slot)) = writable(class, self.version) else {
+            return self.drop_element(element, class, cx);
+        };
+        let mut dropped = Vec::new();
+        let source = building.components.class.get(element);
+        let predefined = match source.and_then(|c| c.predefined.clone()) {
+            Some(value) if slot > 0 && enumeration(&value).is_some() => Some(value),
+            Some(_) => {
+                dropped.push("predefined");
+                None
+            }
+            None => None,
+        };
+        if source.is_some_and(|c| c.user_defined.is_some()) && !dropped.contains(&"predefined") {
+            dropped.push("predefined");
+        }
+        let membership = building
+            .components
+            .parent
+            .get(element)
+            .and_then(|p| p.of.as_ref());
+        let container = match membership {
+            Some(of) if of.kind == ParentKind::Contained => {
+                let spatial = building.components.spatial.get(of.target).is_some_and(|s| {
+                    matches!(
+                        s.kind,
+                        SpatialKind::Site | SpatialKind::Building | SpatialKind::Storey
+                    )
+                });
+                let target = self.target(of.target).filter(|_| spatial);
+                if target.is_none() {
+                    dropped.push("parent");
+                }
+                target
+            }
+            Some(_) => {
+                dropped.push("parent");
+                None
+            }
+            None => None,
+        };
+        let placement = self.placement(element).unwrap_or_else(|()| {
+            dropped.push("placement");
+            None
+        });
+        dropped.extend(self.components(element));
+        self.edits.push(Edit::Element(NewElement {
+            class: kind.to_owned(),
+            predefined,
+            name: self.name(element),
+            container,
+            placement,
+            global_id: self.global_id(element),
+        }));
+        self.wrote(element, kind, dropped);
+        Ok(())
+    }
+
+    /// 書いた要素の、書き手がまだ書けない値
+    fn components(&self, element: ElementRef) -> Vec<&'static str> {
+        let c = &self.building.components;
+        let mut dropped = Vec::new();
+        if c.identity
+            .get(element)
+            .is_some_and(|i| i.description.is_some() || i.tag.is_some() || i.long_name.is_some())
+        {
+            dropped.push("identity");
+        }
+        let present: [(&'static str, bool); 12] = [
+            ("classification", c.classification.get(element).is_some()),
+            ("representation", c.representation.get(element).is_some()),
+            ("style", c.style.get(element).is_some()),
+            ("type", c.r#type.get(element).is_some()),
+            ("properties", c.properties.get(element).is_some()),
+            (
+                "property_details",
+                c.property_details.get(element).is_some(),
+            ),
+            ("quantities", c.quantities.get(element).is_some()),
+            ("material", c.material.get(element).is_some()),
+            ("group", c.group.get(element).is_some()),
+            ("connection", c.connection.get(element).is_some()),
+            ("zone", c.zone.get(element).is_some()),
+            ("extension", c.extension.get(element).is_some()),
+        ];
+        dropped.extend(present.iter().filter(|(_, p)| *p).map(|(name, _)| *name));
+        if c.parent
+            .get(element)
+            .is_some_and(|p| !p.referenced_in.is_empty())
+        {
+            dropped.push("referenced_in");
+        }
+        dropped
+    }
+
+    /// 開口と建具の関係。両方を書いたものだけを結ぶ
+    fn openings(&mut self) {
+        let building = self.building;
+        for (element, opening) in building.components.opening.iter() {
+            let Some(this) = self.target(element) else {
+                continue;
+            };
+            let (other, edit): (ElementRef, fn(Target, Target) -> Edit) = match *opening {
+                Opening::Voids(host) => (host, |host, opening| Edit::Void { host, opening }),
+                Opening::Fills(opening) => {
+                    (opening, |opening, filler| Edit::Fill { opening, filler })
+                }
+            };
+            match self.target(other) {
+                Some(other) => self.edits.push(edit(other, this)),
+                None => self.lost(element, "opening"),
+            }
+        }
+    }
+}
+
+/// 書き手の表にある要素の名前（[`predefined_at`] の表と同じもの）
+const WRITABLE_NAMES: &[&str] = &[
+    "IfcWall",
+    "IfcSlab",
+    "IfcColumn",
+    "IfcBeam",
+    "IfcMember",
+    "IfcPlate",
+    "IfcCovering",
+    "IfcRailing",
+    "IfcRoof",
+    "IfcStair",
+    "IfcRamp",
+    "IfcFooting",
+    "IfcPile",
+    "IfcDoor",
+    "IfcWindow",
+    "IfcOpeningElement",
+    "IfcBuildingElementProxy",
+];
+
+/// 書ける要素の、表の名前と定義された種類の位置（1 から、0 は持たない）
+fn writable(class: &str, version: Version) -> Option<(&'static str, usize)> {
+    let slot = predefined_at(class, version)?;
+    let name = WRITABLE_NAMES
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case(class))?;
+    Some((name, slot))
+}
+
+/// 書き手が受ける変換なら、そのまま
+fn checked(placement: NewPlacement) -> Result<Option<NewPlacement>, ()> {
+    if rigid(&placement.local) {
+        Ok(Some(placement))
+    } else {
+        Err(())
+    }
+}

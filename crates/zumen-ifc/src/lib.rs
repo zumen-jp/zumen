@@ -52,7 +52,10 @@ pub use edit::{
     NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
 };
 #[cfg(feature = "building")]
-pub use edit::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
+pub use edit::{
+    ConvertOptions, Converted, Header, LengthUnit, OwnerHistory, Template, convert, create,
+    derive_global_id,
+};
 pub use express::{Express, Findings, check, check_range};
 #[cfg(feature = "ids")]
 pub use ids::IdsLookup;

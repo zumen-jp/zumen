@@ -7,6 +7,7 @@
 //! [`author`] にある（#897）。
 
 mod author;
+mod convert;
 mod create;
 
 pub use author::{
@@ -14,6 +15,7 @@ pub use author::{
     NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall, OpeningChange, SpaceKind,
     Target, WallChange,
 };
+pub use convert::{ConvertOptions, Converted, convert};
 pub use create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
 
 use std::collections::{BTreeMap, BTreeSet};

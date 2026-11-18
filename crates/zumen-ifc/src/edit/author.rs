@@ -139,6 +139,15 @@ const WRITABLE: &[Writable] = &[
     writable("IfcBuildingElementProxy", [9, 9, 9], [0, 9, 9], NO),
 ];
 
+/// 書ける要素の、そのバージョンでの定義された種類の位置（1 から、0 は持たない）。書けなければ `None`
+pub(super) fn predefined_at(class: &str, version: Version) -> Option<usize> {
+    WRITABLE
+        .iter()
+        .find(|w| w.name.eq_ignore_ascii_case(class))
+        .filter(|w| pick(w.arity, version) != ABSENT)
+        .map(|w| usize::from(pick(w.predefined, version)))
+}
+
 /// バージョンの列の値
 fn pick<T: Copy>(row: [T; 3], version: Version) -> T {
     let [ifc2x3, ifc4, ifc4x3] = row;
@@ -177,7 +186,7 @@ pub(super) fn real(value: f64) -> Option<Item> {
     Some(Item::Raw(written.into_bytes()))
 }
 
-fn enumeration(value: &str) -> Option<Item> {
+pub(super) fn enumeration(value: &str) -> Option<Item> {
     let valid = value
         .bytes()
         .next()
@@ -189,7 +198,7 @@ fn enumeration(value: &str) -> Option<Item> {
 }
 
 /// 正規直交で行列式が 1 の回転か
-fn rigid(local: &Transform) -> bool {
+pub(super) fn rigid(local: &Transform) -> bool {
     const TOLERANCE: f64 = 1e-9;
     let m = local.0;
     if m.iter().flatten().any(|v| !v.is_finite()) {

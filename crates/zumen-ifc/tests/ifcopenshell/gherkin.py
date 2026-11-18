@@ -1,11 +1,12 @@
-"""新しい IFC のひな形と、変更だけで作った 2 階建てと、それを直した IFC を buildingSMART の ifc-gherkin-rules に
-かける（#898・#395）。
+"""新しい IFC のひな形と、変更だけで作った 2 階建てと、それを直した IFC と、変換した IFC を buildingSMART の
+ifc-gherkin-rules にかける（#898・#395）。
 
 使い方: python gherkin.py <ifc-gherkin-rules のフォルダー> <フォルダー>
 
 フォルダーには、`author.rs` の `writes_the_authored_files_for_other_readers` が書いた
 `<スキーマ>.built.ifc` と `<スキーマ>.changed.ifc` と、`create.rs` の `writes_the_templates_for_other_readers` が
-書いた `<スキーマ>.template.ifc` がある。ifc-gherkin-rules（MIT）は、検証サービスと同じ
+書いた `<スキーマ>.template.ifc` と、`convert.rs` の `writes_the_conversions_for_other_readers` が書いた
+`<スキーマ>.converted.ifc` がある。ifc-gherkin-rules（MIT）は、検証サービスと同じ
 規則（実装者の合意と非公式の命題）を behave で流す。データベースを使わない試験の動かし方で、規則ごとの
 結果を JSON に書かせて読む。
 
@@ -26,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 SCHEMAS = ["IFC2X3", "IFC4", "IFC4X3_ADD2"]
-STATES = ["template", "built", "changed"]
+STATES = ["template", "built", "changed", "converted"]
 
 # 試験の入力は地理参照を持たない。作る変更と直す変更の範囲の外なので、警告とその手順の止まりを許す
 ALLOWED_WARNINGS = {"GRF003"}
@@ -115,7 +116,7 @@ def main():
         print(failure)
     if failures:
         sys.exit(1)
-    print("ifc-gherkin-rules: ひな形と、作った IFC と直した IFC を 3 つのスキーマで照らした")
+    print("ifc-gherkin-rules: ひな形と、作った IFC・直した IFC・変換した IFC を 3 つのスキーマで照らした")
 
 
 if __name__ == "__main__":

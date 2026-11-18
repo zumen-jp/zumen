@@ -1,13 +1,17 @@
-"""新しい IFC のひな形と、変更だけで作った 2 階建てと、それを直した IFC を IfcOpenShell で開いて照らす（#898・#395）。
+"""新しい IFC のひな形と、変更だけで作った 2 階建てと、それを直した IFC と、変換した IFC を IfcOpenShell で開いて
+照らす（#898・#395）。
 
 使い方: python author.py <フォルダー>
 
 フォルダーには、`author.rs` の `writes_the_authored_files_for_other_readers` が、環境変数 `ZUMEN_IFC_AUTHORED` の
 フォルダーに書いた `<スキーマ>.built.ifc` と `<スキーマ>.changed.ifc` と、`create.rs` の `writes_the_templates_for_other_readers` が書いた
-`<スキーマ>.template.ifc` がある。
+`<スキーマ>.template.ifc` と、`convert.rs` の `writes_the_conversions_for_other_readers` が IFC4 の 2 階建てを
+各バージョンへ変換した `<スキーマ>.converted.ifc` がある。
 
 - ひな形は、検査で誤りが出ず、プロジェクトの GlobalId・名前、ミリメートルの長さの単位、`Body` の下位の文脈、
   所有履歴の作ったソフトと日時が、渡した値のとおりに読める。
+- 変換した IFC は、検査で誤りが出ず、元の GlobalId・所属・開口と建具の関係・階の高さと配置・定義された種類が、
+  元の値のとおりに読める。
 
 - IfcOpenShell の検査（スキーマと EXPRESS の規則）で誤りが出ない。
 - 種類ごとの数、階の高さと配置、要素の所属、開口と建具の関係、壁の材料の層が、足した値と直した値のとおりに読める。
@@ -146,6 +150,63 @@ def check_template(path):
     return failures
 
 
+# `convert.rs` の元の文書。種類ごとの数
+CONVERTED = {
+    "IfcSite": 1,
+    "IfcBuilding": 1,
+    "IfcBuildingStorey": 2,
+    "IfcWall": 1,
+    "IfcOpeningElement": 1,
+    "IfcDoor": 1,
+    "IfcSlab": 1,
+    "IfcColumn": 1,
+}
+
+
+def check_converted(path):
+    failures = []
+    model = ifcopenshell.open(str(path))
+    for error in errors(model):
+        failures.append(f"検査の誤り: {error}")
+    for kind, n in CONVERTED.items():
+        found = len(model.by_type(kind))
+        if found != n:
+            failures.append(f"{kind} が {found} 個（期待は {n}）")
+    project = model.by_type("IfcProject")[0]
+    if (project.GlobalId, project.Name) != (gid(1), "元の建物"):
+        failures.append(f"プロジェクトが {project.GlobalId} {project.Name}")
+    upper = model.by_guid(gid(13))
+    if model.schema_identifier == "IFC4X3_ADD2":
+        if upper.Elevation is not None:
+            failures.append(f"2F に非推奨の Elevation {upper.Elevation} がある")
+    elif upper.Elevation != 3000.0:
+        failures.append(f"2F の Elevation が {upper.Elevation}")
+    z = ifcopenshell.util.placement.get_local_placement(upper.ObjectPlacement)[2][3]
+    if abs(z - 3000.0) > 1e-9:
+        failures.append(f"2F の配置の z が {z}")
+    for n, storey in [(20, 12), (22, 12), (23, 13), (24, 13)]:
+        container = ifcopenshell.util.element.get_container(model.by_guid(gid(n)))
+        if container is None or container.GlobalId != gid(storey):
+            failures.append(f"{n} の所属が {container and container.GlobalId}")
+    opening = model.by_guid(gid(21))
+    hosts = [rel.RelatingBuildingElement.GlobalId for rel in opening.VoidsElements]
+    fillings = [rel.RelatedBuildingElement.GlobalId for rel in opening.HasFillings]
+    if (hosts, fillings) != ([gid(20)], [gid(22)]):
+        failures.append(f"開口の母体が {hosts}、建具が {fillings}")
+    wall = ifcopenshell.util.placement.get_local_placement(model.by_guid(gid(20)).ObjectPlacement)
+    if abs(wall[0][3] - 1000.0) > 1e-9:
+        failures.append(f"壁の配置の x が {wall[0][3]}")
+    door = ifcopenshell.util.placement.get_local_placement(model.by_guid(gid(22)).ObjectPlacement)
+    if abs(door[0][3] - 1500.0) > 1e-9:
+        failures.append(f"扉の配置の x が {door[0][3]}")
+    if model.by_guid(gid(23)).PredefinedType != "FLOOR":
+        failures.append("床の定義された種類が FLOOR でない")
+    column = model.by_guid(gid(24))
+    if model.schema_identifier != "IFC2X3" and column.PredefinedType != "COLUMN":
+        failures.append(f"柱の定義された種類が {column.PredefinedType}")
+    return failures
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     folder = Path(sys.argv[1])
@@ -157,11 +218,14 @@ def main():
         for state in EXPECTED:
             name = f"{schema}.{state}.ifc"
             failures += [f"{name}: {f}" for f in check(folder / name, state)]
+    for schema in SCHEMAS:
+        name = f"{schema}.converted.ifc"
+        failures += [f"{name}: {f}" for f in check_converted(folder / name)]
     for failure in failures:
         print(failure)
     if failures:
         sys.exit(1)
-    print(f"IfcOpenShell {ifcopenshell.version}: ひな形と、作った IFC と直した IFC を 3 版で照らした")
+    print(f"IfcOpenShell {ifcopenshell.version}: ひな形と、作った IFC・直した IFC・変換した IFC を 3 バージョンで照らした")
 
 
 if __name__ == "__main__":
