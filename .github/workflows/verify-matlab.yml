@@ -1,11 +1,13 @@
 name: MATLAB で Tier 3 の公開サンプルを確かめる
 
 on:
-  push:
-    branches: [verify-matlab-405]
+  workflow_dispatch:
+  pull_request:
     paths:
-      - '.github/workflows/verify-matlab-405.yml'
-      - 'examples/tier3/matlab/zumen_http.m'
+      - '.github/workflows/verify-matlab.yml'
+      - 'examples/tier3/matlab/**'
+      - 'examples/tier3/expected.txt'
+      - 'samples/dwg/zumen-layout-r2000_ascii.dxf'
 
 permissions:
   contents: read
