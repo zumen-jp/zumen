@@ -5913,6 +5913,26 @@ func (u BuildingEdit) AsBuildingOpeningShapeEdit() *BuildingOpeningShapeEdit {
 	return asTagged[BuildingOpeningShapeEdit](u, "kind", "opening_shape")
 }
 
+// AsBuildingAddTypeEdit は、kind が add_type の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAddTypeEdit() *BuildingAddTypeEdit {
+	return asTagged[BuildingAddTypeEdit](u, "kind", "add_type")
+}
+
+// AsBuildingQuantityEdit は、kind が quantity の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingQuantityEdit() *BuildingQuantityEdit {
+	return asTagged[BuildingQuantityEdit](u, "kind", "quantity")
+}
+
+// AsBuildingAddUnitEdit は、kind が add_unit の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAddUnitEdit() *BuildingAddUnitEdit {
+	return asTagged[BuildingAddUnitEdit](u, "kind", "add_unit")
+}
+
+// AsBuildingMaterialEdit は、kind が material の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingMaterialEdit() *BuildingMaterialEdit {
+	return asTagged[BuildingMaterialEdit](u, "kind", "material")
+}
+
 // BuildingPropertyEdit: 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
 type BuildingPropertyEdit struct {
 	// 変更の種類
@@ -6538,6 +6558,197 @@ func (m BuildingOpeningShapeEdit) MarshalJSON() ([]byte, error) {
 	type plain BuildingOpeningShapeEdit
 	m.Kind = "opening_shape"
 	return json.Marshal(plain(m))
+}
+
+// BuildingAddTypeEdit: 型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から
+type BuildingAddTypeEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// IFC の型の実体の名前（IfcWallType など）。文書のバージョンにあるもの
+	Class *string `json:"class,omitempty"`
+
+	// PredefinedType の列挙の値（SOLIDWALL など）
+	Predefined *string `json:"predefined,omitempty"`
+
+	// 利用者が決めた種類（ElementType）
+	ElementType *string `json:"element_type,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+	GlobalId *string `json:"global_id,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingAddTypeEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAddTypeEdit
+	m.Kind = "add_type"
+	return json.Marshal(plain(m))
+}
+
+// BuildingQuantityEdit: 要素の数量のセット（IfcElementQuantity）の数量の値を変える。セットか数量がなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える。単位は書かず、文書の単位の割り当てに従う。結果の id は要素の ID。マイナーバージョン 106 から
+type BuildingQuantityEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 変える要素の ID。building_elements が返したもの
+	Id *string `json:"id,omitempty"`
+
+	// 読んだときの要素のハッシュ。building_elements が返したもの
+	Hash *string `json:"hash,omitempty"`
+
+	// 数量のセットの名前（Qto_WallBaseQuantities など）
+	Set *string `json:"set,omitempty"`
+
+	// セットを足すときの測り方（MethodOfMeasurement）
+	Method *string `json:"method,omitempty"`
+
+	// 数量の名前（Length など）
+	Name *string `json:"name,omitempty"`
+
+	// 数量の種類。IfcQuantityLength・IfcQuantityArea・IfcQuantityVolume・IfcQuantityCount・IfcQuantityWeight・IfcQuantityTime のどれを書くか
+	Quantity *QuantityKind `json:"quantity,omitempty"`
+
+	// 値。文書の単位で、有限の負でない値。IFC4X3 の個数は整数
+	Value *float64 `json:"value,omitempty"`
+
+	// 式（Formula）。IFC2X3 は持たないので、書けば断る
+	Formula *string `json:"formula,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingQuantityEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingQuantityEdit
+	m.Kind = "quantity"
+	return json.Marshal(plain(m))
+}
+
+// BuildingAddUnitEdit: プロジェクトの単位の割り当て（IfcUnitAssignment）に SI の単位（IfcSIUnit）を足す。長さと平面角の単位は受けず、同じ種類の単位があれば断る。結果は id を持たない。マイナーバージョン 106 から
+type BuildingAddUnitEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 単位の種類（IfcUnitEnum の AREAUNIT など）
+	Unit *string `json:"unit,omitempty"`
+
+	// SI の接頭辞（IfcSIPrefix の MILLI など）
+	Prefix *string `json:"prefix,omitempty"`
+
+	// SI の単位の名前（IfcSIUnitName の SQUARE_METRE など）。単位の種類に合うもの
+	Name *string `json:"name,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingAddUnitEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAddUnitEdit
+	m.Kind = "add_unit"
+	return json.Marshal(plain(m))
+}
+
+// BuildingMaterialEdit: 要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から
+type BuildingMaterialEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 材料を結ぶ要素か型。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Element *BuildingRef `json:"element,omitempty"`
+
+	// 材料の構成
+	Material *BuildingMaterialChange `json:"material,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingMaterialEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingMaterialEdit
+	m.Kind = "material"
+	return json.Marshal(plain(m))
+}
+
+// BuildingMaterialChange: 結ぶ材料の構成。kind に合うフィールドだけを書く。single は name、list は names、layers は layers と usage、constituents は constituents
+type BuildingMaterialChange struct {
+	// 構成の種類
+	Kind *BuildingMaterialChangeKind `json:"kind,omitempty"`
+
+	// 単一の材料の名前
+	Name *string `json:"name,omitempty"`
+
+	// 材料の並びの名前。1 つ以上
+	Names []string `json:"names,omitempty"`
+
+	// 材料の層。1 つ以上
+	Layers []BuildingMaterialLayer `json:"layers,omitempty"`
+
+	// 層の使い方（IfcMaterialLayerSetUsage）。書かなければ、層の組（IfcMaterialLayerSet）をそのまま結ぶ
+	Usage *BuildingLayerUsage `json:"usage,omitempty"`
+
+	// 構成要素。1 つ以上
+	Constituents []BuildingMaterialConstituent `json:"constituents,omitempty"`
+}
+
+// BuildingMaterialChangeKind: 結ぶ材料の構成の種類。single は IfcMaterial、list は IfcMaterialList（IFC2X3 だけ。IFC4 からは非推奨なので断る）、layers は IfcMaterialLayerSet、constituents は IfcMaterialConstituentSet（IFC4 から）
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingMaterialChangeKind string
+
+// BuildingMaterialChangeKindSingle は single。
+const BuildingMaterialChangeKindSingle BuildingMaterialChangeKind = "single"
+
+// BuildingMaterialChangeKindList は list。
+const BuildingMaterialChangeKindList BuildingMaterialChangeKind = "list"
+
+// BuildingMaterialChangeKindLayers は layers。
+const BuildingMaterialChangeKindLayers BuildingMaterialChangeKind = "layers"
+
+// BuildingMaterialChangeKindConstituents は constituents。
+const BuildingMaterialChangeKindConstituents BuildingMaterialChangeKind = "constituents"
+
+// BuildingMaterialLayer: 材料の層
+type BuildingMaterialLayer struct {
+	// 材料の名前。書かなければ、材料のない層（空気層など）
+	Material *string `json:"material,omitempty"`
+
+	// 層の厚さ。文書の長さの単位で、IFC2X3 は正、IFC4 からは負でない値
+	Thickness *float64 `json:"thickness,omitempty"`
+
+	// 層の名前。IFC2X3 は持たないので、書けば断る
+	Name *string `json:"name,omitempty"`
+}
+
+// BuildingLayerUsage: 材料の層の使い方
+type BuildingLayerUsage struct {
+	// 層を重ねる向き
+	Direction *BuildingLayerDirection `json:"direction,omitempty"`
+
+	// true なら負の向きに重ねる（NEGATIVE）。書かなければ正の向き
+	Negative *bool `json:"negative,omitempty"`
+
+	// 基準線からのずれ。文書の長さの単位
+	Offset *float64 `json:"offset,omitempty"`
+}
+
+// BuildingLayerDirection: 層を重ねる向き（IfcLayerSetDirectionEnum）。axis1 は AXIS1、axis2 は AXIS2、axis3 は AXIS3
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingLayerDirection string
+
+// BuildingLayerDirectionAxis1 は axis1。
+const BuildingLayerDirectionAxis1 BuildingLayerDirection = "axis1"
+
+// BuildingLayerDirectionAxis2 は axis2。
+const BuildingLayerDirectionAxis2 BuildingLayerDirection = "axis2"
+
+// BuildingLayerDirectionAxis3 は axis3。
+const BuildingLayerDirectionAxis3 BuildingLayerDirection = "axis3"
+
+// BuildingMaterialConstituent: 材料の構成要素
+type BuildingMaterialConstituent struct {
+	// 材料の名前
+	Material *string `json:"material,omitempty"`
+
+	// 構成要素の名前
+	Name *string `json:"name,omitempty"`
 }
 
 // BuildingFillEdit: 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から

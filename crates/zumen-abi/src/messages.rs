@@ -15666,6 +15666,14 @@ pub enum BuildingEdit {
     WallShape(BuildingWallShapeEdit),
     /// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
     OpeningShape(BuildingOpeningShapeEdit),
+    /// 型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から
+    AddType(BuildingAddTypeEdit),
+    /// 要素の数量のセット（IfcElementQuantity）の数量の値を変える。セットか数量がなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える。単位は書かず、文書の単位の割り当てに従う。結果の id は要素の ID。マイナーバージョン 106 から
+    Quantity(BuildingQuantityEdit),
+    /// プロジェクトの単位の割り当て（IfcUnitAssignment）に SI の単位（IfcSIUnit）を足す。長さと平面角の単位は受けず、同じ種類の単位があれば断る。結果は id を持たない。マイナーバージョン 106 から
+    AddUnit(BuildingAddUnitEdit),
+    /// 要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から
+    Material(BuildingMaterialEdit),
 }
 
 impl BuildingEdit {
@@ -15692,6 +15700,10 @@ impl BuildingEdit {
         "elevation",
         "wall_shape",
         "opening_shape",
+        "add_type",
+        "quantity",
+        "add_unit",
+        "material",
     ];
 
     /// タグのフィールド（`kind`）の値
@@ -15718,6 +15730,10 @@ impl BuildingEdit {
             Self::Elevation(_) => "elevation",
             Self::WallShape(_) => "wall_shape",
             Self::OpeningShape(_) => "opening_shape",
+            Self::AddType(_) => "add_type",
+            Self::Quantity(_) => "quantity",
+            Self::AddUnit(_) => "add_unit",
+            Self::Material(_) => "material",
         }
     }
 }
@@ -15749,6 +15765,10 @@ impl FromJson for BuildingEdit {
             "opening_shape" => {
                 Self::OpeningShape(BuildingOpeningShapeEdit::read_fields(&mut object)?)
             }
+            "add_type" => Self::AddType(BuildingAddTypeEdit::read_fields(&mut object)?),
+            "quantity" => Self::Quantity(BuildingQuantityEdit::read_fields(&mut object)?),
+            "add_unit" => Self::AddUnit(BuildingAddUnitEdit::read_fields(&mut object)?),
+            "material" => Self::Material(BuildingMaterialEdit::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -15780,6 +15800,10 @@ impl ToJson for BuildingEdit {
             Self::Elevation(value) => value.to_json(out),
             Self::WallShape(value) => value.to_json(out),
             Self::OpeningShape(value) => value.to_json(out),
+            Self::AddType(value) => value.to_json(out),
+            Self::Quantity(value) => value.to_json(out),
+            Self::AddUnit(value) => value.to_json(out),
+            Self::Material(value) => value.to_json(out),
         }
     }
 }
@@ -17455,6 +17479,590 @@ impl FromJson for BuildingOpeningShapeEdit {
 }
 
 impl ToJson for BuildingOpeningShapeEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingAddTypeEdit {
+    /// IFC の型の実体の名前（IfcWallType など）。文書のバージョンにあるもの
+    pub class: String,
+    /// PredefinedType の列挙の値（SOLIDWALL など）
+    pub predefined: Option<String>,
+    /// 利用者が決めた種類（ElementType）
+    pub element_type: Option<String>,
+    /// 名前
+    pub name: Option<String>,
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    pub global_id: Option<String>,
+}
+
+impl BuildingAddTypeEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "add_type")?;
+        let class = object.required("class", json::string)?;
+        let predefined = object.optional("predefined", json::string)?;
+        let element_type = object.optional("element_type", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let global_id = object.optional("global_id", json::string)?;
+        Ok(Self {
+            class,
+            predefined,
+            element_type,
+            name,
+            global_id,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("add_type");
+        out.key("class");
+        out.string(&self.class);
+        if let Some(value) = &self.predefined {
+            out.key("predefined");
+            out.string(value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            out.string(value);
+        }
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.global_id {
+            out.key("global_id");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BuildingAddTypeEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingAddTypeEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素の数量のセット（IfcElementQuantity）の数量の値を変える。セットか数量がなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える。単位は書かず、文書の単位の割り当てに従う。結果の id は要素の ID。マイナーバージョン 106 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingQuantityEdit {
+    /// 変える要素の ID。building_elements が返したもの
+    pub id: String,
+    /// 読んだときの要素のハッシュ。building_elements が返したもの
+    pub hash: String,
+    /// 数量のセットの名前（Qto_WallBaseQuantities など）
+    pub set: String,
+    /// セットを足すときの測り方（MethodOfMeasurement）
+    pub method: Option<String>,
+    /// 数量の名前（Length など）
+    pub name: String,
+    /// 数量の種類。IfcQuantityLength・IfcQuantityArea・IfcQuantityVolume・IfcQuantityCount・IfcQuantityWeight・IfcQuantityTime のどれを書くか
+    pub quantity: QuantityKind,
+    /// 値。文書の単位で、有限の負でない値。IFC4X3 の個数は整数
+    pub value: f64,
+    /// 式（Formula）。IFC2X3 は持たないので、書けば断る
+    pub formula: Option<String>,
+}
+
+impl BuildingQuantityEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "quantity")?;
+        let id = object.required("id", json::string)?;
+        let hash = object.required("hash", json::string)?;
+        let set = object.required("set", json::string)?;
+        let method = object.optional("method", json::string)?;
+        let name = object.required("name", json::string)?;
+        let quantity = object.required("quantity", QuantityKind::from_json)?;
+        let value = object.required("value", json::number)?;
+        let formula = object.optional("formula", json::string)?;
+        Ok(Self {
+            id,
+            hash,
+            set,
+            method,
+            name,
+            quantity,
+            value,
+            formula,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("quantity");
+        out.key("id");
+        out.string(&self.id);
+        out.key("hash");
+        out.string(&self.hash);
+        out.key("set");
+        out.string(&self.set);
+        if let Some(value) = &self.method {
+            out.key("method");
+            out.string(value);
+        }
+        out.key("name");
+        out.string(&self.name);
+        out.key("quantity");
+        self.quantity.to_json(out);
+        out.key("value");
+        out.float(self.value);
+        if let Some(value) = &self.formula {
+            out.key("formula");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BuildingQuantityEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingQuantityEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// プロジェクトの単位の割り当て（IfcUnitAssignment）に SI の単位（IfcSIUnit）を足す。長さと平面角の単位は受けず、同じ種類の単位があれば断る。結果は id を持たない。マイナーバージョン 106 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingAddUnitEdit {
+    /// 単位の種類（IfcUnitEnum の AREAUNIT など）
+    pub unit: String,
+    /// SI の接頭辞（IfcSIPrefix の MILLI など）
+    pub prefix: Option<String>,
+    /// SI の単位の名前（IfcSIUnitName の SQUARE_METRE など）。単位の種類に合うもの
+    pub name: String,
+}
+
+impl BuildingAddUnitEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "add_unit")?;
+        let unit = object.required("unit", json::string)?;
+        let prefix = object.optional("prefix", json::string)?;
+        let name = object.required("name", json::string)?;
+        Ok(Self { unit, prefix, name })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("add_unit");
+        out.key("unit");
+        out.string(&self.unit);
+        if let Some(value) = &self.prefix {
+            out.key("prefix");
+            out.string(value);
+        }
+        out.key("name");
+        out.string(&self.name);
+    }
+}
+
+impl FromJson for BuildingAddUnitEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingAddUnitEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingMaterialEdit {
+    /// 材料を結ぶ要素か型。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    pub element: BuildingRef,
+    /// 材料の構成
+    pub material: BuildingMaterialChange,
+}
+
+impl BuildingMaterialEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "material")?;
+        let element = object.required("element", BuildingRef::from_json)?;
+        let material = object.required("material", BuildingMaterialChange::from_json)?;
+        Ok(Self { element, material })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("material");
+        out.key("element");
+        self.element.to_json(out);
+        out.key("material");
+        self.material.to_json(out);
+    }
+}
+
+impl FromJson for BuildingMaterialEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingMaterialEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 結ぶ材料の構成。kind に合うフィールドだけを書く。single は name、list は names、layers は layers と usage、constituents は constituents
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingMaterialChange {
+    /// 構成の種類
+    pub kind: BuildingMaterialChangeKind,
+    /// 単一の材料の名前
+    pub name: Option<String>,
+    /// 材料の並びの名前。1 つ以上
+    pub names: Option<Vec<String>>,
+    /// 材料の層。1 つ以上
+    pub layers: Option<Vec<BuildingMaterialLayer>>,
+    /// 層の使い方（IfcMaterialLayerSetUsage）。書かなければ、層の組（IfcMaterialLayerSet）をそのまま結ぶ
+    pub usage: Option<BuildingLayerUsage>,
+    /// 構成要素。1 つ以上
+    pub constituents: Option<Vec<BuildingMaterialConstituent>>,
+}
+
+impl BuildingMaterialChange {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", BuildingMaterialChangeKind::from_json)?;
+        let name = object.optional("name", json::string)?;
+        let names = object.optional("names", |value| json::array(value, json::string))?;
+        let layers = object.optional("layers", |value| {
+            json::array(value, BuildingMaterialLayer::from_json)
+        })?;
+        let usage = object.optional("usage", BuildingLayerUsage::from_json)?;
+        let constituents = object.optional("constituents", |value| {
+            json::array(value, BuildingMaterialConstituent::from_json)
+        })?;
+        Ok(Self {
+            kind,
+            name,
+            names,
+            layers,
+            usage,
+            constituents,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.names {
+            out.key("names");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.layers {
+            out.key("layers");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.usage {
+            out.key("usage");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.constituents {
+            out.key("constituents");
+            out.array(value, |out, item| item.to_json(out));
+        }
+    }
+}
+
+impl FromJson for BuildingMaterialChange {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingMaterialChange {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 結ぶ材料の構成の種類。single は IfcMaterial、list は IfcMaterialList（IFC2X3 だけ。IFC4 からは非推奨なので断る）、layers は IfcMaterialLayerSet、constituents は IfcMaterialConstituentSet（IFC4 から）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildingMaterialChangeKind {
+    /// `single`
+    Single,
+    /// `list`
+    List,
+    /// `layers`
+    Layers,
+    /// `constituents`
+    Constituents,
+}
+
+impl BuildingMaterialChangeKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Single, Self::List, Self::Layers, Self::Constituents];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Single => "single",
+            Self::List => "list",
+            Self::Layers => "layers",
+            Self::Constituents => "constituents",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "single" => Some(Self::Single),
+            "list" => Some(Self::List),
+            "layers" => Some(Self::Layers),
+            "constituents" => Some(Self::Constituents),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for BuildingMaterialChangeKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for BuildingMaterialChangeKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 材料の層
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingMaterialLayer {
+    /// 材料の名前。書かなければ、材料のない層（空気層など）
+    pub material: Option<String>,
+    /// 層の厚さ。文書の長さの単位で、IFC2X3 は正、IFC4 からは負でない値
+    pub thickness: f64,
+    /// 層の名前。IFC2X3 は持たないので、書けば断る
+    pub name: Option<String>,
+}
+
+impl BuildingMaterialLayer {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let material = object.optional("material", json::string)?;
+        let thickness = object.required("thickness", json::number)?;
+        let name = object.optional("name", json::string)?;
+        Ok(Self {
+            material,
+            thickness,
+            name,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.material {
+            out.key("material");
+            out.string(value);
+        }
+        out.key("thickness");
+        out.float(self.thickness);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BuildingMaterialLayer {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingMaterialLayer {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 材料の層の使い方
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingLayerUsage {
+    /// 層を重ねる向き
+    pub direction: BuildingLayerDirection,
+    /// true なら負の向きに重ねる（NEGATIVE）。書かなければ正の向き
+    pub negative: Option<bool>,
+    /// 基準線からのずれ。文書の長さの単位
+    pub offset: f64,
+}
+
+impl BuildingLayerUsage {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let direction = object.required("direction", BuildingLayerDirection::from_json)?;
+        let negative = object.optional("negative", json::boolean)?;
+        let offset = object.required("offset", json::number)?;
+        Ok(Self {
+            direction,
+            negative,
+            offset,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("direction");
+        self.direction.to_json(out);
+        if let Some(value) = &self.negative {
+            out.key("negative");
+            out.bool(*value);
+        }
+        out.key("offset");
+        out.float(self.offset);
+    }
+}
+
+impl FromJson for BuildingLayerUsage {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingLayerUsage {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 層を重ねる向き（IfcLayerSetDirectionEnum）。axis1 は AXIS1、axis2 は AXIS2、axis3 は AXIS3
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildingLayerDirection {
+    /// `axis1`
+    Axis1,
+    /// `axis2`
+    Axis2,
+    /// `axis3`
+    Axis3,
+}
+
+impl BuildingLayerDirection {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Axis1, Self::Axis2, Self::Axis3];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Axis1 => "axis1",
+            Self::Axis2 => "axis2",
+            Self::Axis3 => "axis3",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "axis1" => Some(Self::Axis1),
+            "axis2" => Some(Self::Axis2),
+            "axis3" => Some(Self::Axis3),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for BuildingLayerDirection {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for BuildingLayerDirection {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 材料の構成要素
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingMaterialConstituent {
+    /// 材料の名前
+    pub material: String,
+    /// 構成要素の名前
+    pub name: Option<String>,
+}
+
+impl BuildingMaterialConstituent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let material = object.required("material", json::string)?;
+        let name = object.optional("name", json::string)?;
+        Ok(Self { material, name })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("material");
+        out.string(&self.material);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BuildingMaterialConstituent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingMaterialConstituent {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

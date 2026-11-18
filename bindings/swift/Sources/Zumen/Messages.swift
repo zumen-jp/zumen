@@ -10836,6 +10836,26 @@ public struct BuildingEdit: Message {
     public var asBuildingOpeningShapeEdit: BuildingOpeningShapeEdit? {
         taggedView("kind", "opening_shape")
     }
+
+    /// kind が add_type の形なら、そのビュー。違えば nil
+    public var asBuildingAddTypeEdit: BuildingAddTypeEdit? {
+        taggedView("kind", "add_type")
+    }
+
+    /// kind が quantity の形なら、そのビュー。違えば nil
+    public var asBuildingQuantityEdit: BuildingQuantityEdit? {
+        taggedView("kind", "quantity")
+    }
+
+    /// kind が add_unit の形なら、そのビュー。違えば nil
+    public var asBuildingAddUnitEdit: BuildingAddUnitEdit? {
+        taggedView("kind", "add_unit")
+    }
+
+    /// kind が material の形なら、そのビュー。違えば nil
+    public var asBuildingMaterialEdit: BuildingMaterialEdit? {
+        taggedView("kind", "material")
+    }
 }
 
 /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
@@ -12026,6 +12046,369 @@ public struct BuildingOpeningShapeEdit: Message {
     public var height: Double? {
         get { readField("height") }
         set { writeField("height", newValue) }
+    }
+}
+
+/// 型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から
+public struct BuildingAddTypeEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_type")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// IFC の型の実体の名前（IfcWallType など）。文書のバージョンにあるもの
+    public var `class`: String? {
+        get { readField("class") }
+        set { writeField("class", newValue) }
+    }
+
+    /// PredefinedType の列挙の値（SOLIDWALL など）
+    public var predefined: String? {
+        get { readField("predefined") }
+        set { writeField("predefined", newValue) }
+    }
+
+    /// 利用者が決めた種類（ElementType）
+    public var elementType: String? {
+        get { readField("element_type") }
+        set { writeField("element_type", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    public var globalId: String? {
+        get { readField("global_id") }
+        set { writeField("global_id", newValue) }
+    }
+}
+
+/// 要素の数量のセット（IfcElementQuantity）の数量の値を変える。セットか数量がなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える。単位は書かず、文書の単位の割り当てに従う。結果の id は要素の ID。マイナーバージョン 106 から
+public struct BuildingQuantityEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("quantity")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 変える要素の ID。building_elements が返したもの
+    public var id: String? {
+        get { readField("id") }
+        set { writeField("id", newValue) }
+    }
+
+    /// 読んだときの要素のハッシュ。building_elements が返したもの
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 数量のセットの名前（Qto_WallBaseQuantities など）
+    public var set: String? {
+        get { readField("set") }
+        set { writeField("set", newValue) }
+    }
+
+    /// セットを足すときの測り方（MethodOfMeasurement）
+    public var method: String? {
+        get { readField("method") }
+        set { writeField("method", newValue) }
+    }
+
+    /// 数量の名前（Length など）
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 数量の種類。IfcQuantityLength・IfcQuantityArea・IfcQuantityVolume・IfcQuantityCount・IfcQuantityWeight・IfcQuantityTime のどれを書くか
+    public var quantity: String? {
+        get { readField("quantity") }
+        set { writeField("quantity", newValue) }
+    }
+
+    /// 値。文書の単位で、有限の負でない値。IFC4X3 の個数は整数
+    public var value: Double? {
+        get { readField("value") }
+        set { writeField("value", newValue) }
+    }
+
+    /// 式（Formula）。IFC2X3 は持たないので、書けば断る
+    public var formula: String? {
+        get { readField("formula") }
+        set { writeField("formula", newValue) }
+    }
+}
+
+/// プロジェクトの単位の割り当て（IfcUnitAssignment）に SI の単位（IfcSIUnit）を足す。長さと平面角の単位は受けず、同じ種類の単位があれば断る。結果は id を持たない。マイナーバージョン 106 から
+public struct BuildingAddUnitEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_unit")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 単位の種類（IfcUnitEnum の AREAUNIT など）
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// SI の接頭辞（IfcSIPrefix の MILLI など）
+    public var prefix: String? {
+        get { readField("prefix") }
+        set { writeField("prefix", newValue) }
+    }
+
+    /// SI の単位の名前（IfcSIUnitName の SQUARE_METRE など）。単位の種類に合うもの
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+}
+
+/// 要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から
+public struct BuildingMaterialEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("material")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 材料を結ぶ要素か型。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var element: BuildingRef? {
+        get { readField("element") }
+        set { writeField("element", newValue) }
+    }
+
+    /// 材料の構成
+    public var material: BuildingMaterialChange? {
+        get { readField("material") }
+        set { writeField("material", newValue) }
+    }
+}
+
+/// 結ぶ材料の構成。kind に合うフィールドだけを書く。single は name、list は names、layers は layers と usage、constituents は constituents
+public struct BuildingMaterialChange: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 構成の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 単一の材料の名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 材料の並びの名前。1 つ以上
+    public var names: [String]? {
+        get { readField("names") }
+        set { writeField("names", newValue) }
+    }
+
+    /// 材料の層。1 つ以上
+    public var layers: [BuildingMaterialLayer]? {
+        get { readField("layers") }
+        set { writeField("layers", newValue) }
+    }
+
+    /// 層の使い方（IfcMaterialLayerSetUsage）。書かなければ、層の組（IfcMaterialLayerSet）をそのまま結ぶ
+    public var usage: BuildingLayerUsage? {
+        get { readField("usage") }
+        set { writeField("usage", newValue) }
+    }
+
+    /// 構成要素。1 つ以上
+    public var constituents: [BuildingMaterialConstituent]? {
+        get { readField("constituents") }
+        set { writeField("constituents", newValue) }
+    }
+}
+
+/// 結ぶ材料の構成の種類。single は IfcMaterial、list は IfcMaterialList（IFC2X3 だけ。IFC4 からは非推奨なので断る）、layers は IfcMaterialLayerSet、constituents は IfcMaterialConstituentSet（IFC4 から）
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingMaterialChangeKind {
+    public static let single = "single"
+    public static let list = "list"
+    public static let layers = "layers"
+    public static let constituents = "constituents"
+}
+
+/// 材料の層
+public struct BuildingMaterialLayer: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 材料の名前。書かなければ、材料のない層（空気層など）
+    public var material: String? {
+        get { readField("material") }
+        set { writeField("material", newValue) }
+    }
+
+    /// 層の厚さ。文書の長さの単位で、IFC2X3 は正、IFC4 からは負でない値
+    public var thickness: Double? {
+        get { readField("thickness") }
+        set { writeField("thickness", newValue) }
+    }
+
+    /// 層の名前。IFC2X3 は持たないので、書けば断る
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+}
+
+/// 材料の層の使い方
+public struct BuildingLayerUsage: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 層を重ねる向き
+    public var direction: String? {
+        get { readField("direction") }
+        set { writeField("direction", newValue) }
+    }
+
+    /// true なら負の向きに重ねる（NEGATIVE）。書かなければ正の向き
+    public var negative: Bool? {
+        get { readField("negative") }
+        set { writeField("negative", newValue) }
+    }
+
+    /// 基準線からのずれ。文書の長さの単位
+    public var offset: Double? {
+        get { readField("offset") }
+        set { writeField("offset", newValue) }
+    }
+}
+
+/// 層を重ねる向き（IfcLayerSetDirectionEnum）。axis1 は AXIS1、axis2 は AXIS2、axis3 は AXIS3
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingLayerDirection {
+    public static let axis1 = "axis1"
+    public static let axis2 = "axis2"
+    public static let axis3 = "axis3"
+}
+
+/// 材料の構成要素
+public struct BuildingMaterialConstituent: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 材料の名前
+    public var material: String? {
+        get { readField("material") }
+        set { writeField("material", newValue) }
+    }
+
+    /// 構成要素の名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
     }
 }
 

@@ -3855,7 +3855,11 @@
         { "$ref": "#/$defs/building_add_grid_edit" },
         { "$ref": "#/$defs/building_elevation_edit" },
         { "$ref": "#/$defs/building_wall_shape_edit" },
-        { "$ref": "#/$defs/building_opening_shape_edit" }
+        { "$ref": "#/$defs/building_opening_shape_edit" },
+        { "$ref": "#/$defs/building_add_type_edit" },
+        { "$ref": "#/$defs/building_quantity_edit" },
+        { "$ref": "#/$defs/building_add_unit_edit" },
+        { "$ref": "#/$defs/building_material_edit" }
       ]
     },
     "building_property_edit": {
@@ -4199,6 +4203,116 @@
         "height": { "description": "高さ。文書の長さの単位で、正の値", "type": "number" }
       },
       "required": ["kind", "opening", "distance", "sill", "width", "height"],
+      "additionalProperties": false
+    },
+    "building_add_type_edit": {
+      "description": "型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "add_type" },
+        "class": { "description": "IFC の型の実体の名前（IfcWallType など）。文書のバージョンにあるもの", "type": "string" },
+        "predefined": { "description": "PredefinedType の列挙の値（SOLIDWALL など）", "type": "string" },
+        "element_type": { "description": "利用者が決めた種類（ElementType）", "type": "string" },
+        "name": { "description": "名前", "type": "string" },
+        "global_id": { "description": "GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める", "type": "string" }
+      },
+      "required": ["kind", "class"],
+      "additionalProperties": false
+    },
+    "building_quantity_edit": {
+      "description": "要素の数量のセット（IfcElementQuantity）の数量の値を変える。セットか数量がなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える。単位は書かず、文書の単位の割り当てに従う。結果の id は要素の ID。マイナーバージョン 106 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "quantity" },
+        "id": { "description": "変える要素の ID。building_elements が返したもの", "type": "string" },
+        "hash": { "description": "読んだときの要素のハッシュ。building_elements が返したもの", "type": "string" },
+        "set": { "description": "数量のセットの名前（Qto_WallBaseQuantities など）", "type": "string" },
+        "method": { "description": "セットを足すときの測り方（MethodOfMeasurement）", "type": "string" },
+        "name": { "description": "数量の名前（Length など）", "type": "string" },
+        "quantity": { "description": "数量の種類。IfcQuantityLength・IfcQuantityArea・IfcQuantityVolume・IfcQuantityCount・IfcQuantityWeight・IfcQuantityTime のどれを書くか", "$ref": "#/$defs/quantity_kind" },
+        "value": { "description": "値。文書の単位で、有限の負でない値。IFC4X3 の個数は整数", "type": "number" },
+        "formula": { "description": "式（Formula）。IFC2X3 は持たないので、書けば断る", "type": "string" }
+      },
+      "required": ["kind", "id", "hash", "set", "name", "quantity", "value"],
+      "additionalProperties": false
+    },
+    "building_add_unit_edit": {
+      "description": "プロジェクトの単位の割り当て（IfcUnitAssignment）に SI の単位（IfcSIUnit）を足す。長さと平面角の単位は受けず、同じ種類の単位があれば断る。結果は id を持たない。マイナーバージョン 106 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "add_unit" },
+        "unit": { "description": "単位の種類（IfcUnitEnum の AREAUNIT など）", "type": "string" },
+        "prefix": { "description": "SI の接頭辞（IfcSIPrefix の MILLI など）", "type": "string" },
+        "name": { "description": "SI の単位の名前（IfcSIUnitName の SQUARE_METRE など）。単位の種類に合うもの", "type": "string" }
+      },
+      "required": ["kind", "unit", "name"],
+      "additionalProperties": false
+    },
+    "building_material_edit": {
+      "description": "要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "変更の種類", "const": "material" },
+        "element": { "description": "材料を結ぶ要素か型。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す", "$ref": "#/$defs/building_ref" },
+        "material": { "description": "材料の構成", "$ref": "#/$defs/building_material_change" }
+      },
+      "required": ["kind", "element", "material"],
+      "additionalProperties": false
+    },
+    "building_material_change": {
+      "description": "結ぶ材料の構成。kind に合うフィールドだけを書く。single は name、list は names、layers は layers と usage、constituents は constituents",
+      "type": "object",
+      "properties": {
+        "kind": { "description": "構成の種類", "$ref": "#/$defs/building_material_change_kind" },
+        "name": { "description": "単一の材料の名前", "type": "string" },
+        "names": { "description": "材料の並びの名前。1 つ以上", "type": "array", "items": { "type": "string" } },
+        "layers": { "description": "材料の層。1 つ以上", "type": "array", "items": { "$ref": "#/$defs/building_material_layer" } },
+        "usage": { "description": "層の使い方（IfcMaterialLayerSetUsage）。書かなければ、層の組（IfcMaterialLayerSet）をそのまま結ぶ", "$ref": "#/$defs/building_layer_usage" },
+        "constituents": { "description": "構成要素。1 つ以上", "type": "array", "items": { "$ref": "#/$defs/building_material_constituent" } }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "building_material_change_kind": {
+      "description": "結ぶ材料の構成の種類。single は IfcMaterial、list は IfcMaterialList（IFC2X3 だけ。IFC4 からは非推奨なので断る）、layers は IfcMaterialLayerSet、constituents は IfcMaterialConstituentSet（IFC4 から）",
+      "type": "string",
+      "enum": ["single", "list", "layers", "constituents"]
+    },
+    "building_material_layer": {
+      "description": "材料の層",
+      "type": "object",
+      "properties": {
+        "material": { "description": "材料の名前。書かなければ、材料のない層（空気層など）", "type": "string" },
+        "thickness": { "description": "層の厚さ。文書の長さの単位で、IFC2X3 は正、IFC4 からは負でない値", "type": "number" },
+        "name": { "description": "層の名前。IFC2X3 は持たないので、書けば断る", "type": "string" }
+      },
+      "required": ["thickness"],
+      "additionalProperties": false
+    },
+    "building_layer_usage": {
+      "description": "材料の層の使い方",
+      "type": "object",
+      "properties": {
+        "direction": { "description": "層を重ねる向き", "$ref": "#/$defs/building_layer_direction" },
+        "negative": { "description": "true なら負の向きに重ねる（NEGATIVE）。書かなければ正の向き", "type": "boolean" },
+        "offset": { "description": "基準線からのずれ。文書の長さの単位", "type": "number" }
+      },
+      "required": ["direction", "offset"],
+      "additionalProperties": false
+    },
+    "building_layer_direction": {
+      "description": "層を重ねる向き（IfcLayerSetDirectionEnum）。axis1 は AXIS1、axis2 は AXIS2、axis3 は AXIS3",
+      "type": "string",
+      "enum": ["axis1", "axis2", "axis3"]
+    },
+    "building_material_constituent": {
+      "description": "材料の構成要素",
+      "type": "object",
+      "properties": {
+        "material": { "description": "材料の名前", "type": "string" },
+        "name": { "description": "構成要素の名前", "type": "string" }
+      },
+      "required": ["material"],
       "additionalProperties": false
     },
     "building_fill_edit": {

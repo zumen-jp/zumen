@@ -7033,6 +7033,18 @@ class BuildingEdit extends Message {
 
   /// kind が opening_shape の形なら、そのビュー。違えば null
   BuildingOpeningShapeEdit? get asBuildingOpeningShapeEdit => taggedView('kind', 'opening_shape', BuildingOpeningShapeEdit.fromJson);
+
+  /// kind が add_type の形なら、そのビュー。違えば null
+  BuildingAddTypeEdit? get asBuildingAddTypeEdit => taggedView('kind', 'add_type', BuildingAddTypeEdit.fromJson);
+
+  /// kind が quantity の形なら、そのビュー。違えば null
+  BuildingQuantityEdit? get asBuildingQuantityEdit => taggedView('kind', 'quantity', BuildingQuantityEdit.fromJson);
+
+  /// kind が add_unit の形なら、そのビュー。違えば null
+  BuildingAddUnitEdit? get asBuildingAddUnitEdit => taggedView('kind', 'add_unit', BuildingAddUnitEdit.fromJson);
+
+  /// kind が material の形なら、そのビュー。違えば null
+  BuildingMaterialEdit? get asBuildingMaterialEdit => taggedView('kind', 'material', BuildingMaterialEdit.fromJson);
 }
 
 /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
@@ -7791,6 +7803,241 @@ class BuildingOpeningShapeEdit extends Message {
   /// 高さ。文書の長さの単位で、正の値
   core.double? get height => readField('height', asDouble);
   set height(core.double? value) => writeField('height', value);
+}
+
+/// 型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から
+class BuildingAddTypeEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingAddTypeEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingAddTypeEdit() : super({'kind': 'add_type'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// IFC の型の実体の名前（IfcWallType など）。文書のバージョンにあるもの
+  String? get classField => readField('class', asString);
+  set classField(String? value) => writeField('class', value);
+
+  /// PredefinedType の列挙の値（SOLIDWALL など）
+  String? get predefined => readField('predefined', asString);
+  set predefined(String? value) => writeField('predefined', value);
+
+  /// 利用者が決めた種類（ElementType）
+  String? get elementType => readField('element_type', asString);
+  set elementType(String? value) => writeField('element_type', value);
+
+  /// 名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+  String? get globalId => readField('global_id', asString);
+  set globalId(String? value) => writeField('global_id', value);
+}
+
+/// 要素の数量のセット（IfcElementQuantity）の数量の値を変える。セットか数量がなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える。単位は書かず、文書の単位の割り当てに従う。結果の id は要素の ID。マイナーバージョン 106 から
+class BuildingQuantityEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingQuantityEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingQuantityEdit() : super({'kind': 'quantity'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 変える要素の ID。building_elements が返したもの
+  String? get id => readField('id', asString);
+  set id(String? value) => writeField('id', value);
+
+  /// 読んだときの要素のハッシュ。building_elements が返したもの
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 数量のセットの名前（Qto_WallBaseQuantities など）
+  String? get setField => readField('set', asString);
+  set setField(String? value) => writeField('set', value);
+
+  /// セットを足すときの測り方（MethodOfMeasurement）
+  String? get method => readField('method', asString);
+  set method(String? value) => writeField('method', value);
+
+  /// 数量の名前（Length など）
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 数量の種類。IfcQuantityLength・IfcQuantityArea・IfcQuantityVolume・IfcQuantityCount・IfcQuantityWeight・IfcQuantityTime のどれを書くか
+  String? get quantity => readField('quantity', asString);
+  set quantity(String? value) => writeField('quantity', value);
+
+  /// 値。文書の単位で、有限の負でない値。IFC4X3 の個数は整数
+  core.double? get value => readField('value', asDouble);
+  set value(core.double? value) => writeField('value', value);
+
+  /// 式（Formula）。IFC2X3 は持たないので、書けば断る
+  String? get formula => readField('formula', asString);
+  set formula(String? value) => writeField('formula', value);
+}
+
+/// プロジェクトの単位の割り当て（IfcUnitAssignment）に SI の単位（IfcSIUnit）を足す。長さと平面角の単位は受けず、同じ種類の単位があれば断る。結果は id を持たない。マイナーバージョン 106 から
+class BuildingAddUnitEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingAddUnitEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingAddUnitEdit() : super({'kind': 'add_unit'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 単位の種類（IfcUnitEnum の AREAUNIT など）
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// SI の接頭辞（IfcSIPrefix の MILLI など）
+  String? get prefix => readField('prefix', asString);
+  set prefix(String? value) => writeField('prefix', value);
+
+  /// SI の単位の名前（IfcSIUnitName の SQUARE_METRE など）。単位の種類に合うもの
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+}
+
+/// 要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から
+class BuildingMaterialEdit extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingMaterialEdit.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingMaterialEdit() : super({'kind': 'material'});
+
+  /// 変更の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 材料を結ぶ要素か型。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+  BuildingRef? get element => readField('element', objectOf(BuildingRef.fromJson));
+  set element(BuildingRef? value) => writeField('element', value);
+
+  /// 材料の構成
+  BuildingMaterialChange? get material => readField('material', objectOf(BuildingMaterialChange.fromJson));
+  set material(BuildingMaterialChange? value) => writeField('material', value);
+}
+
+/// 結ぶ材料の構成。kind に合うフィールドだけを書く。single は name、list は names、layers は layers と usage、constituents は constituents
+class BuildingMaterialChange extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingMaterialChange.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingMaterialChange() : super({});
+
+  /// 構成の種類
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+
+  /// 単一の材料の名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// 材料の並びの名前。1 つ以上
+  List<String>? get names => readField('names', listOf(asString));
+  set names(List<String>? value) => writeField('names', value);
+
+  /// 材料の層。1 つ以上
+  List<BuildingMaterialLayer>? get layers => readField('layers', listOf(objectOf(BuildingMaterialLayer.fromJson)));
+  set layers(List<BuildingMaterialLayer>? value) => writeField('layers', value);
+
+  /// 層の使い方（IfcMaterialLayerSetUsage）。書かなければ、層の組（IfcMaterialLayerSet）をそのまま結ぶ
+  BuildingLayerUsage? get usage => readField('usage', objectOf(BuildingLayerUsage.fromJson));
+  set usage(BuildingLayerUsage? value) => writeField('usage', value);
+
+  /// 構成要素。1 つ以上
+  List<BuildingMaterialConstituent>? get constituents => readField('constituents', listOf(objectOf(BuildingMaterialConstituent.fromJson)));
+  set constituents(List<BuildingMaterialConstituent>? value) => writeField('constituents', value);
+}
+
+/// 結ぶ材料の構成の種類。single は IfcMaterial、list は IfcMaterialList（IFC2X3 だけ。IFC4 からは非推奨なので断る）、layers は IfcMaterialLayerSet、constituents は IfcMaterialConstituentSet（IFC4 から）
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class BuildingMaterialChangeKind {
+  static const single = 'single';
+  static const list = 'list';
+  static const layers = 'layers';
+  static const constituents = 'constituents';
+}
+
+/// 材料の層
+class BuildingMaterialLayer extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingMaterialLayer.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingMaterialLayer() : super({});
+
+  /// 材料の名前。書かなければ、材料のない層（空気層など）
+  String? get material => readField('material', asString);
+  set material(String? value) => writeField('material', value);
+
+  /// 層の厚さ。文書の長さの単位で、IFC2X3 は正、IFC4 からは負でない値
+  core.double? get thickness => readField('thickness', asDouble);
+  set thickness(core.double? value) => writeField('thickness', value);
+
+  /// 層の名前。IFC2X3 は持たないので、書けば断る
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+}
+
+/// 材料の層の使い方
+class BuildingLayerUsage extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingLayerUsage.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingLayerUsage() : super({});
+
+  /// 層を重ねる向き
+  String? get direction => readField('direction', asString);
+  set direction(String? value) => writeField('direction', value);
+
+  /// true なら負の向きに重ねる（NEGATIVE）。書かなければ正の向き
+  core.bool? get negative => readField('negative', asBool);
+  set negative(core.bool? value) => writeField('negative', value);
+
+  /// 基準線からのずれ。文書の長さの単位
+  core.double? get offset => readField('offset', asDouble);
+  set offset(core.double? value) => writeField('offset', value);
+}
+
+/// 層を重ねる向き（IfcLayerSetDirectionEnum）。axis1 は AXIS1、axis2 は AXIS2、axis3 は AXIS3
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class BuildingLayerDirection {
+  static const axis1 = 'axis1';
+  static const axis2 = 'axis2';
+  static const axis3 = 'axis3';
+}
+
+/// 材料の構成要素
+class BuildingMaterialConstituent extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingMaterialConstituent.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingMaterialConstituent() : super({});
+
+  /// 材料の名前
+  String? get material => readField('material', asString);
+  set material(String? value) => writeField('material', value);
+
+  /// 構成要素の名前
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
 }
 
 /// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から

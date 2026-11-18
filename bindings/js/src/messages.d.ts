@@ -3199,7 +3199,11 @@ export type BuildingEdit =
   | BuildingAddGridEdit
   | BuildingElevationEdit
   | BuildingWallShapeEdit
-  | BuildingOpeningShapeEdit;
+  | BuildingOpeningShapeEdit
+  | BuildingAddTypeEdit
+  | BuildingQuantityEdit
+  | BuildingAddUnitEdit
+  | BuildingMaterialEdit;
 
 /** 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える */
 export interface BuildingPropertyEdit {
@@ -3570,6 +3574,125 @@ export interface BuildingOpeningShapeEdit {
   width: number;
   /** 高さ。文書の長さの単位で、正の値 */
   height: number;
+}
+
+/** 型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から */
+export interface BuildingAddTypeEdit {
+  /** 変更の種類 */
+  kind: "add_type";
+  /** IFC の型の実体の名前（IfcWallType など）。文書のバージョンにあるもの */
+  class: string;
+  /** PredefinedType の列挙の値（SOLIDWALL など） */
+  predefined?: string;
+  /** 利用者が決めた種類（ElementType） */
+  element_type?: string;
+  /** 名前 */
+  name?: string;
+  /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
+  global_id?: string;
+}
+
+/** 要素の数量のセット（IfcElementQuantity）の数量の値を変える。セットか数量がなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える。単位は書かず、文書の単位の割り当てに従う。結果の id は要素の ID。マイナーバージョン 106 から */
+export interface BuildingQuantityEdit {
+  /** 変更の種類 */
+  kind: "quantity";
+  /** 変える要素の ID。building_elements が返したもの */
+  id: string;
+  /** 読んだときの要素のハッシュ。building_elements が返したもの */
+  hash: string;
+  /** 数量のセットの名前（Qto_WallBaseQuantities など） */
+  set: string;
+  /** セットを足すときの測り方（MethodOfMeasurement） */
+  method?: string;
+  /** 数量の名前（Length など） */
+  name: string;
+  /** 数量の種類。IfcQuantityLength・IfcQuantityArea・IfcQuantityVolume・IfcQuantityCount・IfcQuantityWeight・IfcQuantityTime のどれを書くか */
+  quantity: QuantityKind;
+  /** 値。文書の単位で、有限の負でない値。IFC4X3 の個数は整数 */
+  value: number;
+  /** 式（Formula）。IFC2X3 は持たないので、書けば断る */
+  formula?: string;
+}
+
+/** プロジェクトの単位の割り当て（IfcUnitAssignment）に SI の単位（IfcSIUnit）を足す。長さと平面角の単位は受けず、同じ種類の単位があれば断る。結果は id を持たない。マイナーバージョン 106 から */
+export interface BuildingAddUnitEdit {
+  /** 変更の種類 */
+  kind: "add_unit";
+  /** 単位の種類（IfcUnitEnum の AREAUNIT など） */
+  unit: string;
+  /** SI の接頭辞（IfcSIPrefix の MILLI など） */
+  prefix?: string;
+  /** SI の単位の名前（IfcSIUnitName の SQUARE_METRE など）。単位の種類に合うもの */
+  name: string;
+}
+
+/** 要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から */
+export interface BuildingMaterialEdit {
+  /** 変更の種類 */
+  kind: "material";
+  /** 材料を結ぶ要素か型。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す */
+  element: BuildingRef;
+  /** 材料の構成 */
+  material: BuildingMaterialChange;
+}
+
+/** 結ぶ材料の構成。kind に合うフィールドだけを書く。single は name、list は names、layers は layers と usage、constituents は constituents */
+export interface BuildingMaterialChange {
+  /** 構成の種類 */
+  kind: BuildingMaterialChangeKind;
+  /** 単一の材料の名前 */
+  name?: string;
+  /** 材料の並びの名前。1 つ以上 */
+  names?: string[];
+  /** 材料の層。1 つ以上 */
+  layers?: BuildingMaterialLayer[];
+  /** 層の使い方（IfcMaterialLayerSetUsage）。書かなければ、層の組（IfcMaterialLayerSet）をそのまま結ぶ */
+  usage?: BuildingLayerUsage;
+  /** 構成要素。1 つ以上 */
+  constituents?: BuildingMaterialConstituent[];
+}
+
+/** 結ぶ材料の構成の種類。single は IfcMaterial、list は IfcMaterialList（IFC2X3 だけ。IFC4 からは非推奨なので断る）、layers は IfcMaterialLayerSet、constituents は IfcMaterialConstituentSet（IFC4 から） */
+export type BuildingMaterialChangeKind =
+  | "single"
+  | "list"
+  | "layers"
+  | "constituents"
+  | (string & {});
+
+/** 材料の層 */
+export interface BuildingMaterialLayer {
+  /** 材料の名前。書かなければ、材料のない層（空気層など） */
+  material?: string;
+  /** 層の厚さ。文書の長さの単位で、IFC2X3 は正、IFC4 からは負でない値 */
+  thickness: number;
+  /** 層の名前。IFC2X3 は持たないので、書けば断る */
+  name?: string;
+}
+
+/** 材料の層の使い方 */
+export interface BuildingLayerUsage {
+  /** 層を重ねる向き */
+  direction: BuildingLayerDirection;
+  /** true なら負の向きに重ねる（NEGATIVE）。書かなければ正の向き */
+  negative?: boolean;
+  /** 基準線からのずれ。文書の長さの単位 */
+  offset: number;
+}
+
+/** 層を重ねる向き（IfcLayerSetDirectionEnum）。axis1 は AXIS1、axis2 は AXIS2、axis3 は AXIS3 */
+export type BuildingLayerDirection =
+  | "axis1"
+  | "axis2"
+  | "axis3"
+  | (string & {});
+
+/** 材料の構成要素 */
+export interface BuildingMaterialConstituent {
+  /** 材料の名前 */
+  material: string;
+  /** 構成要素の名前 */
+  name?: string;
 }
 
 /** 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から */

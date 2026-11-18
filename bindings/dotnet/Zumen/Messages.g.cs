@@ -8809,6 +8809,10 @@ namespace Zumen.Messages
             ["elevation"] = typeof(BuildingElevationEdit),
             ["wall_shape"] = typeof(BuildingWallShapeEdit),
             ["opening_shape"] = typeof(BuildingOpeningShapeEdit),
+            ["add_type"] = typeof(BuildingAddTypeEdit),
+            ["quantity"] = typeof(BuildingQuantityEdit),
+            ["add_unit"] = typeof(BuildingAddUnitEdit),
+            ["material"] = typeof(BuildingMaterialEdit),
         };
     }
 
@@ -9758,6 +9762,298 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("height")]
         public double Height { get; init; }
+    }
+
+    /// <summary>
+    /// 型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から
+    /// </summary>
+    public sealed record BuildingAddTypeEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "add_type";
+
+        /// <summary>
+        /// IFC の型の実体の名前（IfcWallType など）。文書のバージョンにあるもの
+        /// </summary>
+        [JsonPropertyName("class")]
+        public string Class { get; init; } = default!;
+
+        /// <summary>
+        /// PredefinedType の列挙の値（SOLIDWALL など）
+        /// </summary>
+        [JsonPropertyName("predefined")]
+        public string? Predefined { get; init; }
+
+        /// <summary>
+        /// 利用者が決めた種類（ElementType）
+        /// </summary>
+        [JsonPropertyName("element_type")]
+        public string? ElementType { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        /// </summary>
+        [JsonPropertyName("global_id")]
+        public string? GlobalId { get; init; }
+    }
+
+    /// <summary>
+    /// 要素の数量のセット（IfcElementQuantity）の数量の値を変える。セットか数量がなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える。単位は書かず、文書の単位の割り当てに従う。結果の id は要素の ID。マイナーバージョン 106 から
+    /// </summary>
+    public sealed record BuildingQuantityEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "quantity";
+
+        /// <summary>
+        /// 変える要素の ID。building_elements が返したもの
+        /// </summary>
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = default!;
+
+        /// <summary>
+        /// 読んだときの要素のハッシュ。building_elements が返したもの
+        /// </summary>
+        [JsonPropertyName("hash")]
+        public string Hash { get; init; } = default!;
+
+        /// <summary>
+        /// 数量のセットの名前（Qto_WallBaseQuantities など）
+        /// </summary>
+        [JsonPropertyName("set")]
+        public string Set { get; init; } = default!;
+
+        /// <summary>
+        /// セットを足すときの測り方（MethodOfMeasurement）
+        /// </summary>
+        [JsonPropertyName("method")]
+        public string? Method { get; init; }
+
+        /// <summary>
+        /// 数量の名前（Length など）
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+
+        /// <summary>
+        /// 数量の種類。IfcQuantityLength・IfcQuantityArea・IfcQuantityVolume・IfcQuantityCount・IfcQuantityWeight・IfcQuantityTime のどれを書くか
+        /// </summary>
+        [JsonPropertyName("quantity")]
+        public string Quantity { get; init; } = default!;
+
+        /// <summary>
+        /// 値。文書の単位で、有限の負でない値。IFC4X3 の個数は整数
+        /// </summary>
+        [JsonPropertyName("value")]
+        public double Value { get; init; }
+
+        /// <summary>
+        /// 式（Formula）。IFC2X3 は持たないので、書けば断る
+        /// </summary>
+        [JsonPropertyName("formula")]
+        public string? Formula { get; init; }
+    }
+
+    /// <summary>
+    /// プロジェクトの単位の割り当て（IfcUnitAssignment）に SI の単位（IfcSIUnit）を足す。長さと平面角の単位は受けず、同じ種類の単位があれば断る。結果は id を持たない。マイナーバージョン 106 から
+    /// </summary>
+    public sealed record BuildingAddUnitEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "add_unit";
+
+        /// <summary>
+        /// 単位の種類（IfcUnitEnum の AREAUNIT など）
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// SI の接頭辞（IfcSIPrefix の MILLI など）
+        /// </summary>
+        [JsonPropertyName("prefix")]
+        public string? Prefix { get; init; }
+
+        /// <summary>
+        /// SI の単位の名前（IfcSIUnitName の SQUARE_METRE など）。単位の種類に合うもの
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string Name { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から
+    /// </summary>
+    public sealed record BuildingMaterialEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "material";
+
+        /// <summary>
+        /// 材料を結ぶ要素か型。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        /// </summary>
+        [JsonPropertyName("element")]
+        public BuildingRef Element { get; init; } = default!;
+
+        /// <summary>
+        /// 材料の構成
+        /// </summary>
+        [JsonPropertyName("material")]
+        public BuildingMaterialChange Material { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 結ぶ材料の構成。kind に合うフィールドだけを書く。single は name、list は names、layers は layers と usage、constituents は constituents
+    /// </summary>
+    public sealed record BuildingMaterialChange
+    {
+        /// <summary>
+        /// 構成の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+
+        /// <summary>
+        /// 単一の材料の名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// 材料の並びの名前。1 つ以上
+        /// </summary>
+        [JsonPropertyName("names")]
+        public IReadOnlyList<string>? Names { get; init; }
+
+        /// <summary>
+        /// 材料の層。1 つ以上
+        /// </summary>
+        [JsonPropertyName("layers")]
+        public IReadOnlyList<BuildingMaterialLayer>? Layers { get; init; }
+
+        /// <summary>
+        /// 層の使い方（IfcMaterialLayerSetUsage）。書かなければ、層の組（IfcMaterialLayerSet）をそのまま結ぶ
+        /// </summary>
+        [JsonPropertyName("usage")]
+        public BuildingLayerUsage? Usage { get; init; }
+
+        /// <summary>
+        /// 構成要素。1 つ以上
+        /// </summary>
+        [JsonPropertyName("constituents")]
+        public IReadOnlyList<BuildingMaterialConstituent>? Constituents { get; init; }
+    }
+
+    /// <summary>
+    /// 結ぶ材料の構成の種類。single は IfcMaterial、list は IfcMaterialList（IFC2X3 だけ。IFC4 からは非推奨なので断る）、layers は IfcMaterialLayerSet、constituents は IfcMaterialConstituentSet（IFC4 から）
+    /// </summary>
+    public static class BuildingMaterialChangeKind
+    {
+        /// <summary>single</summary>
+        public const string Single = "single";
+        /// <summary>list</summary>
+        public const string List = "list";
+        /// <summary>layers</summary>
+        public const string Layers = "layers";
+        /// <summary>constituents</summary>
+        public const string Constituents = "constituents";
+    }
+
+    /// <summary>
+    /// 材料の層
+    /// </summary>
+    public sealed record BuildingMaterialLayer
+    {
+        /// <summary>
+        /// 材料の名前。書かなければ、材料のない層（空気層など）
+        /// </summary>
+        [JsonPropertyName("material")]
+        public string? Material { get; init; }
+
+        /// <summary>
+        /// 層の厚さ。文書の長さの単位で、IFC2X3 は正、IFC4 からは負でない値
+        /// </summary>
+        [JsonPropertyName("thickness")]
+        public double Thickness { get; init; }
+
+        /// <summary>
+        /// 層の名前。IFC2X3 は持たないので、書けば断る
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+    }
+
+    /// <summary>
+    /// 材料の層の使い方
+    /// </summary>
+    public sealed record BuildingLayerUsage
+    {
+        /// <summary>
+        /// 層を重ねる向き
+        /// </summary>
+        [JsonPropertyName("direction")]
+        public string Direction { get; init; } = default!;
+
+        /// <summary>
+        /// true なら負の向きに重ねる（NEGATIVE）。書かなければ正の向き
+        /// </summary>
+        [JsonPropertyName("negative")]
+        public bool? Negative { get; init; }
+
+        /// <summary>
+        /// 基準線からのずれ。文書の長さの単位
+        /// </summary>
+        [JsonPropertyName("offset")]
+        public double Offset { get; init; }
+    }
+
+    /// <summary>
+    /// 層を重ねる向き（IfcLayerSetDirectionEnum）。axis1 は AXIS1、axis2 は AXIS2、axis3 は AXIS3
+    /// </summary>
+    public static class BuildingLayerDirection
+    {
+        /// <summary>axis1</summary>
+        public const string Axis1 = "axis1";
+        /// <summary>axis2</summary>
+        public const string Axis2 = "axis2";
+        /// <summary>axis3</summary>
+        public const string Axis3 = "axis3";
+    }
+
+    /// <summary>
+    /// 材料の構成要素
+    /// </summary>
+    public sealed record BuildingMaterialConstituent
+    {
+        /// <summary>
+        /// 材料の名前
+        /// </summary>
+        [JsonPropertyName("material")]
+        public string Material { get; init; } = default!;
+
+        /// <summary>
+        /// 構成要素の名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
     }
 
     /// <summary>
