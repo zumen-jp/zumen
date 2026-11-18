@@ -441,13 +441,15 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: bindings/go/go.sum
-      - name: Go の新旧の入力の経路・メモリの削減・適合ハッシュを確かめる
+      - name: Go の新旧の入力の経路・メモリの削減・子プロセスのエンジン・適合ハッシュを確かめる
         if: env.TEST_GO == 'true'
         run: |
           cp target/wasm32-unknown-unknown/release/zumen_abi1.wasm bindings/go/
           test -z "$(gofmt -l bindings/go)"
           go -C bindings/go vet ./...
-          go -C bindings/go test -count=1 -v ./...
+          # 子プロセスのエンジン（#462）の適合テストに、ネイティブの CLI を使う
+          cargo build --package zumen-cli --locked
+          ZUMEN_CLI="$PWD/target/debug/zumen" go -C bindings/go test -count=1 -v ./...
       - name: worker で大きな図面を読む間のタイマーと、入力・blob の転送を確かめる
         if: env.TEST_CORE == 'true'
         run: node bindings/js/test/worker.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm

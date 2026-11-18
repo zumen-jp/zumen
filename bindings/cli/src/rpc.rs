@@ -1,6 +1,6 @@
 //! 標準入出力の JSON-RPC 2.0（決定 0013）。1 行に 1 つのメッセージを読み書きする。
 //!
-//! 読む側のスレッドが行を読み、中断のメソッドだけはその場で、実行中の呼び出しの合図にする。
+//! 読む側のスレッドが行を読み、中断のメソッドだけはその場で、処理中の呼び出しと最後に読んだ呼び出しの合図にする。
 //! ほかのメッセージは、主のスレッドが届いた順に 1 つずつ処理する。
 
 use std::io::{self, BufRead, Read, Write};
@@ -234,33 +234,55 @@ fn answer<T: Handler>(
     write_line(output, &line);
 }
 
+/// 中断の合図が当たる呼び出し。処理中のものと、最後に読んだもの
+#[cfg(not(target_family = "wasm"))]
+#[derive(Default)]
+struct Targets {
+    running: CancelToken,
+    latest: CancelToken,
+}
+
 /// 読む側のスレッドが、処理の途中に届いた中断の合図を受ける
+///
+/// 合図は、処理中の呼び出しと、最後に読んだ呼び出しの両方に当てる。読む側が要求ごとに合図を作ってから主のスレッドへ
+/// 渡すので、要求の直後に届いた合図も、主のスレッドが取り出す前の要求に届く。
 #[cfg(not(target_family = "wasm"))]
 fn serve_with_reader<T: Handler>(mut handler: T) {
     let output: Output = Arc::new(Mutex::new(io::stdout()));
-    let current = Arc::new(Mutex::new(CancelToken::new()));
-    let (sender, receiver) = mpsc::channel::<Message>();
+    let targets = Arc::new(Mutex::new(Targets::default()));
+    let (sender, receiver) = mpsc::channel::<(Message, CancelToken)>();
     let reader_output = Arc::clone(&output);
-    let reader_current = Arc::clone(&current);
+    let cancel_targets = Arc::clone(&targets);
+    let reader_targets = Arc::clone(&targets);
     let cancel_method = T::CANCEL;
     thread::spawn(move || {
         read_messages(
             &reader_output,
             cancel_method,
             || {
-                reader_current
+                let targets = cancel_targets
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                targets.running.cancel();
+                targets.latest.cancel();
+            },
+            |message| {
+                let token = CancelToken::new();
+                reader_targets
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .cancel();
+                    .latest = token.clone();
+                sender.send((message, token)).is_ok()
             },
-            |message| sender.send(message).is_ok(),
         );
     });
     let notify_output = Arc::clone(&output);
     let notify: Notify = Arc::new(move |line: &[u8]| write_line(&notify_output, line));
-    for message in receiver {
-        let token = CancelToken::new();
-        *current.lock().unwrap_or_else(PoisonError::into_inner) = token.clone();
+    for (message, token) in receiver {
+        targets
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .running = token.clone();
         answer(&mut handler, &message, &token, &notify, &output);
     }
 }
