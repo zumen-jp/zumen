@@ -281,17 +281,6 @@ pub(super) fn render(ledger: &Ledger) -> String {
             }
         }
         list(&mut out, "既知の crate", &f.known_crates);
-        if !f.legacy_decisions.is_empty() {
-            let _ = writeln!(
-                out,
-                "- 旧版の記録: {}（[旧版の決定の一覧](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/decisions/README.md)）",
-                f.legacy_decisions
-                    .iter()
-                    .map(|n| format!("旧版の決定 {n}"))
-                    .collect::<Vec<_>>()
-                    .join("、")
-            );
-        }
         for issue in &f.issues {
             if let Some(url) = issue_url(issue) {
                 let _ = writeln!(out, "- issue: {}", link(issue, &url));

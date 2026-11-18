@@ -654,7 +654,6 @@ references = [
 ]
 verify = ["ODA File Converter", "DWG TrueView"]
 samples = ["公開サンプルの DWG（samples/dwg）。zumen-jp が AutoCAD 2027 で作った図面で、CC0 1.0。同じ図面を AutoCAD で書いた DXF と比べる。出所とライセンスは samples/ledger.toml", "ACadSharp のテストの図面（MIT）。同じ図面を DXF にしたものと比べる", "ezdwg のテストの図面（MIT）"]
-legacy-decisions = ["0003"]
 docs = ["docs/formats/dwg.md"]
 
 [formats.dwg.read]
@@ -680,7 +679,6 @@ specs = ["iso_32000_2_2020"]
 rights = "unknown"
 rights-note = "ISO の規格で、PDF Association が無償で配っている。配るページと店の EULA に、実装を制限する記述はない。ISO の利用許諾（ECLA）は、4 節で、組み込み・デジタルの統合・派生物を作る権利を許す使い方に含めず、6(b) で、出版物をソフトウェア・データモデル・AI のツールなどに統合・符号化・構造化・運用化することに別の許諾を求め、7(b) で AI での利用を禁じる。無償版に ECLA が当たるかは未確認で、コアでは PDF を実装しない"
 place = "none"
-legacy-decisions = ["0020", "0030"]
 issues = ["zumen-jp/zumen#674"]
 notes = "PDF 単体の閲覧・読み取りはアプリの側（pdf.js など）で扱い、DXF・DWG の PDFUNDERLAY の描画は @zumen-jp/view2d が呼び出し側から受け取る pdf.js に任せる"
 
@@ -712,8 +710,7 @@ rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方に
 place = "core"
 basis = ["spec"]
 verify = ["IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）", "buildingSMART の ifc-gherkin-rules（MIT。依存にせず、毎晩の CI で別に入れて使う）"]
-samples = ["公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）", "許諾の要る国内の BIM ソフトの書き出しは #513 で足す（zumen-jp/zumen-legacy#128）"]
-legacy-decisions = ["0028"]
+samples = ["公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）", "許諾の要る国内の BIM ソフトの書き出しは #513 で足す"]
 docs = ["docs/formats/ifc.md"]
 
 [formats.ifc.read]
@@ -757,12 +754,11 @@ family = "express"
 domains = ["building"]
 specs = ["iso_10303_11_2004"]
 rights = "public"
-rights-note = "ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO の利用許諾が出版物を AI で扱うことを禁じ、出版物の一部へのアクセスでも同意したとするので、台帳の e57 と同じく、ISO の本文は買わず、OBP のプレビューも読まない（zumen-jp/zumen#677）。この台帳の作業（zumen-jp/zumen#529・zumen-jp/zumen#666・zumen-jp/zumen#677）では、本文を買わず、プレビューも読んでいないので、利用許諾（組み込みなどの権利を含めない 4 節と 6(b) を含む）に同意していない。読み取りを足した zumen-jp/zumen#450 が何を読んだかの記録はない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない（旧版の決定 0028）"
+rights-note = "ISO が規格を売っていて、販売のページに実装を制限する記述はない。実装を制限しないと示す ISO の公式の文書は見つからなかったので、利用者が権利を判断した（zumen-jp/zumen#529、2026-11-09）。ISO の利用許諾が出版物を AI で扱うことを禁じ、出版物の一部へのアクセスでも同意したとするので、台帳の e57 と同じく、ISO の本文は買わず、OBP のプレビューも読まない（zumen-jp/zumen#677）。この台帳の作業（zumen-jp/zumen#529・zumen-jp/zumen#666・zumen-jp/zumen#677）では、本文を買わず、プレビューも読んでいないので、利用許諾（組み込みなどの権利を含めない 4 節と 6(b) を含む）に同意していない。読み取りを足した zumen-jp/zumen#450 が何を読んだかの記録はない。公開された EXPRESS のスキーマ（IFC など）と、寛容なライセンスの実装から読む。EXPRESS のスキーマは同梱しない"
 place = "core"
 basis = ["inferred"]
 verify = ["IfcOpenShell（依存にせず、別に入れて使う）"]
-samples = ["buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない（旧版の決定 0028）。テストの中で小さなスキーマを書く"]
-legacy-decisions = ["0028"]
+samples = ["buildingSMART International が公開する IFC の EXPRESS のスキーマ。Git・パッケージ・テストに入れない。テストの中で小さなスキーマを書く"]
 docs = ["docs/formats/express.md"]
 issues = ["zumen-jp/zumen#410", "zumen-jp/zumen#529", "zumen-jp/zumen#663", "zumen-jp/zumen#668", "zumen-jp/zumen#669"]
 notes = "IFC をスキーマに照らしてチェックする validate と IDS の属性解決のためだけに読み、汎用 STEP・EXPRESS 処理系へは拡張しない。読み取りを足した PR（zumen-jp/zumen#450）は、参照した実装を記録していないので、実装の根拠は推定にする。寛容なライセンスの実装を参照したら、basis に reference を、references にその実装を足す"
@@ -902,8 +898,7 @@ basis = ["spec"]
 known-crates = ["stb-parser"]
 verify = ["STBDotNet", "HoaryFox", "STB-DiffChecker"]
 samples = ["HoaryFox の Samples（MIT）", "STB-DiffChecker の TestData（MIT）"]
-legacy-decisions = ["0001", "0013", "0028"]
-issues = ["zumen-jp/zumen-legacy#140", "zumen-jp/zumen#400", "zumen-jp/zumen#402"]
+issues = ["zumen-jp/zumen#400", "zumen-jp/zumen#402"]
 docs = ["docs/formats/stbridge.md"]
 
 [formats.stbridge.read]
@@ -946,7 +941,7 @@ specs = ["cedxm"]
 rights = "permission"
 rights-note = "評議会の Q&A は、形式を会員にだけ開示し、会員だけが使う、とする。会員は、読み書きするソフトを自由に作って売れる。実装を公開すると、会員でない人に形式を開示することになる。入会は法人が主で、入会金と年会費がそれぞれ 8 万円。オープンソースの実装は見つからない。評議会が公開の実装を認めない限り作らない（zumen-jp/zumen#401、2026-11-02）"
 place = "none"
-issues = ["zumen-jp/zumen-legacy#141", "zumen-jp/zumen#401"]
+issues = ["zumen-jp/zumen#401"]
 
 [[formats.cedxm.evidence]]
 title = "シーデクセマ評議会の Q&A"
@@ -961,7 +956,7 @@ specs = ["bebridge_6_1"]
 rights = "unknown"
 rights-note = "Ver.6.1 の仕様書は公開されていて、条件の記述はない。2015-04 に建築保全センターが Stem・BE-Bridge を承継した。承継した側の条件と、最新の版の入手先は見つからなかった。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決し、権利の行き先が分からない。最終の版から更新がなく、建築と設備の受け渡しは IFC へ移っているので、作らず、問い合わせもしない（2026-11-17、zumen-jp/zumen#401）"
 place = "none"
-issues = ["zumen-jp/zumen-legacy#141", "zumen-jp/zumen#401"]
+issues = ["zumen-jp/zumen#401"]
 
 [[formats.bebridge.evidence]]
 title = "BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」"
@@ -976,7 +971,7 @@ specs = []
 rights = "unknown"
 rights-note = "C-CADEC が作り、2015-04 に建築保全センターが承継した。最終の版は Ver.10（2015-04）。管理を引き継いだ BLCJ は 2026-03-30 に解散を議決した。仕様書の入手先と条件は見つからなかった。BE-Bridge と同じく、作らず、問い合わせもしない（2026-11-17、zumen-jp/zumen#401）"
 place = "none"
-issues = ["zumen-jp/zumen-legacy#141", "zumen-jp/zumen#401"]
+issues = ["zumen-jp/zumen#401"]
 
 [[formats.stem.evidence]]
 title = "BIM ライブラリーコンソーシアム「BLC-BIM オブジェクト標準（Version1.0）報告書」（2018-10-04）の「1.4 Stem、BE-Bridge 等の承継」"

@@ -55,8 +55,6 @@ struct Format {
     #[serde(default)]
     known_crates: Vec<String>,
     #[serde(default)]
-    legacy_decisions: Vec<String>,
-    #[serde(default)]
     issues: Vec<String>,
     #[serde(default)]
     docs: Vec<String>,
@@ -223,7 +221,6 @@ fn check(ledger: &Ledger, root: &Path, samples: &BTreeSet<String>) -> Vec<String
             ("specs", &format.specs),
             ("basis", &format.basis),
             ("known-crates", &format.known_crates),
-            ("legacy-decisions", &format.legacy_decisions),
             ("issues", &format.issues),
             ("docs", &format.docs),
             ("verify", &format.verify),
@@ -319,11 +316,6 @@ fn check(ledger: &Ledger, root: &Path, samples: &BTreeSet<String>) -> Vec<String
                 errors.push(format!(
                     "{at}: known-crates の `{name}` は crate の名前だけにする"
                 ));
-            }
-        }
-        for number in &format.legacy_decisions {
-            if !is_decision(number) {
-                errors.push(format!("{at}: 旧版の決定 `{number}` は 4 桁の番号にする"));
             }
         }
         for issue in &format.issues {
@@ -577,10 +569,6 @@ fn is_crate(value: &str) -> bool {
         && value
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
-}
-
-fn is_decision(value: &str) -> bool {
-    value.len() == 4 && value.bytes().all(|c| c.is_ascii_digit()) && value != "0000"
 }
 
 fn url(errors: &mut Vec<String>, at: &str, value: &str) {

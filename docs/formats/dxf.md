@@ -1,6 +1,6 @@
 # DXF
 
-AutoCAD の系統のファイルモデル（L1）として DXF を読み書きする規則と、仕様が決めない所の扱いを記録します。実装は `crates/zumen-acad` の `dxf` です。旧版の知見（[旧版の DXF の扱い](https://github.com/zumen-jp/zumen-legacy/blob/main/docs/formats/dxf.md)）は、扱う範囲を広げるときに移します。
+AutoCAD の系統のファイルモデル（L1）として DXF を読み書きする規則と、仕様が決めない所の扱いを記録します。実装は `crates/zumen-acad` の `dxf` です。
 
 ## 対象
 
