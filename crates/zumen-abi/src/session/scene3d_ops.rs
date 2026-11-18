@@ -12,6 +12,8 @@ use zumen_scene3d::{Bounds, Error};
 mod geo;
 #[cfg(feature = "pointcloud")]
 pub(in crate::session) mod points;
+#[cfg(feature = "pointcloud")]
+mod terrain;
 
 fn scene_error(cx: &mut Cx, error: Error) -> Failed {
     match error {
@@ -96,6 +98,9 @@ impl Session {
         }
         if request.limit.is_some() {
             return Err(fail(cx, invalid_value("/limit")));
+        }
+        if request.surface.is_some() {
+            return Err(fail(cx, invalid_value("/surface")));
         }
         #[cfg(feature = "civil")]
         if !matches!(self.document(&request.doc, cx)?, Document::Building { .. }) {

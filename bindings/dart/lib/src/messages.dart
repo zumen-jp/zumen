@@ -4854,7 +4854,7 @@ class SceneRequest extends Message {
   set heights(Map<String, String>? value) => writeField('heights', value);
 }
 
-/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。94 から平面直角座標系の GeoTIFF の DEM も、外枠の地物でなく標高格子を点群と同じ点の区画で返す。マイナーバージョン 82 から
+/// 建物モデルを開口付きの 3D シーンにし、ZMS3 の blob で返す。86 から地物の面と高さのある線・面も扱う。階・クラス・ID の各条件の中は和、条件どうしは積。箱は要素の重なりで選び、メッシュを切らない。88 から点群を元の八分木の節ごとの点の区画（ZMS3 1.1）で返す。点群の点は pointcloud と同じ節の順で選び、座標系と高さの基準を変換しない。94 から平面直角座標系の GeoTIFF の DEM も、外枠の地物でなく標高格子を点群と同じ点の区画で返す。105 から surface で、DEM を地形の面（セル代表点を頂点にした三角形のメッシュ）で返す。マイナーバージョン 82 から
 class Scene3dRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   Scene3dRequest.fromJson(super.json);
@@ -4914,11 +4914,15 @@ class Scene3dRequest extends Message {
   Scene3dBox? get box => readField('box', objectOf(Scene3dBox.fromJson));
   set box(Scene3dBox? value) => writeField('box', value);
 
-  /// 点群だけに指定する返す点の数の上限。省略時は選んだすべての点。88 から
+  /// 点群だけに指定する返す点の数の上限。省略時は選んだすべての点。88 から。DEM を surface で返すときは、頂点にする格子点の数の上限。超えれば間引く間隔を 2 倍ずつ広げ、それでも超えれば何も返さない
   core.int? get limit => readField('limit', asInt);
   set limit(core.int? value) => writeField('limit', value);
 
-  /// 文書単位の正の有限値。点群では点の間隔（メートル）で、これより細かい段の節を選ばない。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
+  /// 平面直角座標系の GeoTIFF の DEM だけに指定する。真なら標高格子を点でなく地形の面で返す。セル代表点を頂点にし、隣り合う 4 つの格子点が点にできれば 2 個、3 つなら 1 個の三角形を作る。nodata などのセルは面に含めない。面は 128 間隔四方の区画ごとの要素（ID は区画の初めの行と列の r<行>c<列>、クラスは dem）に分け、隣の区画と縁の頂点を共有する。座標系と高さの基準は変換しない。偽か省略なら点で返す。105 から
+  core.bool? get surface => readField('surface', asBool);
+  set surface(core.bool? value) => writeField('surface', value);
+
+  /// 文書単位の正の有限値。点群では点の間隔（メートル）で、これより細かい段の節を選ばない。DEM の面では頂点の間隔（メートル）で、セル代表点の間隔の整数倍のうち、これ以上でもっとも細かい間隔に間引く。建物では曲線を分ける弦の誤差。地物では f32 の座標の丸めをこの値の 1/4 までに制限し、投影した辺全体の誤差は含めない。省略時は対象範囲の対角線の 1/50000、空か点だけなら 1 mm 相当。建物の範囲は 1 mm の予備評価で求める
   core.double? get tolerance => readField('tolerance', asDouble);
   set tolerance(core.double? value) => writeField('tolerance', value);
 }
@@ -5050,11 +5054,11 @@ class Scene3dResult extends Message {
   core.int? get lod => readField('lod', asInt);
   set lod(core.int? value) => writeField('lod', value);
 
-  /// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。点群では要求の点の間隔、省略時は返したもっとも深い段の点の間隔。丸めのずれは別の診断で返す
+  /// 使った文書単位の許容差。建物では曲線の弦の誤差、地物では f32 の丸めの上限の 4 倍。点群では要求の点の間隔、省略時は返したもっとも深い段の点の間隔。DEM の面では使った頂点の間隔。丸めのずれは別の診断で返す
   core.double? get tolerance => readField('tolerance', asDouble);
   set tolerance(core.double? value) => writeField('tolerance', value);
 
-  /// 点群で上限のために返さなかった点がある。点群のシーンだけが持つ。88 から
+  /// 点群で上限のために返さなかった点がある。DEM の面では、上限のために面を返さなかった。点群と DEM のシーンだけが持つ。88 から
   core.bool? get truncated => readField('truncated', asBool);
   set truncated(core.bool? value) => writeField('truncated', value);
 

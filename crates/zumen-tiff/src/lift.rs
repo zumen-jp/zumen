@@ -16,10 +16,10 @@ use zumen_geo::{
 use zumen_pointcloud::{Octree, PointCloud, Points};
 use zumen_sdk::{Cx, Error};
 
-use crate::geotiff::norm_zero;
+use crate::geotiff::{GeoInfo, GeoTransform, norm_zero};
 use crate::ifd::{DecodedIfd, PagePixels, ResolutionUnit};
 use crate::raster::{DemCell, read_dem_cell};
-use crate::{MAX_ALLOC, TiffFile, stopped};
+use crate::{DemGrid, MAX_ALLOC, TiffFile, stopped};
 
 const LAYER_IMAGE: LayerId = LayerId(0);
 const LAYER_BOUNDS: LayerId = LayerId(1);
@@ -372,7 +372,17 @@ pub(crate) fn lift_geo(file: &TiffFile, cx: &mut Cx) -> Result<GeoModel, Error> 
     })
 }
 
-pub(crate) fn lift_pointcloud(file: &TiffFile, cx: &mut Cx) -> Result<PointCloud, Error> {
+/// 標高格子として読む IFD と、その画素・地理情報・座標系・変換
+struct DemPage<'f> {
+    page: &'f DecodedIfd,
+    native: &'f [u8],
+    geo: &'f GeoInfo,
+    crs: zumen_crs::Crs,
+    tf: GeoTransform,
+}
+
+/// 標高格子として読む IFD を選び、読めなければ理由を診断する
+fn dem_page<'f>(file: &'f TiffFile, cx: &mut Cx) -> Result<DemPage<'f>, Error> {
     let Some(page) = file
         .pages
         .iter()
@@ -427,9 +437,7 @@ pub(crate) fn lift_pointcloud(file: &TiffFile, cx: &mut Cx) -> Result<PointCloud
         return Err(Error::Unsupported);
     };
 
-    let w = page.info.width;
-    let h = page.info.height;
-    let cell_count = u64::from(w).saturating_mul(u64::from(h));
+    let cell_count = u64::from(page.info.width).saturating_mul(u64::from(page.info.height));
     if cell_count.saturating_mul(24) > MAX_ALLOC {
         cx.report(
             Diagnostic::new(codes::TIFF_GRID_UNSUPPORTED)
@@ -438,6 +446,113 @@ pub(crate) fn lift_pointcloud(file: &TiffFile, cx: &mut Cx) -> Result<PointCloud
         );
         return Err(Error::Unsupported);
     }
+    Ok(DemPage {
+        page,
+        native,
+        geo,
+        crs,
+        tf,
+    })
+}
+
+/// 除いたセルの数を、理由ごとに知らせる。nodata・非有限値・読めない値の順
+fn report_dropped(dropped: [u64; 3], source: &Ref, cx: &mut Cx) {
+    for (cells, reason) in dropped
+        .into_iter()
+        .zip(["nodata", "non-finite", "unreadable"])
+    {
+        if cells > 0 {
+            cx.report(
+                Diagnostic::new(codes::TIFF_CELL_DROPPED)
+                    .with("reason", reason)
+                    .with("cells", cells)
+                    .at(source.clone()),
+            );
+        }
+    }
+}
+
+pub(crate) fn lift_dem_grid(file: &TiffFile, cx: &mut Cx) -> Result<DemGrid, Error> {
+    let DemPage {
+        page,
+        native,
+        geo,
+        crs,
+        tf,
+    } = dem_page(file, cx)?;
+    let (w, h) = (page.info.width, page.info.height);
+    let source = &page.info.source;
+    let cell_count = u64::from(w).saturating_mul(u64::from(h));
+    cx.check(Kind::DecodedBytes, cell_count.saturating_mul(24))
+        .map_err(|s| stopped(cx, s, Some(source.clone())))?;
+    let mut cells: Vec<[f64; 3]> = Vec::new();
+    if cells.try_reserve_exact(cell_count as usize).is_err() {
+        cx.report(
+            Diagnostic::new(codes::TIFF_GRID_UNSUPPORTED)
+                .with("reason", "grid-too-large")
+                .at(source.clone()),
+        );
+        return Err(Error::Unsupported);
+    }
+    let mut dropped = [0u64; 3];
+    for row in 0..h {
+        cx.check(Kind::Work, u64::from(w))
+            .map_err(|s| stopped(cx, s, Some(source.clone())))?;
+        for col in 0..w {
+            let center = tf.cell_center(col, row, geo.raster_type);
+            let elev = match read_dem_cell(file.endian, page, native, col, row) {
+                DemCell::Value(v) if center.is_some() => norm_zero(v),
+                DemCell::NoData => {
+                    dropped[0] += 1;
+                    f64::NAN
+                }
+                DemCell::NonFinite => {
+                    dropped[1] += 1;
+                    f64::NAN
+                }
+                DemCell::Value(_) | DemCell::Unreadable => {
+                    dropped[2] += 1;
+                    f64::NAN
+                }
+            };
+            let (x, y) = center.unwrap_or((f64::NAN, f64::NAN));
+            cells.push([norm_zero(x), norm_zero(y), elev]);
+        }
+    }
+    report_dropped(dropped, source, cx);
+    let step = |col: u32, row: u32| {
+        let (a, b) = (
+            tf.cell_center(0, 0, geo.raster_type)?,
+            tf.cell_center(col, row, geo.raster_type)?,
+        );
+        Some(libm::hypot(b.0 - a.0, b.1 - a.1))
+    };
+    let spacing = [step(1, 0), step(0, 1)]
+        .into_iter()
+        .flatten()
+        .filter(|d| d.is_finite() && *d > 0.0)
+        .fold(f64::INFINITY, f64::min);
+    Ok(DemGrid {
+        columns: w,
+        rows: h,
+        cells,
+        spacing: if spacing.is_finite() { spacing } else { 1.0 },
+        crs,
+        vertical: geo.vertical_crs,
+        source: source.clone(),
+    })
+}
+
+pub(crate) fn lift_pointcloud(file: &TiffFile, cx: &mut Cx) -> Result<PointCloud, Error> {
+    let DemPage {
+        page,
+        native,
+        geo,
+        crs,
+        tf,
+    } = dem_page(file, cx)?;
+    let (w, h) = (page.info.width, page.info.height);
+    let cell_count = u64::from(w).saturating_mul(u64::from(h));
 
     let init_cap = (cell_count as usize).min(65536);
     let mut northing = Vec::with_capacity(init_cap);
@@ -479,19 +594,7 @@ pub(crate) fn lift_pointcloud(file: &TiffFile, cx: &mut Cx) -> Result<PointCloud
         }
     }
 
-    for (cells, reason) in dropped
-        .into_iter()
-        .zip(["nodata", "non-finite", "unreadable"])
-    {
-        if cells > 0 {
-            cx.report(
-                Diagnostic::new(codes::TIFF_CELL_DROPPED)
-                    .with("reason", reason)
-                    .with("cells", cells)
-                    .at(page.info.source.clone()),
-            );
-        }
-    }
+    report_dropped(dropped, &page.info.source, cx);
     cx.check(
         Kind::DecodedBytes,
         (northing.len() as u64).saturating_mul(16),
