@@ -203,6 +203,7 @@ python -I -m unittest discover -s xtask/verify -p 'test_check_autocad.py'
 | BCF | [Smino.Bcf.Toolkit](https://www.nuget.org/packages/Smino.Bcf.Toolkit/3.2.0) 3.2.0 | Apache-2.0 | 自作の 2.1・3.0 の値と参照を照らす（[`bcf/`](bcf/README.md)）。外部 DLL と生成された型は同梱しない |
 | PDF アンダーレイ | [pdf.js](https://github.com/mozilla/pdf.js) 6.5.438 | Apache-2.0 | `@zumen-jp/view2d` のブラウザーテストで使う（`pdfjs/`） |
 | LAS | [laspy](https://github.com/laspy/laspy) 2.7.0 | BSD-2-Clause | 非圧縮 LAS のヘッダーと全点を照らす（[`laspy/`](laspy/README.md)）。NumPy 2.5.4 を別に導入 |
+| JPEG（Exif・XMP） | [Pillow](https://github.com/python-pillow/Pillow) 13.0.0 | MIT-CMU | 公開サンプルと合成の写真の画素数・Exif・GPS と、Pillow が取り出した XMP を Expat で読んだ値を照らす（[`photo/`](photo/README.md)） |
 | GeoJSON | [Shapely](https://github.com/shapely/shapely) 2.2.0 | BSD-3-Clause | GeoJSON の書き出しの妥当性（GEOS）・回転方向・座標・属性と、7 種の図形の読みを照らす（[`shapely/`](shapely/README.md)）。NumPy 2.5.4 を別に導入 |
 | TIFF・GeoTIFF | [Pillow](https://github.com/python-pillow/Pillow) 13.0.0・[tifffile](https://github.com/cgohlke/tifffile) 2026.11.12 | MIT-CMU・BSD-3-Clause | 各種圧縮・タイル・面分離・マルチページの PNG 画素と、GeoTIFF の外周座標・DEM 点群を照らす（[`tiff/`](tiff/README.md)）。NumPy 2.5.4 を別に導入 |
 

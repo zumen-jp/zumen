@@ -30,7 +30,7 @@
 | [ids](#format-ids) | IDS（Information Delivery Specification） | ids | building | `public` | `core` | `synthetic` |  |
 | [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` | `external` | `external` |
 | [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` | `synthetic` |  |
-| [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` | `synthetic` |  |
+| [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` | `external` |  |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `none` |  |  |
 | [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `none` |  |  |
 | [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `external` | `external` |
@@ -859,9 +859,11 @@
 - 権利の根拠: Exif は CIPA が、XMP は Adobe が無償で公開している。JPEG の ITU-T T.81 は有償だが実装の制限はなく、画素の展開は寛容なライセンスの crate に任せ、zumen は Exif と XMP のセグメントだけを読む
 - 仕様: [jpeg\_t81](#spec-jpeg_t81)、[exif\_3\_1](#spec-exif_3_1)、[xmp\_2012](#spec-xmp_2012)
 - 実装の根拠: spec
-- サンプルの出どころ: 個人情報（位置・機種の番号など）を含まないよう、テストの中で作るか、zumen-jp が作った写真を CC0 で入れる
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: Exif 3.1・XMP の仕様と、テストの中で作った JPEG（crates/zumen-photo/tests）で確かめた。外部の実装と公開サンプルとの照合はまだ（#505）
+- サンプルの出どころ: 個人情報（氏名・住所・連絡先・機種の番号など）を含まないよう、テストの中で作るか、CC0 などで公開された写真を入れる。位置は公の施設のものに限る
+- 読みの確かめた度合い: `external`（確認日: 2026-11-18）
+- 読みの確かめた範囲: Wikimedia Commons の CC0 の写真 1 件（iPhone 6s の Exif・GPS と GIMP 2.10 の XMP）を、Pillow 13.0.0 で読んだ Exif の値と、Pillow が取り出した XMP のパケットを Python の Expat で読んだ値と照らした（crates/zumen-photo/tests/external.rs、#505）。画素数・向き・撮影の日時・作り手と型・GPS の位置・高さ・向きと基準・測地系と、XMP の名前空間・名前・値を比べた。external の根拠はこの公開サンプル。テストの中で作った 4 つの JPEG（II と MM、南西、海面より下、時差、緯度だけ、UTF-8 でない値、配列・入れ子・空白の XMP）も同じく照らした。XMP の性質の選び方（属性・文字だけの子・配列の最初の項目）は zumen の規則で、Python の側で同じ規則を書いて照らしている。電子小黒板の写真・拡張の XMP・縮小画像の IFD・MakerNote・基準になるソフトとの照合はまだ（#505）
+- 読みで使った公開サンプル: [samples/jpeg/](../../samples/jpeg/)
+- 読みで照らした外部の実装: Pillow 13.0.0
 - issue: [zumen-jp/zumen#387](https://github.com/zumen-jp/zumen/issues/387)
 - 形式の文書: [docs/formats/jpeg.md](../../docs/formats/jpeg.md)
 

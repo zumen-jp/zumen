@@ -587,6 +587,18 @@ license-url = "https://github.com/PDAL/PDAL/blob/afbe6f7794bfe40394f27f46b2a6da0
 attribution = "Copyright (c) 2019, Hobu, Inc. ライセンスの全文は licenses/pdal.txt。PDAL の LAZ の読み書きのテストの入力として 2011 年に test/data/simple.laz で追加され、2014 年に今の場所へ移った。LICENSE.txt は別記のない全ファイルを BSD とし、このファイルへの別条件はない"
 
 [[samples]]
+path = "jpeg/commons-aichi-ceramic-museum-2018-005.jpg"
+sha256 = "94c1f495c9624e4b9cae193e499f29af24c00c14d91bde76dcc312bd16d08261"
+bytes = 307709
+title = "愛知県陶磁美術館の展示品の写真（iPhone 6s の Exif・GPS と GIMP の XMP を持つ JPEG）"
+publisher = "Wikimedia Commons"
+url = "https://upload.wikimedia.org/wikipedia/commons/4/41/Aichi_Prefectural_Ceramic_Museum_2018_%28005%29.jpg"
+retrieved = "2026-11-18"
+license = "CC0-1.0"
+license-url = "https://commons.wikimedia.org/wiki/File:Aichi_Prefectural_Ceramic_Museum_2018_(005).jpg"
+attribution = "Wikimedia Commons の File:Aichi Prefectural Ceramic Museum 2018 (005).jpg（作者は利用者 Gryffindor、CC0 1.0）。2021-12-05 の版（SHA-1 2d0e4477fcb2ce620cb310f5b6f4c339ed68a96c）を取得したままのバイト列"
+
+[[samples]]
 path = "dxf/ezdxf-ascii-r12.dxf"
 sha256 = "b476d3e53fe24c1db3c701d20b2bebd774f7bd7966b12d81891505b9b29e4d21"
 bytes = 6766

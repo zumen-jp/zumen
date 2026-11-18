@@ -95,6 +95,12 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 
 `crates/zumen-ply/tests/external.rs` は ply-rs の読みと全頂点の座標を比較し、面を移さない診断と予算の停止も確認します。`bindings/conformance/cases/pointcloud_ply_sample.json` は同じ公開サンプルの応答・診断をネイティブと wasm で照らします。確認した範囲と残りは [PLY の文書](../docs/formats/ply.md#確かめた度合い)にあります。
 
+## JPEG
+
+`jpeg/commons-aichi-ceramic-museum-2018-005.jpg` は、Wikimedia Commons に利用者 Gryffindor が自分の撮影として CC0 1.0 で公開した、愛知県陶磁美術館の展示品（江戸時代の焼き物）の写真です（#505）。2021-12-05 の版を、取得したままのバイト列で置きます。iPhone 6s の Exif（作り手・型・撮影の日時）と GPS（緯度・経度・高さ・向き）、GIMP 2.10 が書いた XMP（属性・空の配列・入れ子の履歴）を持ちます。Exif と XMP に、個人の氏名・住所・連絡先はありません。位置は美術館の中です。
+
+`crates/zumen-photo/tests/external.rs` が読み、Pillow がある環境と毎晩の CI では、Pillow で読んだ値と照らします。手順は [JPEG の外部照合](../xtask/verify/photo/README.md)にあります。
+
 ## IFC
 
 `ifc/` は、再配布を認める公開の IFC です（#412）。出所・ライセンス・表示の文・変えた内容は、台帳にあります。
