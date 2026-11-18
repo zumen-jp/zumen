@@ -424,7 +424,7 @@ jobs:
       - name: 入力の所有権・旧モジュールへの互換・メモリの削減を確かめる（決定 0271）
         if: env.TEST_CORE == 'true'
         run: node bindings/js/test/input.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
-      - name: 包みが open の needs に答え、入力の範囲を読んで渡すことを確かめる（決定 0232・#474）
+      - name: ラッパーが open の needs に答え、入力の範囲を読んで渡すことを確かめる（決定 0232・#474）
         if: env.TEST_CORE == 'true'
         run: node bindings/js/test/ranged.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: Go の入力の所有権と適合テストに使う下限の Go を入れる（決定 0271）
