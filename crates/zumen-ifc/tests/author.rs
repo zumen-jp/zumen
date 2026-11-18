@@ -1800,3 +1800,121 @@ fn refuses_changes_it_cannot_write_without_changing_anything() {
         assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{case:?}");
     }
 }
+
+/// 建物・1F（高さ 0）・2F（高さ 3000）・1F の通り芯を足し、各階に 6000×4000 を囲む 4 つの壁・床・柱・梁と、
+/// 1F に扉、2F に窓を足す変更。番号は階ごとに 1000 ずつずらす
+fn two_storey_edits() -> Vec<Edit> {
+    let storey = |n: u32, elevation: f64| {
+        Edit::Space(NewSpace {
+            kind: SpaceKind::Storey,
+            name: Some(format!("{}F", n - 1000)),
+            parent: Target::Added(0),
+            placement: Some(at(0.0, 0.0, elevation, Target::Added(0))),
+            elevation: Some(elevation),
+            global_id: Some(global(n)),
+        })
+    };
+    let mut edits = vec![
+        space(SpaceKind::Building, 1000, Target::Instance(10), 0.0),
+        storey(1001, 0.0),
+        storey(1002, 3000.0),
+        Edit::Grid(grid(1003, Target::Added(1))),
+    ];
+    let corners = [[0.0, 0.0], [6000.0, 0.0], [6000.0, 4000.0], [0.0, 4000.0]];
+    for (level, at) in [(1u32, 1usize), (2, 2)] {
+        let base = 1000 * (level + 1);
+        let on = Target::Added(at);
+        let first = edits.len();
+        for (i, from) in corners.iter().enumerate() {
+            let to = corners
+                .get((i + 1) % corners.len())
+                .copied()
+                .unwrap_or_default();
+            edits.push(wall(base + i as u32, on, *from, to));
+        }
+        edits.extend([
+            Edit::Slab(slab(base + 10, on)),
+            Edit::Column(column(base + 11, on)),
+            Edit::Beam(beam(base + 12, on)),
+        ]);
+        let (kind, sill, size) = if level == 1 {
+            (FillingKind::Door, 0.0, [900.0, 2100.0])
+        } else {
+            (FillingKind::Window, 900.0, [1200.0, 1200.0])
+        };
+        edits.push(opening(base + 20, Target::Added(first), 1000.0, sill, size));
+        edits.push(filling(
+            base + 21,
+            Target::Added(edits.len() - 1),
+            kind,
+            size,
+        ));
+    }
+    edits
+}
+
+#[test]
+fn builds_a_two_storey_building_from_edits_only_in_every_version() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let edits = two_storey_edits();
+        let (result, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let built = result.unwrap();
+        // 種類ごとの要素の数
+        let building = lift(&built).unwrap();
+        let mut classes = std::collections::BTreeMap::<String, usize>::new();
+        for (_, class) in building.components.class.iter() {
+            let name = class.name.replace("StandardCase", "");
+            *classes.entry(name).or_default() += 1;
+        }
+        let expected = [
+            ("IfcBeam", 2),
+            ("IfcBuilding", 1),
+            ("IfcBuildingStorey", 2),
+            ("IfcColumn", 2),
+            ("IfcDoor", 1),
+            ("IfcGrid", 1),
+            ("IfcOpeningElement", 2),
+            ("IfcSlab", 2),
+            ("IfcWall", 8),
+            ("IfcWindow", 1),
+        ];
+        for (class, n) in expected {
+            assert_eq!(
+                classes.get(class),
+                Some(&n),
+                "{schema}: {class} {classes:?}"
+            );
+        }
+        // 2F は高さ 3000 に置き、2F の要素は 2F の配置からの相対
+        let second = element(&building, 1002).unwrap();
+        assert_eq!(translation(&building, second), Some([0.0, 0.0, 3000.0]));
+        for n in [3000, 3010, 3011, 3012] {
+            let placement = building
+                .components
+                .placement
+                .get(element(&building, n).unwrap())
+                .unwrap();
+            assert_eq!(placement.relative_to, Some(second), "{schema}: {n}");
+        }
+        // 形まで読める。形を持たないのは空間と建具だけで、ほかの診断は出ない
+        let file = read(&built).unwrap();
+        let (shaped, diag) = with(|cx| file.lift_geometry(cx));
+        assert!(
+            diag.iter().all(|d| d.code() == codes::IFC_SHAPE_MISSING),
+            "{schema}: {:?}",
+            diag.iter().collect::<Vec<_>>()
+        );
+        let shaped = shaped.unwrap();
+        for n in [2000, 2010, 2011, 2012, 2020, 3000, 3020] {
+            let at = element(&shaped, n).unwrap();
+            assert!(shaped.geometry(at).is_some(), "{schema}: {n}");
+        }
+        // 同じ変更なら同じバイト列。文書エンジンでも同じ
+        assert_eq!(run(src.as_bytes(), &edits).0.unwrap(), built);
+        let (live, _) = with(|cx| IfcLive::open(src.as_bytes(), cx));
+        let mut live = live.unwrap();
+        assert_eq!(apply_like_batch(&mut live, &edits), Some(built), "{schema}");
+    }
+}
