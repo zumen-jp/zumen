@@ -62,7 +62,7 @@ impl Session {
         let Document::Drawing { file, .. } = self.document(&request.doc, cx)? else {
             return Err(fail(cx, unsupported(&request.doc, "raster")));
         };
-        let DrawingFile::Tiff(tiff) = file.as_ref() else {
+        let Some(DrawingFile::Tiff(tiff)) = file.held() else {
             return Err(fail(cx, unsupported(&request.doc, "raster")));
         };
         let page = match request.page {

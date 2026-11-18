@@ -74,8 +74,8 @@ impl Session {
         match self.document(doc, cx)? {
             Document::Cloud(cloud) => Ok(Cow::Borrowed(cloud.as_ref())),
             #[cfg(feature = "drawing")]
-            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Tiff(_)) => {
-                let DrawingFile::Tiff(tiff) = file.as_ref() else {
+            Document::Drawing { file, .. } if matches!(file.held(), Some(DrawingFile::Tiff(_))) => {
+                let Some(DrawingFile::Tiff(tiff)) = file.held() else {
                     return Err(fail(cx, unsupported(doc, "pointcloud")));
                 };
                 match zumen_sdk::Lift::lift(tiff, cx) {

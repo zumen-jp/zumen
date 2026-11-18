@@ -2,16 +2,16 @@
 //!
 //! DXF（ASCII）・DWG（R2007 を除く）・JWW・SXF の文書は、最初の `apply` で文書エンジン（[`AcadLive`]・
 //! [`JwwLive`]・[`SxfLive`]）を作って持ち続け、変更を差分で当てる。保存したバイト列・適用の結果・診断は
-//! 今までの経路と同じで、予算の使い方と止まる所は文書エンジンの仕事に従う。正はファイルモデルのままにし、
-//! 当てたら、文書エンジンが保存したバイト列からファイルモデルを読み直す。
+//! 今までの経路と同じで、予算の使い方と止まる所は文書エンジンの仕事に従う。当てたら、文書の正は文書エンジンと
+//! それが保存したバイト列になり、ファイルモデルは読み直さない（[`Resident::commit_live`]）。
 
 use super::*;
 use crate::packed::Packed;
-use crate::session::resident::Live;
+use crate::session::resident::{Live, Resident, Saved, SavedKind};
 use zumen_acad::{AcadLive, LiveFormat};
 use zumen_drawing::Changes;
 use zumen_jww::JwwLive;
-use zumen_sxf::{SxfFile, SxfLive};
+use zumen_sxf::SxfLive;
 
 /// 読み直しの診断は返さない。止まったときと、読めなかったときだけ、その理由を返す
 fn quietly<T>(
@@ -54,8 +54,12 @@ pub(super) fn engine_failed(cx: &mut Cx<'_>, error: zumen_sdk::Error) -> Failed 
     Failed
 }
 
-/// 文書エンジンで当てる文書か。バイナリの DXF は差分の経路を持たず、R2007 の DWG は書き戻せないので、今までの経路に任せる
-fn served(file: &DrawingFile) -> bool {
+/// 文書エンジンで当てる文書か。バイナリの DXF は差分の経路を持たず、R2007 の DWG は書き戻せないので、今までの経路に任せる。
+/// 文書エンジンで当てたあとの文書は、当てられる文書だった
+fn served(file: &Resident) -> bool {
+    let Some(file) = file.held() else {
+        return true;
+    };
     match file {
         DrawingFile::Dxf(file) => !file.is_binary(),
         DrawingFile::Dwg(file) => file.version() != b"AC1021",
@@ -68,10 +72,10 @@ fn served(file: &DrawingFile) -> bool {
 ///
 /// 今と違うハッシュは、今までの経路に任せて同じ診断で断る。SXF のアーカイブ（P2Z・SFZ）の今までの経路は、
 /// アーカイブではなく中の SXF のバイト列のハッシュと比べるので、ハッシュを持つ要求は今までの経路に任せる
-fn checked(file: &DrawingFile, document: Option<Hash>, current: Hash) -> bool {
+fn checked(file: &Resident, document: Option<Hash>, current: Hash) -> bool {
     match document {
         None => true,
-        Some(hash) => hash == current && !matches!(file, DrawingFile::Sxf(_, Some(_), _)),
+        Some(hash) => hash == current && file.sxf_archive().is_none(),
     }
 }
 
@@ -159,28 +163,23 @@ fn tried<T>(
     }
 }
 
-/// 読み直したファイルモデル。SXF は、アーカイブと属性ファイル（SAF）を残して、中のファイルだけを置き換える
-enum Reread {
-    Whole(Box<DrawingFile>),
-    Sxf(SxfFile),
+/// 文書エンジンが保存した文書の形式。SXF は、アーカイブ（P2Z・SFZ）に入れる前の中のファイルのバイト列を持つ
+enum Kept {
+    Dxf,
+    Dwg,
+    Jww,
+    Sxf(Vec<u8>),
 }
 
-impl Reread {
-    fn put(self, model: &mut DrawingFile) {
-        match (self, model) {
-            (Self::Sxf(file), DrawingFile::Sxf(current, ..)) => *current = file,
-            (Self::Sxf(file), model) => *model = DrawingFile::Sxf(file, None, None),
-            (Self::Whole(file), model) => *model = *file,
-        }
-    }
-}
-
-/// 文書エンジンで当て、保存したバイト列と、そこから読み直したファイルモデルを返す
+/// 文書エンジンで当て、保存したバイト列を返す
 struct Done {
     applied: Vec<Applied>,
+    /// 応答の blob にするバイト列。P2Z・SFZ はアーカイブ
     bytes: Vec<u8>,
+    saved: Kept,
     hash: Hash,
-    file: Reread,
+    /// 当てる中で読み直したファイルモデル（ハンドルを持たない DXF の ID のずれを調べたときだけ）
+    file: Option<DrawingFile>,
     lifted: Option<(Drawing2D, zumen_base::Replay)>,
     ids_shifted: bool,
 }
@@ -229,20 +228,28 @@ impl Session {
             return Ok(Err(changes));
         }
         let mut live = match file.take_live() {
-            Live::Absent => open(file, cx)?,
+            Live::Absent => open(file.file(cx).map_err(|_| Failed)?, cx)?,
             live => live,
         };
         changes.document = None;
-        let result = match &mut live {
-            Live::Acad(engine) => on_acad(engine, file, drawing, &changes, cx),
-            Live::Jww(engine) => on_jww(engine, &changes, cx),
-            Live::Sxf(engine) => {
-                let archive = match &**file {
-                    DrawingFile::Sxf(_, archive, _) => archive.as_deref(),
-                    _ => None,
-                };
-                on_sxf(engine, archive, &changes, cx)
+        // DWG の今までの経路は、当てる前にオブジェクトの表を作り、型どおりに読めないオブジェクトの診断を返す。
+        // 同じ表を先に作って診断を別に集める（[`on_acad`]）
+        let objects = match &live {
+            Live::Acad(engine) if engine.format() == LiveFormat::Dwg => {
+                match dwg_objects(file, cx) {
+                    Ok(objects) => Some(objects),
+                    Err(Failed) => {
+                        file.put_live(live);
+                        return Err(Failed);
+                    }
+                }
             }
+            _ => None,
+        };
+        let result = match &mut live {
+            Live::Acad(engine) => on_acad(engine, objects, drawing, &changes, cx),
+            Live::Jww(engine) => on_jww(engine, &changes, cx),
+            Live::Sxf(engine) => on_sxf(engine, file.sxf_archive(), &changes, cx),
             Live::Absent | Live::Refused => {
                 file.put_live(live);
                 return Ok(Err(changes));
@@ -271,12 +278,26 @@ impl Session {
         let Done {
             applied,
             bytes,
+            saved,
             hash,
             file: reread,
             lifted,
             ids_shifted,
         } = done;
-        file.commit_live(|model| reread.put(model), lifted, live);
+        let kind = match saved {
+            Kept::Dxf => SavedKind::Dxf,
+            Kept::Dwg => SavedKind::Dwg,
+            Kept::Jww => SavedKind::Jww,
+            Kept::Sxf(_) => file.take_sxf_parts(),
+        };
+        let saved = Saved {
+            bytes: match saved {
+                Kept::Sxf(inner) => inner,
+                _ => bytes.clone(),
+            },
+            kind,
+        };
+        file.commit_live(saved, reread, lifted, live);
         *current = hash;
         #[cfg(test)]
         {
@@ -300,28 +321,35 @@ impl Session {
     }
 }
 
-/// DXF・DWG を [`AcadLive`] で当てる
-fn on_acad(
-    engine: &mut AcadLive,
-    file: &DrawingFile,
-    drawing: &Drawing2D,
-    changes: &Changes,
-    cx: &mut Cx<'_>,
-) -> Result<Done, Fault> {
-    // DWG の今までの経路は、当てる前にオブジェクトの表を作り、型どおりに読めないオブジェクトの診断を返す。
-    // 文書エンジンは、読み直して参照の経路で当てたときだけ同じ診断を返す。そこで、同じ表を先に作って診断を
-    // 別に集め、文書エンジンの診断も別に集める。参照の経路に入らなかったときだけ、表の診断を前に足す。
-    // apply の診断は届いた順にまとめるので、まとめたものを移しても件数・場所・順は 1 件ずつ足したときと同じ
-    let max_places = cx.diag.max_places();
-    let mut objects = Diagnostics::with_max_places(max_places);
-    if let DrawingFile::Dwg(dwg) = file
+/// DWG のオブジェクトの表を作り、型どおりに読めないオブジェクトの診断を別に集める。作れなければ、診断を移して失敗にする。
+/// 文書エンジンで当てたあとの文書は、ファイルモデルを読み直して作る
+fn dwg_objects(file: &Resident, cx: &mut Cx<'_>) -> Result<Diagnostics, Failed> {
+    let mut objects = Diagnostics::with_max_places(cx.diag.max_places());
+    if let DrawingFile::Dwg(dwg) = file.file(cx).map_err(|_| Failed)?
         && dwg
             .objects(&mut Cx::new(cx.budget, &mut objects, cx.cancel))
             .is_err()
     {
         moved(cx, &objects);
-        return Err(Fault::Kept);
+        return Err(Failed);
     }
+    Ok(objects)
+}
+
+/// DXF・DWG を [`AcadLive`] で当てる。`objects` は、DWG のオブジェクトの表を作ったときの診断（[`dwg_objects`]）
+fn on_acad(
+    engine: &mut AcadLive,
+    objects: Option<Diagnostics>,
+    drawing: &Drawing2D,
+    changes: &Changes,
+    cx: &mut Cx<'_>,
+) -> Result<Done, Fault> {
+    // 文書エンジンは、読み直して参照の経路で当てたときだけ、オブジェクトの表と同じ診断を返す。そこで、文書エンジンの
+    // 診断も別に集め、参照の経路に入らなかったときだけ、表の診断を前に足す。apply の診断は届いた順にまとめるので、
+    // まとめたものを移しても件数・場所・順は 1 件ずつ足したときと同じ
+    let max_places = cx.diag.max_places();
+    let dwg = objects.is_some();
+    let objects = objects.unwrap_or_else(|| Diagnostics::with_max_places(max_places));
     let mut reported = Diagnostics::with_max_places(max_places);
     let (applied, rereads) =
         engine.apply_rereading(changes, &mut Cx::new(cx.budget, &mut reported, cx.cancel));
@@ -331,8 +359,7 @@ fn on_acad(
     moved(cx, &reported);
     // 文書エンジンは、断ったときと止まったときに状態を変えない
     let applied = applied.map_err(|error| Fault::refused(cx, error))?;
-    let keyed = matches!(file, DrawingFile::Dwg(_));
-    finish(engine, applied, keyed, drawing, changes, cx).map_err(|Failed| Fault::Lost)
+    finish(engine, applied, dwg, drawing, changes, cx).map_err(|Failed| Fault::Lost)
 }
 
 /// JWW を [`JwwLive`] で当てる。保存・ハッシュは、今までの経路の書き出し・ハッシュと同じ順にする
@@ -343,12 +370,12 @@ fn on_jww(engine: &mut JwwLive, changes: &Changes, cx: &mut Cx<'_>) -> Result<Do
         stopped(cx, stop);
         Fault::Lost
     })?;
-    let file = quietly(cx, |cx| Jww::read(&bytes, cx)).map_err(|Failed| Fault::Lost)?;
     Ok(Done {
         applied,
         bytes,
+        saved: Kept::Jww,
         hash,
-        file: Reread::Whole(Box::new(DrawingFile::Jww(file))),
+        file: None,
         lifted: None,
         ids_shifted,
     })
@@ -374,12 +401,12 @@ fn on_sxf(
         stopped(cx, stop);
         Fault::Lost
     })?;
-    let file = quietly(cx, |cx| Sxf::read(&saved, cx)).map_err(|Failed| Fault::Lost)?;
     Ok(Done {
         applied,
-        bytes: packed.unwrap_or(saved),
+        bytes: packed.unwrap_or_else(|| saved.clone()),
+        saved: Kept::Sxf(saved),
         hash,
-        file: Reread::Sxf(file),
+        file: None,
         lifted: None,
         ids_shifted: false,
     })
@@ -396,14 +423,12 @@ fn finish(
 ) -> Result<Done, Failed> {
     let bytes = engine.save(cx).map_err(|error| engine_failed(cx, error))?;
     let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
-    let file = if dwg {
-        DrawingFile::Dwg(quietly(cx, |cx| Dwg::read(&bytes, cx))?)
-    } else {
-        DrawingFile::Dxf(quietly(cx, |cx| Dxf::read(&bytes, cx))?)
-    };
     let mut lifted = None;
     let mut ids_shifted = false;
+    let mut reread = None;
     if !dwg && keyless(drawing, cx)? {
+        // ID のずれは、保存したバイト列を今の実装で読み直して変換した図面モデルと比べる
+        let file = DrawingFile::Dxf(quietly(cx, |cx| Dxf::read(&bytes, cx))?);
         // 作り直しの診断は、書き戻しの診断と重なるので返さない。記録して、次の読み取りで当てる
         let mut quiet = Diagnostics::with_max_places(cx.diag.max_places());
         let (after, replay) = Cx::new(cx.budget, &mut quiet, cx.cancel)
@@ -419,12 +444,14 @@ fn finish(
         })?;
         ids_shifted = record_ids_shifted(drawing, &after, changes, cx)?;
         lifted = replay.map(|replay| (after, replay));
+        reread = Some(file);
     }
     Ok(Done {
         applied,
         bytes,
+        saved: if dwg { Kept::Dwg } else { Kept::Dxf },
         hash,
-        file: Reread::Whole(Box::new(file)),
+        file: reread,
         lifted,
         ids_shifted,
     })

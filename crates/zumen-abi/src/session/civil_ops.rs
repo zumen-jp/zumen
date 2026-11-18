@@ -41,8 +41,8 @@ impl Session {
                 civil: Some(model), ..
             } => Ok(Cow::Borrowed(model.as_ref())),
             #[cfg(feature = "drawing")]
-            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Sima(_)) => {
-                let DrawingFile::Sima(sima) = file.as_ref() else {
+            Document::Drawing { file, .. } if matches!(file.held(), Some(DrawingFile::Sima(_))) => {
+                let Some(DrawingFile::Sima(sima)) = file.held() else {
                     return Err(fail(cx, unsupported(doc, op)));
                 };
                 zumen_sdk::Lift::lift(sima, cx)
@@ -81,8 +81,8 @@ impl Session {
         match self.document(doc, cx)? {
             Document::Geo(model) => Ok(Cow::Borrowed(model)),
             #[cfg(feature = "drawing")]
-            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Sima(_)) => {
-                let DrawingFile::Sima(sima) = file.as_ref() else {
+            Document::Drawing { file, .. } if matches!(file.held(), Some(DrawingFile::Sima(_))) => {
+                let Some(DrawingFile::Sima(sima)) = file.held() else {
                     return Err(fail(cx, unsupported(doc, op)));
                 };
                 let model: zumen_geo::GeoModel =
@@ -90,8 +90,8 @@ impl Session {
                 Ok(Cow::Owned(model))
             }
             #[cfg(feature = "drawing")]
-            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Tiff(_)) => {
-                let DrawingFile::Tiff(tiff) = file.as_ref() else {
+            Document::Drawing { file, .. } if matches!(file.held(), Some(DrawingFile::Tiff(_))) => {
+                let Some(DrawingFile::Tiff(tiff)) = file.held() else {
                     return Err(fail(cx, unsupported(doc, op)));
                 };
                 let model: zumen_geo::GeoModel =

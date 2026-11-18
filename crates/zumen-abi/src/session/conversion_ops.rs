@@ -2,7 +2,7 @@
 
 use super::*;
 #[cfg(feature = "drawing")]
-use zumen_acad::Dxf;
+use zumen_acad::{Dwg, Dxf};
 
 impl Session {
     /// 開いた文書を別の形式のファイルに変換し、新しい文書として開く（決定 0206・0281・#876・#374）
@@ -88,8 +88,8 @@ impl Session {
                 zumen_geojson::lower_to_geojson(model, cx).map_err(|_| Failed)
             })?,
             #[cfg(feature = "drawing")]
-            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Sima(_)) => {
-                let DrawingFile::Sima(sima) = file.as_ref() else {
+            Document::Drawing { file, .. } if matches!(file.held(), Some(DrawingFile::Sima(_))) => {
+                let Some(DrawingFile::Sima(sima)) = file.held() else {
                     return Err(fail(cx, unsupported(&request.doc, "convert")));
                 };
                 in_input_order(cx, |cx| {
@@ -99,8 +99,8 @@ impl Session {
                 })?
             }
             #[cfg(feature = "drawing")]
-            Document::Drawing { file, .. } if matches!(file.as_ref(), DrawingFile::Tiff(_)) => {
-                let DrawingFile::Tiff(tiff) = file.as_ref() else {
+            Document::Drawing { file, .. } if matches!(file.held(), Some(DrawingFile::Tiff(_))) => {
+                let Some(DrawingFile::Tiff(tiff)) = file.held() else {
                     return Err(fail(cx, unsupported(&request.doc, "convert")));
                 };
                 in_input_order(cx, |cx| {
@@ -174,11 +174,11 @@ impl Session {
                 zumen_sima::lower_civil_to_sima(model, cx).map_err(|_| Failed)
             })?,
             #[cfg(feature = "drawing")]
-            Document::Drawing { file, .. } => in_input_order(cx, |cx| match file.as_ref() {
-                DrawingFile::Sima(sima) => {
+            Document::Drawing { file, .. } => in_input_order(cx, |cx| match file.held() {
+                Some(DrawingFile::Sima(sima)) => {
                     zumen_sima::lower_sima_to_sima(sima, cx).map_err(|_| Failed)
                 }
-                DrawingFile::Tiff(tiff) => {
+                Some(DrawingFile::Tiff(tiff)) => {
                     let geo_model: zumen_geo::GeoModel =
                         zumen_sdk::Lift::lift(tiff, cx).map_err(|_| Failed)?;
                     zumen_sima::lower_geo_to_sima(&geo_model, cx).map_err(|_| Failed)
@@ -307,7 +307,9 @@ impl Session {
         }
         let converted = in_input_order(cx, |cx| {
             let (source, _) = self.drawing_file(doc, cx)?;
-            if let DrawingFile::Dwg(file) = &**source
+            // DWG のファイルモデルは、R2004 の版を見るときだけ借りる（文書エンジンで当てたあとは読み直す）
+            if source.format() == Dwg::FORMAT
+                && let DrawingFile::Dwg(file) = source.file(cx).map_err(|_| Failed)?
                 && file.version() == b"AC1018"
                 && format == Dxf::FORMAT
             {

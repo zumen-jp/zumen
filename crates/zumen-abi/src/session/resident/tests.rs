@@ -102,7 +102,9 @@ fn resident_lift_matches_converting_again_at_every_stop_point() {
         let spent = Kind::ALL.map(|kind| first.1.used(kind));
         for limits in limit_sets(&spent) {
             for max_places in [0, 1, 16] {
-                let expected = outcome(&limits, max_places, &cancel, |cx| file.file.lift(cx));
+                let expected = outcome(&limits, max_places, &cancel, |cx| {
+                    file.file(cx).and_then(|file| file.lift(cx))
+                });
                 let replayed = outcome(&limits, max_places, &cancel, |cx| file.lift(cx));
                 assert_eq!(replayed, expected, "{name} {limits:?} {max_places}");
                 // 常駐させる前の、最初の変換の記録も同じになる
@@ -116,7 +118,9 @@ fn resident_lift_matches_converting_again_at_every_stop_point() {
         // 中断の合図があれば、記録を当てずに変換し、同じ所で止まる
         let cancelled = CancelToken::new();
         cancelled.cancel();
-        let expected = outcome(&Limits::default(), 16, &cancelled, |cx| file.file.lift(cx));
+        let expected = outcome(&Limits::default(), 16, &cancelled, |cx| {
+            file.file(cx).and_then(|file| file.lift(cx))
+        });
         assert!(expected.0.is_err());
         let replayed = outcome(&Limits::default(), 16, &cancelled, |cx| file.lift(cx));
         assert_eq!(replayed, expected, "{name}");
@@ -151,7 +155,9 @@ fn read_ops_on_the_resident_model_answer_like_a_fresh_session() {
     for (name, bytes) in SAMPLES {
         let probe = opened(name, bytes);
         let work = outcome(&Limits::default(), 16, &cancel, |cx| {
-            resident(&probe, name).file.lift(cx)
+            resident(&probe, name)
+                .file(cx)
+                .and_then(|file| file.lift(cx))
         })
         .1
         .used(Kind::Work);
@@ -193,7 +199,10 @@ fn forget(session: &mut Session, name: &str) {
 /// 常駐の図面モデルと文書エンジンを捨てる
 fn forget_engine(session: &mut Session, name: &str) {
     if let Some(Document::Drawing { file, .. }) = session.docs.get_mut(name) {
-        file.file_mut();
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let _ = file.file_mut(&mut Cx::new(&mut budget, &mut diag, &cancel));
     }
 }
 

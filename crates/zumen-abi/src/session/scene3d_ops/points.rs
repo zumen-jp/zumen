@@ -106,7 +106,7 @@ impl Session {
             Some(Document::Cloud(_)) => true,
             #[cfg(feature = "drawing")]
             Some(Document::Drawing { file, .. }) => {
-                matches!(file.as_ref(), DrawingFile::Tiff(tiff) if tiff.has_projected_dem_grid())
+                matches!(file.held(), Some(DrawingFile::Tiff(tiff)) if tiff.has_projected_dem_grid())
             }
             #[cfg(not(feature = "drawing"))]
             Some(Document::Tiff(tiff)) => tiff.has_projected_dem_grid(),

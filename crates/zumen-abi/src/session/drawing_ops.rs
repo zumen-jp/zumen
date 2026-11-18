@@ -292,7 +292,7 @@ impl Session {
         // 書き出しが予算や中断で止まっても、元の文書は変更しない。
         let mut bytes = Vec::new();
         let mut ids_shifted = false;
-        let (applied, hash) = match file.file_mut() {
+        let (applied, hash) = match file.file_mut(cx).map_err(|_| Failed)? {
             // プラグインの文書・図面モデルのバイナリ・SIMA・TIFF は、apply では書き戻せない（決定 0243・0247・#374・#877）
             DrawingFile::Plugin(..)
             | DrawingFile::Lifted(..)
