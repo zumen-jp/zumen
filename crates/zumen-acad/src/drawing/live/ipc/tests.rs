@@ -306,3 +306,157 @@ fn display_retexted_replaces_only_the_content() {
     };
     assert_eq!(texts(&live, cx), texts(&reopened, cx));
 }
+
+/// 表示の挿入が指す定義の値（定義が見つからない印は除く）
+fn instance_definitions(display: &Display) -> BTreeSet<u32> {
+    (0..display.instance_owner.len())
+        .filter(|&index| {
+            display
+                .instance_owner
+                .get(index)
+                .is_some_and(|&owner| owner != NO_OWNER)
+        })
+        .filter_map(|index| display.instance_ref.get(index).map(|iref| iref[0]))
+        .filter(|&definition| definition != u32::MAX)
+        .collect()
+}
+
+/// 線と円を持つ定義 B1、B1 を入れ子に挿す定義 B2、B2 を挿すモデル空間
+fn block_dxf() -> Vec<u8> {
+    let groups: &[(&str, &str)] = &[
+        ("0", "SECTION"),
+        ("2", "BLOCKS"),
+        ("0", "BLOCK"),
+        ("8", "0"),
+        ("2", "B1"),
+        ("70", "0"),
+        ("10", "0"),
+        ("20", "0"),
+        ("3", "B1"),
+        ("0", "LINE"),
+        ("8", "0"),
+        ("10", "0"),
+        ("20", "0"),
+        ("11", "1"),
+        ("21", "1"),
+        ("0", "CIRCLE"),
+        ("8", "0"),
+        ("62", "1"),
+        ("10", "0"),
+        ("20", "0"),
+        ("40", "1"),
+        ("0", "ENDBLK"),
+        ("0", "BLOCK"),
+        ("8", "0"),
+        ("2", "B2"),
+        ("70", "0"),
+        ("10", "0"),
+        ("20", "0"),
+        ("3", "B2"),
+        ("0", "INSERT"),
+        ("8", "0"),
+        ("2", "B1"),
+        ("10", "5"),
+        ("20", "5"),
+        ("0", "ENDBLK"),
+        ("0", "ENDSEC"),
+        ("0", "SECTION"),
+        ("2", "ENTITIES"),
+        ("0", "INSERT"),
+        ("8", "0"),
+        ("2", "B2"),
+        ("10", "0"),
+        ("20", "0"),
+        ("0", "ENDSEC"),
+        ("0", "EOF"),
+    ];
+    groups
+        .iter()
+        .flat_map(|(code, value)| {
+            format!(
+                "{code}
+{value}
+"
+            )
+            .into_bytes()
+        })
+        .collect()
+}
+
+#[test]
+fn display_symbol_writes_each_element_of_the_definition() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let mut written = 0;
+    let blocks = block_dxf();
+    for (index, sample) in SAMPLES
+        .into_iter()
+        .chain([TEXT_SAMPLE, &blocks])
+        .enumerate()
+    {
+        let live = AcadLive::open(sample, cx).unwrap();
+        let drawing: Drawing2D = live.drawing(cx).unwrap();
+        let count = live.display_symbol_count();
+        assert_eq!(count as usize, drawing.symbols.len(), "sample {index}");
+        // 文書の表示の挿入は、どれも定義の範囲を指す
+        let mut referenced = instance_definitions(live.display());
+        let mut display = Display::with_rows(0);
+        let mut first = 0;
+        for (definition, symbol) in (0..count).zip(&drawing.symbols) {
+            let rows = live
+                .display_symbol(definition, &mut display, cx)
+                .unwrap()
+                .unwrap();
+            // 1 要素 1 行
+            assert_eq!(rows as usize, symbol.space.elements.len(), "sample {index}");
+            first += rows;
+            assert_eq!(display.canonical().len(), first as usize);
+        }
+        written += first;
+        referenced.extend(instance_definitions(&display));
+        assert!(
+            referenced.iter().all(|&definition| definition < count),
+            "sample {index}"
+        );
+        let styles: BTreeSet<u32> = live
+            .display_layers(cx)
+            .unwrap()
+            .iter()
+            .map(|&(slot, _)| slot)
+            .collect();
+        assert!(styled_layers(&display).is_subset(&styles), "sample {index}");
+        // 範囲外は `None` で、表示に足さない
+        assert!(
+            live.display_symbol(count, &mut display, cx)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(display.canonical().len(), first as usize);
+    }
+    // B1 の線と円、B2 の入れ子の挿入
+    assert!(written >= 3);
+}
+
+#[test]
+fn a_stopped_symbol_read_reports_the_stop() {
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let live = AcadLive::open(&block_dxf(), cx).unwrap();
+    let definition = (0..live.display_symbol_count())
+        .find(|&definition| {
+            let mut display = Display::with_rows(0);
+            live.display_symbol(definition, &mut display, cx).unwrap() > Some(0)
+        })
+        .unwrap();
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(0)));
+    let mut diag = Diagnostics::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let mut display = Display::with_rows(0);
+    let result = live.display_symbol(definition, &mut display, cx);
+    assert!(matches!(result, Err(zumen_sdk::Error::Stopped(_))));
+    assert_eq!(diag.iter().count(), 1);
+}

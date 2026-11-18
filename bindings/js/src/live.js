@@ -293,6 +293,19 @@ export class LiveProcess {
     });
   }
 
+  /** 記号の定義の表示を、definitions の順に返す。空なら定義の数だけを返す */
+  async symbols(definitions, revision, options = {}) {
+    this.#check();
+    if ((!Array.isArray(definitions) && !(definitions instanceof Uint32Array)) || definitions.length > 65536) throw new RangeError("definitions は 65536 個までの定義の番号にする");
+    for (const index of definitions) {
+      if (!Number.isInteger(index) || index < 0 || index > 0xfffffffe) throw new RangeError("定義の番号は 0 から 4294967294 の整数にする");
+    }
+    return this.#request(19, 0, u64(revision, "revision"), options, 8 + definitions.length * 4, (out) => {
+      out.writeUInt32LE(definitions.length, 0);
+      for (let i = 0; i < definitions.length; i++) out.writeUInt32LE(definitions[i], 8 + i * 4);
+    });
+  }
+
   /** 文字の行の内容を content に替える。既定で表示の差分を返す */
   async setText({ revision, rows, content }, options = {}) {
     this.#check();

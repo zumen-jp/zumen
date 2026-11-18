@@ -270,6 +270,51 @@ test("行の文字を検査してから凍結して公開する", async () => {
   } finally { await live.close(); }
 });
 
+test("記号の定義を全件の検証後に公開する", async () => {
+  const { live } = await fake("symbols");
+  try {
+    const reply = await live.symbols([2, 0], 5n);
+    assert.equal(reply.symbols.total, 3);
+    assert.deepEqual(reply.symbols.definitions, [{ first: 0, rows: 0 }, { first: 0, rows: 0 }]);
+    assert.equal(reply.symbols.display.full, true);
+    assert(Object.isFrozen(reply.symbols) && Object.isFrozen(reply.symbols.definitions));
+    await assert.rejects(live.symbols([0.5], 5n), RangeError);
+    await assert.rejects(live.symbols([-1], 5n), RangeError);
+    await assert.rejects(live.symbols([0xffffffff], 5n), RangeError);
+    await assert.rejects(live.symbols("1", 5n), RangeError);
+    await assert.rejects(live.symbols([0], undefined), RangeError);
+    assert(!live.broken);
+  } finally { await live.close(); }
+});
+
+for (const mode of ["symbols-delta", "symbols-first", "symbols-count", "symbols-truncated", "symbols-extra", "symbols-result"]) {
+  test(`不正な記号の定義を公開せず接続を終了する: ${mode}`, async () => {
+    const { live } = await fake(mode);
+    try {
+      await assert.rejects(live.symbols([0, 1], 0n), transport("protocol"));
+      assert(live.broken);
+    } finally { await live.close(); }
+  });
+}
+
+test("実プロセスで記号の定義の表示を引く", { skip: !executable, timeout: 30000 }, async () => {
+  const live = await openLiveProcess(executable);
+  try {
+    const input = Buffer.from("0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n8\n0\n2\nB1\n70\n0\n10\n0\n20\n0\n3\nB1\n"
+      + "0\nLINE\n8\n0\n10\n0\n20\n0\n11\n1\n21\n1\n0\nCIRCLE\n8\n0\n10\n0\n20\n0\n40\n1\n0\nENDBLK\n0\nENDSEC\n"
+      + "0\nSECTION\n2\nENTITIES\n0\nINSERT\n8\n0\n2\nB1\n10\n5\n20\n5\n0\nENDSEC\n0\nEOF\n");
+    const opened = await live.open(input, { display: false });
+    const counted = await live.symbols([], opened.revision);
+    assert.equal(counted.status, "ok");
+    assert.deepEqual(counted.symbols.definitions, []);
+    const total = counted.symbols.total;
+    const all = await live.symbols(Array.from({ length: total }, (_, i) => i), opened.revision);
+    assert.equal(all.symbols.definitions.length, total);
+    assert(all.symbols.definitions.some(({ rows }) => rows === 2));
+    assert.equal((await live.symbols([total], opened.revision)).status, "invalid");
+  } finally { await live.close(); }
+});
+
 for (const mode of ["texts-kind", "texts-empty", "texts-padding", "texts-content", "texts-count", "texts-length", "texts-truncated", "texts-extra", "texts-result"]) {
   test(`不正な文字の列を公開せず接続を終了する: ${mode}`, async () => {
     const { live } = await fake(mode);

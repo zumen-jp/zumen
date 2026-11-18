@@ -27,6 +27,16 @@ pub(super) enum RowEdit {
     Text(String),
 }
 
+/// 記号の定義の表示
+pub(super) struct Symbols {
+    /// 文書の記号の定義の数。表示の挿入の定義の値は `0..` この数
+    pub total: u32,
+    /// 要求した定義ごとの、`display` での先頭の行と行の数
+    pub ranges: Vec<[u32; 2]>,
+    /// 要求した定義の要素を、要求の順に 1 要素 1 行で並べた表示
+    pub display: Display,
+}
+
 /// 実行入口の状態エラー。コアの診断とは別に応答する。
 #[derive(Debug, PartialEq)]
 pub(super) enum Problem {
@@ -473,6 +483,32 @@ impl Document {
     /// `Restyle` の線種に使える線種の表。値は図面モデルの `LineTypeId`
     pub fn line_types(&self, cx: &mut Cx<'_>) -> Result<Vec<LineType>, Error> {
         self.live.line_types(cx)
+    }
+
+    /// 記号の定義 `indices` の要素を、定義の座標のまま要求の順に並べる。範囲外の定義は Invalid。
+    /// 定義をまだ書けない形式（JWW・SXF）は `call.op.unsupported` を診断して Rejected
+    pub fn symbols(&self, indices: &[u32], cx: &mut Cx<'_>) -> Result<Symbols, Problem> {
+        let Engine::Acad(live) = &self.live else {
+            cx.report(Diagnostic::new(codes::CALL_OP_UNSUPPORTED).with("op", "symbols"));
+            return Err(Problem::Core(Error::Rejected));
+        };
+        let mut display = Display::with_rows(0);
+        let mut ranges = Vec::with_capacity(indices.len());
+        let mut first = 0_u32;
+        for &index in indices {
+            let rows = live
+                .display_symbol(index, &mut display, cx)?
+                .ok_or(Problem::Core(Error::Invalid))?;
+            ranges.push([first, rows]);
+            first = first
+                .checked_add(rows)
+                .ok_or(Problem::Core(Error::Invalid))?;
+        }
+        Ok(Symbols {
+            total: live.display_symbol_count(),
+            ranges,
+            display,
+        })
     }
 
     /// 表示に出る生きた行を、先に描くものから並べたもの

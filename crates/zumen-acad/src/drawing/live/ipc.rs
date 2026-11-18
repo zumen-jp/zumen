@@ -3,9 +3,11 @@
 use zumen_base::{Cx, Kind, Stop};
 use zumen_drawing::{Element, FormattedText, Layer, LineType, MarkContent, Piece, Placed, Shape};
 use zumen_live::RowId;
+use zumen_live::display::Display;
 use zumen_sdk::Error;
 
 use super::AcadLive;
+use super::shape::{Xform, display_layer, pack_color, shape_display_counts, write_shape_display};
 
 impl AcadLive {
     /// 表示のスタイルの画層の値（画層のスロット番号）と、その画層の組。図面モデルの `layers` と同じ順。
@@ -224,6 +226,50 @@ pub(crate) fn line_type_bytes(line_type: &LineType) -> u64 {
         }
     }
     bytes
+}
+
+impl AcadLive {
+    /// 表示の挿入が指す記号の定義の数。挿入の定義の値は `0..` この数か、定義が見つからない印
+    pub fn display_symbol_count(&self) -> u32 {
+        u32::try_from(self.state.symbols.len()).unwrap_or(u32::MAX)
+    }
+
+    /// 記号の定義 `index` の要素を、定義の座標のまま 1 要素 1 行で `display` の末尾に足し、足した行の数を返す。
+    /// 行のスタイルは文書の表示と同じ画層の値と色。入れ子の挿入は、挿入のまま書く。範囲外なら `None`
+    pub fn display_symbol(
+        &self,
+        index: u32,
+        display: &mut Display,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<u32>, Error> {
+        let symbols = &self.state.symbols;
+        let Some(definition) = symbols.get(index as usize) else {
+            return Ok(None);
+        };
+        let layer_ids = &self.state.catalog.layer_remap;
+        for element in &definition.space.elements {
+            let counts = shape_display_counts(&element.shape, symbols, 0);
+            let style = [
+                display_layer(layer_ids, element.layer.0),
+                pack_color(element.style.color),
+            ];
+            display
+                .push_with_cx(cx, counts, style, |writer| {
+                    write_shape_display(
+                        &element.shape,
+                        symbols,
+                        layer_ids,
+                        &Xform::IDENTITY,
+                        0,
+                        writer,
+                    );
+                })
+                .map_err(|stop| stopped(cx, stop))?;
+        }
+        Ok(Some(
+            u32::try_from(definition.space.elements.len()).map_err(|_| Error::Invalid)?,
+        ))
+    }
 }
 
 fn stopped(cx: &mut Cx<'_>, stop: Stop) -> Error {

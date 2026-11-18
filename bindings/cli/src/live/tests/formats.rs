@@ -1151,3 +1151,126 @@ fn set_text_replaces_the_content_of_text_rows() {
     let rejected = call(&mut host, Command::SetText, 3, 0, wire::NONE, 0, &body);
     assert_eq!(rejected.status, Status::Rejected);
 }
+
+/// 線と円を持つ定義 B1、B1 を入れ子に挿す定義 B2、B2 を挿すモデル空間
+const BLOCKS_DXF: &[u8] = b"0\nSECTION\n2\nBLOCKS\n\
+0\nBLOCK\n8\n0\n2\nB1\n70\n0\n10\n0\n20\n0\n3\nB1\n\
+0\nLINE\n8\n0\n10\n0\n20\n0\n11\n1\n21\n1\n\
+0\nCIRCLE\n8\n0\n62\n1\n10\n0\n20\n0\n40\n1\n\
+0\nENDBLK\n\
+0\nBLOCK\n8\n0\n2\nB2\n70\n0\n10\n0\n20\n0\n3\nB2\n\
+0\nINSERT\n8\n0\n2\nB1\n10\n5\n20\n5\n\
+0\nENDBLK\n0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n0\nINSERT\n8\n0\n2\nB2\n10\n0\n20\n0\n0\nENDSEC\n0\nEOF\n";
+
+/// 記号の定義を要求の順に返し、範囲・予約の語・まだ書けない形式を断る
+#[test]
+fn symbols_carry_the_display_of_definitions() {
+    let mut budget = zumen_base::Budget::default();
+    let mut diag = zumen_base::Diagnostics::new();
+    let cancel = zumen_base::CancelToken::new();
+    let cx = &mut zumen_base::Cx::new(&mut budget, &mut diag, &cancel);
+    let live = zumen_acad::AcadLive::open(BLOCKS_DXF, cx).unwrap();
+    let total = live.display_symbol_count();
+    assert!(total >= 2);
+    let mut host = Host::default();
+    open_bytes(&mut host, BLOCKS_DXF);
+    // 逆の順で、同じ定義を 2 度求めてもよい
+    let mut indices: Vec<u32> = (0..total).rev().collect();
+    indices.push(total - 1);
+    let reply = call(
+        &mut host,
+        Command::Symbols,
+        2,
+        0,
+        wire::NONE,
+        0,
+        &rows_body(&indices),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.data_kind, 10);
+    assert_eq!(reply.result, indices.len() as u64);
+    let mut expected = zumen_live::display::Display::with_rows(0);
+    let mut words = Words(&reply.data);
+    assert_eq!(words.u32(), Some(total));
+    assert_eq!(words.u32(), Some(indices.len() as u32));
+    let mut first = 0;
+    for &index in &indices {
+        let rows = live
+            .display_symbol(index, &mut expected, cx)
+            .unwrap()
+            .unwrap();
+        assert_eq!((words.u32(), words.u32()), (Some(first), Some(rows)));
+        first += rows;
+    }
+    assert!(first >= 3);
+    let packet = zumen_live::display_wire::encode(&expected, true, cx).unwrap();
+    assert_eq!(words.0, packet.as_slice());
+    // 定義を求めなければ、数だけを返す
+    let empty = call(
+        &mut host,
+        Command::Symbols,
+        3,
+        0,
+        wire::NONE,
+        0,
+        &rows_body(&[]),
+    );
+    assert_eq!((empty.status, empty.result), (Status::Ok, 0));
+    assert_eq!(
+        empty.data.get(..8),
+        Some(
+            [total.to_le_bytes(), 0_u32.to_le_bytes()]
+                .concat()
+                .as_slice()
+        )
+    );
+    // 範囲外の定義・0 でない予約の語は Invalid、前提の版が違えば Stale
+    let outside = call(
+        &mut host,
+        Command::Symbols,
+        4,
+        0,
+        wire::NONE,
+        0,
+        &rows_body(&[total]),
+    );
+    assert_eq!(outside.status, Status::Invalid);
+    let mut reserved = rows_body(&[0]);
+    reserved[4] = 1;
+    let invalid = call(&mut host, Command::Symbols, 5, 0, wire::NONE, 0, &reserved);
+    assert_eq!(invalid.status, Status::Invalid);
+    let stale = call(
+        &mut host,
+        Command::Symbols,
+        7,
+        9,
+        wire::NONE,
+        0,
+        &rows_body(&[0]),
+    );
+    assert_eq!(stale.status, Status::Stale);
+    // 表示のフラグは付けられない
+    let mut header = [
+        b'Z', b'L', b'I', b'P', 1, 0, 19, 0, 1, 0, 0, 0, 0, 0, 0, 0, 80, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    assert!(wire::Header::parse(&header).is_some());
+    header[20] = 1;
+    assert!(wire::Header::parse(&header).is_none());
+    // JWW・SXF の定義はまだ書けない
+    for bytes in [JWW, SFC] {
+        let mut host = Host::default();
+        open_bytes(&mut host, bytes);
+        let rejected = call(
+            &mut host,
+            Command::Symbols,
+            2,
+            0,
+            wire::NONE,
+            0,
+            &rows_body(&[]),
+        );
+        assert_eq!(rejected.status, Status::Rejected);
+        assert_eq!(rejected.diagnostics, 1);
+    }
+}

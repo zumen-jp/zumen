@@ -65,6 +65,15 @@ export interface LiveText {
   readonly kind: "text" | "formatted" | null;
   readonly content: string;
 }
+/** 記号の定義の表示。挿入の定義の値は 0 から total 未満 */
+export interface LiveSymbols {
+  /** 文書の記号の定義の数 */
+  readonly total: number;
+  /** 要求した定義の順に、display での先頭の行と行の数。行は 1 要素 1 行で隙間なく並ぶ */
+  readonly definitions: readonly { readonly first: number; readonly rows: number }[];
+  /** 定義の座標のままの全量の表示。入れ子の挿入は挿入のまま */
+  readonly display: LiveDisplay;
+}
 export interface LiveReply {
   requestId: bigint;
   status: LiveStatus;
@@ -91,6 +100,8 @@ export interface LiveReply {
   lineTypes: readonly LiveLineType[] | null;
   /** 要求した行の順。全件の検証後に公開する */
   texts: readonly LiveText[] | null;
+  /** 全件の検証後に公開する */
+  symbols: LiveSymbols | null;
 }
 export interface LiveTransform {
   /** 選択した行が属する版。現在の版と異なれば stale */
@@ -142,6 +153,8 @@ export declare class LiveProcess {
   lineTypes(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** 行の文字（TEXT・MTEXT・JWW の文字・SXF の文字要素）。属性・寸法・表の中の文字は返さない。生きていない行があれば missing */
   texts(rows: readonly number[] | Uint32Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
+  /** 記号の定義の表示（DXF・DWG）。JWW・SXF はまだ rejected。範囲外の定義は invalid */
+  symbols(definitions: readonly number[] | Uint32Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** 図面モデルの描く順（DXF・DWG は SORTENTSTABLE、JWW は画層グループ、SXF は用紙の並び）に合わせた行 */
   order(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** モデル空間の [minX,minY,maxX,maxY] と囲む箱が交差する行。NaN・逆転は空、無限大は全域指定 */

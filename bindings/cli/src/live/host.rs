@@ -8,7 +8,7 @@ use zumen_drawing::{
 use zumen_live::{Revision, RowId, display_wire};
 
 use super::diagnostics;
-use super::document::{Document, Problem, RowEdit};
+use super::document::{Document, Problem, RowEdit, Symbols};
 use super::wire::{self, Command, Control, Header, Reply, Status, Words};
 
 pub(super) struct Request {
@@ -33,6 +33,7 @@ enum Operation<'a> {
     Copy { transform: Affine, rows: &'a [u8] },
     Remove(&'a [u8]),
     Texts(&'a [u8]),
+    Symbols(&'a [u8]),
     SetText { content: &'a str, rows: &'a [u8] },
     Restyle { style: WireStyle, rows: &'a [u8] },
     Target(RowId),
@@ -90,15 +91,15 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
                 rows: input.0,
             })
         }
-        Command::Remove | Command::Texts => {
+        Command::Remove | Command::Texts | Command::Symbols => {
             let count = input.u32()? as usize;
             if count > wire::MAX_ROWS || input.u32()? != 0 {
                 return None;
             }
-            (input.0.len() == count.checked_mul(4)?).then_some(if command == Command::Texts {
-                Operation::Texts(input.0)
-            } else {
-                Operation::Remove(input.0)
+            (input.0.len() == count.checked_mul(4)?).then_some(match command {
+                Command::Texts => Operation::Texts(input.0),
+                Command::Symbols => Operation::Symbols(input.0),
+                _ => Operation::Remove(input.0),
             })
         }
         Command::SetText => {
@@ -370,6 +371,38 @@ fn encode_layers(layers: &[(u32, Layer)], cx: &mut Cx<'_>) -> Result<Vec<u8>, Pr
         data.extend_from_slice(layer.name.as_bytes());
         data.resize(data.len().next_multiple_of(4), 0);
     }
+    Ok(data)
+}
+
+/// 記号の定義を、定義の数 `u32`・要求した定義の数 `u32`・定義ごとの先頭の行 `u32` と行の数 `u32` の列と、
+/// その後ろに全量の表示のパケットを続けて写す
+fn encode_symbols(symbols: &Symbols, cx: &mut Cx<'_>) -> Result<Vec<u8>, Problem> {
+    let display =
+        display_wire::encode(&symbols.display, true, cx).map_err(|error| match error {
+            display_wire::Error::Invalid => Problem::Core(Error::Invalid),
+            display_wire::Error::Stopped(stop) => {
+                cx.report(stop.to_diagnostic());
+                Problem::Core(Error::Stopped(stop))
+            }
+        })?;
+    let length = symbols
+        .ranges
+        .len()
+        .checked_mul(8)
+        .and_then(|ranges| ranges.checked_add(8 + display.len()))
+        .filter(|&n| n <= display_wire::MAX_PACKET_BYTES)
+        .ok_or(Problem::Core(Error::Invalid))?;
+    checked(cx, Kind::DecodedBytes, length as u64)?;
+    checked(cx, Kind::Work, symbols.ranges.len() as u64)?;
+    let count = u32::try_from(symbols.ranges.len()).map_err(|_| Problem::Core(Error::Invalid))?;
+    let mut data = Vec::with_capacity(length);
+    data.extend_from_slice(&symbols.total.to_le_bytes());
+    data.extend_from_slice(&count.to_le_bytes());
+    for [first, rows] in &symbols.ranges {
+        data.extend_from_slice(&first.to_le_bytes());
+        data.extend_from_slice(&rows.to_le_bytes());
+    }
+    data.extend_from_slice(&display);
     Ok(data)
 }
 
@@ -655,6 +688,16 @@ impl Host {
                     reply.data = encode_texts(&texts, cx)?;
                     reply.data_kind = 9;
                     reply.result = texts.len() as u64;
+                }
+                Operation::Symbols(indices) => {
+                    let indices: Vec<u32> = decode_rows(indices, cx)?
+                        .into_iter()
+                        .map(|RowId(index)| index)
+                        .collect();
+                    let symbols = document.symbols(&indices, cx)?;
+                    reply.data = encode_symbols(&symbols, cx)?;
+                    reply.data_kind = 10;
+                    reply.result = symbols.ranges.len() as u64;
                 }
                 Operation::Select(rect) => {
                     let rows = document.select(rect, cx)?;

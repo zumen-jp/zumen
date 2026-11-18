@@ -118,6 +118,8 @@ try {
 
 `live.restyle({ revision, rows, layer, color, lineWeight, lineType, lineTypeScale })` は、指定した画層・色・線幅・線種・線種の倍率だけを変えます。`layer` は `live.layers` の `value`、`color` は `"layer"`・`"block"` か `{ code, rgb }`、`lineWeight` は `"layer"`・`"block"`・`"default"` か mm、`lineType` は `"layer"`・`"block"` か `live.lineTypes` の `value` です。
 
+`live.symbols(definitions, revision)` は、記号の定義の表示を `reply.symbols` に返します。`total` は文書の定義の数、`definitions` は要求した定義ごとの `{ first, rows }`、`display` は定義の座標のままの全量の表示です。表示の挿入の定義の値が、この定義の番号です。今は DXF・DWG だけが返し、JWW・SXF は rejected です。
+
 `live.setText({ revision, rows, content })` は、文字の行の内容を `content` に替えます。替えられるのは `live.texts` の `kind` が `"text"` の行と、区間が文字列 1 つだけの `"formatted"` の行で、ほかの行を含めば rejected で何も替えません。
 
 `live.remove({ revision, rows })` は行を除き、`live.copy({ revision, rows, matrix })` は行を写して写しを動かします。`copy` は写しの行を `reply.selection` に対象の順で返し、表示は返さないので `live.display()` で取り直します。JWW・SXF の写しは、まだ rejected です。

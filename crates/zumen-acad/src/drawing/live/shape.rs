@@ -2028,12 +2028,12 @@ impl LiveShapes {
 }
 
 #[derive(Clone, Copy)]
-struct Xform {
+pub(crate) struct Xform {
     m: [f64; 6],
 }
 
 impl Xform {
-    const IDENTITY: Self = Self {
+    pub(crate) const IDENTITY: Self = Self {
         m: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
     };
 
@@ -2748,7 +2748,7 @@ fn poly_vertices_display_counts(vertices: &[Vertex<ModelPoint>], closed: bool) -
     c
 }
 
-fn shape_display_counts(
+pub(crate) fn shape_display_counts(
     shape: &Shape<ModelPoint>,
     symbols: &[SymbolDefinition],
     depth: u8,
@@ -2922,7 +2922,7 @@ pub fn display_style(layer_ids: &[LayerId], row: &LiveRow) -> [u32; 2] {
     [display_layer(layer_ids, row.layer_slot), row.color]
 }
 
-fn write_shape_display(
+pub(crate) fn write_shape_display(
     shape: &Shape<ModelPoint>,
     symbols: &[SymbolDefinition],
     layer_ids: &[LayerId],

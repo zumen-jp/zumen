@@ -104,6 +104,33 @@ function handle(request, body) {
     send(out);
     return;
   }
+  if (request.command === 19) {
+    // 記号の定義 2 件（文書には 3 件）。どちらも行がなく、表示は空の全量のパケット
+    const packet = Buffer.alloc(16 + 13 * 16);
+    packet.writeUInt32LE(0x50444c5a, 0);
+    packet.writeUInt16LE(1, 4);
+    packet.writeUInt16LE(mode === "symbols-delta" ? 0 : 1, 6);
+    packet.writeUInt32LE(packet.length, 8);
+    packet.writeUInt32LE(13, 12);
+    const widths = [8, 1, 2, 7, 1, 2, 8, 1, 2, 9, 3, 1, 2];
+    for (const [id, width] of widths.entries()) {
+      packet.writeUInt32LE(id, 16 + id * 16);
+      packet.writeUInt32LE(width, 20 + id * 16);
+    }
+    const data = Buffer.concat([Buffer.alloc(24), packet]);
+    data.writeUInt32LE(3, 0);
+    data.writeUInt32LE(2, 4);
+    if (mode === "symbols-first") data.writeUInt32LE(1, 16);
+    if (mode === "symbols-count") data.writeUInt32LE(0xffffffff, 4);
+    let payload = mode === "symbols-truncated" ? data.subarray(0, 20) : data;
+    if (mode === "symbols-extra") payload = Buffer.concat([data, Buffer.alloc(4)]);
+    const out = reply(request, 0, 10, payload);
+    out.writeBigUInt64LE(body.readBigUInt64LE(56), 32);
+    out.writeBigUInt64LE(0n, 40);
+    out.writeBigUInt64LE(mode === "symbols-result" ? 3n : 2n, 48);
+    send(out);
+    return;
+  }
   if (request.command === 17) {
     // 文字 3 件: 文字でない行、"AB"（2 バイト埋める）、書式つきの "線"（UTF-8 3 バイト、1 バイト埋める）
     const name = Buffer.from("線");

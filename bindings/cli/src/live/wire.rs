@@ -37,6 +37,7 @@ pub(super) enum Command {
     LineTypes = 16,
     Texts = 17,
     SetText = 18,
+    Symbols = 19,
 }
 
 impl Command {
@@ -61,6 +62,7 @@ impl Command {
             16 => Self::LineTypes,
             17 => Self::Texts,
             18 => Self::SetText,
+            19 => Self::Symbols,
             _ => return None,
         })
     }
@@ -70,7 +72,9 @@ impl Command {
             Self::Cancel | Self::Close => (0, 0),
             Self::Open => (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_INPUT_BYTES),
             Self::Transform | Self::Copy => (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4),
-            Self::Remove | Self::Texts => (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_ROWS * 4),
+            Self::Remove | Self::Texts | Self::Symbols => {
+                (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_ROWS * 4)
+            }
             Self::Restyle => (CONTROL_BYTES + 48, CONTROL_BYTES + 56 + MAX_ROWS * 4),
             Self::SetText => (
                 CONTROL_BYTES + 8,
