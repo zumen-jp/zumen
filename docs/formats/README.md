@@ -15,11 +15,11 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [bcf](#format-bcf) | BCF | bcf | review | `public` | `core` | `synthetic` | `external` |
 | [bebridge](#format-bebridge) | BE-Bridge | bebridge | building | `unknown` | `none` |  |  |
-| [boring](#format-boring) | ボーリング交換用データ（BED） | boring | delivery | `public` | `core` | `synthetic` |  |
+| [boring](#format-boring) | ボーリング交換用データ（BED） | boring | delivery | `public` | `core` | `external` |  |
 | [cedxm](#format-cedxm) | CEDXM | cedxm | building | `permission` | `none` |  |  |
 | [citygml](#format-citygml) | CityGML（PLATEAU の 3D 都市モデルと i-UR を含む） | citygml | geo | `public` | `core` | `synthetic` |  |
 | [csv](#format-csv) | CSV | csv | delivery | `public` | `none` |  |  |
-| [delivery](#format-delivery) | 電子納品の管理ファイル（INDEX\_C.XML・PHOTO.XML など） | delivery | delivery | `public` | `core` | `synthetic` | `synthetic` |
+| [delivery](#format-delivery) | 電子納品の管理ファイル（INDEX\_C.XML・PHOTO.XML など） | delivery | delivery | `public` | `core` | `external` | `external` |
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` | `application` | `application` |
 | [dxf](#format-dxf) | DXF | acad | drawing | `public` | `core` | `application` | `application` |
 | [e57](#format-e57) | E57（ASTM E2807） | e57 | pointcloud | `public` | `core` | `external` |  |
@@ -617,8 +617,10 @@
 - 実装の根拠: spec
 - 権利の根拠にした文書: [KuniJiban の利用規約](https://www.kunijiban.pwri.go.jp/jp/terms.html)（確認日: 2026-11-01）
 - サンプルの出どころ: 国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。XML で取れるかと個人情報の有無を #505 で確かめる
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 要領と、テストの中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。DTD での検証と、KuniJiban の柱状図との照合はまだ（#505）
+- 読みの確かめた度合い: `external`（確認日: 2026-11-18）
+- 読みの確かめた範囲: 国土交通省が BED0500.DTD とともに配るボーリング交換用データの作成例 1 件（地質の令和 8 年 2 月の版）を、lxml 6.1.3 に DTD で検証させ、lxml が読んだ要素の値と、コアが読む適用規格・公開フラグ・調査基本情報・位置・測地系・住所・期間・孔口標高・総削孔長・角度・方位と、地層・色調・観察記事・標準貫入試験・孔内水位の記録を照らした（crates/zumen-geology/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift\_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領とテストの中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。KuniJiban の柱状図との照合はまだ（#505）
+- 読みで使った公開サンプル: [https://www.cals-ed.go.jp/cri\_dtdxml/](https://www.cals-ed.go.jp/cri_dtdxml/)
+- 読みで照らした外部の実装: lxml 6.1.3
 - issue: [zumen-jp/zumen#390](https://github.com/zumen-jp/zumen/issues/390)
 - 形式の文書: [docs/formats/boring.md](../../docs/formats/boring.md)
 
@@ -662,11 +664,14 @@
 - 実装の根拠: spec
 - 権利の根拠にした文書: [国土交通省 電子納品に関する要領・基準の「リンク・著作権」](https://www.cals-ed.go.jp/copyright/)（確認日: 2026-11-01）
 - 照合に使う候補: 国土交通省の電子納品チェックシステム（手元でだけ使う）
-- サンプルの出どころ: 再配布を認める公開サンプルは見つかっていない。国土交通省の作成例は転載が禁じられているので、テストの中で作る
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: 要領・基準と、テストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。DTD での検証と、公開サンプルとの照合はまだ（#505）
-- 書きの確かめた度合い: `synthetic`（確認日: 2026-11-16）
-- 書きの確かめた範囲: 既存の管理 XML の文字の更新と記録の追加。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合したが、電子納品要領の外部検証や DTD による検証はしていない。公開サンプルの条件は読みと同じ
+- サンプルの出どころ: 再配布を認める公開サンプルは見つかっていない。国土交通省の作成例は転載が禁じられているので、リポジトリのテストの入力はテストの中で作る。作成例は、利用者が入手したものを手元で読んで DTD で照らす（xtask/verify/dtd/README.md）
+- 読みの確かめた度合い: `external`（確認日: 2026-11-18）
+- 読みの確かめた範囲: 国土交通省が DTD とともに配る管理ファイルの作成例 13 件（工事・業務・地質の令和 8 年 2 月の版。INDEX\_C・INDEX\_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift\_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。PHOTO.XML・DRAWING.XML などの作成例、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）
+- 読みで使った公開サンプル: [https://www.cals-ed.go.jp/cri\_dtdxml/](https://www.cals-ed.go.jp/cri_dtdxml/)
+- 読みで照らした外部の実装: lxml 6.1.3
+- 書きの確かめた度合い: `external`（確認日: 2026-11-18）
+- 書きの確かめた範囲: 既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 13 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書き、lxml 6.1.3 が要領の DTD の検証に通し、読んだ値が書いた値と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。記録の追加は DTD で検証していない。コアは DTD を処理しないので、DTD が子の要素だけを許す項目に文字を書くと検証に通らない。電子納品チェックシステムでの検証はまだ
+- 書きで照らした外部の実装: lxml 6.1.3
 - issue: [zumen-jp/zumen#383](https://github.com/zumen-jp/zumen/issues/383)
 - issue: [zumen-jp/zumen#384](https://github.com/zumen-jp/zumen/issues/384)
 - issue: [zumen-jp/zumen#388](https://github.com/zumen-jp/zumen/issues/388)

@@ -1262,14 +1262,16 @@ rights-note = "国土交通省が要領・基準と DTD を誰でも無償で入
 place = "core"
 basis = ["spec"]
 verify = ["国土交通省の電子納品チェックシステム（手元でだけ使う）"]
-samples = ["再配布を認める公開サンプルは見つかっていない。国土交通省の作成例は転載が禁じられているので、テストの中で作る"]
+samples = ["再配布を認める公開サンプルは見つかっていない。国土交通省の作成例は転載が禁じられているので、リポジトリのテストの入力はテストの中で作る。作成例は、利用者が入手したものを手元で読んで DTD で照らす（xtask/verify/dtd/README.md）"]
 docs = ["docs/formats/delivery.md"]
 issues = ["zumen-jp/zumen#383", "zumen-jp/zumen#384", "zumen-jp/zumen#388"]
 
 [formats.delivery.read]
-level = "synthetic"
-scope = "要領・基準と、テストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。DTD での検証と、公開サンプルとの照合はまだ（#505）"
-checked = "2026-11-03"
+level = "external"
+scope = "国土交通省が DTD とともに配る管理ファイルの作成例 13 件（工事・業務・地質の令和 8 年 2 月の版。INDEX_C・INDEX_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。PHOTO.XML・DRAWING.XML などの作成例、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）"
+checked = "2026-11-18"
+public-samples = ["https://www.cals-ed.go.jp/cri_dtdxml/"]
+implementations = [{ name = "lxml", version = "6.1.3" }]
 
 [[formats.delivery.evidence]]
 title = "国土交通省 電子納品に関する要領・基準の「リンク・著作権」"
@@ -1277,9 +1279,10 @@ url = "https://www.cals-ed.go.jp/copyright/"
 checked = "2026-11-01"
 
 [formats.delivery.write]
-level = "synthetic"
-scope = "既存の管理 XML の文字の更新と記録の追加。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合したが、電子納品要領の外部検証や DTD による検証はしていない。公開サンプルの条件は読みと同じ"
-checked = "2026-11-16"
+level = "external"
+scope = "既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 13 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書き、lxml 6.1.3 が要領の DTD の検証に通し、読んだ値が書いた値と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。記録の追加は DTD で検証していない。コアは DTD を処理しないので、DTD が子の要素だけを許す項目に文字を書くと検証に通らない。電子納品チェックシステムでの検証はまだ"
+checked = "2026-11-18"
+implementations = [{ name = "lxml", version = "6.1.3" }]
 
 [formats.saf]
 name = "SXF の属性ファイル（SAF）"
@@ -1354,9 +1357,11 @@ docs = ["docs/formats/boring.md"]
 issues = ["zumen-jp/zumen#390"]
 
 [formats.boring.read]
-level = "synthetic"
-scope = "要領と、テストの中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。DTD での検証と、KuniJiban の柱状図との照合はまだ（#505）"
-checked = "2026-11-03"
+level = "external"
+scope = "国土交通省が BED0500.DTD とともに配るボーリング交換用データの作成例 1 件（地質の令和 8 年 2 月の版）を、lxml 6.1.3 に DTD で検証させ、lxml が読んだ要素の値と、コアが読む適用規格・公開フラグ・調査基本情報・位置・測地系・住所・期間・孔口標高・総削孔長・角度・方位と、地層・色調・観察記事・標準貫入試験・孔内水位の記録を照らした（crates/zumen-geology/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領とテストの中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。KuniJiban の柱状図との照合はまだ（#505）"
+checked = "2026-11-18"
+public-samples = ["https://www.cals-ed.go.jp/cri_dtdxml/"]
+implementations = [{ name = "lxml", version = "6.1.3" }]
 
 [[formats.boring.evidence]]
 title = "KuniJiban の利用規約"
