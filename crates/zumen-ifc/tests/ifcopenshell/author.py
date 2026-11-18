@@ -204,6 +204,14 @@ def check_converted(path):
     column = model.by_guid(gid(24))
     if model.schema_identifier != "IFC2X3" and column.PredefinedType != "COLUMN":
         failures.append(f"柱の定義された種類が {column.PredefinedType}")
+    quantities = ifcopenshell.util.element.get_psets(model.by_guid(gid(20)), qtos_only=True)
+    base = {k: v for k, v in quantities.get("Qto_WallBaseQuantities", {}).items() if k != "id"}
+    counts = {k: v for k, v in quantities.get("Zumen_Counts", {}).items() if k != "id"}
+    if (base, counts) != ({"Length": 3000.0, "NetSideArea": 7.5}, {"Count": 2}):
+        failures.append(f"壁の数量が {base} {counts}")
+    areas = [u for u in project.UnitsInContext.Units if getattr(u, "UnitType", None) == "AREAUNIT"]
+    if [(u.is_a(), u.Name) for u in areas] != [("IfcSIUnit", "SQUARE_METRE")]:
+        failures.append(f"面積の単位が {areas}")
     wall_type = ifcopenshell.util.element.get_type(model.by_guid(gid(20)))
     if wall_type is None or (wall_type.GlobalId, wall_type.PredefinedType) != (gid(25), "SHEAR"):
         failures.append(f"壁の型が {wall_type}")

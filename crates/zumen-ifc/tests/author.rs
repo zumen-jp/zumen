@@ -4,12 +4,12 @@
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_building::{
     Building, ElementRef, GlobalId, GridSet, Id, Local, MaterialKind, Opening, ParentKind,
-    SpatialKind, Transform,
+    QuantityKind, SpatialKind, Transform,
 };
 use zumen_ifc::{
     Edit, FillingKind, Ifc, IfcFile, IfcLive, NewBeam, NewColumn, NewElement, NewFilling, NewGrid,
-    NewGridAxis, NewLayer, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall,
-    OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
+    NewGridAxis, NewLayer, NewOpening, NewPlacement, NewQuantity, NewSection, NewSlab, NewSpace,
+    NewUnit, NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -2093,5 +2093,119 @@ fn writes_the_authored_files_for_other_readers() {
             assert!(codes.is_empty(), "{schema} {name}: {codes:?}");
             std::fs::write(folder.join(format!("{schema}.{name}.ifc")), result.unwrap()).unwrap();
         }
+    }
+}
+
+fn quantity(
+    element: u64,
+    name: &str,
+    kind: QuantityKind,
+    value: f64,
+    formula: Option<&str>,
+) -> Edit {
+    Edit::Quantity {
+        element,
+        set: "Qto_WallBaseQuantities".to_owned(),
+        method: Some("BaseQuantities".to_owned()),
+        quantity: NewQuantity {
+            name: name.to_owned(),
+            kind,
+            value,
+            formula: formula.map(str::to_owned),
+        },
+    }
+}
+
+fn unit(kind: &str, prefix: Option<&str>, name: &str) -> Edit {
+    Edit::Unit(NewUnit {
+        kind: kind.to_owned(),
+        prefix: prefix.map(str::to_owned),
+        name: name.to_owned(),
+    })
+}
+
+#[test]
+fn writes_quantities_and_units() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        // 型の数量は 6 HasPropertySets に書き、同じ名前の数量は書き直す
+        let edits = [
+            unit("AREAUNIT", None, "SQUARE_METRE"),
+            unit("massunit", Some("kilo"), "gram"),
+            quantity(20, "Length", QuantityKind::Length, 3000.0, None),
+            quantity(20, "Area", QuantityKind::Area, 7.5, None),
+            quantity(20, "Length", QuantityKind::Length, 3200.0, None),
+            quantity(20, "Count", QuantityKind::Count, 2.0, None),
+        ];
+        let (result, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let bytes = result.unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        assert!(
+            text.contains("IFCSIUNIT(*,.MASSUNIT.,.KILO.,.GRAM.)"),
+            "{text}"
+        );
+        assert!(text.contains("IFCQUANTITYCOUNT('Count',$,$,2"), "{text}");
+        let building = lift(&bytes).unwrap();
+        let wall_type = element(&building, 20).unwrap();
+        let sets = &building.components.quantities.get(wall_type).unwrap().sets;
+        let found: Vec<_> = sets
+            .iter()
+            .flat_map(|set| {
+                set.quantities
+                    .iter()
+                    .map(|q| (set.method.as_deref(), q.name.as_str(), q.value.value))
+            })
+            .collect();
+        let method = Some("BaseQuantities");
+        assert_eq!(
+            found,
+            [
+                (method, "Length", 3200.0),
+                (method, "Area", 7.5),
+                (method, "Count", 2.0)
+            ],
+            "{schema}"
+        );
+        let area = building
+            .document
+            .units
+            .iter()
+            .find(|u| u.kind == "AREAUNIT")
+            .map(|u| u.name.as_str());
+        assert_eq!(area, Some("SQUARE_METRE"), "{schema}");
+    }
+}
+
+#[test]
+fn rejects_quantities_and_units_it_cannot_write() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let mut refused = vec![
+            // ひな形が持つ種類・同じ種類・種類に合わない名前・知らない接頭辞
+            unit("LENGTHUNIT", None, "METRE"),
+            unit("AREAUNIT", None, "METRE"),
+            unit("AREAUNIT", Some("MEGAMEGA"), "SQUARE_METRE"),
+            quantity(20, "Length", QuantityKind::Length, -1.0, None),
+            quantity(20, "Length", QuantityKind::Length, f64::NAN, None),
+        ];
+        if schema == "IFC2X3" {
+            refused.push(quantity(20, "Length", QuantityKind::Length, 1.0, Some("L")));
+        }
+        if schema == "IFC4X3_ADD2" {
+            refused.push(quantity(20, "Count", QuantityKind::Count, 2.5, None));
+        }
+        for edit in &refused {
+            let (result, codes) = run(src.as_bytes(), std::slice::from_ref(edit));
+            assert!(result.is_err(), "{schema}: {edit:?}");
+            assert_eq!(codes.len(), 1, "{schema}: {edit:?}: {codes:?}");
+        }
+        let twice = [
+            unit("AREAUNIT", None, "SQUARE_METRE"),
+            unit("AREAUNIT", Some("MILLI"), "SQUARE_METRE"),
+        ];
+        let (result, codes) = run(src.as_bytes(), &twice);
+        assert!(result.is_err(), "{schema}");
+        assert_eq!(codes.len(), 1, "{schema}: {codes:?}");
     }
 }

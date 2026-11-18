@@ -17,13 +17,15 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, Id, Literal, Local, Opening, ParentKind, Property, SpatialKind,
+    Building, ElementRef, GlobalId, Id, Literal, Local, Opening, ParentKind, Property, Quantity,
+    SpatialKind, Unit,
 };
 use zumen_sdk::conversion::{ConversionFidelity, ConversionReport, Report, note};
 use zumen_sdk::{Codec, Cx, Error};
 
 use super::author::{NewType, enumeration, predefined_at, rigid, writable_type};
 use super::create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
+use super::quantity::{NewQuantity, NewUnit, quantity_value, si_unit};
 use super::{
     Edit, NewElement, NewLiteral, NewPlacement, NewSpace, NewValue, SpaceKind, Target, apply,
 };
@@ -102,6 +104,7 @@ pub fn convert(
         notes: BTreeMap::new(),
         edits: Vec::new(),
         added: 0,
+        units: Vec::new(),
         report: Report::new(options.limit),
     };
     if let Some(project) = project {
@@ -277,6 +280,8 @@ struct Plan<'b, 'n> {
     edits: Vec<Edit>,
     /// 足す変更が足した要素の数
     added: usize,
+    /// 書いた文書の単位（元の値）。長さの単位と、足した SI の単位
+    units: Vec<&'b Unit>,
     report: Report,
 }
 
@@ -338,13 +343,43 @@ impl Plan<'_, '_> {
         self.written.insert(project, Target::Instance(1));
         let document = &self.building.document;
         let mut dropped = Vec::new();
-        if document.units.iter().any(|unit| {
-            !unit.kind.eq_ignore_ascii_case("LENGTHUNIT")
-                && !(unit.kind.eq_ignore_ascii_case("PLANEANGLEUNIT")
-                    && unit.scale.is_none()
-                    && unit.prefix.is_none()
-                    && unit.name.eq_ignore_ascii_case("RADIAN"))
-        }) {
+        // 長さとラジアンはひな形が持つ。ほかの SI の単位は種類ごとに 1 つ足し、換算する単位などは落とす
+        let mut lost_units = false;
+        for unit in &document.units {
+            if unit.kind.eq_ignore_ascii_case("LENGTHUNIT") {
+                if !self
+                    .units
+                    .iter()
+                    .any(|u| u.kind.eq_ignore_ascii_case("LENGTHUNIT"))
+                {
+                    self.units.push(unit);
+                }
+                continue;
+            }
+            if unit.kind.eq_ignore_ascii_case("PLANEANGLEUNIT")
+                && unit.scale.is_none()
+                && unit.prefix.is_none()
+                && unit.name.eq_ignore_ascii_case("RADIAN")
+            {
+                continue;
+            }
+            let new = NewUnit {
+                kind: unit.kind.clone(),
+                prefix: unit.prefix.clone(),
+                name: unit.name.clone(),
+            };
+            let taken = self
+                .units
+                .iter()
+                .any(|u| u.kind.eq_ignore_ascii_case(&unit.kind));
+            if unit.scale.is_none() && si_unit(&new).is_some() && !taken {
+                self.units.push(unit);
+                self.edits.push(Edit::Unit(new));
+            } else {
+                lost_units = true;
+            }
+        }
+        if lost_units {
             dropped.push("units");
         }
         if document.phase.is_some() {
@@ -622,7 +657,7 @@ impl Plan<'_, '_> {
         {
             dropped.push("identity");
         }
-        let present: [(&'static str, bool); 11] = [
+        let present: [(&'static str, bool); 10] = [
             ("classification", c.classification.get(element).is_some()),
             ("representation", c.representation.get(element).is_some()),
             ("style", c.style.get(element).is_some()),
@@ -631,7 +666,6 @@ impl Plan<'_, '_> {
                 "property_details",
                 c.property_details.get(element).is_some(),
             ),
-            ("quantities", c.quantities.get(element).is_some()),
             ("material", c.material.get(element).is_some()),
             ("group", c.group.get(element).is_some()),
             ("connection", c.connection.get(element).is_some()),
@@ -654,11 +688,9 @@ impl Plan<'_, '_> {
         self.notes
             .keys()
             .filter(|&&e| {
-                self.building
-                    .components
-                    .properties
-                    .get(e)
-                    .is_some_and(|p| !p.sets.is_empty())
+                let c = &self.building.components;
+                c.properties.get(e).is_some_and(|p| !p.sets.is_empty())
+                    || c.quantities.get(e).is_some_and(|q| !q.sets.is_empty())
             })
             .filter_map(|&e| {
                 let global = if Some(e) == project {
@@ -683,11 +715,39 @@ impl Plan<'_, '_> {
         let building = self.building;
         let mut edits = Vec::new();
         for &(element, global) in wanted {
-            let Some(sets) = building.components.properties.get(element) else {
+            let Some(&instance) = instances.get(&global.to_string()) else {
+                if building.components.properties.get(element).is_some() {
+                    self.lost(element, "properties");
+                }
+                if building.components.quantities.get(element).is_some() {
+                    self.lost(element, "quantities");
+                }
                 continue;
             };
-            let Some(&instance) = instances.get(&global.to_string()) else {
-                self.lost(element, "properties");
+            if let Some(sets) = building.components.quantities.get(element) {
+                let mut lost = false;
+                for set in &sets.sets {
+                    lost |= set.quantities.is_empty();
+                    for quantity in &set.quantities {
+                        match self.quantity(quantity) {
+                            Some((quantity, partial)) => {
+                                lost |= partial;
+                                edits.push(Edit::Quantity {
+                                    element: instance,
+                                    set: set.name.clone(),
+                                    method: set.method.clone(),
+                                    quantity,
+                                });
+                            }
+                            None => lost = true,
+                        }
+                    }
+                }
+                if lost {
+                    self.lost(element, "quantities");
+                }
+            }
+            let Some(sets) = building.components.properties.get(element) else {
                 continue;
             };
             let mut lost = false;
@@ -710,6 +770,28 @@ impl Plan<'_, '_> {
             }
         }
         edits
+    }
+
+    /// 書ける数量と、式を落としたか。値の単位が書いた文書の単位で、値がそのバージョンに書けるもの。IFC2X3 は式を
+    /// 持たないので落とす
+    fn quantity(&self, quantity: &Quantity) -> Option<(NewQuantity, bool)> {
+        let unit_written = match &quantity.value.unit {
+            None => true,
+            Some(unit) => self.units.contains(&unit),
+        };
+        if !unit_written
+            || quantity_value(quantity.kind, quantity.value.value, self.version).is_none()
+        {
+            return None;
+        }
+        let keeps_formula = self.version != Version::Ifc2x3;
+        let new = NewQuantity {
+            name: quantity.name.clone(),
+            kind: quantity.kind,
+            value: quantity.value.value,
+            formula: quantity.formula.clone().filter(|_| keeps_formula),
+        };
+        Some((new, quantity.formula.is_some() && !keeps_formula))
     }
 
     /// 開口と建具の関係。両方を書いたものだけを結ぶ

@@ -9,6 +9,7 @@
 mod author;
 mod convert;
 mod create;
+mod quantity;
 
 pub use author::{
     FillingKind, NewBeam, NewColumn, NewElement, NewFilling, NewGrid, NewGridAxis, NewLayer,
@@ -17,6 +18,7 @@ pub use author::{
 };
 pub use convert::{ConvertOptions, Converted, convert};
 pub use create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
+pub use quantity::{NewQuantity, NewUnit};
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -26,6 +28,9 @@ use zumen_sdk::{Cx, Error};
 
 use crate::building::{Category, category, decode};
 use crate::{Form, IfcFile, Value, at_bytes, stopped};
+
+/// プロパティのセットの実体
+const PROPERTY_SET: &[u8] = b"IFCPROPERTYSET";
 
 /// 変更 1 つ
 #[derive(Clone, Debug, PartialEq)]
@@ -74,6 +79,20 @@ pub enum Edit {
     Grid(NewGrid),
     /// 型（`IfcWallType` など）を足す。要素とは [`Edit::Type`] で結ぶ
     ElementType(NewType),
+    /// 要素の数量のセット `set`（`IfcElementQuantity`）の数量の値を変える。セットか数量がなければ足す
+    Quantity {
+        /// 要素のインスタンスの番号
+        element: u64,
+        /// 数量のセットの名前
+        set: String,
+        /// セットを足すときの 5 MethodOfMeasurement
+        method: Option<String>,
+        /// 数量
+        quantity: NewQuantity,
+    },
+    /// プロジェクトの単位の割り当て（`IfcUnitAssignment`）に SI の単位（`IfcSIUnit`）を足す。同じ種類の単位が
+    /// あれば断る
+    Unit(NewUnit),
     /// 階の高さ（`Elevation`）を直し、階の配置の z を同じだけ動かす。階に属する要素は配置の相対で付いてくる
     Elevation {
         /// 直す階（`IfcBuildingStorey`）
@@ -150,6 +169,8 @@ impl Edit {
             Self::Filling(_) => "filling",
             Self::Grid(_) => "grid",
             Self::ElementType(_) => "element_type",
+            Self::Quantity { .. } => "quantity",
+            Self::Unit(_) => "unit",
             Self::Elevation { .. } => "elevation",
             Self::WallShape(_) => "wall_shape",
             Self::OpeningShape(_) => "opening_shape",
@@ -240,6 +261,13 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
             Edit::Filling(filling) => draft.add_filling(filling, cx)?,
             Edit::Grid(grid) => draft.add_grid(grid, cx)?,
             Edit::ElementType(new) => draft.add_type(new, cx)?,
+            Edit::Quantity {
+                element,
+                set,
+                method,
+                quantity,
+            } => draft.quantity(*element, set, method.as_deref(), quantity, cx)?,
+            Edit::Unit(unit) => draft.add_unit(unit, cx)?,
             Edit::Elevation { storey, elevation } => draft.elevate(*storey, *elevation, cx)?,
             Edit::WallShape(change) => draft.reshape_wall(change, cx)?,
             Edit::OpeningShape(change) => draft.reshape_opening(change, cx)?,
@@ -572,33 +600,57 @@ impl<'f> Draft<'f> {
         };
         let typed_object = matches!(category, Category::Type | Category::Style);
         let found = if typed_object {
-            self.type_set(element, &owner, set)
+            self.type_set(element, &owner, PROPERTY_SET, set)
         } else {
-            self.occurrence_set(element, set, cx)?
+            self.occurrence_set(element, PROPERTY_SET, set, cx)?
         };
         let target = match found {
-            Some((holder, pset)) => {
-                let exclusive = self.referrers(pset) == [holder]
-                    && (typed_object
-                        || self
-                            .stmt(holder)
-                            .map(|rel| refs_of(rel.arg(5)) == [element])
-                            .unwrap_or_default());
-                if exclusive {
-                    pset
-                } else {
-                    self.copy_set(element, &owner, holder, pset, typed_object)
-                }
+            Some((holder, pset)) => self.own_set(element, &owner, holder, pset, typed_object),
+            None => {
+                let history = owner.arg(2).cloned().unwrap_or(Item::Raw(b"$".to_vec()));
+                let stmt = Stmt {
+                    name: PROPERTY_SET.to_vec(),
+                    args: vec![
+                        self.global_id(),
+                        history,
+                        text(set),
+                        Item::Raw(b"$".to_vec()),
+                        Item::List(Vec::new()),
+                    ],
+                };
+                self.new_set(element, &owner, stmt, typed_object)
             }
-            None => self.new_set(element, &owner, set, typed_object),
         };
         self.set_property(target, name, written, &owner.name, cx)
     }
 
-    /// 要素に `IfcRelDefinesByProperties` で付いた、名前が `set` の `IfcPropertySet` と、その関係
+    /// 見つけたセットを、この要素だけのものにする。ほかと共有していれば写しを作って付け替える
+    fn own_set(
+        &mut self,
+        element: u64,
+        owner: &Stmt,
+        holder: u64,
+        pset: u64,
+        typed_object: bool,
+    ) -> u64 {
+        let exclusive = self.referrers(pset) == [holder]
+            && (typed_object
+                || self
+                    .stmt(holder)
+                    .map(|rel| refs_of(rel.arg(5)) == [element])
+                    .unwrap_or_default());
+        if exclusive {
+            pset
+        } else {
+            self.copy_set(element, owner, holder, pset, typed_object)
+        }
+    }
+
+    /// 要素に `IfcRelDefinesByProperties` で付いた、実体が `kind` で名前が `set` のセットと、その関係
     fn occurrence_set(
         &self,
         element: u64,
+        kind: &[u8],
         set: &str,
         cx: &mut Cx,
     ) -> Result<Option<(u64, u64)>, Error> {
@@ -615,7 +667,7 @@ impl<'f> Draft<'f> {
                 continue;
             }
             for pset in refs_of(stmt.arg(6)) {
-                if self.is_set(pset, set) {
+                if self.is_set(pset, kind, set) {
                     return Ok(Some((rel, pset)));
                 }
             }
@@ -623,16 +675,16 @@ impl<'f> Draft<'f> {
         Ok(None)
     }
 
-    /// 型の 6 HasPropertySets の、名前が `set` の `IfcPropertySet`。持ち主は型
-    fn type_set(&self, element: u64, owner: &Stmt, set: &str) -> Option<(u64, u64)> {
+    /// 型の 6 HasPropertySets の、実体が `kind` で名前が `set` のセット。持ち主は型
+    fn type_set(&self, element: u64, owner: &Stmt, kind: &[u8], set: &str) -> Option<(u64, u64)> {
         refs_of(owner.arg(6))
             .into_iter()
-            .find(|&pset| self.is_set(pset, set))
+            .find(|&pset| self.is_set(pset, kind, set))
             .map(|pset| (element, pset))
     }
 
-    fn is_set(&self, pset: u64, set: &str) -> bool {
-        self.kind(pset) == b"IFCPROPERTYSET"
+    fn is_set(&self, pset: u64, kind: &[u8], set: &str) -> bool {
+        self.kind(pset) == kind
             && self
                 .stmt(pset)
                 .and_then(|stmt| self.text_of(stmt.arg(3)?))
@@ -687,19 +739,9 @@ impl<'f> Draft<'f> {
         copy
     }
 
-    /// 名前が `set` の空のセットを足し、要素に付ける
-    fn new_set(&mut self, element: u64, owner: &Stmt, set: &str, typed_object: bool) -> u64 {
+    /// 空のセット `stmt` を足し、要素に付ける
+    fn new_set(&mut self, element: u64, owner: &Stmt, stmt: Stmt, typed_object: bool) -> u64 {
         let history = owner.arg(2).cloned().unwrap_or(Item::Raw(b"$".to_vec()));
-        let stmt = Stmt {
-            name: b"IFCPROPERTYSET".to_vec(),
-            args: vec![
-                self.global_id(),
-                history.clone(),
-                text(set),
-                Item::Raw(b"$".to_vec()),
-                Item::List(Vec::new()),
-            ],
-        };
         let pset = self.add(stmt);
         if typed_object {
             if let Some(mut stmt) = self.stmt(element) {

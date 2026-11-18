@@ -3,11 +3,13 @@
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
 use zumen_building::{
-    Building, ElementRef, GlobalId, Id, Literal, Local, ParentKind, Transform, TypedValue,
+    Building, ElementRef, GlobalId, Id, Literal, Local, ParentKind, QuantityKind, Transform,
+    TypedValue,
 };
 use zumen_ifc::{
-    ConvertOptions, Converted, Edit, Header, Ifc, LengthUnit, NewElement, NewPlacement, NewSpace,
-    NewType, OwnerHistory, SpaceKind, Target, Template, Version, apply, convert, create,
+    ConvertOptions, Converted, Edit, Header, Ifc, LengthUnit, NewElement, NewPlacement,
+    NewQuantity, NewSpace, NewType, NewUnit, OwnerHistory, SpaceKind, Target, Template, Version,
+    apply, convert, create,
 };
 use zumen_sdk::conversion::ConversionFidelity;
 use zumen_sdk::{Codec, Lift};
@@ -213,7 +215,81 @@ fn source(version: Version) -> Option<Vec<u8>> {
     }
     let (applied, diag) = with(|cx| apply(&file, &edits, b"seed", cx));
     assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
+    let bytes = applied.ok()?.bytes;
+    // 数量は文書にあるインスタンスの番号で指すので、書いた後に足す
+    let (file, _) = with(|cx| Ifc::read(&bytes, cx));
+    let file = file.ok()?;
+    let wall = instance_of(&bytes, global(20))?;
+    let quantity = |set: &str, name: &str, kind, value, formula: Option<&str>| Edit::Quantity {
+        element: wall,
+        set: set.to_owned(),
+        method: set.starts_with("Qto_").then(|| "BaseQuantities".to_owned()),
+        quantity: NewQuantity {
+            name: name.to_owned(),
+            kind,
+            value,
+            formula: formula.map(str::to_owned),
+        },
+    };
+    const BASE: &str = "Qto_WallBaseQuantities";
+    // IFC2X3 の数量は式を持たない
+    let formula = (version != Version::Ifc2x3).then_some("L");
+    let edits = [
+        Edit::Unit(NewUnit {
+            kind: "AREAUNIT".to_owned(),
+            prefix: None,
+            name: "SQUARE_METRE".to_owned(),
+        }),
+        quantity(BASE, "Length", QuantityKind::Length, 3000.0, formula),
+        quantity(BASE, "NetSideArea", QuantityKind::Area, 7.5, None),
+        // 個数は壁の基本の数量にない（ifc-gherkin-rules の QTY001）ので、別のセットに書く
+        quantity("Zumen_Counts", "Count", QuantityKind::Count, 2.0, None),
+    ];
+    let (applied, diag) = with(|cx| apply(&file, &edits, b"seed2", cx));
+    assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
     applied.ok().map(|a| a.bytes)
+}
+
+/// GlobalId が `global` のインスタンスの番号
+fn instance_of(bytes: &[u8], global: GlobalId) -> Option<u64> {
+    let text = core::str::from_utf8(bytes).ok()?;
+    let needle = format!("('{global}'");
+    let line = text.lines().find(|line| line.contains(&needle))?;
+    line.strip_prefix('#')?.split('=').next()?.parse().ok()
+}
+
+/// 数量のセットの名前・測り方と、数量の名前・種類・値・式
+type QuantitySetRow = (
+    String,
+    Option<String>,
+    Vec<(String, QuantityKind, f64, Option<String>)>,
+);
+
+/// 数量のセットごとの値
+fn quantities(building: &Building, n: u32) -> Vec<QuantitySetRow> {
+    let Some(e) = building.find(Id::Global(global(n))) else {
+        return Vec::new();
+    };
+    building
+        .components
+        .quantities
+        .get(e)
+        .map(|q| {
+            q.sets
+                .iter()
+                .map(|set| {
+                    (
+                        set.name.clone(),
+                        set.method.clone(),
+                        set.quantities
+                            .iter()
+                            .map(|q| (q.name.clone(), q.kind, q.value.value, q.formula.clone()))
+                            .collect(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn run(building: &Building, options: &ConvertOptions) -> (Option<Converted>, Vec<Code>) {
@@ -310,6 +386,20 @@ fn converts_the_structure_between_every_version() {
                 }
             }
             assert_eq!(found, expected, "{from:?} → {to:?}");
+            // 数量は保つ。IFC2X3 へは式を落とす
+            let mut wanted = quantities(&source, 20);
+            if to == Version::Ifc2x3 {
+                for (_, _, items) in &mut wanted {
+                    for item in items {
+                        item.3 = None;
+                    }
+                }
+            }
+            assert_eq!(quantities(&target, 20), wanted, "{from:?} → {to:?}");
+            assert_eq!(
+                wanted.iter().map(|set| set.2.len()).collect::<Vec<_>>(),
+                [2, 1]
+            );
             assert_eq!(
                 target.document.project_name.as_deref(),
                 Some("元の建物"),
@@ -328,45 +418,59 @@ fn converts_the_structure_between_every_version() {
                 }
             }
 
-            let approximated: Vec<_> = converted
+            let mut approximated: Vec<_> = converted
                 .report
                 .details
                 .iter()
                 .filter(|d| d.fidelity != ConversionFidelity::Native)
                 .map(|d| (d.kind.as_str(), d.fidelity, d.reasons.clone()))
                 .collect();
+            approximated.sort_by(|a, b| a.0.cmp(b.0));
+            let mut wanted = Vec::new();
             if lost_column {
-                assert_eq!(
-                    approximated,
-                    [
-                        ("IfcDoorType", ConversionFidelity::Dropped, Vec::new()),
-                        (
-                            "IfcDoor",
-                            ConversionFidelity::Approximated,
-                            vec!["type".to_owned()]
-                        ),
-                        (
-                            "IfcColumn",
-                            ConversionFidelity::Approximated,
-                            vec!["predefined".to_owned()]
-                        ),
-                    ],
-                    "{from:?} → {to:?}"
-                );
-                let count = |code| codes.iter().filter(|&&c| c == code).count();
-                assert_eq!(
+                wanted.extend([
                     (
-                        count(codes::CONVERT_ELEMENT_UNSUPPORTED),
-                        count(codes::CONVERT_ITEM_APPROXIMATED),
-                        codes.len()
+                        "IfcColumn",
+                        ConversionFidelity::Approximated,
+                        vec!["predefined".to_owned()],
                     ),
-                    (1, 2, 3),
-                    "{codes:?}"
-                );
-            } else {
-                assert_eq!(approximated, [], "{from:?} → {to:?}");
-                assert!(codes.is_empty(), "{from:?} → {to:?}: {codes:?}");
+                    (
+                        "IfcDoor",
+                        ConversionFidelity::Approximated,
+                        vec!["type".to_owned()],
+                    ),
+                    ("IfcDoorType", ConversionFidelity::Dropped, Vec::new()),
+                ]);
             }
+            // 長さの数量の式は IFC2X3 に書けない
+            if from != Version::Ifc2x3 && to == Version::Ifc2x3 {
+                wanted.push((
+                    "IfcWall",
+                    ConversionFidelity::Approximated,
+                    vec!["quantities".to_owned()],
+                ));
+            }
+            assert_eq!(approximated, wanted, "{from:?} → {to:?}");
+            let values: usize = wanted
+                .iter()
+                .filter(|w| w.1 == ConversionFidelity::Approximated)
+                .map(|w| w.2.len())
+                .sum();
+            let dropped = wanted.len()
+                - wanted
+                    .iter()
+                    .filter(|w| w.1 == ConversionFidelity::Approximated)
+                    .count();
+            let count = |code| codes.iter().filter(|&&c| c == code).count();
+            assert_eq!(
+                (
+                    count(codes::CONVERT_ELEMENT_UNSUPPORTED),
+                    count(codes::CONVERT_ITEM_APPROXIMATED),
+                    codes.len()
+                ),
+                (dropped, values, dropped + values),
+                "{from:?} → {to:?}: {codes:?}"
+            );
             // プロジェクト・空間 4 つ・要素 5 つ・型（IFC2X3 からは壁の型だけ）
             let types = if from == Version::Ifc2x3 { 1 } else { 2 };
             assert_eq!(converted.report.total, 10 + types, "{from:?} → {to:?}");
@@ -398,9 +502,14 @@ fn rich() -> String {
     let g = |n: u32| global(n).to_string();
     let lines = [
         format!("#1=IFCPROJECT('{}',$,'P',$,$,$,$,$,#3);", g(1)),
-        "#3=IFCUNITASSIGNMENT((#4,#5));".to_owned(),
+        "#3=IFCUNITASSIGNMENT((#4,#5,#6,#7));".to_owned(),
         "#4=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);".to_owned(),
         "#5=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);".to_owned(),
+        "#6=IFCSIUNIT(*,.TIMEUNIT.,$,.SECOND.);".to_owned(),
+        "#7=IFCCONVERSIONBASEDUNIT(#8,.PLANEANGLEUNIT.,'degree',#9);".to_owned(),
+        "#8=IFCDIMENSIONALEXPONENTS(0,0,0,0,0,0,0);".to_owned(),
+        "#9=IFCMEASUREWITHUNIT(IFCPLANEANGLEMEASURE(0.0174532925199433),#15);".to_owned(),
+        "#15=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);".to_owned(),
         format!(
             "#10=IFCSITE('{}',$,'Site',$,$,#11,$,$,.ELEMENT.,$,$,$,$,$);",
             g(10)
@@ -466,6 +575,17 @@ fn rich() -> String {
             g(82)
         ),
         format!("#83=IFCRELDEFINESBYPROPERTIES('{}',$,$,$,(#1),#82);", g(83)),
+        "#90=IFCQUANTITYAREA('NetSideArea',$,$,7.5,$);".to_owned(),
+        "#91=IFCQUANTITYTIME('Duration',$,$,60.,$);".to_owned(),
+        "#92=IFCQUANTITYCOUNT('Count',$,$,2.5,$);".to_owned(),
+        format!(
+            "#93=IFCELEMENTQUANTITY('{}',$,'Qto_WallBaseQuantities',$,$,(#90,#91,#92));",
+            g(93)
+        ),
+        format!(
+            "#94=IFCRELDEFINESBYPROPERTIES('{}',$,$,$,(#60),#93);",
+            g(94)
+        ),
     ];
     format!(
         "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('a.ifc','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;\n",
@@ -513,6 +633,12 @@ fn counts_the_elements_and_values_it_cannot_write() {
         for reason in ["type", "properties"] {
             assert!(!reasons.iter().any(|r| r == reason), "{to:?}: {reasons:?}");
         }
+        // 個数 2.5 は、整数の IfcCountMeasure の IFC4X3 に書けない
+        assert_eq!(
+            reasons.iter().any(|r| r == "quantities"),
+            to == Version::Ifc4x3,
+            "{to:?}: {reasons:?}"
+        );
         assert_eq!(
             detail("IfcWallType"),
             Some((ConversionFidelity::Native, Vec::new())),
@@ -620,6 +746,26 @@ fn counts_the_elements_and_values_it_cannot_write() {
             )],
             "{to:?}"
         );
+        // 面積と時間の単位を足し、数量を書く。度の単位は書かない
+        let kinds: Vec<_> = target
+            .document
+            .units
+            .iter()
+            .map(|u| (u.kind.as_str(), u.name.as_str()))
+            .collect();
+        for unit in [("AREAUNIT", "SQUARE_METRE"), ("TIMEUNIT", "SECOND")] {
+            assert!(kinds.contains(&unit), "{to:?}: {kinds:?}");
+        }
+        let names: Vec<_> = quantities(&target, 60)
+            .into_iter()
+            .flat_map(|set| set.2.into_iter().map(|q| q.0))
+            .collect();
+        let expected: &[&str] = if to == Version::Ifc4x3 {
+            &["NetSideArea", "Duration"]
+        } else {
+            &["NetSideArea", "Duration", "Count"]
+        };
+        assert_eq!(names, expected, "{to:?}");
         let project = target.document.project.unwrap();
         let names: Vec<_> = target
             .components

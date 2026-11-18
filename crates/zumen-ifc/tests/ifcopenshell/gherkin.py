@@ -12,7 +12,7 @@ ifc-gherkin-rules にかける（#898・#395）。
 
 - 誤り（ERROR）の結果がない。
 - 警告（WARNING）は、試験の入力のプロジェクトに座標参照系がないことの GRF003 だけ。
-- 規則の手順が例外で止まらない。規則の側に資料がない GEM004 の IFC2X3 は除く。
+- 規則の手順が例外で止まらない。規則の側に IFC2X3 の資料がない GEM004 と QTY001 の IFC2X3 は除く。
 
 試験の動かし方では、規則の試験ファイルの名前の決まりを確かめる `protocol_errors` が全ての規則に付くので
 数えない。
@@ -32,8 +32,9 @@ STATES = ["template", "built", "changed", "converted"]
 # 試験の入力は地理参照を持たない。作る変更と直す変更の範囲の外なので、警告とその手順の止まりを許す
 ALLOWED_WARNINGS = {"GRF003"}
 
-# 規則の側にない資料。GEM004 は IFC2X3 の表現の識別子の表（features/resources/IFC2X3）を持たない
-TOOL_GAPS = {("GEM004", "FileNotFoundError")}
+# 規則の側にない IFC2X3 の資料。GEM004 は表現の識別子の表を、QTY001 は数量のセットの表
+# （qto_definitions.csv）を features/resources/IFC2X3 に持たない
+TOOL_GAPS = {("GEM004", "FileNotFoundError", "IFC2X3"), ("QTY001", "TypeError", "IFC2X3")}
 
 
 def decoded(element, key):
@@ -77,14 +78,14 @@ def run(rules, path):
         os.unlink(out)
 
 
-def check(rules, path):
+def check(rules, path, schema):
     failures = []
     executed = 0
     for feature in run(rules, path):
         code = feature["name"].split(" ")[0]
         for element in feature.get("elements", []):
             for exception in decoded(element, "caught_exceptions"):
-                if code in ALLOWED_WARNINGS or (code, exception.get("error_type")) in TOOL_GAPS:
+                if code in ALLOWED_WARNINGS or (code, exception.get("error_type"), schema) in TOOL_GAPS:
                     continue
                 failures.append(f"{code}: 手順が例外で止まった: {exception.get('error_type')} {exception.get('step')}")
             for outcome in decoded(element, "validation_outcomes"):
@@ -109,7 +110,7 @@ def main():
     for schema in SCHEMAS:
         for state in STATES:
             name = f"{schema}.{state}.ifc"
-            found, executed = check(rules, folder / name)
+            found, executed = check(rules, folder / name, schema)
             print(f"{name}: 当たった規則の結果 {executed} 件")
             failures += [f"{name}: {f}" for f in found]
     for failure in failures:
