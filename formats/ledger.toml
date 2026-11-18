@@ -711,7 +711,7 @@ rights = "public"
 rights-note = "文書は CC BY-ND 4.0 で、ライセンスの外の使い方には事前の書面の同意が要る。実装についての記述はない。buildingSMART International は、自らの検証のツールを MIT で公開している。スキーマと、そこから生成したコードは同梱しない。IFC2X3 TC1 と IFC4 ADD2 TC1 の文書は CC BY-NC-ND 4.0 だが、文書を複製・改変・頒布せず事実だけを使う実装は許諾の対象の行為に当たらない（CC 4.0 の 8(a)）。IFC 4.3 の開発リポジトリの LICENSE.md は、文書をソフトウェアの開発に使ってよいと明記し、buildingSMART の今の説明は IFC 全体を CC BY-ND 4.0 とする（zumen-jp/zumen#440、2026-11-02）。IFC は buildingSMART International の商標"
 place = "core"
 basis = ["spec"]
-verify = ["IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）"]
+verify = ["IfcOpenShell（依存にせず、毎晩の CI で別に入れて使う）", "buildingSMART の ifc-gherkin-rules（MIT。依存にせず、毎晩の CI で別に入れて使う）"]
 samples = ["公開サンプルの IFC 12 件（samples/ifc。林野庁・中野区・GNI BIM Dataset・BIM Whale・Text2BIM。出所とライセンスは samples/ledger.toml、#412）", "許諾の要る国内の BIM ソフトの書き出しは #513 で足す（zumen-jp/zumen-legacy#128）"]
 legacy-decisions = ["0028"]
 docs = ["docs/formats/ifc.md"]
@@ -725,9 +725,9 @@ checked = "2026-11-11"
 
 [formats.ifc.write]
 level = "external"
-scope = "building_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。書いたファイルを BIM ソフトで開いてはいない（#526）"
-implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }]
-checked = "2026-11-02"
+scope = "building_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。変更だけで作った 2 階建てとそれを直した IFC の 3 版は、IfcOpenShell の検査（スキーマと EXPRESS の規則）と数・配置・所属・関係・層・開口を引いた体積の照合（crates/zumen-ifc/tests/ifcopenshell/author.py）、buildingSMART の ifc-gherkin-rules の規則（gherkin.py）にかけ、毎晩の CI で誤りがないことを確かめる（#898）。ifc-gherkin-rules の警告は、試験の入力に座標参照系がないことの GRF003 だけを許す。書いたファイルを BIM ソフトで開いてはいない（#526）"
+implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }, { name = "ifc-gherkin-rules", version = "893f8275049b8960c3ce0c7379b4b57aefeaa8f9（IfcOpenShell 0.8.5 で動かす）" }]
+checked = "2026-11-18"
 
 [[formats.ifc.evidence]]
 title = "IFC 4.3.x の文書の表紙（ライセンスと連絡の注意）"

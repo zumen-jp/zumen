@@ -262,6 +262,17 @@ jobs:
         run: ZUMEN_IFC_AUTHORED="$RUNNER_TEMP/authored" cargo test --locked -p zumen-ifc --all-features --test author writes_the_authored_files_for_other_readers
       - name: 作った IFC と直した IFC を IfcOpenShell で検査し、数・配置・所属・関係・層・開口を引いた体積を照らす
         run: python -I crates/zumen-ifc/tests/ifcopenshell/author.py "$RUNNER_TEMP/authored"
+      - name: buildingSMART の ifc-gherkin-rules をコミットを決めて取り、別の環境に IfcOpenShell 0.8.5 と入れる
+        # 規則は IfcOpenShell 0.8 の API で書かれている。MIT の照合ツールで、依存にも同梱にもしない
+        run: |
+          git init --quiet "$RUNNER_TEMP/gherkin"
+          git -C "$RUNNER_TEMP/gherkin" fetch --quiet --depth 1 https://github.com/buildingSMART/ifc-gherkin-rules 893f8275049b8960c3ce0c7379b4b57aefeaa8f9
+          git -C "$RUNNER_TEMP/gherkin" checkout --quiet FETCH_HEAD
+          git -C "$RUNNER_TEMP/gherkin" submodule update --init --depth 1 --quiet
+          python -m venv "$RUNNER_TEMP/gherkin-venv"
+          "$RUNNER_TEMP/gherkin-venv/bin/python" -m pip install --quiet -r "$RUNNER_TEMP/gherkin/requirements.txt" -r "$RUNNER_TEMP/gherkin/ifc_validation_models/requirements.txt" ifcopenshell==0.8.5
+      - name: 作った IFC と直した IFC を ifc-gherkin-rules の規則にかけ、誤りがないことを確かめる
+        run: '"$RUNNER_TEMP/gherkin-venv/bin/python" -I crates/zumen-ifc/tests/ifcopenshell/gherkin.py "$RUNNER_TEMP/gherkin" "$RUNNER_TEMP/authored"'
 
   ids:
     name: IDS の名前の要件を IfcTester と照らす

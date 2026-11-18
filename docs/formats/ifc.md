@@ -1018,6 +1018,12 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
     uv run --no-project --python 3.13 --no-python-downloads --with ifcopenshell==0.9.0.post1 --with pytest==9.2.0 python -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/author.py target/authored
     ```
 
+  - 同じ段で、buildingSMART の ifc-gherkin-rules（MIT、コミット `893f8275049b8960c3ce0c7379b4b57aefeaa8f9`）を別の環境に IfcOpenShell 0.8.5 と入れ、`tests/ifcopenshell/gherkin.py` で同じ 6 つのファイルを検証サービスと同じ規則（実装者の合意と非公式の命題）にかける。データベースを使わない試験の動かし方で、規則ごとの結果を読む。誤りがなく、警告は試験の入力に座標参照系がないことの GRF003 だけで、規則の手順が例外で止まらないことを確かめる。GEM004 は IFC2X3 の識別子の表を規則の側に持たないので、その例外は数えない。IFC4.3 で非推奨の階の `Elevation` を書かないことは、この照合の IFC102 で見つけて直した。手元では、ifc-gherkin-rules を取って入れた環境の Python で次のように流す。
+
+    ```powershell
+    <環境の python> -X utf8 -I crates/zumen-ifc/tests/ifcopenshell/gherkin.py <ifc-gherkin-rules のフォルダー> target/authored
+    ```
+
 ### 新しい IFC を作る
 
 建物モデルから新しい IFC を作るときは、バージョンごとの空のひな形に、`building_apply` と同じ書き手で空間・要素・関係・定義を足します。図面の[新しい DXF への変換](dxf.md#新しい-dxf-への変換)と同じ作りです。実装は [#395](https://github.com/zumen-jp/zumen/issues/395) と [#897](https://github.com/zumen-jp/zumen/issues/897) で進め、この節の規則に合わせます。
