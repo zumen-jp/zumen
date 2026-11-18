@@ -1611,6 +1611,146 @@ fn changes_storeys_walls_and_openings_and_dependents_follow_in_every_version() {
     }
 }
 
+/// 形まで読んだ文書を、床の高さ `floor` から 1200 の水平面で切った壁 `n` の切断線と、開口を引いた体積（m³）
+#[cfg(all(feature = "drawing", feature = "measure"))]
+fn cut_and_volume(bytes: &[u8], n: u32, floor: f64) -> Option<(Vec<[[f64; 2]; 2]>, f64)> {
+    use zumen_building::drawing::{self, Paper, Role, View};
+    use zumen_building::measure::{self, LengthUnit, Rounding, RoundingMode, RoundingStage, Unit};
+    use zumen_crs::ProjectPoint;
+    use zumen_drawing::{PaperLength, Shape};
+    use zumen_geom3d::Tolerance;
+    let file = read(bytes)?;
+    let building = with(|cx| file.lift_geometry(cx)).0.ok()?;
+    let wall = element(&building, n)?;
+    let options = drawing::Options {
+        view: View::Plan {
+            floor: ProjectPoint {
+                x: 0.0,
+                y: 0.0,
+                z: floor,
+            },
+            height: 1200.0,
+            depth: 2000.0,
+        },
+        tolerance: 0.01,
+        chord: 1.0,
+        paper: Paper {
+            denominator: 100.0,
+            origin: [PaperLength(0.0); 2],
+            size: None,
+        },
+        symbols: &[],
+    };
+    let out = with(|cx| drawing::cut(&building, options, cx)).0.ok()?;
+    let mut lines = Vec::new();
+    for line in &out.lines {
+        if out.sources.get(line.source)?.element != wall || line.role != Role::Cut {
+            continue;
+        }
+        let Shape::Line { start, end } =
+            &out.drawing.spaces.first()?.elements.get(line.index)?.shape
+        else {
+            return None;
+        };
+        lines.push([[start.x, start.y], [end.x, end.y]]);
+    }
+    let options = measure::Options {
+        unit: Unit::Volume(LengthUnit::Meter),
+        rounding: Rounding {
+            mode: RoundingMode::HalfAway,
+            digits: 3,
+            stage: RoundingStage::Total,
+        },
+        tolerance: Tolerance {
+            length: 1e-6,
+            chord: 0.001,
+        },
+        profile: None,
+    };
+    let report = with(|cx| measure::volumes(&building, &[wall], true, options, cx))
+        .0
+        .ok()?;
+    Some((lines, report.raw_total?))
+}
+
+/// 切断線の端点の x と y の範囲
+#[cfg(all(feature = "drawing", feature = "measure"))]
+fn extent(lines: &[[[f64; 2]; 2]]) -> [f64; 4] {
+    let points = lines.iter().flatten();
+    let fold = |pick: fn(&[f64; 2]) -> f64, max: bool| {
+        points.clone().map(pick).fold(
+            if max {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            },
+            |a, b| if max { a.max(b) } else { a.min(b) },
+        )
+    };
+    [
+        fold(|p| p[0], false),
+        fold(|p| p[0], true),
+        fold(|p| p[1], false),
+        fold(|p| p[1], true),
+    ]
+}
+
+#[cfg(all(feature = "drawing", feature = "measure"))]
+fn near(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1e-6 * b.abs().max(1.0)
+}
+
+#[test]
+#[cfg(all(feature = "drawing", feature = "measure"))]
+fn the_cut_and_quantities_follow_changed_walls_and_openings() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let before = run(src.as_bytes(), &opening_edits()).0.unwrap();
+        let text = String::from_utf8(before.clone()).unwrap();
+        let after = run(&before, &change_edits(&text).unwrap()).0.unwrap();
+        // 直す前: 壁 300 は x 900〜1100、y 0〜4000。扉の開口（y 1000〜1900）で線が切れる
+        let (lines, volume) = cut_and_volume(&before, 300, 3000.0).unwrap();
+        assert_eq!(extent(&lines), [900.0, 1100.0, 0.0, 4000.0], "{schema}");
+        assert!(
+            near(volume, (4.0 * 2.8 - 0.9 * 2.1) * 0.2),
+            "{schema}: {volume}"
+        );
+        // 直した後: 階の床は 3500 に上がり、壁は厚さ 300 で y 5000 まで伸びる。扉の開口は付いてきて、
+        // 新しい厚さを貫く
+        let (lines, volume) = cut_and_volume(&after, 300, 3500.0).unwrap();
+        assert_eq!(extent(&lines), [850.0, 1150.0, 0.0, 5000.0], "{schema}");
+        for [a, b] in &lines {
+            assert!(
+                !(a[1].min(b[1]) < 1450.0 && 1450.0 < a[1].max(b[1])),
+                "{schema}: {a:?} {b:?}"
+            );
+        }
+        assert!(
+            near(volume, (5.0 * 3.0 - 0.9 * 2.1) * 0.3),
+            "{schema}: {volume}"
+        );
+        // 窓の開口は幅 1500・高さ 1000 になり、壁 301 の体積から引く量が変わる。開口は芯に沿って
+        // 800〜2300（x 200〜-1300）に移り、x -1000 の線は切れる
+        let crosses = |lines: &[[[f64; 2]; 2]], x: f64| {
+            lines
+                .iter()
+                .any(|[a, b]| a[0].min(b[0]) < x && x < a[0].max(b[0]))
+        };
+        let (lines, volume) = cut_and_volume(&before, 301, 3000.0).unwrap();
+        assert!(
+            near(volume, (3.0 * 2.8 - 1.2 * 1.2) * 0.2),
+            "{schema}: {volume}"
+        );
+        assert!(crosses(&lines, -1000.0), "{schema}");
+        let (lines, volume) = cut_and_volume(&after, 301, 3500.0).unwrap();
+        assert!(
+            near(volume, (3.0 * 2.8 - 1.5 * 1.0) * 0.2),
+            "{schema}: {volume}"
+        );
+        assert!(!crosses(&lines, -1000.0), "{schema}");
+    }
+}
+
 #[test]
 fn refuses_changes_it_cannot_write_without_changing_anything() {
     let src = sample("IFC4", true);
