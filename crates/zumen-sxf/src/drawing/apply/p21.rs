@@ -756,7 +756,7 @@ impl<'f> P21<'f> {
 impl Writer for P21<'_> {
     fn layer_change(
         &mut self,
-        record: Option<usize>,
+        source: Option<&Ref>,
         layer: &zumen_drawing::Layer,
         cx: &mut Cx,
     ) -> Result<Option<u64>, Error> {
@@ -766,7 +766,10 @@ impl Writer for P21<'_> {
         let Some(name) = text::p21_string(&layer.name) else {
             return Ok(None);
         };
-        let id = if let Some(record) = record {
+        let id = if let Some(source) = source {
+            let Some(record) = source.record().and_then(|r| usize::try_from(r).ok()) else {
+                return Ok(None);
+            };
             self.count_part_search(record, cx)?;
             let Some(part) = self.part(record, "PRESENTATION_LAYER_ASSIGNMENT") else {
                 return Ok(None);

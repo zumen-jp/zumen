@@ -11,7 +11,7 @@ use zumen_sdk::{Cx, Error};
 
 use super::{Args, Arguments, FeatureRecord, work};
 
-pub(super) const NAME: &str = "text_string";
+pub(in crate::drawing) const NAME: &str = "text_string";
 
 pub(super) struct Prepared<P> {
     pub(super) args: Arguments,
@@ -19,7 +19,7 @@ pub(super) struct Prepared<P> {
     pub(super) font: Option<String>,
 }
 
-pub(super) fn count<P>(shape: &Shape<P>, cx: &mut Cx) -> Result<(), Error> {
+pub(in crate::drawing) fn count<P>(shape: &Shape<P>, cx: &mut Cx) -> Result<(), Error> {
     let size = match shape {
         Shape::Text(text) => text.content.len().saturating_add(text.style.len()),
         Shape::Formatted(text) => text.content.len().saturating_add(
@@ -217,7 +217,7 @@ pub(super) fn prepare<P: transform::Point + PartialEq>(
     })
 }
 
-pub(super) fn font(name: &str) -> Font {
+pub(in crate::drawing) fn font(name: &str) -> Font {
     Font {
         name: name.into(),
         kind: FontKind::Named {
@@ -241,7 +241,7 @@ pub(super) fn valid_string(value: &str) -> bool {
 }
 
 /// SFC の文字列は Shift_JIS と `\'…\'`。2 バイト文字の後半の 0x5c はエスケープしない。
-pub(super) fn sfc_string(value: &str) -> Option<Vec<u8>> {
+pub(in crate::drawing) fn sfc_string(value: &str) -> Option<Vec<u8>> {
     if !valid_string(value) || value.contains("*/") {
         return None;
     }
@@ -263,7 +263,7 @@ pub(super) fn sfc_string(value: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-pub(super) fn is_string(args: &Arguments, at: usize) -> bool {
+pub(in crate::drawing) fn is_string(args: &Arguments, at: usize) -> bool {
     (args.name == NAME && at == 3)
         || (matches!(args.name, "layer" | "text_font") && at == 0)
         || (args.name == "sfig_locate" && at == 1)

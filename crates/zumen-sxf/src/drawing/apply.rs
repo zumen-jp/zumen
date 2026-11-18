@@ -15,9 +15,9 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Apply, Codec, Cx, Error, Lift, quietly};
 
-mod layers;
+pub(super) mod layers;
 pub(super) mod p21;
-mod text;
+pub(super) mod text;
 
 use super::{
     Args, FeatureRecord, LINE_TYPES, PREDEFINED_COLORS, USER_LINE_TYPE, USER_WIDTH, WIDTHS,
@@ -1171,11 +1171,11 @@ pub(super) fn grouped(records: &[FeatureRecord], cx: &mut Cx) -> Result<BTreeSet
 }
 
 /// 書き方。SFC はフィーチャのコメントを、P21 は実体を書き直す
-trait Writer {
-    /// レイヤの追加か変更。書いた定義のインスタンス番号を返す。
+pub(super) trait Writer {
+    /// レイヤの追加（`source` が `None`）か、その出所の定義の変更。書いた定義のインスタンス番号を返す。
     fn layer_change(
         &mut self,
-        record: Option<usize>,
+        source: Option<&Ref>,
         layer: &Layer,
         cx: &mut Cx,
     ) -> Result<Option<u64>, Error>;
@@ -1211,12 +1211,11 @@ trait Writer {
 
 /// 元のバイト列への書き直し
 struct Plan<'f> {
-    features: &'f [FeatureRecord],
     /// レコードの番号から、そのフィーチャ
     records: Vec<Option<&'f FeatureRecord>>,
     sparse_records: BTreeMap<usize, &'f FeatureRecord>,
     writer: Box<dyn Writer + 'f>,
-    fonts: Option<Vec<String>>,
+    fonts: Fonts<'f>,
     estimated_texts: Vec<u64>,
 }
 
@@ -1236,11 +1235,10 @@ impl<'f> Plan<'f> {
             }
         }
         Plan {
-            features: records,
             records: dense,
             sparse_records: sparse,
             writer,
-            fonts: None,
+            fonts: Fonts::lazy(records),
             estimated_texts: Vec::new(),
         }
     }
@@ -1508,75 +1506,130 @@ impl<'f> Plan<'f> {
         cx: &mut Cx,
     ) -> Result<Option<Arguments>, Error> {
         let original = original.and_then(|record| self.record(record));
-        macro_rules! prepare {
-            ($element:expr) => {{
-                let element = $element;
-                if matches!(element.shape, Shape::Text(_) | Shape::Formatted(_)) {
-                    text::count(&element.shape, cx)?;
-                    let Some(mut prepared) = text::prepare(&element.shape, original) else {
-                        return Ok(None);
-                    };
-                    let Some(code) = self.font(prepared.font.as_deref(), original, cx)? else {
-                        return Ok(None);
-                    };
-                    let Some(value) = prepared.args.values.get_mut(2) else {
-                        return Ok(None);
-                    };
-                    *value = code.to_string();
-                    if prepared.font.is_none()
-                        && let Some(name) = usize::try_from(code)
-                            .ok()
-                            .and_then(|n| n.checked_sub(1))
-                            .and_then(|n| self.fonts.as_ref()?.get(n))
-                        && let Shape::Formatted(text) = &mut prepared.shape
-                        && let Some(span) = text.spans.first_mut()
-                    {
-                        span.format.font = Some(text::font(name));
-                    }
-                    if original.is_some() {
-                        let Some(layer) = prepared.args.values.get_mut(0) else {
-                            return Ok(None);
-                        };
-                        *layer = element.layer.0.to_string();
-                        let Inherit::Own(Color {
-                            code:
-                                Some(ColorCode {
-                                    system: ColorSystem::Sxf,
-                                    value,
-                                }),
-                            ..
-                        }) = element.style.color
-                        else {
-                            return Ok(None);
-                        };
-                        let Some(color) = prepared.args.values.get_mut(1) else {
-                            return Ok(None);
-                        };
-                        *color = value.to_string();
-                    }
-                    element.shape = prepared.shape;
-                    Some(prepared.args)
-                } else {
-                    arguments(&element.shape)
-                }
-            }};
-        }
-        Ok(match element {
-            Placed::Model(element) => prepare!(element),
-            Placed::Paper(element) => prepare!(element),
-        })
+        shape_arguments(element, original, &mut self.fonts, self.writer.as_mut(), cx)
     }
 
-    fn font(
+    fn bytes(self, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
+        self.writer.bytes(src, cx)
+    }
+}
+
+/// 要素の形の引数。文字なら字体を引き（なければ `text_font` を足し）、元のフィーチャ（`original`）があればレイヤと色の
+/// コードも引数に入れる。読み直すと変わる形は、読み直したときの形に直す
+pub(super) fn shape_arguments(
+    element: &mut Placed,
+    original: Option<&FeatureRecord>,
+    fonts: &mut Fonts<'_>,
+    writer: &mut dyn Writer,
+    cx: &mut Cx,
+) -> Result<Option<Arguments>, Error> {
+    macro_rules! prepare {
+        ($element:expr) => {{
+            let element = $element;
+            if matches!(element.shape, Shape::Text(_) | Shape::Formatted(_)) {
+                text::count(&element.shape, cx)?;
+                let Some(mut prepared) = text::prepare(&element.shape, original) else {
+                    return Ok(None);
+                };
+                let Some(code) = fonts.code(prepared.font.as_deref(), original, writer, cx)? else {
+                    return Ok(None);
+                };
+                let Some(value) = prepared.args.values.get_mut(2) else {
+                    return Ok(None);
+                };
+                *value = code.to_string();
+                if prepared.font.is_none()
+                    && let Some(name) = usize::try_from(code)
+                        .ok()
+                        .and_then(|n| n.checked_sub(1))
+                        .and_then(|n| fonts.names.as_ref()?.get(n))
+                    && let Shape::Formatted(text) = &mut prepared.shape
+                    && let Some(span) = text.spans.first_mut()
+                {
+                    span.format.font = Some(text::font(name));
+                }
+                if original.is_some() {
+                    let Some(layer) = prepared.args.values.get_mut(0) else {
+                        return Ok(None);
+                    };
+                    *layer = element.layer.0.to_string();
+                    let Inherit::Own(Color {
+                        code:
+                            Some(ColorCode {
+                                system: ColorSystem::Sxf,
+                                value,
+                            }),
+                        ..
+                    }) = element.style.color
+                    else {
+                        return Ok(None);
+                    };
+                    let Some(color) = prepared.args.values.get_mut(1) else {
+                        return Ok(None);
+                    };
+                    *color = value.to_string();
+                }
+                element.shape = prepared.shape;
+                Some(prepared.args)
+            } else {
+                arguments(&element.shape)
+            }
+        }};
+    }
+    Ok(match element {
+        Placed::Model(element) => prepare!(element),
+        Placed::Paper(element) => prepare!(element),
+    })
+}
+
+/// 文字の字体の表（`text_font` の名前を、コードの順に）。足した字体は後ろに並ぶ
+pub(super) struct Fonts<'f> {
+    /// 表を初めて引くときに読むフィーチャ
+    features: &'f [FeatureRecord],
+    names: Option<Vec<String>>,
+    /// 読めない字体の定義があり、コードを決められない
+    broken: bool,
+}
+
+impl<'f> Fonts<'f> {
+    /// 初めて引くときに、フィーチャから表を読む
+    pub(super) const fn lazy(features: &'f [FeatureRecord]) -> Self {
+        Self {
+            features,
+            names: None,
+            broken: false,
+        }
+    }
+
+    /// 読んだ表から始める。`None` は、読めない字体の定義があってコードを決められない表
+    pub(super) fn known(names: Option<Vec<String>>) -> Fonts<'static> {
+        Fonts {
+            features: &[],
+            broken: names.is_none(),
+            names,
+        }
+    }
+
+    /// 足した字体も含む表。読めない表は `None`
+    pub(super) fn into_names(self) -> Option<Vec<String>> {
+        self.names
+    }
+
+    /// 字体の名前のコード。名前がなければ元のフィーチャのコード。表にない名前は `text_font` を足す
+    fn code(
         &mut self,
         name: Option<&str>,
         original: Option<&FeatureRecord>,
+        writer: &mut dyn Writer,
         cx: &mut Cx,
     ) -> Result<Option<i64>, Error> {
         if name.is_some_and(|name| name.is_empty() || !text::valid_string(name)) {
             return Ok(None);
         }
-        if self.fonts.is_none() {
+        if self.broken {
+            return Ok(None);
+        }
+        if self.names.is_none() {
             let mut fonts = Vec::new();
             for record in self.features {
                 work(cx, 1, &Ref::default())?;
@@ -1588,9 +1641,9 @@ impl<'f> Plan<'f> {
                     fonts.push(name.clone());
                 }
             }
-            self.fonts = Some(fonts);
+            self.names = Some(fonts);
         }
-        let Some(fonts) = &mut self.fonts else {
+        let Some(fonts) = &mut self.names else {
             return Ok(None);
         };
         let Some(name) = name else {
@@ -1613,15 +1666,11 @@ impl<'f> Plan<'f> {
             name: "text_font",
             values: vec![name.into()],
         };
-        if self.writer.add(&args, cx)?.is_none() {
+        if writer.add(&args, cx)?.is_none() {
             return Ok(None);
         }
         fonts.push(name.into());
         Ok(code)
-    }
-
-    fn bytes(self, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
-        self.writer.bytes(src, cx)
     }
 }
 
@@ -1697,7 +1746,7 @@ impl<'f> Sfc<'f> {
 impl Writer for Sfc<'_> {
     fn layer_change(
         &mut self,
-        record: Option<usize>,
+        source: Option<&Ref>,
         layer: &Layer,
         cx: &mut Cx,
     ) -> Result<Option<u64>, Error> {
@@ -1705,7 +1754,7 @@ impl Writer for Sfc<'_> {
             return Ok(None);
         };
         let visible = if state.visible { "1" } else { "0" };
-        let Some(record) = record else {
+        let Some(source) = source else {
             return self.add(
                 &Arguments {
                     name: "layer",
@@ -1715,6 +1764,7 @@ impl Writer for Sfc<'_> {
             );
         };
         Ok((|| {
+            let record = usize::try_from(source.record()?).ok()?;
             let entry = self.file.records().get(record)?;
             let part = entry.parts().first()?;
             let id = entry.id()?;

@@ -17,9 +17,10 @@ use std::sync::Arc;
 
 use zumen_base::{Cx, Diagnostic, Key, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Applied, Axes, Changes, Draft, Drawing2D, Edit, Element, Hash, Inherit, ModelPoint,
-    ModelSpace, PaperLength, PaperPoint, Placed, Position, Restyle, Seen, Shape, Sheet, SheetId,
-    SheetItem, SpaceId, Style, SymbolDefinition, SymbolKey, TitleBlock, Unit, View, id, transform,
+    Affine, Applied, Axes, Changes, Draft, Drawing2D, Edit, Element, Hash, Inherit, Layer,
+    ModelPoint, ModelSpace, PaperLength, PaperPoint, Placed, Position, Restyle, Seen, Shape, Sheet,
+    SheetId, SheetItem, SpaceId, Style, SymbolDefinition, SymbolKey, TitleBlock, Unit, View, id,
+    transform,
 };
 use zumen_live::display::Display;
 use zumen_live::{
@@ -37,13 +38,13 @@ use self::p21::{P21Patch, P21State, P21StepTx};
 use self::sfc::{SfcPatch, SfcSlot, SfcState, SfcStepTx};
 use self::source::SourceMap;
 use super::apply::{
-    Arguments, MARKER, OnSheet, REMOVABLE, SHAPED, STYLED, Tables, arguments,
-    count_element_compare, count_element_copy, count_shape, grouped, kind_of, placed_near,
-    placed_same, unset_field, unsupported,
+    Arguments, Fonts, MARKER, OnSheet, REMOVABLE, SHAPED, STYLED, Tables, Writer, arguments,
+    count_element_compare, count_element_copy, count_shape, grouped, kind_of, layers, placed_near,
+    placed_same, shape_arguments, text, unset_field, unsupported,
 };
 use super::{
-    LifterTables, LiveRasterGroup, SHEET, USER_LINE_TYPE, bind, ensure_element_tables,
-    lift_for_live, lift_single_model, lift_single_paper, sfc_records, work,
+    Arg, LifterTables, LiveRasterGroup, SHEET, USER_LINE_TYPE, bind, ensure_element_tables,
+    layer_feature, lift_for_live, lift_single_model, lift_single_paper, sfc_records, work,
 };
 use crate::p21::records_and_codes as p21_records_and_codes;
 use crate::saf::AttributeFile;
@@ -147,11 +148,40 @@ enum BackingPatch {
 
 type RasterOutlineDiff = (usize, Option<usize>, Option<usize>);
 
+/// 読み直した要素と拡張、読み直しの途中で出た診断
+type LiftedPlaced = (Option<(Placed, Vec<Draft>)>, Vec<Diagnostic>);
+
 #[derive(Clone, Debug)]
 struct SxfUnifiedPatch {
     backing: BackingPatch,
     raster_outline_diffs: Vec<RasterOutlineDiff>,
     symbol_bounds: Vec<bounds::SymbolBoundsDiff>,
+    /// レイヤと字体の表の変更
+    tables: Option<Box<TablesDiff>>,
+}
+
+/// 要素の外の、名前で引く表（レイヤと字体）
+#[derive(Clone, Debug)]
+struct NamedTables {
+    layers: Vec<Layer>,
+    defined_layers: usize,
+    fonts: Vec<String>,
+}
+
+impl NamedTables {
+    fn heap_bytes(&self) -> usize {
+        self.layers.capacity() * core::mem::size_of::<Layer>()
+            + self.layers.iter().map(|l| l.name.capacity()).sum::<usize>()
+            + self.fonts.capacity() * core::mem::size_of::<String>()
+            + self.fonts.iter().map(String::capacity).sum::<usize>()
+    }
+}
+
+/// 1 手の前後の表
+#[derive(Clone, Debug)]
+struct TablesDiff {
+    before: NamedTables,
+    after: NamedTables,
 }
 
 #[derive(Clone, Debug)]
@@ -168,7 +198,14 @@ impl PatchPayload for SharedPatch {
             BackingPatch::Sfc(s) => s.heap_bytes(),
             BackingPatch::P21(p) => p.heap_bytes(),
         };
-        base + self.0.raster_outline_diffs.capacity() * 32 + self.0.symbol_bounds.capacity() * 96
+        let tables = self
+            .0
+            .tables
+            .as_ref()
+            .map_or(0, |t| t.before.heap_bytes() + t.after.heap_bytes());
+        base + self.0.raster_outline_diffs.capacity() * 32
+            + self.0.symbol_bounds.capacity() * 96
+            + tables
     }
 }
 
@@ -218,6 +255,8 @@ pub struct SxfLive {
     attributes: Option<AttributeFile>,
     diagnostics: LiveDiagnostics,
     lifter_tables: LifterTables,
+    /// 読めない字体の定義があり、字体のコードを決められない
+    fonts_broken: bool,
     static_layer_ids: BTreeSet<u32>,
     static_user_lt_ids: BTreeSet<u32>,
     raster_groups: Vec<LiveRasterGroup>,
@@ -318,6 +357,10 @@ impl SxfLive {
         })?;
 
         let grouped_set = grouped(&records, cx)?;
+        let fonts_broken = records.iter().any(|r| {
+            r.name.eq_ignore_ascii_case("text_font")
+                && !matches!(r.args.first(), Some(Arg::Text(_)))
+        });
         let record_meta: BTreeMap<usize, (&str, &str)> = records
             .iter()
             .map(|r| (r.record, (r.name.as_str(), r.kind.as_str())))
@@ -735,6 +778,7 @@ impl SxfLive {
             attributes,
             diagnostics,
             lifter_tables: lifted.tables,
+            fonts_broken,
             static_layer_ids,
             static_user_lt_ids,
             raster_groups: lifted.raster_groups,
@@ -977,6 +1021,139 @@ impl SxfLive {
         Ok(Some(placed))
     }
 
+    fn named_tables(&self) -> NamedTables {
+        NamedTables {
+            layers: self.lifter_tables.base_layers.clone(),
+            defined_layers: self.lifter_tables.defined_layers,
+            fonts: self.lifter_tables.fonts.clone(),
+        }
+    }
+
+    fn set_tables(&mut self, tables: &NamedTables) {
+        self.lifter_tables.base_layers.clone_from(&tables.layers);
+        self.lifter_tables.defined_layers = tables.defined_layers;
+        self.lifter_tables.fonts.clone_from(&tables.fonts);
+        self.static_layer_ids = tables
+            .layers
+            .iter()
+            .filter(|l| l.state.is_some())
+            .map(|l| l.id.0)
+            .collect();
+    }
+
+    /// 文書のレイヤの表（要素が参照する未定義のレイヤも含む）
+    fn current_layers(&self, cx: &mut Cx) -> Result<Vec<Layer>, Error> {
+        let mut layers = self.lifter_tables.base_layers.clone();
+        let mut line_types = Vec::new();
+        for (_, row) in self.table.iter_live() {
+            work(cx, 1 + layers.len() as u64 / 64, &Ref::default())?;
+            let (layer, style) = match &row.placed {
+                Placed::Model(e) => (e.layer, &e.style),
+                Placed::Paper(e) => (e.layer, &e.style),
+            };
+            ensure_element_tables(
+                self.lifter_tables.defined_layers,
+                &mut layers,
+                &mut line_types,
+                layer,
+                style,
+            );
+        }
+        Ok(layers)
+    }
+
+    /// 段取りの終わった表を確かめに使い、確定できなければ元の表に戻す
+    fn commit_sfc_with_tables(
+        &mut self,
+        tx: SfcStepTx,
+        staged_ops: Vec<(&'static str, StagedSfcOp)>,
+        stage: SfcStage,
+        cx: &mut Cx,
+    ) -> Result<Vec<Applied>, Error> {
+        let SfcStage {
+            fonts,
+            layers: changed,
+            added_layers,
+            estimated_texts,
+            ..
+        } = stage;
+        let before = self.named_tables();
+        let mut after = before.clone();
+        let mut dirty = !changed.is_empty();
+        if let Some(names) = fonts.into_names()
+            && names.len() != after.fonts.len()
+        {
+            after.fonts = names;
+            dirty = true;
+        }
+        for layer in changed {
+            if let Some(slot) = after.layers.iter_mut().find(|l| l.id == layer.id) {
+                *slot = layer;
+            } else {
+                after.layers.push(layer);
+            }
+        }
+        after.defined_layers = after.defined_layers.saturating_add(added_layers);
+        let tables = dirty.then(|| {
+            Box::new(TablesDiff {
+                before: before.clone(),
+                after,
+            })
+        });
+        if let Some(diff) = &tables {
+            self.set_tables(&diff.after);
+        }
+        let applied = match self.verify_and_commit_sfc(tx, staged_ops, tables, cx) {
+            Ok(applied) => applied,
+            Err(error) => {
+                if dirty {
+                    self.set_tables(&before);
+                }
+                return Err(error);
+            }
+        };
+        for instance in estimated_texts {
+            self.report_at(
+                Diagnostic::new(codes::SXF_TEXT_WIDTH_APPROXIMATED),
+                &Ref::default().with_key(Key::Instance(instance)),
+                cx,
+            )?;
+        }
+        Ok(applied)
+    }
+
+    /// SFC の要素の形の引数。文字は字体を引き、元のフィーチャのコードも引数に入れる（バッチと同じ）
+    #[allow(clippy::too_many_arguments)]
+    fn sfc_shape_args(
+        sfc: &SfcState,
+        tx: &mut SfcStepTx,
+        slot: SfcSlot,
+        name_lower: &str,
+        is_grouped: bool,
+        expected: &mut Placed,
+        fonts: &mut Fonts<'static>,
+        cx: &mut Cx,
+    ) -> Result<Option<Arguments>, Error> {
+        let annotation = name_lower == text::NAME;
+        if !(name_lower == MARKER || annotation || SHAPED.contains(&name_lower)) || is_grouped {
+            return Ok(None);
+        }
+        let original = if annotation {
+            match sfc.parse_staged_feature(tx, slot, cx)? {
+                Some((_, record)) => Some(record),
+                None => return Ok(None),
+            }
+        } else {
+            None
+        };
+        let mut writer = LiveSfcWriter { sfc, tx };
+        let Some(args) = shape_arguments(expected, original.as_ref(), fonts, &mut writer, cx)?
+        else {
+            return Ok(None);
+        };
+        Ok((args.name == name_lower).then_some(args))
+    }
+
     fn current_tables(&self) -> Tables {
         let widths = match &self.backing {
             SxfBacking::Sfc(_) => self.lifter_tables.widths.clone(),
@@ -1059,9 +1236,19 @@ impl SxfLive {
             SxfBacking::Sfc(sfc) => {
                 let mut tx = sfc.begin_step();
                 let mut staged_ops = Vec::new();
+                let mut stage = SfcStage::new(&self.lifter_tables.fonts, self.fonts_broken);
                 for change in &changes.edits {
                     work(cx, 1, &Ref::default())?;
-                    match self.stage_one_sfc(sfc, &mut tx, &tables, change, &mut targets, cx)? {
+                    let staged = self.stage_one_sfc(
+                        sfc,
+                        &mut tx,
+                        &tables,
+                        change,
+                        &mut targets,
+                        &mut stage,
+                        cx,
+                    )?;
+                    match staged {
                         Some(op) => staged_ops.push((change.name(), op)),
                         None => rejected = true,
                     }
@@ -1069,7 +1256,7 @@ impl SxfLive {
                 if rejected || !current {
                     return Err(Error::Rejected);
                 }
-                self.verify_and_commit_sfc(tx, staged_ops, cx)
+                self.commit_sfc_with_tables(tx, staged_ops, stage, cx)
             }
             SxfBacking::P21(p21) => {
                 let mut tx = p21.begin_step();
@@ -1090,6 +1277,7 @@ impl SxfLive {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn stage_one_sfc(
         &self,
         sfc: &SfcState,
@@ -1097,6 +1285,7 @@ impl SxfLive {
         tables: &Tables,
         change: &Edit,
         targets: &mut BTreeSet<u64>,
+        stage: &mut SfcStage,
         cx: &mut Cx,
     ) -> Result<Option<StagedSfcOp>, Error> {
         let format = "SFC";
@@ -1156,6 +1345,7 @@ impl SxfLive {
                         &row.placed,
                         &mut expected,
                         tables,
+                        Annotation::Restyle,
                     )?;
                     if !codes.is_empty() {
                         sfc.stage_codes(tx, slot, &codes)?;
@@ -1202,27 +1392,37 @@ impl SxfLive {
                     shape_counted = true;
                 }
                 let _ = shape_counted;
-                let ok = replaced.and_then(|mut expected| {
-                    let slot = row.sfc_slot?;
-                    let (name_lower, _, is_grouped, _) = meta?;
-                    let codes = compute_style_codes(
+                let mut ok = None;
+                if let Some(mut expected) = replaced
+                    && let Some(slot) = row.sfc_slot
+                    && let Some((name_lower, _, is_grouped, _)) = meta
+                    && let Some(codes) = compute_style_codes(
                         name_lower,
                         is_grouped,
                         &row.placed,
                         &mut expected,
                         tables,
-                    )?;
-                    let shape_args = compute_shape_args(name_lower, is_grouped, &expected)?;
-                    if !codes.is_empty() {
-                        sfc.stage_codes(tx, slot, &codes)?;
-                    }
-                    sfc.stage_shape(tx, slot, &shape_args)?;
-                    Some(StagedSfcOp::Updated {
+                        Annotation::Rewrite,
+                    )
+                    && (codes.is_empty() || sfc.stage_codes(tx, slot, &codes).is_some())
+                    && let Some(shape_args) = Self::sfc_shape_args(
+                        sfc,
+                        tx,
+                        slot,
+                        name_lower,
+                        is_grouped,
+                        &mut expected,
+                        &mut stage.fonts,
+                        cx,
+                    )?
+                    && sfc.stage_shape(tx, slot, &shape_args).is_some()
+                {
+                    ok = Some(StagedSfcOp::Updated {
                         row_id,
                         slot,
                         expected: Box::new(expected),
-                    })
-                });
+                    });
+                }
                 if ok.is_none() {
                     self.report_at(
                         unsupported(format, "replace", kind_str),
@@ -1248,17 +1448,28 @@ impl SxfLive {
                 }
                 let meta = row.sfc_slot.and_then(|slot| sfc.slot_meta(slot));
                 let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(row.p21_kind.as_ref());
-                let ok = transformed.and_then(|expected| {
-                    let slot = row.sfc_slot?;
-                    let (name_lower, _, is_grouped, _) = meta?;
-                    let shape_args = compute_shape_args(name_lower, is_grouped, &expected)?;
-                    sfc.stage_shape(tx, slot, &shape_args)?;
-                    Some(StagedSfcOp::Updated {
+                let mut ok = None;
+                if let Some(mut expected) = transformed
+                    && let Some(slot) = row.sfc_slot
+                    && let Some((name_lower, _, is_grouped, _)) = meta
+                    && let Some(shape_args) = Self::sfc_shape_args(
+                        sfc,
+                        tx,
+                        slot,
+                        name_lower,
+                        is_grouped,
+                        &mut expected,
+                        &mut stage.fonts,
+                        cx,
+                    )?
+                    && sfc.stage_shape(tx, slot, &shape_args).is_some()
+                {
+                    ok = Some(StagedSfcOp::Updated {
                         row_id,
                         slot,
                         expected: Box::new(expected),
-                    })
-                });
+                    });
+                }
                 if ok.is_none() {
                     self.report_at(
                         unsupported(format, "transform", kind_str),
@@ -1270,32 +1481,41 @@ impl SxfLive {
             }
             Edit::Add { place, element } => {
                 let mut unset = None;
-                let added = match element.as_ref() {
-                    Placed::Paper(paper_elem)
-                        if self.sheet_name_map.get(place) == Some(&paper_elem.shape_sheet()) =>
+                let mut added = None;
+                if let Placed::Paper(paper_elem) = element.as_ref()
+                    && self.sheet_name_map.get(place) == Some(&paper_elem.shape_sheet())
+                {
+                    work(
+                        cx,
+                        tables.style_work(&paper_elem.style, None),
+                        &Ref::default(),
+                    )?;
+                    count_element_copy(paper_elem, cx, 1)?;
+                    count_shape(&paper_elem.shape, cx)?;
+                    text::count(&paper_elem.shape, cx)?;
+                    let mut placed = Placed::Paper(paper_elem.clone());
+                    let args = {
+                        let mut writer = LiveSfcWriter { sfc, tx };
+                        shape_arguments(&mut placed, None, &mut stage.fonts, &mut writer, cx)?
+                    };
+                    if let Some(args) = args
+                        && let Placed::Paper(elem) = placed
+                        && let Some((add_args, expected_elem)) =
+                            prepare_add_args(elem, args, tables, &mut unset)
+                        && let Some((seq, inst)) = sfc.stage_add(tx, &add_args)
                     {
-                        work(
-                            cx,
-                            tables.style_work(&paper_elem.style, None),
-                            &Ref::default(),
-                        )?;
-                        count_element_copy(paper_elem, cx, 1)?;
-                        count_shape(&paper_elem.shape, cx)?;
-                        prepare_add_args(paper_elem, tables, &mut unset).and_then(
-                            |(add_args, expected_elem)| {
-                                let (seq, inst) = sfc.stage_add(tx, &add_args)?;
-                                Some(StagedSfcOp::Added {
-                                    seq,
-                                    inst,
-                                    place_name: place.clone(),
-                                    sheet_id: self.sheet_template.id,
-                                    expected: Box::new(Placed::Paper(expected_elem)),
-                                })
-                            },
-                        )
+                        if add_args.name == text::NAME {
+                            stage.estimated_texts.push(inst);
+                        }
+                        added = Some(StagedSfcOp::Added {
+                            seq,
+                            inst,
+                            place_name: place.clone(),
+                            sheet_id: self.sheet_template.id,
+                            expected: Box::new(Placed::Paper(expected_elem)),
+                        });
                     }
-                    _ => None,
-                };
+                }
                 if let Some(field) = unset {
                     cx.report(
                         Diagnostic::new(codes::CHANGE_STYLE_UNSUPPORTED)
@@ -1308,6 +1528,35 @@ impl SxfLive {
                     cx.report(unsupported(format, "add", kind_of(element)));
                 }
                 Ok(added)
+            }
+            Edit::ReplaceLayer { target, layer } => {
+                if stage.before_layers.is_none() {
+                    stage.before_layers = Some(self.current_layers(cx)?);
+                }
+                let before = stage.before_layers.as_deref().unwrap_or_default();
+                let mut writer = LiveSfcWriter { sfc, tx };
+                let Some(layer) =
+                    stage
+                        .layer_edits
+                        .replace(before, target, layer, &mut writer, format, cx)?
+                else {
+                    return Ok(None);
+                };
+                Ok(stage.staged_layer(sfc, tx, layer, false, format, cx))
+            }
+            Edit::AddLayer { layer } => {
+                if stage.before_layers.is_none() {
+                    stage.before_layers = Some(self.current_layers(cx)?);
+                }
+                let before = stage.before_layers.as_deref().unwrap_or_default();
+                let mut writer = LiveSfcWriter { sfc, tx };
+                let Some(layer) = stage
+                    .layer_edits
+                    .add(before, layer, &mut writer, format, cx)?
+                else {
+                    return Ok(None);
+                };
+                Ok(stage.staged_layer(sfc, tx, layer, true, format, cx))
             }
             other => {
                 report_table_edit_unsupported(format, other, cx);
@@ -1380,6 +1629,7 @@ impl SxfLive {
                     &row.placed,
                     &mut expected,
                     tables,
+                    Annotation::Refuse,
                 );
                 let ok = match (stmt_opt, codes_opt) {
                     (Some(stmt), Some(codes)) => {
@@ -1431,6 +1681,7 @@ impl SxfLive {
                         &row.placed,
                         &mut expected,
                         tables,
+                        Annotation::Refuse,
                     ) {
                         if codes.is_empty() {
                             Some(())
@@ -1522,8 +1773,10 @@ impl SxfLive {
                         )?;
                         count_element_copy(paper_elem, cx, 1)?;
                         count_shape(&paper_elem.shape, cx)?;
-                        if let Some((add_args, expected_elem)) =
-                            prepare_add_args(paper_elem, tables, &mut unset)
+                        if let Some((add_args, expected_elem)) = arguments(&paper_elem.shape)
+                            .and_then(|args| {
+                                prepare_add_args(paper_elem.clone(), args, tables, &mut unset)
+                            })
                         {
                             match p21.stage_add(tx, &tables.widths, &add_args, cx) {
                                 Ok(Some(inst)) => Some(StagedP21Op::Added {
@@ -1666,6 +1919,7 @@ impl SxfLive {
         &mut self,
         tx: SfcStepTx,
         staged_ops: Vec<(&'static str, StagedSfcOp)>,
+        tables: Option<Box<TablesDiff>>,
         cx: &mut Cx,
     ) -> Result<Vec<Applied>, Error> {
         let format = "SFC";
@@ -1681,7 +1935,7 @@ impl SxfLive {
                 } => {
                     updated_shapes.insert(*row_id, expected.as_ref());
                 }
-                StagedSfcOp::Added { .. } => {}
+                StagedSfcOp::Added { .. } | StagedSfcOp::Layer { .. } => {}
             }
         }
 
@@ -1696,6 +1950,29 @@ impl SxfLive {
 
         for (edit_name, op) in staged_ops {
             match op {
+                StagedSfcOp::Layer { slot, expected } => {
+                    let found = sfc
+                        .parse_staged_feature(&tx, slot, cx)?
+                        .and_then(|(_, rec)| {
+                            if !rec.name.eq_ignore_ascii_case("layer") {
+                                return None;
+                            }
+                            layer_feature(&rec.args, expected.id, expected.source.clone())
+                        });
+                    let hash = layers::hash(&expected, cx)?;
+                    let same = match &found {
+                        Some(found) => layers::hash(found, cx)? == hash,
+                        None => false,
+                    };
+                    if !same {
+                        cx.report(unsupported(format, edit_name, "round_trip"));
+                        return Err(Error::Rejected);
+                    }
+                    applied_out.push(Applied {
+                        id: Some(id::layer(&expected)),
+                        hash: Some(hash),
+                    });
+                }
                 StagedSfcOp::Removed { row_id, inst } => {
                     if sfc.has_surviving_feature_id(&tx, inst) {
                         cx.report(unsupported(format, edit_name, "round_trip"));
@@ -1727,7 +2004,9 @@ impl SxfLive {
                         raster,
                         cx,
                     )?;
-                    let Some(lifted_placed) = lifted.filter(|lp| placed_same(lp, &expected)) else {
+                    let Some((lifted_placed, drafts)) =
+                        lifted.filter(|(lp, _)| placed_same(lp, &expected))
+                    else {
                         cx.report(unsupported(format, edit_name, "round_trip"));
                         return Err(Error::Rejected);
                     };
@@ -1739,6 +2018,7 @@ impl SxfLive {
                     verified.push(VerifiedOp::Update {
                         row_id,
                         placed: lifted_placed,
+                        drafts,
                         diagnostics,
                     });
                 }
@@ -1765,7 +2045,9 @@ impl SxfLive {
                         None,
                         cx,
                     )?;
-                    let Some(lifted_placed) = lifted.filter(|lp| placed_same(lp, &expected)) else {
+                    let Some((lifted_placed, drafts)) =
+                        lifted.filter(|(lp, _)| placed_same(lp, &expected))
+                    else {
                         cx.report(unsupported(format, edit_name, "round_trip"));
                         return Err(Error::Rejected);
                     };
@@ -1783,6 +2065,7 @@ impl SxfLive {
                         feat_name: feat_rec.name,
                         feat_kind: feat_rec.kind,
                         placed: lifted_placed,
+                        drafts,
                         diagnostics,
                     });
                 }
@@ -1799,6 +2082,7 @@ impl SxfLive {
                 backing: BackingPatch::Sfc(sfc_patch),
                 raster_outline_diffs: raster_diffs,
                 symbol_bounds: Vec::new(),
+                tables,
             },
             cx,
         )?;
@@ -1873,8 +2157,8 @@ impl SxfLive {
                         raster,
                         cx,
                     )?;
-                    let Some(lifted_placed) = lifted
-                        .filter(|lp| placed_same(lp, &expected) || placed_near(lp, &expected))
+                    let Some((lifted_placed, drafts)) = lifted
+                        .filter(|(lp, _)| placed_same(lp, &expected) || placed_near(lp, &expected))
                     else {
                         cx.report(unsupported(format, edit_name, "round_trip"));
                         return Err(Error::Rejected);
@@ -1887,6 +2171,7 @@ impl SxfLive {
                     verified.push(VerifiedOp::Update {
                         row_id,
                         placed: lifted_placed,
+                        drafts,
                         diagnostics,
                     });
                 }
@@ -1911,8 +2196,8 @@ impl SxfLive {
                         None,
                         cx,
                     )?;
-                    let Some(lifted_placed) = lifted
-                        .filter(|lp| placed_same(lp, &expected) || placed_near(lp, &expected))
+                    let Some((lifted_placed, drafts)) = lifted
+                        .filter(|(lp, _)| placed_same(lp, &expected) || placed_near(lp, &expected))
                     else {
                         cx.report(unsupported(format, edit_name, "round_trip"));
                         return Err(Error::Rejected);
@@ -1930,6 +2215,7 @@ impl SxfLive {
                         feat_name: feat_rec.name,
                         feat_kind: feat_rec.kind,
                         placed: lifted_placed,
+                        drafts,
                         diagnostics,
                     });
                 }
@@ -1946,6 +2232,7 @@ impl SxfLive {
                 backing: BackingPatch::P21(p21_patch),
                 raster_outline_diffs: raster_diffs,
                 symbol_bounds: Vec::new(),
+                tables: None,
             },
             cx,
         )?;
@@ -1959,7 +2246,7 @@ impl SxfLive {
         feat_rec: &super::FeatureRecord,
         raster: Option<(&str, &Ref)>,
         cx: &mut Cx,
-    ) -> Result<(Option<Placed>, Vec<Diagnostic>), Error> {
+    ) -> Result<LiftedPlaced, Error> {
         let mut tables = self.lifter_tables.clone();
         if let SxfBacking::P21(p21) = &self.backing {
             tables.widths = p21.active_widths();
@@ -1968,19 +2255,19 @@ impl SxfLive {
             cx.with_diagnostic_events(u64::MAX, |cx| match container {
                 SxfContainer::Sheet(_) => {
                     Ok(lift_single_paper(&tables, instance, feat_rec, raster, cx)?
-                        .map(Placed::Paper))
+                        .map(|(e, drafts)| (Placed::Paper(e), drafts)))
                 }
                 SxfContainer::Space(sp) => Ok(lift_single_model(
                     &tables, sp, instance, feat_rec, raster, cx,
                 )?
-                .map(Placed::Model)),
+                .map(|(e, drafts)| (Placed::Model(e), drafts))),
                 SxfContainer::Symbol(sym_idx) => {
                     let Some(sym_t) = self.symbol_templates.get(sym_idx) else {
                         return Ok(None);
                     };
                     Ok(
                         lift_single_model(&tables, sym_t.space_id, instance, feat_rec, raster, cx)?
-                            .map(Placed::Model),
+                            .map(|(e, drafts)| (Placed::Model(e), drafts)),
                     )
                 }
             })
@@ -1994,7 +2281,7 @@ impl SxfLive {
         mut patch: SxfUnifiedPatch,
         cx: &mut Cx,
     ) -> Result<(), Error> {
-        let had_ops = !verified.is_empty();
+        let had_ops = !verified.is_empty() || patch.tables.is_some();
         let prepared = match self.prepare_symbols(&verified, cx) {
             Ok(prepared) => prepared,
             Err(error) => {
@@ -2063,6 +2350,7 @@ impl SxfLive {
                         VerifiedOp::Update {
                             row_id,
                             placed,
+                            drafts,
                             diagnostics,
                         } => {
                             let Some(prev_row) = txn.row(row_id).cloned() else {
@@ -2085,6 +2373,10 @@ impl SxfLive {
                                 next_row.container,
                                 SxfContainer::Space(_) | SxfContainer::Sheet(_)
                             );
+                            // 要素自身の拡張は読み直した値にし、複合図形の属性など外から付いた拡張は残す
+                            let own = placed_source(&next_row.placed).clone();
+                            let kept = next_row.drafts.iter().filter(|d| d.source != own).cloned();
+                            next_row.drafts = drafts.into_iter().chain(kept).collect();
                             next_row.placed = placed;
                             next_row.diagnostics = diagnostics;
                             txn.update_row(row_id, next_row, new_bounds)?;
@@ -2100,6 +2392,7 @@ impl SxfLive {
                             feat_name,
                             feat_kind,
                             placed,
+                            drafts,
                             diagnostics,
                         } => {
                             let container = SxfContainer::Sheet(sheet_id);
@@ -2122,7 +2415,7 @@ impl SxfLive {
                                 container,
                                 canonical_id: canonical_id.into_boxed_str(),
                                 placed,
-                                drafts: Box::new([]),
+                                drafts: drafts.into_boxed_slice(),
                                 diagnostics,
                             };
                             let rid = txn.insert_row(new_row, new_bounds)?;
@@ -2137,6 +2430,7 @@ impl SxfLive {
                             feat_name,
                             feat_kind,
                             placed,
+                            drafts,
                             diagnostics,
                         } => {
                             let container = SxfContainer::Sheet(sheet_id);
@@ -2159,7 +2453,7 @@ impl SxfLive {
                                 container,
                                 canonical_id: canonical_id.into_boxed_str(),
                                 placed,
-                                drafts: Box::new([]),
+                                drafts: drafts.into_boxed_slice(),
                                 diagnostics,
                             };
                             let rid = txn.insert_row(new_row, new_bounds)?;
@@ -2336,6 +2630,9 @@ impl SxfLive {
                 (SxfBacking::P21(p21), BackingPatch::P21(p)) => p21.revert_patch(p),
                 _ => {}
             }
+            if let Some(tables) = &patch.0.tables {
+                self.set_tables(&tables.before);
+            }
         }
         Ok(true)
     }
@@ -2364,6 +2661,9 @@ impl SxfLive {
                 (SxfBacking::Sfc(sfc), BackingPatch::Sfc(p)) => sfc.reapply_patch(p),
                 (SxfBacking::P21(p21), BackingPatch::P21(p)) => p21.reapply_patch(p),
                 _ => {}
+            }
+            if let Some(tables) = &patch.0.tables {
+                self.set_tables(&tables.after);
             }
             for &(g_idx, _, after_outline) in &patch.0.raster_outline_diffs {
                 if let Some(group) = self.raster_groups.get_mut(g_idx) {
@@ -2614,7 +2914,128 @@ impl SxfLive {
     }
 }
 
+/// 1 回の `apply` で、要素の外の表（字体とレイヤ）に当てる変更
+struct SfcStage {
+    fonts: Fonts<'static>,
+    /// 当てる前のレイヤの表（レイヤを変えるときだけ読む）
+    before_layers: Option<Vec<Layer>>,
+    layer_edits: layers::Changes,
+    /// 変えたか足したレイヤ
+    layers: Vec<Layer>,
+    added_layers: usize,
+    /// 幅を見積もって足した文字のインスタンス番号
+    estimated_texts: Vec<u64>,
+}
+
+impl SfcStage {
+    fn new(fonts: &[String], broken: bool) -> Self {
+        Self {
+            fonts: Fonts::known((!broken).then(|| fonts.to_vec())),
+            before_layers: None,
+            layer_edits: layers::Changes::default(),
+            layers: Vec::new(),
+            added_layers: 0,
+            estimated_texts: Vec::new(),
+        }
+    }
+
+    /// 書いたレイヤフィーチャの場所を引き、確かめる値として残す
+    fn staged_layer(
+        &mut self,
+        sfc: &SfcState,
+        tx: &SfcStepTx,
+        layer: Layer,
+        added: bool,
+        format: &str,
+        cx: &mut Cx,
+    ) -> Option<StagedSfcOp> {
+        let Some(slot) = sfc.slot_for_source(tx, &layer.source) else {
+            let edit = if added { "add_layer" } else { "replace_layer" };
+            cx.report(unsupported(format, edit, "layer_feature"));
+            return None;
+        };
+        if added {
+            self.added_layers += 1;
+        }
+        self.layers.push(layer.clone());
+        Some(StagedSfcOp::Layer {
+            slot,
+            expected: Box::new(layer),
+        })
+    }
+}
+
+/// 文書エンジンの仮置きに書く、バッチと共通の書き手。レイヤ・字体の定義と、足す要素だけを書く
+struct LiveSfcWriter<'a> {
+    sfc: &'a SfcState,
+    tx: &'a mut SfcStepTx,
+}
+
+impl Writer for LiveSfcWriter<'_> {
+    fn layer_change(
+        &mut self,
+        source: Option<&Ref>,
+        layer: &Layer,
+        _cx: &mut Cx,
+    ) -> Result<Option<u64>, Error> {
+        let Some(state) = layer.state else {
+            return Ok(None);
+        };
+        let Some(source) = source else {
+            let visible = if state.visible { "1" } else { "0" };
+            let args = Arguments {
+                name: "layer",
+                values: vec![layer.name.clone(), visible.into()],
+            };
+            return Ok(self.sfc.stage_add(self.tx, &args).map(|(_, id)| id));
+        };
+        Ok(self.sfc.slot_for_source(self.tx, source).and_then(|slot| {
+            self.sfc
+                .stage_layer(self.tx, slot, &layer.name, state.visible)
+        }))
+    }
+
+    fn codes(
+        &mut self,
+        _record: usize,
+        _codes: &[(usize, i64)],
+        _cx: &mut Cx,
+    ) -> Result<Option<()>, Error> {
+        Ok(None)
+    }
+
+    fn shape(
+        &mut self,
+        _record: usize,
+        _args: &Arguments,
+        _cx: &mut Cx,
+    ) -> Result<Option<()>, Error> {
+        Ok(None)
+    }
+
+    fn remove(&mut self, _record: usize, _cx: &mut Cx) -> Result<Option<()>, Error> {
+        Ok(None)
+    }
+
+    fn add(&mut self, args: &Arguments, _cx: &mut Cx) -> Result<Option<u64>, Error> {
+        Ok(self.sfc.stage_add(self.tx, args).map(|(_, id)| id))
+    }
+
+    fn bytes(self: Box<Self>, _src: &[u8], _cx: &mut Cx) -> Result<Vec<u8>, Error> {
+        Err(Error::Rejected)
+    }
+
+    fn markers(&self) -> bool {
+        true
+    }
+}
+
 enum StagedSfcOp {
+    /// レイヤフィーチャをこの値にする
+    Layer {
+        slot: SfcSlot,
+        expected: Box<Layer>,
+    },
     Removed {
         row_id: RowId,
         inst: u64,
@@ -2657,6 +3078,8 @@ enum VerifiedOp {
     Update {
         row_id: RowId,
         placed: Placed,
+        /// 要素自身の拡張（文字の幅など）
+        drafts: Vec<Draft>,
         diagnostics: Vec<Diagnostic>,
     },
     AddSfc {
@@ -2667,6 +3090,7 @@ enum VerifiedOp {
         feat_name: String,
         feat_kind: String,
         placed: Placed,
+        drafts: Vec<Draft>,
         diagnostics: Vec<Diagnostic>,
     },
     AddP21 {
@@ -2676,6 +3100,7 @@ enum VerifiedOp {
         feat_name: String,
         feat_kind: String,
         placed: Placed,
+        drafts: Vec<Draft>,
         diagnostics: Vec<Diagnostic>,
     },
 }
@@ -2795,14 +3220,31 @@ fn transformed_placed(was: &Placed, affine: &Affine) -> Option<Placed> {
     })
 }
 
+/// 文字（注記）のレイヤと色の変え方
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Annotation {
+    /// 文字は変えない
+    Refuse,
+    /// コードを書く
+    Restyle,
+    /// 形と一緒に書き直すので、コードは書かない
+    Rewrite,
+}
+
 fn compute_style_codes(
     name_lower: &str,
     is_grouped: bool,
     was_placed: &Placed,
     expected: &mut Placed,
     tables: &Tables,
+    text_mode: Annotation,
 ) -> Option<Vec<(usize, i64)>> {
-    let marker = name_lower == MARKER;
+    let annotation = name_lower == text::NAME;
+    if annotation && text_mode == Annotation::Refuse {
+        return None;
+    }
+    // 点マーカーと文字は線種と線幅を持たない
+    let marker = name_lower == MARKER || annotation;
     if !(marker || STYLED.contains(&name_lower)) || is_grouped {
         return None;
     }
@@ -2838,6 +3280,9 @@ fn compute_style_codes(
         }
         codes.push((3, tables.width(style.line_weight?)?));
     }
+    if annotation && text_mode == Annotation::Rewrite {
+        codes.clear();
+    }
     Some(codes)
 }
 
@@ -2853,15 +3298,16 @@ fn compute_shape_args(name_lower: &str, is_grouped: bool, expected: &Placed) -> 
     (args.name == name_lower).then_some(args)
 }
 
+/// 足す要素の引数にレイヤ・色・線種・線幅のコードを入れる（バッチの `Plan::add` と同じ順で断る）
 fn prepare_add_args(
-    paper_elem: &Element<PaperPoint>,
+    mut element: Element<PaperPoint>,
+    mut args: Arguments,
     tables: &Tables,
     unset: &mut Option<&'static str>,
 ) -> Option<(Arguments, Element<PaperPoint>)> {
-    let mut element = paper_elem.clone();
     let style = element.style;
-    let mut args = arguments(&element.shape)?;
-    if let Some(field) = unset_field(&style, args.name == MARKER) {
+    let marker = args.name == MARKER || args.name == text::NAME;
+    if let Some(field) = unset_field(&style, marker) {
         *unset = Some(field);
         return None;
     }
@@ -2870,7 +3316,7 @@ fn prepare_add_args(
     }
     let (color_code, read_color) = tables.color(style.color)?;
     element.style.color = Inherit::Own(read_color);
-    let codes = if args.name == MARKER {
+    let codes = if marker {
         if style.line_type != Inherit::Layer
             || !matches!(style.line_weight, None | Some(Inherit::Layer))
         {
@@ -4024,6 +4470,225 @@ mod equivalence_tests {
         assert_eq!(saved, reference);
         let reread = run(|cx| Sxf::read(&saved, cx).and_then(|file| file.lift(cx)));
         assert_eq!(held, reread);
+    }
+
+    fn sxf_color(value: u32) -> Inherit<zumen_drawing::Color> {
+        Inherit::Own(zumen_drawing::Color {
+            code: Some(zumen_drawing::ColorCode {
+                system: zumen_drawing::ColorSystem::Sxf,
+                value,
+            }),
+            rgb: None,
+        })
+    }
+
+    fn paper(live: &SxfLive, instance: u64) -> Element<PaperPoint> {
+        let row = live.row_id_for_instance(instance).unwrap();
+        let Some(Placed::Paper(element)) = live.placed(row) else {
+            panic!()
+        };
+        element.clone()
+    }
+
+    fn seen_layer(live: &SxfLive, at: usize) -> (Seen, Layer) {
+        let layer = run(|cx| live.drawing(cx)).0.unwrap().layers[at].clone();
+        let seen = Seen {
+            id: id::layer(&layer),
+            hash: Hash::layer(&layer),
+        };
+        (seen, layer)
+    }
+
+    #[test]
+    fn sfc_text_and_layer_edits_match_batch_and_undo_redo() {
+        use zumen_drawing::{
+            Height, HeightMeaning, Horizontal, LayerId, Length, PaperLength, Piece, Placement,
+            Text, Vertical,
+        };
+        let bytes = sfc_features(&[
+            "layer_feature(\\'A\\','1')",
+            "layer_feature(\\'B\\')",
+            "text_font_feature(\\'MS\\')",
+            "text_string_feature('1','1','1',\\'old\\','1','1','4','8','0.25','0','0','1','1')",
+            "text_string_feature('1','1','1',\\'old\\','1','1','4','8','0.25','0','0','1')",
+            "line_feature('1','1','1','1','0','0','10','10')",
+            "drawing_sheet_feature(\\'S\\','3','1','0','0')",
+        ]);
+        let mut file = run(|cx| Sxf::read(&bytes, cx)).0.unwrap();
+        let mut live = run(|cx| SxfLive::open(&bytes, cx)).0.unwrap();
+        let place = id::sheet(&run(|cx| live.drawing(cx)).0.unwrap().sheets[0]);
+        let mut snapshots = vec![(run(|cx| live.drawing(cx)).0.unwrap(), bytes.clone())];
+        let mut step = |live: &mut SxfLive, file: &mut SxfFile, edits: Vec<Edit>| {
+            let changes = Changes {
+                document: None,
+                edits,
+            };
+            let expected = run(|cx| file.apply(&changes, cx));
+            let actual = run(|cx| live.apply(&changes, cx));
+            assert_eq!(actual, expected);
+            let (applied, diagnostics) = actual;
+            let applied = applied.unwrap();
+            assert_source_parity(live, file);
+            snapshots.push((
+                run(|cx| live.drawing(cx)).0.unwrap(),
+                run(|cx| live.save(cx)).0.unwrap(),
+            ));
+            (applied, diagnostics)
+        };
+        macro_rules! step {
+            ($edits:expr $(,)?) => {{
+                let edits = $edits;
+                step(&mut live, &mut file, edits)
+            }};
+        }
+
+        step!(vec![Edit::Restyle {
+            target: seen(&live, 40),
+            style: Restyle {
+                color: Some(sxf_color(4)),
+                layer: Some(LayerId(2)),
+                ..Restyle::default()
+            },
+        }],);
+        let mut element = paper(&live, 40);
+        let Shape::Formatted(text) = &mut element.shape else {
+            panic!()
+        };
+        text.content = "変更'\\表記".into();
+        text.spans[0].piece = Piece::Text(text.content.clone());
+        text.height.value = Length::Paper(PaperLength(8.0));
+        element.layer = LayerId(1);
+        element.style.color = sxf_color(3);
+        let mut other = paper(&live, 50);
+        let Shape::Formatted(text) = &mut other.shape else {
+            panic!()
+        };
+        text.content = "横".into();
+        text.spans[0].piece = Piece::Text(text.content.clone());
+        step!(vec![
+            Edit::Replace {
+                target: seen(&live, 40),
+                element: Box::new(Placed::Paper(element)),
+            },
+            Edit::Replace {
+                target: seen(&live, 50),
+                element: Box::new(Placed::Paper(other)),
+            },
+            Edit::Transform {
+                target: seen(&live, 60),
+                transform: Affine::translation(5.0, 0.0),
+            },
+        ],);
+        step!(vec![Edit::Transform {
+            target: seen(&live, 40),
+            transform: Affine {
+                m: [0.0, -1.0, 20.0, 1.0, 0.0, 30.0],
+            },
+        }],);
+        let mut added = paper(&live, 40);
+        added.shape = Shape::Text(Text {
+            content: "日本'\\語".into(),
+            height: Height {
+                value: Length::Paper(PaperLength(3.5)),
+                meaning: HeightMeaning::Frame,
+            },
+            placement: Placement::Anchor {
+                point: PaperPoint {
+                    sheet: self_sheet(&live),
+                    x: 10.0,
+                    y: 20.0,
+                },
+                horizontal: Horizontal::Center,
+                vertical: Vertical::Top,
+            },
+            rotation: 30.0,
+            width_factor: 1.0,
+            oblique: 10.0,
+            backward: false,
+            upside_down: false,
+            style: "ＭＳ ゴシック".into(),
+        });
+        let (result, diagnostics) = step!(vec![Edit::Add {
+            place: place.clone(),
+            element: Box::new(Placed::Paper(added)),
+        }],);
+        assert_eq!(
+            diagnostics.iter().map(Diagnostic::code).collect::<Vec<_>>(),
+            [codes::SXF_TEXT_WIDTH_APPROXIMATED]
+        );
+        let added_id = result[0].id.clone().unwrap();
+        let added_instance: u64 = added_id.rsplit_once("/i").unwrap().1.parse().unwrap();
+
+        let (target, was) = seen_layer(&live, 0);
+        let mut renamed = was.clone();
+        renamed.name = "改名'\\図面".into();
+        renamed.state.as_mut().unwrap().visible = false;
+        renamed.state.as_mut().unwrap().printable = false;
+        let (hidden_target, hidden_was) = seen_layer(&live, 1);
+        let mut hidden = hidden_was.clone();
+        hidden.state.as_mut().unwrap().visible = false;
+        hidden.state.as_mut().unwrap().printable = false;
+        let mut new_layer = renamed.clone();
+        new_layer.name = "追加レイヤ".into();
+        step!(vec![
+            Edit::ReplaceLayer {
+                target,
+                layer: Box::new(renamed),
+            },
+            Edit::ReplaceLayer {
+                target: hidden_target,
+                layer: Box::new(hidden),
+            },
+            Edit::AddLayer {
+                layer: Box::new(new_layer),
+            },
+        ],);
+        let (target, was) = seen_layer(&live, 2);
+        let mut shown = was.clone();
+        shown.name = "再改名".into();
+        shown.state.as_mut().unwrap().visible = true;
+        shown.state.as_mut().unwrap().printable = true;
+        step!(vec![Edit::ReplaceLayer {
+            target,
+            layer: Box::new(shown),
+        }],);
+        let mut element = paper(&live, added_instance);
+        let Shape::Formatted(text) = &mut element.shape else {
+            panic!()
+        };
+        text.spans[0].format.font = Some(text::font("Second"));
+        element.layer = LayerId(3);
+        step!(vec![
+            Edit::Replace {
+                target: seen(&live, added_instance),
+                element: Box::new(Placed::Paper(element)),
+            },
+            Edit::Restyle {
+                target: seen(&live, 60),
+                style: Restyle {
+                    layer: Some(LayerId(3)),
+                    ..Restyle::default()
+                },
+            },
+        ],);
+
+        let last = snapshots.len() - 1;
+        for at in (0..last).rev() {
+            assert!(run(|cx| live.undo(cx)).0.unwrap());
+            assert_eq!(run(|cx| live.drawing(cx)).0.unwrap(), snapshots[at].0);
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), snapshots[at].1);
+        }
+        assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+        for snapshot in &snapshots[1..] {
+            assert!(run(|cx| live.redo(cx)).0.unwrap());
+            assert_eq!(run(|cx| live.drawing(cx)).0.unwrap(), snapshot.0);
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), snapshot.1);
+        }
+        assert_source_parity(&live, &file);
+    }
+
+    fn self_sheet(live: &SxfLive) -> SheetId {
+        live.sheet_template.id
     }
 
     #[test]

@@ -3,10 +3,11 @@
 use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_base::{Cx, Ref};
+use zumen_base::{Cx, Key, Ref};
 use zumen_live::{PatchPayload, SourceBytes};
 use zumen_sdk::{Error, quietly};
 
+use crate::drawing::apply::text::{self, is_string, sfc_string};
 use crate::drawing::apply::{Arguments, line_end, newline, patched, patched_source};
 use crate::drawing::{FeatureRecord, sfc_records, work};
 use crate::{DIALECT, Marker, Mode, Quote, SfcRecord, SxfFile, Value};
@@ -32,6 +33,38 @@ struct BaseFeature {
     grouped: bool,
     /// `span.start` からの相対バイト範囲（`Quote::Plain` または `Value::Token` の引数のみ `Some`）
     arg_ranges: Box<[Option<Range<u32>>]>,
+    /// 囲みの引用符も含む、`span.start` からの相対バイト範囲（文字列か `Value::Token` の引数のみ `Some`）
+    outer_ranges: Box<[Option<Range<u32>>]>,
+}
+
+/// 基底フィーチャの引数に書く値
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum ArgValue {
+    /// 囲みの内側に書く値
+    Inner(String),
+    /// 囲みの引用符も含めて書き直すバイト列（文字列）
+    Outer(Vec<u8>),
+}
+
+impl ArgValue {
+    fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Inner(text) => text.as_bytes(),
+            Self::Outer(bytes) => bytes,
+        }
+    }
+}
+
+impl BaseFeature {
+    /// 値を書く、`span.start` からの相対バイト範囲
+    fn range(&self, at: usize, value: &ArgValue) -> Option<Range<usize>> {
+        let ranges = match value {
+            ArgValue::Inner(_) => &self.arg_ranges,
+            ArgValue::Outer(_) => &self.outer_ranges,
+        };
+        let rel = ranges.get(at)?.as_ref()?;
+        Some(rel.start as usize..rel.end as usize)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -47,7 +80,7 @@ pub(super) struct BornFeature {
 pub(super) struct SfcPatch {
     removed_base: Vec<usize>,
     removed_born: Vec<(u32, BornFeature)>,
-    base_args: Vec<(usize, usize, Option<String>, String)>,
+    base_args: Vec<(usize, usize, Option<ArgValue>, ArgValue)>,
     born_args: Vec<(u32, usize, String, String)>,
     added_born: Vec<(u32, BornFeature)>,
 }
@@ -71,7 +104,7 @@ impl PatchPayload for SfcPatch {
 pub(super) struct SfcStepTx {
     removed_base: BTreeSet<usize>,
     removed_born: BTreeSet<u32>,
-    base_args: BTreeMap<(usize, usize), String>,
+    base_args: BTreeMap<(usize, usize), ArgValue>,
     born_args: BTreeMap<(u32, usize), String>,
     added_born: Vec<(u32, BornFeature)>,
     next_id: u64,
@@ -88,7 +121,7 @@ pub(super) struct SfcState {
     fixed_max_id: u64,
     alive_id_counts: BTreeMap<u64, u32>,
     removed_base: BTreeSet<usize>,
-    patched_base: BTreeMap<usize, BTreeMap<usize, String>>,
+    patched_base: BTreeMap<usize, BTreeMap<usize, ArgValue>>,
     born_features: BTreeMap<u32, BornFeature>,
     next_born_seq: u32,
 }
@@ -141,6 +174,28 @@ impl SfcState {
                         .collect()
                 })
                 .unwrap_or_default();
+            let outer_ranges: Vec<Option<Range<u32>>> = entry
+                .parts()
+                .first()
+                .map(|part| {
+                    part.args()
+                        .iter()
+                        .map(|val| {
+                            let raw = match val {
+                                Value::Text { raw, quote } => {
+                                    let width = if *quote == Quote::Backslash { 2 } else { 1 };
+                                    raw.start.checked_sub(width)?..raw.end.checked_add(width)?
+                                }
+                                Value::Token(raw) => raw.clone(),
+                                _ => return None,
+                            };
+                            let s = u32::try_from(raw.start.checked_sub(span.start)?).ok()?;
+                            let e = u32::try_from(raw.end.checked_sub(span.start)?).ok()?;
+                            Some(s..e)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             let name_lower = rec.name.to_ascii_lowercase().into_boxed_str();
             let base_idx = base_features.len();
             if first_sheet_base.is_none() && name_lower.as_ref() == "drawing_sheet" {
@@ -157,6 +212,7 @@ impl SfcState {
                 kind: rec.kind.clone().into_boxed_str(),
                 grouped: grouped.contains(&rec.record),
                 arg_ranges: arg_ranges.into_boxed_slice(),
+                outer_ranges: outer_ranges.into_boxed_slice(),
             });
         }
 
@@ -219,6 +275,7 @@ impl SfcState {
                     "circle" => "circle_feature",
                     "arc" => "arc_feature",
                     "point_marker" => "point_marker_feature",
+                    text::NAME => "text_string_feature",
                     _ => "element",
                 };
                 Some((born.name, kind, false, 0))
@@ -266,55 +323,146 @@ impl SfcState {
         slot: SfcSlot,
         codes: &[(usize, i64)],
     ) -> Option<()> {
+        for &(at, code) in codes {
+            self.stage_value(tx, slot, at, code.to_string())?;
+        }
+        Some(())
+    }
+
+    /// 囲みの内側の値を仮置きする。囲まない値か、`'…'` で囲んだ値だけ
+    fn stage_value(
+        &self,
+        tx: &mut SfcStepTx,
+        slot: SfcSlot,
+        at: usize,
+        value: String,
+    ) -> Option<()> {
         match slot {
             SfcSlot::Base(idx) => {
                 let bf = self.base_features.get(idx)?;
-                for &(at, code) in codes {
-                    bf.arg_ranges.get(at)?.as_ref()?;
-                    tx.base_args.insert((idx, at), code.to_string());
-                }
-                Some(())
+                bf.arg_ranges.get(at)?.as_ref()?;
+                tx.base_args.insert((idx, at), ArgValue::Inner(value));
             }
             SfcSlot::Born(seq) => {
                 let born = self.born_features.get(&seq)?;
-                for &(at, code) in codes {
-                    if at >= born.args.len() {
-                        return None;
-                    }
-                    tx.born_args.insert((seq, at), code.to_string());
+                if at >= born.args.len() {
+                    return None;
                 }
-                Some(())
+                tx.born_args.insert((seq, at), value);
             }
+        }
+        Some(())
+    }
+
+    /// 文字列の引数を、囲みも含めて仮置きする。`suffix` は値の後に足すバイト列
+    fn stage_string(
+        &self,
+        tx: &mut SfcStepTx,
+        slot: SfcSlot,
+        at: usize,
+        value: &str,
+        suffix: &[u8],
+    ) -> Option<()> {
+        match slot {
+            SfcSlot::Base(idx) => {
+                let bf = self.base_features.get(idx)?;
+                bf.outer_ranges.get(at)?.as_ref()?;
+                let mut bytes = sfc_string(value)?;
+                bytes.extend_from_slice(suffix);
+                tx.base_args.insert((idx, at), ArgValue::Outer(bytes));
+            }
+            SfcSlot::Born(seq) => {
+                let born = self.born_features.get(&seq)?;
+                if at >= born.args.len() || !suffix.is_empty() {
+                    return None;
+                }
+                sfc_string(value)?;
+                tx.born_args.insert((seq, at), value.to_owned());
+            }
+        }
+        Some(())
+    }
+
+    fn arg_count(&self, slot: SfcSlot) -> Option<usize> {
+        match slot {
+            SfcSlot::Base(idx) => Some(self.base_features.get(idx)?.arg_ranges.len()),
+            SfcSlot::Born(seq) => Some(self.born_features.get(&seq)?.args.len()),
         }
     }
 
+    /// 形を仮置きする。種類は変えない（バッチの SFC の書き方と同じ引数を書く）
     pub(super) fn stage_shape(
         &self,
         tx: &mut SfcStepTx,
         slot: SfcSlot,
         args: &Arguments,
     ) -> Option<()> {
-        let first = args.first();
+        let annotation = args.name == text::NAME;
+        let first = if annotation { 0 } else { args.first() };
+        let count = self.arg_count(slot)?;
+        for (at, value) in args.values.iter().enumerate().skip(first) {
+            if is_string(args, at) {
+                self.stage_string(tx, slot, at, value, b"")?;
+            } else if annotation && at == 12 && value == "1" && count == 12 {
+                // 旧版の横書きは省略できる。
+            } else {
+                self.stage_value(tx, slot, at, value.clone())?;
+            }
+        }
+        Some(())
+    }
+
+    /// レイヤフィーチャの名前と表示の可否を仮置きし、そのインスタンス番号を返す
+    pub(super) fn stage_layer(
+        &self,
+        tx: &mut SfcStepTx,
+        slot: SfcSlot,
+        name: &str,
+        visible: bool,
+    ) -> Option<u64> {
+        let flag = if visible { "1" } else { "0" };
         match slot {
             SfcSlot::Base(idx) => {
                 let bf = self.base_features.get(idx)?;
-                for (at, text) in args.values.iter().enumerate().skip(first) {
-                    bf.arg_ranges.get(at)?.as_ref()?;
-                    tx.base_args.insert((idx, at), text.clone());
+                let id = bf.instance?;
+                if bf.arg_ranges.len() > 1 {
+                    self.stage_string(tx, slot, 0, name, b"")?;
+                    self.stage_value(tx, slot, 1, flag.into())?;
+                } else {
+                    // 表示の可否を省いた定義は、隠すときだけ足す
+                    let suffix: &[u8] = if visible { b"" } else { b",'0'" };
+                    self.stage_string(tx, slot, 0, name, suffix)?;
                 }
-                Some(())
+                Some(id)
             }
             SfcSlot::Born(seq) => {
-                let born = self.born_features.get(&seq)?;
-                for (at, text) in args.values.iter().enumerate().skip(first) {
-                    if at >= born.args.len() {
-                        return None;
-                    }
-                    tx.born_args.insert((seq, at), text.clone());
-                }
-                Some(())
+                let id = self.born_features.get(&seq)?.instance;
+                self.stage_string(tx, slot, 0, name, b"")?;
+                self.stage_value(tx, slot, 1, flag.into())?;
+                Some(id)
             }
         }
+    }
+
+    /// 出所の定義の場所。開いた時点のフィーチャはレコードの番号で、足したフィーチャ（仮置き中も含む）はインスタンス
+    /// 番号で引く
+    pub(super) fn slot_for_source(&self, tx: &SfcStepTx, source: &Ref) -> Option<SfcSlot> {
+        if let Some(record) = source.record() {
+            return self.slot_for_record(usize::try_from(record).ok()?);
+        }
+        let Some(Key::Instance(instance)) = source.key() else {
+            return None;
+        };
+        tx.added_born
+            .iter()
+            .find(|(_, born)| born.instance == instance)
+            .map(|(seq, _)| SfcSlot::Born(*seq))
+            .or_else(|| {
+                self.born_features
+                    .iter()
+                    .find(|(seq, born)| born.instance == instance && !tx.removed_born.contains(seq))
+                    .map(|(seq, _)| SfcSlot::Born(*seq))
+            })
     }
 
     pub(super) fn stage_remove(&self, tx: &mut SfcStepTx, slot: SfcSlot) -> Option<()> {
@@ -364,16 +512,15 @@ impl SfcState {
                 };
                 let raw_comment = self.src.with_range(bf.span.clone(), |rs| rs.bytes.to_vec());
                 let mut patches = Vec::new();
-                for (at, maybe_rel) in bf.arg_ranges.iter().enumerate() {
-                    let text = tx
+                for at in 0..bf.arg_ranges.len() {
+                    let value = tx
                         .base_args
                         .get(&(idx, at))
                         .or_else(|| self.patched_base.get(&idx).and_then(|m| m.get(&at)));
-                    if let (Some(rel), Some(t)) = (maybe_rel, text) {
-                        patches.push((
-                            (rel.start as usize)..(rel.end as usize),
-                            t.as_bytes().to_vec(),
-                        ));
+                    if let Some(value) = value
+                        && let Some(range) = bf.range(at, value)
+                    {
+                        patches.push((range, value.bytes().to_vec()));
                     }
                 }
                 let built = patched(patches, &raw_comment, cx)?;
@@ -404,7 +551,7 @@ impl SfcState {
                 ) else {
                     return Ok(None);
                 };
-                (text.into_bytes(), 0)
+                (text, 0)
             }
         };
 
@@ -627,11 +774,11 @@ impl SfcState {
             let Some(bf) = self.base_features.get(idx) else {
                 continue;
             };
-            for (&at, text) in arg_map {
-                if let Some(Some(rel)) = bf.arg_ranges.get(at) {
-                    let start = bf.span.start + rel.start as usize;
-                    let end = bf.span.start + rel.end as usize;
-                    patches.push((start..end, text.as_bytes().to_vec()));
+            for (&at, value) in arg_map {
+                if let Some(range) = bf.range(at, value) {
+                    let start = bf.span.start + range.start;
+                    let end = bf.span.start + range.end;
+                    patches.push((start..end, value.bytes().to_vec()));
                 }
             }
         }
@@ -649,7 +796,7 @@ impl SfcState {
                     else {
                         return Err(Error::Rejected);
                     };
-                    inserted.extend_from_slice(comment.as_bytes());
+                    inserted.extend_from_slice(&comment);
                     inserted.extend_from_slice(nl.as_bytes());
                 }
                 let at = sheet_bf.span.start;
@@ -675,7 +822,7 @@ impl SfcState {
                             return Err(Error::Rejected);
                         };
                         inserted.extend_from_slice(nl.as_bytes());
-                        inserted.extend_from_slice(comment.as_bytes());
+                        inserted.extend_from_slice(&comment);
                     }
                     let at = last_bf.span.end;
                     patches.push((at..at, inserted));
@@ -691,7 +838,7 @@ impl SfcState {
                         ) else {
                             return Err(Error::Rejected);
                         };
-                        inserted.extend_from_slice(comment.as_bytes());
+                        inserted.extend_from_slice(&comment);
                         inserted.extend_from_slice(nl.as_bytes());
                     }
                     let at = first_bf.span.start;
@@ -717,19 +864,33 @@ fn dec_id(counts: &mut BTreeMap<u64, u32>, id: u64) {
 fn format_born_comment(
     marker: Marker,
     instance: u64,
-    name: &str,
+    name: &'static str,
     args: &[String],
     nl: &str,
-) -> Option<String> {
+) -> Option<Vec<u8>> {
     let (_, open, close) = Marker::ALL
         .iter()
         .find(|(found, _, _)| *found == marker)
         .copied()?;
-    let values: Vec<String> = args.iter().map(|v| format!("'{v}'")).collect();
-    Some(format!(
-        "{open}{nl}#{instance} = {name}_feature({}){nl}{close}",
-        values.join(","),
-        open = String::from_utf8_lossy(open),
-        close = String::from_utf8_lossy(close),
-    ))
+    let arguments = Arguments {
+        name,
+        values: args.to_vec(),
+    };
+    let mut out = Vec::new();
+    out.extend_from_slice(open);
+    out.extend_from_slice(format!("{nl}#{instance} = {name}_feature(").as_bytes());
+    for (at, value) in args.iter().enumerate() {
+        if at > 0 {
+            out.push(b',');
+        }
+        if is_string(&arguments, at) {
+            out.extend(sfc_string(value)?);
+        } else {
+            out.extend_from_slice(format!("'{value}'").as_bytes());
+        }
+    }
+    out.push(b')');
+    out.extend_from_slice(nl.as_bytes());
+    out.extend_from_slice(close);
+    Some(out)
 }

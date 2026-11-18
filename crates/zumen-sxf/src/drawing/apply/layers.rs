@@ -7,12 +7,12 @@ use zumen_drawing::{Hash, Layer, LayerId, Seen, id};
 use zumen_sdk::{Cx, Error};
 
 #[derive(Default)]
-pub(super) struct Changes {
+pub(in crate::drawing) struct Changes {
     changed: BTreeSet<LayerId>,
     added: u32,
 }
 
-pub(super) fn hash(layer: &Layer, cx: &mut Cx) -> Result<Hash, Error> {
+pub(in crate::drawing) fn hash(layer: &Layer, cx: &mut Cx) -> Result<Hash, Error> {
     Hash::layer_checked(layer, cx).map_err(|stop| {
         cx.report(stop.to_diagnostic().at(layer.source.clone()));
         Error::Stopped(stop)
@@ -20,7 +20,7 @@ pub(super) fn hash(layer: &Layer, cx: &mut Cx) -> Result<Hash, Error> {
 }
 
 impl Changes {
-    pub(super) fn replace(
+    pub(in crate::drawing) fn replace(
         &mut self,
         layers: &[Layer],
         target: &Seen,
@@ -47,13 +47,14 @@ impl Changes {
         count(layer, cx)?;
         let result = normalize(layer).and_then(|mut layer| {
             was.state?;
-            let record = usize::try_from(was.source.record()?).ok()?;
             layer.id = was.id;
             layer.source = was.source.clone();
-            Some((layer, record))
+            Some(layer)
         });
-        if let Some((layer, record)) = result
-            && writer.layer_change(Some(record), &layer, cx)?.is_some()
+        if let Some(layer) = result
+            && writer
+                .layer_change(Some(&was.source), &layer, cx)?
+                .is_some()
         {
             return Ok(Some(layer));
         }
@@ -61,7 +62,7 @@ impl Changes {
         Ok(None)
     }
 
-    pub(super) fn add(
+    pub(in crate::drawing) fn add(
         &mut self,
         layers: &[Layer],
         layer: &Layer,
@@ -90,7 +91,7 @@ impl Changes {
         Ok(None)
     }
 
-    pub(super) fn verify(
+    pub(in crate::drawing) fn verify(
         &self,
         before: &[Layer],
         after: &[Layer],

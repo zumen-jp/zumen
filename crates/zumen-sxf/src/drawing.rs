@@ -470,13 +470,16 @@ pub(crate) fn lift_for_live(
     lifter.run_with_meta(cx)
 }
 
+/// 1 つのフィーチャを読んだ要素と、その要素の拡張
+pub(crate) type Lifted<P> = Option<(Element<P>, Vec<Draft>)>;
+
 pub(crate) fn lift_single_paper(
     tables: &LifterTables,
     instance: Option<u64>,
     record: &FeatureRecord,
     raster: Option<(&str, &Ref)>,
     cx: &mut Cx,
-) -> Result<Option<Element<PaperPoint>>, Error> {
+) -> Result<Lifted<PaperPoint>, Error> {
     let feature = Feature {
         record: record.record,
         instance,
@@ -503,7 +506,7 @@ pub(crate) fn lift_single_paper(
     };
     let mut out = Out::default();
     lifter.members(&[0], &OnSheet, &mut out, &mut Vec::new(), cx)?;
-    Ok(out.paper.pop())
+    Ok(out.paper.pop().map(|element| (element, out.extensions)))
 }
 
 pub(crate) fn lift_single_model(
@@ -513,7 +516,7 @@ pub(crate) fn lift_single_model(
     record: &FeatureRecord,
     raster: Option<(&str, &Ref)>,
     cx: &mut Cx,
-) -> Result<Option<Element<ModelPoint>>, Error> {
+) -> Result<Lifted<ModelPoint>, Error> {
     let feature = Feature {
         record: record.record,
         instance,
@@ -540,7 +543,33 @@ pub(crate) fn lift_single_model(
     };
     let mut out = Out::default();
     lifter.members(&[0], &InSpace(space), &mut out, &mut Vec::new(), cx)?;
-    Ok(out.model.pop())
+    Ok(out.model.pop().map(|element| (element, out.extensions)))
+}
+
+/// レイヤフィーチャの引数から、`id` のレイヤを読む
+pub(crate) fn layer_feature(args: &[Arg], id: LayerId, source: Ref) -> Option<Layer> {
+    let values = Args { values: args };
+    let name = values.text(0)?;
+    let visible = match values.int(1) {
+        Some(flag) => flag != 0,
+        None if args.len() < 2 => true,
+        None => return None,
+    };
+    Some(Layer {
+        id,
+        name,
+        // SXF のレイヤは表示の可否だけを持つ。印刷は表示に合わせ、編集はできるとする（推定）
+        state: Some(LayerState {
+            visible,
+            printable: visible,
+            editable: true,
+            frozen: false,
+        }),
+        style: None,
+        follows_placement: false,
+        source,
+        description: None,
+    })
 }
 
 /// 要素が参照する未定義レイヤと既定義・未定義線種を、`Lifter::run` と同じ順で表に補う
@@ -850,29 +879,10 @@ impl<'f> Lifter<'f> {
     }
 
     fn layer(&mut self, feature: Feature<'f>) -> Option<()> {
-        let args = self.args(feature);
-        let name = args.text(0)?;
-        let visible = match args.int(1) {
-            Some(flag) => flag != 0,
-            None if feature.args.len() < 2 => true,
-            None => return None,
-        };
+        let id = LayerId(u32::try_from(self.defined_layers.checked_add(1)?).ok()?);
+        let layer = layer_feature(feature.args, id, feature.source())?;
         self.defined_layers += 1;
-        self.layers.push(Layer {
-            id: LayerId(u32::try_from(self.defined_layers).ok()?),
-            name,
-            // SXF のレイヤは表示の可否だけを持つ。印刷は表示に合わせ、編集はできるとする（推定）
-            state: Some(LayerState {
-                visible,
-                printable: visible,
-                editable: true,
-                frozen: false,
-            }),
-            style: None,
-            follows_placement: false,
-            source: feature.source(),
-            description: None,
-        });
+        self.layers.push(layer);
         Some(())
     }
 
