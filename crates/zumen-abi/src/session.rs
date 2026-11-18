@@ -13,6 +13,7 @@ mod delivery_ops;
 mod drawing_ops;
 #[cfg(feature = "drawing")]
 mod element_set;
+mod ifc_ops;
 #[cfg(feature = "drawing")]
 mod intersection_ops;
 #[cfg(feature = "drawing")]
@@ -431,13 +432,15 @@ impl Session {
             Request::Entities(request) => self.entities(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Apply(request) => self.apply(request, &mut cx).map(|r| Box::new(r) as _),
-            #[cfg(feature = "drawing")]
-            Request::Create(request) => self.create(request, &mut cx).map(|r| Box::new(r) as _),
-            #[cfg(any(feature = "drawing", feature = "civil"))]
-            Request::Convert(request) => self.convert(request, &mut cx).map(|r| Box::new(r) as _),
-            #[cfg(feature = "drawing")]
+            #[cfg(any(feature = "drawing", feature = "bim"))]
+            Request::Create(request) => self.create_op(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(any(feature = "drawing", feature = "civil", feature = "bim"))]
+            Request::Convert(request) => {
+                self.convert_op(request, &mut cx).map(|r| Box::new(r) as _)
+            }
+            #[cfg(any(feature = "drawing", feature = "bim"))]
             Request::ConvertEstimate(request) => self
-                .convert_estimate(request, &mut cx)
+                .convert_estimate_op(request, &mut cx)
                 .map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Tables(request) => self.tables(request, &mut cx).map(|r| Box::new(r) as _),

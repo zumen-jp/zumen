@@ -3390,7 +3390,7 @@ class ApplyResult extends Message {
   set idsShifted(core.bool? value) => writeField('ids_shifted', value);
 }
 
-/// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+/// 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から
 class CreateRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CreateRequest.fromJson(super.json);
@@ -3422,7 +3422,7 @@ class CreateRequest extends Message {
   String? get op => readField('op', asString);
   set op(String? value) => writeField('op', value);
 
-  /// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+  /// 作る形式の名前。dxf か ifc
   String? get format => readField('format', asString);
   set format(String? value) => writeField('format', value);
 
@@ -3430,9 +3430,13 @@ class CreateRequest extends Message {
   String? get to => readField('to', asString);
   set to(String? value) => writeField('to', value);
 
-  /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+  /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なしで、ifc では書けない
   String? get unit => readField('unit', asString);
   set unit(String? value) => writeField('unit', value);
+
+  /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+  IfcOutput? get ifc => readField('ifc', objectOf(IfcOutput.fromJson));
+  set ifc(IfcOutput? value) => writeField('ifc', value);
 }
 
 /// 作った空の文書。書いたファイルは blobs の file で返す
@@ -3460,7 +3464,7 @@ class CreateResult extends Message {
   set elements(core.int? value) => writeField('elements', value);
 }
 
-/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から
 class ConvertRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ConvertRequest.fromJson(super.json);
@@ -3496,13 +3500,17 @@ class ConvertRequest extends Message {
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
-  /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から
+  /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima・ifc のいずれか。sxf・jww はマイナーバージョン 85 から
   String? get format => readField('format', asString);
   set format(String? value) => writeField('format', value);
 
   /// 作る文書の名前
   String? get to => readField('to', asString);
   set to(String? value) => writeField('to', value);
+
+  /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+  IfcOutput? get ifc => readField('ifc', objectOf(IfcOutput.fromJson));
+  set ifc(IfcOutput? value) => writeField('ifc', value);
 }
 
 /// 書いた文書。書いたファイルは blobs の file で返す
@@ -3530,7 +3538,7 @@ class ConvertResult extends Message {
   set elements(core.int? value) => writeField('elements', value);
 }
 
-/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
+/// 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から）
 class ConvertEstimateRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   ConvertEstimateRequest.fromJson(super.json);
@@ -3566,7 +3574,7 @@ class ConvertEstimateRequest extends Message {
   String? get doc => readField('doc', asString);
   set doc(String? value) => writeField('doc', value);
 
-  /// 書く形式の名前。dxf・sxf・jww
+  /// 書く形式の名前。dxf・sxf・jww・ifc
   String? get format => readField('format', asString);
   set format(String? value) => writeField('format', value);
 
@@ -3574,9 +3582,125 @@ class ConvertEstimateRequest extends Message {
   String? get to => readField('to', asString);
   set to(String? value) => writeField('to', value);
 
+  /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+  IfcOutput? get ifc => readField('ifc', objectOf(IfcOutput.fromJson));
+  set ifc(IfcOutput? value) => writeField('ifc', value);
+
   /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
   core.int? get limit => readField('limit', asInt);
   set limit(core.int? value) => writeField('limit', value);
+}
+
+/// 新しい IFC を書く設定（#395）。コアは時計を読まないので、時刻は呼び出し元が渡す
+class IfcOutput extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  IfcOutput.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  IfcOutput() : super({});
+
+  /// 書くバージョン
+  String? get version => readField('version', asString);
+  set version(String? value) => writeField('version', value);
+
+  /// ヘッダー（FILE_DESCRIPTION と FILE_NAME）の値。書かなければ空の値で書く
+  IfcHeader? get header => readField('header', objectOf(IfcHeader.fromJson));
+  set header(IfcHeader? value) => writeField('header', value);
+
+  /// 所有履歴（IfcOwnerHistory）の値。ifc2x3 では必須。ifc4 からは書いたときだけ書く
+  IfcOwner? get owner => readField('owner', objectOf(IfcOwner.fromJson));
+  set owner(IfcOwner? value) => writeField('owner', value);
+
+  /// GlobalId を導く名前空間。書かなければ、convert は元の IfcProject の GlobalId（なければ元の文書のハッシュ）、create は作る文書の名前を使う。元の文書のハッシュでない名前空間なら、元を一部直して書き直しても、直していない要素の GlobalId は変わらない
+  String? get namespace => readField('namespace', asString);
+  set namespace(String? value) => writeField('namespace', value);
+}
+
+/// IFC のバージョン。ifc2x3 は IFC2X3 TC1、ifc4 は IFC4 ADD2 TC1、ifc4x3 は IFC4X3 ADD2
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class IfcVersion {
+  static const ifc2x3 = 'ifc2x3';
+  static const ifc4 = 'ifc4';
+  static const ifc4x3 = 'ifc4x3';
+}
+
+/// IFC のヘッダーの値。書かない値は空で書く
+class IfcHeader extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  IfcHeader.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  IfcHeader() : super({});
+
+  /// FILE_DESCRIPTION に ViewDefinition [<値>] として書く MVD の名前。書かなければ書かない
+  String? get viewDefinition => readField('view_definition', asString);
+  set viewDefinition(String? value) => writeField('view_definition', value);
+
+  /// FILE_NAME の name
+  String? get name => readField('name', asString);
+  set name(String? value) => writeField('name', value);
+
+  /// FILE_NAME の time_stamp。呼び出し元が書いた時刻
+  String? get timeStamp => readField('time_stamp', asString);
+  set timeStamp(String? value) => writeField('time_stamp', value);
+
+  /// FILE_NAME の author
+  List<String>? get author => readField('author', listOf(asString));
+  set author(List<String>? value) => writeField('author', value);
+
+  /// FILE_NAME の organization
+  List<String>? get organization => readField('organization', listOf(asString));
+  set organization(List<String>? value) => writeField('organization', value);
+
+  /// FILE_NAME の preprocessor_version
+  String? get preprocessorVersion => readField('preprocessor_version', asString);
+  set preprocessorVersion(String? value) => writeField('preprocessor_version', value);
+
+  /// FILE_NAME の originating_system
+  String? get originatingSystem => readField('originating_system', asString);
+  set originatingSystem(String? value) => writeField('originating_system', value);
+
+  /// FILE_NAME の authorization
+  String? get authorization => readField('authorization', asString);
+  set authorization(String? value) => writeField('authorization', value);
+}
+
+/// 所有履歴の値
+class IfcOwner extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  IfcOwner.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  IfcOwner() : super({});
+
+  /// 所有する人の IfcPerson の FamilyName
+  String? get person => readField('person', asString);
+  set person(String? value) => writeField('person', value);
+
+  /// 所有する組織の IfcOrganization の Name
+  String? get organization => readField('organization', asString);
+  set organization(String? value) => writeField('organization', value);
+
+  /// 作ったソフトの開発元の IfcOrganization の Name
+  String? get developer => readField('developer', asString);
+  set developer(String? value) => writeField('developer', value);
+
+  /// 作ったソフトの名前（IfcApplication の ApplicationFullName）
+  String? get application => readField('application', asString);
+  set application(String? value) => writeField('application', value);
+
+  /// 作ったソフトのバージョン（IfcApplication の Version）
+  String? get version => readField('version', asString);
+  set version(String? value) => writeField('version', value);
+
+  /// 作ったソフトの識別子（IfcApplication の ApplicationIdentifier）
+  String? get identifier => readField('identifier', asString);
+  set identifier(String? value) => writeField('identifier', value);
+
+  /// 作った日時。1970-01-01T00:00:00Z からの秒（IfcTimeStamp）
+  core.int? get created => readField('created', asInt);
+  set created(core.int? value) => writeField('created', value);
 }
 
 /// 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない

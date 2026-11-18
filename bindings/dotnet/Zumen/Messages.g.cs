@@ -4225,7 +4225,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+    /// 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から
     /// </summary>
     public sealed record CreateRequest
     {
@@ -4266,7 +4266,7 @@ namespace Zumen.Messages
         public string Op { get; init; } = "create";
 
         /// <summary>
-        /// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+        /// 作る形式の名前。dxf か ifc
         /// </summary>
         [JsonPropertyName("format")]
         public string Format { get; init; } = default!;
@@ -4278,10 +4278,16 @@ namespace Zumen.Messages
         public string To { get; init; } = default!;
 
         /// <summary>
-        /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+        /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なしで、ifc では書けない
         /// </summary>
         [JsonPropertyName("unit")]
         public string? Unit { get; init; }
+
+        /// <summary>
+        /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+        /// </summary>
+        [JsonPropertyName("ifc")]
+        public IfcOutput? Ifc { get; init; }
     }
 
     /// <summary>
@@ -4315,7 +4321,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から
     /// </summary>
     public sealed record ConvertRequest
     {
@@ -4362,7 +4368,7 @@ namespace Zumen.Messages
         public string Doc { get; init; } = default!;
 
         /// <summary>
-        /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から
+        /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima・ifc のいずれか。sxf・jww はマイナーバージョン 85 から
         /// </summary>
         [JsonPropertyName("format")]
         public string Format { get; init; } = default!;
@@ -4372,6 +4378,12 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("to")]
         public string To { get; init; } = default!;
+
+        /// <summary>
+        /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+        /// </summary>
+        [JsonPropertyName("ifc")]
+        public IfcOutput? Ifc { get; init; }
     }
 
     /// <summary>
@@ -4405,7 +4417,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
+    /// 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から）
     /// </summary>
     public sealed record ConvertEstimateRequest
     {
@@ -4452,7 +4464,7 @@ namespace Zumen.Messages
         public string Doc { get; init; } = default!;
 
         /// <summary>
-        /// 書く形式の名前。dxf・sxf・jww
+        /// 書く形式の名前。dxf・sxf・jww・ifc
         /// </summary>
         [JsonPropertyName("format")]
         public string Format { get; init; } = default!;
@@ -4464,10 +4476,161 @@ namespace Zumen.Messages
         public string To { get; init; } = default!;
 
         /// <summary>
+        /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+        /// </summary>
+        [JsonPropertyName("ifc")]
+        public IfcOutput? Ifc { get; init; }
+
+        /// <summary>
         /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
         /// </summary>
         [JsonPropertyName("limit")]
         public uint? Limit { get; init; }
+    }
+
+    /// <summary>
+    /// 新しい IFC を書く設定（#395）。コアは時計を読まないので、時刻は呼び出し元が渡す
+    /// </summary>
+    public sealed record IfcOutput
+    {
+        /// <summary>
+        /// 書くバージョン
+        /// </summary>
+        [JsonPropertyName("version")]
+        public string Version { get; init; } = default!;
+
+        /// <summary>
+        /// ヘッダー（FILE_DESCRIPTION と FILE_NAME）の値。書かなければ空の値で書く
+        /// </summary>
+        [JsonPropertyName("header")]
+        public IfcHeader? Header { get; init; }
+
+        /// <summary>
+        /// 所有履歴（IfcOwnerHistory）の値。ifc2x3 では必須。ifc4 からは書いたときだけ書く
+        /// </summary>
+        [JsonPropertyName("owner")]
+        public IfcOwner? Owner { get; init; }
+
+        /// <summary>
+        /// GlobalId を導く名前空間。書かなければ、convert は元の IfcProject の GlobalId（なければ元の文書のハッシュ）、create は作る文書の名前を使う。元の文書のハッシュでない名前空間なら、元を一部直して書き直しても、直していない要素の GlobalId は変わらない
+        /// </summary>
+        [JsonPropertyName("namespace")]
+        public string? Namespace { get; init; }
+    }
+
+    /// <summary>
+    /// IFC のバージョン。ifc2x3 は IFC2X3 TC1、ifc4 は IFC4 ADD2 TC1、ifc4x3 は IFC4X3 ADD2
+    /// </summary>
+    public static class IfcVersion
+    {
+        /// <summary>ifc2x3</summary>
+        public const string Ifc2x3 = "ifc2x3";
+        /// <summary>ifc4</summary>
+        public const string Ifc4 = "ifc4";
+        /// <summary>ifc4x3</summary>
+        public const string Ifc4x3 = "ifc4x3";
+    }
+
+    /// <summary>
+    /// IFC のヘッダーの値。書かない値は空で書く
+    /// </summary>
+    public sealed record IfcHeader
+    {
+        /// <summary>
+        /// FILE_DESCRIPTION に ViewDefinition [&lt;値&gt;] として書く MVD の名前。書かなければ書かない
+        /// </summary>
+        [JsonPropertyName("view_definition")]
+        public string? ViewDefinition { get; init; }
+
+        /// <summary>
+        /// FILE_NAME の name
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// FILE_NAME の time_stamp。呼び出し元が書いた時刻
+        /// </summary>
+        [JsonPropertyName("time_stamp")]
+        public string? TimeStamp { get; init; }
+
+        /// <summary>
+        /// FILE_NAME の author
+        /// </summary>
+        [JsonPropertyName("author")]
+        public IReadOnlyList<string>? Author { get; init; }
+
+        /// <summary>
+        /// FILE_NAME の organization
+        /// </summary>
+        [JsonPropertyName("organization")]
+        public IReadOnlyList<string>? Organization { get; init; }
+
+        /// <summary>
+        /// FILE_NAME の preprocessor_version
+        /// </summary>
+        [JsonPropertyName("preprocessor_version")]
+        public string? PreprocessorVersion { get; init; }
+
+        /// <summary>
+        /// FILE_NAME の originating_system
+        /// </summary>
+        [JsonPropertyName("originating_system")]
+        public string? OriginatingSystem { get; init; }
+
+        /// <summary>
+        /// FILE_NAME の authorization
+        /// </summary>
+        [JsonPropertyName("authorization")]
+        public string? Authorization { get; init; }
+    }
+
+    /// <summary>
+    /// 所有履歴の値
+    /// </summary>
+    public sealed record IfcOwner
+    {
+        /// <summary>
+        /// 所有する人の IfcPerson の FamilyName
+        /// </summary>
+        [JsonPropertyName("person")]
+        public string Person { get; init; } = default!;
+
+        /// <summary>
+        /// 所有する組織の IfcOrganization の Name
+        /// </summary>
+        [JsonPropertyName("organization")]
+        public string Organization { get; init; } = default!;
+
+        /// <summary>
+        /// 作ったソフトの開発元の IfcOrganization の Name
+        /// </summary>
+        [JsonPropertyName("developer")]
+        public string Developer { get; init; } = default!;
+
+        /// <summary>
+        /// 作ったソフトの名前（IfcApplication の ApplicationFullName）
+        /// </summary>
+        [JsonPropertyName("application")]
+        public string Application { get; init; } = default!;
+
+        /// <summary>
+        /// 作ったソフトのバージョン（IfcApplication の Version）
+        /// </summary>
+        [JsonPropertyName("version")]
+        public string Version { get; init; } = default!;
+
+        /// <summary>
+        /// 作ったソフトの識別子（IfcApplication の ApplicationIdentifier）
+        /// </summary>
+        [JsonPropertyName("identifier")]
+        public string Identifier { get; init; } = default!;
+
+        /// <summary>
+        /// 作った日時。1970-01-01T00:00:00Z からの秒（IfcTimeStamp）
+        /// </summary>
+        [JsonPropertyName("created")]
+        public long Created { get; init; }
     }
 
     /// <summary>

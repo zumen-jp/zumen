@@ -2988,7 +2988,7 @@ type ApplyResult struct {
 	IdsShifted *bool `json:"ids_shifted,omitempty"`
 }
 
-// CreateRequest: 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+// CreateRequest: 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から
 type CreateRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -3008,14 +3008,17 @@ type CreateRequest struct {
 	// op の名前
 	Op string `json:"op,omitempty"`
 
-	// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+	// 作る形式の名前。dxf か ifc
 	Format *string `json:"format,omitempty"`
 
 	// 作る文書の名前。既存の文書と重ねない
 	To *string `json:"to,omitempty"`
 
-	// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+	// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なしで、ifc では書けない
 	Unit *Unit `json:"unit,omitempty"`
+
+	// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+	Ifc *IfcOutput `json:"ifc,omitempty"`
 }
 
 // MarshalJSON は、タグのフィールドを入れて書く。
@@ -3040,7 +3043,7 @@ type CreateResult struct {
 	Elements *int64 `json:"elements,omitempty"`
 }
 
-// ConvertRequest: 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+// ConvertRequest: 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から
 type ConvertRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -3063,11 +3066,14 @@ type ConvertRequest struct {
 	// 書く元の文書の名前。open で作ったもの
 	Doc *string `json:"doc,omitempty"`
 
-	// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から
+	// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima・ifc のいずれか。sxf・jww はマイナーバージョン 85 から
 	Format *string `json:"format,omitempty"`
 
 	// 作る文書の名前
 	To *string `json:"to,omitempty"`
+
+	// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+	Ifc *IfcOutput `json:"ifc,omitempty"`
 }
 
 // MarshalJSON は、タグのフィールドを入れて書く。
@@ -3092,7 +3098,7 @@ type ConvertResult struct {
 	Elements *int64 `json:"elements,omitempty"`
 }
 
-// ConvertEstimateRequest: 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
+// ConvertEstimateRequest: 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から）
 type ConvertEstimateRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -3115,11 +3121,14 @@ type ConvertEstimateRequest struct {
 	// 書く元の文書の名前
 	Doc *string `json:"doc,omitempty"`
 
-	// 書く形式の名前。dxf・sxf・jww
+	// 書く形式の名前。dxf・sxf・jww・ifc
 	Format *string `json:"format,omitempty"`
 
 	// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
 	To *string `json:"to,omitempty"`
+
+	// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+	Ifc *IfcOutput `json:"ifc,omitempty"`
 
 	// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
 	Limit *int64 `json:"limit,omitempty"`
@@ -3130,6 +3139,86 @@ func (m ConvertEstimateRequest) MarshalJSON() ([]byte, error) {
 	type plain ConvertEstimateRequest
 	m.Op = "convert_estimate"
 	return json.Marshal(plain(m))
+}
+
+// IfcOutput: 新しい IFC を書く設定（#395）。コアは時計を読まないので、時刻は呼び出し元が渡す
+type IfcOutput struct {
+	// 書くバージョン
+	Version *IfcVersion `json:"version,omitempty"`
+
+	// ヘッダー（FILE_DESCRIPTION と FILE_NAME）の値。書かなければ空の値で書く
+	Header *IfcHeader `json:"header,omitempty"`
+
+	// 所有履歴（IfcOwnerHistory）の値。ifc2x3 では必須。ifc4 からは書いたときだけ書く
+	Owner *IfcOwner `json:"owner,omitempty"`
+
+	// GlobalId を導く名前空間。書かなければ、convert は元の IfcProject の GlobalId（なければ元の文書のハッシュ）、create は作る文書の名前を使う。元の文書のハッシュでない名前空間なら、元を一部直して書き直しても、直していない要素の GlobalId は変わらない
+	Namespace *string `json:"namespace,omitempty"`
+}
+
+// IfcVersion: IFC のバージョン。ifc2x3 は IFC2X3 TC1、ifc4 は IFC4 ADD2 TC1、ifc4x3 は IFC4X3 ADD2
+//
+// 列挙の値。知らない値も受け取る。
+type IfcVersion string
+
+// IfcVersionIfc2x3 は ifc2x3。
+const IfcVersionIfc2x3 IfcVersion = "ifc2x3"
+
+// IfcVersionIfc4 は ifc4。
+const IfcVersionIfc4 IfcVersion = "ifc4"
+
+// IfcVersionIfc4x3 は ifc4x3。
+const IfcVersionIfc4x3 IfcVersion = "ifc4x3"
+
+// IfcHeader: IFC のヘッダーの値。書かない値は空で書く
+type IfcHeader struct {
+	// FILE_DESCRIPTION に ViewDefinition [<値>] として書く MVD の名前。書かなければ書かない
+	ViewDefinition *string `json:"view_definition,omitempty"`
+
+	// FILE_NAME の name
+	Name *string `json:"name,omitempty"`
+
+	// FILE_NAME の time_stamp。呼び出し元が書いた時刻
+	TimeStamp *string `json:"time_stamp,omitempty"`
+
+	// FILE_NAME の author
+	Author []string `json:"author,omitempty"`
+
+	// FILE_NAME の organization
+	Organization []string `json:"organization,omitempty"`
+
+	// FILE_NAME の preprocessor_version
+	PreprocessorVersion *string `json:"preprocessor_version,omitempty"`
+
+	// FILE_NAME の originating_system
+	OriginatingSystem *string `json:"originating_system,omitempty"`
+
+	// FILE_NAME の authorization
+	Authorization *string `json:"authorization,omitempty"`
+}
+
+// IfcOwner: 所有履歴の値
+type IfcOwner struct {
+	// 所有する人の IfcPerson の FamilyName
+	Person *string `json:"person,omitempty"`
+
+	// 所有する組織の IfcOrganization の Name
+	Organization *string `json:"organization,omitempty"`
+
+	// 作ったソフトの開発元の IfcOrganization の Name
+	Developer *string `json:"developer,omitempty"`
+
+	// 作ったソフトの名前（IfcApplication の ApplicationFullName）
+	Application *string `json:"application,omitempty"`
+
+	// 作ったソフトのバージョン（IfcApplication の Version）
+	Version *string `json:"version,omitempty"`
+
+	// 作ったソフトの識別子（IfcApplication の ApplicationIdentifier）
+	Identifier *string `json:"identifier,omitempty"`
+
+	// 作った日時。1970-01-01T00:00:00Z からの秒（IfcTimeStamp）
+	Created *int64 `json:"created,omitempty"`
 }
 
 // ConvertEstimateResult: 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない

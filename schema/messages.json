@@ -1647,14 +1647,15 @@
       "additionalProperties": false
     },
     "create_request": {
-      "description": "入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から",
+      "description": "入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から",
       "type": "object",
       "allOf": [{ "$ref": "#/$defs/request_common" }],
       "properties": {
         "op": { "description": "op の名前", "const": "create" },
-        "format": { "description": "作る形式の名前。capabilities.formats の create が true の id。今は dxf", "type": "string" },
+        "format": { "description": "作る形式の名前。dxf か ifc", "type": "string" },
         "to": { "description": "作る文書の名前。既存の文書と重ねない", "type": "string" },
-        "unit": { "description": "実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし", "$ref": "#/$defs/unit" }
+        "unit": { "description": "実寸の空間の長さの単位。省略すると millimeter。unknown は単位なしで、ifc では書けない", "$ref": "#/$defs/unit" },
+        "ifc": { "description": "IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から", "$ref": "#/$defs/ifc_output" }
       },
       "required": ["op", "format", "to"],
       "unevaluatedProperties": false
@@ -1672,14 +1673,15 @@
       "additionalProperties": false
     },
     "convert_request": {
-      "description": "開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から",
+      "description": "開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から",
       "type": "object",
       "allOf": [{ "$ref": "#/$defs/request_common" }],
       "properties": {
         "op": { "description": "op の名前", "const": "convert" },
         "doc": { "description": "書く元の文書の名前。open で作ったもの", "type": "string" },
-        "format": { "description": "書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から", "type": "string" },
-        "to": { "description": "作る文書の名前", "type": "string" }
+        "format": { "description": "書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima・ifc のいずれか。sxf・jww はマイナーバージョン 85 から", "type": "string" },
+        "to": { "description": "作る文書の名前", "type": "string" },
+        "ifc": { "description": "IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から", "$ref": "#/$defs/ifc_output" }
       },
       "required": ["op", "doc", "format", "to"],
       "unevaluatedProperties": false
@@ -1697,18 +1699,66 @@
       "additionalProperties": false
     },
     "convert_estimate_request": {
-      "description": "開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）",
+      "description": "開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から）",
       "type": "object",
       "allOf": [{ "$ref": "#/$defs/request_common" }],
       "properties": {
         "op": { "description": "op の名前", "const": "convert_estimate" },
         "doc": { "description": "書く元の文書の名前", "type": "string" },
-        "format": { "description": "書く形式の名前。dxf・sxf・jww", "type": "string" },
+        "format": { "description": "書く形式の名前。dxf・sxf・jww・ifc", "type": "string" },
         "to": { "description": "予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない", "type": "string" },
+        "ifc": { "description": "IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から", "$ref": "#/$defs/ifc_output" },
         "limit": { "description": "書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない", "type": "integer", "minimum": 0, "maximum": 1000 }
       },
       "required": ["op", "doc", "format", "to"],
       "unevaluatedProperties": false
+    },
+    "ifc_output": {
+      "description": "新しい IFC を書く設定（#395）。コアは時計を読まないので、時刻は呼び出し元が渡す",
+      "type": "object",
+      "properties": {
+        "version": { "description": "書くバージョン", "$ref": "#/$defs/ifc_version" },
+        "header": { "description": "ヘッダー（FILE_DESCRIPTION と FILE_NAME）の値。書かなければ空の値で書く", "$ref": "#/$defs/ifc_header" },
+        "owner": { "description": "所有履歴（IfcOwnerHistory）の値。ifc2x3 では必須。ifc4 からは書いたときだけ書く", "$ref": "#/$defs/ifc_owner" },
+        "namespace": { "description": "GlobalId を導く名前空間。書かなければ、convert は元の IfcProject の GlobalId（なければ元の文書のハッシュ）、create は作る文書の名前を使う。元の文書のハッシュでない名前空間なら、元を一部直して書き直しても、直していない要素の GlobalId は変わらない", "type": "string" }
+      },
+      "required": ["version"],
+      "additionalProperties": false
+    },
+    "ifc_version": {
+      "description": "IFC のバージョン。ifc2x3 は IFC2X3 TC1、ifc4 は IFC4 ADD2 TC1、ifc4x3 は IFC4X3 ADD2",
+      "type": "string",
+      "enum": ["ifc2x3", "ifc4", "ifc4x3"]
+    },
+    "ifc_header": {
+      "description": "IFC のヘッダーの値。書かない値は空で書く",
+      "type": "object",
+      "properties": {
+        "view_definition": { "description": "FILE_DESCRIPTION に ViewDefinition [<値>] として書く MVD の名前。書かなければ書かない", "type": "string" },
+        "name": { "description": "FILE_NAME の name", "type": "string" },
+        "time_stamp": { "description": "FILE_NAME の time_stamp。呼び出し元が書いた時刻", "type": "string" },
+        "author": { "description": "FILE_NAME の author", "type": "array", "items": { "type": "string" } },
+        "organization": { "description": "FILE_NAME の organization", "type": "array", "items": { "type": "string" } },
+        "preprocessor_version": { "description": "FILE_NAME の preprocessor_version", "type": "string" },
+        "originating_system": { "description": "FILE_NAME の originating_system", "type": "string" },
+        "authorization": { "description": "FILE_NAME の authorization", "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "ifc_owner": {
+      "description": "所有履歴の値",
+      "type": "object",
+      "properties": {
+        "person": { "description": "所有する人の IfcPerson の FamilyName", "type": "string" },
+        "organization": { "description": "所有する組織の IfcOrganization の Name", "type": "string" },
+        "developer": { "description": "作ったソフトの開発元の IfcOrganization の Name", "type": "string" },
+        "application": { "description": "作ったソフトの名前（IfcApplication の ApplicationFullName）", "type": "string" },
+        "version": { "description": "作ったソフトのバージョン（IfcApplication の Version）", "type": "string" },
+        "identifier": { "description": "作ったソフトの識別子（IfcApplication の ApplicationIdentifier）", "type": "string" },
+        "created": { "description": "作った日時。1970-01-01T00:00:00Z からの秒（IfcTimeStamp）", "type": "integer" }
+      },
+      "required": ["person", "organization", "developer", "application", "version", "identifier", "created"],
+      "additionalProperties": false
     },
     "convert_estimate_result": {
       "description": "予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない",

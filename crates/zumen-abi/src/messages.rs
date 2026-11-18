@@ -37,11 +37,11 @@ pub enum Request {
     Construct(ConstructRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
-    /// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+    /// 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から
     Create(CreateRequest),
-    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から
     Convert(ConvertRequest),
-    /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
+    /// 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から）
     ConvertEstimate(ConvertEstimateRequest),
     /// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。マイナーバージョン 8 から
     Tables(TablesRequest),
@@ -7786,17 +7786,19 @@ impl ToJson for ApplyResult {
     }
 }
 
-/// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+/// 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
-    /// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+    /// 作る形式の名前。dxf か ifc
     pub format: String,
     /// 作る文書の名前。既存の文書と重ねない
     pub to: String,
-    /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+    /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なしで、ifc では書けない
     pub unit: Option<Unit>,
+    /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+    pub ifc: Option<IfcOutput>,
 }
 
 impl CreateRequest {
@@ -7806,11 +7808,13 @@ impl CreateRequest {
         let format = object.required("format", json::string)?;
         let to = object.required("to", json::string)?;
         let unit = object.optional("unit", Unit::from_json)?;
+        let ifc = object.optional("ifc", IfcOutput::from_json)?;
         Ok(Self {
             request_common,
             format,
             to,
             unit,
+            ifc,
         })
     }
 
@@ -7824,6 +7828,10 @@ impl CreateRequest {
         out.string(&self.to);
         if let Some(value) = &self.unit {
             out.key("unit");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.ifc {
+            out.key("ifc");
             value.to_json(out);
         }
     }
@@ -7903,17 +7911,19 @@ impl ToJson for CreateResult {
     }
 }
 
-/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConvertRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
     /// 書く元の文書の名前。open で作ったもの
     pub doc: String,
-    /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から
+    /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima・ifc のいずれか。sxf・jww はマイナーバージョン 85 から
     pub format: String,
     /// 作る文書の名前
     pub to: String,
+    /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+    pub ifc: Option<IfcOutput>,
 }
 
 impl ConvertRequest {
@@ -7923,11 +7933,13 @@ impl ConvertRequest {
         let doc = object.required("doc", json::string)?;
         let format = object.required("format", json::string)?;
         let to = object.required("to", json::string)?;
+        let ifc = object.optional("ifc", IfcOutput::from_json)?;
         Ok(Self {
             request_common,
             doc,
             format,
             to,
+            ifc,
         })
     }
 
@@ -7941,6 +7953,10 @@ impl ConvertRequest {
         out.string(&self.format);
         out.key("to");
         out.string(&self.to);
+        if let Some(value) = &self.ifc {
+            out.key("ifc");
+            value.to_json(out);
+        }
     }
 }
 
@@ -8018,17 +8034,19 @@ impl ToJson for ConvertResult {
     }
 }
 
-/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
+/// 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConvertEstimateRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
     /// 書く元の文書の名前
     pub doc: String,
-    /// 書く形式の名前。dxf・sxf・jww
+    /// 書く形式の名前。dxf・sxf・jww・ifc
     pub format: String,
     /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
     pub to: String,
+    /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+    pub ifc: Option<IfcOutput>,
     /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
     pub limit: Option<u64>,
 }
@@ -8040,12 +8058,14 @@ impl ConvertEstimateRequest {
         let doc = object.required("doc", json::string)?;
         let format = object.required("format", json::string)?;
         let to = object.required("to", json::string)?;
+        let ifc = object.optional("ifc", IfcOutput::from_json)?;
         let limit = object.optional("limit", |value| json::uint(value, 0, 1000))?;
         Ok(Self {
             request_common,
             doc,
             format,
             to,
+            ifc,
             limit,
         })
     }
@@ -8060,6 +8080,10 @@ impl ConvertEstimateRequest {
         out.string(&self.format);
         out.key("to");
         out.string(&self.to);
+        if let Some(value) = &self.ifc {
+            out.key("ifc");
+            value.to_json(out);
+        }
         if let Some(value) = &self.limit {
             out.key("limit");
             out.uint(*value);
@@ -8077,6 +8101,288 @@ impl FromJson for ConvertEstimateRequest {
 }
 
 impl ToJson for ConvertEstimateRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 新しい IFC を書く設定（#395）。コアは時計を読まないので、時刻は呼び出し元が渡す
+#[derive(Clone, Debug, PartialEq)]
+pub struct IfcOutput {
+    /// 書くバージョン
+    pub version: IfcVersion,
+    /// ヘッダー（FILE_DESCRIPTION と FILE_NAME）の値。書かなければ空の値で書く
+    pub header: Option<IfcHeader>,
+    /// 所有履歴（IfcOwnerHistory）の値。ifc2x3 では必須。ifc4 からは書いたときだけ書く
+    pub owner: Option<IfcOwner>,
+    /// GlobalId を導く名前空間。書かなければ、convert は元の IfcProject の GlobalId（なければ元の文書のハッシュ）、create は作る文書の名前を使う。元の文書のハッシュでない名前空間なら、元を一部直して書き直しても、直していない要素の GlobalId は変わらない
+    pub namespace: Option<String>,
+}
+
+impl IfcOutput {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let version = object.required("version", IfcVersion::from_json)?;
+        let header = object.optional("header", IfcHeader::from_json)?;
+        let owner = object.optional("owner", IfcOwner::from_json)?;
+        let namespace = object.optional("namespace", json::string)?;
+        Ok(Self {
+            version,
+            header,
+            owner,
+            namespace,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("version");
+        self.version.to_json(out);
+        if let Some(value) = &self.header {
+            out.key("header");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.owner {
+            out.key("owner");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.namespace {
+            out.key("namespace");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for IfcOutput {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IfcOutput {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// IFC のバージョン。ifc2x3 は IFC2X3 TC1、ifc4 は IFC4 ADD2 TC1、ifc4x3 は IFC4X3 ADD2
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IfcVersion {
+    /// `ifc2x3`
+    Ifc2x3,
+    /// `ifc4`
+    Ifc4,
+    /// `ifc4x3`
+    Ifc4x3,
+}
+
+impl IfcVersion {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Ifc2x3, Self::Ifc4, Self::Ifc4x3];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Ifc2x3 => "ifc2x3",
+            Self::Ifc4 => "ifc4",
+            Self::Ifc4x3 => "ifc4x3",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "ifc2x3" => Some(Self::Ifc2x3),
+            "ifc4" => Some(Self::Ifc4),
+            "ifc4x3" => Some(Self::Ifc4x3),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for IfcVersion {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for IfcVersion {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// IFC のヘッダーの値。書かない値は空で書く
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct IfcHeader {
+    /// FILE_DESCRIPTION に ViewDefinition [<値>] として書く MVD の名前。書かなければ書かない
+    pub view_definition: Option<String>,
+    /// FILE_NAME の name
+    pub name: Option<String>,
+    /// FILE_NAME の time_stamp。呼び出し元が書いた時刻
+    pub time_stamp: Option<String>,
+    /// FILE_NAME の author
+    pub author: Option<Vec<String>>,
+    /// FILE_NAME の organization
+    pub organization: Option<Vec<String>>,
+    /// FILE_NAME の preprocessor_version
+    pub preprocessor_version: Option<String>,
+    /// FILE_NAME の originating_system
+    pub originating_system: Option<String>,
+    /// FILE_NAME の authorization
+    pub authorization: Option<String>,
+}
+
+impl IfcHeader {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let view_definition = object.optional("view_definition", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let time_stamp = object.optional("time_stamp", json::string)?;
+        let author = object.optional("author", |value| json::array(value, json::string))?;
+        let organization =
+            object.optional("organization", |value| json::array(value, json::string))?;
+        let preprocessor_version = object.optional("preprocessor_version", json::string)?;
+        let originating_system = object.optional("originating_system", json::string)?;
+        let authorization = object.optional("authorization", json::string)?;
+        Ok(Self {
+            view_definition,
+            name,
+            time_stamp,
+            author,
+            organization,
+            preprocessor_version,
+            originating_system,
+            authorization,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.view_definition {
+            out.key("view_definition");
+            out.string(value);
+        }
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.time_stamp {
+            out.key("time_stamp");
+            out.string(value);
+        }
+        if let Some(value) = &self.author {
+            out.key("author");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.organization {
+            out.key("organization");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.preprocessor_version {
+            out.key("preprocessor_version");
+            out.string(value);
+        }
+        if let Some(value) = &self.originating_system {
+            out.key("originating_system");
+            out.string(value);
+        }
+        if let Some(value) = &self.authorization {
+            out.key("authorization");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for IfcHeader {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IfcHeader {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 所有履歴の値
+#[derive(Clone, Debug, PartialEq)]
+pub struct IfcOwner {
+    /// 所有する人の IfcPerson の FamilyName
+    pub person: String,
+    /// 所有する組織の IfcOrganization の Name
+    pub organization: String,
+    /// 作ったソフトの開発元の IfcOrganization の Name
+    pub developer: String,
+    /// 作ったソフトの名前（IfcApplication の ApplicationFullName）
+    pub application: String,
+    /// 作ったソフトのバージョン（IfcApplication の Version）
+    pub version: String,
+    /// 作ったソフトの識別子（IfcApplication の ApplicationIdentifier）
+    pub identifier: String,
+    /// 作った日時。1970-01-01T00:00:00Z からの秒（IfcTimeStamp）
+    pub created: i64,
+}
+
+impl IfcOwner {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let person = object.required("person", json::string)?;
+        let organization = object.required("organization", json::string)?;
+        let developer = object.required("developer", json::string)?;
+        let application = object.required("application", json::string)?;
+        let version = object.required("version", json::string)?;
+        let identifier = object.required("identifier", json::string)?;
+        let created = object.required("created", |value| {
+            json::int(value, -9007199254740991, 9007199254740991)
+        })?;
+        Ok(Self {
+            person,
+            organization,
+            developer,
+            application,
+            version,
+            identifier,
+            created,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("person");
+        out.string(&self.person);
+        out.key("organization");
+        out.string(&self.organization);
+        out.key("developer");
+        out.string(&self.developer);
+        out.key("application");
+        out.string(&self.application);
+        out.key("version");
+        out.string(&self.version);
+        out.key("identifier");
+        out.string(&self.identifier);
+        out.key("created");
+        out.int(self.created);
+    }
+}
+
+impl FromJson for IfcOwner {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IfcOwner {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

@@ -8342,7 +8342,7 @@ public final class Messages {
         }
     }
 
-    /** 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から */
+    /** 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から */
     public static final class CreateRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CreateRequest(Map<String, Object> json) {
@@ -8427,7 +8427,7 @@ public final class Messages {
             return this;
         }
 
-        /** 作る形式の名前。capabilities.formats の create が true の id。今は dxf */
+        /** 作る形式の名前。dxf か ifc */
         public String getFormat() {
             return Json.read(json.get("format"), Json::string);
         }
@@ -8449,7 +8449,7 @@ public final class Messages {
             return this;
         }
 
-        /** 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし */
+        /** 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なしで、ifc では書けない */
         public String getUnit() {
             return Json.read(json.get("unit"), Json::string);
         }
@@ -8457,6 +8457,17 @@ public final class Messages {
         /** {@link #getUnit()} を書く。null ならフィールドを除く */
         public CreateRequest withUnit(String value) {
             put("unit", value);
+            return this;
+        }
+
+        /** IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から */
+        public IfcOutput getIfc() {
+            return Json.read(json.get("ifc"), IfcOutput::of);
+        }
+
+        /** {@link #getIfc()} を書く。null ならフィールドを除く */
+        public CreateRequest withIfc(IfcOutput value) {
+            put("ifc", value);
             return this;
         }
     }
@@ -8524,7 +8535,7 @@ public final class Messages {
         }
     }
 
-    /** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から */
+    /** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から */
     public static final class ConvertRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ConvertRequest(Map<String, Object> json) {
@@ -8620,7 +8631,7 @@ public final class Messages {
             return this;
         }
 
-        /** 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から */
+        /** 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima・ifc のいずれか。sxf・jww はマイナーバージョン 85 から */
         public String getFormat() {
             return Json.read(json.get("format"), Json::string);
         }
@@ -8639,6 +8650,17 @@ public final class Messages {
         /** {@link #getTo()} を書く。null ならフィールドを除く */
         public ConvertRequest withTo(String value) {
             put("to", value);
+            return this;
+        }
+
+        /** IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から */
+        public IfcOutput getIfc() {
+            return Json.read(json.get("ifc"), IfcOutput::of);
+        }
+
+        /** {@link #getIfc()} を書く。null ならフィールドを除く */
+        public ConvertRequest withIfc(IfcOutput value) {
+            put("ifc", value);
             return this;
         }
     }
@@ -8706,7 +8728,7 @@ public final class Messages {
         }
     }
 
-    /** 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から） */
+    /** 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から） */
     public static final class ConvertEstimateRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ConvertEstimateRequest(Map<String, Object> json) {
@@ -8802,7 +8824,7 @@ public final class Messages {
             return this;
         }
 
-        /** 書く形式の名前。dxf・sxf・jww */
+        /** 書く形式の名前。dxf・sxf・jww・ifc */
         public String getFormat() {
             return Json.read(json.get("format"), Json::string);
         }
@@ -8824,6 +8846,17 @@ public final class Messages {
             return this;
         }
 
+        /** IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から */
+        public IfcOutput getIfc() {
+            return Json.read(json.get("ifc"), IfcOutput::of);
+        }
+
+        /** {@link #getIfc()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withIfc(IfcOutput value) {
+            put("ifc", value);
+            return this;
+        }
+
         /** 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない */
         public Long getLimit() {
             return Json.read(json.get("limit"), Json::integer);
@@ -8832,6 +8865,287 @@ public final class Messages {
         /** {@link #getLimit()} を書く。null ならフィールドを除く */
         public ConvertEstimateRequest withLimit(Long value) {
             put("limit", value);
+            return this;
+        }
+    }
+
+    /** 新しい IFC を書く設定（#395）。コアは時計を読まないので、時刻は呼び出し元が渡す */
+    public static final class IfcOutput extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public IfcOutput(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static IfcOutput of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new IfcOutput(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public IfcOutput() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 書くバージョン */
+        public String getVersion() {
+            return Json.read(json.get("version"), Json::string);
+        }
+
+        /** {@link #getVersion()} を書く。null ならフィールドを除く */
+        public IfcOutput withVersion(String value) {
+            put("version", value);
+            return this;
+        }
+
+        /** ヘッダー（FILE_DESCRIPTION と FILE_NAME）の値。書かなければ空の値で書く */
+        public IfcHeader getHeader() {
+            return Json.read(json.get("header"), IfcHeader::of);
+        }
+
+        /** {@link #getHeader()} を書く。null ならフィールドを除く */
+        public IfcOutput withHeader(IfcHeader value) {
+            put("header", value);
+            return this;
+        }
+
+        /** 所有履歴（IfcOwnerHistory）の値。ifc2x3 では必須。ifc4 からは書いたときだけ書く */
+        public IfcOwner getOwner() {
+            return Json.read(json.get("owner"), IfcOwner::of);
+        }
+
+        /** {@link #getOwner()} を書く。null ならフィールドを除く */
+        public IfcOutput withOwner(IfcOwner value) {
+            put("owner", value);
+            return this;
+        }
+
+        /** GlobalId を導く名前空間。書かなければ、convert は元の IfcProject の GlobalId（なければ元の文書のハッシュ）、create は作る文書の名前を使う。元の文書のハッシュでない名前空間なら、元を一部直して書き直しても、直していない要素の GlobalId は変わらない */
+        public String getNamespace() {
+            return Json.read(json.get("namespace"), Json::string);
+        }
+
+        /** {@link #getNamespace()} を書く。null ならフィールドを除く */
+        public IfcOutput withNamespace(String value) {
+            put("namespace", value);
+            return this;
+        }
+    }
+
+    /**
+     * IFC のバージョン。ifc2x3 は IFC2X3 TC1、ifc4 は IFC4 ADD2 TC1、ifc4x3 は IFC4X3 ADD2
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class IfcVersion {
+        private IfcVersion() {}
+
+        public static final String IFC2X3 = "ifc2x3";
+
+        public static final String IFC4 = "ifc4";
+
+        public static final String IFC4X3 = "ifc4x3";
+    }
+
+    /** IFC のヘッダーの値。書かない値は空で書く */
+    public static final class IfcHeader extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public IfcHeader(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static IfcHeader of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new IfcHeader(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public IfcHeader() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** FILE_DESCRIPTION に ViewDefinition [<値>] として書く MVD の名前。書かなければ書かない */
+        public String getViewDefinition() {
+            return Json.read(json.get("view_definition"), Json::string);
+        }
+
+        /** {@link #getViewDefinition()} を書く。null ならフィールドを除く */
+        public IfcHeader withViewDefinition(String value) {
+            put("view_definition", value);
+            return this;
+        }
+
+        /** FILE_NAME の name */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public IfcHeader withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** FILE_NAME の time_stamp。呼び出し元が書いた時刻 */
+        public String getTimeStamp() {
+            return Json.read(json.get("time_stamp"), Json::string);
+        }
+
+        /** {@link #getTimeStamp()} を書く。null ならフィールドを除く */
+        public IfcHeader withTimeStamp(String value) {
+            put("time_stamp", value);
+            return this;
+        }
+
+        /** FILE_NAME の author */
+        public List<String> getAuthor() {
+            return Json.read(json.get("author"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getAuthor()} を書く。null ならフィールドを除く */
+        public IfcHeader withAuthor(List<String> value) {
+            put("author", value);
+            return this;
+        }
+
+        /** FILE_NAME の organization */
+        public List<String> getOrganization() {
+            return Json.read(json.get("organization"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getOrganization()} を書く。null ならフィールドを除く */
+        public IfcHeader withOrganization(List<String> value) {
+            put("organization", value);
+            return this;
+        }
+
+        /** FILE_NAME の preprocessor_version */
+        public String getPreprocessorVersion() {
+            return Json.read(json.get("preprocessor_version"), Json::string);
+        }
+
+        /** {@link #getPreprocessorVersion()} を書く。null ならフィールドを除く */
+        public IfcHeader withPreprocessorVersion(String value) {
+            put("preprocessor_version", value);
+            return this;
+        }
+
+        /** FILE_NAME の originating_system */
+        public String getOriginatingSystem() {
+            return Json.read(json.get("originating_system"), Json::string);
+        }
+
+        /** {@link #getOriginatingSystem()} を書く。null ならフィールドを除く */
+        public IfcHeader withOriginatingSystem(String value) {
+            put("originating_system", value);
+            return this;
+        }
+
+        /** FILE_NAME の authorization */
+        public String getAuthorization() {
+            return Json.read(json.get("authorization"), Json::string);
+        }
+
+        /** {@link #getAuthorization()} を書く。null ならフィールドを除く */
+        public IfcHeader withAuthorization(String value) {
+            put("authorization", value);
+            return this;
+        }
+    }
+
+    /** 所有履歴の値 */
+    public static final class IfcOwner extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public IfcOwner(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static IfcOwner of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new IfcOwner(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public IfcOwner() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 所有する人の IfcPerson の FamilyName */
+        public String getPerson() {
+            return Json.read(json.get("person"), Json::string);
+        }
+
+        /** {@link #getPerson()} を書く。null ならフィールドを除く */
+        public IfcOwner withPerson(String value) {
+            put("person", value);
+            return this;
+        }
+
+        /** 所有する組織の IfcOrganization の Name */
+        public String getOrganization() {
+            return Json.read(json.get("organization"), Json::string);
+        }
+
+        /** {@link #getOrganization()} を書く。null ならフィールドを除く */
+        public IfcOwner withOrganization(String value) {
+            put("organization", value);
+            return this;
+        }
+
+        /** 作ったソフトの開発元の IfcOrganization の Name */
+        public String getDeveloper() {
+            return Json.read(json.get("developer"), Json::string);
+        }
+
+        /** {@link #getDeveloper()} を書く。null ならフィールドを除く */
+        public IfcOwner withDeveloper(String value) {
+            put("developer", value);
+            return this;
+        }
+
+        /** 作ったソフトの名前（IfcApplication の ApplicationFullName） */
+        public String getApplication() {
+            return Json.read(json.get("application"), Json::string);
+        }
+
+        /** {@link #getApplication()} を書く。null ならフィールドを除く */
+        public IfcOwner withApplication(String value) {
+            put("application", value);
+            return this;
+        }
+
+        /** 作ったソフトのバージョン（IfcApplication の Version） */
+        public String getVersion() {
+            return Json.read(json.get("version"), Json::string);
+        }
+
+        /** {@link #getVersion()} を書く。null ならフィールドを除く */
+        public IfcOwner withVersion(String value) {
+            put("version", value);
+            return this;
+        }
+
+        /** 作ったソフトの識別子（IfcApplication の ApplicationIdentifier） */
+        public String getIdentifier() {
+            return Json.read(json.get("identifier"), Json::string);
+        }
+
+        /** {@link #getIdentifier()} を書く。null ならフィールドを除く */
+        public IfcOwner withIdentifier(String value) {
+            put("identifier", value);
+            return this;
+        }
+
+        /** 作った日時。1970-01-01T00:00:00Z からの秒（IfcTimeStamp） */
+        public Long getCreated() {
+            return Json.read(json.get("created"), Json::integer);
+        }
+
+        /** {@link #getCreated()} を書く。null ならフィールドを除く */
+        public IfcOwner withCreated(Long value) {
+            put("created", value);
             return this;
         }
     }
