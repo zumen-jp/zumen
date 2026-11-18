@@ -5848,6 +5848,11 @@ func (u BuildingEdit) AsBuildingAddWindowEdit() *BuildingAddWindowEdit {
 	return asTagged[BuildingAddWindowEdit](u, "kind", "add_window")
 }
 
+// AsBuildingAddGridEdit は、kind が add_grid の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingAddGridEdit() *BuildingAddGridEdit {
+	return asTagged[BuildingAddGridEdit](u, "kind", "add_grid")
+}
+
 // BuildingPropertyEdit: 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
 type BuildingPropertyEdit struct {
 	// 変更の種類
@@ -6351,6 +6356,49 @@ type BuildingAddWindowEdit struct {
 func (m BuildingAddWindowEdit) MarshalJSON() ([]byte, error) {
 	type plain BuildingAddWindowEdit
 	m.Kind = "add_window"
+	return json.Marshal(plain(m))
+}
+
+// BuildingGridAxis: 通り芯の軸。2 点の折れ線の IfcGridAxis に書く。マイナーバージョン 101 から
+type BuildingGridAxis struct {
+	// 軸の名前（AxisTag）。同じ通り芯の中で重ならない
+	Tag *string `json:"tag,omitempty"`
+
+	// 始点。通り芯の配置の [x, y]
+	Start []float64 `json:"start,omitempty"`
+
+	// 終点。始点と違う [x, y]
+	End []float64 `json:"end,omitempty"`
+}
+
+// BuildingAddGridEdit: U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から
+type BuildingAddGridEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 所属する空間（階など）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Storey *BuildingRef `json:"storey,omitempty"`
+
+	// U の軸。1 つ以上
+	U []BuildingGridAxis `json:"u,omitempty"`
+
+	// V の軸。1 つ以上
+	V []BuildingGridAxis `json:"v,omitempty"`
+
+	// 高さ（空間の配置の z）。書かなければ 0
+	Elevation *float64 `json:"elevation,omitempty"`
+
+	// 名前
+	Name *string `json:"name,omitempty"`
+
+	// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+	GlobalId *string `json:"global_id,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingAddGridEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingAddGridEdit
+	m.Kind = "add_grid"
 	return json.Marshal(plain(m))
 }
 

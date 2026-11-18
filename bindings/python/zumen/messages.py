@@ -5370,6 +5370,7 @@ BuildingEdit = Union[
     "BuildingAddOpeningEdit",
     "BuildingAddDoorEdit",
     "BuildingAddWindowEdit",
+    "BuildingAddGridEdit",
 ]
 
 
@@ -5877,6 +5878,52 @@ _BuildingAddWindowEditOptional = TypedDict(
 
 class BuildingAddWindowEdit(_BuildingAddWindowEditRequired, _BuildingAddWindowEditOptional):
     "開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から"
+
+
+# 通り芯の軸。2 点の折れ線の IfcGridAxis に書く。マイナーバージョン 101 から
+BuildingGridAxis = TypedDict(
+    "BuildingGridAxis",
+    {
+        # 軸の名前（AxisTag）。同じ通り芯の中で重ならない
+        "tag": str,
+        # 始点。通り芯の配置の [x, y]
+        "start": List[float],
+        # 終点。始点と違う [x, y]
+        "end": List[float],
+    },
+)
+
+
+# U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から
+_BuildingAddGridEditRequired = TypedDict(
+    "_BuildingAddGridEditRequired",
+    {
+        # 変更の種類
+        "kind": Literal["add_grid"],
+        # 所属する空間（階など）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        "storey": "BuildingRef",
+        # U の軸。1 つ以上
+        "u": List["BuildingGridAxis"],
+        # V の軸。1 つ以上
+        "v": List["BuildingGridAxis"],
+    },
+)
+_BuildingAddGridEditOptional = TypedDict(
+    "_BuildingAddGridEditOptional",
+    {
+        # 高さ（空間の配置の z）。書かなければ 0
+        "elevation": float,
+        # 名前
+        "name": str,
+        # GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        "global_id": str,
+    },
+    total=False,
+)
+
+
+class BuildingAddGridEdit(_BuildingAddGridEditRequired, _BuildingAddGridEditOptional):
+    "U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から"
 
 
 # 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から

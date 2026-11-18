@@ -17347,6 +17347,11 @@ public final class Messages {
         public BuildingAddWindowEdit asBuildingAddWindowEdit() {
             return "add_window".equals(json.get("kind")) ? new BuildingAddWindowEdit(json) : null;
         }
+
+        /** kind が add_grid の形なら、そのビュー。違えば null */
+        public BuildingAddGridEdit asBuildingAddGridEdit() {
+            return "add_grid".equals(json.get("kind")) ? new BuildingAddGridEdit(json) : null;
+        }
     }
 
     /** 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える */
@@ -18901,6 +18906,155 @@ public final class Messages {
 
         /** {@link #getGlobalId()} を書く。null ならフィールドを除く */
         public BuildingAddWindowEdit withGlobalId(String value) {
+            put("global_id", value);
+            return this;
+        }
+    }
+
+    /** 通り芯の軸。2 点の折れ線の IfcGridAxis に書く。マイナーバージョン 101 から */
+    public static final class BuildingGridAxis extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingGridAxis(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingGridAxis of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingGridAxis(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingGridAxis() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 軸の名前（AxisTag）。同じ通り芯の中で重ならない */
+        public String getTag() {
+            return Json.read(json.get("tag"), Json::string);
+        }
+
+        /** {@link #getTag()} を書く。null ならフィールドを除く */
+        public BuildingGridAxis withTag(String value) {
+            put("tag", value);
+            return this;
+        }
+
+        /** 始点。通り芯の配置の [x, y] */
+        public List<Double> getStart() {
+            return Json.read(json.get("start"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
+        public BuildingGridAxis withStart(List<Double> value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 終点。始点と違う [x, y] */
+        public List<Double> getEnd() {
+            return Json.read(json.get("end"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
+        public BuildingGridAxis withEnd(List<Double> value) {
+            put("end", value);
+            return this;
+        }
+    }
+
+    /** U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から */
+    public static final class BuildingAddGridEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingAddGridEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingAddGridEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingAddGridEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingAddGridEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "add_grid");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingAddGridEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 所属する空間（階など）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す */
+        public BuildingRef getStorey() {
+            return Json.read(json.get("storey"), BuildingRef::of);
+        }
+
+        /** {@link #getStorey()} を書く。null ならフィールドを除く */
+        public BuildingAddGridEdit withStorey(BuildingRef value) {
+            put("storey", value);
+            return this;
+        }
+
+        /** U の軸。1 つ以上 */
+        public List<BuildingGridAxis> getU() {
+            return Json.read(json.get("u"), v0 -> Json.list(v0, BuildingGridAxis::of));
+        }
+
+        /** {@link #getU()} を書く。null ならフィールドを除く */
+        public BuildingAddGridEdit withU(List<BuildingGridAxis> value) {
+            put("u", value);
+            return this;
+        }
+
+        /** V の軸。1 つ以上 */
+        public List<BuildingGridAxis> getV() {
+            return Json.read(json.get("v"), v0 -> Json.list(v0, BuildingGridAxis::of));
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public BuildingAddGridEdit withV(List<BuildingGridAxis> value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 高さ（空間の配置の z）。書かなければ 0 */
+        public Double getElevation() {
+            return Json.read(json.get("elevation"), Json::number);
+        }
+
+        /** {@link #getElevation()} を書く。null ならフィールドを除く */
+        public BuildingAddGridEdit withElevation(Double value) {
+            put("elevation", value);
+            return this;
+        }
+
+        /** 名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public BuildingAddGridEdit withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
+        public String getGlobalId() {
+            return Json.read(json.get("global_id"), Json::string);
+        }
+
+        /** {@link #getGlobalId()} を書く。null ならフィールドを除く */
+        public BuildingAddGridEdit withGlobalId(String value) {
             put("global_id", value);
             return this;
         }

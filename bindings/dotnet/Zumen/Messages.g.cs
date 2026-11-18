@@ -8738,6 +8738,7 @@ namespace Zumen.Messages
             ["add_opening"] = typeof(BuildingAddOpeningEdit),
             ["add_door"] = typeof(BuildingAddDoorEdit),
             ["add_window"] = typeof(BuildingAddWindowEdit),
+            ["add_grid"] = typeof(BuildingAddGridEdit),
         };
     }
 
@@ -9489,6 +9490,78 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("height")]
         public double? Height { get; init; }
+
+        /// <summary>
+        /// 名前
+        /// </summary>
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        /// <summary>
+        /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+        /// </summary>
+        [JsonPropertyName("global_id")]
+        public string? GlobalId { get; init; }
+    }
+
+    /// <summary>
+    /// 通り芯の軸。2 点の折れ線の IfcGridAxis に書く。マイナーバージョン 101 から
+    /// </summary>
+    public sealed record BuildingGridAxis
+    {
+        /// <summary>
+        /// 軸の名前（AxisTag）。同じ通り芯の中で重ならない
+        /// </summary>
+        [JsonPropertyName("tag")]
+        public string Tag { get; init; } = default!;
+
+        /// <summary>
+        /// 始点。通り芯の配置の [x, y]
+        /// </summary>
+        [JsonPropertyName("start")]
+        public IReadOnlyList<double> Start { get; init; } = default!;
+
+        /// <summary>
+        /// 終点。始点と違う [x, y]
+        /// </summary>
+        [JsonPropertyName("end")]
+        public IReadOnlyList<double> End { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から
+    /// </summary>
+    public sealed record BuildingAddGridEdit
+    {
+        /// <summary>
+        /// 変更の種類
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = "add_grid";
+
+        /// <summary>
+        /// 所属する空間（階など）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+        /// </summary>
+        [JsonPropertyName("storey")]
+        public BuildingRef Storey { get; init; } = default!;
+
+        /// <summary>
+        /// U の軸。1 つ以上
+        /// </summary>
+        [JsonPropertyName("u")]
+        public IReadOnlyList<BuildingGridAxis> U { get; init; } = default!;
+
+        /// <summary>
+        /// V の軸。1 つ以上
+        /// </summary>
+        [JsonPropertyName("v")]
+        public IReadOnlyList<BuildingGridAxis> V { get; init; } = default!;
+
+        /// <summary>
+        /// 高さ（空間の配置の z）。書かなければ 0
+        /// </summary>
+        [JsonPropertyName("elevation")]
+        public double? Elevation { get; init; }
 
         /// <summary>
         /// 名前

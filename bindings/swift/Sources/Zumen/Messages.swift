@@ -10725,6 +10725,11 @@ public struct BuildingEdit: Message {
     public var asBuildingAddWindowEdit: BuildingAddWindowEdit? {
         taggedView("kind", "add_window")
     }
+
+    /// kind が add_grid の形なら、そのビュー。違えば nil
+    public var asBuildingAddGridEdit: BuildingAddGridEdit? {
+        taggedView("kind", "add_grid")
+    }
 }
 
 /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
@@ -11667,6 +11672,98 @@ public struct BuildingAddWindowEdit: Message {
     public var height: Double? {
         get { readField("height") }
         set { writeField("height", newValue) }
+    }
+
+    /// 名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    public var globalId: String? {
+        get { readField("global_id") }
+        set { writeField("global_id", newValue) }
+    }
+}
+
+/// 通り芯の軸。2 点の折れ線の IfcGridAxis に書く。マイナーバージョン 101 から
+public struct BuildingGridAxis: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 軸の名前（AxisTag）。同じ通り芯の中で重ならない
+    public var tag: String? {
+        get { readField("tag") }
+        set { writeField("tag", newValue) }
+    }
+
+    /// 始点。通り芯の配置の [x, y]
+    public var start: [Double]? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 終点。始点と違う [x, y]
+    public var end: [Double]? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+}
+
+/// U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から
+public struct BuildingAddGridEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("add_grid")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 所属する空間（階など）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var storey: BuildingRef? {
+        get { readField("storey") }
+        set { writeField("storey", newValue) }
+    }
+
+    /// U の軸。1 つ以上
+    public var u: [BuildingGridAxis]? {
+        get { readField("u") }
+        set { writeField("u", newValue) }
+    }
+
+    /// V の軸。1 つ以上
+    public var v: [BuildingGridAxis]? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 高さ（空間の配置の z）。書かなければ 0
+    public var elevation: Double? {
+        get { readField("elevation") }
+        set { writeField("elevation", newValue) }
     }
 
     /// 名前

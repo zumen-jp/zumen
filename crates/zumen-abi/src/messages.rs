@@ -15526,6 +15526,8 @@ pub enum BuildingEdit {
     AddDoor(BuildingAddDoorEdit),
     /// 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から
     AddWindow(BuildingAddWindowEdit),
+    /// U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から
+    AddGrid(BuildingAddGridEdit),
 }
 
 impl BuildingEdit {
@@ -15548,6 +15550,7 @@ impl BuildingEdit {
         "add_opening",
         "add_door",
         "add_window",
+        "add_grid",
     ];
 
     /// タグのフィールド（`kind`）の値
@@ -15570,6 +15573,7 @@ impl BuildingEdit {
             Self::AddOpening(_) => "add_opening",
             Self::AddDoor(_) => "add_door",
             Self::AddWindow(_) => "add_window",
+            Self::AddGrid(_) => "add_grid",
         }
     }
 }
@@ -15595,6 +15599,7 @@ impl FromJson for BuildingEdit {
             "add_opening" => Self::AddOpening(BuildingAddOpeningEdit::read_fields(&mut object)?),
             "add_door" => Self::AddDoor(BuildingAddDoorEdit::read_fields(&mut object)?),
             "add_window" => Self::AddWindow(BuildingAddWindowEdit::read_fields(&mut object)?),
+            "add_grid" => Self::AddGrid(BuildingAddGridEdit::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -15622,6 +15627,7 @@ impl ToJson for BuildingEdit {
             Self::AddOpening(value) => value.to_json(out),
             Self::AddDoor(value) => value.to_json(out),
             Self::AddWindow(value) => value.to_json(out),
+            Self::AddGrid(value) => value.to_json(out),
         }
     }
 }
@@ -16990,6 +16996,129 @@ impl FromJson for BuildingAddWindowEdit {
 }
 
 impl ToJson for BuildingAddWindowEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 通り芯の軸。2 点の折れ線の IfcGridAxis に書く。マイナーバージョン 101 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingGridAxis {
+    /// 軸の名前（AxisTag）。同じ通り芯の中で重ならない
+    pub tag: String,
+    /// 始点。通り芯の配置の [x, y]
+    pub start: Vec<f64>,
+    /// 終点。始点と違う [x, y]
+    pub end: Vec<f64>,
+}
+
+impl BuildingGridAxis {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let tag = object.required("tag", json::string)?;
+        let start = object.required("start", |value| json::array(value, json::number))?;
+        let end = object.required("end", |value| json::array(value, json::number))?;
+        Ok(Self { tag, start, end })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("tag");
+        out.string(&self.tag);
+        out.key("start");
+        out.array(&self.start, |out, item| out.float(*item));
+        out.key("end");
+        out.array(&self.end, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for BuildingGridAxis {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingGridAxis {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingAddGridEdit {
+    /// 所属する空間（階など）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    pub storey: BuildingRef,
+    /// U の軸。1 つ以上
+    pub u: Vec<BuildingGridAxis>,
+    /// V の軸。1 つ以上
+    pub v: Vec<BuildingGridAxis>,
+    /// 高さ（空間の配置の z）。書かなければ 0
+    pub elevation: Option<f64>,
+    /// 名前
+    pub name: Option<String>,
+    /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
+    pub global_id: Option<String>,
+}
+
+impl BuildingAddGridEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "add_grid")?;
+        let storey = object.required("storey", BuildingRef::from_json)?;
+        let u = object.required("u", |value| json::array(value, BuildingGridAxis::from_json))?;
+        let v = object.required("v", |value| json::array(value, BuildingGridAxis::from_json))?;
+        let elevation = object.optional("elevation", json::number)?;
+        let name = object.optional("name", json::string)?;
+        let global_id = object.optional("global_id", json::string)?;
+        Ok(Self {
+            storey,
+            u,
+            v,
+            elevation,
+            name,
+            global_id,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("add_grid");
+        out.key("storey");
+        self.storey.to_json(out);
+        out.key("u");
+        out.array(&self.u, |out, item| item.to_json(out));
+        out.key("v");
+        out.array(&self.v, |out, item| item.to_json(out));
+        if let Some(value) = &self.elevation {
+            out.key("elevation");
+            out.float(*value);
+        }
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.global_id {
+            out.key("global_id");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for BuildingAddGridEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingAddGridEdit {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

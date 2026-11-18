@@ -10,21 +10,22 @@ use zumen_building::{
 };
 use zumen_ids::{Ids, Report};
 use zumen_ifc::{
-    Edit, FillingKind, Ifc, IfcFile, IfcZip, NewBeam, NewColumn, NewElement, NewFilling, NewLayer,
-    NewLiteral, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewValue, NewWall,
-    RootAttribute, SpaceKind, Target, TextEncoding,
+    Edit, FillingKind, Ifc, IfcFile, IfcZip, NewBeam, NewColumn, NewElement, NewFilling, NewGrid,
+    NewGridAxis, NewLayer, NewLiteral, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace,
+    NewValue, NewWall, RootAttribute, SpaceKind, Target, TextEncoding,
 };
 use zumen_sdk::{Codec, Lift};
 
 use crate::messages::{
     self, BuildingApplyRequest, BuildingApplyResult, BuildingAttribute, BuildingComponent,
     BuildingEdit, BuildingElement, BuildingElementsRequest, BuildingElementsResult,
-    BuildingPlacementChange, BuildingRef, BuildingResult, BuildingSection, BuildingSpaceKind,
-    BuildingUnit, BuildingValue, BuildingValueKind, BuildingWallLayer, ClassComponent, ClassCount,
-    ClassificationReference, ConnectionLink, IdentityComponent, IdsCheckResult, IdsFinding,
-    IdsSpecification, IdsStatus, LevelComponent, MaterialComponent, MaterialPart, Measured,
-    Membership, OpeningComponent, ParentComponent, PlacementComponent, Property, PropertySet,
-    Quantity, QuantitySet, RelationsComponent, SpatialComponent, StyleComponent, ZoneComponent,
+    BuildingGridAxis, BuildingPlacementChange, BuildingRef, BuildingResult, BuildingSection,
+    BuildingSpaceKind, BuildingUnit, BuildingValue, BuildingValueKind, BuildingWallLayer,
+    ClassComponent, ClassCount, ClassificationReference, ConnectionLink, IdentityComponent,
+    IdsCheckResult, IdsFinding, IdsSpecification, IdsStatus, LevelComponent, MaterialComponent,
+    MaterialPart, Measured, Membership, OpeningComponent, ParentComponent, PlacementComponent,
+    Property, PropertySet, Quantity, QuantitySet, RelationsComponent, SpatialComponent,
+    StyleComponent, ZoneComponent,
 };
 #[cfg(feature = "bim")]
 use crate::plugin;
@@ -63,6 +64,23 @@ fn section(section: &BuildingSection) -> NewSection {
         width: section.width,
         depth: section.depth,
     }
+}
+
+/// 通り芯の軸。点の数が 2 つでなければ、その点を指して失敗する
+fn axes(axes: &[BuildingGridAxis], at: &str, cx: &mut Cx) -> Result<Vec<NewGridAxis>, Failed> {
+    let mut out = Vec::with_capacity(axes.len());
+    for (i, axis) in axes.iter().enumerate() {
+        let start =
+            pair(&axis.start).ok_or_else(|| fail(cx, invalid_value(format!("{at}/{i}/start"))))?;
+        let end =
+            pair(&axis.end).ok_or_else(|| fail(cx, invalid_value(format!("{at}/{i}/end"))))?;
+        out.push(NewGridAxis {
+            tag: axis.tag.clone(),
+            start,
+            end,
+        });
+    }
+    Ok(out)
 }
 
 /// limit を書かなかったときに返す数
@@ -300,6 +318,7 @@ pub(crate) fn prepare(
             BuildingEdit::AddOpening(edit) => Some(edit.global_id.as_deref()),
             BuildingEdit::AddDoor(edit) => Some(edit.global_id.as_deref()),
             BuildingEdit::AddWindow(edit) => Some(edit.global_id.as_deref()),
+            BuildingEdit::AddGrid(edit) => Some(edit.global_id.as_deref()),
             _ => None,
         };
         let slot = match given {
@@ -508,6 +527,25 @@ pub(crate) fn prepare(
                             kind: FillingKind::Window,
                             width: edit.width,
                             height: edit.height,
+                            name: edit.name.clone(),
+                            global_id: Some(global_id),
+                        }),
+                        Outcome::Added(global_id),
+                    )
+                })
+            }
+            BuildingEdit::AddGrid(edit) => {
+                let storey = refs.resolve(&edit.storey, &format!("{at}/storey"), cx)?;
+                let u = axes(&edit.u, &format!("{at}/u"), cx)?;
+                let v = axes(&edit.v, &format!("{at}/v"), cx)?;
+                let global_id = slot.ok_or(Failed)?;
+                storey.map(|(storey, _)| {
+                    (
+                        Edit::Grid(NewGrid {
+                            storey,
+                            u,
+                            v,
+                            elevation: edit.elevation,
                             name: edit.name.clone(),
                             global_id: Some(global_id),
                         }),
