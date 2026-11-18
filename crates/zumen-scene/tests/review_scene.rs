@@ -816,9 +816,9 @@ fn document_id_and_reference_integrity_is_checked_outside_the_selected_view() {
 }
 
 #[test]
-fn skipped_placements_extra_points_and_legacy_rendering_values_are_diagnosed() {
+fn skipped_placements_and_extra_points_are_diagnosed() {
     let drawing = drawing();
-    let source = r#"{"format":"zumen-review","version":1,"targets":[{"id":"plan","format":"dxf","hash":"fixture"}],"legacy_item_order":["nowhere","text","photo"],"markups":[{"id":"text","kind":"text","target":"plan","view":"space/0","points":[[0,0],[99,99]],"text":"注記","legacy.fontSize":8},{"id":"photo","kind":"photo","target":"plan","view":"space/0","points":[[20,20],[99,99]],"text":"photo-ref"},{"id":"nowhere","kind":"redline","target":"plan","points":[[0,0],[1,1]]}]}"#;
+    let source = r#"{"format":"zumen-review","version":1,"targets":[{"id":"plan","format":"dxf","hash":"fixture"}],"markups":[{"id":"text","kind":"text","target":"plan","view":"space/0","points":[[0,0],[99,99]],"text":"注記"},{"id":"photo","kind":"photo","target":"plan","view":"space/0","points":[[20,20],[99,99]],"text":"photo-ref"},{"id":"nowhere","kind":"redline","target":"plan","points":[[0,0],[1,1]]}]}"#;
     let mut budget = Budget::default();
     let mut diagnostics = Diagnostics::new();
     let mut review = Review::read(
@@ -876,7 +876,6 @@ fn skipped_placements_extra_points_and_legacy_rendering_values_are_diagnosed() {
         "review.scene-points.dropped",
         &markup_id("photo")
     ));
-    assert!(code_count(&diagnostics, "review.scene-property.dropped") >= 2);
 }
 
 #[test]

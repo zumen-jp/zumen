@@ -19,7 +19,7 @@ useViewerEvent(viewer, "selection", ({ state }) => onSelection(state.selection))
 return <canvas ref={setCanvas} aria-label="図面" />;
 ```
 
-旧版から移すときは、シーンと文書識別を `setScene` に一緒に渡してください。`viewer.attachInput()` とサイズの監視は利用側で接続し、effect の後始末で解除します。操作の文言・ラベル・CSS は利用側で用意します。
+シーンと文書識別は `setScene` に一緒に渡してください。`viewer.attachInput()` とサイズの監視は利用側で接続し、effect の後始末で解除します。操作の文言・ラベル・CSS は利用側で用意します。
 
 ## ファイルを開く
 

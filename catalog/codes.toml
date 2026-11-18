@@ -2873,13 +2873,13 @@ since = "0.3.0"
 status = "active"
 
 [codes."review.scene-property.dropped"]
-description = "拡張フィールドに保った描画の値をシーンに反映しなかった。property はフィールド名"
+description = "拡張フィールドに保った描画の値をシーンに反映しなかった。property はフィールド名（拡張フィールドを診断しなくなったので使わない）"
 severity = "warning"
 fidelity = "dropped"
 params = { property = "text" }
 group-by = ["property"]
 since = "0.3.0"
-status = "active"
+status = "retired"
 
 
 [codes."bcf.file.invalid"]

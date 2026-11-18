@@ -21,7 +21,7 @@ VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenN
 {"v":1,"op":"review_scene","doc":"plan.dxf","review":"review.json","target":"plan","from":"space/0","tolerance":0.01,"style":{"color":"#ff0000","line_weight":0.35,"text_height":2.5,"text_padding":0.5,"arrow_length":2,"arrows":"end","cloud_pitch":3,"marker_size":2}}
 ```
 
-`tolerance` と `style` は必須です。色・線幅・寸法を文書の値や旧版の値から推測しないためです。`from`・`view`・`region`・`fonts` は `scene` と同じ意味で、`print`・`palette`・`heights` は受け付けません。文書の図形・場所の `view` が起点と合う項目だけを描き、別の対象・起点の項目は混ぜません。
+`tolerance` と `style` は必須です。色・線幅・寸法を文書の値から推測しないためです。`from`・`view`・`region`・`fonts` は `scene` と同じ意味で、`print`・`palette`・`heights` は受け付けません。文書の図形・場所の `view` が起点と合う項目だけを描き、別の対象・起点の項目は混ぜません。
 
 結果の `sources` は描いた図形・場所ごとに、シーンの ID（シーンの `entity_ids`）から元の図形の `markup`、または指摘の `topic` と場所の `location` へ戻す対応です。描く順に並びます。題・作者・写真などの文言はシーンに入れず、呼び手が元の ID から引きます。図形の規則と診断は[レビューの文書と 2D の図形](../docs/formats/review.md)にあります。
 

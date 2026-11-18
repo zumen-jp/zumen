@@ -201,7 +201,6 @@ pub fn build_review_with(
         )? {
             continue;
         }
-        emit.legacy(&markup.extra, &source)?;
         emit.markup(markup, &scene_id, &source)?;
         emit.add_source(
             scene_id,
@@ -233,7 +232,6 @@ pub fn build_review_with(
                 dropped(emit.builder.cx, "geometry_missing", &source);
                 continue;
             }
-            emit.legacy(&location.extra, &source)?;
             if let Some(pin) = pin {
                 emit.marker(*pin, &scene_id, &source)?;
             }
@@ -250,7 +248,6 @@ pub fn build_review_with(
             )?;
         }
     }
-    emit.legacy(&review.extra, &at)?;
     // Builder が内部に持つ形と、それを書き出す列・最終バッファーの複製も、生成量から先に予約している。
     if emit.builder.approximated {
         emit.builder.cx.report(
@@ -584,26 +581,6 @@ impl Emitter<'_, '_, '_> {
             at,
         )?;
         self.sources.push(ReviewSource { scene_id, source });
-        Ok(())
-    }
-
-    fn legacy(&mut self, extra: &zumen_review::Extra, at: &Ref) -> Result<()> {
-        for (key, _) in extra {
-            comparison(self.builder.cx, key, 1, at)?;
-            if key.starts_with("legacy.") || key == "legacy_item_order" {
-                spend(
-                    self.builder.cx,
-                    Kind::DecodedBytes,
-                    192 + key.len() as u64 * 2,
-                    at,
-                )?;
-                self.builder.cx.report(
-                    Diagnostic::new(codes::REVIEW_SCENE_PROPERTY_DROPPED)
-                        .with("property", key.as_str())
-                        .at(at.clone()),
-                );
-            }
-        }
         Ok(())
     }
 

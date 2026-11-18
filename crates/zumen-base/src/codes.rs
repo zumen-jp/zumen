@@ -5013,9 +5013,10 @@ pub const REVIEW_SCENE_POINTS_DROPPED: Code = Code::new(
     &[],
 );
 
-/// 拡張フィールドに保った描画の値をシーンに反映しなかった。property はフィールド名
+/// 拡張フィールドに保った描画の値をシーンに反映しなかった。property はフィールド名（拡張フィールドを診断しなくなったので使わない）
 ///
 /// `review.scene-property.dropped`（0.3.0 から）
+#[deprecated = "廃止した code（catalog/codes.toml）"]
 pub const REVIEW_SCENE_PROPERTY_DROPPED: Code = Code::new(
     "review.scene-property.dropped",
     Severity::Warning,
