@@ -17,6 +17,7 @@
 | `CC-BY-2.0`・`CC-BY-2.1-JP`・`CC-BY-2.5`・`CC-BY-3.0`・`CC-BY-4.0` | CC BY |
 | `公共データ利用規約（第 1.0 版）` | デジタル庁の公共データ利用規約（PDL1.0） |
 | `政府標準利用規約（第 2.0 版）` | 各府省の政府標準利用規約 |
+| `国土地盤情報検索サイト利用規約` | 国土地盤情報検索サイト（KuniJiban）の利用規約。地盤情報の複製・頒布・販売を認め、条件は国土地盤情報検索サイトの地盤情報であることの表示。個別の地盤情報に著作権はないとし、著作権を設定することを禁じる。改変は許諾の列挙にないので、取得したまま置く |
 | `MIT`・`BSD-2-Clause`・`BSD-3-Clause`・`Apache-2.0`・`ISC`・`Zlib` | 寛容なライセンス |
 
 次のものは入れません。
@@ -80,6 +81,12 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 - `dxf/acadsharp-geoloc.dxf` は、ACadSharp（MIT）が公開する、AutoCAD で地理位置を付けた R2018 の DXF です（#685）。図形はなく、GEODATA（版 3・局所の格子・メッシュの点 12・面なし）と、EPSG のコードを持たない Autodesk の座標系の定義を持ちます。`crates/zumen-geo/tests/geodata.rs` で GEODATA の値と診断を確かめます。同じ所の `geoloc_AC1021.dxf` は、後のコミットで別に足されて作ったソフトが分からないので、入れていません。
 - `jww/ezjww-geometry.jww` は、ezjww が生成して MIT で公開する JWW です（#874）。`crates/zumen-jww/tests/samples.rs` で読み書きを確かめ、毎晩の CI で ezjww と照らします。
 - `sxf/ezsxf-writer-all-features.sfc` は、ezsxf が MIT で公開する書き出しテスト用の SFC を、SXF Ver.3.1 の仕様に合わせて Shift_JIS（cp932）にしたものです（#874）。`crates/zumen-sxf/tests/samples.rs` で読み書きを確かめ、毎晩の CI で ezsxf と照らします。
+
+## ボーリング交換用データ
+
+`boring/kunijiban-150326024.xml` は、[国土地盤情報検索サイト（KuniJiban）](https://www.kunijiban.pwri.go.jp/)が配る、国土交通省関東地方整備局のボーリング 1 本の交換用データです（#505）。BED0210.DTD（DTD の版 2.10）、Shift_JIS で、地層・色調・標準貫入試験・孔内水位などを持ちます。調査位置の住所と、調査会社の技術者・連絡先の要素は空で、個人の氏名・住所・連絡先はありません。取得した 33382 バイトを変更していません。
+
+`crates/zumen-geology/tests/samples.rs` が読み、Python の標準の XML の読みで読んだ値と比べます。
 
 ## LAS
 

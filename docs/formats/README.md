@@ -614,11 +614,11 @@
 - 権利の根拠: 国土交通省が要領と DTD を無償で公開している。実装を制限する記述はない。DTD は転載が禁じられているので同梱しない
 - 仕様: [ed\_boring\_r8\_2](#spec-ed_boring_r8_2)
 - 実装の根拠: spec
-- 権利の根拠にした文書: [KuniJiban の利用規約](https://www.kunijiban.pwri.go.jp/jp/terms.html)（確認日: 2026-11-01）
-- サンプルの出どころ: 国土地盤情報検索サイト KuniJiban の柱状図（規約は複製と頒布を認め、出典の表示を求める）。地図のボーリングごとに交換用データの XML を配る。開いた 1 件は BED0210（版 2.10）だった。同梱するかと個人情報の有無は #505 で確かめる
+- 権利の根拠にした文書: [KuniJiban の利用規約](https://www.kunijiban.pwri.go.jp/jp/terms.html)（確認日: 2026-11-18）
+- サンプルの出どころ: samples/boring/（国土地盤情報検索サイト KuniJiban の BED0210 のボーリング 1 本。規約は複製と頒布を認め、地盤情報であることの表示を求める）・テストの中で作る
 - 読みの確かめた度合い: `external`（確認日: 2026-11-18）
-- 読みの確かめた範囲: 国土交通省が BED0500.DTD とともに配るボーリング交換用データの作成例 1 件（地質の令和 8 年 2 月の版）を、lxml 6.1.3 に DTD で検証させ、lxml が読んだ要素の値と、コアが読む適用規格・公開フラグ・調査基本情報・位置・測地系・住所・期間・孔口標高・総削孔長・角度・方位と、地層・色調・観察記事・標準貫入試験・孔内水位の記録を照らした（crates/zumen-geology/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift\_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領とテストの中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。旧版（BED0400・BED0300・BED0210）の要素の名前は各版の DTD の宣言と照らし、合成の入力で読みを確かめた。KuniJiban の柱状図との照合はまだ（#505）
-- 読みで使った公開サンプル: [https://www.cals-ed.go.jp/cri\_dtdxml/](https://www.cals-ed.go.jp/cri_dtdxml/)
+- 読みの確かめた範囲: 国土交通省が BED0500.DTD とともに配るボーリング交換用データの作成例 1 件（地質の令和 8 年 2 月の版）を、lxml 6.1.3 に DTD で検証させ、lxml が読んだ要素の値と、コアが読む適用規格・公開フラグ・調査基本情報・位置・測地系・住所・期間・孔口標高・総削孔長・角度・方位と、地層・色調・観察記事・標準貫入試験・孔内水位の記録を照らした（crates/zumen-geology/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift\_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領とテストの中で作ったボーリング交換用データ（crates/zumen-geology/tests）で確かめた。旧版（BED0400・BED0300・BED0210）の要素の名前は各版の DTD の宣言と照らし、合成の入力で読みを確かめた。公開サンプル（KuniJiban の BED0210、Shift\_JIS）は、Python の標準の XML の読みで読んだ値と比べた（crates/zumen-geology/tests/samples.rs）。期待の値はテストに書いたもので、CI で外部の実装を動かしてはいない（#505）
+- 読みで使った公開サンプル: [https://www.cals-ed.go.jp/cri\_dtdxml/](https://www.cals-ed.go.jp/cri_dtdxml/)・[samples/boring/](../../samples/boring/)
 - 読みで照らした外部の実装: lxml 6.1.3
 - issue: [zumen-jp/zumen#390](https://github.com/zumen-jp/zumen/issues/390)
 - 形式の文書: [docs/formats/boring.md](../../docs/formats/boring.md)
