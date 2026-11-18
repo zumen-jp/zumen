@@ -934,11 +934,11 @@
 - 参照した実装: [LASzip](https://github.com/LASzip/LASzip)（Apache-2.0）
 - 参照した実装: [laz-rs](https://github.com/tmontaigu/laz-rs)（Apache-2.0）
 - 照合に使う候補: CloudCompare・PDAL・LAStools の lasinfo・laspy
-- サンプルの出どころ: PDAL の test/data/las/synthetic\_test.las（BSD-3-Clause、合成の 1 点。samples/las/pdal-synthetic.las）
-- 読みの確かめた度合い: `external`（確認日: 2026-11-13）
-- 読みの確かめた範囲: PDAL が作った公開サンプル 1 件（非圧縮 LAS 1.2、点形式 3、synthetic フラグを持つ 1 点）を laspy 2.7.0 と照合した。ヘッダーの点数・尺度・原点・範囲と、座標・強度・分類・反射・GPS 時刻・RGB を比較した。実測の点群は使っていない。自前の合成 LAS 1.2 の点形式 0〜3、1.3 の 4・5、1.4 の 6〜10 も同じ値を比較し、LAZ 1.0〜1.4（順序圧縮 v1/v2・層別圧縮 v3/v4・固定長と可変長のチャンク）も lazrs が圧縮した合成データから元の LAS と同じ点レコードを展開できることと、壊れた入力でパニックしないことを確かめた（#510）。external の根拠は PDAL の非圧縮 LAS サンプルだけ。公開サンプルの応答・診断は適合テストでネイティブと wasm のハッシュを比較する。座標系・VLR/EVLR の内容・落とす属性・波形の外部データ・LAZ の公開サンプル・実データ・基準になるアプリとの照合はまだ（#371・#504）
+- サンプルの出どころ: PDAL の test/data/las/synthetic\_test.las（BSD-3-Clause、合成の 1 点。samples/las/pdal-synthetic.las）・PDAL の test/data/laz/simple.laz（BSD-3-Clause、LAZ の 1065 点。samples/las/pdal-simple.laz）
+- 読みの確かめた度合い: `external`（確認日: 2026-11-18）
+- 読みの確かめた範囲: PDAL が作った公開サンプル 1 件（非圧縮 LAS 1.2、点形式 3、synthetic フラグを持つ 1 点）を laspy 2.7.0 と照合した。ヘッダーの点数・尺度・原点・範囲と、座標・強度・分類・反射・GPS 時刻・RGB を比較した。実測の点群は使っていない。自前の合成 LAS 1.2 の点形式 0〜3、1.3 の 4・5、1.4 の 6〜10 も同じ値を比較し、LAZ 1.0〜1.4（順序圧縮 v1/v2・層別圧縮 v3/v4・固定長と可変長のチャンク）も lazrs が圧縮した合成データから元の LAS と同じ点レコードを展開できることと、壊れた入力でパニックしないことを確かめた（#510）。PDAL の LAZ の公開サンプル 1 件（LAS 1.2、点形式 3、順序圧縮の 1065 点）も laspy 2.7.0 と lazrs 0.9.0 で読んだ値と全点を照合した（#504）。external の根拠は PDAL の 2 つの公開サンプル。公開サンプルの応答・診断は適合テストでネイティブと wasm のハッシュを比較する。座標系・VLR/EVLR の内容・落とす属性・波形の外部データ・層別圧縮の LAZ と COPC の公開サンプル・5 MB 超の実データ・基準になるアプリとの照合はまだ（#371・#504）
 - 読みで使った公開サンプル: [samples/las/](../../samples/las/)
-- 読みで照らした外部の実装: laspy 2.7.0
+- 読みで照らした外部の実装: laspy 2.7.0・lazrs 0.9.0
 - 既知の crate: las・laz
 - issue: [zumen-jp/zumen#371](https://github.com/zumen-jp/zumen/issues/371)
 - issue: [zumen-jp/zumen#504](https://github.com/zumen-jp/zumen/issues/504)

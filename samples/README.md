@@ -84,6 +84,8 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 
 `las/pdal-synthetic.las` は PDAL が作った公開サンプルです（#804）。分類の synthetic フラグを持つ 1 点の LAS 1.2（点形式 3）で、実測の点群ではありません。[PDAL #2925](https://github.com/PDAL/PDAL/pull/2925) で合成の 1 点の読み書きのテストと共に追加され、作ったソフトはヘッダーの PDAL 2.0.0 でも確認できます。同じリビジョンの `LICENSE.txt` は、別記のない全ファイルを BSD としています。このファイルへの別条件はありません。出所・BSD-3-Clause のライセンスと著作権表示は台帳と `licenses/pdal.txt` にあります。ファイルは変更していません。
 
+`las/pdal-simple.laz` も PDAL の公開サンプルです（#504）。LAS 1.2・点形式 3 の 1065 点を、LAZ の順序圧縮で持ちます。ヘッダーの作ったソフトは TerraScan で、座標系の VLR はありません。PDAL の LAZ の読み書きのテストの入力として、2011 年に `test/data/simple.laz` で[追加](https://github.com/PDAL/PDAL/commit/386ccaa712e4698fa1399b94d6b120c2c5541fcc)され、2014 年に今の場所へ移りました。同じリビジョンの `LICENSE.txt` は、別記のない全ファイルを BSD としています。このファイルへの別条件はありません。ライセンスと著作権表示は `las/pdal-synthetic.las` と同じ `licenses/pdal.txt` にあります。取得した 22149 バイトを変更していません。
+
 `crates/zumen-las/tests/external.rs` が全体と範囲で読み、点群モデルを比較します。laspy がある環境と毎晩の CI では、ヘッダーと全点の保持属性も照合します。`bindings/conformance/cases/pointcloud_samples.json` は同じサンプルの応答をネイティブと wasm で照らします。外部照合の範囲と手順は [LAS の外部照合](../xtask/verify/laspy/README.md)にあります。
 
 ## PLY

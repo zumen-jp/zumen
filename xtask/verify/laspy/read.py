@@ -1,5 +1,6 @@
-"""非圧縮 LAS を laspy で読み、比較する値だけを TSV で返す（#804）。"""
+"""LAS と LAZ を laspy で読み、比較する値だけを TSV で返す（#804・#504）。LAZ の展開は lazrs。"""
 
+import importlib.metadata
 import io
 import sys
 
@@ -7,25 +8,24 @@ import sys
 def main():
     try:
         import laspy
+        import lazrs  # noqa: F401
         import numpy
     except ModuleNotFoundError as error:
-        if error.name not in ("laspy", "numpy"):
+        if error.name not in ("laspy", "lazrs", "numpy"):
             raise
         return 77
 
-    versions = (laspy.__version__, numpy.__version__)
-    if versions != ("2.7.0", "2.5.4"):
+    versions = (laspy.__version__, importlib.metadata.version("lazrs"), numpy.__version__)
+    if versions != ("2.7.0", "0.9.0", "2.5.4"):
         raise RuntimeError(f"外部ツールのバージョンが違う: {versions}")
     if sys.argv[1:] == ["--check"]:
-        print("laspy\t2.7.0\nnumpy\t2.5.4")
+        print("laspy\t2.7.0\nlazrs\t0.9.0\nnumpy\t2.5.4")
         return 0
     if sys.argv[1:]:
         raise ValueError("引数は --check だけ")
 
-    data = laspy.read(io.BytesIO(sys.stdin.buffer.read()))
+    data = laspy.read(io.BytesIO(sys.stdin.buffer.read()), laz_backend=laspy.LazBackend.Lazrs)
     header = data.header
-    if header.are_points_compressed:
-        raise ValueError("照合の対象は非圧縮 LAS だけ")
     print(
         "header", header.version.major, header.version.minor,
         data.point_format.id, data.point_format.size, header.point_count, sep="\t",

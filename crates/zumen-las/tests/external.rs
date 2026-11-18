@@ -1,4 +1,4 @@
-//! 非圧縮 LAS の読みを laspy と照らす（#804）。外部ツールと受領図面は同梱しない。
+//! LAS と LAZ の読みを laspy と照らす（#804・#504）。LAZ の展開は lazrs。外部ツールと受領図面は同梱しない。
 //! LAS 1.4 R15 の Public Header Block と Point Data Record Format 0〜10。
 
 #![cfg(test)]
@@ -15,6 +15,8 @@ use zumen_sdk::{Codec, Error, Lift, testkit};
 
 // PDAL が作った、分類の synthetic フラグを持つ 1 点。来歴と権利は samples/ledger.toml。
 const PUBLIC_SAMPLE: &[u8] = include_bytes!("../../../samples/las/pdal-synthetic.las");
+// PDAL の LAZ のテストの入力。LAS 1.2 の点形式 3 の 1065 点を順序圧縮で持つ。来歴と権利は samples/ledger.toml。
+const PUBLIC_LAZ: &[u8] = include_bytes!("../../../samples/las/pdal-simple.laz");
 
 // コアの base_length を使わず、仕様の各点形式の長さでファイルを作る。
 const LENGTHS: [u16; 11] = [20, 28, 26, 34, 57, 63, 30, 36, 38, 59, 67];
@@ -210,7 +212,7 @@ fn oracle() -> Option<(PathBuf, PathBuf)> {
                 String::from_utf8_lossy(&output.stdout)
                     .lines()
                     .collect::<Vec<_>>(),
-                ["laspy\t2.7.0", "numpy\t2.5.4"]
+                ["laspy\t2.7.0", "lazrs\t0.9.0", "numpy\t2.5.4"]
             );
             return Some((python, script));
         }
@@ -393,8 +395,31 @@ fn compares_synthetic_and_public_las_with_laspy() {
         let (file, cloud, _) = open(&bytes, false);
         compare(&file, &cloud, &external(&oracle, &bytes));
     }
-    let (file, cloud, _) = open(PUBLIC_SAMPLE, false);
-    compare(&file, &cloud, &external(&oracle, PUBLIC_SAMPLE));
+    for bytes in [PUBLIC_SAMPLE, PUBLIC_LAZ] {
+        let (file, cloud, _) = open(bytes, false);
+        compare(&file, &cloud, &external(&oracle, bytes));
+    }
+}
+
+#[test]
+fn public_laz_keeps_its_values_when_read_in_ranges() {
+    let whole = open(PUBLIC_LAZ, false);
+    assert_eq!(open(PUBLIC_LAZ, true), whole);
+    let (file, cloud, _) = &whole;
+    assert_eq!((file.header.version, file.header.point_format), ((1, 2), 3));
+    assert_eq!(cloud.points.len(), 1065);
+    // laspy 2.7.0 と lazrs 0.9.0 で読んだ最初の点
+    assert_eq!(
+        [
+            cloud.points.easting[0],
+            cloud.points.northing[0],
+            cloud.points.height[0]
+        ],
+        [637_012.24, 849_028.31, 431.66]
+    );
+    assert_eq!(cloud.crs, None);
+    testkit::deterministic::<Las>(PUBLIC_LAZ).unwrap();
+    testkit::survives_lift::<Las, PointCloud>(PUBLIC_LAZ).unwrap();
 }
 
 #[test]

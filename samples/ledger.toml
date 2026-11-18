@@ -575,6 +575,18 @@ license-url = "https://github.com/PDAL/PDAL/blob/afbe6f7794bfe40394f27f46b2a6da0
 attribution = "Copyright (c) 2019, Hobu, Inc. ライセンスの全文は licenses/pdal.txt。PDAL/PDAL#2925 で合成の 1 点の読み書きのテストと共に追加された。LICENSE.txt は別記のない全ファイルを BSD とし、このファイルへの別条件はない"
 
 [[samples]]
+path = "las/pdal-simple.laz"
+sha256 = "91a7f42d5d9b8fc4bc55fb71647ecfa9624177bcb8f8a5310238c64250d57741"
+bytes = 22149
+title = "PDAL の 1065 点の LAZ（LAS 1.2、点形式 3、順序圧縮）"
+publisher = "Hobu, Inc.（PDAL）"
+url = "https://raw.githubusercontent.com/PDAL/PDAL/afbe6f7794bfe40394f27f46b2a6da0da3f1afb2/test/data/laz/simple.laz"
+retrieved = "2026-11-18"
+license = "BSD-3-Clause"
+license-url = "https://github.com/PDAL/PDAL/blob/afbe6f7794bfe40394f27f46b2a6da0da3f1afb2/LICENSE.txt"
+attribution = "Copyright (c) 2019, Hobu, Inc. ライセンスの全文は licenses/pdal.txt。PDAL の LAZ の読み書きのテストの入力として 2011 年に test/data/simple.laz で追加され、2014 年に今の場所へ移った。LICENSE.txt は別記のない全ファイルを BSD とし、このファイルへの別条件はない"
+
+[[samples]]
 path = "dxf/ezdxf-ascii-r12.dxf"
 sha256 = "b476d3e53fe24c1db3c701d20b2bebd774f7bd7966b12d81891505b9b29e4d21"
 bytes = 6766
