@@ -1,5 +1,6 @@
 //! 地質・土質調査の成果（#390、決定 0242）。ボーリング交換用データ（BED、地質・土質調査成果電子納品要領の
 //! BED0500.DTD）を読み、ボーリングの位置・標高と、深さごとの地層・色調・観察記事・標準貫入試験・孔内水位を返す。
+//! 旧版（BED0400・BED0300・BED0210）の要素の名前も受け付ける。版の値では分けず、要素の名前で見分ける。
 //!
 //! - XML は `zumen-xml` で読む（L0）。DTD は処理せず、要素は名前で見分ける。DTD は同梱しない。
 //! - 位置は、経度・緯度の度・分・秒を `zumen-crs` の地理の点（度）にする。測地系は換算せず、コードの値を返す。
@@ -69,9 +70,9 @@ pub struct Boring {
 /// 位置の測地系
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Datum {
-    /// 日本測地系（旧測地系）。コード 00
+    /// 日本測地系（旧測地系）。コード 00（3.00 までは 0）
     Tokyo,
-    /// 世界測地系（JGD2000）。コード 01
+    /// 世界測地系（JGD2000）。コード 01（3.00 までは 1）
     Jgd2000,
     /// 世界測地系（JGD2011）。コード 02
     Jgd2011,
@@ -82,8 +83,10 @@ pub enum Datum {
 impl Datum {
     fn from_code(code: &str) -> Option<Datum> {
         match code {
-            "00" => Some(Datum::Tokyo),
-            "01" => Some(Datum::Jgd2000),
+            // 3.00 までは 1 桁で、0 は旧測地系、1 は測地成果2000 の新測地系（地質調査資料整理要領（案）H16.6
+            // の測地系の選択コードの表）
+            "00" | "0" => Some(Datum::Tokyo),
+            "01" | "1" => Some(Datum::Jgd2000),
             "02" => Some(Datum::Jgd2011),
             "03" => Some(Datum::Jgd2024),
             _ => None,
@@ -254,6 +257,17 @@ impl<'d> Reader<'d> {
             .and_then(|(_, child)| self.own_text(child))
     }
 
+    /// 版ごとに名前が違う子の要素の名前。文書にある最初の名前（なければ最初の名前）
+    fn name_of<'n>(&self, element: &Element, names: &[&'n str]) -> &'n str {
+        let children = self.children(element);
+        names
+            .iter()
+            .copied()
+            .find(|name| children.iter().any(|(child, _)| child == name))
+            .or_else(|| names.first().copied())
+            .unwrap_or_default()
+    }
+
     fn own_text(&self, element: &Element) -> Option<String> {
         let mut out = String::new();
         for node in element.children() {
@@ -336,9 +350,13 @@ impl<'d> Reader<'d> {
                             // 読み終えてから決める
                             realization: Realization::Survey2011,
                         });
-                    self.boring.length = self.number(child, "総削孔長", cx);
-                    self.boring.angle = self.number(child, "角度", cx);
-                    self.boring.direction = self.number(child, "方位", cx);
+                    // 3.00 までは削孔を掘進と書く
+                    let length = self.name_of(child, &["総削孔長", "総掘進長"]);
+                    let angle = self.name_of(child, &["角度", "掘進角度"]);
+                    let direction = self.name_of(child, &["方位", "掘進方向"]);
+                    self.boring.length = self.number(child, length, cx);
+                    self.boring.angle = self.number(child, angle, cx);
+                    self.boring.direction = self.number(child, direction, cx);
                 }
                 _ => self.unsupported(name),
             }
@@ -369,22 +387,42 @@ impl<'d> Reader<'d> {
     }
 
     fn core(&mut self, element: &'d Element, cx: &mut Cx) -> Result<(), Stop> {
-        const LAYER: &str = "工学的地質区分名現場土質名";
         for (name, child) in self.children(element) {
             cx.check(Kind::Records, 1)?;
-            match name.as_str() {
-                LAYER => {
-                    let bottom = self.number(child, &format!("{LAYER}_下端深度"), cx);
-                    let text = self.text(child, &format!("{LAYER}_{LAYER}"));
-                    if let (Some(bottom), Some(name)) = (bottom, text) {
-                        let symbol = self.text(child, &format!("{LAYER}_{LAYER}記号"));
-                        self.boring.layers.push(Layer {
-                            bottom,
-                            name,
-                            symbol,
-                        });
-                    }
+            // 地層の区間の要素と、下端深度・名前・記号の子の名前。4.00 から工学的地質区分名現場土質名、
+            // 3.00 は岩石土区分、2.10 は土質岩種区分（1 つ目の区分を名前とする）
+            let layer = match name.as_str() {
+                "工学的地質区分名現場土質名" => Some([
+                    "工学的地質区分名現場土質名_下端深度",
+                    "工学的地質区分名現場土質名_工学的地質区分名現場土質名",
+                    "工学的地質区分名現場土質名_工学的地質区分名現場土質名記号",
+                ]),
+                "岩石土区分" => Some([
+                    "岩石土区分_下端深度",
+                    "岩石土区分_岩石土名",
+                    "岩石土区分_岩石土記号",
+                ]),
+                "土質岩種区分" => Some([
+                    "土質岩種区分_下端深度",
+                    "土質岩種区分_土質岩種区分1",
+                    "土質岩種区分_土質岩種記号1",
+                ]),
+                _ => None,
+            };
+            if let Some([bottom, text, symbol]) = layer {
+                let bottom = self.number(child, bottom, cx);
+                let text = self.text(child, text);
+                if let (Some(bottom), Some(name)) = (bottom, text) {
+                    let symbol = self.text(child, symbol);
+                    self.boring.layers.push(Layer {
+                        bottom,
+                        name,
+                        symbol,
+                    });
                 }
+                continue;
+            }
+            match name.as_str() {
                 "色調" => {
                     if let Some(bottom) = self.number(child, "色調_下端深度", cx) {
                         let name = self.text(child, "色調_色調名");
@@ -416,9 +454,14 @@ impl<'d> Reader<'d> {
                     }
                 }
                 "孔内水位" => {
+                    // 3.00 までは掘削状況コード
+                    let state = self.name_of(
+                        child,
+                        &["孔内水位_削孔状況コード", "孔内水位_掘削状況コード"],
+                    );
                     let level = WaterLevel {
                         date: self.text(child, "孔内水位_測定年月日"),
-                        state: self.text(child, "孔内水位_削孔状況コード"),
+                        state: self.text(child, state),
                         depth: self.number(child, "孔内水位_孔内水位", cx),
                         note: self.text(child, "孔内水位_水位種別備考"),
                     };
