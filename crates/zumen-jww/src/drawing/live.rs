@@ -6,6 +6,8 @@
 //! 基底レコード列と追加レコード列の生存ビット列 [`RankBitset`](zumen_live::RankBitset) により、
 //! 実効レコード番号と内部スロット番号の相互変換および `shifted` 判定を要素総数に依らない定数時間で行う。
 
+mod ipc;
+
 use core::f64::consts::TAU;
 use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};

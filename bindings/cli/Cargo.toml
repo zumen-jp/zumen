@@ -18,8 +18,11 @@ zumen-acad = { version = "0.3.0", path = "../../crates/zumen-acad" }
 zumen-base = { version = "0.3.0", path = "../../crates/zumen-base" }
 zumen-drawing = { version = "0.3.0", path = "../../crates/zumen-drawing" }
 zumen-json = { version = "0.3.0", path = "../../crates/zumen-json" }
+zumen-jww = { version = "0.3.0", path = "../../crates/zumen-jww" }
 zumen-live = { version = "0.3.0", path = "../../crates/zumen-live" }
 zumen-scene = { version = "0.3.0", path = "../../crates/zumen-scene" }
+zumen-sdk = { version = "0.3.0", path = "../../crates/zumen-sdk" }
+zumen-sxf = { version = "0.3.0", path = "../../crates/zumen-sxf" }
 
 [dev-dependencies]
 zumen-conformance = { path = "../conformance" }

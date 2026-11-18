@@ -8,6 +8,7 @@
 mod bounds;
 mod diagnostics;
 mod display;
+mod ipc;
 mod p21;
 mod sfc;
 mod source;
