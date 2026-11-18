@@ -149,6 +149,27 @@ impl Charset {
     }
 }
 
+/// MTEXT の書式の符号 `\M+<番号><16 進 4 桁>` の 2 バイト `pair` が表す 1 文字。番号は 1 が ANSI_932、2 が
+/// ANSI_950、3 が ANSI_949、5 が ANSI_936（ezdxf の `decode_mif_to_unicode` と ODA の Font Handling による）。
+/// 4（Johab）と、そのコード・ページの 2 バイトの文字でないものは `None`
+#[cfg(feature = "drawing")]
+pub(crate) fn multibyte(number: char, pair: [u8; 2]) -> Option<char> {
+    let charset = match number {
+        '1' => Charset::ShiftJis,
+        '2' => Charset::Windows(950),
+        '3' => Charset::Windows(949),
+        '5' => Charset::Windows(936),
+        _ => return None,
+    };
+    if !charset.leads(pair[0]) {
+        return None;
+    }
+    let text = charset.decode(&pair)?;
+    let mut chars = text.chars();
+    let c = chars.next()?;
+    chars.next().is_none().then_some(c)
+}
+
 /// Windows のコード・ページ `page` の 1 バイトが表す文字。割り当てのないバイトと、表のない番号は `None`
 fn from_windows(page: u16, byte: u8) -> Option<char> {
     if byte.is_ascii() {

@@ -5,6 +5,9 @@ DXF を作り、zumen の読み・書き戻し・開き直しを照らす。割�
 codecs.code_page_decode）が私用領域と C1 制御文字でない文字に戻すバイト列、ほかの OS では Python の codec が戻す
 バイト列とする。Python の codec と Windows の表の違いは、既知の数と照らす。割り当てのないバイト列を持つ TEXT は、
 zumen が dxf.lift.invalid で落とすことを照らす。
+
+MTEXT の `\\M+<番号><16 進 4 桁>` は、番号ごとにすべての 2 バイトを MTEXT に入れ、割り当てのあるものはシーンの
+文字列が基準と同じこと、ないものは文字を描かないことを照らす。基準を ezdxf の decode_mif_to_unicode とも比べる。
 """
 
 import argparse
@@ -15,6 +18,7 @@ from pathlib import Path
 import sys
 
 import ezdxf
+from ezdxf.lldxf.encoding import decode_mif_to_unicode
 from ezdxf.tools.codepage import toencoding
 
 HERE = Path(__file__).resolve().parent
@@ -27,6 +31,10 @@ DOUBLE = {936: (0x81, 0xFE), 949: (0x81, 0xFD), 950: (0xA1, 0xF9)}
 # Python の codec が Windows の表と違うバイト列の数。CP1255 の 0xCA（U+05BA）と CP936 の 0x80（€）を Python は
 # 戻さず、cp950 は Windows の表にない 249 の 2 バイトを戻す
 KNOWN = {1255: 1, 936: 1, 950: 249}
+# MTEXT の `\M+` の番号とコード・ページ（ezdxf の MIF_CODE_PAGE。4 の Johab は読まない）
+MULTIBYTE = {"1": 932, "2": 950, "3": 949, "5": 936}
+# ezdxf の decode_mif_to_unicode が Windows の表と違う 2 バイトの数。Python の cp950 が Windows の表にない 249 を戻す
+KNOWN_MULTIBYTE = {950: 249}
 # 1 つの TEXT に入れる文字の数
 CHUNK = 200
 WINDOWS = hasattr(codecs, "code_page_decode")
@@ -194,6 +202,83 @@ def check(z, page, out):
     return failures, len(table)
 
 
+def multibyte(page, data):
+    """MTEXT の `\\M+` の 2 バイトの基準の 1 文字。ANSI_932 は私用領域（外字）も戻す"""
+    if page != 932:
+        return reference(page, data)
+    if WINDOWS:
+        try:
+            text, used = codecs.code_page_decode(page, data, "strict", True)
+        except UnicodeDecodeError:
+            return None
+    else:
+        try:
+            text, used = data.decode("cp932"), len(data)
+        except UnicodeDecodeError:
+            return None
+    return text if used == len(data) and len(text) == 1 and not 0x80 <= ord(text) <= 0x9F else None
+
+
+def mtext_fixture(contents):
+    """R2000 の ANSI_1252 の DXF。MTEXT ごとに `contents` の 1 つを持つ"""
+    ezdxf.options.write_fixed_meta_data_for_testing = True
+    doc = ezdxf.new("R2000")
+    doc.header["$DWGCODEPAGE"] = "ANSI_1252"
+    for index, content in enumerate(contents):
+        doc.modelspace().add_mtext(content, dxfattribs={"char_height": 2.5, "insert": (0, index * 10)})
+    stream = io.StringIO()
+    doc.write(stream)
+    return stream.getvalue().encode("ascii")
+
+
+def scene(z, name, data):
+    """文書 `name` を開いたシーンの結果と blob"""
+    z.push(name, data)
+    status, response = z.call({"op": "open", "input": name})
+    if status != "ok":
+        raise RuntimeError(f"open {name}: {status} {response}")
+    status, response = z.call({"op": "scene", "doc": name, "from": "space/0"})
+    if status != "ok":
+        raise RuntimeError(f"scene {name}: {status} {response}")
+    return response["result"], z.take(response["blobs"][0]["id"])
+
+
+def check_multibyte(z, number, page, out):
+    """MTEXT の `\\M+<番号><16 進 4 桁>` の、すべての 2 バイトを照らす。割り当てのあるものは文字にし、ないものは描かない"""
+    failures = []
+    codes = [bytes([high, low]) for high in range(0x100) for low in range(0x100)]
+    table = [(data, multibyte(page, data)) for data in codes]
+    assigned = [(data, text) for data, text in table if text is not None]
+    unassigned = [data for data, text in table if text is None]
+    # ezdxf の decode_mif_to_unicode と照らし、Python の codec が Windows の表と違う数は既知の数と照らす
+    by_ezdxf = [(data, decode_mif_to_unicode(f"\\M+{number}{data.hex().upper()}")) for data in codes]
+    differ = [
+        data.hex()
+        for data, text in by_ezdxf
+        if (text if not text.startswith("\\M+") and len(text) == 1 else None) != multibyte(page, data)
+    ]
+    if WINDOWS and len(differ) != KNOWN_MULTIBYTE.get(page, 0):
+        failures.append(f"ezdxf と Windows の表の違いが {len(differ)} ある（既知は {KNOWN_MULTIBYTE.get(page, 0)}）: {differ[:10]}")
+    groups = [assigned[start : start + CHUNK] for start in range(0, len(assigned), CHUNK)]
+    contents = ["".join(f"\\M+{number}{data.hex().upper()}" for data, _ in group) for group in groups]
+    data = mtext_fixture(contents)
+    (out / f"mif{number}-input.dxf").write_bytes(data)
+    result, blob = scene(z, f"mif{number}.dxf", data)
+    if result["counts"]["texts"] != len(groups):
+        failures.append(f"シーンの文字が {result['counts']['texts']} ある（MTEXT は {len(groups)}）")
+    missing = [i for i, group in enumerate(groups) if "".join(t for _, t in group).encode() not in blob]
+    if missing:
+        failures.append(f"シーンに基準の文字列がない MTEXT: {missing[:5]}")
+    groups = [unassigned[start : start + CHUNK] for start in range(0, len(unassigned), CHUNK)]
+    contents = ["".join(f"\\M+{number}{data.hex().upper()}" for data in group) for group in groups]
+    data = mtext_fixture(contents)
+    (out / f"mif{number}-unassigned.dxf").write_bytes(data)
+    result, _ = scene(z, f"mif{number}-unassigned.dxf", data)
+    if result["counts"]["texts"] != 0:
+        failures.append(f"割り当てのない {len(unassigned)} の 2 バイトから、文字を {result['counts']['texts']} 描いた")
+    return failures, len(assigned)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", required=True, help="zumen の CLI")
@@ -210,6 +295,9 @@ def main():
         for page in SINGLE + tuple(DOUBLE):
             failures, count = check(z, page, out)
             results[f"ANSI_{page}"] = {"assigned": count, "failures": failures}
+        for number, page in MULTIBYTE.items():
+            failures, count = check_multibyte(z, number, page, out)
+            results[f"\\M+{number}"] = {"assigned": count, "failures": failures}
     finally:
         z.close()
     source = "Windows MultiByteToWideChar" if WINDOWS else "Python codec"
