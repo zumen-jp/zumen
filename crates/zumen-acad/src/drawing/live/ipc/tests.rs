@@ -515,18 +515,36 @@ fn display_retexted_handles_formatted_mtext_with_paragraphs_and_spans() {
     }
     assert_eq!(live.save(cx).unwrap(), mtext_dxf);
 
-    // 公開サンプルの段組み MTEXT でも内容置換・保存・取り消しが一致する
+    // 公開サンプルの段組み MTEXT は、常駐エンジンと一括変換の両方で要素に移さず診断が一致する
     let columns = include_bytes!("../../../../../../samples/dxf/ezdxf-mtext-columns-r2007.dxf");
-    let mut cols_live = AcadLive::open(columns, cx).unwrap();
-    let mut cols_ref = Dxf::read(columns, cx).unwrap();
-    let mtext_row = cols_live
+    let cols_live = AcadLive::open(columns, cx).unwrap();
+    let cols_ref = Dxf::read(columns, cx).unwrap();
+    assert!(cols_live.display_order(cx).unwrap().is_empty());
+    assert_eq!(
+        cols_live.drawing(cx).unwrap(),
+        zumen_sdk::Lift::lift(&cols_ref, cx).unwrap()
+    );
+
+    // 250 バイトを超えて 3 と 1 に分かれた MTEXT でも内容置換・保存・取り消しが一致する
+    let long_chunk = "A".repeat(250);
+    let long_dxf = format!(
+        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1021\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nMTEXT\n5\n2D\n100\nAcDbEntity\n8\n0\n100\nAcDbMText\n\
+10\n0.0\n20\n0.0\n40\n1.0\n41\n20.0\n71\n1\n\
+3\n{long_chunk}\n1\nTAIL\n\
+0\nENDSEC\n0\nEOF\n"
+    );
+    let mut long_live = AcadLive::open(long_dxf.as_bytes(), cx).unwrap();
+    let mut long_ref = Dxf::read(long_dxf.as_bytes(), cx).unwrap();
+    let mtext_row = long_live
         .display_order(cx)
         .unwrap()
         .into_iter()
-        .find(|&r| cols_live.display_text(r, cx).unwrap().unwrap().0 == 2)
+        .find(|&r| long_live.display_text(r, cx).unwrap().unwrap().0 == 2)
         .unwrap();
-    let target = cols_live.seen_of_row(mtext_row, cx).unwrap().unwrap();
-    let replacement = cols_live
+    let target = long_live.seen_of_row(mtext_row, cx).unwrap().unwrap();
+    let replacement = long_live
         .display_retexted(mtext_row, "{\\C2;A}\\P{\\H1.25x;B}", cx)
         .unwrap()
         .unwrap();
@@ -537,13 +555,13 @@ fn display_retexted_handles_formatted_mtext_with_paragraphs_and_spans() {
             element: Box::new(replacement),
         }],
     };
-    cols_live.apply(&changes, cx).unwrap();
-    cols_ref.apply(&changes, cx).unwrap();
+    long_live.apply(&changes, cx).unwrap();
+    long_ref.apply(&changes, cx).unwrap();
     let mut expected = Vec::new();
-    Dxf::write(&cols_ref, &mut expected, cx).unwrap();
-    assert_eq!(cols_live.save(cx).unwrap(), expected);
-    assert!(cols_live.undo(cx).unwrap());
-    assert_eq!(cols_live.save(cx).unwrap(), columns);
+    Dxf::write(&long_ref, &mut expected, cx).unwrap();
+    assert_eq!(long_live.save(cx).unwrap(), expected);
+    assert!(long_live.undo(cx).unwrap());
+    assert_eq!(long_live.save(cx).unwrap(), long_dxf.as_bytes());
 
     // DWG の書式つき MTEXT でも同じ
     let dwg_sample = include_bytes!("../../../../../../samples/dwg/zumen-arcdim-r2018.dwg");

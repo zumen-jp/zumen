@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use super::extension::extension_work;
 use super::{
     BLOCK, Lifted, Lifter, Out, SortKeys, amount, arrange, attached, insertion_units, invalid,
-    lift_err, single, source, text, unit_of, work,
+    lettering, lift_err, single, source, text, unit_of, work,
 };
 use crate::db::{AcadDb, Data, Object, Section};
 use zumen_base::{Cx, Diagnostic, codes};
@@ -180,6 +180,19 @@ impl Lifter<'_> {
             work(cx, amount(object), &source)?;
             if owned.contains(&index) {
                 continue;
+            }
+            if object.kind == b"MTEXT" {
+                if !lettering::is_own_column_mtext(object)
+                    && object
+                        .handle()
+                        .is_some_and(|h| h != 0 && out.mtext_column_followers.remove(&h))
+                {
+                    extension_work(db, object, cx)?;
+                    continue;
+                }
+                if let Ok(Some(followers)) = lettering::mtext_xdata_columns(object) {
+                    out.mtext_column_followers.extend(followers);
+                }
             }
             extension_work(db, object, cx)?;
             let lifted = match object.kind.as_slice() {

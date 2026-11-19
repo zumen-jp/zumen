@@ -807,6 +807,8 @@ struct Out {
     extensions: Vec<Draft>,
     /// 要素を置いた用紙ごとの座標の対応。中身のない用紙のものは、ID を付けるときに足す
     frames: BTreeMap<SheetId, PaperFrame>,
+    /// R2013 までの段組み MTEXT の親が `ACAD` 拡張データ（`1005`）で結んだ後続段 MTEXT のハンドル集合
+    mtext_column_followers: BTreeSet<u64>,
 }
 
 #[derive(Clone)]
@@ -858,6 +860,18 @@ impl Lifter<'_> {
         cx: &mut Cx,
     ) -> Lifted<()> {
         let kind = object.kind.as_slice();
+        if kind == b"MTEXT" {
+            if !lettering::is_own_column_mtext(object)
+                && object
+                    .handle()
+                    .is_some_and(|h| h != 0 && out.mtext_column_followers.remove(&h))
+            {
+                return Ok(());
+            }
+            if let Ok(Some(followers)) = lettering::mtext_xdata_columns(object) {
+                out.mtext_column_followers.extend(followers);
+            }
+        }
         let mut paper_mm = None;
         match kind {
             // 69 = 1 は用紙そのものを表すビューポート
@@ -1068,8 +1082,9 @@ impl Lifter<'_> {
             b"ELLIPSE" => Ok(Shape::Curve(self.ellipse(object, point)?)),
             b"LWPOLYLINE" => Ok(Shape::Polyline(self.lwpolyline(object, point, length)?)),
             b"SPLINE" => Ok(Shape::Curve(Edge::Spline(self.spline(object, point)?))),
-            // 段組みのフィールドは、R2018 からは埋め込みのオブジェクト（101）に置く（推定。docs/formats/dxf.md）
+            // 段組みのフィールドは、R2018 からは埋め込みのオブジェクト（101）、R2013 までは ACAD の拡張データに置く（docs/formats/dxf.md）
             b"MTEXT" if object.first(101).is_some() => Err(columns()),
+            b"MTEXT" if lettering::mtext_xdata_columns(object)?.is_some() => Err(columns()),
             b"MTEXT" => Ok(Shape::Formatted(self.formatted(object, point, length)?)),
             // TEXT（DXF Reference「TEXT」）
             _ => Ok(Shape::Text(self.text(

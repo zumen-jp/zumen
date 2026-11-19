@@ -611,6 +611,18 @@ license-url = "https://github.com/mozman/ezdxf/blob/5265e6e6d02388a95f406c26983e
 attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf の integration_tests/data/ASCII_R12.dxf。MIT License の本文は licenses/ezdxf-MIT.txt"
 
 [[samples]]
+path = "dxf/ezdxf-mtext-columns-r2000.dxf"
+sha256 = "6981bc669929bd1e626ffb4846f05dc37b7444160abda796d753496630adee5b"
+bytes = 20896
+title = "mtext_columns_R2000.dxf（段組みの MTEXT を含む R2000（AC1015）の DXF）"
+publisher = "Manfred Moitzi（ezdxf）"
+url = "https://raw.githubusercontent.com/mozman/ezdxf/5265e6e6d02388a95f406c26983e5c39452ad003/examples_dxf/mtext_columns_R2000.dxf"
+retrieved = "2026-11-18"
+license = "MIT"
+license-url = "https://github.com/mozman/ezdxf/blob/5265e6e6d02388a95f406c26983e5c39452ad003/LICENSE"
+attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf が書き出した examples_dxf/mtext_columns_R2000.dxf。MIT License の本文は licenses/ezdxf-MIT.txt"
+
+[[samples]]
 path = "dxf/ezdxf-mtext-columns-r2007.dxf"
 sha256 = "f0a04b0072986e6623eb9caf2562ef3064ef88ba1f9015724f856fd6937ab2e9"
 bytes = 22331
@@ -621,6 +633,18 @@ retrieved = "2026-11-13"
 license = "MIT"
 license-url = "https://github.com/mozman/ezdxf/blob/5265e6e6d02388a95f406c26983e5c39452ad003/LICENSE"
 attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf が書き出した examples_dxf/mtext_columns_R2007.dxf。MIT License の本文は licenses/ezdxf-MIT.txt"
+
+[[samples]]
+path = "dxf/ezdxf-mtext-columns-r2018.dxf"
+sha256 = "51ab94490167ff11a2c154d94e626ac309b36d64ee994915aac53fd89efde60f"
+bytes = 20695
+title = "mtext_columns_R2018.dxf（段組みの MTEXT を含む R2018（AC1032）の DXF）"
+publisher = "Manfred Moitzi（ezdxf）"
+url = "https://raw.githubusercontent.com/mozman/ezdxf/5265e6e6d02388a95f406c26983e5c39452ad003/examples_dxf/mtext_columns_R2018.dxf"
+retrieved = "2026-11-18"
+license = "MIT"
+license-url = "https://github.com/mozman/ezdxf/blob/5265e6e6d02388a95f406c26983e5c39452ad003/LICENSE"
+attribution = "Copyright (c) 2020 Manfred Moitzi. ezdxf が書き出した examples_dxf/mtext_columns_R2018.dxf。MIT License の本文は licenses/ezdxf-MIT.txt"
 
 [[samples]]
 path = "boring/kunijiban-150326024.xml"

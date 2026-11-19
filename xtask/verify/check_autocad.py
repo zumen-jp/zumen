@@ -70,10 +70,7 @@ from compare import ATTACHMENTS, check_handles, run  # noqa: E402
 
 ROOT = HERE.parents[1]
 # 既知の食い違い: (ファイルの道筋の初め, 食い違いの文の初め, issue, 当たるファイルの数)。直ったら消す
-KNOWN = [
-    # 拡張データでつないだ R2007 までの段組みの MTEXT を、AutoCAD は組ごとに 1 つにまとめ、zumen は別々に読む
-    ("input/ezdxf-mtext-columns-r2007.dxf", "space/0/h", 174, 1),
-]
+KNOWN = []
 # スクリプトの進みを知らせる印。dump.lsp の関数の名前（AutoCAD は defun の名前を大文字で表示する）と重ならない文字にする
 MARK = "@@zv"
 # 一時フォルダーに写した図面の名前。キットの道筋（日本語のフォルダーを含む）を AutoCAD に渡さない

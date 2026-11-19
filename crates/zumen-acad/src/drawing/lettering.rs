@@ -63,7 +63,7 @@ impl Lifter<'_> {
     /// MTEXT（DXF Reference「MTEXT」）。内容は、250 バイトずつの 3 の後に、残りの 1 を続けたもの。向きは X 軸の
     /// 向き（11・21）があればそれを、なければ回転（50）を移す。DXF Reference は 50 をラジアンと書くが、ファイルの
     /// 50 は度で、AutoCAD 2027 は 50 が 35 の MTEXT の向きを 35 度と読んだ（#882）。枠の幅（41）と高さ（46）は 0 なら
-    /// 持たない。文字の範囲の大きさ（42・43）は内容から決まる値なので移さない。段組み（75）は、まだ移さない
+    /// 持たない。文字の範囲の大きさ（42・43）は内容から決まる値なので移さない。段組み（75・101・ACAD 拡張データ）は、まだ移さない
     pub(super) fn formatted<P: Copy>(
         &self,
         object: &Object,
@@ -71,7 +71,10 @@ impl Lifter<'_> {
         length: &impl Fn(f64) -> Length,
     ) -> Lifted<FormattedText<P>> {
         let kind = object.kind.as_slice();
-        if self.int(object, 75, 0)? != 0 {
+        if object.first(101).is_some()
+            || self.int(object, 75, 0)? != 0
+            || mtext_xdata_columns(object)?.is_some()
+        {
             return Err(columns());
         }
         let mut content = String::new();
@@ -212,4 +215,124 @@ pub(super) fn flow(kind: &[u8], value: i64, code: i16) -> Lifted<Flow> {
         5 => Ok(Flow::ByStyle),
         _ => Err(invalid(kind, code)),
     }
+}
+
+/// R2013 までの DXF・DWG が `ACAD` 拡張データ（`ACAD_MTEXT_COLUMN_INFO_BEGIN`・`ACAD_MTEXT_COLUMNS_BEGIN`）に
+/// 置く段組み情報と、続く段の MTEXT のハンドル一覧（#904）。段組みでなければ `Ok(None)` を返す
+pub(super) fn mtext_xdata_columns(object: &Object) -> Lifted<Option<Vec<u64>>> {
+    let Some(start) = object.values.iter().position(|v| v.code == 1001) else {
+        return Ok(None);
+    };
+    let Some(xdata) = object.values.get(start..) else {
+        return Ok(None);
+    };
+    let own_handle = object.handle();
+    let mut has_columns = false;
+    let mut followers = Vec::new();
+
+    for group in xdata.chunk_by(|_, next| next.code != 1001) {
+        let Some((app, values)) = group.split_first() else {
+            continue;
+        };
+        let Data::Text(name) = &app.data else {
+            continue;
+        };
+        if !name.eq_ignore_ascii_case(b"ACAD") {
+            continue;
+        }
+        let mut in_info = false;
+        let mut in_columns = false;
+        let mut pending_code: Option<i64> = None;
+        let mut remaining_heights = 0usize;
+        for value in values {
+            if let (1000, Data::Text(marker)) = (value.code, &value.data) {
+                match marker.as_slice() {
+                    b"ACAD_MTEXT_COLUMN_INFO_BEGIN" => {
+                        in_info = true;
+                        in_columns = false;
+                        pending_code = None;
+                        remaining_heights = 0;
+                        continue;
+                    }
+                    b"ACAD_MTEXT_COLUMN_INFO_END" => {
+                        in_info = false;
+                        pending_code = None;
+                        remaining_heights = 0;
+                        continue;
+                    }
+                    b"ACAD_MTEXT_COLUMNS_BEGIN" => {
+                        in_columns = true;
+                        in_info = false;
+                        pending_code = None;
+                        continue;
+                    }
+                    b"ACAD_MTEXT_COLUMNS_END" => {
+                        in_columns = false;
+                        pending_code = None;
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+            if in_info {
+                if remaining_heights > 0 {
+                    if value.code == 1040 {
+                        remaining_heights -= 1;
+                        continue;
+                    }
+                    remaining_heights = 0;
+                }
+                match pending_code.take() {
+                    None => {
+                        if let (1070, Data::Int(sub_code)) = (value.code, &value.data) {
+                            pending_code = Some(*sub_code);
+                        }
+                    }
+                    Some(75) => match &value.data {
+                        Data::Int(col_type) => {
+                            if *col_type != 0 {
+                                has_columns = true;
+                            }
+                        }
+                        _ => return Err(invalid(&object.kind, value.code)),
+                    },
+                    Some(50) => {
+                        if let Data::Int(count) = &value.data
+                            && let Ok(n) = usize::try_from(*count)
+                        {
+                            remaining_heights = n;
+                        }
+                    }
+                    Some(_) => {}
+                }
+            } else if in_columns {
+                match (pending_code.take(), value.code, &value.data) {
+                    (_, 1005, Data::Handle(handle))
+                        if *handle != 0 && Some(*handle) != own_handle =>
+                    {
+                        followers.push(*handle);
+                    }
+                    (None, 1070, Data::Int(sub_code)) => {
+                        pending_code = Some(*sub_code);
+                    }
+                    (Some(47), 1070, Data::Int(count)) if *count > 1 => {
+                        has_columns = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    if has_columns || !followers.is_empty() {
+        Ok(Some(followers))
+    } else {
+        Ok(None)
+    }
+}
+
+/// この `MTEXT` 自身が段組みの親（101・75・ACAD 段組み拡張データ）であるか
+pub(super) fn is_own_column_mtext(object: &Object) -> bool {
+    object.first(101).is_some()
+        || matches!(object.first(75), Some(Data::Int(n)) if *n != 0)
+        || !matches!(mtext_xdata_columns(object), Ok(None))
 }
