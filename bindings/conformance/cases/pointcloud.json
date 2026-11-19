@@ -378,6 +378,82 @@
           ]
         ]
       }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.las",
+        "doc": "las_bytes",
+        "budget": {
+          "input_bytes": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.input-bytes.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.las",
+        "doc": "las_elems",
+        "budget": {
+          "elements": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.elements.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.ply",
+        "doc": "ply_bytes",
+        "budget": {
+          "input_bytes": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.input-bytes.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.xyz",
+        "doc": "xyz_bytes",
+        "format": "xyz",
+        "budget": {
+          "input_bytes": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.input-bytes.exceeded"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "a.e57",
+        "doc": "e57_bytes",
+        "budget": {
+          "input_bytes": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.input-bytes.exceeded"
+      }
     }
   ]
 }
