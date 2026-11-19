@@ -1,5 +1,5 @@
 //! R2010・R2013・R2018 の DWG の `TABLESTYLE` と `ACAD_TABLE` から、行とセルの文字高・文字色を
-//! 図面モデルへ移し、未設定と上書きの区別と未対応欄の診断を確かめる回帰試験（#906）。
+//! 図面モデルへ移し、未設定と上書きの区別と未対応フィールドの診断を確かめる回帰試験（#906）。
 #![cfg(feature = "drawing")]
 
 use std::path::Path;
@@ -268,7 +268,7 @@ fn distinguishes_unset_from_overridden_and_isolates_unsupported_diagnostics() {
         );
     }
 
-    // 表 1 は未対応欄を持たず、表 2（セルの RGB 真の色上書き）だけが dwg.table-format.unsupported を出す
+    // 表 1 は未対応フィールドを持たず、表 2（セルの RGB 真の色上書き）だけが dwg.table-format.unsupported を出す
     assert_eq!(t2.cells[0].format, CellFormat::default());
     let unsupported: Vec<_> = diag
         .iter()
