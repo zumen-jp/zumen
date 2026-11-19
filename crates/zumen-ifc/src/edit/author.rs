@@ -544,7 +544,8 @@ impl Draft<'_> {
             self.put(rel, stmt);
             return;
         }
-        let mut args = vec![self.global_id(), history, null(), null(), null(), null()];
+        let global_id = self.keyed_global_id(relation.name, &[relating, related], "");
+        let mut args = vec![global_id, history, null(), null(), null(), null()];
         if let Some(slot) = args.get_mut(relation.relating - 1) {
             *slot = Item::Ref(relating);
         }
@@ -967,7 +968,7 @@ impl Draft<'_> {
             return Ok(false);
         }
         let history = relating_stmt.arg(2).cloned().unwrap_or_else(null);
-        let global_id = self.global_id();
+        let global_id = self.keyed_global_id(name, &[relating, related], "");
         self.add(Stmt {
             name: name.to_vec(),
             args: vec![

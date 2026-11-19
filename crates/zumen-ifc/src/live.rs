@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 use zumen_base::{Diagnostic, Diagnostics, Kind, codes};
 use zumen_building::{
-    Building, DetailedProperty, DetailedPropertySet, ElementRef, GlobalId, Grid, Hash, Identity,
-    Literal, Measured, Opening, Properties, Property, PropertyDetailValue, PropertyDetails,
-    PropertySet, Quantities, Quantity, QuantitySet, RelationSource, TypedValue, Unit,
+    Building, DetailedProperty, DetailedPropertySet, ElementRef, Grid, Identity, Literal, Measured,
+    Opening, Properties, Property, PropertyDetailValue, PropertyDetails, PropertySet, Quantities,
+    Quantity, QuantitySet, RelationSource, TypedValue, Unit,
 };
 #[cfg(feature = "ids")]
 use zumen_ids::{AttributeValue, Lookup, Missing};
@@ -32,8 +32,8 @@ use crate::building::{
     predefined_property_fields, reference, refs,
 };
 use crate::edit::{
-    Edit, Item, NewValue, RootAttribute, Stmt, refs_in, refs_of, stmt_from_slice, swap, text,
-    text_of, typed, unsupported, write_stmt,
+    Edit, Item, Keyed, NewValue, RootAttribute, Stmt, end_key, refs_in, refs_of, stmt_from_slice,
+    swap, text, text_of, typed, unsupported, write_stmt,
 };
 #[cfg(feature = "ids")]
 use crate::express::{Express, Layouts};
@@ -1427,7 +1427,7 @@ struct OverlayDraft<'a> {
     next: u64,
     referrer_overrides: BTreeMap<u64, BTreeSet<u64>>,
     seed: &'a [u8],
-    minted: u64,
+    keyed: Keyed,
     affected_identity: BTreeSet<ElementRef>,
     affected_defs: BTreeSet<ElementRef>,
     copied_sets: BTreeMap<u64, u64>,
@@ -1445,7 +1445,7 @@ impl<'a> OverlayDraft<'a> {
             next: live.next,
             referrer_overrides: BTreeMap::new(),
             seed,
-            minted: 0,
+            keyed: Keyed::default(),
             affected_identity: BTreeSet::new(),
             affected_defs: BTreeSet::new(),
             copied_sets: BTreeMap::new(),
@@ -1509,13 +1509,13 @@ impl<'a> OverlayDraft<'a> {
         id
     }
 
-    fn global_id(&mut self) -> Item {
-        let mut input = Vec::with_capacity(self.seed.len() + 8);
-        input.extend_from_slice(self.seed);
-        input.extend_from_slice(&self.minted.to_le_bytes());
-        self.minted = self.minted.saturating_add(1);
-        let Hash(bytes) = Hash::document(&input);
-        text(&GlobalId::from_uuid(bytes).to_string())
+    /// 足す関係とセットの GlobalId。[`Keyed`] を `apply` と同じ鍵で使う
+    fn keyed_global_id(&mut self, name: &[u8], ends: &[u64], label: &str) -> Item {
+        let ends = ends
+            .iter()
+            .map(|&end| end_key(self.stmt(end), end))
+            .collect::<Vec<_>>();
+        self.keyed.mint(self.seed, name, &ends, label)
     }
 
     fn root(&self, element: u64, edit: &str, cx: &mut Cx) -> Option<(Stmt, Option<Category>)> {
@@ -1708,7 +1708,8 @@ impl<'a> OverlayDraft<'a> {
         cx.check(Kind::DecodedBytes, 64)
             .map_err(|stop| stopped(cx, stop, None))?;
         let original = self.copied_sets.get(&pset).copied().unwrap_or(pset);
-        copy.set(1, self.global_id());
+        let global_id = self.keyed_global_id(&copy.name, &[element, pset], "");
+        copy.set(1, global_id);
         let copy = self.add(copy);
         self.copied_sets.insert(copy, original);
         if typed_object {
@@ -1758,7 +1759,7 @@ impl<'a> OverlayDraft<'a> {
         let stmt = Stmt {
             name: b"IFCPROPERTYSET".to_vec(),
             args: vec![
-                self.global_id(),
+                self.keyed_global_id(b"IFCPROPERTYSET", &[element], set),
                 history.clone(),
                 text(set),
                 Item::Raw(b"$".to_vec()),
@@ -1789,7 +1790,7 @@ impl<'a> OverlayDraft<'a> {
         let stmt = Stmt {
             name: b"IFCRELDEFINESBYPROPERTIES".to_vec(),
             args: vec![
-                self.global_id(),
+                self.keyed_global_id(b"IFCRELDEFINESBYPROPERTIES", &[element, pset], ""),
                 history,
                 Item::Raw(b"$".to_vec()),
                 Item::Raw(b"$".to_vec()),
@@ -3197,6 +3198,7 @@ fn value_shape(items: &[Item]) -> Vec<u8> {
 mod shared_budget_tests {
     use super::*;
     use zumen_base::{Budget, CancelToken, Limit, Limits, Stop};
+    use zumen_building::Hash;
     use zumen_sdk::Lift;
 
     fn run<T>(f: impl FnOnce(&mut Cx) -> T) -> (T, Vec<Diagnostic>) {

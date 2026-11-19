@@ -244,7 +244,7 @@
         "limit": 10
       },
       "expect": {
-        "/result/estimate/hash": "v2:b47d7282743daaf2cbd6012cd4c1dabe",
+        "/result/estimate/hash": "v2:e7bbf4ad50d19ccacaaa430106f09cb1",
         "/result/estimate/elements": 3,
         "/result/estimate/details/2/kind": "IfcWall",
         "/result/estimate/details/2/fidelity": "approximated",
@@ -288,7 +288,7 @@
         }
       },
       "expect": {
-        "/result/hash": "v2:b47d7282743daaf2cbd6012cd4c1dabe",
+        "/result/hash": "v2:e7bbf4ad50d19ccacaaa430106f09cb1",
         "/result/elements": 3
       }
     },
@@ -372,7 +372,7 @@
         "limit": 5
       },
       "expect": {
-        "/result/estimate/hash": "v2:94c00c7d4d35a531a24cb57703857a98",
+        "/result/estimate/hash": "v2:ec7b0ea8ea5346a5888fad9c83da0d2a",
         "/result/estimate/elements": 315,
         "/result/estimate/counts/0": {
           "kind": "IfcBeam",
@@ -402,7 +402,7 @@
         }
       },
       "expect": {
-        "/result/hash": "v2:94c00c7d4d35a531a24cb57703857a98",
+        "/result/hash": "v2:ec7b0ea8ea5346a5888fad9c83da0d2a",
         "/result/elements": 315
       }
     },

@@ -10,10 +10,10 @@ use zumen_building::{
 use zumen_ifc::{
     Edit, FillingKind, Ifc, IfcFile, IfcLive, NewAxis3, NewBeam, NewColumn, NewConstituent,
     NewElement, NewFaces, NewFilling, NewGrid, NewGridAxis, NewHalfSpaceLimit, NewItem, NewLayer,
-    NewLayerUsage, NewMapped, NewMaterial, NewMaterialLayer, NewOpening, NewPlacement,
+    NewLayerUsage, NewLiteral, NewMapped, NewMaterial, NewMaterialLayer, NewOpening, NewPlacement,
     NewProfileKind, NewQuantity, NewRevolution, NewSection, NewShape, NewSlab, NewSolid, NewSpace,
-    NewSweptDisk, NewUnit, NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange,
-    apply,
+    NewSweptDisk, NewUnit, NewValue, NewWall, OpeningChange, RootAttribute, SpaceKind, Target,
+    WallChange, apply,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -559,6 +559,59 @@ fn mints_global_ids_from_the_seed() {
             .iter()
             .all(|e| matches!(e.id(), Id::Global(_)))
     );
+}
+
+/// 文書の `('` で始まる 22 文字の GlobalId
+fn global_ids(bytes: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .filter_map(|line| {
+            let (_, rest) = line.split_once("('")?;
+            let (global_id, _) = rest.split_once('\'')?;
+            (global_id.len() == 22).then(|| global_id.to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn keys_relation_global_ids_by_what_they_join() {
+    // 関係とセットの GlobalId は、足した順でなく、種類と結ぶ要素とセットの名前から決まる（#395）
+    let note = |set: &str| Edit::Property {
+        element: 10,
+        set: set.to_owned(),
+        name: "Note".to_owned(),
+        value: NewValue {
+            type_name: "IfcLabel".to_owned(),
+            literal: NewLiteral::Text("a".to_owned()),
+        },
+    };
+    let wall = || new_element("IfcWall", 200, Some(Target::Instance(10)), None);
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let (alone, codes) = run(src.as_bytes(), &[wall(), note("Pset_A")]);
+        let alone = alone.unwrap_or_else(|_| panic!("{schema}: {codes:?}"));
+        let (after, codes) = run(
+            src.as_bytes(),
+            &[
+                space(SpaceKind::Building, 100, Target::Instance(10), 0.0),
+                new_element("IfcSlab", 201, Some(Target::Added(0)), None),
+                note("Pset_B"),
+                wall(),
+                note("Pset_A"),
+            ],
+        );
+        let after = after.unwrap_or_else(|_| panic!("{schema}: {codes:?}"));
+        // 壁の包含・セット・セットの関係は、先に足した建物・床・別のセットによらない
+        let (alone, after) = (global_ids(&alone), global_ids(&after));
+        assert_eq!(alone.len(), 8, "{schema}");
+        for global_id in &alone {
+            assert!(after.contains(global_id), "{schema}: {global_id}");
+        }
+        let mut unique = after.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), after.len(), "{schema}");
+    }
 }
 
 #[test]

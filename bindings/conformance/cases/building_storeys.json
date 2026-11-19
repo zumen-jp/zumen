@@ -606,7 +606,7 @@
         "doc": "a.ifc"
       },
       "expect": {
-        "/result/hash": "v1:54f1ff1c37ac48ed6db26782870641e5"
+        "/result/hash": "v1:1ba29c99535fc3628aae1d39bf3b6fc9"
       }
     },
     {

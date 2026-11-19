@@ -702,7 +702,7 @@ impl Draft<'_> {
     /// 要素に材料を `IfcRelAssociatesMaterial` で結ぶ
     fn associate(&mut self, element: u64, material: u64, history: Item) {
         // 5 RelatedObjects・6 RelatingMaterial
-        let relation = self.global_id();
+        let relation = self.keyed_global_id(b"IFCRELASSOCIATESMATERIAL", &[element], "");
         self.add(Stmt {
             name: b"IFCRELASSOCIATESMATERIAL".to_vec(),
             args: vec![
@@ -1690,7 +1690,7 @@ impl Draft<'_> {
 
     /// 5 Relating・6 Related の 1 対 1 の関係を足す
     fn relation(&mut self, name: &[u8], relating: u64, related: u64, history: Item) {
-        let global_id = self.global_id();
+        let global_id = self.keyed_global_id(name, &[relating, related], "");
         self.add(Stmt {
             name: name.to_vec(),
             args: vec![

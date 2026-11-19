@@ -174,7 +174,7 @@ impl Draft<'_> {
                 let stmt = Stmt {
                     name: QUANTITY_SET.to_vec(),
                     args: vec![
-                        self.global_id(),
+                        self.keyed_global_id(QUANTITY_SET, &[element], set),
                         history,
                         text(set),
                         null(),

@@ -251,7 +251,8 @@ pub struct Applied {
 }
 
 /// 変更を順に当て、書き直したファイルを返す。当てられない変更が 1 つでもあれば、診断して失敗する。
-/// `seed` は、足す GlobalId を決めるための値で、同じ入力と変更なら同じ GlobalId になる
+/// `seed` は、足す GlobalId を決めるための値で、同じ入力と変更なら同じ GlobalId になる。足す関係とセットの
+/// GlobalId は、[`Keyed`] の鍵で決め、ほかの変更の順によらない
 pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result<Applied, Error> {
     let mut draft = Draft::new(file, seed, cx)?;
     let mut rejected = false;
@@ -444,6 +445,8 @@ struct Draft<'f> {
     referrers: BTreeMap<u64, BTreeSet<u64>>,
     seed: Vec<u8>,
     minted: u64,
+    /// 関係とセットの GlobalId の鍵ごとの使った数
+    keyed: Keyed,
     /// 除いたインスタンス
     removed: BTreeSet<u64>,
     /// 足す変更が足した要素。[`Target::Added`] の番号の順
@@ -491,6 +494,7 @@ impl<'f> Draft<'f> {
             referrers,
             seed: seed.to_vec(),
             minted: 0,
+            keyed: Keyed::default(),
             removed: BTreeSet::new(),
             handles: Vec::new(),
             project,
@@ -551,13 +555,22 @@ impl<'f> Draft<'f> {
         id
     }
 
-    /// 足す GlobalId。`seed` と、足した数から決める
+    /// 足す要素の GlobalId。`seed` と、足した数から決める
     fn global_id(&mut self) -> Item {
         let mut input = self.seed.clone();
         input.extend_from_slice(&self.minted.to_le_bytes());
         self.minted += 1;
         let Hash(bytes) = Hash::document(&input);
         text(&GlobalId::from_uuid(bytes).to_string())
+    }
+
+    /// 足す関係とセットの GlobalId。種類 `name`・結ぶ要素 `ends`・セットの名前 `label` の鍵から決める
+    fn keyed_global_id(&mut self, name: &[u8], ends: &[u64], label: &str) -> Item {
+        let ends = ends
+            .iter()
+            .map(|&end| end_key(self.stmt(end), end))
+            .collect::<Vec<_>>();
+        self.keyed.mint(&self.seed, name, &ends, label)
     }
 
     /// 要素（`IfcRoot`）の 2 OwnerHistory。要素でなければ `None`
@@ -635,7 +648,7 @@ impl<'f> Draft<'f> {
                 let stmt = Stmt {
                     name: PROPERTY_SET.to_vec(),
                     args: vec![
-                        self.global_id(),
+                        self.keyed_global_id(PROPERTY_SET, &[element], set),
                         history,
                         text(set),
                         Item::Raw(b"$".to_vec()),
@@ -727,7 +740,8 @@ impl<'f> Draft<'f> {
         let Some(mut copy) = self.stmt(pset) else {
             return pset;
         };
-        copy.set(1, self.global_id());
+        let global_id = self.keyed_global_id(&copy.name, &[element, pset], "");
+        copy.set(1, global_id);
         let copy = self.add(copy);
         if typed_object {
             if let Some(mut stmt) = self.stmt(holder) {
@@ -791,7 +805,7 @@ impl<'f> Draft<'f> {
         let stmt = Stmt {
             name: b"IFCRELDEFINESBYPROPERTIES".to_vec(),
             args: vec![
-                self.global_id(),
+                self.keyed_global_id(b"IFCRELDEFINESBYPROPERTIES", &[element, pset], ""),
                 history,
                 Item::Raw(b"$".to_vec()),
                 Item::Raw(b"$".to_vec()),
@@ -1010,6 +1024,43 @@ pub(crate) fn swap(item: Option<&Item>, from: u64, to: u64) -> Item {
         ),
         other => other.cloned().unwrap_or(Item::Raw(b"$".to_vec())),
     }
+}
+
+/// 足す関係とセットの GlobalId の鍵ごとの使った数（#395）。
+///
+/// 関係とセットの GlobalId は、足した順でなく、`seed` と、種類・結ぶ要素の GlobalId・セットの名前の鍵から
+/// 導く。ほかの要素やセットを先に足しても変わらない。同じ鍵が同じ変更で重なれば、重なった数で分ける
+#[derive(Default)]
+pub(crate) struct Keyed(BTreeMap<Vec<u8>, u32>);
+
+impl Keyed {
+    pub(crate) fn mint(&mut self, seed: &[u8], name: &[u8], ends: &[Vec<u8>], label: &str) -> Item {
+        let mut key = name.to_ascii_uppercase();
+        for end in ends {
+            key.push(b'/');
+            key.extend_from_slice(end);
+        }
+        key.push(b'/');
+        key.extend_from_slice(label.as_bytes());
+        let used = self.0.entry(key.clone()).or_default();
+        let repeat = *used;
+        *used = used.saturating_add(1);
+        // 足した数から作る GlobalId（seed と 8 バイト）と入力の長さで分かれるよう、印を挟む
+        let mut input = Vec::with_capacity(seed.len() + key.len() + 16);
+        input.extend_from_slice(seed);
+        input.extend_from_slice(b"\0relation\0");
+        input.extend_from_slice(&key);
+        input.extend_from_slice(&repeat.to_le_bytes());
+        let Hash(bytes) = Hash::document(&input);
+        text(&GlobalId::from_uuid(bytes).to_string())
+    }
+}
+
+/// 鍵に入れる要素。GlobalId があればその値、なければインスタンスの番号
+pub(crate) fn end_key(stmt: Option<Stmt>, id: u64) -> Vec<u8> {
+    stmt.and_then(|stmt| text_of(stmt.arg(1)?))
+        .filter(|global_id| global_id.len() == 22)
+        .map_or_else(|| format!("#{id}").into_bytes(), String::into_bytes)
 }
 
 /// 文字列の値の中身。文字列でなければ `None`
