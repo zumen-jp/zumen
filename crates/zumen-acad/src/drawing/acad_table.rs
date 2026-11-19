@@ -16,8 +16,8 @@ impl Lifter<'_> {
     /// 176）を持ち、種類が 1 なら文字（2 の区切りと 1）、2 ならブロックのレコード（340）を内容とする。文字がなく、
     /// 2007 からの値（301 から）の文字（302）があれば、それを内容とする（docs/formats/dxf.md）。数が合わない
     /// ものは読めないとする。セルの値の型と単位と表示の書式は `cell_value` で、セルの書式と枠は `cell_format` で、
-    /// 表のスタイルの書式は `table_formats` で読む。R2010 からの DWG のリーダーは書式を読まないので、書式は空になる
-    /// （`element` で診断する）
+    /// 表のスタイルの書式は `table_formats` で読む。R2010 からの DWG は、行とセルの文字の高さと色（および表のスタイルの
+    /// 文字スタイル）を読み、残る書式の欄があるときだけ `element` で診断する（#906）
     pub(super) fn table<P>(
         &self,
         db: &AcadDb,
@@ -192,7 +192,7 @@ impl Lifter<'_> {
     /// 行を、281 が 1 なら見出しの行を持たない。文字スタイル（7）から始まる組が、データ・タイトル・見出しの順に
     /// 続く（サンプルの表を描いたブロックの文字の高さと位置合わせで確かめた）。組の枠は、上・内側の横・下・左・
     /// 内側の縦・右の順に、線幅（274〜279）・表示（284〜289）・色（64〜69）を持つ（推定）。組がなければ `None`。
-    /// R2010 からの DWG のリーダーは、TABLESTYLE のフィールドをまだ読まないので `None` になる（`element` で診断する）
+    /// R2010 からの DWG は、行ごとの文字スタイル（7）・文字の高さ（140）・文字の色（62）を読む（#906）
     pub(super) fn table_formats(
         &self,
         db: &AcadDb,
@@ -464,6 +464,44 @@ const STYLE_BORDERS: BorderCodes = BorderCodes {
     horizontal: Some([65, 275, 285]),
     vertical: Some([68, 278, 288]),
 };
+
+/// R2010 からの DWG の表または参照する `TABLESTYLE` に、まだ移せない書式のフィールドがあるか（#906）
+pub(super) fn has_unsupported_dwg_table_format(db: &AcadDb, object: &Object) -> bool {
+    if object
+        .first(crate::db::DWG_UNSUPPORTED_TABLE_FORMAT)
+        .is_some()
+    {
+        return true;
+    }
+    let Some(marker) = object
+        .values
+        .iter()
+        .position(|v| matches!(v.code, 342 | 11 | 90))
+    else {
+        return false;
+    };
+    let style_handle = object
+        .values
+        .get(marker..)
+        .and_then(|rest| rest.iter().find(|v| v.code == 342))
+        .and_then(|v| match v.data {
+            Data::Handle(handle) if handle != 0 => Some(handle),
+            _ => None,
+        });
+    let Some(handle) = style_handle else {
+        return false;
+    };
+    let Some(style) = db.get(handle).filter(|s| s.kind == b"TABLESTYLE") else {
+        return false;
+    };
+    style
+        .first(crate::db::DWG_UNSUPPORTED_TABLE_FORMAT)
+        .is_some()
+        || style
+            .values
+            .iter()
+            .all(|v| matches!(v.code, 5 | 102 | 330 | 360) || v.code >= 1000)
+}
 
 /// 表のセルの値（301 から 304 まで）のうち、`Lifter::cell_value` が移さない型（64・128・256・512）で、値を持つ
 /// （フラグの 93 の 1 が立たない）ものを診断する

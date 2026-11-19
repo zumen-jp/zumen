@@ -28,3 +28,14 @@ dotnet run --project xtask/verify/acadsharp -c Release -- --make-dim-dstyle-fixt
 ```
 
 移動後に DWG の匿名ブロックが実効の文字高・矢印長さ・小数桁数を反映し、補助 `POINT` を除いた表示部品（`LINE`・`SOLID`・`MTEXT`）だけになることと、測点・測定値・拡張辞書・`DSTYLE` 上書きを保つ回帰試験に使います。
+
+## R2010 以降の表スタイルとセル書式の合成入力
+
+`table-style-r2010.{dwg,dxf}`・`table-style-r2013.{dwg,dxf}`・`table-style-r2018.{dwg,dxf}` と `table-format-cases-r2018.dwg` は、`xtask/verify/acadsharp/TableFormatFixtures.cs` から ACadSharp 3.8.0（MIT）で作る表スタイル・セル書式・色見本帳の合成入力です（#906）。
+
+```powershell
+dotnet run --project xtask/verify/acadsharp -c Release -- --make-table-format-fixtures <生成先>
+```
+
+- `table-style-r2010/r2013/r2018.{dwg,dxf}`: 色見本帳（`SamplePocket$Harbor`、RGB 13, 97, 184）を指す円（`#49` → `DBCOLOR #48`）と、名前付き表スタイル `SampleFormat`（`#4A`、データ行 ACI 2・文字高 1.75、見出し・表題行の文字高 1.75、位置合わせ 5）を指す 1 行 2 列の表（`#4E`、セルごとに文字高 2.5／3.5・ACI 3／4 を上書き）。対照 DXF は ACadSharp が出さない `ACAD_TABLE` と `TABLESTYLE` の行値を同じ定義から補完し、生成時に ACadSharp で DWG・DXF の双方を再読して照合します。
+- `table-format-cases-r2018.dwg`: 対応済みのフィールド（表題・見出し・データ行の文字スタイル・文字高・ACI 色）だけを持つ `CleanFormat` と、セル未設定・文字高のみ上書き・文字色のみ上書き（ByBlock）・内容書式（`CellContent.Format`）での文字高と文字色（ByLayer）上書きの 4 セルを持つ表 1、およびセルに RGB 真の色の上書きを持つ表 2 を並べ、未対応フィールドを持つ表 2 だけに `dwg.table-format.unsupported` が出ることを確かめます。

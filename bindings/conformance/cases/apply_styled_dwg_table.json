@@ -96,7 +96,7 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported"
+        "/diagnostics/0/code": "change.edit.unsupported"
       }
     },
     {
@@ -594,7 +594,7 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported"
+        "/diagnostics/0/code": "change.edit.unsupported"
       }
     },
     {
@@ -1092,7 +1092,7 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported"
+        "/diagnostics/0/code": "change.edit.unsupported"
       }
     },
     {

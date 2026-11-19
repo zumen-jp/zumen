@@ -1310,8 +1310,8 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported",
-        "/diagnostics/1/params": {
+        "/diagnostics/0/code": "change.edit.unsupported",
+        "/diagnostics/0/params": {
           "edit": "replace",
           "format": "DWG",
           "kind": "ACAD_TABLE"
@@ -1745,7 +1745,7 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported"
+        "/diagnostics/0/code": "change.edit.unsupported"
       }
     },
     {
@@ -1916,8 +1916,8 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported",
-        "/diagnostics/1/params": {
+        "/diagnostics/0/code": "change.edit.unsupported",
+        "/diagnostics/0/params": {
           "edit": "replace",
           "format": "DWG",
           "kind": "ACAD_TABLE"
@@ -2351,7 +2351,7 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported"
+        "/diagnostics/0/code": "change.edit.unsupported"
       }
     },
     {
@@ -2522,8 +2522,8 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported",
-        "/diagnostics/1/params": {
+        "/diagnostics/0/code": "change.edit.unsupported",
+        "/diagnostics/0/params": {
           "edit": "replace",
           "format": "DWG",
           "kind": "ACAD_TABLE"
@@ -2957,7 +2957,7 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported"
+        "/diagnostics/0/code": "change.edit.unsupported"
       }
     },
     {

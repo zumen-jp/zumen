@@ -46,6 +46,108 @@ pub(super) fn tablestyle(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
+/// R2010 からの TABLESTYLE（ODS 5.4.1 の 20.4.101）。バージョン（RC）・説明（3）・既定のハンドル・フラグ・
+/// 次の ID と、表全体のセルのスタイル（4）と行ごとのセルのスタイル（表題 1・見出し 2・データ 3 など）を読む。
+/// データ・表題・見出しのどれかに文字の高さか色があれば、DXF と同じくデータ・表題・見出しの順で文字スタイル（7）・
+/// 高さ（140）・色（62）を置く。まだ移さないフィールド（位置合わせ・背景・枠・余白・回転・真の色・追加のセルのスタイルなど）が
+/// あれば内部の印を置く
+pub(super) fn tablestyle_r2010(bits: &mut Bits, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
+    bits.rc()?;
+    let description = bits.text()?;
+    handles.push(0);
+    bits.bl()?;
+    bits.bl()?;
+    let read_style = |bits: &mut Bits, handles: &mut Vec<i16>| {
+        let mut text_style_index = None;
+        let style = cell_style_bits(bits, |is_text_style| {
+            let index = handles.len();
+            handles.push(0);
+            if is_text_style {
+                text_style_index = Some(index);
+            }
+            Data::Handle(SLOT + index as u64)
+        })?;
+        Some((style, text_style_index))
+    };
+    let (table_style, _) = read_style(bits, handles)?;
+    bits.bl()?;
+    bits.bl()?;
+    bits.text()?;
+    let mut unsupported = table_style.has_any_setting();
+    let count = usize::try_from(bits.bl()?).ok()?;
+    if count > bits.size() {
+        return None;
+    }
+    let mut title = None;
+    let mut header = None;
+    let mut data = None;
+    for _ in 0..count {
+        bits.bl()?;
+        let (style, text_style_index) = read_style(bits, handles)?;
+        let id = bits.bl()?;
+        bits.bl()?;
+        bits.text()?;
+        match id {
+            1 if title.is_none() => title = Some((style, text_style_index)),
+            2 if header.is_none() => header = Some((style, text_style_index)),
+            3 if data.is_none() => data = Some((style, text_style_index)),
+            _ => unsupported |= style.has_any_setting(),
+        }
+    }
+    let mut values = vec![text_value(3, &description)];
+    match (data, title, header) {
+        (Some(data), Some(title), Some(header)) => {
+            let rows = [data, title, header];
+            let any_configured = rows.iter().any(|(style, _)| style.style_row(false).2);
+            for (style, _) in &rows {
+                unsupported |= style.style_row(any_configured).3;
+            }
+            if unsupported {
+                values.push(Value {
+                    code: crate::db::DWG_UNSUPPORTED_TABLE_FORMAT,
+                    data: Data::Bool(true),
+                });
+            }
+            if any_configured {
+                for (style, text_style_index) in rows {
+                    let (height, color, _, _) = style.style_row(true);
+                    let slot = match text_style_index {
+                        Some(index) => {
+                            if let Some(entry) = handles.get_mut(index) {
+                                *entry = 7;
+                            }
+                            Data::Handle(SLOT + index as u64)
+                        }
+                        None => Data::Handle(0),
+                    };
+                    values.push(Value {
+                        code: 7,
+                        data: slot,
+                    });
+                    if let Some(height) = height {
+                        values.push(real(140, height));
+                    }
+                    if let Some(color) = color {
+                        values.push(int(62, i64::from(color)));
+                    }
+                }
+            }
+        }
+        (data, title, header) => {
+            for item in [data, title, header].into_iter().flatten() {
+                unsupported |= item.0.has_any_setting();
+            }
+            if unsupported {
+                values.push(Value {
+                    code: crate::db::DWG_UNSUPPORTED_TABLE_FORMAT,
+                    data: Data::Bool(true),
+                });
+            }
+        }
+    }
+    Some(values)
+}
+
 pub(super) fn mlinestyle(bits: &mut Bits) -> Option<Vec<Value>> {
     let name = bits.text()?;
     let description = bits.text()?;

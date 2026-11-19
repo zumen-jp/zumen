@@ -1008,6 +1008,8 @@ pub(super) fn read(
             // 行ごとの文字スタイル（7）のハンドルは、ハンドルのストリームで仮の値を埋める
             handles.extend([7; 3]);
             tablestyle(&mut bits)?
+        } else if kind == b"TABLESTYLE" {
+            tablestyle_r2010(&mut bits, &mut handles)?
         } else if sortents {
             for _ in 0..bits.bl()? {
                 sorts.push(bits.handle()?.resolve(entry.handle)?);
@@ -1072,11 +1074,18 @@ pub(super) fn read(
                     data: Data::Handle(item),
                 });
             }
-            for code in handles {
+            for (index, code) in handles.into_iter().enumerate() {
                 let handle = bits.handle()?.resolve(entry.handle)?;
-                let slot = values
-                    .iter_mut()
-                    .find(|value| value.code == code && value.data == Data::Handle(SLOT));
+                let numbered = SLOT + index as u64;
+                let slot_pos = values
+                    .iter()
+                    .position(|value| value.code == code && value.data == Data::Handle(numbered))
+                    .or_else(|| {
+                        values.iter().position(|value| {
+                            value.code == code && value.data == Data::Handle(SLOT)
+                        })
+                    });
+                let slot = slot_pos.and_then(|pos| values.get_mut(pos));
                 match (code, slot) {
                     (0, _) => {}
                     // TABLESTYLE の行の 7 と LTYPE の要素の 340 は、0 でも区切りとして残す

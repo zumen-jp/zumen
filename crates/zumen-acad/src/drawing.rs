@@ -10,7 +10,7 @@
 //! 画層は表の順に置き、表にない名前を図形が指せば、定義のない画層として足す。描く順は、モデル空間・
 //! ペーパー空間・記号の定義のブロックのレコードを指す SORTENTSTABLE で決め、なければ入力の順とする。
 //! 移さない図形と値は、元のレコードを指す診断で返す。診断の code は、表がグループ・コードで値を名付けるので、
-//! DWG でも `dxf.` で始まるものを使う。DWG のリーダーがまだ読まない値（R2010 からの表の書式）だけは、`dwg.` で
+//! DWG でも `dxf.` で始まるものを使う。DWG のリーダーがまだ移せない表の書式のフィールド（R2010 から）だけは、`dwg.` で
 //! 始まるものを使う。何をどう読んだかの推定は `docs/formats/dxf.md` に記録した。
 
 mod acad_table;
@@ -819,8 +819,7 @@ struct Lifter<'a> {
     charset: Charset,
     /// 2010 以降のバージョンなら、DXF の HATCH の SPLINE の辺はフィット点（97）を持つ
     fit_data: bool,
-    /// 2010 以降のバージョンなら、DWG の表は内容を TABLECONTENT の形で持つ。DWG のリーダーは、その書式と TABLESTYLE を
-    /// まだ読まない
+    /// 2010 以降のバージョンなら、DWG の表は内容を TABLECONTENT の形で持つ
     table_content: bool,
     /// ヘッダーの `$ACADVER`。形式固有の情報のバージョンにする
     version: Option<String>,
@@ -953,7 +952,7 @@ impl Lifter<'_> {
     }
 
     /// 図形を要素にする。INSERT の属性のうち移せないものは、属性の出所を指す診断を返し、INSERT は移す。
-    /// R2010 からの DWG の表は、書式を移さないことを表の出所を指す診断で返し、表は移す
+    /// R2010 からの DWG の表は、まだ移せない書式のフィールドがあれば表の出所を指す診断で返し、表は移す
     #[allow(clippy::too_many_arguments)]
     fn element<P: zumen_drawing::transform::Point>(
         &self,
@@ -990,8 +989,11 @@ impl Lifter<'_> {
         }
         if let Shape::Table(_) = &shape {
             report_cell_values(object, cx);
-            // R2010 からの DWG のリーダーは、表のスタイル・セルのスタイル・内容の書式を読まない（docs/formats/dwg.md）
-            if self.table_content && matches!(object.origin, Origin::Dwg { .. }) {
+            // R2010 からの DWG の表は、まだ移せない書式のフィールドがあるときだけ診断する（docs/formats/dwg.md、#906）
+            if self.table_content
+                && matches!(object.origin, Origin::Dwg { .. })
+                && acad_table::has_unsupported_dwg_table_format(db, object)
+            {
                 cx.report(Diagnostic::new(codes::DWG_TABLE_FORMAT_UNSUPPORTED).at(source.clone()));
             }
         }
@@ -1362,10 +1364,9 @@ mod tests {
         }
     }
 
-    /// バージョンが `version` の DWG（`dwg` が偽なら DXF）の、1 行 1 列の表と、フィールドのない TABLESTYLE を持つ表。DWG の
-    /// リーダーは、R2010 からの TABLESTYLE のフィールドを読まず、ACAD_TABLE を AcDbTable（100）なしで置き、表を描いた
-    /// ブロック（2）を値の終わりに置く
-    fn table_db(version: &str, dwg: bool) -> AcadDb {
+    /// バージョンが `version` の DWG（`dwg` が偽なら DXF）の、1 行 1 列の表と TABLESTYLE を持つ表。`unsupported`
+    /// が真なら、まだ移せない書式のフィールドがある印を TABLESTYLE に置く
+    fn table_db(version: &str, dwg: bool, unsupported: bool) -> AcadDb {
         let origin = |at: usize| {
             if dwg {
                 Origin::Dwg {
@@ -1380,10 +1381,17 @@ mod tests {
         let text = |code: i16, text: &str| value(code, Data::Text(text.as_bytes().to_vec()));
         let mut db = AcadDb::default();
         db.set_variable(b"$ACADVER", vec![text(1, version)]);
+        let mut style_values = vec![value(5, Data::Handle(0x40)), text(3, "")];
+        if unsupported {
+            style_values.push(value(
+                crate::db::DWG_UNSUPPORTED_TABLE_FORMAT,
+                Data::Bool(true),
+            ));
+        }
         db.push(Object {
             kind: b"TABLESTYLE".to_vec(),
             section: Section::Objects,
-            values: vec![value(5, Data::Handle(0x40))],
+            values: style_values,
             origin: origin(0),
         });
         let mut values = vec![
@@ -1417,20 +1425,23 @@ mod tests {
         db
     }
 
-    /// R2010 からの DWG の表は、書式を読まないことを、表ごとに表の出所を指す `dwg.table-format.unsupported`
-    /// で返し、表は移す。R2004 までの DWG と、DXF の表は返さない
+    /// R2010 からの DWG の表は、まだ移せない書式のフィールドがあるときだけ表の出所を指す `dwg.table-format.unsupported`
+    /// で返し、表は移す。未対応のフィールドがない表、R2004 までの DWG、DXF の表は返さない
     #[test]
     fn dwg_tables_from_2010_report_that_their_formats_are_not_read() {
         use zumen_base::{Budget, CancelToken, Diagnostics};
-        for (version, dwg, reported) in [
-            ("AC1024", true, true),
-            ("AC1027", true, true),
-            ("AC1032", true, true),
-            ("AC1018", true, false),
-            ("AC1024", false, false),
-            ("AC1032", false, false),
+        for (version, dwg, unsupported, reported) in [
+            ("AC1024", true, true, true),
+            ("AC1027", true, true, true),
+            ("AC1032", true, true, true),
+            ("AC1024", true, false, false),
+            ("AC1027", true, false, false),
+            ("AC1032", true, false, false),
+            ("AC1018", true, true, false),
+            ("AC1024", false, true, false),
+            ("AC1032", false, true, false),
         ] {
-            let db = table_db(version, dwg);
+            let db = table_db(version, dwg, unsupported);
             let mut diag = Diagnostics::new();
             let mut budget = Budget::default();
             let cancel = CancelToken::new();
@@ -1452,7 +1463,7 @@ mod tests {
             } else {
                 Vec::new()
             };
-            assert_eq!(found, expected, "{version} {dwg}");
+            assert_eq!(found, expected, "{version} {dwg} {unsupported}");
             assert_eq!(element.source, source(&db.objects()[1]), "{version} {dwg}");
         }
     }
