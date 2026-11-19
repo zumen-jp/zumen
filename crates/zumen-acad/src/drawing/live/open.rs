@@ -12,9 +12,7 @@ use std::sync::Arc;
 
 use pending::{BATCH_PAGES, PAGE_ROWS, Pending};
 
-use zumen_base::{
-    Budget, CancelToken, Cx, Diagnostic, Diagnostics, Key, Kind, Limit, Limits, Ref, codes,
-};
+use zumen_base::{Budget, Cx, Diagnostic, Diagnostics, Key, Kind, Limit, Ref, codes};
 use zumen_drawing::{
     Arrowhead, Axes, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle,
     Draft, Drawing2D, Element, Layer, LayerId, LineType, LineTypeId, ModelPoint, ModelSpace,
@@ -122,28 +120,61 @@ pub struct LiveState {
     pub attached_inserts: BTreeSet<u64>,
     /// ハンドル一意索引に乗らないモデル要素の `ID -> RowId`
     pub non_unique_model_ids: BTreeMap<String, RowId>,
+    /// ハンドル一意索引に乗らないモデル要素の `RowId -> ID`（定数／対数時間の逆引き用）
+    pub non_unique_ids_by_row: BTreeMap<RowId, String>,
     /// `DICTIONARY` や `102` 組から参照されているハンドル集合
     pub forget_referenced_handles: BTreeSet<u64>,
     /// 非モデルオブジェクトおよび従属レコード（`ATTRIB`・`VERTEX`・`SEQEND`）の最大ハンドル
     pub non_table_max_handle: Option<u64>,
-    /// 開いたときの変換の診断（ヘッダー・表・図形）。届いた順にまとめ、場所は開いたファイルの位置。
-    /// [`Self::to_drawing`] は、場所を今の保存の位置へ移して同じ順で報告する。差分の経路は、診断の出た図形を
-    /// 変えず（[`Self::noted`]）、表とヘッダーも変えない。作り直す経路は開き直すので、変わった文書の診断になる
+    /// DWG のオブジェクト復号・ヘッダー読み取りで出た変換前の診断（開いたファイルの位置）
+    pub dwg_object_diagnostics: Vec<Diagnostic>,
+    /// 開いたときの変換の診断（DWG のオブジェクト復号診断＋ヘッダー・表・図形の変換診断）。届いた順にまとめ、
+    /// 場所は開いたファイルの位置。[`Self::to_drawing`] は、場所を今の保存の位置へ移して同じ順で報告する。
+    /// 差分の経路は、診断の出た図形を変えず（[`Self::noted`]）、表とヘッダーも変えない。作り直す経路は開き直すので、変わった文書の診断になる
     pub lift_diagnostics: Vec<Diagnostic>,
     /// `lift_diagnostics` の場所が指すレコードの番号（開いたファイルの位置）
     pub noted_records: BTreeSet<u64>,
     /// `lift_diagnostics` の場所が指すハンドル
     pub noted_handles: BTreeSet<u64>,
+    /// `lift_diagnostics` の場所が指す開始バイト位置（ハンドルを持たない DWG 診断用）
+    pub noted_byte_starts: BTreeSet<u64>,
 }
 
 impl LiveState {
-    /// 開いたときに変換の診断が出た図形か。出所のレコードかハンドルが、診断の場所に含まれるかで見る。
+    /// 開いたときに変換の診断が出た図形か。出所のレコード・ハンドル・開始バイト位置が、診断の場所に含まれるかで見る。
     /// その図形を差分の経路で変えると保持した診断が古くなるので、変更は構造経路に任せる
     pub(crate) fn noted(&self, source: &Ref) -> bool {
         source
             .record()
             .is_some_and(|record| self.noted_records.contains(&record))
             || matches!(source.key(), Some(Key::Handle(handle)) if self.noted_handles.contains(&handle))
+            || source
+                .bytes()
+                .is_some_and(|bytes| self.noted_byte_starts.contains(&bytes.start))
+    }
+
+    /// DWG のオブジェクト復号時の診断を、現在の保存後のバイト位置へ移して返す
+    pub fn dwg_object_diagnostics(&self, cx: &mut Cx<'_>) -> Result<Vec<Diagnostic>, Error> {
+        if self.dwg_object_diagnostics.is_empty() {
+            return Ok(Vec::new());
+        }
+        let dwg_mapper = match &self.backing {
+            LiveBacking::Dwg(dwg) => dwg.source_mapper(cx)?,
+            _ => None,
+        };
+        let mut out = Vec::with_capacity(self.dwg_object_diagnostics.len());
+        for diagnostic in &self.dwg_object_diagnostics {
+            cx.check(Kind::Work, 1).map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+            out.push(diagnostic.clone().map_places(|place| {
+                if let Some(mapper) = &dwg_mapper {
+                    mapper.remap_ref(place);
+                }
+            }));
+        }
+        Ok(out)
     }
 
     /// ファイル全体で生きている最大のハンドルを返す
@@ -1152,7 +1183,21 @@ pub fn open_from_dwg_file(
     threads: usize,
     cx: &mut Cx<'_>,
 ) -> Result<LiveState, Error> {
-    let single = DwgSingle::from_file(&file, cx)?;
+    let mut pre_lift_collector = Diagnostics::with_max_places(usize::MAX);
+    let single_res = DwgSingle::from_file(
+        &file,
+        &mut Cx::new(cx.budget, &mut pre_lift_collector, cx.cancel),
+    );
+    let header_diags = pre_lift_collector.into_vec();
+    for d in &header_diags {
+        cx.report(d.clone());
+    }
+    let single = single_res?;
+    let mut pre_lift_collector = Diagnostics::with_max_places(usize::MAX);
+    for d in header_diags {
+        pre_lift_collector.report(d);
+    }
+
     let mut shell_db = AcadDb::default();
     single.populate_header_variables(&mut shell_db);
 
@@ -1165,51 +1210,50 @@ pub fn open_from_dwg_file(
         threads.max(1)
     };
 
+    // `DwgFile::objects(cx)` と同じく、クラス件数分の Work を先に数える
+    for _ in 0..file.class_count() {
+        cx.check(Kind::Work, 1).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+    }
+
     // 平面 6 種類の単体モデル図形を多数並列復号するときに要素ごとのヒープ確保を増やさないため、インラインで保持する
     #[allow(clippy::large_enum_variant)]
-    enum DwgEntryDecoded {
+    enum DwgEntryPayload {
         PlainModel {
             record: u32,
             work_amount: u64,
-            source_ref: Ref,
             handle: Option<u64>,
             has_100: bool,
             plain: PlainLifted,
-            diags: Vec<Diagnostic>,
         },
         EntityObj {
             record: u32,
             obj: Object,
-            diags: Vec<Diagnostic>,
         },
         ShellObj {
             obj: Object,
-            diags: Vec<Diagnostic>,
         },
-        Empty {
-            diags: Vec<Diagnostic>,
-        },
+        Empty,
     }
 
-    // まず `ATTRIB`・`VERTEX`・`SEQEND` を持つ可能性があるレコードかどうかを見るため、全エントリを並列復号する。
-    // 平面 6 種類の単体モデル図形（`INSERT` 66=1 を除く）はその場で `PlainLifted` に変換して `Object` を捨てる。
-    let decode_one = |idx: usize| -> DwgEntryDecoded {
-        let mut local_budget = Budget::new(
-            Limits::default()
-                .with(Kind::Work, Limit::Unlimited)
-                .with(Kind::DecodedBytes, Limit::Unlimited),
-        );
-        let mut local_diag = Diagnostics::new();
-        let cancel = CancelToken::new();
-        let mut local_cx = Cx::new(&mut local_budget, &mut local_diag, &cancel);
-        let Some(obj) = single.decode_record(&file, idx, &mut local_cx) else {
-            return DwgEntryDecoded::Empty {
-                diags: local_diag.into_vec(),
-            };
+    #[allow(clippy::large_enum_variant)]
+    enum WorkerItem {
+        Ready {
+            work_delta: u64,
+            decoded_delta: u64,
+            payload: DwgEntryPayload,
+        },
+        Replay,
+    }
+
+    let classify_obj = |idx: usize, opt_obj: Option<Object>| -> DwgEntryPayload {
+        let Some(obj) = opt_obj else {
+            return DwgEntryPayload::Empty;
         };
-        let diags = local_diag.into_vec();
         if obj.section != Section::Entities {
-            return DwgEntryDecoded::ShellObj { obj, diags };
+            return DwgEntryPayload::ShellObj { obj };
         }
         let rec_u32 = idx as u32;
         let is_plain_candidate = matches!(
@@ -1235,66 +1279,53 @@ pub fn open_from_dwg_file(
             )
         {
             let work_amount = amount(&obj);
-            let source_ref = source(&obj);
             let handle = obj.handle();
             let has_100 = obj.values.iter().any(|v| v.code == 100);
-            return DwgEntryDecoded::PlainModel {
+            return DwgEntryPayload::PlainModel {
                 record: rec_u32,
                 work_amount,
-                source_ref,
                 handle,
                 has_100,
                 plain,
-                diags,
             };
         }
-        DwgEntryDecoded::EntityObj {
+        DwgEntryPayload::EntityObj {
             record: rec_u32,
             obj,
-            diags,
         }
     };
 
-    let decoded_all: Vec<DwgEntryDecoded> = if !cfg!(target_arch = "wasm32")
-        && parts > 1
-        && total_entries >= 256
-    {
-        let chunk_sz = total_entries.div_ceil(parts);
-        std::thread::scope(|scope| {
-            let mut handles = Vec::new();
-            for start in (0..total_entries).step_by(chunk_sz) {
-                let end = (start + chunk_sz).min(total_entries);
-                handles.push(scope.spawn(move || (start..end).map(decode_one).collect::<Vec<_>>()));
-            }
-            let mut merged = Vec::with_capacity(total_entries);
-            for h in handles {
-                if let Ok(part) = h.join() {
-                    merged.extend(part);
-                }
-            }
-            merged
-        })
-    } else {
-        (0..total_entries).map(decode_one).collect()
+    let can_spend_both = |budget: &Budget, work_delta: u64, decoded_delta: u64| -> bool {
+        if budget.exceeded().is_some() {
+            return false;
+        }
+        let ok_work = match budget.limits().get(Kind::Work) {
+            Limit::Unlimited => true,
+            Limit::Finite(max) => budget
+                .used(Kind::Work)
+                .checked_add(work_delta)
+                .is_some_and(|req| req <= max),
+        };
+        let ok_dec = match budget.limits().get(Kind::DecodedBytes) {
+            Limit::Unlimited => true,
+            Limit::Finite(max) => budget
+                .used(Kind::DecodedBytes)
+                .checked_add(decoded_delta)
+                .is_some_and(|req| req <= max),
+        };
+        ok_work && ok_dec
     };
-
-    // `DwgFile::objects(cx)` と同じ順序で Work 検査・診断報告・非エンティティ収集を行う
-    for _ in 0..file.class_count() {
-        cx.check(Kind::Work, 1).map_err(|stop| {
-            cx.report(stop.to_diagnostic());
-            Error::Stopped(stop)
-        })?;
-    }
 
     struct DwgEntSlot {
         record: u32,
         work_amount: u64,
-        source_ref: Ref,
         handle: Option<u64>,
         followed: Option<Followed>,
         obj: Option<Object>,
     }
 
+    // 全体分の `DwgEntryPayload` を一度に保持せず、1024 件単位の窓で復号してすぐ消費し、最大確保量を抑える
+    const DWG_DECODE_WINDOW: usize = 1024;
     let mut ent_slots: Vec<DwgEntSlot> = Vec::new();
     let mut lifted_plains = Pending::with_len(0);
     let mut any_entity_code_100 = false;
@@ -1302,97 +1333,170 @@ pub fn open_from_dwg_file(
     let mut duplicate_handles_global = false;
     let mut ref_entity_handles: BTreeSet<u64> = BTreeSet::new();
 
-    for (idx, item) in decoded_all.into_iter().enumerate() {
-        let entry_ref = file
-            .entry_summary(idx)
-            .map_or_else(Ref::default, |(_, _, _, span)| {
-                Ref::at_bytes(span.start as u64, span.end as u64)
-            });
-        cx.check(Kind::Work, 1).map_err(|stop| {
-            cx.report(stop.to_diagnostic().at(entry_ref));
-            Error::Stopped(stop)
-        })?;
-        match item {
-            DwgEntryDecoded::PlainModel {
+    let model_owner = single.model_owner();
+    let mut consume_payload = |item: DwgEntryPayload| match item {
+        DwgEntryPayload::PlainModel {
+            record,
+            work_amount,
+            handle,
+            has_100,
+            plain,
+        } => {
+            if let Some(h) = handle
+                && h != 0
+                && !seen_handles.insert(h)
+            {
+                duplicate_handles_global = true;
+            }
+            any_entity_code_100 |= has_100;
+            let followed = match &plain.geom {
+                super::shape::PlainGeom::Insert { followed, .. } => Some(Followed {
+                    kind: Follow::Insert { opens: *followed },
+                    handle,
+                    owner: model_owner,
+                }),
+                _ => None,
+            };
+            ent_slots.push(DwgEntSlot {
                 record,
                 work_amount,
-                source_ref,
                 handle,
-                has_100,
-                plain,
-                diags,
-            } => {
-                for d in diags {
-                    cx.report(d);
-                }
-                if let Some(h) = handle
-                    && h != 0
-                    && !seen_handles.insert(h)
-                {
-                    duplicate_handles_global = true;
-                }
-                any_entity_code_100 |= has_100;
-                let followed = match &plain.geom {
-                    super::shape::PlainGeom::Insert { followed, .. } => Some(Followed {
-                        kind: Follow::Insert { opens: *followed },
-                        handle,
-                        owner: single.model_owner(),
-                    }),
-                    _ => None,
-                };
-                ent_slots.push(DwgEntSlot {
-                    record,
-                    work_amount,
-                    source_ref,
-                    handle,
-                    followed,
-                    obj: None,
-                });
-                lifted_plains.push(Some(plain));
+                followed,
+                obj: None,
+            });
+            lifted_plains.push(Some(plain));
+        }
+        DwgEntryPayload::EntityObj { record, obj } => {
+            collect_entity_ref_handles(&obj.kind, &obj.values, &mut ref_entity_handles);
+            let h = obj.handle();
+            if let Some(hv) = h
+                && hv != 0
+                && !seen_handles.insert(hv)
+            {
+                duplicate_handles_global = true;
             }
-            DwgEntryDecoded::EntityObj { record, obj, diags } => {
-                for d in diags {
-                    cx.report(d);
-                }
-                collect_entity_ref_handles(&obj.kind, &obj.values, &mut ref_entity_handles);
-                let src_ref = source(&obj);
-                let h = obj.handle();
-                if let Some(hv) = h
-                    && hv != 0
-                    && !seen_handles.insert(hv)
-                {
-                    duplicate_handles_global = true;
-                }
-                any_entity_code_100 |= obj.values.iter().any(|v| v.code == 100);
-                let work_amount = amount(&obj);
-                let followed = followed_object(&obj);
-                ent_slots.push(DwgEntSlot {
-                    record,
-                    work_amount,
-                    source_ref: src_ref,
-                    handle: h,
-                    followed,
-                    obj: Some(obj),
-                });
-                lifted_plains.push(None);
+            any_entity_code_100 |= obj.values.iter().any(|v| v.code == 100);
+            let work_amount = amount(&obj);
+            let followed = followed_object(&obj);
+            ent_slots.push(DwgEntSlot {
+                record,
+                work_amount,
+                handle: h,
+                followed,
+                obj: Some(obj),
+            });
+            lifted_plains.push(None);
+        }
+        DwgEntryPayload::ShellObj { obj } => {
+            collect_entity_ref_handles(&obj.kind, &obj.values, &mut ref_entity_handles);
+            if let Some(hv) = obj.handle()
+                && hv != 0
+                && !seen_handles.insert(hv)
+            {
+                duplicate_handles_global = true;
             }
-            DwgEntryDecoded::ShellObj { obj, diags } => {
-                for d in diags {
-                    cx.report(d);
+            shell_db.push(obj);
+        }
+        DwgEntryPayload::Empty => {}
+    };
+
+    let decode_sequential = |idx: usize,
+                             cx: &mut Cx<'_>,
+                             pre_lift: &mut Diagnostics|
+     -> Result<DwgEntryPayload, Error> {
+        let mut local_diag = Diagnostics::with_max_places(usize::MAX);
+        let res = single.decode_record_open(
+            &file,
+            idx,
+            &mut Cx::new(cx.budget, &mut local_diag, cx.cancel),
+        );
+        let diags = local_diag.into_vec();
+        for d in &diags {
+            cx.report(d.clone());
+        }
+        let opt_obj = res?;
+        for d in diags {
+            pre_lift.report(d);
+        }
+        Ok(classify_obj(idx, opt_obj))
+    };
+
+    for w_start in (0..total_entries).step_by(DWG_DECODE_WINDOW) {
+        let w_end = (w_start + DWG_DECODE_WINDOW).min(total_entries);
+        let w_len = w_end - w_start;
+        if !cfg!(target_arch = "wasm32") && parts > 1 && w_len >= 64 {
+            let snap_budget = cx.budget.clone();
+            let cancel = cx.cancel;
+            let chunk_sz = w_len.div_ceil(parts);
+            let window_items: Vec<WorkerItem> = std::thread::scope(|scope| {
+                let mut handles = Vec::new();
+                for sub_start in (w_start..w_end).step_by(chunk_sz) {
+                    let sub_end = (sub_start + chunk_sz).min(w_end);
+                    let snap_ref = &snap_budget;
+                    let single_ref = &single;
+                    let file_ref = &file;
+                    handles.push(scope.spawn(move || {
+                        let mut out = Vec::with_capacity(sub_end - sub_start);
+                        for idx in sub_start..sub_end {
+                            if cancel.stop().is_some() {
+                                out.push(WorkerItem::Replay);
+                                continue;
+                            }
+                            let mut local_budget = snap_ref.clone();
+                            let mut local_diag = Diagnostics::with_max_places(usize::MAX);
+                            let mut local_cx = Cx::new(&mut local_budget, &mut local_diag, cancel);
+                            match single_ref.decode_record_open(file_ref, idx, &mut local_cx) {
+                                Ok(opt_obj) if local_diag.is_empty() => {
+                                    let work_delta = local_budget
+                                        .used(Kind::Work)
+                                        .saturating_sub(snap_ref.used(Kind::Work));
+                                    let decoded_delta = local_budget
+                                        .used(Kind::DecodedBytes)
+                                        .saturating_sub(snap_ref.used(Kind::DecodedBytes));
+                                    out.push(WorkerItem::Ready {
+                                        work_delta,
+                                        decoded_delta,
+                                        payload: classify_obj(idx, opt_obj),
+                                    });
+                                }
+                                _ => out.push(WorkerItem::Replay),
+                            }
+                        }
+                        out
+                    }));
                 }
-                collect_entity_ref_handles(&obj.kind, &obj.values, &mut ref_entity_handles);
-                if let Some(hv) = obj.handle()
-                    && hv != 0
-                    && !seen_handles.insert(hv)
-                {
-                    duplicate_handles_global = true;
+                let mut merged = Vec::with_capacity(w_len);
+                for h in handles {
+                    if let Ok(part) = h.join() {
+                        merged.extend(part);
+                    }
                 }
-                shell_db.push(obj);
+                merged
+            });
+            for (offset, item) in window_items.into_iter().enumerate() {
+                let idx = w_start + offset;
+                match item {
+                    WorkerItem::Ready {
+                        work_delta,
+                        decoded_delta,
+                        payload,
+                    } if cx.cancel.stop().is_none()
+                        && can_spend_both(cx.budget, work_delta, decoded_delta) =>
+                    {
+                        let _ = cx.budget.spend(Kind::Work, work_delta);
+                        let _ = cx.budget.spend(Kind::DecodedBytes, decoded_delta);
+                        consume_payload(payload);
+                    }
+                    _ => {
+                        let payload = decode_sequential(idx, cx, &mut pre_lift_collector)?;
+                        consume_payload(payload);
+                    }
+                }
             }
-            DwgEntryDecoded::Empty { diags } => {
-                for d in diags {
-                    cx.report(d);
-                }
+        } else {
+            for idx in w_start..w_end {
+                let payload = decode_sequential(idx, cx, &mut pre_lift_collector)?;
+                consume_payload(payload);
             }
         }
     }
@@ -1466,13 +1570,8 @@ pub fn open_from_dwg_file(
             if all_ok {
                 *attribs = lifted_attrs;
             } else if let Some(p_slot) = ent_slots.get_mut(parent_pos) {
-                // 一般経路へ戻すため親レコードを再復号する
-                let mut qd = Diagnostics::new();
-                p_slot.obj = single.decode_record(
-                    &file,
-                    p_slot.record as usize,
-                    &mut Cx::new(cx.budget, &mut qd, cx.cancel),
-                );
+                // 一般経路へ戻すため親レコードを共有予算で再復号する
+                p_slot.obj = single.decode_record_with_cx(&file, p_slot.record as usize, cx)?;
                 if let Some(slot_opt) = lifted_plains.get_mut(parent_pos) {
                     *slot_opt = None;
                 }
@@ -1486,6 +1585,14 @@ pub fn open_from_dwg_file(
             .then(|| obj.owner())
             .flatten()
     });
+
+    let entry_spans: Vec<(u64, u64)> = (0..total_entries)
+        .map(|idx| {
+            file.entry_summary(idx).map_or((0, 0), |(_, _, _, span)| {
+                (span.start as u64, span.end as u64)
+            })
+        })
+        .collect();
 
     let handseed = single.handle_seed();
     let source_records = file.entry_count() as u32;
@@ -1515,19 +1622,25 @@ pub fn open_from_dwg_file(
         dwg_seed: Some(handseed),
     };
     let _ = EntitySpace::Model;
-    let mut state = finish_live_open(
+    let mut state = finish_live_open_with_pre_diags(
         &shell_db,
         finish_inputs,
         |ent_pos| lifted_plains.take_ordered(ent_pos),
         |ent_pos| {
             let s = ent_slots.get(ent_pos)?;
-            Some((s.record, s.work_amount, s.source_ref.clone(), s.handle))
+            let &(start, end) = entry_spans.get(s.record as usize).unwrap_or(&(0, 0));
+            let mut src_ref = Ref::at_bytes(start, end);
+            if let Some(h) = s.handle {
+                src_ref = src_ref.with_key(Key::Handle(h));
+            }
+            Some((s.record, s.work_amount, src_ref, s.handle))
         },
         |ent_pos, _cx| {
             let s = ent_slots.get(ent_pos)?;
             Some((s.record, s.obj.clone()?))
         },
         LiveBacking::Dwg(dwg_backing),
+        pre_lift_collector.into_vec(),
         cx,
     )?;
     let max_h = state.current_max_handle();
@@ -1547,23 +1660,34 @@ fn open_ascii_via_dxf_file_after_input_check(
     src: &[u8],
     cx: &mut Cx<'_>,
 ) -> Result<LiveState, Error> {
-    // `InputBytes` が有限上限のときに二重計上で誤停止しないよう、一度上限なし予算に同じ残量を写す代わりに
-    // `Dxf::read` を呼ぶ前に `InputBytes` を補償する手段はないため、不正構文フォールバック時は直接読む
-    let mut unlim = Budget::new(
-        Limits::default()
-            .with(Kind::InputBytes, Limit::Unlimited)
-            .with(Kind::Work, Limit::Unlimited)
-            .with(Kind::Records, Limit::Unlimited)
-            .with(Kind::DecodedBytes, Limit::Unlimited),
-    );
-    let mut probe_diag = Diagnostics::new();
-    if Dxf::read(src, &mut Cx::new(&mut unlim, &mut probe_diag, cx.cancel)).is_err() {
-        for d in probe_diag.into_vec() {
-            cx.report(d);
+    // `InputBytes` は `open_dxf` の入口で計上済みのため、`InputBytes` だけ無制限にしつつほかの全単位の上限・既使用量・
+    // 中断トークン・診断収集先を呼び出し元と共有して `Dxf::read` を 1 回だけ走らせ、増分を親予算へ反映する。
+    let sub_limits = (*cx.budget.limits()).with(Kind::InputBytes, Limit::Unlimited);
+    let mut sub_budget = Budget::new(sub_limits);
+    for kind in Kind::ALL {
+        if kind != Kind::InputBytes {
+            let used = cx.budget.used(kind);
+            if used > 0 {
+                let _ = sub_budget.spend(kind, used);
+            }
         }
-        return Err(Error::Invalid);
     }
-    let file = Dxf::read(src, cx)?;
+    let read_res = Dxf::read(src, &mut Cx::new(&mut sub_budget, cx.diag, cx.cancel));
+    for kind in Kind::ALL {
+        if kind != Kind::InputBytes && kind != Kind::Depth {
+            let delta = sub_budget.used(kind).saturating_sub(cx.budget.used(kind));
+            if delta > 0 {
+                let _ = cx.budget.spend(kind, delta);
+            }
+        }
+    }
+    if let Some(ex) = sub_budget.exceeded()
+        && cx.budget.exceeded().is_none()
+    {
+        let need = ex.requested.saturating_sub(cx.budget.used(ex.kind)).max(1);
+        let _ = cx.budget.spend(ex.kind, need);
+    }
+    let file = read_res?;
     open_from_dxf_file(file, cx)
 }
 
@@ -1707,6 +1831,29 @@ fn finish_live_open(
     backing: LiveBacking,
     cx: &mut Cx<'_>,
 ) -> Result<LiveState, Error> {
+    finish_live_open_with_pre_diags(
+        shell_db,
+        inputs,
+        take_plain,
+        entity_meta,
+        decode_general,
+        backing,
+        Vec::new(),
+        cx,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_live_open_with_pre_diags(
+    shell_db: &AcadDb,
+    inputs: EntityPassInputs<'_>,
+    take_plain: impl FnMut(usize) -> Option<PlainLifted>,
+    entity_meta: impl Fn(usize) -> Option<(u32, u64, Ref, Option<u64>)>,
+    decode_general: impl Fn(usize, &mut Cx<'_>) -> Option<(u32, Object)>,
+    backing: LiveBacking,
+    pre_lift_diags: Vec<Diagnostic>,
+    cx: &mut Cx<'_>,
+) -> Result<LiveState, Error> {
     let mut lifted = Diagnostics::with_max_places(usize::MAX);
     let result = lift_live_state(
         shell_db,
@@ -1722,15 +1869,27 @@ fn finish_live_open(
         cx.report(diagnostic.clone());
     }
     let mut state = result?;
-    for place in lift_diagnostics.iter().flat_map(Diagnostic::places) {
+    let mut combined = Diagnostics::with_max_places(usize::MAX);
+    for d in &pre_lift_diags {
+        combined.report(d.clone());
+    }
+    for d in lift_diagnostics {
+        combined.report(d);
+    }
+    let all_lift_diagnostics = combined.into_vec();
+    for place in all_lift_diagnostics.iter().flat_map(Diagnostic::places) {
         if let Some(record) = place.record() {
             state.noted_records.insert(record);
         }
         if let Some(Key::Handle(handle)) = place.key() {
             state.noted_handles.insert(handle);
         }
+        if let Some(bytes) = place.bytes() {
+            state.noted_byte_starts.insert(bytes.start);
+        }
     }
-    state.lift_diagnostics = lift_diagnostics;
+    state.dwg_object_diagnostics = pre_lift_diags;
+    state.lift_diagnostics = all_lift_diagnostics;
     Ok(state)
 }
 
@@ -2328,6 +2487,7 @@ fn lift_live_state(
     drop(all_handles);
     let mut seen_origins: BTreeMap<String, u64> = BTreeMap::new();
     let mut non_unique_model_ids: BTreeMap<String, RowId> = BTreeMap::new();
+    let mut non_unique_ids_by_row: BTreeMap<RowId, String> = BTreeMap::new();
     for (idx, row) in rows.iter_mut().enumerate() {
         let is_unique = row
             .raw_handle()
@@ -2357,7 +2517,12 @@ fn lift_live_state(
                 0 => format!("space/0/{orig}"),
                 n => format!("space/0/{orig}/{n}"),
             };
-            non_unique_model_ids.entry(elem_id).or_insert(row_id);
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                non_unique_model_ids.entry(elem_id.clone())
+            {
+                slot.insert(row_id);
+                non_unique_ids_by_row.insert(row_id, elem_id);
+            }
         }
     }
     // 一意なハンドルを持つ出所は、ほかの要素と共有されない。
@@ -2520,11 +2685,14 @@ fn lift_live_state(
         sheet_frames,
         attached_inserts,
         non_unique_model_ids,
+        non_unique_ids_by_row,
         forget_referenced_handles,
         non_table_max_handle,
+        dwg_object_diagnostics: Vec::new(),
         lift_diagnostics: Vec::new(),
         noted_records: BTreeSet::new(),
         noted_handles: BTreeSet::new(),
+        noted_byte_starts: BTreeSet::new(),
     })
 }
 

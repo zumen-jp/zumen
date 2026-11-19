@@ -14,11 +14,9 @@ use super::header::{self, Header};
 use super::kinds::{
     BLOCK, BLOCK_RECORD, DICTIONARY, DIMSTYLE, LAYER, LTYPE, MLINESTYLE, STYLE, VIEWPORT,
 };
-#[cfg(any(feature = "drawing", test))]
-use super::objects::check_copy;
 use super::objects::{
-    BLOCK_FIELDS, COMMON_ENTITY, Fields, check_values_copy, code_page_name, is_table_record,
-    kind as builtin_kind, number_anonymous, read as read_fields, unmetered_copy,
+    BLOCK_FIELDS, COMMON_ENTITY, Fields, check_copy, check_values_copy, code_page_name,
+    is_table_record, kind as builtin_kind, number_anonymous, read as read_fields, unmetered_copy,
 };
 use super::objects::{entity_data_entmode, skip_extended_data};
 use super::write_back::{can_unlink_single, encode_born_entities, encode_single_entity};
@@ -34,7 +32,6 @@ pub type UpdatedDwgRecord = (u64, Section, Vec<u8>, Vec<Value>, Vec<Value>);
 /// 復号した 1 レコードの種類・セクション・値。
 type DecodedRecord = (Vec<u8>, Section, Vec<Value>);
 
-#[cfg(any(feature = "drawing", test))]
 fn check_decode_input(bytes: usize, cx: &mut Cx<'_>) -> Result<(), Error> {
     let bytes = bytes as u64;
     cx.check(Kind::Work, bytes.saturating_mul(8).saturating_add(1))
@@ -47,7 +44,6 @@ fn check_decode_input(bytes: usize, cx: &mut Cx<'_>) -> Result<(), Error> {
     .map_err(|stop| stopped(cx, stop))
 }
 
-#[cfg(any(feature = "drawing", test))]
 fn check_decoded_values(kind: &[u8], values: &[Value], cx: &mut Cx<'_>) -> Result<(), Error> {
     cx.check(Kind::Work, values.len() as u64)
         .map_err(|stop| stopped(cx, stop))?;
@@ -63,7 +59,6 @@ fn check_decoded_values(kind: &[u8], values: &[Value], cx: &mut Cx<'_>) -> Resul
         .map_err(|stop| stopped(cx, stop))
 }
 
-#[cfg(any(feature = "drawing", test))]
 fn report_decode_error(error: Error, cx: &mut Cx<'_>) -> Error {
     match error {
         Error::Stopped(stop) => stopped(cx, stop),
@@ -220,6 +215,25 @@ impl<'a> DwgSourceLayout<'a> {
                 .or_insert_with(|| entry.span.clone());
         }
         Ok(spans)
+    }
+
+    pub fn base_span_shifts(
+        &self,
+        cx: &mut Cx<'_>,
+    ) -> Result<BTreeMap<(u64, u64), Range<usize>>, Error> {
+        let mut shifts = BTreeMap::new();
+        for (entry, origin) in self.entries.iter().zip(&self.origins) {
+            if let Some(orig_idx) = *origin
+                && let Some(base_entry) = self.base.entries.get(orig_idx)
+                && base_entry.span != entry.span
+            {
+                layout_check(cx, 1, 64)?;
+                shifts
+                    .entry((base_entry.span.start as u64, base_entry.span.end as u64))
+                    .or_insert_with(|| entry.span.clone());
+            }
+        }
+        Ok(shifts)
     }
 
     fn raw_data(&self, record: usize) -> Option<&[u8]> {
@@ -585,13 +599,23 @@ impl DwgSingle {
         let mut classes: BTreeMap<u16, (Vec<u8>, Section)> = BTreeMap::new();
         for class in &file.classes {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            classes.entry(class.number).or_insert_with(|| {
+            if let std::collections::btree_map::Entry::Vacant(slot) = classes.entry(class.number) {
                 let (name, sec) = class.kind();
-                (name.to_vec(), sec)
-            });
+                let extra = name.len() as u64
+                    + match &sec {
+                        Section::Other(other) => other.len() as u64,
+                        _ => 0,
+                    };
+                cx.check(Kind::DecodedBytes, extra.saturating_add(64))
+                    .map_err(|stop| stopped(cx, stop))?;
+                slot.insert((name.to_vec(), sec));
+            }
         }
 
         let n = file.entries.len();
+        cx.check(Kind::Work, n as u64)
+            .and_then(|()| cx.check(Kind::DecodedBytes, (n as u64).saturating_mul(16)))
+            .map_err(|stop| stopped(cx, stop))?;
         let mut handle_to_record: Vec<(u64, u32)> = Vec::with_capacity(n);
         let mut sorted = true;
         let mut prev_h = 0u64;
@@ -604,6 +628,11 @@ impl DwgSingle {
         }
         let mut has_duplicate_handle = false;
         if !sorted {
+            let compares =
+                (n as u64).saturating_mul(u64::from(u64::BITS - (n as u64).leading_zeros()));
+            cx.check(Kind::Work, compares)
+                .and_then(|()| cx.check(Kind::DecodedBytes, (n as u64).saturating_mul(16)))
+                .map_err(|stop| stopped(cx, stop))?;
             handle_to_record.sort_by_key(|&(h, _)| h);
             let mut deduped: Vec<(u64, u32)> = Vec::with_capacity(handle_to_record.len());
             for (h, rec) in handle_to_record {
@@ -646,22 +675,29 @@ impl DwgSingle {
                 viewport_records.push(idx);
             }
             if is_table_record(entry.type_code) || entry.type_code == MLINESTYLE {
+                let raw = file.data(entry);
+                check_decode_input(raw.len(), cx)?;
                 let entity = matches!(sec, Section::Entities | Section::Blocks);
-                let fields =
-                    read_fields(file.data(entry), file.release, entry, kname, entity, header);
+                let fields = read_fields(raw, file.release, entry, kname, entity, header);
+                if let Some(f) = &fields {
+                    check_decoded_values(kname, &f.values, cx)?;
+                }
                 table_indices.push(idx);
                 table_fields.push(fields);
             } else if kname == b"DBCOLOR" {
-                if let Some(fields) =
-                    read_fields(file.data(entry), file.release, entry, kname, false, header)
-                {
+                let raw = file.data(entry);
+                check_decode_input(raw.len(), cx)?;
+                if let Some(fields) = read_fields(raw, file.release, entry, kname, false, header) {
+                    check_decoded_values(kname, &fields.values, cx)?;
                     dbcolor_entries.push((idx, fields));
                 }
-            } else if (entry.type_code == DICTIONARY || kname == b"ACDBDICTIONARYWDFLT")
-                && let Some(fields) =
-                    read_fields(file.data(entry), file.release, entry, kname, false, header)
-            {
-                dict_entries.push((idx, fields));
+            } else if entry.type_code == DICTIONARY || kname == b"ACDBDICTIONARYWDFLT" {
+                let raw = file.data(entry);
+                check_decode_input(raw.len(), cx)?;
+                if let Some(fields) = read_fields(raw, file.release, entry, kname, false, header) {
+                    check_decoded_values(kname, &fields.values, cx)?;
+                    dict_entries.push((idx, fields));
+                }
             }
         }
 
@@ -692,6 +728,8 @@ impl DwgSingle {
                 continue;
             };
             if let Data::Text(name_bytes) = &name_val.data {
+                check_copy(2, (name_bytes.len() as u64).saturating_mul(2), cx)
+                    .map_err(|e| report_decode_error(e, cx))?;
                 names.insert(entry.handle, (entry.type_code, name_bytes.clone()));
                 if is_table_record(entry.type_code) {
                     by_table_name
@@ -706,6 +744,8 @@ impl DwgSingle {
         let mut books: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
         for (idx, fields) in dbcolor_entries {
             if let Some(entry) = file.entries.get(idx) {
+                check_values_copy(&fields.values, cx, &mut check_copy)
+                    .map_err(|e| report_decode_error(e, cx))?;
                 let book: Vec<Value> = fields
                     .values
                     .iter()
@@ -719,7 +759,6 @@ impl DwgSingle {
         // BLOCK_RECORD から BLOCK へ移すフィールドを先に分けておく
         let mut block_fields: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
         let mut quiet_diag = zumen_base::Diagnostics::new();
-        let mut quiet_cx = Cx::new(cx.budget, &mut quiet_diag, cx.cancel);
         for (&idx, fields_opt) in table_indices.iter().zip(table_fields) {
             let Some(entry) = file.entries.get(idx) else {
                 continue;
@@ -731,7 +770,16 @@ impl DwgSingle {
                 continue;
             };
             let at = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
-            let (own, _) = fields.place(&names, &books, entry, &mut quiet_cx, &at);
+            let (own, _) = fields
+                .place_in(
+                    &names,
+                    &books,
+                    entry,
+                    &mut Cx::new(cx.budget, &mut quiet_diag, cx.cancel),
+                    &at,
+                    &mut check_copy,
+                )
+                .map_err(|error| report_decode_error(error, cx))?;
             let mut seen_70 = false;
             let mut blk = Vec::new();
             for val in own {
@@ -749,7 +797,16 @@ impl DwgSingle {
         for (idx, fields) in dict_entries {
             if let Some(entry) = file.entries.get(idx) {
                 let at = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
-                let (own, _) = fields.place(&names, &books, entry, &mut quiet_cx, &at);
+                let (own, _) = fields
+                    .place_in(
+                        &names,
+                        &books,
+                        entry,
+                        &mut Cx::new(cx.budget, &mut quiet_diag, cx.cancel),
+                        &at,
+                        &mut check_copy,
+                    )
+                    .map_err(|error| report_decode_error(error, cx))?;
                 dicts.push((entry.handle, own));
             }
         }
@@ -789,6 +846,15 @@ impl DwgSingle {
         }
 
         // 所有者の参照カウント（entmode == 1・2 は空間の BLOCK_RECORD を指すので飛ばす）
+        let word_len = n.div_ceil(64);
+        cx.check(Kind::Work, n as u64)
+            .and_then(|()| {
+                cx.check(
+                    Kind::DecodedBytes,
+                    (n as u64).saturating_add((word_len as u64).saturating_mul(16)),
+                )
+            })
+            .map_err(|stop| stopped(cx, stop))?;
         let mut owner_counts = vec![0u8; n];
         let mut owner_counts_large: BTreeMap<usize, u32> = BTreeMap::new();
         let mut owner_counts_by_handle: BTreeMap<u64, u32> = BTreeMap::new();
@@ -801,6 +867,13 @@ impl DwgSingle {
         };
         let space_handles = (header.map(|h| h.model), header.map(|h| h.paper));
         for entry in &file.entries {
+            cx.check(Kind::Work, 1).map_err(|stop| {
+                stopped_at(
+                    cx,
+                    stop,
+                    Ref::at_bytes(entry.span.start as u64, entry.span.end as u64),
+                )
+            })?;
             let sec_opt = builtin_kind(entry.type_code)
                 .map(|(_, s)| s)
                 .or_else(|| classes.get(&entry.type_code).map(|(_, s)| s.clone()));
@@ -880,7 +953,6 @@ impl DwgSingle {
         }
 
         // モデル空間の BLOCK_RECORD の図形列を検証する
-        let word_len = n.div_ceil(64);
         let mut model_owned_bits = vec![0u64; word_len];
         let mut model_owned_seen = vec![0u64; word_len];
         let model_block = header.and_then(|hdr| {
@@ -1322,6 +1394,33 @@ impl DwgSingle {
                 end: entry.span.end,
             },
         }))
+    }
+
+    /// 開くときに元レコードを共有予算で復号し、変換前の診断も呼び出し元へ報告する。
+    #[cfg(any(feature = "drawing", test))]
+    pub(crate) fn decode_record_open(
+        &self,
+        file: &DwgFile,
+        record: usize,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Object>, Error> {
+        let Some(entry) = file.entries.get(record) else {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            return Ok(None);
+        };
+        let at = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| stopped_at(cx, stop, at.clone()))?;
+        check_decode_input(file.data(entry).len(), cx)?;
+        let result = self
+            .decode_record_in(file, record, cx, &mut check_copy)
+            .map_err(|error| report_decode_error(error, cx))?;
+        cx.check(Kind::Work, 0)
+            .map_err(|stop| stopped_at(cx, stop, at))?;
+        if let Some(object) = &result {
+            check_decoded_values(&object.kind, &object.values, cx)?;
+        }
+        Ok(result)
     }
 
     /// 編集対象の元レコードを共有予算で復号する。変換診断は開いたときに報告済み。

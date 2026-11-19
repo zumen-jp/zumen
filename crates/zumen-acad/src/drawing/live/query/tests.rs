@@ -267,6 +267,29 @@ fn keyed_row_target_work_does_not_grow_with_document_size() {
 }
 
 #[test]
+fn keyless_and_duplicate_row_target_work_does_not_grow_with_document_size() {
+    let cancel = CancelToken::new();
+    for duplicate in [false, true] {
+        let mut baseline = None;
+        for size in [10_usize, 10_000] {
+            let handles: Vec<Option<u64>> = (0..size)
+                .map(|_| if duplicate { Some(0x20) } else { None })
+                .collect();
+            let input = lines(&handles);
+            let live = fresh_cx(|cx| AcadLive::open(&input, cx)).0.unwrap();
+            // 末尾付近でない固定行 RowId(5) の逆引きコストが要素数 10 と 10,000 で完全一致する
+            let result = probe(&live, RowId(5), Limits::default(), &cancel, None);
+            assert!(result.0.as_ref().unwrap().is_some());
+            if let Some(expected) = &baseline {
+                assert_eq!(&result, expected);
+            } else {
+                baseline = Some(result);
+            }
+        }
+    }
+}
+
+#[test]
 #[expect(clippy::print_stdout, reason = "ネイティブと WASI の比較記録")]
 fn row_targets_after_dwg_add_use_no_input_budget() {
     let inputs: [&[u8]; 3] = [

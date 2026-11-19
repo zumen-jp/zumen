@@ -290,8 +290,7 @@ impl Resident {
     }
 
     /// 文書エンジンから図面モデルを組み立てる。保存したバイト列を読み直して変換したときと同じ図面モデルと
-    /// 変換の診断を返す文書エンジンだけを使う。DWG の文書エンジンは DXF として変換するので診断が違い、使わない。
-    /// SXF は、属性ファイル（SAF）を結ばない文書エンジンなので、属性ファイルを持つ文書では使わない
+    /// 変換の診断を返す文書エンジンを使う（DXF・DWG・JWW・SXF と属性ファイル SAF）
     #[cfg(feature = "drawing")]
     fn engine_drawing(
         &self,
@@ -299,9 +298,11 @@ impl Resident {
         cx: &mut Cx<'_>,
     ) -> Option<Result<Drawing2D, zumen_sdk::Error>> {
         match (&self.live, &saved.kind) {
-            (Live::Acad(engine), SavedKind::Dxf) => Some(engine.drawing(cx)),
+            (Live::Acad(engine), SavedKind::Dxf | SavedKind::Dwg) => Some(engine.drawing(cx)),
             (Live::Jww(engine), SavedKind::Jww) => Some(engine.drawing(cx)),
-            (Live::Sxf(engine), SavedKind::Sxf(_, None)) => Some(engine.drawing(cx)),
+            (Live::Sxf(engine), SavedKind::Sxf(_, attributes)) => {
+                Some(engine.drawing_with_attributes(attributes.as_deref(), cx))
+            }
             _ => None,
         }
     }
@@ -314,9 +315,9 @@ impl Resident {
             && file.get().is_none()
             && !matches!(
                 (&self.live, &saved.kind),
-                (Live::Acad(_), SavedKind::Dxf)
+                (Live::Acad(_), SavedKind::Dxf | SavedKind::Dwg)
                     | (Live::Jww(_), SavedKind::Jww)
-                    | (Live::Sxf(_), SavedKind::Sxf(_, None))
+                    | (Live::Sxf(_), SavedKind::Sxf(..))
             )
         {
             self.file(cx)?;

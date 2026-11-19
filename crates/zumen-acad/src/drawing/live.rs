@@ -281,6 +281,14 @@ impl AcadLive {
         self.state.to_drawing(cx)
     }
 
+    /// DWG のオブジェクト復号・ヘッダー読み取りで出た変換前の診断を、今の保存の位置へ移して返す
+    pub fn dwg_object_diagnostics(
+        &self,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<zumen_base::Diagnostic>, Error> {
+        self.state.dwg_object_diagnostics(cx)
+    }
+
     /// 変更 `changes` を当てて履歴に積み、各項目の適用後 ID・ハッシュを返す
     pub fn apply(&mut self, changes: &Changes, cx: &mut Cx<'_>) -> Result<Vec<Applied>, Error> {
         self.apply_rereading(changes, cx).0

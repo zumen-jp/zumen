@@ -2840,10 +2840,23 @@ impl SxfLive {
 
     /// 常駐状態から [`Drawing2D`] を組み立てる
     pub fn drawing(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, Error> {
-        cx.with_diagnostics_in_record_order(|cx| self.drawing_inner(cx))
+        self.drawing_with_attributes(self.attributes.as_ref(), cx)
     }
 
-    fn drawing_inner(&self, cx: &mut Cx<'_>) -> Result<Drawing2D, Error> {
+    /// 属性ファイル（SAF）を指定して、常駐状態から [`Drawing2D`] を組み立てる
+    pub fn drawing_with_attributes(
+        &self,
+        attributes: Option<&AttributeFile>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Drawing2D, Error> {
+        cx.with_diagnostics_in_record_order(|cx| self.drawing_inner(attributes, cx))
+    }
+
+    fn drawing_inner(
+        &self,
+        attributes: Option<&AttributeFile>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Drawing2D, Error> {
         let mut layers = self.lifter_tables.base_layers.clone();
         let (mut line_types, mut line_types_seen) = self.diagnostics.line_types(
             &self.table,
@@ -2995,7 +3008,7 @@ impl SxfLive {
             for draft in &mut drafts {
                 sources.remap(&mut draft.source, cx)?;
             }
-            if let Some(attr_file) = &self.attributes {
+            if let Some(attr_file) = attributes {
                 bind(attr_file, &mut drafts, cx);
             }
             let mut drawing = Drawing2D {

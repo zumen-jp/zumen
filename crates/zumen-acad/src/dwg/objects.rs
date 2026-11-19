@@ -616,7 +616,6 @@ pub(super) fn unmetered_copy(_: u64, _: u64, _: &mut Cx) -> Result<(), core::con
 }
 
 /// コピーする値の数と可変長部分を、確保容量によらない共通の単位で数える。
-#[cfg(any(feature = "drawing", test))]
 pub(super) fn check_copy(rows: u64, payload: u64, cx: &mut Cx) -> Result<(), Error> {
     cx.check(Kind::Work, rows.saturating_add(payload))
         .map_err(|stop| super::stopped(cx, stop))?;

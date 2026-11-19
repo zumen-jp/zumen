@@ -233,10 +233,10 @@ impl Session {
         };
         changes.document = None;
         // DWG の今までの経路は、当てる前にオブジェクトの表を作り、型どおりに読めないオブジェクトの診断を返す。
-        // 同じ表を先に作って診断を別に集める（[`on_acad`]）
+        // 文書エンジンが保持する復号診断を現在のバイト位置へ補正して別に集める（[`on_acad`]）
         let objects = match &live {
             Live::Acad(engine) if engine.format() == LiveFormat::Dwg => {
-                match dwg_objects(file, cx) {
+                match dwg_object_diagnostics(engine, cx) {
                     Ok(objects) => Some(objects),
                     Err(Failed) => {
                         file.put_live(live);
@@ -321,19 +321,21 @@ impl Session {
     }
 }
 
-/// DWG のオブジェクトの表を作り、型どおりに読めないオブジェクトの診断を別に集める。作れなければ、診断を移して失敗にする。
-/// 文書エンジンで当てたあとの文書は、ファイルモデルを読み直して作る
-fn dwg_objects(file: &Resident, cx: &mut Cx<'_>) -> Result<Diagnostics, Failed> {
+/// DWG の文書エンジンが保持するオブジェクト復号時の診断を、今の保存位置に補正して集める
+fn dwg_object_diagnostics(engine: &AcadLive, cx: &mut Cx<'_>) -> Result<Diagnostics, Failed> {
     let mut objects = Diagnostics::with_max_places(cx.diag.max_places());
-    if let DrawingFile::Dwg(dwg) = file.file(cx).map_err(|_| Failed)?
-        && dwg
-            .objects(&mut Cx::new(cx.budget, &mut objects, cx.cancel))
-            .is_err()
-    {
-        moved(cx, &objects);
-        return Err(Failed);
+    match engine.dwg_object_diagnostics(&mut Cx::new(cx.budget, &mut objects, cx.cancel)) {
+        Ok(list) => {
+            for diagnostic in list {
+                objects.report(diagnostic);
+            }
+            Ok(objects)
+        }
+        Err(error) => {
+            moved(cx, &objects);
+            Err(engine_failed(cx, error))
+        }
     }
-    Ok(objects)
 }
 
 /// DXF・DWG を [`AcadLive`] で当てる。`objects` は、DWG のオブジェクトの表を作ったときの診断（[`dwg_objects`]）
