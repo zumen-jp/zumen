@@ -388,6 +388,12 @@ pub(super) fn grids(
             )?;
             cx.check(Kind::DecodedBytes, tag.len() as u64)?;
             cx.check(Kind::Work, tag.len() as u64)?;
+            let style = if profile.settings.grid_font.is_some() {
+                cx.check(Kind::DecodedBytes, 8)?;
+                "Standard".into()
+            } else {
+                String::new()
+            };
             let shape = d::Shape::Text(d::Text {
                 content: tag.into(),
                 height: d::Height {
@@ -404,7 +410,7 @@ pub(super) fn grids(
                 oblique: 0.0,
                 backward: false,
                 upside_down: false,
-                style: String::new(),
+                style,
             });
             append(
                 profile,

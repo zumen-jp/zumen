@@ -34,6 +34,7 @@ pub(super) struct Settings {
     pub lines: Vec<(String, Vec<f64>)>,
     pub hatches: Vec<Hatch>,
     pub grid: [f64; 3],
+    pub grid_font: Option<String>,
     pub levels: Vec<Level>,
     pub doors: Vec<Door>,
     pub style_work: u64,
@@ -268,6 +269,15 @@ impl Settings {
             ])
         })()
         .ok_or_else(|| vocabulary_error(key, "values"))?;
+        let grid_font = match v.get_key("font") {
+            None => None,
+            Some(font) => Some(
+                text(font)
+                    .filter(|s| !s.is_empty() && !s.chars().any(char::is_control))
+                    .ok_or_else(|| vocabulary_error(key, "values"))?
+                    .to_owned(),
+            ),
+        };
         let key = "drawing-level-kinds";
         let levels = values(key)?
             .iter()
@@ -361,6 +371,7 @@ impl Settings {
             lines,
             hatches,
             grid,
+            grid_font,
             levels,
             doors,
             style_work,
@@ -427,6 +438,39 @@ pub(super) fn style(
     }
     reserve(&mut drawing.line_types, settings.lines.len(), 256, cx)?;
     reserve(&mut drawing.layers, settings.styles.len(), 256, cx)?;
+    if let Some(font) = &settings.grid_font {
+        if drawing
+            .text_styles
+            .iter()
+            .any(|s| s.name.eq_ignore_ascii_case("Standard"))
+        {
+            return Err(Error::Input("drawing_modified"));
+        }
+        reserve(&mut drawing.text_styles, 1, 256, cx)?;
+        cx.check(Kind::DecodedBytes, font.len() as u64 + 64)?;
+        drawing.text_styles.push(d::TextStyle {
+            name: "Standard".into(),
+            definition: Some(d::TextStyleDefinition {
+                font: Some(d::Font {
+                    name: font.clone(),
+                    kind: d::FontKind::Named {
+                        bold: false,
+                        italic: false,
+                        charset: None,
+                        pitch: None,
+                    },
+                }),
+                big_font: None,
+                height: None,
+                width: 1.0,
+                oblique: 0.0,
+                backward: false,
+                upside_down: false,
+                vertical: false,
+            }),
+            source: Ref::default(),
+        });
+    }
     for (i, (name, pattern)) in settings.lines.iter().enumerate() {
         cx.check(Kind::DecodedBytes, (name.len() + pattern.len() * 8) as u64)?;
         drawing.line_types.push(d::LineType {
