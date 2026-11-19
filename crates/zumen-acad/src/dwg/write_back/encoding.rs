@@ -14,20 +14,12 @@ pub(super) fn encode(
 ) -> Option<Vec<u8>> {
     // MINSERT も、表では INSERT とする。VERTEX と POLYLINE も、型でフィールドが分かれる
     let type_code = u16::try_from(Bits::with_release(data, Release::R2000).bs()?).ok()?;
-    let own = if new.kind == b"ACAD_TABLE" {
-        &[10, 20, 30, 1, 2][..]
-    } else {
-        own_codes(&new.kind, type_code)
-    };
+    let own = own_codes(&new.kind, type_code);
     if release == Release::R2004 && !R2004_KINDS.contains(&new.kind.as_slice()) {
         return None;
     }
-    let table_texts = if new.kind == b"ACAD_TABLE" && unchanged_table_body(old, new).is_none() {
-        Some(legacy_table_texts(old, new)?)
-    } else {
-        unchanged_table_body(old, new)?;
-        None
-    };
+    let (old_head, old_body) = split_table_body(old)?;
+    let (new_head, new_body) = split_table_body(new)?;
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
         object
             .values
@@ -42,7 +34,7 @@ pub(super) fn encode(
         &[]
     };
     let rest = |object| only(&[COMMON, STYLED, own, pointed].concat(), object, false);
-    if rest(old) != rest(new) {
+    if rest(&old_head) != rest(&new_head) {
         return None;
     }
     let [size_at, color_at, start, handles_at] = entity_fields(data, release)?;
@@ -51,21 +43,38 @@ pub(super) fn encode(
         true => StyleSlots::default(),
         false => style_handles(data, release, None)?,
     };
-    let common = common(data, [color_at, start], old, new, release, restyle, &slots)?;
-    let fields = if only(own, old, true) == only(own, new, true) {
+    let common = common(
+        data,
+        [color_at, start],
+        &old_head,
+        &new_head,
+        release,
+        restyle,
+        &slots,
+    )?;
+    let fields = if old_body == new_body && only(own, &old_head, true) == only(own, &new_head, true)
+    {
         let mut fields = BitWriter::default();
         fields.copy(data, start..handles_at)?;
         fields
     } else if new.kind == b"ACAD_TABLE" {
-        if let Some(texts) = table_texts {
-            legacy_table_text_fields(data, [start, handles_at], old, &texts, release)?
-        } else {
+        if old_body == new_body {
             moved_table_fields(
                 BitWriter::default(),
                 data,
                 [start, handles_at],
-                old,
-                new,
+                &old_head,
+                &new_head,
+                release,
+            )?
+        } else {
+            legacy_table_fields(
+                data,
+                [start, handles_at],
+                &old_head,
+                &new_head,
+                old_body,
+                new_body,
                 release,
             )?
         }
@@ -186,7 +195,8 @@ pub(super) fn encode_r2010(
         return None;
     }
     let (old, new) = (&old.0, &new.0);
-    unchanged_table_body(old, new)?;
+    let (old_head, old_body) = split_table_body(old)?;
+    let (new_head, new_body) = split_table_body(new)?;
     let only = |codes: &[i16], object: &Object, keep: bool| -> Vec<_> {
         object
             .values
@@ -201,7 +211,7 @@ pub(super) fn encode_r2010(
         &[]
     };
     let rest = |object| only(&[COMMON, STYLED, own, pointed].concat(), object, false);
-    if rest(old) != rest(new) {
+    if rest(&old_head) != rest(&new_head) {
         return None;
     }
     let [color_at, start, end] = r2010_entity_fields(data, handles_at, release)?;
@@ -209,94 +219,179 @@ pub(super) fn encode_r2010(
         true => StyleSlots::default(),
         false => style_handles(data, release, Some(handles_at))?,
     };
-    let common = common(data, [color_at, start], old, new, release, restyle, &slots)?;
+    let common = common(
+        data,
+        [color_at, start],
+        &old_head,
+        &new_head,
+        release,
+        restyle,
+        &slots,
+    )?;
     let mut out = BitWriter::default();
     out.copy(data, 0..color_at)?;
     let common_len = common.len();
     out.copy(&common.into_bytes(), 0..common_len)?;
-    let handles = if only(own, old, true) == only(own, new, true) {
-        out.copy(data, start..end)?;
-        // 文字列のストリームを写し、ハンドルのストリームは画層と線種を書き直して写す
-        out.copy(data, end..handles_at)?;
-        let handles = out.len();
-        let rewritten = restyle.handles(data, handles_at, &slots)?;
-        let len = rewritten.len();
-        out.copy(&rewritten.into_bytes(), 0..len)?;
-        handles
-    } else if new.kind == b"ACAD_TABLE" {
-        out = moved_table_fields(out, data, [start, handles_at], old, new, release)?;
-        let handles = out.len();
-        let rewritten = restyle.handles(data, handles_at, &slots)?;
-        let len = rewritten.len();
-        out.copy(&rewritten.into_bytes(), 0..len)?;
-        handles
-    } else {
-        // 元の値を符号化したフィールドが、主のデータの終わりまでの長さを持ち、文字列のストリームが元と同じことを確かめる。
-        // 角度は度から直すので、主のデータのビットが元と同じとは限らない
-        let mut same = r2010_own_fields(old, old, type_code, data, start, end, release)?;
-        (start + same.len() == end).then_some(())?;
-        let strings_end = r2010_strings_end(data, end, handles_at)?;
-        let mut found = BitWriter::default();
-        found.copy(data, end..strings_end)?;
-        (found.into_bytes() == same.take_strings().into_bytes()).then_some(())?;
-        let fields = r2010_own_fields(old, new, type_code, data, start, end, release)?;
-        return r2010_assemble(out, fields, restyle.handles(data, handles_at, &slots)?);
-    };
+    let handles =
+        if old_body == new_body && only(own, &old_head, true) == only(own, &new_head, true) {
+            out.copy(data, start..end)?;
+            // 文字列のストリームを写し、ハンドルのストリームは画層と線種を書き直して写す
+            out.copy(data, end..handles_at)?;
+            let handles = out.len();
+            let rewritten = restyle.handles(data, handles_at, &slots)?;
+            let len = rewritten.len();
+            out.copy(&rewritten.into_bytes(), 0..len)?;
+            handles
+        } else if new.kind == b"ACAD_TABLE" && old_body == new_body {
+            out = moved_table_fields(
+                out,
+                data,
+                [start, handles_at],
+                &old_head,
+                &new_head,
+                release,
+            )?;
+            let handles = out.len();
+            let rewritten = restyle.handles(data, handles_at, &slots)?;
+            let len = rewritten.len();
+            out.copy(&rewritten.into_bytes(), 0..len)?;
+            handles
+        } else {
+            // 元の値を符号化したフィールドが、主のデータの終わりまでの長さを持ち、文字列のストリームが元と同じことを確かめる。
+            // 角度は度から直すので、主のデータのビットが元と同じとは限らない
+            let (mut same, fields) = if new.kind == b"ACAD_TABLE" {
+                let same = r2010_table_fields(
+                    data,
+                    [start, end, handles_at],
+                    &old_head,
+                    &old_head,
+                    old_body,
+                    old_body,
+                    release,
+                )?;
+                let fields = r2010_table_fields(
+                    data,
+                    [start, end, handles_at],
+                    &old_head,
+                    &new_head,
+                    old_body,
+                    new_body,
+                    release,
+                )?;
+                (same, fields)
+            } else {
+                (
+                    r2010_own_fields(old, old, type_code, data, start, end, release)?,
+                    r2010_own_fields(old, new, type_code, data, start, end, release)?,
+                )
+            };
+            (start + same.len() == end).then_some(())?;
+            let strings_end = r2010_strings_end(data, end, handles_at)?;
+            let mut found = BitWriter::default();
+            found.copy(data, end..strings_end)?;
+            (found.into_bytes() == same.take_strings().into_bytes()).then_some(())?;
+            return r2010_assemble(out, fields, restyle.handles(data, handles_at, &slots)?);
+        };
     with_modular_size(out, handles)
 }
 
-/// セルの色などにも共通のグループ・コードがある。表の本体はコードで分けず、並びごと保つ。
-fn unchanged_table_body(old: &Object, new: &Object) -> Option<()> {
-    if new.kind == b"ACAD_TABLE" {
-        let marker = |object: &Object| {
-            object
-                .values
-                .iter()
-                .position(|v| matches!(v.code, 342 | 11 | 90))
-        };
-        (old.values.get(marker(old)?..)? == new.values.get(marker(new)?..)?).then_some(())?;
+/// 表の本体（342・11・90 から拡張データの前まで）にはセルの色など共通と重なるグループ・コードがある。
+/// 先頭の共通・挿入部分（拡張データを含む）と表の本体に分けて比べる。
+fn split_table_body(object: &Object) -> Option<(Object, &[Value])> {
+    if object.kind != b"ACAD_TABLE" {
+        return Some((object.clone(), &[]));
     }
-    Some(())
+    let marker = object
+        .values
+        .iter()
+        .position(|v| matches!(v.code, 342 | 11 | 90))?;
+    let xdata_at = object
+        .values
+        .iter()
+        .position(|v| v.code == 1001)
+        .unwrap_or(object.values.len());
+    (marker < xdata_at).then_some(())?;
+    let mut head = object.values.get(..marker)?.to_vec();
+    head.extend_from_slice(object.values.get(xdata_at..)?);
+    Some((
+        Object {
+            values: head,
+            ..object.clone()
+        },
+        object.values.get(marker..xdata_at)?,
+    ))
 }
 
-/// R2004 までの文字セル。末尾の 2 は表示用ブロックなので、セルの文字と分けて保つ。
-fn legacy_table_texts(old: &Object, new: &Object) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
-    let split = |object: &Object| {
-        let marker = object
-            .values
-            .iter()
-            .position(|v| matches!(v.code, 342 | 11 | 90))?;
-        let first = object.values.iter().position(|v| v.code == 171)?;
-        let block = object.values.iter().rposition(|v| v.code == 2)?;
-        (marker < first && first < block).then_some((marker, first, block))
+fn table_reals(values: &[Value], code: i16) -> Option<Vec<f64>> {
+    values
+        .iter()
+        .filter(|v| v.code == code)
+        .map(|v| match v.data {
+            Data::Real(r) if r.is_finite() => Some(r),
+            _ => None,
+        })
+        .collect()
+}
+
+fn table_direction(values: &[Value]) -> Option<[f64; 3]> {
+    let find = |code: i16, default: f64| -> Option<f64> {
+        let mut iter = values.iter().filter(|v| v.code == code);
+        match (iter.next().map(|v| &v.data), iter.next()) {
+            (None, None) => Some(default),
+            (Some(Data::Real(r)), None) if r.is_finite() => Some(*r),
+            _ => None,
+        }
     };
-    let (old_start, old_first, old_block) = split(old)?;
-    let (new_start, new_first, new_block) = split(new)?;
-    if old.values.get(old_start..old_first)? != new.values.get(new_start..new_first)?
-        || old.values.get(old_block..)? != new.values.get(new_block..)?
+    let [dx, dy, dz] = [find(11, 1.0)?, find(21, 0.0)?, find(31, 0.0)?];
+    (dz == 0.0).then_some([dx, dy, dz])
+}
+
+/// ODS 5.4.1 の 20.4.96.1: R2004 までの表の挿入点・横の向き・列幅・行高さ・文字セルの TV を書き直す。
+/// 書式の上書きを持たない表だけを扱い、ハンドルのストリームは元のまま保つ。
+fn legacy_table_fields(
+    data: &[u8],
+    [start, handles_at]: [usize; 2],
+    old_head: &Object,
+    new_head: &Object,
+    old_body: &[Value],
+    new_body: &[Value],
+    release: Release,
+) -> Option<BitWriter> {
+    let split = |body: &[Value]| {
+        let first = body.iter().position(|v| v.code == 171)?;
+        let block = body.iter().rposition(|v| v.code == 2)?;
+        (first < block).then_some((first, block))
+    };
+    let (old_first, old_block) = split(old_body)?;
+    let (new_first, new_block) = split(new_body)?;
+    if old_body.get(old_block..)? != new_body.get(new_block..)? {
+        return None;
+    }
+    let old_hdr = old_body.get(..old_first)?;
+    let new_hdr = new_body.get(..new_first)?;
+    let keep_hdr = |v: &&Value| !matches!(v.code, 11 | 21 | 31 | 141 | 142);
+    if !old_hdr
+        .iter()
+        .filter(keep_hdr)
+        .eq(new_hdr.iter().filter(keep_hdr))
     {
         return None;
     }
-    // 文字の変更と位置の変更は、この経路では同時に扱わない。
-    for code in [10, 20, 30] {
-        if real(old, code)?? != real(new, code)?? {
-            return None;
-        }
-    }
-    let before: Vec<_> = old
-        .values
+    let new_dir = table_direction(new_hdr)?;
+    let new_heights = table_reals(new_hdr, 141)?;
+    let new_widths = table_reals(new_hdr, 142)?;
+    let before_cells: Vec<_> = old_body
         .get(old_first..old_block)?
         .chunk_by(|_, next| next.code != 171)
         .collect();
-    let after: Vec<_> = new
-        .values
+    let after_cells: Vec<_> = new_body
         .get(new_first..new_block)?
         .chunk_by(|_, next| next.code != 171)
         .collect();
-    if before.len() != after.len() {
+    if before_cells.len() != after_cells.len() {
         return None;
     }
-    let text = |cell: &[Value]| -> Option<Vec<u8>> {
+    let cell_text = |cell: &[Value]| -> Option<Vec<u8>> {
         if cell.first()?.data != Data::Int(1) || cell.iter().filter(|v| v.code == 1).count() != 1 {
             return None;
         }
@@ -312,36 +407,32 @@ fn legacy_table_texts(old: &Object, new: &Object) -> Option<Vec<(Vec<u8>, Vec<u8
         }
         Some(bytes)
     };
-    before
+    let texts: Vec<(Vec<u8>, Vec<u8>)> = before_cells
         .into_iter()
-        .zip(after)
-        .map(|(old, new)| {
-            if !old
+        .zip(after_cells)
+        .map(|(old_c, new_c)| {
+            if !old_c
                 .iter()
                 .filter(|v| !matches!(v.code, 1 | 2))
-                .eq(new.iter().filter(|v| !matches!(v.code, 1 | 2)))
+                .eq(new_c.iter().filter(|v| !matches!(v.code, 1 | 2)))
             {
                 return None;
             }
-            Some((text(old)?, text(new)?))
+            Some((cell_text(old_c)?, cell_text(new_c)?))
         })
-        .collect()
-}
+        .collect::<Option<_>>()?;
 
-/// ODS 5.4.1 の 20.4.96.1: 書式の上書きも結合もない文字セルの TV だけを差し替える。
-/// 文字の前後とハンドルのストリームは元のビットを保つ。
-fn legacy_table_text_fields(
-    data: &[u8],
-    [start, handles_at]: [usize; 2],
-    object: &Object,
-    texts: &[(Vec<u8>, Vec<u8>)],
-    release: Release,
-) -> Option<BitWriter> {
     let mut bits = Bits::with_release(data, release);
     bits.seek(start);
-    for code in [10, 20, 30] {
-        (bits.bd()?.to_bits() == real(object, code)??.to_bits()).then_some(())?;
+    let mut old_pos = [0.0; 3];
+    let mut new_pos = [0.0; 3];
+    for ((old_slot, new_slot), code) in old_pos.iter_mut().zip(&mut new_pos).zip([10, 20, 30]) {
+        let was = real(old_head, code)??;
+        (bits.bd()?.to_bits() == was.to_bits()).then_some(())?;
+        *old_slot = was;
+        *new_slot = real(new_head, code)??;
     }
+    let pos_end = bits.pos();
     // 尺度 1・回転 0・上向きで、属性のない挿入だけを扱う。
     if bits.bb()? != 3 || bits.bd()? != 0.0 {
         return None;
@@ -349,29 +440,65 @@ fn legacy_table_text_fields(
     for expected in [0.0, 0.0, 1.0] {
         (bits.bd()? == expected).then_some(())?;
     }
-    if bits.bit()? || bits.bs()? != 0 {
+    if bits.bit()? {
         return None;
     }
-    for _ in 0..3 {
-        bits.bd()?;
-    } // 表の横の向き
-    let columns = usize::try_from(bits.bl()?).ok()?;
-    let rows = usize::try_from(bits.bl()?).ok()?;
-    if rows == 0 || columns == 0 || rows.checked_mul(columns)? != texts.len() {
-        return None;
-    }
-    for _ in 0..rows.checked_add(columns)? {
-        bits.bd()?;
-    }
+    bits.bs()?;
     let mut out = BitWriter::default();
     let mut copied = start;
-    for (before, after) in texts {
+    if old_pos.map(f64::to_bits) != new_pos.map(f64::to_bits) {
+        for v in new_pos {
+            out.bd(v);
+        }
+        copied = pos_end;
+    }
+    let dir_at = bits.pos();
+    let old_dir = [bits.bd()?, bits.bd()?, bits.bd()?];
+    (old_dir[2] == 0.0).then_some(())?;
+    if old_dir.map(f64::to_bits) != new_dir.map(f64::to_bits) {
+        out.copy(data, copied..dir_at)?;
+        for v in new_dir {
+            out.bd(v);
+        }
+        copied = bits.pos();
+    }
+    let columns = usize::try_from(bits.bl()?).ok()?;
+    let rows = usize::try_from(bits.bl()?).ok()?;
+    if rows == 0
+        || columns == 0
+        || columns != new_widths.len()
+        || rows != new_heights.len()
+        || rows.checked_mul(columns)? != texts.len()
+    {
+        return None;
+    }
+    for &nw in &new_widths {
+        let at = bits.pos();
+        let ow = bits.bd()?;
+        if ow.to_bits() != nw.to_bits() {
+            out.copy(data, copied..at)?;
+            out.bd(nw);
+            copied = bits.pos();
+        }
+    }
+    for &nh in &new_heights {
+        let at = bits.pos();
+        let oh = bits.bd()?;
+        if oh.to_bits() != nh.to_bits() {
+            out.copy(data, copied..at)?;
+            out.bd(nh);
+            copied = bits.pos();
+        }
+    }
+    for (before, after) in &texts {
         if bits.bs()? != 1
             || bits.rc()? != 0
-            || bits.bit()?
-            || bits.bit()?
-            || bits.bl()? != 1
-            || bits.bl()? != 1
+            || {
+                bits.bit()?;
+                bits.bit()?
+            }
+            || bits.bl()? < 1
+            || bits.bl()? < 1
             || bits.bd()? != 0.0
         {
             return None;
@@ -389,16 +516,488 @@ fn legacy_table_text_fields(
         }
         if bits.bit()? {
             return None;
-        } // セルの書式の上書き
+        }
     }
     for _ in 0..4 {
         if bits.bit()? {
             return None;
         }
-    } // 表と枠の書式の上書き
+    }
     (bits.pos() == handles_at).then_some(())?;
     out.copy(data, copied..handles_at)?;
     Some(out)
+}
+
+#[derive(Clone)]
+enum R2010CellEdit<'a> {
+    Unchanged,
+    Set(Option<&'a str>),
+}
+
+fn parse_r2010_cell_value(values: &[Value]) -> Option<Option<&str>> {
+    let [first, rest @ .., last] = values else {
+        return None;
+    };
+    if first.code != 301
+        || !matches!(&first.data, Data::Text(t) if t.as_slice() == b"CELL_VALUE")
+        || last.code != 304
+        || !matches!(&last.data, Data::Text(t) if t.as_slice() == b"ACVALUE_END")
+    {
+        return None;
+    }
+    match rest {
+        [
+            Value {
+                code: 93,
+                data: Data::Int(1),
+            },
+            Value {
+                code: 90,
+                data: Data::Int(0),
+            },
+            Value {
+                code: 94,
+                data: Data::Int(0),
+            },
+            Value {
+                code: 300,
+                data: Data::Text(fmt),
+            },
+            Value {
+                code: 302,
+                data: Data::Text(txt),
+            },
+        ] if fmt.is_empty() && txt.is_empty() => Some(None),
+        [
+            Value {
+                code: 93,
+                data: Data::Int(0),
+            },
+            Value {
+                code: 90,
+                data: Data::Int(4),
+            },
+            Value {
+                code: 1,
+                data: Data::Text(raw),
+            },
+            Value {
+                code: 94,
+                data: Data::Int(0),
+            },
+            Value {
+                code: 300,
+                data: Data::Text(fmt),
+            },
+            Value {
+                code: 302,
+                data: Data::Text(formatted),
+            },
+        ] if fmt.is_empty() && !raw.is_empty() && raw == formatted => {
+            core::str::from_utf8(raw).ok().map(Some)
+        }
+        _ => None,
+    }
+}
+
+fn copy_tu(bits: &mut Bits, data: &[u8], fields: &mut BitWriter) -> Option<()> {
+    let span = bits.next_tu_span()?;
+    if !span.is_empty() {
+        fields.copy_strings(data, span)?;
+    }
+    Some(())
+}
+
+fn skip_r2010_table_value(
+    bits: &mut Bits,
+    data: &[u8],
+    fields: Option<&mut BitWriter>,
+) -> Option<i32> {
+    let flags = bits.bl()?;
+    let kind = bits.bl()?;
+    if flags & 1 == 0 {
+        match kind {
+            0 | 1 => {
+                bits.bl()?;
+            }
+            2 => {
+                bits.bd()?;
+            }
+            4 | 8 | 16 | 32 | 512 => {
+                let size = usize::try_from(bits.bl()?).ok()?;
+                bits.skip_bytes(size)?;
+            }
+            64 => {}
+            _ => return None,
+        }
+    }
+    bits.bl()?;
+    if let Some(out) = fields {
+        copy_tu(bits, data, out)?;
+        copy_tu(bits, data, out)?;
+    } else {
+        bits.next_tu_span()?;
+        bits.next_tu_span()?;
+    }
+    Some(if flags & 1 == 0 { kind } else { 0 })
+}
+
+fn skip_r2010_custom_data(bits: &mut Bits, data: &[u8], fields: &mut BitWriter) -> Option<()> {
+    let count = usize::try_from(bits.bl()?).ok()?;
+    for _ in 0..count {
+        copy_tu(bits, data, fields)?;
+        skip_r2010_table_value(bits, data, Some(fields))?;
+    }
+    Some(())
+}
+
+fn skip_r2010_content_format(bits: &mut Bits, data: &[u8], fields: &mut BitWriter) -> Option<()> {
+    for _ in 0..4 {
+        bits.bl()?;
+    }
+    copy_tu(bits, data, fields)?;
+    bits.bd()?;
+    bits.bd()?;
+    bits.bl()?;
+    bits.cmc_r2004()?;
+    bits.bd()?;
+    Some(())
+}
+
+fn skip_r2010_cell_style(bits: &mut Bits, data: &[u8], fields: &mut BitWriter) -> Option<()> {
+    bits.bl()?;
+    if bits.bs()? == 0 {
+        return Some(());
+    }
+    bits.bl()?;
+    bits.bl()?;
+    bits.cmc_r2004()?;
+    bits.bl()?;
+    skip_r2010_content_format(bits, data, fields)?;
+    let margin_flags = bits.bs()?;
+    if margin_flags & 1 != 0 {
+        for _ in 0..6 {
+            bits.bd()?;
+        }
+    }
+    let borders = usize::try_from(bits.bl()?).ok()?;
+    if borders > data.len().saturating_mul(4) {
+        return None;
+    }
+    for _ in 0..borders {
+        if bits.bl()? != 0 {
+            bits.bl()?;
+            bits.bl()?;
+            bits.cmc_r2004()?;
+            bits.bl()?;
+            bits.bl()?;
+            bits.bd()?;
+        }
+    }
+    Some(())
+}
+
+fn write_r2010_table_value(fields: &mut BitWriter, new_text: Option<&str>) -> Option<()> {
+    match new_text {
+        None => {
+            fields.bl(1);
+            fields.bl(0);
+            fields.bl(0);
+            fields.text(b"")?;
+            fields.text(b"")?;
+        }
+        Some(text) => {
+            let units: Vec<u16> = text.encode_utf16().collect();
+            let mut raw = Vec::with_capacity(units.len().checked_add(1)?.checked_mul(2)?);
+            for unit in units {
+                raw.extend_from_slice(&unit.to_le_bytes());
+            }
+            raw.extend_from_slice(&[0, 0]);
+            fields.bl(0);
+            fields.bl(4);
+            fields.bl(i32::try_from(raw.len()).ok()?);
+            fields.raw(&raw);
+            fields.bl(0);
+            fields.text(b"")?;
+            fields.text(text.as_bytes())?;
+        }
+    }
+    Some(())
+}
+
+/// ODS 5.4.1 の 20.4.96.2・20.4.97: R2010 からの表の挿入点・列幅・行高さ・横の向き・文字セルの内容を書き直す。
+/// 変わらないビットと文字列のストリームの TU、およびハンドルのストリームはそのまま保つ。
+fn r2010_table_fields(
+    data: &[u8],
+    [start, end, handles_at]: [usize; 3],
+    old_head: &Object,
+    new_head: &Object,
+    old_body: &[Value],
+    new_body: &[Value],
+    release: Release,
+) -> Option<BitWriter> {
+    let split = |body: &[Value]| {
+        let first = body.iter().position(|v| v.code == 171)?;
+        let block = body.iter().rposition(|v| v.code == 2)?;
+        (first < block).then_some((first, block))
+    };
+    let (old_first, old_block) = split(old_body)?;
+    let (new_first, new_block) = split(new_body)?;
+    if old_body.get(old_block..)? != new_body.get(new_block..)? {
+        return None;
+    }
+    let old_hdr = old_body.get(..old_first)?;
+    let new_hdr = new_body.get(..new_first)?;
+    let keep_hdr = |v: &&Value| !matches!(v.code, 11 | 21 | 31 | 141 | 142);
+    if !old_hdr
+        .iter()
+        .filter(keep_hdr)
+        .eq(new_hdr.iter().filter(keep_hdr))
+    {
+        return None;
+    }
+    let new_dir = table_direction(new_hdr)?;
+    let new_heights = table_reals(new_hdr, 141)?;
+    let new_widths = table_reals(new_hdr, 142)?;
+    let before_cells: Vec<_> = old_body
+        .get(old_first..old_block)?
+        .chunk_by(|_, next| next.code != 171)
+        .collect();
+    let after_cells: Vec<_> = new_body
+        .get(new_first..new_block)?
+        .chunk_by(|_, next| next.code != 171)
+        .collect();
+    if before_cells.len() != after_cells.len() {
+        return None;
+    }
+    let cell_edits: Vec<R2010CellEdit<'_>> = before_cells
+        .into_iter()
+        .zip(after_cells)
+        .map(|(old_c, new_c)| {
+            if old_c == new_c {
+                return Some(R2010CellEdit::Unchanged);
+            }
+            let old_val = old_c.iter().position(|v| v.code == 301)?;
+            let new_val = new_c.iter().position(|v| v.code == 301)?;
+            if old_c.get(..old_val)? != new_c.get(..new_val)? || old_c.first()?.data != Data::Int(1)
+            {
+                return None;
+            }
+            Some(R2010CellEdit::Set(parse_r2010_cell_value(
+                new_c.get(new_val..)?,
+            )?))
+        })
+        .collect::<Option<_>>()?;
+
+    let mut bits = Bits::with_release(data, release);
+    (bits.split_strings(handles_at)? == end).then_some(())?;
+    bits.seek(start);
+    let mut fields = BitWriter::with_strings();
+    let mut copied = start;
+
+    let mut old_pos = [0.0; 3];
+    let mut new_pos = [0.0; 3];
+    for ((old_slot, new_slot), code) in old_pos.iter_mut().zip(&mut new_pos).zip([10, 20, 30]) {
+        let was = real(old_head, code)??;
+        (bits.bd()?.to_bits() == was.to_bits()).then_some(())?;
+        *old_slot = was;
+        *new_slot = real(new_head, code)??;
+    }
+    let pos_end = bits.pos();
+    if old_pos.map(f64::to_bits) != new_pos.map(f64::to_bits) {
+        for v in new_pos {
+            fields.bd(v);
+        }
+        copied = pos_end;
+    }
+    match bits.bb()? {
+        3 => {}
+        1 => {
+            bits.dd(1.0)?;
+            bits.dd(1.0)?;
+        }
+        2 => {
+            bits.rd()?;
+        }
+        _ => {
+            let x = bits.rd()?;
+            bits.dd(x)?;
+            bits.dd(x)?;
+        }
+    }
+    bits.bd()?;
+    for _ in 0..3 {
+        bits.bd()?;
+    }
+    if bits.bit()? {
+        bits.bl()?;
+    }
+    bits.rc()?;
+    bits.bl()?;
+    if release == Release::R2010 {
+        bits.bit()?;
+    } else {
+        bits.bl()?;
+    }
+    copy_tu(&mut bits, data, &mut fields)?;
+    copy_tu(&mut bits, data, &mut fields)?;
+
+    let columns = usize::try_from(bits.bl()?).ok()?;
+    if columns == 0 || columns != new_widths.len() {
+        return None;
+    }
+    for &nw in &new_widths {
+        copy_tu(&mut bits, data, &mut fields)?;
+        bits.bl()?;
+        skip_r2010_custom_data(&mut bits, data, &mut fields)?;
+        skip_r2010_cell_style(&mut bits, data, &mut fields)?;
+        bits.bl()?;
+        let at = bits.pos();
+        let ow = bits.bd()?;
+        if ow.to_bits() != nw.to_bits() {
+            fields.copy(data, copied..at)?;
+            fields.bd(nw);
+            copied = bits.pos();
+        }
+    }
+
+    let rows = usize::try_from(bits.bl()?).ok()?;
+    if rows == 0 || rows != new_heights.len() || rows.checked_mul(columns)? != cell_edits.len() {
+        return None;
+    }
+    let mut edit_iter = cell_edits.into_iter();
+    for &nh in &new_heights {
+        let row_cols = usize::try_from(bits.bl()?).ok()?;
+        if row_cols != columns {
+            return None;
+        }
+        for _ in 0..columns {
+            let cell_edit = edit_iter.next()?;
+            bits.bl()?;
+            copy_tu(&mut bits, data, &mut fields)?;
+            bits.bl()?;
+            skip_r2010_custom_data(&mut bits, data, &mut fields)?;
+            let linked = bits.bl()?;
+            if linked != 0 {
+                for _ in 0..3 {
+                    bits.bl()?;
+                }
+            }
+            let contents_at = bits.pos();
+            let contents = usize::try_from(bits.bl()?).ok()?;
+            match cell_edit {
+                R2010CellEdit::Unchanged => {
+                    for _ in 0..contents {
+                        match bits.bl()? {
+                            1 => {
+                                skip_r2010_table_value(&mut bits, data, Some(&mut fields))?;
+                            }
+                            2 | 4 => {}
+                            _ => return None,
+                        }
+                        let fcount = usize::try_from(bits.bl()?).ok()?;
+                        for _ in 0..fcount {
+                            copy_tu(&mut bits, data, &mut fields)?;
+                            bits.bl()?;
+                        }
+                        if bits.bs()? != 0 {
+                            skip_r2010_content_format(&mut bits, data, &mut fields)?;
+                        }
+                    }
+                }
+                R2010CellEdit::Set(new_text) => {
+                    if linked != 0 {
+                        return None;
+                    }
+                    fields.copy(data, copied..contents_at)?;
+                    match contents {
+                        0 => {
+                            if let Some(txt) = new_text {
+                                fields.bl(1);
+                                fields.bl(1);
+                                write_r2010_table_value(&mut fields, Some(txt))?;
+                                fields.bl(0);
+                                fields.bs(0);
+                            } else {
+                                fields.bl(0);
+                            }
+                        }
+                        1 => {
+                            (bits.bl()? == 1).then_some(())?;
+                            let old_kind = skip_r2010_table_value(&mut bits, data, None)?;
+                            (old_kind != 64).then_some(())?;
+                            (bits.bl()? == 0).then_some(())?;
+                            fields.bl(1);
+                            fields.bl(1);
+                            write_r2010_table_value(&mut fields, new_text)?;
+                            fields.bl(0);
+                            let fmt_at = bits.pos();
+                            if bits.bs()? != 0 {
+                                skip_r2010_content_format(&mut bits, data, &mut fields)?;
+                            }
+                            fields.copy(data, fmt_at..bits.pos())?;
+                        }
+                        _ => return None,
+                    }
+                    copied = bits.pos();
+                }
+            }
+            skip_r2010_cell_style(&mut bits, data, &mut fields)?;
+            bits.bl()?;
+            if bits.bl()? != 0 {
+                bits.bl()?;
+                bits.bd()?;
+                bits.bd()?;
+                let geom = bits.bl()?;
+                if geom != 0 {
+                    for _ in 0..10 {
+                        bits.bd()?;
+                    }
+                    bits.bl()?;
+                }
+            }
+        }
+        bits.bl()?;
+        skip_r2010_custom_data(&mut bits, data, &mut fields)?;
+        skip_r2010_cell_style(&mut bits, data, &mut fields)?;
+        bits.bl()?;
+        let at = bits.pos();
+        let oh = bits.bd()?;
+        if oh.to_bits() != nh.to_bits() {
+            fields.copy(data, copied..at)?;
+            fields.bd(nh);
+            copied = bits.pos();
+        }
+    }
+    bits.bl()?;
+    skip_r2010_cell_style(&mut bits, data, &mut fields)?;
+    let merged = usize::try_from(bits.bl()?).ok()?;
+    for _ in 0..merged {
+        for _ in 0..4 {
+            bits.bl()?;
+        }
+    }
+    bits.bs()?;
+    let dir_at = bits.pos();
+    let old_dir = [bits.bd()?, bits.bd()?, bits.bd()?];
+    (old_dir[2] == 0.0).then_some(())?;
+    if old_dir.map(f64::to_bits) != new_dir.map(f64::to_bits) {
+        fields.copy(data, copied..dir_at)?;
+        for v in new_dir {
+            fields.bd(v);
+        }
+        copied = bits.pos();
+    }
+    (bits.pos() <= end).then_some(())?;
+    fields.copy(data, copied..end)?;
+    let strings_end = r2010_strings_end(data, end, handles_at)?;
+    if let Some(strings_at) = bits.strings_pos() {
+        (strings_at <= strings_end).then_some(())?;
+        if strings_at < strings_end {
+            fields.copy_strings(data, strings_at..strings_end)?;
+        }
+    }
+    Some(fields)
 }
 
 /// ODS 5.4.1 の 20.4.96.1・20.4.96.2: 表は INSERT の挿入点（3BD）から始まる。

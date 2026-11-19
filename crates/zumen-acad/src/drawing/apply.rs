@@ -130,7 +130,7 @@ impl DxfFile {
             })
             .collect();
         let mut db = self.table(cx, false)?;
-        let ids = edit(&mut db, changes, &specs, Target::Dxf, cx)?;
+        let ids = edit(&mut db, changes, &specs, Target::Dxf, true, cx)?;
         if !current {
             return Err(Error::Rejected);
         }
@@ -189,7 +189,8 @@ impl DwgFile {
             .collect();
         let mut db = self.objects(cx)?;
         let seed = self.handle_seed();
-        let ids = edit(&mut db, changes, &specs, Target::Dwg(seed), cx)?;
+        let arc_dim = self.has_entity_class(b"ARC_DIMENSION");
+        let ids = edit(&mut db, changes, &specs, Target::Dwg(seed), arc_dim, cx)?;
         if !current {
             return Err(Error::Rejected);
         }
@@ -515,6 +516,7 @@ fn edit(
     changes: &Changes,
     copies: &[CopySpec<'_>],
     target: Target,
+    arc_dimension_class: bool,
     cx: &mut Cx,
 ) -> Result<Vec<ResultTarget>, Error> {
     unique_handles(db, target, cx)?;
@@ -542,6 +544,7 @@ fn edit(
         charset,
         encoder: born.encoder(),
         target,
+        arc_dimension_class,
     };
     for (edit_index, change) in changes.edits.iter().enumerate() {
         let rejected = std::mem::take(&mut plan.rejected);
@@ -572,6 +575,7 @@ fn edit(
         dimension_styles,
         variables,
         symbol_records,
+        add_extra_records,
         copy_extra_records,
         ..
     } = plan;
@@ -599,7 +603,12 @@ fn edit(
     Ok(results(
         changes,
         &index,
-        (handles, symbol_records, copy_extra_records),
+        (
+            handles,
+            symbol_records,
+            add_extra_records,
+            copy_extra_records,
+        ),
         layer_handles,
         style_handles,
         line_type_handles,
@@ -672,6 +681,8 @@ struct Current<'a> {
     /// 書き戻す文字の符号化
     encoder: &'a Encoder,
     target: Target,
+    /// `ARC_DIMENSION` を書き戻せるか（DXF は常に真、DWG はクラス定義があるとき真）
+    arc_dimension_class: bool,
 }
 
 /// 確かめた変更から作る、表への書き込みの控え。拒んだ変更が 1 つでもあれば、表を変えない
@@ -700,8 +711,9 @@ struct Plan<'e> {
     /// この変更の一覧で足した記号の定義の名前（小文字）と、変更ごとに足したレコードの数（#684）
     symbols: BTreeSet<String>,
     symbol_records: Vec<usize>,
-    /// 寸法・表の複写で新しく確保した匿名ブロック名（小文字）と、複写ごとの追加ブロックレコード数（#889）
+    /// 寸法・表の追加や複写で新しく確保した匿名ブロック名（小文字）と、変更ごとの追加ブロックレコード数（#889）
     anon_names: BTreeSet<String>,
+    add_extra_records: Vec<usize>,
     copy_extra_records: Vec<usize>,
 }
 
@@ -732,6 +744,7 @@ impl<'e> Plan<'e> {
             symbols: BTreeSet::new(),
             symbol_records: Vec::new(),
             anon_names: BTreeSet::new(),
+            add_extra_records: Vec::new(),
             copy_extra_records: Vec::new(),
         }
     }
@@ -927,7 +940,7 @@ fn add_element(
         plan.rejected = true;
         return Ok(());
     };
-    let (record, kind) = match (place, element) {
+    let (built, kind) = match (place, element) {
         (Place::Space(space), Placed::Model(element)) => {
             add::work(&element.shape, cx, &Ref::default())?;
             let definition = index.definitions.get(&space).copied();
@@ -938,6 +951,7 @@ fn add_element(
                 let outer = definition.key.name.to_lowercase();
                 let inner = symbol.key.name.to_lowercase();
                 if nests_into(&index.nests, &plan.nests, &inner, &outer, cx)? {
+                    plan.add_extra_records.push(0);
                     plan.reject(
                         Diagnostic::new(codes::CHANGE_SYMBOL_CYCLE_INVALID)
                             .with("id", id::space(space))
@@ -955,31 +969,59 @@ fn add_element(
                     definition_home(current.db, current.positions, definition, &element.shape)
                 }
             };
-            let record = home
-                .and_then(|home| born.record(element, &InSpace(space), home, plan.added_records));
-            (record, kind_of(&element.shape))
+            let frame = InSpace(space);
+            let built = match (home, &element.shape) {
+                (Some(home), Shape::Dimension(_) | Shape::Table(_)) => {
+                    parts::add_parts(current, plan, element, &frame, home, cx)?
+                }
+                (Some(home), _) => born
+                    .record(element, &frame, home, plan.added_records)
+                    .map(|rec| (rec, Vec::new(), String::new())),
+                (None, _) => None,
+            };
+            (built, kind_of(&element.shape))
         }
         (Place::Sheet(sheet), Placed::Paper(element)) => {
             add::work(&element.shape, cx, &Ref::default())?;
-            let record = frames.get(&sheet).and_then(|&frame| {
-                born.record(
+            let built = match (frames.get(&sheet), &element.shape) {
+                (Some(&frame), Shape::Dimension(_) | Shape::Table(_)) => parts::add_parts(
+                    current,
+                    plan,
                     element,
                     &OnSheet(sheet, frame),
                     frame.home,
-                    plan.added_records,
-                )
-            });
-            (record, kind_of(&element.shape))
+                    cx,
+                )?,
+                (Some(&frame), _) => born
+                    .record(
+                        element,
+                        &OnSheet(sheet, frame),
+                        frame.home,
+                        plan.added_records,
+                    )
+                    .map(|rec| (rec, Vec::new(), String::new())),
+                (None, _) => None,
+            };
+            (built, kind_of(&element.shape))
         }
         (_, Placed::Model(element)) => (None, kind_of(&element.shape)),
         (_, Placed::Paper(element)) => (None, kind_of(&element.shape)),
     };
-    match record {
-        Some(record) => {
+    match built {
+        Some((record, extra, anon_lower)) => {
+            if !anon_lower.is_empty() {
+                plan.anon_names.insert(anon_lower);
+            }
+            plan.add_extra_records.push(extra.len());
             plan.added_records += record.count();
             plan.added.push(record);
+            for item in extra {
+                plan.added_records += item.count();
+                plan.added.push(item);
+            }
         }
         None if kind == "HATCH" => {
+            plan.add_extra_records.push(0);
             let (field, value) = match element {
                 Placed::Model(element) => born.hatch_reason(&element.shape),
                 Placed::Paper(element) => {
@@ -1005,7 +1047,10 @@ fn add_element(
                 cx,
             );
         }
-        None => plan.reject(unsupported("add", kind, target), cx),
+        None => {
+            plan.add_extra_records.push(0);
+            plan.reject(unsupported("add", kind, target), cx);
+        }
     }
     Ok(())
 }
@@ -1508,7 +1553,12 @@ fn insert_records(
 fn results(
     changes: &Changes,
     index: &Index<'_>,
-    (handles, symbol_records, copy_extra_records): (Vec<Option<u64>>, Vec<usize>, Vec<usize>),
+    (handles, symbol_records, add_extra_records, copy_extra_records): (
+        Vec<Option<u64>>,
+        Vec<usize>,
+        Vec<usize>,
+        Vec<usize>,
+    ),
     layer_handles: Vec<Option<u64>>,
     style_handles: Vec<Option<u64>>,
     line_type_handles: Vec<Option<u64>>,
@@ -1516,6 +1566,7 @@ fn results(
 ) -> Vec<ResultTarget> {
     let mut handles = handles.into_iter();
     let mut symbol_records = symbol_records.into_iter();
+    let mut add_extra_records = add_extra_records.into_iter();
     let mut copy_extra_records = copy_extra_records.into_iter();
     let mut dimension_style_handles = dimension_style_handles.into_iter();
     let mut style_handles = style_handles.into_iter();
@@ -1540,7 +1591,13 @@ fn results(
                 });
                 ResultTarget::Element(handle)
             }
-            Edit::Add { .. } => ResultTarget::Element(handles.next().flatten()),
+            Edit::Add { .. } => {
+                let handle = handles.next().flatten();
+                for _ in 0..add_extra_records.next().unwrap_or(0) {
+                    handles.next();
+                }
+                ResultTarget::Element(handle)
+            }
             Edit::Copy { .. } => {
                 let handle = handles.next().flatten();
                 for _ in 0..copy_extra_records.next().unwrap_or(0) {

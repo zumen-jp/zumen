@@ -105,6 +105,7 @@ mod duplicate_handle_tests {
                 &changes,
                 &[],
                 Target::Dxf,
+                false,
                 &mut Cx::new(&mut budget, &mut diag, &cancel)
             ),
             Err(Error::Stopped(_))
@@ -119,6 +120,7 @@ mod duplicate_handle_tests {
                 &changes,
                 &[],
                 Target::Dxf,
+                false,
                 &mut Cx::new(&mut budget, &mut diag, &cancel)
             ),
             Err(Error::Stopped(_))

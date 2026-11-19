@@ -792,6 +792,13 @@ impl Maps<'_> {
         match &mut shape {
             Shape::Text(text) => self.text_style(&mut text.style),
             Shape::Formatted(text) => self.text_style(&mut text.style),
+            Shape::Dimension(dimension) => {
+                dimension.block = None;
+                dimension.measurement = None;
+                if self.target.dimension_style(&dimension.style).is_none() {
+                    "Standard".clone_into(&mut dimension.style);
+                }
+            }
             Shape::Symbol(symbol) => {
                 for attribute in symbol.attributes.drain(..) {
                     if !attribute.hidden {
@@ -840,6 +847,12 @@ impl Maps<'_> {
                 if text.height.meaning != HeightMeaning::Declared("dxf.MTEXT.40".into()) =>
             {
                 reasons.push("text_height_meaning");
+                fidelity = fidelity.max(ConversionFidelity::Drawn);
+            }
+            Shape::Dimension(dimension)
+                if self.target.dimension_style(&dimension.style).is_none() =>
+            {
+                reasons.push("dimension_style_default");
                 fidelity = fidelity.max(ConversionFidelity::Drawn);
             }
             _ => {}

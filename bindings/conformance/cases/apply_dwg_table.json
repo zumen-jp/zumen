@@ -1,5 +1,5 @@
 {
-  "description": "自作の表を持つ R2000・R2004・R2010・R2013・R2018 の DWG。位置の置き換えと平行移動で、セル・大きさと既存 ID を保つ。未対応のセルの変更・回転・作業量の停止は原子的に拒む。入力の生成元は xtask/verify/acadsharp/TableFixtures.cs と crates/zumen-acad/examples/legacy_table_fixture.rs。",
+  "description": "自作の表を持つ R2000・R2004・R2010・R2013・R2018 の DWG。位置・セル文字列・大きさの置き換えと平行移動・回転で、既存 ID と未変更要素のハッシュを保つ。セルの回転・鏡映変換・作業量の停止は原子的に拒む。入力の生成元は xtask/verify/acadsharp/TableFixtures.cs と crates/zumen-acad/examples/legacy_table_fixture.rs。",
   "steps": [
     {
       "push": {
@@ -516,11 +516,11 @@
             "id": "space/0/h56",
             "hash": "v2:77428c7565a8735b36a918dd8858f743",
             "matrix": [
-              0,
               -1,
               0,
-              1,
               0,
+              0,
+              1,
               0
             ]
           }
@@ -1123,11 +1123,11 @@
             "id": "space/0/h56",
             "hash": "v2:77428c7565a8735b36a918dd8858f743",
             "matrix": [
-              0,
               -1,
               0,
-              1,
               0,
+              0,
+              1,
               0
             ]
           }
@@ -1285,7 +1285,8 @@
               "cells": [
                 {
                   "content": "text",
-                  "text": "changed"
+                  "text": "表00",
+                  "rotation": 10
                 },
                 {
                   "content": "text",
@@ -1729,11 +1730,11 @@
             "id": "space/0/h48",
             "hash": "v2:5f0ed4320aa1e5bd7a32d5863c1a7c12",
             "matrix": [
-              0,
               -1,
               0,
-              1,
               0,
+              0,
+              1,
               0
             ]
           }
@@ -1891,7 +1892,8 @@
               "cells": [
                 {
                   "content": "text",
-                  "text": "changed"
+                  "text": "表00",
+                  "rotation": 10
                 },
                 {
                   "content": "text",
@@ -2335,11 +2337,11 @@
             "id": "space/0/h48",
             "hash": "v2:5f0ed4320aa1e5bd7a32d5863c1a7c12",
             "matrix": [
-              0,
               -1,
               0,
-              1,
               0,
+              0,
+              1,
               0
             ]
           }
@@ -2497,7 +2499,8 @@
               "cells": [
                 {
                   "content": "text",
-                  "text": "changed"
+                  "text": "表00",
+                  "rotation": 10
                 },
                 {
                   "content": "text",
@@ -2941,11 +2944,11 @@
             "id": "space/0/h48",
             "hash": "v2:5f0ed4320aa1e5bd7a32d5863c1a7c12",
             "matrix": [
-              0,
               -1,
               0,
-              1,
               0,
+              0,
+              1,
               0
             ]
           }
@@ -3031,6 +3034,118 @@
             -10
           ]
         }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "table-r2018.dwg",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "space/0/h48",
+            "hash": "v2:5f0ed4320aa1e5bd7a32d5863c1a7c12",
+            "geometry": {
+              "shape": "table",
+              "position": [
+                10,
+                20
+              ],
+              "direction": [
+                1,
+                0
+              ],
+              "row_heights": [
+                12,
+                18
+              ],
+              "column_widths": [
+                25,
+                35
+              ],
+              "cells": [
+                {
+                  "content": "text",
+                  "text": "変更"
+                },
+                {
+                  "content": "empty"
+                },
+                {
+                  "content": "text",
+                  "text": "表10"
+                },
+                {
+                  "content": "text",
+                  "text": "表11"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/h48",
+        "/blobs/0/kind": "file",
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "table-r2018.dwg",
+        "fields": [
+          "id",
+          "kind",
+          "layer",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/0/id": "space/0/h48",
+        "/result/items/0/geometry": {
+          "shape": "table",
+          "position": [
+            10,
+            20
+          ],
+          "direction": [
+            1,
+            0
+          ],
+          "row_heights": [
+            12,
+            18
+          ],
+          "column_widths": [
+            25,
+            35
+          ],
+          "cells": [
+            {
+              "content": "text",
+              "text": "変更"
+            },
+            {
+              "content": "empty"
+            },
+            {
+              "content": "text",
+              "text": "表10"
+            },
+            {
+              "content": "text",
+              "text": "表11"
+            }
+          ]
+        },
+        "/result/items/1/id": "space/0/h56"
       }
     }
   ]

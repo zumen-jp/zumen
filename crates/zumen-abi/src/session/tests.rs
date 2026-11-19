@@ -3756,15 +3756,34 @@ fn reads_replaces_and_transforms_tables_with_rebuilt_parts() {
         assert_eq!(text(&error(&response), "/params/pointer"), pointer);
     }
 
-    // 表の追加は書き戻さない
+    // Standard の TABLESTYLE を持つ R2004 以降の DXF には表を追加でき、持たない DXF では拒む
+    session.push(b"add.dxf", TABLE_DXF).unwrap();
+    call(&mut session, r#"{"v":1,"op":"open","input":"add.dxf"}"#);
     let (add_status, add_res) = call(
         &mut session,
         &format!(
-            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{expected}}}]}}"#
+            r#"{{"v":1,"op":"apply","doc":"add.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{expected}}}]}}"#
         ),
     );
-    assert_eq!(add_status, Status::Failed);
-    assert_eq!(text(&error(&add_res), "/code"), "change.edit.unsupported");
+    assert_eq!(add_status, Status::Ok, "{add_res:?}");
+    let added_bytes = session.take(0).unwrap();
+    session.push(b"added.dxf", &added_bytes).unwrap();
+    call(&mut session, r#"{"v":1,"op":"open","input":"added.dxf"}"#);
+    assert_eq!(shapes(&mut session, "added.dxf"), [expected, expected]);
+
+    session.push(b"no_style.dxf", EDITABLE).unwrap();
+    call(
+        &mut session,
+        r#"{"v":1,"op":"open","input":"no_style.dxf"}"#,
+    );
+    let (no_status, no_res) = call(
+        &mut session,
+        &format!(
+            r#"{{"v":1,"op":"apply","doc":"no_style.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{expected}}}]}}"#
+        ),
+    );
+    assert_eq!(no_status, Status::Failed);
+    assert_eq!(text(&error(&no_res), "/code"), "change.edit.unsupported");
 
     // セルの文字・空セル・列幅・位置の置き換えと、続く変換が通り、*T1 の部品も作り直される
     let updated = r#"{"shape":"table","position":[15,60],"direction":[1,0],"row_heights":[8,6],"column_widths":[25,30],"cells":[{"content":"text","text":"見出し","span":[2,1]},{"content":"empty","covered":true},{"content":"empty"},{"content":"text","text":"250"}]}"#;
@@ -5532,6 +5551,73 @@ fn opens_and_converts_sima_across_drawing_civil_and_geo() {
     assert_eq!(text(&sim2_res, "/result/format"), "sima");
     let sim_bytes = session.take(0).expect("sima blob");
     assert!(sim_bytes.starts_with(b"G00,01,"));
+}
+
+#[test]
+fn adds_and_converts_dimensions_with_resident_parity() {
+    const DIM_DXF: &[u8] = b"\
+0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n9\n$INSUNITS\n70\n4\n9\n$HANDSEED\n5\n500\n0\nENDSEC\n\
+0\nSECTION\n2\nTABLES\n\
+0\nTABLE\n2\nLTYPE\n5\n5\n330\n0\n100\nAcDbSymbolTable\n70\n1\n\
+0\nLTYPE\n5\n14\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nContinuous\n70\n0\n3\nSolid\n72\n65\n73\n0\n40\n0.0\n0\nENDTAB\n\
+0\nTABLE\n2\nLAYER\n5\n2\n330\n0\n100\nAcDbSymbolTable\n70\n1\n\
+0\nLAYER\n5\n10\n330\n2\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nContinuous\n0\nENDTAB\n\
+0\nTABLE\n2\nSTYLE\n5\n3\n330\n0\n100\nAcDbSymbolTable\n70\n1\n\
+0\nSTYLE\n5\n11\n330\n3\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n0\nENDTAB\n\
+0\nTABLE\n2\nDIMSTYLE\n5\nA\n330\n0\n100\nAcDbSymbolTable\n70\n1\n100\nAcDbDimStyleTable\n\
+0\nDIMSTYLE\n105\n2A\n330\nA\n100\nAcDbSymbolTableRecord\n100\nAcDbDimStyleTableRecord\n2\nStandard\n70\n0\n41\n2.5\n140\n3.0\n340\n11\n0\nENDTAB\n\
+0\nTABLE\n2\nBLOCK_RECORD\n5\n1\n330\n0\n100\nAcDbSymbolTable\n70\n1\n\
+0\nBLOCK_RECORD\n5\n1F\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Model_Space\n0\nENDTAB\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nBLOCKS\n\
+0\nBLOCK\n5\n20\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Model_Space\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*Model_Space\n1\n\n\
+0\nENDBLK\n5\n21\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+
+    let mut session = Session::new(b"").unwrap();
+    session.push(b"a.dxf", DIM_DXF).unwrap();
+    call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+
+    let add_req = r#"{"v":1,"op":"apply","doc":"a.dxf","edits":[{"kind":"add","place":"space/0","geometry":{"shape":"dimension","kind":"linear","first":[0,0],"second":[50,0],"line":[50,15],"rotation":0,"oblique":0,"label":"measurement","style":"Standard"}},{"kind":"add","place":"space/0","geometry":{"shape":"dimension","kind":"arc_length","center":[0,0],"first":[20,0],"second":[0,20],"arc":[17.67766952966369,17.67766952966369],"label":"measurement","style":"Standard"}}]}"#;
+    let (status, res) = call(&mut session, add_req);
+    assert_eq!(status, Status::Ok, "{res:?}");
+    let saved_bytes = session.take(0).unwrap();
+
+    // 常駐の文書と、保存バイト列を別の Session で開き直した文書で同じ要素・ハッシュになる
+    let mut fresh = Session::new(b"").unwrap();
+    fresh.push(b"a.dxf", &saved_bytes).unwrap();
+    call(&mut fresh, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+    let (_, res_ents) = call(
+        &mut session,
+        r#"{"v":1,"op":"entities","doc":"a.dxf","fields":["id","kind","hash","geometry"]}"#,
+    );
+    let (_, fresh_ents) = call(
+        &mut fresh,
+        r#"{"v":1,"op":"entities","doc":"a.dxf","fields":["id","kind","hash","geometry"]}"#,
+    );
+    assert_eq!(res_ents.pointer("/result"), fresh_ents.pointer("/result"));
+    assert_eq!(number(&res_ents, "/result/total"), "2");
+
+    // convert でも新しい R2004 DXF に寸法と弧長寸法が移る
+    let (cv_status, cv_res) = call(
+        &mut session,
+        r#"{"v":1,"op":"convert","doc":"a.dxf","format":"dxf","to":"conv.dxf"}"#,
+    );
+    assert_eq!(cv_status, Status::Ok, "{cv_res:?}");
+    let _ = session.take(0).unwrap();
+    let (_, conv_ents) = call(
+        &mut session,
+        r#"{"v":1,"op":"entities","doc":"conv.dxf","fields":["kind","geometry"]}"#,
+    );
+    assert_eq!(number(&conv_ents, "/result/total"), "2");
+    assert_eq!(text(&conv_ents, "/result/items/0/kind"), "dimension");
+    assert_eq!(text(&conv_ents, "/result/items/0/geometry/kind"), "linear");
+    assert_eq!(text(&conv_ents, "/result/items/1/kind"), "dimension");
+    assert_eq!(
+        text(&conv_ents, "/result/items/1/geometry/kind"),
+        "arc_length"
+    );
 }
 
 include!("convert_estimate_tests.rs");

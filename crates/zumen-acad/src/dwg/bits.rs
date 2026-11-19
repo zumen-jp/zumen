@@ -394,6 +394,28 @@ impl<'a> Bits<'a> {
         text
     }
 
+    /// R2007 からの文字列のストリームの次の TU のビット範囲を進めながら返す。ストリームがなければ空の範囲
+    pub(super) fn next_tu_span(&mut self) -> Option<Range<usize>> {
+        let Some(at) = self.strings else {
+            return Some(0..0);
+        };
+        let pos = core::mem::replace(&mut self.pos, at);
+        let end = (|| {
+            let len = usize::try_from(self.bs()?).ok()?;
+            self.pos.checked_add(len.checked_mul(16)?)
+        })();
+        if let Some(end) = end {
+            self.strings = Some(end);
+        }
+        self.pos = pos;
+        Some(at..end?)
+    }
+
+    /// R2007 からの文字列のストリームの今のビット位置
+    pub(super) fn strings_pos(&self) -> Option<usize> {
+        self.strings
+    }
+
     fn unicode_text(&mut self) -> Option<Vec<u8>> {
         let len = usize::try_from(self.bs()?).ok()?;
         let mut units: Vec<u16> = (0..len)

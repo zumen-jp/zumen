@@ -245,13 +245,23 @@ static class Dwg
         foreach (var row in table.Rows)
             foreach (var cell in row.Cells)
             {
+                if (cell.Contents.Count == 0)
+                {
+                    cells.Add(new JsonObject { ["content"] = "empty" });
+                    continue;
+                }
                 if (cell.Contents.Count != 1) return null;
+                var value = cell.Content.CadValue;
                 // 旧版の読み手は、文字の値を String として返し、内容の種類を Unknown のままにする。
                 bool legacyText = table.Document != null && table.Document.Header.Version < ACadVersion.AC1024
                     && cell.Type == TableEntity.CellType.Text && cell.Content.ContentType == TableEntity.TableCellContentType.Unknown;
-                if ((!legacyText && cell.Content.ContentType != TableEntity.TableCellContentType.Value)
-                    || cell.Content.CadValue.ValueType != CadValueType.String) return null;
-                var value = cell.Content.CadValue;
+                if (!legacyText && cell.Content.ContentType != TableEntity.TableCellContentType.Value) return null;
+                if (value.IsEmpty)
+                {
+                    cells.Add(new JsonObject { ["content"] = "empty" });
+                    continue;
+                }
+                if (value.ValueType != CadValueType.String) return null;
                 string text = string.IsNullOrEmpty(value.FormattedValue) ? value.Value?.ToString() ?? "" : value.FormattedValue;
                 cells.Add(text.Length == 0 ? new JsonObject { ["content"] = "empty" }
                     : new JsonObject { ["content"] = "text", ["text"] = text });

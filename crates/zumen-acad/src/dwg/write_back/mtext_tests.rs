@@ -117,6 +117,7 @@ fn r2018_mtext_updates_embedded_context_fields_on_write_back() {
         layer: 0x10,
         ltype: (0, 0),
         pointed: Some(0x11),
+        extra_pointed: None,
         embedded: None,
         children: None,
     };
@@ -184,6 +185,7 @@ fn r2018_annotative_mtext_rejects_position_change_but_allows_text_change() {
         layer: 0x10,
         ltype: (0, 0),
         pointed: Some(0x11),
+        extra_pointed: None,
         embedded: None,
         children: None,
     };
@@ -273,6 +275,7 @@ fn r2018_multiline_attrib_updates_embedded_mtext_context_fields() {
         layer: 0x10,
         ltype: (0, 0),
         pointed: Some(0x11),
+        extra_pointed: None,
         embedded: Some((0x10, 0x11)),
         children: None,
     };

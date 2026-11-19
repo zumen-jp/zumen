@@ -46,6 +46,7 @@ pub(super) const ADDABLE: &[(&[u8], u16, &[i16])] = &[
     (b"ATTRIB", kinds::ATTRIB, ATTRIB),
     (b"SEQEND", kinds::SEQEND, &[]),
     (b"LEADER", kinds::LEADER, NEW_LEADER),
+    (b"DIMENSION", kinds::DIMENSION_LINEAR, DIMENSION_ALL),
     // 足したブロックのレコードの BLOCK と ENDBLK（決定 0068）。BLOCK の名前（2）と基点は、レコードに合わせる
     (b"BLOCK", kinds::BLOCK, &[2, 10, 20, 30]),
     (b"ENDBLK", kinds::ENDBLK, &[]),
@@ -82,8 +83,10 @@ pub(super) struct NewEntity<'a> {
     pub(super) layer: u64,
     /// 線種のフラグと、フラグが 3 のときの線種のハンドル
     pub(super) ltype: (u8, u64),
-    /// 型ごとに指す表のレコード（TEXT・ATTDEF の文字スタイル、INSERT のブロック）のハンドル
+    /// 型ごとに指す表のレコード（TEXT・ATTDEF の文字スタイル、INSERT のブロック、寸法の寸法スタイル）のハンドル
     pub(super) pointed: Option<u64>,
+    /// 寸法が 2 番目に指す表のレコード（匿名ブロック `*D`）のハンドル
+    pub(super) extra_pointed: Option<u64>,
     /// R2018 からの複数行の ATTRIB の、埋め込みの MTEXT が指す ByLayer の線種と材質のハンドル
     pub(super) embedded: Option<(u64, u64)>,
     /// INSERT が持つ ATTRIB と、SEQEND のハンドル
@@ -177,6 +180,9 @@ impl NewEntity<'_> {
         if let Some(pointed) = self.pointed {
             handles.handle(5, pointed);
         }
+        if let Some(extra) = self.extra_pointed {
+            handles.handle(5, extra);
+        }
         // INSERT は、ブロックに続けて、R2000 では最初と最後の ATTRIB を、R2004 ではすべての ATTRIB を固い
         // 所有で指し、SEQEND を指す（決定 0080）
         if let Some((attribs, seqend)) = &self.children {
@@ -251,6 +257,12 @@ impl NewEntity<'_> {
             b"SPLINE" => spline(&mut fields, object, &[], 0, release)?,
             // 注釈の枠の高さと幅を持たないバージョンがあるので、バージョンを渡す（#345）
             b"LEADER" => leader(&mut fields, object, &[], [0, 0], release)?,
+            b"DIMENSION" => {
+                dimension(&mut fields, object, object, self.type_code, &[], 0, release)?;
+            }
+            b"ARC_DIMENSION" => {
+                arc_dimension::write(&mut fields, object, object, &[], 0, release)?;
+            }
             _ if self.type_code == kinds::MINSERT => {
                 let minsert = self.minsert()?;
                 let len = minsert.len();
@@ -278,6 +290,9 @@ impl NewEntity<'_> {
         }
         if let Some(pointed) = self.pointed {
             handles.handle(5, pointed);
+        }
+        if let Some(extra) = self.extra_pointed {
+            handles.handle(5, extra);
         }
         // R2018 からの MTEXT は、アプリケーションの名前を指す。サンプルの図面と同じく 0 とする（決定 0098）
         if object.kind == b"MTEXT" && release >= Release::R2018 {
@@ -364,6 +379,22 @@ pub(super) fn record_handle(db: &AcadDb, kind: &[u8], name: &[u8]) -> Option<u64
         .filter(|o| o.kind == kind && o.section == Section::Tables)
         .find(|o| text_of(o, 2).is_some_and(|n| n.eq_ignore_ascii_case(name)))?
         .handle()
+}
+
+/// 共有表の `*D<番号>`・`*T<番号>` の匿名ブロック名を、DWG に書く NUL 終端の `*D\0`・`*T\0` に直す
+pub(super) fn anon_dwg_block_name(name: &[u8]) -> Option<&'static [u8]> {
+    let (raw, digits): (&'static [u8], &[u8]) = if let Some(rest) = name
+        .strip_prefix(b"*D")
+        .or_else(|| name.strip_prefix(b"*d"))
+    {
+        (b"*D\0", rest)
+    } else {
+        let rest = name
+            .strip_prefix(b"*T")
+            .or_else(|| name.strip_prefix(b"*t"))?;
+        (b"*T\0", rest)
+    };
+    (!digits.is_empty() && digits.iter().all(u8::is_ascii_digit)).then_some(raw)
 }
 
 /// ハンドル `handle` の図形のデータ `data` の、前後の図形のハンドルを `prev` と `next` にしたもの。
@@ -476,9 +507,11 @@ pub(super) fn r2004_addable(object: &Object) -> bool {
     if object.section == Section::Tables {
         return RECORDS.contains(&object.kind.as_slice());
     }
-    const KINDS: [&[u8]; 22] = [
+    const KINDS: [&[u8]; 24] = [
         b"HATCH",
         b"LEADER",
+        b"DIMENSION",
+        b"ARC_DIMENSION",
         b"BLOCK",
         b"ENDBLK",
         b"LINE",
@@ -573,9 +606,11 @@ pub(super) fn r2010_addable(object: &Object) -> bool {
     if matches!(kind, b"BLOCK" | b"ENDBLK") {
         return object.section == Section::Blocks;
     }
-    const KINDS: [&[u8]; 19] = [
+    const KINDS: [&[u8]; 21] = [
         b"HATCH",
         b"LEADER",
+        b"DIMENSION",
+        b"ARC_DIMENSION",
         b"LINE",
         b"CIRCLE",
         b"ARC",

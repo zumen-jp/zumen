@@ -594,7 +594,14 @@
             "kind": "transform",
             "id": "sheet/0/i20",
             "hash": "v2:3cd4fc9c730a53ace57631c672207755",
-            "matrix": [1, 0, 5, 0, 1, 7]
+            "matrix": [
+              1,
+              0,
+              5,
+              0,
+              1,
+              7
+            ]
           }
         ]
       },
@@ -608,7 +615,28 @@
         "op": "apply",
         "doc": "b.sfc",
         "edits": [
-          { "kind": "add", "place": "sheet/0", "layer": "L", "color": {"sxf": 1}, "line_type": {"id": "line-type/1"}, "geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]} }
+          {
+            "kind": "add",
+            "place": "sheet/0",
+            "layer": "L",
+            "color": {
+              "sxf": 1
+            },
+            "line_type": {
+              "id": "line-type/1"
+            },
+            "geometry": {
+              "shape": "line",
+              "start": [
+                0,
+                0
+              ],
+              "end": [
+                10,
+                20
+              ]
+            }
+          }
         ]
       },
       "status": "failed",
@@ -648,7 +676,14 @@
             "kind": "transform",
             "id": "sheet/0/i8",
             "hash": "v2:5019873bcf7b907f68ddd97f94773e76",
-            "matrix": [1, 0, 5, 0, 1, 7]
+            "matrix": [
+              1,
+              0,
+              5,
+              0,
+              1,
+              7
+            ]
           }
         ]
       },
@@ -662,7 +697,22 @@
         "op": "apply",
         "doc": "c.p21",
         "edits": [
-          { "kind": "add", "place": "sheet/0", "layer": "A", "geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]} }
+          {
+            "kind": "add",
+            "place": "sheet/0",
+            "layer": "A",
+            "geometry": {
+              "shape": "line",
+              "start": [
+                0,
+                0
+              ],
+              "end": [
+                10,
+                20
+              ]
+            }
+          }
         ]
       },
       "status": "failed",
@@ -702,7 +752,14 @@
             "kind": "transform",
             "id": "space/0/r1",
             "hash": "v2:c340ed9d0935e82139c5846bf234b82d",
-            "matrix": [1, 0, 5, 0, 1, 7]
+            "matrix": [
+              1,
+              0,
+              5,
+              0,
+              1,
+              7
+            ]
           }
         ]
       },
@@ -719,9 +776,68 @@
         "op": "apply",
         "doc": "d.jww",
         "edits": [
-          { "kind": "add", "place": "space/0", "layer": "0-0", "color": {"jww": 2}, "line_type": {"id": "line-type/1"}, "geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]} },
-          { "kind": "add", "place": "space/0", "layer": "0-0", "color": {"jww": 2}, "line_type": {"id": "line-type/1"}, "geometry": {"shape": "circle", "center": [5, 5], "radius": 3} },
-          { "kind": "add", "place": "space/0", "layer": "0-0", "color": {"jww": 2}, "line_type": {"id": "line-type/1"}, "geometry": {"shape": "arc", "center": [-5, 0], "radius": 4, "start_angle": 0, "end_angle": 90} }
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer": "0-0",
+            "color": {
+              "jww": 2
+            },
+            "line_type": {
+              "id": "line-type/1"
+            },
+            "geometry": {
+              "shape": "line",
+              "start": [
+                0,
+                0
+              ],
+              "end": [
+                10,
+                20
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer": "0-0",
+            "color": {
+              "jww": 2
+            },
+            "line_type": {
+              "id": "line-type/1"
+            },
+            "geometry": {
+              "shape": "circle",
+              "center": [
+                5,
+                5
+              ],
+              "radius": 3
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer": "0-0",
+            "color": {
+              "jww": 2
+            },
+            "line_type": {
+              "id": "line-type/1"
+            },
+            "geometry": {
+              "shape": "arc",
+              "center": [
+                -5,
+                0
+              ],
+              "radius": 4,
+              "start_angle": 0,
+              "end_angle": 90
+            }
+          }
         ]
       },
       "expect": {
@@ -742,7 +858,11 @@
         "v": 1,
         "op": "entities",
         "doc": "d.jww",
-        "fields": ["id", "layer", "geometry"]
+        "fields": [
+          "id",
+          "layer",
+          "geometry"
+        ]
       },
       "expect": {
         "/result/total": 4,
@@ -750,9 +870,35 @@
         "/result/items/1/layer": "0-0",
         "/result/items/2/layer": "0-0",
         "/result/items/3/layer": "0-0",
-        "/result/items/1/geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]},
-        "/result/items/2/geometry": {"shape": "circle", "center": [5, 5], "radius": 3},
-        "/result/items/3/geometry": {"shape": "arc", "center": [-5, 0], "radius": 4, "start_angle": 0, "end_angle": 90}
+        "/result/items/1/geometry": {
+          "shape": "line",
+          "start": [
+            0,
+            0
+          ],
+          "end": [
+            10,
+            20
+          ]
+        },
+        "/result/items/2/geometry": {
+          "shape": "circle",
+          "center": [
+            5,
+            5
+          ],
+          "radius": 3
+        },
+        "/result/items/3/geometry": {
+          "shape": "arc",
+          "center": [
+            -5,
+            0
+          ],
+          "radius": 4,
+          "start_angle": 0,
+          "end_angle": 90
+        }
       }
     },
     {
@@ -761,7 +907,25 @@
         "op": "apply",
         "doc": "d.jww",
         "edits": [
-          { "kind": "add", "place": "space/0", "layer": "0-0", "color": {"jww": 2}, "geometry": {"shape": "line", "start": [0, 0], "end": [10, 20]} }
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer": "0-0",
+            "color": {
+              "jww": 2
+            },
+            "geometry": {
+              "shape": "line",
+              "start": [
+                0,
+                0
+              ],
+              "end": [
+                10,
+                20
+              ]
+            }
+          }
         ]
       },
       "status": "failed",
@@ -795,7 +959,11 @@
         "v": 1,
         "op": "entities",
         "doc": "parts.dxf",
-        "fields": ["id", "hash", "geometry"]
+        "fields": [
+          "id",
+          "hash",
+          "geometry"
+        ]
       },
       "expect": {
         "/result/total": 2,
@@ -804,15 +972,27 @@
         "/result/items/0/geometry": {
           "shape": "dimension",
           "kind": "linear",
-          "first": [0, 0],
-          "second": [100, 0],
-          "line": [100, 20],
+          "first": [
+            0,
+            0
+          ],
+          "second": [
+            100,
+            0
+          ],
+          "line": [
+            100,
+            20
+          ],
           "rotation": 0,
           "oblique": 0,
           "label": "measurement",
           "measurement": 100,
           "measurement_key": "dxf.DIMENSION.42",
-          "text_position": [50, 20],
+          "text_position": [
+            50,
+            20
+          ],
           "style": "ISO-25",
           "style_id": "dimension-style/h2A"
         },
@@ -820,15 +1000,43 @@
         "/result/items/1/hash": "v2:feed920435a79a60eabfb49a7bdc6cf0",
         "/result/items/1/geometry": {
           "shape": "table",
-          "position": [10, 50],
-          "direction": [1, 0],
-          "row_heights": [8, 6],
-          "column_widths": [20, 30],
+          "position": [
+            10,
+            50
+          ],
+          "direction": [
+            1,
+            0
+          ],
+          "row_heights": [
+            8,
+            6
+          ],
+          "column_widths": [
+            20,
+            30
+          ],
           "cells": [
-            {"content": "text", "text": "Title", "span": [2, 1]},
-            {"content": "empty", "covered": true},
-            {"content": "text", "text": "A1"},
-            {"content": "text", "text": "100"}
+            {
+              "content": "text",
+              "text": "Title",
+              "span": [
+                2,
+                1
+              ]
+            },
+            {
+              "content": "empty",
+              "covered": true
+            },
+            {
+              "content": "text",
+              "text": "A1"
+            },
+            {
+              "content": "text",
+              "text": "100"
+            }
           ]
         }
       }
@@ -846,9 +1054,18 @@
             "geometry": {
               "shape": "dimension",
               "kind": "linear",
-              "first": [0, 0],
-              "second": [160, 0],
-              "line": [160, 25],
+              "first": [
+                0,
+                0
+              ],
+              "second": [
+                160,
+                0
+              ],
+              "line": [
+                160,
+                25
+              ],
               "rotation": 0,
               "oblique": 0,
               "label": "override",
@@ -862,15 +1079,42 @@
             "hash": "v2:feed920435a79a60eabfb49a7bdc6cf0",
             "geometry": {
               "shape": "table",
-              "position": [15, 60],
-              "direction": [1, 0],
-              "row_heights": [8, 6],
-              "column_widths": [25, 30],
+              "position": [
+                15,
+                60
+              ],
+              "direction": [
+                1,
+                0
+              ],
+              "row_heights": [
+                8,
+                6
+              ],
+              "column_widths": [
+                25,
+                30
+              ],
               "cells": [
-                {"content": "text", "text": "Title2", "span": [2, 1]},
-                {"content": "empty", "covered": true},
-                {"content": "empty"},
-                {"content": "text", "text": "250"}
+                {
+                  "content": "text",
+                  "text": "Title2",
+                  "span": [
+                    2,
+                    1
+                  ]
+                },
+                {
+                  "content": "empty",
+                  "covered": true
+                },
+                {
+                  "content": "empty"
+                },
+                {
+                  "content": "text",
+                  "text": "250"
+                }
               ]
             }
           }
@@ -898,13 +1142,27 @@
             "kind": "transform",
             "id": "space/0/h80",
             "hash": "v2:99c44b87ed8a59509822d82cdebc0104",
-            "matrix": [0, -1, 5, 1, 0, 10]
+            "matrix": [
+              0,
+              -1,
+              5,
+              1,
+              0,
+              10
+            ]
           },
           {
             "kind": "transform",
             "id": "space/0/h300",
             "hash": "v2:dc611f2dd636e6b04ef060b50c03e174",
-            "matrix": [0, -1, 5, 1, 0, 10]
+            "matrix": [
+              0,
+              -1,
+              5,
+              1,
+              0,
+              10
+            ]
           }
         ]
       },
@@ -923,37 +1181,79 @@
         "v": 1,
         "op": "entities",
         "doc": "parts.dxf",
-        "fields": ["id", "geometry"]
+        "fields": [
+          "id",
+          "geometry"
+        ]
       },
       "expect": {
         "/result/total": 2,
         "/result/items/0/geometry": {
           "shape": "dimension",
           "kind": "linear",
-          "first": [5, 10],
-          "second": [5, 170],
-          "line": [-20, 170],
+          "first": [
+            5,
+            10
+          ],
+          "second": [
+            5,
+            170
+          ],
+          "line": [
+            -20,
+            170
+          ],
           "rotation": 90,
           "oblique": 0,
           "label": "override",
           "content": "L=<>",
           "measurement": 160,
           "measurement_key": "dxf.DIMENSION.42",
-          "text_position": [-20, 90],
+          "text_position": [
+            -20,
+            90
+          ],
           "style": "ISO-25",
           "style_id": "dimension-style/h2A"
         },
         "/result/items/1/geometry": {
           "shape": "table",
-          "position": [-55, 25],
-          "direction": [0, 1],
-          "row_heights": [8, 6],
-          "column_widths": [25, 30],
+          "position": [
+            -55,
+            25
+          ],
+          "direction": [
+            0,
+            1
+          ],
+          "row_heights": [
+            8,
+            6
+          ],
+          "column_widths": [
+            25,
+            30
+          ],
           "cells": [
-            {"content": "text", "text": "Title2", "span": [2, 1]},
-            {"content": "empty", "covered": true},
-            {"content": "empty"},
-            {"content": "text", "text": "250"}
+            {
+              "content": "text",
+              "text": "Title2",
+              "span": [
+                2,
+                1
+              ]
+            },
+            {
+              "content": "empty",
+              "covered": true
+            },
+            {
+              "content": "empty"
+            },
+            {
+              "content": "text",
+              "text": "250"
+            }
           ]
         }
       }
@@ -987,16 +1287,123 @@
             "place": "space/0",
             "geometry": {
               "shape": "table",
-              "position": [15, 60],
-              "direction": [1, 0],
-              "row_heights": [8, 6],
-              "column_widths": [25, 30],
+              "position": [
+                15,
+                60
+              ],
+              "direction": [
+                1,
+                0
+              ],
+              "row_heights": [
+                8,
+                6
+              ],
+              "column_widths": [
+                25,
+                30
+              ],
               "cells": [
-                {"content": "text", "text": "Title2", "span": [2, 1]},
-                {"content": "empty", "covered": true},
-                {"content": "empty"},
-                {"content": "text", "text": "250"}
+                {
+                  "content": "text",
+                  "text": "Title2",
+                  "span": [
+                    2,
+                    1
+                  ]
+                },
+                {
+                  "content": "empty",
+                  "covered": true
+                },
+                {
+                  "content": "empty"
+                },
+                {
+                  "content": "text",
+                  "text": "250"
+                }
               ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "dimension",
+              "kind": "linear",
+              "first": [
+                0,
+                0
+              ],
+              "second": [
+                40,
+                0
+              ],
+              "line": [
+                40,
+                10
+              ],
+              "rotation": 0,
+              "oblique": 0,
+              "label": "measurement",
+              "style": "ISO-25"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/blobs/0/kind": "file",
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "parts.dxf",
+        "fields": [
+          "id",
+          "kind"
+        ]
+      },
+      "expect": {
+        "/result/total": 4,
+        "/result/items/2/kind": "table",
+        "/result/items/3/kind": "dimension"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "parts.dxf",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "dimension",
+              "kind": "linear",
+              "first": [
+                0,
+                0
+              ],
+              "second": [
+                40,
+                0
+              ],
+              "line": [
+                40,
+                10
+              ],
+              "rotation": 0,
+              "oblique": 0,
+              "label": "measurement",
+              "style": "MissingStyle"
             }
           }
         ]
@@ -1004,7 +1411,7 @@
       "status": "failed",
       "expect": {
         "/diagnostics/0/code": "change.edit.unsupported",
-        "/diagnostics/0/params/kind": "ACAD_TABLE",
+        "/diagnostics/0/params/kind": "DIMENSION",
         "/blobs": []
       },
       "absent": [

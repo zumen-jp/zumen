@@ -97,6 +97,7 @@ fn r2010_leaders_are_added_and_replaced_with_their_arrow() {
             layer: 0x10,
             ltype: (0, 0),
             pointed: Some(0x11),
+            extra_pointed: None,
             embedded: None,
             children: None,
         };
@@ -189,6 +190,7 @@ fn reactors_are_added_to_entities() {
             layer: 0x10,
             ltype: (0, 0),
             pointed: Some(0x11),
+            extra_pointed: None,
             embedded: None,
             children: None,
         };

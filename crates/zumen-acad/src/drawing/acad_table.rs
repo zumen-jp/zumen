@@ -465,6 +465,28 @@ const STYLE_BORDERS: BorderCodes = BorderCodes {
     vertical: Some([68, 278, 288]),
 };
 
+/// `TABLESTYLE` オブジェクトから表スタイルの書式を読む。読めなければ `None`
+pub(super) fn lift_table_style_formats(
+    db: &AcadDb,
+    style: &Object,
+    charset: super::Charset,
+    length: &impl Fn(f64) -> Length,
+) -> Option<TableFormats> {
+    let empty = std::collections::BTreeMap::new();
+    let lifter = Lifter {
+        layouts: &empty,
+        sheet: super::SHEET,
+        charset,
+        fit_data: false,
+        table_content: false,
+        version: None,
+        unit: zumen_drawing::Unit::Unknown,
+        mm: None,
+        origin: [0.0, 0.0],
+    };
+    lifter.table_formats(db, style, length).ok().flatten()
+}
+
 /// R2010 からの DWG の表または参照する `TABLESTYLE` に、まだ移せない書式のフィールドがあるか（#906）
 pub(super) fn has_unsupported_dwg_table_format(db: &AcadDb, object: &Object) -> bool {
     if object

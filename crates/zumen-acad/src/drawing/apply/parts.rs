@@ -565,6 +565,865 @@ pub(super) fn copy_parts<P: Copy + PartialEq + geom_transform::Point>(
     Ok(Some((values, extra, lower)))
 }
 
+/// 寸法（DIMENSION・ARC_DIMENSION）と表（ACAD_TABLE）を新しく足す（`Edit::Add`）。
+/// 主レコードと、新しい匿名ブロック（`*D<n>`・`*T<n>`）の `BLOCK_RECORD`・`BLOCK`・部品・`ENDBLK` を返す。
+pub(super) fn add_parts<P: Copy>(
+    current: &Current<'_>,
+    plan: &mut Plan<'_>,
+    element: &Element<P>,
+    frame: &impl Frame<P>,
+    home: Home,
+    cx: &mut Cx,
+) -> Result<Option<(Record, Vec<Record>, String)>, Error> {
+    if home.owner.is_none() || !current.born.home_ready(home) {
+        return Ok(None);
+    }
+    let Some(next) = current.born.next_handle() else {
+        return Ok(None);
+    };
+    let dxf = current.target == Target::Dxf;
+    if !dxf && !current.born.since(b"AC1015") {
+        return Ok(None);
+    }
+    if plan.blocks.is_none() {
+        plan.blocks = Some(BlockIndex::new(current.db, current.charset, cx)?);
+    }
+    let Some(blocks) = plan.blocks.as_ref() else {
+        return Ok(None);
+    };
+    let Some(model_rec) = super::add::symbol::model_record(current.db) else {
+        return Ok(None);
+    };
+    let Some(table_owner) = model_rec.owner() else {
+        return Ok(None);
+    };
+    if dxf
+        && (super::layer::table_end(current.db, b"BLOCK_RECORD").is_none()
+            || super::add::symbol::blocks_end(current.db).is_none())
+    {
+        return Ok(None);
+    }
+    let Some(zero) = current.born.named(8, b"LAYER", "0") else {
+        return Ok(None);
+    };
+    let paper = home.paper && !(home.blocks && !dxf);
+    let Some(entity_head) = current.born.entity(element.layer, &element.style, paper) else {
+        return Ok(None);
+    };
+    let prefix = match &element.shape {
+        Shape::Dimension(_) => "*D",
+        Shape::Table(_) => "*T",
+        _ => return Ok(None),
+    };
+    let mut number = 1u64;
+    let (anon_name, lower) = loop {
+        let candidate = format!("{prefix}{number}");
+        let lower = candidate.to_lowercase();
+        if !blocks.records.contains_key(&lower) && !plan.anon_names.contains(&lower) {
+            break (candidate, lower);
+        }
+        let Some(next_num) = number.checked_add(1) else {
+            return Ok(None);
+        };
+        number = next_num;
+    };
+    let (Some(name2), Some(name3)) = (
+        current.born.text_value(2, &anon_name),
+        current.born.text_value(3, &anon_name),
+    ) else {
+        return Ok(None);
+    };
+
+    // 足す順番: [0] 寸法・表, [1] BLOCK_RECORD, [2] BLOCK, [3..] 部品, [末尾] ENDBLK
+    let Some(anon_record_handle) = next
+        .checked_add(plan.added_records)
+        .and_then(|base| base.checked_add(1))
+    else {
+        return Ok(None);
+    };
+    let Some(parts_base) = plan.added_records.checked_add(3) else {
+        return Ok(None);
+    };
+    let place_ref = Ref::default();
+    let markers = dxf && current.born.has_markers();
+
+    let (main_kind, mut main_values, part_records, part_count): (
+        &'static [u8],
+        Vec<Value>,
+        Vec<Record>,
+        u64,
+    ) = match &element.shape {
+        Shape::Dimension(dimension) => {
+            let Some(built) = add_dimension_parts(
+                current,
+                blocks,
+                dimension,
+                &entity_head,
+                &name2,
+                anon_record_handle,
+                frame,
+                parts_base,
+                dxf,
+                cx,
+                &place_ref,
+            )?
+            else {
+                return Ok(None);
+            };
+            built
+        }
+        Shape::Table(table) => {
+            let Some(built) = add_table_parts(
+                current,
+                blocks,
+                table,
+                &entity_head,
+                &name2,
+                anon_record_handle,
+                frame,
+                parts_base,
+                dxf,
+                cx,
+                &place_ref,
+            )?
+            else {
+                return Ok(None);
+            };
+            built
+        }
+        _ => return Ok(None),
+    };
+    if !markers {
+        main_values.retain(|v| v.code != 100);
+    }
+
+    let mut rec_values = Vec::new();
+    if dxf {
+        for v in &model_rec.values {
+            match v.code {
+                2 => rec_values.push(name2.clone()),
+                100 | 70 | 280 | 281 => rec_values.push(v.clone()),
+                _ => {}
+            }
+        }
+        if !rec_values.iter().any(|v| v.code == 2) {
+            rec_values.push(name2.clone());
+        }
+    } else {
+        rec_values.push(name2.clone());
+    }
+    let block_record = Record {
+        kind: b"BLOCK_RECORD",
+        values: rec_values,
+        home: Home {
+            owner: Some(table_owner),
+            blocks: false,
+            paper: false,
+        },
+        followers: Vec::new(),
+        annotation: None,
+    };
+    let block_home = Home {
+        owner: Some(anon_record_handle),
+        blocks: true,
+        paper: false,
+    };
+    let (Some(x0), Some(y0), Some(z0)) = (real(10, 0.0), real(20, 0.0), real(30, 0.0)) else {
+        return Ok(None);
+    };
+    let mut block_begin = Vec::new();
+    if markers {
+        block_begin.extend([
+            text(100, "AcDbEntity"),
+            zero.clone(),
+            text(100, "AcDbBlockBegin"),
+        ]);
+    } else {
+        block_begin.push(zero.clone());
+    }
+    block_begin.push(name2);
+    if dxf {
+        block_begin.push(int(70, 1));
+    }
+    block_begin.extend([x0, y0, z0]);
+    if dxf {
+        block_begin.extend([name3, text(1, "")]);
+    }
+    let mut end_values = Vec::new();
+    if markers {
+        end_values.extend([text(100, "AcDbEntity"), zero, text(100, "AcDbBlockEnd")]);
+    } else {
+        end_values.push(zero);
+    }
+
+    let Some(total_extra) = part_count.checked_add(3) else {
+        return Ok(None);
+    };
+    if next
+        .checked_add(plan.added_records)
+        .and_then(|first| first.checked_add(1))
+        .and_then(|after_ent| after_ent.checked_add(total_extra))
+        .and_then(|last| last.checked_add(1))
+        .is_none()
+    {
+        return Ok(None);
+    }
+
+    let main_record = Record {
+        kind: main_kind,
+        values: main_values,
+        home,
+        followers: Vec::new(),
+        annotation: None,
+    };
+    let mut extra = Vec::with_capacity(part_records.len() + 3);
+    extra.push(block_record);
+    extra.push(Record {
+        kind: b"BLOCK",
+        values: block_begin,
+        home: block_home,
+        followers: Vec::new(),
+        annotation: None,
+    });
+    extra.extend(part_records);
+    extra.push(Record {
+        kind: b"ENDBLK",
+        values: end_values,
+        home: block_home,
+        followers: Vec::new(),
+        annotation: None,
+    });
+    Ok(Some((main_record, extra, lower)))
+}
+
+type BornPart = (&'static [u8], Vec<Value>, Vec<Record>, u64);
+
+#[allow(clippy::too_many_arguments)]
+fn add_dimension_parts<P: Copy>(
+    current: &Current<'_>,
+    blocks: &BlockIndex,
+    dimension: &Dimension<P>,
+    entity_head: &[Value],
+    name2: &Value,
+    anon_record_handle: u64,
+    frame: &impl Frame<P>,
+    parts_base: u64,
+    dxf: bool,
+    cx: &mut Cx,
+    place: &Ref,
+) -> Result<Option<BornPart>, Error> {
+    if dimension.block.is_some() || dimension.measurement.is_some() {
+        return Ok(None);
+    }
+    let is_arc = matches!(dimension.kind, DimensionKind::ArcLength { .. });
+    if is_arc {
+        if !current.born.since(b"AC1018") || !current.arc_dimension_class {
+            return Ok(None);
+        }
+    } else if dxf && !current.born.since(b"AC1012") && !current.born.has_markers() {
+        return Ok(None);
+    }
+    let Some(style3) = current.born.named(3, b"DIMSTYLE", &dimension.style) else {
+        return Ok(None);
+    };
+    let dummy = Object {
+        kind: b"DIMENSION".to_vec(),
+        section: Section::Entities,
+        values: Vec::new(),
+        origin: crate::Origin::New,
+    };
+    let params = DimParams::resolve(current, blocks, &dummy, &dimension.style);
+    let Some(drawn) = parts::dimension(
+        dimension,
+        |p| frame.point(p),
+        |l| frame.length(l),
+        params.offsets,
+    ) else {
+        return Ok(None);
+    };
+    let text_pos = if dimension.text.moved {
+        let Some(pos) = &dimension.text.position else {
+            return Ok(None);
+        };
+        let Some(pt) = frame.point(pos) else {
+            return Ok(None);
+        };
+        pt
+    } else if let Some(pos) = &dimension.text.position {
+        let Some(pt) = frame.point(pos) else {
+            return Ok(None);
+        };
+        pt
+    } else {
+        drawn.middle
+    };
+    let Some(label_val) = encode_dimension_label(&dimension.label, current.encoder) else {
+        return Ok(None);
+    };
+    let att = dimension
+        .text
+        .attachment
+        .map_or(5, |(h, v)| attachment_code(h, v));
+    let push_pt3 = |out: &mut Vec<Value>, code: i16, [x, y]: [f64; 2]| -> Option<()> {
+        out.extend([real(code, x)?, real(code + 10, y)?, real(code + 20, 0.0)?]);
+        Some(())
+    };
+
+    let mut values = entity_head.to_vec();
+    values.push(text(100, "AcDbDimension"));
+    values.push(name2.clone());
+
+    let main_kind: &'static [u8] = match &dimension.kind {
+        DimensionKind::ArcLength {
+            center,
+            first,
+            second,
+            arc,
+        } => {
+            let (Some(p_center), Some(p_first), Some(p_second), Some(p_arc)) = (
+                frame.point(center),
+                frame.point(first),
+                frame.point(second),
+                frame.point(arc),
+            ) else {
+                return Ok(None);
+            };
+            let Some(DimensionCurve::Arc { start, sweep, .. }) = drawn.curve else {
+                return Ok(None);
+            };
+            let start_rad = start.rem_euclid(360.0).to_radians();
+            let end_rad = if sweep >= 360.0 && start_rad == 0.0 {
+                core::f64::consts::TAU
+            } else {
+                (start + sweep).rem_euclid(360.0).to_radians()
+            };
+            let flags = 32 | 5 | if dimension.text.moved { 128 } else { 0 };
+            let (Some(m42), Some(r40), Some(r41)) = (
+                real(42, drawn.raw_measurement),
+                real(40, start_rad),
+                real(41, end_rad),
+            ) else {
+                return Ok(None);
+            };
+            if push_pt3(&mut values, 10, p_arc).is_none()
+                || push_pt3(&mut values, 11, text_pos).is_none()
+            {
+                return Ok(None);
+            }
+            values.extend([int(70, flags), int(71, att), m42]);
+            if let Some(val) = label_val {
+                values.push(val);
+            }
+            if let Some(rot) = dimension.text.rotation {
+                let Some(r53) = real(53, rot) else {
+                    return Ok(None);
+                };
+                if dxf || rot != 0.0 {
+                    values.push(r53);
+                }
+            }
+            values.push(style3);
+            values.push(text(100, "AcDbArcDimension"));
+            if push_pt3(&mut values, 13, p_first).is_none()
+                || push_pt3(&mut values, 14, p_second).is_none()
+                || push_pt3(&mut values, 15, p_center).is_none()
+            {
+                return Ok(None);
+            }
+            values.extend([int(70, 0), r40, r41, int(71, 0)]);
+            if push_pt3(&mut values, 16, p_first).is_none()
+                || push_pt3(&mut values, 17, p_second).is_none()
+            {
+                return Ok(None);
+            }
+            b"ARC_DIMENSION"
+        }
+        kind => {
+            let (kind_code, p10) = match kind {
+                DimensionKind::Linear { line, .. } => (0, frame.point(line)),
+                DimensionKind::Aligned { line, .. } => (1, frame.point(line)),
+                DimensionKind::AngularLines { second, .. } => (2, frame.point(&second[1])),
+                DimensionKind::Diameter { opposite, .. } => (3, frame.point(opposite)),
+                DimensionKind::Radius { center, .. } => (4, frame.point(center)),
+                DimensionKind::Angular { arc, .. } => (5, frame.point(arc)),
+                DimensionKind::Ordinate { origin, axis, .. } => (
+                    6 | if *axis == Axis::X { 64 } else { 0 },
+                    frame.point(origin),
+                ),
+                DimensionKind::ArcLength { .. } => return Ok(None),
+            };
+            let Some(p10) = p10 else {
+                return Ok(None);
+            };
+            let Some(m42) = real(42, drawn.raw_measurement) else {
+                return Ok(None);
+            };
+            let flags = 32 | kind_code | if dimension.text.moved { 128 } else { 0 };
+            if push_pt3(&mut values, 10, p10).is_none()
+                || push_pt3(&mut values, 11, text_pos).is_none()
+            {
+                return Ok(None);
+            }
+            values.extend([int(70, flags), int(71, att), m42]);
+            if let Some(val) = label_val {
+                values.push(val);
+            }
+            if let Some(rot) = dimension.text.rotation {
+                let Some(r53) = real(53, rot) else {
+                    return Ok(None);
+                };
+                if dxf || rot != 0.0 {
+                    values.push(r53);
+                }
+            }
+            values.push(style3);
+            match kind {
+                DimensionKind::Linear {
+                    first,
+                    second,
+                    rotation,
+                    oblique,
+                    ..
+                } => {
+                    let (Some(p13), Some(p14)) = (frame.point(first), frame.point(second)) else {
+                        return Ok(None);
+                    };
+                    if !rotation.is_finite() || !oblique.is_finite() {
+                        return Ok(None);
+                    }
+                    values.push(text(100, "AcDbAlignedDimension"));
+                    if push_pt3(&mut values, 13, p13).is_none()
+                        || push_pt3(&mut values, 14, p14).is_none()
+                    {
+                        return Ok(None);
+                    }
+                    if *rotation != 0.0 {
+                        let Some(r50) = real(50, *rotation) else {
+                            return Ok(None);
+                        };
+                        values.push(r50);
+                    }
+                    if *oblique != 0.0 {
+                        let Some(r52) = real(52, *oblique) else {
+                            return Ok(None);
+                        };
+                        values.push(r52);
+                    }
+                    values.push(text(100, "AcDbRotatedDimension"));
+                }
+                DimensionKind::Aligned {
+                    first,
+                    second,
+                    oblique,
+                    ..
+                } => {
+                    let (Some(p13), Some(p14)) = (frame.point(first), frame.point(second)) else {
+                        return Ok(None);
+                    };
+                    if !oblique.is_finite() {
+                        return Ok(None);
+                    }
+                    values.push(text(100, "AcDbAlignedDimension"));
+                    if push_pt3(&mut values, 13, p13).is_none()
+                        || push_pt3(&mut values, 14, p14).is_none()
+                    {
+                        return Ok(None);
+                    }
+                    if *oblique != 0.0 {
+                        let Some(r52) = real(52, *oblique) else {
+                            return Ok(None);
+                        };
+                        values.push(r52);
+                    }
+                }
+                DimensionKind::Radius { chord, leader, .. } => {
+                    let (Some(p15), Some(lead)) =
+                        (frame.point(chord), super::nonnegative(frame, leader))
+                    else {
+                        return Ok(None);
+                    };
+                    let Some(r40) = real(40, lead) else {
+                        return Ok(None);
+                    };
+                    values.push(text(100, "AcDbRadialDimension"));
+                    if push_pt3(&mut values, 15, p15).is_none() {
+                        return Ok(None);
+                    }
+                    values.push(r40);
+                }
+                DimensionKind::Diameter { chord, leader, .. } => {
+                    let (Some(p15), Some(lead)) =
+                        (frame.point(chord), super::nonnegative(frame, leader))
+                    else {
+                        return Ok(None);
+                    };
+                    let Some(r40) = real(40, lead) else {
+                        return Ok(None);
+                    };
+                    values.push(text(100, "AcDbDiametricDimension"));
+                    if push_pt3(&mut values, 15, p15).is_none() {
+                        return Ok(None);
+                    }
+                    values.push(r40);
+                }
+                DimensionKind::Angular {
+                    vertex,
+                    first,
+                    second,
+                    ..
+                } => {
+                    let (Some(p13), Some(p14), Some(p15)) =
+                        (frame.point(first), frame.point(second), frame.point(vertex))
+                    else {
+                        return Ok(None);
+                    };
+                    values.push(text(100, "AcDb3PointAngularDimension"));
+                    if push_pt3(&mut values, 13, p13).is_none()
+                        || push_pt3(&mut values, 14, p14).is_none()
+                        || push_pt3(&mut values, 15, p15).is_none()
+                    {
+                        return Ok(None);
+                    }
+                }
+                DimensionKind::AngularLines { first, second, arc } => {
+                    let (Some(p13), Some(p14), Some(p15), Some(p16)) = (
+                        frame.point(&first[0]),
+                        frame.point(&first[1]),
+                        frame.point(&second[0]),
+                        frame.point(arc),
+                    ) else {
+                        return Ok(None);
+                    };
+                    values.push(text(100, "AcDb2LineAngularDimension"));
+                    if push_pt3(&mut values, 13, p13).is_none()
+                        || push_pt3(&mut values, 14, p14).is_none()
+                        || push_pt3(&mut values, 15, p15).is_none()
+                        || push_pt3(&mut values, 16, p16).is_none()
+                    {
+                        return Ok(None);
+                    }
+                }
+                DimensionKind::Ordinate {
+                    feature,
+                    leader_end,
+                    ..
+                } => {
+                    let (Some(p13), Some(p14)) = (frame.point(feature), frame.point(leader_end))
+                    else {
+                        return Ok(None);
+                    };
+                    values.push(text(100, "AcDbOrdinateDimension"));
+                    if push_pt3(&mut values, 13, p13).is_none()
+                        || push_pt3(&mut values, 14, p14).is_none()
+                    {
+                        return Ok(None);
+                    }
+                }
+                DimensionKind::ArcLength { .. } => return Ok(None),
+            }
+            b"DIMENSION"
+        }
+    };
+
+    let Some((records, count)) = build_dimension_records(
+        current.born,
+        dimension,
+        &drawn,
+        text_pos,
+        &params,
+        anon_record_handle,
+        parts_base,
+        true,
+        cx,
+        place,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some((main_kind, values, records, count)))
+}
+
+fn find_standard_tablestyle<'a>(
+    db: &'a AcadDb,
+    charset: Charset,
+    cx: &mut Cx,
+    place: &Ref,
+) -> Result<Option<(u64, &'a Object)>, Error> {
+    let entry_of = |dict: &Object, key: &str| -> Option<u64> {
+        dict.values.windows(2).find_map(|pair| match pair {
+            [
+                Value {
+                    code: 3,
+                    data: Data::Text(raw),
+                },
+                Value {
+                    code: 350 | 360,
+                    data: Data::Handle(h),
+                },
+            ] if *h != 0
+                && charset
+                    .decode(raw)
+                    .is_some_and(|s| s.eq_ignore_ascii_case(key)) =>
+            {
+                Some(*h)
+            }
+            _ => None,
+        })
+    };
+    let mut dict_style = None;
+    let mut named_styles = Vec::new();
+    for obj in db.objects() {
+        work(cx, 1, place)?;
+        if obj.section != Section::Objects {
+            continue;
+        }
+        if obj.kind == b"DICTIONARY"
+            && let Some(group_handle) = entry_of(obj, "ACAD_TABLESTYLE")
+            && let Some(group_dict) = db.get(group_handle).filter(|d| d.kind == b"DICTIONARY")
+            && let Some(style_handle) = entry_of(group_dict, "Standard")
+            && let Some(style_obj) = db.get(style_handle).filter(|s| s.kind == b"TABLESTYLE")
+        {
+            dict_style = Some((style_handle, style_obj));
+            break;
+        }
+        if obj.kind == b"TABLESTYLE"
+            && let Some(handle) = obj.handle().filter(|&h| h != 0)
+            && let Some(Data::Text(raw)) = obj.first(3)
+            && charset
+                .decode(raw)
+                .is_some_and(|s| s.eq_ignore_ascii_case("Standard"))
+        {
+            named_styles.push((handle, obj));
+        }
+    }
+    if let Some(found) = dict_style {
+        return Ok(Some(found));
+    }
+    Ok((named_styles.len() == 1).then(|| named_styles.remove(0)))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_table_parts<P: Copy>(
+    current: &Current<'_>,
+    blocks: &BlockIndex,
+    table: &Table<P>,
+    entity_head: &[Value],
+    name2: &Value,
+    anon_record_handle: u64,
+    frame: &impl Frame<P>,
+    parts_base: u64,
+    dxf: bool,
+    cx: &mut Cx,
+    place: &Ref,
+) -> Result<Option<BornPart>, Error> {
+    if !dxf
+        || !current.born.since(b"AC1018")
+        || table.style.is_some()
+        || table.formats.is_some()
+        || table.drawn.is_some()
+    {
+        return Ok(None);
+    }
+    let Some((style_handle, style_obj)) =
+        find_standard_tablestyle(current.db, current.charset, cx, place)?
+    else {
+        return Ok(None);
+    };
+    let rows = table.row_heights.len();
+    let cols = table.column_widths.len();
+    if rows == 0 || cols == 0 || rows.checked_mul(cols) != Some(table.cells.len()) {
+        return Ok(None);
+    }
+    let Some([px, py]) = frame.point(&table.position) else {
+        return Ok(None);
+    };
+    let [dx, dy] = table.direction;
+    let norm = libm::hypot(dx, dy);
+    if !(norm > 0.0 && norm.is_finite()) {
+        return Ok(None);
+    }
+    let (Some(rows_i), Some(cols_i)) = (i64::try_from(rows).ok(), i64::try_from(cols).ok()) else {
+        return Ok(None);
+    };
+
+    let mut values = entity_head.to_vec();
+    let (Some(p10), Some(p20), Some(p30), Some(d11), Some(d21), Some(d31)) = (
+        real(10, px),
+        real(20, py),
+        real(30, 0.0),
+        real(11, dx),
+        real(21, dy),
+        real(31, 0.0),
+    ) else {
+        return Ok(None);
+    };
+    values.extend([
+        text(100, "AcDbBlockReference"),
+        name2.clone(),
+        p10,
+        p20,
+        p30,
+        text(100, "AcDbTable"),
+        int(280, 0),
+        Value {
+            code: 342,
+            data: Data::Handle(style_handle),
+        },
+        Value {
+            code: 343,
+            data: Data::Handle(anon_record_handle),
+        },
+        d11,
+        d21,
+        d31,
+        int(90, 22),
+        int(91, rows_i),
+        int(92, cols_i),
+        int(93, 0),
+        int(94, 0),
+        int(95, 0),
+        int(96, 0),
+    ]);
+    for h in &table.row_heights {
+        let Some(raw_h) = positive(frame, h).and_then(|v| real(141, v)) else {
+            return Ok(None);
+        };
+        values.push(raw_h);
+    }
+    for w in &table.column_widths {
+        let Some(raw_w) = positive(frame, w).and_then(|v| real(142, v)) else {
+            return Ok(None);
+        };
+        values.push(raw_w);
+    }
+
+    let r2007 = current.born.since(b"AC1021");
+    let flag_code = if r2007 { 91 } else { 177 };
+    for cell in &table.cells {
+        work(cx, 1, place)?;
+        if cell.value.is_some()
+            || cell.format != Default::default()
+            || !cell.rotation.is_finite()
+            || cell.span[0] == 0
+            || cell.span[1] == 0
+        {
+            return Ok(None);
+        }
+        let Some(rot_val) = real(145, cell.rotation) else {
+            return Ok(None);
+        };
+        match &cell.content {
+            CellContent::Empty | CellContent::Text { .. } => {
+                let raw_str = match &cell.content {
+                    CellContent::Empty => "",
+                    CellContent::Text { content, .. } => {
+                        if content.is_empty() {
+                            return Ok(None);
+                        }
+                        content.as_str()
+                    }
+                    CellContent::Symbol(_) => "",
+                };
+                let Some(text_chunks) = split_text(raw_str, 2, 1, current.encoder) else {
+                    return Ok(None);
+                };
+                values.extend([
+                    int(171, 1),
+                    int(172, 0),
+                    int(173, i64::from(cell.covered)),
+                    int(174, 0),
+                    int(175, i64::from(cell.span[0])),
+                    int(176, i64::from(cell.span[1])),
+                    int(flag_code, 0),
+                    int(178, 0),
+                    rot_val,
+                ]);
+                values.extend(text_chunks.clone());
+                if r2007 {
+                    values.push(text(301, "CELL_VALUE"));
+                    if raw_str.is_empty() {
+                        values.extend([
+                            int(90, 0),
+                            int(93, 1),
+                            text(300, ""),
+                            text(302, ""),
+                            text(304, "ACVALUE_END"),
+                        ]);
+                    } else {
+                        let Some(fmt_chunks) = split_text(raw_str, 303, 302, current.encoder)
+                        else {
+                            return Ok(None);
+                        };
+                        values.extend([int(90, 4), int(93, 0)]);
+                        values.extend(text_chunks);
+                        values.push(int(94, 0));
+                        values.push(text(300, ""));
+                        values.extend(fmt_chunks);
+                        values.push(text(304, "ACVALUE_END"));
+                    }
+                }
+            }
+            CellContent::Symbol(key) => {
+                if key.namespace != super::BLOCK
+                    || key.name.starts_with('*')
+                    || !current.born.has_block(&key.name)
+                {
+                    return Ok(None);
+                }
+                let Some((_, Some((_, blk_handle)))) =
+                    blocks.records.get_key_value(&key.name.to_lowercase())
+                else {
+                    return Ok(None);
+                };
+                let Some(s144) = real(144, 1.0) else {
+                    return Ok(None);
+                };
+                values.extend([
+                    int(171, 2),
+                    int(172, 0),
+                    int(173, i64::from(cell.covered)),
+                    int(174, 0),
+                    int(175, i64::from(cell.span[0])),
+                    int(176, i64::from(cell.span[1])),
+                    int(flag_code, 0),
+                    int(178, 0),
+                    rot_val,
+                    s144,
+                    Value {
+                        code: 340,
+                        data: Data::Handle(*blk_handle),
+                    },
+                ]);
+            }
+        }
+    }
+
+    let mut styled_table = table.clone();
+    styled_table.formats = crate::drawing::acad_table::lift_table_style_formats(
+        current.db,
+        style_obj,
+        current.charset,
+        &|v| frame.lifted(v),
+    )
+    .map(Box::new);
+    let default_height = blocks.standard_text_height.unwrap_or(2.5);
+    let Some((records, count)) = build_table_records(
+        current.born,
+        &styled_table,
+        frame,
+        default_height,
+        anon_record_handle,
+        parts_base,
+        true,
+        cx,
+        place,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some((b"ACAD_TABLE", values, records, count)))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_parts<P: Copy + PartialEq>(
     current: &Current<'_>,
@@ -578,17 +1437,15 @@ fn apply_parts<P: Copy + PartialEq>(
     cx: &mut Cx,
 ) -> Result<Option<()>, Error> {
     // DWG の表の移動は、書式を読めないセルも表示用ブロックもそのまま保つ。
+    // セル・向き・大きさが変わるときは、未対応の表書式を持たないものだけ部品を作り直す。
     if matches!(current.target, Target::Dwg(_))
         && let (Shape::Table(old), Shape::Table(new)) = (&was.shape, new_shape)
     {
         if !current.born.since(b"AC1015") {
             return Ok(None);
         }
-        if old.cells == new.cells {
-            count_transform_values(object, &was.source, cx)?;
-            let Some(mut values) = moved_table_values(object, old, new, frame) else {
-                return Ok(None);
-            };
+        count_transform_values(object, &was.source, cx)?;
+        if let Some(mut values) = moved_table_values(object, old, new, frame) {
             if let Some((affine, model)) = transformed
                 && moving_xdata(object).is_some()
                 && (!model || carried(&mut values, &frame.affine(affine)).is_none())
@@ -599,7 +1456,7 @@ fn apply_parts<P: Copy + PartialEq>(
             plan.replaced.push((position, values));
             return Ok(Some(()));
         }
-        if transformed.is_some() || current.born.since(b"AC1021") {
+        if crate::drawing::acad_table::has_unsupported_dwg_table_format(current.db, object) {
             return Ok(None);
         }
     }
@@ -1877,7 +2734,7 @@ fn insert_after_codes(values: &mut Vec<Value>, value: Value, after: &[i16]) -> O
     Some(())
 }
 
-/// `ACAD_TABLE` の書き直しと `*T<n>` の部品生成。旧版 DWG は単純な文字セルの変更だけ。
+/// `ACAD_TABLE` の書き直しと `*T<n>` の部品生成。DWG はセルの回転と未対応の書式を断る。
 #[allow(clippy::too_many_arguments)]
 fn plan_table<P: Copy + PartialEq>(
     current: &Current<'_>,
@@ -1893,25 +2750,21 @@ fn plan_table<P: Copy + PartialEq>(
     place: &Ref,
 ) -> Result<Option<Rebuilt>, Error> {
     let dwg = matches!(current.target, Target::Dwg(_));
-    if dwg
-        && (current.born.since(b"AC1021")
-            || table.position != was.position
-            || table.direction != was.direction
-            || table.row_heights != was.row_heights
-            || table.column_widths != was.column_widths
-            || was.style.is_some()
-            || was.formats.is_some()
-            || was.cells.iter().zip(&table.cells).any(|(old, new)| {
-                old.span != [1, 1]
-                    || old.covered
-                    || old.rotation != 0.0
-                    || new.rotation != 0.0
-                    || old.value.is_some()
-                    || new.value.is_some()
-                    || old.format != Default::default()
-            }))
-    {
-        return Ok(None);
+    if dwg {
+        let legacy = !current.born.since(b"AC1024");
+        if current.born.since(b"AC1021") && legacy {
+            return Ok(None);
+        }
+        if legacy && (was.style.is_some() || was.formats.is_some()) {
+            return Ok(None);
+        }
+        if was.cells.iter().zip(&table.cells).any(|(old, new)| {
+            old.rotation != 0.0
+                || new.rotation != 0.0
+                || (legacy && (old.value.is_some() || old.format != Default::default()))
+        }) {
+            return Ok(None);
+        }
     }
     if object.kind != b"ACAD_TABLE"
         || table.style != was.style
@@ -1990,9 +2843,14 @@ fn update_table_values<P: PartialEq>(
 
     // 2. 横の向き（11・21・31）・行の高さ（141）・列の幅（142）
     let [dx, dy] = table.direction;
-    let norm = libm::hypot(dx, dy);
-    if !(norm > 0.0 && norm.is_finite()) {
+    if !(dx.is_finite() && dy.is_finite()) {
         return None;
+    }
+    if table.direction != was.direction {
+        let norm = libm::hypot(dx, dy);
+        if !(norm > 0.0 && norm.is_finite()) {
+            return None;
+        }
     }
     let mut heights = Vec::with_capacity(table.row_heights.len());
     for h in &table.row_heights {
@@ -2034,7 +2892,7 @@ fn update_table_values<P: PartialEq>(
         {
             return None;
         }
-        out.extend(update_cell_values(raw, old_cell, new_cell, encoder)?);
+        out.extend(update_cell_values(raw, old_cell, new_cell, encoder, dwg)?);
     }
     out.extend(block.cloned());
     out.extend_from_slice(xdata_slice);
@@ -2046,6 +2904,7 @@ fn update_cell_values(
     old_cell: &zumen_drawing::Cell,
     new_cell: &zumen_drawing::Cell,
     encoder: &Encoder,
+    dwg: bool,
 ) -> Option<Vec<Value>> {
     if !new_cell.rotation.is_finite() {
         return None;
@@ -2093,6 +2952,44 @@ fn update_cell_values(
         }
         _ => return None,
     };
+
+    // R2010 からの DWG は 301..304 だけで文字を持ち、1・2 を 250 バイトで分割しない
+    if dwg && !rest_slice.is_empty() {
+        let end_rel = rest_slice.iter().position(|v| v.code == 304)?;
+        let after_val = rest_slice.get(end_rel + 1..)?;
+        fields.retain(|v| !matches!(v.code, 1 | 2));
+        fields.push(text(301, "CELL_VALUE"));
+        if new_text.is_empty() {
+            fields.extend([
+                int(93, 1),
+                int(90, 0),
+                int(94, 0),
+                text(300, ""),
+                text(302, ""),
+                text(304, "ACVALUE_END"),
+            ]);
+        } else {
+            let encoded = encoder.encode(new_text)?;
+            fields.extend([
+                int(93, 0),
+                int(90, 4),
+                Value {
+                    code: 1,
+                    data: Data::Text(encoded.clone()),
+                },
+                int(94, 0),
+                text(300, ""),
+                Value {
+                    code: 302,
+                    data: Data::Text(encoded),
+                },
+                text(304, "ACVALUE_END"),
+            ]);
+        }
+        fields.extend_from_slice(after_val);
+        return Some(fields);
+    }
+
     let text_chunks = split_text(new_text, 2, 1, encoder)?;
     let insert_at = fields
         .iter()
@@ -2105,7 +3002,7 @@ fn update_cell_values(
         return Some(fields);
     }
 
-    // 2007 からの `301 CELL_VALUE .. 304 ACVALUE_END` を書き直す
+    // 2007 からの DXF の `301 CELL_VALUE .. 304 ACVALUE_END` を書き直す
     let end_rel = rest_slice.iter().position(|v| v.code == 304)?;
     let after_val = rest_slice.get(end_rel + 1..)?;
     fields.push(text(301, "CELL_VALUE"));

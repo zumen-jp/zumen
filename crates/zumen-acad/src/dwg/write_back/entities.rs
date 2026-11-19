@@ -349,53 +349,68 @@ pub(super) fn dimension(
         return None;
     }
     // R2010 からは、初めの寸法のバージョン（RC）と、測った値の後の 3 つの B を写し、文字列は文字列のストリームに書く
-    // （決定 0088）
+    // （決定 0088）。足した寸法は元のデータを持たない（`data` が空）
     let r2010 = release >= Release::R2010;
-    let mut bits = Bits::with_release(data, release);
-    bits.seek(start);
-    let version_at = bits.pos();
-    if r2010 {
-        bits.rc()?;
-    }
-    let version = version_at..bits.pos();
-    for _ in 0..3 {
-        bits.bd()?;
-    }
-    bits.rd()?;
-    bits.rd()?;
-    bits.bd()?;
-    let old_flags = bits.rc()?;
-    let text_at = bits.pos();
-    bits.text()?;
-    let text_end = bits.pos();
-    bits.bd()?;
-    bits.bd()?;
-    let scale_at = bits.pos();
-    for _ in 0..4 {
-        bits.bd()?;
-    }
-    let scale_end = bits.pos();
-    bits.bs()?;
-    bits.bs()?;
-    bits.bd()?;
-    bits.bd()?;
-    let arrows_at = bits.pos();
-    if r2010 {
-        for _ in 0..3 {
-            bits.bit()?;
+    let copied = if data.is_empty() {
+        None
+    } else {
+        let mut bits = Bits::with_release(data, release);
+        bits.seek(start);
+        let version_at = bits.pos();
+        if r2010 {
+            bits.rc()?;
         }
-    }
-    let arrows = arrows_at..bits.pos();
-    bits.rd()?;
-    bits.rd()?;
-    let old_ordinate = if type_code == kinds::DIMENSION_ORDINATE {
-        for _ in 0..9 {
+        let version = version_at..bits.pos();
+        for _ in 0..3 {
             bits.bd()?;
         }
-        bits.rc()?
-    } else {
-        0
+        bits.rd()?;
+        bits.rd()?;
+        bits.bd()?;
+        let old_flags = bits.rc()?;
+        let text_at = bits.pos();
+        bits.text()?;
+        let text_end = bits.pos();
+        bits.bd()?;
+        bits.bd()?;
+        let scale_at = bits.pos();
+        for _ in 0..4 {
+            bits.bd()?;
+        }
+        let scale_end = bits.pos();
+        bits.bs()?;
+        bits.bs()?;
+        bits.bd()?;
+        bits.bd()?;
+        let arrows_at = bits.pos();
+        if r2010 {
+            for _ in 0..3 {
+                bits.bit()?;
+            }
+        }
+        let arrows = arrows_at..bits.pos();
+        bits.rd()?;
+        bits.rd()?;
+        let old_ordinate = if type_code == kinds::DIMENSION_ORDINATE {
+            for _ in 0..9 {
+                bits.bd()?;
+            }
+            bits.rc()?
+        } else {
+            0
+        };
+        Some((
+            version,
+            old_flags,
+            text_at..text_end,
+            scale_at..scale_end,
+            arrows,
+            old_ordinate,
+        ))
     };
+    let (old_flags, old_ordinate) = copied
+        .as_ref()
+        .map_or((0, 0), |(_, flags, _, _, _, ord)| (*flags, *ord));
     let flags = small(new, 70)??;
     let ordinate = if type_code == kinds::DIMENSION_ORDINATE {
         64
@@ -406,7 +421,14 @@ pub(super) fn dimension(
     let elevation = real(new, 31)??;
     let same = |code| real(new, code).map(|z| z.is_none_or(|z| z.to_bits() == elevation.to_bits()));
     (same(32)? && same(36)?).then_some(())?;
-    fields.copy(data, version)?;
+    match &copied {
+        Some((version, ..)) => fields.copy(data, version.clone())?,
+        None => {
+            if r2010 {
+                fields.rc(0);
+            }
+        }
+    }
     match [210, 220, 230].map(|code| real(new, code)) {
         [Some(None), Some(None), Some(None)] => [0.0, 0.0, 1.0].map(|v| fields.bd(v)),
         [Some(Some(x)), Some(Some(y)), Some(Some(z))] => [x, y, z].map(|v| fields.bd(v)),
@@ -426,8 +448,11 @@ pub(super) fn dimension(
             .cloned()
             .collect()
     };
-    if texts(old) == texts(new) && !r2010 {
-        fields.copy(data, text_at..text_end)?;
+    if let Some((_, _, text_span, ..)) = &copied
+        && texts(old) == texts(new)
+        && !r2010
+    {
+        fields.copy(data, text_span.clone())?;
     } else if texts(new).is_empty() {
         fields.text(&[])?;
     } else {
@@ -436,12 +461,28 @@ pub(super) fn dimension(
     for code in [53, 51] {
         fields.bd(real(new, code)?.unwrap_or(0.0).to_radians());
     }
-    fields.copy(data, scale_at..scale_end)?;
+    match &copied {
+        Some((_, _, _, scale_span, ..)) => fields.copy(data, scale_span.clone())?,
+        None => {
+            for v in [1.0, 1.0, 1.0, 0.0] {
+                fields.bd(v);
+            }
+        }
+    }
     fields.bs(small(new, 71)??);
     fields.bs(small(new, 72)?.unwrap_or(1));
     fields.bd(real(new, 41)?.unwrap_or(1.0));
     fields.bd(real(new, 42)??);
-    fields.copy(data, arrows)?;
+    match &copied {
+        Some((_, _, _, _, arrows, _)) => fields.copy(data, arrows.clone())?,
+        None => {
+            if r2010 {
+                for _ in 0..3 {
+                    fields.bit(false);
+                }
+            }
+        }
+    }
     let [x, y, z] = [12, 22, 32].map(|code| real(new, code));
     match [x?, y?, z?] {
         [Some(x), Some(y), Some(_)] => {

@@ -1212,7 +1212,7 @@ def partial_arc_steps(_fmt):
 
 
 def table_cell_steps(_fmt):
-    """#684: 旧版 DWG の単純な表で文字のセルを変え、表示用ブロックも作り直す。"""
+    """#684: DWG（R2000〜R2018）の単純な表で文字のセルを変え、表示用ブロックも作り直す。"""
     def replaced(reading):
         edits = []
         for table in model(reading, "table"):
@@ -1264,7 +1264,7 @@ RECIPES = [
     ("partial-arc-moved", 684, lambda name, fmt: fmt in ("dxf", "dwg") and "-arcdim-" in name, partial_arc_steps),
     ("table-moved", 684, lambda name, fmt: fmt == "dwg" and ("apply_dwg_table-" in name or "apply_styled_dwg_table-" in name), lambda _: table_position_steps(True)),
     ("table-placed", 684, lambda name, fmt: fmt == "dwg" and ("apply_dwg_table-" in name or "apply_styled_dwg_table-" in name), lambda _: table_position_steps(False)),
-    ("table-cells", 684, lambda name, fmt: fmt == "dwg" and name in ("apply_dwg_table-table-r2000.dwg", "apply_dwg_table-table-r2004.dwg"), table_cell_steps),
+    ("table-cells", 684, lambda name, fmt: fmt == "dwg" and ("apply_dwg_table-" in name or "apply_styled_dwg_table-" in name), table_cell_steps),
 ]
 # 記号の定義の中の要素も読む組（read の definitions）。定義の中に足した要素を、書いたファイルの読みに残す
 INSIDE = {"added"}
@@ -1915,8 +1915,8 @@ SECTIONS = {
 """,
     ),
     684: (
-        "#684 表の位置だけの書き戻し",
-        """自作の 2 行 2 列の表を ACadSharp 3.8.0 で符号化した R2010・R2013・R2018 の DWG に、平行移動（table-moved）または位置の置き換え（table-placed）を当てました。セルの値・大きさ・向きと表示用ブロックを保ちます。ACadSharp で、位置・方向・行の高さ・列の幅・セルの文字を照らします。`apply_styled_dwg_table` の 3 入力は文書内の表スタイルと文字スタイルを参照し、入力と出力の読取通知が 0 件であることも確認します。セルの変更・回転・拡大は、この組では扱いません。AutoCAD では共通の手順で開けることと監査を確認し、表全体が指定した位置へ動き、セルの書式と罫線が保たれることを確かめます。
+        "#684 表の位置とセルの書き戻し",
+        """自作の 2 行 2 列の表を符号化した R2000・R2004・R2010・R2013・R2018 の DWG に、平行移動（table-moved）、位置の置き換え（table-placed）、およびセル文字列・空セルの置き換えと表示用ブロックの再生成（table-cells）を当てました。ACadSharp で、位置・方向・行の高さ・列の幅・セルの文字を照らします。`apply_styled_dwg_table` の 3 入力は文書内の表スタイルと文字スタイルを参照し、入力と出力の読取通知が 0 件であることも確認します。AutoCAD では共通の手順で開けることと監査を確認し、表の位置・セルの文字・書式・罫線が保たれることを確かめます。
 """,
     ),
     314: (
