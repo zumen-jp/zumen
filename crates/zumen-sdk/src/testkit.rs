@@ -277,6 +277,7 @@ pub fn ids_match(
 pub fn fuzz_limits() -> Limits {
     Limits::default()
         .with(Kind::DecodedBytes, Limit::Finite(64 << 20))
+        .with(Kind::ModelBytes, Limit::Finite(64 << 20))
         .with(Kind::Records, Limit::Finite(1 << 20))
         .with(Kind::Elements, Limit::Finite(1 << 20))
         .with(Kind::Segments, Limit::Finite(1 << 20))

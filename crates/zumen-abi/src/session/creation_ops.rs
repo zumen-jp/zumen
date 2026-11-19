@@ -49,6 +49,9 @@ impl Session {
             }],
             ..Drawing2D::default()
         };
+        drawing
+            .finish_model_bytes(0, cx)
+            .map_err(|stop| stopped(cx, stop))?;
         let converted = in_input_order(cx, |cx| convert::to_dxf(&drawing, cx))?;
         let hash =
             Hash::document_checked(&converted.bytes, cx).map_err(|stop| stopped(cx, stop))?;

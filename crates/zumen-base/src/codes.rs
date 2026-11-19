@@ -230,6 +230,20 @@ pub const BUDGET_INPUT_BYTES_EXCEEDED: Code = Code::new(
     &[],
 );
 
+/// 図面モデルのメモリ量が上限を超えた
+///
+/// `budget.model-bytes.exceeded`（0.4.0 から）
+pub const BUDGET_MODEL_BYTES_EXCEEDED: Code = Code::new(
+    "budget.model-bytes.exceeded",
+    Severity::Error,
+    None,
+    &[
+        Param::new("limit", ParamType::UInt),
+        Param::new("requested", ParamType::UInt),
+    ],
+    &[],
+);
+
 /// L0・L1 で読んだレコードの数が上限を超えた
 ///
 /// `budget.records.exceeded`（0.0.0 から）
@@ -6255,6 +6269,7 @@ pub const ALL: &[Code] = &[
     BUDGET_DEPTH_EXCEEDED,
     BUDGET_ELEMENTS_EXCEEDED,
     BUDGET_INPUT_BYTES_EXCEEDED,
+    BUDGET_MODEL_BYTES_EXCEEDED,
     BUDGET_RECORDS_EXCEEDED,
     BUDGET_SEGMENTS_EXCEEDED,
     BUDGET_TIME_EXCEEDED,

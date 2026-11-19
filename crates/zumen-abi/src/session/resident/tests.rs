@@ -71,7 +71,7 @@ fn outcome<'d>(
 }
 
 /// 止まる所の前後を含む上限の組。単位ごとに、変換が使う量の前後と途中を試す
-fn limit_sets(spent: &[u64; 7]) -> Vec<Limits> {
+fn limit_sets(spent: &[u64; Kind::ALL.len()]) -> Vec<Limits> {
     let mut sets = vec![Limits::default()];
     for (kind, &spent) in Kind::ALL.iter().zip(spent) {
         let values: Vec<u64> = if *kind == Kind::Depth {

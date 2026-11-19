@@ -196,6 +196,7 @@ fn codegen(mode: Mode) -> Result<(), String> {
         (SCENE_RS, rustfmt(&root, &scene::render_rust(&scene))?),
         (drawing::CONTRACT, drawing.contract),
         (drawing::GENERATED, rustfmt(&root, &drawing.rust)?),
+        (drawing::MODEL_SIZE, rustfmt(&root, &drawing.model_size)?),
         (HEADER, boundary::render_header(&boundary)),
         (SCENE_HEADER, scene::render_c_header(&scene)),
         (

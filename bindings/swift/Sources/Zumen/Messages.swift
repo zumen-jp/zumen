@@ -308,6 +308,12 @@ public struct Budget: Message {
         set { writeField("decoded_bytes", newValue) }
     }
 
+    /// 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から
+    public var modelBytes: JSON? {
+        get { readField("model_bytes") }
+        set { writeField("model_bytes", newValue) }
+    }
+
     /// L0・L1 で読んだレコードの数
     public var records: JSON? {
         get { readField("records") }

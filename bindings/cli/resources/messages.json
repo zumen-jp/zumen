@@ -89,6 +89,7 @@
       "properties": {
         "input_bytes": { "description": "受け取ったバイト数", "$ref": "#/$defs/limit" },
         "decoded_bytes": { "description": "展開・復号で作ったバイト数。入れ子の分も足す", "$ref": "#/$defs/limit" },
+        "model_bytes": { "description": "図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から", "$ref": "#/$defs/limit" },
         "records": { "description": "L0・L1 で読んだレコードの数", "$ref": "#/$defs/limit" },
         "elements": { "description": "L2・L3 で作った要素の数", "$ref": "#/$defs/limit" },
         "depth": { "description": "入れ子と再帰の深さ", "$ref": "#/$defs/limit" },

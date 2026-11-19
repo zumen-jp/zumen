@@ -12,10 +12,11 @@ use zumen_drawing::{
     FieldValue, Fill, Flow, Font, FontKind, Format, FormattedText, Hatch, HatchLoop, Height,
     HeightMeaning, Horizontal, Inherit, Islands, Label, Layer, LayerId, LayerState, Length,
     LineSpacing, LineType, LineTypeDefinition, LineTypeId, LineWeight, MarkerKey, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis, PatternLine,
-    PatternOrigin, Piece, Point, PointLook, Polyline, Position, Resource, Rotation, Scaled, Shape,
-    Sheet, SheetId, SheetItem, SpaceId, Span, Spline, Style, Symbol, SymbolDefinition, SymbolKey,
-    TitleBlock, TitleItem, Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
+    ModelPoint, ModelSize, ModelSpace, PaperLength, PaperPoint, PathKind, Pattern, PatternBasis,
+    PatternLine, PatternOrigin, Piece, Point, PointLook, Polyline, Position, Resource, Rotation,
+    Scaled, Shape, Sheet, SheetId, SheetItem, SpaceId, Span, Spline, Style, Symbol,
+    SymbolDefinition, SymbolKey, TitleBlock, TitleItem, Underlay, UnderlayFrame, UnderlayKind,
+    Unit, Vertex, Vertical, View, check_draft_bytes, check_model_bytes,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -405,6 +406,71 @@ struct Out {
     order: Vec<SheetItem>,
     model: Vec<Element<ModelPoint>>,
     extensions: Vec<Draft>,
+    model_bytes: u64,
+}
+
+#[derive(Clone, Copy)]
+struct OutMark {
+    layers: usize,
+    line_types: usize,
+    paper: usize,
+    model: usize,
+    views: usize,
+    extensions: usize,
+}
+
+impl Out {
+    fn mark(&self, layers: &[Layer], line_types: &[LineType]) -> OutMark {
+        OutMark {
+            layers: layers.len(),
+            line_types: line_types.len(),
+            paper: self.paper.len(),
+            model: self.model.len(),
+            views: self.views.len(),
+            extensions: self.extensions.len(),
+        }
+    }
+
+    fn charge_since(
+        &mut self,
+        mark: OutMark,
+        layers: &[Layer],
+        line_types: &[LineType],
+        place: &Ref,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        fn charge_slice<T: ModelSize>(
+            slice: &[T],
+            from: usize,
+            place: &Ref,
+            accounted: &mut u64,
+            cx: &mut Cx,
+        ) -> Result<(), Error> {
+            for item in slice.get(from..).unwrap_or_default() {
+                model_bytes(cx, item, place, accounted)?;
+            }
+            Ok(())
+        }
+        charge_slice(layers, mark.layers, place, &mut self.model_bytes, cx)?;
+        charge_slice(
+            line_types,
+            mark.line_types,
+            place,
+            &mut self.model_bytes,
+            cx,
+        )?;
+        charge_slice(&self.paper, mark.paper, place, &mut self.model_bytes, cx)?;
+        charge_slice(&self.model, mark.model, place, &mut self.model_bytes, cx)?;
+        charge_slice(&self.views, mark.views, place, &mut self.model_bytes, cx)?;
+        draft_bytes(
+            cx,
+            &self.extensions,
+            mark.extensions,
+            place,
+            &mut self.model_bytes,
+        )?;
+        Ok(())
+    }
 }
 
 struct Lifter<'f> {
@@ -645,6 +711,7 @@ impl<'f> Lifter<'f> {
     }
 
     fn run_with_meta(mut self, cx: &mut Cx) -> Result<LiveLiftOutput, Error> {
+        let mut out = Out::default();
         let mut extensions = Vec::new();
         let mut title_blocks = Vec::new();
         let mut size = None;
@@ -656,7 +723,12 @@ impl<'f> Lifter<'f> {
             let Some(&feature) = self.features.get(index) else {
                 continue;
             };
-            work(cx, 1, &feature.source())?;
+            let source = feature.source();
+            work(cx, 1, &source)?;
+            let prev_layers = self.layers.len();
+            let prev_lts = self.line_types.len();
+            let prev_tbs = title_blocks.len();
+            let prev_ext = extensions.len();
             let read = if feature.is(b"layer") {
                 self.layer(feature)
             } else if feature.is(b"user_defined_colour") {
@@ -703,6 +775,16 @@ impl<'f> Lifter<'f> {
             if read.is_none() {
                 invalid(cx, feature);
             }
+            for item in self.layers.get(prev_layers..).unwrap_or_default() {
+                model_bytes(cx, item, &source, &mut out.model_bytes)?;
+            }
+            for item in self.line_types.get(prev_lts..).unwrap_or_default() {
+                model_bytes(cx, item, &source, &mut out.model_bytes)?;
+            }
+            for item in title_blocks.get(prev_tbs..).unwrap_or_default() {
+                model_bytes(cx, item, &source, &mut out.model_bytes)?;
+            }
+            draft_bytes(cx, &extensions, prev_ext, &source, &mut out.model_bytes)?;
         }
         if !pending.is_empty() {
             if sheet_seen {
@@ -750,7 +832,6 @@ impl<'f> Lifter<'f> {
             }
         }
 
-        let mut out = Out::default();
         let mut spaces = Vec::new();
         let mut symbols = Vec::new();
         for name in &order {
@@ -764,7 +845,9 @@ impl<'f> Lifter<'f> {
             let mut stack = vec![name.clone()];
             let (flag, source) = (definition.flag, definition.source.clone());
             self.members(&members, &InSpace(space), &mut out, &mut stack, cx)?;
+            let prev_ext = out.extensions.len();
             attributes(name, 0, &InSpace(space), &mut out, source.clone());
+            draft_bytes(cx, &out.extensions, prev_ext, &source, &mut out.model_bytes)?;
             let model = ModelSpace {
                 id: space,
                 unit: Unit::Millimeter,
@@ -795,7 +878,15 @@ impl<'f> Lifter<'f> {
         extensions.append(&mut out.extensions);
         let raw_drafts = extensions.clone();
         if let Some(file) = self.attributes {
+            let prev_ext = extensions.len();
             bind(file, &mut extensions, cx);
+            for draft in extensions.get(prev_ext..).unwrap_or_default() {
+                let bytes = check_draft_bytes(draft, cx).map_err(|stop| {
+                    cx.report(stop.to_diagnostic().at(draft.source.clone()));
+                    Error::Stopped(stop)
+                })?;
+                out.model_bytes = out.model_bytes.saturating_add(bytes);
+            }
         }
         let mut referenced_lts = Vec::new();
         for sp in &spaces {
@@ -856,6 +947,12 @@ impl<'f> Lifter<'f> {
             cx.report(stop.to_diagnostic());
             Error::Stopped(stop)
         })?;
+        drawing
+            .finish_model_bytes(out.model_bytes, cx)
+            .map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
         Ok(LiveLiftOutput {
             drawing,
             tables,
@@ -1063,68 +1160,59 @@ impl<'f> Lifter<'f> {
             let Some(&feature) = self.features.get(*index) else {
                 continue;
             };
-            work(cx, 1, &feature.source())?;
+            let source = feature.source();
+            work(cx, 1, &source)?;
             if feature.is(b"sfig_locate") {
                 self.locate(feature, at, out, stack, cx)?;
                 continue;
             }
+            let mark = out.mark(&self.layers, &self.line_types);
             if feature.is(b"text_string") {
                 if self.text(feature, at, out, cx).is_none() {
                     invalid(cx, feature);
                 }
-                continue;
-            }
-            if feature.is(b"externally_defined_symbol") {
+            } else if feature.is(b"externally_defined_symbol") {
                 if self.predefined(feature, at, out, cx).is_none() {
                     invalid(cx, feature);
                 }
-                continue;
-            }
-            if feature.is(b"point_marker") {
+            } else if feature.is(b"point_marker") {
                 if self.marker(feature, at, out, cx).is_none() {
                     invalid(cx, feature);
                 }
-                continue;
-            }
-            if feature.is(b"composite_curve_org") {
+            } else if feature.is(b"composite_curve_org") {
                 self.composite(*index, at, out, cx)?;
-                continue;
-            }
-            if HATCHES.iter().any(|name| feature.is(name)) {
+            } else if HATCHES.iter().any(|name| feature.is(name)) {
                 if self.hatch(feature, at, out, cx).is_none() {
                     invalid(cx, feature);
                 }
-                continue;
-            }
-            if feature.is(b"label") || feature.is(b"balloon") {
+            } else if feature.is(b"label") || feature.is(b"balloon") {
                 if self.callout(feature, at, out, cx).is_none() {
                     invalid(cx, feature);
                 }
-                continue;
-            }
-            if DIMENSIONS.iter().any(|name| feature.is(name)) {
+            } else if DIMENSIONS.iter().any(|name| feature.is(name)) {
                 if self.dimension(feature, at, out, cx).is_none() {
                     invalid(cx, feature);
                 }
-                continue;
-            }
-            let outline = self
-                .raster
-                .as_ref()
-                .filter(|r| r.outline == *index)
-                .cloned();
-            let shape = match outline {
-                Some(raster) => self.underlay(feature, raster, at),
-                None => self.shape(feature, at),
-            };
-            match shape {
-                Shaped::Element(shape) => {
-                    let element = self.element(feature, *shape, cx);
-                    at.element(element, out);
+            } else {
+                let outline = self
+                    .raster
+                    .as_ref()
+                    .filter(|r| r.outline == *index)
+                    .cloned();
+                let shape = match outline {
+                    Some(raster) => self.underlay(feature, raster, at),
+                    None => self.shape(feature, at),
+                };
+                match shape {
+                    Shaped::Element(shape) => {
+                        let element = self.element(feature, *shape, cx);
+                        at.element(element, out);
+                    }
+                    Shaped::Invalid => invalid(cx, feature),
+                    Shaped::NotYet => dropped(cx, feature),
                 }
-                Shaped::Invalid => invalid(cx, feature),
-                Shaped::NotYet => dropped(cx, feature),
             }
+            out.charge_since(mark, &self.layers, &self.line_types, &source, cx)?;
         }
         Ok(())
     }
@@ -1168,11 +1256,20 @@ impl<'f> Lifter<'f> {
                 let outer = core::mem::replace(&mut self.raster, raster);
                 let from = at.count(out);
                 let result = self.members(&members, at, out, stack, cx);
+                let prev_ext = out.extensions.len();
                 attributes(&name, from, at, out, feature.source());
                 self.raster = outer;
                 stack.pop();
                 cx.leave();
-                result
+                result?;
+                draft_bytes(
+                    cx,
+                    &out.extensions,
+                    prev_ext,
+                    &feature.source(),
+                    &mut out.model_bytes,
+                )?;
+                Ok(())
             }
             (4, _) => {
                 let Some(position) = (|| Some(at.point(args.num(2)?, args.num(3)?)))() else {
@@ -1185,6 +1282,7 @@ impl<'f> Lifter<'f> {
                     return Ok(());
                 };
                 let source = feature.source();
+                let mark = out.mark(&self.layers, &self.line_types);
                 let element = Element {
                     layer: self.layer_id(args.int(0), &source, cx),
                     style: Style {
@@ -1194,7 +1292,7 @@ impl<'f> Lifter<'f> {
                         line_weight: None,
                         transparency: Inherit::Layer,
                     },
-                    source,
+                    source: source.clone(),
                     shape: Shape::Symbol(Symbol {
                         key: part(&name),
                         position,
@@ -1206,7 +1304,7 @@ impl<'f> Lifter<'f> {
                     }),
                 };
                 at.element(element, out);
-                Ok(())
+                out.charge_since(mark, &self.layers, &self.line_types, &source, cx)
             }
             (flag, Some(space)) => {
                 let Some(transform) = (|| {
@@ -1220,15 +1318,19 @@ impl<'f> Lifter<'f> {
                     invalid(cx, feature);
                     return Ok(());
                 };
+                let source = feature.source();
                 let view = View {
                     space,
                     sheet: SHEET,
                     transform,
                     clip: Vec::new(),
                     hidden_layers: Vec::new(),
-                    source: feature.source(),
+                    source: source.clone(),
                 };
                 if at.view(view, out) {
+                    if let Some(added) = out.views.last() {
+                        model_bytes(cx, added, &source, &mut out.model_bytes)?;
+                    }
                     // 部分図の中の部分図は、外の部分図のビューに重ねて、用紙に置く（決定 0130）
                     stack.push(name.clone());
                     let result = self.nested(&name, transform, out, stack, cx);
@@ -1310,6 +1412,7 @@ impl<'f> Lifter<'f> {
                 _ => continue,
             };
             if let (1 | 2, Some(space)) = (flag, space) {
+                let source = feature.source();
                 OnSheet.view(
                     View {
                         space,
@@ -1317,10 +1420,13 @@ impl<'f> Lifter<'f> {
                         transform,
                         clip: Vec::new(),
                         hidden_layers: Vec::new(),
-                        source: feature.source(),
+                        source: source.clone(),
                     },
                     out,
                 );
+                if let Some(added) = out.views.last() {
+                    model_bytes(cx, added, &source, &mut out.model_bytes)?;
+                }
             }
             cx.enter().map_err(|stop| stopped(cx, stop, feature))?;
             stack.push(inner.clone());
@@ -2748,6 +2854,37 @@ pub(crate) fn work(cx: &mut Cx, amount: u64, place: &Ref) -> Result<(), Error> {
         cx.report(stop.to_diagnostic().at(place.clone()));
         Error::Stopped(stop)
     })
+}
+
+fn model_bytes<T: ModelSize>(
+    cx: &mut Cx,
+    value: &T,
+    place: &Ref,
+    accounted: &mut u64,
+) -> Result<(), Error> {
+    let bytes = check_model_bytes(value, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(place.clone()));
+        Error::Stopped(stop)
+    })?;
+    *accounted = accounted.saturating_add(bytes);
+    Ok(())
+}
+
+fn draft_bytes(
+    cx: &mut Cx,
+    drafts: &[Draft],
+    from: usize,
+    place: &Ref,
+    accounted: &mut u64,
+) -> Result<(), Error> {
+    for draft in drafts.get(from..).unwrap_or_default() {
+        let bytes = check_draft_bytes(draft, cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic().at(place.clone()));
+            Error::Stopped(stop)
+        })?;
+        *accounted = accounted.saturating_add(bytes);
+    }
+    Ok(())
 }
 
 fn stopped(cx: &mut Cx, stop: zumen_sdk::Stop, feature: Feature) -> Error {

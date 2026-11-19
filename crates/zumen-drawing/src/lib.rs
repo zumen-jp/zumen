@@ -36,6 +36,7 @@ mod extension;
 mod hash;
 mod hatch;
 pub mod id;
+pub mod model_size;
 mod palette;
 pub mod parts;
 mod point;
@@ -59,6 +60,7 @@ pub use hash::{Canon, Encode, Hash};
 pub use hatch::{
     Boundary, Fill, Gradient, Hatch, HatchLoop, Islands, Pattern, PatternLine, PatternOrigin,
 };
+pub use model_size::{ModelSize, check_draft_bytes, check_model_bytes};
 pub use palette::Palette;
 pub use point::{MarkerKey, Point, PointLook, PointMark, PointSize, PointStyle};
 pub use shape::{Edge, Element, KnotParameterization, Polyline, Shape, Spline, Vertex};

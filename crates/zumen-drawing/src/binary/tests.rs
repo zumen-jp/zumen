@@ -36,6 +36,7 @@ fn decode_with<T: Unpack>(bytes: &[u8], limits: Limits) -> Result<T, Bad> {
         minor: MINOR,
         elements: 0,
         limit: u64::MAX,
+        in_drawing: false,
         cx: &mut cx,
     };
     let value = T::unpack(&mut reader)?;
@@ -80,10 +81,20 @@ fn source() -> Source {
     }
 }
 
-/// 要素を持つ乱数の図面
+fn has_unique_space_ids(drawing: &Drawing2D) -> bool {
+    let mut spaces = BTreeSet::new();
+    drawing
+        .spaces
+        .iter()
+        .chain(drawing.symbols.iter().map(|s| &s.space))
+        .all(|s| spaces.insert(s.id))
+}
+
+/// 要素を持ち、空間 ID が重ならない乱数の図面
 fn with_elements() -> (Source, Drawing2D, Vec<u8>) {
     (0..)
         .map(|seed| random(seed, true))
+        .filter(|(_, drawing)| has_unique_space_ids(drawing))
         .map(|(source, drawing)| {
             let bytes = written(&source, &drawing);
             (source, drawing, bytes)
@@ -99,14 +110,18 @@ fn reads_back_what_it_wrote() {
         let (source, drawing) = random(seed, true);
         let bytes = written(&source, &drawing);
         elements += u32_at(&bytes, 8).unwrap();
-        let (result, codes) = load(&bytes);
-        let mut spaces = BTreeSet::new();
-        let unique = drawing
-            .spaces
-            .iter()
-            .chain(drawing.symbols.iter().map(|s| &s.space))
-            .all(|s| spaces.insert(s.id));
-        if unique {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let result = read(&bytes, &mut cx);
+        let codes: Vec<_> = diagnostics.iter().map(|d| d.code().name()).collect();
+        assert_eq!(
+            budget.used(Kind::ModelBytes),
+            drawing.total_model_bytes(),
+            "seed {seed}"
+        );
+        if has_unique_space_ids(&drawing) {
             assert_eq!(result, Ok((source, drawing)), "seed {seed}");
             assert!(codes.is_empty(), "seed {seed}: {codes:?}");
         } else {
@@ -322,6 +337,7 @@ fn added_fields_follow_the_writers_minor_version() {
             minor,
             elements: 0,
             limit: 0,
+            in_drawing: false,
             cx: &mut cx,
         };
         let value = Example::unpack(&mut reader)?;
@@ -395,7 +411,7 @@ fn reads_only_the_shortest_form_of_each_value() {
 
 #[test]
 fn checks_the_element_count_and_the_budget() {
-    let (_, _, bytes) = with_elements();
+    let (expected_source, expected_drawing, bytes) = with_elements();
     let count = u32_at(&bytes, 8).unwrap() as u32;
     for wrong in [count - 1, count + 1] {
         let mut broken = bytes.clone();
@@ -418,6 +434,17 @@ fn checks_the_element_count_and_the_budget() {
     let (result, codes) = load_with(&bytes, limits);
     assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
     assert_eq!(codes, ["budget.decoded-bytes.exceeded"]);
+
+    let model_bytes = expected_drawing.total_model_bytes();
+    let limits = Limits::default().with(Kind::ModelBytes, Limit::Finite(model_bytes - 1));
+    let (result, codes) = load_with(&bytes, limits);
+    assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+    assert_eq!(codes, ["budget.model-bytes.exceeded"]);
+    let limits = Limits::default().with(Kind::ModelBytes, Limit::Finite(model_bytes));
+    assert_eq!(
+        load_with(&bytes, limits),
+        (Ok((expected_source, expected_drawing)), Vec::new())
+    );
 }
 
 /// 復号で作ったバイト数は、型から決めた大きさで数えるので、ポインターの幅によらず同じ所で止まる

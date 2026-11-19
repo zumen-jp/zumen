@@ -1,0 +1,137 @@
+{
+  "description": "図面モデル（L2）が保持する要素・頂点・文字列・表・拡張の論理バイト数は budget.model_bytes で制限する（#559）。上限を超えたら元のレコードの出所を添えた budget.model-bytes.exceeded で失敗し、途中の部分結果は返さない。64 ビット相当の論理バイト数で数えるため、ネイティブと 32 ビットの wasm で同じ境界になる",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "plan.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n5\n20\n8\n0\n90\n4\n70\n1\n10\n0.0\n20\n0.0\n10\n40.0\n20\n0.0\n10\n40.0\n20\n20.0\n10\n0.0\n20\n20.0\n0\nLWPOLYLINE\n5\n21\n8\n0\n90\n4\n70\n1\n10\n0.0\n20\n30.0\n10\n40.0\n20\n30.0\n10\n40.0\n20\n50.0\n10\n0.0\n20\n50.0\n0\nLWPOLYLINE\n5\n22\n8\n0\n90\n4\n70\n1\n10\n0.0\n20\n60.0\n10\n40.0\n20\n60.0\n10\n40.0\n20\n80.0\n10\n0.0\n20\n80.0\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "plan.dxf"
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "plan.dxf",
+        "budget": {
+          "model_bytes": 1000,
+          "decoded_bytes": 0
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.model-bytes.exceeded",
+        "/diagnostics/0/severity": "error",
+        "/diagnostics/0/at/0/record": 4,
+        "/diagnostics/0/params/limit": 1000,
+        "/diagnostics/0/params/requested": 1702,
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "plan.dxf",
+        "budget": {
+          "model_bytes": 2911
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.model-bytes.exceeded",
+        "/diagnostics/0/params/limit": 2911,
+        "/diagnostics/0/params/requested": 2912,
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "plan.dxf",
+        "budget": {
+          "model_bytes": 2912
+        }
+      },
+      "expect": {
+        "/result/total": 3,
+        "/diagnostics": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "drawing",
+        "doc": "plan.dxf",
+        "budget": {
+          "model_bytes": 1000
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.model-bytes.exceeded",
+        "/diagnostics/0/at/0/record": 4,
+        "/diagnostics/0/params/limit": 1000,
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "push": {
+        "name": "lifted",
+        "hex": "5a4d4452010000000200000002000000200000001a00000040000000a200000019036478660461636164b4e4edc3215dc11421a5eea00ce35a7d000000000000a001017e000000023e08000103000100a101000d0000000000000000f03f01000000241100000000000000000000000000000000001100000000000000244000000000000014403708000104000100a201000d0000000000000000f03f010000011d110000000000000008400000000000001040010900000000000000004002000100010c0001300000010004000000000000000105010200070000000000000000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "lifted",
+        "budget": {
+          "model_bytes": 1959
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.model-bytes.exceeded",
+        "/diagnostics/0/params/limit": 1959,
+        "/diagnostics/0/params/requested": 1960
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "lifted",
+        "budget": {
+          "model_bytes": 1960
+        }
+      },
+      "expect": {
+        "/result/format": "dxf"
+      }
+    }
+  ]
+}

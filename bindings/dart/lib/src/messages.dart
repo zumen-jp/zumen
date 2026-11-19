@@ -197,6 +197,10 @@ class Budget extends Message {
   Object? get decodedBytes => readField('decoded_bytes', asJson);
   set decodedBytes(Object? value) => writeField('decoded_bytes', value);
 
+  /// 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から
+  Object? get modelBytes => readField('model_bytes', asJson);
+  set modelBytes(Object? value) => writeField('model_bytes', value);
+
   /// L0・L1 で読んだレコードの数
   Object? get records => readField('records', asJson);
   set records(Object? value) => writeField('records', value);

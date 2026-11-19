@@ -7,7 +7,7 @@ use zumen_crs::{Axes, GeoPoint, MapPoint};
 use zumen_drawing::{
     Draft, Drawing2D, Element, Field, FieldValue, Inherit, Layer, LayerId, LayerState, ModelPoint,
     ModelSpace, Polyline, Position as ExtPosition, Resource, Shape, SpaceId, Style, Underlay,
-    UnderlayFrame, UnderlayKind, Unit, Vertex,
+    UnderlayFrame, UnderlayKind, Unit, Vertex, check_draft_bytes, check_model_bytes,
 };
 use zumen_geo::{
     Attribute as GeoAttribute, Feature, Form, GeoModel, Geometry, Location, Position as GeoPos,
@@ -54,6 +54,7 @@ fn make_layer(id: LayerId, name: &str) -> Layer {
 pub(crate) fn lift_drawing(file: &TiffFile, cx: &mut Cx) -> Result<Drawing2D, Error> {
     let mut spaces = Vec::with_capacity(file.pages.len());
     let mut drafts = Vec::new();
+    let mut accounted = 0u64;
 
     for (idx, page) in file.pages.iter().enumerate() {
         cx.check(Kind::Work, 1)
@@ -63,6 +64,7 @@ pub(crate) fn lift_drawing(file: &TiffFile, cx: &mut Cx) -> Result<Drawing2D, Er
         let (unit, corners) = page_drawing_frame(page);
 
         let mut elements = Vec::new();
+        let prev_dr = drafts.len();
         if matches!(page.data, PagePixels::Native(_)) {
             cx.check(Kind::Elements, 2)
                 .map_err(|s| stopped(cx, s, Some(page.info.source.clone())))?;
@@ -176,6 +178,16 @@ pub(crate) fn lift_drawing(file: &TiffFile, cx: &mut Cx) -> Result<Drawing2D, Er
             });
         }
 
+        for el in &elements {
+            let bytes = check_model_bytes(el, cx)
+                .map_err(|s| stopped(cx, s, Some(page.info.source.clone())))?;
+            accounted = accounted.saturating_add(bytes);
+        }
+        for draft in drafts.get(prev_dr..).unwrap_or_default() {
+            let bytes = check_draft_bytes(draft, cx)
+                .map_err(|s| stopped(cx, s, Some(page.info.source.clone())))?;
+            accounted = accounted.saturating_add(bytes);
+        }
         let order = (0..elements.len()).collect();
         spaces.push(ModelSpace {
             id: space_id,
@@ -196,6 +208,9 @@ pub(crate) fn lift_drawing(file: &TiffFile, cx: &mut Cx) -> Result<Drawing2D, Er
     };
     drawing
         .settle_extensions(drafts, cx)
+        .map_err(|s| stopped(cx, s, None))?;
+    drawing
+        .finish_model_bytes(accounted, cx)
         .map_err(|s| stopped(cx, s, None))?;
     Ok(drawing)
 }

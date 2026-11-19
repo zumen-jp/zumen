@@ -127,6 +127,12 @@ namespace Zumen.Messages
         public JsonAny? DecodedBytes { get; init; }
 
         /// <summary>
+        /// 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から
+        /// </summary>
+        [JsonPropertyName("model_bytes")]
+        public JsonAny? ModelBytes { get; init; }
+
+        /// <summary>
         /// L0・L1 で読んだレコードの数
         /// </summary>
         [JsonPropertyName("records")]

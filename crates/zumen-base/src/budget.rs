@@ -6,6 +6,7 @@ use crate::code::Code;
 use crate::codes;
 use crate::diag::Diagnostic;
 
+const MIB: u64 = 1 << 20;
 const GIB: u64 = 1 << 30;
 
 /// 作業量の単位
@@ -15,6 +16,8 @@ pub enum Kind {
     InputBytes,
     /// 展開・復号で作ったバイト数。入れ子の分も足す
     DecodedBytes,
+    /// 図面モデル（L2）が保持する要素・表・拡張の論理バイト数
+    ModelBytes,
     /// L0・L1 で読んだレコードの数
     Records,
     /// L2・L3 で作った要素の数
@@ -29,9 +32,10 @@ pub enum Kind {
 
 impl Kind {
     /// すべての単位
-    pub const ALL: [Kind; 7] = [
+    pub const ALL: [Kind; 8] = [
         Kind::InputBytes,
         Kind::DecodedBytes,
+        Kind::ModelBytes,
         Kind::Records,
         Kind::Elements,
         Kind::Depth,
@@ -44,6 +48,7 @@ impl Kind {
         match self {
             Kind::InputBytes => "input-bytes",
             Kind::DecodedBytes => "decoded-bytes",
+            Kind::ModelBytes => "model-bytes",
             Kind::Records => "records",
             Kind::Elements => "elements",
             Kind::Depth => "depth",
@@ -57,6 +62,7 @@ impl Kind {
         match self {
             Kind::InputBytes => codes::BUDGET_INPUT_BYTES_EXCEEDED,
             Kind::DecodedBytes => codes::BUDGET_DECODED_BYTES_EXCEEDED,
+            Kind::ModelBytes => codes::BUDGET_MODEL_BYTES_EXCEEDED,
             Kind::Records => codes::BUDGET_RECORDS_EXCEEDED,
             Kind::Elements => codes::BUDGET_ELEMENTS_EXCEEDED,
             Kind::Depth => codes::BUDGET_DEPTH_EXCEEDED,
@@ -71,6 +77,7 @@ impl Kind {
 struct PerKind<T> {
     input_bytes: T,
     decoded_bytes: T,
+    model_bytes: T,
     records: T,
     elements: T,
     depth: T,
@@ -83,6 +90,7 @@ impl<T> PerKind<T> {
         match kind {
             Kind::InputBytes => &self.input_bytes,
             Kind::DecodedBytes => &self.decoded_bytes,
+            Kind::ModelBytes => &self.model_bytes,
             Kind::Records => &self.records,
             Kind::Elements => &self.elements,
             Kind::Depth => &self.depth,
@@ -95,6 +103,7 @@ impl<T> PerKind<T> {
         match kind {
             Kind::InputBytes => &mut self.input_bytes,
             Kind::DecodedBytes => &mut self.decoded_bytes,
+            Kind::ModelBytes => &mut self.model_bytes,
             Kind::Records => &mut self.records,
             Kind::Elements => &mut self.elements,
             Kind::Depth => &mut self.depth,
@@ -118,10 +127,11 @@ pub enum Limit {
 pub struct Limits(PerKind<Limit>);
 
 impl Limits {
-    /// 仮の既定値。実図面で測って決め直す（決定 0010）
+    /// 既定の上限。図面モデルの保持量は都市計画基本図 24 図郭の実測（約 10〜25 MB）から 512 MiB とする（#559）
     const DEFAULT: PerKind<Limit> = PerKind {
         input_bytes: Limit::Finite(2 * GIB),
         decoded_bytes: Limit::Finite(2 * GIB),
+        model_bytes: Limit::Finite(512 * MIB),
         records: Limit::Finite(100_000_000),
         elements: Limit::Finite(100_000_000),
         depth: Limit::Finite(256),

@@ -787,6 +787,7 @@ fn budget_field(budget: &messages::Budget, kind: Kind) -> Option<&messages::Limi
     match kind {
         Kind::InputBytes => budget.input_bytes.as_ref(),
         Kind::DecodedBytes => budget.decoded_bytes.as_ref(),
+        Kind::ModelBytes => budget.model_bytes.as_ref(),
         Kind::Records => budget.records.as_ref(),
         Kind::Elements => budget.elements.as_ref(),
         Kind::Depth => budget.depth.as_ref(),

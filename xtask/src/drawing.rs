@@ -15,6 +15,8 @@ use serde::Deserialize;
 pub const CONTRACT: &str = "schema/drawing.toml";
 /// 作る読み書き
 pub const GENERATED: &str = "crates/zumen-drawing/src/binary/generated.rs";
+/// 作る論理バイト数の数え方
+pub const MODEL_SIZE: &str = "crates/zumen-drawing/src/model_size/generated.rs";
 
 /// 図面モデルの型を読むディレクトリ。下のディレクトリ（`font/` など）は読まない
 const SOURCES: &str = "crates/zumen-drawing/src";
@@ -56,6 +58,8 @@ pub struct Generated {
     pub contract: String,
     /// 読み書き（Rust。rustfmt の前）
     pub rust: String,
+    /// 論理バイト数の数え方（Rust。rustfmt の前）
+    pub model_size: String,
 }
 
 /// 図面モデルの型と型の契約から、新しい契約と読み書きを作る
@@ -101,6 +105,7 @@ pub fn generate(root: &Path) -> Result<Generated, String> {
     Ok(Generated {
         contract: render_contract(major, minor, &types),
         rust: render_rust(major, minor, &types, &defs),
+        model_size: render_model_size(&types, &defs),
     })
 }
 
@@ -1248,15 +1253,15 @@ fn rust_type(ty: &Ty, defs: &BTreeMap<String, Def>) -> String {
     }
 }
 
-/// 値 1 つの大きさ（`Unpack::SIZE`）の式。構造体はフィールドの和、列挙はいちばん大きい値に、値の番号の 8 を足す
-fn size(def: &Def, defs: &BTreeMap<String, Def>) -> String {
+/// 値 1 つの大きさ（`Unpack::SIZE`・`ModelSize::SIZE`）の式。構造体はフィールドの和、列挙はいちばん大きい値に、値の番号の 8 を足す
+fn size_for(def: &Def, defs: &BTreeMap<String, Def>, trait_name: &str) -> String {
     let sum = |types: Vec<&Ty>| {
         if types.is_empty() {
             return "0".to_owned();
         }
         let sizes: Vec<String> = types
             .iter()
-            .map(|ty| format!("<{} as Unpack>::SIZE", rust_type(ty, defs)))
+            .map(|ty| format!("<{} as {trait_name}>::SIZE", rust_type(ty, defs)))
             .collect();
         sizes.join(" + ")
     };
@@ -1275,6 +1280,129 @@ fn size(def: &Def, defs: &BTreeMap<String, Def>) -> String {
             format!("8 + largest(&[{}])", sizes.join(", "))
         }
     }
+}
+
+fn size(def: &Def, defs: &BTreeMap<String, Def>) -> String {
+    size_for(def, defs, "Unpack")
+}
+
+fn render_model_size_type(out: &mut String, ty: &Type, size: &str) {
+    let bounds = if ty.params.is_empty() {
+        String::new()
+    } else {
+        let list: Vec<String> = ty
+            .params
+            .iter()
+            .map(|p| format!("{p}: ModelSize"))
+            .collect();
+        format!("<{}>", list.join(", "))
+    };
+    let target = if ty.params.is_empty() {
+        ty.path.clone()
+    } else {
+        format!("{}<{}>", ty.path, ty.params.join(", "))
+    };
+    let sum_expr = |names: &[&str]| -> String {
+        let mut expr = String::from("0_u64");
+        for name in names {
+            let _ = write!(expr, ".saturating_add({name}.heap_bytes())");
+        }
+        expr
+    };
+    let heap = match &ty.layout {
+        Layout::Fields(fields) if fields.is_empty() => None,
+        Layout::Fields(fields) => {
+            let idents: Vec<&str> = fields.iter().map(|f| f.ident.as_str()).collect();
+            Some(format!(
+                "let Self {{ {} }} = self;\n{}",
+                idents.join(", "),
+                sum_expr(&idents)
+            ))
+        }
+        Layout::Tuple(items) if items.is_empty() => None,
+        Layout::Tuple(items) => {
+            let binds: Vec<String> = (0..items.len()).map(|i| format!("f{i}")).collect();
+            let refs: Vec<&str> = binds.iter().map(String::as_str).collect();
+            Some(format!(
+                "let Self({}) = self;\n{}",
+                binds.join(", "),
+                sum_expr(&refs)
+            ))
+        }
+        Layout::Variants(variants)
+            if variants
+                .iter()
+                .all(|variant| matches!(variant.payload, Shape::Unit)) =>
+        {
+            None
+        }
+        Layout::Variants(variants) => {
+            let mut body = String::from("match self {\n");
+            for variant in variants {
+                let v = &variant.name;
+                match &variant.payload {
+                    Shape::Unit => {
+                        let _ = writeln!(body, "Self::{v} => 0,");
+                    }
+                    Shape::Tuple(items) => {
+                        let binds: Vec<String> =
+                            (0..items.len()).map(|i| format!("f{i}")).collect();
+                        let refs: Vec<&str> = binds.iter().map(String::as_str).collect();
+                        let _ = writeln!(
+                            body,
+                            "Self::{v}({}) => {},",
+                            binds.join(", "),
+                            sum_expr(&refs)
+                        );
+                    }
+                    Shape::Fields(fields) => {
+                        let idents: Vec<&str> = fields.iter().map(|f| f.ident.as_str()).collect();
+                        let _ = writeln!(
+                            body,
+                            "Self::{v} {{ {} }} => {},",
+                            idents.join(", "),
+                            sum_expr(&idents)
+                        );
+                    }
+                }
+            }
+            body.push('}');
+            Some(body)
+        }
+    };
+    match heap {
+        None => {
+            let _ = write!(
+                out,
+                "\nimpl{bounds} ModelSize for {target} {{\nconst SIZE: u64 = {size};\n}}\n"
+            );
+        }
+        Some(heap) => {
+            let _ = write!(
+                out,
+                "\nimpl{bounds} ModelSize for {target} {{\nconst SIZE: u64 = {size};\n\nfn heap_bytes(&self) -> u64 {{\n{heap}\n}}\n}}\n"
+            );
+        }
+    }
+}
+
+fn render_model_size(types: &[Type], defs: &BTreeMap<String, Def>) -> String {
+    let mut out = String::from(
+        "// 生成したファイル。手で直さない。`cargo xtask codegen` が、図面モデルの型と schema/drawing.toml から作る（#559）。\n\n\
+         use super::{ModelSize, largest};\n",
+    );
+    for ty in types {
+        if HANDWRITTEN.iter().any(|(name, _)| *name == ty.name)
+            || ty.path == "crate::binary::Source"
+        {
+            continue;
+        }
+        let size = defs
+            .get(&ty.name)
+            .map_or_else(|| "0".to_owned(), |def| size_for(def, defs, "ModelSize"));
+        render_model_size_type(&mut out, ty, &size);
+    }
+    out
 }
 
 fn render_type(out: &mut String, ty: &Type, size: &str) {

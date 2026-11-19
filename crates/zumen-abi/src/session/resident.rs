@@ -297,14 +297,21 @@ impl Resident {
         saved: &Saved,
         cx: &mut Cx<'_>,
     ) -> Option<Result<Drawing2D, zumen_sdk::Error>> {
-        match (&self.live, &saved.kind) {
-            (Live::Acad(engine), SavedKind::Dxf | SavedKind::Dwg) => Some(engine.drawing(cx)),
-            (Live::Jww(engine), SavedKind::Jww) => Some(engine.drawing(cx)),
+        let result = match (&self.live, &saved.kind) {
+            (Live::Acad(engine), SavedKind::Dxf | SavedKind::Dwg) => engine.drawing(cx),
+            (Live::Jww(engine), SavedKind::Jww) => engine.drawing(cx),
             (Live::Sxf(engine), SavedKind::Sxf(_, attributes)) => {
-                Some(engine.drawing_with_attributes(attributes.as_deref(), cx))
+                engine.drawing_with_attributes(attributes.as_deref(), cx)
             }
-            _ => None,
-        }
+            _ => return None,
+        };
+        Some(result.and_then(|drawing| {
+            drawing.finish_model_bytes(0, cx).map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                zumen_sdk::Error::Stopped(stop)
+            })?;
+            Ok(drawing)
+        }))
     }
 
     /// 変換にファイルモデルが要るなら、記録の外で先に読む。読む仕事を常駐の図面モデルの記録に入れると、

@@ -7,11 +7,21 @@
 | `boundary.toml` | バージョン（ABI・メッセージのスキーマ）、状態コード、関数とその引数 | `bindings/c/include/zumen.h`、`crates/zumen-abi/src/abi.rs`、`bindings/js/src/constants.js`・`constants.d.ts`、`bindings/python/zumen/constants.py`、`bindings/dotnet/Zumen/Constants.g.cs` |
 | `messages.json` | 要求・応答・op ごとのフィールド・診断・セッションの設定・カタログの形（JSON Schema 2020-12） | `crates/zumen-abi/src/messages.rs`、`bindings/js/src/messages.d.ts`、`bindings/python/zumen/messages.py`、`bindings/dotnet/Zumen/Messages.g.cs`、`bindings/cli/src/tools.json`（MCP のツール） |
 | `scene.toml` | シーンの blob の配置（セクションと値の組） | `crates/zumen-scene/src/layout.rs`、`bindings/c/include/zumen_scene.h`、`bindings/js/src/constants.js`・`constants.d.ts`、`bindings/python/zumen/constants.py`、`bindings/dotnet/Zumen/Constants.g.cs` |
-| `drawing.toml` | 図面モデル（L2）のバイナリの型の契約（型ごとのフィールドと値の並びと、バージョン）。生成器が図面モデルの型から書き足す | `crates/zumen-drawing/src/binary/generated.rs` |
+| `drawing.toml` | 図面モデル（L2）のバイナリの型の契約（型ごとのフィールドと値の並びと、バージョン）。生成器が図面モデルの型から書き足す | `crates/zumen-drawing/src/binary/generated.rs`、`crates/zumen-drawing/src/model_size/generated.rs` |
 
 生成したファイルもコミットします。CI の `cargo xtask codegen --check` が、元と合わないものを見つけます。
 
 VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenNative.bas` にネイティブの宣言・ABI の型・バージョン・状態コード・シーンの配置を生成します。メッセージは UTF-8 の JSON のまま受け渡します。所有権と型の対応は [VBA のバインディング](../bindings/vba/README.md) にあります。
+
+## 図面モデルのメモリ予算
+
+スキーマ 1.113 から、要求の `budget` とセッション既定の予算で `model_bytes` を指定できます（#559）。
+
+```json
+{"v":1,"op":"drawing","doc":"plan.dxf","budget":{"model_bytes":67108864}}
+```
+
+図面モデル（L2）が保持する要素・頂点・輪・文字列・表・拡張を、ポインター幅によらない 64 ビット相当の論理バイト数で数えます。圧縮や符号化を展開した `decoded_bytes`、要素の件数だけを数える `elements` とは別の予算です。既定は 512 MiB です。上限を超えたときは元のレコードや要素の出所を添えた `budget.model-bytes.exceeded` を返して失敗し、途中の部分結果は返しません。開いていた文書は変更されません。
 
 ## 図面から地図への変換
 

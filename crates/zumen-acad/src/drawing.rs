@@ -52,9 +52,9 @@ use zumen_crs::{GeoData, GeoValue, Georeference};
 use zumen_drawing::{
     Arrowhead, Axes, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle,
     Draft, Drawing2D, Edge, Element, Layer, LayerId, Length, LineType, LineTypeId, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PaperPoint, PointMark, PointSize, PointStyle, Position,
-    Shape, Sheet, SheetId, SheetItem, SpaceId, Spline, SymbolDefinition, SymbolKey, TextStyle,
-    Unit, View,
+    ModelPoint, ModelSize, ModelSpace, PaperLength, PaperPoint, PointMark, PointSize, PointStyle,
+    Position, Shape, Sheet, SheetId, SheetItem, SpaceId, Spline, SymbolDefinition, SymbolKey,
+    TextStyle, Unit, View, check_draft_bytes, check_model_bytes,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -197,6 +197,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
             }
             let source = source(object);
             work(cx, 1, &source)?;
+            let mark = out.mark();
             let lifted = match kind {
                 b"LTYPE" => lifter.line_type_record(db, object, source.clone(), &mut out, cx),
                 b"LAYER" => lifter.layer_record(object, source.clone(), &mut out),
@@ -211,16 +212,26 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
             let at = match kind {
                 b"LTYPE" => match out.line_types.last() {
                     Some(line_type) => Position::LineType(line_type.id),
-                    None => continue,
+                    None => {
+                        out.charge_since(mark, &source, cx)?;
+                        continue;
+                    }
                 },
                 b"LAYER" => match out.layers.last() {
                     Some(layer) => Position::Layer(layer.id),
-                    None => continue,
+                    None => {
+                        out.charge_since(mark, &source, cx)?;
+                        continue;
+                    }
                 },
-                _ => continue,
+                _ => {
+                    out.charge_since(mark, &source, cx)?;
+                    continue;
+                }
             };
             extension_work(db, object, cx)?;
             lifter.dictionary(db, object, at, &mut out, cx);
+            out.charge_since(mark, &source, cx)?;
         }
     }
     let entities: Vec<&Object> = db
@@ -242,11 +253,13 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
             .iter()
             .filter_map(|at| entities.get(*at).copied())
             .collect();
+        let mark = out.mark();
         if let Err(diagnostic) =
             lifter.entity(db, object, source.clone(), &attributes, &mut out, cx)
         {
-            cx.report((*diagnostic).at(source));
+            cx.report((*diagnostic).at(source.clone()));
         }
+        out.charge_since(mark, &source, cx)?;
     }
     let ([model_keys, paper_keys], block_keys) = lifter.sort_keys(db, cx)?;
     let symbols = lifter.definitions(db, &block_keys, &mut out, cx)?;
@@ -368,6 +381,12 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
     // 要素がそろってから、形式固有の情報の付く先を ID とハッシュにする（決定 0156）
     drawing
         .settle_extensions(out.extensions, cx)
+        .map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+    drawing
+        .finish_model_bytes(out.model_bytes, cx)
         .map_err(|stop| {
             cx.report(stop.to_diagnostic());
             Error::Stopped(stop)
@@ -559,6 +578,21 @@ fn work(cx: &mut Cx, amount: u64, place: &Ref) -> Result<(), Error> {
         cx.report(stop.to_diagnostic().at(place.clone()));
         Error::Stopped(stop)
     })
+}
+
+/// 図面モデルの項目の論理バイト数を数え、上限を超えたら出所を場所に入れて止める（#559）
+fn model_bytes<T: ModelSize>(
+    cx: &mut Cx,
+    value: &T,
+    place: &Ref,
+    accounted: &mut u64,
+) -> Result<(), Error> {
+    let bytes = check_model_bytes(value, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(place.clone()));
+        Error::Stopped(stop)
+    })?;
+    *accounted = accounted.saturating_add(bytes);
+    Ok(())
 }
 
 /// 出所。ハンドルがあれば、変わらないキーとして足す（決定 0156）
@@ -946,6 +980,88 @@ struct Out {
     frames: BTreeMap<SheetId, PaperFrame>,
     /// R2013 までの段組み MTEXT の親が `ACAD` 拡張データ（`1005`）で結んだ後続段 MTEXT のハンドル集合
     mtext_column_followers: BTreeSet<u64>,
+    /// 途中で `Kind::ModelBytes` に計上済みの論理バイト数
+    model_bytes: u64,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct OutMark {
+    layers: usize,
+    line_types: usize,
+    dimension_styles: usize,
+    text_styles: usize,
+    model: usize,
+    paper: usize,
+    views: usize,
+    extensions: usize,
+}
+
+impl Out {
+    pub(super) fn mark(&self) -> OutMark {
+        OutMark {
+            layers: self.layers.len(),
+            line_types: self.line_types.len(),
+            dimension_styles: self.dimension_styles.len(),
+            text_styles: self.text_styles.len(),
+            model: self.model.len(),
+            paper: self.paper.len(),
+            views: self.views.len(),
+            extensions: self.extensions.len(),
+        }
+    }
+
+    pub(super) fn charge_since(
+        &mut self,
+        mark: OutMark,
+        place: &Ref,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        fn charge_slice<T: ModelSize>(
+            slice: &[T],
+            from: usize,
+            place: &Ref,
+            accounted: &mut u64,
+            cx: &mut Cx,
+        ) -> Result<(), Error> {
+            for item in slice.get(from..).unwrap_or_default() {
+                model_bytes(cx, item, place, accounted)?;
+            }
+            Ok(())
+        }
+        charge_slice(&self.layers, mark.layers, place, &mut self.model_bytes, cx)?;
+        charge_slice(
+            &self.line_types,
+            mark.line_types,
+            place,
+            &mut self.model_bytes,
+            cx,
+        )?;
+        charge_slice(
+            &self.dimension_styles,
+            mark.dimension_styles,
+            place,
+            &mut self.model_bytes,
+            cx,
+        )?;
+        charge_slice(
+            &self.text_styles,
+            mark.text_styles,
+            place,
+            &mut self.model_bytes,
+            cx,
+        )?;
+        charge_slice(&self.model, mark.model, place, &mut self.model_bytes, cx)?;
+        charge_slice(&self.paper, mark.paper, place, &mut self.model_bytes, cx)?;
+        charge_slice(&self.views, mark.views, place, &mut self.model_bytes, cx)?;
+        for draft in self.extensions.get(mark.extensions..).unwrap_or_default() {
+            let bytes = check_draft_bytes(draft, cx).map_err(|stop| {
+                cx.report(stop.to_diagnostic().at(place.clone()));
+                Error::Stopped(stop)
+            })?;
+            self.model_bytes = self.model_bytes.saturating_add(bytes);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]

@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use super::extension::extension_work;
 use super::{
     BLOCK, Lifted, Lifter, Out, SortKeys, amount, arrange, attached, insertion_units, invalid,
-    lettering, lift_err, single, source, text, unit_of, work,
+    lettering, lift_err, model_bytes, single, source, text, unit_of, work,
 };
 use crate::db::{AcadDb, Data, Object, Section};
 use zumen_base::{Cx, Diagnostic, codes};
@@ -195,6 +195,9 @@ impl Lifter<'_> {
                 }
             }
             extension_work(db, object, cx)?;
+            let mark = out.mark();
+            let prev_attributes = attributes.len();
+            let prev_elements = elements.len();
             let lifted = match object.kind.as_slice() {
                 b"ATTDEF" => self
                     .attribute_definition(object, &point, &length, out)
@@ -235,8 +238,15 @@ impl Lifter<'_> {
                 )),
             };
             if let Err(diagnostic) = lifted {
-                cx.report((*diagnostic).at(source));
+                cx.report((*diagnostic).at(source.clone()));
             }
+            for item in attributes.get(prev_attributes..).unwrap_or_default() {
+                model_bytes(cx, item, &source, &mut out.model_bytes)?;
+            }
+            for item in elements.get(prev_elements..).unwrap_or_default() {
+                model_bytes(cx, item, &source, &mut out.model_bytes)?;
+            }
+            out.charge_since(mark, &source, cx)?;
         }
         let keys = record
             .and_then(Object::handle)

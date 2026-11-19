@@ -276,6 +276,9 @@ type Budget struct {
 	// 展開・復号で作ったバイト数。入れ子の分も足す
 	DecodedBytes json.RawMessage `json:"decoded_bytes,omitempty"`
 
+	// 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から
+	ModelBytes json.RawMessage `json:"model_bytes,omitempty"`
+
 	// L0・L1 で読んだレコードの数
 	Records json.RawMessage `json:"records,omitempty"`
 

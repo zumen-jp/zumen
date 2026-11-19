@@ -397,6 +397,17 @@ public final class Messages {
             return this;
         }
 
+        /** 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から */
+        public Object getModelBytes() {
+            return Json.read(json.get("model_bytes"), Json::value);
+        }
+
+        /** {@link #getModelBytes()} を書く。null ならフィールドを除く */
+        public Budget withModelBytes(Object value) {
+            put("model_bytes", value);
+            return this;
+        }
+
         /** L0・L1 で読んだレコードの数 */
         public Object getRecords() {
             return Json.read(json.get("records"), Json::value);

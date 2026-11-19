@@ -384,6 +384,8 @@ pub struct Budget {
     pub input_bytes: Option<Limit>,
     /// 展開・復号で作ったバイト数。入れ子の分も足す
     pub decoded_bytes: Option<Limit>,
+    /// 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から
+    pub model_bytes: Option<Limit>,
     /// L0・L1 で読んだレコードの数
     pub records: Option<Limit>,
     /// L2・L3 で作った要素の数
@@ -400,6 +402,7 @@ impl Budget {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let input_bytes = object.optional("input_bytes", Limit::from_json)?;
         let decoded_bytes = object.optional("decoded_bytes", Limit::from_json)?;
+        let model_bytes = object.optional("model_bytes", Limit::from_json)?;
         let records = object.optional("records", Limit::from_json)?;
         let elements = object.optional("elements", Limit::from_json)?;
         let depth = object.optional("depth", Limit::from_json)?;
@@ -408,6 +411,7 @@ impl Budget {
         Ok(Self {
             input_bytes,
             decoded_bytes,
+            model_bytes,
             records,
             elements,
             depth,
@@ -423,6 +427,10 @@ impl Budget {
         }
         if let Some(value) = &self.decoded_bytes {
             out.key("decoded_bytes");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.model_bytes {
+            out.key("model_bytes");
             value.to_json(out);
         }
         if let Some(value) = &self.records {

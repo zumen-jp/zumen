@@ -92,6 +92,8 @@ Budget = TypedDict(
         "input_bytes": "Limit",
         # 展開・復号で作ったバイト数。入れ子の分も足す
         "decoded_bytes": "Limit",
+        # 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から
+        "model_bytes": "Limit",
         # L0・L1 で読んだレコードの数
         "records": "Limit",
         # L2・L3 で作った要素の数

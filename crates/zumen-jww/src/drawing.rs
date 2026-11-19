@@ -15,8 +15,8 @@ use zumen_drawing::{
     Underlay, UnderlayFrame, UnderlayKind, Unit, Vertex, Vertical, View,
 };
 use zumen_drawing::{
-    Dimension, DimensionKind, DimensionText, Font, FontKind, Format, Label, Piece, Scaled, Span,
-    SymbolDefinition,
+    Dimension, DimensionKind, DimensionText, Font, FontKind, Format, Label, ModelSize, Piece,
+    Scaled, Span, SymbolDefinition, check_draft_bytes, check_model_bytes,
 };
 use zumen_sdk::{Cx, Error, Lift};
 
@@ -116,6 +116,7 @@ impl Lift<Drawing2D> for JwwFile {
             own: Vec::new(),
             drafts: Vec::new(),
             out: Drawing2D::default(),
+            model_bytes: 0,
         }
         .run(self, cx)
     }
@@ -508,12 +509,50 @@ struct Lifter<'f> {
     /// 付く先を位置で指す拡張。要素がそろってから ID とハッシュにする（決定 0156）
     drafts: Vec<Draft>,
     out: Drawing2D,
+    /// 途中で `Kind::ModelBytes` に計上済みの論理バイト数
+    model_bytes: u64,
+}
+
+fn charge_model_bytes<T: ModelSize>(
+    value: &T,
+    place: &Ref,
+    accounted: &mut u64,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let bytes = check_model_bytes(value, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(place.clone()));
+        Error::Stopped(stop)
+    })?;
+    *accounted = accounted.saturating_add(bytes);
+    Ok(())
+}
+
+fn charge_drafts(
+    drafts: &[Draft],
+    from: usize,
+    place: &Ref,
+    accounted: &mut u64,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    for draft in drafts.get(from..).unwrap_or_default() {
+        let bytes = check_draft_bytes(draft, cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic().at(place.clone()));
+            Error::Stopped(stop)
+        })?;
+        *accounted = accounted.saturating_add(bytes);
+    }
+    Ok(())
 }
 
 impl Lifter<'_> {
     fn run(mut self, file: &JwwFile, cx: &mut Cx) -> Result<Drawing2D, Error> {
         self.layers();
         self.edit_state();
+        let header_source = Ref::at_record(0);
+        for layer in &self.out.layers {
+            charge_model_bytes(layer, &header_source, &mut self.model_bytes, cx)?;
+        }
+        charge_drafts(&self.drafts, 0, &header_source, &mut self.model_bytes, cx)?;
         for (index, record) in file.records().iter().enumerate() {
             let source = Ref::at_record(index as u64);
             cx.check(Kind::Work, 1).map_err(|stop| {
@@ -521,20 +560,39 @@ impl Lifter<'_> {
                 Error::Stopped(stop)
             })?;
             match record.kind() {
-                RecordKind::Entity => self.entity(file, record, source, cx),
-                RecordKind::Block
+                RecordKind::Entity => self.entity(file, record, source, cx)?,
+                RecordKind::Block => {
+                    let prev_symbols = self.out.symbols.len();
+                    let prev_drafts = self.drafts.len();
                     if self
                         .definition(file, index, record, source.clone())
-                        .is_err() =>
-                {
-                    invalid(cx, file.kind_name(record), source);
+                        .is_err()
+                    {
+                        invalid(cx, file.kind_name(record), source);
+                    } else {
+                        for sym in self.out.symbols.get(prev_symbols..).unwrap_or_default() {
+                            charge_model_bytes(sym, &source, &mut self.model_bytes, cx)?;
+                        }
+                        charge_drafts(
+                            &self.drafts,
+                            prev_drafts,
+                            &source,
+                            &mut self.model_bytes,
+                            cx,
+                        )?;
+                    }
                 }
                 _ => {}
             }
         }
+        let accounted = self.model_bytes;
         let drafts = core::mem::take(&mut self.drafts);
         let mut drawing = self.finish();
         drawing.settle_extensions(drafts, cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        drawing.finish_model_bytes(accounted, cx).map_err(|stop| {
             cx.report(stop.to_diagnostic());
             Error::Stopped(stop)
         })?;
@@ -606,20 +664,26 @@ impl Lifter<'_> {
         Ok(())
     }
 
-    fn entity(&mut self, file: &JwwFile, record: &Record, source: Ref, cx: &mut Cx) {
+    fn entity(
+        &mut self,
+        file: &JwwFile,
+        record: &Record,
+        source: Ref,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
         let name = file.kind_name(record);
         let mut r = Reader::new(file.bytes(0..record.span().end), record.body().start);
         let version = self.header.version;
         let Ok(mut base) = Base::read(&mut r, version) else {
             invalid(cx, name, source);
-            return;
+            return Ok(());
         };
         let definition = record
             .block()
             .and_then(|block| self.definitions.get(&block).copied());
         if record.block().is_some() && definition.is_none() {
             // 読めなかった定義の中身
-            return;
+            return Ok(());
         }
         base.at = match definition.and_then(|at| self.out.symbols.get(at)) {
             Some(symbol) => At {
@@ -634,8 +698,10 @@ impl Lifter<'_> {
         // この縮尺では、用紙へ戻すビューの行列も有限でなければならない。
         if !(1.0 / base.at.scale).is_finite() {
             invalid(cx, name, source);
-            return;
+            return Ok(());
         }
+        let prev_line_types = self.out.line_types.len();
+        let prev_drafts = self.drafts.len();
         self.own.clear();
         let lifted = match name {
             b"CDataSen" => self.line(&mut r, &base),
@@ -647,23 +713,41 @@ impl Lifter<'_> {
             b"CDataSunpou" => self.dimension(&mut r, &base),
             _ => {
                 dropped(cx, name, source);
-                return;
+                return Ok(());
             }
         };
         let (shape, style) = match lifted {
             Ok(Some(lifted)) => lifted,
-            Ok(None) => return,
+            Ok(None) => {
+                charge_drafts(
+                    &self.drafts,
+                    prev_drafts,
+                    &source,
+                    &mut self.model_bytes,
+                    cx,
+                )?;
+                return Ok(());
+            }
             Err(_) => {
                 invalid(cx, name, source);
-                return;
+                return Ok(());
             }
         };
+        for lt in self
+            .out
+            .line_types
+            .get(prev_line_types..)
+            .unwrap_or_default()
+        {
+            charge_model_bytes(lt, &source, &mut self.model_bytes, cx)?;
+        }
         let element = Element {
             source: source.clone(),
             layer: base.layer(),
             style,
             shape,
         };
+        charge_model_bytes(&element, &source, &mut self.model_bytes, cx)?;
         let elements = match definition.and_then(|at| self.out.symbols.get_mut(at)) {
             Some(symbol) => {
                 symbol.space.order.push(symbol.space.elements.len());
@@ -702,7 +786,15 @@ impl Lifter<'_> {
                 source: source.clone(),
             });
         }
+        charge_drafts(
+            &self.drafts,
+            prev_drafts,
+            &source,
+            &mut self.model_bytes,
+            cx,
+        )?;
         elements.push(element);
+        Ok(())
     }
 
     /// ブロックの参照。尺度にレイヤグループの縮尺を掛け、回転はラジアンから度にする
@@ -1613,6 +1705,7 @@ pub(super) fn lift_single_entity(
         own: Vec::new(),
         drafts: Vec::new(),
         out: Drawing2D::default(),
+        model_bytes: 0,
     };
     let lifted = match kind_name {
         b"CDataSen" => lifter.line(&mut r, &base),
