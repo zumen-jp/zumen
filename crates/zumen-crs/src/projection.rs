@@ -165,10 +165,10 @@ pub fn to_plane_on(ellipsoid: Ellipsoid, zone: Zone, point: GeoPoint) -> Option<
     if lambda_c <= 0.0 {
         return None;
     }
-    let k = 2.0 * s.n.sqrt() / (1.0 + s.n);
+    let k = 2.0 * libm::sqrt(s.n) / (1.0 + s.n);
     let sin_phi = libm::sin(phi);
     let t = libm::sinh(libm::atanh(sin_phi) - k * libm::atanh(k * sin_phi));
-    let t_bar = (1.0 + t * t).sqrt();
+    let t_bar = libm::sqrt(1.0 + t * t);
     let xi = libm::atan(t / lambda_c);
     let eta = libm::atanh(lambda_s / t_bar);
     let (mut x, mut y, mut sigma, mut tau) = (xi, eta, 1.0, 0.0);
@@ -187,9 +187,10 @@ pub fn to_plane_on(ellipsoid: Ellipsoid, zone: Zone, point: GeoPoint) -> Option<
     );
     let parametric = (1.0 - s.n) / (1.0 + s.n) * libm::tan(phi);
     let scale = s.a_bar / s.semi_major
-        * ((sigma * sigma + tau * tau) / (t * t + lambda_c * lambda_c)
-            * (1.0 + parametric * parametric))
-            .sqrt();
+        * libm::sqrt(
+            (sigma * sigma + tau * tau) / (t * t + lambda_c * lambda_c)
+                * (1.0 + parametric * parametric),
+        );
     let projected = Projected {
         point: MapPoint {
             northing: s.a_bar * x - s.s_phi0,
@@ -246,9 +247,10 @@ pub fn to_geographic_on(ellipsoid: Ellipsoid, zone: Zone, point: MapPoint) -> Op
         libm::atan((tau + sigma * tan_xi * tanh_eta) / (sigma - tau * tan_xi * tanh_eta));
     let (cos_xi, sinh_eta) = (libm::cos(xi1), libm::sinh(eta1));
     let scale = s.a_bar / s.semi_major
-        * ((cos_xi * cos_xi + sinh_eta * sinh_eta) / (sigma * sigma + tau * tau)
-            * (1.0 + t_psi * t_psi))
-            .sqrt();
+        * libm::sqrt(
+            (cos_xi * cos_xi + sinh_eta * sinh_eta) / (sigma * sigma + tau * tau)
+                * (1.0 + t_psi * t_psi),
+        );
     let unprojected = Unprojected {
         point: GeoPoint {
             latitude: degrees(phi),

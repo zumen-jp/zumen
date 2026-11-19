@@ -283,7 +283,7 @@ impl GeoData {
     /// 設定を確かめずに、変換を作る
     fn conversion(&self) -> MapConversion {
         let [nx, ny] = self.north_direction;
-        let length = (nx * nx + ny * ny).sqrt();
+        let length = libm::sqrt(nx * nx + ny * ny);
         // 図面の X 軸の地図の上の向き（東・北）
         let (cos, sin) = (ny / length, nx / length);
         let s = self.horizontal_unit_scale;

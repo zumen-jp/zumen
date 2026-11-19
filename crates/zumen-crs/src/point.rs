@@ -100,7 +100,7 @@ impl MapConversion {
     /// X 軸の向きの単位ベクトル（東・北）。向きの長さが 0 か、値が有限でなければ `None`
     fn direction(&self) -> Option<[f64; 2]> {
         let [a, o] = [self.x_axis_abscissa, self.x_axis_ordinate];
-        let length = (a * a + o * o).sqrt();
+        let length = libm::sqrt(a * a + o * o);
         (length.is_finite() && length > 0.0).then(|| [a / length, o / length])
     }
 
