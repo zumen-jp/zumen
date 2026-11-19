@@ -342,6 +342,7 @@ R2004 DWG の弧長寸法と描画ブロックを同系統の DXF に書ける�
 
 段の意味は[形式台帳の書き方](../../formats/README.md#確かめた度合い)に、根拠は[形式と権利の一覧](README.md#format-dwg)にあります。段は確かめた方法のうちもっとも強いものを示します。AutoCAD で確かめたのは、次の範囲だけです。ACadSharp とは、毎晩の CI で照らします。
 
+- 点の印刷（[#316](https://github.com/zumen-jp/zumen/issues/316)）。AutoCAD 2027 で[公開の R2018 DWG](../../samples/dwg/zumen-points-a-r2018.dwg) のモデル空間を PDF に印刷した。画層 0 の点（0, 0）と記号 `BYBLOCKPOINT` 内の点（配置後は 60, 0）には円と十字があり、記号の斜線も出た。印刷しない画層 `NOPLOT` の点（20, 0）と `Defpoints` の点（40, 0）は白紙だった。4 か所とも、実効の画層から決めた印刷の予想と一致した。
 - 読み: AutoCAD 2027 で作った R2000・R2004・R2013・R2018 の DWG（`samples/dwg`）を、AutoCAD が同じ図面から書いた DXF と、テスト（`crates/zumen-acad/tests/samples.rs` など）で比べる。「実際の図面で確かめた扱い」には、`samples/` にない図面で確かめたものもある。
 - R2007（AC1021）の読み（#874）: 合成の R2007 のコンテナー（RS 符号・LZ77 圧縮・UTF-16LE の文字列ストリーム・破損と予算の境界、`crates/zumen-acad/tests/dwg.rs`）と、AutoCAD で作った R2007 の DWG と対の ASCII DXF・ACadSharp 3.8.0 の読みとの照合（`crates/zumen-acad/tests/samples.rs`・`xtask/verify`）で、画層・図形の種類・モデル空間の形と文字が一致することを確かめた。公開サンプルは、再配布の許諾と個人情報の条件を満たす R2007 の DWG が未入手のため同梱していない。
 - 非有限値の境界: 小さい R2000 の合成バイナリに NaN・正負の無限大を置き、用紙の範囲と XDATA・XRECORD の実数・点の診断を確かめた（`synthetic`、`crates/zumen-acad/tests/dwg.rs`、#594）。図形の場所・正常な拡張と要素の ID・L1 のバイト列・作業量の上限と中断も確かめている。この異常値の扱いは、AutoCAD では照らしていない。
