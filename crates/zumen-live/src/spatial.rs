@@ -722,10 +722,12 @@ mod tests {
         let normal = run(Limits::default());
         assert!(normal.0.is_ok());
         assert_eq!(normal.1[2..], (0..80).map(RowId).collect::<Vec<_>>());
-        assert_eq!(normal.2[1], 320);
-        assert_eq!(normal.2[3], 80);
+        let amount =
+            |kind: Kind| normal.2[Kind::ALL.iter().position(|&item| item == kind).unwrap()];
+        assert_eq!(amount(Kind::DecodedBytes), 320);
+        assert_eq!(amount(Kind::Elements), 80);
         for kind in [Kind::DecodedBytes, Kind::Elements, Kind::Work] {
-            let needed = normal.2[Kind::ALL.iter().position(|&item| item == kind).unwrap()];
+            let needed = amount(kind);
             for limit in [0, needed / 2, needed - 1, needed] {
                 let limits = Limits::default().with(kind, Limit::Finite(limit));
                 let actual = run(limits);
