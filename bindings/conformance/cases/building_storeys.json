@@ -606,7 +606,7 @@
         "doc": "a.ifc"
       },
       "expect": {
-        "/result/hash": "v1:1ba29c99535fc3628aae1d39bf3b6fc9"
+        "/result/hash": "v1:990908366de7996404fd354ddc4690a1"
       }
     },
     {
@@ -686,6 +686,240 @@
       },
       "expect": {
         "/result/counts/elements": 5
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "a.ifc",
+        "tolerance": 1.0,
+        "classes": [
+          "IfcDoor",
+          "IfcWindow"
+        ]
+      },
+      "expect": {
+        "/result/counts/instances": 2,
+        "/result/counts/triangles": 24
+      }
+    },
+    {
+      "push": {
+        "name": "b.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#10);\n#10=IFCUNITASSIGNMENT((#11));\n#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "b.ifc"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "b.ifc",
+        "edits": [
+          {
+            "kind": "add_space",
+            "space": "building",
+            "parent": {
+              "id": "0000000000000000000001",
+              "hash": "v1:cd1b938433f9bf39893405462244b609"
+            },
+            "name": "B",
+            "placement": {
+              "matrix": [
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0]
+              ]
+            },
+            "global_id": "0000000000000000004000"
+          },
+          {
+            "kind": "add_space",
+            "space": "storey",
+            "parent": {
+              "added": 0
+            },
+            "name": "2F",
+            "elevation": 3000,
+            "placement": {
+              "relative_to": {
+                "added": 0
+              },
+              "matrix": [
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 3000]
+              ]
+            },
+            "global_id": "0000000000000000004002"
+          },
+          {
+            "kind": "add_type",
+            "class": "IfcWallType",
+            "predefined": "SHEAR",
+            "name": "WT-200",
+            "global_id": "0000000000000000004010"
+          },
+          {
+            "kind": "material",
+            "element": {
+              "added": 2
+            },
+            "material": {
+              "kind": "layers",
+              "layers": [
+                {
+                  "material": "Concrete",
+                  "thickness": 150
+                },
+                {
+                  "material": "Insulation",
+                  "thickness": 50
+                }
+              ]
+            }
+          },
+          {
+            "kind": "add_type",
+            "class": "IfcWallType",
+            "predefined": "SHEAR",
+            "name": "WT-300",
+            "global_id": "0000000000000000004011"
+          },
+          {
+            "kind": "material",
+            "element": {
+              "added": 4
+            },
+            "material": {
+              "kind": "layers",
+              "layers": [
+                {
+                  "material": "Concrete",
+                  "thickness": 300
+                }
+              ]
+            }
+          },
+          {
+            "kind": "add_type",
+            "class": "IfcDoorType",
+            "predefined": "DOOR",
+            "name": "DT-1",
+            "global_id": "0000000000000000004012"
+          },
+          {
+            "kind": "add_wall",
+            "storey": {
+              "added": 1
+            },
+            "start": [0, 0],
+            "end": [6000, 0],
+            "height": 2800,
+            "element_type": {
+              "added": 2
+            },
+            "global_id": "0000000000000000004100"
+          },
+          {
+            "kind": "add_opening",
+            "host": {
+              "added": 7
+            },
+            "distance": 1000,
+            "sill": 0,
+            "width": 900,
+            "height": 2100,
+            "global_id": "0000000000000000004120"
+          },
+          {
+            "kind": "add_door",
+            "opening": {
+              "added": 8
+            },
+            "element_type": {
+              "added": 6
+            },
+            "global_id": "0000000000000000004121"
+          },
+          {
+            "kind": "elevation",
+            "storey": {
+              "added": 1
+            },
+            "elevation": 3200
+          },
+          {
+            "kind": "wall_shape",
+            "wall": {
+              "added": 7
+            },
+            "start": [0, 0],
+            "end": [6500, 0],
+            "height": 3000,
+            "element_type": {
+              "added": 4
+            }
+          },
+          {
+            "kind": "opening_shape",
+            "opening": {
+              "added": 8
+            },
+            "distance": 1500,
+            "sill": 100,
+            "width": 1000,
+            "height": 2200
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/7/id": "0000000000000000004100",
+        "/result/applied/9/id": "0000000000000000004121",
+        "/result/applied/11/id": "0000000000000000004100"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "b.ifc",
+        "class": "ifcdoor",
+        "components": [
+          "placement",
+          "type_of"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/id": "0000000000000000004121",
+        "/result/elements/0/type_of": "0000000000000000004012",
+        "/result/elements/0/placement/world/0/3": 1500,
+        "/result/elements/0/placement/world/2/3": 3300
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "scene3d",
+        "doc": "b.ifc",
+        "tolerance": 1.0,
+        "classes": [
+          "IfcDoor"
+        ]
+      },
+      "expect": {
+        "/result/counts/instances": 1,
+        "/result/counts/triangles": 12
       }
     }
   ]

@@ -15970,27 +15970,27 @@ pub enum BuildingEdit {
     Void(BuildingVoidEdit),
     /// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
     Fill(BuildingFillEdit),
-    /// 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+    /// 芯の 2 点・高さ・材料の層か型で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から（element_type は 110 から）
     AddWall(BuildingAddWallEdit),
-    /// 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から
+    /// 外形・材料の層か型で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab（型が PredefinedType を持たなければ FLOOR）、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。結果の id は足した床の ID。マイナーバージョン 98 から（element_type は 110 から）
     AddSlab(BuildingAddSlabEdit),
-    /// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から
+    /// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から（element_type は 110 から）
     AddColumn(BuildingAddColumnEdit),
-    /// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から
+    /// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から（element_type は 110 から）
     AddBeam(BuildingAddBeamEdit),
     /// 壁の芯に沿う位置・下端・矩形の大きさで開口を足し、IfcRelVoidsElement で壁に穴をあける。開口は壁の配置からの相対に置き、壁の材料の層の使い方（AXIS2）の厚さだけ押し出す Body と IfcOpeningElement をコアが書く。空間には所属させない。層の使い方を持たない要素は断る。結果の id は足した開口の ID。マイナーバージョン 98 から
     AddOpening(BuildingAddOpeningEdit),
-    /// 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から
+    /// 開口を扉で埋める。扉は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcDoor（IFC4 と IFC4X3 で型が PredefinedType を持たなければ DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
     AddDoor(BuildingAddDoorEdit),
-    /// 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から
+    /// 開口を窓で埋める。窓は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcWindow（IFC4 と IFC4X3 で型が PredefinedType を持たなければ WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
     AddWindow(BuildingAddWindowEdit),
     /// U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から
     AddGrid(BuildingAddGridEdit),
     /// 階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から
     Elevation(BuildingElevationEdit),
-    /// 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+    /// 壁の芯・高さ・材料の層か型を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口と建具の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から（element_type は 110 から）
     WallShape(BuildingWallShapeEdit),
-    /// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+    /// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の Body と全体の高さ・幅（OverallHeight・OverallWidth）を合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
     OpeningShape(BuildingOpeningShapeEdit),
     /// 型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から
     AddType(BuildingAddTypeEdit),
@@ -16887,7 +16887,7 @@ impl ToJson for BuildingWallLayer {
     }
 }
 
-/// 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+/// 芯の 2 点・高さ・材料の層か型で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から（element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddWallEdit {
     /// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
@@ -16898,10 +16898,12 @@ pub struct BuildingAddWallEdit {
     pub end: Vec<f64>,
     /// 高さ。文書の長さの単位で、正の値
     pub height: f64,
-    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
-    pub layers: Vec<BuildingWallLayer>,
+    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type の材料の層を使う
+    pub layers: Option<Vec<BuildingWallLayer>>,
     /// 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする
     pub offset: Option<f64>,
+    /// 結ぶ壁の型（IfcWallType）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -16915,10 +16917,11 @@ impl BuildingAddWallEdit {
         let start = object.required("start", |value| json::array(value, json::number))?;
         let end = object.required("end", |value| json::array(value, json::number))?;
         let height = object.required("height", json::number)?;
-        let layers = object.required("layers", |value| {
+        let layers = object.optional("layers", |value| {
             json::array(value, BuildingWallLayer::from_json)
         })?;
         let offset = object.optional("offset", json::number)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
@@ -16928,6 +16931,7 @@ impl BuildingAddWallEdit {
             height,
             layers,
             offset,
+            element_type,
             name,
             global_id,
         })
@@ -16944,11 +16948,17 @@ impl BuildingAddWallEdit {
         out.array(&self.end, |out, item| out.float(*item));
         out.key("height");
         out.float(self.height);
-        out.key("layers");
-        out.array(&self.layers, |out, item| item.to_json(out));
+        if let Some(value) = &self.layers {
+            out.key("layers");
+            out.array(value, |out, item| item.to_json(out));
+        }
         if let Some(value) = &self.offset {
             out.key("offset");
             out.float(*value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -17019,17 +17029,19 @@ impl ToJson for BuildingSection {
     }
 }
 
-/// 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から
+/// 外形・材料の層か型で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab（型が PredefinedType を持たなければ FLOOR）、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。結果の id は足した床の ID。マイナーバージョン 98 から（element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddSlabEdit {
     /// 所属する空間（階など）。床はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     pub storey: BuildingRef,
     /// 外形の頂点。空間の配置の [x, y] の並びで、3 つ以上。最後の点が最初の点と同じなら、その点は除く
     pub outline: Vec<Vec<f64>>,
-    /// 材料の層。上から下へ並べる。1 つ以上
-    pub layers: Vec<BuildingWallLayer>,
+    /// 材料の層。上から下へ並べる。省くか空なら element_type の材料の層を使う
+    pub layers: Option<Vec<BuildingWallLayer>>,
     /// 上の面の高さ（空間の配置の z）。書かなければ 0
     pub elevation: Option<f64>,
+    /// 結ぶ床の型（IfcSlabType）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -17043,10 +17055,11 @@ impl BuildingAddSlabEdit {
         let outline = object.required("outline", |value| {
             json::array(value, |value| json::array(value, json::number))
         })?;
-        let layers = object.required("layers", |value| {
+        let layers = object.optional("layers", |value| {
             json::array(value, BuildingWallLayer::from_json)
         })?;
         let elevation = object.optional("elevation", json::number)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
@@ -17054,6 +17067,7 @@ impl BuildingAddSlabEdit {
             outline,
             layers,
             elevation,
+            element_type,
             name,
             global_id,
         })
@@ -17068,11 +17082,17 @@ impl BuildingAddSlabEdit {
         out.array(&self.outline, |out, item| {
             out.array(item, |out, item| out.float(*item))
         });
-        out.key("layers");
-        out.array(&self.layers, |out, item| item.to_json(out));
+        if let Some(value) = &self.layers {
+            out.key("layers");
+            out.array(value, |out, item| item.to_json(out));
+        }
         if let Some(value) = &self.elevation {
             out.key("elevation");
             out.float(*value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -17102,7 +17122,7 @@ impl ToJson for BuildingAddSlabEdit {
     }
 }
 
-/// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から
+/// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から（element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddColumnEdit {
     /// 所属する空間（階など）。柱はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
@@ -17119,6 +17139,8 @@ pub struct BuildingAddColumnEdit {
     pub direction: Option<Vec<f64>>,
     /// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
     pub material: Option<String>,
+    /// 結ぶ柱の型（IfcColumnType）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -17135,6 +17157,7 @@ impl BuildingAddColumnEdit {
         let section = object.required("section", BuildingSection::from_json)?;
         let direction = object.optional("direction", |value| json::array(value, json::number))?;
         let material = object.optional("material", json::string)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
@@ -17145,6 +17168,7 @@ impl BuildingAddColumnEdit {
             section,
             direction,
             material,
+            element_type,
             name,
             global_id,
         })
@@ -17172,6 +17196,10 @@ impl BuildingAddColumnEdit {
         if let Some(value) = &self.material {
             out.key("material");
             out.string(value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -17201,7 +17229,7 @@ impl ToJson for BuildingAddColumnEdit {
     }
 }
 
-/// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から
+/// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から（element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddBeamEdit {
     /// 所属する空間（階など）。梁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
@@ -17214,6 +17242,8 @@ pub struct BuildingAddBeamEdit {
     pub section: BuildingSection,
     /// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
     pub material: Option<String>,
+    /// 結ぶ梁の型（IfcBeamType）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -17228,6 +17258,7 @@ impl BuildingAddBeamEdit {
         let end = object.required("end", |value| json::array(value, json::number))?;
         let section = object.required("section", BuildingSection::from_json)?;
         let material = object.optional("material", json::string)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
@@ -17236,6 +17267,7 @@ impl BuildingAddBeamEdit {
             end,
             section,
             material,
+            element_type,
             name,
             global_id,
         })
@@ -17255,6 +17287,10 @@ impl BuildingAddBeamEdit {
         if let Some(value) = &self.material {
             out.key("material");
             out.string(value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -17365,15 +17401,17 @@ impl ToJson for BuildingAddOpeningEdit {
     }
 }
 
-/// 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から
+/// 開口を扉で埋める。扉は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcDoor（IFC4 と IFC4X3 で型が PredefinedType を持たなければ DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddDoorEdit {
     /// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     pub opening: BuildingRef,
-    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う
     pub width: Option<f64>,
-    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う
     pub height: Option<f64>,
+    /// 結ぶ扉の型（IFC4 からの IfcDoorType、IFC2X3 の IfcDoorStyle）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -17386,12 +17424,14 @@ impl BuildingAddDoorEdit {
         let opening = object.required("opening", BuildingRef::from_json)?;
         let width = object.optional("width", json::number)?;
         let height = object.optional("height", json::number)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
             opening,
             width,
             height,
+            element_type,
             name,
             global_id,
         })
@@ -17409,6 +17449,10 @@ impl BuildingAddDoorEdit {
         if let Some(value) = &self.height {
             out.key("height");
             out.float(*value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -17438,15 +17482,17 @@ impl ToJson for BuildingAddDoorEdit {
     }
 }
 
-/// 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から
+/// 開口を窓で埋める。窓は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcWindow（IFC4 と IFC4X3 で型が PredefinedType を持たなければ WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddWindowEdit {
     /// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     pub opening: BuildingRef,
-    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う
     pub width: Option<f64>,
-    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う
     pub height: Option<f64>,
+    /// 結ぶ窓の型（IFC4 からの IfcWindowType、IFC2X3 の IfcWindowStyle）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -17459,12 +17505,14 @@ impl BuildingAddWindowEdit {
         let opening = object.required("opening", BuildingRef::from_json)?;
         let width = object.optional("width", json::number)?;
         let height = object.optional("height", json::number)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
             opening,
             width,
             height,
+            element_type,
             name,
             global_id,
         })
@@ -17482,6 +17530,10 @@ impl BuildingAddWindowEdit {
         if let Some(value) = &self.height {
             out.key("height");
             out.float(*value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -17678,7 +17730,7 @@ impl ToJson for BuildingElevationEdit {
     }
 }
 
-/// 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+/// 壁の芯・高さ・材料の層か型を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口と建具の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から（element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingWallShapeEdit {
     /// 直す壁（IfcWall か IfcWallStandardCase）。材料の層の使い方（AXIS2）を持つもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
@@ -17689,10 +17741,12 @@ pub struct BuildingWallShapeEdit {
     pub end: Vec<f64>,
     /// 高さ。文書の長さの単位で、正の値
     pub height: f64,
-    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
-    pub layers: Vec<BuildingWallLayer>,
+    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type（なければ今の壁の型）の材料の層を使う
+    pub layers: Option<Vec<BuildingWallLayer>>,
     /// 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
     pub offset: Option<f64>,
+    /// 付け替える壁の型（IfcWallType）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
 }
 
 impl BuildingWallShapeEdit {
@@ -17702,10 +17756,11 @@ impl BuildingWallShapeEdit {
         let start = object.required("start", |value| json::array(value, json::number))?;
         let end = object.required("end", |value| json::array(value, json::number))?;
         let height = object.required("height", json::number)?;
-        let layers = object.required("layers", |value| {
+        let layers = object.optional("layers", |value| {
             json::array(value, BuildingWallLayer::from_json)
         })?;
         let offset = object.optional("offset", json::number)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         Ok(Self {
             wall,
             start,
@@ -17713,6 +17768,7 @@ impl BuildingWallShapeEdit {
             height,
             layers,
             offset,
+            element_type,
         })
     }
 
@@ -17727,11 +17783,17 @@ impl BuildingWallShapeEdit {
         out.array(&self.end, |out, item| out.float(*item));
         out.key("height");
         out.float(self.height);
-        out.key("layers");
-        out.array(&self.layers, |out, item| item.to_json(out));
+        if let Some(value) = &self.layers {
+            out.key("layers");
+            out.array(value, |out, item| item.to_json(out));
+        }
         if let Some(value) = &self.offset {
             out.key("offset");
             out.float(*value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
     }
 }
@@ -17753,7 +17815,7 @@ impl ToJson for BuildingWallShapeEdit {
     }
 }
 
-/// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+/// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の Body と全体の高さ・幅（OverallHeight・OverallWidth）を合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingOpeningShapeEdit {
     /// 直す開口（IfcOpeningElement）。材料の層の使い方を持つ要素に穴をあけるもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す

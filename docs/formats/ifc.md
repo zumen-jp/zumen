@@ -1010,31 +1010,32 @@ python crates/zumen-ifc/tests/ifcopenshell/exporter_measure.py target/debug/exam
   - 書く実体と属性の数と、要素・型の定義された種類の列挙は、lift と同じく手書きのバージョンの表で持つ。そのバージョンにない実体と、そのバージョンの列挙にない定義された種類、および `ElementType` のない型の `USERDEFINED`・`ObjectType` を書かない要素の `USERDEFINED` は書かない。必須の定義された種類（IFC2X3 の屋根・階段・斜路の ShapeType、基礎・杭）を渡されなければ `NOTDEFINED` を書く。
   - 足す `IfcRoot` の所有履歴は、プロジェクトの所有履歴を使う。IFC2X3 でなければ断り、IFC4 と IFC4X3 では `$` にする。GlobalId は、渡された値が文書とこの要求で重ならなければ使う。渡されなければ、Rust では今と同じく作り、`building_apply` では文書のハッシュと変更の位置から作って L1 に渡す。
   - 当てられない変更（表にない実体、所属できない空間、輪になる集約と配置、剛体でない変換、重なる GlobalId、ないか除いた要素）は、`change.edit.unsupported` で断り、要求のどの変更も当てない。
-- 意図の値で壁を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Wall` と、`building_apply` の `add_wall`（スキーマのマイナーバージョン 97 から）で、芯の 2 点（空間の配置の XY）・高さ・材料の層と芯からのずれを受ける。IFC2X3 は `IfcWallStandardCase`、IFC4 と IFC4X3 は `IfcWall` に書き、空間に包含で結ぶ。
+- 意図の値で壁を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Wall` と、`building_apply` の `add_wall`（スキーマのマイナーバージョン 97 から。`element_type` は 110 から）で、芯の 2 点（空間の配置の XY）・高さ・材料の層か壁の型（`IfcWallType`）と芯からのずれを受ける。IFC2X3 は `IfcWallStandardCase`、IFC4 と IFC4X3 は `IfcWall` に書き、空間に包含で結ぶ。
   - 配置は、空間の配置からの相対で、芯の始点を原点、芯の向きを x 軸にする。
   - 表現は `Axis`（芯の 2 点の折れ線、`Curve2D`）と `Body`（層の厚さの合計の矩形を閉じた折れ線の断面にして、高さだけ押し出す `SweptSolid`）。文脈は、プロジェクトの `Model` の文脈と、その下の `Axis`・`Body` の副文脈を使い、なければ足す。
-  - 材料は、層ごとの `IfcMaterialLayer` を `IfcMaterialLayerSetUsage`（`AXIS2`・`POSITIVE`）で使い、`IfcRelAssociatesMaterial` で結ぶ。層は芯の左へ並び、ずれ（`OffsetFromReferenceLine`）を渡されなければ厚さの合計の半分を負にして、芯を厚さの中央にする。`IfcMaterial` は壁ごとに書き、同じ壁で同じ名前の層は同じ材料を指す。
-  - 芯の 2 点が重なる、高さや層の厚さが正でない、層がない、値が有限でない壁は、`change.edit.unsupported` で断る。
-- 意図の値で床・柱・梁を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Slab`・`Edit::Column`・`Edit::Beam` と、`building_apply` の `add_slab`・`add_column`・`add_beam`（スキーマのマイナーバージョン 98 から）で受け、空間の配置からの相対に置き、空間に包含で結ぶ。表現は `Body`（閉じた折れ線の断面を押し出す `SweptSolid`）だけで、文脈は壁と同じく使い回す。
-  - 床は、外形の頂点（空間の配置の XY、3 つ以上）・材料の層・上の面の高さで受ける。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す。`IfcSlab` の `FLOOR` に書き、材料は `IfcMaterialLayerSetUsage`（`AXIS3`・`NEGATIVE`・ずれ 0）で、層は上から下へ並ぶ。最後の頂点が最初と同じなら除く。
+  - 材料は、層を渡されれば層ごとの `IfcMaterialLayer` を `IfcMaterialLayerSetUsage`（`AXIS2`・`POSITIVE`）で使い、層を省けば `element_type` に結ばれた `IfcMaterialLayerSet` を同じ使い方で参照し、`IfcRelAssociatesMaterial` で結ぶ。`element_type` があれば `IfcRelDefinesByType` でも結ぶ。層は芯の左へ並び、ずれ（`OffsetFromReferenceLine`）を渡されなければ厚さの合計の半分を負にして、芯を厚さの中央にする。`IfcMaterial` は壁ごとに書き、同じ壁で同じ名前の層は同じ材料を指す。
+  - 芯の 2 点が重なる、高さや層の厚さが正でない、層も層の組を持つ型もない、型が `IfcWallType` でない、値が有限でない壁は、`change.edit.unsupported` で断る。
+- 意図の値で床・柱・梁を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Slab`・`Edit::Column`・`Edit::Beam` と、`building_apply` の `add_slab`・`add_column`・`add_beam`（スキーマのマイナーバージョン 98 から。`element_type` は 110 から）で受け、空間の配置からの相対に置き、空間に包含で結ぶ。型（`IfcSlabType`・`IfcColumnType`・`IfcBeamType`）を渡されれば `IfcRelDefinesByType` で結ぶ。表現は `Body`（閉じた折れ線の断面を押し出す `SweptSolid`）だけで、文脈は壁と同じく使い回す。
+  - 床は、外形の頂点（空間の配置の XY、3 つ以上）・材料の層か型・上の面の高さで受ける。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す。`IfcSlab`（IFC4 から型が `NOTDEFINED` でない `PredefinedType` を持つときは規則 OJT001 に従い空、ほかは `FLOOR`）に書き、材料は `IfcMaterialLayerSetUsage`（`AXIS3`・`NEGATIVE`・ずれ 0）で、層を省けば型の `IfcMaterialLayerSet` を使う。最後の頂点が最初と同じなら除く。
   - 柱は、断面の中心の位置・脚の高さ・高さ・矩形の断面（幅とせい）・x 軸の向きで受け、断面の中心を配置の原点にして上へ押し出す。
   - 梁は、天端の芯の 2 点（空間の配置の XYZ）と矩形の断面で受ける。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面（幅は芯の左右、せいは天端から下）を芯に沿って押し出す。傾いた梁も書き、鉛直の芯は断る。
   - 柱と梁の材料は、名前を渡されれば `IfcMaterial` を `IfcRelAssociatesMaterial` で結ぶ。`IfcColumn` と `IfcBeam` の PredefinedType（IFC4 から）は書かない。
-  - 頂点が足りない・並ぶ頂点が重なる・面積のない外形、正でない高さ・断面・層の厚さ、長さのない向き、有限でない値は、`change.edit.unsupported` で断る。
-- 意図の値で壁に開口をあけ、扉や窓で埋められる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Opening` と `Edit::Filling`、`building_apply` の `add_opening`・`add_door`・`add_window`（スキーマのマイナーバージョン 98 から）で受ける。
+  - 頂点が足りない・並ぶ頂点が重なる・面積のない外形、正でない高さ・断面・層の厚さ、長さのない向き、合わない型、有限でない値は、`change.edit.unsupported` で断る。
+- 意図の値で壁に開口をあけ、扉や窓で埋められる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Opening` と `Edit::Filling`、`building_apply` の `add_opening`・`add_door`・`add_window`（スキーマのマイナーバージョン 98 から。建具の `Body` と `element_type` は 110 から）で受ける。
   - 開口は、壁・芯に沿う距離・下端の高さ・幅・高さで受ける。壁の配置からの相対で、距離と下端の点を原点にし、`IfcOpeningElement`（IFC4 と IFC4X3 は `OPENING`）を `IfcRelVoidsElement` で壁に結ぶ。空間には所属させない。
   - 開口の `Body` は、幅と高さの矩形を壁の XZ に置き、壁の材料の層の使い方（`AXIS2`）から求めた層の範囲の一方の面から他方の面まで押し出す。層の使い方を持たない要素と空間には、穴をあけない。
-  - 建具は、開口・種類（扉か窓）・全体の幅と高さで受ける。開口の配置に置き、`IfcDoor` か `IfcWindow`（IFC4 と IFC4X3 は PredefinedType の `DOOR` か `WINDOW`）を `IfcRelFillsElement` で開口に結び、壁と同じ空間に包含で結ぶ。建具の形と型はまだ書かない。開口でない要素と、もう埋まった開口は断る。
+  - 建具は、開口・種類（扉か窓）・全体の幅と高さ・型（IFC4 からの `IfcDoorType`・`IfcWindowType`、IFC2X3 の `IfcDoorStyle`・`IfcWindowStyle`）で受ける。開口の配置に置き、`IfcDoor` か `IfcWindow`（IFC4 と IFC4X3 で型が `NOTDEFINED` でない `PredefinedType` を持たなければ `DOOR` か `WINDOW`）を `IfcRelFillsElement` で開口に結び、壁と同じ空間に包含で結ぶ。壁が層の使い方を持ち、幅と高さ（省けば開口の `Body` の幅と高さ）が定まれば、壁の層の範囲の中央に厚さの 4 分の 1 の板を押し出す `Body` を書く。開口でない要素、合わない型、もう埋まった開口は断る。
 - 意図の値で通り芯を足せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Grid` と、`building_apply` の `add_grid`（スキーマのマイナーバージョン 101 から）で受ける。空間・U と V の軸（名前・始点・終点）・高さで受け、空間の配置からの相対に置いて空間に包含で結ぶ。軸は 2 点の `IfcPolyline` を曲線にした `IfcGridAxis`（SameSense は真）に書く。U と V のどちらかが空・同じ名前の軸・始点と終点が同じ軸・有限でない値は断る。
-- 意図の値で階の高さ、壁の芯・高さ・層、開口の位置と大きさを直せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Elevation`・`Edit::WallShape`・`Edit::OpeningShape` と、`building_apply` の `elevation`・`wall_shape`・`opening_shape`（スキーマのマイナーバージョン 103 から）で受ける。
+- 意図の値で階の高さ、壁の芯・高さ・層か型、開口の位置と大きさを直せる（[#898](https://github.com/zumen-jp/zumen/issues/898)）。Rust の `Edit::Elevation`・`Edit::WallShape`・`Edit::OpeningShape` と、`building_apply` の `elevation`・`wall_shape`・`opening_shape`（スキーマのマイナーバージョン 103 から。`wall_shape` の `element_type` は 110 から）で受ける。
   - 階の高さは 10 Elevation に書き、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。IFC4.3 では、`Elevation` が書いてあるときだけ直し、なければ配置だけを動かす。階に属する要素は配置の相対で付いてくる。
-  - 壁は、足すときと同じ値（芯の 2 点・高さ・層・芯からのずれ）で受け、配置・表現・材料の層の使い方を書き直す。芯の点は壁の配置の親の配置の XY。同じ名前の層は元の `IfcMaterial` を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の `Body` の押し出しを新しい層の範囲に合わせる。元の層の範囲の遠い面から近い面へ押し出す、ただ 1 つの `IfcExtrudedAreaSolid` でない開口があれば、何も変えずに断る。
-  - 開口は、足すときと同じ値（芯に沿う距離・下端・幅・高さ）で受け、配置と `Body` を書き直す。埋める扉と窓の OverallHeight と OverallWidth は、書いてあれば新しい大きさにする。
+  - 壁は、足すときと同じ値（芯の 2 点・高さ・層か型・芯からのずれ）で受け、配置・表現・材料の層の使い方を書き直す。芯の点は壁の配置の親の配置の XY。同じ名前の層は元の `IfcMaterial` を使い、層を省けば `element_type`（なければ今の壁の型）の `IfcMaterialLayerSet` を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口と建具の `Body` の押し出しを新しい層の範囲に合わせる。元の層の範囲の遠い面から近い面へ押し出す、ただ 1 つの `IfcExtrudedAreaSolid` でない開口があれば、何も変えずに断る。
+  - 開口は、足すときと同じ値（芯に沿う距離・下端・幅・高さ）で受け、配置と `Body` を書き直す。埋める扉と窓の `Body` と、書いてある OverallHeight・OverallWidth も新しい大きさにする。
   - 配置をほかの要素と共有していれば、新しい配置に付け替える。使われなくなった配置と表現は除く。
 - 作る変更と直す変更の確かめ方（[#898](https://github.com/zumen-jp/zumen/issues/898)）。
-  - `crates/zumen-ifc/tests/author.rs` は、IFC2X3・IFC4・IFC4X3 の文書に、建物・2 つの階・通り芯と各階の壁・床・柱・梁・開口・扉か窓を変更だけで足す。直した壁と開口は、平断面の切断線と開口を引いた体積が付いてくることを、直す前と後で照らす。
-  - 適合テストの `building_storeys` は、同じ 2 階建てを 1 つの `building_apply` で作り、建物モデルの要約・要素と `scene3d` の場面を、各環境の全バイトで照らす。
-  - `examples/author_contract.rs` は、作った文書と直した文書の IFC のバイト列・建物モデルのハッシュ・各階の平断面・体積と、変更を当てるときの予算停止と中断を記録する。`tests/check_author.py` で、各ネイティブ環境と wasm32-wasip1 で同じ SHA-256 になることを照らす。
+  - `crates/zumen-ifc/tests/author.rs` は、IFC2X3・IFC4・IFC4X3 の文書に、建物・2 つの階・通り芯と各階の壁・床・柱・梁・開口・扉か窓を変更だけで足し、型からの層の共有・付け替えも試験する。直した階・壁・開口と建具は、平断面・断面の切断線と体積が追従し、文書エンジンの取り消し・やり直しで元のバイト列に戻ることを照らす。
+  - 適合テストの `building_storeys` は、同じ 2 階建てを `building_apply` で作り、階高・壁厚・開口を直す変更も当てて、建物モデルの要約・要素と `scene3d` の場面を、各環境の全バイトで照らす。
+  - `examples/author_contract.rs` は、作った文書と直した文書の IFC のバイト列・建物モデルのハッシュ・各階の平断面と鉛直断面・体積・文書エンジンの取り消しとやり直し、および変更を当てるときの予算停止と中断を記録する。`tests/check_author.py` で、各ネイティブ環境と wasm32-wasip1 で同じ SHA-256 になることを照らす。
+  - `xtask/verify/ifc/author.py` は、既存 CLI の `create` と `building_apply` だけで 3 版の新規作成・変更済み 2 階建て IFC キット（`built.ifc`・`changed.ifc`・`manifest.json`・`report.md`）を出力し、[#526](https://github.com/zumen-jp/zumen/issues/526) の BIM ソフトでの実機確認と再書き出し比較につなぐ。
   - 毎晩の IfcOpenShell の段は、`author.rs` の `writes_the_authored_files_for_other_readers` が書いた 3 版の構造編集の IFC・作った IFC・直した IFC を、`tests/ifcopenshell/author.py` で IfcOpenShell 0.9.0.post1 の検査（スキーマと EXPRESS の規則）にかけ、GlobalId・空間の親子・配置・所属・型・通り芯・開口と建具の関係・壁の層・開口を引いた壁の体積を照らす。同じ `author.rs` の `writes_face_sets`・`writes_booleans_and_mappings`・`writes_revolutions_and_sweeps` が書いた面集合・集合演算と写像・回転と掃引も、検査と表現の種類・項目・体積を照らす。IfcOpenShell 0.9.0.post1 は掃引の始点と終点を使わずに経路の全体を掃引するので、途中からの区間の体積は照らさない。手元では次のように流す。
 
     ```powershell

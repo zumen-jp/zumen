@@ -6298,7 +6298,7 @@ type BuildingWallLayer struct {
 	Thickness *float64 `json:"thickness,omitempty"`
 }
 
-// BuildingAddWallEdit: 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+// BuildingAddWallEdit: 芯の 2 点・高さ・材料の層か型で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から（element_type は 110 から）
 type BuildingAddWallEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6315,11 +6315,14 @@ type BuildingAddWallEdit struct {
 	// 高さ。文書の長さの単位で、正の値
 	Height *float64 `json:"height,omitempty"`
 
-	// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+	// 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type の材料の層を使う
 	Layers []BuildingWallLayer `json:"layers,omitempty"`
 
 	// 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする
 	Offset *float64 `json:"offset,omitempty"`
+
+	// 結ぶ壁の型（IfcWallType）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 
 	// 名前
 	Name *string `json:"name,omitempty"`
@@ -6344,7 +6347,7 @@ type BuildingSection struct {
 	Depth *float64 `json:"depth,omitempty"`
 }
 
-// BuildingAddSlabEdit: 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から
+// BuildingAddSlabEdit: 外形・材料の層か型で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab（型が PredefinedType を持たなければ FLOOR）、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。結果の id は足した床の ID。マイナーバージョン 98 から（element_type は 110 から）
 type BuildingAddSlabEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6355,11 +6358,14 @@ type BuildingAddSlabEdit struct {
 	// 外形の頂点。空間の配置の [x, y] の並びで、3 つ以上。最後の点が最初の点と同じなら、その点は除く
 	Outline [][]float64 `json:"outline,omitempty"`
 
-	// 材料の層。上から下へ並べる。1 つ以上
+	// 材料の層。上から下へ並べる。省くか空なら element_type の材料の層を使う
 	Layers []BuildingWallLayer `json:"layers,omitempty"`
 
 	// 上の面の高さ（空間の配置の z）。書かなければ 0
 	Elevation *float64 `json:"elevation,omitempty"`
+
+	// 結ぶ床の型（IfcSlabType）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 
 	// 名前
 	Name *string `json:"name,omitempty"`
@@ -6375,7 +6381,7 @@ func (m BuildingAddSlabEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingAddColumnEdit: 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から
+// BuildingAddColumnEdit: 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から（element_type は 110 から）
 type BuildingAddColumnEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6401,6 +6407,9 @@ type BuildingAddColumnEdit struct {
 	// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
 	Material *string `json:"material,omitempty"`
 
+	// 結ぶ柱の型（IfcColumnType）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
+
 	// 名前
 	Name *string `json:"name,omitempty"`
 
@@ -6415,7 +6424,7 @@ func (m BuildingAddColumnEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingAddBeamEdit: 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から
+// BuildingAddBeamEdit: 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から（element_type は 110 から）
 type BuildingAddBeamEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6434,6 +6443,9 @@ type BuildingAddBeamEdit struct {
 
 	// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
 	Material *string `json:"material,omitempty"`
+
+	// 結ぶ梁の型（IfcBeamType）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 
 	// 名前
 	Name *string `json:"name,omitempty"`
@@ -6483,7 +6495,7 @@ func (m BuildingAddOpeningEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingAddDoorEdit: 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から
+// BuildingAddDoorEdit: 開口を扉で埋める。扉は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcDoor（IFC4 と IFC4X3 で型が PredefinedType を持たなければ DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
 type BuildingAddDoorEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6491,11 +6503,14 @@ type BuildingAddDoorEdit struct {
 	// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Opening *BuildingRef `json:"opening,omitempty"`
 
-	// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+	// 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う
 	Width *float64 `json:"width,omitempty"`
 
-	// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+	// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う
 	Height *float64 `json:"height,omitempty"`
+
+	// 結ぶ扉の型（IFC4 からの IfcDoorType、IFC2X3 の IfcDoorStyle）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 
 	// 名前
 	Name *string `json:"name,omitempty"`
@@ -6511,7 +6526,7 @@ func (m BuildingAddDoorEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingAddWindowEdit: 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から
+// BuildingAddWindowEdit: 開口を窓で埋める。窓は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcWindow（IFC4 と IFC4X3 で型が PredefinedType を持たなければ WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
 type BuildingAddWindowEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6519,11 +6534,14 @@ type BuildingAddWindowEdit struct {
 	// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Opening *BuildingRef `json:"opening,omitempty"`
 
-	// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+	// 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う
 	Width *float64 `json:"width,omitempty"`
 
-	// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+	// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う
 	Height *float64 `json:"height,omitempty"`
+
+	// 結ぶ窓の型（IFC4 からの IfcWindowType、IFC2X3 の IfcWindowStyle）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 
 	// 名前
 	Name *string `json:"name,omitempty"`
@@ -6601,7 +6619,7 @@ func (m BuildingElevationEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingWallShapeEdit: 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+// BuildingWallShapeEdit: 壁の芯・高さ・材料の層か型を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口と建具の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から（element_type は 110 から）
 type BuildingWallShapeEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6618,11 +6636,14 @@ type BuildingWallShapeEdit struct {
 	// 高さ。文書の長さの単位で、正の値
 	Height *float64 `json:"height,omitempty"`
 
-	// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+	// 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type（なければ今の壁の型）の材料の層を使う
 	Layers []BuildingWallLayer `json:"layers,omitempty"`
 
 	// 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
 	Offset *float64 `json:"offset,omitempty"`
+
+	// 付け替える壁の型（IfcWallType）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 }
 
 // MarshalJSON は、タグのフィールドを入れて書く。
@@ -6632,7 +6653,7 @@ func (m BuildingWallShapeEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingOpeningShapeEdit: 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+// BuildingOpeningShapeEdit: 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の Body と全体の高さ・幅（OverallHeight・OverallWidth）を合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
 type BuildingOpeningShapeEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`

@@ -1357,6 +1357,7 @@ fn wall(n: u32, storey: Target, from: [f64; 2], to: [f64; 2]) -> Edit {
         height: 2800.0,
         layers: vec![layer("Concrete", 150.0), layer("Insulation", 50.0)],
         offset: None,
+        type_of: None,
         name: Some(format!("W{n}")),
         global_id: Some(global(n)),
     })
@@ -1538,6 +1539,7 @@ fn slab(n: u32, storey: Target) -> NewSlab {
         outline: vec![[0.0, 0.0], [6000.0, 0.0], [6000.0, 4000.0], [0.0, 4000.0]],
         layers: vec![layer("Concrete", 200.0), layer("Finish", 50.0)],
         elevation: None,
+        type_of: None,
         name: Some(format!("S{n}")),
         global_id: Some(global(n)),
     }
@@ -1556,6 +1558,7 @@ fn column(n: u32, storey: Target) -> NewColumn {
         },
         direction: Some([0.0, 1.0]),
         material: Some("Concrete".to_owned()),
+        type_of: None,
         name: Some(format!("C{n}")),
         global_id: Some(global(n)),
     }
@@ -1572,6 +1575,7 @@ fn beam(n: u32, storey: Target) -> NewBeam {
             depth: 600.0,
         },
         material: Some("Steel".to_owned()),
+        type_of: None,
         name: Some(format!("B{n}")),
         global_id: Some(global(n)),
     }
@@ -1835,6 +1839,7 @@ fn filling(n: u32, opening: Target, kind: FillingKind, size: [f64; 2]) -> Edit {
         kind,
         width: Some(size[0]),
         height: Some(size[1]),
+        type_of: None,
         name: Some(format!("F{n}")),
         global_id: Some(global(n)),
     })
@@ -1899,10 +1904,10 @@ fn adds_openings_doors_and_windows_to_walls_in_every_version() {
                 Some([1.0, 0.0, 0.0])
             )]
         );
-        // 建具は開口の配置に置き、壁と同じ階に包含で結ぶ
-        for (filling, opening, name, predefined) in [
-            (door, door_opening, "IfcDoor", "DOOR"),
-            (window, window_opening, "IfcWindow", "WINDOW"),
+        // 建具は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の Body を持ち、壁と同じ階に包含で結ぶ
+        for (filling, opening, n, name, predefined) in [
+            (door, door_opening, 501, "IfcDoor", "DOOR"),
+            (window, window_opening, 503, "IfcWindow", "WINDOW"),
         ] {
             let class = building.components.class.get(filling).unwrap();
             assert_eq!(class.name, name, "{schema}");
@@ -1913,6 +1918,7 @@ fn adds_openings_doors_and_windows_to_walls_in_every_version() {
             let parent = building.components.parent.get(filling).unwrap();
             let of = parent.of.as_ref().unwrap();
             assert_eq!((of.target, of.kind), (storey, ParentKind::Contained));
+            assert_eq!(solids(&bytes, n).unwrap(), [([0.0, 25.0, 0.0], 50.0)]);
         }
         // 開口は空間に所属しない
         assert!(
@@ -2178,6 +2184,7 @@ fn change_edits(text: &str) -> Option<Vec<Edit>> {
                 layer("Board", 50.0),
             ],
             offset: None,
+            type_of: None,
         }),
         Edit::OpeningShape(OpeningChange {
             opening: at(502)?,
@@ -2233,10 +2240,15 @@ fn changes_storeys_walls_and_openings_and_dependents_follow_in_every_version() {
         assert_eq!(count(&changed, "IFCMATERIAL"), 5, "{schema}");
         assert_eq!(count(&changed, "IFCMATERIALLAYER"), 5, "{schema}");
         assert_eq!(count(&changed, "IFCMATERIALLAYERSETUSAGE"), 2, "{schema}");
-        // 壁の開口は新しい層の範囲を貫き、扉は開口の配置のまま
+        // 壁の開口は新しい層の範囲を貫き、扉は開口の配置のまま厚み 75（300 の 4 分の 1）に追従する
         assert_eq!(
             solids(&after, 500).unwrap(),
             [([0.0, 150.0, 0.0], 300.0)],
+            "{schema}"
+        );
+        assert_eq!(
+            solids(&after, 501).unwrap(),
+            [([0.0, 37.5, 0.0], 75.0)],
             "{schema}"
         );
         assert_eq!(
@@ -2245,12 +2257,13 @@ fn changes_storeys_walls_and_openings_and_dependents_follow_in_every_version() {
         );
         let placement = building.components.placement.get(door).unwrap();
         assert_eq!(placement.relative_to, Some(door_opening));
-        // 動かした開口は、壁 301 の層の範囲のまま新しい大きさで押し出し、窓の全体の高さと幅も合わせる
+        // 動かした開口は、壁 301 の層の範囲のまま新しい大きさで押し出し、窓の Body と全体の高さ・幅も合わせる
         assert_eq!(
             translation(&building, window_opening),
             Some([800.0, 0.0, 1000.0])
         );
         assert_eq!(solids(&after, 502).unwrap(), [([0.0, 100.0, 0.0], 200.0)]);
+        assert_eq!(solids(&after, 503).unwrap(), [([0.0, 25.0, 0.0], 50.0)]);
         let window = changed
             .lines()
             .find(|line| line.contains(&gid(503)))
@@ -2423,6 +2436,35 @@ fn the_cut_and_quantities_follow_changed_walls_and_openings() {
             "{schema}: {volume}"
         );
         assert!(!crosses(&lines, -1000.0), "{schema}");
+        // 扉 501 と窓 503 の切断線と体積も、壁の厚さと開口の大きさに追従する
+        let (door_before_lines, door_before_vol) = cut_and_volume(&before, 501, 3000.0).unwrap();
+        assert_eq!(
+            extent(&door_before_lines),
+            [975.0, 1025.0, 1000.0, 1900.0],
+            "{schema}"
+        );
+        assert!(near(door_before_vol, 0.9 * 2.1 * 0.05), "{schema}");
+        let (door_after_lines, door_after_vol) = cut_and_volume(&after, 501, 3500.0).unwrap();
+        assert_eq!(
+            extent(&door_after_lines),
+            [962.5, 1037.5, 1000.0, 1900.0],
+            "{schema}"
+        );
+        assert!(near(door_after_vol, 0.9 * 2.1 * 0.075), "{schema}");
+        let (win_before_lines, win_before_vol) = cut_and_volume(&before, 503, 3000.0).unwrap();
+        assert_eq!(
+            extent(&win_before_lines),
+            [-700.0, 500.0, 3975.0, 4025.0],
+            "{schema}"
+        );
+        assert!(near(win_before_vol, 1.2 * 1.2 * 0.05), "{schema}");
+        let (win_after_lines, win_after_vol) = cut_and_volume(&after, 503, 3500.0).unwrap();
+        assert_eq!(
+            extent(&win_after_lines),
+            [-1300.0, 200.0, 3975.0, 4025.0],
+            "{schema}"
+        );
+        assert!(near(win_after_vol, 1.5 * 1.0 * 0.05), "{schema}");
     }
 }
 
@@ -2440,6 +2482,7 @@ fn refuses_changes_it_cannot_write_without_changing_anything() {
             height: 3000.0,
             layers: vec![layer("Concrete", thickness)],
             offset: None,
+            type_of: None,
         })
     };
     let opening_change = |opening, width: f64| {
@@ -2573,7 +2616,7 @@ fn builds_a_two_storey_building_from_edits_only_in_every_version() {
                 .unwrap();
             assert_eq!(placement.relative_to, Some(second), "{schema}: {n}");
         }
-        // 形まで読める。形を持たないのは空間と建具だけで、ほかの診断は出ない
+        // 形まで読める。形を持たないのは空間と通り芯だけで、建具を含む全建築要素が Body を持ち、ほかの診断は出ない
         let file = read(&built).unwrap();
         let (shaped, diag) = with(|cx| file.lift_geometry(cx));
         assert!(
@@ -2582,7 +2625,7 @@ fn builds_a_two_storey_building_from_edits_only_in_every_version() {
             diag.iter().collect::<Vec<_>>()
         );
         let shaped = shaped.unwrap();
-        for n in [2000, 2010, 2011, 2012, 2020, 3000, 3020] {
+        for n in [2000, 2010, 2011, 2012, 2020, 2021, 3000, 3020, 3021] {
             let at = element(&shaped, n).unwrap();
             assert!(shaped.geometry(at).is_some(), "{schema}: {n}");
         }
@@ -2620,6 +2663,7 @@ fn two_storey_change_edits() -> Option<Vec<Edit>> {
                 layer("Board", 20.0),
             ],
             offset: None,
+            type_of: None,
         }),
         Edit::OpeningShape(OpeningChange {
             opening: Target::Added(window),
@@ -2630,6 +2674,292 @@ fn two_storey_change_edits() -> Option<Vec<Edit>> {
         }),
     ]);
     Some(edits)
+}
+
+#[test]
+#[cfg(all(feature = "drawing", feature = "measure"))]
+fn two_storey_live_edits_follow_section_plan_quantities_and_undo_redo() {
+    use zumen_building::drawing::{self, Paper, Role, Side, View};
+    use zumen_crs::ProjectPoint;
+    use zumen_drawing::{PaperLength, Shape};
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let (live, _) = with(|cx| IfcLive::open(src.as_bytes(), cx));
+        let mut live = live.unwrap();
+        let build_edits = two_storey_edits();
+        with(|cx| live.apply(&build_edits, b"seed", cx)).0.unwrap();
+        let built = with(|cx| live.save_spf(cx)).0.unwrap();
+        let built_text = String::from_utf8(built.clone()).unwrap();
+        let at = |n| Target::Instance(instance_of(&built_text, n).unwrap());
+        // 2F の依存辺が 2F の壁・開口・窓を含むことを確かめる
+        let find = |engine: &IfcLive, n: u32| element(engine.building(), n).unwrap();
+        let affected_2f = with(|cx| live.affected_elements(&[find(&live, 1002)], cx))
+            .0
+            .unwrap();
+        for n in [3000, 3010, 3011, 3012, 3020, 3021] {
+            assert!(affected_2f.contains(&find(&live, n)), "{schema}: {n}");
+        }
+        // 階高・壁厚・開口を文書エンジンで直す
+        let follow_edits = [
+            Edit::Elevation {
+                storey: at(1002),
+                elevation: 3200.0,
+            },
+            Edit::WallShape(WallChange {
+                wall: at(2000),
+                start: [0.0, 0.0],
+                end: [6500.0, 0.0],
+                height: 3000.0,
+                layers: vec![
+                    layer("Concrete", 200.0),
+                    layer("Insulation", 50.0),
+                    layer("Board", 20.0),
+                ],
+                offset: None,
+                type_of: None,
+            }),
+            Edit::OpeningShape(OpeningChange {
+                opening: at(3020),
+                distance: 2000.0,
+                sill: 1000.0,
+                width: 1600.0,
+                height: 1000.0,
+            }),
+        ];
+        let expected_changed = run(&built, &follow_edits).0.unwrap();
+        with(|cx| live.apply(&follow_edits, b"seed", cx)).0.unwrap();
+        let changed = with(|cx| live.save_spf(cx)).0.unwrap();
+        assert_eq!(changed, expected_changed, "{schema}");
+
+        // 断面図（x = 2500 で Y 方向に切る鉛直断面）で 2F の窓 3021 の高さが 3000+900 から 3200+1000 へ追従する
+        let section_y_extent = |bytes: &[u8], target_gid: u32| -> [f64; 4] {
+            let b = lift_geometry(bytes).unwrap();
+            let target = element(&b, target_gid).unwrap();
+            let opts = drawing::Options {
+                view: View::Vertical {
+                    start: ProjectPoint {
+                        x: 2500.0,
+                        y: -1000.0,
+                        z: 0.0,
+                    },
+                    end: ProjectPoint {
+                        x: 2500.0,
+                        y: 5000.0,
+                        z: 0.0,
+                    },
+                    side: Side::Right,
+                    depth: 1000.0,
+                    section: true,
+                },
+                tolerance: 0.01,
+                chord: 1.0,
+                paper: Paper {
+                    denominator: 100.0,
+                    origin: [PaperLength(0.0); 2],
+                    size: None,
+                },
+                symbols: &[],
+            };
+            let cut = with(|cx| drawing::cut(&b, opts, cx)).0.unwrap();
+            let segs: Vec<_> = cut
+                .lines
+                .iter()
+                .filter(|l| {
+                    cut.sources
+                        .get(l.source)
+                        .is_some_and(|s| s.element == target)
+                        && l.role == Role::Cut
+                })
+                .filter_map(
+                    |l| match cut.drawing.spaces.first()?.elements.get(l.index)?.shape {
+                        Shape::Line { start, end } => Some([[start.x, start.y], [end.x, end.y]]),
+                        _ => None,
+                    },
+                )
+                .collect();
+            extent(&segs)
+        };
+        // x = 2500 は直す前は窓（x 1000〜2200）の外で壁を切るが、直した後は窓（x 2000〜3600、z 4200〜5200）を切る
+        let win_sec = section_y_extent(&changed, 3021);
+        assert_eq!(win_sec, [975.0, 1025.0, 4200.0, 5200.0], "{schema}");
+        let (_, win_vol) = cut_and_volume(&changed, 3021, 3200.0).unwrap();
+        assert!(near(win_vol, 1.6 * 1.0 * 0.05), "{schema}: {win_vol}");
+
+        // 2 段の undo で元のバイト列へ一字一句戻り、2 段の redo で変更後のバイト列へ戻る
+        assert_eq!(with(|cx| live.undo(cx)).0.ok(), Some(true));
+        assert_eq!(same_as_reopened(&live), Some(built.clone()), "{schema}");
+        assert_eq!(with(|cx| live.undo(cx)).0.ok(), Some(true));
+        assert_eq!(
+            same_as_reopened(&live),
+            Some(src.as_bytes().to_vec()),
+            "{schema}"
+        );
+        assert_eq!(with(|cx| live.redo(cx)).0.ok(), Some(true));
+        assert_eq!(same_as_reopened(&live), Some(built), "{schema}");
+        assert_eq!(with(|cx| live.redo(cx)).0.ok(), Some(true));
+        assert_eq!(same_as_reopened(&live), Some(changed), "{schema}");
+    }
+}
+
+#[test]
+fn adds_and_reshapes_elements_from_types_in_every_version() {
+    for schema in SCHEMAS {
+        let later = schema != "IFC2X3";
+        let src = sample(schema, true);
+        let mut edits = vec![
+            space(SpaceKind::Building, 100, Target::Instance(10), 0.0),
+            space(SpaceKind::Storey, 101, Target::Added(0), 0.0),
+            Edit::ElementType(NewType {
+                class: "IfcWallType".to_owned(),
+                predefined: Some("SHEAR".to_owned()),
+                element_type: None,
+                name: Some("WT-200".to_owned()),
+                global_id: Some(global(700)),
+            }),
+            Edit::Material {
+                element: Target::Added(2),
+                material: NewMaterial::Layers {
+                    layers: vec![
+                        material_layer(Some("Concrete"), 160.0, None),
+                        material_layer(Some("Insulation"), 40.0, None),
+                    ],
+                    usage: None,
+                },
+            },
+            Edit::ElementType(NewType {
+                class: "IfcWallType".to_owned(),
+                predefined: Some("SHEAR".to_owned()),
+                element_type: None,
+                name: Some("WT-300".to_owned()),
+                global_id: Some(global(701)),
+            }),
+            Edit::Material {
+                element: Target::Added(3),
+                material: NewMaterial::Layers {
+                    layers: vec![material_layer(Some("Concrete"), 300.0, None)],
+                    usage: None,
+                },
+            },
+            Edit::ElementType(NewType {
+                class: "IfcSlabType".to_owned(),
+                predefined: Some("FLOOR".to_owned()),
+                element_type: None,
+                name: Some("ST-220".to_owned()),
+                global_id: Some(global(702)),
+            }),
+            Edit::Material {
+                element: Target::Added(4),
+                material: NewMaterial::Layers {
+                    layers: vec![material_layer(Some("Concrete"), 220.0, None)],
+                    usage: None,
+                },
+            },
+            Edit::ElementType(NewType {
+                class: "IfcColumnType".to_owned(),
+                predefined: Some("COLUMN".to_owned()),
+                element_type: None,
+                name: Some("CT-1".to_owned()),
+                global_id: Some(global(703)),
+            }),
+            Edit::ElementType(NewType {
+                class: "IfcBeamType".to_owned(),
+                predefined: Some("BEAM".to_owned()),
+                element_type: None,
+                name: Some("BT-1".to_owned()),
+                global_id: Some(global(704)),
+            }),
+            // 層を省き、型 WT-200 の IfcMaterialLayerSet を共有する壁
+            Edit::Wall(NewWall {
+                storey: Target::Added(1),
+                start: [0.0, 0.0],
+                end: [4000.0, 0.0],
+                height: 2800.0,
+                layers: Vec::new(),
+                offset: None,
+                type_of: Some(Target::Added(2)),
+                name: Some("W-Typed".to_owned()),
+                global_id: Some(global(710)),
+            }),
+            Edit::Slab(NewSlab {
+                storey: Target::Added(1),
+                outline: vec![[0.0, 0.0], [4000.0, 0.0], [4000.0, 3000.0], [0.0, 3000.0]],
+                layers: Vec::new(),
+                elevation: None,
+                type_of: Some(Target::Added(4)),
+                name: Some("S-Typed".to_owned()),
+                global_id: Some(global(711)),
+            }),
+            Edit::Column({
+                let mut c = column(712, Target::Added(1));
+                c.type_of = Some(Target::Added(5));
+                c
+            }),
+            Edit::Beam({
+                let mut b = beam(713, Target::Added(1));
+                b.type_of = Some(Target::Added(6));
+                b
+            }),
+            opening(714, Target::Added(7), 1000.0, 0.0, [900.0, 2100.0]),
+        ];
+        if later {
+            edits.push(Edit::ElementType(NewType {
+                class: "IfcDoorType".to_owned(),
+                predefined: Some("DOOR".to_owned()),
+                element_type: None,
+                name: Some("DT-1".to_owned()),
+                global_id: Some(global(705)),
+            }));
+        }
+        edits.push(Edit::Filling(NewFilling {
+            opening: Target::Added(11),
+            kind: FillingKind::Door,
+            width: None,
+            height: None,
+            type_of: later.then_some(Target::Added(12)),
+            name: Some("D-Typed".to_owned()),
+            global_id: Some(global(715)),
+        }));
+        let (built, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let built = built.unwrap();
+        let text = String::from_utf8(built.clone()).unwrap();
+        // 3 つの型の層セットだけで、壁と床は同じ層セットを Usage で参照する
+        assert_eq!(count(&text, "IFCMATERIALLAYERSET"), 3, "{schema}");
+        assert_eq!(solids(&built, 714).unwrap(), [([0.0, 100.0, 0.0], 200.0)]);
+        assert_eq!(solids(&built, 715).unwrap(), [([0.0, 25.0, 0.0], 50.0)]);
+        // 扉に DT-1（PredefinedType = DOOR）を結んだ IFC4/4X3 では、OJT001 に従い実例の PredefinedType を空にする
+        if later {
+            let door_line = text.lines().find(|l| l.contains(&gid(715))).unwrap();
+            assert!(door_line.ends_with(",$,$,$,$,$);"), "{schema}: {door_line}");
+        }
+        // 壁を WT-300（厚さ 300）に付け替えると、開口と扉の奥行きも 300・75 に追従し、WT-200 の層セットは残る
+        let reshape = [Edit::WallShape(WallChange {
+            wall: Target::Instance(instance_of(&text, 710).unwrap()),
+            start: [0.0, 0.0],
+            end: [4000.0, 0.0],
+            height: 2800.0,
+            layers: Vec::new(),
+            offset: None,
+            type_of: Some(Target::Instance(instance_of(&text, 701).unwrap())),
+        })];
+        let (after, codes) = run(&built, &reshape);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let after = after.unwrap();
+        let after_text = String::from_utf8(after.clone()).unwrap();
+        assert_eq!(count(&after_text, "IFCMATERIALLAYERSET"), 3, "{schema}");
+        assert_eq!(solids(&after, 714).unwrap(), [([0.0, 150.0, 0.0], 300.0)]);
+        assert_eq!(solids(&after, 715).unwrap(), [([0.0, 37.5, 0.0], 75.0)]);
+        let lifted = lift(&after).unwrap();
+        assert_eq!(
+            lifted
+                .components
+                .r#type
+                .get(element(&lifted, 710).unwrap())
+                .map(|t| t.target),
+            element(&lifted, 701),
+            "{schema}"
+        );
+    }
 }
 
 /// 所有履歴の作り手と使い手を書いた、プロジェクトと敷地だけの文書。ほかの読み手の検査で、入力の誤りを出さない

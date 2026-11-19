@@ -18655,7 +18655,7 @@ public final class Messages {
         }
     }
 
-    /** 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から */
+    /** 芯の 2 点・高さ・材料の層か型で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から（element_type は 110 から） */
     public static final class BuildingAddWallEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddWallEdit(Map<String, Object> json) {
@@ -18729,7 +18729,7 @@ public final class Messages {
             return this;
         }
 
-        /** 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上 */
+        /** 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type の材料の層を使う */
         public List<BuildingWallLayer> getLayers() {
             return Json.read(json.get("layers"), v0 -> Json.list(v0, BuildingWallLayer::of));
         }
@@ -18748,6 +18748,17 @@ public final class Messages {
         /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public BuildingAddWallEdit withOffset(Double value) {
             put("offset", value);
+            return this;
+        }
+
+        /** 結ぶ壁の型（IfcWallType）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddWallEdit withElementType(BuildingRef value) {
+            put("element_type", value);
             return this;
         }
 
@@ -18815,7 +18826,7 @@ public final class Messages {
         }
     }
 
-    /** 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から */
+    /** 外形・材料の層か型で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab（型が PredefinedType を持たなければ FLOOR）、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。結果の id は足した床の ID。マイナーバージョン 98 から（element_type は 110 から） */
     public static final class BuildingAddSlabEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddSlabEdit(Map<String, Object> json) {
@@ -18867,7 +18878,7 @@ public final class Messages {
             return this;
         }
 
-        /** 材料の層。上から下へ並べる。1 つ以上 */
+        /** 材料の層。上から下へ並べる。省くか空なら element_type の材料の層を使う */
         public List<BuildingWallLayer> getLayers() {
             return Json.read(json.get("layers"), v0 -> Json.list(v0, BuildingWallLayer::of));
         }
@@ -18886,6 +18897,17 @@ public final class Messages {
         /** {@link #getElevation()} を書く。null ならフィールドを除く */
         public BuildingAddSlabEdit withElevation(Double value) {
             put("elevation", value);
+            return this;
+        }
+
+        /** 結ぶ床の型（IfcSlabType）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddSlabEdit withElementType(BuildingRef value) {
+            put("element_type", value);
             return this;
         }
 
@@ -18912,7 +18934,7 @@ public final class Messages {
         }
     }
 
-    /** 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から */
+    /** 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から（element_type は 110 から） */
     public static final class BuildingAddColumnEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddColumnEdit(Map<String, Object> json) {
@@ -19019,6 +19041,17 @@ public final class Messages {
             return this;
         }
 
+        /** 結ぶ柱の型（IfcColumnType）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddColumnEdit withElementType(BuildingRef value) {
+            put("element_type", value);
+            return this;
+        }
+
         /** 名前 */
         public String getName() {
             return Json.read(json.get("name"), Json::string);
@@ -19042,7 +19075,7 @@ public final class Messages {
         }
     }
 
-    /** 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から */
+    /** 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から（element_type は 110 から） */
     public static final class BuildingAddBeamEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddBeamEdit(Map<String, Object> json) {
@@ -19124,6 +19157,17 @@ public final class Messages {
         /** {@link #getMaterial()} を書く。null ならフィールドを除く */
         public BuildingAddBeamEdit withMaterial(String value) {
             put("material", value);
+            return this;
+        }
+
+        /** 結ぶ梁の型（IfcBeamType）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddBeamEdit withElementType(BuildingRef value) {
+            put("element_type", value);
             return this;
         }
 
@@ -19258,7 +19302,7 @@ public final class Messages {
         }
     }
 
-    /** 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から */
+    /** 開口を扉で埋める。扉は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcDoor（IFC4 と IFC4X3 で型が PredefinedType を持たなければ DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から（Body と element_type は 110 から） */
     public static final class BuildingAddDoorEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddDoorEdit(Map<String, Object> json) {
@@ -19299,7 +19343,7 @@ public final class Messages {
             return this;
         }
 
-        /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値 */
+        /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う */
         public Double getWidth() {
             return Json.read(json.get("width"), Json::number);
         }
@@ -19310,7 +19354,7 @@ public final class Messages {
             return this;
         }
 
-        /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値 */
+        /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う */
         public Double getHeight() {
             return Json.read(json.get("height"), Json::number);
         }
@@ -19318,6 +19362,17 @@ public final class Messages {
         /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public BuildingAddDoorEdit withHeight(Double value) {
             put("height", value);
+            return this;
+        }
+
+        /** 結ぶ扉の型（IFC4 からの IfcDoorType、IFC2X3 の IfcDoorStyle）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddDoorEdit withElementType(BuildingRef value) {
+            put("element_type", value);
             return this;
         }
 
@@ -19344,7 +19399,7 @@ public final class Messages {
         }
     }
 
-    /** 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から */
+    /** 開口を窓で埋める。窓は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcWindow（IFC4 と IFC4X3 で型が PredefinedType を持たなければ WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から（Body と element_type は 110 から） */
     public static final class BuildingAddWindowEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddWindowEdit(Map<String, Object> json) {
@@ -19385,7 +19440,7 @@ public final class Messages {
             return this;
         }
 
-        /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値 */
+        /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う */
         public Double getWidth() {
             return Json.read(json.get("width"), Json::number);
         }
@@ -19396,7 +19451,7 @@ public final class Messages {
             return this;
         }
 
-        /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値 */
+        /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う */
         public Double getHeight() {
             return Json.read(json.get("height"), Json::number);
         }
@@ -19404,6 +19459,17 @@ public final class Messages {
         /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public BuildingAddWindowEdit withHeight(Double value) {
             put("height", value);
+            return this;
+        }
+
+        /** 結ぶ窓の型（IFC4 からの IfcWindowType、IFC2X3 の IfcWindowStyle）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddWindowEdit withElementType(BuildingRef value) {
+            put("element_type", value);
             return this;
         }
 
@@ -19632,7 +19698,7 @@ public final class Messages {
         }
     }
 
-    /** 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から */
+    /** 壁の芯・高さ・材料の層か型を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口と建具の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から（element_type は 110 から） */
     public static final class BuildingWallShapeEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingWallShapeEdit(Map<String, Object> json) {
@@ -19706,7 +19772,7 @@ public final class Messages {
             return this;
         }
 
-        /** 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上 */
+        /** 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type（なければ今の壁の型）の材料の層を使う */
         public List<BuildingWallLayer> getLayers() {
             return Json.read(json.get("layers"), v0 -> Json.list(v0, BuildingWallLayer::of));
         }
@@ -19727,9 +19793,20 @@ public final class Messages {
             put("offset", value);
             return this;
         }
+
+        /** 付け替える壁の型（IfcWallType）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingWallShapeEdit withElementType(BuildingRef value) {
+            put("element_type", value);
+            return this;
+        }
     }
 
-    /** 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から */
+    /** 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の Body と全体の高さ・幅（OverallHeight・OverallWidth）を合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から */
     public static final class BuildingOpeningShapeEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingOpeningShapeEdit(Map<String, Object> json) {

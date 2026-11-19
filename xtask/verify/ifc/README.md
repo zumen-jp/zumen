@@ -108,3 +108,15 @@ python -I xtask/verify/ifc/make.py observe target/debug/zumen.exe ../ifc-edit-ch
 このキットの生成と CLI による再読み込みは `synthetic` です。外部照合は `external/check.py` を別に実行し、成功した固定出力のハッシュと比較範囲を `external/results.json` に記録します。ネイティブと wasm の一致や、BIM ソフトでの `application` の確認を、この検査で済んだとは扱いません。
 
 既存の合成入力の外部照合は `crates/zumen-ifc/tests/edit.rs` と `tests/ifcopenshell/check.py` にあります。このキットは、その操作を既存 CLI から公開モデルに当て、外部実装と実機で確認するためのものです。FreeCAD で両版、FZKViewer で IFC4 を確認した範囲は、[形式の文書](../../../docs/formats/ifc.md#確かめた度合い)にあります。
+
+## 新規作成 2 階建てのキット（#898）
+
+`create` と `building_apply` だけで一から作った 3 版（IFC2X3・IFC4・IFC4X3）の 2 階建て建物と、階高・壁厚・開口を直した文書を BIM ソフトで確かめるには、`author.py` を使います（既存の `make.py`・`external/check.py` は変更しません）。
+
+```powershell
+cargo build -p zumen-cli
+python -I xtask/verify/ifc/author.py make target/debug/zumen.exe ../ifc-author-check
+python -I xtask/verify/ifc/author.py observe target/debug/zumen.exe ../ifc-author-check ifc4 changed ../ifc4-changed-exported.ifc
+```
+
+各版のフォルダー（`ifc2x3/`・`ifc4/`・`ifc4x3/`）に、作成直後の `built.ifc` と変更後の `changed.ifc`、要素・配置・3D シーン件数の記録、`report.md` と `manifest.json` を出力します。
