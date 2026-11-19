@@ -6,8 +6,8 @@
 use zumen_acad::{AcadLive, Data, Dwg, DwgFile, Object, Section};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
 use zumen_drawing::{
-    Affine, Changes, DimensionKind, Drawing2D, Edit, Field, FieldValue, Hash, ModelPoint, Seen,
-    Shape, Target, id,
+    Affine, Changes, DimensionDisplayTarget, DimensionKind, Drawing2D, Edit, Field, FieldValue,
+    Hash, ModelPoint, Seen, Shape, Target, id,
 };
 use zumen_sdk::{Apply, Lift, testkit};
 
@@ -33,6 +33,21 @@ fn first_dimension(drawing: &Drawing2D) -> (String, Hash, zumen_drawing::Element
     })
     .unwrap();
     out.unwrap()
+}
+
+/// 編集前後のどちらでも上書きが現在の寸法を指し、表示に使う値を保存している。
+#[cfg(test)]
+fn assert_display(drawing: &Drawing2D) {
+    let (id, basis, _) = first_dimension(drawing);
+    let target = DimensionDisplayTarget::Element { id, basis };
+    let record = drawing
+        .dimension_display
+        .iter()
+        .find(|r| r.target == target)
+        .unwrap();
+    assert_eq!(record.values.arrow_size, Some(3.625));
+    assert_eq!(record.values.text_height, Some(4.75));
+    assert_eq!(record.values.linear_precision, Some(3));
 }
 
 #[cfg(test)]
@@ -96,6 +111,7 @@ fn verify_rebuilt_dwg(label: &str, bytes: &[u8]) {
     let file: DwgFile = testkit::read::<Dwg>(bytes).0.unwrap();
     let db = cx_run(|cx| file.objects(cx)).0.unwrap();
     let drawing = cx_run(|cx| file.lift(cx)).0.unwrap();
+    assert_display(&drawing);
     let (dim_id, _, dim_el) = first_dimension(&drawing);
 
     // 1. 測点 (14, 20)・(44, 60) と寸法長 50 を確認
@@ -248,6 +264,7 @@ fn dwg_dimension_rebuild_applies_dstyle_overrides_and_omits_auxiliary_points() {
         let orig_file = testkit::read::<Dwg>(src).0.unwrap();
         let orig_db = cx_run(|cx| orig_file.objects(cx)).0.unwrap();
         let orig_drawing = cx_run(|cx| orig_file.lift(cx)).0.unwrap();
+        assert_display(&orig_drawing);
         let (dim_id, dim_hash, _) = first_dimension(&orig_drawing);
         let orig_exts = extensions_for(&orig_drawing, &dim_id);
         let (_, _, orig_acad) = orig_exts
@@ -284,7 +301,10 @@ fn dwg_dimension_rebuild_applies_dstyle_overrides_and_omits_auxiliary_points() {
         verify_rebuilt_dwg(&format!("{ver}-file"), &out_file_bytes);
 
         let mut live = cx_run(|cx| AcadLive::open_dwg(src, cx)).0.unwrap();
+        let opened = cx_run(|cx| live.drawing(cx)).0.unwrap();
+        assert_eq!(opened.dimension_display, orig_drawing.dimension_display);
         cx_run(|cx| live.apply(&changes, cx)).0.unwrap();
+        assert_display(&cx_run(|cx| live.drawing(cx)).0.unwrap());
         let out_live_bytes = cx_run(|cx| live.save(cx)).0.unwrap();
         verify_rebuilt_dwg(&format!("{ver}-live"), &out_live_bytes);
     }

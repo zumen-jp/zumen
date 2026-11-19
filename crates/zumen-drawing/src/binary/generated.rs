@@ -6,7 +6,7 @@ use super::{Input, Pack, Unpack, Writer, largest};
 pub const MAJOR: u16 = 1;
 
 /// マイナーバージョン。型の契約に型・フィールド・値を足すたびに上げる
-pub const MINOR: u16 = 1;
+pub const MINOR: u16 = 2;
 
 impl Pack for crate::space::Affine {
     fn pack(&self, out: &mut Writer) {
@@ -970,6 +970,138 @@ impl<P: Unpack> Unpack for crate::dimension::Dimension<P> {
     }
 }
 
+impl Pack for crate::dimension_display::DimensionDisplayRecord {
+    fn pack(&self, out: &mut Writer) {
+        let Self { target, values } = self;
+        out.record(|out| {
+            target.pack(out);
+            values.pack(out);
+        });
+    }
+}
+
+impl Unpack for crate::dimension_display::DimensionDisplayRecord {
+    const SIZE: u64 = <crate::dimension_display::DimensionDisplayTarget as Unpack>::SIZE
+        + <crate::dimension_display::DimensionDisplayValues as Unpack>::SIZE;
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        input.record("DimensionDisplayRecord", |input| {
+            Ok(Self {
+                target: Unpack::unpack(input)?,
+                values: Unpack::unpack(input)?,
+            })
+        })
+    }
+}
+
+impl Pack for crate::dimension_display::DimensionDisplayTarget {
+    fn pack(&self, out: &mut Writer) {
+        match self {
+            Self::Style(f0) => {
+                out.uint(0);
+                f0.pack(out);
+            }
+            Self::Element { id, basis } => {
+                out.uint(1);
+                out.record(|out| {
+                    id.pack(out);
+                    basis.pack(out);
+                });
+            }
+        }
+    }
+}
+
+impl Unpack for crate::dimension_display::DimensionDisplayTarget {
+    const SIZE: u64 = 8 + largest(&[
+        <String as Unpack>::SIZE,
+        <String as Unpack>::SIZE + <crate::hash::Hash as Unpack>::SIZE,
+    ]);
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        Ok(match input.variant("DimensionDisplayTarget", 2)? {
+            0 => Self::Style(Unpack::unpack(input)?),
+            _ => input.record("DimensionDisplayTarget", |input| {
+                Ok(Self::Element {
+                    id: Unpack::unpack(input)?,
+                    basis: Unpack::unpack(input)?,
+                })
+            })?,
+        })
+    }
+}
+
+impl Pack for crate::dimension_display::DimensionDisplayValues {
+    fn pack(&self, out: &mut Writer) {
+        let Self {
+            scale,
+            arrow_size,
+            tick_size,
+            extension_offset,
+            extension_beyond,
+            suppress_first_extension,
+            suppress_second_extension,
+            text_height,
+            linear_factor,
+            linear_precision,
+            text_style,
+            text_vertical_placement,
+            text_gap,
+        } = self;
+        out.record(|out| {
+            scale.pack(out);
+            arrow_size.pack(out);
+            tick_size.pack(out);
+            extension_offset.pack(out);
+            extension_beyond.pack(out);
+            suppress_first_extension.pack(out);
+            suppress_second_extension.pack(out);
+            text_height.pack(out);
+            linear_factor.pack(out);
+            linear_precision.pack(out);
+            text_style.pack(out);
+            text_vertical_placement.pack(out);
+            text_gap.pack(out);
+        });
+    }
+}
+
+impl Unpack for crate::dimension_display::DimensionDisplayValues {
+    const SIZE: u64 = <Option<f64> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<bool> as Unpack>::SIZE
+        + <Option<bool> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<u8> as Unpack>::SIZE
+        + <Option<String> as Unpack>::SIZE
+        + <Option<u8> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE;
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        input.record("DimensionDisplayValues", |input| {
+            Ok(Self {
+                scale: Unpack::unpack(input)?,
+                arrow_size: Unpack::unpack(input)?,
+                tick_size: Unpack::unpack(input)?,
+                extension_offset: Unpack::unpack(input)?,
+                extension_beyond: Unpack::unpack(input)?,
+                suppress_first_extension: Unpack::unpack(input)?,
+                suppress_second_extension: Unpack::unpack(input)?,
+                text_height: Unpack::unpack(input)?,
+                linear_factor: Unpack::unpack(input)?,
+                linear_precision: Unpack::unpack(input)?,
+                text_style: Unpack::unpack(input)?,
+                text_vertical_placement: Unpack::unpack(input)?,
+                text_gap: Unpack::unpack(input)?,
+            })
+        })
+    }
+}
+
 impl<P: Pack> Pack for crate::dimension::DimensionKind<P> {
     fn pack(&self, out: &mut Writer) {
         match self {
@@ -1291,6 +1423,7 @@ impl Pack for crate::Drawing2D {
             title_blocks,
             point_style,
             georeference,
+            dimension_display,
         } = self;
         out.record(|out| {
             spaces.pack(out);
@@ -1308,6 +1441,7 @@ impl Pack for crate::Drawing2D {
             title_blocks.pack(out);
             point_style.pack(out);
             georeference.pack(out);
+            dimension_display.pack(out);
         });
     }
 }
@@ -1327,7 +1461,8 @@ impl Unpack for crate::Drawing2D {
         + <Vec<crate::extension::Extension> as Unpack>::SIZE
         + <Vec<crate::TitleBlock> as Unpack>::SIZE
         + <Option<crate::point::PointStyle> as Unpack>::SIZE
-        + <Option<zumen_crs::Georeference> as Unpack>::SIZE;
+        + <Option<zumen_crs::Georeference> as Unpack>::SIZE
+        + <Vec<crate::dimension_display::DimensionDisplayRecord> as Unpack>::SIZE;
 
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Drawing2D", |input| {
@@ -1347,6 +1482,11 @@ impl Unpack for crate::Drawing2D {
                 title_blocks: Unpack::unpack(input)?,
                 point_style: Unpack::unpack(input)?,
                 georeference: if input.has_field(1) {
+                    Unpack::unpack(input)?
+                } else {
+                    Default::default()
+                },
+                dimension_display: if input.has_field(2) {
                     Unpack::unpack(input)?
                 } else {
                     Default::default()

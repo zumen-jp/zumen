@@ -18,6 +18,7 @@ mod annotation;
 mod apply;
 mod bake;
 mod block;
+mod dimension_display;
 mod extension;
 mod finite;
 mod geometry;
@@ -298,6 +299,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         default_color,
         default_line_type,
         dimension_styles: out.dimension_styles,
+        dimension_display: out.dimension_display,
         text_styles: out.text_styles,
         symbols,
         point_style,
@@ -385,6 +387,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
             cx.report(stop.to_diagnostic());
             Error::Stopped(stop)
         })?;
+    dimension_display::attach_overrides(&mut drawing, cx)?;
     drawing
         .finish_model_bytes(out.model_bytes, cx)
         .map_err(|stop| {
@@ -974,6 +977,7 @@ struct Out {
     /// 線種の表のレコードのハンドル
     line_type_handles: BTreeMap<u64, LineTypeId>,
     dimension_styles: Vec<DimensionStyle>,
+    dimension_display: Vec<zumen_drawing::DimensionDisplayRecord>,
     text_styles: Vec<TextStyle>,
     extensions: Vec<Draft>,
     /// 要素を置いた用紙ごとの座標の対応。中身のない用紙のものは、ID を付けるときに足す
@@ -989,6 +993,7 @@ pub(super) struct OutMark {
     layers: usize,
     line_types: usize,
     dimension_styles: usize,
+    dimension_display: usize,
     text_styles: usize,
     model: usize,
     paper: usize,
@@ -1002,6 +1007,7 @@ impl Out {
             layers: self.layers.len(),
             line_types: self.line_types.len(),
             dimension_styles: self.dimension_styles.len(),
+            dimension_display: self.dimension_display.len(),
             text_styles: self.text_styles.len(),
             model: self.model.len(),
             paper: self.paper.len(),
@@ -1039,6 +1045,13 @@ impl Out {
         charge_slice(
             &self.dimension_styles,
             mark.dimension_styles,
+            place,
+            &mut self.model_bytes,
+            cx,
+        )?;
+        charge_slice(
+            &self.dimension_display,
+            mark.dimension_display,
             place,
             &mut self.model_bytes,
             cx,

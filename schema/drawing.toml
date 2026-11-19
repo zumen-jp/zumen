@@ -10,7 +10,7 @@
 
 [versions]
 major = 1
-minor = 1
+minor = 2
 
 [[types]]
 name = "Affine"
@@ -274,6 +274,41 @@ fields = [
 ]
 
 [[types]]
+name = "DimensionDisplayRecord"
+since = 2
+fields = [
+  "target: DimensionDisplayTarget",
+  "values: DimensionDisplayValues",
+]
+
+[[types]]
+name = "DimensionDisplayTarget"
+since = 2
+variants = [
+  { name = "Style", tuple = ["String"] },
+  { name = "Element", fields = ["id: String", "basis: Hash"] },
+]
+
+[[types]]
+name = "DimensionDisplayValues"
+since = 2
+fields = [
+  "scale: Option<f64>",
+  "arrow_size: Option<f64>",
+  "tick_size: Option<f64>",
+  "extension_offset: Option<f64>",
+  "extension_beyond: Option<f64>",
+  "suppress_first_extension: Option<bool>",
+  "suppress_second_extension: Option<bool>",
+  "text_height: Option<f64>",
+  "linear_factor: Option<f64>",
+  "linear_precision: Option<u8>",
+  "text_style: Option<String>",
+  "text_vertical_placement: Option<u8>",
+  "text_gap: Option<f64>",
+]
+
+[[types]]
 name = "DimensionKind"
 params = ["P"]
 variants = [
@@ -334,6 +369,7 @@ fields = [
   "title_blocks: Vec<TitleBlock>",
   "point_style: Option<PointStyle>",
   "georeference: Option<Georeference> @1",
+  "dimension_display: Vec<DimensionDisplayRecord> @2",
 ]
 
 [[types]]

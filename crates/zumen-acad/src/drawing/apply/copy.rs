@@ -12,6 +12,8 @@
 use super::*;
 use zumen_drawing::{Fill, Unit};
 
+mod display;
+
 /// DXF・DWG 共通で写せる図形
 const COPYABLE: &[&[u8]] = &[
     b"LINE",
@@ -303,6 +305,7 @@ fn copied(
         if target != Target::Dxf {
             return Ok(Err(("kind", "unsupported")));
         }
+        let destination_paper = matches!(dst_place, Place::Sheet(_));
         let built = match found {
             Found::Model(was) => {
                 transform_work(db, positions, was, object, cx)?;
@@ -317,6 +320,7 @@ fn copied(
                     &eff_transform,
                     &InSpace(space),
                     allow_moving_xdata,
+                    destination_paper,
                     cx,
                 )?
             }
@@ -336,6 +340,7 @@ fn copied(
                     &eff_transform,
                     &OnSheet(sheet, paper_frame),
                     false,
+                    destination_paper,
                     cx,
                 )?
             }
@@ -976,8 +981,33 @@ fn check_cross_doc_tables(
         {
             return Ok(Err(("symbol", "missing")));
         }
-        if !same_symbol_definition(src_def, dst_def, cx, at)? {
+        if !same_symbol_definition(src_def, dst_def, cx, at)?
+            || !display::same_in_symbol(&source.drawing, dst_drawing, &key.name, cx)
+                .map_err(|stop| display::stopped(cx, at, stop))?
+        {
             return Ok(Err(("symbol", "conflict")));
+        }
+    }
+
+    // グループ 3 が省略された引出線も、読んだときに解決した Standard を照合する。
+    let leader = match found {
+        Found::Model(el) => match &el.shape {
+            Shape::Leader(v) => Some(&v.style),
+            _ => None,
+        },
+        Found::Paper(el) => match &el.shape {
+            Shape::Leader(v) => Some(&v.style),
+            _ => None,
+        },
+    };
+    if let Some(name) = leader {
+        if dst_born.named(3, b"DIMSTYLE", name).is_none() {
+            return Ok(Err(("dimension_style", "missing")));
+        }
+        if let Err(refusal) = display::check_style(&source.drawing, dst_drawing, name, cx)
+            .map_err(|stop| display::stopped(cx, at, stop))?
+        {
+            return Ok(Err(refusal));
         }
     }
 
@@ -1063,40 +1093,6 @@ fn check_cross_doc_tables(
                         (Some(_), Some(_)) => return Ok(Err(("text_style", "conflict"))),
                         (None, None) if name.eq_ignore_ascii_case("Standard") => {}
                         _ => return Ok(Err(("text_style", "missing"))),
-                    }
-                }
-                (3, Data::Text(raw)) if !xdata && current_obj.kind == b"LEADER" => {
-                    let Some(name) = source.charset.decode(raw) else {
-                        return Ok(Err(("dimension_style", "encoding")));
-                    };
-                    if dst_born.named(3, b"DIMSTYLE", &name).is_none() {
-                        return Ok(Err(("dimension_style", "missing")));
-                    }
-                    let src_ds = source
-                        .drawing
-                        .dimension_styles
-                        .iter()
-                        .find(|s| s.name.eq_ignore_ascii_case(&name));
-                    let dst_ds = dst_drawing
-                        .dimension_styles
-                        .iter()
-                        .find(|s| s.name.eq_ignore_ascii_case(&name));
-                    match (src_ds, dst_ds) {
-                        (Some(s), Some(d)) => {
-                            let sh = Hash::dimension_style_checked(s, cx).map_err(|stop| {
-                                cx.report(stop.to_diagnostic().at(at.clone()));
-                                Error::Stopped(stop)
-                            })?;
-                            let dh = Hash::dimension_style_checked(d, cx).map_err(|stop| {
-                                cx.report(stop.to_diagnostic().at(at.clone()));
-                                Error::Stopped(stop)
-                            })?;
-                            if sh != dh {
-                                return Ok(Err(("dimension_style", "conflict")));
-                            }
-                        }
-                        (None, None) if name.eq_ignore_ascii_case("Standard") => {}
-                        _ => return Ok(Err(("dimension_style", "missing"))),
                     }
                 }
                 (1001, Data::Text(raw)) => {

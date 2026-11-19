@@ -32,6 +32,7 @@ mod calibration;
 mod callout;
 mod change;
 mod dimension;
+mod dimension_display;
 mod extension;
 mod hash;
 mod hatch;
@@ -55,6 +56,10 @@ pub use calibration::{Calibration, MeasurementError, SplitPaperPoint, split_dist
 pub use callout::{AttributeValue, Branch, Callout, CalloutContent, Dogleg, PathKind};
 pub use change::{Applied, Changes, Edit, Placed, Restyle, Seen};
 pub use dimension::{Axis, Dimension, DimensionKind, DimensionText, Label, Leader, Measured};
+pub use dimension_display::{
+    DimensionDisplayIndex, DimensionDisplayRecord, DimensionDisplayTarget, DimensionDisplayValues,
+    ResolvedDimensionDisplay,
+};
 pub use extension::{Basis, Draft, Extension, Field, FieldValue, Position, Target};
 pub use hash::{Canon, Encode, Hash};
 pub use hatch::{
@@ -120,6 +125,8 @@ pub struct Drawing2D {
     pub point_style: Option<PointStyle>,
     /// 図面の実寸の空間から地図の座標系への相似の変換（#685）。元の形式が持たないか読めなければ `None`
     pub georeference: Option<Georeference>,
+    /// 部品のない寸法を描くための、寸法スタイルの補足と要素ごとの上書き。元の定義の順。
+    pub dimension_display: Vec<DimensionDisplayRecord>,
 }
 
 impl Drawing2D {

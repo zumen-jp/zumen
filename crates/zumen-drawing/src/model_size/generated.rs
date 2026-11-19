@@ -506,6 +506,82 @@ impl<P: ModelSize> ModelSize for crate::dimension::Dimension<P> {
     }
 }
 
+impl ModelSize for crate::dimension_display::DimensionDisplayRecord {
+    const SIZE: u64 = <crate::dimension_display::DimensionDisplayTarget as ModelSize>::SIZE
+        + <crate::dimension_display::DimensionDisplayValues as ModelSize>::SIZE;
+
+    fn heap_bytes(&self) -> u64 {
+        let Self { target, values } = self;
+        0_u64
+            .saturating_add(target.heap_bytes())
+            .saturating_add(values.heap_bytes())
+    }
+}
+
+impl ModelSize for crate::dimension_display::DimensionDisplayTarget {
+    const SIZE: u64 = 8 + largest(&[
+        <String as ModelSize>::SIZE,
+        <String as ModelSize>::SIZE + <crate::hash::Hash as ModelSize>::SIZE,
+    ]);
+
+    fn heap_bytes(&self) -> u64 {
+        match self {
+            Self::Style(f0) => 0_u64.saturating_add(f0.heap_bytes()),
+            Self::Element { id, basis } => 0_u64
+                .saturating_add(id.heap_bytes())
+                .saturating_add(basis.heap_bytes()),
+        }
+    }
+}
+
+impl ModelSize for crate::dimension_display::DimensionDisplayValues {
+    const SIZE: u64 = <Option<f64> as ModelSize>::SIZE
+        + <Option<f64> as ModelSize>::SIZE
+        + <Option<f64> as ModelSize>::SIZE
+        + <Option<f64> as ModelSize>::SIZE
+        + <Option<f64> as ModelSize>::SIZE
+        + <Option<bool> as ModelSize>::SIZE
+        + <Option<bool> as ModelSize>::SIZE
+        + <Option<f64> as ModelSize>::SIZE
+        + <Option<f64> as ModelSize>::SIZE
+        + <Option<u8> as ModelSize>::SIZE
+        + <Option<String> as ModelSize>::SIZE
+        + <Option<u8> as ModelSize>::SIZE
+        + <Option<f64> as ModelSize>::SIZE;
+
+    fn heap_bytes(&self) -> u64 {
+        let Self {
+            scale,
+            arrow_size,
+            tick_size,
+            extension_offset,
+            extension_beyond,
+            suppress_first_extension,
+            suppress_second_extension,
+            text_height,
+            linear_factor,
+            linear_precision,
+            text_style,
+            text_vertical_placement,
+            text_gap,
+        } = self;
+        0_u64
+            .saturating_add(scale.heap_bytes())
+            .saturating_add(arrow_size.heap_bytes())
+            .saturating_add(tick_size.heap_bytes())
+            .saturating_add(extension_offset.heap_bytes())
+            .saturating_add(extension_beyond.heap_bytes())
+            .saturating_add(suppress_first_extension.heap_bytes())
+            .saturating_add(suppress_second_extension.heap_bytes())
+            .saturating_add(text_height.heap_bytes())
+            .saturating_add(linear_factor.heap_bytes())
+            .saturating_add(linear_precision.heap_bytes())
+            .saturating_add(text_style.heap_bytes())
+            .saturating_add(text_vertical_placement.heap_bytes())
+            .saturating_add(text_gap.heap_bytes())
+    }
+}
+
 impl<P: ModelSize> ModelSize for crate::dimension::DimensionKind<P> {
     const SIZE: u64 = 8 + largest(&[
         <P as ModelSize>::SIZE
@@ -689,7 +765,8 @@ impl ModelSize for crate::Drawing2D {
         + <Vec<crate::extension::Extension> as ModelSize>::SIZE
         + <Vec<crate::TitleBlock> as ModelSize>::SIZE
         + <Option<crate::point::PointStyle> as ModelSize>::SIZE
-        + <Option<zumen_crs::Georeference> as ModelSize>::SIZE;
+        + <Option<zumen_crs::Georeference> as ModelSize>::SIZE
+        + <Vec<crate::dimension_display::DimensionDisplayRecord> as ModelSize>::SIZE;
 
     fn heap_bytes(&self) -> u64 {
         let Self {
@@ -708,6 +785,7 @@ impl ModelSize for crate::Drawing2D {
             title_blocks,
             point_style,
             georeference,
+            dimension_display,
         } = self;
         0_u64
             .saturating_add(spaces.heap_bytes())
@@ -725,6 +803,7 @@ impl ModelSize for crate::Drawing2D {
             .saturating_add(title_blocks.heap_bytes())
             .saturating_add(point_style.heap_bytes())
             .saturating_add(georeference.heap_bytes())
+            .saturating_add(dimension_display.heap_bytes())
     }
 }
 

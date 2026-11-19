@@ -162,16 +162,24 @@ impl Relocate for Geometric {
     }
 
     fn model(&self, shape: &Shape<ModelPoint>, origin: ModelPoint) -> Option<Shape<ModelPoint>> {
-        let normalized = normalize_hatch(shape);
-        let source = normalized.as_ref().unwrap_or(shape);
-        geometry::shape_of(&geometry::geometry_of(source)?, None, origin).ok()
+        relocate_geometry(shape, origin)
     }
 
     fn paper(&self, shape: &Shape<PaperPoint>, origin: PaperPoint) -> Option<Shape<PaperPoint>> {
-        let normalized = normalize_hatch(shape);
-        let source = normalized.as_ref().unwrap_or(shape);
-        geometry::shape_of(&geometry::geometry_of(source)?, None, origin).ok()
+        relocate_geometry(shape, origin)
     }
+}
+
+fn relocate_geometry<P: geometry::Spot>(shape: &Shape<P>, origin: P) -> Option<Shape<P>> {
+    let normalized = normalize_hatch(shape);
+    let source = normalized.as_ref().unwrap_or(shape);
+    let mut output = geometry::shape_of(&geometry::geometry_of(source)?, None, origin).ok()?;
+    if let (Shape::Dimension(before), Shape::Dimension(after)) = (source, &mut output) {
+        // 新規追加では文字位置の指定を手動移動とみなす。変換時は元図の自動配置と位置合わせを保つ。
+        after.text.moved = before.text.moved;
+        after.text.attachment = before.text.attachment;
+    }
+    Some(output)
 }
 
 /// 連動・境界を探した印・境界の出所を持つハッチングは、API の形の値に通す前に非連動の形へそろえる。

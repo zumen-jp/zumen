@@ -47,14 +47,14 @@
         "op": "entities",
         "doc": "plan.dxf",
         "budget": {
-          "model_bytes": 2911
+          "model_bytes": 2935
         }
       },
       "status": "failed",
       "expect": {
         "/diagnostics/0/code": "budget.model-bytes.exceeded",
-        "/diagnostics/0/params/limit": 2911,
-        "/diagnostics/0/params/requested": 2912,
+        "/diagnostics/0/params/limit": 2935,
+        "/diagnostics/0/params/requested": 2936,
         "/blobs": []
       },
       "absent": [
@@ -67,7 +67,7 @@
         "op": "entities",
         "doc": "plan.dxf",
         "budget": {
-          "model_bytes": 2912
+          "model_bytes": 2936
         }
       },
       "expect": {
@@ -107,14 +107,14 @@
         "op": "open",
         "input": "lifted",
         "budget": {
-          "model_bytes": 1959
+          "model_bytes": 1983
         }
       },
       "status": "failed",
       "expect": {
         "/diagnostics/0/code": "budget.model-bytes.exceeded",
-        "/diagnostics/0/params/limit": 1959,
-        "/diagnostics/0/params/requested": 1960
+        "/diagnostics/0/params/limit": 1983,
+        "/diagnostics/0/params/requested": 1984
       },
       "absent": [
         "/result"
@@ -126,7 +126,7 @@
         "op": "open",
         "input": "lifted",
         "budget": {
-          "model_bytes": 1960
+          "model_bytes": 1984
         }
       },
       "expect": {

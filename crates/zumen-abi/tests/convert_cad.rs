@@ -44,6 +44,201 @@ fn public_estimates_match_written_bytes_and_reopened_values() {
     let steps = case::steps(None);
     assert!(!steps.is_empty());
 }
+
+fn dimension_source() -> &'static str {
+    // Standard はひな形にもある。寸法の表示部品はなく、個別に目盛りを取り消して文字を変える。
+    concat!(
+        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1021\n0\nENDSEC\n",
+        "0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nSTYLE\n",
+        "0\nSTYLE\n5\nA1\n2\nNote\n70\n0\n40\n0\n41\n1\n50\n0\n3\ntxt\n",
+        "0\nSTYLE\n5\nA4\n2\nCaption\n70\n0\n40\n0\n41\n1\n50\n0\n3\ntxt\n0\nENDTAB\n",
+        "0\nTABLE\n2\nDIMSTYLE\n0\nDIMSTYLE\n105\nA2\n2\nStandard\n70\n0\n",
+        "40\n2\n41\n1.25\n42\n0.25\n44\n0.75\n77\n4\n140\n2\n142\n0.6\n144\n1\n147\n0.5\n271\n1\n340\nA1\n",
+        "0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n",
+        "0\nDIMENSION\n5\nA3\n100\nAcDbEntity\n8\n0\n100\nAcDbDimension\n",
+        "10\n20\n20\n8\n30\n0\n11\n10\n21\n8\n31\n0\n70\n32\n71\n5\n3\nStandard\n",
+        "100\nAcDbAlignedDimension\n13\n0\n23\n0\n33\n0\n14\n20\n24\n0\n34\n0\n",
+        "100\nAcDbRotatedDimension\n1001\nACAD\n1000\nDSTYLE\n1002\n{\n1070\n140\n1040\n3\n",
+        "1070\n142\n1040\n0\n1070\n77\n1070\n1\n1070\n147\n1040\n0.25\n1070\n340\n1005\nA4\n1002\n}\n",
+        "0\nLINE\n5\nA5\n8\n0\n10\n0\n20\n0\n11\n20\n21\n0\n",
+        "0\nENDSEC\n0\nEOF\n",
+    )
+}
+
+fn convert_dxf(input: &[u8]) -> Vec<u8> {
+    use zumen_abi1::Session;
+    let mut session = Session::new(b"").unwrap();
+    session.push(b"dim.dxf", input).unwrap();
+    case::call(&mut session, r#"{"v":1,"op":"open","input":"dim.dxf"}"#);
+    case::call(
+        &mut session,
+        r#"{"v":1,"op":"convert","doc":"dim.dxf","format":"dxf","to":"out.dxf"}"#,
+    );
+    session.take(0).unwrap()
+}
+
+#[test]
+fn new_dxf_keeps_dimension_style_and_uses_overrides_for_the_display_block() {
+    use zumen_acad::{Data, Dxf};
+    use zumen_drawing::DimensionDisplayTarget;
+
+    let input = dimension_source();
+    let bytes = convert_dxf(input.as_bytes());
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let file = Dxf::read(&bytes, &mut cx).unwrap();
+    let drawing = file.lift(&mut cx).unwrap();
+    let style = drawing.dimension_style("Standard").unwrap();
+    assert_eq!(
+        (style.scale, style.size, style.tick),
+        (2.0, 1.25, Some(0.6))
+    );
+    let base = drawing
+        .dimension_display
+        .iter()
+        .find(|r| matches!(&r.target, DimensionDisplayTarget::Style(s) if s == "Standard"))
+        .unwrap();
+    assert_eq!(base.values.extension_offset, Some(0.25));
+    assert_eq!(base.values.extension_beyond, Some(0.75));
+    assert_eq!(base.values.text_height, Some(2.0));
+    assert_eq!(base.values.text_vertical_placement, Some(4));
+    assert_eq!(base.values.text_gap, Some(0.5));
+    assert_eq!(base.values.text_style.as_deref(), Some("Note"));
+    let local = drawing
+        .dimension_display
+        .iter()
+        .find(|r| matches!(r.target, DimensionDisplayTarget::Element { .. }))
+        .unwrap();
+    assert_eq!(local.values.text_height, Some(3.0));
+    assert_eq!(local.values.text_vertical_placement, Some(1));
+    assert_eq!(local.values.text_gap, Some(0.25));
+    assert_eq!(local.values.tick_size, Some(0.0));
+    assert_eq!(local.values.text_style.as_deref(), Some("Caption"));
+    let db = file.objects(&mut cx).unwrap();
+    let label = db.objects().iter().find(|r| r.kind == b"MTEXT").unwrap();
+    assert_eq!(label.first(40), Some(&Data::Real(6.0)));
+    assert_eq!(label.first(7), Some(&Data::Text(b"Caption".to_vec())));
+    assert_eq!(label.first(20), Some(&Data::Real(11.5)));
+    let owner = db
+        .objects()
+        .iter()
+        .find(|r| r.kind == b"DIMENSION")
+        .unwrap();
+    assert_eq!(owner.first(21), Some(&Data::Real(11.5)));
+    assert_eq!(owner.first(70), Some(&Data::Int(32)));
+
+    // 文字が手で配置されているときは、同じスタイル・個別設定でも元の Y を使う。
+    let input = input.replace("70\n32\n71\n5", "70\n160\n71\n5");
+    let manual = convert_dxf(input.as_bytes());
+    let file = Dxf::read(&manual, &mut cx).unwrap();
+    let db = file.objects(&mut cx).unwrap();
+    let label = db.objects().iter().find(|r| r.kind == b"MTEXT").unwrap();
+    assert_eq!(label.first(20), Some(&Data::Real(8.0)));
+    let owner = db
+        .objects()
+        .iter()
+        .find(|r| r.kind == b"DIMENSION")
+        .unwrap();
+    assert_eq!(owner.first(21), Some(&Data::Real(8.0)));
+    assert_eq!(owner.first(70), Some(&Data::Int(160)));
+}
+
+#[test]
+fn new_dxf_skips_invalid_dimension_overrides_and_preserves_inheritance() {
+    use zumen_acad::{Data, Dxf, Reseat};
+    use zumen_drawing::{
+        DimensionDisplayRecord, DimensionDisplayTarget, DimensionDisplayValues, id,
+    };
+
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let mut model = Dxf::read(dimension_source().as_bytes(), &mut cx)
+        .unwrap()
+        .lift(&mut cx)
+        .unwrap();
+    for record in &mut model.dimension_display {
+        match record.target {
+            DimensionDisplayTarget::Style(_) => {
+                // スタイル本体の 3 値を疎なレコード側の値で上書きしない。
+                record.values.scale = Some(99.0);
+                record.values.arrow_size = Some(98.0);
+                record.values.tick_size = Some(97.0);
+            }
+            DimensionDisplayTarget::Element { .. } => {
+                record.values.scale = Some(-1.0);
+                record.values.tick_size = Some(-1.0);
+                record.values.extension_offset = Some(-1.0);
+                record.values.text_height = Some(0.0);
+                record.values.linear_factor = Some(0.0);
+                record.values.linear_precision = Some(9);
+                record.values.text_vertical_placement = Some(5);
+                record.values.text_gap = Some(f64::INFINITY);
+            }
+        }
+    }
+    let mut line_target = None;
+    id::each_element(&model, |_, id, element| -> Result<(), ()> {
+        if matches!(element, id::Found::Model(e) if matches!(e.shape, Shape::Line { .. })) {
+            line_target = Some(DimensionDisplayTarget::Element {
+                id,
+                basis: element.hash(),
+            });
+        }
+        Ok(())
+    })
+    .unwrap();
+    model.dimension_display.push(DimensionDisplayRecord {
+        target: line_target.unwrap(),
+        values: DimensionDisplayValues {
+            text_height: Some(7.0),
+            ..Default::default()
+        },
+    });
+    let output = zumen_acad::lower_to_dxf_with_report(&model, &Reseat, 100, &mut cx).unwrap();
+    for (kind, count) in [
+        ("dimension_display_value", 7),
+        ("dimension_linear_precision", 1),
+        ("dimension_display_target", 1),
+    ] {
+        assert!(
+            output
+                .report
+                .counts
+                .iter()
+                .any(|r| r.kind == kind && r.count == count)
+        );
+    }
+    let file = Dxf::read(&output.bytes, &mut cx).unwrap();
+    let drawing = file.lift(&mut cx).unwrap();
+    let style = drawing.dimension_style("Standard").unwrap();
+    assert_eq!(
+        (style.scale, style.size, style.tick),
+        (2.0, 1.25, Some(0.6))
+    );
+    let overrides: Vec<_> = drawing
+        .dimension_display
+        .iter()
+        .filter(|r| matches!(r.target, DimensionDisplayTarget::Element { .. }))
+        .collect();
+    let [local] = overrides.as_slice() else {
+        panic!("expected one override")
+    };
+    assert_eq!(
+        local.values,
+        DimensionDisplayValues {
+            text_style: Some("Caption".into()),
+            ..Default::default()
+        }
+    );
+    let db = file.objects(&mut cx).unwrap();
+    let label = db.objects().iter().find(|r| r.kind == b"MTEXT").unwrap();
+    assert_eq!(label.first(40), Some(&Data::Real(4.0)));
+}
+
 #[test]
 fn geometry_colors_weights_and_line_patterns_survive() {
     for format in ["sxf", "jww"] {

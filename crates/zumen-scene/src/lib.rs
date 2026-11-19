@@ -28,6 +28,7 @@ use zumen_drawing::{
     PointMark, PointSize, Polyline, Rotation, Scaled, Shape, Spline, Text, Underlay, UnderlayFrame,
     UnderlayKind, Vertex, Vertical, VisitRef, WalkVisitor,
 };
+use zumen_drawing::{DimensionDisplayIndex, Element, Encode, Hash};
 use zumen_geom2d::{self as geom, Xy};
 
 pub use zumen_drawing::Palette;
@@ -410,6 +411,7 @@ fn row<K: Ord + Clone>(seen: &mut BTreeMap<K, u32>, rows: &mut Vec<K>, key: K) -
 
 struct Builder<'d, 'c, 'x> {
     drawing: &'d Drawing2D,
+    dimension_display: Option<DimensionDisplayIndex<'d>>,
     tolerance: f64,
     palette: &'d Palette,
     chunking: Chunking,
@@ -519,6 +521,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
     ) -> Self {
         Self {
             drawing,
+            dimension_display: None,
             tolerance,
             palette: &options.palette,
             chunking: options.chunking,
@@ -572,10 +575,10 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         let mut unit = None;
         match visit.item {
             Item::Model(element) => {
-                self.shape(visit, &element.shape, &element.source, &mut unit)?;
+                self.shape(visit, element, &mut unit)?;
             }
             Item::Paper(element) => {
-                self.shape(visit, &element.shape, &element.source, &mut unit)?;
+                self.shape(visit, element, &mut unit)?;
             }
             Item::ModelAttribute { symbol, index } => {
                 if let Shape::Symbol(placed) = &symbol.shape
@@ -829,19 +832,19 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         });
     }
 
-    fn shape<P: Spot>(
+    fn shape<P: Spot + Encode>(
         &mut self,
         visit: &VisitRef<'_, '_>,
-        shape: &Shape<P>,
-        source: &Ref,
+        element: &Element<P>,
         unit: &mut Option<u32>,
     ) -> Result<(), (Stop, Ref)> {
         let t = visit.transform;
         let local = self.tolerance / stretch(&t).max(f64::MIN_POSITIVE);
         let xy = |p: &P| map(&t, p.xy());
-        match shape {
+        let source = &element.source;
+        match &element.shape {
             Shape::Line { start, end } | Shape::Curve(Edge::Line { start, end }) => {
-                let unit = self.unit(visit, entity_kind_of(shape), unit)?;
+                let unit = self.unit(visit, entity_kind_of(&element.shape), unit)?;
                 self.stroke(visit, vec![xy(start), xy(end)], unit, source)?;
             }
             Shape::Circle { center, radius } => {
@@ -899,7 +902,22 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             Shape::Hatch(hatch) => self.hatch(visit, hatch, local, source, unit)?,
             Shape::Dimension(dimension) => {
                 if !self.parted.contains(visit.id) {
-                    self.dimension(visit, dimension, local, source, unit)?;
+                    let index = match &mut self.dimension_display {
+                        Some(index) => index,
+                        empty => empty.insert(
+                            DimensionDisplayIndex::new(&self.drawing.dimension_display, self.cx)
+                                .map_err(|stop| (stop, source.clone()))?,
+                        ),
+                    };
+                    let display = index
+                        .resolve(
+                            &dimension.style,
+                            visit.id,
+                            |cx| Hash::element_checked(element, cx),
+                            self.cx,
+                        )
+                        .map_err(|stop| (stop, source.clone()))?;
+                    self.dimension(visit, dimension, display, local, source, unit)?;
                 }
             }
             Shape::Leader(leader) => self.leader(visit, leader, local, source, unit)?,

@@ -4,12 +4,12 @@
 mod support;
 
 use std::path::PathBuf;
-use zumen_acad::{Data, Dwg, DwgFile, Dxf, DxfFile};
+use zumen_acad::{CopyFrom, Data, Dwg, DwgFile, Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
     Affine, Axis, CellContent, Changes, Dimension, DimensionKind, Drawing2D, Edge, Edit, Element,
-    Hash, Inherit, Label, Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Seen,
-    Shape, SpaceId, Style, Table, id,
+    Hash, Inherit, Label, Length, ModelLength, ModelPoint, PaperPoint, Placed, Seen, Shape,
+    SpaceId, Style, Table, id,
 };
 use zumen_sdk::{Apply, Codec, Error, Lift, testkit};
 
@@ -223,6 +223,7 @@ fn all_dimensions_dxf() -> Vec<u8> {
         (42, "0.625"),
         (44, "1.25"),
         (140, "2.5"),
+        (144, "-10.0"), // 長さの表示倍率は用紙上の寸法だけに掛かる。
         (271, "2"),
         (179, "1"),
         (340, "11"),
@@ -2124,24 +2125,76 @@ fn replaces_and_transforms_paper_space_dimension() {
         oblique: 0.0,
     };
     dim.measurement = None;
-    let _ = PaperLength(1.0);
+    let mut added = updated.clone();
+    added.source = Ref::default();
+    let Shape::Dimension(dim) = &mut added.shape else {
+        panic!()
+    };
+    dim.block = None;
 
     let changes = Changes {
         document: None,
-        edits: vec![Edit::Replace {
-            target,
-            element: Box::new(Placed::Paper(updated)),
-        }],
+        edits: vec![
+            Edit::Replace {
+                target,
+                element: Box::new(Placed::Paper(updated)),
+            },
+            Edit::Add {
+                place,
+                element: Box::new(Placed::Paper(added)),
+            },
+        ],
     };
     let (applied, diag) = cx_run(|cx| file.apply(&changes, cx).unwrap());
     assert!(diag.is_empty(), "{diag:?}");
-    assert_eq!(applied.len(), 1);
+    assert_eq!(applied.len(), 2);
 
     let after = lift_dxf(&read_dxf(&write_dxf(&file)));
-    let Shape::Dimension(after_dim) = &after.sheets[0].elements[0].shape else {
-        panic!();
+    assert_eq!(after.sheets[0].elements.len(), 2);
+    for element in &after.sheets[0].elements {
+        let Shape::Dimension(dim) = &element.shape else {
+            panic!()
+        };
+        assert_eq!(dim.measurement.as_ref().unwrap().value, 120.0);
+        let parts = symbol_elements(&after, dim.block.as_deref().unwrap());
+        assert!(
+            parts
+                .iter()
+                .any(|e| matches!(&e.shape, Shape::Formatted(t) if t.content == "1200"))
+        );
+    }
+    // 用紙から実寸の空間へ写すと、寸法値の文字は配置先の規則で作り直す。
+    let mut reopened = read_dxf(&write_dxf(&file));
+    let (copied, diag) = cx_run(|cx| {
+        reopened.apply_with_copies(
+            &Changes {
+                document: None,
+                edits: vec![Edit::Copy {
+                    target: Seen {
+                        id: applied[0].id.clone().unwrap(),
+                        hash: applied[0].hash.unwrap(),
+                    },
+                    transform: Affine::translation(5.0, 0.0),
+                }],
+            },
+            &[CopyFrom {
+                place: Some("space/0"),
+                from: None,
+            }],
+            cx,
+        )
+    });
+    copied.unwrap_or_else(|_| panic!("{diag:?}"));
+    let copied = lift_dxf(&read_dxf(&write_dxf(&reopened)));
+    let Shape::Dimension(dim) = &copied.spaces[0].elements.last().unwrap().shape else {
+        panic!()
     };
-    assert!((after_dim.measurement.as_ref().unwrap().value - 120.0).abs() < 1e-9);
+    let parts = symbol_elements(&copied, dim.block.as_deref().unwrap());
+    assert!(
+        parts
+            .iter()
+            .any(|e| matches!(&e.shape, Shape::Formatted(t) if t.content == "120"))
+    );
 }
 
 #[test]

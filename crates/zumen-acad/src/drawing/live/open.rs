@@ -87,6 +87,8 @@ pub struct LiveState {
     pub default_line_type_slot: Option<u32>,
     /// 寸法スタイル一覧
     pub dimension_styles: Vec<DimensionStyle>,
+    /// 寸法スタイルにある補助線と文字の設定。要素の上書きは投影時の ID に結び直す。
+    dimension_display: Vec<zumen_drawing::DimensionDisplayRecord>,
     /// `TABLES` に定義された文字スタイル一覧
     pub defined_text_styles: Vec<TextStyle>,
     /// ブロック定義一覧
@@ -396,6 +398,7 @@ impl LiveState {
             default_color: self.default_color,
             default_line_type,
             dimension_styles: self.dimension_styles.clone(),
+            dimension_display: self.dimension_display.clone(),
             text_styles: self.defined_text_styles.clone(),
             symbols: self.symbols.clone(),
             sheets: self.sheets.clone(),
@@ -430,6 +433,7 @@ impl LiveState {
             cx.report(stop.to_diagnostic());
             Error::Stopped(stop)
         })?;
+        super::super::dimension_display::attach_overrides(&mut drawing, cx)?;
         Ok(drawing)
     }
 }
@@ -2673,6 +2677,7 @@ fn lift_live_state(
         default_color,
         default_line_type_slot,
         dimension_styles: out.dimension_styles,
+        dimension_display: out.dimension_display,
         defined_text_styles: out.text_styles,
         symbols,
         dirty_symbols: BTreeSet::new(),

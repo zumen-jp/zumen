@@ -129,8 +129,37 @@ impl DxfFile {
                     .and_then(|other| sources.get(&(core::ptr::from_ref(other) as usize))),
             })
             .collect();
+        self.apply_prepared(changes, &specs, &[], current, cx)
+    }
+
+    /// 新しい DXF に足す寸法の個別設定を、要素とその表示部品の両方へ反映する。
+    pub(super) fn apply_for_lower(
+        &mut self,
+        changes: &Changes,
+        dimension_xdata: &[&[Value]],
+        cx: &mut Cx,
+    ) -> Result<Vec<Applied>, Error> {
+        self.apply_prepared(changes, &[], dimension_xdata, true, cx)
+    }
+
+    fn apply_prepared(
+        &mut self,
+        changes: &Changes,
+        copies: &[CopySpec<'_>],
+        dimension_xdata: &[&[Value]],
+        current: bool,
+        cx: &mut Cx,
+    ) -> Result<Vec<Applied>, Error> {
         let mut db = self.table(cx, false)?;
-        let ids = edit(&mut db, changes, &specs, Target::Dxf, true, cx)?;
+        let ids = edit(
+            &mut db,
+            changes,
+            copies,
+            Target::Dxf,
+            true,
+            dimension_xdata,
+            cx,
+        )?;
         if !current {
             return Err(Error::Rejected);
         }
@@ -190,7 +219,15 @@ impl DwgFile {
         let mut db = self.objects(cx)?;
         let seed = self.handle_seed();
         let arc_dim = self.has_entity_class(b"ARC_DIMENSION");
-        let ids = edit(&mut db, changes, &specs, Target::Dwg(seed), arc_dim, cx)?;
+        let ids = edit(
+            &mut db,
+            changes,
+            &specs,
+            Target::Dwg(seed),
+            arc_dim,
+            &[],
+            cx,
+        )?;
         if !current {
             return Err(Error::Rejected);
         }
@@ -517,6 +554,7 @@ fn edit(
     copies: &[CopySpec<'_>],
     target: Target,
     arc_dimension_class: bool,
+    dimension_xdata: &[&[Value]],
     cx: &mut Cx,
 ) -> Result<Vec<ResultTarget>, Error> {
     unique_handles(db, target, cx)?;
@@ -545,6 +583,7 @@ fn edit(
         encoder: born.encoder(),
         target,
         arc_dimension_class,
+        dimension_xdata,
     };
     for (edit_index, change) in changes.edits.iter().enumerate() {
         let rejected = std::mem::take(&mut plan.rejected);
@@ -683,6 +722,7 @@ struct Current<'a> {
     target: Target,
     /// `ARC_DIMENSION` を書き戻せるか（DXF は常に真、DWG はクラス定義があるとき真）
     arc_dimension_class: bool,
+    dimension_xdata: &'a [&'a [Value]],
 }
 
 /// 確かめた変更から作る、表への書き込みの控え。拒んだ変更が 1 つでもあれば、表を変えない
@@ -972,7 +1012,7 @@ fn add_element(
             let frame = InSpace(space);
             let built = match (home, &element.shape) {
                 (Some(home), Shape::Dimension(_) | Shape::Table(_)) => {
-                    parts::add_parts(current, plan, element, &frame, home, cx)?
+                    parts::add_parts(current, plan, element, &frame, home, edit_index, cx)?
                 }
                 (Some(home), _) => born
                     .record(element, &frame, home, plan.added_records)
@@ -990,6 +1030,7 @@ fn add_element(
                     element,
                     &OnSheet(sheet, frame),
                     frame.home,
+                    edit_index,
                     cx,
                 )?,
                 (Some(&frame), _) => born
@@ -1768,6 +1809,8 @@ fn object_positions(db: &AcadDb, cx: &mut Cx<'_>) -> Result<BTreeMap<Ref, usize>
 
 /// 図面モデルの点と長さを、元の図形のレコードの値に戻す
 pub(crate) trait Frame<P> {
+    /// 要素が用紙に属するか。
+    fn is_paper(&self) -> bool;
     /// ハッチングの模様を、要素と同じ座標・単位のまま書けるか。
     fn hatch_pattern_supported(&self) -> bool {
         true
@@ -1786,6 +1829,10 @@ pub(crate) trait Frame<P> {
 pub(crate) struct InSpace(pub(crate) SpaceId);
 
 impl Frame<ModelPoint> for InSpace {
+    fn is_paper(&self) -> bool {
+        false
+    }
+
     fn point(&self, point: &ModelPoint) -> Option<[f64; 2]> {
         (point.space == self.0).then_some([point.x, point.y])
     }
@@ -1813,6 +1860,10 @@ impl Frame<ModelPoint> for InSpace {
 pub(crate) struct OnSheet(pub(crate) SheetId, pub(crate) PaperFrame);
 
 impl Frame<PaperPoint> for OnSheet {
+    fn is_paper(&self) -> bool {
+        true
+    }
+
     // 模様の基点・ずれ・線の長さは読む側がまだ用紙の単位に直さないため、異なる座標の系では追加しない。
     fn hatch_pattern_supported(&self) -> bool {
         self.1.mm == 1.0 && self.1.origin == [0.0, 0.0]

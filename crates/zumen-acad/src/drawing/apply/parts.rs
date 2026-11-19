@@ -11,7 +11,7 @@ use crate::db::{AcadDb, Data, Object, Section, Value};
 use zumen_base::{Cx, Ref};
 use zumen_drawing::parts::{
     self, DimensionCurve, DimensionOffsets, DimensionParts, arrow_triangle, dimension_mtext,
-    readable_angle, tick_line,
+    dimension_tick_line, readable_angle,
 };
 use zumen_drawing::transform as geom_transform;
 use zumen_drawing::{
@@ -323,6 +323,7 @@ pub(super) fn copy_parts<P: Copy + PartialEq + geom_transform::Point>(
     affine: &Affine,
     frame: &impl Frame<P>,
     model: bool,
+    destination_paper: bool,
     cx: &mut Cx,
 ) -> Result<Option<(Vec<Value>, Vec<Record>, String)>, Error> {
     if current.target != Target::Dxf {
@@ -399,6 +400,7 @@ pub(super) fn copy_parts<P: Copy + PartialEq + geom_transform::Point>(
             new_dim,
             anon_record_handle,
             frame,
+            destination_paper,
             Some(affine),
             parts_base,
             true,
@@ -573,6 +575,7 @@ pub(super) fn add_parts<P: Copy>(
     element: &Element<P>,
     frame: &impl Frame<P>,
     home: Home,
+    edit_index: usize,
     cx: &mut Cx,
 ) -> Result<Option<(Record, Vec<Record>, String)>, Error> {
     if home.owner.is_none() || !current.born.home_ready(home) {
@@ -658,6 +661,11 @@ pub(super) fn add_parts<P: Copy>(
                 current,
                 blocks,
                 dimension,
+                current
+                    .dimension_xdata
+                    .get(edit_index)
+                    .copied()
+                    .unwrap_or_default(),
                 &entity_head,
                 &name2,
                 anon_record_handle,
@@ -803,6 +811,7 @@ fn add_dimension_parts<P: Copy>(
     current: &Current<'_>,
     blocks: &BlockIndex,
     dimension: &Dimension<P>,
+    xdata: &[Value],
     entity_head: &[Value],
     name2: &Value,
     anon_record_handle: u64,
@@ -829,15 +838,16 @@ fn add_dimension_parts<P: Copy>(
     let dummy = Object {
         kind: b"DIMENSION".to_vec(),
         section: Section::Entities,
-        values: Vec::new(),
+        values: xdata.to_vec(),
         origin: crate::Origin::New,
     };
-    let params = DimParams::resolve(current, blocks, &dummy, &dimension.style);
-    let Some(drawn) = parts::dimension(
+    let params = DimParams::resolve(current, blocks, &dummy, &dimension.style, frame.is_paper());
+    let Some(drawn) = parts::dimension_with_suppression(
         dimension,
         |p| frame.point(p),
         |l| frame.length(l),
         params.offsets,
+        params.suppress_ext,
     ) else {
         return Ok(None);
     };
@@ -857,6 +867,7 @@ fn add_dimension_parts<P: Copy>(
     } else {
         drawn.middle
     };
+    let text_pos = params.text_position(dimension, &drawn, text_pos);
     let Some(label_val) = encode_dimension_label(&dimension.label, current.encoder) else {
         return Ok(None);
     };
@@ -1140,6 +1151,7 @@ fn add_dimension_parts<P: Copy>(
     else {
         return Ok(None);
     };
+    values.extend(dummy.values);
     Ok(Some((main_kind, values, records, count)))
 }
 
@@ -1521,6 +1533,7 @@ fn apply_parts<P: Copy + PartialEq>(
             new_dim,
             record_handle,
             frame,
+            frame.is_paper(),
             transformed.map(|(affine, _)| affine),
             plan.added_records,
             false,
@@ -1615,6 +1628,8 @@ struct DimParams {
     offsets: DimensionOffsets,
     suppress_ext: [bool; 2],
     text_height: f64,
+    text_vertical_placement: Option<u8>,
+    text_gap: Option<f64>,
     linear_factor: f64,
     linear_dec: usize,
     angular_dec: usize,
@@ -1632,6 +1647,7 @@ impl DimParams {
         blocks: &BlockIndex,
         object: &Object,
         style_name: &str,
+        paper: bool,
     ) -> Self {
         let style_obj = blocks.dimstyle(current.db, style_name);
         let mut reals = BTreeMap::new();
@@ -1673,8 +1689,9 @@ impl DimParams {
         let suppress_ext = [int_or(75, 0) != 0, int_or(76, 0) != 0];
         let raw_txt = real_or(140, 0.18);
         let text_height = (if raw_txt > 0.0 { raw_txt } else { 0.18 }) * scale;
-        let raw_lfac = real_or(144, 1.0);
-        let linear_factor = if raw_lfac != 0.0 { raw_lfac.abs() } else { 1.0 };
+        let text_vertical_placement = ints.get(&77).and_then(|&i| u8::try_from(i).ok());
+        let text_gap = reals.get(&147).map(|&gap| gap * scale);
+        let linear_factor = parts::dimension_linear_factor(real_or(144, 1.0), paper);
         let linear_dec = usize::try_from(int_or(271, 4).clamp(0, 8)).unwrap_or(4);
         let adec_raw = int_or(179, 0);
         let angular_dec = if adec_raw < 0 {
@@ -1734,6 +1751,8 @@ impl DimParams {
             offsets,
             suppress_ext,
             text_height,
+            text_vertical_placement,
+            text_gap,
             linear_factor,
             linear_dec,
             angular_dec,
@@ -1744,6 +1763,23 @@ impl DimParams {
             text_color: dim_aci(int_or(178, 0)),
             ends,
         }
+    }
+
+    fn text_position<P>(
+        &self,
+        dimension: &Dimension<P>,
+        drawn: &DimensionParts,
+        saved: [f64; 2],
+    ) -> [f64; 2] {
+        parts::automatic_dimension_text_position(
+            dimension,
+            drawn,
+            Some(saved),
+            self.text_vertical_placement,
+            self.text_gap,
+            self.text_height,
+        )
+        .unwrap_or(saved)
     }
 }
 
@@ -1772,60 +1808,45 @@ fn apply_dstyle_xdata(
     ints: &mut BTreeMap<i16, i64>,
     handles: &mut BTreeMap<i16, u64>,
 ) {
-    let mut in_acad = false;
-    let mut awaiting_brace = false;
-    let mut in_dstyle = false;
-    let mut key: Option<i16> = None;
-    for value in &object.values {
-        match (value.code, &value.data) {
-            (1001, Data::Text(app)) => {
-                in_acad = app.eq_ignore_ascii_case(b"ACAD");
-                awaiting_brace = false;
-                in_dstyle = false;
-                key = None;
-            }
-            (1000, Data::Text(tag)) if in_acad && !in_dstyle => {
-                if tag.as_slice() == b"DSTYLE" {
-                    awaiting_brace = true;
+    // DXF Reference の「Dimension Style Overrides」。アプリ名ごとに上書き指定を読む。
+    for group in object.values.chunk_by(|_, next| next.code != 1001) {
+        let Some((app, fields)) = group.split_first() else {
+            continue;
+        };
+        if !matches!(&app.data, Data::Text(name) if app.code == 1001 && name.eq_ignore_ascii_case(b"ACAD"))
+        {
+            continue;
+        }
+        super::super::dimension_display::dstyle_pairs(
+            fields.iter().map(|v| (v.code, &v.data)),
+            |v| match v {
+                Data::Text(s) => Some(s),
+                _ => None,
+            },
+            |v| match v {
+                Data::Int(i) => Some(*i),
+                _ => None,
+            },
+            |code, tag, data| match (tag, data) {
+                (1040, Data::Real(r)) if r.is_finite() => {
+                    reals.insert(code, *r);
                 }
-            }
-            (1002, Data::Text(brace)) if awaiting_brace && brace.as_slice() == b"{" => {
-                awaiting_brace = false;
-                in_dstyle = true;
-                key = None;
-            }
-            (1002, Data::Text(brace)) if in_dstyle && brace.as_slice() == b"}" => {
-                in_dstyle = false;
-                key = None;
-            }
-            (1070, Data::Int(code)) if in_dstyle && key.is_none() => {
-                key = i16::try_from(*code).ok();
-            }
-            (_, data) if in_dstyle && key.is_some() => {
-                if let Some(code) = key.take() {
-                    match (value.code, data) {
-                        (1040, Data::Real(r)) if r.is_finite() => {
-                            reals.insert(code, *r);
-                        }
-                        (1070 | 1071, Data::Int(i)) => {
-                            ints.insert(code, *i);
-                        }
-                        (1005, Data::Handle(h)) => {
-                            handles.insert(code, *h);
-                        }
-                        (1005 | 1000, Data::Text(raw)) => {
-                            if let Some(s) = charset.decode(raw)
-                                && let Ok(h) = u64::from_str_radix(s.trim(), 16)
-                            {
-                                handles.insert(code, h);
-                            }
-                        }
-                        _ => {}
+                (1070 | 1071, Data::Int(i)) => {
+                    ints.insert(code, *i);
+                }
+                (1005, Data::Handle(h)) => {
+                    handles.insert(code, *h);
+                }
+                (1005 | 1000, Data::Text(raw)) => {
+                    if let Some(s) = charset.decode(raw)
+                        && let Ok(h) = u64::from_str_radix(s.trim(), 16)
+                    {
+                        handles.insert(code, h);
                     }
                 }
-            }
-            _ => {}
-        }
+                _ => {}
+            },
+        );
     }
 }
 
@@ -1838,6 +1859,7 @@ fn plan_dimension<P: Copy + PartialEq>(
     dimension: &Dimension<P>,
     record_handle: u64,
     frame: &impl Frame<P>,
+    paper: bool,
     transformed: Option<&Affine>,
     base_index: u64,
     new_block: bool,
@@ -1850,12 +1872,13 @@ fn plan_dimension<P: Copy + PartialEq>(
     {
         return Ok(None);
     }
-    let params = DimParams::resolve(current, blocks, object, &dimension.style);
-    let Some(drawn) = parts::dimension(
+    let params = DimParams::resolve(current, blocks, object, &dimension.style, paper);
+    let Some(drawn) = parts::dimension_with_suppression(
         dimension,
         |p| frame.point(p),
         |l| frame.length(l),
         params.offsets,
+        params.suppress_ext,
     ) else {
         return Ok(None);
     };
@@ -1891,6 +1914,7 @@ fn plan_dimension<P: Copy + PartialEq>(
         drawn.middle
     };
 
+    let text_pos = params.text_position(dimension, &drawn, text_pos);
     let values = match object.kind.as_slice() {
         b"DIMENSION" => update_dimension_values(
             object,
@@ -2000,11 +2024,8 @@ fn build_dimension_records<P>(
         Some(())
     };
 
-    for (idx, &[a, b]) in drawn.extension_lines.iter().enumerate() {
+    for &[a, b] in &drawn.extension_lines {
         work(cx, 1, place)?;
-        if params.suppress_ext.get(idx).copied().unwrap_or(false) {
-            continue;
-        }
         if libm::hypot(b[0] - a[0], b[1] - a[1]) > 1e-12
             && push_shape(
                 Shape::Line {
@@ -2072,7 +2093,7 @@ fn build_dimension_records<P>(
     for end in &drawn.ends {
         work(cx, 1, place)?;
         if params.tick_size > 0.0 {
-            if let Some([a, b]) = tick_line(end.tip, end.toward_tip, params.tick_size)
+            if let Some([a, b]) = dimension_tick_line(end.tip, end.toward_tip, params.tick_size)
                 && push_shape(
                     Shape::Line {
                         start: pt(a),

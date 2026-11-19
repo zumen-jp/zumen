@@ -303,6 +303,100 @@ fn refuses_overlapping_sections_and_noncanonical_padding() {
 }
 
 #[test]
+fn reads_old_dimension_styles_and_round_trips_display_overrides() {
+    use crate::{
+        Arrowhead, DimensionDisplayRecord, DimensionDisplayTarget, DimensionDisplayValues,
+        DimensionStyle,
+    };
+    use zumen_base::Key;
+
+    let style = DimensionStyle {
+        name: "Measured".to_owned(),
+        ends: [Arrowhead::Default, Arrowhead::Default],
+        leader: Arrowhead::Default,
+        size: 0.175,
+        scale: 1.0,
+        tick: None,
+        source: Ref::default().with_key(Key::Handle(0x73)),
+    };
+    // 1.1 の Drawing2D。最初の 8 フィールド、寸法スタイル表、残る 6 フィールドを当時の順で書く。
+    let old_drawing = packed(|out| {
+        out.record(|out| {
+            out.bytes.extend_from_slice(&[0; 8]);
+            out.uint(1);
+            style.pack(out);
+            out.bytes.extend_from_slice(&[0; 6]);
+        });
+    })
+    .0;
+    let (result, codes) = load(&assemble(1, 0, &[source_section(&[]), old_drawing]));
+    assert!(codes.is_empty());
+    let (origin, mut drawing) = result.unwrap();
+    assert!(drawing.dimension_display.is_empty());
+    assert_eq!(
+        drawing.dimension_styles.as_slice(),
+        std::slice::from_ref(&style)
+    );
+    drawing.dimension_display = vec![
+        DimensionDisplayRecord {
+            target: DimensionDisplayTarget::Style("MEASURED".to_owned()),
+            values: DimensionDisplayValues {
+                text_height: Some(0.25),
+                text_style: Some("Letters".to_owned()),
+                ..Default::default()
+            },
+        },
+        DimensionDisplayRecord {
+            target: DimensionDisplayTarget::Element {
+                id: "space/0/h8A".to_owned(),
+                basis: Hash([1; 16]),
+            },
+            values: DimensionDisplayValues {
+                tick_size: Some(0.5),
+                suppress_first_extension: Some(false),
+                linear_precision: Some(0),
+                text_vertical_placement: Some(1),
+                text_gap: Some(-0.125),
+                ..Default::default()
+            },
+        },
+    ];
+    let (result, codes) = load(&written(&origin, &drawing));
+    assert!(codes.is_empty());
+    let (origin_again, actual) = result.unwrap();
+    assert_eq!(origin_again, origin);
+    assert_eq!(actual, drawing);
+    let (mut budget, mut diagnostics, cancel) =
+        (Budget::default(), Diagnostics::new(), CancelToken::new());
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let mut sources = Vec::new();
+    actual
+        .each_dimension_display_source(&mut cx, |kind, source, _| {
+            sources.push((kind, source.clone()));
+            Ok::<_, zumen_base::Stop>(())
+        })
+        .unwrap();
+    assert_eq!(
+        sources,
+        [
+            ("dimension_display_style", style.source.clone()),
+            (
+                "dimension_display_target",
+                Ref::default().with_id("space/0/h8A")
+            ),
+        ]
+    );
+    assert_eq!(
+        crate::id::dimension_style(&actual.dimension_styles[0], 0),
+        "dimension-style/h73"
+    );
+    assert_eq!(
+        Hash::dimension_style(&actual.dimension_styles[0]),
+        Hash::dimension_style(&style)
+    );
+}
+
+#[test]
 fn added_fields_follow_the_writers_minor_version() {
     #[derive(Debug, PartialEq)]
     struct Example {

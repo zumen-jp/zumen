@@ -6,6 +6,7 @@
 //! 呼び出し元が決める。既定は [`Reseat`]（点と長さの空間を付け替える）。
 
 use std::collections::{BTreeMap, BTreeSet};
+mod dimension;
 
 use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Stop, Value, codes};
 use zumen_drawing::transform::Point as _;
@@ -14,10 +15,10 @@ use zumen_drawing::{
     Dimension, DimensionKind, DimensionStyle, Dogleg, Drawing2D, Edge, Edit, Element,
     FormattedText, Grid, Hatch, HatchLoop, HeightMeaning, Inherit, Layer, LayerId, LayerState,
     LayerStyle, Leader, Length, LineType, LineTypeId, ModelLength, ModelPoint, PaperLength,
-    PaperPoint, Placed, Placement, Polyline, Shape, SheetId, SheetItem, SpaceId, Spline, Symbol,
-    Text, TextStyle, Vertex, id,
+    PaperPoint, Placed, Placement, Polyline, Position, Shape, SheetId, SheetItem, SpaceId, Spline,
+    Symbol, Text, TextStyle, Vertex, id,
 };
-use zumen_sdk::{Apply, Codec, Error, Lift};
+use zumen_sdk::{Codec, Error, Lift};
 
 use super::bake;
 use super::template::NewDxfTemplate;
@@ -261,13 +262,36 @@ pub fn lower_to_dxf_with_report(
                 .map_err(|error| failed(cx, error))?;
         }
     }
+    let template_styles = dimension_style_index(&target, cx)?;
     for style in &drawing.dimension_styles {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        if !target
-            .dimension_styles
-            .iter()
-            .any(|known| known.name.eq_ignore_ascii_case(&style.name))
+        cx.check(Kind::DecodedBytes, style.name.len() as u64)?;
+        let existing = template_styles
+            .get(&style.name.to_ascii_lowercase())
+            .copied();
+        if let Some((index, known)) = existing
+            && (known.size, known.tick, known.scale) != (style.size, style.tick, style.scale)
         {
+            let mut addition = Addition::new(
+                Edit::ReplaceDimensionStyle {
+                    target: zumen_drawing::Seen {
+                        id: id::dimension_style(known, index),
+                        hash: zumen_drawing::Hash::dimension_style_checked(known, cx)?,
+                    },
+                    style: Box::new(DimensionStyle {
+                        size: style.size,
+                        tick: style.tick,
+                        scale: style.scale,
+                        ..known.clone()
+                    }),
+                },
+                "dimension_style",
+                &style.source,
+            );
+            addition.fidelity = ConversionFidelity::Drawn;
+            addition.reasons.push("template_definition");
+            edits.push(addition);
+        } else if existing.is_none() {
             edits.push(Addition::new(
                 Edit::AddDimensionStyle {
                     style: Box::new(DimensionStyle {
@@ -391,6 +415,7 @@ pub fn lower_to_dxf_with_report(
         edits.push(addition);
     }
     fields.extend(add_all(&mut file, edits, None, report, cx)?.layer_fields);
+    let mut dimension_xdata = dimension::prepare(&mut file, drawing, report, cx)?;
 
     // 3. 要素。記号の定義の中身を先に、実寸の空間の要素を後に足す
     let target = lift(&file, cx)?;
@@ -405,6 +430,7 @@ pub fn lower_to_dxf_with_report(
     let maps = Maps {
         source: drawing,
         target: &target,
+        dimension_styles: dimension_style_index(&target, cx)?,
         blocks: &template,
         relocate,
     };
@@ -419,9 +445,13 @@ pub fn lower_to_dxf_with_report(
         let Some(place) = places.get(&name.to_lowercase()) else {
             continue;
         };
-        for element in &definition.space.elements {
+        for (index, element) in definition.space.elements.iter().enumerate() {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            maps.element(element, place, None, &mut edits, report, cx)?;
+            let fields = dimension_xdata.remove(&Position::Model {
+                space: definition.space.id,
+                index,
+            });
+            maps.element((element, fields), place, None, &mut edits, report, cx)?;
         }
         for attribute in &definition.attributes {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
@@ -432,7 +462,7 @@ pub fn lower_to_dxf_with_report(
                     style: attribute.attribute.style,
                     shape: Shape::Text(attribute.attribute.text.clone()),
                 };
-                maps.element(&text, place, None, &mut edits, report, cx)?;
+                maps.element((&text, None), place, None, &mut edits, report, cx)?;
             } else {
                 report_dropped(
                     cx,
@@ -449,9 +479,20 @@ pub fn lower_to_dxf_with_report(
         .filter(|space| modelled(drawing, space.id))
     {
         let paper_factor = space_paper_factor(drawing, space.id).map(|factor| (space.id, factor));
-        for element in &space.elements {
+        for (index, element) in space.elements.iter().enumerate() {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            maps.element(element, &model, paper_factor, &mut edits, report, cx)?;
+            let fields = dimension_xdata.remove(&Position::Model {
+                space: space.id,
+                index,
+            });
+            maps.element(
+                (element, fields),
+                &model,
+                paper_factor,
+                &mut edits,
+                report,
+                cx,
+            )?;
         }
     }
     // 用紙は 1 つだけ書ける（DXF の Paper_Space）。ほかの用紙は落とす
@@ -511,7 +552,11 @@ pub fn lower_to_dxf_with_report(
             match item {
                 SheetItem::Element(index) => {
                     if let Some(element) = sheet.elements.get(index) {
-                        maps.element(element, paper, None, &mut edits, report, cx)?;
+                        let fields = dimension_xdata.remove(&Position::Paper {
+                            sheet: sheet.id,
+                            index,
+                        });
+                        maps.element((element, fields), paper, None, &mut edits, report, cx)?;
                     }
                 }
                 SheetItem::View(index) => {
@@ -560,7 +605,7 @@ pub fn lower_to_dxf_with_report(
                         match baked.element {
                             Some(baked) => {
                                 let before = edits.len();
-                                maps.element(&baked, paper, None, &mut edits, report, cx)?;
+                                maps.element((&baked, None), paper, None, &mut edits, report, cx)?;
                                 for addition in edits.iter_mut().skip(before) {
                                     addition.fidelity =
                                         addition.fidelity.max(ConversionFidelity::Drawn);
@@ -702,6 +747,7 @@ struct Addition<'a> {
     source: Ref,
     detached: bool,
     layer_fields: Option<&'a Layer>,
+    dimension_xdata: Vec<crate::db::Value>,
     fidelity: ConversionFidelity,
     reasons: Vec<&'static str>,
 }
@@ -714,6 +760,7 @@ impl Addition<'_> {
             source: source.clone(),
             detached: false,
             layer_fields: None,
+            dimension_xdata: Vec::new(),
             fidelity: ConversionFidelity::Equivalent,
             reasons: Vec::new(),
         }
@@ -807,8 +854,24 @@ impl Spot for PaperPoint {
 struct Maps<'a> {
     source: &'a Drawing2D,
     target: &'a Drawing2D,
+    dimension_styles: BTreeMap<String, (usize, &'a DimensionStyle)>,
     blocks: &'a NewDxfTemplate,
     relocate: &'a dyn Relocate,
+}
+
+fn dimension_style_index<'a>(
+    drawing: &'a Drawing2D,
+    cx: &mut Cx<'_>,
+) -> Result<BTreeMap<String, (usize, &'a DimensionStyle)>, Error> {
+    let mut index = BTreeMap::new();
+    for (i, style) in drawing.dimension_styles.iter().enumerate() {
+        cx.check(Kind::Work, 1 + style.name.len() as u64)?;
+        cx.check(Kind::DecodedBytes, 64 + style.name.len() as u64)?;
+        index
+            .entry(style.name.to_ascii_lowercase())
+            .or_insert((i, style));
+    }
+    Ok(index)
 }
 
 impl Maps<'_> {
@@ -816,7 +879,7 @@ impl Maps<'_> {
     /// 記号から離した文字にする
     fn element<P: Spot + Clone>(
         &self,
-        element: &Element<P>,
+        (element, dimension_xdata): (&Element<P>, Option<Vec<crate::db::Value>>),
         place: &Place<P>,
         paper_factor: Option<(SpaceId, f64)>,
         edits: &mut Vec<Addition<'_>>,
@@ -833,14 +896,20 @@ impl Maps<'_> {
         let mut shape = element.shape.clone();
         let paper_scaled = P::scale_paper_text(&mut shape, paper_factor);
         let mut detached = Vec::new();
+        let mut default_dimension_style = false;
         match &mut shape {
             Shape::Text(text) => self.text_style(&mut text.style),
             Shape::Formatted(text) => self.text_style(&mut text.style),
             Shape::Dimension(dimension) => {
                 dimension.block = None;
                 dimension.measurement = None;
-                if self.target.dimension_style(&dimension.style).is_none() {
+                cx.check(Kind::DecodedBytes, dimension.style.len() as u64)?;
+                if !self
+                    .dimension_styles
+                    .contains_key(&dimension.style.to_ascii_lowercase())
+                {
                     "Standard".clone_into(&mut dimension.style);
+                    default_dimension_style = true;
                 }
             }
             Shape::Symbol(symbol) => {
@@ -897,9 +966,7 @@ impl Maps<'_> {
                 reasons.push("text_height_meaning");
                 fidelity = fidelity.max(ConversionFidelity::Drawn);
             }
-            Shape::Dimension(dimension)
-                if self.target.dimension_style(&dimension.style).is_none() =>
-            {
+            Shape::Dimension(_) if default_dimension_style => {
                 reasons.push("dimension_style_default");
                 fidelity = fidelity.max(ConversionFidelity::Drawn);
             }
@@ -969,6 +1036,13 @@ impl Maps<'_> {
             reasons.push("style_default");
             fidelity = fidelity.max(ConversionFidelity::Drawn);
         }
+        let dimension_xdata = match dimension_xdata {
+            Some(_) if !matches!(shape, Shape::Dimension(_)) => {
+                report_dropped(cx, report, "dimension_display_target", &element.source)?;
+                None
+            }
+            fields => fields,
+        };
         let mut addition = Addition::new(
             Edit::Add {
                 place: place.id.clone(),
@@ -984,10 +1058,13 @@ impl Maps<'_> {
         );
         addition.fidelity = fidelity;
         addition.reasons = reasons;
+        if let Some(xdata) = dimension_xdata {
+            addition.dimension_xdata = xdata;
+        }
         edits.push(addition);
         for text in detached {
             let before = edits.len();
-            self.element(&text, place, paper_factor, edits, report, cx)?;
+            self.element((&text, None), place, paper_factor, edits, report, cx)?;
             if let Some(addition) = edits.get_mut(before) {
                 addition.detached = true;
             }
@@ -1097,7 +1174,23 @@ fn add_all<'a>(
             edits: edits.iter().map(|addition| addition.edit.clone()).collect(),
             document: None,
         };
-        match quiet(cx, |cx| file.apply(&changes, cx)) {
+        let mut dimension_xdata = Vec::new();
+        if let Some(last) = edits
+            .iter()
+            .rposition(|addition| !addition.dimension_xdata.is_empty())
+        {
+            let count = last + 1;
+            cx.check(Kind::DecodedBytes, count as u64 * 16)?;
+            dimension_xdata.extend(
+                edits
+                    .iter()
+                    .take(count)
+                    .map(|addition| addition.dimension_xdata.as_slice()),
+            );
+        }
+        match quiet(cx, |cx| {
+            file.apply_for_lower(&changes, &dimension_xdata, cx)
+        }) {
             Ok(_) => {
                 for addition in &edits {
                     let (fidelity, reasons) = if addition.detached {

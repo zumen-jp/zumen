@@ -764,6 +764,12 @@ fn copies_dimensions_arc_dimensions_tables_and_multileaders_in_dxf() {
         (34, "0.0"),
         (50, "0.0"),
         (100, "AcDbRotatedDimension"),
+        (1001, "ACAD"),
+        (1000, "DSTYLE"),
+        (1002, "{"),
+        (1070, "140"),
+        (1040, "0.75"),
+        (1002, "}"),
         (0, "ARC_DIMENSION"),
         (5, "299"),
         (330, "1F"),
@@ -1019,6 +1025,23 @@ fn copies_dimensions_arc_dimensions_tables_and_multileaders_in_dxf() {
     );
     let res = res.unwrap_or_else(|diag| panic!("{diag:?}"));
     assert_eq!(res.len(), 4);
+    let copy_id = res[0].id.as_deref().unwrap();
+    let override_basis = |drawing: &Drawing2D, target: &str| {
+        drawing
+            .dimension_display
+            .iter()
+            .find_map(|r| match &r.target {
+                zumen_drawing::DimensionDisplayTarget::Element { id, basis } if id == target => {
+                    assert_eq!(r.values.text_height, Some(0.75));
+                    Some(*basis)
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    let original_basis = override_basis(&before_tm, "space/0/h298");
+    assert_eq!(override_basis(&after_tm, "space/0/h298"), original_basis);
+    assert_eq!(override_basis(&after_tm, copy_id), res[0].hash.unwrap());
     let before_els = elements(&before_tm);
     let after_els = elements(&after_tm);
     for (id, hash, _) in &before_els {
@@ -1061,6 +1084,16 @@ fn copies_dimensions_arc_dimensions_tables_and_multileaders_in_dxf() {
     })
     .0
     .unwrap();
+    assert_eq!(
+        override_basis(&after_tm_move, "space/0/h298"),
+        original_basis
+    );
+    let moved = elements(&after_tm_move)
+        .into_iter()
+        .find(|e| e.0 == copy_id)
+        .unwrap();
+    assert_ne!(res[0].hash, Some(moved.1));
+    assert_eq!(override_basis(&after_tm_move, copy_id), moved.1);
     for orig in &before_els[..3] {
         assert!(
             elements(&after_tm_move)
@@ -1070,6 +1103,127 @@ fn copies_dimensions_arc_dimensions_tables_and_multileaders_in_dxf() {
             orig.0
         );
     }
+}
+
+#[test]
+fn cross_document_copies_check_dimension_display_even_when_public_hashes_match() {
+    use zumen_acad::CopyFrom;
+
+    // B の寸法にはスタイルに加えて個別の精度があり、C は B を置く。
+    let src = "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1021\n9\n$INSUNITS\n70\n4\n9\n$HANDSEED\n5\n100\n0\nENDSEC\n\
+0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nDIMSTYLE\n0\nDIMSTYLE\n105\n27\n2\nStandard\n140\n0.25\n340\n28\n0\nENDTAB\n\
+0\nTABLE\n2\nSTYLE\n0\nSTYLE\n5\n28\n2\nLabel\n3\nsimple.shx\n0\nENDTAB\n\
+0\nTABLE\n2\nBLOCK_RECORD\n0\nBLOCK_RECORD\n5\n1F\n2\n*Model_Space\n0\nBLOCK_RECORD\n5\n2F\n2\nB\n0\nBLOCK_RECORD\n5\n3F\n2\nC\n0\nENDTAB\n0\nENDSEC\n\
+0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n5\n30\n330\n2F\n2\nB\n10\n0\n20\n0\n\
+0\nDIMENSION\n5\n40\n330\n2F\n8\n0\n70\n0\n3\nStandard\n10\n12\n20\n6\n13\n0\n23\n0\n14\n12\n24\n0\n11\n6\n21\n6\n\
+1001\nACAD\n1000\nDSTYLE\n1002\n{\n1070\n271\n1070\n2\n1002\n}\n0\nENDBLK\n5\n31\n330\n2F\n\
+0\nBLOCK\n5\n32\n330\n3F\n2\nC\n10\n0\n20\n0\n0\nINSERT\n5\n41\n330\n3F\n8\n0\n2\nB\n10\n0\n20\n0\n0\nENDBLK\n5\n33\n330\n3F\n0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n0\nINSERT\n5\n42\n330\n1F\n8\n0\n2\nC\n10\n0\n20\n0\n\
+0\nLEADER\n5\n43\n330\n1F\n8\n0\n76\n2\n10\n0\n20\n0\n10\n3\n20\n4\n0\nENDSEC\n0\nEOF\n";
+
+    let file = testkit::read::<Dxf>(src.as_bytes()).0.unwrap();
+    let drawing = cx_run(|cx| file.lift(cx)).0.unwrap();
+    assert!(
+        drawing
+            .dimension_display
+            .iter()
+            .any(|r| r.values.linear_precision == Some(2))
+    );
+    for (id, change, field) in [
+        ("space/0/h42", None, ""),
+        ("space/0/h43", None, ""),
+        ("space/0/h42", Some(("140\n0.25", "140\n0.75")), "symbol"),
+        (
+            "space/0/h42",
+            Some(("271\n1070\n2", "271\n1070\n4")),
+            "symbol",
+        ),
+        (
+            "space/0/h43",
+            Some(("140\n0.25", "140\n0.75")),
+            "dimension_style",
+        ),
+        (
+            "space/0/h43",
+            Some(("simple.shx", "other.shx")),
+            "dimension_style",
+        ),
+    ] {
+        let bytes = change.map_or_else(|| src.to_owned(), |(old, new)| src.replace(old, new));
+        let mut dst = testkit::read::<Dxf>(bytes.as_bytes()).0.unwrap();
+        let dest = cx_run(|cx| dst.lift(cx)).0.unwrap();
+        assert_eq!(
+            Hash::dimension_style(&drawing.dimension_styles[0]),
+            Hash::dimension_style(&dest.dimension_styles[0])
+        );
+        let (_, hash, _) = elements(&drawing).into_iter().find(|e| e.0 == id).unwrap();
+        let (result, diagnostics) = cx_run(|cx| {
+            dst.apply_with_copies(
+                &Changes {
+                    document: None,
+                    edits: vec![Edit::Copy {
+                        target: Seen {
+                            id: id.to_owned(),
+                            hash,
+                        },
+                        transform: SHIFT,
+                    }],
+                },
+                &[CopyFrom {
+                    place: None,
+                    from: Some(&file),
+                }],
+                cx,
+            )
+        });
+        if change.is_some() {
+            assert!(result.is_err(), "{id} {change:?}");
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|d| d.code() == codes::CHANGE_COPY_UNSUPPORTED
+                        && d.param("field") == Some(&field.into())
+                        && d.param("value") == Some(&"conflict".into())),
+                "{id} {change:?}: {diagnostics:?}"
+            );
+            assert_eq!(testkit::write::<Dxf>(&dst).unwrap(), bytes.as_bytes());
+        } else {
+            result.unwrap_or_else(|_| panic!("{id}: {diagnostics:?}"));
+        }
+    }
+    // 以前の寸法スタイルのハッシュで端部を編集しても、今の文字高を保つ。
+    // 読み取った時点の文書ハッシュも指定すれば、文字高だけの差も検出する。
+    let newer = src.replace("140\n0.25", "140\n0.75");
+    let mut dst = testkit::read::<Dxf>(newer.as_bytes()).0.unwrap();
+    let was = &drawing.dimension_styles[0];
+    let mut style = was.clone();
+    style.size = 1.25;
+    let mut changes = Changes {
+        document: Some(Hash::document(src.as_bytes())),
+        edits: vec![Edit::ReplaceDimensionStyle {
+            target: Seen {
+                id: id::dimension_style(was, 0),
+                hash: Hash::dimension_style(was),
+            },
+            style: Box::new(style),
+        }],
+    };
+    let (stale, diagnostics) = cx_run(|cx| dst.apply(&changes, cx));
+    assert!(stale.is_err());
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code() == codes::CHANGE_DOCUMENT_STALE)
+    );
+    assert_eq!(testkit::write::<Dxf>(&dst).unwrap(), newer.as_bytes());
+    changes.document = None;
+    let (result, diagnostics) = cx_run(|cx| dst.apply(&changes, cx));
+    result.unwrap_or_else(|_| panic!("{diagnostics:?}"));
+    let latest = cx_run(|cx| dst.lift(cx)).0.unwrap();
+    assert_eq!(latest.dimension_styles[0].size, 1.25);
+    assert!(latest.dimension_display.iter().any(|r|
+        matches!(&r.target, zumen_drawing::DimensionDisplayTarget::Style(name) if name == "Standard") && r.values.text_height == Some(0.75)
+    ));
 }
 
 #[test]
