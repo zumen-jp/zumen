@@ -1,8 +1,8 @@
 # 文書エンジンの子プロセス IPC
 
-`zumen live --stdio` は、1 つの文書エンジン（DXF・DWG は `AcadLive`、JWW は `JwwLive`、SXF の SFC・P21・P2Z・SFZ は `SxfLive`）を子プロセス内に保持します。形式は Open のバイト列の署名とアーカイブの中身で選び、SXF の属性ファイル（SAF）も受けます。入力、表示の列、表示の画層の表、線種の表、描く順、矩形と点による選択、行を指定する移動・削除・複写・スタイルの変更、行の文字と内容の置き換え、記号の定義の表示、作図、取り消し・やり直し、全体保存、現在の ID とハッシュ、診断を運びます。64 bit ネイティブの実行ファイルを Electron の main から使う入口です。Node.js の接続は `@zumen-jp/zumen/node` の `openLiveProcess` です。
+`zumen live --stdio` は、1 つの文書エンジン（DXF・DWG は `AcadLive`、JWW は `JwwLive`、SXF の SFC・P21・P2Z・SFZ は `SxfLive`）を子プロセス内に保持します。形式は Open のバイト列の署名とアーカイブの中身で選び、SXF の属性ファイル（SAF）も受けます。入力、表示の列、表示の画層の表、線種の表、描く順、矩形と点による選択、行を指定する移動・削除・複写・スタイルの変更、行の文字と内容の置き換え、画層・線種の変更・追加・削除、折れ線・文字・記号挿入と線分・円・円弧の作図、記号の定義の表示・追加・定義内要素の移動・変更定義の同期、取り消し・やり直し、全体保存、現在の ID とハッシュ、診断を運びます。64 bit ネイティブの実行ファイルを Electron の main から使う入口です。Node.js の接続は `@zumen-jp/zumen/node` の `openLiveProcess` です。
 
-この入口は既存の `Session` の JSON op を追加・変更しません。IFC、文字列・記号の定義の同期、線種の変更・置き換え・追加などの編集、Electron の表示への組み込みは残件です。13 列だけで全図形を表示できるとはしていません。性能目標も測定結果と分けて扱います（[文書エンジン](../../docs/live.md)）。WASI は実行入口の対象外です。状態処理と符号化の単体検査は WASI でも流します。
+この入口は既存の `Session` の JSON op を追加・変更しません。IFC と Electron の表示への組み込みは別レーンの対象です。13 列だけで全図形を表示できるとはしていません。性能目標も測定結果と分けて扱います（[文書エンジン](../../docs/live.md)）。WASI は実行入口の対象外です。状態処理と符号化の単体検査は WASI でも流します。
 
 ## 通信と上限
 
@@ -29,7 +29,7 @@ Node.js の要求期限は既定 30 秒です。`cancel()` は実行中の要求
 | 16 | u32 | 本文のバイト数 |
 | 20 | u32 | フラグ。bit 0 は表示を付ける、bit 1 は全体表示 |
 
-全体表示には bit 0 も必要です。フラグを指定できるのは Open・Display・Transform・Remove・Restyle・SetText・Undo・Redo です。予約ビットと予約値は 0 でなければなりません。
+全体表示には bit 0 も必要です。フラグを指定できるのは Open・Display・Transform・Remove・Restyle・SetText・EditLayer・EditLineType・AddSymbol・TransformSymbol・Undo・Redo です。予約ビットと予約値は 0 でなければなりません。
 
 Cancel・Close を除く本文は、次の 72 バイトで始まります。
 
@@ -65,6 +65,12 @@ Cancel・Close を除く本文は、次の 72 バイトで始まります。
 | 19 | Symbols | 定義の数 u32（65,536 まで）、予約 u32、定義の番号 u32 × 定義の数 |
 | 20 | Draw | 雛形の行番号 u32、形の種類 u32、値 f64 × 5 |
 | 21 | SelectPoint | 点の x・y と許容距離 f64 × 3（どれも有限で許容距離は 0 以上） |
+| 22 | DirtySymbols | 消去フラグ u32（0 は保持、1 は応答の構築後に消去） |
+| 23 | EditLayer | 操作 u32（1 更新・2 追加・3 削除）、画層の値 u32、（1・2 のとき）変更項目・状態・色・線幅・線種と UTF-8 の名前 |
+| 24 | EditLineType | 操作 u32（1 更新・2 追加・3 削除）、線種の値 u32、（1・2 のとき）基準 u32、名前・説明と f64 の列 |
+| 25 | AddElement | 雛形の行番号 u32、要素の種類 u32（1 折れ線・2 文字・3 記号挿入）、種類別の頂点・文字・配置値 |
+| 26 | AddSymbol | 雛形の行番号 u32、名前のバイト数 u32、要素数 u32、予約 u32、基点 f64 × 2、UTF-8 の名前、要素ごとの形 48 バイト |
+| 27 | TransformSymbol | 定義の番号 u32、要素数 u32、変換行列 f64 × 6、定義内の要素番号 u32 × 要素数 |
 
 Open の前提の版・表示の確認は指定なしにします。一度文書を開いた子は別の文書を開きません。開く処理自体が失敗した場合は再試行できます。P2Z・SFZ は最初の `.p21`・`.sfc` の項目を展開し、SAF を明示しなければアーカイブ内の同名の `.saf` を結びます。保存は更新した SXF の項目をアーカイブへ戻し、ほかの項目を保ちます。SXF でない形式に SAF を添えると invalid です。Diagnostics の表示の確認は指定なしにし、前提の版は使いません。
 
@@ -93,7 +99,7 @@ Select は、モデル空間の最上位要素の囲む箱と矩形が接触・�
 
 Diagnostics の取得に失敗した場合、応答の診断数は 0 です。保持元の診断は変更せず、取得を再試行できます。
 
-結果は Open では生存行数、Transform・Remove・Copy・Restyle・SetText では適用件数、Undo・Redo では変更したか（0 または 1）、Save ではバイト数、Target と missing では行番号、Diagnostics では元の要求番号、Select・SelectPoint では選択行数、Layers では画層の数、Order では行の数、LineTypes では線種の数、Texts では行の数です。それ以外は 0 です。
+結果は Open では生存行数、Transform・Remove・Copy・Restyle・SetText・TransformSymbol では適用件数、EditLayer・EditLineType・Draw・AddElement では 1、AddSymbol では追加した定義の番号、Undo・Redo では変更したか（0 または 1）、Save ではバイト数、Target と missing では行番号（または表の値）、Diagnostics では元の要求番号、Select・SelectPoint・DirtySymbols では件数、Layers では画層の数、Order では行の数、LineTypes では線種の数、Texts では行の数です。それ以外は 0 です。
 
 データの種類は、0 なし、1 [ZLDP](../../docs/live.md#表示差分の通信)、2 保存バイト列、3 編集対象、4 診断、5 選択行（Copy では写しの行）、6 画層の表、7 描く順、8 線種の表、9 行の文字、10 記号の定義です。編集対象は ID のバイト数 u32、ハッシュの 16 バイト、UTF-8 の ID の順です。ハッシュは既存の `v2:` の 16 進表記に対応します。診断は UTF-8 の JSON 配列で、code・severity・fidelity・count・params・places・spec を元の順序と値で返します。Node.js は診断を自動で JSON の数値へ変換せず、元のバイト列を返します。
 

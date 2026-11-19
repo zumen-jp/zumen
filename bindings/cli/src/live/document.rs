@@ -75,7 +75,7 @@ fn unsheet(shape: DrawShape, sheet: Affine) -> Option<DrawShape> {
 }
 
 /// 行の座標の形 `shape` を、点の作り方 `point` と長さの作り方 `length` で、図面モデルの形にする
-fn model_shape<P: Copy>(
+pub(super) fn model_shape<P: Copy>(
     shape: DrawShape,
     point: impl Fn(f64, f64) -> P,
     length: impl Fn(f64) -> Length,
@@ -536,6 +536,59 @@ impl Engine {
             Self::Sxf(live) => live.select_point_with_cx(point, tolerance, out, cx),
         }
     }
+
+    fn flavor(&self) -> super::edits::FormatFlavor {
+        match self {
+            Self::Acad(_) => super::edits::FormatFlavor::Acad,
+            Self::Jww(_) => super::edits::FormatFlavor::Jww,
+            Self::Sxf(_) => super::edits::FormatFlavor::Sxf,
+        }
+    }
+
+    fn dirty_symbols(&self) -> &std::collections::BTreeSet<u32> {
+        match self {
+            Self::Acad(live) => live.dirty_symbols(),
+            Self::Jww(live) => live.dirty_symbols(),
+            Self::Sxf(live) => live.dirty_symbols(),
+        }
+    }
+
+    fn clear_dirty_symbols(&mut self) {
+        match self {
+            Self::Acad(live) => live.clear_dirty_symbols(),
+            Self::Jww(live) => live.clear_dirty_symbols(),
+            Self::Sxf(live) => live.clear_dirty_symbols(),
+        }
+    }
+
+    fn symbol_count(&self) -> u32 {
+        match self {
+            Self::Acad(live) => live.display_symbol_count(),
+            Self::Jww(live) => live.display_symbol_count(),
+            Self::Sxf(live) => live.display_symbol_count(),
+        }
+    }
+
+    fn symbol_key(&self, index: u32) -> Option<zumen_drawing::SymbolKey> {
+        match self {
+            Self::Acad(live) => live.display_symbol_key(index),
+            Self::Jww(live) => live.display_symbol_key(index),
+            Self::Sxf(live) => live.display_symbol_key(index),
+        }
+    }
+
+    fn seen_of_symbol_element(
+        &self,
+        symbol: u32,
+        element: u32,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Seen>, Error> {
+        match self {
+            Self::Acad(live) => live.seen_of_symbol_element(symbol, element, cx),
+            Self::Jww(live) => live.seen_of_symbol_element(symbol, element, cx),
+            Self::Sxf(live) => live.seen_of_symbol_element(symbol, element, cx),
+        }
+    }
 }
 
 /// `sheet` で写した座標での `transform` を、写す前の座標の変換にする（`sheet` の逆 ∘ `transform` ∘ `sheet`）。
@@ -551,7 +604,7 @@ pub(super) fn conjugate(sheet: Affine, transform: Affine) -> Option<Affine> {
 }
 
 /// `sheet` の逆の写し。逆に写せないか、値が有限でなければ `None`
-fn invert(sheet: Affine) -> Option<Affine> {
+pub(super) fn invert(sheet: Affine) -> Option<Affine> {
     let [a, b, c, d, e, f] = sheet.m;
     let det = a * e - b * d;
     if !(det.is_finite() && det != 0.0) {
@@ -896,5 +949,147 @@ impl Document {
     /// 表示に出る生きた行を、先に描くものから並べたもの
     pub fn order(&self, cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
         self.live.order(cx)
+    }
+
+    /// 変更された記号の定義の番号を昇順で返す
+    pub fn dirty_symbols(&self, cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        let dirty = self.live.dirty_symbols();
+        let count = dirty.len() as u64;
+        cx.check(Kind::Work, count.max(1))
+            .and_then(|()| cx.check(Kind::Elements, count))
+            .and_then(|()| cx.check(Kind::DecodedBytes, count.saturating_mul(4)))
+            .map_err(|stop| report_stop(cx, stop))?;
+        Ok(dirty.iter().copied().map(RowId).collect())
+    }
+
+    pub fn clear_dirty_symbols(&mut self) {
+        self.live.clear_dirty_symbols();
+    }
+
+    pub fn apply_single(
+        &mut self,
+        expected: Revision,
+        edit: Edit,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Problem> {
+        self.require_revision(expected)?;
+        cx.check(Kind::DecodedBytes, 256)
+            .and_then(|()| cx.check(Kind::Work, 1))
+            .map_err(|stop| Problem::Core(report_stop(cx, stop)))?;
+        self.live
+            .apply(
+                &Changes {
+                    document: None,
+                    edits: vec![edit],
+                },
+                cx,
+            )
+            .map(|_| ())
+            .map_err(Problem::Core)
+    }
+
+    pub fn add_element(
+        &mut self,
+        expected: Revision,
+        template: RowId,
+        shape: super::edits::AddedShape<'_>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Problem> {
+        self.require_revision(expected)?;
+        let symbol_key = match &shape {
+            super::edits::AddedShape::Symbol { symbol_index, .. } => Some(
+                self.live
+                    .symbol_key(*symbol_index)
+                    .ok_or(Problem::Core(Error::Invalid))?,
+            ),
+            _ => None,
+        };
+        let Some((place, template_element)) = self.live.template(template, cx)? else {
+            if self.live.seen_of_row(template, cx)?.is_none() {
+                return Err(Problem::Missing(template));
+            }
+            return Err(super::edits::reject_add("place", self.live.format(), cx));
+        };
+        let Some(sheet) = self.live.sheet(template) else {
+            return Err(super::edits::reject_add("view", self.live.format(), cx));
+        };
+        let Some(placed) = super::edits::build_added_placed(
+            template_element,
+            sheet,
+            shape,
+            symbol_key,
+            self.live.flavor(),
+            cx,
+        )?
+        else {
+            return Err(super::edits::reject_add("view", self.live.format(), cx));
+        };
+        self.apply_single(
+            expected,
+            Edit::Add {
+                place,
+                element: Box::new(placed),
+            },
+            cx,
+        )
+    }
+
+    pub fn add_symbol(
+        &mut self,
+        expected: Revision,
+        spec: super::edits::NewSymbol<'_>,
+        cx: &mut Cx<'_>,
+    ) -> Result<u32, Problem> {
+        self.require_revision(expected)?;
+        let template = spec.template;
+        let Some((_, template_element)) = self.live.template(template, cx)? else {
+            if self.live.seen_of_row(template, cx)?.is_none() {
+                return Err(Problem::Missing(template));
+            }
+            return Err(super::edits::reject_add("place", self.live.format(), cx));
+        };
+        let symbol_space_id = self.live.symbol_count().saturating_add(1024);
+        let edit =
+            super::edits::build_symbol_definition(template_element, symbol_space_id, spec, cx)?;
+        self.apply_single(expected, edit, cx)?;
+        Ok(self.live.symbol_count().saturating_sub(1))
+    }
+
+    pub fn transform_symbol(
+        &mut self,
+        expected: Revision,
+        symbol: u32,
+        elements: &[u32],
+        transform: Affine,
+        cx: &mut Cx<'_>,
+    ) -> Result<usize, Problem> {
+        self.require_revision(expected)?;
+        if symbol >= self.live.symbol_count() || !transform.m.iter().all(|v| v.is_finite()) {
+            return Err(Problem::Core(Error::Invalid));
+        }
+        cx.check(Kind::Work, elements.len() as u64)
+            .and_then(|()| {
+                cx.check(
+                    Kind::DecodedBytes,
+                    (elements.len() as u64).saturating_mul(256),
+                )
+            })
+            .map_err(|stop| Problem::Core(report_stop(cx, stop)))?;
+        let mut edits = Vec::with_capacity(elements.len());
+        for &elem in elements {
+            let target = self
+                .live
+                .seen_of_symbol_element(symbol, elem, cx)?
+                .ok_or(Problem::Missing(RowId(elem)))?;
+            edits.push(Edit::Transform { target, transform });
+        }
+        let applied = self.live.apply(
+            &Changes {
+                document: None,
+                edits,
+            },
+            cx,
+        )?;
+        Ok(applied.len())
     }
 }

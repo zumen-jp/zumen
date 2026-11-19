@@ -55,6 +55,12 @@ export async function liveDocument(executable: string, input: Uint8Array): Promi
       const copies: number[] = [...((await live.copy({ revision: live.revision!, rows: [0], matrix: [1, 0, 1, 0, 1, 0] })).selection?.rows() ?? [])];
       await live.remove({ revision: live.revision!, rows: copies }, { display: false });
       await live.restyle({ revision: live.revision!, rows: [0], layer: 0, color: { rgb: [1, 2, 3] }, lineWeight: "default" });
+      await live.dirtySymbols(live.revision!, { clear: true });
+      await live.editLayer({ op: "add", revision: live.revision!, name: "ADDED", color: { rgb: [10, 20, 30] } });
+      await live.editLineType({ op: "add", revision: live.revision!, name: "DASH", pattern: [5, -2.5] });
+      await live.addSymbol({ revision: live.revision!, template: 0, name: "SYM", elements: [{ line: [0, 0, 10, 0] }] });
+      await live.addElement({ revision: live.revision!, template: 0, element: { polyline: { closed: true, vertices: [[0, 0], [10, 0], [10, 10, 0.5]] } } });
+      await live.transformSymbol({ revision: live.revision!, symbol: 0, rows: [0], matrix: [1, 0, 1, 0, 1, 0] });
       if (selected.revision !== null) await live.transform({ revision: selected.revision, rows, matrix: [1, 0, 1, 0, 1, 2] });
       await live.diagnostics(changed.requestId, { budget: { decodedBytes: null } });
     }

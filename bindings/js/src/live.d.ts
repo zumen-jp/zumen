@@ -154,6 +154,84 @@ export interface LiveDraw {
   template: number;
   shape: LiveDrawShape;
 }
+export interface LiveDirtySymbolsOptions extends LiveOptions {
+  /** true なら取得した後に変更フラグを消す */
+  clear?: boolean;
+}
+export type LiveLayerColor = null | {
+  code?: { system: "aci" | "sxf" | "jww"; value: number };
+  rgb?: readonly [number, number, number];
+};
+export type LiveEditLayer =
+  | {
+      op?: "update";
+      revision: bigint | number;
+      layer: number;
+      name?: string;
+      state?: { visible: boolean; printable: boolean; editable: boolean; frozen: boolean };
+      color?: LiveLayerColor;
+      lineWeight?: null | "default" | number;
+      lineType?: null | number;
+    }
+  | {
+      op: "add";
+      revision: bigint | number;
+      name: string;
+      state?: { visible: boolean; printable: boolean; editable: boolean; frozen: boolean };
+      color?: LiveLayerColor;
+      lineWeight?: null | "default" | number;
+      lineType?: null | number;
+    }
+  | {
+      op: "remove";
+      revision: bigint | number;
+      layer: number;
+    };
+export type LiveEditLineType =
+  | {
+      op?: "update";
+      revision: bigint | number;
+      lineType: number;
+      name: string;
+      description?: string;
+      basis?: "element" | "paper";
+      pattern: readonly number[] | Float64Array;
+    }
+  | {
+      op: "add";
+      revision: bigint | number;
+      name: string;
+      description?: string;
+      basis?: "element" | "paper";
+      pattern: readonly number[] | Float64Array;
+    }
+  | {
+      op: "remove";
+      revision: bigint | number;
+      lineType: number;
+    };
+export type LiveAddedElement =
+  | { polyline: { closed?: boolean; vertices: readonly (readonly [number, number] | readonly [number, number, number])[] } }
+  | { text: { position: readonly [number, number]; height: number; rotation?: number; widthFactor?: number; content: string } }
+  | { symbol: { definition: number; position: readonly [number, number]; scale?: readonly [number, number]; rotation?: number } };
+export interface LiveAddElement {
+  revision: bigint | number;
+  template: number;
+  element: LiveAddedElement;
+}
+export interface LiveAddSymbol {
+  revision: bigint | number;
+  template: number;
+  name: string;
+  base?: readonly [number, number];
+  elements?: readonly LiveDrawShape[];
+}
+export interface LiveTransformSymbol {
+  revision: bigint | number;
+  symbol: number;
+  rows: readonly number[] | Uint32Array;
+  matrix: readonly number[] | Float64Array;
+}
 /** DXF・DWG・JWW・SXF の常駐文書。通常の同時呼び出しは ZumenError の busy */
 export declare class LiveProcess {
   private constructor();
@@ -190,6 +268,18 @@ export declare class LiveProcess {
   copy(change: LiveTransform, options?: LiveOptions): Promise<LiveReply>;
   /** 行 template の空間か用紙に、その画層・スタイルで形を 1 つ足す。足した行を selection に返す。表示は display で取り直す */
   draw(change: LiveDraw, options?: LiveOptions): Promise<LiveReply>;
+  /** 変更された記号定義の番号を selection に返す。clear: true で取得後に変更フラグを消す */
+  dirtySymbols(revision: bigint | number, options?: LiveDirtySymbolsOptions): Promise<LiveReply>;
+  /** 画層の変更・追加・削除。result は 1 */
+  editLayer(change: LiveEditLayer, options?: LiveDisplayOptions): Promise<LiveReply>;
+  /** 線種の変更・追加・削除。result は 1 */
+  editLineType(change: LiveEditLineType, options?: LiveDisplayOptions): Promise<LiveReply>;
+  /** 行 template に倣って表示の座標の折れ線・文字・記号挿入を 1 つ足し、足した行を selection に返す */
+  addElement(change: LiveAddElement, options?: LiveOptions): Promise<LiveReply>;
+  /** 記号の定義を 1 つ足し、新しい定義の番号を result に返す */
+  addSymbol(change: LiveAddSymbol, options?: LiveDisplayOptions): Promise<LiveReply>;
+  /** 記号の定義 symbol の中の要素 rows を定義の座標で動かす。result は動かした数 */
+  transformSymbol(change: LiveTransformSymbol, options?: LiveDisplayOptions): Promise<LiveReply>;
   undo(revision: bigint | number, options?: LiveDisplayOptions): Promise<LiveReply>;
   redo(revision: bigint | number, options?: LiveDisplayOptions): Promise<LiveReply>;
   save(options?: LiveOptions): Promise<LiveReply>;

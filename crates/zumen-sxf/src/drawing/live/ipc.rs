@@ -5,7 +5,7 @@
 use zumen_base::{Cx, Kind, Ref, Stop};
 use zumen_drawing::{
     Affine, Element, FormattedText, Layer, LineType, LineTypeId, ModelPoint, PaperPoint, Piece,
-    Placed, Seen, Shape, id,
+    Placed, Seen, Shape, SymbolKey, id,
 };
 use zumen_live::display::Display;
 use zumen_live::hit::SymbolHitCache;
@@ -335,6 +335,42 @@ impl SxfLive {
     /// 表示の挿入が指す記号の定義（複合図形）の数。挿入の定義の値は `0..` この数
     pub fn display_symbol_count(&self) -> u32 {
         u32::try_from(self.symbol_rows.len()).unwrap_or(u32::MAX)
+    }
+
+    /// 記号の定義 `index` のキー。範囲外なら `None`
+    pub fn display_symbol_key(&self, index: u32) -> Option<SymbolKey> {
+        self.symbol_indices
+            .iter()
+            .find_map(|(key, &found)| (found == index).then(|| key.clone()))
+    }
+
+    /// 記号の定義 `symbol` の中の `element` 番目の生きた要素の正規 ID とハッシュを共有予算で返す。範囲外なら `None`
+    pub fn seen_of_symbol_element(
+        &self,
+        symbol: u32,
+        element: u32,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Seen>, Error> {
+        cx.check(Kind::Work, u64::from(element) + 1)
+            .map_err(|stop| stopped(cx, stop))?;
+        let Some(rows) = self.symbol_rows.get(symbol as usize) else {
+            return Ok(None);
+        };
+        let Some(row_id) = rows
+            .iter()
+            .copied()
+            .filter(|&row| {
+                self.table.is_alive(row)
+                    && self
+                        .table
+                        .row(row)
+                        .is_some_and(|found| matches!(found.placed, Placed::Model(_)))
+            })
+            .nth(element as usize)
+        else {
+            return Ok(None);
+        };
+        self.seen_of_row(row_id, cx)
     }
 
     /// 記号の定義 `index` の生きた要素を、定義の座標のまま 1 要素 1 行で `display` の末尾に足し、足した行の数を返す。

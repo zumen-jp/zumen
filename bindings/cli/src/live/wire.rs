@@ -44,6 +44,12 @@ pub(super) enum Command {
     Symbols = 19,
     Draw = 20,
     SelectPoint = 21,
+    DirtySymbols = 22,
+    EditLayer = 23,
+    EditLineType = 24,
+    AddElement = 25,
+    AddSymbol = 26,
+    TransformSymbol = 27,
 }
 
 impl Command {
@@ -71,6 +77,12 @@ impl Command {
             19 => Self::Symbols,
             20 => Self::Draw,
             21 => Self::SelectPoint,
+            22 => Self::DirtySymbols,
+            23 => Self::EditLayer,
+            24 => Self::EditLineType,
+            25 => Self::AddElement,
+            26 => Self::AddSymbol,
+            27 => Self::TransformSymbol,
             _ => return None,
         })
     }
@@ -82,7 +94,9 @@ impl Command {
                 CONTROL_BYTES + 8,
                 CONTROL_BYTES + 8 + MAX_INPUT_BYTES + MAX_SAF_BYTES,
             ),
-            Self::Transform | Self::Copy => (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4),
+            Self::Transform | Self::Copy | Self::TransformSymbol => {
+                (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4)
+            }
             Self::Remove | Self::Texts | Self::Symbols => {
                 (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_ROWS * 4)
             }
@@ -91,11 +105,33 @@ impl Command {
                 CONTROL_BYTES + 8,
                 CONTROL_BYTES + 8 + MAX_TEXT_BYTES + MAX_ROWS * 4,
             ),
-            Self::Target => (CONTROL_BYTES + 4, CONTROL_BYTES + 4),
+            Self::Target | Self::DirtySymbols => (CONTROL_BYTES + 4, CONTROL_BYTES + 4),
             Self::Draw => (CONTROL_BYTES + 48, CONTROL_BYTES + 48),
             Self::Diagnostics => (CONTROL_BYTES + 8, CONTROL_BYTES + 8),
             Self::Select => (CONTROL_BYTES + 32, CONTROL_BYTES + 32),
             Self::SelectPoint => (CONTROL_BYTES + 24, CONTROL_BYTES + 24),
+            Self::EditLayer => (
+                CONTROL_BYTES + 8,
+                CONTROL_BYTES + 52 + super::edits::MAX_NAME_BYTES,
+            ),
+            Self::EditLineType => (
+                CONTROL_BYTES + 8,
+                CONTROL_BYTES
+                    + 24
+                    + super::edits::MAX_NAME_BYTES * 2
+                    + super::edits::MAX_PATTERN_LEN * 8,
+            ),
+            Self::AddElement => (
+                CONTROL_BYTES + 56,
+                CONTROL_BYTES + 56 + MAX_TEXT_BYTES.max(MAX_ROWS * 24),
+            ),
+            Self::AddSymbol => (
+                CONTROL_BYTES + 36,
+                CONTROL_BYTES
+                    + 32
+                    + super::edits::MAX_NAME_BYTES
+                    + super::edits::MAX_SYMBOL_ELEMENTS * 48,
+            ),
             Self::Display
             | Self::Undo
             | Self::Redo
@@ -115,6 +151,10 @@ impl Command {
                 | Self::Remove
                 | Self::Restyle
                 | Self::SetText
+                | Self::EditLayer
+                | Self::EditLineType
+                | Self::AddSymbol
+                | Self::TransformSymbol
                 | Self::Undo
                 | Self::Redo
         )

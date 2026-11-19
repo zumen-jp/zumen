@@ -461,6 +461,81 @@ test("実プロセスで雛形の行に倣って線分・円・円弧を足す",
   } finally { await live.close(); }
 });
 
+test("実プロセスで画層・線種・記号定義・折れ線・文字・記号挿入・定義内移動と dirtySymbols を通す", { skip: !executable, timeout: 30000 }, async () => {
+  const live = await openLiveProcess(executable);
+  try {
+    const input = Buffer.from(
+      "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$HANDSEED\n5\n80\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n"
+      + "0\nSECTION\n2\nTABLES\n"
+      + "0\nTABLE\n2\nLTYPE\n5\n5\n100\nAcDbSymbolTable\n70\n3\n"
+      + "0\nLTYPE\n5\n14\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nByBlock\n70\n0\n3\n\n72\n65\n73\n0\n40\n0.0\n"
+      + "0\nLTYPE\n5\n15\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nByLayer\n70\n0\n3\n\n72\n65\n73\n0\n40\n0.0\n"
+      + "0\nLTYPE\n5\n16\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nContinuous\n70\n0\n3\nSolid\n72\n65\n73\n0\n40\n0.0\n"
+      + "0\nENDTAB\n"
+      + "0\nTABLE\n2\nLAYER\n5\n2\n100\nAcDbSymbolTable\n70\n1\n"
+      + "0\nLAYER\n5\n10\n330\n2\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nContinuous\n"
+      + "0\nENDTAB\n"
+      + "0\nTABLE\n2\nSTYLE\n5\n3\n100\nAcDbSymbolTable\n70\n1\n"
+      + "0\nSTYLE\n5\n11\n330\n3\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n"
+      + "0\nENDTAB\n"
+      + "0\nTABLE\n2\nBLOCK_RECORD\n5\n1\n100\nAcDbSymbolTable\n70\n1\n"
+      + "0\nBLOCK_RECORD\n5\n1F\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Model_Space\n"
+      + "0\nENDTAB\n0\nENDSEC\n"
+      + "0\nSECTION\n2\nBLOCKS\n"
+      + "0\nBLOCK\n5\n20\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Model_Space\n70\n0\n10\n0.0\n20\n0.0\n"
+      + "0\nENDBLK\n5\n21\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n0\nENDSEC\n"
+      + "0\nSECTION\n2\nENTITIES\n"
+      + "0\nLINE\n5\n30\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbLine\n10\n0.0\n20\n0.0\n11\n10.0\n21\n0.0\n"
+      + "0\nENDSEC\n0\nEOF\n",
+    );
+    const opened = await live.open(input);
+    let rev = opened.revision;
+    assert.deepEqual([...(await live.dirtySymbols(rev)).selection.rows()], []);
+
+    rev = (await live.editLayer({ op: "add", revision: rev, name: "WALL", state: { visible: true, printable: true, editable: true, frozen: false }, color: { rgb: [12, 34, 56] } })).revision;
+    const layers = (await live.layers(rev)).layers;
+    const wall = layers.find((item) => item.name === "WALL");
+    assert(wall);
+    rev = (await live.editLayer({ op: "update", revision: rev, layer: wall.value, state: { visible: false, printable: true, editable: true, frozen: false } })).revision;
+    assert.equal((await live.layers(rev)).layers.find((item) => item.value === wall.value).state.visible, false);
+
+    rev = (await live.editLineType({ op: "add", revision: rev, name: "DASH2", description: "Dash", pattern: [4, -2] })).revision;
+    assert((await live.lineTypes(rev)).lineTypes.some((lt) => lt.name === "DASH2"));
+
+    const symAdded = await live.addSymbol({ revision: rev, template: 0, name: "PART1", elements: [{ line: [0, 0, 20, 0] }] });
+    assert.equal(symAdded.status, "ok");
+    const symIdx = Number(symAdded.result);
+    rev = symAdded.revision;
+    assert.equal((await live.dirtySymbols(rev, { clear: true })).selection.rows().next().value !== undefined, true);
+    assert.deepEqual([...(await live.dirtySymbols(rev)).selection.rows()], []);
+
+    const polyAdded = await live.addElement({ revision: rev, template: 0, element: { polyline: { closed: true, vertices: [[500, 0], [510, 0, 0.5], [510, 10]] } } });
+    assert.equal(polyAdded.status, "ok");
+    rev = polyAdded.revision;
+
+    const txtAdded = await live.addElement({ revision: rev, template: 0, element: { text: { position: [600, 20], height: 3, content: "NOTE1" } } });
+    assert.equal(txtAdded.status, "ok");
+    rev = txtAdded.revision;
+    const [txtRow] = [...txtAdded.selection.rows()];
+    assert.deepEqual((await live.texts([txtRow], rev)).texts, [{ kind: "text", content: "NOTE1" }]);
+
+    const insAdded = await live.addElement({ revision: rev, template: 0, element: { symbol: { definition: symIdx, position: [700, 50] } } });
+    assert.equal(insAdded.status, "ok");
+    rev = insAdded.revision;
+    const [insRow] = [...insAdded.selection.rows()];
+    assert.deepEqual([...(await live.selectPoint([710, 50], 0.25, rev)).selection.rows()], [insRow]);
+
+    const symMoved = await live.transformSymbol({ revision: rev, symbol: symIdx, rows: [0], matrix: [1, 0, 0, 0, 1, 10] });
+    assert.equal(symMoved.status, "ok");
+    rev = symMoved.revision;
+    assert.deepEqual([...(await live.dirtySymbols(rev, { clear: true })).selection.rows()], [symIdx]);
+    assert.deepEqual([...(await live.selectPoint([710, 60], 0.25, rev)).selection.rows()], [insRow]);
+
+    for (let i = 0; i < 8; i++) rev = (await live.undo(rev)).revision;
+    assert.deepEqual((await live.save()).data, input);
+  } finally { await live.close(); }
+});
+
 test("copy・remove・restyle の引数を送る前に検査する", async () => {
   const { live } = await fake("order");
   try {

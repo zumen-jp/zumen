@@ -1835,3 +1835,328 @@ fn select_point_hits_geometry_and_symbol_instances_across_formats() {
         assert!(select_point(&mut shost, req_id + 2, 1, [FAR, FAR + 10.0], 0.2).is_empty());
     }
 }
+
+fn pad_utf8(out: &mut Vec<u8>, text: &str) {
+    out.extend_from_slice(text.as_bytes());
+    let rem = text.len() % 4;
+    if rem != 0 {
+        out.extend(core::iter::repeat_n(0_u8, 4 - rem));
+    }
+}
+
+fn dirty_symbols(host: &mut Host, id: u64, revision: u64, clear: bool) -> Vec<u32> {
+    let reply = call(
+        host,
+        Command::DirtySymbols,
+        id,
+        revision,
+        wire::NONE,
+        0,
+        &u32::from(clear).to_le_bytes(),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.data_kind, 5);
+    decode_u32_rows(&reply.data, reply.result)
+}
+
+fn transform_symbol_body(symbol: u32, matrix: Affine, elements: &[u32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(56 + elements.len() * 4);
+    out.extend_from_slice(&symbol.to_le_bytes());
+    out.extend_from_slice(&(elements.len() as u32).to_le_bytes());
+    for v in matrix.m {
+        out.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    for &elem in elements {
+        out.extend_from_slice(&elem.to_le_bytes());
+    }
+    out
+}
+
+/// TransformSymbol と DirtySymbols は DXF・SFC・JWW の記号定義の編集と Undo を追跡し、保存を一致させる
+#[test]
+fn dirty_symbols_and_transform_symbol_sync_across_formats() {
+    let dxf = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nBLOCK_RECORD\n5\n1\n70\n1\n\
+0\nBLOCK_RECORD\n5\n1F\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\nB1\n\
+0\nENDTAB\n0\nENDSEC\n\
+0\nSECTION\n2\nBLOCKS\n\
+0\nBLOCK\n5\n20\n8\n0\n100\nAcDbEntity\n100\nAcDbBlockBegin\n2\nB1\n70\n0\n10\n0.0\n20\n0.0\n\
+0\nLINE\n5\n21\n8\n0\n100\nAcDbEntity\n100\nAcDbLine\n10\n0.0\n20\n0.0\n11\n10.0\n21\n0.0\n\
+0\nENDBLK\n5\n22\n8\n0\n100\nAcDbEntity\n100\nAcDbBlockEnd\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nINSERT\n5\n30\n8\n0\n100\nAcDbEntity\n100\nAcDbBlockReference\n2\nB1\n10\n0.0\n20\n0.0\n\
+0\nENDSEC\n0\nEOF\n";
+
+    for sample in [dxf.as_slice(), SFC] {
+        let mut host = Host::default();
+        open_bytes(&mut host, sample);
+        let original = saved(&mut host, 2, 0);
+        assert!(dirty_symbols(&mut host, 3, 0, false).is_empty());
+
+        let sym_info = call(&mut host, Command::Symbols, 4, 0, wire::NONE, 0, &[0; 8]);
+        assert_eq!(sym_info.status, Status::Ok);
+        let total = Words(&sym_info.data).u32().unwrap();
+        let target_sym = (0..total)
+            .find(|&idx| {
+                let mut req = 1_u32.to_le_bytes().to_vec();
+                req.extend_from_slice(&0_u32.to_le_bytes());
+                req.extend_from_slice(&idx.to_le_bytes());
+                let rep = call(
+                    &mut host,
+                    Command::Symbols,
+                    5 + u64::from(idx),
+                    0,
+                    wire::NONE,
+                    0,
+                    &req,
+                );
+                let mut w = Words(&rep.data);
+                let _ = (w.u32(), w.u32(), w.u32());
+                w.u32().unwrap_or(0) > 0
+            })
+            .unwrap();
+
+        let moved = call(
+            &mut host,
+            Command::TransformSymbol,
+            200,
+            0,
+            wire::NONE,
+            1,
+            &transform_symbol_body(target_sym, Affine::translation(5.0, 7.0), &[0]),
+        );
+        assert_eq!(moved.status, Status::Ok);
+        assert_eq!(moved.result, 1);
+        assert!(dirty_symbols(&mut host, 201, 1, false).contains(&target_sym));
+        assert!(dirty_symbols(&mut host, 202, 1, true).contains(&target_sym));
+        assert!(dirty_symbols(&mut host, 203, 1, false).is_empty());
+
+        let undone = call(&mut host, Command::Undo, 204, 1, wire::NONE, 1, &[]);
+        assert_eq!(undone.status, Status::Ok);
+        assert!(dirty_symbols(&mut host, 205, 2, true).contains(&target_sym));
+        assert_eq!(saved(&mut host, 206, 2), original);
+    }
+}
+
+/// EditLayer・EditLineType・AddSymbol・AddElement が 1 トランザクションずつ確定し、Undo で完全に元へ戻る
+#[test]
+fn table_edits_and_extended_elements_round_trip_and_undo() {
+    let dxf = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$HANDSEED\n5\n80\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nTABLES\n\
+0\nTABLE\n2\nLTYPE\n5\n5\n100\nAcDbSymbolTable\n70\n3\n\
+0\nLTYPE\n5\n14\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nByBlock\n70\n0\n3\n\n72\n65\n73\n0\n40\n0.0\n\
+0\nLTYPE\n5\n15\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nByLayer\n70\n0\n3\n\n72\n65\n73\n0\n40\n0.0\n\
+0\nLTYPE\n5\n16\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nContinuous\n70\n0\n3\nSolid\n72\n65\n73\n0\n40\n0.0\n\
+0\nENDTAB\n\
+0\nTABLE\n2\nLAYER\n5\n2\n100\nAcDbSymbolTable\n70\n1\n\
+0\nLAYER\n5\n10\n330\n2\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nContinuous\n\
+0\nENDTAB\n\
+0\nTABLE\n2\nSTYLE\n5\n3\n100\nAcDbSymbolTable\n70\n1\n\
+0\nSTYLE\n5\n11\n330\n3\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n\
+0\nENDTAB\n\
+0\nTABLE\n2\nBLOCK_RECORD\n5\n1\n100\nAcDbSymbolTable\n70\n1\n\
+0\nBLOCK_RECORD\n5\n1F\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Model_Space\n\
+0\nENDTAB\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nBLOCKS\n\
+0\nBLOCK\n5\n20\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Model_Space\n70\n0\n10\n0.0\n20\n0.0\n\
+0\nENDBLK\n5\n21\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nLINE\n5\n30\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbLine\n10\n0.0\n20\n0.0\n11\n10.0\n21\n0.0\n\
+0\nENDSEC\n0\nEOF\n";
+
+    let mut host = Host::default();
+    open_bytes(&mut host, dxf);
+    let initial = saved(&mut host, 2, 0);
+    let mut rev = 0_u64;
+    let mut id = 10_u64;
+
+    // 1. 画層 WALL を追加 -> 状態変更 -> 削除
+    let mut add_layer = Vec::new();
+    add_layer.extend_from_slice(&2_u32.to_le_bytes()); // Add
+    add_layer.extend_from_slice(&0_u32.to_le_bytes()); // layer=0
+    add_layer.extend_from_slice(&(1_u32 | 2 | 16).to_le_bytes()); // state + color + name
+    add_layer.extend_from_slice(&0b0111_u32.to_le_bytes()); // visible, printable, editable
+    add_layer.extend_from_slice(&2_u32.to_le_bytes()); // RGB
+    add_layer.extend_from_slice(&0_u32.to_le_bytes());
+    add_layer.extend_from_slice(&0x00112233_u32.to_le_bytes());
+    add_layer.extend_from_slice(&0_u32.to_le_bytes()); // weight_kind
+    add_layer.extend_from_slice(&0.0_f64.to_bits().to_le_bytes());
+    add_layer.extend_from_slice(&0_u32.to_le_bytes()); // lt_kind
+    add_layer.extend_from_slice(&0_u32.to_le_bytes()); // lt_val
+    add_layer.extend_from_slice(&4_u32.to_le_bytes()); // "WALL"
+    pad_utf8(&mut add_layer, "WALL");
+    id += 1;
+    assert_eq!(
+        call(
+            &mut host,
+            Command::EditLayer,
+            id,
+            rev,
+            wire::NONE,
+            1,
+            &add_layer
+        )
+        .status,
+        Status::Ok
+    );
+    rev += 1;
+
+    // 2. 線種 DASHED を追加
+    let mut add_lt = Vec::new();
+    add_lt.extend_from_slice(&2_u32.to_le_bytes()); // Add
+    add_lt.extend_from_slice(&0_u32.to_le_bytes());
+    add_lt.extend_from_slice(&0_u32.to_le_bytes()); // Element basis
+    add_lt.extend_from_slice(&6_u32.to_le_bytes()); // "DASHED"
+    add_lt.extend_from_slice(&4_u32.to_le_bytes()); // "Dash"
+    add_lt.extend_from_slice(&2_u32.to_le_bytes()); // 2 pattern items
+    pad_utf8(&mut add_lt, "DASHED");
+    pad_utf8(&mut add_lt, "Dash");
+    add_lt.extend_from_slice(&5.0_f64.to_bits().to_le_bytes());
+    add_lt.extend_from_slice(&(-2.5_f64).to_bits().to_le_bytes());
+    id += 1;
+    assert_eq!(
+        call(
+            &mut host,
+            Command::EditLineType,
+            id,
+            rev,
+            wire::NONE,
+            1,
+            &add_lt
+        )
+        .status,
+        Status::Ok
+    );
+    rev += 1;
+
+    // 3. 記号定義 SYM1 を追加 -> DirtySymbols で検出 -> AddElement(Symbol) で配置
+    let mut add_sym = Vec::new();
+    add_sym.extend_from_slice(&0_u32.to_le_bytes()); // template=0
+    add_sym.extend_from_slice(&4_u32.to_le_bytes()); // "SYM1"
+    add_sym.extend_from_slice(&1_u32.to_le_bytes()); // 1 element
+    add_sym.extend_from_slice(&0_u32.to_le_bytes());
+    add_sym.extend_from_slice(&0.0_f64.to_bits().to_le_bytes());
+    add_sym.extend_from_slice(&0.0_f64.to_bits().to_le_bytes());
+    pad_utf8(&mut add_sym, "SYM1");
+    add_sym.extend_from_slice(&1_u32.to_le_bytes()); // Line
+    add_sym.extend_from_slice(&0_u32.to_le_bytes());
+    for v in [0.0_f64, 0.0, 20.0, 0.0, 0.0] {
+        add_sym.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    id += 1;
+    let sym_rep = call(
+        &mut host,
+        Command::AddSymbol,
+        id,
+        rev,
+        wire::NONE,
+        1,
+        &add_sym,
+    );
+    assert_eq!(sym_rep.status, Status::Ok);
+    let sym_idx = sym_rep.result as u32;
+    rev += 1;
+    id += 1;
+    assert!(dirty_symbols(&mut host, id, rev, true).contains(&sym_idx));
+
+    // 4. 折れ線・文字・記号挿入を AddElement で追加
+    let mut add_poly = Vec::new();
+    add_poly.extend_from_slice(&0_u32.to_le_bytes()); // template
+    add_poly.extend_from_slice(&1_u32.to_le_bytes()); // Polyline
+    add_poly.extend_from_slice(&1_u32.to_le_bytes()); // closed
+    add_poly.extend_from_slice(&3_u32.to_le_bytes()); // 3 vertices
+    for [x, y, b] in [[100.0_f64, 0.0, 0.0], [110.0, 0.0, 0.5], [110.0, 10.0, 0.0]] {
+        add_poly.extend_from_slice(&x.to_bits().to_le_bytes());
+        add_poly.extend_from_slice(&y.to_bits().to_le_bytes());
+        add_poly.extend_from_slice(&b.to_bits().to_le_bytes());
+    }
+    id += 1;
+    assert_eq!(
+        call(
+            &mut host,
+            Command::AddElement,
+            id,
+            rev,
+            wire::NONE,
+            0,
+            &add_poly
+        )
+        .status,
+        Status::Ok
+    );
+    rev += 1;
+
+    let mut add_txt = Vec::new();
+    add_txt.extend_from_slice(&0_u32.to_le_bytes());
+    add_txt.extend_from_slice(&2_u32.to_le_bytes()); // Text
+    add_txt.extend_from_slice(&5_u32.to_le_bytes()); // "HELLO"
+    add_txt.extend_from_slice(&0_u32.to_le_bytes());
+    for v in [200.0_f64, 10.0, 3.5, 0.0, 1.0] {
+        add_txt.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    pad_utf8(&mut add_txt, "HELLO");
+    id += 1;
+    let txt_rep = call(
+        &mut host,
+        Command::AddElement,
+        id,
+        rev,
+        wire::NONE,
+        0,
+        &add_txt,
+    );
+    assert_eq!(txt_rep.status, Status::Ok);
+    let txt_row = *decode_u32_rows(&txt_rep.data, txt_rep.result)
+        .first()
+        .unwrap();
+    rev += 1;
+    id += 1;
+    assert_eq!(
+        texts(&mut host, id, rev, &[txt_row]),
+        [(1, "HELLO".to_owned())]
+    );
+
+    let mut add_ins = Vec::new();
+    add_ins.extend_from_slice(&0_u32.to_le_bytes());
+    add_ins.extend_from_slice(&3_u32.to_le_bytes()); // Symbol
+    add_ins.extend_from_slice(&sym_idx.to_le_bytes());
+    add_ins.extend_from_slice(&0_u32.to_le_bytes());
+    for v in [300.0_f64, 50.0, 1.0, 1.0, 0.0] {
+        add_ins.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    id += 1;
+    let ins_rep = call(
+        &mut host,
+        Command::AddElement,
+        id,
+        rev,
+        wire::NONE,
+        0,
+        &add_ins,
+    );
+    assert_eq!(ins_rep.status, Status::Ok);
+    let ins_row = *decode_u32_rows(&ins_rep.data, ins_rep.result)
+        .first()
+        .unwrap();
+    rev += 1;
+    id += 1;
+    assert_eq!(
+        select_point(&mut host, id, rev, [310.0, 50.0], 0.25),
+        [ins_row]
+    );
+
+    // 6 段すべて Undo すると保存バイト列が完全に初期状態へ戻る
+    for _ in 0..6 {
+        id += 1;
+        assert_eq!(
+            call(&mut host, Command::Undo, id, rev, wire::NONE, 1, &[]).status,
+            Status::Ok
+        );
+        rev += 1;
+    }
+    id += 1;
+    assert_eq!(saved(&mut host, id, rev), initial);
+}

@@ -2,6 +2,7 @@
 
 mod diagnostics;
 mod document;
+mod edits;
 mod host;
 mod wire;
 

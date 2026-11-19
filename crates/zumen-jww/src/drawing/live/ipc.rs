@@ -5,14 +5,14 @@
 use zumen_base::{Cx, Kind, Ref, Stop};
 use zumen_drawing::{
     Affine, Element, FormattedText, Hash, Layer, LineType, ModelPoint, Piece, Placed, Seen, Shape,
-    id,
+    SymbolKey, id,
 };
 use zumen_live::display::Display;
 use zumen_live::hit::SymbolHitCache;
 use zumen_live::{BoundsSource, RowId};
 use zumen_sdk::Error;
 
-use super::super::{SXF_LINE_TYPE, SXF_SINCE, build_layers, make_line_type};
+use super::super::{SXF_LINE_TYPE, SXF_SINCE, block_key, build_layers, make_line_type};
 use super::{
     BaseOutcome, DEFINITION_SPACES, JwwLive, display_definition_counts_and_style,
     write_definition_display,
@@ -413,6 +413,37 @@ impl JwwLive {
     /// 表示の記号のインスタンスが指す記号の定義の数。インスタンスの定義の値は `0..` この数
     pub fn display_symbol_count(&self) -> u32 {
         u32::try_from(self.definition_count()).unwrap_or(u32::MAX)
+    }
+
+    /// 記号の定義 `index` のキー。範囲外なら `None`
+    pub fn display_symbol_key(&self, index: u32) -> Option<SymbolKey> {
+        let target = index as usize;
+        self.base_records.iter().find_map(|rec| match rec.outcome {
+            BaseOutcome::BlockDef {
+                symbol_index,
+                number,
+                ..
+            } if symbol_index == target => Some(block_key(number)),
+            _ => None,
+        })
+    }
+
+    /// 記号の定義 `symbol` の中の `element` 番目の生きた要素の正規 ID とハッシュを共有予算で返す。範囲外なら `None`
+    pub fn seen_of_symbol_element(
+        &self,
+        symbol: u32,
+        element: u32,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Seen>, Error> {
+        cx.check(Kind::Work, u64::from(element) + 1)
+            .map_err(|stop| stopped(cx, stop))?;
+        let Some(mut rows) = self.definition_rows_alive(symbol as usize) else {
+            return Ok(None);
+        };
+        let Some((row_id, _)) = rows.nth(element as usize) else {
+            return Ok(None);
+        };
+        self.seen_of_row(row_id, cx)
     }
 
     /// 記号の定義 `index` の生きた要素を、定義の座標のまま 1 要素 1 行で `display` の末尾に足し、足した行の数を返す。

@@ -202,6 +202,7 @@ struct SymbolBoundsDiff {
 struct DependentBounds {
     rows: Vec<(RowId, [f64; 4])>,
     symbols: Vec<SymbolBoundsDiff>,
+    dirty_symbols: Vec<u32>,
 }
 
 /// 1 トランザクション分の JWW 固有の差分記録
@@ -211,6 +212,7 @@ struct JwwStepPatch {
     removed: Vec<RemovedSlot>,
     added: Vec<BornRecord>,
     symbol_bounds: Vec<SymbolBoundsDiff>,
+    dirty_symbols: Box<[u32]>,
     /// 文字の長さを変えて書き直した。今までの経路と同じく、一覧を数え直して書く
     relisted: bool,
     /// レイヤの名前と状態を書き直したヘッダーのレコード
@@ -243,7 +245,7 @@ impl PatchPayload for JwwStepPatch {
                 + diff.after.as_ref().map_or(0, Vec::capacity)
                 + core::mem::size_of::<HeaderDiff>()
         });
-        b + r + a + self.symbol_bounds.capacity() * 96 + h
+        b + r + a + self.symbol_bounds.capacity() * 96 + self.dirty_symbols.len() * 4 + h
     }
 }
 
@@ -274,6 +276,7 @@ pub struct JwwLive {
     symbol_index_by_key: BTreeMap<String, u32>,
     symbol_bounds: Vec<Option<[f64; 4]>>,
     symbol_users: Vec<Vec<RowId>>,
+    dirty_symbols: BTreeSet<u32>,
     definition_rows: Vec<Vec<RowId>>,
     underlay_rows: Vec<RowId>,
     group_counts: [u32; 16],
@@ -715,6 +718,7 @@ impl JwwLive {
             symbol_index_by_key,
             symbol_bounds,
             symbol_users,
+            dirty_symbols: BTreeSet::new(),
             definition_rows,
             underlay_rows,
             group_counts,
@@ -755,6 +759,18 @@ impl JwwLive {
     #[inline]
     pub const fn display(&self) -> &Display {
         &self.display
+    }
+
+    /// 内容または入れ子先の変更により再送が必要な記号の定義の添字集合への参照
+    #[inline]
+    pub const fn dirty_symbols(&self) -> &BTreeSet<u32> {
+        &self.dirty_symbols
+    }
+
+    /// 記号の定義の変更フラグを消去する
+    #[inline]
+    pub fn clear_dirty_symbols(&mut self) {
+        self.dirty_symbols.clear();
     }
 
     /// 記号の定義の数。定義の番号は `0..definition_count()` で、記号の要素が表示の行に書くインスタンスの番号と同じ
@@ -1487,6 +1503,7 @@ impl JwwLive {
             |txn, _cx| -> Result<(), TxnError<()>> {
                 let mut step_patch = JwwStepPatch {
                     symbol_bounds: dependent_bounds.symbols,
+                    dirty_symbols: dependent_bounds.dirty_symbols.into_boxed_slice(),
                     relisted,
                     header,
                     ..JwwStepPatch::default()
@@ -1552,6 +1569,7 @@ impl JwwLive {
                     || !step_patch.removed.is_empty()
                     || !step_patch.added.is_empty()
                     || !step_patch.symbol_bounds.is_empty()
+                    || !step_patch.dirty_symbols.is_empty()
                 {
                     txn.push_patch(step_patch);
                 }
@@ -2773,6 +2791,8 @@ impl JwwLive {
     }
 
     fn apply_backend_patch(&mut self, patch: &JwwStepPatch) {
+        self.dirty_symbols
+            .extend(patch.dirty_symbols.iter().copied());
         for diff in &patch.symbol_bounds {
             if let Some(bounds) = self.symbol_bounds.get_mut(diff.index) {
                 *bounds = diff.after;
@@ -2832,6 +2852,8 @@ impl JwwLive {
     }
 
     fn undo_backend_patch(&mut self, patch: &JwwStepPatch) {
+        self.dirty_symbols
+            .extend(patch.dirty_symbols.iter().copied());
         for diff in patch.symbol_bounds.iter().rev() {
             if let Some(bounds) = self.symbol_bounds.get_mut(diff.index) {
                 *bounds = diff.before;
@@ -3004,11 +3026,18 @@ impl JwwLive {
             decoded_live(cx, 4 * core::mem::size_of::<(RowId, [f64; 4])>() as u64)?;
             out.rows.push((rid, next_b));
         }
+        let mut dirty_set: BTreeSet<u32> = touched
+            .iter()
+            .filter_map(|&idx| u32::try_from(idx).ok())
+            .collect();
         for (def_idx, (&before, &after)) in
             self.symbol_bounds.iter().zip(&working_bounds).enumerate()
         {
             if before == after {
                 continue;
+            }
+            if let Ok(idx_u32) = u32::try_from(def_idx) {
+                dirty_set.insert(idx_u32);
             }
             decoded_live(cx, 4 * 96)?;
             out.symbols.push(SymbolBoundsDiff {
@@ -3037,6 +3066,10 @@ impl JwwLive {
                 decoded_live(cx, 4 * core::mem::size_of::<(RowId, [f64; 4])>() as u64)?;
                 out.rows.push((rid, bounds));
             }
+        }
+        if !dirty_set.is_empty() {
+            decoded_live(cx, (dirty_set.len() as u64).saturating_mul(4))?;
+            out.dirty_symbols.extend(dirty_set);
         }
         Ok(out)
     }

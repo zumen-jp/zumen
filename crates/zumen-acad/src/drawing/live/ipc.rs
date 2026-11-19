@@ -2,8 +2,8 @@
 
 use zumen_base::{Cx, Kind, Ref, Stop};
 use zumen_drawing::{
-    Element, Layer, Length, LineType, MarkContent, ModelLength, ModelPoint, Placed, Shape, SpaceId,
-    id,
+    Element, Hash, Layer, Length, LineType, MarkContent, ModelLength, ModelPoint, Placed, Seen,
+    Shape, SpaceId, SymbolKey, id,
 };
 use zumen_live::display::Display;
 use zumen_live::hit::SymbolHitCache;
@@ -339,6 +339,93 @@ impl AcadLive {
     /// 表示の挿入が指す記号の定義の数。挿入の定義の値は `0..` この数か、定義が見つからない印
     pub fn display_symbol_count(&self) -> u32 {
         u32::try_from(self.state.symbols.len()).unwrap_or(u32::MAX)
+    }
+
+    /// 記号の定義 `index` のキー。範囲外なら `None`
+    pub fn display_symbol_key(&self, index: u32) -> Option<SymbolKey> {
+        self.state
+            .symbols
+            .get(index as usize)
+            .map(|sym| sym.key.clone())
+    }
+
+    /// 記号の定義 `symbol` の中の `element` 番目の要素の正規 ID とハッシュを共有予算で返す。範囲外なら `None`
+    pub fn seen_of_symbol_element(
+        &self,
+        symbol: u32,
+        element: u32,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Seen>, Error> {
+        let sym_idx = symbol as usize;
+        let elem_idx = element as usize;
+        let Some(def) = self.state.symbols.get(sym_idx) else {
+            return Ok(None);
+        };
+        let Some(target_el) = def.space.elements.get(elem_idx) else {
+            return Ok(None);
+        };
+        let work_steps = (sym_idx as u64 + 1).saturating_add(elem_idx as u64 + 1);
+        cx.check(Kind::Work, work_steps)
+            .map_err(|stop| stopped(cx, stop))?;
+        let mut def_namer = id::DefinitionNamer::default();
+        let mut place = String::new();
+        for item in self.state.symbols.iter().take(sym_idx + 1) {
+            place = def_namer.next(item);
+        }
+        let any_keyless = def
+            .space
+            .elements
+            .iter()
+            .take(elem_idx + 1)
+            .any(|item| item.source.key().is_none());
+        let dxf_mapper = match &self.state.backing {
+            super::backing::LiveBacking::AsciiDxf(dxf) if any_keyless => {
+                dxf.record_mapper_with_cx(cx)?
+            }
+            _ => None,
+        };
+        let dwg_mapper = match &self.state.backing {
+            super::backing::LiveBacking::Dwg(dwg) if any_keyless => dwg.source_mapper(cx)?,
+            _ => None,
+        };
+        let mut seen = std::collections::BTreeMap::<String, u64>::new();
+        let mut canonical = String::new();
+        for (idx, item) in def.space.elements.iter().enumerate().take(elem_idx + 1) {
+            let mut source = item.source.clone();
+            if source.key().is_none() {
+                if let Some(mapper) = &dxf_mapper {
+                    mapper.remap_ref(&mut source);
+                }
+                if let Some(mapper) = &dwg_mapper {
+                    mapper.remap_ref(&mut source);
+                }
+            }
+            let origin = id::origin(&source, idx);
+            let repeat = if source.key().is_none()
+                && source.record().is_none()
+                && source.bytes().is_none()
+            {
+                0
+            } else {
+                let count = seen.entry(origin.clone()).or_insert(0);
+                let current = *count;
+                *count += 1;
+                current
+            };
+            if idx == elem_idx {
+                canonical = match repeat {
+                    0 => format!("{place}/{origin}"),
+                    n => format!("{place}/{origin}/{n}"),
+                };
+            }
+        }
+        cx.check(Kind::DecodedBytes, canonical.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
+        let hash = Hash::element_checked(target_el, cx).map_err(|stop| stopped(cx, stop))?;
+        Ok(Some(Seen {
+            id: canonical,
+            hash,
+        }))
     }
 
     /// 記号の定義 `index` の要素を、定義の座標のまま 1 要素 1 行で `display` の末尾に足し、足した行の数を返す。

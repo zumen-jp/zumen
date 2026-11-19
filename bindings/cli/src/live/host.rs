@@ -62,6 +62,19 @@ enum Operation<'a> {
         point: [f64; 2],
         tolerance: f64,
     },
+    DirtySymbols(bool),
+    EditLayer(super::edits::LayerOp<'a>),
+    EditLineType(super::edits::LineTypeOp<'a>),
+    AddElement {
+        template: RowId,
+        shape: super::edits::AddedShape<'a>,
+    },
+    AddSymbol(super::edits::NewSymbol<'a>),
+    TransformSymbol {
+        symbol: u32,
+        transform: Affine,
+        rows: &'a [u8],
+    },
     Diagnostics(u64),
     Empty,
 }
@@ -208,6 +221,37 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
                     point: [x, y],
                     tolerance,
                 })
+        }
+        Command::DirtySymbols => {
+            let clear = match input.u32()? {
+                0 => false,
+                1 => true,
+                _ => return None,
+            };
+            input.0.is_empty().then_some(Operation::DirtySymbols(clear))
+        }
+        Command::EditLayer => super::edits::parse_layer_op(&mut input).map(Operation::EditLayer),
+        Command::EditLineType => {
+            super::edits::parse_line_type_op(&mut input).map(Operation::EditLineType)
+        }
+        Command::AddElement => super::edits::parse_add_element(&mut input)
+            .map(|(template, shape)| Operation::AddElement { template, shape }),
+        Command::AddSymbol => super::edits::parse_add_symbol(&mut input).map(Operation::AddSymbol),
+        Command::TransformSymbol => {
+            let symbol = input.u32()?;
+            let count = input.u32()? as usize;
+            if count > wire::MAX_ROWS || symbol == u32::MAX {
+                return None;
+            }
+            let mut m = [0_f64; 6];
+            for value in &mut m {
+                *value = input.f64()?;
+            }
+            (input.0.len() == count.checked_mul(4)?).then_some(Operation::TransformSymbol {
+                symbol,
+                transform: Affine { m },
+                rows: input.0,
+            })
         }
         Command::Diagnostics => {
             let id = input.u64()?;
@@ -802,6 +846,69 @@ impl Host {
                     reply.data = encode_rows(&rows, cx)?;
                     reply.data_kind = 5;
                     reply.result = rows.len() as u64;
+                }
+                Operation::DirtySymbols(clear) => {
+                    let indices = document.dirty_symbols(cx)?;
+                    reply.data = encode_rows(&indices, cx)?;
+                    reply.data_kind = 5;
+                    reply.result = indices.len() as u64;
+                    if clear {
+                        document.clear_dirty_symbols();
+                    }
+                }
+                Operation::EditLayer(op) => {
+                    let needs_lt = match &op {
+                        super::edits::LayerOp::Update { patch, .. }
+                        | super::edits::LayerOp::Add { patch } => {
+                            matches!(patch.line_type, Some(Some(_)))
+                        }
+                        super::edits::LayerOp::Remove(_) => false,
+                    };
+                    let layers = document.layers(cx)?;
+                    let line_types = if needs_lt {
+                        document.line_types(cx)?
+                    } else {
+                        Vec::new()
+                    };
+                    let edit = super::edits::build_layer_edit(op, &layers, &line_types, cx)?;
+                    document.apply_single(revision, edit, cx)?;
+                    reply.result = 1;
+                }
+                Operation::EditLineType(op) => {
+                    let line_types = if matches!(op, super::edits::LineTypeOp::Add(_)) {
+                        Vec::new()
+                    } else {
+                        document.line_types(cx)?
+                    };
+                    let edit = super::edits::build_line_type_edit(op, &line_types, cx)?;
+                    document.apply_single(revision, edit, cx)?;
+                    reply.result = 1;
+                }
+                Operation::AddElement { template, shape } => {
+                    let before = document.row_count();
+                    document.add_element(revision, template, shape, cx)?;
+                    let added: Vec<RowId> = (before..document.row_count())
+                        .filter_map(RowId::from_index)
+                        .collect();
+                    reply.data = encode_rows(&added, cx)?;
+                    reply.data_kind = 5;
+                    reply.result = added.len() as u64;
+                }
+                Operation::AddSymbol(spec) => {
+                    reply.result = u64::from(document.add_symbol(revision, spec, cx)?);
+                }
+                Operation::TransformSymbol {
+                    symbol,
+                    transform,
+                    rows,
+                } => {
+                    let elements: Vec<u32> = decode_rows(rows, cx)?
+                        .into_iter()
+                        .map(|RowId(idx)| idx)
+                        .collect();
+                    reply.result = document
+                        .transform_symbol(revision, symbol, &elements, transform, cx)?
+                        as u64;
                 }
                 Operation::Empty => match header.command {
                     Command::Undo => reply.result = u64::from(document.undo(revision, cx)?),
