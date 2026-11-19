@@ -14,12 +14,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
 use zumen_drawing::{
-    Affine, Applied, Axes, Boundary, Changes, Color, Draft, Drawing2D, Edge, Edit, Element, Field,
-    FieldValue, Hash, Height, Inherit, Layer, LayerId, Length, LineTypeId, ModelPoint, ModelSpace,
-    PaperLength, Placed, Placement, Position, Seen, Shape, Sheet, SheetItem, SpaceId, Style,
-    SymbolDefinition, Unit, View, transform,
+    Affine, Applied, Axes, Boundary, Changes, Color, ColorSystem, Draft, Drawing2D, Edge, Edit,
+    Element, Field, FieldValue, Hash, Height, Inherit, Layer, LayerId, Length, LineTypeId,
+    ModelPoint, ModelSpace, PaperLength, Placed, Placement, Position, Seen, Shape, Sheet,
+    SheetItem, SpaceId, Style, SymbolDefinition, Unit, View, transform,
 };
-use zumen_live::display::{Display, DisplayWriter, radians_from_deg};
+use zumen_live::display::{Display, DisplayWriter, color as display_color, radians_from_deg};
 use zumen_live::{
     CommittedTxn, EMPTY_BOUNDS, ExistingRowDiff, History, PatchPayload, RankBitset, Revision,
     RowId, SideIndexes, SourceBytes, SpatialGrid, TableRow, TxnError, VersionedTable,
@@ -3398,16 +3398,20 @@ fn reapply_display_for_jww(
 
 fn pack_jww_color(color: &Inherit<Color>) -> u32 {
     match color {
-        Inherit::Own(c) => {
-            if let Some([r, g, b]) = c.rgb {
-                0x0100_0000 | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
-            } else if let Some(code) = c.code {
-                0x0200_0000 | (code.value & 0x00FF_FFFF)
-            } else {
-                0
-            }
-        }
-        Inherit::Layer | Inherit::Block => 0,
+        Inherit::Own(c) => match (c.rgb, c.code) {
+            (Some(rgb), _) => display_color::rgb(rgb),
+            (None, Some(code)) => display_color::code(
+                match code.system {
+                    ColorSystem::Aci => display_color::ACI,
+                    ColorSystem::Sxf => display_color::SXF,
+                    ColorSystem::Jww => display_color::JWW,
+                },
+                code.value,
+            ),
+            (None, None) => display_color::LAYER,
+        },
+        Inherit::Layer => display_color::LAYER,
+        Inherit::Block => display_color::BLOCK,
     }
 }
 

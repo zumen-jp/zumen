@@ -37,7 +37,8 @@ export interface LiveSelection {
   /** 全件の検証後、昇順で借りる。次の要求後も有効 */
   rows(): IterableIterator<number>;
 }
-/** 表示のスタイル [画層, 色] の画層の値に対応する画層。DXF・DWG は画層の表の位置、JWW・SXF は図面モデルの画層の ID */
+/** 表示のスタイル [画層, 色] の画層の値に対応する画層。DXF・DWG は画層の表の位置、JWW・SXF は図面モデルの画層の ID。
+ * 色は上位 8 bit が 0 画層・1 ブロック・2 色番号（bit 16〜23 に体系 1 ACI・2 SXF・3 JWW、下位 16 bit に番号）・3 RGB */
 export interface LiveLayer {
   readonly value: number;
   readonly name: string;

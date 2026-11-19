@@ -1442,3 +1442,87 @@ fn malformed_draws_are_refused() {
     assert_ne!(reply.status, Status::Ok);
     assert_eq!(select(&mut host, 21, 0, EVERYWHERE).len(), 2);
 }
+
+/// 表示のスタイルの色は、どの形式も `display::color` の符号化で、色番号の体系は形式の体系。RGB も持つ色は RGB を運ぶ。
+/// 公開サンプルの要素は自分の色番号を持たないので、表示に出る行の色を形式の色番号に変えて確かめる
+#[test]
+fn display_colors_share_one_encoding() {
+    use zumen_drawing::{Changes, Color, ColorCode, ColorSystem, Edit, Inherit, Restyle};
+    use zumen_live::display::{Display, color};
+    let mut budget = zumen_base::Budget::default();
+    let mut diag = zumen_base::Diagnostics::new();
+    let cancel = zumen_base::CancelToken::new();
+    let cx = &mut zumen_base::Cx::new(&mut budget, &mut diag, &cancel);
+    let restyle = |target, system, value| Changes {
+        document: None,
+        edits: vec![Edit::Restyle {
+            target,
+            style: Restyle {
+                layer: None,
+                color: Some(Inherit::Own(Color {
+                    code: Some(ColorCode { system, value }),
+                    rgb: None,
+                })),
+                line_type: None,
+                line_type_scale: None,
+                line_weight: None,
+            },
+        }],
+    };
+    // 行の色をどれも符号化のとおりに読み、変えた行は形式の体系の色番号になる
+    let check = |display: &Display, rows: usize, changed: u32, system: u8, value: u32| {
+        for row in 0..rows as u32 {
+            for [_, bits] in display.row_styles(row).into_iter().flatten() {
+                assert!(matches!(bits >> 24, 0..=3), "{bits:#x}");
+                if bits >> 24 == 0 {
+                    assert_eq!(bits, color::LAYER);
+                }
+                if bits >> 24 == 1 {
+                    assert_eq!(bits, color::BLOCK);
+                }
+            }
+        }
+        let styles: Vec<_> = display.row_styles(changed).into_iter().flatten().collect();
+        assert!(!styles.is_empty());
+        // RGB も持つ色（JWW のペンなど）は RGB を運ぶ
+        for [_, bits] in styles {
+            assert!(
+                color::code_of(bits) == Some((system, value)) || color::rgb_of(bits).is_some(),
+                "{bits:#x}"
+            );
+        }
+    };
+    macro_rules! case {
+        ($live:expr, $system:expr, $wire:expr, $value:expr) => {{
+            let mut live = $live;
+            let changed = live
+                .display_order(cx)
+                .unwrap()
+                .into_iter()
+                .find(|&row| {
+                    let target = live.seen_of_row(row, cx).unwrap().unwrap();
+                    live.apply(&restyle(target, $system, $value), cx).is_ok()
+                })
+                .unwrap();
+            check(live.display(), live.row_count(), changed.0, $wire, $value);
+        }};
+    }
+    case!(
+        zumen_acad::AcadLive::open(super::DXF, cx).unwrap(),
+        ColorSystem::Aci,
+        color::ACI,
+        3
+    );
+    case!(
+        zumen_jww::JwwLive::open(JWW, cx).unwrap(),
+        ColorSystem::Jww,
+        color::JWW,
+        2
+    );
+    case!(
+        zumen_sxf::SxfLive::open(SFC, cx).unwrap(),
+        ColorSystem::Sxf,
+        color::SXF,
+        3
+    );
+}

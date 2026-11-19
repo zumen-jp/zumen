@@ -16,7 +16,7 @@ use zumen_drawing::{
     Placement, Polyline, Shape, Style, Symbol, SymbolDefinition, SymbolKey, Table, Text,
     Transparency, Underlay, Vertex, Vertical,
 };
-use zumen_live::display::{DisplayWriter, radians_from_deg};
+use zumen_live::display::{DisplayWriter, color as display_color, radians_from_deg};
 use zumen_live::{BytePool, Paged, TableRow, TextSpan};
 
 use super::super::single::{
@@ -187,12 +187,9 @@ impl ExtraStyle {
 /// 表示バッファーに載せる 32 ビット色の符号化
 pub fn pack_color(color: Inherit<Color>) -> u32 {
     match color {
-        Inherit::Layer => 0,
-        Inherit::Block => 1 << 24,
-        Inherit::Own(Color {
-            rgb: Some([r, g, b]),
-            ..
-        }) => (3 << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b),
+        Inherit::Layer => display_color::LAYER,
+        Inherit::Block => display_color::BLOCK,
+        Inherit::Own(Color { rgb: Some(rgb), .. }) => display_color::rgb(rgb),
         Inherit::Own(Color {
             code:
                 Some(ColorCode {
@@ -200,31 +197,31 @@ pub fn pack_color(color: Inherit<Color>) -> u32 {
                     value,
                 }),
             rgb: None,
-        }) => (2 << 24) | (value & 0xFF),
-        Inherit::Own(_) => 0,
+        }) => display_color::code(display_color::ACI, value & 0xFF),
+        Inherit::Own(_) => display_color::LAYER,
     }
 }
 
 /// 表示用の 32 ビット色から [`Inherit<Color>`] を戻す
 pub fn unpack_color(bits: u32) -> Inherit<Color> {
-    match bits >> 24 {
-        1 => Inherit::Block,
-        2 => Inherit::Own(Color {
+    if bits == display_color::BLOCK {
+        return Inherit::Block;
+    }
+    if let Some((display_color::ACI, value)) = display_color::code_of(bits) {
+        return Inherit::Own(Color {
             code: Some(ColorCode {
                 system: ColorSystem::Aci,
-                value: bits & 0xFF,
+                value,
             }),
             rgb: None,
-        }),
-        3 => Inherit::Own(Color {
+        });
+    }
+    match display_color::rgb_of(bits) {
+        Some(rgb) => Inherit::Own(Color {
             code: None,
-            rgb: Some([
-                ((bits >> 16) & 0xFF) as u8,
-                ((bits >> 8) & 0xFF) as u8,
-                (bits & 0xFF) as u8,
-            ]),
+            rgb: Some(rgb),
         }),
-        _ => Inherit::Layer,
+        None => Inherit::Layer,
     }
 }
 
