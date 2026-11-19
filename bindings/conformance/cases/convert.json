@@ -175,6 +175,94 @@
         "/result/items/0/geometry/backward": true,
         "/result/items/0/geometry/upside_down": true
       }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "a.jww",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "layer": "0-0",
+            "color": {
+              "jww": 1
+            },
+            "geometry": {
+              "shape": "text",
+              "content": "JWW100",
+              "position": [
+                200,
+                300
+              ],
+              "height": 3.5,
+              "height_on_paper": true,
+              "rotation": 0,
+              "horizontal": "left",
+              "vertical": "bottom"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/blobs/0/kind": "file",
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert_estimate",
+        "doc": "a.jww",
+        "format": "dxf",
+        "to": "jww-moji.dxf",
+        "limit": 100
+      },
+      "expect": {
+        "/result/estimate/elements": 2,
+        "/diagnostics/0/params/kind": "line_type",
+        "/blobs": []
+      },
+      "absent": [
+        "/diagnostics/1"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "a.jww",
+        "format": "dxf",
+        "to": "jww-moji.dxf"
+      },
+      "expect": {
+        "/result/elements": 2,
+        "/diagnostics/0/params/kind": "line_type"
+      },
+      "absent": [
+        "/diagnostics/1"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "jww-moji.dxf",
+        "fields": [
+          "kind",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/1/kind": "text",
+        "/result/items/1/geometry/content": "JWW100",
+        "/result/items/1/geometry/height": 350
+      }
     }
   ]
 }

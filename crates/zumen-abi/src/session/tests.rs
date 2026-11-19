@@ -5620,4 +5620,103 @@ fn adds_and_converts_dimensions_with_resident_parity() {
     );
 }
 
+#[test]
+fn converts_jww_paper_height_text_and_hatches_to_dxf() {
+    // 1. #913 の最小再現: DXF（線・円・文字）→ JWW 700 → DXF の往復で CDataMoji が落ちず出力される
+    const IN_DXF: &str = "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nTABLES\n\
+0\nTABLE\n2\nLAYER\n70\n1\n0\nLAYER\n5\n10\n2\n0\n70\n0\n62\n7\n6\nContinuous\n0\nENDTAB\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nLINE\n5\n20\n8\n0\n10\n0.0\n20\n0.0\n11\n100.0\n21\n0.0\n\
+0\nCIRCLE\n5\n21\n8\n0\n10\n50.0\n20\n25.0\n40\n10.0\n\
+0\nTEXT\n5\n22\n8\n0\n10\n10.0\n20\n30.0\n40\n3.5\n1\nABC\n\
+0\nHATCH\n5\n23\n8\n0\n10\n0.0\n20\n0.0\n30\n0.0\n2\nSOLID\n70\n1\n71\n1\n91\n1\n\
+92\n7\n72\n0\n73\n1\n93\n4\n10\n0.0\n20\n0.0\n10\n10.0\n20\n0.0\n10\n10.0\n20\n5.0\n10\n0.0\n20\n5.0\n97\n1\n330\n20\n75\n0\n76\n1\n98\n0\n\
+0\nENDSEC\n0\nEOF\n";
+
+    let mut session = Session::new(b"").unwrap();
+    session.push(b"in.dxf", IN_DXF.as_bytes()).unwrap();
+    call(&mut session, r#"{"v":1,"op":"open","input":"in.dxf"}"#);
+
+    // 連動・derived・sources を持つポリライン HATCH も convert / convert_estimate で出力される
+    let dxf_est = estimate_matches_conversion(IN_DXF.as_bytes(), "src.dxf");
+    assert_eq!(estimate_u64(&dxf_est, "/result/estimate/elements"), 4);
+    let hatch_detail = estimate_array(&dxf_est, "/result/estimate/details")
+        .iter()
+        .find(|item| text(item, "/kind") == "hatch")
+        .unwrap();
+    assert_eq!(text(hatch_detail, "/fidelity"), "drawn");
+
+    // JWW に変換し、その JWW を convert_estimate + convert で DXF に変換する
+    let (st_jww, res_jww) = call(
+        &mut session,
+        r#"{"v":1,"op":"convert","doc":"in.dxf","format":"jww","to":"mid.jww"}"#,
+    );
+    assert_eq!(st_jww, Status::Ok, "{res_jww:?}");
+    let jww_bytes = session.take(0).unwrap();
+
+    let jww_est = estimate_matches_conversion(&jww_bytes, "mid.jww");
+    assert_eq!(estimate_u64(&jww_est, "/result/estimate/elements"), 3);
+    let text_detail = estimate_array(&jww_est, "/result/estimate/details")
+        .iter()
+        .find(|item| text(item, "/kind") == "text")
+        .unwrap();
+    assert_eq!(text(text_detail, "/fidelity"), "drawn");
+
+    // 2. 縮尺 1:100 のレイヤグループ上の CDataMoji（紙上 3.5 mm）も実寸 350 mm の TEXT として出力される
+    // `a.jww`（縮尺 1:100、グループ 0）に API `apply` で高さ 3.5 mm（height_on_paper: true）の文字を足して確かめる
+    let mut scaled = Session::new(b"").unwrap();
+    let jww_100 = include_bytes!("../../../../samples/jww/ezjww-geometry.jww");
+    scaled.push(b"g.jww", jww_100).unwrap();
+    call(&mut scaled, r#"{"v":1,"op":"open","input":"g.jww"}"#);
+    let (st_add, res_add) = call(
+        &mut scaled,
+        r#"{"v":1,"op":"apply","doc":"g.jww","edits":[{"kind":"add","place":"space/0","color":{"jww":1},"geometry":{"shape":"text","content":"縮尺文字","position":[100,200],"height":3.5,"height_on_paper":true,"rotation":0,"horizontal":"left","vertical":"bottom"}}]}"#,
+    );
+    assert_eq!(st_add, Status::Ok, "{res_add:?}");
+    let g_bytes = scaled.take(0).unwrap();
+    let (_, g_drawing) = call(&mut scaled, r#"{"v":1,"op":"drawing","doc":"g.jww"}"#);
+    let view_scale: f64 = number(&g_drawing, "/result/sheets/0/view_details/0/matrix/0")
+        .parse()
+        .unwrap();
+    let expected_height = 3.5 / view_scale;
+
+    let g_est = estimate_matches_conversion(&g_bytes, "g2.jww");
+    let g_counts = estimate_array(&g_est, "/result/estimate/counts");
+    assert!(
+        g_counts
+            .iter()
+            .any(|item| text(item, "/kind") == "hatch" && number(item, "/output_elements") == "2"),
+        "{g_counts:?}"
+    );
+    assert!(
+        g_counts
+            .iter()
+            .any(|item| text(item, "/kind") == "text" && number(item, "/output_elements") == "1"),
+        "{g_counts:?}"
+    );
+
+    let (st_cv, res_cv) = call(
+        &mut scaled,
+        r#"{"v":1,"op":"convert","doc":"g.jww","format":"dxf","to":"g.dxf"}"#,
+    );
+    assert_eq!(st_cv, Status::Ok, "{res_cv:?}");
+    let _ = scaled.take(0).unwrap();
+    let (_, ents) = call(
+        &mut scaled,
+        r#"{"v":1,"op":"entities","doc":"g.dxf","fields":["kind","geometry"]}"#,
+    );
+    let items = estimate_array(&ents, "/result/items");
+    let found = items
+        .iter()
+        .find(|item| text(item, "/kind") == "text" && text(item, "/geometry/content") == "縮尺文字")
+        .unwrap();
+    let actual_height: f64 = number(found, "/geometry/height").parse().unwrap();
+    assert!(
+        (actual_height - expected_height).abs() < 1e-6,
+        "{actual_height} != {expected_height}"
+    );
+}
+
 include!("convert_estimate_tests.rs");

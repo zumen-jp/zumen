@@ -1247,7 +1247,7 @@ fn invalid(kind: &[u8], code: i16) -> Box<Diagnostic> {
 
 /// スプラインの定義の数が合うか。制御点があれば、次数より多く、重みは空か同じ数で正、周期的でなければ
 /// ノットは制御点の数と次数と 1 の和。制御点もフィット点もなければ読めないとする
-fn check_spline<P>(kind: &[u8], spline: &Spline<P>) -> Lifted<()> {
+pub(crate) fn check_spline<P>(kind: &[u8], spline: &Spline<P>) -> Lifted<()> {
     let degree = spline.degree as usize;
     let controls = spline.control.len();
     if spline.degree == 0 {

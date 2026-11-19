@@ -44,12 +44,50 @@ impl Born {
                     }
                 }
                 Boundary::Edges(edges) => {
-                    if let [Edge::Arc { start, end, .. }] = edges.as_slice() {
-                        if (*end - *start).abs() != 360.0 {
-                            return (format!("{at}/boundary/sweep"), (end - start).to_string());
+                    if edges.is_empty() {
+                        return (format!("{at}/boundary/edges"), "0".into());
+                    }
+                    if let [Edge::Arc { start, end, .. } | Edge::Elliptic { start, end, .. }] =
+                        edges.as_slice()
+                        && (*end - *start).abs() != 360.0
+                    {
+                        return (format!("{at}/boundary/sweep"), (end - start).to_string());
+                    }
+                    if let [Edge::Line { .. }] = edges.as_slice() {
+                        return (format!("{at}/boundary/closed"), "false".into());
+                    }
+                    if let [Edge::Spline(spline)] = edges.as_slice()
+                        && !spline.periodic
+                        && !spline.closed
+                    {
+                        return (format!("{at}/boundary/closed"), "false".into());
+                    }
+                    let fit_data = self.target == super::Target::Dxf && self.since(b"AC1024");
+                    for (edge_index, edge) in edges.iter().enumerate() {
+                        match edge {
+                            Edge::Clothoid { .. } => {
+                                return (
+                                    format!("{at}/boundary/edges/{edge_index}"),
+                                    "clothoid".into(),
+                                );
+                            }
+                            Edge::Elliptic { ratio, .. } if !(*ratio > 0.0 && *ratio <= 1.0) => {
+                                return (
+                                    format!("{at}/boundary/edges/{edge_index}/ratio"),
+                                    ratio.to_string(),
+                                );
+                            }
+                            Edge::Spline(spline)
+                                if crate::drawing::check_spline(b"HATCH", spline).is_err()
+                                    || (!fit_data && spline.control.is_empty()) =>
+                            {
+                                return (
+                                    format!("{at}/boundary/edges/{edge_index}"),
+                                    "spline".into(),
+                                );
+                            }
+                            _ => {}
                         }
-                    } else {
-                        return (format!("{at}/boundary"), "edges".into());
                     }
                 }
             }
@@ -156,34 +194,144 @@ impl Born {
                         }
                     }
                 }
-                Boundary::Edges(edges) => {
-                    let [
-                        Edge::Arc {
-                            center,
-                            radius,
-                            start,
-                            end,
-                            counterclockwise,
-                        },
-                    ] = edges.as_slice()
-                    else {
-                        return None;
-                    };
-                    if !start.is_finite() || !end.is_finite() || (*end - *start).abs() != 360.0 {
-                        return None;
+                Boundary::Edges(edges) if !edges.is_empty() => {
+                    if let [single] = edges.as_slice() {
+                        match single {
+                            Edge::Line { .. } | Edge::Clothoid { .. } => return None,
+                            Edge::Arc { start, end, .. } | Edge::Elliptic { start, end, .. }
+                                if !start.is_finite()
+                                    || !end.is_finite()
+                                    || (*end - *start).abs() != 360.0 =>
+                            {
+                                return None;
+                            }
+                            Edge::Spline(spline)
+                                if !spline.periodic
+                                    && !spline.closed
+                                    && !(spline.control.len() >= 2
+                                        && frame.point(spline.control.first()?)
+                                            == frame.point(spline.control.last()?)) =>
+                            {
+                                return None;
+                            }
+                            _ => {}
+                        }
                     }
-                    let [x, y] = frame.point(center)?;
+                    let fit_data = self.target == super::Target::Dxf && self.since(b"AC1024");
                     values.extend([
                         int(92, flags),
-                        int(93, 1),
-                        int(72, 2),
-                        real(10, x)?,
-                        real(20, y)?,
-                        real(40, positive(frame, radius)?)?,
-                        real(50, *start)?,
-                        real(51, *end)?,
-                        int(73, i64::from(*counterclockwise)),
+                        int(93, i32::try_from(edges.len()).ok()?.into()),
                     ]);
+                    for edge in edges {
+                        match edge {
+                            Edge::Line { start, end } => {
+                                let [x0, y0] = frame.point(start)?;
+                                let [x1, y1] = frame.point(end)?;
+                                values.extend([
+                                    int(72, 1),
+                                    real(10, x0)?,
+                                    real(20, y0)?,
+                                    real(11, x1)?,
+                                    real(21, y1)?,
+                                ]);
+                            }
+                            Edge::Arc {
+                                center,
+                                radius,
+                                start,
+                                end,
+                                counterclockwise,
+                            } => {
+                                if !start.is_finite() || !end.is_finite() {
+                                    return None;
+                                }
+                                let [x, y] = frame.point(center)?;
+                                values.extend([
+                                    int(72, 2),
+                                    real(10, x)?,
+                                    real(20, y)?,
+                                    real(40, positive(frame, radius)?)?,
+                                    real(50, *start)?,
+                                    real(51, *end)?,
+                                    int(73, i64::from(*counterclockwise)),
+                                ]);
+                            }
+                            Edge::Elliptic {
+                                center,
+                                major,
+                                ratio,
+                                start,
+                                end,
+                                counterclockwise,
+                            } => {
+                                if !start.is_finite()
+                                    || !end.is_finite()
+                                    || !(*ratio > 0.0 && *ratio <= 1.0)
+                                {
+                                    return None;
+                                }
+                                let [x, y] = frame.point(center)?;
+                                let [mx, my] = frame.point(major)?;
+                                let [dx, dy] = [mx - x, my - y];
+                                if !dx.is_finite() || !dy.is_finite() || (dx == 0.0 && dy == 0.0) {
+                                    return None;
+                                }
+                                values.extend([
+                                    int(72, 3),
+                                    real(10, x)?,
+                                    real(20, y)?,
+                                    real(11, dx)?,
+                                    real(21, dy)?,
+                                    real(40, *ratio)?,
+                                    real(50, *start)?,
+                                    real(51, *end)?,
+                                    int(73, i64::from(*counterclockwise)),
+                                ]);
+                            }
+                            Edge::Spline(spline) => {
+                                crate::drawing::check_spline(b"HATCH", spline).ok()?;
+                                if !fit_data && spline.control.is_empty() {
+                                    return None;
+                                }
+                                let rational = !spline.weights.is_empty();
+                                values.extend([
+                                    int(72, 4),
+                                    int(94, i32::try_from(spline.degree).ok()?.into()),
+                                    int(73, i64::from(rational)),
+                                    int(74, i64::from(spline.periodic)),
+                                    int(95, i32::try_from(spline.knots.len()).ok()?.into()),
+                                    int(96, i32::try_from(spline.control.len()).ok()?.into()),
+                                ]);
+                                for &knot in &spline.knots {
+                                    values.push(real(40, knot)?);
+                                }
+                                for (index, pt) in spline.control.iter().enumerate() {
+                                    let [x, y] = frame.point(pt)?;
+                                    values.extend([real(10, x)?, real(20, y)?]);
+                                    if rational {
+                                        values.push(real(42, *spline.weights.get(index)?)?);
+                                    }
+                                }
+                                if fit_data {
+                                    values.push(int(
+                                        97,
+                                        i32::try_from(spline.fit.len()).ok()?.into(),
+                                    ));
+                                    for pt in &spline.fit {
+                                        let [x, y] = frame.point(pt)?;
+                                        values.extend([real(11, x)?, real(21, y)?]);
+                                    }
+                                    if let Some([tx, ty]) = spline.start_tangent {
+                                        values.extend([real(12, tx)?, real(22, ty)?]);
+                                    }
+                                    if let Some([tx, ty]) = spline.end_tangent {
+                                        values.extend([real(13, tx)?, real(23, ty)?]);
+                                    }
+                                }
+                            }
+                            Edge::Clothoid { .. } => return None,
+                        }
+                    }
                 }
                 _ => return None,
             }
@@ -247,6 +395,18 @@ pub(super) fn work<P>(hatch: &Hatch<P>, cx: &mut Cx, at: &Ref) -> Result<(), Err
         }
         .saturating_add(boundary.sources.len());
         super::super::work(cx, count as u64, at)?;
+        if let Boundary::Edges(edges) = &boundary.boundary {
+            for edge in edges {
+                if let Edge::Spline(spline) = edge {
+                    let pts = spline
+                        .knots
+                        .len()
+                        .saturating_add(spline.control.len())
+                        .saturating_add(spline.fit.len());
+                    super::super::work(cx, pts as u64, at)?;
+                }
+            }
+        }
     }
     if let Fill::Pattern(pattern) = &hatch.fill {
         super::super::work(
