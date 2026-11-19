@@ -4749,4 +4749,257 @@ mod equivalence_tests {
         }
         assert!(stops > 0);
     }
+
+    #[test]
+    fn text_and_layer_edits_match_sequential_apply_and_undo_redo() {
+        use super::equivalence_common::{Archive, Spec};
+        let mut spec = Spec::new(700);
+        let mut states = [0; 16];
+        states[0] = 3;
+        spec.groups[0] = (3, 1.0, states);
+        spec.layer_names.push((0, "既定"));
+        let mut archive = Archive::new(700);
+        archive.group = 0;
+        archive.layer = 0;
+        archive.count(2);
+        archive.line();
+        archive.tag("CDataMoji");
+        archive.base(1, 1);
+        archive.text_body("初期文字");
+        archive.count(0);
+        archive.out.extend(0u32.to_le_bytes());
+        let mut bytes = spec.build();
+        bytes.extend(archive.out);
+
+        for threads in [1, 4] {
+            let mut file = run(|cx| Jww::read(&bytes, cx)).0.unwrap();
+            let mut live = run(|cx| JwwLive::open_with_threads(&bytes, threads, cx))
+                .0
+                .unwrap();
+            let mut snapshots = vec![(run(|cx| live.drawing(cx)), bytes.clone())];
+
+            let mut step = |edits: Vec<Edit>, live: &mut JwwLive, file: &mut JwwFile| {
+                let changes = Changes {
+                    document: None,
+                    edits,
+                };
+                let expected = run(|cx| file.apply(&changes, cx));
+                let actual = run(|cx| live.apply(&changes, cx));
+                assert_eq!(actual, expected, "{changes:?}");
+                let (applied, _) = actual.0.unwrap();
+                let model = run(|cx| live.drawing(cx));
+                assert_eq!(model, run(|cx| file.lift(cx)));
+                let saved = run(|cx| live.save(cx)).0.unwrap();
+                assert_eq!(saved, write(file));
+                assert_eq!(
+                    model,
+                    run(|cx| Jww::read(&saved, cx).and_then(|f| f.lift(cx)))
+                );
+                snapshots.push((model, saved));
+                applied
+            };
+
+            let find_text = |live: &JwwLive| -> (Seen, Element<ModelPoint>) {
+                let model = run(|cx| live.drawing(cx)).0.unwrap();
+                let place = id::space(model.spaces[0].id);
+                let mut namer = id::Namer::new(&place);
+                for (index, element) in model.spaces[0].elements.iter().enumerate() {
+                    let cid = namer.next(index, element);
+                    if matches!(element.shape, Shape::Text(_)) {
+                        return (
+                            Seen {
+                                id: cid,
+                                hash: Hash::element(element),
+                            },
+                            element.clone(),
+                        );
+                    }
+                }
+                panic!("text element required");
+            };
+
+            // 1. 文字の色変更・移動・長い日本語への置換（レコード長変化）
+            let (target, _) = find_text(&live);
+            step(
+                vec![Edit::Restyle {
+                    target,
+                    style: Restyle {
+                        color: Some(Inherit::Own(Color {
+                            code: Some(ColorCode {
+                                system: ColorSystem::Jww,
+                                value: 4,
+                            }),
+                            rgb: None,
+                        })),
+                        ..Restyle::default()
+                    },
+                }],
+                &mut live,
+                &mut file,
+            );
+            let (target, _) = find_text(&live);
+            step(
+                vec![Edit::Transform {
+                    target,
+                    transform: Affine::translation(12.0, -5.0),
+                }],
+                &mut live,
+                &mut file,
+            );
+            let (target, mut text_el) = find_text(&live);
+            let Shape::Text(t) = &mut text_el.shape else {
+                panic!("text shape required");
+            };
+            t.content = "変更後の長い日本語テキスト123".to_owned();
+            step(
+                vec![Edit::Replace {
+                    target,
+                    element: Box::new(Placed::Model(text_el.clone())),
+                }],
+                &mut live,
+                &mut file,
+            );
+
+            // 2. 新しい文字の追加と削除
+            let mut added_text = text_el;
+            if let Shape::Text(t) = &mut added_text.shape {
+                t.content = "追加注記".to_owned();
+            }
+            let added = step(
+                vec![Edit::Add {
+                    place: "space/0".to_owned(),
+                    element: Box::new(Placed::Model(added_text)),
+                }],
+                &mut live,
+                &mut file,
+            );
+            let added_seen = Seen {
+                id: added[0].id.clone().unwrap(),
+                hash: added[0].hash.unwrap(),
+            };
+
+            // 3. 画層の改名・状態変更と新規画層の追加
+            let model = run(|cx| live.drawing(cx)).0.unwrap();
+            let mut layer0 = model.layers[0].clone();
+            let layer0_seen = Seen {
+                id: id::layer(&layer0),
+                hash: Hash::layer(&layer0),
+            };
+            layer0.name = "改名レイヤ".to_owned();
+            if let Some(state) = &mut layer0.state {
+                state.editable = false;
+            }
+            let mut new_layer = layer0.clone();
+            new_layer.name = "追加レイヤ".to_owned();
+            if let Some(state) = &mut new_layer.state {
+                state.editable = true;
+            }
+            step(
+                vec![
+                    Edit::ReplaceLayer {
+                        target: layer0_seen,
+                        layer: Box::new(layer0),
+                    },
+                    Edit::AddLayer {
+                        layer: Box::new(new_layer),
+                    },
+                ],
+                &mut live,
+                &mut file,
+            );
+
+            step(
+                vec![Edit::Remove { target: added_seen }],
+                &mut live,
+                &mut file,
+            );
+
+            for expected in snapshots.iter().rev().skip(1) {
+                assert!(run(|cx| live.undo(cx)).0.unwrap());
+                assert_eq!(&run(|cx| live.drawing(cx)), &expected.0);
+                assert_eq!(&run(|cx| live.save(cx)).0.unwrap(), &expected.1);
+            }
+            for expected in snapshots.iter().skip(1) {
+                assert!(run(|cx| live.redo(cx)).0.unwrap());
+                assert_eq!(&run(|cx| live.drawing(cx)), &expected.0);
+                assert_eq!(&run(|cx| live.save(cx)).0.unwrap(), &expected.1);
+            }
+        }
+    }
+
+    #[test]
+    fn nested_block_definition_edits_propagate_dirty_symbols_and_selection() {
+        use super::equivalence_common::{Archive, Spec};
+        let mut spec = Spec::new(700);
+        let mut states = [0; 16];
+        states[0] = 3;
+        spec.groups[0] = (3, 1.0, states);
+        let mut archive = Archive::new(700);
+        archive.group = 0;
+        archive.layer = 0;
+        archive.count(1);
+        // 最上位は定義 2（外側）を (5, 5) に配置する
+        archive.tag("CDataBlock");
+        archive.base(1, 1);
+        archive.reals(&[5.0, 5.0, 1.0, 1.0, 0.0]);
+        archive.out.extend(2u32.to_le_bytes());
+        // 定義 1（部品）は線分 (0,0)..(10,0)、定義 2（外側）は定義 1 を (20, 30) に配置する
+        archive.count(2);
+        archive.block("部品");
+        archive.tag("CDataList");
+        archive.base(1, 1);
+        archive.out.extend(2u32.to_le_bytes());
+        archive.out.extend([0; 8]);
+        archive.cstring("外側");
+        archive.count(1);
+        archive.tag("CDataBlock");
+        archive.base(1, 1);
+        archive.reals(&[20.0, 30.0, 1.0, 1.0, 0.0]);
+        archive.out.extend(1u32.to_le_bytes());
+        archive.out.extend(0u32.to_le_bytes());
+        let mut bytes = spec.build();
+        bytes.extend(archive.out);
+
+        for threads in [1, 4] {
+            let mut file = run(|cx| Jww::read(&bytes, cx)).0.unwrap();
+            let mut live = run(|cx| JwwLive::open_with_threads(&bytes, threads, cx))
+                .0
+                .unwrap();
+            let before = run(|cx| live.drawing(cx));
+            check_selection(&live);
+
+            live.clear_dirty_symbols();
+            let changes = block_change(&live, false);
+            let actual = run(|cx| live.apply(&changes, cx));
+            assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+            actual.0.unwrap();
+            assert_eq!(
+                live.dirty_symbols().iter().copied().collect::<Vec<_>>(),
+                [0, 1]
+            );
+            assert_eq!(run(|cx| live.drawing(cx)), run(|cx| file.lift(cx)));
+            let saved = run(|cx| live.save(cx)).0.unwrap();
+            assert_eq!(saved, write(&file));
+            check_selection(&live);
+
+            live.clear_dirty_symbols();
+            assert!(run(|cx| live.undo(cx)).0.unwrap());
+            assert_eq!(
+                live.dirty_symbols().iter().copied().collect::<Vec<_>>(),
+                [0, 1]
+            );
+            assert_eq!(run(|cx| live.drawing(cx)), before);
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), bytes);
+            check_selection(&live);
+
+            live.clear_dirty_symbols();
+            assert!(run(|cx| live.redo(cx)).0.unwrap());
+            assert_eq!(
+                live.dirty_symbols().iter().copied().collect::<Vec<_>>(),
+                [0, 1]
+            );
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), saved);
+            check_selection(&live);
+        }
+    }
 }

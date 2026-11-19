@@ -5207,4 +5207,372 @@ mod equivalence_tests {
             }
         }
     }
+
+    #[test]
+    fn public_sfc_all_shapes_and_nested_composites_match_sequential_apply() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../samples/sxf/ezsxf-writer-all-features.sfc");
+        let bytes = std::fs::read(path).unwrap();
+        let model: Drawing2D = run(|cx| Sxf::read(&bytes, cx).and_then(|f| f.lift(cx)))
+            .0
+            .unwrap();
+
+        let classify = |shape: &Shape<PaperPoint>| -> &'static str {
+            match shape {
+                Shape::Line { .. } => "line",
+                Shape::Circle { .. } => "circle",
+                Shape::Curve(zumen_drawing::Edge::Arc { .. }) => "arc",
+                Shape::Curve(zumen_drawing::Edge::Elliptic { .. }) => "ellipse",
+                Shape::Curve(zumen_drawing::Edge::Clothoid { .. }) => "clothoid",
+                Shape::Curve(zumen_drawing::Edge::Spline(_)) => "spline",
+                Shape::Polyline(_) => "polyline",
+                Shape::Point(_) => "point",
+                Shape::Text(_) | Shape::Formatted(_) => "text",
+                Shape::Dimension(_) => "dimension",
+                Shape::Hatch(_) => "hatch",
+                Shape::Leader(_) => "leader",
+                Shape::Symbol(_) => "symbol",
+                _ => "other",
+            }
+        };
+
+        // 用紙と実寸空間から、図形の種類ごとに最初の 1 件ずつを代表対象として集める
+        let mut seen_kinds = BTreeSet::new();
+        let mut targets: Vec<(Seen, Placed)> = Vec::new();
+        let mut sheet_namer = id::SheetNamer::default();
+        for sheet in &model.sheets {
+            let place = sheet_namer.next(sheet);
+            let mut namer = id::Namer::new(&place);
+            for (idx, el) in sheet.elements.iter().enumerate() {
+                let cid = namer.next(idx, el);
+                let k = classify(&el.shape);
+                if seen_kinds.insert(("paper", k)) {
+                    targets.push((
+                        Seen {
+                            id: cid,
+                            hash: Hash::element(el),
+                        },
+                        Placed::Paper(el.clone()),
+                    ));
+                }
+            }
+        }
+        for space in &model.spaces {
+            let place = id::space(space.id);
+            let mut namer = id::Namer::new(&place);
+            for (idx, el) in space.elements.iter().enumerate() {
+                let cid = namer.next(idx, el);
+                let k = match &el.shape {
+                    Shape::Line { .. } => "line",
+                    Shape::Circle { .. } => "circle",
+                    Shape::Curve(_) => "curve",
+                    Shape::Polyline(_) => "polyline",
+                    Shape::Point(_) => "point",
+                    Shape::Text(_) | Shape::Formatted(_) => "text",
+                    Shape::Dimension(_) => "dimension",
+                    Shape::Hatch(_) => "hatch",
+                    Shape::Leader(_) => "leader",
+                    Shape::Symbol(_) => "symbol",
+                    _ => "other",
+                };
+                if seen_kinds.insert(("model", k)) {
+                    targets.push((
+                        Seen {
+                            id: cid,
+                            hash: Hash::element(el),
+                        },
+                        Placed::Model(el.clone()),
+                    ));
+                }
+            }
+        }
+        assert!(targets.len() >= 8, "{}", targets.len());
+
+        let check_one = |src: &[u8], threads: usize, edit: Edit| -> bool {
+            let mut file = run(|cx| Sxf::read(src, cx)).0.unwrap();
+            let mut live = run(|cx| SxfLive::open_with_threads(src, threads, cx))
+                .0
+                .unwrap();
+            let before = run(|cx| live.drawing(cx));
+            let changes = Changes {
+                document: None,
+                edits: vec![edit],
+            };
+            let expected = run(|cx| file.apply(&changes, cx));
+            let actual = run(|cx| live.apply(&changes, cx));
+            assert_eq!(actual, expected, "{changes:?}");
+            assert_source_parity(&live, &file);
+            if actual.0.is_err() {
+                assert_eq!(run(|cx| live.drawing(cx)), before);
+                assert_eq!(run(|cx| live.save(cx)).0.unwrap(), src);
+                assert!(!run(|cx| live.undo(cx)).0.unwrap());
+                return false;
+            }
+            let after = run(|cx| live.drawing(cx));
+            let saved = run(|cx| live.save(cx)).0.unwrap();
+            assert!(run(|cx| live.undo(cx)).0.unwrap());
+            assert_eq!(run(|cx| live.drawing(cx)), before);
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), src);
+            assert!(run(|cx| live.redo(cx)).0.unwrap());
+            assert_eq!(run(|cx| live.drawing(cx)), after);
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), saved);
+            true
+        };
+
+        for threads in [1, 4] {
+            let mut accepted = 0usize;
+            for (target, placed) in &targets {
+                accepted += usize::from(check_one(
+                    &bytes,
+                    threads,
+                    Edit::Transform {
+                        target: target.clone(),
+                        transform: Affine::translation(2.0, 3.0),
+                    },
+                ));
+                accepted += usize::from(check_one(
+                    &bytes,
+                    threads,
+                    Edit::Restyle {
+                        target: target.clone(),
+                        style: Restyle {
+                            color: Some(sxf_color(3)),
+                            ..Restyle::default()
+                        },
+                    },
+                ));
+                accepted += usize::from(check_one(
+                    &bytes,
+                    threads,
+                    Edit::Remove {
+                        target: target.clone(),
+                    },
+                ));
+                let moved = match placed {
+                    Placed::Paper(el) => {
+                        transform::transform(&el.shape, &Affine::translation(2.0, 3.0)).map(
+                            |shape| {
+                                let mut next = el.clone();
+                                next.shape = shape;
+                                Placed::Paper(next)
+                            },
+                        )
+                    }
+                    Placed::Model(el) => {
+                        transform::transform(&el.shape, &Affine::translation(2.0, 3.0)).map(
+                            |shape| {
+                                let mut next = el.clone();
+                                next.shape = shape;
+                                Placed::Model(next)
+                            },
+                        )
+                    }
+                };
+                if let Some(replacement) = moved {
+                    accepted += usize::from(check_one(
+                        &bytes,
+                        threads,
+                        Edit::Replace {
+                            target: target.clone(),
+                            element: Box::new(replacement),
+                        },
+                    ));
+                }
+            }
+            assert!(accepted > 0);
+        }
+
+        // 2 段入れ子の作図部品（inner -> outer -> 用紙配置）での dirty_symbols と空間選択範囲の伝播
+        let nested_sfc = sfc_features(&[
+            r"layer_feature(\'L\','1')",
+            "line_feature('1','1','1','1','0','0','4','0')",
+            r"sfig_org_feature(\'inner\','4')",
+            r"sfig_locate_feature('1',\'inner\','10','20','0','1','1')",
+            r"sfig_org_feature(\'outer\','4')",
+            r"sfig_locate_feature('1',\'outer\','100','200','0','1','1')",
+            r"drawing_sheet_feature(\'S\','3','1','0','0')",
+        ]);
+        for threads in [1, 4] {
+            let mut file = run(|cx| Sxf::read(&nested_sfc, cx)).0.unwrap();
+            let mut live = run(|cx| SxfLive::open_with_threads(&nested_sfc, threads, cx))
+                .0
+                .unwrap();
+            let top_row = live.row_id_for_instance(60).unwrap();
+            assert!(
+                live.select_sheet([109.0, 219.0, 115.0, 221.0])
+                    .contains(&top_row)
+            );
+            assert!(
+                !live
+                    .select_sheet([159.0, 259.0, 165.0, 261.0])
+                    .contains(&top_row)
+            );
+
+            let before = run(|cx| live.drawing(cx));
+            live.clear_dirty_symbols();
+            let changes = Changes {
+                document: None,
+                edits: vec![Edit::Transform {
+                    target: seen(&live, 20),
+                    transform: Affine::translation(50.0, 40.0),
+                }],
+            };
+            let actual = run(|cx| live.apply(&changes, cx));
+            assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+            actual.0.unwrap();
+            assert_source_parity(&live, &file);
+            assert_eq!(
+                live.dirty_symbols().iter().copied().collect::<Vec<_>>(),
+                [0, 1]
+            );
+            assert!(
+                live.select_sheet([159.0, 259.0, 165.0, 261.0])
+                    .contains(&top_row)
+            );
+
+            let saved = run(|cx| live.save(cx)).0.unwrap();
+            assert!(run(|cx| live.undo(cx)).0.unwrap());
+            assert_eq!(run(|cx| live.drawing(cx)), before);
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), nested_sfc);
+            assert!(
+                live.select_sheet([109.0, 219.0, 115.0, 221.0])
+                    .contains(&top_row)
+            );
+            assert!(
+                !live
+                    .select_sheet([159.0, 259.0, 165.0, 261.0])
+                    .contains(&top_row)
+            );
+
+            assert!(run(|cx| live.redo(cx)).0.unwrap());
+            assert_eq!(run(|cx| live.save(cx)).0.unwrap(), saved);
+            assert!(
+                live.select_sheet([159.0, 259.0, 165.0, 261.0])
+                    .contains(&top_row)
+            );
+        }
+
+        // P21 で円・円弧・折れ線・点マーカーの追加・移動・色変更・置換・削除と多段 undo/redo を照合する
+        let base_p21 = p21_lines();
+        for threads in [1, 4] {
+            let mut file = run(|cx| Sxf::read(&base_p21, cx)).0.unwrap();
+            let mut live = run(|cx| SxfLive::open_with_threads(&base_p21, threads, cx))
+                .0
+                .unwrap();
+            let sheet_id = self_sheet(&live);
+            let place = id::sheet(&run(|cx| live.drawing(cx)).0.unwrap().sheets[0]);
+            let tmpl = paper(&live, 160);
+            let pt = |x, y| PaperPoint {
+                sheet: sheet_id,
+                x,
+                y,
+            };
+            let len = |v| zumen_drawing::Length::Paper(PaperLength(v));
+            let shapes = [
+                Shape::Circle {
+                    center: pt(30.0, 40.0),
+                    radius: len(5.0),
+                },
+                Shape::Curve(zumen_drawing::Edge::Arc {
+                    center: pt(60.0, 40.0),
+                    radius: len(8.0),
+                    start: 0.0,
+                    end: 90.0,
+                    counterclockwise: true,
+                }),
+                Shape::Polyline(zumen_drawing::Polyline {
+                    vertices: vec![
+                        zumen_drawing::Vertex {
+                            point: pt(0.0, 10.0),
+                            bulge: 0.0,
+                        },
+                        zumen_drawing::Vertex {
+                            point: pt(15.0, 20.0),
+                            bulge: 0.0,
+                        },
+                        zumen_drawing::Vertex {
+                            point: pt(25.0, 10.0),
+                            bulge: 0.0,
+                        },
+                    ],
+                    closed: false,
+                    width: None,
+                    vertex_widths: Vec::new(),
+                    line_type_generation: false,
+                }),
+            ];
+            let mut history = vec![(run(|cx| live.drawing(cx)), base_p21.clone())];
+            let mut added_insts = Vec::new();
+            for shape in shapes {
+                let mut el = tmpl.clone();
+                el.shape = shape;
+                let changes = Changes {
+                    document: None,
+                    edits: vec![Edit::Add {
+                        place: place.clone(),
+                        element: Box::new(Placed::Paper(el)),
+                    }],
+                };
+                let actual = run(|cx| live.apply(&changes, cx));
+                assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+                let applied = actual.0.unwrap();
+                let inst: u64 = applied[0]
+                    .id
+                    .as_deref()
+                    .unwrap()
+                    .rsplit_once("/i")
+                    .unwrap()
+                    .1
+                    .parse()
+                    .unwrap();
+                added_insts.push(inst);
+                assert_source_parity(&live, &file);
+                history.push((
+                    run(|cx| live.drawing(cx)),
+                    run(|cx| live.save(cx)).0.unwrap(),
+                ));
+            }
+            for &inst in &added_insts {
+                for is_restyle in [false, true] {
+                    let target = seen(&live, inst);
+                    let edit = if is_restyle {
+                        Edit::Restyle {
+                            target,
+                            style: Restyle {
+                                color: Some(sxf_color(2)),
+                                ..Restyle::default()
+                            },
+                        }
+                    } else {
+                        Edit::Transform {
+                            target,
+                            transform: Affine::translation(3.0, -2.0),
+                        }
+                    };
+                    let changes = Changes {
+                        document: None,
+                        edits: vec![edit],
+                    };
+                    let actual = run(|cx| live.apply(&changes, cx));
+                    assert_eq!(actual, run(|cx| file.apply(&changes, cx)));
+                    actual.0.unwrap();
+                    assert_source_parity(&live, &file);
+                    history.push((
+                        run(|cx| live.drawing(cx)),
+                        run(|cx| live.save(cx)).0.unwrap(),
+                    ));
+                }
+            }
+            for expected in history.iter().rev().skip(1) {
+                assert!(run(|cx| live.undo(cx)).0.unwrap());
+                assert_eq!(&run(|cx| live.drawing(cx)), &expected.0);
+                assert_eq!(&run(|cx| live.save(cx)).0.unwrap(), &expected.1);
+            }
+            for expected in history.iter().skip(1) {
+                assert!(run(|cx| live.redo(cx)).0.unwrap());
+                assert_eq!(&run(|cx| live.drawing(cx)), &expected.0);
+                assert_eq!(&run(|cx| live.save(cx)).0.unwrap(), &expected.1);
+            }
+        }
+    }
 }
