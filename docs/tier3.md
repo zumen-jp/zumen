@@ -5,7 +5,7 @@
 | 形態 | 向く場面 | サンプル |
 | --- | --- | --- |
 | C ABI | 言語に FFI がある。同じプロセスで速く呼びたい | [Ruby（Fiddle）](../examples/tier3/ruby/c_abi.rb) |
-| CLI と `process` | 子プロセスを起こせる。ライブラリを読み込みたくない | [PHP（proc_open）](../examples/tier3/php/stdio.php) |
+| CLI と `process` | 子プロセスを起こせる。ライブラリを読み込みたくない | [PHP（proc_open）](../examples/tier3/php/stdio.php)・[AutoLISP（Windows の WScript.Shell）](../examples/tier3/autolisp/cli.lsp) |
 | wasm（WASI） | ネイティブのライブラリを置けない。WASI のランタイムがある | PHP のサンプルを、WASI のランタイムの上の CLI で動かす |
 | HTTP | 言語から HTTP だけを使える。別のマシンやコンテナーに置きたい | [PowerShell（Invoke-RestMethod）](../examples/tier3/powershell/http.ps1)・[MATLAB（webwrite）](../examples/tier3/matlab/zumen_http.m) |
 
@@ -46,6 +46,18 @@ CLI と C ABI の共有ライブラリは [GitHub Release](https://github.com/zu
 - 1 回だけ呼ぶなら、`zumen call --input <名前>=<ファイル> <要求の JSON のファイル>`。応答の JSON を標準出力に書き、終了コードが状態コードです。1 回が 1 つのセッションです。
 - 続けて呼ぶなら、`zumen serve --stdio` を子プロセスで起こし、1 行に 1 つの JSON-RPC 2.0 のメッセージを送ります。メソッドは `session_new`・`push`（`name` と `base64` か `text`）・`call`（`request` に要求の JSON の値）・`take`（`blob`）・`cancel` です。答えは `{"status": "ok", "response": "<応答の JSON の文字列>"}` の形で、id のない行は進み具合の通知です。
 - ネイティブのライブラリを読み込める言語は、セッションの設定を `{"v": 1, "engine": "process"}` にすると、同じ CLI を子プロセスで使えます（[CLI の使い方](../bindings/cli/README.md)）。
+
+### AutoLISP
+
+Windows 版 AutoCAD の AutoLISP サンプルは、`WScript.Shell` から `zumen open` と `zumen entities` を呼びます。図形の一覧は `--limit 1` で先頭 1 件に絞ります。PATH にある `jq.exe` で各応答の `result.format` と `result.total` を読み、形式と図形の総数を返します。`cli.lsp` を読み込んで `(princ (zumen-summary exe drawing))` と呼べます。`exe` と `drawing` は、それぞれ CLI と図面の絶対パスの文字列です。
+
+リポジトリのルートで次を実行すると、Core Console が公開 DXF の一時コピーを開き、自作のスクリプトを実行します。検証用の Python スクリプトは、出力の改行を LF にそろえて共通の期待値と比較します。
+
+```powershell
+py -3 examples/tier3/autolisp/verify.py target/release/zumen.exe 'C:\Program Files\Autodesk\AutoCAD 2027\accoreconsole.exe'
+```
+
+Windows x64 の AutoCAD 2027（26.0.118.0.0）と jq 1.8.2 で、`format dxf` と `entities 2` が末尾の改行まで一致しました。
 
 ## wasm（WASI）
 
