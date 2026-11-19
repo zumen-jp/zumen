@@ -408,6 +408,197 @@
     },
     {
       "take": 0
+    },
+    {
+      "push": {
+        "name": "wall43.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4X3_ADD2'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Project',$,$,$,$,$,#10);\n#10=IFCUNITASSIGNMENT((#11));\n#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n#20=IFCLOCALPLACEMENT($,#21);\n#21=IFCAXIS2PLACEMENT3D(#22,$,$);\n#22=IFCCARTESIANPOINT((0.,0.,0.));\n#30=IFCBUILDING('0000000000000000000030',$,'B',$,$,#20,$,$,.ELEMENT.,$,$,$);\n#34=IFCBUILDINGSTOREY('0000000000000000000034',$,'1F',$,$,#20,$,$,.ELEMENT.,$);\n#40=IFCRELAGGREGATES('0000000000000000000040',$,$,$,#1,(#30));\n#41=IFCRELAGGREGATES('0000000000000000000041',$,$,$,#30,(#34));\n#60=IFCRELCONTAINEDINSPATIALSTRUCTURE('0000000000000000000060',$,$,$,(#80),#34);\n#64=IFCWALLTYPE('0000000000000000000064',$,'WT',$,$,$,$,$,$,.RETAININGWALL.);\n#80=IFCWALL('0000000000000000000080',$,'W1',$,$,#20,$,$,.RETAININGWALL.);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "wall43.ifc"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert_estimate",
+        "doc": "wall43.ifc",
+        "format": "ifc",
+        "to": "wall4.ifc",
+        "ifc": {
+          "version": "ifc4",
+          "namespace": "wall43"
+        },
+        "limit": 10
+      },
+      "expect": {
+        "/result/estimate/hash": "v2:139aa6c0b2560cc13f477a44e316df64",
+        "/result/estimate/elements": 5,
+        "/result/estimate/details/3/kind": "IfcWallType",
+        "/result/estimate/details/3/fidelity": "approximated",
+        "/result/estimate/details/3/reasons": [
+          "predefined"
+        ],
+        "/result/estimate/details/4/kind": "IfcWall",
+        "/result/estimate/details/4/fidelity": "approximated",
+        "/result/estimate/details/4/reasons": [
+          "predefined"
+        ],
+        "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "wall43.ifc",
+        "format": "ifc",
+        "to": "wall4.ifc",
+        "ifc": {
+          "version": "ifc4",
+          "namespace": "wall43"
+        }
+      },
+      "expect": {
+        "/result/hash": "v2:139aa6c0b2560cc13f477a44e316df64",
+        "/result/elements": 5
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "wall4.ifc",
+        "class": "ifcwalltype",
+        "components": [
+          "class"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/id": "0000000000000000000064",
+        "/result/elements/0/class/predefined": "NOTDEFINED"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "class": "ifcbuildingstorey"
+      },
+      "expect": {
+        "/result/elements/0/hash": "v1:924183bb4d8562fc45697704818951d6"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building",
+        "doc": "a.ifc"
+      },
+      "expect": {
+        "/result/hash": "v1:560c5c0e30d98f68e134596ddf176a55",
+        "/result/elements": 3
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "hash": "v1:560c5c0e30d98f68e134596ddf176a55",
+        "edits": [
+          {
+            "kind": "add_element",
+            "class": "IfcWall",
+            "name": "W2",
+            "container": {
+              "id": "0000000000000000000034",
+              "hash": "v1:924183bb4d8562fc45697704818951d6"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "3TJQL0E1b2HJSL6ESqi8Ty"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert_estimate",
+        "doc": "a.ifc",
+        "format": "ifc",
+        "to": "out_edited.ifc",
+        "ifc": {
+          "version": "ifc2x3",
+          "owner": {
+            "person": "Person",
+            "organization": "Organization",
+            "developer": "zumen",
+            "application": "zumen",
+            "version": "0",
+            "identifier": "zumen",
+            "created": 1767225600
+          },
+          "namespace": "conformance"
+        }
+      },
+      "expect": {
+        "/result/estimate/elements": 4,
+        "/result/estimate/hash": "v2:fec6a618c0d3caa27fb6745bf59cca5f"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "convert",
+        "doc": "a.ifc",
+        "format": "ifc",
+        "to": "out_edited.ifc",
+        "ifc": {
+          "version": "ifc2x3",
+          "owner": {
+            "person": "Person",
+            "organization": "Organization",
+            "developer": "zumen",
+            "application": "zumen",
+            "version": "0",
+            "identifier": "zumen",
+            "created": 1767225600
+          },
+          "namespace": "conformance"
+        }
+      },
+      "expect": {
+        "/result/elements": 4,
+        "/result/hash": "v2:fec6a618c0d3caa27fb6745bf59cca5f"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "out_edited.ifc",
+        "class": "ifcwall"
+      },
+      "expect": {
+        "/result/elements/0/id": "0000000000000000000080",
+        "/result/elements/1/id": "3TJQL0E1b2HJSL6ESqi8Ty"
+      }
     }
   ]
 }

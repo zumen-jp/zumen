@@ -524,6 +524,45 @@ impl<'f> Draft<'f> {
         }
     }
 
+    /// 属性 `slot`（1 から）が指す参照の並び。既に `changed` にあれば、ほかの属性の並びを複製せずに読む
+    fn arg_refs(&self, id: u64, slot: usize) -> Vec<u64> {
+        match self.changed.get(&id) {
+            Some(stmt) => refs_of(stmt.arg(slot)),
+            None => self
+                .stmt(id)
+                .map(|stmt| refs_of(stmt.arg(slot)))
+                .unwrap_or_default(),
+        }
+    }
+
+    /// 属性 `slot`（1 から）の文字列。既に `changed` にあれば、ほかの属性の並びを複製せずに読む
+    fn arg_text(&self, id: u64, slot: usize) -> Option<String> {
+        match self.changed.get(&id) {
+            Some(stmt) => self.text_of(stmt.arg(slot)?),
+            None => {
+                let stmt = self.stmt(id)?;
+                self.text_of(stmt.arg(slot)?)
+            }
+        }
+    }
+
+    /// 並びの属性 `slot`（1 から）の末尾に参照 `target` を足し、逆向きの参照も 1 件だけ足す
+    fn append_ref(&mut self, id: u64, slot: usize, target: u64) {
+        if !self.changed.contains_key(&id)
+            && let Some(stmt) = self.stmt(id)
+        {
+            self.changed.insert(id, stmt);
+        }
+        if let Some(stmt) = self.changed.get_mut(&id) {
+            match stmt.args.get_mut(slot.saturating_sub(1)) {
+                Some(Item::List(items)) => items.push(Item::Ref(target)),
+                Some(other) => *other = Item::List(vec![Item::Ref(target)]),
+                None => {}
+            }
+            self.referrers.entry(target).or_default().insert(id);
+        }
+    }
+
     fn referrers(&self, id: u64) -> Vec<u64> {
         self.referrers
             .get(&id)
@@ -671,11 +710,7 @@ impl<'f> Draft<'f> {
         typed_object: bool,
     ) -> u64 {
         let exclusive = self.referrers(pset) == [holder]
-            && (typed_object
-                || self
-                    .stmt(holder)
-                    .map(|rel| refs_of(rel.arg(5)) == [element])
-                    .unwrap_or_default());
+            && (typed_object || self.arg_refs(holder, 5) == [element]);
         if exclusive {
             pset
         } else {
@@ -691,19 +726,16 @@ impl<'f> Draft<'f> {
         set: &str,
         cx: &mut Cx,
     ) -> Result<Option<(u64, u64)>, Error> {
-        for rel in self.referrers(element) {
+        for &rel in self.referrers.get(&element).into_iter().flatten() {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, None))?;
             if self.kind(rel) != b"IFCRELDEFINESBYPROPERTIES" {
                 continue;
             }
-            let Some(stmt) = self.stmt(rel) else {
-                continue;
-            };
-            if !refs_of(stmt.arg(5)).contains(&element) {
+            if !self.arg_refs(rel, 5).contains(&element) {
                 continue;
             }
-            for pset in refs_of(stmt.arg(6)) {
+            for pset in self.arg_refs(rel, 6) {
                 if self.is_set(pset, kind, set) {
                     return Ok(Some((rel, pset)));
                 }
@@ -721,11 +753,7 @@ impl<'f> Draft<'f> {
     }
 
     fn is_set(&self, pset: u64, kind: &[u8], set: &str) -> bool {
-        self.kind(pset) == kind
-            && self
-                .stmt(pset)
-                .and_then(|stmt| self.text_of(stmt.arg(3)?))
-                .is_some_and(|name| name == set)
+        self.kind(pset) == kind && self.arg_text(pset, 3).is_some_and(|name| name == set)
     }
 
     /// 共有されたセットの写しを作り、この要素だけに付け替える
@@ -782,18 +810,7 @@ impl<'f> Draft<'f> {
         let history = owner.arg(2).cloned().unwrap_or(Item::Raw(b"$".to_vec()));
         let pset = self.add(stmt);
         if typed_object {
-            if let Some(mut stmt) = self.stmt(element) {
-                let sets = match stmt.arg(6) {
-                    Some(Item::List(items)) => {
-                        let mut items = items.clone();
-                        items.push(Item::Ref(pset));
-                        Item::List(items)
-                    }
-                    _ => Item::List(vec![Item::Ref(pset)]),
-                };
-                stmt.set(6, sets);
-                self.put(element, stmt);
-            }
+            self.append_ref(element, 6, pset);
         } else {
             self.relate(element, pset, history);
         }
@@ -825,19 +842,15 @@ impl<'f> Draft<'f> {
         owner_kind: &[u8],
         cx: &mut Cx,
     ) -> Result<bool, Error> {
-        let Some(mut set) = self.stmt(pset) else {
+        if !self.changed.contains_key(&pset) && self.file.instance(pset).is_none() {
             cx.report(unsupported("property", owner_kind));
             return Ok(false);
-        };
+        }
         let mut found = None;
-        for property in refs_of(set.arg(5)) {
+        for property in self.arg_refs(pset, 5) {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, None))?;
-            let named = self
-                .stmt(property)
-                .and_then(|stmt| self.text_of(stmt.arg(1)?))
-                .is_some_and(|text| text == name);
-            if named {
+            if self.arg_text(property, 1).is_some_and(|text| text == name) {
                 found = Some(property);
                 break;
             }
@@ -856,6 +869,10 @@ impl<'f> Draft<'f> {
                 if self.referrers(property) == [pset] {
                     self.put(property, stmt);
                 } else {
+                    let Some(mut set) = self.stmt(pset) else {
+                        cx.report(unsupported("property", owner_kind));
+                        return Ok(false);
+                    };
                     let copy = self.add(stmt);
                     let properties = swap(set.arg(5), property, copy);
                     set.set(5, properties);
@@ -863,6 +880,15 @@ impl<'f> Draft<'f> {
                 }
             }
             None => {
+                let Some(_) = self
+                    .changed
+                    .get(&pset)
+                    .map(|_| ())
+                    .or_else(|| self.stmt(pset).map(|_| ()))
+                else {
+                    cx.report(unsupported("property", owner_kind));
+                    return Ok(false);
+                };
                 let stmt = Stmt {
                     name: b"IFCPROPERTYSINGLEVALUE".to_vec(),
                     args: vec![
@@ -873,16 +899,7 @@ impl<'f> Draft<'f> {
                     ],
                 };
                 let property = self.add(stmt);
-                let properties = match set.arg(5) {
-                    Some(Item::List(items)) => {
-                        let mut items = items.clone();
-                        items.push(Item::Ref(property));
-                        Item::List(items)
-                    }
-                    _ => Item::List(vec![Item::Ref(property)]),
-                };
-                set.set(5, properties);
-                self.put(pset, set);
+                self.append_ref(pset, 5, property);
             }
         }
         Ok(true)

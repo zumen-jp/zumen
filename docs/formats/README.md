@@ -836,8 +836,8 @@
 - 読みで使った公開サンプル: [samples/ifc/](../../samples/ifc/)
 - 読みで照らした外部の実装: IfcOpenShell 0.9.0.post1
 - 書きの確かめた度合い: `application`（確認日: 2026-11-19）
-- 書きの確かめた範囲: building\_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。変更だけで作った 2 階建てとそれを直した IFC の 3 版は、IfcOpenShell の検査（スキーマと EXPRESS の規則）と数・配置・所属・関係・層・開口を引いた体積の照合（crates/zumen-ifc/tests/ifcopenshell/author.py）、buildingSMART の ifc-gherkin-rules の規則（gherkin.py）にかけ、毎晩の CI で誤りがないことを確かめる（#898）。ifc-gherkin-rules の警告は、試験の入力に座標参照系がないことの GRF003 だけを許す。公開モデル各 1 件の名前・説明・プロパティの編集は、FreeCAD 1.1.4 で IFC4 と IFC2X3 の値・形・配置・対象外の壁を照らした。同じ視点の表示は一致し、読み込み時の誤りと警告は増えず、再保存をキットで読み直した差は両版とも 0 件。IFC4 は FZKViewer でも確認した。新規作成と IFC4X3 の書きは外部実装との照合まで（#526）
-- 書きで照らした外部の実装: IfcOpenShell 0.9.0.post1・ifc-gherkin-rules 893f8275049b8960c3ce0c7379b4b57aefeaa8f9（IfcOpenShell 0.8.5 で動かす）
+- 書きの確かめた範囲: building\_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。空間・通り芯・型・要素・関係を足し・除き・置き直した IFC（#897）、変更だけで作った 2 階建てとそれを直した IFC（#898）、create のひな形と合成および公開サンプルから convert した IFC（#395）の 3 版は、IfcOpenShell 0.9.0.post1 の検査（スキーマと EXPRESS の規則、buildingSMART の validate が呼ぶスキーマ検査と同じ）と GlobalId・空間の親子・配置・所属・単位・型・関係・層・開口を引いた体積の照合（crates/zumen-ifc/tests/ifcopenshell/author.py）、buildingSMART の validate が使う ifc-gherkin-rules の規則（gherkin.py）にかけ、毎晩の CI で誤りがないことを確かめる。ifc-gherkin-rules の警告は、試験の入力に座標参照系がないことの GRF003 だけを許す。公開サンプル 12 件から 3 版へ convert した 36 件も手元の IfcOpenShell 0.9.0.post1 で調べ、元の nakano 5 件が持つ IfcPositiveRatioMeasure(0.) の規則違反のほかにスキーマ・規則の誤りが 0 件なことを確かめた。公開モデル各 1 件の名前・説明・プロパティの編集は、FreeCAD 1.1.4 で IFC4 と IFC2X3 の値・形・配置・対象外の壁を照らした。同じ視点の表示は一致し、読み込み時の誤りと警告は増えず、再保存をキットで読み直した差は両版とも 0 件。IFC4 は FZKViewer でも確認した。新規作成と IFC4X3 の書きは外部実装との照合まで（#526）
+- 書きで照らした外部の実装: IfcOpenShell 0.9.0.post1・ifc-gherkin-rules 893f8275049b8960c3ce0c7379b4b57aefeaa8f9（IfcOpenShell 0.8.5 で動かす。buildingSMART/validate 5ceadbca687667601d687c2a5ff686ed263f2917 と同じスキーマ・規則検査）
 - 書きで開いたソフト: FreeCAD 1.1.4・FZKViewer 6.5.1 Build 2587
 - 形式の文書: [docs/formats/ifc.md](../../docs/formats/ifc.md)
 

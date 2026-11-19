@@ -496,6 +496,78 @@ def check_structural(path):
     return failures
 
 
+PUBLIC_CONVERTED = [
+    ("text2bim", "samples/ifc/text2bim/sample_model.ifc"),
+    ("gni_model_9", "samples/ifc/gni/model_9.ifc"),
+    ("rinya", "samples/ifc/rinya/wood-office-architecture.ifc"),
+]
+
+
+def open_source_ifc(path):
+    raw = path.read_bytes()
+    if b"FILE_SCHEMA(('IFC4X3'))" in raw:
+        raw = raw.replace(b"FILE_SCHEMA(('IFC4X3'))", b"FILE_SCHEMA(('IFC4X3_ADD2'))")
+        return ifcopenshell.file.from_string(raw.decode("utf-8", "replace"))
+    return ifcopenshell.open(str(path))
+
+
+def length_unit_tuple(model):
+    project = model.by_type("IfcProject")[0]
+    for u in project.UnitsInContext.Units:
+        if getattr(u, "UnitType", None) == "LENGTHUNIT":
+            return (u.is_a(), getattr(u, "Prefix", None), getattr(u, "Name", None))
+    return None
+
+
+def check_converted_public(folder):
+    """公開サンプル（IFC2X3・IFC4・IFC4X3）から 3 版へ変換した IFC の検査と、GlobalId・空間の親子・配置・単位の照合"""
+    failures = []
+    repo_root = Path(__file__).resolve().parents[4]
+    public_dir = folder / "public"
+    if not public_dir.is_dir():
+        return [f"{public_dir} がない"]
+    for slug, rel in PUBLIC_CONVERTED:
+        src = open_source_ifc(repo_root / rel)
+        src_unit = length_unit_tuple(src)
+        for schema in SCHEMAS:
+            path = public_dir / f"{slug}.{schema}.ifc"
+            tag = f"public/{path.name}"
+            for error in errors_on_path(path):
+                failures.append(f"{tag}: 検査の誤り: {error}")
+            dst = ifcopenshell.open(str(path))
+            if length_unit_tuple(dst) != src_unit:
+                failures.append(f"{tag}: 長さの単位が {length_unit_tuple(dst)}（元は {src_unit}）")
+            for elem in dst.by_type("IfcObjectDefinition"):
+                try:
+                    orig = src.by_guid(elem.GlobalId)
+                except RuntimeError:
+                    failures.append(f"{tag}: 未知の GlobalId {elem.GlobalId} ({elem.is_a()})")
+                    continue
+                if elem.is_a("IfcSpatialStructureElement") or elem.is_a("IfcSpatialElement"):
+                    dst_parent = elem.Decomposes[0].RelatingObject.GlobalId if getattr(elem, "Decomposes", None) else None
+                    orig_parent = orig.Decomposes[0].RelatingObject.GlobalId if getattr(orig, "Decomposes", None) else None
+                    if dst_parent != orig_parent:
+                        failures.append(f"{tag}: {elem.GlobalId} の空間の親が {dst_parent}（元は {orig_parent}）")
+                elif getattr(elem, "ContainedInStructure", None):
+                    dst_cont = elem.ContainedInStructure[0].RelatingStructure.GlobalId
+                    orig_cont = orig.ContainedInStructure[0].RelatingStructure.GlobalId if getattr(orig, "ContainedInStructure", None) else None
+                    if dst_cont != orig_cont:
+                        failures.append(f"{tag}: {elem.GlobalId} の所属が {dst_cont}（元は {orig_cont}）")
+                if getattr(elem, "ObjectPlacement", None) and getattr(orig, "ObjectPlacement", None):
+                    dst_m = ifcopenshell.util.placement.get_local_placement(elem.ObjectPlacement)
+                    orig_m = ifcopenshell.util.placement.get_local_placement(orig.ObjectPlacement)
+                    max_diff = max(abs(float(dst_m[r][c] - orig_m[r][c])) for r in range(3) for c in range(4))
+                    if max_diff > 1e-4:
+                        failures.append(f"{tag}: {elem.GlobalId} の配置の差が {max_diff}")
+    return failures
+
+
+def errors_on_path(path):
+    logger = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(str(path), logger, express_rules=True)
+    return [s for s in logger.statements if s.get("level") == "error"]
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     folder = Path(sys.argv[1])
@@ -513,6 +585,7 @@ def main():
     for schema in SCHEMAS:
         name = f"{schema}.converted.ifc"
         failures += [f"{name}: {f}" for f in check_converted(folder / name)]
+    failures += check_converted_public(folder)
     for schema in SCHEMAS:
         name = f"{schema}.faces.ifc"
         failures += [f"{name}: {f}" for f in check_faces(folder / name, schema)]

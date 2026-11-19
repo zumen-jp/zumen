@@ -16,6 +16,7 @@ use crate::stopped;
 
 mod intent;
 mod material;
+mod predefined;
 mod shape;
 
 pub use intent::{
@@ -24,6 +25,7 @@ pub use intent::{
 };
 pub(super) use material::rejected as material_rejected;
 pub use material::{NewConstituent, NewLayerUsage, NewMaterial, NewMaterialLayer};
+pub(super) use predefined::valid_predefined;
 pub(super) use shape::{NESTING as SHAPE_NESTING, rejected as shape_rejected};
 pub use shape::{
     NewAxis2, NewAxis3, NewBoolean, NewFaces, NewHalfSpace, NewHalfSpaceLimit, NewItem, NewMapped,
@@ -526,22 +528,18 @@ impl Draft<'_> {
 
     /// 関係 `relation` で `relating` に `related` を結ぶ。`relating` の関係があれば、関係する側の列へ足し、なければ関係を足す
     fn join(&mut self, relation: Relation, relating: u64, related: u64, history: Item) {
-        let existing = self.referrers(relating).into_iter().find(|&rel| {
-            self.kind(rel) == relation.name
-                && self
-                    .stmt(rel)
-                    .is_some_and(|stmt| refs_of(stmt.arg(relation.relating)) == [relating])
-        });
-        if let Some(rel) = existing
-            && let Some(mut stmt) = self.stmt(rel)
-        {
-            let mut items = match stmt.arg(relation.related) {
-                Some(Item::List(items)) => items.clone(),
-                _ => Vec::new(),
-            };
-            items.push(Item::Ref(related));
-            stmt.set(relation.related, Item::List(items));
-            self.put(rel, stmt);
+        let existing = self
+            .referrers
+            .get(&relating)
+            .into_iter()
+            .flatten()
+            .copied()
+            .find(|&rel| {
+                self.kind(rel) == relation.name
+                    && self.arg_refs(rel, relation.relating) == [relating]
+            });
+        if let Some(rel) = existing {
+            self.append_ref(rel, relation.related, related);
             return;
         }
         let global_id = self.keyed_global_id(relation.name, &[relating, related], "");
@@ -670,30 +668,35 @@ impl Draft<'_> {
         Ok(true)
     }
 
-    /// 要素を足す
     /// 型を足す。型は所属する空間も配置も持たない
     pub(super) fn add_type(&mut self, new: &NewType, cx: &mut Cx) -> Result<bool, Error> {
         let kind = new.class.to_ascii_uppercase().into_bytes();
-        let entity = self.version().and_then(|version| {
-            TYPES
+        let Some((version, arity)) = self.version().and_then(|version| {
+            let arity = TYPES
                 .iter()
                 .find(|(name, _)| name.eq_ignore_ascii_case(&new.class))
                 .map(|(_, arity)| usize::from(pick(*arity, version)))
-                .filter(|&arity| arity != usize::from(ABSENT))
-        });
-        let Some(arity) = entity else {
+                .filter(|&arity| arity != usize::from(ABSENT))?;
+            Some((version, arity))
+        }) else {
             cx.report(unsupported("element_type", &kind));
             return Ok(false);
         };
         let predefined = match &new.predefined {
             None => raw(b".NOTDEFINED."),
-            Some(value) => match enumeration(value) {
-                Some(item) => item,
-                None => {
-                    cx.report(unsupported("element_type", &kind).with("value", "predefined"));
-                    return Ok(false);
+            Some(value) => {
+                let user_ok =
+                    !value.eq_ignore_ascii_case("USERDEFINED") || new.element_type.is_some();
+                match enumeration(value)
+                    .filter(|_| valid_predefined(&new.class, value, version) && user_ok)
+                {
+                    Some(item) => item,
+                    None => {
+                        cx.report(unsupported("element_type", &kind).with("value", "predefined"));
+                        return Ok(false);
+                    }
                 }
-            },
+            }
         };
         let Some(history) = self.history("element_type", &kind, cx) else {
             return Ok(false);
@@ -744,13 +747,17 @@ impl Draft<'_> {
                     null()
                 },
             )),
-            (Some(value), at) if at > 0 => match enumeration(value) {
-                Some(item) => Some((at, item)),
-                None => {
-                    cx.report(unsupported("element", &kind).with("value", "predefined"));
-                    return Ok(false);
+            (Some(value), at) if at > 0 => {
+                let ok = valid_predefined(&element.class, value, version)
+                    && !value.eq_ignore_ascii_case("USERDEFINED");
+                match enumeration(value).filter(|_| ok) {
+                    Some(item) => Some((at, item)),
+                    None => {
+                        cx.report(unsupported("element", &kind).with("value", "predefined"));
+                        return Ok(false);
+                    }
                 }
-            },
+            }
             (Some(_), _) => {
                 cx.report(unsupported("element", &kind).with("value", "predefined"));
                 return Ok(false);
