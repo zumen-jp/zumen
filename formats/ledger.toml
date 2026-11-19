@@ -795,9 +795,11 @@ samples = ["利用者が国土地理院から入手したジオイド・モデ�
 docs = ["docs/formats/crs.md"]
 
 [formats.isg.read]
-level = "synthetic"
-scope = "ISG format 2.0 の例と同じ形の合成の格子（crates/zumen-crs/tests/grid.rs）で確かめた。国土地理院のジオイド・モデルで、ジオイド高計算サービスか内挿計算プログラムと比べる照合は、検証キット（xtask/verify/geoid）を使って #438 で行う"
-checked = "2026-11-03"
+level = "external"
+scope = "国土地理院のジオイド高・基準面補正量・統合の 3 モデルを読み、内挿計算プログラムと各 43 点で照合した。値を比べた点はすべて 0.1 mm 以内で合った。ジオイド高の外周の 4 点では、外周を含める zumen だけが値を返した。モデル別の件数と最大差は docs/formats/crs.md の「内挿計算プログラムとの照合」にある（#438）。ほかのヘッダーの表記、壊れた入力と予算の扱いは合成の格子で確かめた"
+checked = "2026-11-20"
+received = [{ kind = "国土地理院の ISG 形式のモデル", count = 3 }]
+implementations = [{ name = "国土地理院の内挿計算プログラム geoidcalc_win64", version = "1.3.1" }]
 
 [[formats.isg.evidence]]
 title = "「ジオイド2024日本とその周辺」と「基準面補正パラメータ」の説明書（2026 年 4 月）"

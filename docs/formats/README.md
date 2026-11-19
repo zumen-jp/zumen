@@ -29,7 +29,7 @@
 | [geojson](#format-geojson) | GeoJSON | geojson | geo | `public` | `core` | `synthetic` | `external` |
 | [ids](#format-ids) | IDS（Information Delivery Specification） | ids | building | `public` | `core` | `synthetic` |  |
 | [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` | `external` | `application` |
-| [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` | `synthetic` |  |
+| [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` | `external` |  |
 | [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` | `external` |  |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `none` |  |  |
 | [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `none` |  |  |
@@ -850,8 +850,10 @@
 - 権利の根拠にした文書: [「ジオイド2024日本とその周辺」と「基準面補正パラメータ」の説明書（2026 年 4 月）](https://www.gsi.go.jp/common/000277542.pdf)（確認日: 2026-10-31）
 - 照合に使う候補: 国土地理院のジオイド高計算サービス（ジオイド2024日本とその周辺）・国土地理院の内挿計算プログラム（geoidcalc。ISG 形式のモデルと一緒に配られる）
 - サンプルの出どころ: 利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・テストに入れない
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: ISG format 2.0 の例と同じ形の合成の格子（crates/zumen-crs/tests/grid.rs）で確かめた。国土地理院のジオイド・モデルで、ジオイド高計算サービスか内挿計算プログラムと比べる照合は、検証キット（xtask/verify/geoid）を使って #438 で行う
+- 読みの確かめた度合い: `external`（確認日: 2026-11-20）
+- 読みの確かめた範囲: 国土地理院のジオイド高・基準面補正量・統合の 3 モデルを読み、内挿計算プログラムと各 43 点で照合した。値を比べた点はすべて 0.1 mm 以内で合った。ジオイド高の外周の 4 点では、外周を含める zumen だけが値を返した。モデル別の件数と最大差は docs/formats/crs.md の「内挿計算プログラムとの照合」にある（#438）。ほかのヘッダーの表記、壊れた入力と予算の扱いは合成の格子で確かめた
+- 読みで使った受け取った図面: 国土地理院の ISG 形式のモデル 3 件
+- 読みで照らした外部の実装: 国土地理院の内挿計算プログラム geoidcalc\_win64 1.3.1
 - 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
 
 ### format-jpeg
