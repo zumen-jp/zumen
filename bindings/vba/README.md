@@ -1,6 +1,6 @@
 # VBA のバインディング
 
-Windows の VBA7（Office 2021 以降、64 bit）向けです。C ABI を `Declare PtrSafe` で呼びます。Office の実機でのコンパイルと実行は、まだ確認していません。[対応する環境](../../docs/support.md) の下限を変えるものではありません。
+Windows の VBA7（Office 2021 以降、64 bit）向けです。C ABI を `Declare PtrSafe` で呼びます。Microsoft 365 の Excel 実機でコンパイルと実行を確認しました。[対応する環境](../../docs/support.md)・[実機の検証結果](#実機の検証結果)
 
 ## 導入
 
@@ -10,7 +10,7 @@ Windows の VBA7（Office 2021 以降、64 bit）向けです。C ABI を `Decla
 cargo build -p zumen-abi --release --locked
 ```
 
-VBE の「ファイル」→「ファイルのインポート」で、次の 4 ファイルを取り込みます。コードは ASCII にしており、VBE のコードページによる文字化けを避けています。日本語の値は UTF-16 の文字列から UTF-8 に変換します。
+VBE の「ファイル」→「ファイルのインポート」で、次の 6 ファイルを取り込みます。コードは ASCII にしており、VBE のコードページによる文字化けを避けています。日本語の値は UTF-16 の文字列から UTF-8 に変換します。
 
 - `ZumenNative.bas`: 生成した ABI の宣言、`ZmBuf`、状態コードとシーンの定数
 - `ZumenRuntime.bas`: UTF-8・バイト列・TSV の変換
@@ -73,7 +73,13 @@ ZumenConformance.ZumenConformance "C:\work\zumen\target\vba-conformance.tsv"
 
 マクロは配列の空値・UTF-8 の日本語と補助文字・NUL・TSV のエスケープ・バッファーの配置・失敗の応答・終了後の呼び出しを確かめたあと、共通手順をラッパーで流します。SHA-256 は Windows の BCrypt で計算します。状態と全ハッシュが一致し、シーンの列を読めた場合だけ件数を表示します。入力・応答の中身やパスはログに出しません。
 
-実機の確認では、Office の製品とビルド・64 bit・DLL のコミット・マクロの表示件数を記録します。64 bit の Microsoft 365 または Office LTSC 2024 で確認します。マクロの信頼設定を自動で変えたり、Office を自動起動したりしません。実機の確認待ちは [#800](https://github.com/zumen-jp/zumen/issues/800) で追跡します。Release の zip への同梱は別の公開作業です。
+実機の確認では、64 bit の Microsoft 365 または Office LTSC 2024 を使い、Office の製品とビルド・DLL のコミット・マクロの表示件数を記録します。CI は Office を起動せず、実機の検証では現在のマクロの信頼設定を保ちます。Release の zip への同梱は別の公開作業です。
+
+### 実機の検証結果
+
+2026-11-20 に Windows x64 の Microsoft 365 Apps for business（Excel 64 bit、ビルド `16.0.20527.20196`）で検証しました。DLL と共通手順は [`46f6e0c5`](https://github.com/zumen-jp/zumen/commit/46f6e0c509e85913269897c1b88d58a840aa88bc) を使いました。最初のコンパイルで `zm_abi_version` と定数名が衝突したため、定数を `ZM_EXPECTED_ABI_VERSION` に改めました。
+
+修正後に VBE のコンパイルとマクロの自己検査が通り、124 組の全手順で状態と応答・blob のハッシュが一致しました。イミディエイトウィンドウの出力は `VBA conformance: 2562 steps, 1958 hashes, 38 scenes` でした。[検証記録 #800](https://github.com/zumen-jp/zumen/issues/800)
 
 ## 一次資料
 

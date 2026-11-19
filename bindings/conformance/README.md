@@ -21,7 +21,7 @@
 | Swift のラッパー（C ABI の静的ライブラリ） | `../swift/Sources/ZumenConformance`（macOS 14・iOS 17 以降） | `sh bindings/swift/build-xcframework.sh debug aarch64-apple-darwin aarch64-apple-ios-sim` のあと、`bindings/swift` で `swift run ZumenConformance ../..`。iOS のシミュレーターは `sh bindings/swift/test-simulator.sh`（[Swift の使い方](../swift/README.md)） |
 | Go のラッパー（wasm、wazero） | `../go/conformance_test.go`（Go 1.26 以降） | `cargo build -p zumen-abi --target wasm32-unknown-unknown --release` のあと、モジュールを `bindings/go` に写し、`bindings/go` で `go test ./...`（[Go の使い方](../go/README.md)）。毎晩 |
 | Dart のラッパー（C ABI、dart:ffi） | `../dart/tool/conformance.dart`（Dart 3.5 以降） | `cargo build -p zumen-abi` のあと、`bindings/dart` で `dart pub get` と `dart run tool/conformance.dart ../../target/debug/libzumen_abi1.so`（[Dart の使い方](../dart/README.md)）。毎晩 |
-| VBA7 のラッパー（Windows 64 bit、C ABI） | `../vba/ZumenConformance.bas` | `python bindings/vba/prepare.py target/vba-conformance.tsv` のあと、Office のマクロで全手順とハッシュを確認する。[VBA の手順](../vba/README.md)。Office 実機は [#800](https://github.com/zumen-jp/zumen/issues/800) で未確認。CI は Windows x64 の DLL と手順の対応を検査する |
+| VBA7 のラッパー（Windows 64 bit、C ABI） | `../vba/ZumenConformance.bas` | `python bindings/vba/prepare.py target/vba-conformance.tsv` のあと、Office のマクロで全手順とハッシュを確認する。CI は Windows x64 の DLL と手順の対応を検査する。[VBA の手順と Excel 実機の結果](../vba/README.md#確かめ方) |
 | C のヘッダーと C++ のラッパー（C ABI） | `../c/tests/conformance.rs` | `cargo test -p zumen-c`。組の手順は Rust のテストのツールが読み、API の関数は C と C++ の側から呼ぶ（[C・C++ の使い方](../c/README.md)） |
 | CLI（`zumen serve --stdio` と `zumen mcp`） | `../cli/tests/conformance.rs` | `cargo test -p zumen-cli`。MCP はツールで表せる組だけを流す（[CLI の使い方](../cli/README.md)） |
 | 言語に依らない形態（`zumen call`・`serve --stdio`・`serve --http`・WASI） | `cli.mjs`（Node.js 24 以降） | `cargo build -p zumen-cli --release` のあと、`node bindings/conformance/cli.mjs <call・stdio・http> target/release/zumen`。WASI は `cargo build -p zumen-cli --release --target wasm32-wasip1` のあと、`node bindings/conformance/cli.mjs wasi target/wasm32-wasip1/release/zumen.wasm`（ランタイムは `wasi.mjs` の node:wasi）。`call` は 1 回が 1 つのセッションなので、セッションの最初の call と直後の take だけを流す。Tier 3 の言語の代わり（[対応する環境](../../docs/support.md)）。毎晩 |
@@ -209,7 +209,7 @@ node bindings/conformance/generate-font-cases.mjs --check
 
 ### 3D の建物のシーン
 
-scene3d.json は自作の IFC4 です。共有メッシュ、開口を引く壁、円柱、1e12 の座標、mm の単位、地図変換の元値、階・ID・クラス・箱の積、空の選択、不正な条件、予算停止後の再利用を照らします。全応答・blob のハッシュに加え、各言語で 8 種の件数とインスタンスから要素 ID への参照を確かめます。Rust の合成 Building の試験では元モデルの ID 検索にも照合します。VBA は同じ手順とクラスを用意し、実機の実行状況は #800 の記録と区別します。
+scene3d.json は自作の IFC4 です。共有メッシュ、開口を引く壁、円柱、1e12 の座標、mm の単位、地図変換の元値、階・ID・クラス・箱の積、空の選択、不正な条件、予算停止後の再利用を照らします。全応答・blob のハッシュに加え、各言語で 8 種の件数とインスタンスから要素 ID への参照を確かめます。Rust の合成 Building の試験では元モデルの ID 検索にも照合します。VBA は同じ手順を [Excel 64 bit の実機](../vba/README.md#実機の検証結果)で確認しました。
 
 `scene3d_pointcloud.json` は自作の形式 2 の LAS を点群のモジュールで開き、`scene3d` で八分木の節ごとの点の区画を持つ ZMS3 1.1 を返します。点の数・節の数・範囲・座標系、範囲と件数での絞り込み、点群に使えない条件・予算停止の後の再利用を照らします。各言語の読み手は塊ごとの点の数を応答と比べます（[点群の 3D のシーン](../../schema/README.md#点群の-3d-のシーン)）。
 

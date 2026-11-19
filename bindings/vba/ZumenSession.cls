@@ -9,7 +9,7 @@ Private mHandle As LongPtr
 
 Public Function OpenBytes(ByRef options() As Byte) As Long
     CloseSession
-    If zm_abi_version() <> ZM_ABI_VERSION Then Err.Raise 5, "Zumen", "ABI version mismatch"
+    If zm_abi_version() <> ZM_EXPECTED_ABI_VERSION Then Err.Raise 5, "Zumen", "ABI version mismatch"
     OpenBytes = zm_session_new(ZmBytePointer(options), ZmByteCount(options), mHandle)
 End Function
 

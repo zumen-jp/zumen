@@ -42,7 +42,7 @@ Tier 1 は言語ごとのパッケージをコアと同じ日に公開し、PR �
 | 2 | Swift | iOS・iPadOS 17、macOS 14 | Apple Silicon と 64 bit シミュレーター | 毎晩（シミュレーター） |
 | 2 | Go | Go がサポートする 2 つのメジャーバージョン（今は 1.26・1.27） | Go と wazero のサポート方針 | 毎晩 |
 | 2 | Dart | Dart 3.5（Flutter 3.24） | 現行の Flutter 3 世代 | 毎晩 |
-| 2 | VBA | VBA7（Office 2021 以降、64 bit） | 64 bit の Microsoft 365 と Office LTSC 2024 | DLL は PR ごと。Office の実機は [#800](https://github.com/zumen-jp/zumen/issues/800) で未確認 |
+| 2 | VBA | VBA7（Office 2021 以降、64 bit） | 64 bit の Microsoft 365 と Office LTSC 2024 | DLL は PR ごと。Microsoft 365 の Excel 64 bit で [VBE のコンパイルと全手順を確認](../bindings/vba/README.md#実機の検証結果) |
 
 ## ブラウザーの下限の根拠
 
