@@ -12,6 +12,7 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Codec, Lift};
 
+#[cfg(test)]
 fn fixture_bytes(name: &str) -> Vec<u8> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -20,6 +21,7 @@ fn fixture_bytes(name: &str) -> Vec<u8> {
     std::fs::read(&path).unwrap_or_else(|err| panic!("{}: {err}", path.display()))
 }
 
+#[cfg(test)]
 fn lift_dwg(src: &[u8]) -> (Drawing2D, Diagnostics) {
     let mut diag = Diagnostics::new();
     let mut budget = Budget::default();
@@ -29,6 +31,7 @@ fn lift_dwg(src: &[u8]) -> (Drawing2D, Diagnostics) {
     (drawing, diag)
 }
 
+#[cfg(test)]
 fn lift_dxf(src: &[u8]) -> (Drawing2D, Diagnostics) {
     let mut diag = Diagnostics::new();
     let mut budget = Budget::default();
@@ -184,7 +187,11 @@ fn style_pairs_match_control_dxf_across_r2010_r2013_and_r2018() {
             .filter(|d| d.code() == codes::DWG_TABLE_FORMAT_UNSUPPORTED)
             .collect();
         assert_eq!(unsupported.len(), 1, "{tag}: {dwg_diag:?}");
-        assert_eq!(unsupported[0].places(), &[dwg_el.source.clone()], "{tag}");
+        assert_eq!(
+            unsupported[0].places(),
+            std::slice::from_ref(&dwg_el.source),
+            "{tag}"
+        );
         assert!(
             dxf_diag
                 .iter()
@@ -275,7 +282,7 @@ fn distinguishes_unset_from_overridden_and_isolates_unsupported_diagnostics() {
         .filter(|d| d.code() == codes::DWG_TABLE_FORMAT_UNSUPPORTED)
         .collect();
     assert_eq!(unsupported.len(), 1, "{diag:?}");
-    assert_eq!(unsupported[0].places(), &[el2.source.clone()]);
+    assert_eq!(unsupported[0].places(), std::slice::from_ref(&el2.source));
 
     // 空の既定スタイルを持つ既存フィクスチャでも未対応診断を出さず書式も空のまま保つ
     for fixture in [
