@@ -270,7 +270,18 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - run: npm publish ./packages/*.tgz --access public --provenance
+      - run: |
+          shopt -s nullglob
+          all=(./packages/*.tgz)
+          if [[ ${#all[@]} -ne 4 ]]; then
+            echo "expected 4 npm tarballs, got ${#all[@]}" >&2
+            exit 1
+          fi
+          for name in zumen view2d view3d react; do
+            matches=(./packages/zumen-jp-"${name}"-[0-9]*.tgz)
+            [[ ${#matches[@]} -eq 1 ]]
+            npm publish "${matches[0]}" --ignore-scripts --access public --provenance
+          done
 
   pypi:
     name: PyPI に出す
