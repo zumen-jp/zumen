@@ -8,7 +8,7 @@ from unittest.mock import patch
 from linux_abi import verify_environment, verify_linux
 
 
-def elf_fixture(versions=("GLIBC_2.17", "GLIBC_2.28"), machine=62, executable=False, groups=None):
+def elf_fixture(versions=("GLIBC_2.17", "GLIBC_2.34"), machine=62, executable=False, groups=None):
     groups = groups or [versions]
     strings = bytearray(b"\0libc.so.6\0")
     records = bytearray()
@@ -29,7 +29,7 @@ def elf_fixture(versions=("GLIBC_2.17", "GLIBC_2.28"), machine=62, executable=Fa
 
 def target(machine=62):
     return {"target": "x86_64-unknown-linux-gnu" if machine == 62 else "aarch64-unknown-linux-gnu",
-            "wheel": "manylinux_2_28_x86_64" if machine == 62 else "manylinux_2_28_aarch64"}
+            "wheel": "manylinux_2_34_x86_64" if machine == 62 else "manylinux_2_34_aarch64"}
 
 
 class LinuxAbiTests(unittest.TestCase):
@@ -38,11 +38,11 @@ class LinuxAbiTests(unittest.TestCase):
             for executable in (False, True):
                 with self.subTest(machine=machine, executable=executable):
                     self.assertEqual(verify_linux(elf_fixture(machine=machine, executable=executable), target(machine)),
-                                     ["GLIBC_2.17", "GLIBC_2.28"])
+                                     ["GLIBC_2.17", "GLIBC_2.34"])
 
     def test_newer_requirements_in_later_records_are_rejected(self):
-        binary = elf_fixture(groups=[("GLIBC_2.28",), ("GLIBC_2.29", "GLIBC_2.34")])
-        with self.assertRaisesRegex(ValueError, "GLIBC_2.34"):
+        binary = elf_fixture(groups=[("GLIBC_2.34",), ("GLIBC_2.35", "GLIBC_2.38")])
+        with self.assertRaisesRegex(ValueError, "GLIBC_2.38"):
             verify_linux(binary, target())
         with self.assertRaisesRegex(ValueError, "GLIBC_2.100"):
             verify_linux(elf_fixture(("GLIBC_2.100",)), target())
@@ -74,7 +74,7 @@ class LinuxAbiTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "文字列の節"):
             verify_linux(broken, target())
         broken = bytearray(binary)
-        records = 256 + len(b"\0libc.so.6\0GLIBC_2.17\0GLIBC_2.28\0")
+        records = 256 + len(b"\0libc.so.6\0GLIBC_2.17\0GLIBC_2.34\0")
         # 補助項目の件数が 2 なのに、最初の項目で連結が切れる。
         struct.pack_into("<I", broken, records + 16 + 12, 0)
         with self.assertRaisesRegex(ValueError, "連結"):
@@ -84,12 +84,12 @@ class LinuxAbiTests(unittest.TestCase):
         self.assertEqual(verify_linux(b"synthetic Windows DLL", {"target": "x86_64-pc-windows-msvc"}), [])
 
     def test_build_environment_requires_the_floor_and_native_architecture(self):
-        with patch("linux_abi.sys.platform", "win32"), self.assertRaisesRegex(ValueError, "manylinux_2_28"):
+        with patch("linux_abi.sys.platform", "win32"), self.assertRaisesRegex(ValueError, "manylinux_2_34"):
             verify_environment(target())
-        with patch("linux_abi.sys.platform", "linux"), patch("linux_abi.os.confstr", return_value="glibc 2.35", create=True):
-            with self.assertRaisesRegex(ValueError, "manylinux_2_28"):
+        with patch("linux_abi.sys.platform", "linux"), patch("linux_abi.os.confstr", return_value="glibc 2.38", create=True):
+            with self.assertRaisesRegex(ValueError, "manylinux_2_34"):
                 verify_environment(target())
-        with patch("linux_abi.sys.platform", "linux"), patch("linux_abi.os.confstr", return_value="glibc 2.28", create=True):
+        with patch("linux_abi.sys.platform", "linux"), patch("linux_abi.os.confstr", return_value="glibc 2.34", create=True):
             with patch("linux_abi.os.uname", return_value=SimpleNamespace(machine="aarch64"), create=True):
                 verify_environment(target(183))
                 with self.assertRaisesRegex(ValueError, "アーキテクチャ"):

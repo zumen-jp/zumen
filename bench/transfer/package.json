@@ -5,7 +5,7 @@
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "dependencies": {
     "apache-arrow": "21.2.0"

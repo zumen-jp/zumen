@@ -140,10 +140,10 @@ class PackageTests(unittest.TestCase):
                     built = root / "built"
                     built.mkdir()
                     for kind, filename in (("abi", target["library"]), ("cli", target["exe"])):
-                        versions = ("GLIBC_2.34",) if kind == newer else ("GLIBC_2.28",)
+                        versions = ("GLIBC_2.38",) if kind == newer else ("GLIBC_2.34",)
                         (built / filename).write_bytes(elf_fixture(versions, machine, executable=kind == "cli"))
                         notice(root / "licenses" / "native" / rid / kind, kind, target["target"])
-                    with self.assertRaisesRegex(ValueError, "GLIBC_2.34"):
+                    with self.assertRaisesRegex(ValueError, "GLIBC_2.38"):
                         package.package_native(rid, built, root, root / "out")
                     self.assertFalse((root / "out").exists())
 
@@ -151,13 +151,13 @@ class PackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             library = root / "libzumen_abi1.so"
-            library.write_bytes(elf_fixture(("GLIBC_2.34",)))
+            library.write_bytes(elf_fixture(("GLIBC_2.38",)))
             notice(root / "notice", "abi", "x86_64-unknown-linux-gnu")
             result = subprocess.run([sys.executable, str(licenses.ROOT / "bindings/python/build_wheel.py"),
-                                     str(library), "manylinux_2_28_x86_64", str(root / "out"),
+                                     str(library), "manylinux_2_34_x86_64", str(root / "out"),
                                      "--licenses", str(root / "notice")], capture_output=True)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn(b"GLIBC_2.34", result.stderr)
+            self.assertIn(b"GLIBC_2.38", result.stderr)
             self.assertFalse((root / "out").exists())
 
 

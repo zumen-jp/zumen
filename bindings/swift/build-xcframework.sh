@@ -1,12 +1,12 @@
 #!/bin/sh
 # ネイティブのライブラリ（静的）とヘッダーを、XCFramework にまとめる（決定 0225）。
 # 使い方: sh bindings/swift/build-xcframework.sh [debug|release] [Rust の対象 ...]
-# 対象を渡さなければ、macOS（arm64・x86_64）・iOS（arm64）・iOS のシミュレーター（arm64・x86_64）を作る。
+# 対象を渡さなければ、macOS（arm64）・iOS（arm64）・iOS のシミュレーター（arm64）を作る。
 # 出力は bindings/swift/build/CZumen.xcframework。
 set -eu
 profile=${1:-release}
 [ $# -gt 0 ] && shift
-targets=${*:-aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios}
+targets=${*:-aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim}
 root=$(cd "$(dirname "$0")/../.." && pwd)
 out=$root/bindings/swift/build
 case $profile in
@@ -37,7 +37,7 @@ for platform in macos ios ios-simulator; do
   for target in $targets; do
     case $target in
       *-apple-darwin) kind=macos ;;
-      *-apple-ios-sim | x86_64-apple-ios) kind=ios-simulator ;;
+      *-apple-ios-sim) kind=ios-simulator ;;
       *-apple-ios) kind=ios ;;
       *) echo "Apple の対象でない: $target" >&2; exit 2 ;;
     esac

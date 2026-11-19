@@ -4,7 +4,7 @@
 //! - `constants.py`: API のバージョン・状態コード・関数の形（`schema/boundary.toml`）と、シーンの配置
 //!   （`schema/scene.toml`）
 //!
-//! Python 3.9（docs/support.md の下限）で読めるように、標準の `typing` の `TypedDict`・`Literal`・`Union` だけを使う。
+//! Python 3.12（docs/support.md の下限）に向けて、標準の `typing` の `TypedDict`・`Literal`・`Union` を使う。
 
 use std::fmt::Write;
 
@@ -167,7 +167,7 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
     );
     out.push_str("# 列挙は、知らない値も受け取れるように、ほかの文字列も許す（決定 0015）。\n");
     out.push_str(
-        "# Python 3.9 で読めるように、TypedDict を関数の形で書き、定義の名前は文字列で引く。\n",
+        "# 予約語のフィールド名（from など）を扱うため TypedDict を関数の形で書き、定義の名前は文字列で引く。\n",
     );
     out.push_str("\nfrom typing import Any, Dict, List, Literal, TypedDict, Union\n");
     for def in &schema.defs {

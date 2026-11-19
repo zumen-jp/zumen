@@ -4,8 +4,7 @@
 //! - `Constants.g.cs`: API のバージョン・状態コード・関数の形（`schema/boundary.toml`）と、シーンの配置
 //!   （`schema/scene.toml`）
 //!
-//! netstandard2.0（.NET Framework 4.8）と net8.0 の両方で読めるように書く。System.Text.Json は net8.0 の側にだけあるので、
-//! フィールドの名前の属性は netstandard2.0 ではラッパーの中の代わりの属性で受け、形の決まらない値は `JsonElement` か `object` にする。
+//! net8.0 と net10.0（docs/support.md の下限）に向けて書く。System.Text.Json を使い、形の決まらない値は `JsonElement` にする。
 
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -144,9 +143,8 @@ fn cs_type(schema: &Schema, ty: &Ty) -> Result<(String, bool), String> {
                 Shape::Object { .. } => (pascal(name), false),
                 Shape::Enum { .. } => ("string".to_string(), false),
                 // 形が値で決まるので、読んだ側でタグを見て読み直す
-                // netstandard2.0 では参照の型なので、欠かせないフィールドには既定の値を書く
                 Shape::Union { .. } | Shape::Scalars { .. } | Shape::Handwritten => {
-                    ("JsonAny".to_string(), false)
+                    ("JsonAny".to_string(), true)
                 }
             }
         }
@@ -283,10 +281,9 @@ pub fn render_types(schema: &Schema) -> Result<String, String> {
     out.push_str(
         "// 列挙は、知らない値も受け取れるように string で持ち、値を定数で出す（決定 0015）。\n",
     );
-    out.push_str("// 形が値で決まるもの（共用体）は JsonAny（net8.0 は JsonElement、netstandard2.0 は object）で持ち、\n");
+    out.push_str("// 形が値で決まるもの（共用体）は JsonAny（JsonElement）で持ち、\n");
     out.push_str("// タグの値から型を引いて読み直す。\n\n");
-    out.push_str("#nullable enable\n\nusing System.Collections.Generic;\n#if NET\nusing System.Text.Json.Serialization;\nusing JsonAny = System.Text.Json.JsonElement;\n#else\nusing JsonAny = System.Object;\n#endif\n\nnamespace Zumen.Messages\n{\n");
-    out.push_str("#if !NET\n    /// <summary>フィールドの JSON での名前。netstandard2.0 には System.Text.Json がないので、ラッパーの中に代わりを置く</summary>\n    [global::System.AttributeUsage(global::System.AttributeTargets.Property)]\n    internal sealed class JsonPropertyNameAttribute : global::System.Attribute\n    {\n        public JsonPropertyNameAttribute(string name) => Name = name;\n\n        public string Name { get; }\n    }\n#endif\n");
+    out.push_str("#nullable enable\n\nusing System.Collections.Generic;\nusing System.Text.Json.Serialization;\nusing JsonAny = System.Text.Json.JsonElement;\n\nnamespace Zumen.Messages\n{\n");
     for def in &schema.defs {
         let name = pascal(&def.name);
         match &def.shape {
@@ -498,7 +495,7 @@ pub fn render_constants(
     out.push_str("                default: return \"unknown(\" + code + \")\";\n            }\n        }\n    }\n\n");
 
     out.push_str("    /// <summary>コアが返すバッファー（zm_buf）。zm_free で返す</summary>\n    [StructLayout(LayoutKind.Sequential)]\n    internal unsafe struct Buf\n    {\n        public byte* Ptr;\n        public nuint Len;\n    }\n\n");
-    out.push_str("    /// <summary>ネイティブのライブラリが出す関数の形。32 bit の Windows では stdcall、ほかでは cdecl（Winapi）</summary>\n    internal static unsafe class NativeFunctions\n    {\n");
+    out.push_str("    /// <summary>ネイティブのライブラリが出す関数の形（64 bit の標準呼び出し規約）</summary>\n    internal static unsafe class NativeFunctions\n    {\n");
     let mut names = Vec::new();
     for function in &boundary.functions {
         if !function.targets.iter().any(|target| target == "native") {

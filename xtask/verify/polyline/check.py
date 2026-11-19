@@ -214,7 +214,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     engine = parser.add_mutually_exclusive_group(required=True)
     engine.add_argument("--cli", type=Path, help="ネイティブの zumen")
-    engine.add_argument("--wasi", type=Path, help="wasm32-wasip1 の zumen.wasm（Node.js 22 以降で動かす）")
+    engine.add_argument("--wasi", type=Path, help="wasm32-wasip1 の zumen.wasm（Node.js 24 以降で動かす）")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--same-as", type=Path, help="別の実行の results.json。各条件の出力の SHA-256 が同じことも確かめる")
     args = parser.parse_args()

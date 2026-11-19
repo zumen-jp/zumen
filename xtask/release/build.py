@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -96,7 +97,8 @@ def build(kind, target, module, filename, shipped, output):
     manifest = ROOT / MANIFESTS[kind]
     command = ["cargo", "auditable", "build", "--release", "--locked", "--target", target, "--manifest-path",
                str(manifest), "--message-format=json-render-diagnostics", *feature_args(module)]
-    result = subprocess.run(command, cwd=ROOT, stdout=subprocess.PIPE, check=True)
+    env = {**os.environ, "MACOSX_DEPLOYMENT_TARGET": "14.0"} if target == "aarch64-apple-darwin" else None
+    result = subprocess.run(command, cwd=ROOT, env=env, stdout=subprocess.PIPE, check=True)
     matches = []
     messages = [json.loads(line) for line in result.stdout.splitlines()]
     for message in messages:

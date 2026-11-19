@@ -265,7 +265,7 @@ export class Session {
   }
 }
 
-// using で閉じられるようにする。Symbol.dispose のない環境（Safari 15 など）では付けない
+// using で閉じられるようにする。Symbol.dispose のない環境では付けない
 if (typeof Symbol.dispose === "symbol") {
   Session.prototype[Symbol.dispose] = Session.prototype.close;
 }

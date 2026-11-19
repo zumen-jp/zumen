@@ -16,22 +16,22 @@
 
 ## 描画基盤と依存
 
-初期の描画は three.js の `WebGLRenderer`、WebGL2 とします。2026-11-11 に確認した公開リリース [r187](https://github.com/mrdoob/three.js/releases/tag/r187) の [0.187.0](https://github.com/mrdoob/three.js/blob/r187/package.json) と [MIT License](https://github.com/mrdoob/three.js/blob/r187/LICENSE) を比較の基準にしました。この設計の PR では依存を追加しません。
+描画は three.js（`three/webgpu`）の `WebGPURenderer`、**WebGPU 専用**とします。WebGL2 へのフォールバックは持ちません。公開リリース [r187](https://github.com/mrdoob/three.js/releases/tag/r187) の [0.187.0](https://github.com/mrdoob/three.js/blob/r187/package.json) と [MIT License](https://github.com/mrdoob/three.js/blob/r187/LICENSE) を基準にします。
 
 | 候補 | 公式の根拠と判断 |
 | --- | --- |
-| three.js | MIT。型付き配列の属性・インスタンス・当たり判定・複数の表示枠・資源の解放を持ち、利用側の three.js の物も受けられるため採ります |
-| WebGL2 を直接扱う | 外部の描画の依存は減りますが、材質・インスタンス・選択・資源管理を別に実装し、利用側の Object3D を変換する必要があるため採りません |
+| three.js（`three/webgpu`） | MIT。`WebGPURenderer`・`ClippingGroup`・`PointsNodeMaterial`（`three/tsl`）・型付き配列の属性・インスタンス・当たり判定・複数の表示枠・資源の解放を持ち、利用側の three.js の Object3D も共有できるため採ります |
+| WebGPU を直接扱う | 外部の描画の依存は減りますが、材質・インスタンス・選択・資源管理を別に実装し、利用側の Object3D を変換する必要があるため採りません |
 | APS Viewer | [公式の説明](https://aps.autodesk.com/en/docs/viewer/v7/developers_guide/viewer_basics/)は取得できても本文を確認できませんでした。r71 は [過去の公式記事](https://aps.autodesk.com/blog/using-pointcloud-forge-viewer)の記録であり、現行版の確定値とは扱いません。現在の three.js を利用側と共用する契約を確かめておらず、独自のモデルの経路も必要になるので採りません。SDK の利用条件への同意や契約の判断は行っていません |
 | xeokit | [公開ライセンス](https://github.com/xeokit/xeokit-sdk/blob/master/LICENSE)は AGPL-3.0。実行時の依存の規則に合わないため採りません。実装のソースは比較に使っていません |
 | That Open Components | [本体は MIT](https://github.com/ThatOpen/engine_components/blob/main/LICENSE.md)ですが、[パッケージ](https://github.com/ThatOpen/engine_components/blob/main/packages/core/package.json)が要求する web-ifc は [MPL-2.0](https://github.com/ThatOpen/engine_web-ifc/blob/main/LICENSE.md)。別の IFC 読み取りとそのモデルを持ち込む経路になるので採りません |
 | React Three Fiber | [MIT](https://github.com/pmndrs/react-three-fiber/blob/master/LICENSE)ですが、表示部品を React の描画の寿命に結び付けるため必須にしません。既存の React のフックと同様に、命令型の表示部品を任意の UI から使います |
 
-`packages/view3d`、パッケージ名 `@zumen-jp/view3d` は #1 の置き場所に従います。`three` は必須の peer dependency とし、初期の許容範囲は `>=0.187.0 <0.188.0`、開発と検査は `0.187.0` を lockfile で固定します。ライブラリへ three.js を同梱せず、利用側と同じ ESM の実体を使います。複数の実体や範囲外の版では、互換性を推測して続けません。許容する r 版を増やすときは、Object3D・材質・選択・破棄の検査を通して範囲を更新します。
+`packages/view3d`、パッケージ名 `@zumen-jp/view3d` は #1 の置き場所に従います。`three` は必須の peer dependency とし、初期の許容範囲は `>=0.187.0 <0.188.0`、開発と検査は `0.187.0` を lockfile で固定します。ライブラリへ three.js を同梱せず、利用側と同じ ESM の実体（`three/webgpu`・`three/tsl`）を使います。複数の実体や範囲外の版では、互換性を推測して続けません。許容する r 版を増やすときは、Object3D・材質・選択・破棄の検査を通して範囲を更新します。
 
-React は表示部品の依存にしません。React の任意のフックは `@zumen-jp/react` に置き、three.js の別の実体を読みません。three.js の内部パスや非公開 API に依存せず、一般の `three` と公開の addons のみを使います。three.js のライセンス表示は実装・配布を始める PR で第三者表示に加えます。
+React は表示部品の依存にしません。React の任意のフックは `@zumen-jp/react` に置き、three.js の別の実体を読みません。three.js の内部パスや非公開 API に依存せず、公開エントリ（`three`・`three/webgpu`・`three/tsl`）のみを使います。
 
-[WebGPURenderer](https://threejs.org/manual/pages/webgpurenderer) は WebGL2 へフォールバックできますが、ShaderMaterial・既存の材質の変更方法との互換は同じではありません。利用側が足す Object3D を同じように扱えると確かめるまでは、自動切り替えや初期の依存にしません。WebGL2 がない環境は利用側へ未対応を返します。この設計だけで[対応するブラウザー](support.md)の下限を上げず、実装時に構文・API・GPU の必要機能と下限での未確認を分けて記録します。
+`View3D.create(canvas, options)` で `navigator.gpu` からアダプターとデバイスを取得し、`WebGPURenderer` の WebGL2 フォールバックを使わずに初期化（`await renderer.init()`）します。WebGPU が使えない環境は `webgpu-unavailable` を返します。[対応する環境](support.md)のブラウザー下限も WebGPU 対応世代にそろえます。
 
 ## シーンの受け取りと GPU の資源
 
@@ -55,26 +55,27 @@ React は表示部品の依存にしません。React の任意のフックは `
 
 ## ビューと状態
 
-1 つの Canvas・1 つの WebGLRenderer に、ID のある複数の表示枠を置きます。枠は Canvas 左上からの CSS px の四角で、重ならないものに限定します。各枠に透視か平行投影のカメラ、切断面、表示・選択・色の状態を持たせます。viewport と scissor へ渡す向きと pixel ratio の変換は表示部品が受け持ち、CSS の大きさは利用側が設定します。
+1 つの Canvas・1 つの WebGPURenderer に、ID のある複数の表示枠を置きます。枠は Canvas 左上からの CSS px の四角で、重ならないものに限定します。各枠に透視か平行投影のカメラ、切断面、表示・選択・色の状態を持たせます。viewport と scissor へ渡す左上原点の座標と pixel ratio の変換は表示部品が受け持ち、CSS の大きさは利用側が設定します。
 
 状態は three.js のオブジェクトそのものではなく、文書識別、ビュー ID、位置・方向・上方向、縦の視野角または平行投影の幅と縦横比、切断面、要素の参照による表示・選択・色を持ちます。入力値は有限で、方向・上方向が 0 でなく平行でもなく、投影の範囲と縦横比が有効であることを検査します。状態の取得・差し替え・購読は View2D と同じく明示し、保存先・自動送信・文言を持ちません。
 
-次は表示部品の操作の設計です。Rust の API の op やメッセージを追加するものではありません。[#813](https://github.com/zumen-jp/zumen/issues/813) で `new View3D`・`setScene`・`setViews`・`getState`・`subscribe`・`on`・`select`・`setHidden`・`fit`・`getRay`・`hitTest`・`invalidate`・`render`・`destroy` を実装し、[#814](https://github.com/zumen-jp/zumen/issues/814) でビューごとの選択・非表示・色、切断面と切断の箱、`setColors`・`toReviewPlace`・`applyReviewPlace`・`snapshot` を足し、[#815](https://github.com/zumen-jp/zumen/issues/815) で追加描画の `addObject`・`addGeometry` と入力の `attachInput`・`setInputOptions`・`handleInput`・`cancelInput` を足し、[#816](https://github.com/zumen-jp/zumen/issues/816) で地面の 2D の `attachGround2D`（`@zumen-jp/view3d/ground2d`）を足し、[#817](https://github.com/zumen-jp/zumen/issues/817) で要素の属性の `getElement`、状態の地図の変換と高さの基準、点群の `attachPointCloud`（`@zumen-jp/view3d/pointcloud`）を足し、[#818](https://github.com/zumen-jp/zumen/issues/818) で React のフック（`@zumen-jp/react/view3d`）とプレイグラウンドの 3D のページを足しました。使い方と確認した範囲は[パッケージの案内](../packages/view3d/README.md)にあります。ほかの操作は後続の issue で足します。
+次は表示部品の操作の設計です。Rust の API の op やメッセージを追加するものではありません。[#813](https://github.com/zumen-jp/zumen/issues/813)〜[#818](https://github.com/zumen-jp/zumen/issues/818) の実装を WebGPU 専用（`View3D.create` と非同期の `snapshot`）へ統一します。使い方と確認した範囲は[パッケージの案内](../packages/view3d/README.md)にあります。
 
 | 操作 | 入力・返すもの・寿命 |
 | --- | --- |
-| `new View3D(canvas, options)` | 利用側の Canvas と表示・上限の設定。WebGL2 を使えないときは理由を返す |
+| `await View3D.create(canvas, options)` | 利用側の Canvas と表示・上限の設定。WebGPU を使えないときは `webgpu-unavailable` を返す |
 | `setScene(input)` | blob・応答・文書識別の組か `null`。成功時だけシーンを差し替える |
 | `setViews(views)` | ID・CSS px の枠・カメラ・切断面を一括で検査し、成功時だけ置き換える |
 | `getState()`・`subscribe()`・`on()` | 状態が変わるまで同じ読み取り専用の snapshot。購読は解除関数を返す |
 | `select()`・表示と色の設定 | 文書・ビュー・要素の参照で指定し、別文書の参照や未知の値を黙って読み替えない |
 | `getRay(viewId, point)`・`hitTest(viewId, point)` | CSS px から、f64 原点と相対位置の光線、種類を区別した当たりの一覧を返す |
 | `addObject(root, options)`・`addGeometry(items, options)` | 利用側の ID・原点・変換・単位・scope と Object3D か幾何の記述を登録し、`{ remove, signal }` を返す |
+| `await snapshot(viewId)` | そのビューの枠を device px の RGBA として非同期に読み出す |
 | レビューの場所への変換・適用 | 変換した値と調整・未対応の報告を返す。元のレビュー文書や保存先へ直接書かない |
 | `attachInput()`・`handleInput()` | DOM の明示した接続と解除、DOM を使わない正規化した入力 |
 | `invalidate()`・`render()`・`destroy()` | 更新を要求し、必要なときだけ描画する。破棄で予約した描画・購読・接続と部品所有の資源を終える |
 
-切断面はレビュー文書と同じく、面の点 `p0` と法線 `n` で、法線の向きの半空間を取り除きます。相対座標 `q` では `n · (q + o - p0) > 0` を除き、描画と選択で同じ条件を使います。three.js の切り抜きの符号に合わせるときは法線を反転させます。断面の箱は #421 と同じく、要素を絞る箱と画面で切る 6 面を区別し、コアのメッシュを切り直した結果とは扱いません。
+切断面はレビュー文書と同じく、面の点 `p0` と法線 `n` で、法線の向きの半空間を取り除きます。相対座標 `q` では `n · (q + o - p0) > 0` を除き、描画（`THREE.ClippingGroup`）と選択で同じ条件を使います。three.js の切り抜きの符号に合わせるときは法線を反転させます。断面の箱は #421 と同じく、要素を絞る箱と画面で切る 6 面を区別し、コアのメッシュを切り直した結果とは扱いません。
 
 ## レビュー文書と BCF
 
@@ -135,7 +136,7 @@ Object3D の登録は、親のない root だけを受け、部品が持つ wrap
 - #421 が作る合成の既知の mesh・instance・ID と native/wasm の列の一致。表示は原点から遠い小さな図形、反転・非一様な尺度、複数の配置、透明度と未解決の色を含めます。
 - 座標の数値・切断面の向き・既知の光線と当たりの集合を、独立した期待値と比較します。画像の差だけで ID や値の正しさを判定しません。
 - ビューの保存・復元と 1:1・m の BCF の往復。縦横比の調整、単位不明、別文書、存在しない要素は制約や報告を確認します。BCF 2.1 と 3.0、外部の読み手と製品で確認した範囲を分けます。
-- Chromium・Firefox・WebKit の固定した Playwright と、pixel ratio・複数のビュー・実ポインター・キーボード・タッチ・context loss。GPU に依存する画素をコアのビット一致の保証に含めません。
+- Playwright と、pixel ratio・複数のビュー・実ポインター・キーボード・タッチ・デバイスの喪失。GPU に依存する画素をコアのビット一致の契約に含めません。
 - 登録・解除・シーン差し替え・例外・破棄、React StrictMode・中断で、購読・Worker・RAF・GPU の資源が増え続けないこと。利用側の共有資源の再利用を確認します。
 - 外部への通信を遮断し、公開サンプルかテスト内で作った最小の入力だけで、保存を要求するまで書き込みや送信がないこと。
 - シーンのバイト、GPU 向けに展開した byte 数、CPU の処理、フレーム、GPU の完了を区別した時間と、メモリの観測。大規模な実物と表示の上限は、測る前に確認済みとしません。

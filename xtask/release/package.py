@@ -158,7 +158,7 @@ def verify_nuget(path, expected, expression):
         require(license_ is not None and license_.get("type") == "expression" and license_.text == expression,
                 "NuGet のライセンスの式が違う")
         require(metadata.findtext("{*}metadata/{*}version") == VERSION, "NuGet のバージョンが違う")
-        for framework in ("netstandard2.0", "net8.0"):
+        for framework in ("net8.0", "net10.0"):
             require(f"lib/{framework}/Zumen.dll" in names, "NuGet のアセンブリに抜けがある")
         for target in TARGETS:
             binary = f"runtimes/{target['rid']}/native/{target['library']}"
@@ -197,7 +197,7 @@ def package_nuget(artifacts, output):
         subprocess.run(["dotnet", "pack", str(project / "Zumen.csproj"), "-c", "Release", "-o", str(output),
                         f"-p:PackageLicenseExpression={expression}", f"-p:PathMap={stage}=/_/"], check=True)
     verify_nuget(output / f"Zumen.{VERSION}.nupkg", expected, expression)
-    print("NuGet: 7 対象のライセンス本文、バイナリ、メタデータを確認した")
+    print(f"NuGet: {len(TARGETS)} 対象のライセンス本文、バイナリ、メタデータを確認した")
 
 
 WASM_BOMS = f"zumen-{VERSION}-wasm-sboms.tar.gz"

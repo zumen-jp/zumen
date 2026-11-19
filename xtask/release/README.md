@@ -23,7 +23,7 @@ python xtask/release/sbom.py --output target/release-licenses
 - `THIRD_PARTY_LICENSES`: 既存の npm と wasm 向けの本文
 - `licenses/wasm/abi/`: wasm の ABI 用の本文と、照合用の `license-info.json`
 - `licenses/wasm/{drawing,bim,civil,pointcloud}/`: 分割版の feature ごとの本文と照合用の一覧
-- `licenses/native/{rid}/{abi,cli}/`: 7 target の ABI・CLI 用の本文と、照合用の `license-info.json`
+- `licenses/native/{rid}/{abi,cli}/`: 5 target の ABI・CLI 用の本文と、照合用の `license-info.json`
 - 各組の `cargo.cdx.json`: 梱包する前の SBOM。梱包時に起点へバイナリの SHA-256 を入れます。
 
 cargo-about の警告、SPDX の定型の文への置換、本文に第三者の crate が載っていないときは止まります。crate の更新後に止まったら、`about.toml` の clarify と、更新先の本文を確認してください。分割版は `--no-default-features` と対象の feature を使います。SBOM の生成とビルドは、Rust の配布対象の入力をコミットした作業ディレクトリで行います。
@@ -42,13 +42,13 @@ python xtask/release/package.py native --rid win-x64 --built target/release-buil
 
 ### GNU Linux の下限を確かめる
 
-Linux の x64 と arm64 は、[対応するプラットフォーム](../../docs/support.md#プラットフォーム)に従い glibc 2.28 で作ります。`targets.json` は、[PyPA の manylinux_2_28](https://github.com/pypa/manylinux#manylinux_2_28-almalinux-8-based) の公式イメージを digest で固定します。Linux のビルドだけをコンテナーに置き、x64 と arm64 はそれぞれのアーキテクチャの runner で動かします。`build.py` は実環境の glibc とアーキテクチャも確認するので、通常の Ubuntu 上でそのまま配布用の GNU Linux バイナリを作ることはできません。
+Linux の x64 と arm64 は、[対応するプラットフォーム](../../docs/support.md#プラットフォーム)に従い glibc 2.34 で作ります。`targets.json` は、[PyPA の manylinux_2_34](https://github.com/pypa/manylinux#manylinux_2_34-almalinux-9-based) の公式イメージを digest で固定します。Linux のビルドだけをコンテナーに置き、x64 と arm64 はそれぞれのアーキテクチャの runner で動かします。`build.py` は実環境の glibc とアーキテクチャも確認するので、通常の Ubuntu 上でそのまま配布用の GNU Linux バイナリを作ることはできません。
 
 manylinux と、Rust を入れる [dtolnay/rust-toolchain](https://github.com/dtolnay/rust-toolchain/tree/683b588c487a69d01f6c6ddf40f036ff682cc2c8) は MIT のビルドツールとして使います。Rust のバージョンは `rust-toolchain.toml` から読みます。コンテナーとその GCC などのソース・イメージは成果物に同梱せず、実行時の依存は追加しません。ELF の検査は Python の標準ライブラリだけで行います。
 
 コンテナーでは、checkout の一時 HOME にある Git の許可に依存せず、CI の workspace の正確なパスだけを `safe.directory` に指定します。設定は `GIT_CONFIG_COUNT` の command scope でこの job に渡し、既存の項目も保ちます。個人のグローバル設定は変更せず、`*` や親フォルダー全体は指定しません。ビルドの前に、同じ Git でリポジトリの場所と状態を読めることを確かめます。
 
-`linux_abi.py` は ELF64 のアーキテクチャ、GNU のバージョン要求、wheel のタグを確かめます。ELF のバージョン要求が壊れている場合と、glibc 2.28 を超える要求がある場合は拒みます。`build.py` のコピー前、ネイティブ・CLI・wheel・NuGet の梱包で同じ検査を使います。単独でも、バイナリを実行せずに確認できます。
+`linux_abi.py` は ELF64 のアーキテクチャ、GNU のバージョン要求、wheel のタグを確かめます。ELF のバージョン要求が壊れている場合と、glibc 2.34 を超える要求がある場合は拒みます。`build.py` のコピー前、ネイティブ・CLI・wheel・NuGet の梱包で同じ検査を使います。単独でも、バイナリを実行せずに確認できます。
 
 ```bash
 python xtask/release/linux_abi.py --rid linux-x64 built/libzumen_abi1.so built/zumen
@@ -60,12 +60,12 @@ python xtask/release/linux_abi.py --rid linux-x64 built/libzumen_abi1.so built/z
 python xtask/release/check_linux_runtime.py --rid linux-x64 --built built --packages out
 ```
 
-- 梱包対象の共有ライブラリを、Python 3.9・3.14 のソースのラッパーから開き、既存の適合テストのハッシュと比べる。
+- 梱包対象の共有ライブラリを、Python 3.12・3.14 のソースのラッパーから開き、既存の適合テストのハッシュと比べる。
 - wheel を通信なしで一時フォルダーへインストールし、wheel 自体の import と同梱ライブラリの読み込みを確かめる。
 - `ZUMEN_CONFORMANCE_CLI` に梱包対象の CLI を指定し、既存の stdio・HTTP・process・MCP の適合テストを流す。テストで作る別の CLI に置き換えて確かめたことにはしない。
 - .NET 10 のソースのラッパーから、梱包対象の共有ライブラリの適合テストを流す。.NET の実行だけに使う ICU・Kerberos のライブラリはコンテナーに入れ、配布物には加えない。
 
-コンテナーで実際の glibc 2.28 を使いますが、カーネルは runner と共有するので、古いカーネルの下限で動かしたことにはなりません。静的な検査の通過と、x64・arm64 の実行結果は分けて記録します。公開済み v0.2.0 はこの検査を満たさず、同じ版の配布物を置き換えません。検査を通した配布物は v0.3.0 で公開しました（[#789](https://github.com/zumen-jp/zumen/issues/789)）。
+コンテナーで実際の glibc 2.34 を使いますが、カーネルは runner と共有するので、古いカーネルの下限で動かしたことにはなりません。静的な検査の通過と、x64・arm64 の実行結果は分けて記録します。公開済み v0.3.0 は引き上げ前の glibc 2.28 で公開された記録です（[#789](https://github.com/zumen-jp/zumen/issues/789)）。
 
 ELF の参照先は [gABI のヘッダーと節](https://gabi.xinuos.com/elf/02-eheader.html)、[LSB の Symbol Versioning](https://refspecs.linuxfoundation.org/LSB_3.1.1/LSB-Core-generic/LSB-Core-generic/symversion.html)、[GNU ld のバージョンの照合](https://sourceware.org/binutils/docs/ld/VERSION.html)です。wheel の下限の意味は [Python Packaging の manylinux](https://packaging.python.org/en/latest/specifications/platform-compatibility-tags/#manylinux) に従います。
 
@@ -95,13 +95,13 @@ npm の provenance は、再試行した main のワークフローとコミッ�
 
 ## NuGet を作る
 
-7 target の `native/{rid}/` と、生成した `licenses/` を同じディレクトリに集め、.NET 10 SDK で実行します。
+5 target の `native/{rid}/` と、生成した `licenses/` を同じディレクトリに集め、.NET 10 SDK で実行します。
 
 ```bash
 python xtask/release/package.py nuget --artifacts artifacts --out target/release-packages
 ```
 
-元の C# プロジェクトは変更せず、一時ディレクトリに写して包みます。パッケージの 7 target の本文とライブラリ、リポジトリ自身の本文、アセンブリとメタデータを確かめます。
+元の C# プロジェクトは変更せず、一時ディレクトリに写して包みます。パッケージの 5 target の本文とライブラリ、リポジトリ自身の本文、アセンブリとメタデータを確かめます。
 
 ## 公開せずに検査する
 
@@ -114,4 +114,4 @@ python xtask/release/check_cargo_scope.py
 
 `check_cargo_scope.py` は、上記の固定版のツールを使い、別の member だけが optional な依存を要求する小さな workspace を実際にビルドします。SBOM と埋込情報が同じ余分な crate を返した場合と、部品の数が合って辺だけが余った場合を検出します。該当する feature を有効にしたビルドは通ります。
 
-[package-check.yml](../../.github/workflows/package-check.yml) は、関連する PR でリリースと同じ関数を使い、7 target のネイティブのライブラリ・CLI・wheel・NuGet と、5 組の wasm・npm を実物で検査します。ドラフトはレビュー可能にしたときに検査します。cargo-about と cargo-cyclonedx はバイナリを作る job と分けます。
+[package-check.yml](../../.github/workflows/package-check.yml) は、関連する PR でリリースと同じ関数を使い、5 target のネイティブのライブラリ・CLI・wheel・NuGet と、5 組の wasm・npm を実物で検査します。ドラフトはレビュー可能にしたときに検査します。cargo-about と cargo-cyclonedx はバイナリを作る job と分けます。

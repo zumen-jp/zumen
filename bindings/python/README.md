@@ -1,6 +1,6 @@
 # Python のラッパー
 
-ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、標準ライブラリの ctypes で呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。Python 3.9 以降で動きます。
+ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、標準ライブラリの ctypes で呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。Python 3.12 以降で動きます。
 
 - PyPI の `zumen` で配ります（[コアの設計](../../docs/architecture.md)・[配布の手順](../../xtask/release/README.md)）。wheel は、対象ごとにネイティブのライブラリを `zumen/_native` に入れ、`load()` が道筋なしでそれを読みます。wheel は `build_wheel.py`（標準ライブラリだけ）で作ります。
 - 依存はなく、ネイティブの拡張も作りません。手元で作ったライブラリを使うときは、`load` に道筋を渡します。
@@ -29,7 +29,7 @@ with zumen.open() as session:
 
 | 名前 | 中身 |
 | --- | --- |
-| `load` | ライブラリを読み込み、関数と ABI のメジャーバージョンを確かめる。道筋を渡さなければ wheel に入れたものを読む。32 bit の Windows では stdcall で呼ぶ |
+| `load` | ライブラリを読み込み、関数と ABI のメジャーバージョンを確かめる。道筋を渡さなければ wheel に入れたものを読む |
 | `Zumen.open` | セッションを作る（`zm_session_new`）。`with` の文で閉じられる |
 | `Session.push`・`call`・`call_bytes`・`take`・`cancel`・`close` | API の関数（`zm_push`・`zm_call`・`zm_take`・`zm_cancel`・`zm_session_close`）。状態が `ok` でなければ `ZumenError` を投げる |
 | `Session.open_ranged` | 初めの部分を渡して `open` を呼び、`needs` の範囲をパス・バイナリのファイル・関数から読んで渡す。読み終えた `done` の入力は `close` で捨てる（決定 0232）。JavaScript の `openRanged` と同じ規則で止める |
@@ -46,7 +46,7 @@ python3 bindings/python/tests/conformance.py target/debug/libzumen_abi1.so
 
 `tests/ranged.py` は、点を足した LAS を全体で渡したときと、関数・ファイル・パスから範囲で渡したときの `pointcloud` の応答を比べます。
 
-`tests/conformance.py` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。CI は、テストの行列（Linux x64・macOS arm64・Windows x64・Windows x86）で、Python 3.9 と最新を分けて流します。
+`tests/conformance.py` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。CI は、テストの行列（Linux x64・macOS arm64・Windows x64）で、Python 3.12 と最新を分けて流します。
 
 ## 3D のシーン
 

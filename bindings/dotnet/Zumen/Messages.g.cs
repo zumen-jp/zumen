@@ -3,31 +3,17 @@
 //
 // API のメッセージの型（決定 0012・0196）。スキーマの定義ごとに 1 つの型がある。
 // 列挙は、知らない値も受け取れるように string で持ち、値を定数で出す（決定 0015）。
-// 形が値で決まるもの（共用体）は JsonAny（net8.0 は JsonElement、netstandard2.0 は object）で持ち、
+// 形が値で決まるもの（共用体）は JsonAny（JsonElement）で持ち、
 // タグの値から型を引いて読み直す。
 
 #nullable enable
 
 using System.Collections.Generic;
-#if NET
 using System.Text.Json.Serialization;
 using JsonAny = System.Text.Json.JsonElement;
-#else
-using JsonAny = System.Object;
-#endif
 
 namespace Zumen.Messages
 {
-#if !NET
-    /// <summary>フィールドの JSON での名前。netstandard2.0 には System.Text.Json がないので、ラッパーの中に代わりを置く</summary>
-    [global::System.AttributeUsage(global::System.AttributeTargets.Property)]
-    internal sealed class JsonPropertyNameAttribute : global::System.Attribute
-    {
-        public JsonPropertyNameAttribute(string name) => Name = name;
-
-        public string Name { get; }
-    }
-#endif
 
     /// <summary>
     /// 要求。op の値で形が決まる
@@ -1088,7 +1074,7 @@ namespace Zumen.Messages
         /// 計測する要素または点
         /// </summary>
         [JsonPropertyName("first")]
-        public JsonAny First { get; init; } = default!;
+        public JsonAny First { get; init; }
 
         /// <summary>
         /// 最短距離のもう一方の要素または点。distance のときだけ必須
@@ -2660,7 +2646,7 @@ namespace Zumen.Messages
         /// 型付きの値
         /// </summary>
         [JsonPropertyName("value")]
-        public JsonAny Value { get; init; } = default!;
+        public JsonAny Value { get; init; }
     }
 
     /// <summary>
@@ -2871,7 +2857,7 @@ namespace Zumen.Messages
         /// 閉じた折れ線か円
         /// </summary>
         [JsonPropertyName("boundary")]
-        public JsonAny Boundary { get; init; } = default!;
+        public JsonAny Boundary { get; init; }
 
         /// <summary>
         /// 外側の輪
@@ -5065,7 +5051,7 @@ namespace Zumen.Messages
         /// 新しい形。entities の geometry と同じ種類
         /// </summary>
         [JsonPropertyName("geometry")]
-        public JsonAny Geometry { get; init; } = default!;
+        public JsonAny Geometry { get; init; }
     }
 
     /// <summary>
@@ -5119,7 +5105,7 @@ namespace Zumen.Messages
         /// 足す形
         /// </summary>
         [JsonPropertyName("geometry")]
-        public JsonAny Geometry { get; init; } = default!;
+        public JsonAny Geometry { get; init; }
     }
 
     /// <summary>
@@ -5813,7 +5799,7 @@ namespace Zumen.Messages
         /// 足す形
         /// </summary>
         [JsonPropertyName("geometry")]
-        public JsonAny Geometry { get; init; } = default!;
+        public JsonAny Geometry { get; init; }
     }
 
     /// <summary>

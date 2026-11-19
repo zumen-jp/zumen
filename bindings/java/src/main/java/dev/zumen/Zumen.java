@@ -4,15 +4,13 @@ import com.sun.jna.IntegerType;
 import com.sun.jna.Library;
 import com.sun.jna.Native;
 import com.sun.jna.NativeLibrary;
-import com.sun.jna.Platform;
 import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
 import com.sun.jna.ptr.PointerByReference;
-import com.sun.jna.win32.StdCallLibrary;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -87,7 +85,7 @@ public final class Zumen {
     /**
      * ネイティブのライブラリを、ファイルの道筋から読み込み、関数がそろうことと ABI のメジャーバージョンを確かめる。
      *
-     * <p>32 bit の Windows では、関数を stdcall で呼ぶ（決定 0011）。読み込んだライブラリは外さない。
+     * <p>読み込んだライブラリは外さない。
      *
      * @throws UnsatisfiedLinkError 読み込めないか、zumen のライブラリでないか、ABI のメジャーバージョンが違うとき
      */
@@ -96,10 +94,7 @@ public final class Zumen {
         if (!file.isFile()) {
             throw new UnsatisfiedLinkError("zumen のネイティブのライブラリがない: " + file);
         }
-        Map<String, Object> options = new HashMap<String, Object>();
-        if (Platform.isWindows() && !Platform.is64Bit()) {
-            options.put(Library.OPTION_CALLING_CONVENTION, StdCallLibrary.STDCALL_CONVENTION);
-        }
+        Map<String, Object> options = Collections.emptyMap();
         NativeLibrary library = NativeLibrary.getInstance(file.getPath(), options);
         List<String> missing = new ArrayList<String>();
         for (String name : FUNCTIONS) {
@@ -110,12 +105,8 @@ public final class Zumen {
             }
         }
         if (!missing.isEmpty()) {
-            // String.join は Android 8.0 から
-            StringBuilder names = new StringBuilder();
-            for (String name : missing) {
-                names.append(names.length() == 0 ? "" : ", ").append(name);
-            }
-            throw new UnsatisfiedLinkError("zumen のライブラリでない（ない関数: " + names + "）");
+            throw new UnsatisfiedLinkError(
+                    "zumen のライブラリでない（ない関数: " + String.join(", ", missing) + "）");
         }
         Core core = Native.load(file.getPath(), Core.class, options);
         int version = core.zm_abi_version();

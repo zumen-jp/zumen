@@ -1,6 +1,6 @@
 # Dart のラッパー
 
-ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、dart:ffi で呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。下限は Dart 3（Flutter 3）です。
+ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、dart:ffi で呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。下限は Dart 3.5（Flutter 3.24）です。
 
 - パッケージは `zumen` です。pub.dev にはまだ出していません。
 - 依存は `ffi`（BSD-3-Clause）だけです。
@@ -69,7 +69,7 @@ dart run tool/test_collections.dart
 dart run tool/test_async.dart ../../target/debug/libzumen_abi1.so
 ```
 
-`tool/conformance.dart` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。毎晩（`nightly.yml`）、Linux x64 で Dart 3.0 と安定版、macOS arm64 と Windows x64 で安定版を流します。
+`tool/conformance.dart` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。毎晩（`nightly.yml`）、Linux x64 で Dart 3.5 と安定版、macOS arm64 と Windows x64 で安定版を流します。
 `tool/test_collections.dart` は、メッセージの配列・辞書の読み書きを確かめます。
 `tool/test_async.dart` は、取り消しとライブラリの相対パスを確かめます。
 

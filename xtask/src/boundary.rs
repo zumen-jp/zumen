@@ -433,12 +433,8 @@ pub fn render_header(boundary: &Boundary) -> String {
         "#ifdef __cplusplus\n",
         "extern \"C\" {\n",
         "#endif\n\n",
-        "/* 呼び出し規約。32 bit の Windows では stdcall にする（VBA の Declare のため、決定 0011） */\n",
-        "#if defined(_WIN32) && !defined(_WIN64)\n",
-        "#define ZM_CALL __stdcall\n",
-        "#else\n",
-        "#define ZM_CALL\n",
-        "#endif\n\n",
+        "/* 呼び出し規約。64 bit の標準 C 呼び出し規約を使い、以前のヘッダーとの互換のために空のマクロを残す */\n",
+        "#define ZM_CALL\n\n",
     ));
     let _ = writeln!(out, "/* ABI のメジャーバージョン。zm_abi_version が返す */");
     let _ = writeln!(out, "#define ZM_ABI_VERSION {}", versions.abi);

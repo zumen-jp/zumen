@@ -1,16 +1,13 @@
 # VBA のバインディング
 
-Windows の VBA7（Office 2010 以降）、32 bit・64 bit 向けです。C ABI を `Declare PtrSafe` で呼びます。Office の実機でのコンパイルと実行は、まだ確認していません。[対応する環境](../../docs/support.md) の下限を変えるものではありません。
+Windows の VBA7（Office 2021 以降、64 bit）向けです。C ABI を `Declare PtrSafe` で呼びます。Office の実機でのコンパイルと実行は、まだ確認していません。[対応する環境](../../docs/support.md) の下限を変えるものではありません。
 
 ## 導入
 
-Office と同じビット数の `zumen_abi1.dll` をビルドし、Office が DLL を検索するフォルダーに置きます。開発時は、そのフォルダーを `PATH` に含めた PowerShell から Office を起動できます。DLL のフォルダーは利用者が管理する場所にしてください。
+64 bit の `zumen_abi1.dll` をビルドし、Office が DLL を検索するフォルダーに置きます。開発時は、そのフォルダーを `PATH` に含めた PowerShell から Office を起動できます。DLL のフォルダーは利用者が管理する場所にしてください。
 
 ```powershell
-# 64 bit
 cargo build -p zumen-abi --release --locked
-# 32 bit（事前に rustup target add i686-pc-windows-msvc）
-cargo build -p zumen-abi --release --target i686-pc-windows-msvc --locked
 ```
 
 VBE の「ファイル」→「ファイルのインポート」で、次の 4 ファイルを取り込みます。コードは ASCII にしており、VBE のコードページによる文字化けを避けています。日本語の値は UTF-16 の文字列から UTF-8 に変換します。
@@ -66,7 +63,7 @@ python bindings/vba/test_contract.py target/debug/zumen_abi1.dll
 python bindings/vba/prepare.py target/vba-conformance.tsv
 ```
 
-`test_contract.py` は宣言の名前と幅をスキーマに照らし、共通の適合テストの全手順とハッシュが対応することを検査します。`prepare.py` の CLI を CP1252 の環境で動かし、実際の出力ファイルが ASCII と CRLF で書かれ、全手順を個別の行で読めることも確かめます。両方のツールの表示は UTF-8 です。DLL を指定すると、そのファイルから読んだ手順を DLL で流し、状態と応答・blob の全ハッシュを比較します。CI は既存の Windows x86/x64 の DLL のビルドと stdcall・公開名の検査に加え、この検査を流します。これは VBA のコンパイル・実行の確認ではありません。
+`test_contract.py` は宣言の名前と幅をスキーマに照らし、共通の適合テストの全手順とハッシュが対応することを検査します。`prepare.py` の CLI を CP1252 の環境で動かし、実際の出力ファイルが ASCII と CRLF で書かれ、全手順を個別の行で読めることも確かめます。両方のツールの表示は UTF-8 です。DLL を指定すると、そのファイルから読んだ手順を DLL で流し、状態と応答・blob の全ハッシュを比較します。CI は既存の Windows x64 の DLL のビルドと公開名の検査に加え、この検査を流します。これは VBA のコンパイル・実行の確認ではありません。
 
 Office の実機では、`ZumenConformance.bas` も取り込み、VBE の「デバッグ」→「VBAProject のコンパイル」を実行します。イミディエイトウィンドウから、生成したファイルの絶対パスを指定してください。モジュールと手続きが同名のため、両方の名前で修飾して呼びます。
 
@@ -76,7 +73,7 @@ ZumenConformance.ZumenConformance "C:\work\zumen\target\vba-conformance.tsv"
 
 マクロは配列の空値・UTF-8 の日本語と補助文字・NUL・TSV のエスケープ・バッファーの配置・失敗の応答・終了後の呼び出しを確かめたあと、共通手順をラッパーで流します。SHA-256 は Windows の BCrypt で計算します。状態と全ハッシュが一致し、シーンの列を読めた場合だけ件数を表示します。入力・応答の中身やパスはログに出しません。
 
-実機の確認では、Office の製品とビルド・32 bit/64 bit・DLL のコミット・マクロの表示件数を記録します。Microsoft 365 または Office LTSC 2024 の両ビット数で確認します。マクロの信頼設定を自動で変えたり、Office を自動起動したりしません。実機の確認待ちは [#800](https://github.com/zumen-jp/zumen/issues/800) で追跡します。Release の zip への同梱は別の公開作業です。
+実機の確認では、Office の製品とビルド・64 bit・DLL のコミット・マクロの表示件数を記録します。64 bit の Microsoft 365 または Office LTSC 2024 で確認します。マクロの信頼設定を自動で変えたり、Office を自動起動したりしません。実機の確認待ちは [#800](https://github.com/zumen-jp/zumen/issues/800) で追跡します。Release の zip への同梱は別の公開作業です。
 
 ## 一次資料
 

@@ -1,4 +1,4 @@
-"""manylinux_2_28 の実環境で、梱包対象のライブラリ・CLI と wheel を確かめる（#789）。"""
+"""manylinux_2_34 の実環境で、梱包対象のライブラリ・CLI と wheel を確かめる（#789）。"""
 
 import argparse
 import os
@@ -21,7 +21,7 @@ def check(target, built, packages):
     for path in (library, cli):
         verify_linux(path.read_bytes(), target)
     wheel = packages / "wheels" / f"zumen-{VERSION}-py3-none-{target['wheel']}.whl"
-    for tag in ("cp39-cp39", "cp314-cp314"):
+    for tag in ("cp312-cp312", "cp314-cp314"):
         python = Path("/opt/python") / tag / "bin/python"
         run([python, ROOT / "bindings/python/tests/conformance.py", library])
         with tempfile.TemporaryDirectory(prefix="zumen-wheel-") as temporary:
@@ -35,7 +35,7 @@ def check(target, built, packages):
          "-p", "zumen-cli", "--test", "conformance"], env={**os.environ, "ZUMEN_CONFORMANCE_CLI": str(cli)})
     run(["dotnet", "run", "--project", "bindings/dotnet/tests/Conformance", "--framework", "net10.0", "--", library],
         env={**os.environ, "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1"})
-    print(f"{target['rid']}: glibc 2.28 で梱包対象の Python・CLI・.NET の適合テストと wheel の読み込みを確認した")
+    print(f"{target['rid']}: glibc 2.34 で梱包対象の Python・CLI・.NET の適合テストと wheel の読み込みを確認した")
 
 
 if __name__ == "__main__":

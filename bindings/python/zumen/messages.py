@@ -3,7 +3,7 @@
 #
 # API のメッセージの型（決定 0012・0195）。スキーマの定義ごとに 1 つの型がある。
 # 列挙は、知らない値も受け取れるように、ほかの文字列も許す（決定 0015）。
-# Python 3.9 で読めるように、TypedDict を関数の形で書き、定義の名前は文字列で引く。
+# 予約語のフィールド名（from など）を扱うため TypedDict を関数の形で書き、定義の名前は文字列で引く。
 
 from typing import Any, Dict, List, Literal, TypedDict, Union
 

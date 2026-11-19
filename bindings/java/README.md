@@ -1,10 +1,10 @@
 # Java のラッパー
 
-ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、JNA で呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。下限は Java 8 と Android 7.0（API 24）です。Kotlin からも、同じクラスをそのまま使います。
+ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、JNA で呼ぶ薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。下限は Java 21 と Android 12（API 31）です。Kotlin からも、同じクラスをそのまま使います。
 
 - パッケージは `dev.zumen` です。Maven Central にはまだ出していません（#435）。
 - 依存は JNA 5.19.1（Apache-2.0 と LGPL-2.1 以降の二重のライセンス。Apache-2.0 で使う）だけです。JSON の読み書きは、ラッパーの中の `Json` で行います。
-- `Zumen.load(道筋)` で、ライブラリを読み込みます。32 bit の Windows では、関数を stdcall で呼びます。Android では、APK の `jniLibs` に入れたライブラリの道筋（`ApplicationInfo.nativeLibraryDir`）を渡し、JNA の aar を依存に加えます。
+- `Zumen.load(道筋)` で、ライブラリを読み込みます。Android では、APK の `jniLibs` に入れたライブラリの道筋（`ApplicationInfo.nativeLibraryDir`）を渡し、JNA の aar を依存に加えます。
 - `src/main/java/dev/zumen/Messages.java`・`Constants.java` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
 
 ## 使い方
@@ -47,7 +47,7 @@ javac -encoding UTF-8 -cp target/jna/jna.jar -d target/java bindings/java/src/ma
 java -cp target/java:target/jna/jna.jar dev.zumen.Conformance target/debug/libzumen_abi1.so
 ```
 
-`dev.zumen.Conformance` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。毎晩（`nightly.yml`）、Java 8 で Linux x64・macOS arm64・Windows x64・Windows x86 を流します。Android のエミュレーター（API 24、x86_64）でも、同じクラスを d8 で dex にし、`app_process` で流します（`android/run.sh`）。
+`dev.zumen.Conformance` は、[適合テスト](../conformance/README.md)の組をこのラッパーで流し、ハッシュの一覧が `hashes.txt` と一致することを確かめます。毎晩（`nightly.yml`）、Java 21 で Linux x64・macOS arm64・Windows x64 を流します。Android のエミュレーター（API 31、x86_64）でも、同じクラスを d8 で dex にし、`app_process` で流します（`android/run.sh`）。
 
 ## 3D のシーン
 

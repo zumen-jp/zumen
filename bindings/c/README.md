@@ -4,14 +4,14 @@ C ABI のライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi
 
 | ファイル | 中身 | 作り方 |
 | --- | --- | --- |
-| `include/zumen.h` | API の関数・状態コード・バージョン（C99） | `schema/boundary.toml` から生成 |
-| `include/zumen_scene.h` | シーンの blob のセクションの番号・型・幅と、列に入れる値（C99） | `schema/scene.toml` から生成 |
+| `include/zumen.h` | API の関数・状態コード・バージョン（C11） | `schema/boundary.toml` から生成 |
+| `include/zumen_scene.h` | シーンの blob のセクションの番号・型・幅と、列に入れる値（C11） | `schema/scene.toml` から生成 |
 | `include/zumen.hpp` | C++ のラッパー。RAII のセッションとバッファー、例外、シーンのリーダー（C++17、ヘッダーだけ） | 手で書く |
 
 - 生成したヘッダーは `cargo xtask codegen` で作り直します。手で直さないでください。
-- C99 と C++17 で使えます（[docs/support.md](../../docs/support.md)）。
+- C11 と C++17 で使えます（[docs/support.md](../../docs/support.md)）。
 - 要求と応答は、C でも C++ でも JSON の文字列のまま渡します。JSON の読み書きには、好きなライブラリを使ってください。
-- 32 bit の Windows では、関数を stdcall で出します（`ZM_CALL`）。VBA の `Declare` から呼ぶためです。
+- 関数は 64 bit の標準 C 呼び出し規約で出します（`ZM_CALL` は互換用の空のマクロです）。
 - 日本語のコメントを、MSVC が OS のコードページによらず UTF-8 として読むように、ヘッダーは BOM つきの UTF-8 にしています。
 
 ## 使い方
@@ -60,7 +60,7 @@ zumen::Column<float> xy = scene.column<float>(ZM_SCENE_SECTION_LINE_XY);
 cargo test -p zumen-c
 ```
 
-32 bit の Windows では、ヘッダーの呼び出し規約がコアと合わないと、リンクできません。CI は、`i686-pc-windows-msvc` でもこのテストを流し、DLL が飾りのない名前（`zm_call` など）で関数を出すことも確かめます。
+CI は Windows x64 でもこのテストを流し、DLL が飾りのない名前（`zm_call` など）で関数を出すことも確かめます。
 
 ## 3D のシーン
 

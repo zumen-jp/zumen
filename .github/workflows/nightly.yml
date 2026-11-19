@@ -33,7 +33,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           # docs/support.md の Node.js の下限
-          node-version: 22
+          node-version: 24
       - name: 分けた wasm のモジュールを作る（決定 0221）
         run: |
           mkdir -p modules
@@ -49,11 +49,11 @@ jobs:
       - name: Playwright のバージョンに合うブラウザーと、それが使う OS のライブラリを入れる
         working-directory: bindings/js/test/browser
         run: npx --no-install playwright install --with-deps firefox webkit
-      - name: Canvas 2D とプレイグラウンドのテストに使う依存を入れる
+      - name: 表示部品とプレイグラウンドのテストに使う依存を入れる
         run: |
           npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
           npm ci --ignore-scripts --no-audit --no-fund --prefix playground
-      - name: 同じ wasm で両ブラウザーの適合テスト・Canvas 2D・React を確かめる
+      - name: 同じ wasm で両ブラウザーの適合テスト・表示部品・React を確かめる
         env:
           ZUMEN_PDFJS_REQUIRED: '1'
         run: |
@@ -101,7 +101,7 @@ jobs:
         run: rustup toolchain install
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
       - name: 既存の Playwright を、インストールのスクリプトを走らせずに入れる
         working-directory: bindings/js/test/browser
         run: npm ci --ignore-scripts
@@ -125,7 +125,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           # docs/support.md の Node.js の下限
-          node-version: 22
+          node-version: 24
       - name: npm で配るのと同じ形で作る（決定 0205）
         run: cargo build --package zumen-abi --target wasm32-unknown-unknown --release --locked
       - name: Next.js と React を、インストールのスクリプトを走らせずに入れる
@@ -147,7 +147,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           # docs/support.md の Node.js の下限
-          node-version: 22
+          node-version: 24
       - name: 適合テストとサンプルで使う C ABI と、ネイティブ・WASI の CLI を作る
         id: build
         run: |
@@ -580,14 +580,14 @@ jobs:
           go test -count=1 -v ./...
   dart:
     name: Dart のラッパーで適合テスト（${{ matrix.name }}）
-    # Tier 2 の Dart は毎晩流す。下限の Dart 3.0 と、今の安定版で流す（docs/support.md、決定 0227）
+    # Tier 2 の Dart は毎晩流す。下限の Dart 3.5 と、今の安定版で流す（docs/support.md、決定 0227）
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Dart 3.0、Linux x64
+          - name: Dart 3.5、Linux x64
             os: ubuntu-latest
-            sdk: 3.0.0
+            sdk: 3.5.0
             library: libzumen_abi1.so
           - name: 安定版、Linux x64
             os: ubuntu-latest
@@ -623,7 +623,7 @@ jobs:
 
   java:
     name: Java のラッパーで適合テスト（${{ matrix.name }}）
-    # Tier 2 の Java は毎晩流す。下限の Java 8 で作り、流す（docs/support.md、決定 0224）
+    # Tier 2 の Java は毎晩流す。下限の Java 21 で作り、流す（docs/support.md、決定 0224）
     strategy:
       fail-fast: false
       matrix:
@@ -640,41 +640,30 @@ jobs:
             os: windows-latest
             library: zumen_abi1.dll
             separator: ';'
-          # 32 bit の Windows では、関数を stdcall で呼ぶ（決定 0011）
-          - name: Windows x86
-            os: windows-latest
-            target: i686-pc-windows-msvc
-            java-architecture: x86
-            library: zumen_abi1.dll
-            separator: ';'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
-      - name: テストする target を入れる
-        if: matrix.target
-        run: rustup target add ${{ matrix.target }}
-      - name: Java 8 を入れる
+      - name: Java 21 を入れる
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: zulu
-          java-version: '8'
-          architecture: ${{ matrix.java-architecture || '' }}
+          java-version: '21'
       - name: JNA を Maven Central から取り、SHA-256 を確かめる
         shell: bash
         run: sh bindings/java/fetch-jna.sh target/jna
       - name: Java のラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0224）
         shell: bash
         run: |
-          cargo build --package zumen-abi --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          cargo build --package zumen-abi --locked
           mkdir -p target/java
-          javac -encoding UTF-8 -cp target/jna/jna.jar -d target/java bindings/java/src/main/java/dev/zumen/*.java bindings/java/src/test/java/dev/zumen/*.java
-          java -cp "target/java${{ matrix.separator }}target/jna/jna.jar" dev.zumen.Conformance "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
+          javac --release 21 -encoding UTF-8 -cp target/jna/jna.jar -d target/java bindings/java/src/main/java/dev/zumen/*.java bindings/java/src/test/java/dev/zumen/*.java
+          java -cp "target/java${{ matrix.separator }}target/jna/jna.jar" dev.zumen.Conformance "target/debug/${{ matrix.library }}"
 
   android:
-    name: Java のラッパーで適合テスト（Android のエミュレーター、API 24）
-    # Kotlin（Android）は、Java のラッパーを使う。下限の Android 7.0（API 24）で流す（docs/support.md、決定 0224）
+    name: Java のラッパーで適合テスト（Android のエミュレーター、API 31）
+    # Kotlin（Android）は、Java のラッパーを使う。下限の Android 12（API 31）で流す（docs/support.md、決定 0224）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -682,34 +671,39 @@ jobs:
         run: |
           rustup toolchain install
           rustup target add x86_64-linux-android
+      - name: Java 21 を入れる
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: zulu
+          java-version: '21'
       - name: エミュレーターが KVM を使えるようにする
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: ネイティブのライブラリを、NDK で API 24 に向けて作る
+      - name: ネイティブのライブラリを、NDK で API 31 に向けて作る
         run: |
           bin="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$bin/x86_64-linux-android24-clang"
-          export CC_x86_64_linux_android="$bin/x86_64-linux-android24-clang"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$bin/x86_64-linux-android31-clang"
+          export CC_x86_64_linux_android="$bin/x86_64-linux-android31-clang"
           export AR_x86_64_linux_android="$bin/llvm-ar"
           cargo build --package zumen-abi --locked --release --target x86_64-linux-android
       - name: JNA を Maven Central から取り、SHA-256 を確かめる
         run: sh bindings/java/fetch-jna.sh target/jna
-      - name: ラッパーとテストを Java 8 のクラスにし、d8 で JNA の aar のクラスと一緒に dex にする
+      - name: ラッパーとテストをクラスにし、d8 で JNA の aar のクラスと一緒に dex にする
         run: |
           mkdir -p target/android target/java
-          javac --release 8 -encoding UTF-8 -cp target/jna/jna.jar -d target/java bindings/java/src/main/java/dev/zumen/*.java bindings/java/src/test/java/dev/zumen/*.java
+          javac --release 17 -encoding UTF-8 -cp target/jna/jna.jar -d target/java bindings/java/src/main/java/dev/zumen/*.java bindings/java/src/test/java/dev/zumen/*.java
           (cd target/java && jar cf ../zumen.jar dev)
           unzip -p target/jna/jna.aar classes.jar > target/jna/jna-android.jar
           unzip -p target/jna/jna.aar jni/x86_64/libjnidispatch.so > target/android/libjnidispatch.so
           cp target/x86_64-linux-android/release/libzumen_abi1.so target/android/
           d8="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)d8"
-          "$d8" --release --min-api 24 --output target/android/classes.zip target/zumen.jar target/jna/jna-android.jar
+          "$d8" --release --min-api 31 --output target/android/classes.zip target/zumen.jar target/jna/jna-android.jar
       - name: エミュレーターの中でラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0224）
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
-          api-level: 24
+          api-level: 31
           arch: x86_64
           target: default
           disable-animations: true
@@ -717,14 +711,14 @@ jobs:
           script: sh bindings/java/android/run.sh target/android
   swift:
     name: Swift のラッパーで適合テスト（macOS と iOS のシミュレーター）
-    # 決定 0225。下限は iOS 15・macOS 12（docs/support.md）
+    # 決定 0225。下限は iOS 17・macOS 14（docs/support.md）
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: rust-toolchain.toml のバージョンの Rust と、Apple の対象を入れる
         run: |
           rustup toolchain install
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+          rustup target add aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim
       - name: 配るのと同じ対象で、XCFramework を作る
         run: sh bindings/swift/build-xcframework.sh debug
       - name: macOS で、SwiftPM で作ったラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる

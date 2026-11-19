@@ -36,7 +36,7 @@ CLI と C ABI の共有ライブラリは [GitHub Release](https://github.com/zu
 
 - 状態コードは 0 が ok、1 が failed、2 が invalid、3 が busy、4 が panicked です。failed と panicked でも、`buf` に応答があります。
 - `zm_buf` は、ポインターと `size_t` の 2 つのフィールドの構造体です。FFI では、この大きさの領域を確保して渡し、読んだあとに `zm_free` に渡します。
-- 32 bit の Windows（32 bit の Office の VBA など）では、関数は stdcall です。ほかの環境は、その環境の C の呼び出し規約です。
+- 関数は各環境の 64 bit の標準 C 呼び出し規約です。
 - 1 つのセッションを、同時に 2 つのスレッドから呼ばないでください。呼ぶと busy を返します。
 
 ## CLI と `process`

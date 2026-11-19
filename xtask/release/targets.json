@@ -1,9 +1,7 @@
 [
-  { "os": "ubuntu-22.04", "target": "x86_64-unknown-linux-gnu", "rid": "linux-x64", "wheel": "manylinux_2_28_x86_64", "library": "libzumen_abi1.so", "exe": "zumen", "container": "quay.io/pypa/manylinux_2_28_x86_64@sha256:9555ba6c479fa69a2aa80ad1dc57154a60d562b19df159361d9379a02beb1e36" },
-  { "os": "ubuntu-22.04-arm", "target": "aarch64-unknown-linux-gnu", "rid": "linux-arm64", "wheel": "manylinux_2_28_aarch64", "library": "libzumen_abi1.so", "exe": "zumen", "container": "quay.io/pypa/manylinux_2_28_aarch64@sha256:cb37f0d66c8a75abb93cf6085cad1f1427cd7208f0c0fc48359bb1eea9924f21" },
-  { "os": "macos-latest", "target": "aarch64-apple-darwin", "rid": "osx-arm64", "wheel": "macosx_11_0_arm64", "library": "libzumen_abi1.dylib", "exe": "zumen" },
-  { "os": "macos-latest", "target": "x86_64-apple-darwin", "rid": "osx-x64", "wheel": "macosx_10_12_x86_64", "library": "libzumen_abi1.dylib", "exe": "zumen" },
+  { "os": "ubuntu-24.04", "target": "x86_64-unknown-linux-gnu", "rid": "linux-x64", "wheel": "manylinux_2_34_x86_64", "library": "libzumen_abi1.so", "exe": "zumen", "container": "quay.io/pypa/manylinux_2_34_x86_64@sha256:eaf34dc7cfdff5db7109a92c87b4f797b8bbd1f9ed8da48c02c4025b6ea76650" },
+  { "os": "ubuntu-24.04-arm", "target": "aarch64-unknown-linux-gnu", "rid": "linux-arm64", "wheel": "manylinux_2_34_aarch64", "library": "libzumen_abi1.so", "exe": "zumen", "container": "quay.io/pypa/manylinux_2_34_aarch64@sha256:f87b0720c0cd324fb712d229700c6ca6a5f3248de5828cd3d0e87b32c29f9abb" },
+  { "os": "macos-latest", "target": "aarch64-apple-darwin", "rid": "osx-arm64", "wheel": "macosx_14_0_arm64", "library": "libzumen_abi1.dylib", "exe": "zumen" },
   { "os": "windows-latest", "target": "x86_64-pc-windows-msvc", "rid": "win-x64", "wheel": "win_amd64", "library": "zumen_abi1.dll", "exe": "zumen.exe" },
-  { "os": "windows-latest", "target": "i686-pc-windows-msvc", "rid": "win-x86", "wheel": "win32", "library": "zumen_abi1.dll", "exe": "zumen.exe" },
   { "os": "windows-latest", "target": "aarch64-pc-windows-msvc", "rid": "win-arm64", "wheel": "win_arm64", "library": "zumen_abi1.dll", "exe": "zumen.exe" }
 ]

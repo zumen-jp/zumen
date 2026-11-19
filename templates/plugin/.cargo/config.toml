@@ -1,4 +1,4 @@
-# プラグインの wasm のモジュールから、名前のセクション（関数の名前）を除く（zumen の決定 0252）。このひな形を写した
-# リポジトリの根に置くと効く。関数の名前が要る調べものでは、環境変数 RUSTFLAGS を空の文字列にして作る
+# プラグインの wasm のモジュールから名前のセクションを除き（zumen の決定 0252）、固定幅の SIMD（simd128）を有効にする。
+# このひな形を写したリポジトリの根に置くと効く。関数の名前が要る調べものでは、RUSTFLAGS="-C target-feature=+simd128" を指定して作る
 [target.wasm32-unknown-unknown]
-rustflags = ["-C", "strip=symbols"]
+rustflags = ["-C", "strip=symbols", "-C", "target-feature=+simd128"]
