@@ -144,7 +144,11 @@ fn row_targets_follow_keyless_id_shifts_and_history() {
     }
 }
 
-type Probe = (Result<Option<Seen>, Error>, Vec<Diagnostic>, [u64; 7]);
+type Probe = (
+    Result<Option<Seen>, Error>,
+    Vec<Diagnostic>,
+    [u64; Kind::ALL.len()],
+);
 
 fn probe(
     live: &AcadLive,
@@ -364,7 +368,12 @@ fn row_targets_after_dwg_add_use_no_input_budget() {
     );
 }
 
-type SelectionProbe = (Result<(), Error>, Vec<RowId>, Vec<Diagnostic>, [u64; 7]);
+type SelectionProbe = (
+    Result<(), Error>,
+    Vec<RowId>,
+    Vec<Diagnostic>,
+    [u64; Kind::ALL.len()],
+);
 
 fn select_probe(
     live: &AcadLive,

@@ -19,7 +19,7 @@ use zumen_sxf::{Sxf, SxfFile, SxfLive};
 struct Probe<T> {
     result: Result<T, Error>,
     diagnostics: Vec<Diagnostic>,
-    used: [u64; 7],
+    used: [u64; Kind::ALL.len()],
     micros: f64,
 }
 
