@@ -20,7 +20,7 @@ import { MODULES } from "../../src/constants.js";
 
 const BROWSERS = { chromium, firefox, webkit };
 // 安全なコンテキスト（crypto.subtle が使える）になる localhost にする。番号は開発用の範囲（AGENTS.md）
-const ORIGIN = "http://localhost:24190";
+const ORIGIN = `http://localhost:${process.env.ZUMEN_TEST_PORT ?? 24129}`;
 const WASM_PATH = "/zumen_abi1.wasm";
 // ページから読めるのは、ラッパー・組の本体・公開サンプルだけ
 const SERVED = ["bindings/js/src/", "bindings/js/test/run.mjs", "bindings/conformance/steps.mjs", "samples/"];

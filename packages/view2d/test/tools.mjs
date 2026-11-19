@@ -7,10 +7,10 @@ export function inputFixture() {
   return bundle(columns, { unit: "millimeter", extent: { min_x: -45, min_y: -45, max_x: 45, max_y: 45 } });
 }
 
-export function testTools({ assert, near, throws }) {
+export async function testTools({ assert, near, throws }) {
   const canvas = document.createElement("canvas"), input = inputFixture();
   const camera = { center: { x: 0, y: 0 }, scale: 2, rotation: 0 };
-  const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2, view: camera });
+  const viewer = await View2D.create(canvas, { width: 200, height: 200, pixelRatio: 2, view: camera });
   const pointer = (type, x, y, options = {}) => viewer.handleInput({ type, point: { x, y }, pointerId: 1, ...options });
   const click = (x, y, options = {}) => { pointer("pointerdown", x, y, options); return pointer("pointerup", x, y, options); };
   const key = (key, options = {}) => viewer.handleInput({ type: "keydown", key, ...options });
@@ -113,8 +113,10 @@ export function testTools({ assert, near, throws }) {
     const position = viewer.positionAt({ x: 100, y: 100 });
     viewer.setMeasurement({ start: position, end: viewer.positionAt({ x: 110, y: 100 }) });
     assert(viewer.getState().measurement.real.reason === "unbound", "自由な位置を要素に結び付けず実寸を推測しない");
-    const measuredPixel = canvas.getContext("2d").getImageData(210, 200, 1, 1).data;
-    assert(measuredPixel[0] === 204 && measuredPixel[1] === 0 && measuredPixel[2] === 102, "画素比を使って計測線を図面の上に描く");
+    const measuredShot = await viewer.snapshot();
+    const measuredOffset = (200 * measuredShot.width + 210) * 4;
+    const measuredPixel = measuredShot.pixels.subarray(measuredOffset, measuredOffset + 4);
+    assert(Math.abs(measuredPixel[0] - 204) <= 2 && measuredPixel[1] <= 2 && Math.abs(measuredPixel[2] - 102) <= 2, "画素比を使って計測線を図面の上に描く");
     viewer.jumpTo({ ...camera, center: { x: 1e15, y: 1e15 }, rotation: Math.PI / 5 });
     const precise = viewer.toScreen(viewer.positionAt({ x: 100.01, y: 99.99 }));
     near(precise.x, 100.01, "分けた大原点を足さず画面へ戻す X"); near(precise.y, 99.99, "分けた大原点を足さず画面へ戻す Y");
@@ -211,30 +213,30 @@ export function testTools({ assert, near, throws }) {
     stopInput(); assert(viewer.getState().gesture === null && !pointer("pointerup", 100, 70), "通知の例外でも進行中のポインターを解放する");
   } finally { viewer.destroy(); }
 
-  const limited = new View2D(document.createElement("canvas"), { width: 100, height: 100, limits: { stateItems: 1 } });
+  const limited = await View2D.create(document.createElement("canvas"), { width: 100, height: 100, limits: { stateItems: 1 } });
   const tool = limited.addTool("first", { onInput: () => false });
   throws(() => limited.addTool("second", { onInput: () => false }), "独自ツールの登録数に上限を設ける");
   const overlay = limited.addOverlay(() => {});
   throws(() => limited.addOverlay(() => {}), "重ね描きの登録数に上限を設ける");
   tool(); overlay(); limited.destroy();
   if (typeof OffscreenCanvas !== "undefined") {
-    const offscreen = new View2D(new OffscreenCanvas(200, 200));
+    const offscreen = await View2D.create(new OffscreenCanvas(200, 200));
     offscreen.setTool("pan");
     offscreen.handleInput({ type: "pointerdown", pointerId: 1, point: { x: 20, y: 20 } });
     offscreen.handleInput({ type: "pointermove", pointerId: 1, point: { x: 30, y: 40 } });
     assert(offscreen.getView().center.x === -10 && offscreen.getView().center.y === 20, "OffscreenCanvas へ正規化した入力を渡せる");
     offscreen.destroy();
   }
-  testInputRecovery({ assert });
-  testToolRemoval({ assert, throws });
-  testDomInput({ assert, near, throws });
+  await testInputRecovery({ assert });
+  await testToolRemoval({ assert, throws });
+  await testDomInput({ assert, near, throws });
 }
 
-function testInputRecovery({ assert }) {
+async function testInputRecovery({ assert }) {
   for (const dom of [false, true]) {
     const canvas = document.createElement("canvas"); canvas.style.cssText = "width:200px;height:200px";
     document.body.append(canvas);
-    const viewer = new View2D(canvas, { width: 200, height: 200 });
+    const viewer = await View2D.create(canvas, { width: 200, height: 200 });
     const before = [], after = [], reported = [], first = new Error("synthetic input notification"), second = new Error("synthetic recovery notification");
     let calls = 0;
     const captureError = (event) => { if (event.error === first) { reported.push(event.error); event.preventDefault(); } };
@@ -243,13 +245,13 @@ function testInputRecovery({ assert }) {
       const box = canvas.getBoundingClientRect();
       canvas.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType: "mouse", button: 0, clientX: box.x + x, clientY: box.y + y, bubbles: true, cancelable: true }));
     };
-    const blank = () => canvas.getContext("2d").getImageData(0, 0, 200, 200).data.every((value) => value === 255);
+    const blank = async () => (await viewer.snapshot()).pixels.every((value) => value === 255);
     window.addEventListener("error", captureError);
     try {
       if (dom) viewer.attachInput();
       viewer.subscribe((state) => before.push(state));
       send("pointerdown", 20, 20); send("pointermove", 60, 60);
-      assert(!blank(), "通知の失敗前には選択範囲が見える");
+      assert(!await blank(), "通知の失敗前には選択範囲が見える");
       const offFailure = viewer.on("input", ({ state }) => { calls++; throw state.gesture ? first : second; });
       viewer.subscribe((state) => after.push(state));
       let thrown;
@@ -259,15 +261,15 @@ function testInputRecovery({ assert }) {
       const current = viewer.getState();
       assert(current.gesture === null && current.measurement === null && before[before.length - 1] === current && after[after.length - 1] === current, "失敗する関数の前後の購読側も中断後の状態になる");
       assert(after.length === 2 && after[0].gesture?.type === "select", "操作中の状態を通知した後に中断を通知する");
-      assert(blank(), "直接入力と DOM 入力のどちらも中断後に選択範囲を消す");
+      assert(await blank(), "直接入力と DOM 入力のどちらも中断後に選択範囲を消す");
       offFailure(); const stopped = viewer.getState(); send("pointerup", 70, 70);
       assert(viewer.getState() === stopped, "失敗した操作の pointerup は状態を更新しない");
     } finally { viewer.destroy(); window.removeEventListener("error", captureError); canvas.remove(); }
   }
 }
 
-function testToolRemoval({ assert, throws }) {
-  const viewer = new View2D(document.createElement("canvas"), { width: 200, height: 200 });
+async function testToolRemoval({ assert, throws }) {
+  const viewer = await View2D.create(document.createElement("canvas"), { width: 200, height: 200 });
   try {
     for (const failure of ["cancel", "cleanup", "notification"]) {
       const error = new Error(`synthetic removal ${failure}`);
@@ -298,11 +300,11 @@ function testToolRemoval({ assert, throws }) {
   } finally { viewer.destroy(); }
 }
 
-function testDomInput({ assert, near, throws }) {
+async function testDomInput({ assert, near, throws }) {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "width:200px;height:200px;border:4px solid;padding:6px;transform:scale(0.75);transform-origin:top left";
   document.body.append(canvas);
-  const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2 });
+  const viewer = await View2D.create(canvas, { width: 200, height: 200, pixelRatio: 2 });
   let destroyed = false;
   const key = () => { const event = new KeyboardEvent("keydown", { key: "+", bubbles: true, cancelable: true }); canvas.dispatchEvent(event); return event; };
   const wheel = (options = {}) => { const box = canvas.getBoundingClientRect(); const event = new WheelEvent("wheel", { clientX: box.x + 82.5, clientY: box.y + 82.5, deltaY: -1, deltaMode: 1, ctrlKey: true, cancelable: true, ...options }); canvas.dispatchEvent(event); return event; };

@@ -1,6 +1,6 @@
-// 3D のシーン（ZMS3）を利用側の Canvas へ WebGL2 で描き、要素の ID で選ぶ表示部品（docs/view3d.md）。
+// 3D のシーン（ZMS3）を利用側の Canvas へ WebGPU で描き、要素の ID で選ぶ表示部品（docs/view3d.md）。
 // three.js は同梱せず、利用側と同じ ESM の実体を peer dependency として使う。
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
 import { readScene3D } from "@zumen-jp/zumen";
 import { View3DError, color, cross, dot, fail, finite, invalid, isObject, length, normalize, positive, scale, sub, vector } from "./common.js";
 import { Extras, compareHits, sameUnit } from "./extras.js";
@@ -24,7 +24,35 @@ const DEFAULT_LIMITS = Object.freeze({
   readWork: 100000000,
 });
 const OPTION_KEYS = new Set(["width", "height", "pixelRatio", "background", "unresolvedColor", "selectionColor", "edgeColor",
-  "shading", "edges", "antialias", "limits", "views"]);
+  "shading", "edges", "antialias", "limits", "views", "device"]);
+const CREATE_TOKEN = Symbol("View3D.create");
+
+let sharedDevice = null;
+let sharedDevicePromise = null;
+
+async function acquireSharedDevice() {
+  if (typeof navigator === "undefined" || !navigator.gpu) fail("webgpu-unavailable", "WebGPU を使えない");
+  if (sharedDevice !== null) return sharedDevice;
+  if (sharedDevicePromise !== null) return sharedDevicePromise;
+  sharedDevicePromise = (async () => {
+    const adapter = (await navigator.gpu.requestAdapter()) ?? (await navigator.gpu.requestAdapter({ fallbackAdapter: true }));
+    if (!adapter) fail("webgpu-unavailable", "WebGPU のアダプターを取得できない");
+    const device = await adapter.requestDevice();
+    sharedDevice = device;
+    device.lost.then(() => {
+      if (sharedDevice === device) {
+        sharedDevice = null;
+        sharedDevicePromise = null;
+      }
+    });
+    return device;
+  })().catch((error) => {
+    sharedDevicePromise = null;
+    if (error instanceof View3DError) throw error;
+    fail("webgpu-unavailable", "WebGPU のデバイスを取得できない", error);
+  });
+  return sharedDevicePromise;
+}
 const ZERO = new Float32Array(16);
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
@@ -196,8 +224,9 @@ function runAll(functions) {
 }
 
 export class View3D {
-  #canvas; #renderer; #limits; #size; #options;
+  #canvas; #renderer; #device; #context; #limits; #size; #options;
   #root = new THREE.Scene();
+  #clipGroup = new THREE.ClippingGroup();
   #state = null;
   #scene = null;
   #views = Object.freeze([]);
@@ -205,7 +234,7 @@ export class View3D {
   /** ビュー ID から、行に解決した選択・非表示・色と切断面 */
   #displays = new Map();
   #subscribers = new Set();
-  #listeners = { render: new Set(), contextlost: new Set(), contextrestored: new Set(), pick: new Set(), input: new Set() };
+  #listeners = { render: new Set(), contextlost: new Set(), pick: new Set(), input: new Set() };
   /** 利用側の追加描画。部品が作った資源と借用した Object3D を分けて持つ */
   #extras;
   #input;
@@ -215,42 +244,65 @@ export class View3D {
   #frame = 0;
   #lost = false;
   #destroyed = false;
-  #onLost; #onRestored;
 
-  constructor(canvas, options = {}) {
+  static async create(canvas, options = {}) {
     if (THREE.REVISION !== THREE_REVISION) fail("three-version", `three.js r${THREE.REVISION} は検査した r${THREE_REVISION} と異なる`);
     if (!canvas || typeof canvas.getContext !== "function") invalid("Canvas を渡す");
     if (!isObject(options)) invalid("options はオブジェクト");
     for (const key of Object.keys(options)) if (!OPTION_KEYS.has(key)) invalid(`未知の設定: ${key}`);
-    this.#limits = readLimits(options.limits);
+    const limits = readLimits(options.limits);
     const width = options.width ?? (canvas.clientWidth || canvas.width);
     const height = options.height ?? (canvas.clientHeight || canvas.height);
-    this.#size = readSize(width, height, options.pixelRatio ?? 1, this.#limits);
+    const size = readSize(width, height, options.pixelRatio ?? 1, limits);
     const shading = options.shading ?? "lambert";
     if (shading !== "lambert" && shading !== "unlit") invalid("shading は lambert か unlit");
     if (options.edges !== undefined && typeof options.edges !== "boolean") invalid("edges は真偽値");
     if (options.antialias !== undefined && typeof options.antialias !== "boolean") invalid("antialias は真偽値");
-    this.#options = Object.freeze({
+    if (options.device !== undefined && (!isObject(options.device) || typeof options.device.createBuffer !== "function")) invalid("device は GPUDevice");
+    const parsedOptions = Object.freeze({
       background: color(options.background ?? "#ffffff", "background は #rrggbb"),
       unresolved: color(options.unresolvedColor ?? "#b4b4b4", "unresolvedColor は #rrggbb"),
       selection: color(options.selectionColor ?? "#ff8800", "selectionColor は #rrggbb"),
       edge: color(options.edgeColor ?? "#202020", "edgeColor は #rrggbb"),
       shading, edges: options.edges ?? true,
     });
-    const views = options.views === undefined ? null : this.#resolveViews(readViews(options.views, this.#limits));
-    const context = canvas.getContext("webgl2", { antialias: options.antialias ?? true, alpha: false, depth: true, stencil: false, preserveDrawingBuffer: false });
-    if (!context) fail("webgl2-unavailable", "WebGL2 を使えない");
-    try {
-      this.#renderer = new THREE.WebGLRenderer({ canvas, context });
-    } catch (error) {
-      fail("webgl2-unavailable", "WebGL2 の描画を始められない", error);
+    const rawViews = options.views === undefined ? null : readViews(options.views, limits);
+    if (options.device === undefined && (typeof navigator === "undefined" || !navigator.gpu)) {
+      fail("webgpu-unavailable", "WebGPU を使えない");
     }
-    this.#canvas = canvas;
-    this.#extras = new Extras(this.#limits, canvas.ownerDocument ?? null);
-    this.#root.add(this.#extras.group);
+    const context = canvas.getContext("webgpu");
+    if (!context) fail("webgpu-unavailable", "WebGPU を使えない");
+    const device = options.device ?? await acquireSharedDevice();
+    let renderer;
+    try {
+      renderer = new THREE.WebGPURenderer({
+        canvas, context, device,
+        antialias: options.antialias ?? true, alpha: false, depth: true, stencil: false,
+      });
+      await renderer.init();
+    } catch (error) {
+      try { renderer?.dispose(); } catch { /* 初期化失敗の後始末 */ }
+      fail("webgpu-unavailable", "WebGPU の描画を始められない", error);
+    }
+    return new View3D(CREATE_TOKEN, { canvas, renderer, device, context, limits, size, options: parsedOptions, rawViews });
+  }
+
+  constructor(token, init) {
+    if (token !== CREATE_TOKEN) invalid("View3D.create(canvas, options) を使う");
+    this.#canvas = init.canvas;
+    this.#renderer = init.renderer;
+    this.#device = init.device;
+    this.#context = init.context;
+    this.#limits = init.limits;
+    this.#size = init.size;
+    this.#options = init.options;
+    const views = init.rawViews === null ? null : this.#resolveViews(init.rawViews);
+    this.#extras = new Extras(this.#limits, this.#renderer);
+    this.#root.add(this.#clipGroup);
+    this.#clipGroup.add(this.#extras.group);
     this.#input = new InputState({
       view: (id) => this.#views.find((v) => v.id === id) ?? null,
-      viewAt: (p) => this.#views.find((v) => p.x >= v.rect.x && p.x <= v.rect.x + v.rect.width && p.y >= v.rect.y && p.y <= v.rect.y + v.rect.height) ?? null,
+      viewAt: (p) => this.#views.find((v) => p.x >= v.rect.x && p.x <= v.rect.x + v.rect.width && p.y >= v.rect.y && p.y <= v.rect.height + v.rect.y) ?? null,
       hitTest: (id, p) => this.hitTest(id, p),
       getRay: (id, p) => this.getRay(id, p),
       center: () => this.#scene?.extent?.center ?? null,
@@ -262,27 +314,19 @@ export class View3D {
     this.#renderer.autoClear = false;
     this.#renderer.setPixelRatio(this.#size.pixelRatio);
     this.#renderer.setSize(this.#size.width, this.#size.height, false);
-    if (shading === "lambert") {
+    if (this.#options.shading === "lambert") {
       this.#root.add(new THREE.AmbientLight(0xffffff, 1.2));
       const light = new THREE.DirectionalLight(0xffffff, 1.6);
       light.position.set(0.4, 0.6, 1);
       this.#root.add(light);
     }
-    this.#onLost = (event) => {
-      event.preventDefault();
+    this.#device.lost.then(() => {
+      if (this.#destroyed || this.#lost) return;
       this.#lost = true;
       this.#cancelFrame();
       this.#changed();
       this.#emit("contextlost", { type: "contextlost" });
-    };
-    this.#onRestored = () => {
-      this.#lost = false;
-      this.#changed();
-      this.#emit("contextrestored", { type: "contextrestored" });
-      this.invalidate();
-    };
-    canvas.addEventListener("webglcontextlost", this.#onLost);
-    canvas.addEventListener("webglcontextrestored", this.#onRestored);
+    });
   }
 
   #alive() { if (this.#destroyed) fail("destroyed", "破棄した表示部品"); }
@@ -923,7 +967,7 @@ export class View3D {
     renderer.setScissor(0, 0, size.width, size.height);
     renderer.setClearColor(this.#options.background, 1);
     renderer.clear(true, true, false);
-    if (scene !== null) for (const group of scene.chunks) if (group.parent === null) this.#root.add(group);
+    if (scene !== null) for (const group of scene.chunks) if (group.parent === null) this.#clipGroup.add(group);
     const excluded = [];
     for (const view of this.#views) {
       const { rect, camera } = view, origin = camera.position;
@@ -943,15 +987,14 @@ export class View3D {
       }
       for (const id of this.#extras.prepare(camera, rect, display.planes)) excluded.push(Object.freeze({ view: view.id, id, reason: "clipping-unsupported" }));
       // 切断面は表示原点からの相対座標で渡す。three.js は符号付き距離が負の側を切るので法線を反転する
-      renderer.clippingPlanes = display.planes.map(({ point, normal }) => new THREE.Plane(
+      this.#clipGroup.clippingPlanes = display.planes.map(({ point, normal }) => new THREE.Plane(
         new THREE.Vector3(-normal[0], -normal[1], -normal[2]), dot(normal, sub(point, origin))));
-      const y = size.height - rect.y - rect.height;
-      renderer.setViewport(rect.x, y, rect.width, rect.height);
-      renderer.setScissor(rect.x, y, rect.width, rect.height);
+      renderer.setViewport(rect.x, rect.y, rect.width, rect.height);
+      renderer.setScissor(rect.x, rect.y, rect.width, rect.height);
       renderer.clear(true, true, false);
       renderer.render(this.#root, this.#cameraFor(view));
     }
-    renderer.clippingPlanes = [];
+    this.#clipGroup.clippingPlanes = [];
     renderer.setScissorTest(false);
     this.#emit("render", Object.freeze({ type: "render", views: this.#views.length, excluded: Object.freeze(excluded) }));
     return true;
@@ -1288,20 +1331,57 @@ export class View3D {
     if (cleanup.failed) throw cleanup.error;
   }
 
-  snapshot(viewId) {
+  async snapshot(viewId) {
     this.#alive();
     const view = this.#view(viewId);
-    if (this.#lost) fail("context-lost", "context を失っている");
+    if (this.#lost) fail("context-lost", "デバイスを失っている");
     const ratio = this.#size.pixelRatio, { rect } = view;
-    const x = Math.round(rect.x * ratio), y = Math.round((this.#size.height - rect.y - rect.height) * ratio);
+    const x = Math.round(rect.x * ratio), y = Math.round(rect.y * ratio);
     const width = Math.round(rect.width * ratio), height = Math.round(rect.height * ratio);
+    if (width <= 0 || height <= 0) invalid("ビューの画素の寸法は正の整数");
     if (width * height > this.#limits.canvasPixels) fail("limit", "Canvas の画素数の上限");
     this.render();
-    const gl = this.#renderer.getContext(), raw = new Uint8Array(width * height * 4);
-    gl.readPixels(x, y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, raw);
-    const pixels = new Uint8Array(raw.length), stride = width * 4;
-    for (let row = 0; row < height; row++) pixels.set(raw.subarray((height - 1 - row) * stride, (height - row) * stride), row * stride);
-    return Object.freeze({ view: view.id, rect, pixelRatio: ratio, width, height, pixels });
+    const device = this.#device;
+    const texture = this.#context.getCurrentTexture();
+    const bytesPerRow = Math.ceil((width * 4) / 256) * 256;
+    const buffer = device.createBuffer({
+      size: bytesPerRow * height,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+      const encoder = device.createCommandEncoder();
+      encoder.copyTextureToBuffer(
+        { texture, origin: [x, y, 0] },
+        { buffer, bytesPerRow, rowsPerImage: height },
+        [width, height, 1],
+      );
+      device.queue.submit([encoder.finish()]);
+      await buffer.mapAsync(GPUMapMode.READ);
+      if (this.#destroyed) fail("destroyed", "破棄した表示部品");
+      if (this.#lost) fail("context-lost", "デバイスを失っている");
+      const mapped = new Uint8Array(buffer.getMappedRange());
+      const pixels = new Uint8Array(width * height * 4);
+      const stride = width * 4;
+      const bgra = texture.format.startsWith("bgra8unorm");
+      for (let row = 0; row < height; row++) {
+        const src = row * bytesPerRow;
+        const dst = row * stride;
+        if (bgra) {
+          for (let i = 0; i < stride; i += 4) {
+            pixels[dst + i] = mapped[src + i + 2];
+            pixels[dst + i + 1] = mapped[src + i + 1];
+            pixels[dst + i + 2] = mapped[src + i];
+            pixels[dst + i + 3] = mapped[src + i + 3];
+          }
+        } else {
+          pixels.set(mapped.subarray(src, src + stride), dst);
+        }
+      }
+      buffer.unmap();
+      return Object.freeze({ view: view.id, rect, pixelRatio: ratio, width, height, pixels });
+    } finally {
+      buffer.destroy();
+    }
   }
 
   /** 観測用の数。GPU の実際の使用量ではなく、three.js が持つ資源の件数。 */
@@ -1309,7 +1389,7 @@ export class View3D {
     this.#alive();
     const info = this.#renderer.info;
     return Object.freeze({
-      geometries: info.memory.geometries, textures: info.memory.textures, programs: info.programs?.length ?? 0,
+      geometries: info.memory.geometries, textures: info.memory.textures, programs: info.programs?.length ?? info.memory?.programs ?? 0,
       calls: info.render.calls, triangles: info.render.triangles, lines: info.render.lines,
       gpuBytes: this.#scene?.report.gpuBytes ?? 0,
       subscribers: this.#subscribers.size,
@@ -1329,8 +1409,6 @@ export class View3D {
       () => binding?.disconnect(),
       ...this.#extras.entries().flatMap((entry) => this.#extras.remove(entry, "destroy")),
       () => this.#cancelFrame(),
-      () => this.#canvas.removeEventListener("webglcontextlost", this.#onLost),
-      () => this.#canvas.removeEventListener("webglcontextrestored", this.#onRestored),
     ];
     const scene = this.#scene;
     this.#scene = null;

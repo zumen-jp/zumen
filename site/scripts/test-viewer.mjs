@@ -49,7 +49,21 @@ try {
     await new Promise((ok, fail) => server.once("error", fail).listen(port, "127.0.0.1", ok));
     origin = `http://127.0.0.1:${port}`;
   }
-  browser = await launchers[product].launch(["chrome", "msedge"].includes(product) ? { channel: product } : {});
+  const isChromium = ["chromium", "chrome", "msedge"].includes(product);
+  const launchOptions = isChromium
+    ? {
+        ...(product === "chromium" ? {} : { channel: product }),
+        ignoreDefaultArgs: ["--disable-gpu"],
+        args: [
+          "--enable-gpu",
+          "--enable-unsafe-webgpu",
+          "--ignore-gpu-blocklist",
+          ...(process.platform === "win32" ? ["--use-webgpu-adapter=d3d11"] : []),
+          ...(process.platform === "linux" ? ["--use-angle=vulkan", "--enable-features=Vulkan", "--enable-unsafe-swiftshader"] : []),
+        ],
+      }
+    : {};
+  browser = await launchers[product].launch(launchOptions);
   const context = await browser.newContext({ viewport: { width: 1360, height: 980 }, serviceWorkers: "block" });
   const allowed = new Set([...files.keys(), missingPath]);
   // リダイレクト先も含め、知らない要求は送信前に止める。失敗として数え、通信がなかったという結果にはしない。
@@ -63,6 +77,16 @@ try {
   });
   context.on("weberror", () => errors.push("pageerror"));
   context.setDefaultTimeout(30_000);
+  // WebGPU が使えない環境でも未処理エラーや不要通信を起こさず、理由を画面へ出すことを確かめる。
+  const noGpuPage = await context.newPage();
+  noGpuPage.on("websocket", () => errors.push("websocket"));
+  await noGpuPage.addInitScript(() => {
+    Object.defineProperty(navigator, "gpu", { value: undefined, configurable: true });
+  });
+  await noGpuPage.goto(origin + "/viewer/");
+  await noGpuPage.locator(".status").getByText("このブラウザーでは WebGPU を使えないため、図面を表示できません。", { exact: true }).waitFor();
+  await noGpuPage.close();
+
   const page = await context.newPage();
   await page.addInitScript(() => {
     window.cspFailures = [];
@@ -76,17 +100,23 @@ try {
   assert.equal(response.headers()["referrer-policy"], "no-referrer");
   assert.match(response.headers()["cache-control"], /(?:^|,\s*)no-transform(?:,|$)/);
   assert.match(response.headers()["cache-control"], /(?:^|,\s*)max-age=0(?:,|$)/);
+  const hasWebGPU = await page.evaluate(async () => Boolean(
+    (await globalThis.navigator.gpu?.requestAdapter()) ?? (await globalThis.navigator.gpu?.requestAdapter({ fallbackAdapter: true })),
+  ));
+  if (!hasWebGPU && isChromium) throw new Error("Chromium で WebGPU アダプターを取得できません");
   const picker = page.getByLabel("図面ファイル"), samples = page.getByLabel("公開サンプル");
   async function ready(format) {
     await page.waitForFunction((value) => document.querySelector(".status")?.textContent.includes("表示しました。 " + value), format);
-    await page.waitForFunction(() => {
+    await page.waitForFunction(async () => {
       const node = document.querySelector("canvas");
-      if (!node?.width || !node.height) return false;
-      const data = node.getContext("2d").getImageData(0, 0, node.width, node.height).data;
+      const viewer = node?.[Symbol.for("zumen.view2d")];
+      if (!viewer || !node.width || !node.height) return false;
+      const { pixels: data } = await viewer.snapshot();
       for (let i = 0; i < data.length; i += 4) if (data[i] < 225 || data[i + 1] < 225 || data[i + 2] < 225) return true;
       return false;
     });
   }
+  if (hasWebGPU) {
   for (const [path, format] of [["dxf/text_alignments.dxf", "DXF"], ["dxf/opendxfviewer-latin1.dxf", "DXF"], ["dwg/zumen-layout-r2000.dwg", "DWG"]]) {
     await samples.selectOption(path);
     if (path === "dxf/opendxfviewer-latin1.dxf") {
@@ -128,24 +158,29 @@ try {
   await page.getByRole("region", { name: "出所" }).getByText("ハンドル", { exact: true }).waitFor();
   // 0.3.0 は convert_estimate を持つので、保存前の見積もりと保存を表示する（0.2.0 では表示しなかった）。
   assert.equal(await page.getByRole("region", { name: /^DXF で保存/ }).count(), 1);
+  }
   assert.equal(await page.getByRole("link", { name: "非公開の報告窓口" }).count(), 1);
   assert.deepEqual(await page.evaluate(() => window.cspFailures), []);
   assert.deepEqual(blocked, []);
   assert.deepEqual(errors, []);
-  assert.ok(requests.some((request) => request.path.endsWith(".wasm")));
-  assert.ok(requests.some((request) => /\/worker-[^/]+\.js$/.test(request.path)));
+  if (hasWebGPU) {
+    assert.ok(requests.some((request) => request.path.endsWith(".wasm")));
+    assert.ok(requests.some((request) => /\/worker-[^/]+\.js$/.test(request.path)));
+  }
   assert.ok(requests.every((request) => request.origin === origin && request.method === "GET" && !request.body));
   assert.equal((await context.cookies()).length, 0);
   // CSP がページと Worker の両方で通信より先に止めることも確認する。route で止めただけなら失敗にする。
   await page.evaluate(() => fetch("https://example.invalid/csp-probe").catch(() => {}));
   await page.waitForFunction(() => window.cspFailures.includes("connect-src"));
-  const worker = page.workers()[0];
-  assert.ok(worker);
-  assert.equal(await worker.evaluate(() => new Promise((ok) => {
-    self.addEventListener("securitypolicyviolation", (event) => ok(event.effectiveDirective), { once: true });
-    fetch("https://example.invalid/worker-csp-probe").catch(() => {});
-    setTimeout(() => ok("missing"), 2000);
-  })), "connect-src");
+  if (hasWebGPU) {
+    const worker = page.workers()[0];
+    assert.ok(worker);
+    assert.equal(await worker.evaluate(() => new Promise((ok) => {
+      self.addEventListener("securitypolicyviolation", (event) => ok(event.effectiveDirective), { once: true });
+      fetch("https://example.invalid/worker-csp-probe").catch(() => {});
+      setTimeout(() => ok("missing"), 2000);
+    })), "connect-src");
+  }
   assert.deepEqual(blocked, []);
   await page.setViewportSize({ width: 390, height: 900 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "狭い画面で本文が横にはみ出さない");

@@ -3,7 +3,7 @@ import type { Bytes, Scene3dCounts, Scene3dMap, Scene3dResult } from "@zumen-jp/
 /** 検査を通した three.js の r 版。 */
 export declare const THREE_REVISION: "187";
 
-export type View3DErrorReason = "invalid-input" | "invalid-scene" | "limit" | "three-version" | "webgl2-unavailable"
+export type View3DErrorReason = "invalid-input" | "invalid-scene" | "limit" | "three-version" | "webgpu-unavailable"
   | "destroyed" | "no-scene" | "unknown-element" | "other-document" | "unknown-view" | "outside-view" | "aspect-ratio" | "context-lost" | "reentrant";
 /** 表示部品の失敗。reason で種類を区別する。 */
 export declare class View3DError extends Error {
@@ -96,6 +96,8 @@ export interface View3DOptions {
   antialias?: boolean;
   limits?: Partial<Limits>;
   views?: readonly View3DView[];
+  /** 共有する WebGPU デバイス。省略時は既定の共有デバイスを取得する。 */
+  device?: GPUDevice;
 }
 export interface RenderIssue {
   readonly reason: "color-unresolved" | "points-unsupported";
@@ -294,12 +296,12 @@ export type View3DEvent =
   | { readonly type: "render"; readonly views: number; readonly excluded: readonly { readonly view: string; readonly id: string; readonly reason: "clipping-unsupported" }[] }
   | { readonly type: "pick"; readonly view: string; readonly point: PointLike; readonly hits: readonly Hit3D[] }
   | { readonly type: "input"; readonly action: "start" | "end" | "cancel"; readonly gesture: "pan" | "orbit" | "touch"; readonly view: string; readonly reason?: string }
-  | { readonly type: "contextlost" }
-  | { readonly type: "contextrestored" };
+  | { readonly type: "contextlost" };
 
 export declare class View3D {
-  /** WebGL2 を使えないときは reason が webgl2-unavailable の例外。 */
-  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, options?: View3DOptions);
+  /** WebGPU を使えないときは reason が webgpu-unavailable の例外。 */
+  static create(canvas: HTMLCanvasElement | OffscreenCanvas, options?: View3DOptions): Promise<View3D>;
+  private constructor();
   getState(): View3DState;
   /** 表示中の文書の要素。クラスは地物では型。未知の ID は null。シーンがなければ no-scene、別文書は other-document。 */
   getElement(document: DocumentIdentity, id: string): Element3D | null;
@@ -321,8 +323,8 @@ export declare class View3D {
   /** frame を省けば exact で、1:1 でない枠は reason が aspect-ratio の例外。 */
   toReviewPlace(viewId: string, options?: { readonly frame?: "exact" | "contain"; readonly hashes?: ReadonlyMap<string, string> }): ReviewExport;
   applyReviewPlace(viewId: string, document: DocumentIdentity, place: ReviewPlace3D, options?: { readonly hashes?: ReadonlyMap<string, string> }): ReviewApplyResult;
-  /** 利用側の明示した要求で描き、画素を返す。保存・送信はしない。 */
-  snapshot(viewId: string): Snapshot3D;
+  /** 利用側の明示した要求で描き、画素を非同期に返す。保存・送信はしない。 */
+  snapshot(viewId: string): Promise<Snapshot3D>;
   /** 親のない root を借用して描く。表示部品と同じ three.js の実体の Object3D に限る。 */
   addObject(root: object, options: ObjectOptions): Registration;
   /** 幾何の記述から部品が資源を作って描く。 */

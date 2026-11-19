@@ -18,7 +18,7 @@
 
 ## 手元で見る
 
-Node.js 22.23.4 以降を使います（Astro 7.4 の下限）。CI は Node.js 24 で確かめます。
+Node.js 24 以降を使います。
 
 ```bash
 cd site

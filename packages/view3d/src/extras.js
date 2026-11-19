@@ -1,6 +1,6 @@
 // 利用側の追加描画（docs/view3d.md#追加描画と所有権）。借用する Object3D と、幾何の記述から部品が作る資源を分けて持つ。
 // 位置は f64 の原点と局所の変換で受け、描画と当たり判定のたびにカメラの位置からの相対値にしてから three.js へ渡す。
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
 import { color, cross, dot, fail, finite, invalid, isObject, length, normalize, positive, scale, sub, vector } from "./common.js";
 
 const COMMON_KEYS = ["id", "origin", "matrix", "unit", "scope", "priority", "pickable", "pickTolerance"];
@@ -124,8 +124,8 @@ function circlePoints(center, radius, normal, tolerance) {
   return out;
 }
 
-/** 画像を部品の Canvas へ写す。元の画像は改変せず、URL やフォントを取りに行かない。 */
-function copyImage(image, ownerDocument, limits) {
+/** 画像を GPU の texture へ写す。元の画像は改変せず、URL やフォントを取りに行かない。 */
+function copyImage(image, limits, renderer) {
   let width, height;
   const isData = typeof ImageData !== "undefined" && image instanceof ImageData;
   if (isData) { width = image.width; height = image.height; }
@@ -137,17 +137,33 @@ function copyImage(image, ownerDocument, limits) {
   } else invalid("image は ImageData・ImageBitmap・Canvas・読み込み済みの画像");
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) invalid("画像の寸法は正の整数");
   if (width * height > limits.canvasPixels) fail("limit", "画像の画素数の上限");
-  const canvas = ownerDocument !== null ? ownerDocument.createElement("canvas") : new OffscreenCanvas(width, height);
-  canvas.width = width; canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context) fail("webgl2-unavailable", "画像を写す 2D の Canvas を使えない");
+  let texture;
+  if (isData) {
+    const stride = width * 4;
+    const data = new Uint8Array(stride * height);
+    for (let row = 0; row < height; row++) {
+      data.set(image.data.subarray((height - 1 - row) * stride, (height - row) * stride), row * stride);
+    }
+    texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+  } else {
+    texture = new THREE.Texture(image);
+    texture.flipY = true;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+  }
   try {
-    if (isData) context.putImageData(image, 0, 0); else context.drawImage(image, 0, 0);
-    context.getImageData(0, 0, 1, 1);
+    renderer.initTexture(texture);
   } catch (error) {
+    texture.dispose();
     invalid(`画像を読めない（別オリジンの画像は使えない）: ${error?.name ?? error}`);
   }
-  return { canvas, width, height };
+  return { texture, width, height };
 }
 
 function readLabel(value, position, owned, context) {
@@ -156,9 +172,8 @@ function readLabel(value, position, owned, context) {
   if (width > MAX_LABEL_PX || height > MAX_LABEL_PX) invalid("ラベルは 4096 CSS px 以下");
   const anchor = value.anchor ?? [0.5, 0.5];
   if (!Array.isArray(anchor) || anchor.length !== 2 || anchor.some((a) => typeof a !== "number" || !(a >= 0 && a <= 1))) invalid("anchor は 0〜1 の 2 値");
-  const copy = copyImage(value.image, context.ownerDocument, context.limits);
-  const texture = new THREE.CanvasTexture(copy.canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
+  const copy = copyImage(value.image, context.limits, context.renderer);
+  const { texture } = copy;
   owned.textures.push(texture);
   owned.bytes += copy.width * copy.height * 4;
   const material = owned.material(new THREE.SpriteMaterial({ map: texture, sizeAttenuation: false, transparent: true }));
@@ -186,9 +201,9 @@ function buildItem(item, index, owned, labels, context) {
   const spend = (n) => { context.work += n; if (context.work > context.limits.work) fail("limit", "幾何の記述の作業量の上限"); };
   const lineOf = (list, closed) => {
     spend(list.length);
-    const values = list.flat();
+    const values = (closed && list.length > 0 ? [...list, list[0]] : list).flat();
     const material = owned.material(new THREE.LineBasicMaterial({ color: rgb }));
-    return closed ? new THREE.LineLoop(owned.geometry(values), material) : new THREE.Line(owned.geometry(values), material);
+    return new THREE.Line(owned.geometry(values), material);
   };
   const toleranceOf = (list) => {
     if (item.tolerance !== undefined) return positive(item.tolerance, `items[${index}].tolerance は文書単位の正の有限値`);
@@ -260,11 +275,11 @@ export function compareHits(a, b) {
 export class Extras {
   group = new THREE.Group();
   #entries = new Map();
-  #limits; #ownerDocument;
+  #limits; #renderer;
 
-  constructor(limits, ownerDocument) {
+  constructor(limits, renderer) {
     this.#limits = limits;
-    this.#ownerDocument = ownerDocument;
+    this.#renderer = renderer;
     this.group.matrixAutoUpdate = false;
   }
 
@@ -315,7 +330,7 @@ export class Extras {
     if (!Array.isArray(items) || items.length === 0 || items.length > this.#limits.stateItems) invalid("items は 1 個以上の幾何の記述の配列");
     const owned = new Owned(), labels = [], parts = [], partOf = new Map();
     const group = new THREE.Group();
-    const build = { limits: this.#limits, ownerDocument: this.#ownerDocument, work: 0 };
+    const build = { limits: this.#limits, renderer: this.#renderer, work: 0 };
     try {
       items.forEach((item, index) => {
         const part = buildItem(item, index, owned, labels, build);

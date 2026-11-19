@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 // 表示を再開した利用側の effect が実際に受けた状態で確かめる。最後に描いた状態だけでは、古い ready を見落とす。
 export async function checkBoundaries(page, bytes, mode) {
   for (const kind of ["Activity", "Suspense"]) {
-    const initialDestroys = await page.evaluate(() => probe.counts.destroyed);
+    const beforeCreated = await page.evaluate(() => probe.counts.created);
     await page.evaluate(({ bytes, kind }) => { boundary.begin(bytes); boundary.render(kind, true); }, { bytes: [...bytes], kind });
-    await page.waitForFunction(() => ["layout", "passive"].every((phase) => boundary.calls.some((c) => c.phase === phase && c.record === 1)));
-    assert.equal(await page.evaluate(() => probe.counts.destroyed), initialDestroys + (mode === "StrictMode" ? 1 : 0), "開発用 StrictMode だけが初回に effect を再実行する");
+    await page.waitForFunction(() => ["layout", "passive"].every((phase) => boundary.calls.some((c) => c.phase === phase && c.record === 1)) && boundary.fresh);
+    assert.equal(await page.evaluate(() => probe.counts.created), beforeCreated + 1, mode + " " + kind + ": StrictMode でも不要な GPU 初期化を重ねない");
+    assert.equal(await page.evaluate(() => probe.counts.created - probe.counts.destroyed), 1, mode + " " + kind + ": 表示中の View2D は 1 つだけ生存する");
     const workers = page.workers();
     assert.equal(workers.length, 1);
     const [oldWorker] = workers;
@@ -14,21 +15,23 @@ export async function checkBoundaries(page, bytes, mode) {
     await page.evaluate((kind) => { boundary.hold(); boundary.render(kind, false); }, kind);
     await exited;
     assert.equal(page.workers().length, 0);
+    assert.equal(await page.evaluate(() => probe.counts.created - probe.counts.destroyed), 0, mode + " " + kind + ": 切り離しで GPU 資源を破棄する");
     await page.evaluate((kind) => { boundary.mark(); boundary.render(kind, true); }, kind);
-    assert.ok(await page.evaluate(() => boundary.fresh), kind + " から同じ Canvas に再接続");
     await page.waitForFunction(() => boundary.waiting > 0);
     const waiting = await page.evaluate(() => boundary.calls);
     assert.ok(["layout", "passive"].every((phase) => waiting.some((call) => call.phase === phase))
       && waiting.every((call) => call.status === "loading" && call.workers === 0), mode + " " + kind + " の再接続: " + JSON.stringify(waiting));
+    await page.waitForFunction(() => boundary.fresh);
+    assert.ok(await page.evaluate(() => boundary.fresh), kind + " から同じ Canvas に再接続");
     await page.evaluate(() => boundary.release());
     await page.waitForFunction(() => ["layout", "passive"].every((phase) => boundary.calls.some((c) => c.phase === phase && c.record === 1)));
     const calls = await page.evaluate(() => boundary.calls.filter((c) => c.status === "ready"));
     assert.ok(calls.every((c) => c.workers === 1 && c.record === 1), mode + " " + kind + " の ready は生存する Worker に属する: " + JSON.stringify(calls));
     await page.evaluate(() => boundary.move());
     await page.waitForFunction(() => boundary.events === 1 && Number(document.querySelector("#camera")?.textContent) < 0);
-    assert.deepEqual(await page.evaluate(() => [probe.counts.state, probe.counts.events]), [1, 1]);
+    assert.deepEqual(await page.evaluate(() => [probe.counts.state, probe.counts.events, probe.counts.created - probe.counts.destroyed]), [1, 1, 1]);
     await page.evaluate(() => boundary.end());
-    assert.deepEqual(await page.evaluate(() => [probe.counts.workers, probe.counts.state, probe.counts.events]), [0, 0, 0]);
+    assert.deepEqual(await page.evaluate(() => [probe.counts.workers, probe.counts.state, probe.counts.events, probe.counts.created - probe.counts.destroyed]), [0, 0, 0, 0]);
   }
 }
 
@@ -94,11 +97,12 @@ export async function checkInteractions(page, ready) {
   }
   const wide = dxf(section("ENTITIES", [...line("B0", -1000, 0, -1000, 40), ...line("B1", 0, 0, 0, 40), ...line("B2", 1000, 0, 1000, 40)]));
   await open(wide, "wide");
-  const lineCount = () => canvas.evaluate((node) => {
-    const row = node.getContext("2d").getImageData(0, Math.floor(node.height / 2), node.width, 1).data;
+  const lineCount = () => canvas.evaluate(async (node) => {
+    const { pixels, width, height } = await node[Symbol.for("zumen.view2d")].snapshot();
+    const start = Math.floor(height / 2) * width * 4, end = start + width * 4;
     let count = 0, previous = false;
-    for (let i = 0; i < row.length; i += 4) {
-      const ink = row[i] < 225 || row[i + 1] < 225 || row[i + 2] < 225;
+    for (let i = start; i < end; i += 4) {
+      const ink = pixels[i] < 225 || pixels[i + 1] < 225 || pixels[i + 2] < 225;
       if (ink && !previous) count++;
       previous = ink;
     }

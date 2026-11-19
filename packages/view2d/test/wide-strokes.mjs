@@ -56,7 +56,7 @@ function reference(canvas, input, angle, ratio, item) {
 }
 
 /** cap・join・同じ part の union を、幅を制限した独立 Canvas と照合する。 */
-export function testWideStrokes(assert) {
+export async function testWideStrokes(assert) {
   const huge = [2e9, 2e15, 2e38];
   const items = [
     { name: "画面を覆う水平線", xy: [-2000, 0, 2000, 0] },
@@ -88,7 +88,7 @@ export function testWideStrokes(assert) {
     pixelRatios: [1, 1.5, 2, 8], rotations: [0, Math.PI / 6, Math.PI / 2], widths: [0, 2, 8, ...huge, 300, 1000, 2000] };
   for (const item of items) for (const width of item.widths ?? huge) for (const pixelRatio of totals.pixelRatios) for (const rotation of totals.rotations) {
     const canvas = document.createElement("canvas"), near = document.createElement("canvas");
-    const viewer = new View2D(canvas, { width: SIZE, height: SIZE, pixelRatio, pixelsPerMillimeter: 1,
+    const viewer = await View2D.create(canvas, { width: SIZE, height: SIZE, pixelRatio, pixelsPerMillimeter: 1,
       view: { center: { x: 0, y: 0 }, scale: 1, rotation } });
     try {
       const data = source(item.xy, width, item.separate);
@@ -107,7 +107,7 @@ export function testWideStrokes(assert) {
         `${context}: 原本の描画件数・診断・ID を保つ`);
       near.width = canvas.width; near.height = canvas.height;
       const expected = reference(near, input, rotation, pixelRatio, item);
-      const actual = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+      const actual = (await viewer.snapshot()).pixels;
       let samples = 0, mismatch = 0;
       const step = Math.max(1, Math.floor(pixelRatio));
       for (let y = 1; y < canvas.height - 1; y += step) for (let x = 1; x < canvas.width - 1; x += step) {

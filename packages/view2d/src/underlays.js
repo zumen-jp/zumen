@@ -76,8 +76,8 @@ function planOf(frame, extent, box, size, limits) {
 
 /** 利用側の関数には描画先を渡さない。現行の要求だけを後から合成する（決定 0278）。 */
 export class Underlays {
-  constructor(limits, changed) {
-    this.limits = limits; this.changed = changed; this.renderer = null; this.records = []; this.state = EMPTY;
+  constructor(limits, changed, onDropRaster = null) {
+    this.limits = limits; this.changed = changed; this.onDropRaster = onDropRaster; this.renderer = null; this.records = []; this.state = EMPTY;
     this.leases = new Set(); this.jobs = 0; this.pixels = 0; this.queued = false; this.closed = false; this.paused = false;
     this.calling = false;
     this.requestLimits = Object.freeze({ maxBytes: limits.underlayBytes, maxPixels: limits.underlayPixels, maxSide: limits.underlaySide });
@@ -116,6 +116,7 @@ export class Underlays {
   dropPixels(record) {
     if (!record.raster) return;
     const raster = record.raster; record.raster = null;
+    this.onDropRaster?.(raster);
     const lease = raster.lease;
     lease.rasterReleases++;
     const done = () => { this.pixels -= raster.pixels; lease.rasterReleases--; this.finishLease(lease); };
@@ -165,7 +166,7 @@ export class Underlays {
   setRenderer(renderer) { valid(renderer === null || typeof renderer === "function", "underlayRenderer"); this.renderer = renderer; this.refresh(); }
   refresh() { this.paused = false; for (const record of this.records) { record.owner = null; this.stop(record); record.extent = null; record.failure = null; } }
   cancel() { this.paused = true; for (const record of this.records) this.stop(record); }
-  destroy() { this.closed = true; this.reset(); this.renderer = null; this.changed = null; }
+  destroy() { this.closed = true; this.reset(); this.renderer = null; this.changed = null; this.onDropRaster = null; }
 
   resolve(record) {
     const lease = { record, owner: Symbol(), rasterOwner: null, control: new AbortController(), retired: false, busy: true, resource: null, operation: null, rasterReleases: 0, releasing: false };
@@ -282,17 +283,23 @@ export class Underlays {
 
   reason(row) { return this.records[row]?.reason ?? (this.records[row]?.raster ? undefined : "resource-unresolved"); }
 
-  draw(ctx, row) {
+  draw(surface, row) {
     const record = this.records[row], raster = record?.raster, plan = record?.plan;
     if (!raster || !plan) return;
     const { p, u, v } = plan.frame, dx = plan.right - plan.left, dy = plan.top - plan.bottom;
     try {
       const source = raster.value.source;
       if (source.width !== plan.width || source.height !== plan.height) throw new Error("underlay.source");
-      // Canvas の画像は左上原点。内容の Y の上向きをここで反転する（HTML §4.12.5.1.15）。
-      ctx.transform(u.x * dx / plan.width, u.y * dx / plan.width, -v.x * dy / plan.height, -v.y * dy / plan.height,
-        p.x + u.x * plan.left + v.x * plan.top, p.y + u.y * plan.left + v.y * plan.top);
-      ctx.drawImage(source, 0, 0);
+      // 画像ソースは左上原点。内容の Y の上向きをここで反転する。
+      surface.drawImageQuad(
+        source,
+        plan.width,
+        plan.height,
+        [u.x * dx, u.y * dx, -v.x * dy, -v.y * dy, p.x + u.x * plan.left + v.x * plan.top, p.y + u.y * plan.left + v.y * plan.top],
+        1,
+        false,
+        raster,
+      );
     } catch { record.failure = record.reason = "resource-render-failed"; this.stop(record); this.snapshot(); this.notify(); }
   }
 }

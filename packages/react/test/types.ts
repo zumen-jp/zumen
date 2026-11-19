@@ -2,7 +2,7 @@ import { useDrawing, useDrawingViewer, useReviewEvent, useReviewLayer, useReview
 import { ReviewStore } from "@zumen-jp/view2d";
 
 declare const canvas: HTMLCanvasElement | null, file: File | null, module: WebAssembly.Module;
-const viewer = useDrawingViewer(canvas);
+const viewer = useDrawingViewer(canvas, undefined, (error) => void error.reason);
 const state = useViewerState(viewer);
 useViewerEvent(viewer, "selection", ({ state: next }) => void next.selection);
 const opened = useDrawing(file, { loadModule: () => module, from: "sheet/0" });
@@ -30,7 +30,7 @@ if (opened.status === "ready" && opened.canReview && reviewState) {
 import { useScene3D, useView3D, useView3DEvent, useView3DInput, useView3DState } from "../src/view3d.js";
 
 declare const canvas3d: HTMLCanvasElement | null;
-const viewer3d = useView3D(canvas3d, { shading: "unlit" });
+const viewer3d = useView3D(canvas3d, { shading: "unlit" }, (error) => void error.reason);
 useView3DInput(viewer3d, canvas3d, { select: true });
 const state3d = useView3DState(viewer3d);
 useView3DEvent(viewer3d, "pick", ({ hits }) => void hits[0]?.kind);

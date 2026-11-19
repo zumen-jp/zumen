@@ -1,4 +1,4 @@
-// 地面の 2D のアダプター（#816）をブラウザーの WebGL2 で検査する。座標と ID は View2D の変換と当たり判定を独立の期待値にする。
+// 地面の 2D のアダプター（#816）をブラウザーの WebGPU で検査する。座標と ID は View2D の変換と当たり判定を独立の期待値にする。
 import { View2D } from "../../view2d/src/index.js";
 import { bundle, fixture } from "../../view2d/test/fixtures.mjs";
 import { View3D, View3DError } from "../src/index.js";
@@ -31,15 +31,16 @@ export async function testGround2D() {
 
   const canvas = Object.assign(globalThis.document.createElement("canvas"), { width: 200, height: 200 });
   globalThis.document.body.append(canvas);
-  const viewer = new View3D(canvas, { width: 200, height: 200, shading: "unlit", edges: false, views: [wide] });
-  const gl = canvas.getContext("webgl2");
-  const read = (x, y) => {
-    const out = new Uint8Array(4);
-    gl.readPixels(x, 200 - y - 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
-    return [...out.slice(0, 3)];
+  const viewer = await View3D.create(canvas, { width: 200, height: 200, shading: "unlit", edges: false, views: [wide] });
+  let shot3d = null;
+  const render = () => { shot3d = null; return viewer.render(); };
+  const read = async (x, y) => {
+    if (shot3d === null) shot3d = await viewer.snapshot("wide");
+    const offset = (y * shot3d.width + x) * 4;
+    return [shot3d.pixels[offset], shot3d.pixels[offset + 1], shot3d.pixels[offset + 2]];
   };
-  const pixel = (x, y, expected, message, tolerance = 3) => {
-    const value = read(x, y);
+  const pixel = async (x, y, expected, message, tolerance = 3) => {
+    const value = await read(x, y);
     assert(value.every((v, i) => Math.abs(v - expected[i]) <= tolerance), `${message}: ${value} / ${expected}`);
   };
   const { columns } = synthetic();
@@ -48,12 +49,17 @@ export async function testGround2D() {
 
   // 2D: 大きな原点の合成の図面を、回転と pixel ratio 2 で 100 CSS px の Canvas に描く。1 CSS px は 1 m。
   const flat = Object.assign(globalThis.document.createElement("canvas"), { width: 200, height: 200 });
-  const view2d = new View2D(flat, { width: 100, height: 100, pixelRatio: 2, background: "#ffff00" });
+  const view2d = await View2D.create(flat, { width: 100, height: 100, pixelRatio: 2, background: "#ffff00" });
   const metre = bundle(fixture(ORIGIN_2D), { unit: "meter" });
   view2d.setScene(metre);
   view2d.jumpTo({ center: { x: ORIGIN_2D, y: ORIGIN_2D }, scale: 1, rotation: 0.3 });
-  const context2d = flat.getContext("2d");
-  const read2d = (x, y) => [...context2d.getImageData(Math.floor(x * 2), Math.floor(y * 2), 1, 1).data.slice(0, 3)];
+  const snap2d = await view2d.snapshot();
+  const read2d = (x, y) => {
+    const px = Math.max(0, Math.min(snap2d.width - 1, Math.floor(x * 2)));
+    const py = Math.max(0, Math.min(snap2d.height - 1, Math.floor(y * 2)));
+    const offset = (py * snap2d.width + px) * 4;
+    return [snap2d.pixels[offset], snap2d.pixels[offset + 1], snap2d.pixels[offset + 2]];
+  };
 
   try {
     rejects(() => attachGround2D(viewer, { id: "g", view2d, canvas: flat, plane: { ...plane(), yAxis: [1, 1, 0] } }), "invalid-input", "直交しない軸は拒む");
@@ -61,7 +67,7 @@ export async function testGround2D() {
     rejects(() => attachGround2D(viewer, { id: "g", view2d, canvas: flat, plane: plane(), scale: 0 }), "invalid-input", "0 の尺度は拒む");
 
     const ground = attachGround2D(viewer, { id: "ground", view2d, canvas: flat, plane: plane() });
-    viewer.render();
+    render();
     let report = ground.getReport();
     assert(report.status === "ready" && report.scale === 1, `m の 2D と m の 3D は 1:1: ${JSON.stringify(report)}`);
     assert(report.texture.width === 200 && report.texture.height === 200, "texture は pixel ratio を反映した Canvas の画素");
@@ -91,33 +97,33 @@ export async function testGround2D() {
         // 画素: 2D の Canvas の周りが一様なら、3D の画素も同じ色
         const base = read2d(screen.x, screen.y);
         const uniform = [[-2, 0], [2, 0], [0, -2], [0, 2]].every(([dx, dy]) => read2d(screen.x + dx, screen.y + dy).every((v, i) => Math.abs(v - base[i]) <= 2));
-        if (uniform) { compared++; pixel(px, py, base, `2D の画素と同じ色 ${px},${py}`, 12); }
+        if (uniform) { compared++; await pixel(px, py, base, `2D の画素と同じ色 ${px},${py}`, 12); }
         if (hit.elements.length > 0) matched++;
       }
     }
     assert(compared >= 20 && matched >= 1, `画素と ID を照らした点の数: ${compared}・${matched}`);
     const line = ground.hitTest("wide", { x: 100 + 6 / 0.6, y: 100 - 15 / 0.6 });
     assert(line.status === "hit" && line.elements.some((e) => e.id === "space/0/h1"), `線の要素を ID で返す: ${JSON.stringify(line.elements)}`);
-    pixel(2, 2, WHITE, "2D の枠の外は 3D の背景");
+    await pixel(2, 2, WHITE, "2D の枠の外は 3D の背景");
 
     // 3D の要素との重なり。地面は z = -1、赤の要素は z = 0
     const redPoint = { x: 100 + -7 / 0.6, y: 100 - 3 / 0.6 };
     const covered = ground.hitTest("wide", redPoint);
     assert(covered.status === "occluded" && covered.occluder.id === "red" && covered.occluder.distance < covered.distance, `手前の 3D の要素で隠れる: ${covered.status}`);
-    pixel(Math.round(redPoint.x), Math.round(redPoint.y), RED, "手前の要素を描く");
+    await pixel(Math.round(redPoint.x), Math.round(redPoint.y), RED, "手前の要素を描く");
 
     // 2D の状態の変化を、複製せず同じ Canvas から転送する
     const h1 = view2d.getElements().find((e) => e.id === "space/0/h1");
-    const before = read(Math.round(100 + 6 / 0.6), Math.round(100 - 15 / 0.6));
+    const before = await read(Math.round(100 + 6 / 0.6), Math.round(100 - 15 / 0.6));
     view2d.setHighlight("mark", [h1], "#ff00ff");
-    viewer.render();
-    const after = read(Math.round(100 + 6 / 0.6), Math.round(100 - 15 / 0.6));
+    render();
+    const after = await read(Math.round(100 + 6 / 0.6), Math.round(100 - 15 / 0.6));
     assert(JSON.stringify(before) !== JSON.stringify(after), `2D の強調が 3D の地面に出る: ${before} → ${after}`);
     view2d.setHighlight("mark", []);
 
     // 回転と表示範囲の変更で四隅を当て直す
     view2d.jumpTo({ center: { x: ORIGIN_2D + 20, y: ORIGIN_2D }, scale: 2, rotation: -0.5 });
-    viewer.render();
+    render();
     const moved = ground.hitTest("wide", { x: 120.5, y: 100.5 });
     const movedExpected = under(120.5, 100.5);
     assert(moved.status === "hit", `表示範囲の変更後も当たる: ${moved.reason}`);
@@ -128,21 +134,21 @@ export async function testGround2D() {
 
     // 切断面の外は描かず選ばない
     viewer.setViews([{ ...wide, clips: [{ point: [ORIGIN[0], ORIGIN[1], -0.5], normal: [0, 0, -1] }] }]);
-    viewer.render();
+    render();
     const clipped = ground.hitTest("wide", { x: 120.5, y: 100.5 });
     assert(clipped.status === "miss" && clipped.reason === "clipped", "切断面で除いた地面は当たらない");
-    pixel(120, 100, WHITE, "切断面で除いた地面は描かない");
+    await pixel(120, 100, WHITE, "切断面で除いた地面は描かない");
     viewer.setViews([wide]);
 
     // 単位: 紙・単位不明・不一致は重ねず理由を返す。差し替えで戻る
     const reasons = [];
     for (const [changes, expected] of [[{ from: "sheet/h1" }, "paper"], [{ view: 1 }, "paper"], [{ from: "block/h2" }, "definition"], [{ unit: "unknown" }, "unit-unknown"]]) {
       view2d.setScene(bundle(fixture(ORIGIN_2D), { unit: "meter", ...changes }));
-      viewer.render();
+      render();
       reasons.push(ground.getReport().reason);
       assert(ground.getReport().status === "unavailable" && ground.getReport().reason === expected, `重ねない理由: ${expected} / ${ground.getReport().reason}`);
       assert(ground.hitTest("wide", { x: 120.5, y: 100.5 }).reason === expected, "当たり判定も同じ理由");
-      pixel(120, 100, WHITE, `重ねない 2D は描かない: ${expected}`);
+      await pixel(120, 100, WHITE, `重ねない 2D は描かない: ${expected}`);
     }
     view2d.setScene(bundle(fixture(ORIGIN_2D), { unit: "millimeter" }));
     assert(ground.getReport().status === "ready" && ground.getReport().scale === 0.001, "mm の 2D は 3D の m へ 0.001 倍");
@@ -169,26 +175,26 @@ export async function testGround2D() {
     // 表裏: 法線（xAxis × yAxis）の裏から見ると front では描かず選ばない
     ground.remove();
     const back = attachGround2D(viewer, { id: "back", view2d, canvas: flat, plane: plane(-1, [0, -1, 0]), side: "front" });
-    viewer.render();
+    render();
     assert(back.hitTest("wide", { x: 120.5, y: 100.5 }).reason === "back", "裏から見た front の地面は当たらない");
-    pixel(120, 100, WHITE, "裏から見た front の地面は描かない");
+    await pixel(120, 100, WHITE, "裏から見た front の地面は描かない");
     back.remove();
     const both = attachGround2D(viewer, { id: "both", view2d, canvas: flat, plane: plane(-1, [0, -1, 0]) });
-    viewer.render();
+    render();
     const mirrored = both.hitTest("wide", { x: 120.5, y: 100.5 });
     assert(mirrored.status === "hit" && Math.abs(mirrored.scene.offset.y + under(120.5, 100.5).y) < 1e-6, "double は裏からも描き、y を反転して戻す");
     both.remove();
 
     // 透過: 背景が透明な 2D を要素の上に敷くと、3D の要素が透けて見える
     const clear = Object.assign(globalThis.document.createElement("canvas"), { width: 200, height: 200 });
-    const clear2d = new View2D(clear, { width: 100, height: 100, pixelRatio: 2, background: "rgba(0,0,0,0)" });
+    const clear2d = await View2D.create(clear, { width: 100, height: 100, pixelRatio: 2, background: "rgba(0,0,0,0)" });
     clear2d.setScene(metre);
     clear2d.jumpTo({ center: { x: ORIGIN_2D - 100, y: ORIGIN_2D }, scale: 1, rotation: 0 });
     const over = attachGround2D(viewer, { id: "over", view2d: clear2d, canvas: clear, plane: { ...plane(1), anchor: { x: ORIGIN_2D - 100, y: ORIGIN_2D } } });
-    viewer.render();
+    render();
     const empty = clear2d.hitTest(clear2d.toScreen({ origin: { x: ORIGIN_2D - 100, y: ORIGIN_2D }, offset: { x: -7, y: 3 } }), 3);
     assert(empty.length === 0, "赤の要素の上は 2D の要素がない透明な部分");
-    pixel(Math.round(redPoint.x), Math.round(redPoint.y), RED, "透明な部分から 3D の要素が見える");
+    await pixel(Math.round(redPoint.x), Math.round(redPoint.y), RED, "透明な部分から 3D の要素が見える");
     const above = over.hitTest("wide", redPoint);
     assert(above.status === "hit" && above.distance < 11, "上に敷いた地面は手前で当たる");
     over.remove();
@@ -226,7 +232,7 @@ export async function testGround2D() {
     viewer.destroy();
     assert(scaled.signal.aborted && scaled.signal.reason === "destroy", "破棄で外す");
     view2d.select([]);
-    const empty3d = new View3D(Object.assign(globalThis.document.createElement("canvas"), { width: 10, height: 10 }), { width: 10, height: 10 });
+    const empty3d = await View3D.create(Object.assign(globalThis.document.createElement("canvas"), { width: 10, height: 10 }), { width: 10, height: 10 });
     try { rejects(() => attachGround2D(empty3d, { id: "x", view2d, canvas: flat, plane: plane() }), "no-scene", "3D のシーンがなければ拒む"); }
     finally { empty3d.destroy(); }
   } finally {

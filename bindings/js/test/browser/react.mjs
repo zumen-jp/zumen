@@ -144,7 +144,7 @@ const references = Buffer.from([
     0, "PDFDEFINITION", 5, "D2", 1, external + "sheet.pdf", 2, "1"]),
   0, "EOF", "",
 ].join("\n"));
-const port = Number(process.env.ZUMEN_TEST_PORT ?? 24182 + Object.keys(browsers).indexOf(product));
+const port = Number(process.env.ZUMEN_TEST_PORT ?? 24122 + Object.keys(browsers).indexOf(product) % 3);
 const origin = "http://127.0.0.1:" + port;
 const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".wasm": "application/wasm" };
 let browser, server;
@@ -175,7 +175,21 @@ try {
     response.writeHead(200, { "Content-Type": mime[extname(path)] ?? "application/octet-stream" }).end(readFileSync(path));
   });
   await new Promise((ok, fail) => server.once("error", fail).listen(port, "127.0.0.1", ok));
-  browser = await browsers[product].launch(["chrome", "msedge"].includes(product) ? { channel: product } : {});
+  const isChromium = ["chromium", "chrome", "msedge"].includes(product);
+  const launchOptions = isChromium
+    ? {
+        ...(product === "chromium" ? {} : { channel: product }),
+        ignoreDefaultArgs: ["--disable-gpu"],
+        args: [
+          "--enable-gpu",
+          "--enable-unsafe-webgpu",
+          "--ignore-gpu-blocklist",
+          ...(process.platform === "win32" ? ["--use-webgpu-adapter=d3d11"] : []),
+          ...(process.platform === "linux" ? ["--use-angle=vulkan", "--enable-features=Vulkan", "--enable-unsafe-swiftshader"] : []),
+        ],
+      }
+    : {};
+  browser = await browsers[product].launch(launchOptions);
   const context = await browser.newContext({ serviceWorkers: "block" });
   await context.route("**/*", (route) => {
     const request = route.request(), url = new URL(request.url());
@@ -184,6 +198,17 @@ try {
     }
     return route.continue();
   });
+  // WebGPU が使えない環境でも未処理エラーを起こさず、表示できない理由を画面へ出すことを確かめる。
+  const noGpuPage = await context.newPage();
+  noGpuPage.on("pageerror", (error) => failures.push(error.message));
+  noGpuPage.on("websocket", () => failures.push("WebSocket"));
+  await noGpuPage.addInitScript(() => {
+    Object.defineProperty(navigator, "gpu", { value: undefined, configurable: true });
+  });
+  await noGpuPage.goto(origin + "/app/index.html");
+  await noGpuPage.locator(".status").getByText("このブラウザーでは WebGPU を使えないため、図面を表示できません。", { exact: true }).waitFor();
+  await noGpuPage.close();
+
   const page = await context.newPage();
   await page.exposeFunction("captureResizeFailure", (record) => console.log("ResizeObserver diagnostic: " + JSON.stringify(record)));
   await page.addInitScript(installResizeTrace);
@@ -198,6 +223,16 @@ try {
   page.on("pageerror", (error) => failures.push(error.message));
   page.on("websocket", () => failures.push("WebSocket"));
   await page.goto(origin + "/app/index.html");
+  const hasWebGPU = await page.evaluate(async () => Boolean(
+    (await globalThis.navigator.gpu?.requestAdapter()) ?? (await globalThis.navigator.gpu?.requestAdapter({ fallbackAdapter: true })),
+  ));
+  if (!hasWebGPU && !isChromium) {
+    assert.deepEqual(await page.evaluate(() => window.blockedRequests), []);
+    assert.deepEqual(failures, []);
+    const summary = `${product} ${browser.version()}: WebGPU 非対応環境のため React プレイグラウンドの配信・CSP のみ確認`;
+    console.log(summary);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary + "\n");
+  } else {
   const file = page.getByLabel("図面ファイル");
   const status = page.locator(".status");
   const source = page.getByRole("region", { name: "出所" });
@@ -208,8 +243,8 @@ try {
     }, text);
     assert.ok((await status.textContent()).includes(text), await page.locator("main").textContent());
   }
-  const pixels = () => page.getByLabel("図面の表示", { exact: true }).evaluate((canvas) => {
-    const data = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+  const pixels = () => page.getByLabel("図面の表示", { exact: true }).evaluate(async (canvas) => {
+    const { pixels: data } = await canvas[Symbol.for("zumen.view2d")].snapshot();
     let count = 0;
     for (let i = 0; i < data.length; i += 4) if (data[i] < 225 || data[i + 1] < 225 || data[i + 2] < 225) count++;
     return count;
@@ -229,9 +264,15 @@ try {
       const canvas = page.getByLabel("図面の表示", { exact: true });
       await canvas.click();
       await source.getByText("レコード", { exact: true }).waitFor();
-      const before = await canvas.evaluate((node) => node.toDataURL());
+      const snapHash = async (node) => {
+        const { pixels: data } = await node[Symbol.for("zumen.view2d")].snapshot();
+        let h = 2166136261;
+        for (let i = 0; i < data.length; i++) h = Math.imul(h ^ data[i], 16777619) >>> 0;
+        return h;
+      };
+      const before = await canvas.evaluate(snapHash);
       await canvas.press("ArrowRight");
-      assert.notEqual(await canvas.evaluate((node) => node.toDataURL()), before, "矢印キーで描画が移動する");
+      assert.notEqual(await canvas.evaluate(snapHash), before, "矢印キーで描画が移動する");
       await canvas.press("Home");
     }
     const button = page.getByRole("button", { name: id, exact: true });
@@ -441,9 +482,11 @@ try {
   const resizeInput = await checkInteractions(page, ready);
   assert.deepEqual(await page.evaluate(() => window.blockedRequests), []);
   await page.goto(origin + "/production/test/lifecycle.html");
+  await page.waitForFunction(() => Boolean(window.probe));
   await checkBoundaries(page, inputs.jww, "本番");
   await checkPlaygroundResize(page, resizeInput, "本番");
   await page.goto(origin + "/strict/test/lifecycle.html");
+  await page.waitForFunction(() => Boolean(window.probe));
   await page.evaluate((bytes) => probe.render(bytes, true), [...inputs.dxf]);
   assert.ok(await page.evaluate(() => probe.delayed.length === 2 && probe.delayed[0].signal.aborted && !probe.delayed[1].signal.aborted));
   await page.evaluate((bytes) => probe.render(bytes), [...inputs.jww]);
@@ -467,14 +510,22 @@ try {
   await exited;
   assert.equal(page.workers().length, 0);
   const counts = await page.evaluate(() => probe.counts);
-  assert.deepEqual([counts.workers, counts.starts, counts.ends, counts.transferred, counts.state, counts.events, counts.destroyed], [0, 3, 3, 3, 0, 0, 2]);
+  assert.deepEqual([counts.workers, counts.starts, counts.ends, counts.transferred, counts.state, counts.events, counts.created, counts.destroyed], [0, 3, 3, 3, 0, 0, 1, 1]);
+  // View2D.create の解決前にアンマウントしても、遅れて解決したインスタンスを直ちに破棄し GPU 資源を漏らさない。
+  await page.evaluate(() => { probe.holdCreate(); probe.render(null); });
+  await page.waitForFunction(() => probe.pendingCreates === 1);
+  await page.evaluate(() => { probe.unmount(); probe.releaseCreate(); });
+  await page.waitForFunction(() => probe.counts.created === 2 && probe.counts.destroyed === 2);
+  assert.deepEqual(await page.evaluate(() => [probe.counts.state, probe.counts.events, probe.counts.created - probe.counts.destroyed]), [0, 0, 0]);
   await checkBoundaries(page, inputs.jww, "StrictMode");
   await checkPlaygroundResize(page, resizeInput, "StrictMode");
+  assert.equal(await page.evaluate(() => probe.counts.created - probe.counts.destroyed), 0, "全検査の終了後に GPU 資源リークが 0 件");
   assert.ok([...seen].some((p) => p.includes("/app/assets/worker-")) && [...seen].some((p) => p.endsWith(".wasm")));
   assert.deepEqual(failures, []);
   const summary = product + " " + browser.version() + " で DXF・JWW・SXF と公開サンプルの DWG（R2000・R2004・R2018）、初回の表示範囲・倍率の両端、用紙の連続切り替え・レイヤ・40 要素の選択・配置別の診断、DXF で保存（合成の DWG・JWW・SFC・P21 と公開サンプルの DWG をネイティブと同じバイト列で）、本番用 React・StrictMode の再接続中の状態と出所、リサイズの8フレーム以内の収束と予約取消、ローカルの配布物だけの GET を確認";
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary + "\n");
+  }
 } finally {
   await browser?.close();
   if (server?.listening) await new Promise((done) => server.close(done));

@@ -63,11 +63,11 @@ function sat(shape, rect) {
 }
 
 /** 公開 f32 列の butt stroke を、決定的な独立 SAT と点・矩形各 25,600 件で照合する。 */
-export function testStrokeSat(assert) {
+export async function testStrokeSat(assert) {
   let state = SEED;
   const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 0x100000000; };
   const signed = () => random() * 2 - 1;
-  const viewer = new View2D(document.createElement("canvas"), { width: SIZE, height: SIZE, pixelRatio: 1, pixelsPerMillimeter: 1 });
+  const viewer = await View2D.create(document.createElement("canvas"), { width: SIZE, height: SIZE, pixelRatio: 1, pixelsPerMillimeter: 1 });
   const totals = { seed: SEED, scenes: SCENES, points: 0, rectangles: 0, pointHits: 0, rectangleHits: 0, boundaryExcluded: 0 };
   const rectAt = (p) => ({ min_x: p.x, min_y: p.y, max_x: p.x, max_y: p.y });
   const check = (kind, query, shape, context) => {
@@ -149,11 +149,11 @@ export function testStrokeSat(assert) {
 }
 
 /** 独立した矩形への距離で、許容距離つき点選択の候補生成も照合する。 */
-export function testStrokeTolerance(assert) {
+export async function testStrokeTolerance(assert) {
   const seed = 0x808c1c1e;
   let state = seed;
   const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 0x100000000; };
-  const viewer = new View2D(document.createElement("canvas"), { width: SIZE, height: SIZE, pixelsPerMillimeter: 1 });
+  const viewer = await View2D.create(document.createElement("canvas"), { width: SIZE, height: SIZE, pixelsPerMillimeter: 1 });
   const totals = { seed, scenes: 128, points: 0, hits: 0, boundaryExcluded: 0 };
   try {
     for (let scene = 0; scene < totals.scenes; scene++) {

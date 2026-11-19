@@ -141,14 +141,14 @@ function reference(canvas, item, columns, ratio, rotation) {
 }
 
 /** 巨大な閉輪の意味を、画面近傍の独立 Canvas と点・矩形の参照で比較する。 */
-export function testLargeFills(assert) {
+export async function testLargeFills(assert) {
   const items = cases(), totals = { cases: items.length, scenes: 0, pixels: 0, ink: 0, points: 0, rectangles: 0,
     pixelRatios: [1, 1.5, 2, 8], scales: [1, 1e12], rotations: [0, Math.PI / 6], axisOnlyCases: 0,
     radii: [Math.fround(2e15), Math.fround(2e38)] };
   for (const pixelRatio of totals.pixelRatios) for (const rotation of totals.rotations) for (const item of items) {
     if (item.rotations && !item.rotations.includes(rotation)) continue;
     const canvas = document.createElement("canvas"), near = document.createElement("canvas");
-    const viewer = new View2D(canvas, { width: SIZE, height: SIZE, pixelRatio, pixelsPerMillimeter: 1,
+    const viewer = await View2D.create(canvas, { width: SIZE, height: SIZE, pixelRatio, pixelsPerMillimeter: 1,
       view: { center: { x: 0, y: 0 }, scale: item.scale, rotation } });
     try {
       const input = bundle(item.source), report = viewer.setScene(input), element = viewer.getElements()[0];
@@ -160,7 +160,7 @@ export function testLargeFills(assert) {
       if (item.rule) assert(report.drawn.glyphs === (item.layers ?? 1), `${context}: 字形の件数を保つ`);
       near.width = canvas.width; near.height = canvas.height;
       const expected = reference(near, item, input.scene.columns, pixelRatio, rotation);
-      const actual = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+      const actual = (await viewer.snapshot()).pixels;
       let mismatch = 0, samples = 0, ink = 0;
       // 縁の AA の違いを除き、3×3 画素で同じ内部/外部の所を比較する。
       const step = Math.max(1, Math.floor(pixelRatio / 2));

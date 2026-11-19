@@ -38,15 +38,17 @@ function quadrants(request) {
   return value;
 }
 
-export async function testUnderlays({ assert, near, throws }) {
+export async function testUnderlays({ assert, near, throws, throwsAsync }) {
   await testUnderlayNotifications(assert);
   await testReplacedRelease(assert);
   await testResultGetters(assert);
-  testStableReport(assert);
-  const canvas = canvasOf(200, 200), viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2 });
-  const ctx = canvas.getContext("2d");
-  const pixel = (x, y, expected, message) => {
-    const ratio = viewer.getSize().pixelRatio, actual = ctx.getImageData(Math.floor(x * ratio), Math.floor(y * ratio), 1, 1).data;
+  await testStableReport(assert);
+  const canvas = canvasOf(200, 200), viewer = await View2D.create(canvas, { width: 200, height: 200, pixelRatio: 2 });
+  const pixel = async (x, y, expected, message) => {
+    const shot = await viewer.snapshot();
+    const px = Math.floor(x * shot.pixelRatio), py = Math.floor(y * shot.pixelRatio);
+    const offset = (py * shot.width + px) * 4;
+    const actual = shot.pixels.subarray(offset, offset + 4);
     assert(expected.every((value, i) => Math.abs(actual[i] - value) <= 3), `${message}: ${actual}`);
   };
   const state = () => viewer.getState().underlays[0];
@@ -69,29 +71,29 @@ export async function testUnderlays({ assert, near, throws }) {
   const beforeInvalid = viewer.getState(), invalid = imageScene(); invalid.image_edges[0] = NaN;
   throws(() => viewer.setScene(bundle(invalid)), "不正な次のシーンを断る");
   assert(viewer.getState() === beforeInvalid && !resolves[0].signal.aborted && released.length === 0, "失敗した差し替えで現在の画像と資源を保つ");
-  pixel(80, 110, [255, 0, 0], "画像の左下を置く"); pixel(120, 110, [0, 255, 0], "画像の右下を置く");
-  pixel(80, 90, [0, 0, 255], "画像の左上を置く"); pixel(120, 90, [255, 255, 0], "画像の右上を置く");
+  await pixel(80, 110, [255, 0, 0], "画像の左下を置く"); await pixel(120, 110, [0, 255, 0], "画像の右下を置く");
+  await pixel(80, 90, [0, 0, 255], "画像の左上を置く"); await pixel(120, 90, [255, 255, 0], "画像の右上を置く");
   const readyReport = viewer.getReport();
   viewer.invalidate(); await flush();
   assert(requests.length === 1 && viewer.getReport() === readyReport, "同じ表示の再描画で資源と描画済みの報告を再利用する");
   viewer.resize(200, 200, 1); await flush(); assert(requests[1].width === 80 && requests[1].height === 40, "画素比の変更で画素を作り直す");
   viewer.rotateBy(Math.PI / 2); await flush();
-  pixel(110, 120, [255, 0, 0], "回転後の左下の色"); pixel(90, 80, [255, 255, 0], "回転後の右上の色");
+  await pixel(110, 120, [255, 0, 0], "回転後の左下の色"); await pixel(90, 80, [255, 255, 0], "回転後の右上の色");
   viewer.jumpTo({ center: { x: 0, y: 0 }, scale: 1, rotation: 0 });
   viewer.setScene(bundle(imageScene({ frame: V.image_frame.unit, at: [-50, -25], edges: [1, 0, 0, 1], pages: ["named-page"], kind: V.image_kind.pdf })));
   await flush();
   assert(resolves[resolves.length - 1].page === "named-page" && resolves[resolves.length - 1].kind === "pdf", "PDF のページ名を番号へ推測せず渡す");
   assert(requests[requests.length - 1].width === 100 && requests[requests.length - 1].height === 50, "unit は内容の寸法を辺に掛ける");
-  pixel(60, 120, [255, 0, 0], "unit の全体の左下");
+  await pixel(60, 120, [255, 0, 0], "unit の全体の左下");
   viewer.setScene(bundle(imageScene({ origin: 1e16, at: [.25, .25], edges: [2, 0, 0, 2] })));
   viewer.jumpTo({ center: { x: 1e16, y: 1e16 }, scale: 16, rotation: 0 }); await flush();
-  pixel(108, 92, [255, 0, 0], "大きな原点の画像でも相対座標を保つ");
+  await pixel(108, 92, [255, 0, 0], "大きな原点の画像でも相対座標を保つ");
   viewer.jumpTo({ center: { x: 0, y: 0 }, scale: 1, rotation: 0 });
   viewer.setScene(bundle(imageScene({ at: [-40, -20], edges: [-60, 10, 20, 50] }))); await flush();
-  pixel(52, 105, [255, 0, 0], "反転と傾斜のある枠を保つ");
+  await pixel(52, 105, [255, 0, 0], "反転と傾斜のある枠を保つ");
 
   viewer.setScene(bundle(imageScene({ clips: [{ xy: [-30, -15, 30, -15, 30, 15, -30, 15] }, { xy: [-5, -5, 5, -5, 5, 5, -5, 5], inverted: true }] }))); await flush();
-  pixel(100, 100, [255, 255, 255], "画像の反転した切り抜き"); pixel(140, 100, [255, 255, 255], "画像の内側を残す切り抜きの外"); pixel(80, 110, [255, 0, 0], "画像の切り抜きの共通部分");
+  await pixel(100, 100, [255, 255, 255], "画像の反転した切り抜き"); await pixel(140, 100, [255, 255, 255], "画像の内側を残す切り抜きの外"); await pixel(80, 110, [255, 0, 0], "画像の切り抜きの共通部分");
   const clippedRequest = requests[requests.length - 1];
   assert(clippedRequest.region.min_x > 0 && clippedRequest.width === 60, "内側の切り抜きの外形まで画素要求を絞る");
   const beforeHidden = resolves.length;
@@ -101,7 +103,7 @@ export async function testUnderlays({ assert, near, throws }) {
   viewer.setScene(bundle(imageScene({ at: [-500, -20], edges: [1000, 0, 0, 40] }))); await flush();
   const cropped = requests[requests.length - 1];
   assert(cropped.width === 200 && cropped.region.min_x === 40 && cropped.region.max_x === 60, "画面外の画素を要求しない");
-  pixel(60, 110, [255, 0, 0], "部分画像を内容の元の位置へ戻す");
+  await pixel(60, 110, [255, 0, 0], "部分画像を内容の元の位置へ戻す");
   viewer.panBy(1000, 0); await flush(); assert(state().status === "resource-outside-view", "画面から外れた画像を解放する");
   viewer.jumpTo({ center: { x: 0, y: 0 }, scale: 1, rotation: 0 }); await flush();
 
@@ -109,23 +111,24 @@ export async function testUnderlays({ assert, near, throws }) {
   const ordered = imageScene();
   ordered.line_vertices = [0]; ordered.line_units = [0]; ordered.line_xy = [-35, 0, 35, 0];
   ordered.face_rings = [0]; ordered.face_units = [0]; ordered.ring_vertices = [0]; ordered.face_xy = [-50, -30, 50, -30, 50, 30, -50, 30];
-  viewer.setScene(bundle(ordered)); await flush(); pixel(80, 101, [255, 0, 0], "同じ単位の線と面の後に画像を描く");
+  viewer.setScene(bundle(ordered)); await flush(); await pixel(80, 101, [255, 0, 0], "同じ単位の線と面の後に画像を描く");
   assert(viewer.getReport().drawn.images === 1, "画像の描画数を保つ");
   off(); viewer.destroy(); await flush(); assert(released.length === resolves.length, "保持したすべての資源を解放する");
   await testUnderlayLifetime({ assert, throws });
-  await testUnderlayLimits({ assert, throws, near });
-  const adaptedCanvas = canvasOf(200, 200), adapted = new View2D(adaptedCanvas, { width: 200, height: 200 });
+  await testUnderlayLimits({ assert, throws, throwsAsync, near });
+  const adaptedCanvas = canvasOf(200, 200), adapted = await View2D.create(adaptedCanvas, { width: 200, height: 200 });
   let decoded, closed = 0;
   adapted.setUnderlayRenderer(imageUnderlayRenderer(() => {
     decoded = quadrants({ width: 100, height: 50, region: { min_x: 0, min_y: 0, max_x: 100, max_y: 50 } });
     return { source: decoded.source, dispose() { closed++; decoded.dispose(); } };
   }, canvasOf));
   adapted.setScene(bundle(imageScene({ at: [-500, -20], edges: [1000, 0, 0, 40] }))); await flush();
-  const red = adaptedCanvas.getContext("2d").getImageData(60, 110, 1, 1).data;
+  const adaptedShot = await adapted.snapshot();
+  const red = adaptedShot.pixels.subarray((110 * adaptedShot.width + 60) * 4, (110 * adaptedShot.width + 60) * 4 + 4);
   assert(red[0] === 255 && red[1] === 0 && red[2] === 0, "利用側の画像アダプターで部分画像を切り出す");
   adapted.destroy(); await flush(); assert(closed === 1 && decoded.source.width === 0, "画像アダプターが元の画像を解放する");
   if (typeof createImageBitmap === "function") {
-    const bitmapCanvas = canvasOf(200, 200), bitmaps = [], bitmapViewer = new View2D(bitmapCanvas, { width: 200, height: 200 });
+    const bitmapCanvas = canvasOf(200, 200), bitmaps = [], bitmapViewer = await View2D.create(bitmapCanvas, { width: 200, height: 200 });
     bitmapViewer.setUnderlayRenderer(() => ({ width: 100, height: 50, async render(request) {
       const pixels = raster(request), source = await createImageBitmap(pixels.source); pixels.dispose(); bitmaps.push(source);
       return { source, dispose() { source.close(); } };
@@ -141,7 +144,7 @@ export async function testUnderlays({ assert, near, throws }) {
 }
 
 async function testUnderlayNotifications(assert) {
-  const viewer = new View2D(canvasOf(200, 200), { width: 200, height: 200 });
+  const viewer = await View2D.create(canvasOf(200, 200), { width: 200, height: 200 });
   const calls = [];
   viewer.subscribe((state) => calls.push({ type: "all", state }));
   for (const type of ["scene", "layers", "view", "underlay"]) viewer.on(type, (event) => calls.push(event));
@@ -174,7 +177,7 @@ async function testUnderlayNotifications(assert) {
 
 async function testReplacedRelease(assert) {
   for (const change of ["layers", "view", "raster", "waiting"]) {
-    const canvas = canvasOf(200, 200), viewer = new View2D(canvas, { width: 200, height: 200,
+    const canvas = canvasOf(200, 200), viewer = await View2D.create(canvas, { width: 200, height: 200,
       limits: { underlayResources: change === "waiting" ? 1 : 2 } });
     const releasing = deferred(), closed = [], freed = [];
     let resources = 0, images = 0;
@@ -203,7 +206,9 @@ async function testReplacedRelease(assert) {
     if (change === "waiting") assert(images === 1 && viewer.getState().underlays[0].status === "resource-limit", "再表示が旧資源の解放を待つ");
     else assert(images === 2 && viewer.getState().underlays[0].status === "ready", `${change} で旧資源の解放中に新しい画素を描く`);
     releasing.reject(new Error("old release")); await flush();
-    const center = canvas.width / 2, pixel = canvas.getContext("2d").getImageData(center, center, 1, 1).data;
+    const shot = await viewer.snapshot();
+    const center = Math.floor(shot.width / 2), centerOffset = (center * shot.width + center) * 4;
+    const pixel = shot.pixels.subarray(centerOffset, centerOffset + 4);
     assert(viewer.getState().underlays[0].status === "ready" && viewer.getReport().drawn.images === 1
       && pixel[0] === 0 && pixel[2] === 255 && freed.join() === "1", `${change} の旧解放失敗で新しい画素を消さない`);
     viewer.destroy(); await flush();
@@ -218,7 +223,7 @@ async function testResultGetters(assert) {
   window.addEventListener("unhandledrejection", capture);
   try {
     for (const action of ["cancel", "scene", "destroy"]) for (const later of [false, true]) {
-      const viewer = new View2D(canvasOf(200, 200), { width: 200, height: 200 });
+      const viewer = await View2D.create(canvasOf(200, 200), { width: 200, height: 200 });
       const change = () => {
         if (action === "cancel") viewer.cancelUnderlays();
         else if (action === "scene") viewer.setScene(null);
@@ -272,7 +277,7 @@ async function testResultGetters(assert) {
       viewer.destroy();
       if (later && action === "scene") assert(nextReleased.join() === "pixels,resource", "新シーンの画像と資源は新シーンの破棄で解放する");
     }
-    const viewer = new View2D(canvasOf(200, 200), { width: 200, height: 200 }), receivers = [];
+    const viewer = await View2D.create(canvasOf(200, 200), { width: 200, height: 200 }), receivers = [];
     let guarded = false, sourceReads = 0;
     const resource = {
       get width() {
@@ -304,7 +309,7 @@ async function testResultGetters(assert) {
   }
 }
 
-function testStableReport(assert) {
+async function testStableReport(assert) {
   const c = imageScene({ count: 0 }), encode = new TextEncoder();
   c.line_units = []; c.line_xy = []; c.line_vertices = [];
   for (let i = 0; i < 1000; i++) {
@@ -314,7 +319,7 @@ function testStableReport(assert) {
     c.unit_colors.push(SCENE_NONE); c.unit_weights.push(0); c.unit_layers.push(0); c.unit_clips.push(SCENE_NONE);
     c.line_units.push(i); c.line_vertices.push(i * 2); c.line_xy.push(-10, 0, 10, 0);
   }
-  const viewer = new View2D(canvasOf(200, 200), { width: 200, height: 200 });
+  const viewer = await View2D.create(canvasOf(200, 200), { width: 200, height: 200 });
   const report = viewer.setScene(bundle(c));
   assert(report.drawn.images === 0 && report.issues.length === 1000, "画像がなく未解決色の線だけの報告を作る");
   const decode = TextDecoder.prototype.decode;
@@ -334,7 +339,7 @@ function testStableReport(assert) {
 }
 
 async function testUnderlayLifetime({ assert, throws }) {
-  const orderedCanvas = canvasOf(200, 200), ordered = new View2D(orderedCanvas, { width: 200, height: 200 }), oldPixels = deferred();
+  const orderedCanvas = canvasOf(200, 200), ordered = await View2D.create(orderedCanvas, { width: 200, height: 200 }), oldPixels = deferred();
   let oldRequest, oldClosed = 0, oldImageClosed = 0;
   ordered.setUnderlayRenderer((request) => ({ width: 100, height: 50,
     render(part) { if (request.page === "old") { oldRequest = part; return oldPixels.promise; } return raster(part, "blue"); },
@@ -345,11 +350,12 @@ async function testUnderlayLifetime({ assert, throws }) {
   ordered.setScene(replacement); await flush();
   assert(oldRequest.signal.aborted && ordered.getState().underlays[0].document.hash === "v2:new", "同じ ID の別の文書の版へ差し替える");
   oldPixels.resolve(raster(oldRequest, "red", () => oldImageClosed++)); await flush();
-  const blueAfterOld = orderedCanvas.getContext("2d").getImageData(100, 100, 1, 1).data;
+  const orderedShot = await ordered.snapshot();
+  const blueAfterOld = orderedShot.pixels.subarray((100 * orderedShot.width + 100) * 4, (100 * orderedShot.width + 100) * 4 + 4);
   assert(blueAfterOld[0] === 0 && blueAfterOld[2] === 255 && oldClosed === 1 && oldImageClosed === 1, "新しい結果の後で届いた古い画素を描かず、旧資源だけ解放する");
   ordered.destroy();
   for (const change of ["scene", "renderer", "refresh", "cancel", "destroy", "hidden", "view"]) {
-    const canvas = canvasOf(200, 200), viewer = new View2D(canvas, { width: 200, height: 200 }), answer = deferred(), disposed = [], requests = [];
+    const canvas = canvasOf(200, 200), viewer = await View2D.create(canvas, { width: 200, height: 200 }), answer = deferred(), disposed = [], requests = [];
     viewer.setUnderlayRenderer((request) => { requests.push(request); return answer.promise; }); viewer.setScene(bundle(imageScene())); await flush();
     const changeNow = () => {
       if (change === "scene") viewer.setScene(bundle(imageScene({ pages: ["different"] })));
@@ -368,7 +374,7 @@ async function testUnderlayLifetime({ assert, throws }) {
     if (!["scene", "refresh"].includes(change)) assert(rendered === 0, `${change} の古い資源から画像を作らない`);
     viewer.destroy(); await flush();
   }
-  const canvas = canvasOf(200, 200), viewer = new View2D(canvas, { width: 200, height: 200 }), pending = [], disposed = [], signals = [];
+  const canvas = canvasOf(200, 200), viewer = await View2D.create(canvas, { width: 200, height: 200 }), pending = [], disposed = [], signals = [];
   viewer.setUnderlayRenderer(() => ({ width: 100, height: 50, render(request) { const answer = deferred(); pending.push({ request, answer }); signals.push(request.signal); return answer.promise; }, dispose() { disposed.push("resource"); } }));
   viewer.setScene(bundle(imageScene())); await flush();
   viewer.resize(200, 200, 2); await flush();
@@ -384,7 +390,7 @@ async function testUnderlayLifetime({ assert, throws }) {
   current.answer.resolve(raster(current.request, "lime", () => disposed.push("late-raster"))); await flush();
   assert(disposed.slice(-2).join() === "late-raster,resource", "破棄後に届いた画素を解放してから資源を解放する");
 
-  const failed = new View2D(canvasOf(200, 200), { width: 200, height: 200 });
+  const failed = await View2D.create(canvasOf(200, 200), { width: 200, height: 200 });
   const errors = [];
   failed.on("underlay", ({ state }) => errors.push(state.underlays[0]?.status));
   failed.setUnderlayRenderer(() => { throw new Error("expected"); }); failed.setScene(bundle(imageScene())); await flush();
@@ -402,7 +408,7 @@ async function testUnderlayLifetime({ assert, throws }) {
   failed.destroy();
 
   // 非同期の解放も、完了までは資源と画素の上限に含める。
-  const freeingPixels = deferred(), freeingResource = deferred(), freed = [], bounded = new View2D(canvasOf(200, 200), { width: 200, height: 200, limits: { underlayResources: 1 } });
+  const freeingPixels = deferred(), freeingResource = deferred(), freed = [], bounded = await View2D.create(canvasOf(200, 200), { width: 200, height: 200, limits: { underlayResources: 1 } });
   let opened = 0;
   bounded.setUnderlayRenderer(() => {
     opened++;
@@ -417,7 +423,7 @@ async function testUnderlayLifetime({ assert, throws }) {
   assert(opened === 2 && freed[3] === "resource-end", "解放の完了後に次の解決を始める");
   bounded.destroy(); await flush();
 
-  const lateFailure = deferred(), retry = new View2D(canvasOf(200, 200), { width: 200, height: 200 });
+  const lateFailure = deferred(), retry = await View2D.create(canvasOf(200, 200), { width: 200, height: 200 });
   let attempts = 0;
   retry.setUnderlayRenderer(() => {
     const current = ++attempts;
@@ -428,7 +434,7 @@ async function testUnderlayLifetime({ assert, throws }) {
   assert(attempts === 2 && retry.getState().underlays[0].status === "ready", "再読込前の解放の失敗で新しい結果を消さない");
   retry.destroy();
 
-  const broken = new View2D(canvasOf(200, 200), { width: 200, height: 200 });
+  const broken = await View2D.create(canvasOf(200, 200), { width: 200, height: 200 });
   let resourceFreed = 0;
   broken.setUnderlayRenderer(() => ({ width: 100, height: 50, render(request) { const image = raster(request); return { source: image.source, dispose() { image.dispose(); return Promise.reject(new Error("expected disposal")); } }; }, dispose() { resourceFreed++; } }));
   broken.setScene(bundle(imageScene())); await flush(); broken.cancelUnderlays(); await flush();
@@ -436,8 +442,8 @@ async function testUnderlayLifetime({ assert, throws }) {
   broken.destroy();
 }
 
-async function testUnderlayLimits({ assert, throws }) {
-  const limited = new View2D(canvasOf(200, 200), { width: 200, height: 200, limits: { underlayPixels: 100, underlaySide: 100 } });
+async function testUnderlayLimits({ assert, throws, throwsAsync }) {
+  const limited = await View2D.create(canvasOf(200, 200), { width: 200, height: 200, limits: { underlayPixels: 100, underlaySide: 100 } });
   let resolved = 0, rendered = 0;
   limited.setUnderlayRenderer(() => { resolved++; return { width: 100, height: 50, render(request) { rendered++; return raster(request); }, dispose() {} }; });
   limited.setScene(bundle(imageScene())); await flush();
@@ -450,7 +456,7 @@ async function testUnderlayLimits({ assert, throws }) {
   limited.setScene(bundle(imageScene({ kind: V.image_kind.dwf }))); await flush(); assert(limited.getReport().issues[0].reason === "resource-kind-unsupported", "未対応の資源種別を報告する");
   limited.destroy();
 
-  const pending = [], released = [], viewer = new View2D(canvasOf(200, 200), { width: 200, height: 200, limits: { underlayJobs: 1, underlayResources: 1, underlayPixels: 400 } });
+  const pending = [], released = [], viewer = await View2D.create(canvasOf(200, 200), { width: 200, height: 200, limits: { underlayJobs: 1, underlayResources: 1, underlayPixels: 400 } });
   const resolve = (request) => { const answer = deferred(); pending.push({ answer, request }); return answer.promise; };
   viewer.setUnderlayRenderer(resolve); viewer.setScene(bundle(imageScene({ count: 2, edges: [20, 0, 0, 20] }))); await flush();
   assert(pending.length === 1, "解決の並行数と資源数を制限する");
@@ -460,16 +466,16 @@ async function testUnderlayLimits({ assert, throws }) {
   pending[1].answer.resolve({ width: 20, height: 20, render(request) { return raster(request); }, dispose() {} }); await flush();
   assert(viewer.getReport().drawn.images === 1 && viewer.getState().underlays[1].status === "resource-limit", "保持する資源の上限も守る");
   viewer.destroy();
-  const pixels = new View2D(canvasOf(200, 200), { width: 200, height: 200, limits: { underlayPixels: 400 } });
+  const pixels = await View2D.create(canvasOf(200, 200), { width: 200, height: 200, limits: { underlayPixels: 400 } });
   pixels.setUnderlayRenderer(() => ({ width: 20, height: 20, render(request) { return raster(request); }, dispose() {} }));
   pixels.setScene(bundle(imageScene({ count: 2, edges: [20, 0, 0, 20] }))); await flush();
   assert(pixels.getReport().drawn.images === 1 && pixels.getState().underlays[1].status === "resource-limit", "画像ごとでなく保持した総画素数を制限する");
   pixels.destroy();
-  throws(() => new View2D(canvasOf(10, 10), { limits: { underlayJobs: 0 } }), "上限の不正な値を断る");
-  const short = new View2D(canvasOf(10, 10), { width: 10, height: 10, limits: { textLength: 2 } });
+  await throwsAsync(() => View2D.create(canvasOf(10, 10), { limits: { underlayJobs: 0 } }), "上限の不正な値を断る");
+  const short = await View2D.create(canvasOf(10, 10), { width: 10, height: 10, limits: { textLength: 2 } });
   throws(() => short.setScene(bundle(imageScene())), "参照名を読む長さにも上限を付ける"); short.destroy();
   if (typeof OffscreenCanvas !== "undefined") {
-    const offscreen = new View2D(new OffscreenCanvas(200, 200));
+    const offscreen = await View2D.create(new OffscreenCanvas(200, 200));
     offscreen.setUnderlayRenderer(() => ({ width: 10, height: 10, render(request) { const source = new OffscreenCanvas(request.width, request.height); source.getContext("2d").fillRect(0, 0, source.width, source.height); return { source, dispose() { source.width = 0; } }; }, dispose() {} }));
     offscreen.setScene(bundle(imageScene())); await flush(); assert(offscreen.getReport().drawn.images === 1, "OffscreenCanvas だけでも画像を合成する"); offscreen.destroy();
   }

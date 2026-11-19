@@ -61,6 +61,8 @@ export interface View2DOptions {
   fallbackFont?: "sans-serif" | "serif" | "monospace";
   limits?: Partial<Limits>;
   underlayRenderer?: UnderlayRenderer;
+  /** 共有する WebGPU デバイス。省略時は既定の共有デバイスを使う。 */
+  device?: GPUDevice;
 }
 export interface ElementRef {
   readonly id: string;
@@ -202,7 +204,43 @@ export type ToolInput = InputModifiers & (
   | { readonly type: "cancel"; readonly reason?: string }
 );
 export interface Gesture { readonly type: "select" | "pan" | "measure" | "pinch" | "custom"; readonly start: Point; readonly end: Point }
-export type Overlay = (context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, state: View2DState) => void;
+/** WebGPU 描画パスへ直接図形を発行する重ね描き用の 2D コンテキスト。 */
+export interface OverlayContext {
+  strokeStyle: string;
+  fillStyle: string;
+  lineWidth: number;
+  lineCap: "butt" | "round" | "square";
+  lineJoin: "round" | "bevel" | "miter";
+  globalAlpha: number;
+  font: string;
+  textAlign: "left" | "right" | "center" | "start" | "end";
+  textBaseline: "top" | "hanging" | "middle" | "alphabetic" | "ideographic" | "bottom";
+  save(): void;
+  restore(): void;
+  setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void;
+  setTransform(transform?: DOMMatrix2DInit): void;
+  resetTransform(): void;
+  transform(a: number, b: number, c: number, d: number, e: number, f: number): void;
+  translate(x: number, y: number): void;
+  rotate(angle: number): void;
+  scale(x: number, y: number): void;
+  getTransform(): DOMMatrix | { a: number; b: number; c: number; d: number; e: number; f: number };
+  setLineDash(segments: readonly number[]): void;
+  getLineDash(): number[];
+  beginPath(): void;
+  moveTo(x: number, y: number): void;
+  lineTo(x: number, y: number): void;
+  closePath(): void;
+  rect(x: number, y: number, w: number, h: number): void;
+  arc(x: number, y: number, radius: number, startAngle: number, endAngle: number, counterclockwise?: boolean): void;
+  stroke(): void;
+  fill(fillRule?: "nonzero" | "evenodd"): void;
+  fillRect(x: number, y: number, w: number, h: number): void;
+  strokeRect(x: number, y: number, w: number, h: number): void;
+  fillText(text: string, x: number, y: number): void;
+  drawImage(source: ImageBitmap | HTMLCanvasElement | OffscreenCanvas, dx: number, dy: number, dw?: number, dh?: number): void;
+}
+export type Overlay = (context: OverlayContext, state: View2DState) => void;
 export interface ToolContext {
   readonly viewer: View2D;
   /** 中断・変更・差し替え・破棄で abort。次の入力では新しい有効期間になる。 */
@@ -233,8 +271,9 @@ export interface View2DState {
   readonly gesture: Gesture | null;
   readonly measurement: Measurement | null;
   readonly underlays: readonly UnderlayState[];
+  readonly contextLost: boolean;
 }
-export type View2DEventType = "scene" | "view" | "size" | "layers" | "selection" | "hover" | "highlight" | "tool" | "input" | "measurement" | "underlay";
+export type View2DEventType = "scene" | "view" | "size" | "layers" | "selection" | "hover" | "highlight" | "tool" | "input" | "measurement" | "underlay" | "contextlost";
 export interface View2DEvent { readonly type: View2DEventType; readonly state: View2DState }
 export type SelectionMode = "replace" | "add" | "remove" | "toggle";
 export type RenderReason = "browser-text" | "text-layout-unsupported" | "marker-unresolved" | "point-style-unsupported" | "color-unresolved" | Exclude<UnderlayStatus, "ready">;
@@ -250,8 +289,19 @@ export interface RenderReport {
   readonly drawn: Readonly<{ lines: number; faces: number; texts: number; points: number; images: number; glyphs: number }>;
   readonly issues: readonly RenderIssue[];
 }
+export type View2DErrorReason = "webgpu-unavailable" | "context-lost";
+export interface Snapshot2D {
+  /** デバイスの画素。 */
+  readonly width: number;
+  readonly height: number;
+  readonly pixelRatio: number;
+  /** RGBA、上の行から。 */
+  readonly pixels: Uint8Array;
+}
 export declare class View2D {
-  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, options?: View2DOptions);
+  /** WebGPU を初期化し、Canvas に描く View2D を作る。WebGPU を使えないときは reason が webgpu-unavailable の例外。 */
+  static create(canvas: HTMLCanvasElement | OffscreenCanvas, options?: View2DOptions): Promise<View2D>;
+  private constructor();
   /** 検査に失敗すれば RangeError。以前のシーンと画面を保つ。 */
   setScene(input: SceneInput | null): RenderReport;
   getScene(): SceneSnapshot | null;
@@ -304,6 +354,8 @@ export declare class View2D {
   addOverlay(draw: Overlay, options?: { scope?: "scene" | "viewer" }): () => void;
   invalidate(): RenderReport;
   render(): RenderReport;
+  /** 描画済みの画面から device px の RGBA 画素を非同期に読み出す。 */
+  snapshot(): Promise<Snapshot2D>;
   jumpTo(view: Camera): RenderReport;
   fitBounds(bounds: Extent, padding?: number): RenderReport;
   /** SceneResult.extent に収める。文字列は基点だけの範囲であり、代替文字の外形は含まない。 */

@@ -129,11 +129,14 @@ export function Viewer3D() {
   const [canvas, setCanvas] = useState(null), [groundCanvas, setGroundCanvas] = useState(null);
   const [dimension, setDimension] = useState(false);
   const [messages, setMessages] = useState([]);
+  const [viewerError, setViewerError] = useState(null);
   const opened = useScene3D(file, sceneOptions);
   const cloudOpened = useScene3D(cloudFile, sceneOptions);
   const drawing = useDrawing(groundFile, drawingOptions);
-  const viewer = useView3D(canvas, viewOptions);
+  const viewer = useView3D(canvas, viewOptions, setViewerError);
   const groundViewer = useDrawingViewer(groundCanvas, groundOptions);
+  useLayoutEffect(() => { setViewerError(null); }, [canvas]);
+  useLayoutEffect(() => { if (viewer) setViewerError(null); }, [viewer]);
   useView3DInput(viewer, canvas, inputOptions);
   const state = useView3DState(viewer);
   // 資源の数は描いた後の値を出す。
@@ -262,7 +265,8 @@ export function Viewer3D() {
   if (groundReport) notices.push(groundReport.status === "ready" ? `地面の図面: 貼りました（未描画・代替 ${groundReport.issues.length} 件）` : `地面の図面: ${reasons[groundReport.reason] ?? groundReport.reason}`);
   if (drawing.status === "error") notices.push("地面の図面: 開けませんでした（" + drawing.error.message + "）");
   let status = "3D のファイル（IFC・CityGML・LAS など）を選んでください。";
-  if (opened.status === "loading") status = "読み込んでいます…";
+  if (viewerError) status = "表示できません: " + (viewerError.reason === "webgpu-unavailable" ? "このブラウザーでは WebGPU を使えません" : viewerError.message);
+  else if (opened.status === "loading" || (opened.status === "ready" && (!viewer || !sceneReport))) status = "読み込んでいます…";
   else if (opened.status === "error") status = "表示できません: " + (opened.error.format ? opened.error.format + " は 3D に対応していません" : opened.error.message);
   else if (opened.status === "ready") {
     const { counts } = opened.input.result;

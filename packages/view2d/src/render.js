@@ -1,6 +1,8 @@
 import { SCENE_NONE, SCENE_VALUES as V } from "@zumen-jp/zumen";
 import { end, valid } from "./validate.js";
 import { unitVisible } from "./interaction.js";
+import { premultipliedRgba } from "./color.js";
+import { rasterizeTransformedText } from "./text-raster.js";
 import { clipParts, pointReason, primitiveParts, textReason, unitStyle } from "./geometry.js";
 export { project, unproject } from "./geometry.js";
 
@@ -43,17 +45,13 @@ export function reportOf(prepared, limits, display, elements, underlays) {
   return { report: Object.freeze({ drawn: Object.freeze(drawn), issues: Object.freeze(issues) }), omitted };
 }
 
-export function paint(ctx, prepared, settings, view, size, display, underlays) {
-  const { width, height, pixelRatio } = size;
-  ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = settings.background;
-  ctx.fillRect(0, 0, width, height);
+export function paint(surface, measureCtx, prepared, settings, view, size, display, underlays) {
+  surface.beginFrame();
   if (!prepared) return;
   const { columns: c, order, omitted } = prepared;
-  ctx.lineCap = "butt";
-  ctx.lineJoin = "round";
-  ctx.setLineDash([]);
+  const { width, height, pixelRatio } = size;
+  const canvasWidth = Math.ceil(width * pixelRatio);
+  const canvasHeight = Math.ceil(height * pixelRatio);
 
   for (let chunk = 0; chunk < order.length; chunk++) {
     for (const ordinal of order[chunk].indices) {
@@ -61,20 +59,46 @@ export function paint(ctx, prepared, settings, view, size, display, underlays) {
       if (omitted.has(`${kind}:${i}`)) continue;
       const unit = c[`${kind}_units`][i];
       if (!unitVisible(c, unit, display)) continue;
-      ctx.save();
+      let clipped = false;
+      for (const part of clipParts(c, unit, view, size)) {
+        surface.applyClipPart(part.subpaths);
+        clipped = true;
+      }
       try {
-        for (const part of clipParts(c, unit, view, size)) ctx.clip(part.path, part.fill);
-        if (kind === "image") { underlays?.draw(ctx, i); continue; }
+        if (kind === "image") { underlays?.draw(surface, i); continue; }
         const style = unitStyle(c, unit, settings, display);
-        ctx.fillStyle = style;
-        ctx.strokeStyle = style;
-        for (const part of primitiveParts(ctx, c, kind, i, chunk, settings, view, size)) {
-          if (part.text !== undefined) { part.apply(ctx); ctx.fillText(part.text, 0, 0); }
-          else if (part.fill) ctx.fill(part.path, part.fill);
-          else { ctx.lineWidth = part.width; ctx.stroke(part.path); }
+        const color = premultipliedRgba(style);
+        if (color[3] <= 0) continue;
+        for (const part of primitiveParts(measureCtx, c, kind, i, chunk, settings, view, size)) {
+          if (part.text !== undefined) {
+            const patch = rasterizeTransformedText({
+              text: part.text,
+              font: part.font,
+              textAlign: part.textAlign,
+              textBaseline: "alphabetic",
+              fillStyle: style,
+              matrix: part.matrixOf(pixelRatio),
+              canvasWidth,
+              canvasHeight,
+            });
+            if (patch) {
+              surface.drawImageQuad(
+                patch.source,
+                patch.width,
+                patch.height,
+                [patch.width / pixelRatio, 0, 0, patch.height / pixelRatio, patch.x0 / pixelRatio, patch.y0 / pixelRatio],
+                1,
+                true,
+              );
+            }
+          } else if (part.fill) {
+            surface.drawFill(part.subpaths, part.arcs, part.fill, color);
+          } else {
+            surface.drawStroke(part.subpaths, part.arcs, part.width, color);
+          }
         }
       } finally {
-        ctx.restore();
+        if (clipped) surface.resetClip();
       }
     }
   }

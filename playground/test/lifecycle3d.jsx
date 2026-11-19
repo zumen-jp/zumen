@@ -31,6 +31,15 @@ for (const [name, key] of [["subscribe", "state"], ["on", "events"], ["attachInp
     return () => { if (active) { active = false; counts[key]--; } off(); };
   };
 }
+let holdCreate = false;
+const pendingCreates = [];
+const createViewer = View3D.create.bind(View3D);
+View3D.create = async function (...args) {
+  if (holdCreate) await new Promise((resolve) => pendingCreates.push(resolve));
+  const instance = await createViewer(...args);
+  counts.created++;
+  return instance;
+};
 const destroy = View3D.prototype.destroy;
 View3D.prototype.destroy = function () { counts.destroyed++; return destroy.call(this); };
 const options = Object.freeze({ width: 160, height: 120, shading: "unlit",
@@ -49,14 +58,18 @@ function Probe({ file, loader }) {
   opened = useScene3D(file, { loadModule: loader });
   useLayoutEffect(() => {
     if (!viewer) return;
-    if (viewer !== lastViewer) { counts.created++; lastViewer = viewer; }
+    lastViewer = viewer;
     viewer.setScene(opened.status === "ready" ? opened.input : null);
   }, [viewer, opened]);
   return null;
 }
 window.probe = {
   counts, delayed,
-  get status() { return opened?.status; }, get format() { return opened?.input?.document.format; },
+  get pendingCreates() { return pendingCreates.length; },
+  holdCreate() { holdCreate = true; },
+  releaseCreate() { holdCreate = false; for (const resume of pendingCreates.splice(0)) resume(); },
+  unmount() { if (!root) return; flushSync(() => root.unmount()); root = null; },
+  get status() { return opened?.status === "ready" && (!viewer || snapshot?.document?.hash !== opened.input.document.hash) ? "loading" : opened?.status; }, get format() { return opened?.input?.document.format; },
   get module() { return opened?.module; }, get error() { return opened?.error?.message; },
   get scene() { return snapshot?.document?.format ?? null; }, get picks() { return picks; },
   get stats() { return viewer?.getStats() ?? lastViewer?.getStats(); },

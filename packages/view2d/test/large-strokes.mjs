@@ -14,7 +14,7 @@ function source(xy) {
 }
 
 /** 巨大な元座標に依存しない近傍の独立 Canvas と、線・join・dash・clip・点を比較する。 */
-export function testLargeStrokes(assert) {
+export async function testLargeStrokes(assert) {
   const huge = Math.fround(2e15);
   const cases = [
     { name: "斜線", data: source([-2000, 2000, 2000, -2000]), scale: 1e12, paths: [[[[-100, -100], [300, 300]]]], hit: [100, 100] },
@@ -51,7 +51,7 @@ export function testLargeStrokes(assert) {
     const width = 8;
     item.data.unit_weights = [width];
     const canvas = document.createElement("canvas"), reference = document.createElement("canvas");
-    const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio, pixelsPerMillimeter: 1,
+    const viewer = await View2D.create(canvas, { width: 200, height: 200, pixelRatio, pixelsPerMillimeter: 1,
       view: { center: { x: 0, y: 0 }, scale: item.scale ?? 1, rotation: 0 } });
     try {
       viewer.setScene(bundle(item.data));
@@ -68,7 +68,7 @@ export function testLargeStrokes(assert) {
         ctx.stroke(path);
       }
       const expected = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-      const actual = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+      const actual = (await viewer.snapshot()).pixels;
       let mismatch = 0, ink = 0, clearInk = 0;
       for (let i = 0; i < actual.length; i += 4) {
         if (actual[i] !== 255) ink++;
@@ -87,7 +87,7 @@ export function testLargeStrokes(assert) {
       }
       assert(ink > 0 && clearInk > 0 && mismatch === 0,
         `${item.name}: 近傍の独立 Canvas と内部/外部の画素を比較: ink=${ink}/clear=${clearInk}/mismatch=${mismatch}/ratio=${pixelRatio}`);
-      const pixel = (x, y) => canvas.getContext("2d").getImageData(Math.floor(x * pixelRatio), Math.floor(y * pixelRatio), 1, 1).data[0];
+      const pixel = (x, y) => actual[(Math.floor(y * pixelRatio) * canvas.width + Math.floor(x * pixelRatio)) * 4];
       assert(pixel(...item.hit) >= 126 && pixel(...item.hit) <= 128, `${item.name}: 同じ stroke 内の重なりに alpha を重ねない`);
       assert(viewer.hitTest({ x: item.hit[0], y: item.hit[1] }, 0).length === 1, `${item.name}: 描かれる所を選べる`);
       if (item.gap) {

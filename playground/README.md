@@ -4,7 +4,7 @@ DXF・DWG・JWW・SXF を手元のブラウザーで開き、描画した要素�
 
 ## 起動
 
-リポジトリのルートで次を実行します。Node.js 22.12 以降と、リポジトリで指定した Rust を使います。
+リポジトリのルートで次を実行します。Node.js 24 以降と、リポジトリで指定した Rust を使います。
 
 ```sh
 rustup target add wasm32-unknown-unknown

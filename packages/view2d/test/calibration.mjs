@@ -2,9 +2,9 @@ import { measureDistance, View2D } from "../src/index.js";
 import { readScene } from "@zumen-jp/zumen";
 import { bundle, fixture } from "./fixtures.mjs";
 
-export function testCalibration({ assert, throws }) {
+export async function testCalibration({ assert, throws }) {
   const canvas = document.createElement("canvas"), input = bundle(fixture(), { from: "sheet/0", unit: "millimeter" });
-  const viewer = new View2D(canvas, { width: 200, height: 200, view: { center: { x: 0, y: 0 }, scale: 10, rotation: 0 } });
+  const viewer = await View2D.create(canvas, { width: 200, height: 200, view: { center: { x: 0, y: 0 }, scale: 10, rotation: 0 } });
   const start = { origin: { x: 0, y: 0 }, offset: { x: 0, y: 0 }, element: { id: "unrelated", path: [] } };
   const end = { origin: { x: 0, y: 0 }, offset: { x: 3, y: 4 } };
   const measurement = { from: "sheet/0", start, end };
@@ -37,8 +37,8 @@ export function testCalibration({ assert, throws }) {
     viewer.setMeasurement(paper);
     const ordinary = viewer.getState().measurement;
     assert(ordinary.distance === 5 && ordinary.real.reason === "paper" && ordinary.calibrated === undefined, "未選択なら紙上の通常測定だけを返す");
-    const pixels = () => canvas.getContext("2d").getImageData(0, 0, 200, 200).data;
-    const beforePixels = pixels();
+    const pixels = async () => (await viewer.snapshot()).pixels;
+    const beforePixels = await pixels();
     let calls = 0, lastMeasurement, lastDocument, current = response();
     const resolve = (value, document) => { calls++; lastMeasurement = value; lastDocument = document; return current; };
     const choice = { id: "cal/first", resolve };
@@ -76,7 +76,8 @@ export function testCalibration({ assert, throws }) {
       assert(measured.distance === 5 && measured.real.reason === "paper" && measured.calibrated.status === "unavailable" &&
         measured.calibrated.reason === reason && measured.calibrated.calibration === "cal/first", `${reason} でも紙距離と線を保持する`);
     }
-    assert(pixels().every((value, i) => value === beforePixels[i]), "校正の失敗で紙上の計測線と描画を変えない");
+    const afterPixels = await pixels();
+    assert(afterPixels.every((value, i) => value === beforePixels[i]), "校正の失敗で紙上の計測線と描画を変えない");
     current = response({ unit_label: "尺".repeat(4096) }); viewer.setMeasurement(paper);
     assert(viewer.getState().measurement.calibrated.unit_label.length === 4096, "元ラベルの保持上限ちょうどは受け付ける");
     current = response();
@@ -129,8 +130,8 @@ export function testCalibration({ assert, throws }) {
 }
 
 /** 適合テストと同じ校正入り ZMDR を実際の wasm の Session へ渡す。 */
-export function testCalibrationCore(zumen, source, { assert }) {
-  const session = zumen.open(), viewer = new View2D(document.createElement("canvas"), { width: 200, height: 200 });
+export async function testCalibrationCore(zumen, source, { assert }) {
+  const session = zumen.open(), viewer = await View2D.create(document.createElement("canvas"), { width: 200, height: 200 });
   const at = (x, y, dx = 0, dy = 0) => ({ origin: { x, y }, offset: { x: dx, y: dy } });
   try {
     session.push(source.name, Uint8Array.from(source.hex.match(/../g), (s) => parseInt(s, 16)));

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { ReviewLayer, View2D } from "@zumen-jp/view2d";
 export { useDrawing } from "./drawing.js";
 export { useViewerEvent, useViewerState } from "./store.js";
@@ -7,16 +7,34 @@ export { useViewerEvent as useReviewEvent, useViewerState as useReviewState } fr
 const emptyOptions = Object.freeze({});
 
 /** Canvas と設定を所有する間だけ有効な表示部品。再描画では同じ設定の参照を渡す。 */
-export function useDrawingViewer(canvas, options = emptyOptions) {
+export function useDrawingViewer(canvas, options = emptyOptions, onError) {
   const [owner, setOwner] = useState(null);
+  const errorRef = useRef(onError);
+  errorRef.current = onError;
   useLayoutEffect(() => {
     if (!canvas) { setOwner(null); return; }
-    const viewer = new View2D(canvas, options);
-    setOwner({ canvas, options, viewer });
+    let viewer = null, cancelled = false;
+    Promise.resolve().then(() => {
+      if (cancelled) return null;
+      return View2D.create(canvas, options);
+    }).then(
+      (created) => {
+        if (!created) return;
+        if (cancelled) { created.destroy(); return; }
+        viewer = created;
+        setOwner({ canvas, options, viewer });
+      },
+      (error) => {
+        if (cancelled) return;
+        setOwner(null);
+        errorRef.current?.(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
     return () => {
-      // Activity と Suspense は state を保ったまま layout effect を切り離す。
+      // Activity と Suspense は state を保ったまま layout effect を切り離す。GPU の資源もここで放す。
+      cancelled = true;
       setOwner(null);
-      viewer.destroy();
+      viewer?.destroy();
     };
   }, [canvas, options]);
   return owner && owner.canvas === canvas && owner.options === options ? owner.viewer : null;

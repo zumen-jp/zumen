@@ -1,8 +1,8 @@
 # @zumen-jp/view3d
 
-zumen の 3D のシーン（ZMS3）を、利用側の Canvas に WebGL2 で描く表示部品です。メッシュ・稜線・複数の配置・透明度・未解決の色を描き、要素の ID でビューごとに選択・非表示・色を指定し、切断面で切り、画面の点から要素を当てます。レビュー文書の 3D の場所と往復します。設計は [3D の表示部品](../../docs/view3d.md) に従います。
+zumen の 3D のシーン（ZMS3）を、利用側の Canvas に WebGPU で描く表示部品です。メッシュ・稜線・複数の配置・透明度・未解決の色を描き、要素の ID でビューごとに選択・非表示・色を指定し、切断面で切り、画面の点から要素を当てます。レビュー文書の 3D の場所と往復します。設計は [3D の表示部品](../../docs/view3d.md) に従います。
 
-このパッケージは未公開です。手元では `packages/view3d/src/index.js` を ESM として読み込み、`@zumen-jp/zumen` を `bindings/js/src/index.js` に、`three` を利用側の three.js に解決します。
+このパッケージは未公開です。手元では `packages/view3d/src/index.js` を ESM として読み込み、`@zumen-jp/zumen` を `bindings/js/src/index.js` に、`three`・`three/webgpu`・`three/tsl` を利用側の three.js に解決します。
 
 ## 依存
 
@@ -13,7 +13,7 @@ zumen の 3D のシーン（ZMS3）を、利用側の Canvas に WebGL2 で描�
 ```js
 import { View3D } from "@zumen-jp/view3d";
 
-const viewer = new View3D(canvas, { width: 800, height: 600, pixelRatio: window.devicePixelRatio, unresolvedColor: "#b4b4b4" });
+const viewer = await View3D.create(canvas, { width: 800, height: 600, pixelRatio: window.devicePixelRatio, unresolvedColor: "#b4b4b4" });
 // session は @zumen-jp/zumen のセッション。IFC は open 済み。
 const { hash } = session.call({ v: 1, op: "building", doc }).result;
 const result = session.call({ v: 1, op: "scene3d", doc }).result;
@@ -35,13 +35,13 @@ if (hits.length > 0) viewer.select({ doc, format: "ifc", hash }, [hits[0].id]);
 - 透明度 0 の配置と非表示の要素は、描画と当たり判定の両方から除きます。未解決の色は `unresolvedColor` で描き、要素ごとに `color-unresolved` を報告します。点群の点はまだ描かず、件数を `points-unsupported` で報告します。
 - 当たりは光線の f64 の原点（カメラの位置）と相対位置、文書単位の距離を返し、近い順に並べます。同じ要素の当たりはもっとも近いものにまとめます。
 - 新しいシーンの検査・資源の作成に失敗したら、前のシーンと状態を保ちます。上限は `limits` で下げられ、入力に比例する GPU のバイト数と作業量は資源を作る前に数えます。
-- context を失うと描画を止め、戻れば描き直します。`destroy` は予約した描画・購読・通知と、部品が作った資源を解放します。Canvas は取り除きません。
+- デバイスを失うと `contextlost` を通知して描画を止め、`snapshot` は `context-lost` の例外を返します。`destroy` は予約した描画・購読・通知と、部品が作った資源を解放します。Canvas は取り除きません。
 
 ## ビューごとの状態と切断面
 
 - 選択・非表示・色はビューごとに持ちます。`setViews` の各ビューに `selected`・`visible`・`exceptions`・`colored` を渡すか、`select`・`setHidden`・`setColors` に `{ view }` を渡します。`view` を省くとすべてのビューに当てます。色の優先は選択、`colored`、要素の色の順です。同じ要素に 2 つの色を当てると `invalid-input` です。
 - `clips` は `{ point, normal }` の平面で、法線の向きの側を除きます。面の上の点は残します。`box` は `{ min, max }` の箱で、外側の 6 面の切断面として数えます。切断面の数は `limits.clips`（既定 16）までです。描画と当たり判定は同じ条件で除きます。
-- `getState().views` の各ビューは、カメラ・切断面・箱・要素の状態を持ちます。`snapshot(viewId)` はそのビューの枠を device px の RGBA（上から下）で返します。
+- `getState().views` の各ビューは、カメラ・切断面・箱・要素の状態を持ちます。`await snapshot(viewId)` はそのビューの枠を device px の RGBA（上から下）で返します。
 
 ## レビュー文書との往復
 
@@ -104,7 +104,7 @@ const hit = cloud.hitTest("main", { x, y });
 
 - 点群の地図の座標（メートル）を、表示中のシーンの地図の変換の逆（尺度・X 軸の回転・東・北・高さ）で文書の座標に写します。塊の行列を f64 で組み、大きな座標でも塊の原点からの差で描きます。
 - 単位が m でない（`unit-unknown`・`unit-not-metre`）、座標系の名前がない・違う（`crs-unknown`・`crs-mismatch`、EPSG の 3 つの書き方はそろえて比べます）、表示中のシーンが地図の変換を持たない（`map-unknown`）、点群の地図の変換が恒等でない（`map-unsupported`）、高さの基準が両方にあって違う（`height-mismatch`）ときは重ねず、`getReport()` と当たり判定で理由を返します。高さの基準が片方にしかなければ重ね、`height: "unverified"` と返します。推測で別の基準に合わせません。
-- 八分木の節（塊）ごとに 1 つの `THREE.Points` を作り、位置と色の列は blob から借用します。強度（点群の最大で正規化）と分類の表示色だけ 8 ビットの色を作り、その大きさを `displayBytes` に返します。描く塊は表示範囲の中から粗い段、近い順、塊の順に `maxPoints`（既定 2,000,000）まで選び、ビューと大きさの変化で選び直します。
+- 八分木の節（塊）ごとにインスタンシングした `THREE.Sprite`（`PointsNodeMaterial`）を作り、位置と色の列は blob から借用します。強度（点群の最大で正規化）と分類の表示色だけ 4 バイト境界の 8 ビット RGBA 色を作り、その大きさを `displayBytes` に返します。描く塊は表示範囲の中から粗い段、近い順、塊の順に `maxPoints`（既定 2,000,000）まで選び、ビューと大きさの変化で選び直します。
 - `hitTest(viewId, point)` は描いている点のうち、光線から許容差（CSS px）の内の点を距離・塊・行の順に返します。切断面と切断の箱の外の点と、手前の要素（`occluder`）より奥の点は返しません。当たりは塊と塊の中の行・節・元の属性で、点ごとの永続 ID ではありません。調べる点の数は `maxWork`（既定 10,000,000）で切り、`truncated` を返します。
 - `load` を渡すと `request(query)` で読み直します。新しい要求・`cancel()`・解除で前の要求の `signal` を abort し、始まる前なら `load` を呼びません。結果は `applied`・`stale`（中断後に届いた）・`cancelled`・`failed` で、失敗しても前の表示を保ちます。
 - 解除・シーンの差し替え（`scope: "scene"`）・単位の違うシーン・破棄で外し、geometry と material を解放します。blob は利用側が持ち続けます。
@@ -115,9 +115,9 @@ const hit = cloud.hitTest("main", { x, y });
 node bindings/js/test/browser/view3d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
 ```
 
-合成の ZMS3 で画素・ID・位置・当たり・ビューごとの状態・切断面・pixel ratio・レビューの場所の往復・追加描画の位置と当たりの順と後始末・入力の操作と中断・地面の 2D の座標と ID と画素と寿命・地物の属性と点群の位置と色と当たりと予算と読み直しと寿命・不正な入力・上限・context loss・破棄を確かめ、コアが作った IFC のシーンで列の数・要素 ID・描画と当たりの一致を確かめ、m の IFC で BCF 2.1・3.0 の透視・平行投影の視点が `bcf_write`・`bcf_read` を通って同じ場所に戻ることを確かめます。外部の BCF の実装で view3d の出力を読むことは確かめていません。CPU の時間、`readPixels` までの時間、確定したバイト数、取れる環境での JS ヒープを別々に記録します。点群は、コアが自作の LAS から作ったシーンと、テストで組んだ 100 万点・64 塊の合成の点群で、読み込み・描画・当たり判定の CPU の時間を記録します。大きな実データの点群と GPU のメモリの上限は確かめていません。GPU に依存する画素はコアのビット一致の保証に含めません。
+合成の ZMS3 で画素・ID・位置・当たり・ビューごとの状態・切断面・pixel ratio・レビューの場所の往復・追加描画の位置と当たりの順と後始末・入力の操作と中断・地面の 2D の座標と ID と画素と寿命・地物の属性と点群の位置と色と当たりと予算と読み直しと寿命・不正な入力・上限・デバイス喪失・破棄を確かめ、コアが作った IFC のシーンで列の数・要素 ID・描画と当たりの一致を確かめ、m の IFC で BCF 2.1・3.0 の透視・平行投影の視点が `bcf_write`・`bcf_read` を通って同じ場所に戻ることを確かめます。外部の BCF の実装で view3d の出力を読むことは確かめていません。CPU の時間、`snapshot` までの時間、確定したバイト数、取れる環境での JS ヒープを別々に記録します。点群は、コアが自作の LAS から作ったシーンと、テストで組んだ 100 万点・64 塊の合成の点群で、読み込み・描画・当たり判定の CPU の時間を記録します。大きな実データの点群と GPU のメモリの上限は確かめていません。GPU に依存する画素はコアのビット一致の保証に含めません。
 
-2026-11-17 に Playwright 1.64.1 の Chromium 156・Firefox 157・WebKit 27.2 で検査を通しました。CI は Chromium で流します。[対応するブラウザー](../../docs/support.md)の下限の製品そのものでは確かめていません。表示部品の本体は `Object.hasOwn`・`Array.at` に依存しないことだけを、これらを外して確かめます。
+Playwright の Chromium 等で検査を通します。CI は Chromium で流します。[対応するブラウザー](../../docs/support.md)の下限の製品そのものでは確かめていません。
 
 ## 第三者のソフトウェア
 

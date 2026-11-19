@@ -26,7 +26,7 @@ const root = resolve(here, "../../../..");
 const filename = (name) => name === "all" ? "zumen_abi1.wasm" : `zumen_abi1_${name}.wasm`;
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const expectedHashes = Object.fromEntries(names.map((name, index) => [name, hash(readFileSync(wasmPaths[index]))]));
-const origin = "http://localhost:24191";
+const origin = `http://localhost:${process.env.ZUMEN_TEST_PORT ?? 24128}`;
 // ルート以外に置いたアプリでも、Vite が書き換えた URL から読む。
 const base = "/viewer/";
 const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".wasm": "application/wasm" };
