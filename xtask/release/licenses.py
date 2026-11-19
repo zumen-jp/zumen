@@ -3,9 +3,11 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import tomllib
 from pathlib import Path
@@ -54,8 +56,46 @@ def third_party(data):
     return [{"name": name, "version": version, "licenses": sorted(ids)} for (name, version), ids in sorted(found.items())]
 
 
-def run_about(command):
-    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=False)
+def cargo_wrapper(directory, target):
+    """cargo-about は .cargo/config.toml の rustflags（wasm の +simd128 など）を読まずに cfg を評価するため、
+    Cargo 自身の --filter-platform で絞った解決結果を渡し、二重の target 式フィルタを無効にする。
+    """
+    cargo = shutil.which("cargo") or "cargo"
+    script = directory / "cargo_filter.py"
+    script.write_text(
+        "import json, subprocess, sys\n"
+        f"cargo, target = {cargo!r}, {target!r}\n"
+        "args = sys.argv[1:]\n"
+        "if args and args[0] == 'metadata' and '--filter-platform' not in args:\n"
+        "    res = subprocess.run([cargo, *args, '--filter-platform', target], capture_output=True)\n"
+        "    if res.returncode != 0:\n"
+        "        sys.stderr.buffer.write(res.stderr)\n"
+        "        sys.exit(res.returncode)\n"
+        "    data = json.loads(res.stdout)\n"
+        "    for pkg in data.get('packages', ()):\n"
+        "        for dep in pkg.get('dependencies', ()):\n"
+        "            dep['target'] = None\n"
+        "    for node in data.get('resolve', {}).get('nodes', ()):\n"
+        "        for dep in node.get('deps', ()):\n"
+        "            for kind in dep.get('dep_kinds', ()):\n"
+        "                kind['target'] = None\n"
+        "    sys.stdout.buffer.write(json.dumps(data).encode('utf-8'))\n"
+        "    sys.exit(0)\n"
+        "sys.exit(subprocess.call([cargo, *args]))\n",
+        encoding="utf-8",
+    )
+    if os.name == "nt":
+        launcher = directory / "cargo_filter.cmd"
+        launcher.write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
+        return launcher
+    launcher = directory / "cargo_filter"
+    launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
+    launcher.chmod(0o755)
+    return launcher
+
+
+def run_about(command, env=None):
+    result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", check=False)
     if result.returncode:
         raise ValueError("cargo-about が失敗した\n" + result.stderr)
     if re.search(r"WARN|ERROR", result.stderr, re.IGNORECASE):
@@ -69,11 +109,13 @@ def generate(tool, kind, target, output, module="default"):
     args = [tool, "about", "generate", "--config", "about.toml", "--manifest-path", MANIFESTS[kind],
             "--target", target, "--locked", "--fail", *feature_args(module)]
     with tempfile.TemporaryDirectory(prefix="zumen-licenses-") as temporary:
-        raw = Path(temporary) / "raw.json"
-        rendered = Path(temporary) / "licenses.txt"
-        run_about([*args, "--format", "json", "--output-file", str(raw)])
+        stage = Path(temporary)
+        env = {**os.environ, "CARGO": str(cargo_wrapper(stage, target))}
+        raw = stage / "raw.json"
+        rendered = stage / "licenses.txt"
+        run_about([*args, "--format", "json", "--output-file", str(raw)], env)
         dependencies = third_party(json.loads(raw.read_text(encoding="utf-8")))
-        run_about([*args, "--output-file", str(rendered), "about.hbs"])
+        run_about([*args, "--output-file", str(rendered), "about.hbs"], env)
         text = rendered.read_text(encoding="utf-8")
         if PLACEHOLDER.search(text) or any(f"- {dep['name']} {dep['version']}" not in text for dep in dependencies):
             raise ValueError("ライセンス本文に定型の文か crate の抜けがある")

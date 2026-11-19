@@ -47,6 +47,31 @@ class PackageTests(unittest.TestCase):
         with patch("licenses.subprocess.run", return_value=result), self.assertRaisesRegex(ValueError, "fixture failure"):
             licenses.run_about(["cargo-about", "about", "generate"])
 
+    def test_cargo_wrapper_filters_platform_and_clears_target_predicates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            stage = Path(temporary)
+            fake_cargo = stage / "fake_cargo.py"
+            fake_cargo.write_text(
+                "import json, sys\n"
+                "assert '--filter-platform' in sys.argv and 'wasm32-unknown-unknown' in sys.argv\n"
+                "print(json.dumps({\n"
+                "    'packages': [{'dependencies': [{'name': 'simdutf8', 'target': 'cfg(target_feature = \"simd128\")'}]}],\n"
+                "    'resolve': {'nodes': [{'deps': [{'dep_kinds': [{'kind': None, 'target': 'cfg(target_feature = \"simd128\")'}]}]}]},\n"
+                "}))\n",
+                encoding="utf-8",
+            )
+            fake_launcher = stage / ("fake_cargo.cmd" if sys.platform == "win32" else "fake_cargo")
+            if sys.platform == "win32":
+                fake_launcher.write_text(f'@"{sys.executable}" "{fake_cargo}" %*\r\n', encoding="utf-8")
+            else:
+                fake_launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{fake_cargo}" "$@"\n', encoding="utf-8")
+                fake_launcher.chmod(0o755)
+            with patch("licenses.shutil.which", return_value=str(fake_launcher)):
+                wrapper = licenses.cargo_wrapper(stage, "wasm32-unknown-unknown")
+            out = json.loads(subprocess.check_output([str(wrapper), "metadata", "--format-version", "1"], text=True))
+            self.assertIsNone(out["packages"][0]["dependencies"][0]["target"])
+            self.assertIsNone(out["resolve"]["nodes"][0]["deps"][0]["dep_kinds"][0]["target"])
+
     def test_wrong_target_crate_and_changed_text_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary) / "notice"
