@@ -7,6 +7,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
 import { build } from "vite";
+import { chromiumLaunchOptions } from "./launch.mjs";
 import { checkBoundaries, checkInteractions, installWorkerGate } from "./react-interactions.mjs";
 import { checkPlaygroundResize, installResizeTrace } from "./react-resize.mjs";
 import { checkReview } from "./react-review.mjs";
@@ -177,26 +178,7 @@ try {
   await new Promise((ok, fail) => server.once("error", fail).listen(port, "127.0.0.1", ok));
   const isChromium = ["chromium", "chrome", "msedge"].includes(product);
   const launchOptions = isChromium
-    ? {
-        ...(product === "chromium" ? {} : { channel: product }),
-        ignoreDefaultArgs: ["--disable-gpu"],
-        args: [
-          "--enable-gpu",
-          "--enable-unsafe-webgpu",
-          "--ignore-gpu-blocklist",
-          ...(process.platform === "win32" ? ["--use-webgpu-adapter=d3d11"] : []),
-          ...(process.platform === "linux"
-            ? [
-                "--enable-features=Vulkan",
-                "--use-angle=vulkan",
-                "--use-vulkan=swiftshader",
-                "--use-webgpu-adapter=swiftshader",
-                "--enable-unsafe-swiftshader",
-                "--disable-vulkan-surface",
-              ]
-            : []),
-        ],
-      }
+    ? chromiumLaunchOptions(browsers[product], product === "chromium" ? undefined : product)
     : {};
   browser = await browsers[product].launch(launchOptions);
   const context = await browser.newContext({ serviceWorkers: "block" });

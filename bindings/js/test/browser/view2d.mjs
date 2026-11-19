@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
+import { chromiumLaunchOptions } from "./launch.mjs";
 
 const browsers = { chromium, firefox, webkit };
 const [name, wasmPath] = process.argv.slice(2);
@@ -14,27 +15,7 @@ if (!pdfjs && process.env.ZUMEN_PDFJS_REQUIRED) throw new Error("PDF の検査�
 const inputs = ["scene", "open_jww", "open_sxf"].map((test) =>
   JSON.parse(readFileSync(join(root, `bindings/conformance/cases/${test}.json`), "utf8")).steps.find((s) => s.push).push);
 const calibrationInput = JSON.parse(readFileSync(join(root, "bindings/conformance/cases/calibration.json"), "utf8")).steps.find((s) => s.push).push;
-const launchOptions = name === "chromium"
-  ? {
-      ignoreDefaultArgs: ["--disable-gpu"],
-      args: [
-        "--enable-gpu",
-        "--enable-unsafe-webgpu",
-        "--ignore-gpu-blocklist",
-        ...(process.platform === "win32" ? ["--use-webgpu-adapter=d3d11"] : []),
-        ...(process.platform === "linux"
-          ? [
-              "--enable-features=Vulkan",
-              "--use-angle=vulkan",
-              "--use-vulkan=swiftshader",
-              "--use-webgpu-adapter=swiftshader",
-              "--enable-unsafe-swiftshader",
-              "--disable-vulkan-surface",
-            ]
-          : []),
-      ],
-    }
-  : {};
+const launchOptions = name === "chromium" ? chromiumLaunchOptions(chromium) : {};
 const browser = await browsers[name].launch(launchOptions);
 try {
   const page = await browser.newPage({ hasTouch: true });

@@ -1,8 +1,8 @@
 // 決定 0296。組んだ出力か公開したサイトを開き、ページと Worker の通信・CSP・表示を確かめる。
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createServer } from "node:http";
-import { extname, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
 
@@ -50,9 +50,20 @@ try {
     origin = `http://127.0.0.1:${port}`;
   }
   const isChromium = ["chromium", "chrome", "msedge"].includes(product);
+  let swiftShaderIcd;
+  if (process.platform === "linux" && product === "chromium") {
+    const exe = launchers[product].executablePath();
+    const direct = join(dirname(exe), "vk_swiftshader_icd.json");
+    const shell = exe.replace(
+      /\/chromium-(\d+)\/chrome-linux([^/]*)\/[^/]+$/,
+      "/chromium_headless_shell-$1/chrome-headless-shell-linux$2/vk_swiftshader_icd.json",
+    );
+    swiftShaderIcd = existsSync(direct) ? direct : shell !== exe && existsSync(shell) ? shell : undefined;
+  }
   const launchOptions = isChromium
     ? {
         ...(product === "chromium" ? {} : { channel: product }),
+        ...(swiftShaderIcd ? { env: { ...process.env, VK_ICD_FILENAMES: swiftShaderIcd } } : {}),
         ignoreDefaultArgs: ["--disable-gpu"],
         args: [
           "--enable-gpu",
