@@ -26,7 +26,7 @@ fn request(
     data: &[u8],
 ) -> Request {
     let mut bytes = Vec::new();
-    for kind in Kind::ALL {
+    for kind in wire::KINDS {
         let value = match limits.get(kind) {
             Limit::Finite(value) => value,
             Limit::Unlimited => wire::NONE,
@@ -242,7 +242,7 @@ fn selection_returns_sorted_rows_and_stops_without_publishing_partial_results() 
         Kind::Elements,
         Kind::Work,
     ] {
-        let needed = baseline.used[Kind::ALL.iter().position(|&item| item == kind).unwrap()];
+        let needed = baseline.used[wire::KINDS.iter().position(|&item| item == kind).unwrap()];
         for limit in [0, needed / 2, needed - 1, needed] {
             let mut request = request(
                 Command::Select,

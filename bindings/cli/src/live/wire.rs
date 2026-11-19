@@ -7,6 +7,16 @@ use zumen_base::{Kind, Limit, Limits, Stop};
 pub(super) const HEADER_BYTES: usize = 24;
 pub(super) const CONTROL_BYTES: usize = 72;
 pub(super) const REPLY_BYTES: usize = 136;
+/// 文書 IPC（版 1）の固定枠が運ぶ 7 種の予算単位
+pub(super) const KINDS: [Kind; 7] = [
+    Kind::InputBytes,
+    Kind::DecodedBytes,
+    Kind::Records,
+    Kind::Elements,
+    Kind::Depth,
+    Kind::Segments,
+    Kind::Work,
+];
 pub(super) const MAX_INPUT_BYTES: usize = 256 << 20;
 /// Open に添える属性ファイル（SAF）の上限
 pub(super) const MAX_SAF_BYTES: usize = 64 << 20;
@@ -242,7 +252,7 @@ impl Control {
     pub fn parse(bytes: &[u8; CONTROL_BYTES]) -> Option<Self> {
         let mut input = Words(bytes);
         let mut limits = Limits::default();
-        for kind in Kind::ALL {
+        for kind in KINDS {
             let value = input.u64()?;
             limits.set(
                 kind,
@@ -370,10 +380,10 @@ impl Reply {
             Some(Stop::Cancelled) => (8, 0, 0),
             Some(Stop::TimedOut) => (9, 0, 0),
             Some(Stop::Exceeded(value)) => (
-                Kind::ALL
+                KINDS
                     .iter()
                     .position(|&kind| kind == value.kind)
-                    .map_or(0, |index| index as u32 + 1),
+                    .map_or(2, |index| index as u32 + 1),
                 value.limit,
                 value.requested,
             ),

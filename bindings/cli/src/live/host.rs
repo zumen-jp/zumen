@@ -665,7 +665,7 @@ impl Host {
             reply.revision = document.revision().0;
             reply.state = document.state_id();
         }
-        reply.used = Kind::ALL.map(|kind| request.budget.used(kind));
+        reply.used = super::wire::KINDS.map(|kind| request.budget.used(kind));
         if request.header.command != Command::Diagnostics {
             reply.diagnostics = u32::try_from(request.diagnostics.len()).unwrap_or(u32::MAX);
             self.diagnostics = Some((request.header.id, std::mem::take(&mut request.diagnostics)));
