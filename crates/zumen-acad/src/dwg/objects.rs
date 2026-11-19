@@ -1147,20 +1147,28 @@ fn xdata(bytes: &[u8], release: Release) -> Option<Vec<Xdata>> {
         match kind {
             0 if release >= Release::R2007 => {
                 let len = usize::from(u16::from_le_bytes(take(2)?.try_into().ok()?));
-                let units: Vec<u16> = take(len * 2)?
+                let mut units: Vec<u16> = take(len * 2)?
                     .as_chunks::<2>()
                     .0
                     .iter()
                     .map(|unit| u16::from_le_bytes(*unit))
                     .collect();
-                items.push(value(Data::Text(
-                    String::from_utf16_lossy(&units).into_bytes(),
+                if units.last() == Some(&0) {
+                    units.pop();
+                }
+                items.push(Xdata::Value(text_value(
+                    code,
+                    String::from_utf16_lossy(&units).as_bytes(),
                 )));
             }
             0 => {
                 let len = usize::from(*take(1)?.first()?);
                 take(2)?;
-                items.push(value(Data::Text(take(len)?.to_vec())));
+                let mut raw = take(len)?.to_vec();
+                if raw.last() == Some(&0) {
+                    raw.pop();
+                }
+                items.push(Xdata::Value(text_value(code, &raw)));
             }
             2 => items.push(value(Data::Text(match take(1)? {
                 [0] => b"{".to_vec(),

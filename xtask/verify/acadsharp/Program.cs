@@ -19,6 +19,11 @@ if (args.Length == 2 && args[0] == "--make-table-fixtures")
     TableFixtures.Write(args[1]);
     return 0;
 }
+if (args.Length == 2 && args[0] == "--make-dim-dstyle-fixtures")
+{
+    DimensionFixtures.Write(args[1]);
+    return 0;
+}
 if (args.Length != 1)
 {
     Console.Error.WriteLine("使い方: dotnet run --project xtask/verify/acadsharp -c Release -- <キットのフォルダー>");

@@ -899,7 +899,8 @@ pub(super) fn encode_xdata(
         while let Some(item) = items.get(at) {
             match (item.code, &item.data) {
                 (1000, Data::Text(raw)) if release >= Release::R2007 => {
-                    let s = core::str::from_utf8(raw).ok()?;
+                    let unescaped = crate::db::uncaret(raw)?;
+                    let s = core::str::from_utf8(&unescaped).ok()?;
                     let units: Vec<u16> = s.encode_utf16().collect();
                     let len = u16::try_from(units.len()).ok()?;
                     bytes.push(0);
@@ -909,11 +910,12 @@ pub(super) fn encode_xdata(
                     }
                 }
                 (1000, Data::Text(raw)) => {
-                    let len = u8::try_from(raw.len()).ok()?;
+                    let unescaped = crate::db::uncaret(raw)?;
+                    let len = u8::try_from(unescaped.len()).ok()?;
                     bytes.push(0);
                     bytes.push(len);
                     bytes.extend(code_page.to_le_bytes());
-                    bytes.extend_from_slice(raw);
+                    bytes.extend_from_slice(&unescaped);
                 }
                 (1002, Data::Text(brace)) => match brace.as_slice() {
                     b"{" => bytes.extend([2, 0]),
