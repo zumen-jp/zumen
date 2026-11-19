@@ -153,6 +153,17 @@ test("矩形選択は版・編集・取り消しに追従し、予算停止で�
       assert.equal(first.selection.length, 1);
       assert.equal(first.result, 1n);
       assert.deepEqual([...first.selection.rows()], [65]);
+      // 点選択: 行 65 は移動前 y = 0 (x = 130..131)。線上は当たり、少し離れた点は外れる
+      const pointHit = await live.selectPoint([130.5, 0.0], 0.05, 0n);
+      assert.equal(pointHit.status, "ok");
+      assert.deepEqual([...pointHit.selection.rows()], [65]);
+      const pointMiss = await live.selectPoint([130.5, 0.5], 0.05, 0n);
+      assert.equal(pointMiss.status, "ok");
+      assert.deepEqual([...pointMiss.selection.rows()], []);
+      await assert.rejects(live.selectPoint([0], 0.1, 0n), TypeError);
+      await assert.rejects(live.selectPoint([NaN, 0], 0.1, 0n), TypeError);
+      await assert.rejects(live.selectPoint([0, 0], -0.1, 0n), RangeError);
+      await assert.rejects(live.selectPoint([0, 0], Infinity, 0n), RangeError);
       const all = await live.select([-Infinity, -Infinity, Infinity, Infinity], 0n);
       assert.deepEqual([...all.selection.rows()], Array.from({ length: 130 }, (_, i) => i));
       const record = { data: all.data, used: all.used, diagnosticCount: all.diagnosticCount };
@@ -184,6 +195,8 @@ test("矩形選択は版・編集・取り消しに追従し、予算停止で�
         assert.deepEqual([...result.selection.rows()], []);
       }
       assert.deepEqual([...first.selection.rows()], [65]);
+      assert.deepEqual([...(await live.selectPoint([135.5, -2.0], 0.05, live.revision)).selection.rows()], [65]);
+      assert.deepEqual([...(await live.selectPoint([130.5, 0.0], 0.05, live.revision)).selection.rows()], []);
     } finally { await live.close(); }
   }
 });

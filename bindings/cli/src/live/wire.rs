@@ -43,6 +43,7 @@ pub(super) enum Command {
     SetText = 18,
     Symbols = 19,
     Draw = 20,
+    SelectPoint = 21,
 }
 
 impl Command {
@@ -69,6 +70,7 @@ impl Command {
             18 => Self::SetText,
             19 => Self::Symbols,
             20 => Self::Draw,
+            21 => Self::SelectPoint,
             _ => return None,
         })
     }
@@ -76,7 +78,10 @@ impl Command {
     fn length_range(self) -> (usize, usize) {
         match self {
             Self::Cancel | Self::Close => (0, 0),
-            Self::Open => (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_INPUT_BYTES),
+            Self::Open => (
+                CONTROL_BYTES + 8,
+                CONTROL_BYTES + 8 + MAX_INPUT_BYTES + MAX_SAF_BYTES,
+            ),
             Self::Transform | Self::Copy => (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4),
             Self::Remove | Self::Texts | Self::Symbols => {
                 (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_ROWS * 4)
@@ -90,6 +95,7 @@ impl Command {
             Self::Draw => (CONTROL_BYTES + 48, CONTROL_BYTES + 48),
             Self::Diagnostics => (CONTROL_BYTES + 8, CONTROL_BYTES + 8),
             Self::Select => (CONTROL_BYTES + 32, CONTROL_BYTES + 32),
+            Self::SelectPoint => (CONTROL_BYTES + 24, CONTROL_BYTES + 24),
             Self::Display
             | Self::Undo
             | Self::Redo

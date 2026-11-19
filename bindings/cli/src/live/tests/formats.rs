@@ -1686,3 +1686,152 @@ fn set_text_replaces_formatted_mtext_with_paragraphs() {
     assert_eq!(undone.status, Status::Ok);
     assert_eq!(saved(&mut host, 7, 2), original);
 }
+
+fn select_point_body(point: [f64; 2], tolerance: f64) -> Vec<u8> {
+    let mut out = Vec::with_capacity(24);
+    out.extend_from_slice(&point[0].to_bits().to_le_bytes());
+    out.extend_from_slice(&point[1].to_bits().to_le_bytes());
+    out.extend_from_slice(&tolerance.to_bits().to_le_bytes());
+    out
+}
+
+fn decode_u32_rows(data: &[u8], expected_result: u64) -> Vec<u32> {
+    let mut words = Words(data);
+    let count = words.u32().unwrap();
+    assert_eq!(u64::from(count), expected_result);
+    let rows: Vec<u32> = (0..count).map(|_| words.u32().unwrap()).collect();
+    assert!(words.0.is_empty());
+    rows
+}
+
+fn select_point(host: &mut Host, id: u64, revision: u64, point: [f64; 2], tol: f64) -> Vec<u32> {
+    let reply = call(
+        host,
+        Command::SelectPoint,
+        id,
+        revision,
+        wire::NONE,
+        0,
+        &select_point_body(point, tol),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.data_kind, 5);
+    decode_u32_rows(&reply.data, reply.result)
+}
+
+/// SelectPoint は囲む箱の空白や円の内側を除いて線分・円弧・記号定義の実形だけで当たり判定し、移動・取り消しに追従する
+#[test]
+fn select_point_hits_geometry_and_symbol_instances_across_formats() {
+    let dxf = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nBLOCKS\n\
+0\nBLOCK\n8\n0\n2\nFRAME\n70\n0\n10\n0.0\n20\n0.0\n\
+0\nLINE\n8\n0\n10\n0.0\n20\n0.0\n11\n20.0\n21\n0.0\n\
+0\nLINE\n8\n0\n10\n20.0\n20\n0.0\n11\n20.0\n21\n20.0\n\
+0\nENDBLK\n8\n0\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nLINE\n5\n10\n8\n0\n10\n0.0\n20\n0.0\n11\n10.0\n21\n10.0\n\
+0\nCIRCLE\n5\n11\n8\n0\n10\n50.0\n20\n0.0\n40\n10.0\n\
+0\nINSERT\n5\n12\n8\n0\n2\nFRAME\n10\n100.0\n20\n0.0\n41\n1.0\n42\n1.0\n50\n0.0\n\
+0\nENDSEC\n0\nEOF\n";
+    let mut host = Host::default();
+    open_bytes(&mut host, dxf);
+
+    // 対角線 (0,0)-(10,10): 線分上 (5,5) は当たり、囲む箱の中の空白 (0,10) は外れる
+    assert_eq!(select(&mut host, 2, 0, [0.0, 9.5, 0.5, 10.0]), [0]);
+    assert_eq!(select_point(&mut host, 3, 0, [5.0, 5.0], 0.25), [0]);
+    assert!(select_point(&mut host, 4, 0, [0.0, 10.0], 0.25).is_empty());
+
+    // 円: 円周上 (60, 0) は当たり、中心 (50, 0) は外れる
+    assert_eq!(select_point(&mut host, 5, 0, [60.1, 0.0], 0.25), [1]);
+    assert!(select_point(&mut host, 6, 0, [50.0, 0.0], 0.25).is_empty());
+
+    // 記号挿入 FRAME: 定義の辺 (110, 0) と (120, 10) は当たり、囲む箱の左上 (102, 18) は外れる
+    assert_eq!(select_point(&mut host, 7, 0, [110.0, 0.1], 0.25), [2]);
+    assert_eq!(select_point(&mut host, 8, 0, [120.0, 10.0], 0.25), [2]);
+    assert!(select_point(&mut host, 9, 0, [102.0, 18.0], 0.25).is_empty());
+
+    // 移動と取り消しに追従し、古い版は Stale、不正な座標や負の許容距離は Invalid
+    let moved = call(
+        &mut host,
+        Command::Transform,
+        10,
+        0,
+        wire::NONE,
+        0,
+        &transform(&[0], Affine::translation(0.0, 20.0)),
+    );
+    assert_eq!(moved.status, Status::Ok);
+    assert_eq!(
+        call(
+            &mut host,
+            Command::SelectPoint,
+            11,
+            0,
+            wire::NONE,
+            0,
+            &select_point_body([5.0, 5.0], 0.25),
+        )
+        .status,
+        Status::Stale
+    );
+    assert!(select_point(&mut host, 12, 1, [5.0, 5.0], 0.25).is_empty());
+    assert_eq!(select_point(&mut host, 13, 1, [5.0, 25.0], 0.25), [0]);
+    assert_eq!(
+        call(&mut host, Command::Undo, 14, 1, wire::NONE, 0, &[]).status,
+        Status::Ok
+    );
+    assert_eq!(select_point(&mut host, 15, 2, [5.0, 5.0], 0.25), [0]);
+
+    for [bx, by, btol] in [
+        [f64::NAN, 0.0, 1.0],
+        [0.0, f64::INFINITY, 1.0],
+        [0.0, 0.0, -0.1],
+        [0.0, 0.0, f64::INFINITY],
+    ] {
+        assert_eq!(
+            call(
+                &mut host,
+                Command::SelectPoint,
+                16,
+                2,
+                wire::NONE,
+                0,
+                &select_point_body([bx, by], btol),
+            )
+            .status,
+            Status::Invalid
+        );
+    }
+
+    // JWW と SFC の公開サンプルでも Draw で足した遠方の線分が線分上だけで選ばれ、空白では選ばれない
+    for sample in [JWW, SFC] {
+        let mut shost = Host::default();
+        open_bytes(&mut shost, sample);
+        let rows = select(&mut shost, 2, 0, EVERYWHERE);
+        let mut req_id = 3_u64;
+        let drawn = rows
+            .into_iter()
+            .find_map(|row| {
+                req_id += 1;
+                let reply = call(
+                    &mut shost,
+                    Command::Draw,
+                    req_id,
+                    0,
+                    wire::NONE,
+                    0,
+                    &draw_body(row, 1, [FAR, FAR, FAR + 10.0, FAR + 10.0, 0.0]),
+                );
+                (reply.status == Status::Ok).then_some(reply)
+            })
+            .unwrap();
+        let added = decode_u32_rows(&drawn.data, drawn.result);
+        assert_eq!(added.len(), 1);
+        assert_eq!(
+            select_point(&mut shost, req_id + 1, 1, [FAR + 5.0, FAR + 5.0], 0.2),
+            added
+        );
+        assert!(select_point(&mut shost, req_id + 2, 1, [FAR, FAR + 10.0], 0.2).is_empty());
+    }
+}

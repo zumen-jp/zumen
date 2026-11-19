@@ -243,7 +243,7 @@ export function response(bytes, pending) {
   else if (stopKind > 7) reply.stop = { kind: stopKind === 8 ? "cancelled" : "timedOut" };
   const wantsDisplay = (pending.flags & 1) !== 0 || pending.command === 2;
   const expected = statusCode !== 0 || displayCode !== 0 ? 0 : wantsDisplay ? 1
-    : pending.command === 6 ? 2 : pending.command === 7 ? 3 : pending.command === 8 ? 4 : pending.command === 10 || pending.command === 14 || pending.command === 20 ? 5 : pending.command === 11 ? 6 : pending.command === 12 ? 7 : pending.command === 16 ? 8 : pending.command === 17 ? 9 : pending.command === 19 ? 10 : 0;
+    : pending.command === 6 ? 2 : pending.command === 7 ? 3 : pending.command === 8 ? 4 : pending.command === 10 || pending.command === 14 || pending.command === 20 || pending.command === 21 ? 5 : pending.command === 11 ? 6 : pending.command === 12 ? 7 : pending.command === 16 ? 8 : pending.command === 17 ? 9 : pending.command === 19 ? 10 : 0;
   if (kind !== expected || (kind === 0 && length !== 0) || ((statusCode !== 0 || !wantsDisplay) && displayCode !== 0)
     || (kind !== 1 && reply.base !== null) || (reply.revision === null) !== (reply.state === null)) throw invalid();
   if (kind === 1) {

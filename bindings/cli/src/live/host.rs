@@ -58,6 +58,10 @@ enum Operation<'a> {
         shape: DrawShape,
     },
     Select([f64; 4]),
+    SelectPoint {
+        point: [f64; 2],
+        tolerance: f64,
+    },
     Diagnostics(u64),
     Empty,
 }
@@ -83,6 +87,9 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
             } else {
                 return None;
             };
+            if bytes.len() > wire::MAX_INPUT_BYTES {
+                return None;
+            }
             Some(Operation::Open {
                 threads: threads as usize,
                 bytes,
@@ -187,6 +194,20 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
                 *value = input.f64()?;
             }
             input.0.is_empty().then_some(Operation::Select(rect))
+        }
+        Command::SelectPoint => {
+            let x = input.f64()?;
+            let y = input.f64()?;
+            let tolerance = input.f64()?;
+            (input.0.is_empty()
+                && x.is_finite()
+                && y.is_finite()
+                && tolerance.is_finite()
+                && tolerance >= 0.0)
+                .then_some(Operation::SelectPoint {
+                    point: [x, y],
+                    tolerance,
+                })
         }
         Command::Diagnostics => {
             let id = input.u64()?;
@@ -772,6 +793,12 @@ impl Host {
                 }
                 Operation::Select(rect) => {
                     let rows = document.select(rect, cx)?;
+                    reply.data = encode_rows(&rows, cx)?;
+                    reply.data_kind = 5;
+                    reply.result = rows.len() as u64;
+                }
+                Operation::SelectPoint { point, tolerance } => {
+                    let rows = document.select_point(point, tolerance, cx)?;
                     reply.data = encode_rows(&rows, cx)?;
                     reply.data_kind = 5;
                     reply.result = rows.len() as u64;

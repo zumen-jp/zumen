@@ -278,6 +278,23 @@ export class LiveProcess {
     });
   }
 
+  /** 表示の座標の点から許容距離 tolerance 以内にある生きた最上位の行を、指定した版で取得する */
+  async selectPoint(point, tolerance, revision, options = {}) {
+    this.#check();
+    if ((!Array.isArray(point) && !(point instanceof Float64Array)) || point.length !== 2
+      || Array.from(point).some((value) => typeof value !== "number" || !Number.isFinite(value))) {
+      throw new TypeError("point は 2 つの有限の数値にする");
+    }
+    if (typeof tolerance !== "number" || !Number.isFinite(tolerance) || tolerance < 0) {
+      throw new RangeError("tolerance は 0 以上の有限の数値にする");
+    }
+    return this.#request(21, 0, u64(revision, "revision"), options, 24, (out) => {
+      out.writeDoubleLE(point[0], 0);
+      out.writeDoubleLE(point[1], 8);
+      out.writeDoubleLE(tolerance, 16);
+    });
+  }
+
   async transform({ revision, rows, matrix }, options = {}) {
     this.#check();
     if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");

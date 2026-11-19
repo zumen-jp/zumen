@@ -447,4 +447,42 @@ fn display_symbol_writes_definitions_in_their_coordinates() {
     let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
     let mut display = Display::with_rows(0);
     assert!(live.display_symbol(1, &mut display, cx).is_err());
+
+    // 点選択: 用紙座標で入れ子の線分 (ox+12, oy+13)..(ox+12, oy+33) は当たり、囲む箱の中の空白 (ox+6, oy+25) は外れる
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let [ox, oy] = live.paper_origin;
+    let mut rect_hit = Vec::new();
+    let probe = [ox + 6.0, oy + 25.0];
+    live.select_rect_with_cx(
+        [
+            probe[0] - 0.1,
+            probe[1] - 0.1,
+            probe[0] + 0.1,
+            probe[1] + 0.1,
+        ],
+        &mut rect_hit,
+        cx,
+    )
+    .unwrap();
+    assert_eq!(rect_hit, [RowId(0)]);
+    let mut hit = vec![RowId(99)];
+    live.select_point_with_cx([ox + 12.0, oy + 20.0], 0.25, &mut hit, cx)
+        .unwrap();
+    assert_eq!(hit, [RowId(99), RowId(0)]);
+    let mut miss = Vec::new();
+    live.select_point_with_cx(probe, 0.25, &mut miss, cx)
+        .unwrap();
+    assert!(miss.is_empty());
+    let mut tight = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(2)));
+    let mut tight_diag = Diagnostics::new();
+    let tight_cx = &mut Cx::new(&mut tight, &mut tight_diag, &cancel);
+    let mut preserved = vec![RowId(77)];
+    assert!(
+        live.select_point_with_cx([ox + 12.0, oy + 20.0], 0.25, &mut preserved, tight_cx)
+            .is_err()
+    );
+    assert_eq!(preserved, [RowId(77)]);
+    assert_eq!(tight_diag.len(), 1);
 }

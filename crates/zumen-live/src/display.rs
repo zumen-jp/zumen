@@ -677,7 +677,7 @@ impl Display {
 
     /// スロットが指す 4 列それぞれの先頭位置と個数を返す
     #[inline]
-    fn slot_ranges(&self, slot: Slot) -> ([u32; 4], [u32; 4]) {
+    pub(crate) fn slot_ranges(&self, slot: Slot) -> ([u32; 4], [u32; 4]) {
         match slot.tag() {
             TAG_SEG_ARC => (
                 [slot.a_first, slot.b_first, 0, 0],

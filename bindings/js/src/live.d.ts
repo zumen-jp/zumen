@@ -176,11 +176,13 @@ export declare class LiveProcess {
   order(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** モデル空間の [minX,minY,maxX,maxY] と囲む箱が交差する行。NaN・逆転は空、無限大は全域指定 */
   select(rect: readonly number[] | Float64Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
+  /** 表示の座標の [x,y] から許容距離 tolerance 以内の生きた最上位の行。tolerance は 0 以上の有限値 */
+  selectPoint(point: readonly number[] | Float64Array, tolerance: number, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   transform(change: LiveTransform, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行の画層・色・線幅・線種・線種の倍率を変える。result は変えた数 */
   restyle(change: LiveRestyle, options?: LiveDisplayOptions): Promise<LiveReply>;
-  /** 文字の行の内容を替える。替えられるのは texts の kind が "text" の行と、区間が文字列 1 つだけの "formatted" の行。
-   * ほかの行を含めば rejected で何も替えない。result は替えた数 */
+  /** 文字の行の内容を替える。替えられるのは texts の kind が "text" の行と、DXF・DWG の "formatted" の行、
+   * SXF の区間が文字列 1 つだけの "formatted" の行。ほかの行を含めば rejected で何も替えない。result は替えた数 */
   setText(change: LiveSetText, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行を除く。result は除いた数 */
   remove(change: LiveRemove, options?: LiveDisplayOptions): Promise<LiveReply>;

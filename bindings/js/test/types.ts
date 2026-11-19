@@ -44,7 +44,10 @@ export async function liveDocument(executable: string, input: Uint8Array): Promi
       const target: string | undefined = (await live.target(0, live.revision!)).target?.id;
       void target;
       const selected = await live.select([0, 0, 10, 10], live.revision!);
-      const rows: number[] = selected.selection ? [...selected.selection.rows()] : [];
+      const hit = await live.selectPoint([5, 0], 0.5, live.revision!);
+      const rows: number[] = selected.selection
+        ? [...selected.selection.rows(), ...(hit.selection ? hit.selection.rows() : [])]
+        : [];
       const names: string[] = (await live.layers(live.revision!)).layers?.map((layer) => layer.name) ?? [];
       void names;
       const drawn: number[] = [...((await live.order(live.revision!)).order?.rows() ?? [])];

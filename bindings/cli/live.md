@@ -1,6 +1,6 @@
 # 文書エンジンの子プロセス IPC
 
-`zumen live --stdio` は、1 つの文書エンジン（DXF・DWG は `AcadLive`、JWW は `JwwLive`、SXF の SFC・P21・P2Z・SFZ は `SxfLive`）を子プロセス内に保持します。形式は Open のバイト列の署名とアーカイブの中身で選び、SXF の属性ファイル（SAF）も受けます。入力、表示の列、表示の画層の表、線種の表、描く順、矩形による選択、行を指定する移動・削除・複写・スタイルの変更、行の文字と内容の置き換え、記号の定義の表示、作図、取り消し・やり直し、全体保存、現在の ID とハッシュ、診断を運びます。64 bit ネイティブの実行ファイルを Electron の main から使う入口です。Node.js の接続は `@zumen-jp/zumen/node` の `openLiveProcess` です。
+`zumen live --stdio` は、1 つの文書エンジン（DXF・DWG は `AcadLive`、JWW は `JwwLive`、SXF の SFC・P21・P2Z・SFZ は `SxfLive`）を子プロセス内に保持します。形式は Open のバイト列の署名とアーカイブの中身で選び、SXF の属性ファイル（SAF）も受けます。入力、表示の列、表示の画層の表、線種の表、描く順、矩形と点による選択、行を指定する移動・削除・複写・スタイルの変更、行の文字と内容の置き換え、記号の定義の表示、作図、取り消し・やり直し、全体保存、現在の ID とハッシュ、診断を運びます。64 bit ネイティブの実行ファイルを Electron の main から使う入口です。Node.js の接続は `@zumen-jp/zumen/node` の `openLiveProcess` です。
 
 この入口は既存の `Session` の JSON op を追加・変更しません。IFC、文字列・記号の定義の同期、線種の変更・置き換え・追加などの編集、Electron の表示への組み込みは残件です。13 列だけで全図形を表示できるとはしていません。性能目標も測定結果と分けて扱います（[文書エンジン](../../docs/live.md)）。WASI は実行入口の対象外です。状態処理と符号化の単体検査は WASI でも流します。
 
@@ -64,6 +64,7 @@ Cancel・Close を除く本文は、次の 72 バイトで始まります。
 | 18 | SetText | 行数 u32、内容のバイト数 u32（1 MiB まで）、4 バイト境界まで 0 で埋めた UTF-8 の内容、行番号 u32 × 行数 |
 | 19 | Symbols | 定義の数 u32（65,536 まで）、予約 u32、定義の番号 u32 × 定義の数 |
 | 20 | Draw | 雛形の行番号 u32、形の種類 u32、値 f64 × 5 |
+| 21 | SelectPoint | 点の x・y と許容距離 f64 × 3（どれも有限で許容距離は 0 以上） |
 
 Open の前提の版・表示の確認は指定なしにします。一度文書を開いた子は別の文書を開きません。開く処理自体が失敗した場合は再試行できます。P2Z・SFZ は最初の `.p21`・`.sfc` の項目を展開し、SAF を明示しなければアーカイブ内の同名の `.saf` を結びます。保存は更新した SXF の項目をアーカイブへ戻し、ほかの項目を保ちます。SXF でない形式に SAF を添えると invalid です。Diagnostics の表示の確認は指定なしにし、前提の版は使いません。
 
@@ -92,7 +93,7 @@ Select は、モデル空間の最上位要素の囲む箱と矩形が接触・�
 
 Diagnostics の取得に失敗した場合、応答の診断数は 0 です。保持元の診断は変更せず、取得を再試行できます。
 
-結果は Open では生存行数、Transform・Remove・Copy・Restyle・SetText では適用件数、Undo・Redo では変更したか（0 または 1）、Save ではバイト数、Target と missing では行番号、Diagnostics では元の要求番号、Select では選択行数、Layers では画層の数、Order では行の数、LineTypes では線種の数、Texts では行の数です。それ以外は 0 です。
+結果は Open では生存行数、Transform・Remove・Copy・Restyle・SetText では適用件数、Undo・Redo では変更したか（0 または 1）、Save ではバイト数、Target と missing では行番号、Diagnostics では元の要求番号、Select・SelectPoint では選択行数、Layers では画層の数、Order では行の数、LineTypes では線種の数、Texts では行の数です。それ以外は 0 です。
 
 データの種類は、0 なし、1 [ZLDP](../../docs/live.md#表示差分の通信)、2 保存バイト列、3 編集対象、4 診断、5 選択行（Copy では写しの行）、6 画層の表、7 描く順、8 線種の表、9 行の文字、10 記号の定義です。編集対象は ID のバイト数 u32、ハッシュの 16 バイト、UTF-8 の ID の順です。ハッシュは既存の `v2:` の 16 進表記に対応します。診断は UTF-8 の JSON 配列で、code・severity・fidelity・count・params・places・spec を元の順序と値で返します。Node.js は診断を自動で JSON の数値へ変換せず、元のバイト列を返します。
 

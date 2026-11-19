@@ -481,4 +481,28 @@ fn display_symbol_writes_each_element_of_the_definition() {
             .is_none()
     );
     assert_eq!(display.canonical().len(), first as usize);
+
+    // 点選択: 線分の実形上は当たり、予算停止では既存の out を壊さず診断を 1 件だけ残す
+    if let Some(seg) = live.display().segments.get(0) {
+        let mx =
+            (f64::from(seg[0]) + f64::from(seg[1]) + f64::from(seg[4]) + f64::from(seg[5])) * 0.5;
+        let my =
+            (f64::from(seg[2]) + f64::from(seg[3]) + f64::from(seg[6]) + f64::from(seg[7])) * 0.5;
+        let mut hits = vec![RowId(500)];
+        live.select_point_with_cx([mx, my], 0.1, &mut hits, cx)
+            .unwrap();
+        assert!(hits.len() >= 2);
+        assert_eq!(hits.first().copied(), Some(RowId(500)));
+
+        let mut tight = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(0)));
+        let mut tight_diag = Diagnostics::new();
+        let tight_cx = &mut Cx::new(&mut tight, &mut tight_diag, &cancel);
+        let mut preserved = vec![RowId(42)];
+        assert!(
+            live.select_point_with_cx([mx, my], 0.1, &mut preserved, tight_cx)
+                .is_err()
+        );
+        assert_eq!(preserved, [RowId(42)]);
+        assert_eq!(tight_diag.len(), 1);
+    }
 }

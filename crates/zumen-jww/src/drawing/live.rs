@@ -580,6 +580,53 @@ impl JwwLive {
             });
         }
 
+        // 入れ子の記号参照があれば、ブロック定義の囲む箱を内側から外側へ伝播させる（最大 16 段）
+        let has_nested_symbol = definition_rows.iter().flatten().any(|&rid| {
+            initial_rows
+                .get(rid.index())
+                .is_some_and(|(row, _, _)| matches!(row.element.shape, Shape::Symbol(_)))
+        });
+        if has_nested_symbol {
+            for _ in 0..16 {
+                let mut changed_any = false;
+                for (def_idx, rows_in_def) in definition_rows.iter().enumerate() {
+                    let mut acc: Option<[f64; 4]> = None;
+                    for &rid in rows_in_def {
+                        work_live(cx, 1)?;
+                        if let Some((row, bbox, _)) = initial_rows.get_mut(rid.index()) {
+                            let next_box = compute_sheet_bounds(
+                                &row.element,
+                                row.space,
+                                &header,
+                                paper_origin,
+                                &symbol_index_by_key,
+                                &symbol_bounds,
+                            );
+                            if *bbox != next_box {
+                                *bbox = next_box;
+                                changed_any = true;
+                            }
+                            if is_finite_box(next_box) {
+                                acc = Some(match acc {
+                                    Some(prev) => union_box(prev, next_box),
+                                    None => next_box,
+                                });
+                            }
+                        }
+                    }
+                    if let Some(slot_box) = symbol_bounds.get_mut(def_idx)
+                        && *slot_box != acc
+                    {
+                        *slot_box = acc;
+                        changed_any = true;
+                    }
+                }
+                if !changed_any {
+                    break;
+                }
+            }
+        }
+
         // ブロック定義の囲む箱が決まった後に、最上位の記号参照の囲む箱を反映する
         decoded_live(
             cx,
@@ -2872,39 +2919,106 @@ impl JwwLive {
             }
         }
         let mut out = DependentBounds::default();
-        for def_idx in touched {
-            let (Some(rows), Some(&before), Some(users)) = (
-                self.definition_rows.get(def_idx),
-                self.symbol_bounds.get(def_idx),
-                self.symbol_users.get(def_idx),
-            ) else {
-                continue;
-            };
-            let mut acc: Option<[f64; 4]> = None;
-            for &rid in rows {
-                work_live(cx, 1)?;
-                let b = match pending.get(&rid) {
-                    Some(StagedAction::Updated { after_bounds, .. }) => *after_bounds,
-                    Some(StagedAction::Removed { .. }) => continue,
-                    _ if self.table.is_alive(rid) => self.table.bounds(rid).unwrap_or(EMPTY_BOUNDS),
-                    _ => continue,
-                };
-                if is_finite_box(b) {
-                    acc = Some(match acc {
-                        Some(prev) => union_box(prev, b),
-                        None => b,
+        if touched.is_empty() {
+            return Ok(out);
+        }
+        let mut working_bounds = self.symbol_bounds.clone();
+        let mut nested_row_updates: BTreeMap<RowId, [f64; 4]> = BTreeMap::new();
+        for pass in 0..16 {
+            let mut changed_any = false;
+            for (def_idx, rows) in self.definition_rows.iter().enumerate() {
+                if pass == 0 && !touched.contains(&def_idx) {
+                    let has_nested = rows.iter().any(|&rid| {
+                        self.table
+                            .row(rid)
+                            .is_some_and(|r| matches!(r.element.shape, Shape::Symbol(_)))
                     });
+                    if !has_nested {
+                        continue;
+                    }
+                }
+                let mut acc: Option<[f64; 4]> = None;
+                for &rid in rows {
+                    work_live(cx, 1)?;
+                    let b = match pending.get(&rid) {
+                        Some(StagedAction::Updated {
+                            after_row,
+                            after_bounds,
+                            ..
+                        }) => {
+                            if matches!(after_row.element.shape, Shape::Symbol(_)) {
+                                compute_sheet_bounds(
+                                    &after_row.element,
+                                    after_row.space,
+                                    &self.header,
+                                    self.paper_origin,
+                                    &self.symbol_index_by_key,
+                                    &working_bounds,
+                                )
+                            } else {
+                                *after_bounds
+                            }
+                        }
+                        Some(StagedAction::Removed { .. }) => continue,
+                        _ if self.table.is_alive(rid) => {
+                            if let Some(row) = self.table.row(rid)
+                                && matches!(row.element.shape, Shape::Symbol(_))
+                            {
+                                let next_b = compute_sheet_bounds(
+                                    &row.element,
+                                    row.space,
+                                    &self.header,
+                                    self.paper_origin,
+                                    &self.symbol_index_by_key,
+                                    &working_bounds,
+                                );
+                                if Some(next_b) != self.table.bounds(rid) {
+                                    nested_row_updates.insert(rid, next_b);
+                                }
+                                next_b
+                            } else {
+                                self.table.bounds(rid).unwrap_or(EMPTY_BOUNDS)
+                            }
+                        }
+                        _ => continue,
+                    };
+                    if is_finite_box(b) {
+                        acc = Some(match acc {
+                            Some(prev) => union_box(prev, b),
+                            None => b,
+                        });
+                    }
+                }
+                if let Some(slot) = working_bounds.get_mut(def_idx)
+                    && *slot != acc
+                {
+                    *slot = acc;
+                    changed_any = true;
                 }
             }
-            if before == acc {
+            if !changed_any {
+                break;
+            }
+        }
+        for (rid, next_b) in nested_row_updates {
+            decoded_live(cx, 4 * core::mem::size_of::<(RowId, [f64; 4])>() as u64)?;
+            out.rows.push((rid, next_b));
+        }
+        for (def_idx, (&before, &after)) in
+            self.symbol_bounds.iter().zip(&working_bounds).enumerate()
+        {
+            if before == after {
                 continue;
             }
             decoded_live(cx, 4 * 96)?;
             out.symbols.push(SymbolBoundsDiff {
                 index: def_idx,
                 before,
-                after: acc,
+                after,
             });
+            let Some(users) = self.symbol_users.get(def_idx) else {
+                continue;
+            };
             for &rid in users {
                 work_live(cx, 1)?;
                 let row = match pending.get(&rid) {
@@ -2919,7 +3033,7 @@ impl JwwLive {
                     continue;
                 };
                 let bounds =
-                    symbol_sheet_bounds(symbol, row.space, &self.header, self.paper_origin, acc);
+                    symbol_sheet_bounds(symbol, row.space, &self.header, self.paper_origin, after);
                 decoded_live(cx, 4 * core::mem::size_of::<(RowId, [f64; 4])>() as u64)?;
                 out.rows.push((rid, bounds));
             }
@@ -4047,6 +4161,14 @@ fn compute_sheet_bounds(
     symbol_bounds: &[Option<[f64; 4]>],
 ) -> [f64; 4] {
     if space.0 >= DEFINITION_SPACES {
+        if let Shape::Symbol(sym) = &element.shape {
+            let bounds = symbol_index_by_key
+                .get(&sym.key.name)
+                .and_then(|&index| symbol_bounds.get(index as usize))
+                .copied()
+                .flatten();
+            return symbol_transformed_bounds(sym, 1.0, [0.0, 0.0], bounds);
+        }
         return model_element_bounds(&element.shape);
     }
     let k = 1.0 / header.scale(space.0 as usize);
@@ -4085,6 +4207,15 @@ fn symbol_sheet_bounds(
     bounds: Option<[f64; 4]>,
 ) -> [f64; 4] {
     let k = 1.0 / header.scale(space.0 as usize);
+    symbol_transformed_bounds(symbol, k, [ox, oy], bounds)
+}
+
+fn symbol_transformed_bounds(
+    symbol: &zumen_drawing::Symbol<ModelPoint>,
+    k: f64,
+    [ox, oy]: [f64; 2],
+    bounds: Option<[f64; 4]>,
+) -> [f64; 4] {
     let px = symbol.position.x * k + ox;
     let py = symbol.position.y * k + oy;
     let Some([dx0, dy0, dx1, dy1]) = bounds else {

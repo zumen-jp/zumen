@@ -7,8 +7,9 @@ use zumen_drawing::{
     Affine, Element, FormattedText, Hash, Layer, LineType, ModelPoint, Piece, Placed, Seen, Shape,
     id,
 };
-use zumen_live::RowId;
 use zumen_live::display::Display;
+use zumen_live::hit::SymbolHitCache;
+use zumen_live::{BoundsSource, RowId};
 use zumen_sdk::Error;
 
 use super::super::{SXF_LINE_TYPE, SXF_SINCE, build_layers, make_line_type};
@@ -344,6 +345,71 @@ fn fixed_line_types() -> impl Iterator<Item = u8> {
 const MAX_LINE_TYPE: u8 = 62;
 
 impl JwwLive {
+    /// 表示の座標（用紙の mm）の点 `point` から許容距離 `tolerance` 以内にある生きた最上位の行を、
+    /// 昇順で `out` の後ろに足す。記号の定義の中の行は返さない。負や非有限の値では何も足さない。
+    /// 停止時は `out` を呼ぶ前の長さに戻し、診断を 1 件報告する
+    pub fn select_point_with_cx(
+        &self,
+        point: [f64; 2],
+        tolerance: f64,
+        out: &mut Vec<RowId>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        if !(point[0].is_finite()
+            && point[1].is_finite()
+            && tolerance.is_finite()
+            && tolerance >= 0.0)
+        {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            return Ok(());
+        }
+        let start = out.len();
+        let query = [
+            point[0] - tolerance,
+            point[1] - tolerance,
+            point[0] + tolerance,
+            point[1] + tolerance,
+        ];
+        if let Err(err) = self.select_rect_with_cx(query, out, cx) {
+            out.truncate(start);
+            return Err(err);
+        }
+        let bounds_col = self.table.bounds_column();
+        let mut cache = SymbolHitCache::new();
+        let result = (|| -> Result<(), Stop> {
+            let mut write = start;
+            for read in start..out.len() {
+                let Some(row) = out.get(read).copied() else {
+                    continue;
+                };
+                let bounds = bounds_col.bounds_at(row.index());
+                let hits = cache.row_hits_with_cx(
+                    &self.display,
+                    row.0,
+                    bounds,
+                    point,
+                    tolerance,
+                    &mut |def_idx, sym_display, inner_cx| {
+                        self.display_symbol_raw(def_idx, sym_display, inner_cx)
+                    },
+                    cx,
+                )?;
+                if hits {
+                    if let Some(slot) = out.get_mut(write) {
+                        *slot = row;
+                    }
+                    write += 1;
+                }
+            }
+            out.truncate(write);
+            Ok(())
+        })();
+        result.map_err(|stop| {
+            out.truncate(start);
+            stopped(cx, stop)
+        })
+    }
+
     /// 表示の記号のインスタンスが指す記号の定義の数。インスタンスの定義の値は `0..` この数
     pub fn display_symbol_count(&self) -> u32 {
         u32::try_from(self.definition_count()).unwrap_or(u32::MAX)
@@ -357,20 +423,34 @@ impl JwwLive {
         display: &mut Display,
         cx: &mut Cx<'_>,
     ) -> Result<Option<u32>, Error> {
+        let written = self
+            .display_symbol_raw(index, display, cx)
+            .map_err(|stop| stopped(cx, stop))?;
+        match written {
+            None => Ok(None),
+            Some(u32::MAX) => Err(Error::Invalid),
+            Some(rows) => Ok(Some(rows)),
+        }
+    }
+
+    fn display_symbol_raw(
+        &self,
+        index: u32,
+        display: &mut Display,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<u32>, Stop> {
         let Some(rows) = self.definition_rows_alive(index as usize) else {
             return Ok(None);
         };
         let mut written = 0_u32;
         for (_, element) in rows {
-            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            cx.check(Kind::Work, 1)?;
             let (counts, style) =
                 display_definition_counts_and_style(element, &self.symbol_index_by_key);
-            display
-                .push_with_cx(cx, counts, style, |writer| {
-                    write_definition_display(element, &self.symbol_index_by_key, writer);
-                })
-                .map_err(|stop| stopped(cx, stop))?;
-            written = written.checked_add(1).ok_or(Error::Invalid)?;
+            display.push_with_cx(cx, counts, style, |writer| {
+                write_definition_display(element, &self.symbol_index_by_key, writer);
+            })?;
+            written = written.saturating_add(1);
         }
         Ok(Some(written))
     }

@@ -22,6 +22,7 @@ pub mod dirty;
 pub mod display;
 pub mod display_wire;
 pub mod handle;
+pub mod hit;
 pub mod paged;
 pub mod rank;
 pub mod source;

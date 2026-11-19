@@ -522,6 +522,20 @@ impl Engine {
             Self::Sxf(live) => live.select_rect_with_cx(rect, out, cx),
         }
     }
+
+    fn select_point(
+        &self,
+        point: [f64; 2],
+        tolerance: f64,
+        out: &mut Vec<RowId>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        match self {
+            Self::Acad(live) => live.select_point_with_cx(point, tolerance, out, cx),
+            Self::Jww(live) => live.select_point_with_cx(point, tolerance, out, cx),
+            Self::Sxf(live) => live.select_point_with_cx(point, tolerance, out, cx),
+        }
+    }
 }
 
 /// `sheet` で写した座標での `transform` を、写す前の座標の変換にする（`sheet` の逆 ∘ `transform` ∘ `sheet`）。
@@ -812,6 +826,17 @@ impl Document {
     pub fn select(&self, rect: [f64; 4], cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
         let mut rows = Vec::new();
         self.live.select(rect, &mut rows, cx)?;
+        Ok(rows)
+    }
+
+    pub fn select_point(
+        &self,
+        point: [f64; 2],
+        tolerance: f64,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<RowId>, Error> {
+        let mut rows = Vec::new();
+        self.live.select_point(point, tolerance, &mut rows, cx)?;
         Ok(rows)
     }
 
