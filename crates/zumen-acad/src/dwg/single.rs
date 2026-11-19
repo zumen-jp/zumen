@@ -217,6 +217,7 @@ impl<'a> DwgSourceLayout<'a> {
         Ok(spans)
     }
 
+    #[cfg(feature = "drawing")]
     pub fn base_span_shifts(
         &self,
         cx: &mut Cx<'_>,
@@ -1397,7 +1398,7 @@ impl DwgSingle {
     }
 
     /// 開くときに元レコードを共有予算で復号し、変換前の診断も呼び出し元へ報告する。
-    #[cfg(any(feature = "drawing", test))]
+    #[cfg(feature = "drawing")]
     pub(crate) fn decode_record_open(
         &self,
         file: &DwgFile,
