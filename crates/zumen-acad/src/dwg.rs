@@ -164,6 +164,7 @@ struct Entry {
 
 impl DwgFile {
     /// クラスのセクションに、DXF 名 `name` の図形クラスがあるか
+    #[cfg(feature = "drawing")]
     pub(crate) fn has_entity_class(&self, name: &[u8]) -> bool {
         self.classes
             .iter()
