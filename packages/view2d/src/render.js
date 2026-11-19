@@ -83,7 +83,7 @@ export function paint(surface, measureCtx, prepared, settings, view, size, displ
             });
             if (patch) {
               surface.drawImageQuad(
-                patch.source,
+                patch.data,
                 patch.width,
                 patch.height,
                 [patch.width / pixelRatio, 0, 0, patch.height / pixelRatio, patch.x0 / pixelRatio, patch.y0 / pixelRatio],

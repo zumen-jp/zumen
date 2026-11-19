@@ -322,7 +322,7 @@ export class OverlayContext2D {
     });
     if (!patch) return;
     this.#surface.drawImageQuad(
-      patch.source,
+      patch.data,
       patch.width,
       patch.height,
       [patch.width / pr, 0, 0, patch.height / pr, patch.x0 / pr, patch.y0 / pr],

@@ -3,6 +3,8 @@
 
 let measureCanvas = null;
 let measureCtx = null;
+let rasterCanvas = null;
+let rasterCtx = null;
 
 function createScratchCanvas(width, height) {
   if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(width, height);
@@ -81,14 +83,21 @@ export function rasterizeTransformedText({
   const height = y1 - y0;
   if (width <= 0 || height <= 0) return null;
 
-  const patch = createScratchCanvas(width, height);
-  const pctx = patch?.getContext("2d");
-  if (!pctx) return null;
-  pctx.font = font;
-  pctx.textAlign = textAlign;
-  pctx.textBaseline = textBaseline;
-  pctx.fillStyle = fillStyle;
-  pctx.setTransform(a, b, c, d, e - x0, f - y0);
-  pctx.fillText(text, 0, 0);
-  return { source: patch, x0, y0, width, height };
+  if (!rasterCtx) {
+    rasterCanvas = createScratchCanvas(Math.max(64, width), Math.max(64, height));
+    rasterCtx = rasterCanvas?.getContext("2d", { willReadFrequently: true }) ?? rasterCanvas?.getContext("2d") ?? null;
+    if (!rasterCtx) return null;
+  }
+  if (rasterCanvas.width < width) rasterCanvas.width = width;
+  if (rasterCanvas.height < height) rasterCanvas.height = height;
+  rasterCtx.setTransform(1, 0, 0, 1, 0, 0);
+  rasterCtx.clearRect(0, 0, width, height);
+  rasterCtx.font = font;
+  rasterCtx.textAlign = textAlign;
+  rasterCtx.textBaseline = textBaseline;
+  rasterCtx.fillStyle = fillStyle;
+  rasterCtx.setTransform(a, b, c, d, e - x0, f - y0);
+  rasterCtx.fillText(text, 0, 0);
+  const data = rasterCtx.getImageData(0, 0, width, height).data;
+  return { data, x0, y0, width, height };
 }

@@ -738,16 +738,28 @@ export class WebGPU2DSurface {
     let entry = cacheKey !== null ? this.#underlayTextures.get(cacheKey) : null;
     if (!entry || entry.width !== width || entry.height !== height) {
       if (entry) entry.texture.destroy();
+      const isBytes = ArrayBuffer.isView(source);
       const texture = device.createTexture({
         size: [width, height],
         format: "rgba8unorm",
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+        usage: isBytes
+          ? GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+          : GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
       });
-      device.queue.copyExternalImageToTexture(
-        { source },
-        { texture },
-        [width, height],
-      );
+      if (isBytes) {
+        device.queue.writeTexture(
+          { texture },
+          source,
+          { bytesPerRow: width * 4, rowsPerImage: height },
+          [width, height, 1],
+        );
+      } else {
+        device.queue.copyExternalImageToTexture(
+          { source },
+          { texture },
+          [width, height],
+        );
+      }
       const bindGroup = device.createBindGroup({
         layout: this.#backend.texBindGroupLayout,
         entries: [
