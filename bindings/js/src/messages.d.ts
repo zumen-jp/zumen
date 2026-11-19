@@ -48,7 +48,8 @@ export type Request =
   | BuildingApplyRequest
   | LiftRequest
   | RenderRequest
-  | RasterRequest;
+  | RasterRequest
+  | GeoreferenceRequest;
 
 /** どの op の要求にも置けるフィールド */
 export interface RequestCommon {
@@ -244,6 +245,76 @@ export interface DrawingResult {
   sheets: SheetSummary[];
   /** 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から */
   point_style?: PointStyleSummary;
+  /** 図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から */
+  georeference?: Georeference;
+}
+
+/** 図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height */
+export interface MapConversion {
+  /** 東への移動（m） */
+  eastings: number;
+  /** 北への移動（m） */
+  northings: number;
+  /** 高さへの移動（m） */
+  orthogonal_height: number;
+  /** 図面の X 軸の東方向の単位ベクトル成分 */
+  x_axis_abscissa: number;
+  /** 図面の X 軸の北方向の単位ベクトル成分 */
+  x_axis_ordinate: number;
+  /** 図面の 1 単位あたりの地図のメートル数 */
+  scale: number;
+}
+
+/** 地図の座標系と、図面の実寸から地図への相似の変換 */
+export interface Georeference {
+  /** 地図の座標系の EPSG のコード */
+  crs: number;
+  /** 図面の実寸から地図への相似の変換 */
+  conversion: MapConversion;
+}
+
+/** 地図の投影座標（m）。東（easting）と北（northing）を名前で分ける */
+export interface MapPoint2 {
+  /** 東方向の座標（m。平面直角座標系の Y） */
+  easting: number;
+  /** 北方向の座標（m。平面直角座標系の X） */
+  northing: number;
+}
+
+/** 図面の実寸の点と、対応する地図の投影座標の組 */
+export interface GeoreferenceControlPoint {
+  /** 図面の実寸の点 */
+  drawing: Point2;
+  /** 対応する地図の投影座標（m） */
+  map: MapPoint2;
+}
+
+/** 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から */
+export interface GeoreferenceRequest extends RequestCommon {
+  /** op の名前 */
+  op: "georeference";
+  /** 開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない */
+  doc?: string;
+  /** doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる */
+  expected_hash?: string;
+  /** 対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す */
+  crs?: number;
+  /** 図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める */
+  control_points?: GeoreferenceControlPoint[];
+  /** 求めた変換で地図へ写す図面の実寸の点 */
+  points?: Point2[];
+}
+
+/** 図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点 */
+export interface GeoreferenceResult {
+  /** doc を渡したときの元の文書のハッシュ */
+  hash?: string;
+  /** 地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない */
+  georeference?: Georeference;
+  /** control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順 */
+  residuals?: MapPoint2[];
+  /** points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない */
+  mapped?: MapPoint2[];
 }
 
 /** 2 次元の座標 */
@@ -5467,4 +5538,5 @@ export interface Operations {
   lift: { request: LiftRequest; result: LiftResult };
   render: { request: RenderRequest; result: RenderResult };
   raster: { request: RasterRequest; result: RasterResult };
+  georeference: { request: GeoreferenceRequest; result: GeoreferenceResult };
 }

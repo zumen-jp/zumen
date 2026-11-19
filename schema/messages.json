@@ -49,7 +49,8 @@
         { "$ref": "#/$defs/building_apply_request" },
         { "$ref": "#/$defs/lift_request" },
         { "$ref": "#/$defs/render_request" },
-        { "$ref": "#/$defs/raster_request" }
+        { "$ref": "#/$defs/raster_request" },
+        { "$ref": "#/$defs/georeference_request" }
       ]
     },
     "request_common": {
@@ -343,9 +344,113 @@
         "point_style": {
           "description": "文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から",
           "$ref": "#/$defs/point_style_summary"
+        },
+        "georeference": {
+          "description": "図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から",
+          "$ref": "#/$defs/georeference"
         }
       },
       "required": ["spaces", "sheets"],
+      "additionalProperties": false
+    },
+    "map_conversion": {
+      "description": "図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height",
+      "type": "object",
+      "properties": {
+        "eastings": { "description": "東への移動（m）", "type": "number" },
+        "northings": { "description": "北への移動（m）", "type": "number" },
+        "orthogonal_height": { "description": "高さへの移動（m）", "type": "number" },
+        "x_axis_abscissa": { "description": "図面の X 軸の東方向の単位ベクトル成分", "type": "number" },
+        "x_axis_ordinate": { "description": "図面の X 軸の北方向の単位ベクトル成分", "type": "number" },
+        "scale": { "description": "図面の 1 単位あたりの地図のメートル数", "type": "number" }
+      },
+      "required": ["eastings", "northings", "orthogonal_height", "x_axis_abscissa", "x_axis_ordinate", "scale"],
+      "additionalProperties": false
+    },
+    "georeference": {
+      "description": "地図の座標系と、図面の実寸から地図への相似の変換",
+      "type": "object",
+      "properties": {
+        "crs": {
+          "description": "地図の座標系の EPSG のコード",
+          "type": "integer",
+          "minimum": 0
+        },
+        "conversion": {
+          "description": "図面の実寸から地図への相似の変換",
+          "$ref": "#/$defs/map_conversion"
+        }
+      },
+      "required": ["crs", "conversion"],
+      "additionalProperties": false
+    },
+    "map_point2": {
+      "description": "地図の投影座標（m）。東（easting）と北（northing）を名前で分ける",
+      "type": "object",
+      "properties": {
+        "easting": { "description": "東方向の座標（m。平面直角座標系の Y）", "type": "number" },
+        "northing": { "description": "北方向の座標（m。平面直角座標系の X）", "type": "number" }
+      },
+      "required": ["easting", "northing"],
+      "additionalProperties": false
+    },
+    "georeference_control_point": {
+      "description": "図面の実寸の点と、対応する地図の投影座標の組",
+      "type": "object",
+      "properties": {
+        "drawing": { "description": "図面の実寸の点", "$ref": "#/$defs/point2" },
+        "map": { "description": "対応する地図の投影座標（m）", "$ref": "#/$defs/map_point2" }
+      },
+      "required": ["drawing", "map"],
+      "additionalProperties": false
+    },
+    "georeference_request": {
+      "description": "開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "georeference" },
+        "doc": { "description": "開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない", "type": "string" },
+        "expected_hash": { "description": "doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる", "type": "string" },
+        "crs": {
+          "description": "対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す",
+          "type": "integer",
+          "minimum": 0
+        },
+        "control_points": {
+          "description": "図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める",
+          "type": "array",
+          "items": { "$ref": "#/$defs/georeference_control_point" }
+        },
+        "points": {
+          "description": "求めた変換で地図へ写す図面の実寸の点",
+          "type": "array",
+          "items": { "$ref": "#/$defs/point2" }
+        }
+      },
+      "required": ["op"],
+      "unevaluatedProperties": false
+    },
+    "georeference_result": {
+      "description": "図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点",
+      "type": "object",
+      "properties": {
+        "hash": { "description": "doc を渡したときの元の文書のハッシュ", "type": "string" },
+        "georeference": {
+          "description": "地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない",
+          "$ref": "#/$defs/georeference"
+        },
+        "residuals": {
+          "description": "control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順",
+          "type": "array",
+          "items": { "$ref": "#/$defs/map_point2" }
+        },
+        "mapped": {
+          "description": "points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない",
+          "type": "array",
+          "items": { "$ref": "#/$defs/map_point2" }
+        }
+      },
       "additionalProperties": false
     },
     "point2": {

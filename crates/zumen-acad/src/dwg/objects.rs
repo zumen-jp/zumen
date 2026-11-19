@@ -1004,6 +1004,8 @@ pub(super) fn read(
             vec![int(90, i64::from(bits.bl()?))]
         } else if kind == b"LAYOUT" {
             layout(&mut bits, release, &mut handles)?
+        } else if kind == b"GEODATA" {
+            geodata(&mut bits, &mut handles)?
         } else if kind == b"TABLESTYLE" && release < Release::R2010 {
             // 行ごとの文字スタイル（7）のハンドルは、ハンドルのストリームで仮の値を埋める
             handles.extend([7; 3]);

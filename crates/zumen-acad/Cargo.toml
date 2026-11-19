@@ -14,6 +14,8 @@ formats = ["dxf", "dwg"]
 zumen-base = { version = "0.3.0", path = "../zumen-base" }
 zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
 zumen-drawing = { version = "0.3.0", path = "../zumen-drawing", optional = true }
+# GEODATA から地図の座標系と相似の変換を作る（#685）
+zumen-crs = { version = "0.3.0", path = "../zumen-crs", optional = true }
 # 図面モデルから新しい DXF に書くとき（lower）、横と縦の尺度の違うビューの曲線を用紙の折れ線にする（決定 0238）。
 # 三角関数は環境によらない libm で求める（決定 0007）。どちらも依存を持たない寛容なライセンスの crate
 zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d", optional = true }
@@ -30,7 +32,7 @@ default = ["drawing"]
 # R2004 の同系統の再符号化では、L1 だけでも CP932 と 2 バイトの Windows のコード・ページの名前を照合できる
 cp932 = ["dep:encoding_rs"]
 # DXF から図面モデル（L2）への変換。L1 だけを使うなら外せる
-drawing = ["dep:zumen-drawing", "dep:zumen-geom2d", "dep:zumen-live", "dep:libm", "cp932"]
+drawing = ["dep:zumen-drawing", "dep:zumen-crs", "dep:zumen-geom2d", "dep:zumen-live", "dep:libm", "cp932"]
 
 [dev-dependencies]
 libm = { version = "0.2.16", default-features = false }

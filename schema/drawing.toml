@@ -10,7 +10,7 @@
 
 [versions]
 major = 1
-minor = 0
+minor = 1
 
 [[types]]
 name = "Affine"
@@ -239,6 +239,17 @@ variants = [
 ]
 
 [[types]]
+name = "Crs"
+since = 1
+variants = [
+  { name = "Geographic" },
+  { name = "Wgs84" },
+  { name = "Plane", tuple = ["Zone"] },
+  { name = "Jgd2000", tuple = ["Zone"] },
+  { name = "Tokyo", tuple = ["Zone"] },
+]
+
+[[types]]
 name = "DateTime"
 fields = [
   "year: u16",
@@ -322,6 +333,7 @@ fields = [
   "extensions: Vec<Extension>",
   "title_blocks: Vec<TitleBlock>",
   "point_style: Option<PointStyle>",
+  "georeference: Option<Georeference> @1",
 ]
 
 [[types]]
@@ -446,6 +458,14 @@ fields = [
   "line_spacing: LineSpacing",
   "background: Option<Background>",
   "style: String",
+]
+
+[[types]]
+name = "Georeference"
+since = 1
+fields = [
+  "crs: Crs",
+  "conversion: MapConversion",
 ]
 
 [[types]]
@@ -657,6 +677,18 @@ name = "LineWeight"
 variants = [
   { name = "Width", tuple = ["PaperLength"] },
   { name = "Default" },
+]
+
+[[types]]
+name = "MapConversion"
+since = 1
+fields = [
+  "eastings: f64",
+  "northings: f64",
+  "orthogonal_height: f64",
+  "x_axis_abscissa: f64",
+  "x_axis_ordinate: f64",
+  "scale: f64",
 ]
 
 [[types]]
@@ -1173,3 +1205,8 @@ fields = [
   "hidden_layers: Vec<LayerId>",
   "source: Ref",
 ]
+
+[[types]]
+name = "Zone"
+since = 1
+tuple = ["u8"]

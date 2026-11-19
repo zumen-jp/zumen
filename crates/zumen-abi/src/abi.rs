@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマのメジャーバージョン。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマのマイナーバージョン。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 111;
+pub const SCHEMA_MINOR: u64 = 112;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -136,6 +136,7 @@ pub const MODULES: &[Module] = &[
             "regions",
             "construct",
             "raster",
+            "georeference",
         ],
     },
     // IFC と ST-Bridge と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）
@@ -178,6 +179,7 @@ pub const MODULES: &[Module] = &[
             "civil",
             "geo",
             "scene3d",
+            "georeference",
         ],
     },
     // 点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）と、設計の TIN（J-LandXML）との差
@@ -239,6 +241,7 @@ pub fn has_op(op: &str) -> bool {
                 | "regions"
                 | "construct"
                 | "raster"
+                | "georeference"
         ))
         || (cfg!(feature = "bim")
             && matches!(
@@ -273,6 +276,7 @@ pub fn has_op(op: &str) -> bool {
                     | "civil"
                     | "geo"
                     | "scene3d"
+                    | "georeference"
             ))
         || (cfg!(feature = "pointcloud")
             && matches!(

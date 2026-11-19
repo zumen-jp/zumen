@@ -52,6 +52,7 @@ Request = Union[
     "LiftRequest",
     "RenderRequest",
     "RasterRequest",
+    "GeoreferenceRequest",
 ]
 
 
@@ -438,6 +439,8 @@ _DrawingResultOptional = TypedDict(
         "hash": str,
         # 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
         "point_style": "PointStyleSummary",
+        # 図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から
+        "georeference": "Georeference",
     },
     total=False,
 )
@@ -445,6 +448,119 @@ _DrawingResultOptional = TypedDict(
 
 class DrawingResult(_DrawingResultRequired, _DrawingResultOptional):
     "図面モデルの要約。移さなかった図形と値は、診断で返す"
+
+
+# 図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height
+MapConversion = TypedDict(
+    "MapConversion",
+    {
+        # 東への移動（m）
+        "eastings": float,
+        # 北への移動（m）
+        "northings": float,
+        # 高さへの移動（m）
+        "orthogonal_height": float,
+        # 図面の X 軸の東方向の単位ベクトル成分
+        "x_axis_abscissa": float,
+        # 図面の X 軸の北方向の単位ベクトル成分
+        "x_axis_ordinate": float,
+        # 図面の 1 単位あたりの地図のメートル数
+        "scale": float,
+    },
+)
+
+
+# 地図の座標系と、図面の実寸から地図への相似の変換
+Georeference = TypedDict(
+    "Georeference",
+    {
+        # 地図の座標系の EPSG のコード
+        "crs": int,
+        # 図面の実寸から地図への相似の変換
+        "conversion": "MapConversion",
+    },
+)
+
+
+# 地図の投影座標（m）。東（easting）と北（northing）を名前で分ける
+MapPoint2 = TypedDict(
+    "MapPoint2",
+    {
+        # 東方向の座標（m。平面直角座標系の Y）
+        "easting": float,
+        # 北方向の座標（m。平面直角座標系の X）
+        "northing": float,
+    },
+)
+
+
+# 図面の実寸の点と、対応する地図の投影座標の組
+GeoreferenceControlPoint = TypedDict(
+    "GeoreferenceControlPoint",
+    {
+        # 図面の実寸の点
+        "drawing": "Point2",
+        # 対応する地図の投影座標（m）
+        "map": "MapPoint2",
+    },
+)
+
+
+# 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から
+_GeoreferenceRequestRequired = TypedDict(
+    "_GeoreferenceRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["georeference"],
+    },
+)
+_GeoreferenceRequestOptional = TypedDict(
+    "_GeoreferenceRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+        # 開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない
+        "doc": str,
+        # doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる
+        "expected_hash": str,
+        # 対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す
+        "crs": int,
+        # 図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める
+        "control_points": List["GeoreferenceControlPoint"],
+        # 求めた変換で地図へ写す図面の実寸の点
+        "points": List["Point2"],
+    },
+    total=False,
+)
+
+
+class GeoreferenceRequest(_GeoreferenceRequestRequired, _GeoreferenceRequestOptional):
+    "開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から"
+
+
+# 図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点
+GeoreferenceResult = TypedDict(
+    "GeoreferenceResult",
+    {
+        # doc を渡したときの元の文書のハッシュ
+        "hash": str,
+        # 地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない
+        "georeference": "Georeference",
+        # control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順
+        "residuals": List["MapPoint2"],
+        # points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない
+        "mapped": List["MapPoint2"],
+    },
+    total=False,
+)
 
 
 # 2 次元の座標
@@ -9353,6 +9469,7 @@ Operation = Literal[
     "lift",
     "render",
     "raster",
+    "georeference",
 ]
 
 # op ごとの要求と結果の型の名前。結果は応答の result を typing.cast で読む型
@@ -9400,4 +9517,5 @@ OPERATIONS: Dict[str, Any] = {
     "lift": ("LiftRequest", "LiftResult"),
     "render": ("RenderRequest", "RenderResult"),
     "raster": ("RasterRequest", "RasterResult"),
+    "georeference": ("GeoreferenceRequest", "GeoreferenceResult"),
 }

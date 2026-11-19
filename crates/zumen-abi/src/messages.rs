@@ -97,6 +97,8 @@ pub enum Request {
     Render(RenderRequest),
     /// 開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から
     Raster(RasterRequest),
+    /// 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から
+    Georeference(GeoreferenceRequest),
 }
 
 impl Request {
@@ -145,6 +147,7 @@ impl Request {
         "lift",
         "render",
         "raster",
+        "georeference",
     ];
 
     /// タグのフィールド（`op`）の値
@@ -193,6 +196,7 @@ impl Request {
             Self::Lift(_) => "lift",
             Self::Render(_) => "render",
             Self::Raster(_) => "raster",
+            Self::Georeference(_) => "georeference",
         }
     }
 }
@@ -258,6 +262,7 @@ impl FromJson for Request {
             "lift" => Self::Lift(LiftRequest::read_fields(&mut object)?),
             "render" => Self::Render(RenderRequest::read_fields(&mut object)?),
             "raster" => Self::Raster(RasterRequest::read_fields(&mut object)?),
+            "georeference" => Self::Georeference(GeoreferenceRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -311,6 +316,7 @@ impl ToJson for Request {
             Self::Lift(value) => value.to_json(out),
             Self::Render(value) => value.to_json(out),
             Self::Raster(value) => value.to_json(out),
+            Self::Georeference(value) => value.to_json(out),
         }
     }
 }
@@ -1253,6 +1259,8 @@ pub struct DrawingResult {
     pub sheets: Vec<SheetSummary>,
     /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
     pub point_style: Option<PointStyleSummary>,
+    /// 図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から
+    pub georeference: Option<Georeference>,
 }
 
 impl DrawingResult {
@@ -1265,11 +1273,13 @@ impl DrawingResult {
             json::array(value, SheetSummary::from_json)
         })?;
         let point_style = object.optional("point_style", PointStyleSummary::from_json)?;
+        let georeference = object.optional("georeference", Georeference::from_json)?;
         Ok(Self {
             hash,
             spaces,
             sheets,
             point_style,
+            georeference,
         })
     }
 
@@ -1286,6 +1296,10 @@ impl DrawingResult {
             out.key("point_style");
             value.to_json(out);
         }
+        if let Some(value) = &self.georeference {
+            out.key("georeference");
+            value.to_json(out);
+        }
     }
 }
 
@@ -1299,6 +1313,345 @@ impl FromJson for DrawingResult {
 }
 
 impl ToJson for DrawingResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapConversion {
+    /// 東への移動（m）
+    pub eastings: f64,
+    /// 北への移動（m）
+    pub northings: f64,
+    /// 高さへの移動（m）
+    pub orthogonal_height: f64,
+    /// 図面の X 軸の東方向の単位ベクトル成分
+    pub x_axis_abscissa: f64,
+    /// 図面の X 軸の北方向の単位ベクトル成分
+    pub x_axis_ordinate: f64,
+    /// 図面の 1 単位あたりの地図のメートル数
+    pub scale: f64,
+}
+
+impl MapConversion {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let eastings = object.required("eastings", json::number)?;
+        let northings = object.required("northings", json::number)?;
+        let orthogonal_height = object.required("orthogonal_height", json::number)?;
+        let x_axis_abscissa = object.required("x_axis_abscissa", json::number)?;
+        let x_axis_ordinate = object.required("x_axis_ordinate", json::number)?;
+        let scale = object.required("scale", json::number)?;
+        Ok(Self {
+            eastings,
+            northings,
+            orthogonal_height,
+            x_axis_abscissa,
+            x_axis_ordinate,
+            scale,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("eastings");
+        out.float(self.eastings);
+        out.key("northings");
+        out.float(self.northings);
+        out.key("orthogonal_height");
+        out.float(self.orthogonal_height);
+        out.key("x_axis_abscissa");
+        out.float(self.x_axis_abscissa);
+        out.key("x_axis_ordinate");
+        out.float(self.x_axis_ordinate);
+        out.key("scale");
+        out.float(self.scale);
+    }
+}
+
+impl FromJson for MapConversion {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MapConversion {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地図の座標系と、図面の実寸から地図への相似の変換
+#[derive(Clone, Debug, PartialEq)]
+pub struct Georeference {
+    /// 地図の座標系の EPSG のコード
+    pub crs: u64,
+    /// 図面の実寸から地図への相似の変換
+    pub conversion: MapConversion,
+}
+
+impl Georeference {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let crs = object.required("crs", |value| json::uint(value, 0, 9007199254740991))?;
+        let conversion = object.required("conversion", MapConversion::from_json)?;
+        Ok(Self { crs, conversion })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("crs");
+        out.uint(self.crs);
+        out.key("conversion");
+        self.conversion.to_json(out);
+    }
+}
+
+impl FromJson for Georeference {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Georeference {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地図の投影座標（m）。東（easting）と北（northing）を名前で分ける
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapPoint2 {
+    /// 東方向の座標（m。平面直角座標系の Y）
+    pub easting: f64,
+    /// 北方向の座標（m。平面直角座標系の X）
+    pub northing: f64,
+}
+
+impl MapPoint2 {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let easting = object.required("easting", json::number)?;
+        let northing = object.required("northing", json::number)?;
+        Ok(Self { easting, northing })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("easting");
+        out.float(self.easting);
+        out.key("northing");
+        out.float(self.northing);
+    }
+}
+
+impl FromJson for MapPoint2 {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MapPoint2 {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 図面の実寸の点と、対応する地図の投影座標の組
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeoreferenceControlPoint {
+    /// 図面の実寸の点
+    pub drawing: Point2,
+    /// 対応する地図の投影座標（m）
+    pub map: MapPoint2,
+}
+
+impl GeoreferenceControlPoint {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let drawing = object.required("drawing", Point2::from_json)?;
+        let map = object.required("map", MapPoint2::from_json)?;
+        Ok(Self { drawing, map })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("drawing");
+        self.drawing.to_json(out);
+        out.key("map");
+        self.map.to_json(out);
+    }
+}
+
+impl FromJson for GeoreferenceControlPoint {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoreferenceControlPoint {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeoreferenceRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない
+    pub doc: Option<String>,
+    /// doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる
+    pub expected_hash: Option<String>,
+    /// 対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す
+    pub crs: Option<u64>,
+    /// 図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める
+    pub control_points: Option<Vec<GeoreferenceControlPoint>>,
+    /// 求めた変換で地図へ写す図面の実寸の点
+    pub points: Option<Vec<Point2>>,
+}
+
+impl GeoreferenceRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "georeference")?;
+        let doc = object.optional("doc", json::string)?;
+        let expected_hash = object.optional("expected_hash", json::string)?;
+        let crs = object.optional("crs", |value| json::uint(value, 0, 9007199254740991))?;
+        let control_points = object.optional("control_points", |value| {
+            json::array(value, GeoreferenceControlPoint::from_json)
+        })?;
+        let points = object.optional("points", |value| json::array(value, Point2::from_json))?;
+        Ok(Self {
+            request_common,
+            doc,
+            expected_hash,
+            crs,
+            control_points,
+            points,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("georeference");
+        if let Some(value) = &self.doc {
+            out.key("doc");
+            out.string(value);
+        }
+        if let Some(value) = &self.expected_hash {
+            out.key("expected_hash");
+            out.string(value);
+        }
+        if let Some(value) = &self.crs {
+            out.key("crs");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.control_points {
+            out.key("control_points");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.points {
+            out.key("points");
+            out.array(value, |out, item| item.to_json(out));
+        }
+    }
+}
+
+impl FromJson for GeoreferenceRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoreferenceRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GeoreferenceResult {
+    /// doc を渡したときの元の文書のハッシュ
+    pub hash: Option<String>,
+    /// 地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない
+    pub georeference: Option<Georeference>,
+    /// control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順
+    pub residuals: Option<Vec<MapPoint2>>,
+    /// points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない
+    pub mapped: Option<Vec<MapPoint2>>,
+}
+
+impl GeoreferenceResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.optional("hash", json::string)?;
+        let georeference = object.optional("georeference", Georeference::from_json)?;
+        let residuals = object.optional("residuals", |value| {
+            json::array(value, MapPoint2::from_json)
+        })?;
+        let mapped = object.optional("mapped", |value| json::array(value, MapPoint2::from_json))?;
+        Ok(Self {
+            hash,
+            georeference,
+            residuals,
+            mapped,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.hash {
+            out.key("hash");
+            out.string(value);
+        }
+        if let Some(value) = &self.georeference {
+            out.key("georeference");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.residuals {
+            out.key("residuals");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.mapped {
+            out.key("mapped");
+            out.array(value, |out, item| item.to_json(out));
+        }
+    }
+}
+
+impl FromJson for GeoreferenceResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoreferenceResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

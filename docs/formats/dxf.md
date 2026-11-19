@@ -161,8 +161,8 @@ R2004 DWG のモデル空間・ペーパー空間に弧長寸法があり、必�
 
 AutoCAD で地理位置を付けた図面は、OBJECTS の `GEODATA`（サブクラス `AcDbGeoData`）に、設計の点・基準の点・単位の倍率・北の向き・座標系の定義を持つ（DXF Reference「GEODATA」）。GEODATA は、オブジェクトの表の 1 つのオブジェクトとして読む。図面から地図への変換は、その値から `zumen-crs` の `GeoData` が作る（[GEODATA から地図への変換](crs.md#geodata-から地図への変換)、[#685](https://github.com/zumen-jp/zumen/issues/685)）。
 
-- 図面モデル（`Drawing2D`）は、まだ地図の座標系と変換を持たない。図面モデルに載せることと、API の op から返すことは、まだしない。
-- DWG の GEODATA は、まだ読まない。
+- 図面モデルへの変換（`Lift<Drawing2D>`）は、`*Model_Space` の拡張辞書の `ACAD_GEOGRAPHICDATA`（なければホストのブロック 330 が `*Model_Space` を指すか未指定の `GEODATA`）から `Drawing2D.georeference`（`Crs` と `MapConversion`）を作る。API の `drawing` は `result.georeference` を返し、`georeference` は文書の変換の取得と図面点の地図投影座標への写像、および対応点（`crs` と `control_points`）からの最小二乗推定をする。新しい DXF・JWW・SXF への書き出し（`lower_to_dxf`・`convert`）は `GEODATA` を書かず、`convert.element.unsupported`（`kind = "georeference"`）で診断する。
+- DWG の `GEODATA` も、ODS 5.4.1 の 20.4.102 の並びで共有の表に置き、DXF と同じ経路で図面モデルに移す（[DWG の扱い](dwg.md#図面モデルへの変換)）。
 - 公開サンプルは、2026-11-18 に GitHub のコード検索で `AcDbGeoData` を含む DXF を探した。ACadSharp（MIT）の `samples/geolocation/geoloc.dxf` を [`samples/dxf/acadsharp-geoloc.dxf`](../../samples/dxf/acadsharp-geoloc.dxf) に入れた。AutoCAD が書いた R2018 の図形のない DXF で、GEODATA は版 3・局所の格子・インチ（倍率 0.0254）・メッシュの点 12（面なし）を持つ。座標系の定義は Autodesk の `WORLD-LM-CONIC`（WGS84 の世界のランベルト正角円錐図法）で、座標系の EPSG のコードの別名を持たない。zumen は `crs.geodata-crs.unsupported` を返し、ezdxf 1.4.5 も変換を作らない。
   - 同じ所の `geoloc_AC1021.dxf` は、GEODATA の版が 1 で、後のコミットで足され、作ったソフトが分からないので入れていない。DroneDB の `test_data` の `vector/autocad/utm32n_site_geodata.dxf` は、リポジトリのライセンスがはっきりしないので入れていない。ほかに見つかったものは、ACadSharp の同じファイルの写しだった。
   - 平面直角座標系で地理位置を付けた公開の DXF は、見つからなかった。変換の値は、テストの中で作る DXF で ezdxf と照らす（`crates/zumen-geo/tests/geodata.rs`）。

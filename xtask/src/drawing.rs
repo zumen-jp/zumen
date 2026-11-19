@@ -19,8 +19,10 @@ pub const GENERATED: &str = "crates/zumen-drawing/src/binary/generated.rs";
 /// 図面モデルの型を読むディレクトリ。下のディレクトリ（`font/` など）は読まない
 const SOURCES: &str = "crates/zumen-drawing/src";
 /// 図面モデルが使う、外の crate の型を読むファイル。型は、crate の根から出している
-const EXTERNAL: [(&str, &str); 2] = [
+const EXTERNAL: [(&str, &str); 4] = [
     ("zumen_base", "crates/zumen-base/src/diag.rs"),
+    ("zumen_crs", "crates/zumen-crs/src/crs.rs"),
+    ("zumen_crs", "crates/zumen-crs/src/geodata.rs"),
     ("zumen_crs", "crates/zumen-crs/src/point.rs"),
 ];
 /// 根のモジュール（lib.rs）
@@ -31,15 +33,18 @@ const ROOTS: [&[&str]; 2] = [&["Drawing2D"], &["binary", "Source"]];
 const COUNTED: &str = "Element";
 /// フィールドを外に見せないので、読み書きを手で書く型（zumen-drawing の binary.rs）と、そのフィールド。フィールドが変わったら、手で書いた
 /// 読み書きを直してから、ここを直す
-const HANDWRITTEN: [(&str, &[&str]); 1] = [(
-    "Ref",
-    &[
-        "id: Option<String>",
-        "record: Option<u64>",
-        "bytes: Option<ByteRange>",
-        "key: Option<Key>",
-    ],
-)];
+const HANDWRITTEN: [(&str, &[&str]); 2] = [
+    (
+        "Ref",
+        &[
+            "id: Option<String>",
+            "record: Option<u64>",
+            "bytes: Option<ByteRange>",
+            "key: Option<Key>",
+        ],
+    ),
+    ("Zone", &["u8"]),
+];
 /// 読み書きできる言語の型
 const PRIMS: [&str; 13] = [
     "bool", "u8", "u16", "u32", "u64", "usize", "i16", "i32", "i64", "f64", "char", "String", "str",
@@ -290,10 +295,10 @@ struct Tree {
 impl Tree {
     /// モジュールの名前（`lib`・`shape`・外の crate の名前）と、ファイルの中身から作る
     fn parse(sources: &[(String, String)]) -> Result<Self, String> {
-        let mut modules = BTreeMap::new();
+        let mut modules: BTreeMap<String, Module> = BTreeMap::new();
         for (name, text) in sources {
             let file = syn::parse_file(text).map_err(|e| format!("{name}: {e}"))?;
-            let mut module = Module::default();
+            let module = modules.entry(name.clone()).or_default();
             for item in file.items {
                 match item {
                     syn::Item::Struct(ref s) if !configured(&s.attrs) => {
@@ -311,7 +316,6 @@ impl Tree {
                     _ => {}
                 }
             }
-            modules.insert(name.clone(), module);
         }
         Ok(Self { modules })
     }
@@ -741,7 +745,8 @@ fn check_handwritten(defs: &BTreeMap<String, Def>) -> Result<(), String> {
                 .iter()
                 .map(|(field, ty)| format!("{}: {ty}", unraw(field)))
                 .collect(),
-            _ => Vec::new(),
+            Body::Tuple(items) => items.iter().map(ToString::to_string).collect(),
+            Body::Variants(_) => Vec::new(),
         };
         if actual != expected {
             return Err(format!(

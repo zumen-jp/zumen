@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマのメジャーバージョン（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマのマイナーバージョン */
-export const SCHEMA_MINOR = 111;
+export const SCHEMA_MINOR = 112;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({
@@ -39,7 +39,7 @@ export const MODULES = Object.freeze({
   drawing: Object.freeze({
     description: "図面（DXF・DWG・SXF・JWW・SIMA・TIFF と、図面モデルのバイナリ）と、図面のレビュー。土木の線形（J-LandXML・SIMA）と、線形から作る図。電子納品の成果品・工事写真・ボーリング交換用データ",
     formats: Object.freeze(["dxf", "dwg", "sxf", "jww", "sima", "tiff", "landxml", "drawing"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "create", "convert", "convert_estimate", "tables", "scene", "check", "review_carry", "review_adopt", "review_scene", "civil", "civil_drawing", "delivery_check", "delivery_apply", "photo", "boring", "lift", "render", "calibrations", "measure_distance", "measure", "intersect", "regions", "construct", "raster"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "drawing", "entities", "apply", "create", "convert", "convert_estimate", "tables", "scene", "check", "review_carry", "review_adopt", "review_scene", "civil", "civil_drawing", "delivery_check", "delivery_apply", "photo", "boring", "lift", "render", "calibrations", "measure_distance", "measure", "intersect", "regions", "construct", "raster", "georeference"]),
   }),
   bim: Object.freeze({
     description: "IFC と ST-Bridge と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）",
@@ -49,7 +49,7 @@ export const MODULES = Object.freeze({
   civil: Object.freeze({
     description: "土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）",
     formats: Object.freeze(["landxml", "citygml", "fgd", "extdm", "geojson", "sima", "tiff"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "convert", "civil", "geo", "scene3d"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "convert", "civil", "geo", "scene3d", "georeference"]),
   }),
   pointcloud: Object.freeze({
     description: "点群（LAS・LAZ・PLY・XYZ・E57・GeoTIFF の DEM）と、設計の TIN（J-LandXML）との差",

@@ -615,6 +615,9 @@ pub fn lower_to_dxf_with_report(
             )
             .map_err(|error| failed(cx, error))?;
     }
+    if drawing.georeference.is_some() {
+        report_dropped(cx, report, "georeference", &Ref::default())?;
+    }
     for (kind, present) in [
         ("line_type_scale", drawing.line_type_scale.is_some()),
         ("default_line_weight", drawing.default_line_weight.is_some()),

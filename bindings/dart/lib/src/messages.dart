@@ -147,6 +147,9 @@ class Request extends Message {
 
   /// op が raster の形なら、そのビュー。違えば null
   RasterRequest? get asRasterRequest => taggedView('op', 'raster', RasterRequest.fromJson);
+
+  /// op が georeference の形なら、そのビュー。違えば null
+  GeoreferenceRequest? get asGeoreferenceRequest => taggedView('op', 'georeference', GeoreferenceRequest.fromJson);
 }
 
 /// どの op の要求にも置けるフィールド
@@ -636,6 +639,172 @@ class DrawingResult extends Message {
   /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
   PointStyleSummary? get pointStyle => readField('point_style', objectOf(PointStyleSummary.fromJson));
   set pointStyle(PointStyleSummary? value) => writeField('point_style', value);
+
+  /// 図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から
+  Georeference? get georeference => readField('georeference', objectOf(Georeference.fromJson));
+  set georeference(Georeference? value) => writeField('georeference', value);
+}
+
+/// 図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height
+class MapConversion extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MapConversion.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  MapConversion() : super({});
+
+  /// 東への移動（m）
+  core.double? get eastings => readField('eastings', asDouble);
+  set eastings(core.double? value) => writeField('eastings', value);
+
+  /// 北への移動（m）
+  core.double? get northings => readField('northings', asDouble);
+  set northings(core.double? value) => writeField('northings', value);
+
+  /// 高さへの移動（m）
+  core.double? get orthogonalHeight => readField('orthogonal_height', asDouble);
+  set orthogonalHeight(core.double? value) => writeField('orthogonal_height', value);
+
+  /// 図面の X 軸の東方向の単位ベクトル成分
+  core.double? get xAxisAbscissa => readField('x_axis_abscissa', asDouble);
+  set xAxisAbscissa(core.double? value) => writeField('x_axis_abscissa', value);
+
+  /// 図面の X 軸の北方向の単位ベクトル成分
+  core.double? get xAxisOrdinate => readField('x_axis_ordinate', asDouble);
+  set xAxisOrdinate(core.double? value) => writeField('x_axis_ordinate', value);
+
+  /// 図面の 1 単位あたりの地図のメートル数
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
+}
+
+/// 地図の座標系と、図面の実寸から地図への相似の変換
+class Georeference extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  Georeference.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  Georeference() : super({});
+
+  /// 地図の座標系の EPSG のコード
+  core.int? get crs => readField('crs', asInt);
+  set crs(core.int? value) => writeField('crs', value);
+
+  /// 図面の実寸から地図への相似の変換
+  MapConversion? get conversion => readField('conversion', objectOf(MapConversion.fromJson));
+  set conversion(MapConversion? value) => writeField('conversion', value);
+}
+
+/// 地図の投影座標（m）。東（easting）と北（northing）を名前で分ける
+class MapPoint2 extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  MapPoint2.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  MapPoint2() : super({});
+
+  /// 東方向の座標（m。平面直角座標系の Y）
+  core.double? get easting => readField('easting', asDouble);
+  set easting(core.double? value) => writeField('easting', value);
+
+  /// 北方向の座標（m。平面直角座標系の X）
+  core.double? get northing => readField('northing', asDouble);
+  set northing(core.double? value) => writeField('northing', value);
+}
+
+/// 図面の実寸の点と、対応する地図の投影座標の組
+class GeoreferenceControlPoint extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  GeoreferenceControlPoint.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  GeoreferenceControlPoint() : super({});
+
+  /// 図面の実寸の点
+  Point2? get drawing => readField('drawing', objectOf(Point2.fromJson));
+  set drawing(Point2? value) => writeField('drawing', value);
+
+  /// 対応する地図の投影座標（m）
+  MapPoint2? get map => readField('map', objectOf(MapPoint2.fromJson));
+  set map(MapPoint2? value) => writeField('map', value);
+}
+
+/// 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から
+class GeoreferenceRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  GeoreferenceRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  GeoreferenceRequest() : super({'op': 'georeference'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる
+  String? get expectedHash => readField('expected_hash', asString);
+  set expectedHash(String? value) => writeField('expected_hash', value);
+
+  /// 対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す
+  core.int? get crs => readField('crs', asInt);
+  set crs(core.int? value) => writeField('crs', value);
+
+  /// 図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める
+  List<GeoreferenceControlPoint>? get controlPoints => readField('control_points', listOf(objectOf(GeoreferenceControlPoint.fromJson)));
+  set controlPoints(List<GeoreferenceControlPoint>? value) => writeField('control_points', value);
+
+  /// 求めた変換で地図へ写す図面の実寸の点
+  List<Point2>? get points => readField('points', listOf(objectOf(Point2.fromJson)));
+  set points(List<Point2>? value) => writeField('points', value);
+}
+
+/// 図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点
+class GeoreferenceResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  GeoreferenceResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  GeoreferenceResult() : super({});
+
+  /// doc を渡したときの元の文書のハッシュ
+  String? get hash => readField('hash', asString);
+  set hash(String? value) => writeField('hash', value);
+
+  /// 地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない
+  Georeference? get georeference => readField('georeference', objectOf(Georeference.fromJson));
+  set georeference(Georeference? value) => writeField('georeference', value);
+
+  /// control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順
+  List<MapPoint2>? get residuals => readField('residuals', listOf(objectOf(MapPoint2.fromJson)));
+  set residuals(List<MapPoint2>? value) => writeField('residuals', value);
+
+  /// points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない
+  List<MapPoint2>? get mapped => readField('mapped', listOf(objectOf(MapPoint2.fromJson)));
+  set mapped(List<MapPoint2>? value) => writeField('mapped', value);
 }
 
 /// 2 次元の座標
@@ -11795,4 +11964,5 @@ abstract final class Operations {
   static const lift = 'lift';
   static const render = 'render';
   static const raster = 'raster';
+  static const georeference = 'georeference';
 }

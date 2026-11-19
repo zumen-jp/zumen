@@ -245,6 +245,11 @@ func (u Request) AsRasterRequest() *RasterRequest {
 	return asTagged[RasterRequest](u, "op", "raster")
 }
 
+// AsGeoreferenceRequest は、op が georeference の形なら、その型で読む。違えば nil。
+func (u Request) AsGeoreferenceRequest() *GeoreferenceRequest {
+	return asTagged[GeoreferenceRequest](u, "op", "georeference")
+}
+
 // RequestCommon: どの op の要求にも置けるフィールド
 type RequestCommon struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
@@ -593,6 +598,115 @@ type DrawingResult struct {
 
 	// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
 	PointStyle *PointStyleSummary `json:"point_style,omitempty"`
+
+	// 図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から
+	Georeference *Georeference `json:"georeference,omitempty"`
+}
+
+// MapConversion: 図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height
+type MapConversion struct {
+	// 東への移動（m）
+	Eastings *float64 `json:"eastings,omitempty"`
+
+	// 北への移動（m）
+	Northings *float64 `json:"northings,omitempty"`
+
+	// 高さへの移動（m）
+	OrthogonalHeight *float64 `json:"orthogonal_height,omitempty"`
+
+	// 図面の X 軸の東方向の単位ベクトル成分
+	XAxisAbscissa *float64 `json:"x_axis_abscissa,omitempty"`
+
+	// 図面の X 軸の北方向の単位ベクトル成分
+	XAxisOrdinate *float64 `json:"x_axis_ordinate,omitempty"`
+
+	// 図面の 1 単位あたりの地図のメートル数
+	Scale *float64 `json:"scale,omitempty"`
+}
+
+// Georeference: 地図の座標系と、図面の実寸から地図への相似の変換
+type Georeference struct {
+	// 地図の座標系の EPSG のコード
+	Crs *int64 `json:"crs,omitempty"`
+
+	// 図面の実寸から地図への相似の変換
+	Conversion *MapConversion `json:"conversion,omitempty"`
+}
+
+// MapPoint2: 地図の投影座標（m）。東（easting）と北（northing）を名前で分ける
+type MapPoint2 struct {
+	// 東方向の座標（m。平面直角座標系の Y）
+	Easting *float64 `json:"easting,omitempty"`
+
+	// 北方向の座標（m。平面直角座標系の X）
+	Northing *float64 `json:"northing,omitempty"`
+}
+
+// GeoreferenceControlPoint: 図面の実寸の点と、対応する地図の投影座標の組
+type GeoreferenceControlPoint struct {
+	// 図面の実寸の点
+	Drawing *Point2 `json:"drawing,omitempty"`
+
+	// 対応する地図の投影座標（m）
+	Map *MapPoint2 `json:"map,omitempty"`
+}
+
+// GeoreferenceRequest: 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から
+type GeoreferenceRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない
+	Doc *string `json:"doc,omitempty"`
+
+	// doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+
+	// 対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す
+	Crs *int64 `json:"crs,omitempty"`
+
+	// 図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める
+	ControlPoints []GeoreferenceControlPoint `json:"control_points,omitempty"`
+
+	// 求めた変換で地図へ写す図面の実寸の点
+	Points []Point2 `json:"points,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m GeoreferenceRequest) MarshalJSON() ([]byte, error) {
+	type plain GeoreferenceRequest
+	m.Op = "georeference"
+	return json.Marshal(plain(m))
+}
+
+// GeoreferenceResult: 図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点
+type GeoreferenceResult struct {
+	// doc を渡したときの元の文書のハッシュ
+	Hash *string `json:"hash,omitempty"`
+
+	// 地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない
+	Georeference *Georeference `json:"georeference,omitempty"`
+
+	// control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順
+	Residuals []MapPoint2 `json:"residuals,omitempty"`
+
+	// points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない
+	Mapped []MapPoint2 `json:"mapped,omitempty"`
 }
 
 // Point2: 2 次元の座標
@@ -9612,3 +9726,6 @@ const OpRender = "render"
 
 // OpRaster は、op の名前 raster。
 const OpRaster = "raster"
+
+// OpGeoreference は、op の名前 georeference。
+const OpGeoreference = "georeference"

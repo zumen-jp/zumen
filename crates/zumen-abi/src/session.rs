@@ -13,6 +13,7 @@ mod delivery_ops;
 mod drawing_ops;
 #[cfg(feature = "drawing")]
 mod element_set;
+mod georeference_ops;
 mod ifc_ops;
 #[cfg(feature = "drawing")]
 mod intersection_ops;
@@ -537,6 +538,10 @@ impl Session {
                 .map(|r| Box::new(r) as _),
             #[cfg(feature = "civil")]
             Request::Geo(request) => self.geo(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(any(feature = "drawing", feature = "civil"))]
+            Request::Georeference(request) => self
+                .georeference(request, &mut cx)
+                .map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::DeliveryCheck(request) => self
                 .delivery_check(request, &mut cx)
@@ -755,6 +760,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Deviation(request) => &request.request_common,
         Request::CivilDrawing(request) => &request.request_common,
         Request::Geo(request) => &request.request_common,
+        Request::Georeference(request) => &request.request_common,
         Request::DeliveryCheck(request) => &request.request_common,
         Request::DeliveryApply(request) => &request.request_common,
         Request::Photo(request) => &request.request_common,

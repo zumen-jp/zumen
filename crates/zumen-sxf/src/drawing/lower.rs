@@ -362,6 +362,16 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
             cx,
         )?;
     }
+    if drawing.georeference.is_some() {
+        lower.note(
+            "georeference",
+            Fidelity::Dropped,
+            &Ref::default(),
+            0,
+            &[],
+            cx,
+        )?;
+    }
     let mut file = template::make(&mut lower.items, &drawing.layers, sheet, cx)?;
     let seed = quiet(cx, |cx| file.lift(cx))?;
     let seed_sheet = seed.sheets.first().ok_or(Error::Invalid)?;

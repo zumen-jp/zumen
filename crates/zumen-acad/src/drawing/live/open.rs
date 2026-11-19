@@ -15,9 +15,9 @@ use pending::{BATCH_PAGES, PAGE_ROWS, Pending};
 use zumen_base::{Budget, Cx, Diagnostic, Diagnostics, Key, Kind, Limit, Ref, codes};
 use zumen_drawing::{
     Arrowhead, Axes, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle,
-    Draft, Drawing2D, Element, Layer, LayerId, LineType, LineTypeId, ModelPoint, ModelSpace,
-    PaperLength, PointStyle, Position, Shape, Sheet, SheetId, SymbolDefinition, SymbolKey,
-    TextStyle, Unit, id,
+    Draft, Drawing2D, Element, Georeference, Layer, LayerId, LineType, LineTypeId, ModelPoint,
+    ModelSpace, PaperLength, PointStyle, Position, Shape, Sheet, SheetId, SymbolDefinition,
+    SymbolKey, TextStyle, Unit, id,
 };
 use zumen_live::display::Display;
 use zumen_live::{DepGraph, RowId, SourceBytes, SpatialGrid, VersionedTable};
@@ -29,8 +29,8 @@ use super::super::single::{
 };
 use super::super::{
     BLOCK, EMPTY, FIT_DATA, Lifter, MODEL, Out, PaperFrame, SHEET, TABLE_CONTENT, amount, arrange,
-    attached, charset, extension_work, header_limits, header_real, invalid, layout, layout_index,
-    point_style, source, unit, work,
+    attached, charset, extension_work, georeference, header_limits, header_real, invalid, layout,
+    layout_index, point_style, source, unit, work,
 };
 use super::backing::{
     DwgLiveBacking, DxfHeaderValues, DxfLiveBacking, DxfRecordMapper, LiveBacking,
@@ -99,6 +99,8 @@ pub struct LiveState {
     pub sheets: Vec<Sheet>,
     /// 点の表示スタイル
     pub point_style: Option<PointStyle>,
+    /// 図面から地図への相似の変換
+    pub georeference: Option<Georeference>,
     /// モデル空間の `SORTENTSTABLE`
     pub model_sort_keys: Option<(Ref, BTreeMap<u64, u64>)>,
     /// モデル要素以外の拡張情報ひな形（画層・線種・ブロック定義・用紙要素）
@@ -398,6 +400,7 @@ impl LiveState {
             symbols: self.symbols.clone(),
             sheets: self.sheets.clone(),
             point_style: self.point_style,
+            georeference: self.georeference,
             ..Drawing2D::default()
         };
         if let Some(mapper) = &dxf_mapper {
@@ -2366,6 +2369,7 @@ fn lift_live_state(
         .position(|lt| lt.name.eq_ignore_ascii_case("Continuous"))
         .map(|i| i as u32);
     let pt_style = point_style(shell_db, cx);
+    let georef = georeference(shell_db, cx)?;
     if let Some((ref table_ref, _)) = model_keys
         && rows.iter().any(|r| r.raw_handle().is_none())
     {
@@ -2675,6 +2679,7 @@ fn lift_live_state(
         block_defs_by_lower,
         sheets,
         point_style: pt_style,
+        georeference: georef,
         model_sort_keys: model_keys,
         non_model_drafts: out.extensions,
         duplicate_handles_global: inputs.duplicate_handles_global,

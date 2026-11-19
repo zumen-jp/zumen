@@ -276,6 +276,11 @@ public final class Messages {
         public RasterRequest asRasterRequest() {
             return "raster".equals(json.get("op")) ? new RasterRequest(json) : null;
         }
+
+        /** op が georeference の形なら、そのビュー。違えば null */
+        public GeoreferenceRequest asGeoreferenceRequest() {
+            return "georeference".equals(json.get("op")) ? new GeoreferenceRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置けるフィールド */
@@ -1522,6 +1527,429 @@ public final class Messages {
         /** {@link #getPointStyle()} を書く。null ならフィールドを除く */
         public DrawingResult withPointStyle(PointStyleSummary value) {
             put("point_style", value);
+            return this;
+        }
+
+        /** 図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から */
+        public Georeference getGeoreference() {
+            return Json.read(json.get("georeference"), Georeference::of);
+        }
+
+        /** {@link #getGeoreference()} を書く。null ならフィールドを除く */
+        public DrawingResult withGeoreference(Georeference value) {
+            put("georeference", value);
+            return this;
+        }
+    }
+
+    /** 図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height */
+    public static final class MapConversion extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MapConversion(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MapConversion of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MapConversion(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public MapConversion() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 東への移動（m） */
+        public Double getEastings() {
+            return Json.read(json.get("eastings"), Json::number);
+        }
+
+        /** {@link #getEastings()} を書く。null ならフィールドを除く */
+        public MapConversion withEastings(Double value) {
+            put("eastings", value);
+            return this;
+        }
+
+        /** 北への移動（m） */
+        public Double getNorthings() {
+            return Json.read(json.get("northings"), Json::number);
+        }
+
+        /** {@link #getNorthings()} を書く。null ならフィールドを除く */
+        public MapConversion withNorthings(Double value) {
+            put("northings", value);
+            return this;
+        }
+
+        /** 高さへの移動（m） */
+        public Double getOrthogonalHeight() {
+            return Json.read(json.get("orthogonal_height"), Json::number);
+        }
+
+        /** {@link #getOrthogonalHeight()} を書く。null ならフィールドを除く */
+        public MapConversion withOrthogonalHeight(Double value) {
+            put("orthogonal_height", value);
+            return this;
+        }
+
+        /** 図面の X 軸の東方向の単位ベクトル成分 */
+        public Double getXAxisAbscissa() {
+            return Json.read(json.get("x_axis_abscissa"), Json::number);
+        }
+
+        /** {@link #getXAxisAbscissa()} を書く。null ならフィールドを除く */
+        public MapConversion withXAxisAbscissa(Double value) {
+            put("x_axis_abscissa", value);
+            return this;
+        }
+
+        /** 図面の X 軸の北方向の単位ベクトル成分 */
+        public Double getXAxisOrdinate() {
+            return Json.read(json.get("x_axis_ordinate"), Json::number);
+        }
+
+        /** {@link #getXAxisOrdinate()} を書く。null ならフィールドを除く */
+        public MapConversion withXAxisOrdinate(Double value) {
+            put("x_axis_ordinate", value);
+            return this;
+        }
+
+        /** 図面の 1 単位あたりの地図のメートル数 */
+        public Double getScale() {
+            return Json.read(json.get("scale"), Json::number);
+        }
+
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
+        public MapConversion withScale(Double value) {
+            put("scale", value);
+            return this;
+        }
+    }
+
+    /** 地図の座標系と、図面の実寸から地図への相似の変換 */
+    public static final class Georeference extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public Georeference(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static Georeference of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new Georeference(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public Georeference() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 地図の座標系の EPSG のコード */
+        public Long getCrs() {
+            return Json.read(json.get("crs"), Json::integer);
+        }
+
+        /** {@link #getCrs()} を書く。null ならフィールドを除く */
+        public Georeference withCrs(Long value) {
+            put("crs", value);
+            return this;
+        }
+
+        /** 図面の実寸から地図への相似の変換 */
+        public MapConversion getConversion() {
+            return Json.read(json.get("conversion"), MapConversion::of);
+        }
+
+        /** {@link #getConversion()} を書く。null ならフィールドを除く */
+        public Georeference withConversion(MapConversion value) {
+            put("conversion", value);
+            return this;
+        }
+    }
+
+    /** 地図の投影座標（m）。東（easting）と北（northing）を名前で分ける */
+    public static final class MapPoint2 extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MapPoint2(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MapPoint2 of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MapPoint2(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public MapPoint2() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 東方向の座標（m。平面直角座標系の Y） */
+        public Double getEasting() {
+            return Json.read(json.get("easting"), Json::number);
+        }
+
+        /** {@link #getEasting()} を書く。null ならフィールドを除く */
+        public MapPoint2 withEasting(Double value) {
+            put("easting", value);
+            return this;
+        }
+
+        /** 北方向の座標（m。平面直角座標系の X） */
+        public Double getNorthing() {
+            return Json.read(json.get("northing"), Json::number);
+        }
+
+        /** {@link #getNorthing()} を書く。null ならフィールドを除く */
+        public MapPoint2 withNorthing(Double value) {
+            put("northing", value);
+            return this;
+        }
+    }
+
+    /** 図面の実寸の点と、対応する地図の投影座標の組 */
+    public static final class GeoreferenceControlPoint extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoreferenceControlPoint(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoreferenceControlPoint of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoreferenceControlPoint(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public GeoreferenceControlPoint() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 図面の実寸の点 */
+        public Point2 getDrawing() {
+            return Json.read(json.get("drawing"), Point2::of);
+        }
+
+        /** {@link #getDrawing()} を書く。null ならフィールドを除く */
+        public GeoreferenceControlPoint withDrawing(Point2 value) {
+            put("drawing", value);
+            return this;
+        }
+
+        /** 対応する地図の投影座標（m） */
+        public MapPoint2 getMap() {
+            return Json.read(json.get("map"), MapPoint2::of);
+        }
+
+        /** {@link #getMap()} を書く。null ならフィールドを除く */
+        public GeoreferenceControlPoint withMap(MapPoint2 value) {
+            put("map", value);
+            return this;
+        }
+    }
+
+    /** 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から */
+    public static final class GeoreferenceRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoreferenceRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoreferenceRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoreferenceRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public GeoreferenceRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "georeference");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる */
+        public String getExpectedHash() {
+            return Json.read(json.get("expected_hash"), Json::string);
+        }
+
+        /** {@link #getExpectedHash()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withExpectedHash(String value) {
+            put("expected_hash", value);
+            return this;
+        }
+
+        /** 対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す */
+        public Long getCrs() {
+            return Json.read(json.get("crs"), Json::integer);
+        }
+
+        /** {@link #getCrs()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withCrs(Long value) {
+            put("crs", value);
+            return this;
+        }
+
+        /** 図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める */
+        public List<GeoreferenceControlPoint> getControlPoints() {
+            return Json.read(json.get("control_points"), v0 -> Json.list(v0, GeoreferenceControlPoint::of));
+        }
+
+        /** {@link #getControlPoints()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withControlPoints(List<GeoreferenceControlPoint> value) {
+            put("control_points", value);
+            return this;
+        }
+
+        /** 求めた変換で地図へ写す図面の実寸の点 */
+        public List<Point2> getPoints() {
+            return Json.read(json.get("points"), v0 -> Json.list(v0, Point2::of));
+        }
+
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withPoints(List<Point2> value) {
+            put("points", value);
+            return this;
+        }
+    }
+
+    /** 図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点 */
+    public static final class GeoreferenceResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoreferenceResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoreferenceResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoreferenceResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public GeoreferenceResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** doc を渡したときの元の文書のハッシュ */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public GeoreferenceResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない */
+        public Georeference getGeoreference() {
+            return Json.read(json.get("georeference"), Georeference::of);
+        }
+
+        /** {@link #getGeoreference()} を書く。null ならフィールドを除く */
+        public GeoreferenceResult withGeoreference(Georeference value) {
+            put("georeference", value);
+            return this;
+        }
+
+        /** control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順 */
+        public List<MapPoint2> getResiduals() {
+            return Json.read(json.get("residuals"), v0 -> Json.list(v0, MapPoint2::of));
+        }
+
+        /** {@link #getResiduals()} を書く。null ならフィールドを除く */
+        public GeoreferenceResult withResiduals(List<MapPoint2> value) {
+            put("residuals", value);
+            return this;
+        }
+
+        /** points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない */
+        public List<MapPoint2> getMapped() {
+            return Json.read(json.get("mapped"), v0 -> Json.list(v0, MapPoint2::of));
+        }
+
+        /** {@link #getMapped()} を書く。null ならフィールドを除く */
+        public GeoreferenceResult withMapped(List<MapPoint2> value) {
+            put("mapped", value);
             return this;
         }
     }
@@ -29514,5 +29942,7 @@ public final class Messages {
         public static final String RENDER = "render";
 
         public static final String RASTER = "raster";
+
+        public static final String GEOREFERENCE = "georeference";
     }
 }

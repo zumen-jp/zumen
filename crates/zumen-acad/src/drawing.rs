@@ -48,6 +48,7 @@ use acad_table::report_cell_values;
 use extension::extension_work;
 use finite::{Converted, finite};
 use zumen_base::{Cx, Diagnostic, Key, Kind, Ref, codes};
+use zumen_crs::{GeoData, GeoValue, Georeference};
 use zumen_drawing::{
     Arrowhead, Axes, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle,
     Draft, Drawing2D, Edge, Element, Layer, LayerId, Length, LineType, LineTypeId, ModelLength,
@@ -274,6 +275,8 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         .iter()
         .find(|line_type| line_type.name.eq_ignore_ascii_case("Continuous"))
         .map(|line_type| line_type.id);
+    let point_style = point_style(db, cx);
+    let georeference = georeference(db, cx)?;
     let mut drawing = Drawing2D {
         layers: out.layers,
         line_types: out.line_types,
@@ -284,7 +287,8 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         dimension_styles: out.dimension_styles,
         text_styles: out.text_styles,
         symbols,
-        point_style: point_style(db, cx),
+        point_style,
+        georeference,
         ..Drawing2D::default()
     };
     drawing.spaces.push(ModelSpace {
@@ -752,6 +756,139 @@ fn point_style(db: &AcadDb, cx: &mut Cx) -> Option<PointStyle> {
         square,
         size,
     })
+}
+
+/// モデル空間の地理位置（`GEODATA`）から、地図の座標系と相似の変換を作る（#685）
+pub(crate) fn georeference(db: &AcadDb, cx: &mut Cx) -> Result<Option<Georeference>, Error> {
+    let mut model_record = None;
+    let mut other_blocks = BTreeSet::new();
+    for object in db.objects() {
+        if object.section != Section::Tables || object.kind != b"BLOCK_RECORD" {
+            continue;
+        }
+        let Some(handle) = object.handle() else {
+            continue;
+        };
+        let is_model = matches!(
+            object.first(2),
+            Some(Data::Text(name)) if name.trim_ascii().eq_ignore_ascii_case(b"*Model_Space")
+        );
+        if is_model && model_record.is_none() {
+            model_record = Some((handle, object));
+        } else if !is_model {
+            other_blocks.insert(handle);
+        }
+    }
+    let linked = model_record
+        .and_then(|(_, record)| xdictionary_entry(db, record, b"ACAD_GEOGRAPHICDATA"))
+        .and_then(|handle| db.get(handle))
+        .filter(|object| object.section == Section::Objects && object.kind == b"GEODATA");
+    let object = linked
+        .or_else(|| {
+            let model_handle = model_record.map(|(handle, _)| handle)?;
+            db.objects().iter().find(|object| {
+                object.section == Section::Objects
+                    && object.kind == b"GEODATA"
+                    && geodata_host_block(object) == Some(model_handle)
+            })
+        })
+        .or_else(|| {
+            db.objects().iter().find(|object| {
+                object.section == Section::Objects
+                    && object.kind == b"GEODATA"
+                    && geodata_host_block(object).is_none_or(|host| {
+                        host == 0
+                            || Some(host) == model_record.map(|(h, _)| h)
+                            || !other_blocks.contains(&host)
+                    })
+            })
+        });
+    let Some(object) = object else {
+        return Ok(None);
+    };
+    let at = source(object);
+    work(cx, 1, &at)?;
+    fn geo_value(data: &Data) -> GeoValue<'_> {
+        match data {
+            Data::Int(value) => GeoValue::Int(*value),
+            Data::Real(value) => GeoValue::Real(*value),
+            Data::Bool(value) => GeoValue::Bool(*value),
+            Data::Text(text) => GeoValue::Text(text),
+            Data::Handle(_) | Data::Binary(_) => GeoValue::Other,
+        }
+    }
+    let Some(data) = GeoData::read(
+        object
+            .values
+            .iter()
+            .map(|value| (value.code, geo_value(&value.data))),
+        &at,
+        cx,
+    ) else {
+        cx.check(Kind::Work, 0).map_err(Error::Stopped)?;
+        return Ok(None);
+    };
+    let found = data.georeference(&at, cx);
+    cx.check(Kind::Work, 0).map_err(Error::Stopped)?;
+    Ok(found)
+}
+
+/// オブジェクトの拡張辞書（`{ACAD_XDICTIONARY`）から、名前 `entry_name` の項目のハンドルを引く
+fn xdictionary_entry(db: &AcadDb, object: &Object, entry_name: &[u8]) -> Option<u64> {
+    let mut in_xdic = false;
+    let mut dict_handle = None;
+    for value in &object.values {
+        match (value.code, &value.data) {
+            (102, Data::Text(name)) if name.trim_ascii() == b"{ACAD_XDICTIONARY" => {
+                in_xdic = true;
+            }
+            (102, Data::Text(name)) if in_xdic && name.trim_ascii().starts_with(b"}") => {
+                in_xdic = false;
+            }
+            (360, Data::Handle(handle)) if in_xdic && *handle != 0 => {
+                dict_handle = Some(*handle);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let dict = db.get(dict_handle?)?;
+    if dict.kind != b"DICTIONARY" && dict.kind != b"ACDBDICTIONARYWDFLT" {
+        return None;
+    }
+    dict.values.windows(2).find_map(|pair| match pair {
+        [
+            Value {
+                code: 3,
+                data: Data::Text(name),
+            },
+            Value {
+                code: 350 | 360,
+                data: Data::Handle(target),
+            },
+        ] if name.trim_ascii().eq_ignore_ascii_case(entry_name) && *target != 0 => Some(*target),
+        _ => None,
+    })
+}
+
+/// `GEODATA` の `AcDbGeoData` サブクラスにある対象ブロックのレコード（330）のハンドル
+fn geodata_host_block(object: &Object) -> Option<u64> {
+    let mut subclass = false;
+    for value in &object.values {
+        if value.code == 100
+            && matches!(&value.data, Data::Text(name) if name.trim_ascii() == b"AcDbGeoData")
+        {
+            subclass = true;
+            continue;
+        }
+        if subclass
+            && value.code == 330
+            && let Data::Handle(handle) = value.data
+        {
+            return Some(handle);
+        }
+    }
+    None
 }
 
 /// 用紙の範囲。読めない変数は名前と座標のコードを診断し、原点は既定の 0、大きさは未指定にする。

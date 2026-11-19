@@ -83,6 +83,7 @@ pub use text::{
 };
 pub use underlay::{Clip, Resource, Underlay, UnderlayFrame, UnderlayKind};
 pub use walk::{Clipping, Item, Origin, Step, Visit, VisitRef, WalkVisitor};
+pub use zumen_crs::{Crs, Georeference, MapConversion, Zone};
 
 /// 図面。実寸の空間と用紙を、順序のある一覧で持つ
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -115,6 +116,8 @@ pub struct Drawing2D {
     pub title_blocks: Vec<TitleBlock>,
     /// 文書の点の表し方（決定 0160）。元の形式が持たなければ `None` で、表示する側は小さな点として描く
     pub point_style: Option<PointStyle>,
+    /// 図面の実寸の空間から地図の座標系への相似の変換（#685）。元の形式が持たないか読めなければ `None`
+    pub georeference: Option<Georeference>,
 }
 
 impl Drawing2D {

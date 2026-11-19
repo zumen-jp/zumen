@@ -116,7 +116,11 @@ impl Session {
 }
 
 /// 元の文書のハッシュ。図面バイナリでは埋め込んだ Source に由来する。
-fn checked_hash(hash: Hash, expected: Option<&str>, cx: &mut Cx<'_>) -> Result<String, Failed> {
+pub(super) fn checked_hash(
+    hash: Hash,
+    expected: Option<&str>,
+    cx: &mut Cx<'_>,
+) -> Result<String, Failed> {
     cx.check(Kind::Work, 4).map_err(|stop| stopped(cx, stop))?;
     cx.check(Kind::DecodedBytes, 128)
         .map_err(|stop| stopped(cx, stop))?;

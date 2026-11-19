@@ -1,5 +1,5 @@
 //! 図形でないオブジェクト（MLINESTYLE・TABLESTYLE・DICTIONARY・XRECORD・GROUP・SCALE・IMAGEDEF・SPATIAL_FILTER・LAYOUT・
-//! DIMASSOC）のフィールドの読み取り。
+//! DIMASSOC・GEODATA）のフィールドの読み取り。
 
 use super::*;
 
@@ -487,6 +487,95 @@ pub(super) fn layout(
     Some(values)
 }
 
+/// GEODATA のフィールド（ODS 5.4.1 の 20.4.102。クラスで決まる型）。DXF と同じく `AcDbGeoData`（100）を先頭に置き、
+/// 版（90）・対象ブロックのレコード（330。ハンドルのストリームで埋める仮の値）・座標の種類（70）と、版ごとの位置・単位・向き・
+/// 座標系の定義（301）・メッシュの点と面を読む（#685）
+pub(super) fn geodata(bits: &mut Bits, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
+    let version = bits.bl()?;
+    if version < 1 {
+        return None;
+    }
+    handles.push(330);
+    let coordinate_type = bits.bs()?;
+    let mut values = vec![
+        text_value(100, b"AcDbGeoData"),
+        int(90, i64::from(version)),
+        Value {
+            code: 330,
+            data: Data::Handle(SLOT),
+        },
+        int(70, i64::from(coordinate_type)),
+    ];
+    let (source_code, dest_code) = if version == 1 {
+        let reference = point3(bits, 11)?;
+        let units = i64::from(bits.bl()?);
+        let design = point3(bits, 10)?;
+        let _obs = point3(bits, 0)?;
+        let up = point3(bits, 210)?;
+        let _north_angle = bits.bd()?;
+        let _scale = point3(bits, 0)?;
+        let definition = text_value(301, &bits.text()?);
+        let rss = text_value(302, &bits.text()?);
+        let unit_scale = bits.bd()?;
+        let _datum = bits.text()?;
+        let _wkt = bits.text()?;
+        values.extend(design);
+        values.extend(reference);
+        values.extend([
+            real(40, unit_scale),
+            int(91, units),
+            real(41, unit_scale),
+            int(92, units),
+        ]);
+        values.extend(up);
+        values.extend([definition, rss]);
+        (12, 13)
+    } else {
+        values.extend(point3(bits, 10)?);
+        values.extend(point3(bits, 11)?);
+        values.push(real(40, bits.bd()?));
+        values.push(int(91, i64::from(bits.bl()?)));
+        values.push(real(41, bits.bd()?));
+        values.push(int(92, i64::from(bits.bl()?)));
+        values.extend(point3(bits, 210)?);
+        values.extend(point2(bits, 12)?);
+        values.push(int(95, i64::from(bits.bl()?)));
+        values.push(real(141, bits.bd()?));
+        values.push(Value {
+            code: 294,
+            data: Data::Bool(bits.bit()?),
+        });
+        values.push(real(142, bits.bd()?));
+        values.push(real(143, bits.bd()?));
+        for code in [301, 302, 305, 306, 307] {
+            values.push(text_value(code, &bits.text()?));
+        }
+        (13, 14)
+    };
+    let mesh_points = usize::try_from(bits.bl()?).ok()?;
+    // 1 組の対応点は 2RD が 2 つで 32 バイト要る。データの長さを超える数は壊れているとして読まない
+    if mesh_points.checked_mul(32)? > bits.size() {
+        return None;
+    }
+    values.push(int(93, mesh_points as i64));
+    for _ in 0..mesh_points {
+        values.extend(point2(bits, source_code)?);
+        values.extend(point2(bits, dest_code)?);
+    }
+    let mesh_faces = usize::try_from(bits.bl()?).ok()?;
+    // 1 つの面は BL が 3 つで少なくとも 6 ビット要る
+    if mesh_faces.checked_mul(6)? > bits.size().checked_mul(8)? {
+        return None;
+    }
+    values.push(int(96, mesh_faces as i64));
+    for _ in 0..mesh_faces {
+        values.push(int(97, i64::from(bits.bl()?)));
+        values.push(int(98, i64::from(bits.bl()?)));
+        values.push(int(99, i64::from(bits.bl()?)));
+    }
+    Some(values)
+}
+
 /// RC を `n` 個読む
 pub(super) fn raw_bytes(bits: &mut Bits, n: usize) -> Option<Vec<u8>> {
     (0..n).map(|_| bits.rc()).collect()
@@ -623,5 +712,59 @@ mod tests {
         let (values, handles) = read_group(&group_fields(-1));
         assert!(values.is_some());
         assert_eq!(handles, []);
+    }
+
+    fn geodata_fields(mesh_points: i32, mesh_faces: i32) -> Vec<u8> {
+        let mut w = BitWriter::default();
+        w.bl(2);
+        w.bs(1);
+        (0..3).for_each(|_| w.bd(0.0));
+        (0..3).for_each(|_| w.bd(0.0));
+        w.bd(0.001);
+        w.bl(4);
+        w.bd(0.001);
+        w.bl(4);
+        w.bd(0.0);
+        w.bd(0.0);
+        w.bd(1.0);
+        w.rd(0.0);
+        w.rd(1.0);
+        w.bl(1);
+        w.bd(1.0);
+        w.bit(false);
+        w.bd(0.0);
+        w.bd(0.0);
+        (0..5).for_each(|_| w.text(b"").unwrap());
+        w.bl(mesh_points);
+        w.bl(mesh_faces);
+        w.into_bytes()
+    }
+
+    #[test]
+    fn geodata_mesh_counts_beyond_the_data_are_invalid() {
+        let data = geodata_fields(0, 0);
+        let mut handles = Vec::new();
+        assert!(geodata(&mut Bits::with_release(&data, Release::R2004), &mut handles).is_some());
+        assert_eq!(handles, [330]);
+
+        let too_many_pts = geodata_fields(100, 0);
+        let mut handles = Vec::new();
+        assert_eq!(
+            geodata(
+                &mut Bits::with_release(&too_many_pts, Release::R2004),
+                &mut handles
+            ),
+            None
+        );
+
+        let too_many_faces = geodata_fields(0, 1000);
+        let mut handles = Vec::new();
+        assert_eq!(
+            geodata(
+                &mut Bits::with_release(&too_many_faces, Release::R2004),
+                &mut handles
+            ),
+            None
+        );
     }
 }

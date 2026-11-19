@@ -951,6 +951,22 @@ impl Unpack for Ref {
     }
 }
 
+// 平面直角座標系の系（1〜19）はフィールドを外に見せないので、0〜18 の符号なし整数として手で読み書きする
+impl Pack for crate::Zone {
+    fn pack(&self, out: &mut Writer) {
+        out.uint(u64::from(self.number() - 1));
+    }
+}
+
+impl Unpack for crate::Zone {
+    const SIZE: u64 = 1;
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        let raw = input.uint(18)?;
+        Self::new((raw + 1) as u8).ok_or_else(|| input.invalid("zone"))
+    }
+}
+
 /// テストのための乱数の図面と、元の文書の情報。契約にあるどの型の値も作るので、読み書きと、図面を受け取る処理の
 /// 頑丈さを試せる。同じ `seed` からは同じ図面を作る。`finite` が false なら、浮動小数に NaN と無限大も入れる
 #[cfg(any(test, feature = "random"))]

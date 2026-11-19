@@ -13,6 +13,17 @@
 
 VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenNative.bas` にネイティブの宣言・ABI の型・バージョン・状態コード・シーンの配置を生成します。メッセージは UTF-8 の JSON のまま受け渡します。所有権と型の対応は [VBA のバインディング](../bindings/vba/README.md) にあります。
 
+## 図面から地図への変換
+
+スキーマ 1.112 から、`drawing` の応答は文書が地理位置（DXF・DWG の `GEODATA`）を持ち変換を作れたときに `result.georeference`（EPSG コードの `crs` と IFC の `IfcMapConversion` と同じ形の `conversion`）を返します。合わせて、図面と土木・地理のモジュールで `georeference` を使えます（#685）。
+
+```json
+{"v":1,"op":"georeference","doc":"plan.dwg","points":[{"x":1200,"y":3400}]}
+{"v":1,"op":"georeference","crs":6677,"control_points":[{"drawing":{"x":0,"y":0},"map":{"easting":1000,"northing":2000}},{"drawing":{"x":10000,"y":0},"map":{"easting":1010,"northing":2000}}],"points":[{"x":5000,"y":0}]}
+```
+
+`doc` を渡すと開いた図面から変換を取り出し、任意の `expected_hash` で元の文書ハッシュを確かめます。変換を作れない設定・座標系の文書では診断を添えて成功し、`georeference` と `mapped` を省きます。`crs`（平面直角座標系の EPSG コード）と `control_points`（2 組以上の図面座標と地図投影座標）を渡すと、尺度・回転・平行移動の相似の変換を最小二乗で求め、組ごとの残差（`residuals`）とともに返します。どちらの形でも `points` を渡せば地図の東・北の座標（メートル）に写して `mapped` に返します。式と診断は[座標系と標高](../docs/formats/crs.md#対応点から地図への変換)にあります。
+
 ## レビューのシーン
 
 スキーマ 1.95 から、図面のモジュールの `review_scene` で、レビューの文書の 1 つの対象の図形と指摘の場所を、開いた図面の起点で 2D のシーンにできます。図面のシーンとは別の blob で、配置は `scene` と同じです。`zm_push` した文書の名前を `review`、描く対象の ID を `target` に渡します。対象の形式とハッシュは開いた文書から作り、文書の対象と合わなければ `review.target.stale` で描きません。

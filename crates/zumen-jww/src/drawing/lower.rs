@@ -447,6 +447,18 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
             cx,
         )?;
     }
+    if drawing.georeference.is_some() {
+        conversion::note(
+            &mut report,
+            "JWW",
+            "georeference",
+            Fidelity::Dropped,
+            &Ref::default(),
+            0,
+            &[],
+            cx,
+        )?;
+    }
     let mut file = template::make(&mut items, &slots, drawing, paper, cx)?;
     let seed = quiet(cx, |cx| file.lift(cx))?;
     let mut removals = Vec::new();
