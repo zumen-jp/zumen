@@ -30,7 +30,7 @@ import { loadBundled, openProcess, openLiveProcess, ProcessError, type ProcessLi
 export async function liveDocument(executable: string, input: Uint8Array): Promise<bigint | null> {
   const live = await openLiveProcess(executable);
   try {
-    const opened: LiveReply = await live.open(input, { threads: 4, budget: { work: 100000n } });
+    const opened: LiveReply = await live.open(input, { threads: 4, saf: new Uint8Array(0), budget: { work: 100000n } });
     if (opened.revision !== null && opened.display) {
       for (const column of opened.display.columns) {
         for (const block of column.blocks()) {

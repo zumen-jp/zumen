@@ -1526,3 +1526,163 @@ fn display_colors_share_one_encoding() {
         3
     );
 }
+
+/// P2Z・SFZ のアーカイブと属性ファイル（SAF）を常駐 IPC で開き、編集・保存・取り消しでアーカイブの他項目と診断を保つ
+#[test]
+fn sxf_archives_and_saf_round_trip_through_ipc() {
+    let saf_missing = br#"<?xml version="1.0" encoding="UTF-8"?>
+<SxfAttributeXML version="3.1" date="2026-11-19" sxfFile="D0PL001Z.SFC" application="test">
+  <Figure id="999" name="unbound"/>
+</SxfAttributeXML>"#;
+    let extra = b"RASTER-PLACEHOLDER";
+    let sfz = zumen_zip::write(&[
+        ("D0PL001Z.SFC", SFC),
+        ("D0PL001Z.SAF", saf_missing.as_slice()),
+        ("OTHER/NOTE.TXT", extra.as_slice()),
+    ])
+    .unwrap();
+
+    let mut host = Host::default();
+    let mut open_data = 1_u32.to_le_bytes().to_vec();
+    open_data.extend_from_slice(&0_u32.to_le_bytes());
+    open_data.extend_from_slice(&sfz);
+    let opened = call(
+        &mut host,
+        Command::Open,
+        1,
+        wire::NONE,
+        wire::NONE,
+        1,
+        &open_data,
+    );
+    assert_eq!(opened.status, Status::Ok);
+    assert_eq!(opened.display_status, Status::Ok);
+    // アーカイブ内の SAF の未解決図形診断が Open で報告される
+    assert!(opened.diagnostics > 0);
+    let diag_reply = call(
+        &mut host,
+        Command::Diagnostics,
+        2,
+        wire::NONE,
+        wire::NONE,
+        0,
+        &1_u64.to_le_bytes(),
+    );
+    assert_eq!(diag_reply.status, Status::Ok);
+    let diag_text = String::from_utf8(diag_reply.data).unwrap();
+    assert!(diag_text.contains("sxf.saf-figure.dropped"), "{diag_text}");
+
+    let initial_archive = saved(&mut host, 3, 0);
+    let rows = select(&mut host, 4, 0, EVERYWHERE);
+    let moved_row = rows
+        .iter()
+        .copied()
+        .find(|&row| {
+            let reply = call(
+                &mut host,
+                Command::Transform,
+                5,
+                0,
+                0,
+                1,
+                &transform(&[row], Affine::translation(FAR, FAR)),
+            );
+            reply.status == Status::Ok
+        })
+        .unwrap();
+    let far = [FAR * 0.5, FAR * 0.5, FAR * 2.0, FAR * 2.0];
+    assert_eq!(select(&mut host, 6, 1, far), [moved_row]);
+
+    let edited_archive = saved(&mut host, 7, 1);
+    assert_ne!(edited_archive, initial_archive);
+    // 保存したアーカイブから他項目が失われず、再オープンできる
+    let mut budget = zumen_base::Budget::default();
+    let mut diag = zumen_base::Diagnostics::new();
+    let cancel = zumen_base::CancelToken::new();
+    let cx = &mut zumen_base::Cx::new(&mut budget, &mut diag, &cancel);
+    let parsed_zip = zumen_zip::read(&edited_archive, cx).unwrap();
+    let names: Vec<&str> = parsed_zip.entries().iter().map(|e| e.name()).collect();
+    assert_eq!(names, ["D0PL001Z.SFC", "D0PL001Z.SAF", "OTHER/NOTE.TXT"]);
+    assert_eq!(
+        parsed_zip.extract(&parsed_zip.entries()[1], cx).unwrap(),
+        saf_missing
+    );
+    assert_eq!(
+        parsed_zip.extract(&parsed_zip.entries()[2], cx).unwrap(),
+        extra
+    );
+
+    let undone = call(&mut host, Command::Undo, 8, 1, wire::NONE, 1, &[]);
+    assert_eq!(undone.status, Status::Ok);
+    assert_eq!(saved(&mut host, 9, 2), initial_archive);
+
+    // 単独の SFC に SAF を添えて開くこともでき、SXF でない形式に SAF を添えると Invalid
+    let mut with_saf = 1_u32.to_le_bytes().to_vec();
+    with_saf.extend_from_slice(&(wire::OPEN_HAS_SAF | saf_missing.len() as u32).to_le_bytes());
+    with_saf.extend_from_slice(SFC);
+    with_saf.extend_from_slice(saf_missing);
+    let mut host_saf = Host::default();
+    let reply_saf = call(
+        &mut host_saf,
+        Command::Open,
+        1,
+        wire::NONE,
+        wire::NONE,
+        1,
+        &with_saf,
+    );
+    assert_eq!(reply_saf.status, Status::Ok);
+    assert!(reply_saf.diagnostics > 0);
+
+    let mut dxf_with_saf = 1_u32.to_le_bytes().to_vec();
+    dxf_with_saf.extend_from_slice(&(wire::OPEN_HAS_SAF | saf_missing.len() as u32).to_le_bytes());
+    dxf_with_saf.extend_from_slice(super::DXF);
+    dxf_with_saf.extend_from_slice(saf_missing);
+    let mut host_bad = Host::default();
+    assert_eq!(
+        call(
+            &mut host_bad,
+            Command::Open,
+            1,
+            wire::NONE,
+            wire::NONE,
+            1,
+            &dxf_with_saf
+        )
+        .status,
+        Status::Invalid
+    );
+}
+
+/// SetText は書式や段落（`\P`）を持つ MTEXT の内容も 1 トランザクションで替え、取り消せる
+#[test]
+fn set_text_replaces_formatted_mtext_with_paragraphs() {
+    let mtext_dxf =
+        b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nMTEXT\n5\n20\n100\nAcDbEntity\n8\n0\n100\nAcDbMText\n\
+10\n1.0\n20\n2.0\n40\n2.5\n41\n40.0\n71\n1\n\
+1\n{\\fArial;FIRST}\\P{\\C1;SECOND}\n\
+0\nENDSEC\n0\nEOF\n";
+    let mut host = Host::default();
+    open_bytes(&mut host, mtext_dxf);
+    let original = saved(&mut host, 2, 0);
+    let before = texts(&mut host, 3, 0, &[0]);
+    assert_eq!(before, [(2, "{\\fArial;FIRST}\\P{\\C1;SECOND}".to_owned())]);
+    let next = "{\\H2x;CHANGED}\\PLINE2\\P\\S1/2;";
+    let reply = call(
+        &mut host,
+        Command::SetText,
+        4,
+        0,
+        0,
+        1,
+        &set_text_body(next.as_bytes(), &[0]),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.result, 1);
+    assert_eq!(texts(&mut host, 5, 1, &[0]), [(2, next.to_owned())]);
+    let undone = call(&mut host, Command::Undo, 6, 1, wire::NONE, 0, &[]);
+    assert_eq!(undone.status, Status::Ok);
+    assert_eq!(saved(&mut host, 7, 2), original);
+}

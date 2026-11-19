@@ -1,7 +1,7 @@
 //! 常駐 IPC の文書と、表示の受領確認を直列に扱う。
 
 use zumen_acad::AcadLive;
-use zumen_base::{Cx, Diagnostic, Error, Kind, codes};
+use zumen_base::{Cx, Diagnostic, Diagnostics, Error, Kind, Stop, codes};
 use zumen_drawing::{
     Affine, Applied, Changes, Edge, Edit, Element, Layer, Length, LineType, ModelLength,
     ModelPoint, PaperLength, PaperPoint, Placed, Restyle, Seen, Shape,
@@ -10,6 +10,7 @@ use zumen_jww::{Jww, JwwLive};
 use zumen_live::display::Display;
 use zumen_live::{Revision, RowId, display_wire};
 use zumen_sdk::{Codec, Signature};
+use zumen_sxf::saf::AttributeFile;
 use zumen_sxf::{Mode, Sxf, SxfLive};
 
 // 編集列の固定部分を、環境共通の 1 行 256 バイトで確保前に検査する。
@@ -163,6 +164,133 @@ impl From<Error> for Problem {
     }
 }
 
+const ZIP_SIGNATURE: &[u8] = b"PK\x03\x04";
+
+/// P2Z・SFZ のアーカイブの項目。中の SXF の項目だけを保存時に置き換え、ほかの項目（SAF・画像）は保つ
+struct SxfArchive {
+    entries: Vec<(String, Vec<u8>)>,
+    index: usize,
+}
+
+fn is_sxf_entry(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".p21") || lower.ends_with(".sfc")
+}
+
+fn report_stop(cx: &mut Cx<'_>, stop: Stop) -> Error {
+    let diagnostic = stop.to_diagnostic();
+    if !cx
+        .diag
+        .iter()
+        .any(|reported| reported.code() == diagnostic.code())
+    {
+        cx.report(diagnostic);
+    }
+    Error::Stopped(stop)
+}
+
+/// ZIP で `.p21`・`.sfc` の項目があれば展開し、アーカイブの残りの項目と一緒に返す。
+/// ZIP でないか SXF の項目がなければ診断を足さず `None` を返す
+fn read_sxf_archive(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<(Vec<u8>, SxfArchive)>, Error> {
+    if !bytes.starts_with(ZIP_SIGNATURE) {
+        return Ok(None);
+    }
+    let mut quiet = Diagnostics::with_max_places(cx.diag.max_places());
+    let archive = match zumen_zip::read(bytes, &mut Cx::new(cx.budget, &mut quiet, cx.cancel)) {
+        Ok(archive) => archive,
+        Err(Error::Stopped(stop)) => return Err(report_stop(cx, stop)),
+        Err(_) => return Ok(None),
+    };
+    let Some(index) = archive
+        .entries()
+        .iter()
+        .position(|entry| !entry.is_directory() && is_sxf_entry(entry.name()))
+    else {
+        return Ok(None);
+    };
+    for diagnostic in quiet.iter() {
+        cx.report(diagnostic.clone());
+    }
+    let mut entries = Vec::with_capacity(archive.entries().len());
+    let mut sxf = Vec::new();
+    for (at, entry) in archive.entries().iter().enumerate() {
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| report_stop(cx, stop))?;
+        let data = if entry.is_directory() {
+            Vec::new()
+        } else {
+            archive.extract(entry, cx).map_err(|error| match error {
+                Error::Stopped(stop) => report_stop(cx, stop),
+                other => other,
+            })?
+        };
+        if at == index {
+            sxf = data;
+            entries.push((entry.name().to_owned(), Vec::new()));
+        } else {
+            entries.push((entry.name().to_owned(), data));
+        }
+    }
+    Ok(Some((sxf, SxfArchive { entries, index })))
+}
+
+impl SxfArchive {
+    /// SXF の項目と同じ名前の属性ファイル（`{幹}.saf` または `{項目名}.saf`、大小文字を区別しない）
+    fn attribute_file(&self) -> Option<&[u8]> {
+        let (sxf, _) = self.entries.get(self.index)?;
+        let sxf = sxf.to_ascii_lowercase();
+        let stem = sxf.rsplit_once('.').map_or(sxf.as_str(), |(stem, _)| stem);
+        let names = [format!("{stem}.saf"), format!("{sxf}.saf")];
+        self.entries
+            .iter()
+            .enumerate()
+            .find(|(at, (name, _))| *at != self.index && names.contains(&name.to_ascii_lowercase()))
+            .map(|(_, (_, data))| data.as_slice())
+    }
+
+    /// SXF の項目を `sxf` に置き換えたアーカイブを、共有の予算を確かめてから書く
+    fn write(&self, sxf: &[u8], cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
+        let estimated = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(at, (name, data))| {
+                let body = if at == self.index {
+                    sxf.len()
+                } else {
+                    data.len()
+                };
+                (name.len().saturating_mul(2).saturating_add(body) as u64).saturating_add(96)
+            })
+            .fold(32_u64, u64::saturating_add);
+        cx.check(Kind::Work, self.entries.len() as u64 + 1)
+            .and_then(|()| cx.check(Kind::DecodedBytes, estimated))
+            .map_err(|stop| report_stop(cx, stop))?;
+        let entries: Vec<(&str, &[u8])> = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(at, (name, data))| {
+                let data = if at == self.index { sxf } else { data };
+                (name.as_str(), data)
+            })
+            .collect();
+        zumen_zip::write(&entries).ok_or_else(|| {
+            cx.report(Diagnostic::new(codes::SXF_ARCHIVE_UNSUPPORTED));
+            Error::Rejected
+        })
+    }
+}
+
+/// 属性ファイル（SAF）を読む。読めなければ診断を残して属性ファイルなしで続け、停止したときは停止を返す
+fn read_saf(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<AttributeFile>, Error> {
+    match zumen_sxf::saf::read(bytes, cx) {
+        Ok(file) => Ok(Some(file)),
+        Err(Error::Stopped(stop)) => Err(report_stop(cx, stop)),
+        Err(_) => Ok(None),
+    }
+}
+
 /// 文書エンジン。表示の座標は、DXF・DWG はモデル空間、JWW・SXF は用紙の座標
 enum Engine {
     Acad(Box<AcadLive>),
@@ -171,16 +299,41 @@ enum Engine {
 }
 
 impl Engine {
-    /// 形式の署名で文書エンジンを選んで開く。JWW・SXF のどちらでもなければ、DXF・DWG として開く
-    fn open(bytes: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<Self, Error> {
+    /// 形式の署名と ZIP の中身で文書エンジンを選んで開く。SXF には P2Z・SFZ と属性ファイル（SAF）も受ける
+    fn open(
+        bytes: &[u8],
+        saf: Option<&[u8]>,
+        threads: usize,
+        cx: &mut Cx<'_>,
+    ) -> Result<(Self, Option<SxfArchive>), Error> {
         let signed =
             |signatures: &[Signature]| signatures.iter().any(|signature| signature.matches(bytes));
+        if let Some((sxf_bytes, archive)) = read_sxf_archive(bytes, cx)? {
+            let attributes = match saf.or_else(|| archive.attribute_file()) {
+                Some(saf_bytes) => read_saf(saf_bytes, cx)?,
+                None => None,
+            };
+            let live =
+                SxfLive::open_with_threads_and_attributes(&sxf_bytes, threads, attributes, cx)?;
+            return Ok((Self::Sxf(Box::new(live)), Some(archive)));
+        }
+        if signed(Sxf::SIGNATURES) {
+            let attributes = match saf {
+                Some(saf_bytes) => read_saf(saf_bytes, cx)?,
+                None => None,
+            };
+            let live = SxfLive::open_with_threads_and_attributes(bytes, threads, attributes, cx)?;
+            return Ok((Self::Sxf(Box::new(live)), None));
+        }
+        if saf.is_some() {
+            return Err(Error::Invalid);
+        }
         if signed(Jww::SIGNATURES) {
-            JwwLive::open_with_threads(bytes, threads, cx).map(|live| Self::Jww(Box::new(live)))
-        } else if signed(Sxf::SIGNATURES) {
-            SxfLive::open_with_threads(bytes, threads, cx).map(|live| Self::Sxf(Box::new(live)))
+            JwwLive::open_with_threads(bytes, threads, cx)
+                .map(|live| (Self::Jww(Box::new(live)), None))
         } else {
-            AcadLive::open_with_threads(bytes, threads, cx).map(|live| Self::Acad(Box::new(live)))
+            AcadLive::open_with_threads(bytes, threads, cx)
+                .map(|live| (Self::Acad(Box::new(live)), None))
         }
     }
 
@@ -426,6 +579,7 @@ fn compose(outer: Affine, inner: Affine) -> Affine {
 /// 行番号の意味と表示の差分は、この文書の現在の版に結び付く。
 pub(super) struct Document {
     live: Engine,
+    archive: Option<SxfArchive>,
     sent: Option<Revision>,
     confirmed: Option<Revision>,
 }
@@ -437,9 +591,21 @@ pub(super) struct DisplayReply {
 }
 
 impl Document {
+    #[cfg(test)]
     pub fn open(bytes: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        Self::open_with_saf(bytes, None, threads, cx)
+    }
+
+    pub fn open_with_saf(
+        bytes: &[u8],
+        saf: Option<&[u8]>,
+        threads: usize,
+        cx: &mut Cx<'_>,
+    ) -> Result<Self, Error> {
+        let (live, archive) = Engine::open(bytes, saf, threads, cx)?;
         Ok(Self {
-            live: Engine::open(bytes, threads, cx)?,
+            live,
+            archive,
             sent: None,
             confirmed: None,
         })
@@ -632,7 +798,11 @@ impl Document {
     }
 
     pub fn save(&self, cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
-        self.live.save(cx)
+        let saved = self.live.save(cx)?;
+        match &self.archive {
+            Some(archive) => archive.write(&saved, cx),
+            None => Ok(saved),
+        }
     }
 
     pub fn target(&self, row: RowId, cx: &mut Cx<'_>) -> Result<Seen, Problem> {

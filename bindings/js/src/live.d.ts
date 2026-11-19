@@ -5,7 +5,11 @@ export type LiveBudgetKind = "inputBytes" | "decodedBytes" | "records" | "elemen
 export type LiveBudget = Partial<Record<LiveBudgetKind, number | bigint | null>>;
 export interface LiveOptions { budget?: LiveBudget; }
 export interface LiveDisplayOptions extends LiveOptions { display?: boolean; full?: boolean; }
-export interface LiveOpenOptions extends LiveDisplayOptions { threads?: number; }
+export interface LiveOpenOptions extends LiveDisplayOptions {
+  threads?: number;
+  /** SXF の属性ファイル（SAF、64 MiB まで）。省略時は P2Z・SFZ の中の図面と同じ名前の SAF を使う */
+  saf?: Bytes;
+}
 export interface LiveProcessLimits {
   /** 1 要求の期限。既定 30000 ms。1 から 2147483647 まで */
   timeoutMs?: number;

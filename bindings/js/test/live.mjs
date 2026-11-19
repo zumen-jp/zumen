@@ -383,6 +383,34 @@ test("実プロセスで文字の内容を替え、取り消す", { skip: !execu
   } finally { await live.close(); }
 });
 
+test("実プロセスで書式つき MTEXT の置換と SFC＋SAF のオープン・診断取得を通す", { skip: !executable, timeout: 30000 }, async () => {
+  const mtextLive = await openLiveProcess(executable);
+  try {
+    const input = Buffer.from("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n"
+      + "0\nSECTION\n2\nENTITIES\n0\nMTEXT\n5\n20\n100\nAcDbEntity\n8\n0\n100\nAcDbMText\n"
+      + "10\n0\n20\n0\n40\n2.5\n41\n30\n71\n1\n1\n{\\fArial;A}\\P{\\C1;B}\n0\nENDSEC\n0\nEOF\n");
+    const opened = await mtextLive.open(input, { display: false });
+    assert.equal(opened.status, "ok");
+    const replaced = await mtextLive.setText({ revision: opened.revision, rows: [0], content: "{\\H2x;X}\\PY\\P\\S1/2;" });
+    assert.equal(replaced.status, "ok");
+    assert.deepEqual((await mtextLive.texts([0], replaced.revision)).texts, [{ kind: "formatted", content: "{\\H2x;X}\\PY\\P\\S1/2;" }]);
+    await mtextLive.undo(replaced.revision);
+    assert.deepEqual((await mtextLive.save()).data, input);
+  } finally { await mtextLive.close(); }
+
+  const safLive = await openLiveProcess(executable);
+  try {
+    const sfc = await readFile(new URL("../../../samples/sxf/ezsxf-writer-all-features.sfc", import.meta.url));
+    const saf = Buffer.from('<?xml version="1.0" encoding="UTF-8"?><SxfAttributeXML version="3.1" date="2026-11-19" sxfFile="test.SFC" application="test"><Figure id="999" name="unbound"/></SxfAttributeXML>');
+    assert.equal((await safLive.open(dxf(2), { saf, display: false })).status, "invalid");
+    const opened = await safLive.open(sfc, { saf, threads: 2 });
+    assert.equal(opened.status, "ok");
+    assert(opened.diagnosticCount > 0);
+    const diag = await safLive.diagnostics(opened.requestId);
+    assert.match(new TextDecoder().decode(diag.data), /sxf\.saf-figure\.dropped/);
+  } finally { await safLive.close(); }
+});
+
 test("draw の引数を送る前に検査する", async () => {
   const { live } = await fake("order");
   try {

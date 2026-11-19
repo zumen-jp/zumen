@@ -28,16 +28,35 @@ pub(super) struct Host {
 }
 
 enum Operation<'a> {
-    Open { threads: usize, bytes: &'a [u8] },
-    Transform { transform: Affine, rows: &'a [u8] },
-    Copy { transform: Affine, rows: &'a [u8] },
+    Open {
+        threads: usize,
+        bytes: &'a [u8],
+        saf: Option<&'a [u8]>,
+    },
+    Transform {
+        transform: Affine,
+        rows: &'a [u8],
+    },
+    Copy {
+        transform: Affine,
+        rows: &'a [u8],
+    },
     Remove(&'a [u8]),
     Texts(&'a [u8]),
     Symbols(&'a [u8]),
-    SetText { content: &'a str, rows: &'a [u8] },
-    Restyle { style: WireStyle, rows: &'a [u8] },
+    SetText {
+        content: &'a str,
+        rows: &'a [u8],
+    },
+    Restyle {
+        style: WireStyle,
+        rows: &'a [u8],
+    },
     Target(RowId),
-    Draw { template: RowId, shape: DrawShape },
+    Draw {
+        template: RowId,
+        shape: DrawShape,
+    },
     Select([f64; 4]),
     Diagnostics(u64),
     Empty,
@@ -48,12 +67,26 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
     match command {
         Command::Open => {
             let threads = input.u32()?;
-            if !(1..=64).contains(&threads) || input.u32()? != 0 {
+            let saf_word = input.u32()?;
+            if !(1..=64).contains(&threads) {
                 return None;
             }
+            let (bytes, saf) = if saf_word == 0 {
+                (input.0, None)
+            } else if saf_word & wire::OPEN_HAS_SAF != 0 {
+                let saf_len = (saf_word & !wire::OPEN_HAS_SAF) as usize;
+                if saf_len > wire::MAX_SAF_BYTES || input.0.len() < saf_len {
+                    return None;
+                }
+                let (main, saf) = input.0.split_at(input.0.len() - saf_len);
+                (main, Some(saf))
+            } else {
+                return None;
+            };
             Some(Operation::Open {
                 threads: threads as usize,
-                bytes: input.0,
+                bytes,
+                saf,
             })
         }
         Command::Transform | Command::Copy => {
@@ -612,7 +645,12 @@ impl Host {
             reply.result = id;
             return Ok(());
         }
-        if let Operation::Open { threads, bytes } = operation {
+        if let Operation::Open {
+            threads,
+            bytes,
+            saf,
+        } = operation
+        {
             if self.document.is_some() {
                 reply.status = Status::AlreadyOpen;
                 return Ok(());
@@ -621,7 +659,7 @@ impl Host {
                 reply.status = Status::Invalid;
                 return Ok(());
             }
-            let document = Document::open(bytes, threads, cx)?;
+            let document = Document::open_with_saf(bytes, saf, threads, cx)?;
             reply.result = u64::from(document.live_count());
             self.document = Some(document);
         } else {

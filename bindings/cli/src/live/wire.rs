@@ -8,6 +8,10 @@ pub(super) const HEADER_BYTES: usize = 24;
 pub(super) const CONTROL_BYTES: usize = 72;
 pub(super) const REPLY_BYTES: usize = 136;
 pub(super) const MAX_INPUT_BYTES: usize = 256 << 20;
+/// Open に添える属性ファイル（SAF）の上限
+pub(super) const MAX_SAF_BYTES: usize = 64 << 20;
+/// Open の 2 語目に立てる、属性ファイル（SAF）ありの印。下位 31 bit がバイト数
+pub(super) const OPEN_HAS_SAF: u32 = 0x8000_0000;
 pub(super) const MAX_ROWS: usize = 65_536;
 /// SetText の内容のバイト数の上限
 pub(super) const MAX_TEXT_BYTES: usize = 1 << 20;

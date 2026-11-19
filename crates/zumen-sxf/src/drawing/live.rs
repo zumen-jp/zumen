@@ -300,23 +300,28 @@ impl SxfLive {
         attributes: Option<AttributeFile>,
         cx: &mut Cx<'_>,
     ) -> Result<Self, Error> {
-        let file = Sxf::read(bytes, cx)?;
-        let src = SourceBytes::compress_slice_with_cx(file.as_bytes(), 1, cx).map_err(|stop| {
-            cx.report(stop.to_diagnostic());
-            Error::Stopped(stop)
-        })?;
-        Self::build(src, &file, attributes, cx)
+        Self::open_with_threads_and_attributes(bytes, 1, attributes, cx)
     }
 
     /// スレッド数を指定して開く（`threads` が異なっても結果と診断は決定的に一致する）
     pub fn open_with_threads(bytes: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        Self::open_with_threads_and_attributes(bytes, threads, None, cx)
+    }
+
+    /// スレッド数と任意の属性ファイル（SAF）を指定して開く
+    pub fn open_with_threads_and_attributes(
+        bytes: &[u8],
+        threads: usize,
+        attributes: Option<AttributeFile>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Self, Error> {
         let file = Sxf::read(bytes, cx)?;
         let src = SourceBytes::compress_slice_with_cx(file.as_bytes(), threads.max(1), cx)
             .map_err(|stop| {
                 cx.report(stop.to_diagnostic());
                 Error::Stopped(stop)
             })?;
-        Self::build(src, &file, None, cx)
+        Self::build(src, &file, attributes, cx)
     }
 
     /// 既読の [`SxfFile`] から常駐エンジンを構築する

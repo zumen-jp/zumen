@@ -7,6 +7,8 @@ import { HEADER, PREFIX, MAX_PACKET, NONE, control, frame, invalid, response, re
 
 const BUSY = Number(Object.keys(STATUS).find((code) => STATUS[code] === "busy"));
 const MAX_INPUT = 256 * 1024 * 1024;
+const MAX_SAF = 64 * 1024 * 1024;
+const OPEN_HAS_SAF = 0x80000000;
 
 function limitsOf({ timeoutMs = 30_000, maxMessageBytes = MAX_INPUT + PREFIX } = {}) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw new RangeError("timeoutMs の範囲が違う");
@@ -226,12 +228,17 @@ export class LiveProcess {
   async open(input, options = {}) {
     this.#check();
     const bytes = bytesOf(input);
-    if (bytes.length > MAX_INPUT) throw new ProcessError("limit", "図面の入力は 256 MiB までにする");
+    const saf = options.saf === undefined ? null : bytesOf(options.saf);
+    if (saf !== null && saf.length > MAX_SAF) throw new ProcessError("limit", "属性ファイル（SAF）は 64 MiB までにする");
+    if (bytes.length + (saf?.length ?? 0) > MAX_INPUT) throw new ProcessError("limit", "図面の入力は 256 MiB までにする");
     const threads = options.threads ?? 1;
     if (!Number.isInteger(threads) || threads < 1 || threads > 64) throw new RangeError("threads は 1 から 64 までにする");
-    return this.#request(1, flagsOf(options, true), null, options, 8 + bytes.length, (out) => {
+    const extra = 8 + bytes.length + (saf?.length ?? 0);
+    return this.#request(1, flagsOf(options, true), null, options, extra, (out) => {
       out.writeUInt32LE(threads, 0);
+      out.writeUInt32LE(saf === null ? 0 : ((OPEN_HAS_SAF | saf.length) >>> 0), 4);
       out.set(bytes, 8);
+      if (saf !== null) out.set(saf, 8 + bytes.length);
     });
   }
 

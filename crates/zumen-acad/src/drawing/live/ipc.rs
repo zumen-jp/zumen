@@ -2,13 +2,14 @@
 
 use zumen_base::{Cx, Kind, Ref, Stop};
 use zumen_drawing::{
-    Element, FormattedText, Layer, LineType, MarkContent, ModelPoint, Piece, Placed, Shape,
-    SpaceId, id,
+    Element, Layer, Length, LineType, MarkContent, ModelLength, ModelPoint, Placed, Shape, SpaceId,
+    id,
 };
 use zumen_live::RowId;
 use zumen_live::display::Display;
 use zumen_sdk::Error;
 
+use super::super::mtext;
 use super::AcadLive;
 use super::shape::{Xform, display_layer, pack_color, shape_display_counts, write_shape_display};
 
@@ -203,37 +204,42 @@ fn text_of<P>(shape: &Shape<P>) -> (u32, &str) {
     }
 }
 
-/// 内容だけを替えられる文字の要素なら、内容を `content` に替えた写し。替えられるのは `Shape::Text` と、区間が
-/// 文字列 1 つだけの `Shape::Formatted`（区間の中身も替える）。ほかの形は `None`。
-/// 新しい内容のバイト数を共有の予算で数えてから写す
-fn retexted<P: Clone>(
-    element: &Element<P>,
+/// 文字の要素なら、内容を `content` に替えた写し。替えられるのは `Shape::Text` と `Shape::Formatted`（書式・段落の
+/// 符号を含む内容から区間を作り直す）。ほかの形は `None`。新しい内容と区間のバイト数を共有の予算で数えてから写す
+fn retexted(
+    element: &Element<ModelPoint>,
     content: &str,
     cx: &mut Cx<'_>,
-) -> Result<Option<Element<P>>, Error> {
-    let plain = |text: &FormattedText<P>| match text.spans.as_slice() {
-        [span] => span.piece == Piece::Text(text.content.clone()),
-        _ => false,
-    };
+) -> Result<Option<Element<ModelPoint>>, Error> {
     match &element.shape {
-        Shape::Text(_) => {}
-        Shape::Formatted(text) if plain(text) => {}
-        _ => return Ok(None),
-    }
-    cx.check(Kind::DecodedBytes, content.len() as u64)
-        .map_err(|stop| stopped(cx, stop))?;
-    let mut out = element.clone();
-    match &mut out.shape {
-        Shape::Text(text) => content.clone_into(&mut text.content),
-        Shape::Formatted(text) => {
-            content.clone_into(&mut text.content);
-            if let Some(span) = text.spans.first_mut() {
-                span.piece = Piece::Text(content.to_owned());
+        Shape::Text(_) => {
+            cx.check(Kind::DecodedBytes, content.len() as u64)
+                .map_err(|stop| stopped(cx, stop))?;
+            let mut out = element.clone();
+            if let Shape::Text(text) = &mut out.shape {
+                content.clone_into(&mut text.content);
             }
+            Ok(Some(out))
         }
-        _ => {}
+        Shape::Formatted(current) => {
+            let space = current.point.space;
+            cx.check(Kind::Work, 1 + content.len() as u64 / 64)
+                .and_then(|()| cx.check(Kind::DecodedBytes, content.len() as u64))
+                .map_err(|stop| stopped(cx, stop))?;
+            let spans = mtext::spans(content, &|value| {
+                Length::Model(ModelLength { space, value })
+            });
+            cx.check(Kind::DecodedBytes, (spans.len() as u64).saturating_mul(128))
+                .map_err(|stop| stopped(cx, stop))?;
+            let mut out = element.clone();
+            if let Shape::Formatted(text) = &mut out.shape {
+                content.clone_into(&mut text.content);
+                text.spans = spans;
+            }
+            Ok(Some(out))
+        }
+        _ => Ok(None),
     }
-    Ok(Some(out))
 }
 
 /// [`text_of`] の内容を、バイト数を共有の予算で数えてから写す
