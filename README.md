@@ -1,8 +1,32 @@
-# zumen
+<p align="center">
+  <a href="https://zumen.dev">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme-banner-dark.svg">
+      <img src="docs/assets/readme-banner-light.svg" alt="zumen ― 日本の図面のための、オープンライブラリ。" width="100%">
+    </picture>
+  </a>
+</p>
 
-日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群です。Rust の 1 つのコアを、ブラウザー・サーバー・各言語から同じ結果で使います。ファイルは外へ出さずに読みます。
+<p align="center">
+  <a href="https://crates.io/crates/zumen"><img src="https://img.shields.io/crates/v/zumen?logo=rust&amp;label=crates.io&amp;color=0017c1" alt="crates.io の最新バージョン"></a> <a href="https://www.npmjs.com/package/@zumen-jp/zumen"><img src="https://img.shields.io/npm/v/%40zumen-jp%2Fzumen?logo=npm&amp;label=npm&amp;color=0017c1" alt="npm の最新バージョン"></a> <a href="https://pypi.org/project/zumen/"><img src="https://img.shields.io/pypi/v/zumen?logo=python&amp;logoColor=white&amp;label=PyPI&amp;color=0017c1" alt="PyPI の最新バージョン"></a> <a href="https://www.nuget.org/packages/Zumen"><img src="https://img.shields.io/nuget/v/Zumen?logo=nuget&amp;label=NuGet&amp;color=0017c1" alt="NuGet の最新バージョン"></a> <a href="#ライセンス"><img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-0017c1" alt="ライセンス: MIT または Apache-2.0"></a>
+</p>
 
-> 状態: [v0.3.0](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0) を公開しています。配布先と使い方は下の[「試す」](#試す)にあります。引き続き開発中で、1.0 までは、壊す変更をリリースノートに書いたうえで、マイナーバージョンで API を変えることがあります。
+<p align="center">
+  <b><a href="https://zumen.dev">サイト</a></b>・<a href="https://zumen.dev/viewer/">ビューアー</a>・<a href="https://zumen.dev/formats/">対応形式</a>・<a href="#利用方法">利用方法</a>・<a href="#文書">文書</a>・<a href="docs/releases/0.3.0.md">更新内容</a>
+</p>
+
+zumen は、日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群です。Rust の 1 つのコアを、ブラウザー・サーバー・各言語から同じ結果で使います。ファイルは外へ出さずに読みます。
+
+> [!NOTE]
+> [v0.3.0](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0) を公開しています。配布先と使い方は下の[「利用方法」](#利用方法)にあります。引き続き開発中で、1.0 までは、壊す変更をリリースノートに書いたうえで、マイナーバージョンで API を変えることがあります。
+
+## 特長
+
+- **どこでも同じ結果。** ブラウザー・サーバー・Python・.NET などで、同じファイルから同じ結果を返します。
+- **黙って捨てない。** 読めなかったもの、形を変えて書いたものは、種類と件数と場所を報告します。
+- **ID は契約。** 同じバイト列からは、どのバージョンでも同じ ID を返します。
+- **受け取ったファイルを信用しない。** 大きさ・数・作業量に上限を付けて読みます。
+- **日本の実務を優先する。** 電子納品の SXF、Jw_cad、日本語の文字、国土交通省の基準を先に扱います。
 
 ## できること
 
@@ -20,9 +44,67 @@
 - 読めなかったもの・形を変えて書いたものは、診断（code・件数・場所）で返します。
 - 各形式の権利と、扱わない形式は[形式と権利の一覧](docs/formats/README.md#一覧)で確認できます。
 
-## 試す
+## 利用方法
 
-公開済み v0.3.0 は、次の場所から取得できます。使い方のリンクは、公開したバージョンの文書です。
+公開済み v0.3.0 は、各言語のパッケージマネージャーで入れられます。
+
+```bash
+cargo add zumen                 # Rust
+npm install @zumen-jp/zumen     # TypeScript・JavaScript（ブラウザー・Node.js）
+pip install zumen               # Python
+dotnet add package Zumen        # .NET
+```
+
+<details>
+<summary><b>例: Python で DXF を開き、表示のためのシーンを取り出す</b></summary>
+
+```python
+from pathlib import Path
+from zumen import ZumenError, load, read_scene
+
+zumen = load()
+with zumen.open() as session:
+    session.push("a.dxf", Path("a.dxf").read_bytes())
+    try:
+        result = session.call({"v": 1, "op": "open", "input": "a.dxf"})["result"]
+        scene = session.call({"v": 1, "op": "scene", "doc": result["doc"], "from": "space/0"})
+        columns = read_scene(session.take(scene["result"]["blob"])).columns
+        print(columns["chunk_origins"].tolist(), columns["line_xy"].tolist())
+    except ZumenError as error:
+        # failed の応答は error.response にあり、診断を持ちます
+        print(error.status, error.response and error.response["diagnostics"])
+```
+
+</details>
+
+<details>
+<summary><b>例: Node.js で同じことをする</b></summary>
+
+```js
+import { readFileSync } from "node:fs";
+import { ZumenError, loadBundled, readScene } from "@zumen-jp/zumen/node";
+
+const zumen = await loadBundled();
+const session = zumen.open();
+try {
+  session.push("a.dxf", readFileSync("a.dxf"));
+  const { result } = session.call({ v: 1, op: "open", input: "a.dxf" });
+  const scene = session.call({ v: 1, op: "scene", doc: result.doc, from: "space/0" });
+  const columns = readScene(session.take(scene.result.blob)).columns;
+  console.log(columns.chunk_origins, columns.line_xy);
+} catch (error) {
+  if (error instanceof ZumenError) {
+    // failed の応答は error.response にあり、診断を持ちます
+    console.log(error.status, error.response?.diagnostics);
+  }
+} finally {
+  session.close();
+}
+```
+
+</details>
+
+配布先と使い方は次のとおりです。使い方のリンクは、公開したバージョンの文書です。
 
 | 言語・入口 | 配布先 | 使い方 |
 | --- | --- | --- |
@@ -33,7 +115,7 @@
 | CLI・MCP | [GitHub Release](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0)・[crates.io の zumen-cli](https://crates.io/crates/zumen-cli/0.3.0) | [CLI・MCP](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/cli/README.md#使い方) |
 | C・C++ | [GitHub Release の C ABI](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0) | [C・C++](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/c/README.md#使い方) |
 
-GNU Linux の v0.3.0 のライブラリと CLI は glibc 2.28 で作り、要求するシンボルの版が `GLIBC_2.28` 以下であることを、公開した配布物から取って確かめました。Python wheel のタグは `manylinux_2_28` です。v0.2.0 の配布物は `GLIBC_2.34`（wheel は glibc 2.35）以降を要求します（[#789](https://github.com/zumen-jp/zumen/issues/789)）。musl の CLI はまだありません。詳しくは[対応する環境](docs/support.md)をご覧ください。
+公開済み v0.3.0 の GNU Linux 配布物は glibc 2.28（Python wheel は `manylinux_2_28`）で作られています（[#789](https://github.com/zumen-jp/zumen/issues/789)）。`main`（次のマイナーバージョン以降）は 64 bit の現行環境（GNU Linux は glibc 2.34・`manylinux_2_34`）を対象にします。詳しくは[対応する環境](docs/support.md)をご覧ください。
 
 `main` をソースから試すには、Rust を [rustup](https://rustup.rs/) で入れ（バージョンは `rust-toolchain.toml` で決めてあります）、CLI をビルドして、公開サンプルを開きます。
 
@@ -60,19 +142,11 @@ target/debug/zumen entities samples/dwg/zumen-layout-r2000.dwg --limit 2
 | 2 | Swift | [bindings/swift](bindings/swift/README.md) |
 | 2 | Go | [bindings/go](bindings/go/README.md) |
 | 2 | Dart | [bindings/dart](bindings/dart/README.md) |
-| 2 | VBA7（Windows、32 bit・64 bit） | [bindings/vba](bindings/vba/README.md)（Office の実機は未確認） |
+| 2 | VBA7（Windows、64 bit） | [bindings/vba](bindings/vba/README.md)（Office の実機は未確認） |
 | 3 | Ruby・PHP・PowerShell など | C ABI・CLI・HTTP で呼ぶ（[docs/tier3.md](docs/tier3.md)） |
 
 - Tier は、言語ごとの対応の約束です（[対応する環境](docs/support.md)）。下限と、確かめる頻度は [docs/support.md](docs/support.md) にあります。
 - CLI の `zumen` は、同じ要求を標準入出力と HTTP で受け、MCP のサーバーにもなります。AI のアプリからも使えます。
-
-## 方針
-
-- **どこでも同じ結果。** ブラウザー・サーバー・Python・.NET などで、同じファイルから同じ結果を返します。
-- **黙って捨てない。** 読めなかったもの、形を変えて書いたものは、種類と件数と場所を報告します。
-- **ID は契約。** 同じバイト列からは、どのバージョンでも同じ ID を返します。
-- **受け取ったファイルを信用しない。** 大きさ・数・作業量に上限を付けて読みます。
-- **日本の実務を優先する。** 電子納品の SXF、Jw_cad、日本語の文字、国土交通省の基準を先に扱います。
 
 ## 文書
 
