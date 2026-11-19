@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 
 SCHEMAS = ["IFC2X3", "IFC4", "IFC4X3_ADD2"]
-STATES = ["template", "built", "changed", "converted", "faces", "csg", "sweep"]
+STATES = ["template", "structural", "built", "changed", "converted", "faces", "csg", "sweep"]
 
 # 試験の入力は地理参照を持たない。作る変更と直す変更の範囲の外なので、警告とその手順の止まりを許す
 ALLOWED_WARNINGS = {"GRF003"}

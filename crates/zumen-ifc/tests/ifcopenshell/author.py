@@ -413,6 +413,89 @@ def check_converted_materials(model):
     return failures
 
 
+def check_structural(path):
+    """空間・通り芯・型・要素・関係を足し、置き直し・所属変更・型の付け外し・除去まで当てた IFC（#897）"""
+    failures = []
+    model = ifcopenshell.open(str(path))
+    for error in errors(model):
+        failures.append(f"検査の誤り: {error}")
+    project = model.by_guid(gid(1))
+    site = model.by_guid(gid(10))
+    building = model.by_guid(gid(100))
+    first = model.by_guid(gid(101))
+    second = model.by_guid(gid(102))
+    grid = model.by_guid(gid(103))
+    wall_type = model.by_guid(gid(110))
+    column_type = model.by_guid(gid(111))
+    wall = model.by_guid(gid(200))
+    opening = model.by_guid(gid(201))
+    door = model.by_guid(gid(202))
+    column = model.by_guid(gid(203))
+    for child, expected_parent in [
+        (site, project),
+        (building, site),
+        (first, building),
+        (second, building),
+    ]:
+        parent = ifcopenshell.util.element.get_aggregate(child)
+        if parent is None or parent.GlobalId != expected_parent.GlobalId:
+            failures.append(f"{child.GlobalId} の集約の親が {parent}")
+    if site.RefElevation != 12000.0:
+        failures.append(f"敷地の RefElevation が {site.RefElevation}")
+    if model.schema_identifier == "IFC4X3_ADD2":
+        if second.Elevation is not None:
+            failures.append(f"2F に非推奨の Elevation {second.Elevation} がある")
+    elif second.Elevation != 3000.0:
+        failures.append(f"2F の Elevation が {second.Elevation}")
+    for element, expected_space in [
+        (grid, first),
+        (wall, first),
+        (door, first),
+        (column, second),
+    ]:
+        container = ifcopenshell.util.element.get_container(element)
+        if container is None or container.GlobalId != expected_space.GlobalId:
+            failures.append(f"{element.GlobalId} の所属が {container}")
+    if opening.ContainedInStructure:
+        failures.append(f"開口が空間に包含されている: {opening.ContainedInStructure}")
+    for element, rel_to, coords in [
+        (site, None, (100.0, 200.0, 0.0)),
+        (second, building.ObjectPlacement, (100.0, 200.0, 3000.0)),
+        (wall, first.ObjectPlacement, (1100.0, 200.0, 0.0)),
+        (opening, wall.ObjectPlacement, (1600.0, 200.0, 0.0)),
+        (door, opening.ObjectPlacement, (1600.0, 200.0, 0.0)),
+        (column, second.ObjectPlacement, (2100.0, 700.0, 3000.0)),
+    ]:
+        if element.ObjectPlacement.PlacementRelTo != rel_to:
+            failures.append(f"{element.GlobalId} の PlacementRelTo が {element.ObjectPlacement.PlacementRelTo}")
+        matrix = ifcopenshell.util.placement.get_local_placement(element.ObjectPlacement)
+        found = (matrix[0][3], matrix[1][3], matrix[2][3])
+        if any(abs(a - b) > 1e-9 for a, b in zip(found, coords)):
+            failures.append(f"{element.GlobalId} の世界座標が {found}（期待は {coords}）")
+    if ifcopenshell.util.element.get_type(wall) != wall_type or wall_type.PredefinedType != "SHEAR":
+        failures.append(f"壁の型が {ifcopenshell.util.element.get_type(wall)}")
+    if ifcopenshell.util.element.get_type(column) is not None:
+        failures.append(f"型を外した柱に型 {ifcopenshell.util.element.get_type(column)} が残っている")
+    if (column_type.PredefinedType, column_type.ElementType) != ("USERDEFINED", "C-600"):
+        failures.append(f"柱の型が {column_type.PredefinedType} {column_type.ElementType}")
+    u_tags = [a.AxisTag for a in grid.UAxes]
+    v_tags = [a.AxisTag for a in grid.VAxes]
+    if (u_tags, v_tags) != (["A", "B"], ["1", "2"]):
+        failures.append(f"通り芯の軸が {u_tags} {v_tags}")
+    hosts = [rel.RelatingBuildingElement.GlobalId for rel in opening.VoidsElements]
+    fillings = [rel.RelatedBuildingElement.GlobalId for rel in opening.HasFillings]
+    if (hosts, fillings) != ([gid(200)], [gid(202)]):
+        failures.append(f"開口の母体が {hosts}、建具が {fillings}")
+    try:
+        removed = model.by_guid(gid(299))
+        failures.append(f"除いた要素が残っている: {removed}")
+    except RuntimeError:
+        pass
+    if model.by_type("IfcSlab"):
+        failures.append(f"除いた床が残っている: {model.by_type('IfcSlab')}")
+    return failures
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     folder = Path(sys.argv[1])
@@ -420,6 +503,9 @@ def main():
     for schema in SCHEMAS:
         name = f"{schema}.template.ifc"
         failures += [f"{name}: {f}" for f in check_template(folder / name)]
+    for schema in SCHEMAS:
+        name = f"{schema}.structural.ifc"
+        failures += [f"{name}: {f}" for f in check_structural(folder / name)]
     for schema in SCHEMAS:
         for state in EXPECTED:
             name = f"{schema}.{state}.ifc"

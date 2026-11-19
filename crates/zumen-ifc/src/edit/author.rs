@@ -4,7 +4,7 @@
 //! 属性の位置は、buildingSMART が公開する各バージョンの仕様の実体の節（IFC2X3 TC1 の 5.4・7.1・7.2、IFC4 ADD2 TC1 と
 //! IFC4X3 ADD2 の 5.4・8.18・8.19 の実体の定義）による。表にない実体と、そのバージョンにない実体は書かずに診断する。
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use zumen_base::Kind;
 use zumen_building::{GlobalId, Transform};
@@ -756,6 +756,10 @@ impl Draft<'_> {
                 return Ok(false);
             }
         };
+        if kind == b"IFCOPENINGELEMENT" && element.container.is_some() {
+            cx.report(unsupported("element", &kind).with("value", "container"));
+            return Ok(false);
+        }
         let container = match element.container {
             Some(target) => match self.object(target, &[Category::Spatial], "element", cx) {
                 Some((id, ..)) => Some(id),
@@ -883,6 +887,10 @@ impl Draft<'_> {
         ) else {
             return Ok(false);
         };
+        if stmt.name == b"IFCOPENINGELEMENT" {
+            cx.report(unsupported("contain", &stmt.name));
+            return Ok(false);
+        }
         let (relation, allowed): (Relation, &[Category]) = if category == Category::Spatial {
             (AGGREGATES, &[Category::Project, Category::Spatial])
         } else {
@@ -891,10 +899,32 @@ impl Draft<'_> {
         let Some((container, ..)) = self.object(space, allowed, "contain", cx) else {
             return Ok(false);
         };
-        if container == id {
-            let found = self.kind(container);
-            cx.report(unsupported("contain", &found).with("value", "container"));
-            return Ok(false);
+        if category == Category::Spatial {
+            let mut at = container;
+            let mut seen = BTreeSet::new();
+            loop {
+                cx.check(Kind::Work, 1)
+                    .map_err(|stop| stopped(cx, stop, None))?;
+                if at == id {
+                    let found = self.kind(container);
+                    cx.report(unsupported("contain", &found).with("value", "container"));
+                    return Ok(false);
+                }
+                if !seen.insert(at) {
+                    break;
+                }
+                let parent = self.referrers(at).into_iter().find_map(|rel| {
+                    (self.kind(rel) == AGGREGATES.name)
+                        .then(|| self.stmt(rel))
+                        .flatten()
+                        .filter(|s| refs_of(s.arg(AGGREGATES.related)).contains(&at))
+                        .and_then(|s| refs_of(s.arg(AGGREGATES.relating)).into_iter().next())
+                });
+                match parent {
+                    Some(next) => at = next,
+                    None => break,
+                }
+            }
         }
         let history = stmt.arg(2).cloned().unwrap_or_else(null);
         self.detach(relation, id);
@@ -1019,6 +1049,7 @@ impl Draft<'_> {
         }
         let mut queue = VecDeque::from([id]);
         let mut doomed = BTreeSet::new();
+        let mut rewritten = BTreeMap::<u64, Stmt>::new();
         let mut loose = Vec::new();
         while let Some(at) = queue.pop_front() {
             cx.check(Kind::Work, 1)
@@ -1035,7 +1066,7 @@ impl Draft<'_> {
                     cx.report(unsupported("remove", &kind).with("value", "referenced"));
                     return Ok(false);
                 }
-                let Some(mut rel) = self.stmt(by) else {
+                let Some(mut rel) = rewritten.get(&by).cloned().or_else(|| self.stmt(by)) else {
                     continue;
                 };
                 // 要素の開口は、要素とともに除く
@@ -1054,9 +1085,10 @@ impl Draft<'_> {
                     }
                 }
                 if whole {
+                    rewritten.remove(&by);
                     queue.push_back(by);
                 } else {
-                    self.put(by, rel);
+                    rewritten.insert(by, rel);
                 }
             }
         }
@@ -1064,6 +1096,9 @@ impl Draft<'_> {
             if let Some(stmt) = self.stmt(at) {
                 loose.extend(refs_in(&stmt.args));
             }
+        }
+        for (by, rel) in rewritten {
+            self.put(by, rel);
         }
         for &at in &doomed {
             self.drop_instance(at);
