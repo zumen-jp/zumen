@@ -2,7 +2,7 @@
 
 zumen のシーンの列を、利用側の Canvas に WebGPU で描く表示部品です。線・面・文字・字形・点と、利用側が解決した画像・PDF を描き、表示範囲・レイヤ・選択・計測を操作します。入力は必要なときだけ接続し、React・CSS・ラベル・操作用のボタンは利用側に置きます。[2D の表示部品](../../docs/view2d.md) に従い、実行時の外部描画ライブラリは使いません。
 
-このパッケージは未公開です。名前の確保と公開は別の作業です。手元では `packages/view2d/src/index.js` を ESM として読み込み、`@zumen-jp/zumen` を `bindings/js/src/index.js` に解決します。バンドラーの alias か、[最小の例](example/index.html) の import map を使えます。例を開くサーバーはリポジトリのルートを配り、開発用のポートは 24100〜24199 にします。
+`@zumen-jp/zumen` と同じ版数で npm の配布物を組みます（初回のレジストリ公開は [#909](https://github.com/zumen-jp/zumen/issues/909) で準備中）。手元では `packages/view2d/src/index.js` を ESM として読み込み、`@zumen-jp/zumen` を `bindings/js/src/index.js` に解決します。バンドラーの alias か、[最小の例](example/index.html) の import map を使えます。例を開くサーバーはリポジトリのルートを配り、開発用のポートは 24100〜24199 にします。
 
 対応ブラウザーは[ラッパーの対応環境](../../docs/support.md)（WebGPU と WebAssembly SIMD を備えた現行環境）に従います。`OffscreenCanvas` がある環境でも同じ操作で使えます。下限の製品そのものでの検査はまだ行っていません。
 

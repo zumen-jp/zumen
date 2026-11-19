@@ -30,7 +30,7 @@ const launchOptions = name === "chromium"
         "--enable-unsafe-webgpu",
         "--ignore-gpu-blocklist",
         ...(process.platform === "win32" ? ["--use-webgpu-adapter=d3d11"] : []),
-        ...(process.platform === "linux" ? ["--use-angle=vulkan", "--enable-features=Vulkan", "--enable-unsafe-swiftshader"] : []),
+        ...(process.platform === "linux" ? ["--use-webgpu-adapter=swiftshader", "--enable-unsafe-swiftshader"] : []),
       ],
     }
   : {};

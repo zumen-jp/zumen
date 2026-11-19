@@ -19,6 +19,15 @@ on:
       - 'bindings/js/package.json'
       - 'bindings/js/src/**'
       - 'bindings/js/README.md'
+      - 'packages/view2d/package.json'
+      - 'packages/view2d/src/**'
+      - 'packages/view2d/README.md'
+      - 'packages/view3d/package.json'
+      - 'packages/view3d/src/**'
+      - 'packages/view3d/README.md'
+      - 'packages/react/package.json'
+      - 'packages/react/src/**'
+      - 'packages/react/README.md'
       - 'LICENSE-*'
 
 permissions:

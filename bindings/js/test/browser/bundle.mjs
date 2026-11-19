@@ -57,10 +57,122 @@ function pack(work) {
   return { path: join(staged, packed.filename), size: packed.size, unpackedSize: packed.unpackedSize };
 }
 
+/** 表示部品と React フックの配布物を作り、ライセンス同梱と余分なファイル混入の不在を確かめる（#909） */
+function packUiPackage(work, slug, dir) {
+  const staged = join(work, `pkg-${slug}`);
+  cpSync(join(root, dir, "src"), join(staged, "src"), { recursive: true });
+  for (const name of ["package.json", "README.md"]) {
+    copyFileSync(join(root, dir, name), join(staged, name));
+  }
+  for (const name of ["LICENSE-MIT", "LICENSE-APACHE"]) {
+    copyFileSync(join(root, name), join(staged, name));
+  }
+  const [packed] = Object.values(JSON.parse(npm(["pack", "--json", "--ignore-scripts"], staged)));
+  const paths = packed.files.map(({ path }) => path);
+  assert.ok(paths.includes("LICENSE-MIT") && paths.includes("LICENSE-APACHE"), `${slug}: ライセンス本文を含む`);
+  assert.ok(!paths.some((p) => p.startsWith("test/") || p.startsWith("example/")), `${slug}: テストや例を含まない`);
+  return { path: join(staged, packed.filename), size: packed.size };
+}
+
+/** 通信なしで peerDependencies の解決と Vite バンドルを確かめるための最小の React 19.3.1 パッケージ */
+function packPeerReact(work) {
+  const staged = join(work, "peer-react");
+  mkdirSync(staged);
+  writeFileSync(join(staged, "package.json"), JSON.stringify({
+    name: "react",
+    version: "19.3.1",
+    type: "module",
+    exports: { ".": "./index.js" },
+  }));
+  writeFileSync(join(staged, "index.js"), [
+    "export function useCallback(fn) { return fn; }",
+    "export function useEffect() {}",
+    "export function useLayoutEffect() {}",
+    "export function useMemo(fn) { return fn(); }",
+    "export function useRef(v) { return { current: v }; }",
+    "export function useState(v) { return [v, () => {}]; }",
+    "export function useSyncExternalStore(_s, get) { return get(); }",
+  ].join("\n"));
+  const [packed] = Object.values(JSON.parse(npm(["pack", "--json", "--ignore-scripts"], staged)));
+  return join(staged, packed.filename);
+}
+
+/** npm pack した three 0.187.0 を通信なしで入れるための tarball を作る */
+function packPeerThree(work) {
+  const [packed] = Object.values(JSON.parse(npm(["pack", "--json", "--ignore-scripts", "--pack-destination", work], join(here, "node_modules/three"))));
+  return join(work, packed.filename);
+}
+
+/** 2D のみを使う利用側は three と @zumen-jp/view3d なしで npm install と Vite ビルドが通ることを確かめる */
+async function verifyUiBundles(work, coreTgz) {
+  const view2d = packUiPackage(work, "view2d", "packages/view2d");
+  const view3d = packUiPackage(work, "view3d", "packages/view3d");
+  const reactPkg = packUiPackage(work, "react", "packages/react");
+  const reactPeer = packPeerReact(work);
+  const threePeer = packPeerThree(work);
+
+  const app2d = join(work, "app-2d");
+  mkdirSync(app2d);
+  writeFileSync(join(app2d, "package.json"), JSON.stringify({ private: true, type: "module" }));
+  copyFileSync(coreTgz, join(app2d, "zumen.tgz"));
+  copyFileSync(view2d.path, join(app2d, "view2d.tgz"));
+  copyFileSync(reactPkg.path, join(app2d, "react-pkg.tgz"));
+  copyFileSync(reactPeer, join(app2d, "react-peer.tgz"));
+  npm(["install", "./zumen.tgz", "./view2d.tgz", "./react-pkg.tgz", "./react-peer.tgz",
+    "--offline", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false"], app2d);
+  const req2d = createRequire(join(app2d, "package.json"));
+  assert.throws(() => req2d.resolve("three"), "2D のみの環境に three は入らない");
+  assert.throws(() => req2d.resolve("@zumen-jp/view3d"), "2D のみの環境に view3d は入らない");
+  writeFileSync(join(app2d, "index.html"), '<!doctype html><script type="module" src="./entry.js"></script>');
+  writeFileSync(join(app2d, "entry.js"), [
+    'import { View2D, ReviewStore, ReviewLayer } from "@zumen-jp/view2d";',
+    'import { useDrawing, useDrawingViewer, useReviewLayer, useViewerState } from "@zumen-jp/react";',
+    "window.ui2d = { View2D, ReviewStore, ReviewLayer, useDrawing, useDrawingViewer, useReviewLayer, useViewerState };",
+  ].join("\n"));
+  await build({
+    configFile: false,
+    root: app2d,
+    logLevel: "warn",
+    build: { outDir: join(app2d, "dist"), assetsInlineLimit: 0 },
+    worker: { format: "es" },
+  });
+
+  const app3d = join(work, "app-3d");
+  mkdirSync(app3d);
+  writeFileSync(join(app3d, "package.json"), JSON.stringify({ private: true, type: "module" }));
+  copyFileSync(coreTgz, join(app3d, "zumen.tgz"));
+  copyFileSync(view2d.path, join(app3d, "view2d.tgz"));
+  copyFileSync(view3d.path, join(app3d, "view3d.tgz"));
+  copyFileSync(reactPkg.path, join(app3d, "react-pkg.tgz"));
+  copyFileSync(reactPeer, join(app3d, "react-peer.tgz"));
+  copyFileSync(threePeer, join(app3d, "three-peer.tgz"));
+  npm(["install", "./zumen.tgz", "./view2d.tgz", "./view3d.tgz", "./react-pkg.tgz", "./react-peer.tgz", "./three-peer.tgz",
+    "--offline", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false"], app3d);
+  writeFileSync(join(app3d, "index.html"), '<!doctype html><script type="module" src="./entry.js"></script>');
+  writeFileSync(join(app3d, "entry.js"), [
+    'import { View2D } from "@zumen-jp/view2d";',
+    'import { View3D, THREE_REVISION } from "@zumen-jp/view3d";',
+    'import { attachGround2D } from "@zumen-jp/view3d/ground2d";',
+    'import { attachPointCloud } from "@zumen-jp/view3d/pointcloud";',
+    'import { useDrawingViewer } from "@zumen-jp/react";',
+    'import { useScene3D, useView3D } from "@zumen-jp/react/view3d";',
+    "window.ui3d = { View2D, View3D, THREE_REVISION, attachGround2D, attachPointCloud, useDrawingViewer, useScene3D, useView3D };",
+  ].join("\n"));
+  await build({
+    configFile: false,
+    root: app3d,
+    logLevel: "warn",
+    build: { outDir: join(app3d, "dist"), assetsInlineLimit: 0 },
+    worker: { format: "es" },
+  });
+  return { view2dSize: view2d.size, view3dSize: view3d.size, reactSize: reactPkg.size };
+}
+
 const work = mkdtempSync(join(tmpdir(), "zumen-js-bundle-"));
 let browser;
 try {
   const packed = pack(work);
+  const uiPacked = await verifyUiBundles(work, packed.path);
   const app = join(work, "app");
   mkdirSync(app);
   writeFileSync(join(app, "package.json"), JSON.stringify({ private: true, type: "module" }));
@@ -135,7 +247,7 @@ try {
   }
   assert.deepEqual(requested, [...names.slice(1), "all"]);
   assert.deepEqual(failures, []);
-  const summary = `Vite + Chromium ${browser.version()}: npm pack の wasm 5 件・exports・内容・URL・遅延取得・再利用を確認。tgz ${packed.size} bytes、展開後 ${packed.unpackedSize} bytes`;
+  const summary = `Vite + Chromium ${browser.version()}: npm pack の 4 パッケージ（zumen・view2d・view3d・react）と wasm 5 件・exports・内容・URL・遅延取得・2D 単独（three 不要）と 3D バンドルを確認。zumen tgz ${packed.size} bytes（展開後 ${packed.unpackedSize} bytes）、view2d ${uiPacked.view2dSize} bytes、view3d ${uiPacked.view3dSize} bytes、react ${uiPacked.reactSize} bytes`;
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### 分けた wasm の配布\n\n${summary}\n`);

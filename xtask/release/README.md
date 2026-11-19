@@ -77,7 +77,7 @@ python xtask/release/package.py wasm --built target/release-built/wasm --license
 python xtask/release/package.py npm --artifacts target/release-licenses --out target/release-packages
 ```
 
-全体版と 4 つの分割版の wasm に、それぞれ同じ名前で対応する SBOM を `*-wasm-sboms.tar.gz` と npm の `sboms/` に入れます。tgz の中の wasm からも埋込情報を読み取ります。
+全体版と 4 つの分割版の wasm に、それぞれ同じ名前で対応する SBOM を `*-wasm-sboms.tar.gz` と `@zumen-jp/zumen` の `sboms/` に入れます。tgz の中の wasm からも埋込情報を読み取ります。あわせて表示部品と React フック（`@zumen-jp/view2d`・`@zumen-jp/view3d`・`@zumen-jp/react`）も、ライセンス本文を添えて同じ版数の `.tgz` に包み、収録ファイル・メタデータ・peer dependency のみを確かめます（[#909](https://github.com/zumen-jp/zumen/issues/909)）。
 
 ## npm の公開を再試行する
 

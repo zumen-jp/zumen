@@ -1,16 +1,40 @@
 {
   "name": "@zumen-jp/view3d",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.3.0",
   "description": "zumen の 3D のシーン（ZMS3）を WebGPU で描く表示部品",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zumen-jp/zumen.git",
+    "directory": "packages/view3d"
+  },
   "license": "MIT OR Apache-2.0",
   "type": "module",
-  "exports": {
-    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" },
-    "./ground2d": { "types": "./src/ground2d.d.ts", "default": "./src/ground2d.js" },
-    "./pointcloud": { "types": "./src/pointcloud.d.ts", "default": "./src/pointcloud.js" }
+  "engines": {
+    "node": ">=24"
   },
-  "files": ["src", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./ground2d": {
+      "types": "./src/ground2d.d.ts",
+      "default": "./src/ground2d.js"
+    },
+    "./pointcloud": {
+      "types": "./src/pointcloud.d.ts",
+      "default": "./src/pointcloud.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
   "sideEffects": false,
-  "peerDependencies": { "@zumen-jp/zumen": "^0.3.0", "three": ">=0.187.0 <0.188.0" }
+  "peerDependencies": {
+    "@zumen-jp/zumen": "^0.3.0",
+    "three": ">=0.187.0 <0.188.0"
+  }
 }

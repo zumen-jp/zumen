@@ -103,4 +103,4 @@ IFC では、`await opened.getElement(id)` が `building_elements` の名前・�
 
 React は利用側が渡す peer dependency です。プレイグラウンドでは既存の Next.js の検査と同じ React・React DOM 19.3.1（MIT）を固定します。React DOM の scheduler も MIT です。コアと同じ図面用 wasm を使い、ネイティブと共通のシーンを既存のリーダーで読みます。
 
-PR の Chromium と毎晩の Firefox・WebKit のブラウザー検査には、[適合テスト](../../bindings/conformance/README.md) の Playwright を使います。対応ブラウザー（WebGPU と WebAssembly SIMD を備えた現行環境）は[ラッパーの対応環境](../../docs/support.md)に従います。パッケージは未公開です。[2D の表示部品](../../docs/view2d.md)
+PR の Chromium と毎晩の Firefox・WebKit のブラウザー検査には、[適合テスト](../../bindings/conformance/README.md) の Playwright を使います。対応ブラウザー（WebGPU と WebAssembly SIMD を備えた現行環境）は[ラッパーの対応環境](../../docs/support.md)に従います。`@zumen-jp/zumen`・`@zumen-jp/view2d`・`@zumen-jp/view3d` と同じ版数で npm の配布物を組みます（初回のレジストリ公開は [#909](https://github.com/zumen-jp/zumen/issues/909) で準備中）。[2D の表示部品](../../docs/view2d.md)

@@ -397,7 +397,7 @@ export class WebGPU2DSurface {
     this.#context.configure({
       device,
       format: preferredFormat,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
       alphaMode: "premultiplied",
     });
     this.#msaaColor = device.createTexture({
@@ -873,26 +873,18 @@ export class WebGPU2DSurface {
     pass.end();
 
     const swapTex = this.#context.getCurrentTexture();
-    if (b.preferredFormat === "rgba8unorm") {
-      encoder.copyTextureToTexture(
-        { texture: this.#resolveColor },
-        { texture: swapTex },
-        [this.#width, this.#height, 1],
-      );
-    } else {
-      const blitPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: swapTex.createView(),
-          loadOp: "clear",
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
-          storeOp: "store",
-        }],
-      });
-      blitPass.setPipeline(b.pipelineBlit);
-      blitPass.setBindGroup(0, this.#blitBindGroup);
-      blitPass.draw(3, 1, 0, 0);
-      blitPass.end();
-    }
+    const blitPass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: swapTex.createView(),
+        loadOp: "clear",
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        storeOp: "store",
+      }],
+    });
+    blitPass.setPipeline(b.pipelineBlit);
+    blitPass.setBindGroup(0, this.#blitBindGroup);
+    blitPass.draw(3, 1, 0, 0);
+    blitPass.end();
 
     const temps = this.#tempTextures.splice(0);
     device.queue.submit([encoder.finish()]);
