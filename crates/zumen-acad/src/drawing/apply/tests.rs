@@ -103,6 +103,7 @@ mod duplicate_handle_tests {
             edit(
                 &mut db,
                 &changes,
+                &[],
                 Target::Dxf,
                 &mut Cx::new(&mut budget, &mut diag, &cancel)
             ),
@@ -116,6 +117,7 @@ mod duplicate_handle_tests {
             edit(
                 &mut db,
                 &changes,
+                &[],
                 Target::Dxf,
                 &mut Cx::new(&mut budget, &mut diag, &cancel)
             ),

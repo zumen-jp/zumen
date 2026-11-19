@@ -50,14 +50,87 @@ use self::callout::*;
 use self::replace::*;
 use self::transform::*;
 
-impl Apply<Changes> for DxfFile {
-    type Output = Vec<Applied>;
+/// `Edit::Copy` ごとの配置先と複写元の指定（#889）。`Changes::edits` と同じ添字で対応させる
+#[derive(Clone, Copy, Debug)]
+pub struct CopyFrom<'a, F> {
+    /// 配置先の空間か用紙の ID。`None` なら元の要素と同じ場所
+    pub place: Option<&'a str>,
+    /// 複写元の文書。`None` なら当てる文書と同じ文書
+    pub from: Option<&'a F>,
+}
 
-    /// 今のファイルから表を作り、変更を当ててから書き戻す
-    fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
+impl<F> Default for CopyFrom<'_, F> {
+    fn default() -> Self {
+        Self {
+            place: None,
+            from: None,
+        }
+    }
+}
+
+pub(super) struct SourceDb {
+    pub(super) db: AcadDb,
+    pub(super) drawing: Drawing2D,
+    pub(super) frames: BTreeMap<SheetId, PaperFrame>,
+    pub(super) positions: BTreeMap<Ref, usize>,
+    pub(super) charset: Charset,
+}
+
+impl SourceDb {
+    fn from_db(db: AcadDb, cx: &mut Cx) -> Result<Self, Error> {
+        let positions = object_positions(&db, cx)?;
+        let mut quiet = Diagnostics::new();
+        let (drawing, frames) = super::report_quiet_stop(
+            framed(&db, &mut Cx::new(cx.budget, &mut quiet, cx.cancel)),
+            cx,
+        )?;
+        let charset = super::charset_of(&db);
+        Ok(Self {
+            db,
+            drawing,
+            frames,
+            positions,
+            charset,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct CopySpec<'a> {
+    pub(super) place: Option<&'a str>,
+    pub(super) from: Option<&'a SourceDb>,
+}
+
+impl DxfFile {
+    /// 配置先・複写元つきの変更を当てて書き戻す（#889）
+    pub fn apply_with_copies(
+        &mut self,
+        changes: &Changes,
+        copies: &[CopyFrom<'_, Self>],
+        cx: &mut Cx,
+    ) -> Result<Vec<Applied>, Error> {
         let current = document(self, changes, Dxf::write, cx)?;
+        let mut sources: BTreeMap<usize, SourceDb> = BTreeMap::new();
+        for item in copies {
+            if let Some(other) = item.from {
+                let key = core::ptr::from_ref(other) as usize;
+                if let std::collections::btree_map::Entry::Vacant(slot) = sources.entry(key) {
+                    let other_db = other.table(cx, false)?;
+                    slot.insert(SourceDb::from_db(other_db, cx)?);
+                }
+            }
+        }
+        let specs: Vec<CopySpec<'_>> = copies
+            .iter()
+            .map(|item| CopySpec {
+                place: item.place,
+                from: item
+                    .from
+                    .and_then(|other| sources.get(&(core::ptr::from_ref(other) as usize))),
+            })
+            .collect();
         let mut db = self.table(cx, false)?;
-        let ids = edit(&mut db, changes, Target::Dxf, cx)?;
+        let ids = edit(&mut db, changes, &specs, Target::Dxf, cx)?;
         if !current {
             return Err(Error::Rejected);
         }
@@ -67,19 +140,56 @@ impl Apply<Changes> for DxfFile {
     }
 }
 
-impl Apply<Changes> for DwgFile {
+impl Apply<Changes> for DxfFile {
     type Output = Vec<Applied>;
 
     /// 今のファイルから表を作り、変更を当ててから書き戻す
     fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
+        self.apply_with_copies(changes, &[], cx)
+    }
+}
+
+impl DwgFile {
+    /// 配置先・複写元つきの変更を当てて書き戻す（#889）
+    pub fn apply_with_copies(
+        &mut self,
+        changes: &Changes,
+        copies: &[CopyFrom<'_, Self>],
+        cx: &mut Cx,
+    ) -> Result<Vec<Applied>, Error> {
         if self.version() == b"AC1021" {
             cx.report(Diagnostic::new(codes::DWG_EDIT_UNSUPPORTED).with("version", "AC1021"));
             return Err(Error::Unsupported);
         }
         let current = document(self, changes, Dwg::write, cx)?;
+        let mut sources: BTreeMap<usize, SourceDb> = BTreeMap::new();
+        for item in copies {
+            if let Some(other) = item.from {
+                if other.version() == b"AC1021" {
+                    cx.report(
+                        Diagnostic::new(codes::DWG_EDIT_UNSUPPORTED).with("version", "AC1021"),
+                    );
+                    return Err(Error::Unsupported);
+                }
+                let key = core::ptr::from_ref(other) as usize;
+                if let std::collections::btree_map::Entry::Vacant(slot) = sources.entry(key) {
+                    let other_db = other.objects(cx)?;
+                    slot.insert(SourceDb::from_db(other_db, cx)?);
+                }
+            }
+        }
+        let specs: Vec<CopySpec<'_>> = copies
+            .iter()
+            .map(|item| CopySpec {
+                place: item.place,
+                from: item
+                    .from
+                    .and_then(|other| sources.get(&(core::ptr::from_ref(other) as usize))),
+            })
+            .collect();
         let mut db = self.objects(cx)?;
         let seed = self.handle_seed();
-        let ids = edit(&mut db, changes, Target::Dwg(seed), cx)?;
+        let ids = edit(&mut db, changes, &specs, Target::Dwg(seed), cx)?;
         if !current {
             return Err(Error::Rejected);
         }
@@ -96,6 +206,15 @@ impl Apply<Changes> for DwgFile {
         let result = settled(&written, ids, cx)?;
         *self = updated;
         Ok(result)
+    }
+}
+
+impl Apply<Changes> for DwgFile {
+    type Output = Vec<Applied>;
+
+    /// 今のファイルから表を作り、変更を当ててから書き戻す
+    fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<Vec<Applied>, Error> {
+        self.apply_with_copies(changes, &[], cx)
     }
 }
 
@@ -394,6 +513,7 @@ fn unsupported(edit: &str, kind: &str, target: Target) -> Diagnostic {
 fn edit(
     db: &mut AcadDb,
     changes: &Changes,
+    copies: &[CopySpec<'_>],
     target: Target,
     cx: &mut Cx,
 ) -> Result<Vec<ResultTarget>, Error> {
@@ -425,7 +545,8 @@ fn edit(
     };
     for (edit_index, change) in changes.edits.iter().enumerate() {
         let rejected = std::mem::take(&mut plan.rejected);
-        plan.check(&current, change, edit_index, cx)?;
+        let copy_spec = copies.get(edit_index).copied().unwrap_or_default();
+        plan.check(&current, change, copy_spec, edit_index, cx)?;
         // コード・ページで表せない文字のために拒んだなら、その文字を返す（決定 0192）
         if let Some(character) = born.encoder().take()
             && plan.rejected
@@ -451,6 +572,7 @@ fn edit(
         dimension_styles,
         variables,
         symbol_records,
+        copy_extra_records,
         ..
     } = plan;
     count_removals(db, &replaced, &removed, cx)?;
@@ -477,7 +599,7 @@ fn edit(
     Ok(results(
         changes,
         &index,
-        (handles, symbol_records),
+        (handles, symbol_records, copy_extra_records),
         layer_handles,
         style_handles,
         line_type_handles,
@@ -578,6 +700,9 @@ struct Plan<'e> {
     /// この変更の一覧で足した記号の定義の名前（小文字）と、変更ごとに足したレコードの数（#684）
     symbols: BTreeSet<String>,
     symbol_records: Vec<usize>,
+    /// 寸法・表の複写で新しく確保した匿名ブロック名（小文字）と、複写ごとの追加ブロックレコード数（#889）
+    anon_names: BTreeSet<String>,
+    copy_extra_records: Vec<usize>,
 }
 
 /// 記号の定義の名前（小文字）から、その中に置く記号の定義の名前（小文字）
@@ -606,6 +731,8 @@ impl<'e> Plan<'e> {
             variables: Vec::new(),
             symbols: BTreeSet::new(),
             symbol_records: Vec::new(),
+            anon_names: BTreeSet::new(),
+            copy_extra_records: Vec::new(),
         }
     }
 
@@ -614,6 +741,7 @@ impl<'e> Plan<'e> {
         &mut self,
         current: &Current<'_>,
         change: &'e Edit,
+        copy_spec: CopySpec<'_>,
         edit_index: usize,
         cx: &mut Cx,
     ) -> Result<(), Error> {
@@ -667,7 +795,9 @@ impl<'e> Plan<'e> {
             Edit::Copy {
                 target: target_of,
                 transform,
-            } => copy::copy_element(current, self, target_of, transform, edit_index, cx),
+            } => copy::copy_element(
+                current, self, target_of, transform, copy_spec, edit_index, cx,
+            ),
             Edit::SetPointStyle { style } => {
                 set_point_style(current, self, style, cx);
                 Ok(())
@@ -1378,7 +1508,7 @@ fn insert_records(
 fn results(
     changes: &Changes,
     index: &Index<'_>,
-    (handles, symbol_records): (Vec<Option<u64>>, Vec<usize>),
+    (handles, symbol_records, copy_extra_records): (Vec<Option<u64>>, Vec<usize>, Vec<usize>),
     layer_handles: Vec<Option<u64>>,
     style_handles: Vec<Option<u64>>,
     line_type_handles: Vec<Option<u64>>,
@@ -1386,6 +1516,7 @@ fn results(
 ) -> Vec<ResultTarget> {
     let mut handles = handles.into_iter();
     let mut symbol_records = symbol_records.into_iter();
+    let mut copy_extra_records = copy_extra_records.into_iter();
     let mut dimension_style_handles = dimension_style_handles.into_iter();
     let mut style_handles = style_handles.into_iter();
     let mut line_type_handles = line_type_handles.into_iter();
@@ -1409,7 +1540,14 @@ fn results(
                 });
                 ResultTarget::Element(handle)
             }
-            Edit::Add { .. } | Edit::Copy { .. } => ResultTarget::Element(handles.next().flatten()),
+            Edit::Add { .. } => ResultTarget::Element(handles.next().flatten()),
+            Edit::Copy { .. } => {
+                let handle = handles.next().flatten();
+                for _ in 0..copy_extra_records.next().unwrap_or(0) {
+                    handles.next();
+                }
+                ResultTarget::Element(handle)
+            }
             Edit::Remove { .. }
             | Edit::RemoveLayer { .. }
             | Edit::RemoveTextStyle { .. }

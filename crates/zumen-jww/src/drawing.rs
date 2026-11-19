@@ -23,7 +23,7 @@ use zumen_sdk::{Cx, Error, Lift};
 use crate::parse::{Fail, Reader};
 use crate::{JwwFile, Record, RecordKind};
 
-mod apply;
+pub(crate) mod apply;
 pub(crate) mod live;
 pub(super) mod lower;
 
@@ -73,10 +73,10 @@ const SXF_LINE_TYPE: u8 = 30;
 pub(super) const POINT_SYMBOL: u8 = 100;
 
 /// ソリッドの色を自分で持つ色の番号
-const SOLID_OWN_COLOR: u16 = 10;
+pub(super) const SOLID_OWN_COLOR: u16 = 10;
 
 /// 円のソリッドを表す最初の線種
-const CIRCLE_SOLID: u8 = 101;
+pub(super) const CIRCLE_SOLID: u8 = 101;
 
 /// 設定を書いた文字の位置（Jw_cad 8 から）
 const SETTING_AT: [f64; 2] = [0.0, -1000.0];

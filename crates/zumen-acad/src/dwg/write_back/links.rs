@@ -69,7 +69,9 @@ pub(super) struct NewBlock {
 
 /// 足す図形を符号化するのに要るもの
 pub(super) struct NewEntity<'a> {
-    pub(super) object: &'a Object,
+    pub(super) object: std::borrow::Cow<'a, Object>,
+    /// 拡張データ（EED）。登録アプリケーションのハンドルとデータのバイト列
+    pub(super) eed: Vec<(u64, Vec<u8>)>,
     pub(super) handle: u64,
     pub(super) type_code: u16,
     /// entmode。2 はモデル空間、1 は用紙空間、0 はほかのブロック
@@ -98,31 +100,44 @@ impl NewEntity<'_> {
         }
     }
 
-    /// 前後の図形のハンドルを `prev` と `next` にした、バージョン `release` の図形のデータ。共通のフィールドは、色（62）が
-    /// なければ ByLayer、線種の尺度（48）がなければ 1、非表示（60）がなければ 0 にし、リアクターと拡張辞書と
-    /// 図形の絵を持たず、印刷スタイルと線の太さは ByLayer にする。R2000 では前後の図形のハンドルを持ち、
-    /// R2004 では持たず、拡張辞書を持たないフラグを書き、MTEXT の背景のフィールド（BL）を 0 にする（決定 0079）
+    fn write_eed(&self, writer: &mut BitWriter) -> Option<()> {
+        for (app, bytes) in &self.eed {
+            writer.bs(i16::try_from(bytes.len()).ok()?);
+            writer.handle(5, *app);
+            for &byte in bytes {
+                writer.rc(byte);
+            }
+        }
+        writer.bs(0);
+        Some(())
+    }
+
+    /// 前後の図形のハンドルを `prev` と `next` にした、バージョン `release` の図形のデータ。共通のフィールドは、色（62・420）・
+    /// 透過性（440）・線の太さ（370）・線種の尺度（48）・非表示（60）を書き、リアクターと拡張辞書と図形の絵を持たず、
+    /// 印刷スタイルは ByLayer にする。R2000 では前後の図形のハンドルを持ち、R2004 では持たず、拡張辞書を持たないフラグを書き、
+    /// MTEXT の背景のフィールド（BL）を 0 にする（決定 0079・#889）
     pub(super) fn encode(&self, prev: u64, next: u64, release: Release) -> Option<Vec<u8>> {
         if release >= Release::R2010 {
             return self.encode_r2010(release);
         }
-        let object = self.object;
+        let object = &*self.object;
         let r2004 = release == Release::R2004;
         let mut common = BitWriter::default();
         common.handle(0, self.handle);
-        // 拡張データがない
-        common.bs(0);
+        self.write_eed(&mut common)?;
         common.bit(false);
         common.bb(self.mode);
         common.bl(0);
         // R2000 は前後の図形のハンドルを持つフラグ、R2004 は拡張辞書を持たないフラグ
         common.bit(r2004);
-        common.bs(small(object, 62)?.unwrap_or(256));
+        write_enc(&mut common, object, release)?;
         common.bd(real(object, 48)?.unwrap_or(1.0));
         common.bb(self.ltype.0);
         common.bb(0);
         common.bs(small(object, 60)?.unwrap_or(0));
-        common.rc(lineweight_index(-1)?.try_into().ok()?);
+        common.rc(lineweight_index(integer(object, 370)?.unwrap_or(-1))?
+            .try_into()
+            .ok()?);
         let mut fields = if object.kind == b"HATCH" {
             let mut fields = BitWriter::default();
             new_hatch(&mut fields, object, r2004)?;
@@ -188,23 +203,22 @@ impl NewEntity<'_> {
     /// 数（BL）を書く（ODS 5.4.1 の 20.4.9）
     pub(super) fn minsert(&self) -> Option<BitWriter> {
         let mut fields = BitWriter::default();
-        insert(&mut fields, self.object, false, None)?;
+        insert(&mut fields, &self.object, false, None)?;
         if let Some((attribs, _)) = &self.children {
             fields.bl(i32::try_from(attribs.len()).ok()?);
         }
-        grid_fields(&mut fields, self.object)?;
+        grid_fields(&mut fields, &self.object)?;
         Some(fields)
     }
 
     /// R2010 から後の形で符号化したデータ（決定 0092）。ハンドルのストリームの大きさ（MC）から始まる。材質は画層の
     /// もので、影のフラグは 0、表示スタイルは持たない
     pub(super) fn encode_r2010(&self, release: Release) -> Option<Vec<u8>> {
-        let object = self.object;
+        let object = &*self.object;
         let mut out = BitWriter::default();
         out.bot(i16::try_from(self.type_code).ok()?);
         out.handle(0, self.handle);
-        // 拡張データと図形の絵がない
-        out.bs(0);
+        self.write_eed(&mut out)?;
         out.bit(false);
         out.bb(self.mode);
         out.bl(0);
@@ -213,7 +227,7 @@ impl NewEntity<'_> {
         if release >= Release::R2013 {
             out.bit(false);
         }
-        out.bs(small(object, 62)?.unwrap_or(256));
+        write_enc(&mut out, object, release)?;
         out.bd(real(object, 48)?.unwrap_or(1.0));
         out.bb(self.ltype.0);
         out.bb(0);
@@ -224,7 +238,9 @@ impl NewEntity<'_> {
             out.bit(false);
         }
         out.bs(small(object, 60)?.unwrap_or(0));
-        out.rc(lineweight_index(-1)?.try_into().ok()?);
+        out.rc(lineweight_index(integer(object, 370)?.unwrap_or(-1))?
+            .try_into()
+            .ok()?);
         let mut fields = BitWriter::with_strings();
         match object.kind.as_slice() {
             b"HATCH" => {
@@ -806,4 +822,165 @@ pub(super) fn without_xdictionary(object: &Object) -> (Option<Data>, Object) {
 pub(super) fn unsupported(kind: &[u8]) -> Box<Diagnostic> {
     let kind = String::from_utf8_lossy(kind).into_owned();
     Box::new(Diagnostic::new(codes::DWG_CHANGE_UNSUPPORTED).with("kind", kind))
+}
+
+/// 足す図形の色と透過性（ENC、ODS 5.4.1 の 2.12）を書く。R2000 は番号だけ、R2004 からは真の色（420）と透過性（440）も書く
+fn write_enc(writer: &mut BitWriter, object: &Object, release: Release) -> Option<()> {
+    let index = small(object, 62)?.unwrap_or(256);
+    if release == Release::R2000 {
+        if object.values.iter().any(|v| matches!(v.code, 420 | 440)) {
+            return None;
+        }
+        writer.bs(index);
+        return Some(());
+    }
+    let rgb = match integer(object, 420)? {
+        Some(v) => Some(u32::try_from(v).ok().filter(|&v| v <= 0x00FF_FFFF)?),
+        None => None,
+    };
+    let transparency = match integer(object, 440)? {
+        Some(v) => Some(u32::try_from(v).ok().filter(|&v| v >> 24 != 0)?),
+        None => None,
+    };
+    let trans_flag: u16 = if transparency.is_some() { 0x2000 } else { 0 };
+    if let Some(rgb) = rgb {
+        let low = small(object, 62)?.unwrap_or(0);
+        if !(0..=0x0FFF).contains(&low) {
+            return None;
+        }
+        writer.bs(i16::from_ne_bytes(
+            (0x8000 | trans_flag | (low as u16)).to_ne_bytes(),
+        ));
+        writer.bl(i32::from_ne_bytes(((0xC2 << 24) | rgb).to_ne_bytes()));
+    } else if transparency.is_some() {
+        if !(0..=0x0FFF).contains(&index) {
+            return None;
+        }
+        writer.bs(i16::from_ne_bytes(
+            ((index as u16) | trans_flag).to_ne_bytes(),
+        ));
+    } else {
+        writer.bs(index);
+    }
+    if let Some(value) = transparency {
+        writer.bl(i32::from_ne_bytes(value.to_ne_bytes()));
+    }
+    Some(())
+}
+
+/// 拡張データ（1001 から）を、登録アプリケーションのハンドルと EED のバイト列に符号化する（ODS 5.4.1 の 28）
+pub(super) fn encode_xdata(
+    db: &AcadDb,
+    xdata: &[Value],
+    release: Release,
+    code_page: u16,
+) -> Option<Vec<(u64, Vec<u8>)>> {
+    if xdata.is_empty() {
+        return Some(Vec::new());
+    }
+    if xdata.first()?.code != 1001 {
+        return None;
+    }
+    let mut groups = Vec::new();
+    for group in xdata.chunk_by(|_, next| next.code != 1001) {
+        let [
+            Value {
+                code: 1001,
+                data: Data::Text(app_name),
+            },
+            items @ ..,
+        ] = group
+        else {
+            return None;
+        };
+        let app = record_handle(db, b"APPID", app_name)?;
+        let mut bytes = Vec::new();
+        let mut at = 0;
+        while let Some(item) = items.get(at) {
+            match (item.code, &item.data) {
+                (1000, Data::Text(raw)) if release >= Release::R2007 => {
+                    let s = core::str::from_utf8(raw).ok()?;
+                    let units: Vec<u16> = s.encode_utf16().collect();
+                    let len = u16::try_from(units.len()).ok()?;
+                    bytes.push(0);
+                    bytes.extend(len.to_le_bytes());
+                    for unit in units {
+                        bytes.extend(unit.to_le_bytes());
+                    }
+                }
+                (1000, Data::Text(raw)) => {
+                    let len = u8::try_from(raw.len()).ok()?;
+                    bytes.push(0);
+                    bytes.push(len);
+                    bytes.extend(code_page.to_le_bytes());
+                    bytes.extend_from_slice(raw);
+                }
+                (1002, Data::Text(brace)) => match brace.as_slice() {
+                    b"{" => bytes.extend([2, 0]),
+                    b"}" => bytes.extend([2, 1]),
+                    _ => return None,
+                },
+                (1003, Data::Text(layer_name)) => {
+                    let handle = record_handle(db, b"LAYER", layer_name)?;
+                    bytes.push(3);
+                    bytes.extend(handle.to_be_bytes());
+                }
+                (1004, Data::Binary(bin)) => {
+                    let len = u8::try_from(bin.len()).ok()?;
+                    bytes.push(4);
+                    bytes.push(len);
+                    bytes.extend_from_slice(bin);
+                }
+                (1005, Data::Handle(handle)) => {
+                    bytes.push(5);
+                    bytes.extend(handle.to_be_bytes());
+                }
+                (code @ 1010..=1013, Data::Real(x)) => {
+                    let (
+                        Some(Value {
+                            code: cy,
+                            data: Data::Real(y),
+                        }),
+                        Some(Value {
+                            code: cz,
+                            data: Data::Real(z),
+                        }),
+                    ) = (items.get(at + 1), items.get(at + 2))
+                    else {
+                        return None;
+                    };
+                    if *cy != code + 10 || *cz != code + 20 {
+                        return None;
+                    }
+                    bytes.push(u8::try_from(code - 1000).ok()?);
+                    bytes.extend(x.to_le_bytes());
+                    bytes.extend(y.to_le_bytes());
+                    bytes.extend(z.to_le_bytes());
+                    at += 3;
+                    continue;
+                }
+                (code @ 1040..=1042, Data::Real(r)) => {
+                    bytes.push(u8::try_from(code - 1000).ok()?);
+                    bytes.extend(r.to_le_bytes());
+                }
+                (1070, Data::Int(v)) => {
+                    let short = i16::try_from(*v).ok()?;
+                    bytes.push(70);
+                    bytes.extend(short.to_le_bytes());
+                }
+                (1071, Data::Int(v)) => {
+                    let long = i32::try_from(*v).ok()?;
+                    bytes.push(71);
+                    bytes.extend(long.to_le_bytes());
+                }
+                _ => return None,
+            }
+            at += 1;
+        }
+        if bytes.is_empty() || i16::try_from(bytes.len()).is_err() {
+            return None;
+        }
+        groups.push((app, bytes));
+    }
+    Some(groups)
 }

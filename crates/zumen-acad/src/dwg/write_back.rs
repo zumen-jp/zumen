@@ -654,10 +654,38 @@ impl DwgFile {
             b"ATTRIB" if self.release >= Release::R2010 => &[280],
             _ => &[],
         };
-        let codes = [&[5, 330, 8, 6, 67], COMMON, own, pointing, r2010].concat();
+        let r2004: &[i16] = if self.release >= Release::R2004 {
+            &[420, 440]
+        } else {
+            &[]
+        };
+        let codes = [
+            &[5, 330, 8, 6, 67, 370],
+            COMMON,
+            r2004,
+            own,
+            pointing,
+            r2010,
+        ]
+        .concat();
+        // 拡張データ（1001 から）は先に分け、共通と型ごとのフィールドを検査する
+        let (object, eed) = match object.values.iter().position(|value| value.code == 1001) {
+            Some(at) => {
+                let (head, xdata) = object.values.split_at(at);
+                let eed = encode_xdata(db, xdata, self.release, self.code_page)?;
+                (
+                    std::borrow::Cow::Owned(Object {
+                        values: head.to_vec(),
+                        ..object.clone()
+                    }),
+                    eed,
+                )
+            }
+            None => (std::borrow::Cow::Borrowed(object), Vec::new()),
+        };
         // R2018 からの複数行の ATTRIB は、属性の値の後に、種類（71）・72・埋め込みのオブジェクトのマーカー（101）と
         // MTEXT の値（枠の高さ（46）も）を持つ（決定 0102）
-        let (values, embedded) = match multiline_at(object) {
+        let (values, embedded) = match multiline_at(&object) {
             Some(at) if object.kind == b"ATTRIB" && self.release >= Release::R2018 => {
                 object.values.split_at(at)
             }
@@ -706,18 +734,18 @@ impl DwgFile {
             (mode, section)
         };
         // 用紙空間の図形だけが、67 = 1 を持つ
-        let paper = small(object, 67)?;
+        let paper = small(&object, 67)?;
         if object.section != section || paper != (mode == 1).then_some(1) {
             return None;
         }
-        let layer = record_handle(db, b"LAYER", text_of(object, 8)?)?;
-        let ltype = ltype_ref(db, object)?;
+        let layer = record_handle(db, b"LAYER", text_of(&object, 8)?)?;
+        let ltype = ltype_ref(db, &object)?;
         let pointed = match object.kind.as_slice() {
             // 文字スタイルがなければ Standard
             b"TEXT" | b"ATTRIB" | b"ATTDEF" | b"MTEXT" => {
                 match object.values.iter().any(|value| value.code == 7) {
                     false => Some(record_handle(db, b"STYLE", b"Standard")?),
-                    true => Some(record_handle(db, b"STYLE", text_of(object, 7)?)?),
+                    true => Some(record_handle(db, b"STYLE", text_of(&object, 7)?)?),
                 }
             }
             b"LEADER" => {
@@ -725,11 +753,11 @@ impl DwgFile {
                 if let Some(Data::Handle(annotation)) = object.first(340) {
                     db.get(*annotation).filter(|found| found.kind == b"MTEXT")?;
                 }
-                Some(record_handle(db, b"DIMSTYLE", text_of(object, 3)?)?)
+                Some(record_handle(db, b"DIMSTYLE", text_of(&object, 3)?)?)
             }
             b"INSERT" => {
                 // 空間のブロックと、図形を持つブロックそのものは挿せない
-                let name = text_of(object, 2)?;
+                let name = text_of(&object, 2)?;
                 let space = [b"*Model_Space".as_slice(), b"*Paper_Space"]
                     .iter()
                     .any(|space| {
@@ -754,6 +782,7 @@ impl DwgFile {
         };
         Some(NewEntity {
             object,
+            eed,
             handle,
             type_code,
             mode,
@@ -1843,7 +1872,8 @@ pub(super) fn encode_born_entities(
             false => Some((lookup_table(b"LTYPE", b"ByLayer")?, material_bylayer?)),
         };
         let new = NewEntity {
-            object,
+            object: std::borrow::Cow::Borrowed(object),
+            eed: Vec::new(),
             handle,
             type_code,
             mode,

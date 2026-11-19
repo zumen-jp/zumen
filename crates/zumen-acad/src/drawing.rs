@@ -32,6 +32,7 @@ pub mod single;
 mod style;
 mod template;
 
+pub use apply::CopyFrom;
 pub use live::{AcadLive, LiveFormat, LiveKind, LiveRow};
 pub use lower::{
     Lowered, Relocate, Reseat, lower_to_dxf, lower_to_dxf_with, lower_to_dxf_with_report,

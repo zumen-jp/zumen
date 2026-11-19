@@ -108,7 +108,8 @@ fn read_r2018_embedded(data: &[u8], handles_at: usize) -> EmbeddedContext {
 fn r2018_mtext_updates_embedded_context_fields_on_write_back() {
     let initial = mtext_object([100.0, -590.0, 0.0], None, 0.0, 0.0, 1, b"ZUMEN\\P878");
     let added = NewEntity {
-        object: &initial,
+        object: std::borrow::Cow::Borrowed(&initial),
+        eed: Vec::new(),
         handle: 0x49F,
         type_code: kinds::MTEXT,
         mode: 2,
@@ -174,7 +175,8 @@ fn r2018_annotative_mtext_rejects_position_change_but_allows_text_change() {
     let base = mtext_object([10.0, 20.0, 0.0], None, 0.0, 0.0, 1, b"before");
     // まず通常の足した MTEXT のビット列を作り、R2018 の注釈的でないフラグ（B）を false に書き換える
     let added = NewEntity {
-        object: &base,
+        object: std::borrow::Cow::Borrowed(&base),
+        eed: Vec::new(),
         handle: 0x40,
         type_code: kinds::MTEXT,
         mode: 2,
@@ -262,7 +264,8 @@ fn r2018_multiline_attrib_updates_embedded_mtext_context_fields() {
     };
     let initial = make_attrib([8.0, 9.0, 0.0], 0.0);
     let added = NewEntity {
-        object: &initial,
+        object: std::borrow::Cow::Borrowed(&initial),
+        eed: Vec::new(),
         handle: 0x50,
         type_code: kinds::ATTRIB,
         mode: 0,

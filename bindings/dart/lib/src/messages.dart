@@ -4028,7 +4028,7 @@ class TransformEdit extends Message {
   set matrix(List<core.double>? value) => writeField('matrix', value);
 }
 
-/// 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から
+/// 要素を複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA、JWW のフラグ・文字種・字間、SXF の文字幅・字間など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。DXF の寸法・表は新しい匿名ブロックを作る。place で配置先の空間・用紙を、from_doc で複写元の文書を指定でき（マイナーバージョン 110 から）、単位・画層・線種・文字スタイル・寸法スタイル・記号定義・APPID の対応と名前の衝突を確かめる。保てない値・参照・対応を持つ要素は change.copy.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。マイナーバージョン 100 から
 class CopyEdit extends Message {
   /// 読んだ JSON のオブジェクトを包む
   CopyEdit.fromJson(super.json);
@@ -4051,6 +4051,14 @@ class CopyEdit extends Message {
   /// [a, b, c, d, e, f]。写しの点 (x, y) を (a x + b y + c, d x + e y + f) に写す。元の位置に写すなら [1, 0, 0, 0, 1, 0]
   List<core.double>? get matrix => readField('matrix', listOf(asDouble));
   set matrix(List<core.double>? value) => writeField('matrix', value);
+
+  /// 配置先の空間か用紙の ID。省けば元の要素と同じ場所 ID。マイナーバージョン 110 から
+  String? get place => readField('place', asString);
+  set place(String? value) => writeField('place', value);
+
+  /// 複写元の文書の名前。open で作ったもの。省けば doc と同じ文書。マイナーバージョン 110 から
+  String? get fromDoc => readField('from_doc', asString);
+  set fromDoc(String? value) => writeField('from_doc', value);
 }
 
 /// 要素を除く

@@ -18,7 +18,7 @@ pub use conversion_report::{
 pub use db::{AcadDb, Data, DataType, Line, Object, Origin, Section, Value, ViewError};
 #[cfg(feature = "drawing")]
 pub use drawing::{
-    AcadLive, LiveFormat, LiveKind, LiveRow, Lowered, NewDxfTemplate, Relocate, Reseat,
+    AcadLive, CopyFrom, LiveFormat, LiveKind, LiveRow, Lowered, NewDxfTemplate, Relocate, Reseat,
     dimension_spans, lift as lift_drawing, live, lower_to_dxf, lower_to_dxf_with,
     lower_to_dxf_with_report, mtext_spans, single,
 };

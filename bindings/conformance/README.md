@@ -68,7 +68,7 @@ cargo run -p zumen-conformance -- --write
 
 `apply_hatch.json` は、合成 DXF と公開 DWG（R2000・R2004・R2013・R2018）に、塗りつぶしと線を定義する模様の HATCH を足します。膨らみを持つ外周・円の穴・模様・種点、既存の ID とハッシュ、無効な境界を含む変更と予算停止の原子性を確かめます。形式の正しさは、この一致検査と分けて [ezdxf・ACadSharp で照合](../../xtask/verify/README.md)します。
 
-`apply_copy.json` は、自作 DXF の LINE（線種の倍率・透過性・XDATA）と属性を持つ INSERT、公開 DWG（R2000）の折れ線と円を `copy` で写します（#889）。写しの ID・ハッシュと値、元の要素の不変、リアクターと XDATA のハンドルを持つ要素・予算停止で何も残らないことを照らします。
+`apply_copy.json` は、自作 DXF の LINE（線種の倍率・透過性・XDATA）と属性を持つ INSERT、公開 DWG（R2000）の折れ線と円および別文書への貼り付け（`from_doc`・`place`）、合成 JWW・SFC・P21 の線分を `copy` で写します（#889）。写しの ID・ハッシュと値、元の要素の不変、リアクターと XDATA のハンドルを持つ要素・予算停止で何も残らないことを照らします。
 
 `apply_dwg_table.json` は、[自作の表](../../crates/zumen-acad/tests/fixtures/README.md)を持つ R2000・R2004・R2010・R2013・R2018 の DWG で、位置だけの `replace` と `transform` を確かめます。ID・セル・表示用ブロックの参照と未変更要素のハッシュを保ち、未対応のセルの変更・回転・予算停止で変更が残らないことを比べます。形式の照合は、検証キットで ACadSharp と別に行います。
 

@@ -22,7 +22,7 @@ use zumen_sdk::{Cx, Error, Lift};
 use crate::saf::AttributeFile;
 use crate::{Mode, Quote, SfcRecord, SxfFile, Value, p21};
 
-mod apply;
+pub(crate) mod apply;
 pub mod live;
 pub(super) mod lower;
 

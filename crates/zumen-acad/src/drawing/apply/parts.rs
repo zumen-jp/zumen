@@ -312,6 +312,259 @@ pub(super) fn transform<P: Copy + PartialEq + geom_transform::Point>(
     )
 }
 
+/// DXF の寸法または表を複写し、新しい匿名ブロック（`*D<n>`・`*T<n>`）のレコード一式を組み立てる（#889）。
+/// 返り値は `(書き直した図形の値, [BLOCK_RECORD, BLOCK, ..部品, ENDBLK], 確保した匿名ブロック名（小文字）)`
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub(super) fn copy_parts<P: Copy + PartialEq + geom_transform::Point>(
+    current: &Current<'_>,
+    plan: &mut Plan<'_>,
+    object: &Object,
+    was: &Element<P>,
+    affine: &Affine,
+    frame: &impl Frame<P>,
+    model: bool,
+    cx: &mut Cx,
+) -> Result<Option<(Vec<Value>, Vec<Record>, String)>, Error> {
+    if current.target != Target::Dxf {
+        return Ok(None);
+    }
+    let Some(new_shape) = geom_transform::transform(&was.shape, affine) else {
+        return Ok(None);
+    };
+    if plan.blocks.is_none() {
+        plan.blocks = Some(BlockIndex::new(current.db, current.charset, cx)?);
+    }
+    let Some(blocks) = plan.blocks.as_ref() else {
+        return Ok(None);
+    };
+    let prefix = match (&was.shape, &new_shape) {
+        (Shape::Dimension(_), Shape::Dimension(_)) => "*D",
+        (Shape::Table(_), Shape::Table(_)) => "*T",
+        _ => return Ok(None),
+    };
+    let (Some(next), Some(model_rec)) = (
+        current.born.next_handle(),
+        super::add::symbol::model_record(current.db),
+    ) else {
+        return Ok(None);
+    };
+    let Some(table_owner) = model_rec.owner() else {
+        return Ok(None);
+    };
+    if super::layer::table_end(current.db, b"BLOCK_RECORD").is_none()
+        || super::add::symbol::blocks_end(current.db).is_none()
+    {
+        return Ok(None);
+    }
+    let Some(zero) = current.born.named(8, b"LAYER", "0") else {
+        return Ok(None);
+    };
+
+    let mut number = 1u64;
+    let (anon_name, lower) = loop {
+        let candidate = format!("{prefix}{number}");
+        let lower = candidate.to_lowercase();
+        if !blocks.records.contains_key(&lower) && !plan.anon_names.contains(&lower) {
+            break (candidate, lower);
+        }
+        let Some(next_num) = number.checked_add(1) else {
+            return Ok(None);
+        };
+        number = next_num;
+    };
+    let (Some(name2), Some(name3)) = (
+        current.born.text_value(2, &anon_name),
+        current.born.text_value(3, &anon_name),
+    ) else {
+        return Ok(None);
+    };
+
+    // 足す順番: [0] 写した寸法・表, [1] BLOCK_RECORD, [2] BLOCK, [3..] 部品, [末尾] ENDBLK
+    let Some(anon_record_handle) = next
+        .checked_add(plan.added_records)
+        .and_then(|base| base.checked_add(1))
+    else {
+        return Ok(None);
+    };
+    let Some(parts_base) = plan.added_records.checked_add(3) else {
+        return Ok(None);
+    };
+
+    let built = match (&was.shape, &new_shape) {
+        (Shape::Dimension(old_dim), Shape::Dimension(new_dim)) => plan_dimension(
+            current,
+            blocks,
+            object,
+            old_dim,
+            new_dim,
+            anon_record_handle,
+            frame,
+            Some(affine),
+            parts_base,
+            true,
+            cx,
+            &was.source,
+        )?,
+        (Shape::Table(old_table), Shape::Table(new_table)) => plan_table(
+            current,
+            blocks,
+            object,
+            old_table,
+            new_table,
+            anon_record_handle,
+            frame,
+            parts_base,
+            true,
+            cx,
+            &was.source,
+        )?,
+        _ => None,
+    };
+    let Some((mut values, part_records, part_count)) = built else {
+        return Ok(None);
+    };
+
+    if moving_xdata(object).is_some()
+        && (!model || carried(&mut values, &frame.affine(affine)).is_none())
+    {
+        return Ok(None);
+    }
+
+    // 写しの匿名ブロック参照を新しい名前と BLOCK_RECORD ハンドルへ付け替える
+    if matches!(new_shape, Shape::Dimension(_)) {
+        let xdata_at = values
+            .iter()
+            .position(|v| v.code == 1001)
+            .unwrap_or(values.len());
+        if let Some(slot) = values
+            .get_mut(..xdata_at)
+            .and_then(|s| s.iter_mut().find(|v| v.code == 2))
+        {
+            *slot = name2.clone();
+        } else if insert_in_dim_common(&mut values, name2.clone(), &[100]).is_none() {
+            return Ok(None);
+        }
+    } else if matches!(new_shape, Shape::Table(_)) {
+        let Some(marker) = values.iter().position(|v| {
+            v.code == 100 && matches!(&v.data, Data::Text(t) if t.as_slice() == b"AcDbTable")
+        }) else {
+            return Ok(None);
+        };
+        if let Some(slot) = values
+            .get_mut(..marker)
+            .and_then(|s| s.iter_mut().find(|v| v.code == 2))
+        {
+            *slot = name2.clone();
+        } else {
+            let at = values
+                .get(..marker)
+                .and_then(|s| s.iter().rposition(|v| v.code == 100))
+                .map_or(marker, |i| i + 1);
+            values.insert(at, name2.clone());
+        }
+        let marker = values
+            .iter()
+            .position(|v| {
+                v.code == 100 && matches!(&v.data, Data::Text(t) if t.as_slice() == b"AcDbTable")
+            })
+            .unwrap_or(marker);
+        let cell_at = values
+            .get(marker..)
+            .and_then(|s| s.iter().position(|v| v.code == 171))
+            .map_or(values.len(), |rel| marker + rel);
+        if let Some(slice) = values.get_mut(marker..cell_at) {
+            for item in slice {
+                if item.code == 343 && matches!(item.data, Data::Handle(_)) {
+                    item.data = Data::Handle(anon_record_handle);
+                }
+            }
+        }
+    }
+
+    let mut rec_values = Vec::new();
+    for v in &model_rec.values {
+        match v.code {
+            2 => rec_values.push(name2.clone()),
+            100 | 70 | 280 | 281 => rec_values.push(v.clone()),
+            _ => {}
+        }
+    }
+    if !rec_values.iter().any(|v| v.code == 2) {
+        rec_values.push(name2.clone());
+    }
+    let block_record = Record {
+        kind: b"BLOCK_RECORD",
+        values: rec_values,
+        home: Home {
+            owner: Some(table_owner),
+            blocks: false,
+            paper: false,
+        },
+        followers: Vec::new(),
+        annotation: None,
+    };
+    let block_home = Home {
+        owner: Some(anon_record_handle),
+        blocks: true,
+        paper: false,
+    };
+    let markers = current.born.has_markers();
+    let mut block_begin = Vec::new();
+    if markers {
+        block_begin.extend([
+            text(100, "AcDbEntity"),
+            zero.clone(),
+            text(100, "AcDbBlockBegin"),
+        ]);
+    } else {
+        block_begin.push(zero.clone());
+    }
+    block_begin.push(name2);
+    block_begin.push(int(70, 1));
+    let (Some(x0), Some(y0), Some(z0)) = (real(10, 0.0), real(20, 0.0), real(30, 0.0)) else {
+        return Ok(None);
+    };
+    block_begin.extend([x0, y0, z0, name3, text(1, "")]);
+    let mut end_values = Vec::new();
+    if markers {
+        end_values.extend([text(100, "AcDbEntity"), zero, text(100, "AcDbBlockEnd")]);
+    } else {
+        end_values.push(zero);
+    }
+
+    let Some(total_extra) = part_count.checked_add(3) else {
+        return Ok(None);
+    };
+    if next
+        .checked_add(plan.added_records)
+        .and_then(|first| first.checked_add(1))
+        .and_then(|after_ent| after_ent.checked_add(total_extra))
+        .and_then(|last| last.checked_add(1))
+        .is_none()
+    {
+        return Ok(None);
+    }
+
+    let mut extra = Vec::with_capacity(part_records.len() + 3);
+    extra.push(block_record);
+    extra.push(Record {
+        kind: b"BLOCK",
+        values: block_begin,
+        home: block_home,
+        followers: Vec::new(),
+        annotation: None,
+    });
+    extra.extend(part_records);
+    extra.push(Record {
+        kind: b"ENDBLK",
+        values: end_values,
+        home: block_home,
+        followers: Vec::new(),
+        annotation: None,
+    });
+    Ok(Some((values, extra, lower)))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_parts<P: Copy + PartialEq>(
     current: &Current<'_>,
@@ -413,6 +666,7 @@ fn apply_parts<P: Copy + PartialEq>(
             frame,
             transformed.map(|(affine, _)| affine),
             plan.added_records,
+            false,
             cx,
             &was.source,
         )?,
@@ -425,6 +679,7 @@ fn apply_parts<P: Copy + PartialEq>(
             record_handle,
             frame,
             plan.added_records,
+            false,
             cx,
             &was.source,
         )?,
@@ -728,6 +983,7 @@ fn plan_dimension<P: Copy + PartialEq>(
     frame: &impl Frame<P>,
     transformed: Option<&Affine>,
     base_index: u64,
+    new_block: bool,
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<Option<Rebuilt>, Error> {
@@ -813,6 +1069,7 @@ fn plan_dimension<P: Copy + PartialEq>(
         &params,
         record_handle,
         base_index,
+        new_block,
         cx,
         place,
     )?
@@ -831,6 +1088,7 @@ fn build_dimension_records<P>(
     params: &DimParams,
     record_handle: u64,
     base_index: u64,
+    new_block: bool,
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<Option<(Vec<Record>, u64)>, Error> {
@@ -875,7 +1133,11 @@ fn build_dimension_records<P>(
             shape,
         };
         let idx = base_index.checked_add(*added)?;
-        let rec = born.record(&element, &block_frame, home, idx)?;
+        let rec = if new_block {
+            born.record_in_new_block(&element, &block_frame, home, idx)?
+        } else {
+            born.record(&element, &block_frame, home, idx)?
+        };
         *added = added.checked_add(rec.count())?;
         records.push(rec);
         Some(())
@@ -1008,7 +1270,8 @@ fn build_dimension_records<P>(
             let Some(idx) = base_index.checked_add(added) else {
                 return Ok(None);
             };
-            let Some(rec) = born.solid(layer, &dim_style, [c0, c1, c2, c2], home, idx) else {
+            let Some(rec) = born.solid(layer, &dim_style, [c0, c1, c2, c2], home, idx, new_block)
+            else {
                 return Ok(None);
             };
             let Some(next_added) = added.checked_add(rec.count()) else {
@@ -1625,6 +1888,7 @@ fn plan_table<P: Copy + PartialEq>(
     record_handle: u64,
     frame: &impl Frame<P>,
     base_index: u64,
+    new_block: bool,
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<Option<Rebuilt>, Error> {
@@ -1670,6 +1934,7 @@ fn plan_table<P: Copy + PartialEq>(
         default_height,
         record_handle,
         base_index,
+        new_block,
         cx,
         place,
     )?
@@ -1873,6 +2138,7 @@ fn build_table_records<P>(
     default_height: f64,
     record_handle: u64,
     base_index: u64,
+    new_block: bool,
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<Option<(Vec<Record>, u64)>, Error> {
@@ -1914,7 +2180,11 @@ fn build_table_records<P>(
             shape,
         };
         let idx = base_index.checked_add(added)?;
-        let rec = born.record(&element, &block_frame, home, idx)?;
+        let rec = if new_block {
+            born.record_in_new_block(&element, &block_frame, home, idx)?
+        } else {
+            born.record(&element, &block_frame, home, idx)?
+        };
         added = added.checked_add(rec.count())?;
         records.push(rec);
         Some(())

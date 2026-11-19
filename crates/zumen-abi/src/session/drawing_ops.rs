@@ -254,6 +254,23 @@ impl Session {
             return self.apply_with_tables(request, drawing, cx);
         }
         let changes = changes(request, drawing, cx)?;
+        let extended_copy = request.edits.iter().any(|edit| match edit {
+            messages::Edit::Copy(c) => {
+                c.place.is_some()
+                    || c.from_doc
+                        .as_deref()
+                        .is_some_and(|from| from != request.doc)
+            }
+            _ => false,
+        });
+        if extended_copy {
+            let kept = self.take_live(&request.doc);
+            let result = self.apply_on_file_with_copies(request, drawing, &changes, cx);
+            if result.is_err() {
+                self.put_live(&request.doc, kept);
+            }
+            return result;
+        }
         // DXF・DWG・JWW・SXF は文書エンジンで当てる。当てない文書と、JWW・SXF の文書エンジンが断った変更は、
         // 今までの経路で当てる
         let changes = match self.apply_on_engine(request, drawing, changes, cx)? {
@@ -268,6 +285,261 @@ impl Session {
             self.put_live(&request.doc, kept);
         }
         result
+    }
+
+    /// 配置先（`place`）または別文書（`from_doc`）を指定した `copy` を含む変更一覧をファイルモデルに当てる（#889）
+    #[cfg(feature = "drawing")]
+    fn apply_on_file_with_copies(
+        &mut self,
+        request: &ApplyRequest,
+        drawing: &Drawing2D,
+        changes: &zumen_drawing::Changes,
+        cx: &mut Cx<'_>,
+    ) -> Result<ApplyResult, Failed> {
+        enum Staged {
+            Dxf(zumen_acad::DxfFile),
+            Dwg(zumen_acad::DwgFile),
+            Sxf(zumen_sxf::SxfFile),
+            Jww(zumen_jww::JwwFile),
+        }
+
+        let (staged, applied, bytes, hash, ids_shifted) = {
+            let Some(Document::Drawing { file: dst_res, .. }) = self.docs.get(&request.doc) else {
+                return Err(fail(
+                    cx,
+                    Diagnostic::new(codes::CALL_DOCUMENT_MISSING)
+                        .with("name", request.doc.as_str()),
+                ));
+            };
+            let dst_file = dst_res.file(cx).map_err(|_| Failed)?;
+            let mut src_files = BTreeMap::new();
+            for edit in &request.edits {
+                if let messages::Edit::Copy(c) = edit
+                    && let Some(from_doc) = c.from_doc.as_deref()
+                    && from_doc != request.doc
+                    && !src_files.contains_key(from_doc)
+                {
+                    let src_res = match self.docs.get(from_doc) {
+                        Some(Document::Drawing { file, .. }) => file,
+                        Some(_) => return Err(fail(cx, unsupported(from_doc, self.op))),
+                        None => {
+                            return Err(fail(
+                                cx,
+                                Diagnostic::new(codes::CALL_DOCUMENT_MISSING)
+                                    .with("name", from_doc),
+                            ));
+                        }
+                    };
+                    let src_file = src_res.file(cx).map_err(|_| Failed)?;
+                    src_files.insert(from_doc, src_file);
+                }
+            }
+
+            let refuse_mismatch = |edit_idx: usize, fmt: &str, cx: &mut Cx<'_>| -> Failed {
+                fail(
+                    cx,
+                    Diagnostic::new(codes::CHANGE_COPY_UNSUPPORTED)
+                        .with("edit", edit_idx as u64)
+                        .with("kind", "element")
+                        .with("field", "format")
+                        .with("value", "mismatch")
+                        .with("format", fmt),
+                )
+            };
+
+            let mut bytes = Vec::new();
+            let mut ids_shifted = false;
+            match dst_file {
+                DrawingFile::Plugin(..)
+                | DrawingFile::Lifted(..)
+                | DrawingFile::Sima(..)
+                | DrawingFile::Tiff(..) => {
+                    return Err(fail(cx, unsupported(&request.doc, self.op)));
+                }
+                DrawingFile::Dxf(file) => {
+                    let mut specs = Vec::with_capacity(request.edits.len());
+                    for (idx, edit) in request.edits.iter().enumerate() {
+                        match edit {
+                            messages::Edit::Copy(c) => {
+                                let from = match c.from_doc.as_deref() {
+                                    Some(name) if name != request.doc => {
+                                        match src_files.get(name) {
+                                            Some(DrawingFile::Dxf(other)) => Some(other),
+                                            _ => return Err(refuse_mismatch(idx, "DXF", cx)),
+                                        }
+                                    }
+                                    _ => None,
+                                };
+                                specs.push(zumen_acad::CopyFrom {
+                                    place: c.place.as_deref(),
+                                    from,
+                                });
+                            }
+                            _ => specs.push(zumen_acad::CopyFrom::default()),
+                        }
+                    }
+                    let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
+                    let applied = updated
+                        .apply_with_copies(changes, &specs, cx)
+                        .map_err(|_| Failed)?;
+                    Dxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
+                    let hash =
+                        Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
+                    if keyless(drawing, cx)? {
+                        let mut quiet = Diagnostics::new();
+                        let after = updated
+                            .lift(&mut Cx::new(cx.budget, &mut quiet, cx.cancel))
+                            .map_err(|error| match error {
+                                zumen_sdk::Error::Stopped(stop) => stopped(cx, stop),
+                                _ => {
+                                    for diagnostic in quiet.iter() {
+                                        cx.report(diagnostic.clone());
+                                    }
+                                    Failed
+                                }
+                            })?;
+                        ids_shifted = record_ids_shifted(drawing, &after, changes, cx)?;
+                    }
+                    (Staged::Dxf(updated), applied, bytes, hash, ids_shifted)
+                }
+                DrawingFile::Dwg(file) => {
+                    let mut specs = Vec::with_capacity(request.edits.len());
+                    for (idx, edit) in request.edits.iter().enumerate() {
+                        match edit {
+                            messages::Edit::Copy(c) => {
+                                let from = match c.from_doc.as_deref() {
+                                    Some(name) if name != request.doc => {
+                                        match src_files.get(name) {
+                                            Some(DrawingFile::Dwg(other)) => Some(other),
+                                            _ => return Err(refuse_mismatch(idx, "DWG", cx)),
+                                        }
+                                    }
+                                    _ => None,
+                                };
+                                specs.push(zumen_acad::CopyFrom {
+                                    place: c.place.as_deref(),
+                                    from,
+                                });
+                            }
+                            _ => specs.push(zumen_acad::CopyFrom::default()),
+                        }
+                    }
+                    let mut updated = file.snapshot(cx).map_err(|_| Failed)?;
+                    let applied = updated
+                        .apply_with_copies(changes, &specs, cx)
+                        .map_err(|_| Failed)?;
+                    Dwg::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
+                    let hash =
+                        Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
+                    (Staged::Dwg(updated), applied, bytes, hash, false)
+                }
+                DrawingFile::Sxf(file, archive, _) => {
+                    let fmt = match file.mode() {
+                        zumen_sxf::Mode::Sfc => "SFC",
+                        zumen_sxf::Mode::P21 => "P21",
+                    };
+                    let mut specs = Vec::with_capacity(request.edits.len());
+                    for (idx, edit) in request.edits.iter().enumerate() {
+                        match edit {
+                            messages::Edit::Copy(c) => {
+                                let from = match c.from_doc.as_deref() {
+                                    Some(name) if name != request.doc => {
+                                        match src_files.get(name) {
+                                            Some(DrawingFile::Sxf(other, ..)) => Some(other),
+                                            _ => return Err(refuse_mismatch(idx, fmt, cx)),
+                                        }
+                                    }
+                                    _ => None,
+                                };
+                                specs.push(zumen_sxf::CopyFrom {
+                                    place: c.place.as_deref(),
+                                    from,
+                                });
+                            }
+                            _ => specs.push(zumen_sxf::CopyFrom::default()),
+                        }
+                    }
+                    let (updated, applied) = file
+                        .applied_with_copies(changes, &specs, cx)
+                        .map_err(|error| live::engine_failed(cx, error))?;
+                    Sxf::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
+                    if let Some(archive) = archive {
+                        bytes = archive.write(&bytes).ok_or_else(|| {
+                            fail(cx, Diagnostic::new(codes::SXF_ARCHIVE_UNSUPPORTED))
+                        })?;
+                    }
+                    let hash =
+                        Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
+                    (Staged::Sxf(updated), applied, bytes, hash, false)
+                }
+                DrawingFile::Jww(file) => {
+                    let mut specs = Vec::with_capacity(request.edits.len());
+                    for (idx, edit) in request.edits.iter().enumerate() {
+                        match edit {
+                            messages::Edit::Copy(c) => {
+                                let from = match c.from_doc.as_deref() {
+                                    Some(name) if name != request.doc => {
+                                        match src_files.get(name) {
+                                            Some(DrawingFile::Jww(other)) => Some(other),
+                                            _ => return Err(refuse_mismatch(idx, "JWW", cx)),
+                                        }
+                                    }
+                                    _ => None,
+                                };
+                                specs.push(zumen_jww::CopyFrom {
+                                    place: c.place.as_deref(),
+                                    from,
+                                });
+                            }
+                            _ => specs.push(zumen_jww::CopyFrom::default()),
+                        }
+                    }
+                    let mut updated = file.clone();
+                    let (applied, shifted) = updated
+                        .apply_with_copies(changes, &specs, cx)
+                        .map_err(|_| Failed)?;
+                    Jww::write(&updated, &mut bytes, cx).map_err(|_| Failed)?;
+                    let hash =
+                        Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
+                    ids_shifted = shifted;
+                    (Staged::Jww(updated), applied, bytes, hash, ids_shifted)
+                }
+            }
+        };
+
+        let Some(Document::Drawing {
+            file,
+            hash: current_hash,
+        }) = self.docs.get_mut(&request.doc)
+        else {
+            return Err(fail(
+                cx,
+                Diagnostic::new(codes::CALL_DOCUMENT_MISSING).with("name", request.doc.as_str()),
+            ));
+        };
+        match (file.file_mut(cx).map_err(|_| Failed)?, staged) {
+            (DrawingFile::Dxf(dst), Staged::Dxf(updated)) => *dst = updated,
+            (DrawingFile::Dwg(dst), Staged::Dwg(updated)) => *dst = updated,
+            (DrawingFile::Sxf(dst, ..), Staged::Sxf(updated)) => *dst = updated,
+            (DrawingFile::Jww(dst), Staged::Jww(updated)) => *dst = updated,
+            _ => return Err(fail(cx, unsupported(&request.doc, self.op))),
+        }
+        *current_hash = hash;
+        self.blobs.push(Some(Blob {
+            kind: BlobKind::File,
+            bytes,
+        }));
+        Ok(ApplyResult {
+            applied: applied
+                .into_iter()
+                .map(|Applied { id, hash }| messages::Applied {
+                    id,
+                    hash: hash.map(|hash| hash.to_string()),
+                })
+                .collect(),
+            hash: hash.to_string(),
+            ids_shifted: ids_shifted.then_some(true),
+        })
     }
 
     /// 変更の一覧を、ファイルモデルの写しに当てて書き出す今までの経路
