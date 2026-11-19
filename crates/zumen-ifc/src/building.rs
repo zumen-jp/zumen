@@ -27,6 +27,7 @@ mod geometry;
 mod grid;
 mod indexed_faces;
 mod joinery;
+mod linear;
 mod metadata;
 
 pub(crate) use metadata::predefined_property_fields;
@@ -574,6 +575,9 @@ struct Lifter<'f> {
     halt: Cell<Option<Stop>>,
     /// 単位の検査で止まった場合の、参照先の場所
     unit_halt_place: Cell<Option<core::ops::Range<usize>>>,
+    /// `IfcLinearPlacement` が現れたときに一度だけ作る線形の索引（#376）
+    #[cfg(feature = "civil")]
+    linear: Option<linear::LinearPlacements>,
 }
 
 /// 実体の名前（大文字）の種類。そのバージョンにない実体と、表にない実体は `None`
@@ -582,6 +586,7 @@ pub(crate) fn category(kind: &[u8], schema: &[u8]) -> Option<Category> {
     ENTITIES
         .iter()
         .chain(entities::ADDITIONAL)
+        .chain(entities::INFRA)
         .find(|e| {
             e.name.as_bytes().eq_ignore_ascii_case(kind)
                 && e.predefined
@@ -596,6 +601,7 @@ impl<'f> Lifter<'f> {
         let entities = ENTITIES
             .iter()
             .chain(entities::ADDITIONAL)
+            .chain(entities::INFRA)
             .filter(|e| {
                 e.predefined
                     .get(version.column())
@@ -621,6 +627,8 @@ impl<'f> Lifter<'f> {
             unmapped_relations: Vec::new(),
             halt: Cell::new(None),
             unit_halt_place: Cell::new(None),
+            #[cfg(feature = "civil")]
+            linear: None,
         }
     }
 
@@ -2105,7 +2113,7 @@ impl<'f> Lifter<'f> {
         folded: &mut Vec<u64>,
         cx: &mut Cx,
     ) -> Result<Placement, Fold> {
-        let mut local = match self.local(start)? {
+        let mut local = match self.local(start, cx)? {
             Step::Local(transform) => transform,
             Step::Unsupported(kind) => {
                 return Ok(Placement {
@@ -2139,7 +2147,7 @@ impl<'f> Lifter<'f> {
                 Fold::Stopped(stopped(cx, stop, place))
             })?;
             folded.push(at);
-            match self.local(at)? {
+            match self.local(at, cx)? {
                 Step::Local(transform) => local = transform.then(&local),
                 Step::Unsupported(kind) => {
                     return Ok(Placement {
@@ -2159,7 +2167,7 @@ impl<'f> Lifter<'f> {
     }
 
     /// 1 つの配置の局所の変換
-    fn local(&mut self, id: u64) -> Result<Step, Fold> {
+    fn local(&mut self, id: u64, cx: &mut Cx) -> Result<Step, Fold> {
         let record = self.file.instance(id).ok_or(Fold::Invalid)?;
         let kind = self.file.kind(record).to_ascii_uppercase();
         match kind.as_slice() {
@@ -2173,10 +2181,7 @@ impl<'f> Lifter<'f> {
                 self.used.insert(id);
                 Ok(Step::Unsupported("IfcGridPlacement"))
             }
-            b"IFCLINEARPLACEMENT" => {
-                self.used.insert(id);
-                Ok(Step::Unsupported("IfcLinearPlacement"))
-            }
+            b"IFCLINEARPLACEMENT" => self.linear_placement(id, record, cx),
             _ => Err(Fold::Invalid),
         }
     }
