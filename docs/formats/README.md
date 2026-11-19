@@ -37,7 +37,7 @@
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `external` |  |
-| [par](#format-par) | TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子） | par | geo | `public` | `core` | `synthetic` |  |
+| [par](#format-par) | TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子） | par | geo | `public` | `core` | `external` |  |
 | [pdf](#format-pdf) | PDF | pdf | drawing | `unknown` | `none` |  |  |
 | [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `external` |  |
 | [png](#format-png) | PNG | png | drawing | `public` | `core` |  | `external` |
@@ -960,8 +960,10 @@
 - 文書の補足: パラメーターのファイル（TKY2JGD.par の Ver.2.1.1・2.1.2 など）と、プログラム開発用の TKY2JGD のソースコードを配る。ソースコードは国土地理院コンテンツ利用規約に従う。書式と、申請の要否の記述はない。プログラムの配布は 2017-06-05 に終え、測量計算サイトの TKY2JGD を案内する
 - 照合に使う候補: 国土地理院の測量計算サイト（TKY2JGD・PatchJGD）・jgdtrans 0.3.1（dev の依存。テストの中で作った格子で、読んだ格子点・補間の値・変換した座標を照らす。決定 0286）
 - サンプルの出どころ: 利用者が国土地理院から入手したパラメーターのファイル。Git・パッケージ・テストに入れない。テストの中で合成の格子を作る
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-17）
-- 読みの確かめた範囲: TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子（桁の幅と行の終わりが表 2 と違うものと、表 2 の桁の幅のもの）と、行の終わりが CR+LF で長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs・jgdtrans.rs）で、ヘッダーの読み飛ばし・壊れた行（初めのデータの行の後の UTF-8 でない行を含む）・格子点を数える予算・隣り合う格子点からの間隔の見分け（3 次メッシュの間隔と、公共測量成果改定マニュアル（令和 7 年 4 月）の 5 倍の間隔。格子点が 1 つだけのものや 15 倍の間隔のものは読まない）・双一次の補間（5 倍の格子の南端を含む）・複数の PatchJGD のファイルを古い順に当てる変換と、その作業量の上限や中断の合図で止まること・JGD2000 の成果に当てるファイルと JGD2011 の成果の改定のファイルを分けて受け、JGD2011 の座標には改定のファイルだけを当てること（#678）を確かめた（決定 0286）。テストの中で作った格子を jgdtrans 0.3.1 にも読ませ、読んだ格子点・補間の値・変換した座標を照らした（自前で作った格子なので、段は上げない）。国土地理院のパラメーターのファイルは読んでいない。国土地理院のファイルの間隔とヘッダーと、測量計算サイトの TKY2JGD・PatchJGD との照合は #664 で行う
+- 読みの確かめた度合い: `external`（確認日: 2026-11-19）
+- 読みの確かめた範囲: 国土地理院の TKY2JGD.par（Ver.2.1.2）・tokachi2003.par・kumamoto2026\_BL.par を読み、ファイルごとに 19 点を測量計算サイトの Web 版 TKY2JGD（Ver.1.3.80）・Web 版 PatchJGD（Ver.1.0.1）の 1 点ごとの計算に入れ、結果の経緯度と ShiftGrid::correction で直した経緯度を比べた。四隅のそろった格子点の上・格子の線の上・格子の中と、南か西の側だけが欠けた線の上の 42 点は、差が表示の桁（0.00001 秒）の中で 0。四隅のそろわない際の点と格子の外の点は、サイトも zumen も補間しない（PatchJGD の際の点は、サイトが補正せず、zumen は診断して直さない）。パラメーターのファイルは利用者の手元に置き、点の位置と値は書かない（#664、docs/formats/crs.md の「測量計算サイトとの照合」）。サイトの一括計算・平面直角座標の入力・to\_jgd2011 の変換は照らしていない。ほかの規則は、TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子（桁の幅と行の終わりが表 2 と違うものと、表 2 の桁の幅のもの）と、行の終わりが CR+LF で長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs・jgdtrans.rs）で、ヘッダーの読み飛ばし・壊れた行（初めのデータの行の後の UTF-8 でない行を含む）・格子点を数える予算・隣り合う格子点からの間隔の見分け（3 次メッシュの間隔と、公共測量成果改定マニュアル（令和 7 年 4 月）の 5 倍の間隔。格子点が 1 つだけのものや 15 倍の間隔のものは読まない）・双一次の補間（5 倍の格子の南端を含む）・複数の PatchJGD のファイルを古い順に当てる変換と、その作業量の上限や中断の合図で止まること・JGD2000 の成果に当てるファイルと JGD2011 の成果の改定のファイルを分けて受け、JGD2011 の座標には改定のファイルだけを当てること（#678）を確かめた（決定 0286）。テストの中で作った格子を jgdtrans 0.3.1 にも読ませ、読んだ格子点・補間の値・変換した座標を照らした（自前で作った格子なので、段の根拠にしない）。国土地理院のファイル 3 件の間隔・ヘッダー・ファイルの終わりの形は 2026-11-18 に確かめた（#664）
+- 読みで使った公開サンプル: [https://www.gsi.go.jp/sokuchikijun/tky2jgd\_download.html](https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html)・[https://www.gsi.go.jp/sokuchikijun/sokuchikijun41012.html](https://www.gsi.go.jp/sokuchikijun/sokuchikijun41012.html)
+- 読みで照らした外部の実装: 国土地理院の測量計算サイトの Web 版 TKY2JGD 1.3.80・国土地理院の測量計算サイトの Web 版 PatchJGD 1.0.1
 - 既知の crate: jgdtrans
 - issue: [zumen-jp/zumen#471](https://github.com/zumen-jp/zumen/issues/471)
 - issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)
