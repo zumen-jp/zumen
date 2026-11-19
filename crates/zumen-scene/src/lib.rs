@@ -25,7 +25,7 @@ use zumen_drawing::{
     Affine, Boundary, Clipping, Color, ColorSystem, Drawing2D, Edge, Fill, Flow, FormattedText,
     Hatch, HeightMeaning, Horizontal, Inherit, Islands, Item, KnotParameterization, Layer, Length,
     LineTypeDefinition, LineTypeId, MarkContent, MarkRotation, Origin, Piece, Placement, PointLook,
-    PointMark, PointSize, Polyline, Rotation, Scaled, Shape, Text, Underlay, UnderlayFrame,
+    PointMark, PointSize, Polyline, Rotation, Scaled, Shape, Spline, Text, Underlay, UnderlayFrame,
     UnderlayKind, Vertex, Vertical, VisitRef, WalkVisitor,
 };
 use zumen_geom2d::{self as geom, Xy};
@@ -123,6 +123,34 @@ pub const PAPER_TOLERANCE: f64 = 0.02;
 
 /// 空間からの既定の許容差の、範囲の対角線に対する割合の逆数（決定 0172）
 pub const SPACE_TOLERANCE_DIVISOR: f64 = 50000.0;
+
+/// シーンと計測で使う、フィット点を通る曲線のノットと制御点。
+pub fn interpolate_fit_points<P>(spline: &Spline<P>, fit: &[Xy]) -> Option<(Vec<f64>, Vec<Xy>)> {
+    let closed = spline.closed || spline.periodic;
+    if spline.degree == 3
+        && spline.knot_parameterization == Some(KnotParameterization::Chord)
+        && spline.control.is_empty()
+        && spline.knots.is_empty()
+        && spline.weights.is_empty()
+        && spline.start_tangent.is_none()
+        && spline.end_tangent.is_none()
+        && !closed
+    {
+        return geom::natural_cubic(fit);
+    }
+    let spacing = match spline.knot_parameterization {
+        Some(KnotParameterization::SquareRoot) => geom::Spacing::SquareRoot,
+        Some(KnotParameterization::Uniform) => geom::Spacing::Uniform,
+        _ => geom::Spacing::Chord,
+    };
+    geom::interpolate(
+        fit,
+        spline.start_tangent,
+        spline.end_tangent,
+        spacing,
+        closed,
+    )
+}
 
 /// 起点から配置をたどり、シーンを作る。たどる要素とハッチの行は `work`、作った点は `segments` で数える
 pub fn build(
@@ -970,19 +998,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                             );
                         }
                         let fit: Vec<Xy> = spline.fit.iter().map(|p| p.xy()).collect();
-                        let spacing = match spline.knot_parameterization {
-                            Some(KnotParameterization::SquareRoot) => geom::Spacing::SquareRoot,
-                            Some(KnotParameterization::Uniform) => geom::Spacing::Uniform,
-                            Some(KnotParameterization::Chord | KnotParameterization::Custom)
-                            | None => geom::Spacing::Chord,
-                        };
-                        let fitted = match geom::interpolate(
-                            &fit,
-                            spline.start_tangent,
-                            spline.end_tangent,
-                            spacing,
-                            spline.closed || spline.periodic,
-                        ) {
+                        let fitted = match interpolate_fit_points(spline, &fit) {
                             Some((knots, control)) => geom::try_spline_with_work(
                                 3,
                                 &knots,

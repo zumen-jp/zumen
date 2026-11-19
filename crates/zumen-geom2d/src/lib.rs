@@ -892,6 +892,22 @@ pub fn interpolate(
     spacing: Spacing,
     closed: bool,
 ) -> Option<(Vec<f64>, Vec<Xy>)> {
+    interpolate_cubic(points, start, end, spacing, closed, false)
+}
+
+/// 弦長を媒介変数にした自然 3 次スプライン。両端の 2 階微分を 0 にする。
+pub fn natural_cubic(points: &[Xy]) -> Option<(Vec<f64>, Vec<Xy>)> {
+    interpolate_cubic(points, None, None, Spacing::Chord, false, true)
+}
+
+fn interpolate_cubic(
+    points: &[Xy],
+    start: Option<Xy>,
+    end: Option<Xy>,
+    spacing: Spacing,
+    closed: bool,
+    natural: bool,
+) -> Option<(Vec<f64>, Vec<Xy>)> {
     let mut q = points.to_vec();
     if closed && q.len() >= 3 && q.first() != q.last() {
         q.push(*q.first()?);
@@ -986,21 +1002,38 @@ pub fn interpolate(
             Some(quadratic(*q.get(n - 2)?, *q.get(n - 1)?, last, h0, h1, 2))
         }
     };
-    let d0 = match start.and_then(scaled) {
-        Some(d) => d,
-        None => estimate(true)?,
-    };
-    let dn = match end.and_then(scaled) {
-        Some(d) => d,
-        None => estimate(false)?,
-    };
     let mut knots = vec![0.0; 4];
     knots.extend(u.get(1..n)?.iter().copied());
     knots.extend([1.0; 4]);
-    let a = *u.get(1)? / 3.0;
-    let b = (1.0 - *u.get(n - 1)?) / 3.0;
-    let p1 = [first[0] + d0[0] * a, first[1] + d0[1] * a];
-    let pn = [last[0] - dn[0] * b, last[1] - dn[1] * b];
+    // 接線を指定すると端から 2 番目の制御点は固定される。自然境界なら、端点と隣の未知の
+    // 制御点の内分にする。この比では端の 2 つの 1 階導関数の制御点が重なる。
+    let (mut p1, mut pn, start_ratio, end_ratio) = if natural && n >= 2 {
+        let h0 = *u.get(1)?;
+        let hn = 1.0 - *u.get(n - 1)?;
+        (
+            first,
+            last,
+            h0 / (h0 + *u.get(2)?),
+            hn / (hn + (1.0 - *u.get(n - 2)?)),
+        )
+    } else {
+        let d0 = match start.and_then(scaled) {
+            Some(d) => d,
+            None => estimate(true)?,
+        };
+        let dn = match end.and_then(scaled) {
+            Some(d) => d,
+            None => estimate(false)?,
+        };
+        let a = *u.get(1)? / 3.0;
+        let b = (1.0 - *u.get(n - 1)?) / 3.0;
+        (
+            [first[0] + d0[0] * a, first[1] + d0[1] * a],
+            [last[0] - dn[0] * b, last[1] - dn[1] * b],
+            0.0,
+            0.0,
+        )
+    };
     // 内側の点 Q1〜Q(n-1) を通す、P2〜Pn の三重対角の連立方程式（Thomas の方法）
     let m = n - 1;
     let mut lower = Vec::with_capacity(m);
@@ -1008,13 +1041,17 @@ pub fn interpolate(
     let mut upper = Vec::with_capacity(m);
     let mut rhs: Vec<Xy> = Vec::with_capacity(m);
     for k in 1..n {
-        let [na, nb, nc, _] = basis(&knots, k + 3, *u.get(k)?)?;
+        let [na, mut nb, nc, _] = basis(&knots, k + 3, *u.get(k)?)?;
         let mut r = *q.get(k)?;
         if k == 1 {
-            r = [r[0] - na * p1[0], r[1] - na * p1[1]];
+            nb += na * start_ratio;
+            let a = na * (1.0 - start_ratio);
+            r = [r[0] - a * p1[0], r[1] - a * p1[1]];
         }
         if k == n - 1 {
-            r = [r[0] - nc * pn[0], r[1] - nc * pn[1]];
+            nb += nc * end_ratio;
+            let c = nc * (1.0 - end_ratio);
+            r = [r[0] - c * pn[0], r[1] - c * pn[1]];
         }
         lower.push(na);
         diagonal.push(nb);
@@ -1035,6 +1072,12 @@ pub fn interpolate(
         let r = *rhs.get(i)?;
         let d = *diagonal.get(i)?;
         *inner.get_mut(i)? = [(r[0] - c * next[0]) / d, (r[1] - c * next[1]) / d];
+    }
+    if natural && n >= 2 {
+        let between =
+            |a: Xy, b: Xy, ratio: f64| [a[0] + ratio * (b[0] - a[0]), a[1] + ratio * (b[1] - a[1])];
+        p1 = between(first, *inner.first()?, start_ratio);
+        pn = between(last, *inner.last()?, end_ratio);
     }
     let mut control = vec![first, p1];
     control.extend(inner);
@@ -1451,6 +1494,21 @@ mod tests {
         assert!(
             interpolate(&[[0.0, 0.0], [0.0, 0.0]], None, None, Spacing::Chord, false).is_none()
         );
+    }
+
+    #[test]
+    fn natural_cubic_matches_the_autocad_chord_parameters() {
+        let fit = [[0.0, 0.0], [5.0, 2.0], [8.0, 5.0], [15.0, 2.0]];
+        let (knots, control) = natural_cubic(&fit).unwrap();
+        let homogeneous: Vec<_> = control.iter().map(|&[x, y]| [x, y, 1.0]).collect();
+        for (t, expected) in [
+            (0.25, [4.119458048941, 1.360895816395]),
+            (0.50, [7.279395525500, 4.468682526075]),
+            (0.75, [10.782236546328, 4.848869849106]),
+        ] {
+            let point = de_boor(3, &knots, &homogeneous, t).unwrap();
+            assert!(distance(point, expected) < 1e-10);
+        }
     }
 
     #[test]

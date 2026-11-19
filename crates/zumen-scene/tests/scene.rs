@@ -549,6 +549,46 @@ fn splines_with_only_fit_points_pass_through_them() {
     assert!((top - 5.0).abs() < 0.02, "{top}");
 }
 
+#[test]
+fn chord_fit_spline_matches_the_curve_measured_in_autocad() {
+    let drawing = lift(&[
+        (0, "SPLINE"),
+        (5, "A1"),
+        (8, "0"),
+        (70, "1056"),
+        (71, "3"),
+        (72, "0"),
+        (73, "0"),
+        (74, "4"),
+        (44, "0.0000000001"),
+        (11, "0"),
+        (21, "0"),
+        (31, "0"),
+        (11, "5"),
+        (21, "2"),
+        (31, "0"),
+        (11, "8"),
+        (21, "5"),
+        (31, "0"),
+        (11, "15"),
+        (21, "2"),
+        (31, "0"),
+    ]);
+    let (scene, codes) = made(
+        &drawing,
+        &Options {
+            tolerance: Some(0.001),
+            ..options()
+        },
+    );
+    assert!(codes.contains(&codes::SCENE_CURVE_APPROXIMATED));
+    assert!(codes.contains(&codes::SCENE_FIT_TOLERANCE_APPROXIMATED));
+    // 同じ 4 点の R2013・R2018 の DWG を AutoCAD 2027 で開き、媒介変数の全域を
+    // 4096 等分した曲線上の点のうち、Y が最大の点と比べる（#343）。
+    let max_y = scene.extent.unwrap()[3];
+    assert!((max_y - 5.263642799417).abs() < 0.001, "{max_y}");
+}
+
 /// シーンを作るのに使った予算の量
 #[cfg(test)]
 fn used_by(drawing: &Drawing2D, kind: Kind) -> u64 {
