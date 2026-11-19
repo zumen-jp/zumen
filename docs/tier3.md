@@ -7,9 +7,9 @@
 | C ABI | 言語に FFI がある。同じプロセスで速く呼びたい | [Ruby（Fiddle）](../examples/tier3/ruby/c_abi.rb) |
 | CLI と `process` | 子プロセスを起こせる。ライブラリを読み込みたくない | [PHP（proc_open）](../examples/tier3/php/stdio.php) |
 | wasm（WASI） | ネイティブのライブラリを置けない。WASI のランタイムがある | PHP のサンプルを、WASI のランタイムの上の CLI で動かす |
-| HTTP | 言語から HTTP だけを使える。別のマシンやコンテナーに置きたい | [PowerShell（Invoke-RestMethod）](../examples/tier3/powershell/http.ps1) |
+| HTTP | 言語から HTTP だけを使える。別のマシンやコンテナーに置きたい | [PowerShell（Invoke-RestMethod）](../examples/tier3/powershell/http.ps1)・[MATLAB（webwrite）](../examples/tier3/matlab/zumen_http.m) |
 
-サンプルは、同じ図面（[samples/dwg/zumen-layout-r2000_ascii.dxf](../samples/dwg/zumen-layout-r2000_ascii.dxf)）を開き、形式と図形の数（[examples/tier3/expected.txt](../examples/tier3/expected.txt)）を書きます。毎晩の CI（`nightly.yml` の `tier3`）が流し、書いたものが `expected.txt` と同じかを確かめます。言語に依らない適合テストは、[bindings/conformance/cli.mjs](../bindings/conformance/cli.mjs) が同じ形で流します。
+サンプルは、同じ図面（[samples/dwg/zumen-layout-r2000_ascii.dxf](../samples/dwg/zumen-layout-r2000_ascii.dxf)）を開き、形式と図形の数（[examples/tier3/expected.txt](../examples/tier3/expected.txt)）を書きます。毎晩の CI（`nightly.yml` の `tier3`）では Ruby・PHP・PowerShell のサンプルを流し、書いたものが `expected.txt` と同じかを確かめます。言語に依らない適合テストは、[bindings/conformance/cli.mjs](../bindings/conformance/cli.mjs) が同じ形で流します。
 
 CLI と C ABI の共有ライブラリは [GitHub Release](https://github.com/zumen-jp/zumen/releases) でも配っています。下のサンプルは、このリポジトリでビルドしたもの（`target/release`）を使う手順です。
 
@@ -72,3 +72,14 @@ wasmtime run target/wasm32-wasip1/release/zumen.wasm serve --stdio
 
 - TLS と認証は持ちません。ループバックの外で待ち受けるときは、前に TLS と認証を持つサーバーを置いてください。
 - ブラウザーが付ける `Origin` のある要求は受けません。ブラウザーからは wasm のモジュールを使います。
+
+### MATLAB
+
+ターミナルで `zumen serve --http` を起動し、MATLAB の作業フォルダーをリポジトリのルートにして実行します。
+
+```matlab
+addpath('examples/tier3/matlab')
+zumen_http('http://127.0.0.1:24180/', 'samples/dwg/zumen-layout-r2000_ascii.dxf')
+```
+
+[MATLAB の検証](../.github/workflows/verify-matlab.yml)は Linux x64 上の MATLAB R2025b で実行し、形式と図形の数を共通の期待値と照らします。GitHub Actions から手動でも実行できます。
