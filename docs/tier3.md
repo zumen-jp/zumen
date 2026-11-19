@@ -4,7 +4,7 @@
 
 | 形態 | 向く場面 | サンプル |
 | --- | --- | --- |
-| C ABI | 言語に FFI がある。同じプロセスで速く呼びたい | [Ruby（Fiddle）](../examples/tier3/ruby/c_abi.rb) |
+| C ABI | 言語に FFI がある。同じプロセスで速く呼びたい | [Ruby（Fiddle）](../examples/tier3/ruby/c_abi.rb)・[Delphi（Windows x64）](../examples/tier3/delphi/zumen_summary.dpr) |
 | CLI と `process` | 子プロセスを起こせる。ライブラリを読み込みたくない | [PHP（proc_open）](../examples/tier3/php/stdio.php)・[AutoLISP（Windows の WScript.Shell）](../examples/tier3/autolisp/cli.lsp) |
 | wasm（WASI） | ネイティブのライブラリを置けない。WASI のランタイムがある | PHP のサンプルを、WASI のランタイムの上の CLI で動かす |
 | HTTP | 言語から HTTP だけを使える。別のマシンやコンテナーに置きたい | [PowerShell（Invoke-RestMethod）](../examples/tier3/powershell/http.ps1)・[MATLAB（webwrite）](../examples/tier3/matlab/zumen_http.m) |
@@ -38,6 +38,19 @@ CLI と C ABI の共有ライブラリは [GitHub Release](https://github.com/zu
 - `zm_buf` は、ポインターと `size_t` の 2 つのフィールドの構造体です。FFI では、この大きさの領域を確保して渡し、読んだあとに `zm_free` に渡します。
 - 関数は各環境の 64 bit の標準 C 呼び出し規約です。
 - 1 つのセッションを、同時に 2 つのスレッドから呼ばないでください。呼ぶと busy を返します。
+
+### Delphi
+
+Windows x64 用のサンプルは、公開 DXF のバイト列を DLL に渡し、`open` の `result.format` と `entities` の `result.total` を標準出力に書きます。Delphi 製品コンパイラーでの実行は未確認です。
+
+Delphi の Win64 コンパイラー `dcc64.exe` と Win64 の RTL が使える RAD Studio のコマンドプロンプトで、リポジトリのルートから次を実行します。照合スクリプトは一時フォルダーでコンパイルし、実行結果の改行を LF にそろえ、末尾の改行まで `expected.txt` と比較します。[Delphi のコマンドラインコンパイラー](https://docwiki.embarcadero.com/RADStudio/Sydney/en/DCC64.EXE%2C_the_Delphi_64-bit_Command_Line_Compiler)
+
+```powershell
+cargo build -p zumen-abi --release
+py -3 examples/tier3/delphi/verify.py target/release/zumen_abi1.dll
+```
+
+成功時はコンパイラーのメッセージに続いて `format dxf` と `entities 2` が出ます。Delphi の製品名・版、コンパイラーの版とこの 2 行を [#405](https://github.com/zumen-jp/zumen/issues/405) に記録します。
 
 ## CLI と `process`
 
