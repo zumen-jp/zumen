@@ -231,6 +231,113 @@ fn r2018_annotative_mtext_rejects_position_change_but_allows_text_change() {
     );
 }
 
+/// 複数行の属性の 2 つ目の 101 から段組みを読み、タグを変えても段データの元のビットと定義の問いを保つ。
+#[test]
+fn r2018_attribute_preserves_two_dynamic_columns_on_tag_edit() {
+    let release = Release::R2018;
+    let mtext = mtext_object([0.0; 3], None, 44.0, 0.0, 1, b"L\\NR");
+    for (kind, attribute_type) in [(b"ATTRIB", 2), (b"ATTDEF", 4)] {
+        let definition = kind == b"ATTDEF";
+        let mut fields = BitWriter::with_strings();
+        fields.rc(0xFF);
+        fields.rd(0.0);
+        fields.rd(0.0);
+        fields.bit(true);
+        fields.bit(true);
+        fields.rd(1.0);
+        fields.text(b"L R").unwrap();
+        fields.rc(0);
+        fields.rc(attribute_type);
+        for &bit in EMBEDDED_BITS {
+            fields.bit(bit == b'1');
+        }
+
+        // 段なしの MTEXT の最後の 2 ビットを、実測した動的 2 段の種類と段データに置き換える。
+        let mut body = BitWriter::with_strings();
+        r2010_mtext(&mut body, None, &mtext, &[], 0, 0, release).unwrap();
+        let strings = body.take_strings();
+        let string_len = strings.len();
+        fields
+            .copy_strings(&strings.into_bytes(), 0..string_len)
+            .unwrap();
+        let kind_at = body.len() - 2;
+        fields.copy(&body.into_bytes(), 0..kind_at).unwrap();
+        fields.bs(2);
+        fields.bl(2);
+        fields.bd(20.0);
+        fields.bd(4.0);
+        fields.bit(false);
+        fields.bit(false);
+        fields.bd(16.0);
+        fields.bd(20.0);
+        fields.bs(0);
+        fields.text(b"COLS").unwrap();
+        fields.bs(0);
+        fields.rc(0);
+        fields.bit(false);
+        if definition {
+            fields.rc(0);
+            fields.text(b"Prompt").unwrap();
+        }
+
+        let assemble =
+            |fields| r2010_assemble(BitWriter::default(), fields, BitWriter::default()).unwrap();
+        let read = |data: &[u8], handles_at| {
+            let mut bits = Bits::with_release(data, release);
+            let end = bits.split_strings(handles_at).unwrap();
+            let values = super::super::objects::attribute(&mut bits, definition).unwrap();
+            assert_eq!(bits.pos(), end);
+            (
+                Object {
+                    kind: kind.to_vec(),
+                    section: Section::Entities,
+                    origin: Origin::New,
+                    values,
+                },
+                end,
+            )
+        };
+        let encoded = assemble(fields);
+        let (data, handles_at) = split_mc(&encoded);
+        let (original, end) = read(data, handles_at);
+        let (head, columns) = columns_removed(&original).unwrap();
+        assert_eq!(head.values.iter().filter(|v| v.code == 101).count(), 1);
+        assert_eq!(columns[0], text_val(101, b"Embedded Object"));
+        assert!(columns.ends_with(&[
+            int(71, 2),
+            int(72, 2),
+            real(44, 20.0),
+            real(45, 4.0),
+            int(73, 0),
+            int(74, 0),
+            real(46, 16.0),
+            real(46, 20.0),
+        ]));
+        assert_eq!(original.first(2), Some(&Data::Text(b"COLS".to_vec())));
+        if definition {
+            assert_eq!(original.first(3), Some(&Data::Text(b"Prompt".to_vec())));
+        }
+
+        let mut updated = head.clone();
+        let tag = updated.values.iter_mut().find(|v| v.code == 2).unwrap();
+        *tag = text_val(2, b"EDIT");
+        let mut fields = BitWriter::with_strings();
+        r2010_attribute(&mut fields, Some(&head), &updated, data, [0, end], release).unwrap();
+        let written = assemble(fields);
+        let (result, handles_at) = split_mc(&written);
+        let (reopened, reopened_end) = read(result, handles_at);
+        let (after, after_columns) = columns_removed(&reopened).unwrap();
+        assert_eq!((after.values, after_columns), (updated.values, columns));
+        assert_eq!(end, reopened_end);
+        let main_bits = |data: &[u8]| {
+            let mut main = BitWriter::default();
+            main.copy(data, 0..end).unwrap();
+            main.into_bytes()
+        };
+        assert_eq!(main_bits(result), main_bits(data));
+    }
+}
+
 /// R2018 の複数行の ATTRIB も、埋め込みの MTEXT の注釈フィールドを更新する（#880）
 #[test]
 fn r2018_multiline_attrib_updates_embedded_mtext_context_fields() {

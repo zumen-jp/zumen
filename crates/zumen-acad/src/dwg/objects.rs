@@ -46,10 +46,10 @@ mod non_entities;
 mod records;
 mod tables;
 
-pub(super) use self::annotations::leader;
-#[cfg(test)]
-pub(super) use self::annotations::mtext;
 use self::annotations::*;
+#[cfg(test)]
+pub(super) use self::annotations::{attribute, mtext};
+pub(super) use self::annotations::{leader, mtext_embedded};
 pub(super) use self::geometry::hatch_gradient;
 use self::geometry::*;
 pub(super) use self::layout::*;
@@ -1034,7 +1034,7 @@ pub(super) fn read(
                 MTEXT => {
                     let mut values = mtext(&mut bits)?;
                     if bits.release() >= Release::R2018 {
-                        values.extend(mtext_embedded(&mut bits)?);
+                        values.extend(mtext_embedded(&mut bits, false)?);
                     }
                     values
                 }

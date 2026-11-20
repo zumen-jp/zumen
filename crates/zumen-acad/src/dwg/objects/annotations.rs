@@ -50,7 +50,7 @@ pub(super) fn text(bits: &mut Bits) -> Option<Vec<Value>> {
 /// ATTRIB・ATTDEF のフィールド（ODS 5.4.1 の 20.4.4・20.4.5、R2000）。TEXT のフィールドに続けて、タグ（2）・フィールドの長さ
 /// （73）・フラグ（70）を、ATTDEF は問い（3）も置く。DXF は縦の合わせを 74 に書くので、TEXT の 73 を 74 に
 /// 移す。フィールドの長さは 0 でなければ置く
-pub(super) fn attribute(bits: &mut Bits, definition: bool) -> Option<Vec<Value>> {
+pub(in crate::dwg) fn attribute(bits: &mut Bits, definition: bool) -> Option<Vec<Value>> {
     let mut values = text(bits)?;
     for value in &mut values {
         if value.code == 73 {
@@ -74,11 +74,15 @@ pub(super) fn attribute(bits: &mut Bits, definition: bool) -> Option<Vec<Value>>
         if kind != 1 {
             bits.seek(bits.pos() + 37);
             let mtext = mtext(bits)?;
-            mtext_columns(bits)?;
+            let columns = mtext_embedded(bits, true)?;
+            if !columns.is_empty() && !matches!((definition, kind), (true, 4) | (false, 2)) {
+                return None;
+            }
             embedded.push(int(71, i64::from(kind)));
             embedded.push(int(72, i64::from(bits.bs()?)));
             embedded.push(text_value(101, b"Embedded Object"));
             embedded.extend(mtext);
+            embedded.extend(columns);
         }
     }
     values.push(text_value(2, &bits.text()?));
@@ -380,33 +384,17 @@ pub(in crate::dwg) fn mtext(bits: &mut Bits) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// R2018 からの MTEXT の、背景のフィールドの後のフィールドを読み飛ばす。注釈でないか（B）・バージョン（BS）・既定か（B）・
-/// 寄せ方（BL）・X 軸の向き・挿入点・幅と高さと範囲の幅と高さ（BD）・段組みの種類（BL）の順（図面で
-/// 確かめた）。段組みのあるフィールドは、まだ確かめていないので読まない
-pub(super) fn mtext_columns(bits: &mut Bits) -> Option<()> {
-    bits.bit()?;
-    bits.bs()?;
-    bits.bit()?;
-    bits.bl()?;
-    point3(bits, 10)?;
-    point3(bits, 11)?;
-    for _ in 0..4 {
-        bits.bd()?;
-    }
-    (bits.bl()? == 0).then_some(())
-}
-
-/// R2018 からの MTEXT の、背景のフィールドの後のフィールド。並びは [`mtext_columns`] と同じで、寄せ方（BL）は DXF の 70、
-/// 2 つの点は 10・11、4 つの BD は 40 から 43 にあたる。段組みの種類（BL、DXF の
+/// R2018 からの MTEXT の、背景の後の注釈と段組み（ODS 5.4.1 の 20.4.46）。寄せ方（BL）は DXF の 70、
+/// 2 つの点は 10・11、4 つの BD は 40 から 43 にあたる。段組みの種類（DXF の
 /// 71）が 0 でなければ、高さの数（BL、72）・段の幅（BD、44）・段の間隔（BD、45）・高さを自動で決めるか
 /// （B、73）・逆に流すか（B、74）と、自動でない手動の段組み（種類 2）なら段ごとの高さ（BD、46）が続く
 /// （図面で確かめた）。DXF と同じく、段組みがあれば埋め込みのオブジェクトのマーカー（101）の後に置き、なければ
 /// 何も置かない。段ごとの高さは、同じ図面の DXF が 0.0 と書く所に負の値を持つことがあるが、DWG の値を
 /// そのまま置く（docs/formats/dwg.md）
-pub(super) fn mtext_embedded(bits: &mut Bits) -> Option<Vec<Value>> {
-    bits.bit()?;
+pub(in crate::dwg) fn mtext_embedded(bits: &mut Bits, attribute: bool) -> Option<Vec<Value>> {
+    let not_annotative = bits.bit()?;
     bits.bs()?;
-    bits.bit()?;
+    let is_default = bits.bit()?;
     let attachment = bits.bl()?;
     let mut values = vec![
         text_value(101, b"Embedded Object"),
@@ -417,7 +405,12 @@ pub(super) fn mtext_embedded(bits: &mut Bits) -> Option<Vec<Value>> {
     for code in 40..=43 {
         values.push(real(code, bits.bd()?));
     }
-    let kind = bits.bl()?;
+    // 仕様の段の種類は BS。単独の MTEXT で既に扱う BL と、生成例の 0 と 2 のビット列は同じ。
+    let kind = if attribute {
+        i32::from(bits.bs()?)
+    } else {
+        bits.bl()?
+    };
     if kind == 0 {
         return Some(Vec::new());
     }
@@ -427,8 +420,15 @@ pub(super) fn mtext_embedded(bits: &mut Bits) -> Option<Vec<Value>> {
     values.push(real(44, bits.bd()?));
     values.push(real(45, bits.bd()?));
     let automatic = bits.bit()?;
+    let reversed = bits.bit()?;
+    // 属性の中では、公開生成例（#156）で確かめた手動・順方向の動的 2 段だけを読む。
+    if attribute
+        && !(not_annotative && is_default && kind == 2 && count == 2 && !automatic && !reversed)
+    {
+        return None;
+    }
     values.push(int(73, i64::from(automatic)));
-    values.push(int(74, i64::from(bits.bit()?)));
+    values.push(int(74, i64::from(reversed)));
     if !automatic && kind == 2 {
         for _ in 0..count {
             values.push(real(46, bits.bd()?));

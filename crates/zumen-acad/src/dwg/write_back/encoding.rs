@@ -1022,16 +1022,26 @@ fn moved_table_fields(
     Some(out)
 }
 
-/// MTEXT `object` から、埋め込みのオブジェクトのマーカー（101）と後の値を除いたものと、除いた値。MTEXT でなければ
-/// そのまま
+/// 段組みのマーカー（101）と後の値を分ける。複数行の属性では最初の 101 が MTEXT、次の 101 が段組みを表す。
 pub(super) fn columns_removed(object: &Object) -> Option<(Object, Vec<Value>)> {
+    let mut markers = object
+        .values
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| v.code == 101);
     let at = match object.kind.as_slice() {
-        b"MTEXT" => object.values.iter().position(|value| value.code == 101),
+        b"MTEXT" => markers.next(),
+        b"ATTRIB" | b"ATTDEF" => markers.nth(1),
         _ => None,
-    };
+    }
+    .map(|(at, _)| at);
     let Some(at) = at else {
         return Some((object.clone(), Vec::new()));
     };
+    if matches!(object.kind.as_slice(), b"ATTRIB" | b"ATTDEF") {
+        let expected = if object.kind == b"ATTRIB" { 2 } else { 4 };
+        (object.values.get(multiline_at(object)?)?.data == Data::Int(expected)).then_some(())?;
+    }
     let (values, columns) = object.values.split_at_checked(at)?;
     let kept = Object {
         values: values.to_vec(),
@@ -1366,8 +1376,10 @@ fn r2010_mtext_tail(
     let extents_at = bits.pos();
     bits.bd()?;
     bits.bd()?;
-    let kind = bits.bl()?;
-    if kind != 0 {
+    if matches!(object.kind.as_slice(), b"ATTRIB" | b"ATTDEF") {
+        // 段のある属性の枠や位置が変わると、元の段配置をそのまま写せない。
+        (bits.bs()? == 0).then_some(())?;
+    } else if bits.bl()? != 0 {
         // 段組みの MTEXT（101 を持つ）は、埋め込みのオブジェクトの値を元のまま写す（決定 0098）
         return fields.copy(data, flag_at..end);
     }
@@ -1421,7 +1433,7 @@ pub(super) fn multiline_at(object: &Object) -> Option<usize> {
 }
 
 /// R2018 からの複数行の属性の元のフィールドの、種類の後の 37 ビットの始まりと、埋め込みの MTEXT のフィールドの始まりと、
-/// 段の種類の後の終わりのビットの位置。型ごとのフィールドは `start` から始まる。文字列は文字列のストリームにあるので読まない
+/// 段組みの後のビットの位置。型ごとのフィールドは `start` から始まる。文字列は文字列のストリームにあるので読まない
 pub(super) fn embedded_span(data: &[u8], start: usize, release: Release) -> Option<[usize; 3]> {
     let mut bits = Bits::with_release(data, release);
     bits.seek(start);
@@ -1481,15 +1493,8 @@ pub(super) fn embedded_span(data: &[u8], start: usize, release: Release) -> Opti
         bits.cmc()?;
         bits.bl()?;
     }
-    // R2018 から増えたフィールド（決定 0098）。段のあるものは、まだ扱わない
-    bits.bit()?;
-    bits.bs()?;
-    bits.bit()?;
-    bits.bl()?;
-    for _ in 0..10 {
-        bits.bd()?;
-    }
-    (bits.bl()? == 0).then_some(())?;
+    // 属性の名前などは、埋め込みの段の高さをすべて読んだ後に続く。
+    super::super::objects::mtext_embedded(&mut bits, true)?;
     Some([at, mtext_at, bits.pos()])
 }
 
@@ -1540,6 +1545,9 @@ pub(super) fn r2010_attribute(
                 ..object.clone()
             };
             if data.is_empty() {
+                if mtext.iter().any(|v| v.code == 101) {
+                    return None;
+                }
                 for &bit in EMBEDDED_BITS {
                     fields.bit(bit == b'1');
                 }
