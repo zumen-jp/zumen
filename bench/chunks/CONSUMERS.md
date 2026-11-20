@@ -1,6 +1,6 @@
 # シーンを使う側の測定
 
-[#219](https://github.com/zumen-jp/zumen/issues/219) の追加測定です。[生成側](README.md)と同じ公開 3 入力・合成 2 入力を使います。表示部品の現行の経路を呼び、描画・範囲選択・転送・メモリを分けて記録します。結果は [CONSUMER-RESULTS.md](CONSUMER-RESULTS.md) にあります。値を決めるための参考で、仮値の変更や issue 全体の完了ではありません。
+[#219](https://github.com/zumen-jp/zumen/issues/219) の追加測定です。[生成側](README.md)と同じ公開 3 入力・合成 2 入力を使います。[静岡市の都市計画基本図の測定](https://github.com/zumen-jp/zumen/issues/219#issuecomment-6982317268)で保存した各図郭の入力・シーン・結果も使えます。表示部品の現行の経路を呼び、描画・範囲選択・転送・メモリを分けて記録します。結果は [CONSUMER-RESULTS.md](CONSUMER-RESULTS.md) にあります。値を決めるための参考で、仮値の変更や issue 全体の完了ではありません。
 
 ## 再現する手順
 
@@ -20,9 +20,11 @@ node bench/chunks/summarize-consumer.mjs bench/chunks/out/consumer-results.json
 
 3〜99 の奇数を指定でき、生成側と同じ回数でなければ停止します。各項目を 1 回ウォームアップし、指定回数の中央値を取ります。既存の Worker は各回新しく作り、ブラウザーの Worker 往復は起動済みのものを使います。結果は `out/consumer-results.json` です。最後のコマンドはその JSON を日付付きの結果と Markdown に写すため、記録を更新するときに使います。
 
-専用の headless Chromium を起動し、各設定に新しい browser context を作ります。個人のプロファイルや受け取った図面は使いません。ローカルサーバーは `127.0.0.1:24192` にだけ bind し、固定したモジュールと 9 個の生成済みシーンだけを返します。外の origin への要求は遮断します。図面を外へ送りません。
+専用の headless Chromium を起動し、各設定に新しい browser context を作ります。個人のプロファイルや受け取った図面は使いません。ローカルサーバーは `127.0.0.1:24192` にだけ bind し、固定したモジュールと計測対象の生成済みシーンだけを返します。外の origin への要求は遮断します。図面を外へ送りません。
 
 ## 入力と比較設定
+
+静岡市の図郭ごとの生成結果を使う場合は、そのフォルダーを `consumer.mjs` の第 1 引数に渡します。`results.json` と `sheet-input.bin`、5 設定の `sheet-*.bin` を使います。生成側の記録にある SHA-256 で入力とシーンを照合します。
 
 公開入力は仮値だけを測ります。合成 10k は仮値と件数 1024・16384、合成 100k は仮値と範囲 16384・262144 倍を測り、計 9 組に絞ります。入力・シーンのサイズ、要素数・塊数、SHA-256 は生成側の結果と照合します。入力の生成物も `out/` だけに保存します。
 
@@ -36,15 +38,16 @@ node bench/chunks/summarize-consumer.mjs bench/chunks/out/consumer-results.json
 | --- | --- |
 | `reader_ms` | 所有済みの整列した ArrayBuffer を `readScene()` に渡して返るまで。通信と準備のコピーを除く |
 | `set_scene_ms` | 同じカメラで `setScene()` を呼んで返るまで。検査・索引・報告・最初の描画を含む |
-| `render_submit_ms` | 準備済みの表示部品で `render()` を呼んで返るまで。JavaScript と Canvas の呼び出しを含む CPU 側の費用 |
+| `render_submit_ms` | 準備済みの表示部品で `render()` を呼んで返るまで。JavaScript と WebGPU のコマンド送信を含む CPU 側の費用 |
+| `render_complete_ms` | 直前のキューの完了を待ち、描画を呼んでから同じ GPU デバイスの `queue.onSubmittedWorkDone()` が完了するまで |
 | `render_to_next_raf_ms` | rAF の中で描画を呼ぶ直前から、次の rAF のコールバックまで。表示周期とスケジューリングを含む |
-| `render_readback_ms` | `render()` と全画素の `getImageData()` が返るまで。描画と同期した CPU 側への読み戻しを含む |
+| `render_readback_ms` | `render()` と表示部品の `snapshot()` が全画素の RGBA 配列を返すまで。テクスチャからバッファーへのコピーと CPU 側への読み戻しを含む |
 | `select_rect_ms` | 中央の CSS px の四角（240・160）〜（720・480）を `hitTestRect()` に渡して返るまで |
 | `transfer.post_message_ms`・`clone.post_message_ms` | 主スレッドの `postMessage()` が返るまで。受信や Worker の処理を待たない |
 | `transfer.roundtrip_ms`・`clone.roundtrip_ms` | 起動済み Worker へ送る直前から、同じバッファーの返信の受信まで。往復のスケジューリングを含む |
 | `job_to_exit_ms` | Node.js の既存 `createSceneJob()` を呼ぶ直前から、`result` が成功するまで。Worker の起動・入力転送・wasm の初期化・読み・シーン生成・`take` のコピー・返信転送・終了を含む |
 
-rAF は表示完了の通知ではありません。Canvas の呼び出しが戻る時刻と、GPU の完了を分けて測れる API は使っていません。読み戻しも GPU の単独の処理時間ではなく、ソフトウェア描画ならその費用を含みます。headless の GPU 情報を保存します。小さい値はブラウザーの時計の分解能に制限されます。
+rAF はブラウザーが次のフレームの処理を始める時刻を示します。完了待ちの測定には CPU 側の描画と WebGPU キューの処理、通知を受け取るまでの時間が入ります。シェーダー単独の実行時間とディスプレイへの表示時刻は未測定です。headless Chromium と WebGPU が選んだアダプターの情報を保存します。小さい値はブラウザーの時計の分解能に制限されます。
 
 生成済み blob の Worker 往復は、標準の structured clone と転送リストを使う測定専用の echo です。既存の scene job の内訳を測ったものではありません。転送は両方向に所有権を移し、clone は両方向でコピーします。専有バッファーを用意する `slice` は時計の外です。送信元の detach と返信の SHA-256・バイト数を検査します。`post_message_ms` と往復時間の差を、片道のコピー時間とはみなしません。
 

@@ -8,6 +8,7 @@ import { resolve, extname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadSync, readScene } from "../../bindings/js/src/index.js";
 import { createSceneJob } from "../../bindings/js/examples/worker/job.mjs";
+import { chromiumLaunchOptions } from "../../bindings/js/test/browser/launch.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const out = resolve(process.argv[2] ?? resolve(root, "bench/chunks/out"));
@@ -18,19 +19,20 @@ const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 const median = values => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 const source = JSON.parse(await readFile(resolve(out, "results.json"), "utf8"));
 assert.equal(source.repeats, repeats, "producer/consumer repeat counts differ");
-assert.equal(source.results.length, 25);
+const sheet = source.results.every(row => row.case === "sheet");
+assert.equal(source.results.length, sheet ? 5 : 25);
 // 公開入力は仮値のみ。合成入力は件数・範囲が効く両端を足す。
-const rows = source.results.filter(r => r.policy === "provisional" ||
+const rows = source.results.filter(r => sheet || r.policy === "provisional" ||
   r.case === "synthetic-10k" && ["items-1024", "items-16384"].includes(r.policy) ||
   r.case === "synthetic-100k" && ["span-16384", "span-262144"].includes(r.policy));
-assert.equal(rows.length, 9);
+assert.equal(rows.length, sheet ? 5 : 9);
 for (const row of rows) assert.equal(sha256(await readFile(resolve(out, `${row.case}-${row.policy}.bin`))), row.scene_sha256);
 const wasm = await readFile(wasmPath), module = await WebAssembly.compile(wasm);
 const node_worker = [];
 for (const row of rows.filter(r => r.policy === "provisional")) {
   const inputBytes = await readFile(resolve(out, `${row.case}-input.bin`));
   assert.equal(inputBytes.length, row.metrics.input_bytes);
-  const ledgerInput = source.inputs.find(r => r.path.endsWith(row.case === "layout-dwg" ? "zumen-layout-r2000.dwg" : row.case === "arcdim-dxf" ? "zumen-arcdim-r2004_ascii.dxf" : row.case === "text-dxf" ? "text_alignments.dxf" : "\0"));
+  const ledgerInput = source.inputs.find(r => r.case === row.case || r.path?.endsWith(row.case === "layout-dwg" ? "zumen-layout-r2000.dwg" : row.case === "arcdim-dxf" ? "zumen-arcdim-r2004_ascii.dxf" : row.case === "text-dxf" ? "text_alignments.dxf" : "\0"));
   if (!row.case.startsWith("synthetic")) assert(ledgerInput, "public input metadata missing");
   if (ledgerInput) assert.equal(sha256(inputBytes), ledgerInput.sha256);
   const session = loadSync(module).open();
@@ -78,7 +80,7 @@ await new Promise((resolve, reject) => { server.once("error", reject); server.li
 let browser;
 const browser_results = [];
 try {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, ...chromiumLaunchOptions(chromium) });
   const browserCdp = await browser.newBrowserCDPSession();
   const system = await browserCdp.send("SystemInfo.getInfo");
   const gpu = { devices: system.gpu.devices.map(({ vendorId, deviceId, vendorString, deviceString, driverVendor, driverVersion }) => ({ vendorId, deviceId, vendorString, deviceString, driverVendor, driverVersion })),
@@ -122,7 +124,7 @@ try {
     repeats, warmups: 1, environment: { cpu: cpus()[0]?.model, logical_cpus: cpus().length, os: platform(), release: release(), arch: arch(), node: process.version,
       rustc: execFileSync("rustc", ["--version"], { cwd: root, encoding: "utf8" }).trim(),
       chromium: browser.version(), playwright: JSON.parse(await readFile(resolve(root, "bindings/js/test/browser/node_modules/playwright/package.json"), "utf8")).version,
-      headless: true, width: 960, height: 640, pixel_ratio: 1, gpu_completion_measured: false, gpu },
+      headless: true, width: 960, height: 640, pixel_ratio: 1, gpu_completion_measured: true, gpu },
     producer_results_sha256: sha256(await readFile(resolve(out, "results.json"))), wasm_bytes: wasm.length, wasm_sha256: sha256(wasm),
     producer_harness_sha256: source.harness_sha256, producer_inputs: source.inputs, harness_sha256: {},
     validation: { producer_native_wasm_exact_pairs: source.results.length, node_worker_exact_cases: node_worker.length,

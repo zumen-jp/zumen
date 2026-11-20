@@ -19,6 +19,17 @@ function timed(repeats, action) {
   return median(times);
 }
 
+async function timedAsync(repeats, action) {
+  await action();
+  const times = [];
+  for (let i = 0; i < repeats; i++) {
+    const start = performance.now();
+    await action();
+    times.push(performance.now() - start);
+  }
+  return median(times);
+}
+
 export async function setup(row, repeats) {
   const bytes = await (await fetch(`/data/${row.case}-${row.policy}.bin`)).arrayBuffer();
   check(await digest(bytes) === row.scene_sha256, "scene SHA-256");
@@ -41,24 +52,29 @@ export async function setup(row, repeats) {
   const input = { scene, document: { doc: "bench", format: row.case.endsWith("dwg") ? "dwg" : "dxf", hash: `scene:${row.scene_sha256}` },
     result: { from: "space/0", unit: "unknown", tolerance: m.tolerance, blob: 0, counts, extent } };
   const canvas = document.createElement("canvas"); document.body.append(canvas);
+  const adapter = await navigator.gpu?.requestAdapter();
+  check(adapter, "WebGPU adapter unavailable");
+  const device = await adapter.requestDevice();
   const limits = { issues: Math.max(10_000, m.lines + m.faces + m.texts + m.points + m.images) };
   let default_limit_rejection = null;
   if (row.case === "synthetic-100k") {
-    const probe = new View2D(canvas, { width, height, pixelRatio: 1 });
+    const probe = await View2D.create(canvas, { device, width, height, pixelRatio: 1 });
     try { probe.setScene(input); }
     catch (error) { check(error.message === "不正な値: limits.issues", "unexpected default rejection"); default_limit_rejection = "limits.issues"; }
     finally { probe.destroy(); }
   }
-  const viewer = new View2D(canvas, { width, height, pixelRatio: 1, limits });
+  const viewer = await View2D.create(canvas, { device, width, height, pixelRatio: 1, limits });
   // 同じカメラを保ち、setScene の検査・索引・報告・描画を一緒に測る。
   viewer.fitBounds(extent, 32);
   const set_scene_ms = timed(repeats, () => viewer.setScene(input));
-  state = { row, bytes, scene, viewer, canvas, repeats };
+  await device.queue.onSubmittedWorkDone();
+  state = { row, bytes, scene, viewer, canvas, device, repeats };
   return { reader_ms, set_scene_ms, scene_bytes: bytes.byteLength, column_bytes,
     header_and_padding_bytes: bytes.byteLength - column_bytes,
     calculated_order_index_bytes: 4 * (m.lines + m.faces + m.texts + m.points + m.images),
     readback_rgba_bytes: width * height * 4, reader_copied_column_bytes: 0,
-    limits, default_limit_rejection, view: viewer.getView(), extent };
+    limits, default_limit_rejection, view: viewer.getView(), extent,
+    webgpu_adapter: { vendor: adapter.info.vendor, architecture: adapter.info.architecture, device: adapter.info.device, description: adapter.info.description } };
 }
 
 // 元の f64 の数式と、butt の幅 1 px の線分の四角で独立に判定する。
@@ -106,7 +122,7 @@ function encodedExpected(rect) {
   return expected.sort();
 }
 
-function isolatedProbe(missing, rect) {
+async function isolatedProbe(missing, rect) {
   const { scene: { columns: c }, viewer } = state, id = JSON.parse(missing)[0];
   const decoder = new TextDecoder();
   const entity = Array.from({ length: c.entity_ids.length / 2 }, (_, i) => i).find(i => decoder.decode(c.strings.subarray(c.entity_ids[2 * i], c.entity_ids[2 * i] + c.entity_ids[2 * i + 1])) === id);
@@ -122,14 +138,14 @@ function isolatedProbe(missing, rect) {
     line_vertices: [0], line_xy: xy, line_units: [0], unit_entities: [0], unit_colors: [SCENE_NONE], unit_weights: [0], unit_clips: [SCENE_NONE], unit_layers: [SCENE_NONE],
     entity_ids: [0, strings.length], entity_kinds: [c.entity_kinds[entity]], entity_paths: [0], strings };
   const canvas = document.createElement("canvas"), view = viewer.getView();
-  const isolated = new View2D(canvas, { width, height, pixelRatio: 1, view });
+  const isolated = await View2D.create(canvas, { device: state.device, width, height, pixelRatio: 1, view });
   try {
     isolated.setScene(bundle(columns));
     const a = isolated.toScreen({ origin: { x: origin[0], y: origin[1] }, offset: { x: xy[0], y: xy[1] } });
     const b = isolated.toScreen({ origin: { x: origin[0], y: origin[1] }, offset: { x: xy[2], y: xy[3] } });
     const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     const path = new Path2D(); path.moveTo(a.x, a.y); path.lineTo(b.x, b.y);
-    const ctx = canvas.getContext("2d"); ctx.lineWidth = 1; ctx.lineCap = "butt";
+    const ctx = document.createElement("canvas").getContext("2d"); ctx.lineWidth = 1; ctx.lineCap = "butt";
     return { origin, xy, view, rect, a, b, midpoint,
       midpoint_inside_rect: midpoint.x > rect.min_x && midpoint.x < rect.max_x && midpoint.y > rect.min_y && midpoint.y < rect.max_y,
       canvas_stroke_contains_midpoint: ctx.isPointInStroke(path, midpoint.x, midpoint.y),
@@ -158,8 +174,13 @@ async function transfer(repeats, source, mode) {
 }
 
 export async function measure() {
-  const { row, viewer, canvas, bytes, repeats } = state, ctx = canvas.getContext("2d");
+  const { row, viewer, device, bytes, repeats } = state;
   const render_submit_ms = timed(repeats, () => viewer.render());
+  await device.queue.onSubmittedWorkDone();
+  const render_complete_ms = await timedAsync(repeats, async () => {
+    viewer.render();
+    await device.queue.onSubmittedWorkDone();
+  });
   const rect = { min_x: width * .25, min_y: height * .25, max_x: width * .75, max_y: height * .75 };
   let selected;
   const select_rect_ms = timed(repeats, () => { selected = viewer.hitTestRect(rect); });
@@ -178,7 +199,7 @@ export async function measure() {
       source_formula_expected_count: formulaExpected.length,
       formula_vs_encoded_difference: formulaExpected.filter(k => !encodedSet.has(k)).length + expected.filter(k => !formulaSet.has(k)).length,
       full_expected_count: row.metrics.entities, full_exact: full.length === row.metrics.entities,
-      first_missing_probe: missing.length ? isolatedProbe(missing[0], rect) : null };
+      first_missing_probe: missing.length ? await isolatedProbe(missing[0], rect) : null };
   }
   viewer.select(selected);
   check(JSON.stringify(keys(viewer.getState().selection)) === JSON.stringify(selected_keys), "selection state");
@@ -190,10 +211,12 @@ export async function measure() {
     if (i >= 0) frame.push(performance.now() - start);
   }
   let pixels;
-  const render_readback_ms = timed(repeats, () => { viewer.render(); pixels = ctx.getImageData(0, 0, width, height).data; });
+  const render_readback_ms = await timedAsync(repeats, async () => {
+    viewer.render(); pixels = (await viewer.snapshot()).pixels;
+  });
   const pixel_sha256 = await digest(pixels);
   viewer.render();
-  check(await digest(ctx.getImageData(0, 0, width, height).data) === pixel_sha256, "repeat pixels");
+  check(await digest((await viewer.snapshot()).pixels) === pixel_sha256, "repeat pixels");
   let nonwhite_pixels = 0;
   for (let i = 0; i < pixels.length; i += 4) if (pixels[i] !== 255 || pixels[i + 1] !== 255 || pixels[i + 2] !== 255) nonwhite_pixels++;
   check(nonwhite_pixels > 0, "nonempty render");
@@ -203,7 +226,7 @@ export async function measure() {
     const omitted = report.issues.filter(i => i.primitive.kind === kind && i.disposition === "omitted").length;
     check(report.drawn[`${kind}s`] + omitted === row.metrics[`${kind}s`], "Rust/browser primitive counts");
   }
-  return { render_submit_ms, select_rect_ms, render_to_next_raf_ms: median(frame), render_readback_ms,
+  return { render_submit_ms, render_complete_ms, select_rect_ms, render_to_next_raf_ms: median(frame), render_readback_ms,
     selected_count: selected.length, full_selected_count: full.length, selected_keys, full_keys: full,
     selection_json_utf8_bytes: new TextEncoder().encode(JSON.stringify(selected_keys)).byteLength,
     selection_sha256: await digest(new TextEncoder().encode(JSON.stringify(selected_keys))),
@@ -212,4 +235,4 @@ export async function measure() {
     transfer: await transfer(repeats, bytes, "transfer"), clone: await transfer(repeats, bytes, "clone") };
 }
 
-export function dispose() { state.viewer.destroy(); state.canvas.remove(); state = null; }
+export function dispose() { state.viewer.destroy(); state.device.destroy(); state.canvas.remove(); state = null; }

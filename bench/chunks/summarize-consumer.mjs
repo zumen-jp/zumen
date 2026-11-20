@@ -20,15 +20,15 @@ ${r.environment.cpu.trim()}、${r.environment.logical_cpus} 論理 CPU、${r.env
 
 生成側のネイティブ・wasm の全バイトは ${r.validation.producer_native_wasm_exact_pairs} 組で一致しました。既存 Node.js Worker の ${r.validation.node_worker_exact_cases} 入力も、主スレッドの公開 API の応答・シーン全バイトと各回一致しました。ブラウザーではシーンの SHA-256、件数、描いた数と未描画の数、繰り返した画素、転送した全バイトと所有権を検査しました。
 
-**合成入力の範囲選択には不一致があります。** 表の期待数は公開 f32 の列から独立に計算した交差集合です。選択を確認済みとはしません。元の f64 の式との差と、列 1 本だけで再現する点・Canvas の判定も JSON に記録しています。表示部品の修正は [#806](https://github.com/zumen-jp/zumen/issues/806) で追跡し、測定の PR には含めません。この状態で塊の仮値を決めません。
+${r.browser_results.some(x => x.independent_selection) ? (r.validation.synthetic_selection_exact ? "合成入力の範囲選択と全面の集合は、公開 f32 の列から独立に求めた期待値と一致しました。" : "合成入力の範囲選択に差があり、不足・余分の件数を表に示します。") : "この入力群には独立した選択集合を作る合成入力を含みません。"} 設定をまたいだ選択集合は${r.validation.policy_selection_exact ? "一致しました" : "差がありました"}。
 
 ${table(["入力 / 設定", "期待", "実際", "不足", "余分", "全面の実際 / 期待", "f64 式との集合差"], r.browser_results.filter(x => x.independent_selection).map(x => { const q = x.independent_selection; return [x.case + " / " + x.policy, q.expected_count, x.selected_count, q.missing_count, q.actual_only_count, x.full_selected_count + " / " + q.full_expected_count, q.formula_vs_encoded_difference]; }))}
 
 ## 描画・選択の中央値
 
-単位は ms です。\`setScene\` は検査と索引作成・描画を含み、\`render\` は準備済みの CPU 側の呼び出しです。rAF と読み戻しは GPU の単独の完了時間ではありません。小さい値は時計の分解能に制限されます。選択の値は不一致が残る現行実装の費用です。
+単位は ms です。\`setScene\` は検査と索引作成・描画を含み、\`render\` は準備済みの CPU 側の呼び出しです。rAF と読み戻しは GPU の単独の完了時間ではありません。小さい値は時計の分解能に制限されます。
 
-${table(["入力 / 設定", "reader", "setScene", "render", "次 rAF", "描画と読み戻し", "範囲選択"], r.browser_results.map(x => [x.case + " / " + x.policy, ms(x.reader_ms), ms(x.set_scene_ms), ms(x.render_submit_ms), ms(x.render_to_next_raf_ms), ms(x.render_readback_ms), ms(x.select_rect_ms)]))}
+${table(["入力 / 設定", "reader", "setScene", "render", "GPU 完了待ち", "次 rAF", "描画と読み戻し", "範囲選択"], r.browser_results.map(x => [x.case + " / " + x.policy, ms(x.reader_ms), ms(x.set_scene_ms), ms(x.render_submit_ms), x.render_complete_ms == null ? "未測定" : ms(x.render_complete_ms), ms(x.render_to_next_raf_ms), ms(x.render_readback_ms), ms(x.select_rect_ms)]))}
 
 合成 100k は既定の \`issues\` 上限で拒否されます。計測時だけ上限を 10 万件にした結果です。未解決の色は代替色で描き、報告の件数もメモリに含まれます。文字を含む公開入力にはブラウザーの代替フォントを使います。
 
@@ -48,7 +48,7 @@ blob と列、順序索引の計算値は確定するバイト数です。reader
 
 ${table(["入力 / 設定", "blob byte", "列 byte", "順序索引 byte", "setScene 後の used heap 増分 MiB"], r.browser_results.map(x => [x.case + " / " + x.policy, x.scene_bytes, x.column_bytes, x.calculated_order_index_bytes, mib(x.retained_heap_observations.after_setup.usedSize - x.retained_heap_observations.before.usedSize)]))}
 
-大規模な実物、用紙・ビュー、フォントを渡す場合、既定の許容差との比較、GPU 完了、最大メモリは未確認です。公開入力は小さく、合成入力は実物の代わりには数えません。残る確認と塊の値の判断は #219 に残します。
+用紙・ビュー、フォントを渡す場合、既定の許容差との比較、最大メモリは未確認です。残る確認と塊の値の判断は #219 に残します。
 `;
 await writeFile(resolve(here, snapshot), raw);
 await writeFile(resolve(here, "CONSUMER-RESULTS.md"), text);
