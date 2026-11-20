@@ -2294,6 +2294,103 @@ fn dwg_sample(name: &str) -> Vec<u8> {
 }
 
 #[test]
+fn explicit_copy_place_matches_batch_and_undoes_both_copies_together() {
+    fn check<C: Codec>(
+        bytes: &[u8],
+        batch: impl Fn(
+            &mut C::File,
+            &Changes,
+            &[crate::CopyFrom<'_, C::File>],
+            &mut Cx,
+        ) -> Result<Vec<Applied>, Error>,
+    ) where
+        C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+    {
+        let mut pair = AcadPair::<C>::open(bytes, 1);
+        let before = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+        let saved = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+        let destination = "sheet/h2DC";
+        let edits = [0x2D9, 0x2DA].map(|handle| Edit::Copy {
+            target: pair.seen(handle),
+            transform: Affine::translation(2.0, 3.0),
+        });
+        let changes = Changes {
+            edits: edits.into(),
+            document: None,
+        };
+        let mut stopped_budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(0)));
+        let stopped = pair.live.apply_with_copy_place(
+            &changes,
+            destination,
+            &mut Cx::new(
+                &mut stopped_budget,
+                &mut Diagnostics::new(),
+                &CancelToken::new(),
+            ),
+        );
+        assert!(matches!(stopped, Err(Error::Stopped(_))));
+        assert_eq!(pair.live.undo_len(), 0);
+        assert_eq!(fresh_cx(|cx| pair.live.save(cx)).0.unwrap(), saved);
+        for place in ["sheet/missing", destination] {
+            let mut rejected = changes.clone();
+            if place == destination
+                && let Edit::Copy { target, .. } = &mut rejected.edits[1]
+            {
+                target.id = "space/0/hFFFFFFFF".to_owned();
+            }
+            assert!(
+                fresh_cx(|cx| pair.live.apply_with_copy_place(&rejected, place, cx))
+                    .0
+                    .is_err()
+            );
+            assert_eq!(fresh_cx(|cx| pair.live.save(cx)).0.unwrap(), saved);
+            assert_eq!(pair.live.undo_len(), 0);
+        }
+        let specs = [0, 1].map(|_| crate::CopyFrom {
+            place: Some(destination),
+            from: None,
+        });
+        let expected = fresh_cx(|cx| batch(&mut pair.reference, &changes, &specs, cx));
+        let actual = fresh_cx(|cx| pair.live.apply_with_copy_place(&changes, destination, cx));
+        assert_eq!(actual, expected);
+        let applied = actual.0.unwrap();
+        assert_eq!(applied.len(), 2);
+        assert!(applied.iter().all(|a| {
+            a.id.as_deref()
+                .is_some_and(|id| id.starts_with("sheet/h2DC/"))
+                && a.hash.is_some()
+        }));
+        pair.assert_model();
+        let after = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+        let model_ids = |drawing: &Drawing2D| {
+            all_element_ids_and_hashes(drawing)
+                .into_iter()
+                .filter(|(id, _)| id.starts_with("space/0/"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(model_ids(&before), model_ids(&after));
+        let bytes = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+        assert_eq!(
+            zumen_sdk::testkit::write::<C>(&pair.reference).unwrap(),
+            bytes
+        );
+        assert_eq!(pair.live.undo_len(), 1);
+        assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+        assert_eq!(fresh_cx(|cx| pair.live.save(cx)).0.unwrap(), saved);
+        assert!(fresh_cx(|cx| pair.live.redo(cx)).0.unwrap());
+        assert_eq!(fresh_cx(|cx| pair.live.save(cx)).0.unwrap(), bytes);
+    }
+    check::<Dxf>(
+        &dwg_sample("zumen-layout-r2018_ascii.dxf"),
+        crate::DxfFile::apply_with_copies,
+    );
+    check::<Dwg>(
+        &dwg_sample("zumen-layout-r2018.dwg"),
+        crate::DwgFile::apply_with_copies,
+    );
+}
+
+#[test]
 fn dwg_public_samples_retain_full_models() {
     for name in [
         "zumen-layout-r2000.dwg",

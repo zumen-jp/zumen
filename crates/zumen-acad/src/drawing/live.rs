@@ -294,6 +294,24 @@ impl AcadLive {
         self.apply_rereading(changes, cx).0
     }
 
+    /// 各複写を同じ文書の `place` に置き、変更列全体を 1 回の履歴に積む（#889）。
+    pub fn apply_with_copy_place(
+        &mut self,
+        changes: &Changes,
+        place: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<Applied>, Error> {
+        apply_changes(
+            &mut self.state,
+            &mut self.journal,
+            changes,
+            Some(place),
+            self.threads,
+            &mut false,
+            cx,
+        )
+    }
+
     /// [`Self::apply`] と同じく当て、保存したバイト列を読み直して書き戻しの参照（[`zumen_sdk::Apply`]）で当てる
     /// 経路に入ったかも返す。その経路は、読み直したファイルの診断（DWG の型どおりに読めないオブジェクトなど）を、
     /// ファイルモデルに当てたときと同じく返す。差分の経路と空の変更は、それらを返さない
@@ -307,6 +325,7 @@ impl AcadLive {
             &mut self.state,
             &mut self.journal,
             changes,
+            None,
             self.threads,
             &mut rereads,
             cx,

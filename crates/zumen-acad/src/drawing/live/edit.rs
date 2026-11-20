@@ -27,7 +27,7 @@ use zumen_live::{
     CommittedTxn, ExistingRowDiff, History, PatchPayload, Revision, RowId, SideIndexes, TxnError,
     run_transaction,
 };
-use zumen_sdk::{Apply, Codec, Error};
+use zumen_sdk::{Codec, Error};
 
 use super::super::extension::same_entity_fields;
 use super::super::single::{self, RestyleLineType};
@@ -531,6 +531,7 @@ pub fn apply_changes(
     state: &mut LiveState,
     journal: &mut LiveJournal,
     changes: &Changes,
+    copy_place: Option<&str>,
     threads: usize,
     rereads: &mut bool,
     cx: &mut Cx<'_>,
@@ -546,12 +547,17 @@ pub fn apply_changes(
         })?;
         return Ok(Vec::new());
     }
-    match try_apply_fast(state, journal, changes, cx) {
+    // 配置先を持つ複写は、用紙やブロックを含む参照と座標の対応をファイルモデルで調べる。
+    let attempt = match copy_place {
+        Some(_) => FastAttempt::Fallback,
+        None => try_apply_fast(state, journal, changes, cx),
+    };
+    match attempt {
         FastAttempt::Applied(applied) => Ok(applied),
         FastAttempt::Err(err) => Err(err),
         FastAttempt::Fallback => {
             *rereads = true;
-            apply_structural(state, journal, changes, threads, cx)
+            apply_structural(state, journal, changes, copy_place, threads, cx)
         }
     }
 }
@@ -4041,10 +4047,24 @@ fn apply_structural(
     state: &mut LiveState,
     journal: &mut LiveJournal,
     changes: &Changes,
+    copy_place: Option<&str>,
     threads: usize,
     cx: &mut Cx<'_>,
 ) -> Result<Vec<Applied>, Error> {
     let format = state.backing.format();
+    if copy_place.is_some() {
+        work(cx, changes.edits.len() as u64, &Ref::default())?;
+    }
+    fn copies<'a, F>(changes: &Changes, place: Option<&'a str>) -> Vec<crate::CopyFrom<'a, F>> {
+        if place.is_none() {
+            return Vec::new();
+        }
+        changes
+            .edits
+            .iter()
+            .map(|_| crate::CopyFrom { place, from: None })
+            .collect()
+    }
     let before_bytes = state.backing.save(cx)?;
     let (applied, mut after_state, approx_bytes) = match format {
         LiveFormat::AsciiDxf => {
@@ -4056,7 +4076,7 @@ fn apply_structural(
                 ),
                 cx,
             )?;
-            let applied = Apply::apply(&mut file, changes, cx)?;
+            let applied = file.apply_with_copies(changes, &copies(changes, copy_place), cx)?;
             let mut out = Vec::with_capacity(before_bytes.len() + 256);
             crate::drawing::report_quiet_stop(
                 Dxf::write(
@@ -4086,7 +4106,7 @@ fn apply_structural(
                 ),
                 cx,
             )?;
-            let applied = Apply::apply(&mut file, changes, cx)?;
+            let applied = file.apply_with_copies(changes, &copies(changes, copy_place), cx)?;
             let reopened = crate::drawing::report_quiet_stop(
                 open_from_dxf_file(file, &mut Cx::new(cx.budget, &mut quiet, cx.cancel)),
                 cx,
@@ -4103,7 +4123,7 @@ fn apply_structural(
                 ),
                 cx,
             )?;
-            let applied = Apply::apply(&mut file, changes, cx)?;
+            let applied = file.apply_with_copies(changes, &copies(changes, copy_place), cx)?;
             let reopened = crate::drawing::report_quiet_stop(
                 open_from_dwg_file(
                     file,
