@@ -106,7 +106,9 @@ UTF-16 は自作の XML と J-LandXML で、原本範囲・未変更の書き出
 
 [第三者が公開したテスト用 XML](https://github.com/nokonoko1203/jp-landxml/blob/b4430f86f0796018e3b88e8742928a7c2aad33e9/tests/data/j_landxml_sample.xml)の J-LandXML Ver.1.7 原本（16,753 バイト）を、`e11b2552` の Windows 用 CLI の `open` と `civil` で読みました（#368）。原本を Python の標準 XML パーサーでも読み、線形の平面 18 区間、区間長の合計 1085.94618322 m、開始測点 −90 m、起点の北・東・高さ、横断の設計線 1 本の離れと高さ 2 点を照らしました。縦断は 5 区間、横断の測点は 2 件です。JGD2011 の第 VIII 系は EPSG:6676、原本が指定する東京湾平均海面との差は −0.8402 m です。
 
-面が未定義の点番号を参照している TIN は `landxml.value.invalid` を返し、移した地表面は 0 件でした。公開テスト入力の原本は配布元を参照します。農林水産省の [道路工・畦畔の XML](https://www.maff.go.jp/j/nousin/sekkei/02_douro-keihan.xml) と [照合用 PDF](https://www.maff.go.jp/j/nousin/sekkei/02_douro-keihan.pdf)、正常な TIN の値の外部照合は #504 で追います。
+面が未定義の点番号を参照している TIN は `landxml.value.invalid` を返し、移した地表面は 0 件でした。公開テスト入力の原本は配布元を参照します。
+
+農林水産省が公開する 2 原本を、Rust の土木モデルと Python 3.14.8 の ElementTree で別々に読みました。ほ場整備整地工では 1 地表面の 8 頂点・6 面、道路工・畦畔では 4 地表面の 900 頂点・1,493 面が一致しました。北・東・標高をメートルの倍精度浮動小数として全ビットで照らし、各面の 3 頂点を順番も含めて比較しました。外部 CAD での表示と土量は #504 で追います。[原本と再現手順](../../xtask/verify/landxml/README.md#公開原本の-tin)
 
 `13865477` の Windows ネイティブと `wasm32-wasip1`（Node.js 24.22.2）に同じ公開原本を渡し、診断を含む `open` と `civil` の応答がそれぞれバイト単位で一致しました。[照合結果](https://github.com/zumen-jp/zumen/issues/504#issuecomment-6982136024)
 

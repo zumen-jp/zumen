@@ -23,6 +23,23 @@ jobs:
       - name: 公開サンプルと合成の座標・属性、診断と予算を照らす
         run: cargo test --package zumen-ply --test external --locked
 
+  landxml:
+    name: 公開 J-LandXML の TIN を原本と照らす
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 公開 Rust API の TIN を出すツールを作る
+        run: cargo build --locked -p zumen-landxml --example tin_probe
+      - name: 農林水産省のほ場整備整地工・道路工の頂点と面を比較する
+        run: |
+          cd "$RUNNER_TEMP"
+          for file in 01_hojo-seichi.xml 02_douro-keihan.xml; do
+            curl --fail --silent --show-error --location --retry 3 -o "$file" "https://www.maff.go.jp/j/nousin/sekkei/$file"
+          done
+          echo 'dd5f47f8aa1724cd93fae451322967c437b7c8b1da955f3f1e8aea6a68e2e97c  01_hojo-seichi.xml' | sha256sum --check
+          echo 'bec7804e5394bf348b42546e6889bd2a7752ccd4ce92cec423a9b238f77c2c9a  02_douro-keihan.xml' | sha256sum --check
+          python3 "$GITHUB_WORKSPACE/xtask/verify/landxml/compare_public_tin.py" "$GITHUB_WORKSPACE/target/debug/examples/tin_probe" 01_hojo-seichi.xml 02_douro-keihan.xml
+
   browser:
     name: ブラウザーで適合テスト（Firefox・WebKit）
     runs-on: ubuntu-latest

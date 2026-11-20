@@ -1,4 +1,4 @@
-# J-LandXML の保持値の実行環境間の比較
+# J-LandXML の保持値と公開 TIN の検証
 
 片勾配と IP・基準点・地盤縦断・横断の属性・高さ基準について、Rust のネイティブと `wasm32-wasip1` で同じ合成入力を読み、土木の領域モデルへ移します（#468）。
 
@@ -34,3 +34,19 @@ node xtask/verify/landxml/compare_superelevation.mjs
 `values_contract.rs` と `values_probe.rs` は、IP・基準点・地盤縦断・横断の属性・高さ基準を別の自作入力で検査します。元の値・参照する縦断・省略された高さ・元の位置と、全予算の境界・中断を記録し、全バイトを環境間で照らします。相対高さの計画高への評価、壊れた点列をつながないこと、重複や欠落した参照を推測しないことも検査します。
 
 この検査は、コアを直接呼ぶネイティブと 32 bit の wasm の比較です。配布する `wasm32-unknown-unknown` の API・バインディングの適合テストや、外部の実装との値の照合とは分けます。基準になるアプリとの一致と、書き出しは検査しません。合成入力の補間と `SlopeList` の値の解釈は、仕様から定めた期待値との検査です。
+
+## 公開原本の TIN
+
+農林水産省の 2 原本を別々に読み、[公開 Rust API の `Tin`](../../../crates/zumen-civil/src/lib.rs) の頂点と面を検査します。Python の ElementTree で地表面ごとに XML の点 ID を頂点の並び順に対応させます。地表面の名前・順序、頂点の北・東・標高の 64 ビット、可視面が指す 3 頂点とその順序を比較します。
+
+| 原本 | SHA-256 | 地表面ごとの頂点数 / 面数 |
+| --- | --- | --- |
+| [ほ場整備整地工](https://www.maff.go.jp/j/nousin/sekkei/01_hojo-seichi.xml) | `dd5f47f8aa1724cd93fae451322967c437b7c8b1da955f3f1e8aea6a68e2e97c` | 8 / 6 |
+| [道路工・畦畔](https://www.maff.go.jp/j/nousin/sekkei/02_douro-keihan.xml) | `bec7804e5394bf348b42546e6889bd2a7752ccd4ce92cec423a9b238f77c2c9a` | 258 / 430・25 / 32・306 / 510・311 / 521 |
+
+原本はリポジトリ外に保存し、リポジトリのルートから次を実行します。Windows では実行ファイルの末尾に `.exe` を付けます。照合に成功すると原本の SHA-256 と件数が表示されます。
+
+```sh
+cargo build --locked -p zumen-landxml --example tin_probe
+python xtask/verify/landxml/compare_public_tin.py target/debug/examples/tin_probe /path/to/01_hojo-seichi.xml /path/to/02_douro-keihan.xml
+```

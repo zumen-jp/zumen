@@ -999,8 +999,9 @@ issues = ["zumen-jp/zumen#366", "zumen-jp/zumen#368"]
 
 [formats.landxml.read]
 level = "synthetic"
-scope = "J-LandXML Ver.1.8 と自作の入力で、片勾配の最大区間・すりつけ・任意横断勾配、IP・基準点・地盤縦断・横断属性・高さ基準を L2 と civil の詳細へ移すことを確かめた。保持値・出所・予算と native/wasm の応答を比べる。再配布できる公開サンプルは見つかっていない（#368・#504）"
-checked = "2026-11-16"
+scope = "農林水産省の 2 原本の TIN で、頂点座標と面の接続を別の XML パーサーで原本と照合した。外部の土木ソフトとの照合は #504 で追う。片勾配・IP・基準点・地盤縦断・横断属性・高さ基準は J-LandXML Ver.1.8 と自作の入力で L2 と civil の詳細、予算と native/wasm の応答を確かめた"
+checked = "2026-11-21"
+public-samples = ["https://www.maff.go.jp/j/nousin/sekkei/01_hojo-seichi.xml", "https://www.maff.go.jp/j/nousin/sekkei/02_douro-keihan.xml"]
 
 [formats.sima]
 name = "SIMA 共通フォーマット"
