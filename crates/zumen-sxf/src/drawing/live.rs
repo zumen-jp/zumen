@@ -1497,6 +1497,26 @@ impl SxfLive {
 
     /// 変更群を `O(変更数)` で差分適用する
     pub fn apply(&mut self, changes: &Changes, cx: &mut Cx<'_>) -> Result<Vec<Applied>, Error> {
+        self.apply_inner(changes, None, cx)
+    }
+
+    /// 一覧中のすべての複写に配置先の用紙 ID を指定する。
+    pub fn apply_with_copy_place(
+        &mut self,
+        changes: &Changes,
+        place: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<Applied>, Error> {
+        self.apply_inner(changes, Some(place), cx)
+    }
+
+    fn apply_inner(
+        &mut self,
+        changes: &Changes,
+        place: Option<&str>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<Applied>, Error> {
+        let copy_place = self.copy_place(place, cx)?;
         let current = match changes.document {
             None => true,
             Some(expected_hash) => {
@@ -1529,6 +1549,7 @@ impl SxfLive {
                         &tables,
                         change,
                         edit_index,
+                        copy_place,
                         &mut targets,
                         &mut stage,
                         cx,
@@ -1558,6 +1579,7 @@ impl SxfLive {
                         &tables,
                         change,
                         edit_index,
+                        copy_place,
                         &mut targets,
                         &mut stage,
                         cx,
@@ -1586,6 +1608,7 @@ impl SxfLive {
         tables: &Tables,
         change: &Edit,
         edit_index: usize,
+        copy_place: copy::Place<'_>,
         targets: &mut BTreeSet<u64>,
         stage: &mut TableStage,
         cx: &mut Cx,
@@ -1782,7 +1805,7 @@ impl SxfLive {
                 Ok(ok)
             }
             Edit::Copy { target, transform } => self.stage_sfc_copy(
-                sfc, tx, tables, target, transform, edit_index, targets, stage, cx,
+                sfc, tx, tables, target, transform, edit_index, copy_place, targets, stage, cx,
             ),
             Edit::Add { place, element } => {
                 let mut unset = None;
@@ -1879,6 +1902,7 @@ impl SxfLive {
         tables: &Tables,
         change: &Edit,
         edit_index: usize,
+        copy_place: copy::Place<'_>,
         targets: &mut BTreeSet<u64>,
         stage: &mut TableStage,
         cx: &mut Cx,
@@ -2091,7 +2115,7 @@ impl SxfLive {
                 Ok(ok)
             }
             Edit::Copy { target, transform } => self.stage_p21_copy(
-                p21, tx, tables, target, transform, edit_index, targets, stage, cx,
+                p21, tx, tables, target, transform, edit_index, copy_place, targets, stage, cx,
             ),
             Edit::Add { place, element } => {
                 let mut unset = None;

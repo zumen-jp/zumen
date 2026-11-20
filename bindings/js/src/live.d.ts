@@ -115,6 +115,11 @@ export interface LiveTransform {
   /** x' = a*x + b*y + c、y' = d*x + e*y + f の [a,b,c,d,e,f]。既存の apply と同じ */
   matrix: readonly number[] | Float64Array;
 }
+export interface LiveCopy extends LiveTransform {
+  /** 配置先の空間か用紙の ID。省略時は各行の元の場所 */
+  place?: string;
+}
+
 export interface LiveRestyle {
   /** 選択した行が属する版。現在の版と異なれば stale */
   revision: bigint | number;
@@ -264,8 +269,8 @@ export declare class LiveProcess {
   setText(change: LiveSetText, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行を除く。result は除いた数 */
   remove(change: LiveRemove, options?: LiveDisplayOptions): Promise<LiveReply>;
-  /** 行を写し、写しを matrix で動かす。写しの行を selection に対象の順で返す。表示は display で取り直す。JWW・SXF は rejected */
-  copy(change: LiveTransform, options?: LiveOptions): Promise<LiveReply>;
+  /** 行を写し、写しを matrix で動かす。写した件数を result、表示にある写しの行を selection に昇順で返す。表示は display で取り直す */
+  copy(change: LiveCopy, options?: LiveOptions): Promise<LiveReply>;
   /** 行 template の空間か用紙に、その画層・スタイルで形を 1 つ足す。足した行を selection に返す。表示は display で取り直す */
   draw(change: LiveDraw, options?: LiveOptions): Promise<LiveReply>;
   /** 変更された記号定義の番号を selection に返す。clear: true で取得後に変更フラグを消す */

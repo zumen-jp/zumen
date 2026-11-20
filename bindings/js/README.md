@@ -122,7 +122,7 @@ try {
 
 `live.setText({ revision, rows, content })` は、文字の行の内容を `content` に替えます。替えられるのは `live.texts` の `kind` が `"text"` の行と、区間が文字列 1 つだけの `"formatted"` の行で、ほかの行を含めば rejected で何も替えません。
 
-`live.remove({ revision, rows })` は行を除き、`live.copy({ revision, rows, matrix })` は行を写して写しを動かします。`copy` は写しの行を `reply.selection` に対象の順で返し、表示は返さないので `live.display()` で取り直します。JWW・SXF の写しは、まだ rejected です。
+`live.remove({ revision, rows })` は行を除き、`live.copy({ revision, rows, matrix })` は行を写して写しを動かします。`copy` は写しのうち表示の行があるものを `reply.selection` に行番号の昇順で返し、表示は返さないので `live.display()` で取り直します。省略できる `place` に空間か用紙の ID を渡すと、指定した場所に全行を写します。`reply.result` は写した全件数です。DXF・DWG の用紙・ブロックに写した要素にはモデル空間の行がないため、`reply.selection` は空です。JWW は元のレイヤグループ、SXF は元の用紙に写せます。配置先を指定する機能に未対応のホストは invalid を返します。
 
 `live.draw({ revision, template, shape })` は、行 `template` と同じ空間か用紙に、その画層とスタイルで形を 1 つ足します。`shape` は表示の座標の `{ line: [x0, y0, x1, y1] }`・`{ circle: [x, y, r] }`・`{ arc: [x, y, r, start, end] }`（角度は度、反時計回り）のどれかです。足した行を `reply.selection` に返し、表示は返さないので `live.display()` で取り直します。
 

@@ -45,6 +45,26 @@ function handle(request, body) {
   }
   if (mode === "hold" || mode === "silent") { waiting = request; return; }
   if (mode === "exit") { process.exit(7); return; }
+  if (request.command === 14 && (mode === "copy-legacy" || mode === "copy-large")) {
+    const count = body.readUInt32LE(72);
+    const end = 128 + count * 4;
+    if (body.readUInt32LE(76) !== 0 || count > 65536) { process.exit(6); return; }
+    if (mode === "copy-legacy") {
+      if (body.length > 128 + 65536 * 4) { process.exit(6); return; }
+      if (body.length !== end) { send(reply(request, 1)); return; }
+    } else if (body.length !== end + 12 || body.readUInt32LE(end) !== 7 ||
+               body.toString("utf8", end + 4, end + 11) !== "space/0" || body[end + 11] !== 0) {
+      process.exit(6); return;
+    }
+    const data = Buffer.alloc(4 + count * 4);
+    data.writeUInt32LE(count);
+    for (let i = 0; i < count; i++) data.writeUInt32LE(i + 1, 4 + i * 4);
+    const out = reply(request, 0, 5, data);
+    out.writeBigUInt64LE(count ? 1n : 0n, 32);
+    out.writeBigUInt64LE(BigInt(count), 48);
+    send(out);
+    return;
+  }
   if (request.command === 10) {
     if (body.length !== 104 || [1, 2, 3, 4].some((value, i) => body.readDoubleLE(72 + i * 8) !== value)) { process.exit(6); return; }
     const data = Buffer.alloc(12);

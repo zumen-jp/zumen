@@ -418,18 +418,19 @@ fn unsupported_sxf_copies_are_refused_whole_without_mutation() {
     }
 
     // 非用紙（部分図空間 space/0）への配置は拒む
+    let changes = Changes {
+        document: None,
+        edits: vec![Edit::Copy {
+            target: Seen {
+                id: was[1].0.clone(),
+                hash: was[1].1,
+            },
+            transform: SHIFT,
+        }],
+    };
     let (res, diag) = cx_run(|cx| {
         base_file.applied_with_copies(
-            &Changes {
-                document: None,
-                edits: vec![Edit::Copy {
-                    target: Seen {
-                        id: was[1].0.clone(),
-                        hash: was[1].1,
-                    },
-                    transform: SHIFT,
-                }],
-            },
+            &changes,
             &[CopyFrom {
                 place: Some("space/0"),
                 from: None,
@@ -438,6 +439,27 @@ fn unsupported_sxf_copies_are_refused_whole_without_mutation() {
         )
     });
     assert!(res.is_err());
+    let mut live = cx_run(|cx| SxfLive::open(&sfc, cx).unwrap()).0;
+    let (refused, observed) = cx_run(|cx| live.apply_with_copy_place(&changes, "space/0", cx));
+    assert!(refused.is_err());
+    assert_eq!(
+        observed.iter().collect::<Vec<_>>(),
+        diag.iter().collect::<Vec<_>>()
+    );
+    assert_eq!(cx_run(|cx| live.save(cx).unwrap()).0, sfc);
+    let (missing, observed) = cx_run(|cx| live.apply_with_copy_place(&changes, "space/999999", cx));
+    assert!(missing.is_err());
+    assert!(
+        observed
+            .iter()
+            .any(|d| d.code() == codes::CHANGE_ELEMENT_MISSING)
+    );
+    assert!(
+        cx_run(|cx| live.apply_with_copy_place(&changes, "sheet/0", cx))
+            .0
+            .is_ok()
+    );
+
     assert!(diag.iter().any(|d| {
         d.code() == codes::CHANGE_COPY_UNSUPPORTED && d.param("field") == Some(&"place".into())
     }));

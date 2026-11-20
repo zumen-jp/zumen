@@ -52,7 +52,7 @@ export async function liveDocument(executable: string, input: Uint8Array): Promi
       void names;
       const drawn: number[] = [...((await live.order(live.revision!)).order?.rows() ?? [])];
       void drawn;
-      const copies: number[] = [...((await live.copy({ revision: live.revision!, rows: [0], matrix: [1, 0, 1, 0, 1, 0] })).selection?.rows() ?? [])];
+      const copies: number[] = [...((await live.copy({ revision: live.revision!, rows: [0], matrix: [1, 0, 1, 0, 1, 0], place: "space/0" })).selection?.rows() ?? [])];
       await live.remove({ revision: live.revision!, rows: copies }, { display: false });
       await live.restyle({ revision: live.revision!, rows: [0], layer: 0, color: { rgb: [1, 2, 3] }, lineWeight: "default" });
       await live.dirtySymbols(live.revision!, { clear: true });

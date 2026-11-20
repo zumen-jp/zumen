@@ -347,6 +347,87 @@ fn selection_returns_sorted_rows_and_stops_without_publishing_partial_results() 
 }
 
 #[test]
+fn copy_destination_is_validated_before_mutation() {
+    let mut host = Host::default();
+    let opened = open(&mut host);
+    let empty = transform(&[], Affine::translation(1.0, 1.0));
+    let rows = transform(&[0, 1], Affine::translation(1.0, 1.0));
+    let with_place = |mut bytes: Vec<u8>, place: &[u8]| {
+        bytes.extend_from_slice(&(place.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(place);
+        bytes.resize(bytes.len().next_multiple_of(4), 0);
+        bytes
+    };
+    let probe = call(
+        &mut host,
+        Command::Copy,
+        2,
+        0,
+        wire::NONE,
+        0,
+        &with_place(empty, b"space/0"),
+    );
+    assert_eq!(
+        (probe.status, probe.revision, probe.state),
+        (Status::Ok, 0, opened.state)
+    );
+    assert_eq!(probe.data, [0; 4]);
+    let undone = call(&mut host, Command::Undo, 3, 0, wire::NONE, 0, &[]);
+    assert_eq!((undone.result, undone.revision), (0, 0));
+    let mut bad_pad = with_place(rows.clone(), b"x");
+    *bad_pad.last_mut().unwrap() = 1;
+    let mut truncated = with_place(rows.clone(), b"space/0");
+    truncated.pop();
+    for malformed in [
+        with_place(rows.clone(), b""),
+        with_place(rows.clone(), &[0xff]),
+        bad_pad,
+        truncated,
+    ] {
+        let invalid = call(&mut host, Command::Copy, 4, 0, wire::NONE, 0, &malformed);
+        assert_eq!(
+            (invalid.status, invalid.revision, invalid.state),
+            (Status::Invalid, 0, opened.state)
+        );
+    }
+    let valid = with_place(rows, b"space/0");
+    assert_eq!(
+        call(&mut host, Command::Transform, 5, 0, wire::NONE, 0, &valid).status,
+        Status::Invalid
+    );
+    let copied = call(&mut host, Command::Copy, 6, 0, wire::NONE, 0, &valid);
+    assert_eq!(
+        (copied.status, copied.result, copied.revision),
+        (Status::Ok, 2, 1)
+    );
+    for (i, kind) in wire::KINDS
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, k)| matches!(k, Kind::Work | Kind::DecodedBytes))
+    {
+        let mut host = Host::default();
+        open(&mut host);
+        let mut limited = request(
+            Command::Copy,
+            2,
+            0,
+            wire::NONE,
+            0,
+            Limits::default().with(kind, Limit::Finite(copied.used[i] - 1)),
+            &valid,
+        );
+        let stopped = host.handle(&mut limited);
+        assert_eq!(
+            (stopped.status, stopped.revision, stopped.state),
+            (Status::Exceeded, 0, opened.state)
+        );
+        let saved = call(&mut host, Command::Save, 3, 0, wire::NONE, 0, &[]);
+        assert_eq!(saved.data, DXF);
+    }
+}
+
+#[test]
 fn selection_header_requires_exact_length_and_no_display_flag() {
     let bytes = [
         b'Z', b'L', b'I', b'P', 1, 0, 10, 0, 1, 0, 0, 0, 0, 0, 0, 0, 104, 0, 0, 0, 0, 0, 0, 0,

@@ -38,6 +38,7 @@ enum Operation<'a> {
         rows: &'a [u8],
     },
     Copy {
+        place: Option<&'a str>,
         transform: Affine,
         rows: &'a [u8],
     },
@@ -118,20 +119,29 @@ fn operation(command: Command, bytes: &[u8]) -> Option<Operation<'_>> {
             for value in &mut m {
                 *value = input.f64()?;
             }
-            if input.0.len() != count.checked_mul(4)? {
-                return None;
-            }
+            let (rows, rest) = input.0.split_at_checked(count.checked_mul(4)?)?;
             let transform = Affine { m };
-            Some(if command == Command::Copy {
-                Operation::Copy {
-                    transform,
-                    rows: input.0,
-                }
+            if command == Command::Transform {
+                return rest
+                    .is_empty()
+                    .then_some(Operation::Transform { transform, rows });
+            }
+            let place = if rest.is_empty() {
+                None
             } else {
-                Operation::Transform {
-                    transform,
-                    rows: input.0,
+                let mut tail = Words(rest);
+                let length = tail.u32()? as usize;
+                let place =
+                    super::edits::read_padded_str(&mut tail, length, super::edits::MAX_NAME_BYTES)?;
+                if place.is_empty() || !tail.0.is_empty() {
+                    return None;
                 }
+                Some(place)
+            };
+            Some(Operation::Copy {
+                transform,
+                rows,
+                place,
             })
         }
         Command::Restyle => {
@@ -420,21 +430,27 @@ fn decode_rows(rows: &[u8], cx: &mut Cx<'_>) -> Result<Vec<RowId>, Problem> {
 
 /// 行の列を、件数 `u32` と行番号 `u32` の列に写す
 fn encode_rows(rows: &[RowId], cx: &mut Cx<'_>) -> Result<Vec<u8>, Problem> {
-    let length = rows
-        .len()
+    let mut data = reserve_rows(rows.len(), cx)?;
+    write_rows(&mut data, rows);
+    Ok(data)
+}
+
+fn reserve_rows(count: usize, cx: &mut Cx<'_>) -> Result<Vec<u8>, Problem> {
+    let length = count
         .checked_mul(4)
         .and_then(|n| n.checked_add(4))
         .filter(|&n| n <= display_wire::MAX_PACKET_BYTES)
         .ok_or(Problem::Core(Error::Invalid))?;
     checked(cx, Kind::DecodedBytes, length as u64)?;
-    checked(cx, Kind::Work, rows.len() as u64)?;
-    let count = u32::try_from(rows.len()).map_err(|_| Problem::Core(Error::Invalid))?;
-    let mut data = Vec::with_capacity(length);
-    data.extend_from_slice(&count.to_le_bytes());
+    checked(cx, Kind::Work, count as u64)?;
+    Ok(Vec::with_capacity(length))
+}
+
+fn write_rows(data: &mut Vec<u8>, rows: &[RowId]) {
+    data.extend_from_slice(&(rows.len() as u32).to_le_bytes());
     for row in rows {
         data.extend_from_slice(&row.0.to_le_bytes());
     }
-    Ok(data)
 }
 
 /// 画層の表の 1 項目の固定部分（値・フラグ・RGB・色の符号・名前の長さ）
@@ -773,18 +789,40 @@ impl Host {
                     reply.result =
                         document.edit(revision, &ids, &RowEdit::Remove, cx)?.len() as u64;
                 }
-                Operation::Copy { transform, rows } => {
-                    let ids = decode_rows(rows, cx)?;
+                Operation::Copy {
+                    transform,
+                    rows,
+                    place,
+                } => {
+                    let mut ids = decode_rows(rows, cx)?;
+                    // 当てる前に応答と行の整列の予算を確保する。途中で止まれば変更を確定しない。
                     let before = document.row_count();
-                    document.edit(revision, &ids, &RowEdit::Copy(transform), cx)?;
-                    // 写しは、当てる前の表の末尾から対象の順に足される（試験で `Applied` と照らす）。
-                    // 確定した後なので、ここでは断らない
-                    let copies: Vec<RowId> = (before..document.row_count())
-                        .filter_map(RowId::from_index)
-                        .collect();
-                    reply.data = encode_rows(&copies, cx)?;
+                    let mut data = reserve_rows(ids.len(), cx)?;
+                    let count = ids.len() as u64;
+                    checked(
+                        cx,
+                        Kind::Work,
+                        count * (u64::from(count.max(1).ilog2()) + 1),
+                    )?;
+                    if !ids.is_empty() || place.is_none() {
+                        let applied = document.edit(
+                            revision,
+                            &ids,
+                            &RowEdit::Copy { transform, place },
+                            cx,
+                        )?;
+                        ids.clear();
+                        ids.extend(
+                            applied.iter().enumerate().filter_map(|(i, applied)| {
+                                document.copied_row(applied, before + i)
+                            }),
+                        );
+                        ids.sort_unstable();
+                    }
+                    write_rows(&mut data, &ids);
+                    reply.data = data;
                     reply.data_kind = 5;
-                    reply.result = copies.len() as u64;
+                    reply.result = count;
                 }
                 Operation::Draw { template, shape } => {
                     let before = document.row_count();

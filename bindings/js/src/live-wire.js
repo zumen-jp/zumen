@@ -256,7 +256,8 @@ export function response(bytes, pending) {
   } else if (kind === 5) {
     if (length < 4 || reply.revision === null) throw invalid();
     const count = reply.data.readUInt32LE(0);
-    if (length !== 4 + count * 4 || reply.result !== BigInt(count)) throw invalid();
+    const appliedCount = pending.placedCopies ?? count;
+    if (length !== 4 + count * 4 || count > appliedCount || reply.result !== BigInt(appliedCount)) throw invalid();
     let previous = -1;
     for (let i = 0; i < count; i++) {
       const row = reply.data.readUInt32LE(4 + i * 4);

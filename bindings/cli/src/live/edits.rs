@@ -85,7 +85,11 @@ pub(super) struct NewSymbol<'a> {
     pub elements: Vec<DrawShape>,
 }
 
-fn read_padded_str<'a>(input: &mut Words<'a>, length: usize, max: usize) -> Option<&'a str> {
+pub(super) fn read_padded_str<'a>(
+    input: &mut Words<'a>,
+    length: usize,
+    max: usize,
+) -> Option<&'a str> {
     if length > max {
         return None;
     }

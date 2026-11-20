@@ -1707,10 +1707,29 @@ impl JwwLive {
         changes: &Changes,
         cx: &mut Cx<'_>,
     ) -> Result<(Vec<Applied>, bool), Error> {
+        self.apply_inner(changes, None, cx)
+    }
+
+    /// 一覧中のすべての複写に配置先の空間 ID を指定する。
+    pub fn apply_with_copy_place(
+        &mut self,
+        changes: &Changes,
+        place: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<(Vec<Applied>, bool), Error> {
+        self.apply_inner(changes, Some(place), cx)
+    }
+
+    fn apply_inner(
+        &mut self,
+        changes: &Changes,
+        copy_place: Option<&str>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(Vec<Applied>, bool), Error> {
         // 足す図形のクラスの区分は、トランザクションの前に作る。そのあとで断ったか止まったときは、作った区分を除く
         let buckets = self.class_buckets.len();
         let same_name_multi_schema = self.same_name_multi_schema;
-        let result = self.apply_staged(changes, cx);
+        let result = self.apply_staged(changes, copy_place, cx);
         if result.is_err() {
             self.class_buckets.truncate(buckets);
             self.same_name_multi_schema = same_name_multi_schema;
@@ -1721,6 +1740,7 @@ impl JwwLive {
     fn apply_staged(
         &mut self,
         changes: &Changes,
+        copy_place: Option<&str>,
         cx: &mut Cx<'_>,
     ) -> Result<(Vec<Applied>, bool), Error> {
         let current = match changes.document {
@@ -1981,10 +2001,37 @@ impl JwwLive {
                         rejected = true;
                         continue;
                     };
-                    let made = if seen_slots.contains(&slot) {
-                        Err(("source", "changed"))
+                    let refusal = if seen_slots.contains(&slot) {
+                        Some(("source", "changed"))
+                    } else if let Some(place) = copy_place {
+                        let Some(destination) = self.resolve_copy_space(place) else {
+                            cx.report(
+                                Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", place),
+                            );
+                            rejected = true;
+                            continue;
+                        };
+                        let source = self.table.row(row_id).ok_or(Error::Rejected)?.space;
+                        (source != destination).then_some(
+                            if source.0 < DEFINITION_SPACES && destination.0 < DEFINITION_SPACES {
+                                ("layer", "group_mismatch")
+                            } else {
+                                ("place", "unsupported")
+                            },
+                        )
                     } else {
-                        self.stage_copy(row_id, slot, transform, &active_classes, added_count, cx)?
+                        None
+                    };
+                    let made = match refusal {
+                        Some(reason) => Err(reason),
+                        None => self.stage_copy(
+                            row_id,
+                            slot,
+                            transform,
+                            &active_classes,
+                            added_count,
+                            cx,
+                        )?,
                     };
                     match made {
                         Ok(action) => {
@@ -2873,6 +2920,17 @@ impl JwwLive {
                 .map(|rec| String::from_utf8_lossy(rec.class_name).into_owned())
                 .unwrap_or_default(),
         }
+    }
+
+    fn resolve_copy_space(&self, place: &str) -> Option<SpaceId> {
+        if let Some(space) = self.resolve_existing_group_space(place) {
+            return Some(space);
+        }
+        let number = place.strip_prefix("space/")?.parse::<u32>().ok()?;
+        let definition = number.checked_sub(DEFINITION_SPACES)? as usize;
+        (definition < self.definition_rows.len()
+            && place == zumen_drawing::id::space(SpaceId(number)))
+        .then_some(SpaceId(number))
     }
 
     fn resolve_existing_group_space(&self, place: &str) -> Option<SpaceId> {

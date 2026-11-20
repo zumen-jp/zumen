@@ -18,13 +18,16 @@ const _: () = assert!(core::mem::size_of::<Edit>() <= 256);
 
 /// 行を指す編集。変換は表示の座標で受ける
 #[derive(Clone, Debug)]
-pub(super) enum RowEdit {
+pub(super) enum RowEdit<'a> {
     /// 画層・色・線種の倍率・線幅を変える
     Restyle(Restyle),
     /// 動かす
     Move(Affine),
     /// 写して、写しを動かす
-    Copy(Affine),
+    Copy {
+        transform: Affine,
+        place: Option<&'a str>,
+    },
     /// 除く
     Remove,
     /// 文字の内容を替える。替えられるのは文書エンジンの `display_retexted` が受ける文字だけ
@@ -452,6 +455,21 @@ impl Engine {
         }
     }
 
+    fn apply_with_copy_place(
+        &mut self,
+        changes: &Changes,
+        place: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<Applied>, Error> {
+        match self {
+            Self::Acad(live) => live.apply_with_copy_place(changes, place, cx),
+            Self::Jww(live) => live
+                .apply_with_copy_place(changes, place, cx)
+                .map(|(applied, _)| applied),
+            Self::Sxf(live) => live.apply_with_copy_place(changes, place, cx),
+        }
+    }
+
     fn undo(&mut self, cx: &mut Cx<'_>) -> Result<bool, Error> {
         match self {
             Self::Acad(live) => live.undo(cx),
@@ -733,7 +751,7 @@ impl Document {
         &mut self,
         expected: Revision,
         rows: &[RowId],
-        edit: &RowEdit,
+        edit: &RowEdit<'_>,
         cx: &mut Cx<'_>,
     ) -> Result<Vec<Applied>, Problem> {
         self.require_revision(expected)?;
@@ -779,7 +797,7 @@ impl Document {
                     continue;
                 }
                 &RowEdit::Move(transform) => ("transform", transform),
-                &RowEdit::Copy(transform) => ("copy", transform),
+                &RowEdit::Copy { transform, .. } => ("copy", transform),
             };
             let Some(transform) = self.live.row_transform(row, transform) else {
                 // 表示の座標が 1 つに決まらない行（ビューに置いていない、または 2 つ以上のビューに置いた SXF の空間の要素）は動かせない
@@ -792,19 +810,21 @@ impl Document {
                 return Err(Problem::Core(Error::Rejected));
             };
             edits.push(match edit {
-                RowEdit::Copy(_) => Edit::Copy { target, transform },
+                RowEdit::Copy { .. } => Edit::Copy { target, transform },
                 _ => Edit::Transform { target, transform },
             });
         }
-        self.live
-            .apply(
-                &Changes {
-                    document: None,
-                    edits,
-                },
-                cx,
-            )
-            .map_err(Problem::Core)
+        let changes = Changes {
+            document: None,
+            edits,
+        };
+        match edit {
+            RowEdit::Copy {
+                place: Some(place), ..
+            } => self.live.apply_with_copy_place(&changes, place, cx),
+            _ => self.live.apply(&changes, cx),
+        }
+        .map_err(Problem::Core)
     }
 
     /// 行 `template` の空間か用紙に、その画層とスタイルで形 `shape` の要素を 1 つ足す。1 トランザクションで当てる。
@@ -858,6 +878,14 @@ impl Document {
     /// 表の行の数（削除した行を含む）。写しの行は、当てる前のこの数から順に足される
     pub fn row_count(&self) -> usize {
         self.live.row_count()
+    }
+
+    /// 構造を読み直す DXF・DWG は確定した ID で行を引く。用紙・ブロックの要素は表示の行を持たない。
+    pub fn copied_row(&self, applied: &Applied, appended: usize) -> Option<RowId> {
+        match &self.live {
+            Engine::Acad(live) => live.row_of_model_id(applied.id.as_deref()?),
+            Engine::Jww(_) | Engine::Sxf(_) => RowId::from_index(appended),
+        }
     }
 
     pub fn undo(&mut self, expected: Revision, cx: &mut Cx<'_>) -> Result<bool, Problem> {

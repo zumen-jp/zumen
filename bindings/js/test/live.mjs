@@ -90,7 +90,7 @@ test("実プロセスの 64 行差分・古い版・保存・undo / redo", { ski
     assert.equal((await live.lineTypes(restyled.revision + 1n)).status, "stale");
     assert.equal((await live.restyle({ revision: restyled.revision, rows: [3], lineType: 999 })).status, "invalid");
     await live.undo(live.revision);
-    const copied = await live.copy({ revision: live.revision, rows: [65, 3], matrix: move });
+    const copied = await live.copy({ revision: live.revision, rows: [65, 3], matrix: move, place: "space/0" });
     assert.equal(copied.status, "ok");
     assert.equal(copied.display, null);
     assert.deepEqual([...copied.selection.rows()], [130, 131]);
@@ -536,12 +536,82 @@ test("実プロセスで画層・線種・記号定義・折れ線・文字・�
   } finally { await live.close(); }
 });
 
+test("削除済みの行を含む DXF を読み直して複写したとき、現在の行を返す", { skip: !executable }, async () => {
+  const live = await openLiveProcess(executable);
+  try {
+    const opened = await live.open(dxf(4), { display: false });
+    const removed = await live.remove({ revision: opened.revision, rows: [1] });
+    const copied = await live.copy({ revision: removed.revision, rows: [2], matrix: move, place: "space/0" });
+    assert.equal(copied.status, "ok");
+    assert.deepEqual([...copied.selection.rows()], [3]);
+    assert.match((await live.target(3, copied.revision)).target.id, /^space\/0\/h/);
+  } finally { await live.close(); }
+});
+
+test("DXF・DWG のモデル空間の 2 行を指定した用紙へ複写し、一度に取り消す", { skip: !executable }, async () => {
+  for (const name of ["zumen-layout-r2018_ascii.dxf", "zumen-layout-r2018.dwg"]) {
+    const live = await openLiveProcess(executable);
+    let reference;
+    try {
+      const bytes = await readFile(new URL(`../../../samples/dwg/${name}`, import.meta.url));
+      const opened = await live.open(bytes, { display: false });
+      const initial = (await live.save()).data;
+      const place = "sheet/h2DC";
+      const edits = [];
+      for (const row of [0, 1]) {
+        const { id, hash } = (await live.target(row, opened.revision)).target;
+        edits.push({ kind: "copy", id, hash, matrix: move, place });
+      }
+      reference = await openProcess(executable);
+      await reference.push(name, bytes);
+      const doc = (await reference.call({ v: 1, op: "open", input: name })).result.doc;
+      const applied = await reference.call({ v: 1, op: "apply", doc, edits });
+      const expected = await reference.take(applied.blobs.find((blob) => blob.kind === "file").id);
+      const copied = await live.copy({ revision: opened.revision, rows: [0, 1], matrix: move, place });
+      assert.equal(copied.status, "ok");
+      assert.equal(copied.result, 2n);
+      assert.deepEqual([...copied.selection.rows()], []);
+      assert.deepEqual((await live.save()).data, Buffer.from(expected));
+      assert.equal((await live.undo(copied.revision)).result, 1n);
+      assert.deepEqual((await live.save()).data, initial);
+    } finally { await live.close(); await reference?.close(); }
+  }
+});
+
+test("旧ホストは配置先つきの複写を断り、同じ接続で既存の複写を続けられる", async () => {
+  const { live } = await fake("copy-legacy");
+  try {
+    for (const rows of [[0], new Uint32Array(65536)]) {
+      const reply = await live.copy({ revision: 0n, rows, matrix: move, place: "space/0" });
+      assert.equal(reply.status, "invalid");
+      assert.equal(reply.revision, 0n);
+      assert.equal(reply.state, 0n);
+      assert.equal(live.broken, false);
+    }
+    assert.deepEqual([...(await live.copy({ revision: 0n, rows: [0], matrix: move })).selection.rows()], [1]);
+  } finally { await live.close(); }
+});
+
+test("配置先つきの最大行数は空の要求で対応を確かめ、全行を 1 回の編集で送る", async () => {
+  const { live } = await fake("copy-large");
+  try {
+    const reply = await live.copy({ revision: 0n, rows: new Uint32Array(65536), matrix: move, place: "space/0" });
+    assert.equal(reply.status, "ok");
+    assert.equal(reply.requestId, 3n);
+    assert.equal(reply.revision, 1n);
+    assert.equal(reply.selection.length, 65536);
+  } finally { await live.close(); }
+});
+
 test("copy・remove・restyle の引数を送る前に検査する", async () => {
   const { live } = await fake("order");
   try {
     await assert.rejects(live.copy({ revision: 0n, rows: [0], matrix: move }, { display: true }), TypeError);
     await assert.rejects(live.copy({ revision: 0n, rows: [0], matrix: [1, 0, 0] }), TypeError);
     await assert.rejects(live.copy({ revision: 0n, rows: [-1], matrix: move }), RangeError);
+    await assert.rejects(live.copy({ revision: 0n, rows: [0], matrix: move, place: "" }), RangeError);
+    await assert.rejects(live.copy({ revision: 0n, rows: [0], matrix: move, place: "x".repeat(4097) }), RangeError);
+    await assert.rejects(live.copy({ revision: 0n, rows: [0], matrix: move, place: "\ud800" }), TypeError);
     await assert.rejects(live.remove({ revision: 0n, rows: new Uint32Array(65537) }), RangeError);
     await assert.rejects(live.remove({ revision: -1, rows: [0] }), RangeError);
     await assert.rejects(live.setText({ revision: 0n, rows: [0], content: 1 }), TypeError);

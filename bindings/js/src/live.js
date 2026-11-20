@@ -126,6 +126,7 @@ export class LiveProcess {
   #revision = null;
   #lastDisplay = null;
   #ack = null;
+  #supportsCopyPlace = false;
   #header = Buffer.alloc(HEADER);
   #body = null;
   #size = 0;
@@ -230,7 +231,7 @@ export class LiveProcess {
     }
   }
 
-  #request(command, flags, revision, options, extra, fill) {
+  #request(command, flags, revision, options, extra, fill, placedCopies) {
     this.#check();
     const length = 72 + extra;
     if (length > this.#limits.maxMessageBytes) throw new ProcessError("limit", "要求が maxMessageBytes を超える");
@@ -243,7 +244,7 @@ export class LiveProcess {
     let pending;
     const done = new Promise((resolve, reject) => {
       const timer = setTimeout(() => this.#fail(new ProcessError("timeout", "文書の応答を待つ時間を超えた")), this.#limits.timeoutMs);
-      pending = { id, command, flags, resolve, reject, timer };
+      pending = { id, command, flags, placedCopies, resolve, reject, timer };
       this.#pending = pending;
       this.#child.stdin.write(bytes, (cause) => { if (cause) this.#fail(new ProcessError("io", "文書の要求を送れない", cause)); });
     });
@@ -394,18 +395,40 @@ export class LiveProcess {
     });
   }
 
-  /** 行を写し、写しを動かす。写しの行を selection に返し、表示は返さない */
-  async copy({ revision, rows, matrix }, options = {}) {
+  /** 行を写し、写しを動かす。写した件数を result、表示にある写しの行を selection に返す */
+  async copy({ revision, rows, matrix, place }, options = {}) {
     this.#check();
     if (options.display !== undefined || options.full !== undefined) throw new TypeError("copy は表示を返さない。display で取り直す");
     if ((!Array.isArray(rows) && !(rows instanceof Uint32Array)) || rows.length > 65536) throw new RangeError("rows は 65536 個までの行番号にする");
     if ((!Array.isArray(matrix) && !(matrix instanceof Float64Array)) || matrix.length !== 6
       || Array.from(matrix).some((value) => typeof value !== "number")) throw new TypeError("matrix は 6 つの数値にする");
-    return this.#request(14, 0, u64(revision, "revision"), options, 56 + rows.length * 4, (out) => {
-      out.writeUInt32LE(rows.length, 0);
+    const rev = u64(revision, "revision");
+    const destination = place === undefined ? null : paddedUtf8(place, "place", 4096);
+    if (destination?.buf.length === 0) throw new RangeError("place は空でない配置先の ID にする");
+    const tail = destination === null ? 0 : 4 + destination.padded;
+    const send = (ids) => this.#request(14, 0, rev, options, 56 + ids.length * 4 + tail, (out) => {
+      out.writeUInt32LE(ids.length, 0);
       for (let i = 0; i < 6; i++) out.writeDoubleLE(matrix[i], 8 + i * 8);
-      for (let i = 0; i < rows.length; i++) out.writeUInt32LE(rowOf(rows[i]), 56 + i * 4);
-    });
+      for (let i = 0; i < ids.length; i++) out.writeUInt32LE(rowOf(ids[i]), 56 + i * 4);
+      if (destination !== null) {
+        const offset = 56 + ids.length * 4;
+        out.writeUInt32LE(destination.buf.length, offset);
+        destination.buf.copy(out, offset + 4);
+      }
+    }, destination === null ? undefined : ids.length);
+    if (destination === null) return send(rows);
+    // 旧ホストがヘッダーだけで切断する大きさは、先に旧枠内の空の複写で対応を確かめる。
+    if (!this.#supportsCopyPlace && rows.length * 4 + tail > 65536 * 4) {
+      rows = Uint32Array.from(rows, rowOf);
+      matrix = Array.from(matrix);
+      const probe = await send([]);
+      if (probe.status !== "ok") return probe;
+      if (probe.revision !== rev || probe.selection?.length !== 0) throw invalid();
+      this.#supportsCopyPlace = true;
+    }
+    const reply = await send(rows);
+    if (reply.status === "ok") this.#supportsCopyPlace = true;
+    return reply;
   }
 
   /** 行 template の画層・スタイルに倣って、表示の座標の線分・円・円弧を 1 つ足す。足した行を selection に返す */

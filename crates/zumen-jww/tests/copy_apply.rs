@@ -468,18 +468,19 @@ fn unsupported_jww_copies_are_refused_whole_without_mutation() {
     // 4. 異なるグループ（space/0 -> space/1）への配置は拒む
     {
         let mut file = read(&src);
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Copy {
+                target: Seen {
+                    id: space0[0].0.clone(),
+                    hash: space0[0].1,
+                },
+                transform: SHIFT,
+            }],
+        };
         let (res, diag) = cx_run(|cx| {
             file.apply_with_copies(
-                &Changes {
-                    document: None,
-                    edits: vec![Edit::Copy {
-                        target: Seen {
-                            id: space0[0].0.clone(),
-                            hash: space0[0].1,
-                        },
-                        transform: SHIFT,
-                    }],
-                },
+                &changes,
                 &[CopyFrom {
                     place: Some("space/1"),
                     from: None,
@@ -488,6 +489,28 @@ fn unsupported_jww_copies_are_refused_whole_without_mutation() {
             )
         });
         assert!(res.is_err());
+        let mut live = cx_run(|cx| JwwLive::open(&src, cx).unwrap()).0;
+        let (refused, observed) = cx_run(|cx| live.apply_with_copy_place(&changes, "space/1", cx));
+        assert!(refused.is_err());
+        assert_eq!(
+            observed.iter().collect::<Vec<_>>(),
+            diag.iter().collect::<Vec<_>>()
+        );
+        assert_eq!(cx_run(|cx| live.save(cx).unwrap()).0, src);
+        let (missing, observed) =
+            cx_run(|cx| live.apply_with_copy_place(&changes, "space/999999", cx));
+        assert!(missing.is_err());
+        assert!(
+            observed
+                .iter()
+                .any(|d| d.code() == codes::CHANGE_ELEMENT_MISSING)
+        );
+        assert!(
+            cx_run(|cx| live.apply_with_copy_place(&changes, "space/0", cx))
+                .0
+                .is_ok()
+        );
+
         assert!(diag.iter().any(|d| {
             d.code() == codes::CHANGE_COPY_UNSUPPORTED
                 && d.param("value") == Some(&"group_mismatch".into())

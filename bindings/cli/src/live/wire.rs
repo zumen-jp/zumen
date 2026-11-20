@@ -104,7 +104,11 @@ impl Command {
                 CONTROL_BYTES + 8,
                 CONTROL_BYTES + 8 + MAX_INPUT_BYTES + MAX_SAF_BYTES,
             ),
-            Self::Transform | Self::Copy | Self::TransformSymbol => {
+            Self::Copy => (
+                CONTROL_BYTES + 56,
+                CONTROL_BYTES + 56 + MAX_ROWS * 4 + 4 + super::edits::MAX_NAME_BYTES,
+            ),
+            Self::Transform | Self::TransformSymbol => {
                 (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4)
             }
             Self::Remove | Self::Texts | Self::Symbols => {

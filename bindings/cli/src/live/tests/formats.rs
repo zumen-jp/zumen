@@ -418,7 +418,10 @@ fn assert_copies(document: &mut Document, targets: &[RowId], cx: &mut zumen_base
     let Ok(applied) = document.edit(
         document.revision(),
         targets,
-        &RowEdit::Copy(Affine::translation(FAR, FAR)),
+        &RowEdit::Copy {
+            transform: Affine::translation(FAR, FAR),
+            place: None,
+        },
         cx,
     ) else {
         assert_eq!(document.row_count(), before);
@@ -500,6 +503,29 @@ fn copy_carries_the_new_rows() {
         let undone = call(&mut host, Command::Undo, 6, 1, wire::NONE, 0, &[]);
         assert_eq!(undone.status, Status::Ok);
         assert_eq!(select(&mut host, 7, 2, EVERYWHERE), rows);
+        let target = call(
+            &mut host,
+            Command::Target,
+            8,
+            2,
+            wire::NONE,
+            0,
+            &source.to_le_bytes(),
+        );
+        let id = std::str::from_utf8(&target.data[20..]).unwrap();
+        let (place, _) = id.rsplit_once('/').unwrap();
+        for (id, requested, status) in [
+            (9, "space/999999", Status::Rejected),
+            (10, place, Status::Ok),
+        ] {
+            let mut body = transform(&[source], Affine::translation(FAR, FAR));
+            body.extend_from_slice(&(requested.len() as u32).to_le_bytes());
+            body.extend_from_slice(requested.as_bytes());
+            body.resize(body.len().next_multiple_of(4), 0);
+            let reply = call(&mut host, Command::Copy, id, 2, wire::NONE, 0, &body);
+            assert_eq!(reply.status, status);
+            assert_eq!(reply.revision, if status == Status::Ok { 3 } else { 2 });
+        }
     }
 }
 

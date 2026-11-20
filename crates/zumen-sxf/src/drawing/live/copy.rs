@@ -12,7 +12,43 @@ pub(super) fn extensions_match(drafts: &[Draft], expected: &[batch::ExpectedExt]
     })
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum Place<'a> {
+    OriginalSheet,
+    Other,
+    Missing(&'a str),
+}
+
 impl SxfLive {
+    pub(super) fn copy_place<'a>(
+        &self,
+        place: Option<&'a str>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Place<'a>, Error> {
+        let Some(id) = place else {
+            return Ok(Place::OriginalSheet);
+        };
+        if self.sheet_name_map.contains_key(id) {
+            return Ok(Place::OriginalSheet);
+        }
+        if let Some(n) = id
+            .strip_prefix("space/")
+            .and_then(|s| s.parse::<u32>().ok())
+            && id == zumen_drawing::id::space(SpaceId(n))
+        {
+            work(cx, self.symbol_templates.len() as u64 + 1, &Ref::default())?;
+            if self.space_spatial.contains_key(&SpaceId(n))
+                || self
+                    .symbol_templates
+                    .iter()
+                    .any(|s| s.space_id == SpaceId(n))
+            {
+                return Ok(Place::Other);
+            }
+        }
+        Ok(Place::Missing(id))
+    }
+
     fn copy_refusal(
         &self,
         row: &SxfRow,
@@ -37,6 +73,7 @@ impl SxfLive {
         &self,
         target: &Seen,
         edit: usize,
+        place: Place<'_>,
         targets: &BTreeSet<u64>,
         cx: &mut Cx,
     ) -> Result<Option<&SxfRow>, Error> {
@@ -54,7 +91,10 @@ impl SxfLive {
                 Some(("reference", "composite_curve"))
             } else if let Some(attr) = row.drafts.iter().find(|d| d.namespace == "sxf.attribute") {
                 Some(("extensions", batch::attribute_kind(&attr.fields)))
-            } else if !matches!(row.placed, Placed::Paper(_)) {
+            } else if let Place::Missing(id) = place {
+                cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", id));
+                return Ok(None);
+            } else if matches!(place, Place::Other) || !matches!(row.placed, Placed::Paper(_)) {
                 Some(("place", "unsupported"))
             } else {
                 None
@@ -108,11 +148,12 @@ impl SxfLive {
         target: &Seen,
         transform: &Affine,
         edit: usize,
+        place: Place<'_>,
         targets: &BTreeSet<u64>,
         stage: &mut TableStage,
         cx: &mut Cx,
     ) -> Result<Option<StagedSfcOp>, Error> {
-        let Some(row) = self.copy_source(target, edit, targets, cx)? else {
+        let Some(row) = self.copy_source(target, edit, place, targets, cx)? else {
             return Ok(None);
         };
         let original = if self.row_p21_name(row) == text::NAME
@@ -166,11 +207,12 @@ impl SxfLive {
         target: &Seen,
         transform: &Affine,
         edit: usize,
+        place: Place<'_>,
         targets: &BTreeSet<u64>,
         stage: &mut TableStage,
         cx: &mut Cx,
     ) -> Result<Option<StagedP21Op>, Error> {
-        let Some(row) = self.copy_source(target, edit, targets, cx)? else {
+        let Some(row) = self.copy_source(target, edit, place, targets, cx)? else {
             return Ok(None);
         };
         let original = if self.row_p21_name(row) == text::NAME
