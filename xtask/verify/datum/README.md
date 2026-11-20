@@ -40,3 +40,14 @@ python xtask/verify/datum/compare.py tky2jgd /path/to/kit/zumen.tsv /path/to/kit
 ```
 
 2026-11-21 に国土地理院の 3 ファイルから各 19 点の入力を再生成し、2026-11-19 にサイトで実測した同じ 57 点に照らしました。補正後の値がある 42 点は差の最大が 0.00000 秒、補正量がない 15 点はサイトの扱いと一致しました。[ファイルの版・補間と座標変換の違い](../../../docs/formats/crs.md#測量計算サイトとの照合)
+
+## 経緯度の一括計算
+
+同じ `zumen.tsv` から、入力する経緯度と点名だけのファイルを作ります。サイトの「一括計算」で「緯度・経度 → 緯度・経度」を選び、「入力値を出力する」を有効にします。PatchJGD では対応するパラメーターを選びます。ダウンロードした出力をそのまま比較します。
+
+```sh
+python xtask/verify/datum/batch.py input /path/to/kit/zumen.tsv /path/to/kit/latlon.in
+python xtask/verify/datum/batch.py compare tky2jgd /path/to/kit/zumen.tsv /path/to/kit/latlon.out
+```
+
+2026-11-21 の一括計算は 3 ファイル各 19 点で、補正できた 42 点の差の最大は 0.00000 秒でした。残る 15 点はサイトの両方の結果列が `-9999.` で、zumen も補間しませんでした。TKY2JGD の一括出力ヘッダーには Ver.2.1.1、手元の格子には Ver.2.1.2 と記されています。[TKY2JGD の入出力](https://vldb.gsi.go.jp/sokuchi/surveycalc/tky2jgd/help/infile.htm)・[PatchJGD の入出力](https://vldb.gsi.go.jp/sokuchi/surveycalc/patchjgd/helpweb/infile.htm)
