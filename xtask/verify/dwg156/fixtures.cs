@@ -16,12 +16,14 @@ var folder = Directory.CreateDirectory(args[0]);
 if (folder.EnumerateFileSystemInfos().Any())
     throw new IOException("出力フォルダーには既にファイルがあります。");
 
-foreach (var version in new[] { ACadVersion.AC1024, ACadVersion.AC1027, ACadVersion.AC1032 })
+foreach (var version in new[] { ACadVersion.AC1015, ACadVersion.AC1018, ACadVersion.AC1024,
+    ACadVersion.AC1027, ACadVersion.AC1032 })
 {
     var doc = NewDocument(version);
     doc.UCSs.Add(new UCS("LOCAL_TEST") { Origin = new XYZ(10, 20, 3), XAxis = XYZ.AxisY, YAxis = -XYZ.AxisX });
     var record = new XRecord("TEST_TEXT");
-    record.CreateEntry(1, "sample-α");
+    var entryText = version is ACadVersion.AC1015 or ACadVersion.AC1018 ? "sample-156" : "sample-α";
+    record.CreateEntry(1, entryText);
     doc.RootDictionary.Add("TEST_TEXT", record);
     var leader = new Leader { ArrowHeadEnabled = true };
     var vertices = new[] { XYZ.Zero, new XYZ(5, 2, 0), new XYZ(8, 2, 0) };
@@ -33,10 +35,10 @@ foreach (var version in new[] { ACadVersion.AC1024, ACadVersion.AC1027, ACadVers
     var text = copy.RootDictionary.GetEntry<XRecord>("TEST_TEXT").Entries.Single(entry => entry.Code == 1);
     var line = copy.Entities.OfType<Leader>().Single();
     if (ucs.Origin != new XYZ(10, 20, 3) || ucs.XAxis != XYZ.AxisY || ucs.YAxis != -XYZ.AxisX ||
-        !Equals(text.Value, "sample-α") || !line.ArrowHeadEnabled || !line.Vertices.SequenceEqual(vertices))
+        !Equals(text.Value, entryText) || !line.ArrowHeadEnabled || !line.Vertices.SequenceEqual(vertices))
         throw new InvalidDataException("UCS・XRECORD・LEADER の値が合いません。");
 
-    if (version == ACadVersion.AC1032)
+    if (version is not (ACadVersion.AC1024 or ACadVersion.AC1027))
         continue;
     var gridDoc = NewDocument(version);
     gridDoc.Header.InsUnits = UnitsType.Millimeters;

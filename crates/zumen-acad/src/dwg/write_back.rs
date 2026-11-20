@@ -878,7 +878,7 @@ impl DwgFile {
             b"APPID" => (kinds::APPID, kinds::APPID_CONTROL, &[70]),
             b"DIMSTYLE" => (kinds::DIMSTYLE, kinds::DIMSTYLE_CONTROL, &dimstyle_codes),
             b"VIEW" => (kinds::VIEW, kinds::VIEW_CONTROL, &view_codes),
-            b"UCS" if self.release >= Release::R2010 => (kinds::UCS, kinds::UCS_CONTROL, UCS),
+            b"UCS" => (kinds::UCS, kinds::UCS_CONTROL, UCS),
             b"VPORT" => (kinds::VPORT, kinds::VPORT_CONTROL, &vport_codes),
             b"BLOCK_RECORD" => (
                 kinds::BLOCK_RECORD,
@@ -934,8 +934,9 @@ impl DwgFile {
             Some(anon) => fields.text(anon)?,
             None => string(&mut fields, object, 2)?,
         }
-        // 参照されるフラグ・外部参照の番号・外部参照に依るフラグ
-        fields.bit(true);
+        // 参照されるフラグ・外部参照の番号・外部参照に依るフラグ。
+        // R2000・R2004 の UCS は、70 が 0 の新規項目を参照済みにしない（#156）。
+        fields.bit(r2010 || type_code != kinds::UCS);
         if !r2010 {
             fields.bs(0);
         }

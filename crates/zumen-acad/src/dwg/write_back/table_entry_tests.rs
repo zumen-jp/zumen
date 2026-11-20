@@ -232,11 +232,15 @@ fn named_ucs_keeps_its_axes_and_handles_when_moving_the_origin() {
 /// 名前付き UCS の追加で表の項目と HANDSEED が進み、正投影の UCS を要求したときは原本を保つ（#156）。
 #[test]
 fn new_named_ucs_updates_the_control_and_preserves_the_original_on_rejection() {
-    let src = std::fs::read(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../samples/dwg/zumen-layout-r2018.dwg"),
-    )
-    .unwrap();
+    for version in ["r2000", "r2004", "r2018"] {
+        check_new_named_ucs(version);
+    }
+}
+
+fn check_new_named_ucs(version: &str) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../samples/dwg/zumen-layout-{version}.dwg"));
+    let src = std::fs::read(path).unwrap();
     let mut budget = Budget::default();
     let mut diagnostics = Diagnostics::new();
     let cancel = CancelToken::new();
@@ -316,15 +320,54 @@ fn new_named_ucs_updates_the_control_and_preserves_the_original_on_rejection() {
     file.write_back(&db, &mut cx).unwrap();
     let mut out = Vec::new();
     crate::Dwg::write(&file, &mut out, &mut cx).unwrap();
-    let saved = crate::Dwg::read(&out, &mut cx).unwrap();
+    let mut saved = crate::Dwg::read(&out, &mut cx).unwrap();
     listed_handles.push(seed);
-    assert_eq!(control(&saved), (owner, listed_handles));
+    assert_eq!(control(&saved), (owner, listed_handles.clone()));
     assert_eq!(saved.handle_seed(), Some(seed + 1));
-    let again = saved.objects(&mut cx).unwrap();
+    if saved.release <= Release::R2004 {
+        let entry = saved
+            .entries
+            .iter()
+            .find(|entry| entry.handle == seed)
+            .unwrap();
+        let data = saved.data(entry);
+        let [_, start, _] = object_fields(data, saved.release).unwrap();
+        let mut bits = Bits::with_release(data, saved.release);
+        bits.seek(start);
+        bits.text().unwrap();
+        // ACadSharp が Referenced として読むビット。独立の UCS を追加しただけでは立てない。
+        assert_eq!(bits.bit(), Some(false));
+    }
+    let mut again = saved.objects(&mut cx).unwrap();
     for value in &new.values {
         assert_eq!(
             again.get(seed).unwrap().first(value.code),
             Some(&value.data)
         );
     }
+    let index = again
+        .objects()
+        .iter()
+        .position(|o| o.handle() == Some(seed))
+        .unwrap();
+    let entry = again.object_mut(index).unwrap();
+    for (code, value) in [(10, 0.0), (20, 1.0), (30, -15.75)] {
+        entry
+            .values
+            .iter_mut()
+            .find(|v| v.code == code)
+            .unwrap()
+            .data = Data::Real(value);
+    }
+    let expected = entry.values.clone();
+    saved.write_back(&again, &mut cx).unwrap();
+    let mut changed = Vec::new();
+    crate::Dwg::write(&saved, &mut changed, &mut cx).unwrap();
+    let edited = crate::Dwg::read(&changed, &mut cx).unwrap();
+    assert_eq!(control(&edited), (owner, listed_handles));
+    assert_eq!(edited.handle_seed(), Some(seed + 1));
+    assert_eq!(
+        edited.objects(&mut cx).unwrap().get(seed).unwrap().values,
+        expected
+    );
 }

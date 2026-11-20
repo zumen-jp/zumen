@@ -490,22 +490,28 @@ pub(super) fn disown_r2010(
     with_modular_size(out, handles)
 }
 
+/// 項目とその所有者の表を一緒に更新できるレコード（決定 0061〜0068、#156）。
+fn addable_table_record(kind: &[u8]) -> bool {
+    matches!(
+        kind,
+        b"LAYER"
+            | b"STYLE"
+            | b"LTYPE"
+            | b"APPID"
+            | b"DIMSTYLE"
+            | b"VIEW"
+            | b"UCS"
+            | b"VPORT"
+            | b"BLOCK_RECORD"
+    )
+}
+
 /// R2004 の DWG に足せるものか（決定 0079〜0081）。型ごとのフィールドが R2000 と同じ形の図形か、MTEXT か、
 /// 属性を持つ INSERT とその ATTRIB・SEQEND か、表のレコードと、足したブロックの BLOCK・ENDBLK だけを
 /// 足せる。格子を持つもの（MINSERT）も足せる
 pub(super) fn r2004_addable(object: &Object) -> bool {
-    const RECORDS: [&[u8]; 8] = [
-        b"LAYER",
-        b"STYLE",
-        b"LTYPE",
-        b"APPID",
-        b"DIMSTYLE",
-        b"VIEW",
-        b"VPORT",
-        b"BLOCK_RECORD",
-    ];
     if object.section == Section::Tables {
-        return RECORDS.contains(&object.kind.as_slice());
+        return addable_table_record(&object.kind);
     }
     const KINDS: [&[u8]; 24] = [
         b"HATCH",
@@ -585,21 +591,8 @@ pub(super) fn adopt_r2010(
 /// 書ける図形と、MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、SPLINE と、
 /// 表のレコードと、足したブロックを足せる。格子を持つもの（MINSERT）も足せる
 pub(super) fn r2010_addable(object: &Object) -> bool {
-    // 表のレコードは、LAYER・STYLE・LTYPE・APPID（決定 0094）と、DIMSTYLE・VIEW・ブロックのレコード
-    // （決定 0095）、VPORT と名前付き UCS を足せる
     if object.section == Section::Tables {
-        return matches!(
-            object.kind.as_slice(),
-            b"LAYER"
-                | b"STYLE"
-                | b"LTYPE"
-                | b"APPID"
-                | b"DIMSTYLE"
-                | b"VIEW"
-                | b"VPORT"
-                | b"UCS"
-                | b"BLOCK_RECORD"
-        );
+        return addable_table_record(&object.kind);
     }
     // 足したブロックの BLOCK・ENDBLK と、ブロックの持つ図形も足せる（決定 0095）
     let kind = object.kind.as_slice();
