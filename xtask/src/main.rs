@@ -7,11 +7,13 @@
 //! - `fuzz-seeds`: fuzz の種の入力を `fuzz/corpus` に書く（fuzz/README.md）
 //! - `geoid points`・`geoid compare`: ジオイドの格子の補間を、国土地理院のジオイド高計算サービスか内挿計算プログラムと
 //!   照らす（`xtask/verify/geoid/README.md`）
+//! - `datum points`: TKY2JGD・PatchJGD を測量計算サイトと照らす点を選ぶ（`xtask/verify/datum/README.md`）
 
 mod boundary;
 mod catalog;
 mod cli;
 mod dart;
+mod datum;
 mod dotnet;
 mod drawing;
 mod formats;
@@ -38,7 +40,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-const USAGE: &str = "使い方: cargo xtask codegen [--check] | cargo xtask fuzz-seeds | cargo xtask geoid points <フォルダー> <ISG>... | cargo xtask geoid compare <フォルダー> <ISG> <結果> [--column <列>]";
+const USAGE: &str = "使い方: cargo xtask codegen [--check] | cargo xtask fuzz-seeds | cargo xtask geoid points <フォルダー> <ISG>... | cargo xtask geoid compare <フォルダー> <ISG> <結果> [--column <列>] | cargo xtask datum points <フォルダー> <PAR> [--outside <緯度> <経度>]";
 
 /// 生成するファイルの置き場所（リポジトリの根からの相対パス）
 const CODES_RS: &str = "crates/zumen-base/src/codes.rs";
@@ -92,6 +94,10 @@ fn main() -> ExitCode {
         ["codegen"] => codegen(Mode::Write),
         ["codegen", "--check"] => codegen(Mode::Check),
         ["fuzz-seeds"] => fuzz::seeds(&root()),
+        ["datum", "points", folder, grid] => datum::points(folder, grid, None),
+        ["datum", "points", folder, grid, "--outside", lat, lon] => {
+            datum::points(folder, grid, Some((lat, lon)))
+        }
         ["geoid", "points", folder, grids @ ..] if !grids.is_empty() => {
             geoid::points(folder, grids)
         }

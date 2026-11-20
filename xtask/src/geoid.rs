@@ -443,7 +443,7 @@ fn edges(grid: &Grid) -> Vec<(Edge, GeoPoint)> {
 
 /// リポジトリの中と、Git の作業ツリーの中のパスを断る。国土地理院のモデルと、そこから求めた値は Git に入れない
 /// （決定 0019）。作業ツリーがほかの checkout の中にあるとき（`.claude/worktrees/` の下など）も、外の checkout を守る
-fn outside_repository(path: &Path, label: &str) -> Result<PathBuf, String> {
+pub(super) fn outside_repository(path: &Path, label: &str) -> Result<PathBuf, String> {
     let root = fs::canonicalize(crate::root())
         .map_err(|e| format!("リポジトリの根を開けませんでした（{}）", e.kind()))?;
     let full = fs::canonicalize(path).map_err(|e| {
@@ -472,7 +472,7 @@ fn outside_repository(path: &Path, label: &str) -> Result<PathBuf, String> {
 }
 
 /// 書く先のフォルダー。なければ、親のフォルダーがリポジトリの外にあることを確かめてから作る
-fn output_folder(path: &Path) -> Result<PathBuf, String> {
+pub(super) fn output_folder(path: &Path) -> Result<PathBuf, String> {
     if path.exists() {
         return outside_repository(path, "フォルダー");
     }
@@ -498,7 +498,7 @@ fn output_folder(path: &Path) -> Result<PathBuf, String> {
     Ok(folder)
 }
 
-fn read_limited(path: &Path, label: &str, limit: u64) -> Result<Vec<u8>, String> {
+pub(super) fn read_limited(path: &Path, label: &str, limit: u64) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
     File::open(path)
         .and_then(|f| f.take(limit + 1).read_to_end(&mut bytes))

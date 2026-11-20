@@ -21,6 +21,7 @@ IFC4・IFC2X3 の名前・説明・プロパティを書き戻し、BIM ソフ�
 | `test_source_kinds.py` | キットの読みの要素の種類を変え、`check_ezdxf.py`・`check_acadsharp.py`・`check_ezjww.py` が、形を返さない要素の種類の違いを検出することを確かめる。JWW では、文字と画像の範囲の取り違え、描かない文字を要素にした読み、診断の欠落も検出することを確かめる。DWG は `acadsharp-dump.json` があるときだけ確かめる |
 | `pdfjs/` | `@zumen-jp/view2d` の PDF アンダーレイのブラウザーテストが使う固定版の pdf.js。手順は [README](pdfjs/README.md) |
 | `geoid/` | ジオイドの格子の補間を、国土地理院のジオイド高計算サービスか内挿計算プログラムの結果と照らす（#438）。利用者が入手したモデルで、`cargo xtask geoid` を使う。手順は [README](geoid/README.md) |
+| `datum/` | TKY2JGD・PatchJGD の手元の格子から点を選び、補正後の経緯度と補正量の有無を国土地理院の測量計算サイトと照らす（#664）。手順は [README](datum/README.md) |
 | `ply/` | 公開 PDAL サンプルを ply-rs と照らし、MeshLab に渡す期待値表と実測用の様式を作る（#870）。実機の操作は利用者待ち。手順は [README](ply/README.md) |
 | `e57/` | libE57Formatの公開合成立方体2件の全点・座標・RGBをpye57と照らす（#504）。実測点群とGUI表示は未確認。手順は [README](e57/README.md) |
 | `saf/` | 自作の SAF 付き P2Z・SFZ を ezsxf・ZIP・XML の別実装と照らし、属性の値と結び先を確認するキットを作る（#494）。SXF ブラウザの操作は利用者待ち。手順は [README](saf/README.md) |
