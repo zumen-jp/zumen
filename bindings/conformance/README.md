@@ -24,7 +24,7 @@
 | VBA7 のラッパー（Windows 64 bit、C ABI） | `../vba/ZumenConformance.bas` | `python bindings/vba/prepare.py target/vba-conformance.tsv` のあと、Office のマクロで全手順とハッシュを確認する。CI は Windows x64 の DLL と手順の対応を検査する。[VBA の手順と Excel 実機の結果](../vba/README.md#確かめ方) |
 | C のヘッダーと C++ のラッパー（C ABI） | `../c/tests/conformance.rs` | `cargo test -p zumen-c`。組の手順は Rust のテストのツールが読み、API の関数は C と C++ の側から呼ぶ（[C・C++ の使い方](../c/README.md)） |
 | CLI（`zumen serve --stdio` と `zumen mcp`） | `../cli/tests/conformance.rs` | `cargo test -p zumen-cli`。MCP はツールで表せる組だけを流す（[CLI の使い方](../cli/README.md)） |
-| 言語に依らない形態（`zumen call`・`serve --stdio`・`serve --http`・WASI） | `cli.mjs`（Node.js 24 以降） | `cargo build -p zumen-cli --release` のあと、`node bindings/conformance/cli.mjs <call・stdio・http> target/release/zumen`。WASI は `cargo build -p zumen-cli --release --target wasm32-wasip1` のあと、`node bindings/conformance/cli.mjs wasi target/wasm32-wasip1/release/zumen.wasm`（ランタイムは `wasi.mjs` の node:wasi）。`call` は 1 回が 1 つのセッションなので、セッションの最初の call と直後の take だけを流す。Tier 3 の言語の代わり（[対応する環境](../../docs/support.md)）。毎晩 |
+| 言語に依らない形態（`zumen call`・`serve --stdio`・`serve --http`・WASI） | `cli.mjs`（Node.js 24 以降） | `cargo build -p zumen-cli --release` のあと、`node bindings/conformance/cli.mjs <call・stdio・http> target/release/zumen`。WASI は `cargo build -p zumen-cli --release --target wasm32-wasip1` のあと、`node bindings/conformance/cli.mjs wasi target/wasm32-wasip1/release/zumen.wasm`（ランタイムは `wasi.mjs` の node:wasi）。`call` は 1 回が 1 つのセッションなので、セッションの最初の call と直後の take だけを流す。毎晩 |
 
 JavaScript で流すものは、手順の読み方と応答の確かめ方を `cases.mjs` で共有します。ブラウザーでも読み込むため、ファイルを読まない部分は `steps.mjs` に置き、`cases.mjs` から出し直します。各言語のバインディングを足すときは、その言語で同じ組を流すものを足し、CI に入れます（[対応する環境](../../docs/support.md) の「適合テストに通る」）。
 

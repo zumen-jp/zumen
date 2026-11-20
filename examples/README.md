@@ -4,6 +4,6 @@
 | --- | --- |
 | [render-svg.mjs](render-svg.mjs) | 図面・範囲・色と、必要ならフォントを指定して SVG を作る Node.js の例。手順は [docs/render.md](../docs/render.md) |
 | [render-png.mjs](render-png.mjs) | 図面・範囲・余白・色と、必要ならフォントを指定して PNG を作る Node.js の例。手順は [docs/render.md](../docs/render.md) |
-| [tier3](tier3) | 公式のラッパーのない言語（Tier 3）から、4 つの形態で呼ぶサンプル。手順は [docs/tier3.md](../docs/tier3.md) |
+| [tier3](tier3) | Ruby・PHP・PowerShell で図面を開くサンプルと、AutoCAD（AutoLISP）・MATLAB で確認した利用例。[実行手順](../docs/tier3.md) |
 
-Tier 3 のサンプルは、このリポジトリの合成の図面だけを使います。毎晩の CI（`nightly.yml` の `tier3`）が流します。
+毎晩の CI は Ruby・PHP・PowerShell で同じ公開図面を開き、形式と図形の数を[共通の期待値](tier3/expected.txt)と照らします。

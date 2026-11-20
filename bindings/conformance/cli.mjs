@@ -6,8 +6,7 @@
 //   node bindings/conformance/cli.mjs call <zumen の実行ファイル>
 //   node bindings/conformance/cli.mjs wasi <wasm32-wasip1 の zumen.wasm>
 //
-// Tier 3 の言語（Ruby・PHP・R・Julia など）は、自分の言語から子プロセスか HTTP で CLI を使う。ここでは、その言語の
-// 代わりに Node.js から同じやり取りをする。
+// Node.js から各形態で同じ要求を送り、応答とバイナリのハッシュを照らす。
 //
 // - stdio: `zumen serve --stdio` の JSON-RPC。すべての組を流す
 // - http: `zumen serve --http` の JSON-RPC と、本文のままの push・take。すべての組を流す

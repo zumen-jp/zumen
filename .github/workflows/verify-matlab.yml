@@ -1,4 +1,4 @@
-name: MATLAB で Tier 3 の公開サンプルを確かめる
+name: MATLAB から HTTP で公開図面を開く
 
 on:
   workflow_dispatch:

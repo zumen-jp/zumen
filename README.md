@@ -143,7 +143,7 @@ target/debug/zumen entities samples/dwg/zumen-layout-r2000.dwg --limit 2
 | 2 | Go | [bindings/go](bindings/go/README.md) |
 | 2 | Dart | [bindings/dart](bindings/dart/README.md) |
 | 2 | VBA7（Windows、64 bit） | [Microsoft 365 の Excel での使い方と実機の検証結果](bindings/vba/README.md) |
-| 3 | Ruby・PHP・PowerShell など | C ABI・CLI・HTTP で呼ぶ（[docs/tier3.md](docs/tier3.md)） |
+| 3 | Ruby・PHP・PowerShell | C ABI、ネイティブと WASI の CLI、HTTP の[サンプルを毎晩検証](docs/tier3.md) |
 
 - Tier は、言語ごとの対応の約束です（[対応する環境](docs/support.md)）。下限と、確かめる頻度は [docs/support.md](docs/support.md) にあります。
 - CLI の `zumen` は、同じ要求を標準入出力と HTTP で受け、MCP のサーバーにもなります。AI のアプリからも使えます。
