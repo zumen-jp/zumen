@@ -1532,6 +1532,7 @@ impl SxfLive {
                 if rejected || !current {
                     return Err(Error::Rejected);
                 }
+                tx.number_colors()?;
                 self.commit_with_tables(stage, cx, |this, diff, cx| {
                     this.verify_and_commit_sfc(tx, staged_ops, diff, cx)
                 })

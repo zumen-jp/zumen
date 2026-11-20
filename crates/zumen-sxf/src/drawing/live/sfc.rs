@@ -8,7 +8,7 @@ use zumen_live::{PatchPayload, SourceBytes};
 use zumen_sdk::{Error, quietly};
 
 use crate::drawing::apply::text::{self, is_string, sfc_string};
-use crate::drawing::apply::{Arguments, line_end, newline, patched, patched_source};
+use crate::drawing::apply::{Arguments, SfcColors, line_end, newline, patched, patched_source};
 use crate::drawing::{FeatureRecord, sfc_records, work};
 use crate::{DIALECT, Marker, Mode, SfcRecord, SxfFile};
 
@@ -256,6 +256,8 @@ impl PatchPayload for SfcPatch {
 
 /// 1 回の `apply` 中に仮置きする SFC 変更
 pub(super) struct SfcStepTx {
+    pending_colors: Vec<usize>,
+    colors: SfcColors,
     removed_base: BTreeSet<usize>,
     removed_born: BTreeSet<u32>,
     base_args: BTreeMap<(usize, usize), ArgValue>,
@@ -265,8 +267,21 @@ pub(super) struct SfcStepTx {
     next_born_seq: u32,
 }
 
+impl SfcStepTx {
+    /// バッチと同じく、当該編集で足した要素の後の番号を色宣言に振る。
+    pub(super) fn number_colors(&mut self) -> Result<(), Error> {
+        for &at in &self.pending_colors {
+            let (_, definition) = self.added_born.get_mut(at).ok_or(Error::Rejected)?;
+            definition.instance = self.next_id;
+            self.next_id = self.next_id.checked_add(1).ok_or(Error::Rejected)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct SfcState {
+    colors: SfcColors,
     src: SourceBytes,
     newline: &'static str,
     feature_meta: Vec<(Box<str>, Box<str>)>,
@@ -287,6 +302,7 @@ impl SfcState {
         feature_meta: Vec<(Box<str>, Box<str>)>,
         base_features: Vec<BaseFeature>,
         first_sheet_base: Option<usize>,
+        colors: SfcColors,
     ) -> Self {
         let mut sorted_base_ids: Vec<(u64, u32)> = Vec::with_capacity(base_features.len());
         for (base_idx, bf) in base_features.iter().enumerate() {
@@ -300,6 +316,7 @@ impl SfcState {
             sorted_base_ids.sort_unstable();
         }
         Self {
+            colors,
             src,
             newline,
             feature_meta,
@@ -402,6 +419,7 @@ impl SfcState {
         }
 
         Self {
+            colors: SfcColors::from_records(records),
             src,
             newline: nl,
             feature_meta,
@@ -475,15 +493,21 @@ impl SfcState {
             .rev()
             .find(|&&(_, b_idx)| !self.removed_base.contains(&(b_idx as usize)))
             .map_or(0, |&(id, _)| id);
-        let max_born = self
-            .born_features
-            .values()
-            .map(|b| b.instance)
-            .max()
-            .unwrap_or(0);
+        let mut colors = self.colors;
+        let mut max_born = 0;
+        for born in self.born_features.values() {
+            max_born = max_born.max(born.instance);
+            if born.name == "pre_defined_colour"
+                && let Some(name) = born.args.first()
+            {
+                colors.record(name);
+            }
+        }
         let max_feat_id = max_base.max(max_born);
         let next_id = max_feat_id.max(self.fixed_max_id).saturating_add(1);
         SfcStepTx {
+            pending_colors: Vec::new(),
+            colors,
             removed_base: BTreeSet::new(),
             removed_born: BTreeSet::new(),
             base_args: BTreeMap::new(),
@@ -516,6 +540,9 @@ impl SfcState {
         codes: &[(usize, i64)],
     ) -> Option<()> {
         for &(at, code) in codes {
+            if at == 1 {
+                self.ensure_color(tx, code)?;
+            }
             self.stage_value(tx, slot, at, code.to_string())?;
         }
         Some(())
@@ -599,7 +626,12 @@ impl SfcState {
         args: &Arguments,
     ) -> Option<()> {
         let annotation = args.name == text::NAME;
-        let first = if annotation { 0 } else { args.first() };
+        let first = if annotation {
+            self.ensure_color(tx, args.color()?)?;
+            0
+        } else {
+            args.first()
+        };
         let count = self.arg_count(slot)?;
         for (at, value) in args.values.iter().enumerate().skip(first) {
             if is_string(args, at) {
@@ -682,9 +714,25 @@ impl SfcState {
     }
 
     pub(super) fn stage_add(&self, tx: &mut SfcStepTx, args: &Arguments) -> Option<(u32, u64)> {
-        let marker = self.current_insert_marker()?;
+        if let Some(code) = args.color() {
+            self.ensure_color(tx, code)?;
+        }
         let instance = tx.next_id;
-        tx.next_id = tx.next_id.checked_add(1)?;
+        tx.next_id = instance.checked_add(1)?;
+        let seq = self.stage_feature(tx, args, instance)?;
+        Some((seq, instance))
+    }
+
+    fn ensure_color(&self, tx: &mut SfcStepTx, code: i64) -> Option<()> {
+        if let Some(definition) = tx.colors.missing(code) {
+            tx.pending_colors.push(tx.added_born.len());
+            self.stage_feature(tx, &definition, 0)?;
+        }
+        Some(())
+    }
+
+    fn stage_feature(&self, tx: &mut SfcStepTx, args: &Arguments, instance: u64) -> Option<u32> {
+        let marker = self.current_insert_marker()?;
         let seq = tx.next_born_seq;
         tx.next_born_seq = tx.next_born_seq.checked_add(1)?;
         tx.added_born.push((
@@ -696,7 +744,7 @@ impl SfcState {
                 args: args.values.clone(),
             },
         ));
-        Some((seq, instance))
+        Some(seq)
     }
 
     /// 仮置き中の 1 つのフィーチャをバイト列に組み、`zumen_step` で読んで [`FeatureRecord`] を返す

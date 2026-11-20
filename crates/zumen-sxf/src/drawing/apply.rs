@@ -1770,9 +1770,50 @@ impl<'f> Fonts<'f> {
     }
 }
 
+/// SFC の既定義色はコード 1〜16 に対応する名前で宣言する。利用者定義色は別の表を参照する。
+#[derive(Clone, Copy, Default)]
+pub(super) struct SfcColors(u16);
+
+impl SfcColors {
+    pub(super) fn from_records(records: &[FeatureRecord]) -> Self {
+        let mut colors = Self::default();
+        for record in records {
+            if record.name.eq_ignore_ascii_case("pre_defined_colour")
+                && let Some(super::Arg::Text(name)) = record.args.first()
+            {
+                colors.record(name);
+            }
+        }
+        colors
+    }
+
+    pub(super) fn record(&mut self, name: &str) {
+        if let Some(code) = crate::p21::color_code(name) {
+            self.0 |= 1 << (code - 1);
+        }
+    }
+
+    pub(super) fn missing(&mut self, code: i64) -> Option<Arguments> {
+        let at = usize::try_from(code.checked_sub(1)?).ok()?;
+        let name = *crate::p21::COLORS.get(at)?;
+        let bit = 1 << at;
+        if self.0 & bit != 0 {
+            return None;
+        }
+        self.0 |= bit;
+        Some(Arguments {
+            name: "pre_defined_colour",
+            values: vec![name.to_owned()],
+        })
+    }
+}
+
 /// SFC の書き方。引数の値の範囲を書き直し、フィーチャのコメントを除くか足す
 struct Sfc<'f> {
     file: &'f SxfFile,
+    colors: SfcColors,
+    /// 色宣言の位置を先に押さえ、追加する要素に番号を割り当ててから宣言の番号を決める。
+    pending_colors: Vec<(usize, Arguments)>,
     /// 書き直す範囲と、新しいバイト列。足すものは空の範囲
     patches: Vec<(Range<usize>, Vec<u8>)>,
     /// 次に足すインスタンスの番号
@@ -1802,11 +1843,22 @@ impl<'f> Sfc<'f> {
             .and_then(|record| Some((record.span().end, record.marker()?, false)));
         Sfc {
             file,
+            colors: SfcColors::from_records(records),
+            pending_colors: Vec::new(),
             patches: Vec::new(),
             next,
             insert: sheet.or(last),
             newline: newline(&file.src),
         }
+    }
+
+    fn ensure_color(&mut self, code: i64) -> Option<()> {
+        if let Some(definition) = self.colors.missing(code) {
+            let (at, _, _) = self.insert?;
+            self.pending_colors.push((self.patches.len(), definition));
+            self.patches.push((at..at, Vec::new()));
+        }
+        Some(())
     }
 
     /// 引数の値の範囲を書き直す。囲まない値か、`'…'` で囲んだ値だけ
@@ -1836,6 +1888,38 @@ impl<'f> Sfc<'f> {
         };
         self.patches.push((range, text::sfc_string(value)?));
         Some(())
+    }
+
+    fn feature_patch(&self, args: &Arguments, instance: u64) -> Option<(Range<usize>, Vec<u8>)> {
+        let (at, marker, before) = self.insert?;
+        let (_, open, close) = Marker::ALL
+            .iter()
+            .find(|(found, _, _)| *found == marker)
+            .copied()?;
+        let nl = self.newline;
+        let mut out = Vec::new();
+        if !before {
+            out.extend_from_slice(nl.as_bytes());
+        }
+        out.extend_from_slice(open);
+        out.extend_from_slice(format!("{nl}#{instance} = {}_feature(", args.name).as_bytes());
+        for (at, value) in args.values.iter().enumerate() {
+            if at > 0 {
+                out.push(b',');
+            }
+            if text::is_string(args, at) {
+                out.extend(text::sfc_string(value)?);
+            } else {
+                out.extend_from_slice(format!("'{value}'").as_bytes());
+            }
+        }
+        out.push(b')');
+        out.extend_from_slice(nl.as_bytes());
+        out.extend_from_slice(close);
+        if before {
+            out.extend_from_slice(nl.as_bytes());
+        }
+        Some((at..at, out))
     }
 }
 
@@ -1888,6 +1972,9 @@ impl Writer for Sfc<'_> {
     ) -> Result<Option<()>, Error> {
         Ok((|| {
             for (at, code) in codes {
+                if *at == 1 {
+                    self.ensure_color(*code)?;
+                }
                 self.argument(record, *at, &code.to_string())?;
             }
             Some(())
@@ -1902,6 +1989,7 @@ impl Writer for Sfc<'_> {
     ) -> Result<Option<()>, Error> {
         Ok((|| {
             let first = if args.name == text::NAME {
+                self.ensure_color(args.color()?)?;
                 0
             } else {
                 args.first()
@@ -1943,42 +2031,25 @@ impl Writer for Sfc<'_> {
 
     fn add(&mut self, args: &Arguments, _cx: &mut Cx) -> Result<Option<u64>, Error> {
         Ok((|| {
-            let (at, marker, before) = self.insert?;
-            let (_, open, close) = Marker::ALL
-                .iter()
-                .find(|(found, _, _)| *found == marker)
-                .copied()?;
+            if let Some(code) = args.color() {
+                self.ensure_color(code)?;
+            }
             let instance = self.next;
-            self.next = self.next.checked_add(1)?;
-            let nl = self.newline;
-            let mut out = Vec::new();
-            if !before {
-                out.extend_from_slice(nl.as_bytes());
-            }
-            out.extend_from_slice(open);
-            out.extend_from_slice(format!("{nl}#{instance} = {}_feature(", args.name).as_bytes());
-            for (at, value) in args.values.iter().enumerate() {
-                if at > 0 {
-                    out.push(b',');
-                }
-                if text::is_string(args, at) {
-                    out.extend(text::sfc_string(value)?);
-                } else {
-                    out.extend_from_slice(format!("'{value}'").as_bytes());
-                }
-            }
-            out.push(b')');
-            out.extend_from_slice(nl.as_bytes());
-            out.extend_from_slice(close);
-            if before {
-                out.extend_from_slice(nl.as_bytes());
-            }
-            self.patches.push((at..at, out));
+            self.next = instance.checked_add(1)?;
+            self.patches.push(self.feature_patch(args, instance)?);
             Some(instance)
         })())
     }
 
-    fn bytes(self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
+    fn bytes(mut self: Box<Self>, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
+        for (at, definition) in core::mem::take(&mut self.pending_colors) {
+            let instance = self.next;
+            self.next = instance.checked_add(1).ok_or(Error::Rejected)?;
+            let patch = self
+                .feature_patch(&definition, instance)
+                .ok_or(Error::Rejected)?;
+            *self.patches.get_mut(at).ok_or(Error::Rejected)? = patch;
+        }
         patched(self.patches, src, cx)
     }
 
@@ -2075,6 +2146,14 @@ pub(super) struct Arguments {
 }
 
 impl Arguments {
+    pub(super) fn color(&self) -> Option<i64> {
+        if self.name == MARKER || self.name == text::NAME || SHAPED.contains(&self.name) {
+            self.values.get(1)?.parse().ok()
+        } else {
+            None
+        }
+    }
+
     /// 形の初めの引数
     pub(super) fn first(&self) -> usize {
         if self.name == MARKER || self.name == text::NAME {

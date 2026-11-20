@@ -23,7 +23,7 @@ use super::{
     USER_LINE_TYPE, intern_feature_meta_vec,
 };
 use crate::Marker;
-use crate::drawing::apply::{line_end, newline};
+use crate::drawing::apply::{SfcColors, line_end, newline};
 use crate::drawing::{A_SIZES, FREE_SIZE, LINE_TYPES, LifterTables, WIDTHS};
 
 const SXF_SCHEMA_VER: u32 = 2;
@@ -174,6 +174,7 @@ pub(super) fn try_open_fast_sfc(
 
     let mut base_features: Vec<BaseFeature> = Vec::new();
     let mut geom_spans: Vec<GeomSpan> = Vec::new();
+    let mut defined_colors = SfcColors::default();
     let mut layers: Vec<Layer> = Vec::new();
     let mut user_line_types: Vec<LineType> = Vec::new();
     let mut colors: Vec<Option<[u8; 3]>> = Vec::new();
@@ -317,6 +318,9 @@ pub(super) fn try_open_fast_sfc(
                 layers.push(layer);
                 (m, ac)
             } else if feat_name.eq_ignore_ascii_case(b"pre_defined_colour") {
+                if let Some(name) = arg_decoded_string(raw_args.first().copied()) {
+                    defined_colors.record(&name);
+                }
                 (intern_sfc("pre_defined_colour"), ac)
             } else if feat_name.eq_ignore_ascii_case(b"pre_defined_font") {
                 (intern_sfc("pre_defined_font"), ac)
@@ -524,7 +528,14 @@ pub(super) fn try_open_fast_sfc(
         .map(|lt| lt.id.0)
         .collect();
 
-    let sfc_state = SfcState::from_fast(src, nl, sfc_meta, base_features, Some(first_sheet_base));
+    let sfc_state = SfcState::from_fast(
+        src,
+        nl,
+        sfc_meta,
+        base_features,
+        Some(first_sheet_base),
+        defined_colors,
+    );
     let backing = SxfBacking::Sfc(sfc_state);
 
     let row_count = rows.len();

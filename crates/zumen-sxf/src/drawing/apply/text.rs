@@ -265,7 +265,7 @@ pub(in crate::drawing) fn sfc_string(value: &str) -> Option<Vec<u8>> {
 
 pub(in crate::drawing) fn is_string(args: &Arguments, at: usize) -> bool {
     (args.name == NAME && at == 3)
-        || (matches!(args.name, "layer" | "text_font") && at == 0)
+        || (matches!(args.name, "layer" | "text_font" | "pre_defined_colour") && at == 0)
         || (args.name == "sfig_locate" && at == 1)
 }
 

@@ -1849,10 +1849,11 @@ fn split(points: &[Option<[f64; 2]>]) -> impl Iterator<Item = Arg> {
     [axis(0), axis(1)].into_iter()
 }
 
-fn color_code(name: &str) -> Option<i64> {
+pub(crate) fn color_code(name: &str) -> Option<i64> {
+    let name = name.trim();
     COLORS
         .iter()
-        .position(|known| known.eq_ignore_ascii_case(name.trim()))
+        .position(|known| known.eq_ignore_ascii_case(name))
         .map(|at| at as i64 + 1)
 }
 

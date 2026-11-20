@@ -496,6 +496,82 @@ fn open_parity_across_samples_and_parallel_threads() {
     }
 }
 
+/// 黒だけを宣言した SFC に、黒と赤の点を足す。既存の表記を保ち、赤は編集をまたいでも一度だけ宣言する。
+#[test]
+fn sfc_declares_each_new_point_color_once() {
+    let src = b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n\
+/*SXF\n#10 = layer_feature(\\'A\\','1')\nSXF*/\n\
+/*SXF\n#20 = pre_defined_colour_feature(\\'BLACK\\')\nSXF*/\n\
+/*SXF\n#30 = point_marker_feature('1','1','5','6','2','0','1')\nSXF*/\n\
+/*SXF\n#40 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF*/\nENDSEC;\nEND-ISO-10303-21;\n";
+    let mut file = read_file(src);
+    let (mut live, _) = open_live(src);
+    let (drawing, _) = lift_file(&file);
+    let (target, marker) = seen_sheet(&drawing, 30);
+    let add = |color| {
+        let mut point = marker.clone();
+        point.style.color = sxf_color(color);
+        Edit::Add {
+            place: id::sheet(&drawing.sheets[0]),
+            element: Box::new(Placed::Paper(point)),
+        }
+    };
+    let red = "pre_defined_colour_feature(\\'red\\')";
+    let mut history = vec![src.to_vec()];
+    for edits in [
+        vec![add(1), add(2), add(2)],
+        vec![
+            Edit::Restyle {
+                target,
+                style: Restyle {
+                    color: Some(sxf_color(3)),
+                    ..Restyle::default()
+                },
+            },
+            add(2),
+        ],
+    ] {
+        let ((batch, _), (resident, _)) = apply_both(&mut file, &mut live, edits, None);
+        assert_eq!(batch.unwrap(), resident.unwrap());
+        let bytes = live_save(&live);
+        assert_eq!(bytes, write_file_bytes(&file));
+        let text = std::str::from_utf8(&bytes).unwrap();
+        // 宣言を点の前に書いても、この編集で足した点は従来どおり #41〜#43 になる。
+        assert!(text.contains("#41 = point_marker_feature('1','1'"));
+        assert!(text.contains("#42 = point_marker_feature('1','2'"));
+        assert!(text.contains("#43 = point_marker_feature('1','2'"));
+        assert_eq!(text.matches(red).count(), 1);
+        assert_eq!(
+            text.matches("pre_defined_colour_feature(\\'BLACK\\')")
+                .count(),
+            1
+        );
+        assert_eq!(
+            text.matches("pre_defined_colour_feature(").count(),
+            history.len() + 1
+        );
+        assert_eq!(
+            text.matches("point_marker_feature('1','2'").count(),
+            history.len() + 1
+        );
+        assert!(text.find(red).unwrap() < text.find("point_marker_feature('1','2'").unwrap());
+        history.push(bytes);
+    }
+    assert!(
+        std::str::from_utf8(&history[2])
+            .unwrap()
+            .contains("pre_defined_colour_feature(\\'green\\')")
+    );
+    for step in [1, 0] {
+        assert!(live_undo(&mut live));
+        assert_eq!(live_save(&live), history[step]);
+    }
+    for bytes in &history[1..] {
+        assert!(live_redo(&mut live));
+        assert_eq!(live_save(&live), *bytes);
+    }
+}
+
 #[test]
 fn sfc_sequential_edits_match_apply_bytes_and_undo_redo() {
     let src = rich_sfc_src();
