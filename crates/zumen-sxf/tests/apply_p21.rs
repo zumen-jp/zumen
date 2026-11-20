@@ -885,6 +885,30 @@ fn point_markers_are_written_into_p21() {
     assert_eq!(now.style.color, sxf_color(2));
     assert_eq!(now.layer, marker.layer);
     assert_eq!(found[0], marker);
+    // Jw_cad の点と同じく、用紙とレイヤから製図注釈の複合の実体を指す（#342）。
+    let Some(Key::Instance(id)) = now.source.key() else {
+        panic!("追加した点のインスタンス番号がない");
+    };
+    let record = |id| again.records().iter().find(|r| r.id() == Some(id)).unwrap();
+    assert_eq!(record(id).form(), zumen_sxf::Form::Complex);
+    let parts: Vec<_> = record(id)
+        .parts()
+        .iter()
+        .map(|p| again.bytes(p.name()))
+        .collect();
+    assert_eq!(
+        parts,
+        [
+            b"ANNOTATION_OCCURRENCE".as_slice(),
+            b"ANNOTATION_SYMBOL_OCCURRENCE",
+            b"DRAUGHTING_ANNOTATION_OCCURRENCE",
+            b"GEOMETRIC_REPRESENTATION_ITEM",
+            b"REPRESENTATION_ITEM",
+            b"STYLED_ITEM",
+        ]
+    );
+    assert!(record(60).references().contains(&id));
+    assert!(record(70).references().contains(&id));
     // 線種の変更と、鏡映は表せない
     for edit in [
         Edit::Restyle {

@@ -13,7 +13,7 @@ use crate::drawing::apply::p21::annotation::{
 };
 use crate::drawing::apply::p21::{
     CONTAINERS, GARBAGE, RefCounts, collect, count_and_note_refs, count_arguments, count_number,
-    count_values, for_each_ref, real, scan,
+    count_values, for_each_ref, marker_occurrence, real, scan,
 };
 use crate::drawing::apply::text;
 use crate::drawing::apply::{
@@ -1677,10 +1677,7 @@ impl P21State {
                 let (layer, color) = (code(0)?, code(1)?);
                 let symbol = self.build_marker(tx, args)?;
                 let assignment = self.build_symbol_style(tx, color)?;
-                let id = self.alloc_instance(
-                    tx,
-                    format!("ANNOTATION_SYMBOL_OCCURRENCE(' ',(#{assignment}),#{symbol})"),
-                )?;
+                let id = self.alloc_instance(tx, marker_occurrence(assignment, symbol))?;
                 tx.container_ops
                     .insert((sheet_slot, id), StagedContainerOp::MoveToEnd);
                 self.assign_layer(tx, id, layer)?;

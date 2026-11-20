@@ -753,6 +753,15 @@ impl<'f> P21<'f> {
     }
 }
 
+/// 点マーカーの表記。SXF の点を持つ Jw_cad の P21 と同じく、製図注釈と幾何表現の両方を持つ複合の実体で書く（#342）。
+pub(in crate::drawing) fn marker_occurrence(style: u64, symbol: u64) -> String {
+    format!(
+        "(ANNOTATION_OCCURRENCE()ANNOTATION_SYMBOL_OCCURRENCE()\
+         DRAUGHTING_ANNOTATION_OCCURRENCE()GEOMETRIC_REPRESENTATION_ITEM()\
+         REPRESENTATION_ITEM(' ')STYLED_ITEM((#{style}),#{symbol}))"
+    )
+}
+
 /// 作図部品の定義を指す配置実体を、バッチと常駐文書で同じ順に作る。
 pub(in crate::drawing) fn symbol_occurrence(
     builder: &mut dyn annotation::Build,
@@ -1287,9 +1296,7 @@ impl P21<'_> {
             let (layer, color) = (code(0)?, code(1)?);
             let symbol = self.marker(args)?;
             let assignment = self.symbol_style(color)?;
-            let id = self.instance(format!(
-                "ANNOTATION_SYMBOL_OCCURRENCE(' ',(#{assignment}),#{symbol})"
-            ))?;
+            let id = self.instance(marker_occurrence(assignment, symbol))?;
             let mut items = self.list(sheet)?;
             items.push(id);
             self.lists.insert(sheet, items);
