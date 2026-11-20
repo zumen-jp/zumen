@@ -356,7 +356,7 @@ impl JwwFile {
         let mut changed_layers = BTreeSet::new();
         for (edit, expected) in &expected {
             work(cx, 1)?;
-            let (record, layer, style, shape, expected_exts) = match expected {
+            let (record, layer, style, shape, map_moved, expected_exts) = match expected {
                 Expected::Layer(layer) => {
                     let found = drawing.layers.iter().find(|found| found.id == layer.id);
                     if found != Some(layer) {
@@ -384,26 +384,38 @@ impl JwwFile {
                         layer,
                         style,
                         shape,
+                        true,
                         None,
                     )
                 }
-                Expected::Added(at, layer, style, shape) => {
-                    (written.added.get(*at).copied(), layer, style, shape, None)
-                }
+                Expected::Added(at, layer, style, shape) => (
+                    written.added.get(*at).copied(),
+                    layer,
+                    style,
+                    shape,
+                    false,
+                    None,
+                ),
                 Expected::Copied(at, layer, style, shape, exts) => (
                     written.added.get(*at).copied(),
                     layer,
                     style,
                     shape,
+                    false,
                     Some(exts.as_slice()),
                 ),
+            };
+            let expected_shape = if map_moved {
+                moved_shape(shape, &written.moved)
+            } else {
+                std::borrow::Cow::Borrowed(shape)
             };
             let found = record
                 .and_then(|record| after.found(record))
                 .filter(|found| {
                     found.element.layer == *layer
                         && found.element.style == *style
-                        && near(&found.element.shape, shape)
+                        && near(&found.element.shape, &expected_shape)
                         && expected_exts
                             .is_none_or(|exts| copy::extensions_match(&drawing, &found.id, exts))
                 });
@@ -435,7 +447,7 @@ impl JwwFile {
             let same = match (id, before.found(*record), after.records.get(&now)) {
                 (Some(_), Some(was), Some(Some(_))) => after.found(now).is_some_and(|found| {
                     shifted |= found.id != was.id;
-                    same(found.element, was.element)
+                    same(found.element, was.element, &written.moved)
                 }),
                 (None, _, Some(None)) => true,
                 _ => false,
@@ -577,9 +589,37 @@ pub(super) fn unturned(shape: Shape<ModelPoint>) -> Shape<ModelPoint> {
     }
 }
 
-/// 出所を除いて、同じ値か
-fn same(a: &Element<ModelPoint>, b: &Element<ModelPoint>) -> bool {
-    a.layer == b.layer && a.style == b.style && a.shape == b.shape
+/// レコード番号の移動に合わせて、画像アンダーレイの参照レコード番号を写す（#910）
+fn moved_shape<'a>(
+    shape: &'a Shape<ModelPoint>,
+    moved: &BTreeMap<usize, usize>,
+) -> std::borrow::Cow<'a, Shape<ModelPoint>> {
+    if let Shape::Underlay(underlay) = shape
+        && let Some(old) = underlay
+            .resource
+            .definition
+            .record()
+            .and_then(|record| usize::try_from(record).ok())
+        && underlay.resource.definition == Ref::at_record(old as u64)
+        && let Some(&now) = moved.get(&old)
+        && now != old
+    {
+        let mut adjusted = underlay.clone();
+        adjusted.resource.definition = Ref::at_record(now as u64);
+        return std::borrow::Cow::Owned(Shape::Underlay(adjusted));
+    }
+    std::borrow::Cow::Borrowed(shape)
+}
+
+/// 出所とレコード移動による参照番号のずれを除いて、同じ値か
+fn same(
+    after: &Element<ModelPoint>,
+    before: &Element<ModelPoint>,
+    moved: &BTreeMap<usize, usize>,
+) -> bool {
+    after.layer == before.layer
+        && after.style == before.style
+        && after.shape == *moved_shape(&before.shape, moved)
 }
 
 /// 形が、書いた値の桁の違いを除いて同じか。角度は 1 周の違いを除く

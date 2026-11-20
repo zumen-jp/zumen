@@ -1387,3 +1387,125 @@ fn lines_circles_and_arcs_are_added_with_the_pen_width_when_weight_follows_the_l
         )]
     );
 }
+
+#[test]
+fn adds_and_removes_elements_around_embedded_and_external_image_underlays() {
+    let mut spec = Spec::new(700);
+    spec.groups[0] = (3, 100.0, [3; 16]);
+    spec.pens[2] = 0x0000_00FF;
+    let mut archive = Archive::new(700);
+    archive.group = 0;
+    archive.layer = 0;
+    archive.count(3);
+    archive.line();
+    archive.tag("CDataMoji");
+    archive.base(1, 1);
+    archive.text_body("^@BM%temp%r0.bmp,20,15,0,0,1,0,255,255,255");
+    archive.tag("CDataMoji");
+    archive.base(1, 1);
+    archive.text_body("^@BMext.png,30,10,0,0,1,0,255,255,255");
+    archive.count(0);
+    archive.out.extend(1u32.to_le_bytes());
+    common::cstring(&mut archive.out, "r0.bmp.gz");
+    let gz_payload = b"\x1f\x8b\x08\x00dummy-gz";
+    archive
+        .out
+        .extend(u32::try_from(gz_payload.len()).unwrap().to_le_bytes());
+    archive.out.extend_from_slice(gz_payload);
+    let mut src = spec.build();
+    src.extend(&archive.out);
+
+    // 初期状態: レコード 1=線、2=同梱画像アンダーレイ（画像レコード 5 を参照）、3=外部画像アンダーレイ（自身 3 を参照）、4=image-count、5=r0.bmp.gz
+    let mut file = read(&src);
+    let initial = lift(&file);
+    let (_, emb0) = element(&initial, 1);
+    let (_, ext0) = element(&initial, 2);
+    let (Shape::Underlay(emb0_u), Shape::Underlay(ext0_u)) = (&emb0.shape, &ext0.shape) else {
+        panic!("expected underlays");
+    };
+    assert_eq!(emb0_u.resource.definition, zumen_base::Ref::at_record(5));
+    assert_eq!(ext0_u.resource.definition, zumen_base::Ref::at_record(3));
+
+    // 1. 先頭の線を remove すると、同梱画像レコード（5 -> 4）も外部アンダーレイ自身（3 -> 2）も 1 つ前にずれ、画像本体はそのまま残る
+    let (res, diag) = apply(
+        &mut file,
+        vec![Edit::Remove {
+            target: seen(&initial, 0),
+        }],
+        Some(Hash::document(&src)),
+    );
+    let (applied, shifted) = res.unwrap();
+    assert!(diag.is_empty(), "{diag:?}");
+    assert!(shifted);
+    assert_eq!(
+        applied,
+        [Applied {
+            id: None,
+            hash: None
+        }]
+    );
+
+    let after_remove_bytes = write(&file);
+    assert!(after_remove_bytes.ends_with(gz_payload));
+    let after_remove = lift(&read(&after_remove_bytes));
+    assert_eq!(after_remove.spaces[0].elements.len(), 2);
+    let (emb1_id, emb1) = element(&after_remove, 0);
+    let (ext1_id, ext1) = element(&after_remove, 1);
+    assert_eq!(emb1_id, "space/0/r1");
+    assert_eq!(ext1_id, "space/0/r2");
+    let (Shape::Underlay(emb1_u), Shape::Underlay(ext1_u)) = (&emb1.shape, &ext1.shape) else {
+        panic!("expected underlays after remove");
+    };
+    assert_eq!(emb1_u.resource.definition, zumen_base::Ref::at_record(4));
+    assert_eq!(ext1_u.resource.definition, zumen_base::Ref::at_record(2));
+
+    // 2. 新しい線を末尾へ add しつつ、同時に同梱画像アンダーレイを restyle しても通り、同梱画像レコードは 4 -> 5 へ追随する
+    let added_line = Element {
+        shape: Shape::Line {
+            start: model(0.0, 0.0),
+            end: model(500.0, 0.0),
+        },
+        ..initial.spaces[0].elements[0].clone()
+    };
+    let (res2, diag2) = apply(
+        &mut file,
+        vec![
+            Edit::Restyle {
+                target: seen(&after_remove, 0),
+                style: Restyle {
+                    color: Some(Inherit::Own(Color {
+                        code: Some(ColorCode {
+                            system: ColorSystem::Jww,
+                            value: 2,
+                        }),
+                        rgb: Some([0xFF, 0, 0]),
+                    })),
+                    ..Restyle::default()
+                },
+            },
+            Edit::Add {
+                place: "space/0".into(),
+                element: Box::new(Placed::Model(added_line)),
+            },
+        ],
+        Some(Hash::document(&after_remove_bytes)),
+    );
+    let (applied2, shifted2) = res2.unwrap();
+    assert!(diag2.is_empty(), "{diag2:?}");
+    assert!(!shifted2);
+    assert_eq!(applied2.len(), 2);
+    assert_eq!(applied2[0].id.as_deref(), Some("space/0/r1"));
+    assert_eq!(applied2[1].id.as_deref(), Some("space/0/r3"));
+
+    let after_add_bytes = write(&file);
+    assert!(after_add_bytes.ends_with(gz_payload));
+    let after_add = lift(&read(&after_add_bytes));
+    assert_eq!(after_add.spaces[0].elements.len(), 3);
+    let (_, emb2) = element(&after_add, 0);
+    let (_, ext2) = element(&after_add, 1);
+    let (Shape::Underlay(emb2_u), Shape::Underlay(ext2_u)) = (&emb2.shape, &ext2.shape) else {
+        panic!("expected underlays after add");
+    };
+    assert_eq!(emb2_u.resource.definition, zumen_base::Ref::at_record(5));
+    assert_eq!(ext2_u.resource.definition, zumen_base::Ref::at_record(2));
+}

@@ -661,9 +661,11 @@ fn underlay_record_shift_is_rejected_and_in_place_edit_succeeds() {
     let state_before = live.state_id();
     let (d, _) = live_drawing(&live);
 
-    // 画像レコードの番号がずれる Remove は JwwFile::apply と同じ診断で拒否し、状態を変えない
+    // JwwLive は画像レコードがずれる Remove を断り Session 側の JwwFile::apply へ委譲し、JwwFile::apply は通る（#910）
+    let mut removed_file = file.clone();
+    let mut non_mut_file = file.clone();
     let ((rf, cf), (rl, cl)) = apply_both(
-        &mut file,
+        &mut non_mut_file,
         &mut live,
         vec![Edit::Remove {
             target: seen_at(&d, 0),
@@ -671,9 +673,22 @@ fn underlay_record_shift_is_rejected_and_in_place_edit_succeeds() {
         None,
     );
     assert_eq!(rl, Err(Error::Rejected));
-    assert_eq!(rf, Err(Error::Rejected));
-    assert_eq!(cl, cf);
     assert_eq!(cl, [codes::CHANGE_EDIT_UNSUPPORTED]);
+    assert!(rf.is_ok());
+    assert!(cf.is_empty());
+    let _ = removed_file.apply(
+        &Changes {
+            document: None,
+            edits: vec![Edit::Remove {
+                target: seen_at(&d, 0),
+            }],
+        },
+        &mut Cx::new(
+            &mut Budget::default(),
+            &mut Diagnostics::new(),
+            &CancelToken::new(),
+        ),
+    );
     assert_eq!(live.state_id(), state_before);
     assert_eq!(live_save(&live), src);
 
