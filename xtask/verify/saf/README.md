@@ -25,6 +25,8 @@ node xtask/verify/saf/compare_wasm.mjs ../zumen-verify-saf target/debug/zumen.ex
 
 入力・編集後のアーカイブ、展開したメンバー、公開 API の要求と結果、図面の再読、属性の読取、外部照合結果、生成器・照合器と実行ファイルの SHA-256 を保存します。[キットに含める期待値表](kit-readme.md)と `report-template.json` が実機確認のスクリプトです。
 
-`compare_wasm.mjs` はキットの 8 組をネイティブ CLI と図面用の wasm で開きます。入力の図面モデル、円を動かしたファイル、そのモデル、同じ編集の繰り返しを照合します。Windows x64 で公開 API の応答 56 件、図面モデル 16 件、編集出力 16 件のバイト列が一致しました。別 OS と SAF DTD の適合性は未確認です。
+`compare_wasm.mjs` はキットの 8 組をネイティブ CLI と図面用の wasm で開きます。入力の図面モデル、円を動かしたファイル、そのモデル、同じ編集の繰り返しを照合します。Windows x64 で公開 API の応答 56 件、図面モデル 16 件、編集出力 16 件のバイト列が一致しました。別 OS の結果は未確認です。
+
+[SXF Ver.3.1 仕様書（第 2 版）](https://www.cals-ed.go.jp/sxf_ver3-1_specification_draft/)の附属書「属性付加機構編」3-2 図 2 にある DTD の宣言（要素 6・属性 14）を用い、libxml2 2.11.9 で 8 組の SAF を編集前後で検証しました。16 件すべてが適合し、最初の `Attr` の必須属性 `name` を除いた対照は 16 件ともエラーになりました。図形との結び付けは上の XML と図面モデルの照合で確かめます。
 
 DynaCAD（ビューアー 9.00.00）では、同名幹の SAF を持つ SFZ の 2 組で、編集前後とも線分に結び付いた 2 属性が一致しました。拡張子付きの SAF は同じビューアーで表示されませんでした。P21 は用紙と図面版・タイトルを結び、用紙の枠と表示寸法が同じ A3 横の枠を指すようにしました。[実機での記録](https://github.com/zumen-jp/zumen/issues/494#issuecomment-6969769269)・[用紙の参照の例（OCF）](https://ocf.or.jp/pdf/2001kickoff2.pdf)。

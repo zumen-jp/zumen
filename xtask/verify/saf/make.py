@@ -296,7 +296,7 @@ def main():
                 "sources": sources, "cliSha256": sha(cli.read_bytes()), "probeSha256": sha(probe.read_bytes()),
                 "python": sys.version.split()[0], "ezsxf": version("ezsxf"), "cases": results,
                 "inputProvenance": "全入力を fixtures.py で自作。製品資源と配布制限のある試料を含まない。",
-                "limits": ["ネイティブ CLI の照合。wasm や別 OS との一致は未確認。", "XML の構造と値を照合。SAF DTD の適合性検証ではない。", "SXF ブラウザの操作・表示・印刷は未実行。"]}
+                "limits": ["生成時はネイティブ CLI で照合。wasm は compare_wasm.mjs で別に照合する。", "生成時は XML の構造と値を照合し、DTD は読み込まない。", "生成時は SXF ブラウザを操作しない。"]}
     write_json(output / "report-template.json", {"issue": 494, "application": "", "version": "", "results": [
         {"case": f"{row['kind']}-{'full' if row['saf'].count('.') == 2 else 'stem'}-{0 if row['compression'] == 'stored' else 8}",
          "opened": None, "geometryMatched": None, "attributeValuesMatched": None, "attributeTargetMatched": None,
