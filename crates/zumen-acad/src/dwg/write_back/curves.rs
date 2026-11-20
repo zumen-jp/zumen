@@ -341,7 +341,7 @@ pub(super) fn fit_bezier(
 /// 場合に合わない値があれば `None`。有理・閉じている・周期的のフラグは、フラグ（70）があればその 4・1・2 を書き、
 /// なければ元のビットを写す。重みがあるかのフラグは 41 があるかから選ぶ。接線（12・13）がなければ 0 を書く。足した SPLINE（`data` が空）は、
 /// フィット点（11）を持てば場合を 2、持たなければ 1 とし、閉じている・周期的のフラグを 0、有理のフラグを
-/// 重みがあるかにする（決定 0057・0059）。ノットの取り方（70 の 1024）を持つものは足さない（決定 0157）
+/// 重みがあるかにする（決定 0057・0059）。R2013 以降は、足したフィット点のノットの取り方も書く
 pub(super) fn spline(
     fields: &mut BitWriter,
     object: &Object,
@@ -352,11 +352,10 @@ pub(super) fn spline(
     let added = data.is_empty();
     let r2013 = release >= Release::R2013;
     let (scenario, flags_at, method) = if added {
-        // ノットの取り方（70 の 1024 とそのビット）は、足すスプラインでは書けない
-        if integer(object, 70)?.unwrap_or(0) & 1024 != 0 {
+        let fitted = object.values.iter().any(|value| value.code == 11);
+        if (!r2013 || !fitted) && integer(object, 70)?.unwrap_or(0) & 1024 != 0 {
             return None;
         }
-        let fitted = object.values.iter().any(|value| value.code == 11);
         (if fitted { 2 } else { 1 }, 0, None)
     } else {
         let mut bits = Bits::with_release(data, release);
@@ -433,9 +432,16 @@ pub(super) fn spline(
     fields.bl(scenario);
     match method {
         Some(range) => fields.copy(data, range)?,
-        // 足すのは制御点のスプラインだけとし、サンプルの図面と同じくフラグを 0、ノットの取り方を 15 とする
+        None if r2013 && scenario == 2 => {
+            // #156 の弦長のサンプルと同じく、フィット点で決まる（1）とノットの取り方を使う（8）を合わせる。
+            // DXF の平面のフラグを除き、弦長または指定なしの開いた曲線を受け付ける。
+            let flags = integer(object, 70)?.unwrap_or(0) & !8;
+            (flags == 0 || flags == (1024 | 32)).then_some(())?;
+            fields.bl(1 | 8);
+            fields.bl(0);
+        }
+        // 制御点のスプラインは、サンプルの図面と同じくフラグを 0、ノットの取り方を 15 とする
         None if r2013 => {
-            (scenario == 1).then_some(())?;
             fields.bl(0);
             fields.bl(15);
         }
@@ -510,6 +516,43 @@ pub(super) fn spline(
         _ => return None,
     }
     Some(())
+}
+
+/// #156 の ACadSharp のサンプルと同じく、フィット点で決まるフラグとノットの取り方を使うフラグを合わせる。
+#[test]
+fn added_chord_spline_sets_both_fit_flags() {
+    let mut values: Vec<_> = [(71, 3), (72, 0), (73, 0), (74, 4)]
+        .map(|(code, n)| Value {
+            code,
+            data: Data::Int(n),
+        })
+        .into();
+    values.push(Value {
+        code: 44,
+        data: Data::Real(1e-10),
+    });
+    for (x, y) in [(0.0, 0.0), (5.0, 2.0), (8.0, 5.0), (15.0, 2.0)] {
+        values.extend([(11, x), (21, y), (31, 0.0)].map(|(code, n)| Value {
+            code,
+            data: Data::Real(n),
+        }));
+    }
+    let object = Object {
+        kind: b"SPLINE".to_vec(),
+        section: Section::Entities,
+        origin: Origin::New,
+        values,
+    };
+    for release in [Release::R2013, Release::R2018] {
+        let mut fields = BitWriter::with_strings();
+        spline(&mut fields, &object, &[], 0, release).unwrap();
+        let data = fields.into_bytes();
+        let mut bits = Bits::with_release(&data, release);
+        assert_eq!(
+            [bits.bl(), bits.bl(), bits.bl(), bits.bl()],
+            [Some(2), Some(9), Some(0), Some(3)]
+        );
+    }
 }
 
 /// HATCH のフィールド（R2000）。境界の辺では同じグループ・コードが何度も出るので、表の値を読む側が置く順に

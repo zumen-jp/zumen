@@ -4346,6 +4346,60 @@ fn additions_mark_symbols_with_a_grid_as_minsert_blocks() {
 }
 
 #[test]
+fn translation_moves_spline_fit_points_and_preserves_tangents() {
+    use zumen_drawing::{Affine, Edge};
+
+    let input = versioned(
+        "AC1027",
+        &[
+            (0, "SPLINE"),
+            (5, "1A"),
+            (8, "0"),
+            (70, "1056"),
+            (71, "3"),
+            (72, "0"),
+            (73, "0"),
+            (74, "4"),
+            (44, "0.01"),
+            (12, "1"),
+            (22, "2"),
+            (13, "-2"),
+            (23, "1"),
+            (11, "0"),
+            (21, "0"),
+            (11, "5"),
+            (21, "2"),
+            (11, "8"),
+            (21, "5"),
+            (11, "15"),
+            (21, "2"),
+        ],
+    );
+    let before = testkit::read::<Dxf>(&input).0.unwrap();
+    let (target, original) = seen(&lift(&before)).remove(0);
+    let translation = Affine::translation(10.0, 20.0);
+    let (result, codes, written) = changed(
+        &input,
+        vec![zumen_drawing::Edit::Transform {
+            target,
+            transform: translation,
+        }],
+    );
+    assert_eq!(result, Ok(()), "{codes:?}");
+    let saved = testkit::read::<Dxf>(&written).0.unwrap();
+    let Shape::Curve(Edge::Spline(mut expected)) = original.shape else {
+        panic!()
+    };
+    for point in &mut expected.fit {
+        *point = translation.point(*point);
+    }
+    assert_eq!(
+        elements(&lift(&saved))[0].shape,
+        Shape::Curve(Edge::Spline(expected))
+    );
+}
+
+#[test]
 fn spline_replacement_keeps_existing_control_points_and_fit_points() {
     use zumen_drawing::Edge;
     let src = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nSPLINE\n5\n20\n8\n0\n70\n8\n71\n1\n72\n4\n73\n2\n74\n2\n40\n0\n40\n0\n40\n1\n40\n1\n10\n0\n20\n0\n10\n1\n20\n0\n11\n0\n21\n0\n11\n1\n21\n2\n0\nENDSEC\n0\nEOF\n";

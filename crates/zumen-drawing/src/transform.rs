@@ -240,6 +240,19 @@ pub fn transform<P: Point>(shape: &Shape<P>, transform: &Affine) -> Option<Shape
                 counterclockwise,
             })
         }
+        Shape::Curve(Edge::Spline(spline))
+            if spline.control.is_empty()
+                && spline.knots.is_empty()
+                && spline.weights.is_empty()
+                && !spline.fit.is_empty()
+                && matches!(transform.m, [1.0, 0.0, _, 0.0, 1.0, _]) =>
+        {
+            // 平行移動ではフィット点だけを移し、接線・ノットの取り方・許容差を保つ。
+            Shape::Curve(Edge::Spline(crate::Spline {
+                fit: spline.fit.iter().map(point).collect(),
+                ..spline.clone()
+            }))
+        }
         Shape::Polyline(line) => Shape::Polyline(polyline(line, transform, similar)?),
         Shape::Text(text) => Shape::Text(lettering(text, transform, similar?)?),
         Shape::Formatted(text) => Shape::Formatted(formatting(text, transform, similar?)?),

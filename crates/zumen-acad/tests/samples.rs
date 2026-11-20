@@ -2981,17 +2981,14 @@ fn added_entities_are_taken_back(version: &[u8], minsert: bool) {
             ));
             added.push((b"SEQEND", Vec::new()));
         }
-        // R2010 から後は、R2013 からのフィット点の SPLINE をまだ足せない（決定 0092・0093・0097）。
-        // MTEXT は枠の高さ（46）を、ATTRIB は属性のバージョンと位置を固定するか（280）を持つ。R2018 からは、初めの
+        // R2010 以降の MTEXT は枠の高さ（46）を、ATTRIB は属性のバージョンと位置を固定するか（280）を持つ。R2018 からは、初めの
         // ATTRIB を、埋め込みの MTEXT を持つ複数行の属性とする（決定 0102）
         if !matches!(version, b"AC1015" | b"AC1018") {
             let mut multiline = version == b"AC1032";
-            added.retain(|(kind, own)| match *kind {
-                b"SPLINE" => version == b"AC1024" || own.iter().all(|value| value.code != 11),
-                _ => true,
-            });
             for (kind, own) in &mut added {
-                if *kind == b"MTEXT" {
+                if *kind == b"SPLINE" && version != b"AC1024" && own.iter().any(|v| v.code == 11) {
+                    own.insert(0, int(70, 1024 | 32));
+                } else if *kind == b"MTEXT" {
                     let at = own.iter().position(|value| value.code == 41).unwrap();
                     own.insert(at + 1, real(46, 0.0));
                 } else if *kind == b"ATTRIB" {
