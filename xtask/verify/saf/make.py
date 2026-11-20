@@ -139,9 +139,10 @@ def p21_sheet(step):
     need(box and box[1:3] == [420, 297] and step.get(box[3], "AXIS2_PLACEMENT_2D"), "用紙枠が A3 横の寸法か配置と一致しません")
     units = step.get(sheet[2], "GLOBAL_UNIT_ASSIGNED_CONTEXT")
     need(units and step.get(sheet[2], "GEOMETRIC_REPRESENTATION_CONTEXT") == [2], "用紙の単位か次元がありません")
-    si = [step.get(unit, "SI_UNIT") for unit in units[0]]
-    need([ [{"kind": "enum", "value": "MILLI"}, {"kind": "enum", "value": "METRE"}],
-           [{"kind": "unset"}, {"kind": "enum", "value": "RADIAN"}] ] == si, "用紙の単位が mm と rad に一致しません")
+    symbols = [step.get(unit, "SI_UNIT") for unit in units[0]]
+    mm = [{"kind": "enum", "value": "MILLI"}, {"kind": "enum", "value": "METRE"}]
+    rad = [{"kind": "unset"}, {"kind": "enum", "value": "RADIAN"}]
+    need(len(symbols) == 2 and mm in symbols and rad in symbols, "用紙の単位が mm と rad に一致しません")
     return {"dimensionsMm": box[1:3], "drawingRevision": revision[0]}
 
 
