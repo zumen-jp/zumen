@@ -412,6 +412,7 @@ struct BornRecord {
     body: Vec<u8>,
     row_id: RowId,
     group: usize,
+    symbol_index: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -1755,7 +1756,7 @@ impl JwwLive {
         let mut before_layers: Option<Vec<Layer>> = None;
         let mut rejected = false;
 
-        for change in &changes.edits {
+        for (edit_index, change) in changes.edits.iter().enumerate() {
             work_live(cx, 1)?;
             let step = match change {
                 Edit::Remove { target } => {
@@ -1975,10 +1976,37 @@ impl JwwLive {
                     cx.report(unsupported(change.name(), "dimension_style"));
                     None
                 }
-                // 写しの形式固有の値と参照を保つ書き方は、まだない（#889）
-                Edit::Copy { .. } => {
-                    cx.report(unsupported(change.name(), "copy"));
-                    None
+                Edit::Copy { target, transform } => {
+                    let Some((row_id, slot, record)) = self.find_target(target, cx)? else {
+                        rejected = true;
+                        continue;
+                    };
+                    let made = if seen_slots.contains(&slot) {
+                        Err(("source", "changed"))
+                    } else {
+                        self.stage_copy(row_id, slot, transform, &active_classes, added_count, cx)?
+                    };
+                    match made {
+                        Ok(action) => {
+                            added_count += 1;
+                            Some(StagedEdit {
+                                kind_label: "copy",
+                                action,
+                            })
+                        }
+                        Err((field, value)) => {
+                            cx.report(
+                                Diagnostic::new(codes::CHANGE_COPY_UNSUPPORTED)
+                                    .with("edit", edit_index as u64)
+                                    .with("kind", self.slot_kind_label(slot))
+                                    .with("field", field)
+                                    .with("value", value)
+                                    .with("format", FORMAT)
+                                    .at(Ref::at_record(record as u64)),
+                            );
+                            None
+                        }
+                    }
                 }
                 Edit::AddSymbol { .. } => {
                     cx.report(unsupported(change.name(), "symbol"));
@@ -2038,7 +2066,7 @@ impl JwwLive {
             false
         };
 
-        let dependent_bounds = self.stage_dependent_bounds(&staged, cx)?;
+        let dependent_bounds = self.stage_dependent_bounds(&mut staged, cx)?;
 
         // バケット番号を先に確定する
         for item in &mut staged {
@@ -2158,6 +2186,10 @@ impl JwwLive {
                         } => {
                             let born_idx = old_born_len + born_offset;
                             after_row.slot = SlotRef::Born(born_idx);
+                            let symbol_index = after_row
+                                .symbol_ref()
+                                .and_then(|symbol| self.symbol_index_by_key.get(&symbol.key.name))
+                                .copied();
                             let row_id = txn.insert_row(after_row, after_bounds)?;
                             step_patch.added.push(BornRecord {
                                 class_name,
@@ -2166,6 +2198,7 @@ impl JwwLive {
                                 body,
                                 row_id,
                                 group,
+                                symbol_index,
                             });
                         }
                     }
@@ -2784,6 +2817,21 @@ impl JwwLive {
         edit: &str,
         cx: &mut Cx<'_>,
     ) -> Result<Option<(RowId, SlotRef, usize)>, Error> {
+        let Some((row_id, slot, eff_rec)) = self.find_target(seen, cx)? else {
+            return Ok(None);
+        };
+        if !seen_slots.insert(slot) {
+            cx.report(unsupported(edit, "shared").at(Ref::at_record(eff_rec as u64)));
+            return Ok(None);
+        }
+        Ok(Some((row_id, slot, eff_rec)))
+    }
+
+    fn find_target(
+        &self,
+        seen: &Seen,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<(RowId, SlotRef, usize)>, Error> {
         let found = parse_jww_element_id(&seen.id).and_then(|(expected_space, eff_rec)| {
             let slot = self.slot_of_effective(eff_rec)?;
             let row_id = match slot {
@@ -2807,10 +2855,6 @@ impl JwwLive {
         })?;
         if actual_hash != seen.hash {
             cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", seen.id.as_str()));
-            return Ok(None);
-        }
-        if !seen_slots.insert(slot) {
-            cx.report(unsupported(edit, "shared").at(Ref::at_record(eff_rec as u64)));
             return Ok(None);
         }
         Ok(Some((row_id, slot, eff_rec)))
@@ -3020,6 +3064,78 @@ impl JwwLive {
             &expected_shape,
         )
         .map(Some)
+    }
+
+    fn stage_copy(
+        &self,
+        row_id: RowId,
+        slot: SlotRef,
+        transform: &Affine,
+        classes: &[(Vec<u8>, u16)],
+        offset: usize,
+        cx: &mut Cx<'_>,
+    ) -> Result<Result<StagedAction, super::apply::copy::Refusal>, Error> {
+        let Some((name, _, in_definition)) = self.slot_class_and_def(slot) else {
+            return Ok(Err(("kind", "unsupported")));
+        };
+        if in_definition {
+            return Ok(Err(("place", "unsupported")));
+        }
+        let Some(row) = self.table.row(row_id) else {
+            return Ok(Err(("source", "shared")));
+        };
+        let length = match slot {
+            SlotRef::Base(r) => self
+                .patched_bodies
+                .get(&r)
+                .map(Vec::len)
+                .or_else(|| self.base_records.get(r).map(|rec| rec.body.len())),
+            SlotRef::Born(b) => self.born_records.get(b).map(|rec| rec.body.len()),
+        }
+        .ok_or(Error::Rejected)?;
+        decoded_live(cx, length as u64)?;
+        work_live(cx, length as u64)?;
+        let body = self.current_body_bytes(slot).ok_or(Error::Rejected)?;
+        let (class, bytes, layer, style, shape, extensions) =
+            match super::apply::copy::encode_copy_body(
+                &body,
+                name,
+                false,
+                &self.header,
+                self.version,
+                &row.element(),
+                transform,
+                cx,
+            )? {
+                Ok(record) => record,
+                Err(reason) => return Ok(Err(reason)),
+            };
+        let Some(schema) = resolve_schema_for_class(classes, class) else {
+            return Ok(Err(("format", "classes_missing")));
+        };
+        let Some(action) = self.verify_added_round_trip(
+            class,
+            schema,
+            offset,
+            bytes,
+            layer,
+            style,
+            &shape,
+            row.space.0 as usize,
+        ) else {
+            return Ok(Err(("format", "round_trip")));
+        };
+        let StagedAction::Added { after_row, .. } = &action else {
+            return Ok(Err(("format", "round_trip")));
+        };
+        let actual = after_row
+            .own_extensions()
+            .iter()
+            .map(|(name, fields)| (*name, fields.as_slice()));
+        if !super::apply::copy::extension_fields_match(actual, &extensions) {
+            return Ok(Err(("extensions", "round_trip")));
+        }
+        Ok(Ok(action))
     }
 
     fn stage_transform(
@@ -3420,6 +3536,12 @@ impl JwwLive {
             }
         }
         for born in &patch.added {
+            if let Some(users) = born
+                .symbol_index
+                .and_then(|i| self.symbol_users.get_mut(i as usize))
+            {
+                users.push(born.row_id);
+            }
             self.born_records.push(born.clone());
             self.born_alive.push(true);
             self.element_born_alive.push(true);
@@ -3453,6 +3575,12 @@ impl JwwLive {
             self.set_header(diff.before.clone());
         }
         for born in patch.added.iter().rev() {
+            if let Some(users) = born
+                .symbol_index
+                .and_then(|i| self.symbol_users.get_mut(i as usize))
+            {
+                users.pop();
+            }
             if let Some(cnt) = self.group_counts.get_mut(born.group) {
                 *cnt = cnt.saturating_sub(1);
             }
@@ -3506,12 +3634,12 @@ impl JwwLive {
 
     fn stage_dependent_bounds(
         &self,
-        staged: &[StagedEdit],
+        staged: &mut [StagedEdit],
         cx: &mut Cx<'_>,
     ) -> Result<DependentBounds, Error> {
         let mut touched = BTreeSet::new();
         let mut pending = BTreeMap::new();
-        for item in staged {
+        for item in staged.iter() {
             work_live(cx, 1)?;
             let row_id = match &item.action {
                 StagedAction::Updated { row_id, .. } | StagedAction::Removed { row_id, .. } => {
@@ -3650,6 +3778,29 @@ impl JwwLive {
                     symbol_sheet_bounds(symbol, row.space, &self.header, self.paper_origin, after);
                 decoded_live(cx, 4 * core::mem::size_of::<(RowId, [f64; 4])>() as u64)?;
                 out.rows.push((rid, bounds));
+            }
+        }
+        // 同じ変更で足した参照にも、定義を変えた後の囲む箱を当てる
+        for item in staged {
+            work_live(cx, 1)?;
+            if let StagedAction::Added {
+                after_row,
+                after_bounds,
+                ..
+            } = &mut item.action
+                && let Some(symbol) = after_row.symbol_ref()
+                && let Some(bounds) = self
+                    .symbol_index_by_key
+                    .get(&symbol.key.name)
+                    .and_then(|i| working_bounds.get(*i as usize))
+            {
+                *after_bounds = symbol_sheet_bounds(
+                    symbol,
+                    after_row.space,
+                    &self.header,
+                    self.paper_origin,
+                    *bounds,
+                );
             }
         }
         if !dirty_set.is_empty() {
@@ -5512,6 +5663,37 @@ mod equivalence_tests {
                 assert!(run(|cx| live.redo(cx)).0.unwrap());
                 check_selection(&live);
             }
+        }
+    }
+
+    #[test]
+    fn copied_insertions_follow_definition_edits_and_history() {
+        let mut live = run(|cx| JwwLive::open(&block_bytes(), cx)).0.unwrap();
+        let mut changes = block_change(&live, false);
+        let (_, row) = live
+            .table
+            .iter_live()
+            .find(|(_, row)| row.is_symbol())
+            .unwrap();
+        changes.edits.push(Edit::Copy {
+            target: Seen {
+                id: live.canonical_id(row.space, row.slot),
+                hash: Hash::element(&row.element()),
+            },
+            transform: Affine::translation(50.0, 0.0),
+        });
+        run(|cx| live.apply(&changes, cx)).0.unwrap();
+        check_selection(&live);
+        let move_again = block_change(&live, false);
+        run(|cx| live.apply(&move_again, cx)).0.unwrap();
+        check_selection(&live);
+        for _ in 0..2 {
+            assert!(run(|cx| live.undo(cx)).0.unwrap());
+            check_selection(&live);
+        }
+        for _ in 0..2 {
+            assert!(run(|cx| live.redo(cx)).0.unwrap());
+            check_selection(&live);
         }
     }
 

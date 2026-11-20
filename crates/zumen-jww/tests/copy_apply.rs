@@ -12,7 +12,7 @@ use zumen_drawing::{
     Affine, Changes, Drawing2D, Edit, Element, Field, FieldValue, Hash, ModelPoint, Seen, Shape,
     Target, id, transform,
 };
-use zumen_jww::{CopyFrom, Jww, JwwFile};
+use zumen_jww::{CopyFrom, Jww, JwwFile, JwwLive};
 use zumen_sdk::{Apply, Codec, Lift, testkit};
 
 const SHIFT: Affine = Affine {
@@ -224,21 +224,34 @@ fn copies_keep_shapes_styles_and_extensions_in_jww_and_inside_blocks() {
         })
         .collect();
 
-    let (res, diag) = cx_run(|cx| {
-        file.apply(
-            &Changes {
-                document: None,
-                edits,
-            },
-            cx,
-        )
-    });
+    let changes = Changes {
+        document: None,
+        edits,
+    };
+    let (res, diag) = cx_run(|cx| file.apply(&changes, cx));
     let (applied, shifted) = res.unwrap_or_else(|e| panic!("{e:?}: {diag:?}"));
     // 後続のブロック定義（CDataList）のレコード番号が後ろへずれるため shifted == true が返る
     assert!(shifted);
     assert_eq!(applied.len(), targets.len());
 
     let out = write(&file);
+    for threads in [1, 4] {
+        let mut live = cx_run(|cx| JwwLive::open_with_threads(&src, threads, cx).unwrap()).0;
+        let (result, live_diag) = cx_run(|cx| live.apply(&changes, cx));
+        let (live_applied, live_shifted) =
+            result.unwrap_or_else(|e| panic!("{e:?}: {live_diag:?}"));
+        assert_eq!(live_applied, applied);
+        assert_eq!(live_shifted, shifted);
+        assert_eq!(
+            live_diag.iter().collect::<Vec<_>>(),
+            diag.iter().collect::<Vec<_>>()
+        );
+        assert_eq!(cx_run(|cx| live.save(cx).unwrap()).0, out);
+        assert!(cx_run(|cx| live.undo(cx).unwrap()).0);
+        assert_eq!(cx_run(|cx| live.save(cx).unwrap()).0, src);
+        assert!(cx_run(|cx| live.redo(cx).unwrap()).0);
+        assert_eq!(cx_run(|cx| live.save(cx).unwrap()).0, out);
+    }
     let after = lift(&read(&out));
     let now = model_elements(&after);
 
@@ -361,99 +374,95 @@ fn unsupported_jww_copies_are_refused_whole_without_mutation() {
         .filter(|(id, ..)| id.starts_with("space/0/"))
         .collect();
 
+    let check_refusal = |changes: &Changes| {
+        let mut file = read(&src);
+        let (res, diag) = cx_run(|cx| file.apply(changes, cx));
+        assert!(res.is_err());
+        let mut live = cx_run(|cx| JwwLive::open(&src, cx).unwrap()).0;
+        let (refused, live_diag) = cx_run(|cx| live.apply(changes, cx));
+        assert!(refused.is_err());
+        assert_eq!(
+            live_diag.iter().collect::<Vec<_>>(),
+            diag.iter().collect::<Vec<_>>()
+        );
+        assert_eq!(cx_run(|cx| live.save(cx).unwrap()).0, src);
+        assert!(!cx_run(|cx| live.undo(cx).unwrap()).0);
+        assert_eq!(write(&file), src);
+        diag
+    };
+
     // 1. 曲線属性つき図形（index 9）をバッチに含めると全体を拒む
     {
-        let mut file = read(&src);
-        let (res, diag) = cx_run(|cx| {
-            file.apply(
-                &Changes {
-                    document: None,
-                    edits: vec![
-                        Edit::Copy {
-                            target: Seen {
-                                id: space0[0].0.clone(),
-                                hash: space0[0].1,
-                            },
-                            transform: SHIFT,
-                        },
-                        Edit::Copy {
-                            target: Seen {
-                                id: space0[9].0.clone(),
-                                hash: space0[9].1,
-                            },
-                            transform: SHIFT,
-                        },
-                    ],
+        let changes = Changes {
+            document: None,
+            edits: vec![
+                Edit::Copy {
+                    target: Seen {
+                        id: space0[0].0.clone(),
+                        hash: space0[0].1,
+                    },
+                    transform: SHIFT,
                 },
-                cx,
-            )
-        });
-        assert!(res.is_err());
+                Edit::Copy {
+                    target: Seen {
+                        id: space0[9].0.clone(),
+                        hash: space0[9].1,
+                    },
+                    transform: SHIFT,
+                },
+            ],
+        };
+        let diag = check_refusal(&changes);
         assert!(diag.iter().any(|d| {
             d.code() == codes::CHANGE_COPY_UNSUPPORTED && d.param("value") == Some(&"curve".into())
         }));
-        assert_eq!(write(&file), src);
     }
 
     // 2. 寸法（CDataSunpou, index 10）をバッチに含めると全体を拒む
     {
-        let mut file = read(&src);
-        let (res, diag) = cx_run(|cx| {
-            file.apply(
-                &Changes {
-                    document: None,
-                    edits: vec![Edit::Copy {
-                        target: Seen {
-                            id: space0[10].0.clone(),
-                            hash: space0[10].1,
-                        },
-                        transform: SHIFT,
-                    }],
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Copy {
+                target: Seen {
+                    id: space0[10].0.clone(),
+                    hash: space0[10].1,
                 },
-                cx,
-            )
-        });
-        assert!(res.is_err());
+                transform: SHIFT,
+            }],
+        };
+        let diag = check_refusal(&changes);
         assert!(
             diag.iter()
                 .any(|d| d.code() == codes::CHANGE_COPY_UNSUPPORTED)
         );
-        assert_eq!(write(&file), src);
     }
 
     // 3. 同一バッチ内で先に動かした要素の複写は source = changed で拒む
     {
-        let mut file = read(&src);
-        let (res, diag) = cx_run(|cx| {
-            file.apply(
-                &Changes {
-                    document: None,
-                    edits: vec![
-                        Edit::Transform {
-                            target: Seen {
-                                id: space0[0].0.clone(),
-                                hash: space0[0].1,
-                            },
-                            transform: SHIFT,
-                        },
-                        Edit::Copy {
-                            target: Seen {
-                                id: space0[0].0.clone(),
-                                hash: space0[0].1,
-                            },
-                            transform: SHIFT,
-                        },
-                    ],
+        let changes = Changes {
+            document: None,
+            edits: vec![
+                Edit::Transform {
+                    target: Seen {
+                        id: space0[0].0.clone(),
+                        hash: space0[0].1,
+                    },
+                    transform: SHIFT,
                 },
-                cx,
-            )
-        });
-        assert!(res.is_err());
+                Edit::Copy {
+                    target: Seen {
+                        id: space0[0].0.clone(),
+                        hash: space0[0].1,
+                    },
+                    transform: SHIFT,
+                },
+            ],
+        };
+        let diag = check_refusal(&changes);
         assert!(diag.iter().any(|d| {
             d.code() == codes::CHANGE_COPY_UNSUPPORTED
                 && d.param("value") == Some(&"changed".into())
         }));
-        assert_eq!(write(&file), src);
     }
 
     // 4. 異なるグループ（space/0 -> space/1）への配置は拒む
@@ -577,8 +586,7 @@ fn cross_document_jww_copy_and_budget_stop_atomicity() {
     assert_eq!(write(&dst_bad), diff_bytes);
 
     // 予算停止時の原子性: どこで止まっても元のバイト列を保つ
-    let run = |limit: Option<u64>| -> (bool, u64, Vec<u8>) {
-        let mut file = read(&src);
+    let run = |limit: Option<u64>, resident: bool| -> (bool, u64, Vec<u8>) {
         let edits = vec![
             Edit::Copy {
                 target: Seen {
@@ -601,22 +609,30 @@ fn cross_document_jww_copy_and_budget_stop_atomicity() {
         };
         let mut budget = Budget::new(limits);
         let mut diag = Diagnostics::new();
-        let ok = file
-            .apply(
-                &Changes {
-                    document: None,
-                    edits,
-                },
-                &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
-            )
-            .is_ok();
-        (ok, budget.used(Kind::Work), write(&file))
+        let changes = Changes {
+            document: None,
+            edits,
+        };
+        let cancel = CancelToken::new();
+        let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+        let (ok, bytes) = if resident {
+            let mut live = cx_run(|cx| JwwLive::open(&src, cx).unwrap()).0;
+            let ok = live.apply(&changes, cx).is_ok();
+            (ok, cx_run(|cx| live.save(cx).unwrap()).0)
+        } else {
+            let mut file = read(&src);
+            let ok = file.apply(&changes, cx).is_ok();
+            (ok, write(&file))
+        };
+        (ok, budget.used(Kind::Work), bytes)
     };
-    let (done, used, _) = run(None);
-    assert!(done);
-    for limit in [used / 4, used / 2, used.saturating_sub(1)] {
-        let (done, _, written) = run(Some(limit));
-        assert!(!done, "{limit}");
-        assert_eq!(written, src, "{limit}");
+    for resident in [false, true] {
+        let (done, used, _) = run(None, resident);
+        assert!(done);
+        for limit in [used / 4, used / 2, used.saturating_sub(1)] {
+            let (done, _, written) = run(Some(limit), resident);
+            assert!(!done, "{limit}");
+            assert_eq!(written, src, "{limit}");
+        }
     }
 }

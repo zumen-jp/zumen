@@ -464,7 +464,6 @@ fn copy_carries_the_new_rows() {
     let undone = call(&mut host, Command::Undo, 5, 1, wire::NONE, 0, &[]);
     assert_eq!(undone.status, Status::Ok);
     assert_eq!(select(&mut host, 6, 2, EVERYWHERE), [0, 1]);
-    // JWW・SXF の文書エンジンは、まだ写せない
     for bytes in [JWW, SFC] {
         let mut host = Host::default();
         open_bytes(&mut host, bytes);
@@ -478,9 +477,24 @@ fn copy_carries_the_new_rows() {
             0,
             &transform(&rows[..1], Affine::translation(FAR, FAR)),
         );
-        assert_eq!(reply.status, Status::Rejected);
-        assert_eq!(reply.revision, 0);
-        assert!(reply.data.is_empty());
+        if bytes == JWW {
+            assert_eq!(reply.status, Status::Ok);
+            assert_eq!(reply.revision, 1);
+            assert_eq!(reply.data_kind, 5);
+            let mut words = Words(&reply.data);
+            assert_eq!(words.u32(), Some(1));
+            let copy = words.u32().unwrap();
+            assert!(words.0.is_empty());
+            assert_eq!(select(&mut host, 4, 1, far), [copy]);
+            assert!(select(&mut host, 5, 1, EVERYWHERE).contains(&rows[0]));
+            let undone = call(&mut host, Command::Undo, 6, 1, wire::NONE, 0, &[]);
+            assert_eq!(undone.status, Status::Ok);
+            assert_eq!(select(&mut host, 7, 2, EVERYWHERE), rows);
+        } else {
+            assert_eq!(reply.status, Status::Rejected);
+            assert_eq!(reply.revision, 0);
+            assert!(reply.data.is_empty());
+        }
     }
 }
 

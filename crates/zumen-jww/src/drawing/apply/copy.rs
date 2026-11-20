@@ -41,8 +41,8 @@ pub(super) struct CopySpec<'a> {
     pub(super) from: Option<&'a SourceJww>,
 }
 
-type Refusal = (&'static str, &'static str);
-pub(super) type ExpectedExt = (String, Vec<Field>);
+pub(in crate::drawing) type Refusal = (&'static str, &'static str);
+pub(in crate::drawing) type ExpectedExt = (String, Vec<Field>);
 
 const BLOCK_REF: &[u8] = b"CDataBlock";
 const SOLID: &[u8] = b"CDataSolid";
@@ -385,7 +385,15 @@ fn same_symbol(
     Ok(true)
 }
 
-#[allow(clippy::type_complexity)]
+type Copied = (
+    &'static [u8],
+    Vec<u8>,
+    LayerId,
+    Style,
+    Shape<ModelPoint>,
+    Vec<ExpectedExt>,
+);
+
 fn encode_copied(
     src_file: &JwwFile,
     src_header: &Header,
@@ -394,20 +402,7 @@ fn encode_copied(
     element: &Element<ModelPoint>,
     transform: &Affine,
     cx: &mut Cx,
-) -> Result<
-    Result<
-        (
-            &'static [u8],
-            Vec<u8>,
-            LayerId,
-            Style,
-            Shape<ModelPoint>,
-            Vec<ExpectedExt>,
-        ),
-        Refusal,
-    >,
-    Error,
-> {
+) -> Result<Result<Copied, Refusal>, Error> {
     let Some(rec) = src_file
         .records()
         .get(record)
@@ -415,9 +410,34 @@ fn encode_copied(
     else {
         return Ok(Err(("kind", "unsupported")));
     };
-    let name = src_file.kind_name(rec);
-    let body = rec.body();
-    let Some(base) = Base::read(&src_file.src, body.start, src_header.version) else {
+    let Some(body) = src_file.src.get(rec.body()) else {
+        return Ok(Err(("kind", "unsupported")));
+    };
+    encode_copy_body(
+        body,
+        src_file.kind_name(rec),
+        rec.block().is_some(),
+        src_header,
+        dst_version,
+        element,
+        transform,
+        cx,
+    )
+}
+
+/// 元のレコードの共通フィールドと拡張を保ち、変換した形を同じクラスに書く。
+#[allow(clippy::too_many_arguments)]
+pub(in crate::drawing) fn encode_copy_body(
+    body: &[u8],
+    name: &[u8],
+    in_definition: bool,
+    src_header: &Header,
+    dst_version: u32,
+    element: &Element<ModelPoint>,
+    transform: &Affine,
+    cx: &mut Cx,
+) -> Result<Result<Copied, Refusal>, Error> {
+    let Some(base) = Base::read(body, 0, src_header.version) else {
         return Ok(Err(("kind", "unsupported")));
     };
     if base.curve != 0 {
@@ -432,14 +452,13 @@ fn encode_copied(
         return Ok(Err(("style", "sxf_version")));
     }
 
-    let in_definition = rec.block().is_some();
     let scale = if in_definition {
         1.0
     } else {
         src_header.scale(usize::from(base.group & 0xF))
     };
     let src_base_len = base.bytes(src_header.version).len();
-    let Some(orig_shape_bytes) = src_file.src.get(body.start + src_base_len..body.end) else {
+    let Some(orig_shape_bytes) = body.get(src_base_len..) else {
         return Ok(Err(("kind", "unsupported")));
     };
 
@@ -737,25 +756,28 @@ fn arc_or_ellipse_bytes(
 
 /// 読み直した要素の拡張が、期待した拡張と一致するかを確かめる
 pub(super) fn extensions_match(drawing: &Drawing2D, id: &str, expected: &[ExpectedExt]) -> bool {
-    let actual: Vec<(&str, &[Field])> = drawing
+    let actual = drawing
         .extensions
         .iter()
         .filter(|ext| matches!(&ext.target, Target::Element(eid) if eid == id))
-        .map(|ext| (ext.namespace.as_ref(), ext.fields.as_slice()))
-        .collect();
-    if actual.len() != expected.len() {
-        return false;
-    }
-    actual
-        .iter()
-        .zip(expected)
-        .all(|((ns_a, fields_a), (ns_b, fields_b))| {
-            *ns_a == ns_b.as_str()
-                && fields_a.len() == fields_b.len()
-                && fields_a.iter().zip(fields_b).all(|(fa, fb)| {
-                    fa.key == fb.key && fa.code == fb.code && field_near(&fa.value, &fb.value)
-                })
-        })
+        .map(|ext| (ext.namespace.as_ref(), ext.fields.as_slice()));
+    extension_fields_match(actual, expected)
+}
+
+pub(in crate::drawing) fn extension_fields_match<'a>(
+    mut actual: impl Iterator<Item = (&'a str, &'a [Field])>,
+    expected: &[ExpectedExt],
+) -> bool {
+    expected.iter().all(|(ns_b, fields_b)| {
+        let Some((ns_a, fields_a)) = actual.next() else {
+            return false;
+        };
+        ns_a == ns_b.as_str()
+            && fields_a.len() == fields_b.len()
+            && fields_a.iter().zip(fields_b).all(|(fa, fb)| {
+                fa.key == fb.key && fa.code == fb.code && field_near(&fa.value, &fb.value)
+            })
+    }) && actual.next().is_none()
 }
 
 fn field_near(a: &FieldValue, b: &FieldValue) -> bool {
