@@ -16,7 +16,7 @@ SFZ（SFC）と P2Z（P21）、SAF の名前の 2 通り、ZIP の無圧縮と d
 | 測点名 | 型 STR、値 No.1 | 同じ |
 | 現地盤高 | 型 LEN、単位 m、値 102.0400 | 同じ |
 
-SAF の名前は `DRAWING.SAF` と `DRAWING.SFC.SAF` または `DRAWING.P21.SAF` です。属性 XML・非対象の線分と表・`control.txt` は変更しません。
+電子納品の照合では、図面と同じ幹名の `DRAWING.SAF` を使います。図面の拡張子を残す `DRAWING.SFC.SAF` と `DRAWING.P21.SAF` は、zumen の互換読み込みを確かめる組です。[農林水産省「測量成果電子納品要領（案）」付属資料 4](https://www.maff.go.jp/j/nousin/seko/nouhin_youryou/pdf/survey_youryob_h2603.pdf)。属性 XML・非対象の線分と表・`control.txt` は変更しません。
 
 ## 利用者が行う実機の操作
 

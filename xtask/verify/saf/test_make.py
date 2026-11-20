@@ -78,6 +78,20 @@ class KitTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 make.p21_circle(path, element, False)
 
+    def test_p21_sheet_rejects_lost_references_dimensions_and_units(self):
+        data = make.fixtures.p21("DRAWING.SAF")
+        for before, after in [(b"PRESENTATION_SIZE(#121,#122)", b"PRESENTATION_SIZE(#121,#10)"),
+                              (b"420.,297.", b"297.,420."), (b"TITLE((#125)", b"TITLE((#121)"),
+                              (b"420.,297.,#11", b"420.,297.,#10"), (b".MILLI.", b".CENTI.")]:
+            with self.subTest(before=before), tempfile.TemporaryDirectory() as folder:
+                path = Path(folder) / "wrong.p21"
+                changed = data.replace(before, after)
+                self.assertNotEqual(changed, data)
+                path.write_bytes(changed)
+                step = make.check_ezsxf.Step(make.check_ezsxf.ezsxf.parse_p21(str(path), strict=False), {})
+                with self.assertRaises(ValueError):
+                    make.p21_sheet(step)
+
     def test_rejects_nonempty_and_repository_output(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

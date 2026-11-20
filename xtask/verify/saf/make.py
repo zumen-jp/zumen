@@ -124,6 +124,27 @@ def check_bindings(bindings, expected, target):
         need(item["fields"] == expected[item["name"]], "SAF の外部 XML とコアの読みが一致しません")
 
 
+def p21_sheet(step):
+    # 自作入力の固定番号を起点に、編集後も同じ図面版・用紙枠・単位を参照することを照らす。
+    usage = step.part(126, "DRAWING_SHEET_REVISION_USAGE")
+    need(usage and len(usage) == 3, "用紙と図面版の対応がありません")
+    sheet = step.get(usage[0], "DRAWING_SHEET_REVISION")
+    revision = step.get(usage[1], "DRAUGHTING_DRAWING_REVISION")
+    need(sheet and revision and step.get(revision[1], "DRAWING_DEFINITION"), "用紙か図面の定義がありません")
+    title = step.part(127, "DRAUGHTING_TITLE")
+    need(title and step.ref(usage[1]) in step.refs(title[0]), "タイトルが図面版を指していません")
+    size = step.part(123, "PRESENTATION_SIZE")
+    need(size and size[0] == usage[0] and step.ref(size[1]) in step.refs(sheet[1]), "用紙と寸法が同じ枠を参照していません")
+    box = step.get(size[1], "PLANAR_BOX")
+    need(box and box[1:3] == [420, 297] and step.get(box[3], "AXIS2_PLACEMENT_2D"), "用紙枠が A3 横の寸法か配置と一致しません")
+    units = step.get(sheet[2], "GLOBAL_UNIT_ASSIGNED_CONTEXT")
+    need(units and step.get(sheet[2], "GEOMETRIC_REPRESENTATION_CONTEXT") == [2], "用紙の単位か次元がありません")
+    si = [step.get(unit, "SI_UNIT") for unit in units[0]]
+    need([ [{"kind": "enum", "value": "MILLI"}, {"kind": "enum", "value": "METRE"}],
+           [{"kind": "unset"}, {"kind": "enum", "value": "RADIAN"}] ] == si, "用紙の単位が mm と rad に一致しません")
+    return {"dimensionsMm": box[1:3], "drawingRevision": revision[0]}
+
+
 def p21_circle(path, element, changed):
     # 既存の P21 照合器は円を種類だけ比べる。この自作入力の円は ezsxf の参照から値も照合する。
     step = check_ezsxf.Step(check_ezsxf.ezsxf.parse_p21(str(path), strict=False), {})
@@ -138,7 +159,7 @@ def p21_circle(path, element, changed):
     expected = {"shape": "circle", "center": [55, 22] if changed else [50, 25], "radius": 10}
     need(shape == expected == element["geometry"], "P21 の円が外部の読みと期待値に一致しません")
     need(step.layers().get(instance) == element["layer"], "P21 の円の画層が一致しません")
-    return {"instance": instance, "geometry": shape, "layer": element["layer"], "matched": True}
+    return {"instance": instance, "geometry": shape, "layer": element["layer"], "sheet": p21_sheet(step), "matched": True}
 
 
 def call(z, request, records):
