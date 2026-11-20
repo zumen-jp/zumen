@@ -594,6 +594,93 @@ fn structural_reads(doc: &str) -> Vec<String> {
 }
 
 #[test]
+fn placing_a_wall_preserves_mapped_surface_styles_and_updates_the_scene() {
+    use zumen_base::{Budget, Cx, Diagnostics, Limits};
+    use zumen_building::{GeometryRef, SurfaceAppearance};
+    use zumen_scene3d::layout;
+
+    let spf = conformance_text("scene3d", "/steps/0/push/text");
+    let zipped = zumen_zip::write(&[("model/a.ifc", &spf)]).unwrap();
+    let id = "0000000000000000000060";
+    for (name, bytes) in [("scene.ifc", spf), ("scene.ifczip", zipped)] {
+        let mut session = opened(name, &bytes, "");
+        let scene = format!(r#"{{"v":1,"op":"scene3d","doc":"{name}","ids":["{id}"]}}"#);
+        let original = answer(&mut session, &scene);
+        let hash = element_hash(&mut session, name, id);
+        let edit = format!(
+            r#"{{"kind":"place","element":{{"id":"{id}","hash":"{hash}"}},"placement":{{"matrix":[[1,0,0,8000],[0,1,0,200],[0,0,1,0]]}}}}"#
+        );
+        let (status, response, files) = answer(&mut session, &request(name, "", &[edit]));
+        assert_eq!(status, Status::Ok, "{}", String::from_utf8_lossy(&response));
+        let edited = answer(&mut session, &scene);
+        assert_eq!(edited.0, Status::Ok);
+        assert_ne!(original.2, edited.2);
+        assert_eq!(edited, answer(&mut opened(name, &files[0], ""), &scene));
+
+        let mut budget = Budget::new(Limits::default());
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        // 同じ面を参照する 2 つの写像で、IFC の形に付けた元の色と透明度をたどれる。
+        let Live::Ifc(engine) = live(&session, name) else {
+            panic!("文書エンジンを保持していない");
+        };
+        let geom = engine
+            .to_file(&mut cx)
+            .unwrap()
+            .owned_geometry(60, &mut cx)
+            .unwrap();
+        for mapping in [110, 111] {
+            let path = [100, 101, mapping, 120, 121, 140].map(|instance| {
+                let index = geom
+                    .data()
+                    .nodes
+                    .iter()
+                    .position(|node| node.source.instance == Some(instance))
+                    .unwrap();
+                GeometryRef(index as u32)
+            });
+            let SurfaceAppearance::Value { surfaces, .. } =
+                geom.surface_appearance(&path, &mut cx).unwrap()
+            else {
+                panic!("面の色がない");
+            };
+            let [surface] = surfaces else {
+                panic!("色が一意に決まらない")
+            };
+            assert_eq!(surface.definition.shading.colour.rgb, [0.25, 0.5, 1.0]);
+            assert_eq!(surface.definition.shading.transparency, Some(0.25));
+        }
+        // scene3d は建物要素の style 成分を使う。この壁に要素の色はない。
+        assert!(String::from_utf8_lossy(&edited.1).contains("scene3d.color.missing"));
+        let reader = zumen_scene3d::read(&edited.2[0], &mut cx).unwrap();
+        assert_eq!(reader.chunks, 1);
+        let origins = reader.column(layout::CHUNK_ORIGINS).unwrap();
+        let flags = reader.column(layout::COLOR_FLAGS).unwrap();
+        assert_eq!(reader.column(layout::INSTANCE_MESHES).unwrap().rows(), 2);
+        for (row, x) in [(0, 8000.0), (1, 10000.0)] {
+            let instance = reader.instance(row).unwrap();
+            assert_eq!(reader.element(u64::from(instance.element)).unwrap().id, id);
+            for (axis, expected) in [x, 200.0, 500.0].into_iter().enumerate() {
+                let absolute =
+                    origins.f64(axis as u64).unwrap() + f64::from(instance.transform[4 * axis + 3]);
+                assert_eq!(absolute, expected);
+            }
+            assert_eq!(
+                flags.bytes()[instance.color as usize],
+                layout::color_flag::UNRESOLVED
+            );
+        }
+        // Session の取り消しは、変更前の版を同じ名前で開き直す。
+        let close = format!(r#"{{"v":1,"op":"close","docs":["{name}"]}}"#);
+        assert_eq!(call(&mut session, &close).0, Status::Ok);
+        let open = format!(r#"{{"v":1,"op":"open","input":"{name}"}}"#);
+        assert_eq!(call(&mut session, &open).0, Status::Ok);
+        assert_eq!(answer(&mut session, &scene), original);
+    }
+}
+
+#[test]
 fn building_apply_on_the_engine_matches_the_old_path_and_stops_atomically_for_structural_edits() {
     for schema in ["IFC2X3", "IFC4", "IFC4X3_ADD2"] {
         let spf = format!(
