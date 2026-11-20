@@ -4,11 +4,11 @@
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_drawing::{
-    Affine, Changes, Drawing2D, Edit, Element, Field, FieldValue, Hash, PaperPoint, Seen, Shape,
-    Target, id, transform,
+    Affine, Applied, Changes, Drawing2D, Edit, Element, Field, FieldValue, Hash, PaperPoint, Seen,
+    Shape, Target, id, transform,
 };
 use zumen_sdk::{Apply, Codec, Lift, testkit};
-use zumen_sxf::{CopyFrom, Sxf, SxfFile};
+use zumen_sxf::{CopyFrom, Sxf, SxfFile, SxfLive};
 
 const SHIFT: Affine = Affine {
     m: [1.0, 0.0, 12.0, 0.0, 1.0, 18.0],
@@ -124,9 +124,16 @@ fn source_p21() -> Vec<u8> {
         "#630=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#620);",
         "#640=COMPOSITE_CURVE(' ',(#630),.F.);",
         "#650=ANNOTATION_CURVE_OCCURRENCE(' ',(#70),#640);",
-        "#900=PRESENTATION_LAYER_ASSIGNMENT('A',' ',(#160,#230,#340,#440,#490,#650));",
+        "#700=GEOMETRIC_REPRESENTATION_CONTEXT(' ',' ',2);",
+        "#710=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_P_Part',(#210),#700);",
+        "#720=SYMBOL_REPRESENTATION_MAP(#210,#710);",
+        "#730=SYMBOL_TARGET(' ',#210,1.,1.);",
+        "#740=(ANNOTATION_SYMBOL()GEOMETRIC_REPRESENTATION_ITEM()MAPPED_ITEM(#720,#730)REPRESENTATION_ITEM(' '));",
+        "#750=PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)));",
+        "#760=(ANNOTATION_OCCURRENCE()ANNOTATION_SUBFIGURE_OCCURRENCE()ANNOTATION_SYMBOL_OCCURRENCE()DRAUGHTING_ANNOTATION_OCCURRENCE()GEOMETRIC_REPRESENTATION_ITEM()REPRESENTATION_ITEM(' ')STYLED_ITEM((#750),#740));",
+        "#900=PRESENTATION_LAYER_ASSIGNMENT('A',' ',(#160,#230,#340,#440,#490,#650,#760));",
         "#910=PRESENTATION_LAYER_ASSIGNMENT('B',' ',(#560,#590));",
-        "#950=DRAWING_SHEET_REVISION('A3_horizontal',(#160,#230,#340,#440,#490,#560,#590,#650),' ',' ');",
+        "#950=DRAWING_SHEET_REVISION('A3_horizontal',(#160,#230,#340,#440,#490,#560,#590,#650,#760),' ',' ');",
     ];
     let mut src = "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n".to_owned();
     for line in data {
@@ -187,6 +194,34 @@ fn element_extensions(drawing: &Drawing2D, elem_id: &str) -> Vec<(String, Vec<Fi
         .collect()
 }
 
+#[cfg(test)]
+fn compare_live(
+    bytes: &[u8],
+    changes: &Changes,
+    expected: &[Applied],
+    diag: &Diagnostics,
+    out: &[u8],
+) {
+    for threads in [1, 4] {
+        let mut live = cx_run(|cx| SxfLive::open_with_threads(bytes, threads, cx).unwrap()).0;
+        let (result, diagnostics) = cx_run(|cx| live.apply(changes, cx));
+        assert_eq!(
+            result.unwrap_or_else(|e| panic!("{e:?}: {diagnostics:?}")),
+            expected
+        );
+        assert_eq!(
+            diagnostics.iter().collect::<Vec<_>>(),
+            diag.iter().collect::<Vec<_>>()
+        );
+        assert_eq!(cx_run(|cx| live.save(cx).unwrap()).0, out);
+        assert_eq!(cx_run(|cx| live.drawing(cx).unwrap()).0, lift(&read(out)).0);
+        assert!(cx_run(|cx| live.undo(cx).unwrap()).0);
+        assert_eq!(cx_run(|cx| live.save(cx).unwrap()).0, bytes);
+        assert!(cx_run(|cx| live.redo(cx).unwrap()).0);
+        assert_eq!(cx_run(|cx| live.save(cx).unwrap()).0, out);
+    }
+}
+
 #[test]
 fn copies_keep_shapes_styles_and_extensions_in_sfc_and_p21() {
     // 1. SFC の 7 要素（index 1..8: 線・円・円弧・折線・点マーカー・文字・部分図配置）を複写
@@ -215,15 +250,11 @@ fn copies_keep_shapes_styles_and_extensions_in_sfc_and_p21() {
             transform: *tf,
         })
         .collect();
-    let (sfc_res, sfc_diag) = cx_run(|cx| {
-        sfc_file.apply(
-            &Changes {
-                document: None,
-                edits: sfc_edits,
-            },
-            cx,
-        )
-    });
+    let sfc_changes = Changes {
+        document: None,
+        edits: sfc_edits,
+    };
+    let (sfc_res, sfc_diag) = cx_run(|cx| sfc_file.apply(&sfc_changes, cx));
     let sfc_applied = sfc_res.unwrap_or_else(|e| panic!("{e:?}: {sfc_diag:?}"));
     // 文字幅の近似診断（SXF_TEXT_WIDTH_APPROXIMATED）を出さずに元の幅・字間を拡大して保つ
     assert!(
@@ -235,6 +266,7 @@ fn copies_keep_shapes_styles_and_extensions_in_sfc_and_p21() {
     assert_eq!(sfc_applied.len(), 7);
 
     let sfc_out = write(&sfc_file);
+    compare_live(&sfc, &sfc_changes, &sfc_applied, &sfc_diag, &sfc_out);
     let (sfc_after, _) = lift(&read(&sfc_out));
     let sfc_now = paper_elements(&sfc_after);
     for (id, hash, _) in &sfc_was {
@@ -267,13 +299,18 @@ fn copies_keep_shapes_styles_and_extensions_in_sfc_and_p21() {
     assert_eq!(sxf_text.1[0].value, FieldValue::Real(24.0));
     assert_eq!(sxf_text.1[1].value, FieldValue::Real(1.0));
 
-    // 2. P21 の 6 要素（index 1..7: 線・円・円弧・折線・文字・共有点を持つ線）を複写
+    // 2. P21 の線・円・円弧・折線・文字・共有点を持つ線と作図部品の配置を複写
     let p21 = source_p21();
     let mut p21_file = read(&p21);
     let (p21_before, _) = lift(&p21_file);
     let p21_was = paper_elements(&p21_before);
     let p21_targets: Vec<(String, Hash, Affine)> = p21_was[1..7]
         .iter()
+        .chain(
+            p21_was
+                .iter()
+                .filter(|(_, _, e)| matches!(e.shape, Shape::Symbol(_))),
+        )
         .map(|(id, hash, el)| {
             let tf = if matches!(el.shape, Shape::Formatted(_)) {
                 SCALE_SHIFT
@@ -293,15 +330,11 @@ fn copies_keep_shapes_styles_and_extensions_in_sfc_and_p21() {
             transform: *tf,
         })
         .collect();
-    let (p21_res, p21_diag) = cx_run(|cx| {
-        p21_file.apply(
-            &Changes {
-                document: None,
-                edits: p21_edits,
-            },
-            cx,
-        )
-    });
+    let p21_changes = Changes {
+        document: None,
+        edits: p21_edits,
+    };
+    let (p21_res, p21_diag) = cx_run(|cx| p21_file.apply(&p21_changes, cx));
     let p21_applied = p21_res.unwrap_or_else(|e| panic!("{e:?}: {p21_diag:?}"));
     assert!(
         !p21_diag
@@ -309,8 +342,9 @@ fn copies_keep_shapes_styles_and_extensions_in_sfc_and_p21() {
             .any(|d| d.code() == codes::SXF_TEXT_WIDTH_APPROXIMATED),
         "{p21_diag:?}"
     );
-    assert_eq!(p21_applied.len(), 6);
+    assert_eq!(p21_applied.len(), 7);
     let p21_out = write(&p21_file);
+    compare_live(&p21, &p21_changes, &p21_applied, &p21_diag, &p21_out);
     let (p21_after, _) = lift(&read(&p21_out));
     let p21_now = paper_elements(&p21_after);
     for (id, hash, _) in &p21_was {
@@ -343,30 +377,35 @@ fn unsupported_sxf_copies_are_refused_whole_without_mutation() {
         (9usize, "saf"),
     ] {
         let mut file = read(&sfc);
-        let (res, diag) = cx_run(|cx| {
-            file.apply(
-                &Changes {
-                    document: None,
-                    edits: vec![
-                        Edit::Copy {
-                            target: Seen {
-                                id: was[1].0.clone(),
-                                hash: was[1].1,
-                            },
-                            transform: SHIFT,
-                        },
-                        Edit::Copy {
-                            target: Seen {
-                                id: was[bad_idx].0.clone(),
-                                hash: was[bad_idx].1,
-                            },
-                            transform: SHIFT,
-                        },
-                    ],
+        let changes = Changes {
+            document: None,
+            edits: vec![
+                Edit::Copy {
+                    target: Seen {
+                        id: was[1].0.clone(),
+                        hash: was[1].1,
+                    },
+                    transform: SHIFT,
                 },
-                cx,
-            )
-        });
+                Edit::Copy {
+                    target: Seen {
+                        id: was[bad_idx].0.clone(),
+                        hash: was[bad_idx].1,
+                    },
+                    transform: SHIFT,
+                },
+            ],
+        };
+        let (res, diag) = cx_run(|cx| file.apply(&changes, cx));
+        let mut live = cx_run(|cx| SxfLive::open(&sfc, cx).unwrap()).0;
+        let (refused, live_diag) = cx_run(|cx| live.apply(&changes, cx));
+        assert!(refused.is_err());
+        assert_eq!(
+            live_diag.iter().collect::<Vec<_>>(),
+            diag.iter().collect::<Vec<_>>()
+        );
+        assert_eq!(cx_run(|cx| live.save(cx).unwrap()).0, sfc);
+        assert!(!cx_run(|cx| live.undo(cx).unwrap()).0);
         assert!(res.is_err(), "{expected_val}");
         assert!(
             diag.iter().any(|d| {
@@ -485,8 +524,7 @@ fn cross_document_sxf_copy_and_budget_stop_atomicity() {
     );
 
     // 予算停止時の原子性
-    let run = |limit: Option<u64>| -> (bool, u64, Vec<u8>) {
-        let mut file = read(&sfc);
+    let run = |limit: Option<u64>, resident: bool| -> (bool, u64, Vec<u8>) {
         let edits = vec![
             Edit::Copy {
                 target: Seen {
@@ -509,22 +547,30 @@ fn cross_document_sxf_copy_and_budget_stop_atomicity() {
         };
         let mut budget = Budget::new(limits);
         let mut diag = Diagnostics::new();
-        let ok = file
-            .apply(
-                &Changes {
-                    document: None,
-                    edits,
-                },
-                &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
-            )
-            .is_ok();
-        (ok, budget.used(Kind::Work), write(&file))
+        let cancel = CancelToken::new();
+        let changes = Changes {
+            document: None,
+            edits,
+        };
+        let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+        let (ok, bytes) = if resident {
+            let mut live = cx_run(|cx| SxfLive::open(&sfc, cx).unwrap()).0;
+            let ok = live.apply(&changes, cx).is_ok();
+            (ok, cx_run(|cx| live.save(cx).unwrap()).0)
+        } else {
+            let mut file = read(&sfc);
+            let ok = file.apply(&changes, cx).is_ok();
+            (ok, write(&file))
+        };
+        (ok, budget.used(Kind::Work), bytes)
     };
-    let (done, used, _) = run(None);
-    assert!(done);
-    for limit in [used / 4, used / 2, used.saturating_sub(1)] {
-        let (done, _, written) = run(Some(limit));
-        assert!(!done, "{limit}");
-        assert_eq!(written, write(&read(&sfc)), "{limit}");
+    for resident in [false, true] {
+        let (done, used, _) = run(None, resident);
+        assert!(done);
+        for limit in [used / 4, used / 2, used.saturating_sub(1)] {
+            let (done, _, written) = run(Some(limit), resident);
+            assert!(!done, "{limit}");
+            assert_eq!(written, sfc, "{limit}");
+        }
     }
 }

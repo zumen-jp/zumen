@@ -41,8 +41,8 @@ pub(super) struct CopySpec<'a> {
     pub(super) from: Option<&'a SourceSxf>,
 }
 
-type Refusal = (&'static str, &'static str);
-pub(super) type ExpectedExt = (String, Vec<Field>);
+pub(in crate::drawing) type Refusal = (&'static str, &'static str);
+pub(in crate::drawing) type ExpectedExt = (String, Vec<Field>);
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn copy_element(
@@ -456,27 +456,47 @@ fn add_copied_paper(
         return Ok(Ok((instance, added, Vec::new())));
     }
 
+    let (args, out_elem, expected_exts) = match prepare_paper(
+        tables,
+        element,
+        orig_record,
+        cross_doc,
+        &mut plan.fonts,
+        plan.writer.as_mut(),
+        cx,
+    )? {
+        Ok(prepared) => prepared,
+        Err(reason) => return Ok(Err(reason)),
+    };
+    let Some(instance) = plan.writer.add(&args, cx)? else {
+        return Ok(Err(("kind", "unsupported")));
+    };
+    if args.name == text::NAME && orig_record.is_none() {
+        plan.estimated_texts.push(instance);
+    }
+    Ok(Ok((instance, out_elem, expected_exts)))
+}
+
+pub(in crate::drawing) type Prepared = (super::Arguments, Element<PaperPoint>, Vec<ExpectedExt>);
+
+pub(in crate::drawing) fn prepare_paper(
+    tables: &Tables,
+    element: &Element<PaperPoint>,
+    orig_record: Option<&FeatureRecord>,
+    cross_doc: bool,
+    fonts: &mut super::Fonts<'_>,
+    writer: &mut dyn super::Writer,
+    cx: &mut Cx,
+) -> Result<Result<Prepared, Refusal>, Error> {
     count_element_copy(element, cx, 1)?;
     count_shape(&element.shape, cx)?;
     text::count(&element.shape, cx)?;
     let mut placed = Placed::Paper(element.clone());
     // 別文書では字体番号の継承に元のレコードを使わず、文字幅と字間の計算だけに使う
     let Some(mut args) = (if cross_doc {
-        shape_arguments_cross_doc(
-            &mut placed,
-            orig_record,
-            &mut plan.fonts,
-            plan.writer.as_mut(),
-            cx,
-        )?
+        shape_arguments_cross_doc(&mut placed, orig_record, fonts, writer, cx)?
     } else {
-        shape_arguments(
-            &mut placed,
-            orig_record,
-            &mut plan.fonts,
-            plan.writer.as_mut(),
-            cx,
-        )?
+        shape_arguments(&mut placed, orig_record, fonts, writer, cx)?
     }) else {
         return Ok(Err(("kind", "unsupported")));
     };
@@ -495,7 +515,7 @@ fn add_copied_paper(
     };
     out_elem.style.color = Inherit::Own(read);
     let codes = if args.name == MARKER || args.name == text::NAME {
-        if !plan.writer.markers()
+        if !writer.markers()
             || style.line_type != Inherit::Layer
             || !matches!(style.line_weight, None | Some(Inherit::Layer))
         {
@@ -548,13 +568,7 @@ fn add_copied_paper(
             ],
         ));
     }
-    let Some(instance) = plan.writer.add(&args, cx)? else {
-        return Ok(Err(("kind", "unsupported")));
-    };
-    if args.name == text::NAME && orig_record.is_none() {
-        plan.estimated_texts.push(instance);
-    }
-    Ok(Ok((instance, out_elem, expected_exts)))
+    Ok(Ok((args, out_elem, expected_exts)))
 }
 
 fn shape_arguments_cross_doc(
@@ -595,19 +609,22 @@ fn attribute_extension(drawing: &Drawing2D, id: &str) -> Option<&'static str> {
         if ext.namespace == "sxf.attribute"
             && matches!(&ext.target, Target::Element(eid) if eid == id)
         {
-            let is_saf =
-                ext.fields
-                    .iter()
-                    .filter(|f| f.key == "part")
-                    .find_map(|f| match &f.value {
-                        FieldValue::Text(s) => Some(s.as_str()),
-                        _ => None,
-                    })
-                    == Some("ATRF");
-            return Some(if is_saf { "saf" } else { "attribute" });
+            return Some(attribute_kind(&ext.fields));
         }
     }
     None
+}
+
+pub(in crate::drawing) fn attribute_kind(fields: &[Field]) -> &'static str {
+    let is_saf = fields
+        .iter()
+        .filter(|f| f.key == "part")
+        .find_map(|f| match &f.value {
+            FieldValue::Text(s) => Some(s.as_str()),
+            _ => None,
+        })
+        == Some("ATRF");
+    if is_saf { "saf" } else { "attribute" }
 }
 
 /// 読み直した要素の拡張が、期待した拡張を含むかを確かめる
@@ -619,13 +636,20 @@ pub(super) fn extensions_match(drawing: &Drawing2D, id: &str, expected: &[Expect
         }) else {
             return false;
         };
-        if actual.fields.len() != fields.len() {
+        if !fields_match(&actual.fields, fields) {
             return false;
         }
-        for (fa, fb) in actual.fields.iter().zip(fields) {
-            if fa.key != fb.key || fa.code != fb.code || !field_near(&fa.value, &fb.value) {
-                return false;
-            }
+    }
+    true
+}
+
+pub(in crate::drawing) fn fields_match(actual: &[Field], fields: &[Field]) -> bool {
+    if actual.len() != fields.len() {
+        return false;
+    }
+    for (fa, fb) in actual.iter().zip(fields) {
+        if fa.key != fb.key || fa.code != fb.code || !field_near(&fa.value, &fb.value) {
+            return false;
         }
     }
     true

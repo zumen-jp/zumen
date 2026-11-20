@@ -753,6 +753,46 @@ impl<'f> P21<'f> {
     }
 }
 
+/// 作図部品の定義を指す配置実体を、バッチと常駐文書で同じ順に作る。
+pub(in crate::drawing) fn symbol_occurrence(
+    builder: &mut dyn annotation::Build,
+    args: &Arguments,
+    id: u64,
+) -> Option<u64> {
+    let value = |at: usize| args.values.get(at)?.parse::<f64>().ok();
+    let (x, y, angle, sx, sy) = (value(2)?, value(3)?, value(4)?, value(5)?, value(6)?);
+    let origin = builder.point(0.0, 0.0)?;
+    let x_axis = builder.instance(b"DIRECTION(' ',(1.,0.))".to_vec())?;
+    let base =
+        builder.instance(format!("AXIS2_PLACEMENT_2D(' ',#{origin},#{x_axis})").into_bytes())?;
+    let map = builder.instance(format!("SYMBOL_REPRESENTATION_MAP(#{base},#{id})").into_bytes())?;
+    let point = builder.point(x, y)?;
+    let radians = angle.to_radians();
+    let direction = builder.instance(
+        format!(
+            "DIRECTION(' ',({},{}))",
+            real(libm::cos(radians))?,
+            real(libm::sin(radians))?
+        )
+        .into_bytes(),
+    )?;
+    let placement =
+        builder.instance(format!("AXIS2_PLACEMENT_2D(' ',#{point},#{direction})").into_bytes())?;
+    let target = builder.instance(
+        format!(
+            "SYMBOL_TARGET(' ',#{placement},{},{})",
+            real(sx)?,
+            real(sy)?
+        )
+        .into_bytes(),
+    )?;
+    let mapped = builder.instance(format!("(ANNOTATION_SYMBOL()GEOMETRIC_REPRESENTATION_ITEM()MAPPED_ITEM(#{map},#{target})REPRESENTATION_ITEM(' '))").into_bytes())?;
+    let style =
+        builder.instance(b"PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)))".to_vec())?;
+    let occurrence = builder.instance(format!("(ANNOTATION_OCCURRENCE()ANNOTATION_SUBFIGURE_OCCURRENCE()ANNOTATION_SYMBOL_OCCURRENCE()DRAUGHTING_ANNOTATION_OCCURRENCE()GEOMETRIC_REPRESENTATION_ITEM()REPRESENTATION_ITEM(' ')STYLED_ITEM((#{style}),#{mapped}))").into_bytes())?;
+    Some(occurrence)
+}
+
 impl Writer for P21<'_> {
     fn layer_change(
         &mut self,
@@ -1285,28 +1325,7 @@ impl P21<'_> {
             return None;
         }
         let (_, sheet) = self.first_sheet?;
-        let value = |at: usize| args.values.get(at)?.parse::<f64>().ok();
-        let (x, y, angle, sx, sy) = (value(2)?, value(3)?, value(4)?, value(5)?, value(6)?);
-        let origin = self.point(0.0, 0.0)?;
-        let x_axis = self.instance("DIRECTION(' ',(1.,0.))")?;
-        let base = self.instance(format!("AXIS2_PLACEMENT_2D(' ',#{origin},#{x_axis})"))?;
-        let map = self.instance(format!("SYMBOL_REPRESENTATION_MAP(#{base},#{id})"))?;
-        let point = self.point(x, y)?;
-        let radians = angle.to_radians();
-        let direction = self.instance(format!(
-            "DIRECTION(' ',({},{}))",
-            real(libm::cos(radians))?,
-            real(libm::sin(radians))?
-        ))?;
-        let placement = self.instance(format!("AXIS2_PLACEMENT_2D(' ',#{point},#{direction})"))?;
-        let target = self.instance(format!(
-            "SYMBOL_TARGET(' ',#{placement},{},{})",
-            real(sx)?,
-            real(sy)?
-        ))?;
-        let mapped = self.instance(format!("(ANNOTATION_SYMBOL()GEOMETRIC_REPRESENTATION_ITEM()MAPPED_ITEM(#{map},#{target})REPRESENTATION_ITEM(' '))"))?;
-        let style = self.instance("PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)))")?;
-        let occurrence = self.instance(format!("(ANNOTATION_OCCURRENCE()ANNOTATION_SUBFIGURE_OCCURRENCE()ANNOTATION_SYMBOL_OCCURRENCE()DRAUGHTING_ANNOTATION_OCCURRENCE()GEOMETRIC_REPRESENTATION_ITEM()REPRESENTATION_ITEM(' ')STYLED_ITEM((#{style}),#{mapped}))"))?;
+        let occurrence = symbol_occurrence(self, args, id)?;
         let mut items = self.list(sheet)?;
         items.push(occurrence);
         self.lists.insert(sheet, items);

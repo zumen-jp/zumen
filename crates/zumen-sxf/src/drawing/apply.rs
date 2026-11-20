@@ -1550,45 +1550,9 @@ impl<'f> Plan<'f> {
         definition: &Ref,
         cx: &mut Cx,
     ) -> Result<Option<(u64, Element<PaperPoint>)>, Error> {
-        count_element_copy(element, cx, 2)?;
-        let Shape::Symbol(symbol) = &element.shape else {
+        let Some(args) = symbol_arguments(element, tables, cx)? else {
             return Ok(None);
         };
-        let style = Style {
-            color: Inherit::Layer,
-            line_type: Inherit::Layer,
-            line_type_scale: 1.0,
-            line_weight: None,
-            transparency: Inherit::Layer,
-        };
-        if symbol.key.namespace != "sxf.sfig"
-            || symbol.grid.is_some()
-            || !symbol.attributes.is_empty()
-            || symbol.clip.is_some()
-            || element.style != style
-            || !text::valid_string(&symbol.key.name)
-            || symbol.scale.contains(&0.0)
-        {
-            return Ok(None);
-        }
-        let values = [
-            symbol.position.x,
-            symbol.position.y,
-            symbol.rotation,
-            symbol.scale[0],
-            symbol.scale[1],
-        ];
-        if values.iter().any(|value| !value.is_finite()) {
-            return Ok(None);
-        }
-        let Some(layer) = tables.layer(element.layer) else {
-            return Ok(None);
-        };
-        let mut args = Arguments {
-            name: "sfig_locate",
-            values: vec![layer.to_string(), symbol.key.name.clone()],
-        };
-        args.values.extend(values.iter().map(ToString::to_string));
         Ok(self
             .writer
             .add_symbol(&args, definition, cx)?
@@ -1608,6 +1572,53 @@ impl<'f> Plan<'f> {
     fn bytes(self, src: &[u8], cx: &mut Cx) -> Result<Vec<u8>, Error> {
         self.writer.bytes(src, cx)
     }
+}
+
+pub(super) fn symbol_arguments(
+    element: &Element<PaperPoint>,
+    tables: &Tables,
+    cx: &mut Cx,
+) -> Result<Option<Arguments>, Error> {
+    count_element_copy(element, cx, 2)?;
+    let Shape::Symbol(symbol) = &element.shape else {
+        return Ok(None);
+    };
+    let style = Style {
+        color: Inherit::Layer,
+        line_type: Inherit::Layer,
+        line_type_scale: 1.0,
+        line_weight: None,
+        transparency: Inherit::Layer,
+    };
+    if symbol.key.namespace != "sxf.sfig"
+        || symbol.grid.is_some()
+        || !symbol.attributes.is_empty()
+        || symbol.clip.is_some()
+        || element.style != style
+        || !text::valid_string(&symbol.key.name)
+        || symbol.scale.contains(&0.0)
+    {
+        return Ok(None);
+    }
+    let values = [
+        symbol.position.x,
+        symbol.position.y,
+        symbol.rotation,
+        symbol.scale[0],
+        symbol.scale[1],
+    ];
+    if values.iter().any(|value| !value.is_finite()) {
+        return Ok(None);
+    }
+    let Some(layer) = tables.layer(element.layer) else {
+        return Ok(None);
+    };
+    let mut args = Arguments {
+        name: "sfig_locate",
+        values: vec![layer.to_string(), symbol.key.name.clone()],
+    };
+    args.values.extend(values.iter().map(ToString::to_string));
+    Ok(Some(args))
 }
 
 /// 要素の形の引数。文字なら字体を引き（なければ `text_font` を足し）、元のフィーチャ（`original`）があればレイヤと色の

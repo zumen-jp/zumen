@@ -544,6 +544,7 @@ pub(crate) fn lift_single_paper(
     instance: Option<u64>,
     record: &FeatureRecord,
     raster: Option<(&str, &Ref)>,
+    symbol: impl FnOnce(&SymbolKey) -> Option<(SpaceId, Ref)>,
     cx: &mut Cx,
 ) -> Result<Lifted<PaperPoint>, Error> {
     let feature = Feature {
@@ -570,6 +571,20 @@ pub(crate) fn lift_single_paper(
         composites: Vec::new(),
         attributes: None,
     };
+    if feature.is(b"sfig_locate")
+        && let Some(name) = lifter.args(feature).text(1)
+        && let Some((space, source)) = symbol(&part(&name))
+    {
+        lifter.definitions.insert(
+            name,
+            Definition {
+                flag: 4,
+                members: Vec::new(),
+                space: Some(space),
+                source,
+            },
+        );
+    }
     let mut out = Out::default();
     lifter.members(&[0], &OnSheet, &mut out, &mut Vec::new(), cx)?;
     Ok(out.paper.pop().map(|element| (element, out.extensions)))

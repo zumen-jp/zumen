@@ -6,6 +6,7 @@
 //! バイト列単位で一致する。
 
 mod bounds;
+mod copy;
 mod diagnostics;
 mod display;
 mod fast_p21;
@@ -1450,6 +1451,21 @@ impl SxfLive {
         (format, edit): (&str, &str),
         cx: &mut Cx,
     ) -> Result<Option<(RowId, u64)>, Error> {
+        let Some((row_id, row)) = self.lookup_seen(seen, cx)? else {
+            return Ok(None);
+        };
+        let source = placed_source(&row.placed);
+        let valid_inst = row
+            .unique_handle
+            .filter(|&inst| self.table.find_handle(inst) == Some(row_id));
+        let Some(inst) = valid_inst.filter(|&inst| targets.insert(inst)) else {
+            self.report_at(unsupported(format, edit, "shared"), source, cx)?;
+            return Ok(None);
+        };
+        Ok(Some((row_id, inst)))
+    }
+
+    fn lookup_seen(&self, seen: &Seen, cx: &mut Cx) -> Result<Option<(RowId, &SxfRow)>, Error> {
         let Some(row_id) = self.row_id_for_canonical_id(seen.id.as_str()) else {
             cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", seen.id.as_str()));
             return Ok(None);
@@ -1463,15 +1479,7 @@ impl SxfLive {
             cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_STALE).with("id", seen.id.as_str()));
             return Ok(None);
         }
-        let source = placed_source(&row.placed);
-        let valid_inst = row
-            .unique_handle
-            .filter(|&inst| self.table.find_handle(inst) == Some(row_id));
-        let Some(inst) = valid_inst.filter(|&inst| targets.insert(inst)) else {
-            self.report_at(unsupported(format, edit, "shared"), source, cx)?;
-            return Ok(None);
-        };
-        Ok(Some((row_id, inst)))
+        Ok(Some((row_id, row)))
     }
 
     fn report_at(
@@ -1513,13 +1521,14 @@ impl SxfLive {
                 let mut tx = sfc.begin_step();
                 let mut staged_ops = Vec::new();
                 let mut stage = TableStage::new(&self.lifter_tables.fonts, self.fonts_broken);
-                for change in &changes.edits {
+                for (edit_index, change) in changes.edits.iter().enumerate() {
                     work(cx, 1, &Ref::default())?;
                     let staged = self.stage_one_sfc(
                         sfc,
                         &mut tx,
                         &tables,
                         change,
+                        edit_index,
                         &mut targets,
                         &mut stage,
                         cx,
@@ -1541,13 +1550,14 @@ impl SxfLive {
                 let mut tx = p21.begin_step();
                 let mut staged_ops = Vec::new();
                 let mut stage = TableStage::new(&self.lifter_tables.fonts, self.fonts_broken);
-                for change in &changes.edits {
+                for (edit_index, change) in changes.edits.iter().enumerate() {
                     work(cx, 1, &Ref::default())?;
                     let staged = self.stage_one_p21(
                         p21,
                         &mut tx,
                         &tables,
                         change,
+                        edit_index,
                         &mut targets,
                         &mut stage,
                         cx,
@@ -1575,6 +1585,7 @@ impl SxfLive {
         tx: &mut SfcStepTx,
         tables: &Tables,
         change: &Edit,
+        edit_index: usize,
         targets: &mut BTreeSet<u64>,
         stage: &mut TableStage,
         cx: &mut Cx,
@@ -1770,6 +1781,9 @@ impl SxfLive {
                 }
                 Ok(ok)
             }
+            Edit::Copy { target, transform } => self.stage_sfc_copy(
+                sfc, tx, tables, target, transform, edit_index, targets, stage, cx,
+            ),
             Edit::Add { place, element } => {
                 let mut unset = None;
                 let mut added = None;
@@ -1804,6 +1818,7 @@ impl SxfLive {
                             place_name: place.clone(),
                             sheet_id: self.sheet_template.id,
                             expected: Box::new(Placed::Paper(expected_elem)),
+                            extensions: Vec::new(),
                         });
                     }
                 }
@@ -1863,6 +1878,7 @@ impl SxfLive {
         tx: &mut P21StepTx,
         tables: &Tables,
         change: &Edit,
+        edit_index: usize,
         targets: &mut BTreeSet<u64>,
         stage: &mut TableStage,
         cx: &mut Cx,
@@ -2074,6 +2090,9 @@ impl SxfLive {
                 }
                 Ok(ok)
             }
+            Edit::Copy { target, transform } => self.stage_p21_copy(
+                p21, tx, tables, target, transform, edit_index, targets, stage, cx,
+            ),
             Edit::Add { place, element } => {
                 let mut unset = None;
                 let mut add_err = None;
@@ -2110,6 +2129,7 @@ impl SxfLive {
                                     sheet_id: self.sheet_template.id,
                                     add_name: add_args.name,
                                     expected: Box::new(Placed::Paper(expected_elem)),
+                                    extensions: Vec::new(),
                                 }),
                                 Ok(None) => None,
                                 Err(e) => {
@@ -2423,6 +2443,7 @@ impl SxfLive {
                     place_name,
                     sheet_id,
                     expected,
+                    extensions,
                 } => {
                     let slot = SfcSlot::Born(seq);
                     let Some((inst, feat_rec)) = sfc.parse_staged_feature(&tx, slot, cx)? else {
@@ -2440,9 +2461,9 @@ impl SxfLive {
                         None,
                         cx,
                     )?;
-                    let Some((lifted_placed, drafts)) =
-                        lifted.filter(|(lp, _)| placed_same(lp, &expected))
-                    else {
+                    let Some((lifted_placed, drafts)) = lifted.filter(|(lp, drafts)| {
+                        placed_same(lp, &expected) && copy::extensions_match(drafts, &extensions)
+                    }) else {
                         cx.report(unsupported(format, edit_name, "round_trip"));
                         return Err(Error::Rejected);
                     };
@@ -2583,6 +2604,7 @@ impl SxfLive {
                     sheet_id,
                     add_name,
                     expected,
+                    extensions,
                 } => {
                     let Some(feat_rec) =
                         p21.parse_staged_occurrence(&tx, inst, active_widths, 0, cx)?
@@ -2598,9 +2620,10 @@ impl SxfLive {
                         None,
                         cx,
                     )?;
-                    let Some((lifted_placed, drafts)) = lifted
-                        .filter(|(lp, _)| placed_same(lp, &expected) || placed_near(lp, &expected))
-                    else {
+                    let Some((lifted_placed, drafts)) = lifted.filter(|(lp, drafts)| {
+                        (placed_same(lp, &expected) || placed_near(lp, &expected))
+                            && copy::extensions_match(drafts, &extensions)
+                    }) else {
                         cx.report(unsupported(format, edit_name, "round_trip"));
                         return Err(Error::Rejected);
                     };
@@ -2655,10 +2678,20 @@ impl SxfLive {
         }
         let (placed, events) = quietly(cx, |cx| {
             cx.with_diagnostic_events(u64::MAX, |cx| match container {
-                SxfContainer::Sheet(_) => {
-                    Ok(lift_single_paper(&tables, instance, feat_rec, raster, cx)?
-                        .map(|(e, drafts)| (Placed::Paper(e), drafts)))
-                }
+                SxfContainer::Sheet(_) => Ok(lift_single_paper(
+                    &tables,
+                    instance,
+                    feat_rec,
+                    raster,
+                    |key| {
+                        let template = self
+                            .symbol_templates
+                            .get(*self.symbol_indices.get(key)? as usize)?;
+                        Some((template.space_id, template.source.clone()))
+                    },
+                    cx,
+                )?
+                .map(|(e, drafts)| (Placed::Paper(e), drafts))),
                 SxfContainer::Space(sp) => Ok(lift_single_model(
                     &tables, sp, instance, feat_rec, raster, cx,
                 )?
@@ -3561,6 +3594,7 @@ enum StagedSfcOp {
         place_name: String,
         sheet_id: SheetId,
         expected: Box<Placed>,
+        extensions: Vec<super::apply::copy::ExpectedExt>,
     },
 }
 
@@ -3584,6 +3618,7 @@ enum StagedP21Op {
         sheet_id: SheetId,
         add_name: &'static str,
         expected: Box<Placed>,
+        extensions: Vec<super::apply::copy::ExpectedExt>,
     },
 }
 

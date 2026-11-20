@@ -1605,6 +1605,36 @@ impl P21State {
         })())
     }
 
+    pub(super) fn stage_symbol(
+        &self,
+        tx: &mut P21StepTx,
+        args: &Arguments,
+        definition: &Ref,
+        cx: &mut Cx,
+    ) -> Result<Option<u64>, Error> {
+        count_arguments(args, cx)?;
+        work(cx, 32 + self.codes.layers.len() as u64, definition)?;
+        Ok((|| {
+            let Key::Instance(id) = definition.key()? else {
+                return None;
+            };
+            let stmt = self.stmt_for_instance(id)?;
+            self.part(stmt, "DRAUGHTING_SUBFIGURE_REPRESENTATION")?;
+            let (_, sheet) = self.first_sheet?;
+            self.container_lists.get(&sheet)?;
+            let layer = args.values.first()?.parse().ok()?;
+            let occurrence = crate::drawing::apply::p21::symbol_occurrence(
+                &mut Staging { state: self, tx },
+                args,
+                id,
+            )?;
+            tx.container_ops
+                .insert((sheet, occurrence), StagedContainerOp::MoveToEnd);
+            self.assign_layer(tx, occurrence, layer)?;
+            Some(occurrence)
+        })())
+    }
+
     pub(super) fn stage_add(
         &self,
         tx: &mut P21StepTx,
