@@ -32,8 +32,8 @@ fn run(data: &[u8], limits: Limits) -> Vec<Vec<u8>> {
 
     // 最大 256 行の合成。任意の f32 のビット列と、持ち主・スタイルを保つ。
     let mut display = Display::default();
-    for (i, chunk) in data.chunks_exact(4).take(256).enumerate() {
-        let bits = u32::from_le_bytes(chunk.try_into().unwrap());
+    for (i, chunk) in data.as_chunks::<4>().0.iter().take(256).enumerate() {
+        let bits = u32::from_le_bytes(*chunk);
         display.segments.push([f32::from_bits(bits); 8]);
         display.segment_owner.push(i as u32);
         display.segment_style.push([bits, !bits]);
