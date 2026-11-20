@@ -1601,7 +1601,7 @@ pub(super) fn r2010_strings_end(data: &[u8], end: usize, handles_at: usize) -> O
 }
 
 /// 表のレコードの、型ごとのフィールドでない値が変わっていなければ `Some`（決定 0043〜0046）
-pub(super) fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
+pub(super) fn same_record_rest(old: &Object, new: &Object, release: Release) -> Option<()> {
     // DIMSTYLE は、70 と DWG の並びのフィールド
     let dimstyle_codes: Vec<i16> = std::iter::once(70)
         .chain(DIM_FIELDS.iter().map(|field| field.0))
@@ -1612,6 +1612,7 @@ pub(super) fn same_record_rest(old: &Object, new: &Object) -> Option<()> {
         b"STYLE" => STYLE,
         b"LTYPE" => LTYPE,
         b"VIEW" => VIEW,
+        b"UCS" if release >= Release::R2010 => &[10, 20, 30],
         b"UCS" => UCS,
         b"VPORT" => VPORT,
         b"DIMSTYLE" => &dimstyle_codes,
@@ -1672,6 +1673,14 @@ pub(super) fn record_fields(
         b"STYLE" => style(fields, old, new, xdep, data, own_at, release),
         b"LTYPE" => ltype(fields, old, new, xdep, data, own_at, release),
         b"VIEW" => view_record(fields, new, xdep, data, own_at, release),
+        b"UCS" if release >= Release::R2010 => {
+            // UCS の原点は 3BD。軸から後の正投影のフィールドは元のビットを写す（#156）。
+            for _ in 0..3 {
+                bits.bd()?;
+            }
+            point3(fields, new, 10)?;
+            Some(bits.pos())
+        }
         b"UCS" => ucs_record(fields, new, xdep, data, own_at, release),
         b"VPORT" => vport_record(fields, old, new, xdep, data, own_at, release),
         _ => dimstyle(fields, old, new, xdep, data, own_at, release),
@@ -1689,9 +1698,7 @@ pub(super) fn encode_record_r2010(
     release: Release,
     ltype: Option<(u8, u64)>,
 ) -> Option<Vec<u8>> {
-    same_record_rest(old, new)?;
-    // UCS のレコードは、サンプルの図面になく確かめていない
-    (new.kind != b"UCS").then_some(())?;
+    same_record_rest(old, new, release)?;
     let [start, end] = r2010_object_fields(data, handles_at, release)?;
     let encode = |object: &Object| -> Option<BitWriter> {
         let mut fields = BitWriter::with_strings();
@@ -1769,7 +1776,7 @@ pub(super) fn encode_record(
     release: Release,
     ltype: Option<(u8, u64)>,
 ) -> Option<Vec<u8>> {
-    same_record_rest(old, new)?;
+    same_record_rest(old, new, release)?;
     let [size_at, start, handles_at] = object_fields(data, release)?;
     let mut fields = BitWriter::default();
     let end = record_fields(&mut fields, old, new, data, start, release)?;

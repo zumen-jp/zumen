@@ -166,3 +166,65 @@ fn entries_are_added_and_removed_before_the_handles_that_follow_them() {
         .collect();
     assert_eq!(releases, expected);
 }
+
+/// 名前付き UCS の原点の 3BD だけを変えても、文字列・正投影のデータ・参照は同じビット列になる（#156）。
+#[test]
+fn named_ucs_keeps_its_axes_and_handles_when_moving_the_origin() {
+    let encoded = |release: Release, origin: [f64; 3]| {
+        let mut head = BitWriter::default();
+        head.bot(kinds::UCS as i16);
+        head.handle(0, 0x53);
+        head.bs(0);
+        head.bl(0);
+        head.bit(true);
+        if release >= Release::R2013 {
+            head.bit(false);
+        }
+        let mut fields = BitWriter::with_strings();
+        fields.text("座標系".as_bytes()).unwrap();
+        fields.bit(false);
+        fields.bit(false);
+        for coordinate in origin.into_iter().chain([0.0, 1.0, 0.0, -1.0, 0.0, 0.0]) {
+            fields.bd(coordinate);
+        }
+        fields.bd(2.5);
+        fields.bs(0);
+        fields.bs(0);
+        let mut handles = BitWriter::default();
+        for (code, handle) in [(4, 0x19), (5, 0), (5, 0x52), (5, 0)] {
+            handles.handle(code, handle);
+        }
+        r2010_assemble(head, fields, handles).unwrap()
+    };
+    let object = |origin: [f64; 3]| Object {
+        kind: b"UCS".to_vec(),
+        section: Section::Tables,
+        origin: Origin::New,
+        values: [10, 20, 30]
+            .into_iter()
+            .zip(origin)
+            .map(|(code, value)| Value {
+                code,
+                data: Data::Real(value),
+            })
+            .collect(),
+    };
+    let before = [10.0, 20.0, 3.0];
+    let after = [0.0, 1.0, -15.75];
+    for release in [Release::R2010, Release::R2013, Release::R2018] {
+        let original = encoded(release, before);
+        let mut skip = 0;
+        let size = usize::try_from(modular_char(&original, &mut skip, false).unwrap()).unwrap();
+        let data = &original[skip..];
+        let at = data.len() * 8 - size;
+        let edit =
+            |new: &Object| encode_record_r2010(data, at, &object(before), new, release, None);
+        assert_eq!(edit(&object(after)).unwrap(), encoded(release, after));
+        let mut changed_axis = object(after);
+        changed_axis.values.push(Value {
+            code: 11,
+            data: Data::Real(1.0),
+        });
+        assert!(edit(&changed_axis).is_none());
+    }
+}
