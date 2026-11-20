@@ -1,0 +1,22 @@
+{
+  "description": "明示 RGB が黒の線を新規 JWW に変換し、画面背景だけ白にした保存と見積もりを照合する。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "black.dxf",
+        "text": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1021\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\nA1\n8\n0\n420\n0\n10\n1\n20\n2\n11\n8\n21\n5\n0\nENDSEC\n0\nEOF\n"
+      }
+    },
+    { "call": { "v": 1, "op": "open", "input": "black.dxf" } },
+    {
+      "call": { "v": 1, "op": "convert_estimate", "doc": "black.dxf", "format": "jww", "to": "out.jww" },
+      "expect": { "/result/estimate/elements": 1, "/result/estimate/hash": "v2:c37df013d4ec8c67b7797b1bdaeae01e" }
+    },
+    {
+      "call": { "v": 1, "op": "convert", "doc": "black.dxf", "format": "jww", "to": "out.jww" },
+      "expect": { "/result/elements": 1, "/result/hash": "v2:c37df013d4ec8c67b7797b1bdaeae01e" }
+    },
+    { "take": 0 }
+  ]
+}

@@ -28,7 +28,7 @@ pub(super) fn make(
     drawing: &Drawing2D,
     paper: u32,
     cx: &mut Cx<'_>,
-) -> Result<JwwFile, Error> {
+) -> Result<(JwwFile, usize), Error> {
     cx.check(Kind::DecodedBytes, 65536)?;
     let mut spec = Spec::new(700);
     spec.paper = paper;
@@ -146,7 +146,7 @@ pub(super) fn make(
     }
     cx.check(Kind::Work, 65536 + name_bytes)?;
     cx.check(Kind::DecodedBytes, 65536 + name_bytes.saturating_mul(4))?;
-    let mut out = spec.build();
+    let (mut out, background_at) = spec.build();
     super::super::apply::write_count(&mut out, groups.len());
     let mut numbers = BTreeMap::new();
     let mut next = 1;
@@ -166,7 +166,7 @@ pub(super) fn make(
     }
     super::super::apply::write_count(&mut out, 0);
     out.extend(0_u32.to_le_bytes()); // 画像はない
-    quiet(cx, |cx| Jww::read(&out, cx))
+    Ok((quiet(cx, |cx| Jww::read(&out, cx))?, background_at))
 }
 
 /// CString の長さ。UTF-16 は符号単位の数で、終端 NUL を含まない。
@@ -242,7 +242,7 @@ impl Spec {
         }
     }
 
-    fn build(&self) -> Vec<u8> {
+    fn build(&self) -> (Vec<u8>, usize) {
         let version = self.version;
         let since = |v: u32, n: usize| if version >= v { n } else { 0 };
         let mut out = b"JwwData.".to_vec();
@@ -289,6 +289,8 @@ impl Spec {
                 + 80
                 + 8
         ]);
+        // jwdatafmt.txt「色番号ごとの画面表示色、線幅」の 0 番は画面背景。
+        let background_at = out.len();
         for pen in self.pens {
             out.extend(pen.to_le_bytes());
             out.extend([0; 4]);
@@ -340,6 +342,6 @@ impl Spec {
             }
         }
         out.extend(vec![0; 380]);
-        out
+        (out, background_at)
     }
 }

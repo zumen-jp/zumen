@@ -471,7 +471,7 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
             cx,
         )?;
     }
-    let mut file = template::make(&mut items, &slots, drawing, paper, cx)?;
+    let (mut file, background_at) = template::make(&mut items, &slots, drawing, paper, cx)?;
     let seed = quiet(cx, |cx| file.lift(cx))?;
     let mut removals = Vec::new();
     for space in &seed.spaces {
@@ -518,6 +518,7 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
         cx,
     )?;
     let mut elements = 0;
+    let mut nonblack = false;
     for (item, accepted) in items.iter().zip(accepted) {
         let count = if accepted {
             item.elements.len() as u64
@@ -525,6 +526,7 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
             0
         };
         elements += count;
+        nonblack |= count > 0 && item.appearance.rgb != [0; 3];
         conversion::note(
             &mut report,
             "JWW",
@@ -560,6 +562,14 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
             error
         }
     })?;
+    if elements > 0 && !nonblack {
+        // 実際に書けた全図形が黒なら、画面背景だけを白にする。
+        let background = file
+            .src
+            .get_mut(background_at..background_at + 4)
+            .ok_or(Error::Invalid)?;
+        background.copy_from_slice(&0x00ff_ffff_u32.to_le_bytes());
+    }
     let mut bytes = Vec::new();
     quiet(cx, |cx| Jww::write(&file, &mut bytes, cx))?;
     Ok(Lowered {
@@ -577,4 +587,128 @@ fn quiet<T>(
 ) -> Result<T, Error> {
     let mut diagnostics = zumen_base::Diagnostics::new();
     run(&mut Cx::new(cx.budget, &mut diagnostics, cx.cancel))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drawing::Header;
+    use zumen_base::{Budget, CancelToken, Diagnostics};
+    use zumen_drawing::{
+        Color, ColorCode, ColorSystem, Inherit, MarkerKey, ModelSpace, Point, PointLook, Style,
+        Unit,
+    };
+
+    #[test]
+    fn new_jww_background_and_entity_pens() {
+        let black = [0; 3];
+        let white = [255; 3];
+        for (colors, pens, background) in [
+            (&[][..], &[][..], 0),
+            (&[black, black], &[1, 1], 0x00ff_ffff),
+            (&[white], &[100], 0),
+            (&[black, white], &[1, 101], 0),
+        ] {
+            let (mut budget, mut diagnostics, cancel) =
+                (Budget::default(), Diagnostics::new(), CancelToken::new());
+            let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+            let space = SpaceId(0);
+            let point = |x| ModelPoint { space, x, y: 0.0 };
+            let mut elements: Vec<_> = colors
+                .iter()
+                .enumerate()
+                .map(|(i, rgb)| Element {
+                    source: Ref::default(),
+                    layer: LayerId(1),
+                    style: Style {
+                        color: Inherit::Own(Color {
+                            code: None,
+                            rgb: Some(*rgb),
+                        }),
+                        ..Style::BLOCK
+                    },
+                    shape: Shape::Line {
+                        start: point(i as f64),
+                        end: point(i as f64 + 1.0),
+                    },
+                })
+                .collect();
+            if colors == [black, black] {
+                // SXF の印つき点は新規 JWW への追加で落ちる。その赤は背景の選択に数えない。
+                let mut marker = elements[0].clone();
+                marker.style.color = Inherit::Own(Color {
+                    code: None,
+                    rgb: Some([255, 0, 0]),
+                });
+                marker.shape = Shape::Point(Point {
+                    position: point(5.0),
+                    rotation: 0.0,
+                    construction: false,
+                    look: PointLook::Marker {
+                        key: MarkerKey {
+                            namespace: "sxf.marker".into(),
+                            code: "1".into(),
+                        },
+                        scale: 1.0,
+                    },
+                });
+                elements.push(marker);
+            }
+            let drawing = Drawing2D {
+                spaces: vec![ModelSpace {
+                    id: space,
+                    unit: Unit::Millimeter,
+                    axes: Axes::EastNorth,
+                    order: (0..elements.len()).collect(),
+                    elements,
+                }],
+                ..Default::default()
+            };
+            let lowered = lower_to_jww(&drawing, 16, &mut cx).unwrap();
+            let mut file = Jww::read(&lowered.bytes, &mut cx).unwrap();
+            let header = |file: &JwwFile| {
+                Header::read(file, file.records()[0].span().end)
+                    .ok()
+                    .unwrap()
+            };
+            assert_eq!(header(&file).pens[0], background);
+            let read = file.lift(&mut cx).unwrap();
+            let elements: Vec<_> = read
+                .spaces
+                .iter()
+                .flat_map(|space| &space.elements)
+                .collect();
+            assert_eq!(elements.len(), colors.len());
+            for ((element, rgb), pen) in elements.iter().zip(colors).zip(pens) {
+                assert_eq!(
+                    element.style.color,
+                    Inherit::Own(Color {
+                        code: Some(ColorCode {
+                            system: ColorSystem::Jww,
+                            value: *pen
+                        }),
+                        rgb: Some(*rgb),
+                    })
+                );
+            }
+            if colors == [black, white] {
+                // 既存の JWW から白線を取り除いても、元の画面背景を変えない。
+                let element = elements[1];
+                let target = Seen {
+                    id: format!("{}/{}", id::space(space), id::origin(&element.source, 1)),
+                    hash: Hash::element_checked(element, &mut cx).unwrap(),
+                };
+                file.apply(
+                    &Changes {
+                        edits: vec![Edit::Remove { target }],
+                        document: None,
+                    },
+                    &mut cx,
+                )
+                .unwrap();
+                assert_eq!(header(&file).pens[0], 0);
+                assert_eq!(file.lift(&mut cx).unwrap().spaces[0].elements.len(), 1);
+            }
+        }
+    }
 }
