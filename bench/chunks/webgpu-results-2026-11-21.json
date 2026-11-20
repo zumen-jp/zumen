@@ -1,0 +1,3061 @@
+{
+  "schema": 1,
+  "harness_main": "4368ecd2",
+  "harness_local": "34750d0a",
+  "environment": {
+    "cpu": "AMD Ryzen 5 3600XT 6-Core Processor            ",
+    "logical_cpus": 12,
+    "os": "win32",
+    "release": "10.0.26300",
+    "arch": "x64",
+    "node": "v24.22.2",
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "chromium": "156.0.8078.4",
+    "playwright": "1.64.1",
+    "headless": true,
+    "width": 960,
+    "height": 640,
+    "pixel_ratio": 1,
+    "gpu_completion_measured": true,
+    "gpu": {
+      "devices": [
+        {
+          "vendorId": 4318,
+          "deviceId": 10118,
+          "vendorString": "",
+          "deviceString": "NVIDIA GeForce RTX 4070",
+          "driverVendor": "NVIDIA",
+          "driverVersion": "32.0.16.1714"
+        },
+        {
+          "vendorId": 5140,
+          "deviceId": 140,
+          "vendorString": "",
+          "deviceString": "Microsoft Basic Render Driver",
+          "driverVendor": "",
+          "driverVersion": "10.0.26100.9818"
+        }
+      ],
+      "gl_renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11-32.0.16.1714)",
+      "gl_vendor": "Google Inc. (NVIDIA)",
+      "gpu_compositing": "enabled"
+    }
+  },
+  "harness_sha256": {
+    "bench/chunks/consumer.mjs": "546403e455c1b80c5b646f2480a791de988c776f63d9ef02050edebb816210c1",
+    "bench/chunks/consumer-page.mjs": "a2b8fb5bb1b840a833c42760047c1d6b4723a4a76578baba675878f7060a4823",
+    "bench/chunks/consumer-echo.mjs": "f62a01a38af27926ffa7c4f401761703351c8654b27daec7880603394b47d9f9",
+    "packages/view2d/test/fixtures.mjs": "49688a4eba51e023571651a2778ab6f156ab16bd64b9f4b43c9282e5670a4334",
+    "bindings/js/src/scene.js": "f998c9f793c6bba64ffd6d83810262ea3c10a842ee8ccb74a775374c7532a48d",
+    "bindings/js/src/index.js": "616ce9ff2dda6a18a1f9bbbe06f84471314788b7712fafe9b1f813b0d35bcd39",
+    "bindings/js/examples/worker/job.mjs": "b3bc1488f0f14288d173688c1e9d88e4902a3448fdcffdeb8735cef178f97eac",
+    "bindings/js/examples/worker/worker.mjs": "f3c5c56f6ddfb12727f4d62d6cc0d8bf043edcf3cd95c8bd7794ca424547ded8",
+    "bindings/js/test/browser/package-lock.json": "05eca51e3460e918ec4ff7ef2093b7111a0dc210f8e1de6fbf9e123931c7ec76"
+  },
+  "runs": {
+    "existing": {
+      "schema": 1,
+      "measured_at": "2026-11-20T16:09:58.783Z",
+      "source_commit": "34750d0a1b2199becc7aa6da3ba82a606962a462",
+      "repeats": 7,
+      "warmups": 1,
+      "producer_results_sha256": "f4fdbf46f77abd9dec63589cd4bba28260cc13b24c67495ca4f19c85b651ff62",
+      "wasm_bytes": 18296823,
+      "wasm_sha256": "75c7224ad261bd6a25301f1f1116a3184f44ee9b1da3cc131dc7faeb7216f9cd",
+      "producer_harness_sha256": {
+        "Cargo.toml": "04259c6785153a534eea709c73d4c10dc7721dac1a48e4ca968766e532fa48ba",
+        "Cargo.lock": "571ca25bef70a9b5f45585cd9ab1f3d988e88c599d04c95bddcfe8c4ad12a49c",
+        "src/lib.rs": "192e731ae94a7a6552198f905177a52a18cf2d0c6be5e76fb17bbe6f8a4f8723",
+        "src/main.rs": "cd4c93d3630fdad0f848d2a7c148657a1157cdd752b3fa286948044654025c88",
+        "run.mjs": "290a0fe223b66ebcd18b9d47f3edbf6c8d27711747202ac06d49bdec14fee0bc"
+      },
+      "producer_inputs": [
+        {
+          "path": "samples/dwg/zumen-layout-r2000.dwg",
+          "bytes": 333633,
+          "sha256": "67c0eb33f14d968324b1c39c58bb3c7650a7ff899be1fea77efbd8fd61dd566e"
+        },
+        {
+          "path": "samples/dwg/zumen-arcdim-r2004_ascii.dxf",
+          "bytes": 266163,
+          "sha256": "39188eedff9992bb2de00666f3f1a9b75248e11931f0a52648792b6712b4dec5"
+        },
+        {
+          "path": "samples/dxf/text_alignments.dxf",
+          "bytes": 21536,
+          "sha256": "cacf3083c17c8d3836c23c6356edcb6f70db2949ed61875c2572911719a61353"
+        }
+      ],
+      "validation": {
+        "producer_native_wasm_exact_pairs": 25,
+        "node_worker_exact_cases": 5,
+        "synthetic_selection_exact": true,
+        "policy_selection_exact": true
+      },
+      "node_worker": [
+        {
+          "case": "layout-dwg",
+          "input_bytes": 333633,
+          "input_sha256": "67c0eb33f14d968324b1c39c58bb3c7650a7ff899be1fea77efbd8fd61dd566e",
+          "scene_bytes": 2336,
+          "scene_sha256": "685979b1b7debab711adb87ea0584da2ea969b9f2366629fa98e82b939daf688",
+          "counts": {
+            "chunks": 1,
+            "lines": 2,
+            "vertices": 188,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "tolerance": 0.004472135954999579,
+          "job_to_exit_ms": 55.30500000000001,
+          "memory_before": {
+            "rss": 122273792,
+            "heapTotal": 13418496,
+            "heapUsed": 9353344,
+            "external": 49341160,
+            "arrayBuffers": 42121145
+          },
+          "memory_after": {
+            "rss": 118255616,
+            "heapTotal": 18923520,
+            "heapUsed": 8930912,
+            "external": 26106867,
+            "arrayBuffers": 18844911
+          }
+        },
+        {
+          "case": "arcdim-dxf",
+          "input_bytes": 266163,
+          "input_sha256": "39188eedff9992bb2de00666f3f1a9b75248e11931f0a52648792b6712b4dec5",
+          "scene_bytes": 12616,
+          "scene_sha256": "752cf40ce69f8ce3e528d04ec4957c4e58d6f7463ba77835d6c56c5e0cf87485",
+          "counts": {
+            "chunks": 1,
+            "lines": 30,
+            "vertices": 690,
+            "faces": 13,
+            "texts": 6,
+            "points": 24,
+            "images": 0,
+            "glyphs": 0
+          },
+          "tolerance": 0.01024234567698383,
+          "job_to_exit_ms": 45.96990000000005,
+          "memory_before": {
+            "rss": 121569280,
+            "heapTotal": 18923520,
+            "heapUsed": 9410096,
+            "external": 29598229,
+            "arrayBuffers": 19125009
+          },
+          "memory_after": {
+            "rss": 121946112,
+            "heapTotal": 18923520,
+            "heapUsed": 10168624,
+            "external": 29699157,
+            "arrayBuffers": 19125009
+          }
+        },
+        {
+          "case": "text-dxf",
+          "input_bytes": 21536,
+          "input_sha256": "cacf3083c17c8d3836c23c6356edcb6f70db2949ed61875c2572911719a61353",
+          "scene_bytes": 11464,
+          "scene_sha256": "498afdf4735f3c3eede45275ffe79a5d976714642446a9ab33b0a7be2301ba28",
+          "counts": {
+            "chunks": 1,
+            "lines": 42,
+            "vertices": 820,
+            "faces": 0,
+            "texts": 16,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "tolerance": 0.00077876071421201,
+          "job_to_exit_ms": 40.525300000000016,
+          "memory_before": {
+            "rss": 122957824,
+            "heapTotal": 19185664,
+            "heapUsed": 10665752,
+            "external": 31502434,
+            "arrayBuffers": 19158814
+          },
+          "memory_after": {
+            "rss": 118878208,
+            "heapTotal": 19447808,
+            "heapUsed": 9395256,
+            "external": 24588162,
+            "arrayBuffers": 18541942
+          }
+        },
+        {
+          "case": "synthetic-10k",
+          "input_bytes": 1075716,
+          "input_sha256": "615a9ede6ee1e44c2a258e656a20677baedd06d52cdf2e766310359cf96f6873",
+          "scene_bytes": 696440,
+          "scene_sha256": "98d8791112edc5f13a0d1f079d8f78275cb9ba3f77a15ff50926fa32e4f47862",
+          "counts": {
+            "chunks": 3,
+            "lines": 10000,
+            "vertices": 20000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "tolerance": 2.008638042356639e-05,
+          "job_to_exit_ms": 89.76029999999992,
+          "memory_before": {
+            "rss": 138932224,
+            "heapTotal": 19447808,
+            "heapUsed": 9792464,
+            "external": 47922335,
+            "arrayBuffers": 20314771
+          },
+          "memory_after": {
+            "rss": 144855040,
+            "heapTotal": 18661376,
+            "heapUsed": 9394360,
+            "external": 51597846,
+            "arrayBuffers": 20281098
+          }
+        },
+        {
+          "case": "synthetic-100k",
+          "input_bytes": 10830181,
+          "input_sha256": "7ecbe51b846827f260ebad98c31733908fd2cb19324a8fa36bc1e1c304fab5df",
+          "scene_bytes": 7032048,
+          "scene_sha256": "19ff1aab7186b104ceb1ef1bc5b8eedc36c5c5bbdb7927d502a043077f06a21a",
+          "counts": {
+            "chunks": 25,
+            "lines": 100000,
+            "vertices": 200000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "tolerance": 0.027980149063555726,
+          "job_to_exit_ms": 564.6114999999995,
+          "memory_before": {
+            "rss": 295452672,
+            "heapTotal": 11321344,
+            "heapUsed": 7403152,
+            "external": 217134657,
+            "arrayBuffers": 36371530
+          },
+          "memory_after": {
+            "rss": 345968640,
+            "heapTotal": 11321344,
+            "heapUsed": 8036824,
+            "external": 273390990,
+            "arrayBuffers": 36371530
+          }
+        }
+      ],
+      "browser_results": [
+        {
+          "case": "layout-dwg",
+          "policy": "provisional",
+          "scene_sha256": "b0848f42da7e44b4041c2a60c3340e698f831314509b4e3be3122800e309f010",
+          "source_metrics": {
+            "input_bytes": 333633,
+            "walked": 2,
+            "entities": 2,
+            "chunks": 1,
+            "lines": 2,
+            "vertices": 128,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 1856,
+            "tolerance": 0.01,
+            "max_chunk_span": 200,
+            "checked_lines": 0,
+            "max_coordinate_error": null,
+            "error_over_tolerance": null,
+            "identity_order_fnv1a": "46a49b7adffe102a",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 1,
+          "scene_bytes": 1856,
+          "column_bytes": 1229,
+          "header_and_padding_bytes": 627,
+          "calculated_order_index_bytes": 8,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 10000
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 0.29999999701976776,
+          "render_complete_ms": 3.5,
+          "select_rect_ms": 14.599999994039536,
+          "render_to_next_raf_ms": 16.700000002980232,
+          "render_readback_ms": 7.9000000059604645,
+          "selected_count": 1,
+          "full_selected_count": 2,
+          "selection_json_utf8_bytes": 25,
+          "selection_sha256": "0161cbdd50a68e60cc96baf48d4b2f1a7db0292c5d90f5597a2a08226bb03ce5",
+          "full_selection_sha256": "f0896db50606ae0c5d38675567fcccaf46ce466ca5cc7f787f05c70a6a05c795",
+          "pixel_sha256": "a1e2c29ad77c00bc395e0f7050a81d7dbd366b6f1fb0b78f83c09fb853224da1",
+          "nonwhite_pixels": 6847,
+          "drawn": {
+            "lines": 2,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {},
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.09999999403953552,
+            "payload_bytes": 1856
+          },
+          "clone": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.10000000894069672,
+            "payload_bytes": 1856
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 1552688,
+              "totalSize": 2097152,
+              "embedderHeapUsedSize": 372896,
+              "backingStorageSize": 903601
+            },
+            "after_measure": {
+              "usedSize": 1947840,
+              "totalSize": 2883584,
+              "embedderHeapUsedSize": 375408,
+              "backingStorageSize": 903638
+            },
+            "after_dispose": {
+              "usedSize": 1883596,
+              "totalSize": 2621440,
+              "embedderHeapUsedSize": 371344,
+              "backingStorageSize": 377451
+            }
+          }
+        },
+        {
+          "case": "arcdim-dxf",
+          "policy": "provisional",
+          "scene_sha256": "d89ad0da664e255b8022e6f0672546d50fcf49ed4c9121ca2a43667f73c1cc03",
+          "source_metrics": {
+            "input_bytes": 266163,
+            "walked": 79,
+            "entities": 73,
+            "chunks": 1,
+            "lines": 30,
+            "vertices": 697,
+            "faces": 13,
+            "texts": 6,
+            "points": 24,
+            "images": 0,
+            "scene_bytes": 12672,
+            "tolerance": 0.01,
+            "max_chunk_span": 397.3741760253906,
+            "checked_lines": 13,
+            "max_coordinate_error": 6.975328489033927e-06,
+            "error_over_tolerance": 0.0006975328489033927,
+            "identity_order_fnv1a": "7955ea1adea32573",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 3.5,
+          "scene_bytes": 12672,
+          "column_bytes": 12004,
+          "header_and_padding_bytes": 668,
+          "calculated_order_index_bytes": 292,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 10000
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 1.9000000059604645,
+          "render_complete_ms": 5.9000000059604645,
+          "select_rect_ms": 22.600000008940697,
+          "render_to_next_raf_ms": 17.099999994039536,
+          "render_readback_ms": 10,
+          "selected_count": 11,
+          "full_selected_count": 67,
+          "selection_json_utf8_bytes": 490,
+          "selection_sha256": "85d32bec0d3156338ffb549bc71717bd513a17c92db5f0826f22877a804aba3c",
+          "full_selection_sha256": "a64633eed5361125671926772fe2cf06586e83d21cf9b12b30877efb02cf891e",
+          "pixel_sha256": "2087cf19de05bb90b77c85415890bcb25c6ddc703228daaa12f2e8656c8e3a5e",
+          "nonwhite_pixels": 5400,
+          "drawn": {
+            "lines": 30,
+            "faces": 13,
+            "texts": 0,
+            "points": 24,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "text-layout-unsupported:omitted": 6
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.09999999403953552,
+            "payload_bytes": 12672
+          },
+          "clone": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.09999999403953552,
+            "payload_bytes": 12672
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 1737152,
+              "totalSize": 2097152,
+              "embedderHeapUsedSize": 372896,
+              "backingStorageSize": 916136
+            },
+            "after_measure": {
+              "usedSize": 2258084,
+              "totalSize": 3145728,
+              "embedderHeapUsedSize": 375408,
+              "backingStorageSize": 916173
+            },
+            "after_dispose": {
+              "usedSize": 2058028,
+              "totalSize": 2621440,
+              "embedderHeapUsedSize": 368536,
+              "backingStorageSize": 377451
+            }
+          }
+        },
+        {
+          "case": "text-dxf",
+          "policy": "provisional",
+          "scene_sha256": "d95c4bb74f155084573a313bd6d20c1484831cc77c75a0d630de94076183434c",
+          "source_metrics": {
+            "input_bytes": 21536,
+            "walked": 58,
+            "entities": 58,
+            "chunks": 1,
+            "lines": 42,
+            "vertices": 276,
+            "faces": 0,
+            "texts": 16,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 7112,
+            "tolerance": 0.01,
+            "max_chunk_span": 35.165096282958984,
+            "checked_lines": 10,
+            "max_coordinate_error": 1.3667707108311333e-06,
+            "error_over_tolerance": 0.00013667707108311333,
+            "identity_order_fnv1a": "f895cbb630d858eb",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 5.799999997019768,
+          "scene_bytes": 7112,
+          "column_bytes": 6509,
+          "header_and_padding_bytes": 603,
+          "calculated_order_index_bytes": 232,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 10000
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 3.7000000029802322,
+          "render_complete_ms": 8.099999994039536,
+          "select_rect_ms": 5.5999999940395355,
+          "render_to_next_raf_ms": 16.80000001192093,
+          "render_readback_ms": 10.900000005960464,
+          "selected_count": 14,
+          "full_selected_count": 56,
+          "selection_json_utf8_bytes": 323,
+          "selection_sha256": "b62108d48bbb8d738d4ec5427a0dcbf841f9315972f7ebb5c6c87a3ac8ebecde",
+          "full_selection_sha256": "3ca69e28197a6509434c338803222edb047e3ad3a21b6f9159142a8da7c0d11c",
+          "pixel_sha256": "ea3a81fd0f87a19de316383b3d4bca1825c331774bae5746cb76ad4412a55830",
+          "nonwhite_pixels": 11868,
+          "drawn": {
+            "lines": 42,
+            "faces": 0,
+            "texts": 14,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 14,
+            "color-unresolved:fallback": 45,
+            "text-layout-unsupported:omitted": 2
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0,
+            "payload_bytes": 7112
+          },
+          "clone": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.09999999403953552,
+            "payload_bytes": 7112
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 1651696,
+              "totalSize": 2883584,
+              "embedderHeapUsedSize": 716232,
+              "backingStorageSize": 909993
+            },
+            "after_measure": {
+              "usedSize": 2208096,
+              "totalSize": 2883584,
+              "embedderHeapUsedSize": 492376,
+              "backingStorageSize": 910037
+            },
+            "after_dispose": {
+              "usedSize": 2045468,
+              "totalSize": 2621440,
+              "embedderHeapUsedSize": 484624,
+              "backingStorageSize": 377509
+            }
+          }
+        },
+        {
+          "case": "synthetic-10k",
+          "policy": "provisional",
+          "scene_sha256": "98d8791112edc5f13a0d1f079d8f78275cb9ba3f77a15ff50926fa32e4f47862",
+          "source_metrics": {
+            "input_bytes": 1075716,
+            "walked": 10000,
+            "entities": 10000,
+            "chunks": 3,
+            "lines": 10000,
+            "vertices": 20000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 696440,
+            "tolerance": 0.01,
+            "max_chunk_span": 1.0003567934036255,
+            "checked_lines": 10000,
+            "max_coordinate_error": 3.985769581049681e-08,
+            "error_over_tolerance": 3.985769581049681e-06,
+            "identity_order_fnv1a": "476ad143e0f63626",
+            "diagnostics": ""
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 93.90000000596046,
+          "scene_bytes": 696440,
+          "column_bytes": 695820,
+          "header_and_padding_bytes": 620,
+          "calculated_order_index_bytes": 40000,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 10000
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 66,
+          "render_complete_ms": 71,
+          "select_rect_ms": 765.8999999910593,
+          "render_to_next_raf_ms": 59,
+          "render_readback_ms": 80.8999999910593,
+          "selected_count": 5360,
+          "full_selected_count": 10000,
+          "selection_json_utf8_bytes": 131834,
+          "selection_sha256": "70c0e495aeabd959168280e4dc20071900e80314b217058998045d238551aaa1",
+          "full_selection_sha256": "2fea54041a522669a585e07348d7316aff061719ad2fad9abfdaf7866b50ed85",
+          "pixel_sha256": "6689a07daba8b4b80f45bd0f78333bd93bbed3111bd6dafe93a3058972ed2b7e",
+          "nonwhite_pixels": 6974,
+          "drawn": {
+            "lines": 10000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "color-unresolved:fallback": 10000
+          },
+          "independent_selection": {
+            "expected_count": 5360,
+            "actual_only_count": 0,
+            "missing_count": 0,
+            "exact": true,
+            "expected_sha256": "70c0e495aeabd959168280e4dc20071900e80314b217058998045d238551aaa1",
+            "source_formula_expected_count": 5360,
+            "formula_vs_encoded_difference": 0,
+            "full_expected_count": 10000,
+            "full_exact": true,
+            "first_missing_probe": null
+          },
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.29999999701976776,
+            "payload_bytes": 696440
+          },
+          "clone": {
+            "post_message_ms": 0.10000000894069672,
+            "roundtrip_ms": 0.7999999970197678,
+            "payload_bytes": 696440
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1572864,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 5001596,
+              "totalSize": 5971968,
+              "embedderHeapUsedSize": 751120,
+              "backingStorageSize": 9668114
+            },
+            "after_measure": {
+              "usedSize": 5547944,
+              "totalSize": 5971968,
+              "embedderHeapUsedSize": 388928,
+              "backingStorageSize": 9668151
+            },
+            "after_dispose": {
+              "usedSize": 2243848,
+              "totalSize": 3145728,
+              "embedderHeapUsedSize": 382248,
+              "backingStorageSize": 377451
+            }
+          }
+        },
+        {
+          "case": "synthetic-10k",
+          "policy": "items-1024",
+          "scene_sha256": "9adc9416e442ce3bb0558dc1884cbf0eb1d2388302b8b4f45698bd0af92830cd",
+          "source_metrics": {
+            "input_bytes": 1075716,
+            "walked": 10000,
+            "entities": 10000,
+            "chunks": 10,
+            "lines": 10000,
+            "vertices": 20000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 696784,
+            "tolerance": 0.01,
+            "max_chunk_span": 1.0003567934036255,
+            "checked_lines": 10000,
+            "max_coordinate_error": 3.985769581049681e-08,
+            "error_over_tolerance": 3.985769581049681e-06,
+            "identity_order_fnv1a": "476ad143e0f63626",
+            "diagnostics": ""
+          },
+          "reader_ms": 0.09999999403953552,
+          "set_scene_ms": 88,
+          "scene_bytes": 696784,
+          "column_bytes": 696184,
+          "header_and_padding_bytes": 600,
+          "calculated_order_index_bytes": 40000,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 10000
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 64,
+          "render_complete_ms": 73.29999999701977,
+          "select_rect_ms": 899.7000000029802,
+          "render_to_next_raf_ms": 60.19999998807907,
+          "render_readback_ms": 84.40000000596046,
+          "selected_count": 5360,
+          "full_selected_count": 10000,
+          "selection_json_utf8_bytes": 131834,
+          "selection_sha256": "70c0e495aeabd959168280e4dc20071900e80314b217058998045d238551aaa1",
+          "full_selection_sha256": "2fea54041a522669a585e07348d7316aff061719ad2fad9abfdaf7866b50ed85",
+          "pixel_sha256": "dbc7816676ab3ed929f656c485ffd832fdf5eca74eb56d6443ce22608d4d20e8",
+          "nonwhite_pixels": 6974,
+          "drawn": {
+            "lines": 10000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "color-unresolved:fallback": 10000
+          },
+          "independent_selection": {
+            "expected_count": 5360,
+            "actual_only_count": 0,
+            "missing_count": 0,
+            "exact": true,
+            "expected_sha256": "70c0e495aeabd959168280e4dc20071900e80314b217058998045d238551aaa1",
+            "source_formula_expected_count": 5360,
+            "formula_vs_encoded_difference": 0,
+            "full_expected_count": 10000,
+            "full_exact": true,
+            "first_missing_probe": null
+          },
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0,
+            "payload_bytes": 696784
+          },
+          "clone": {
+            "post_message_ms": 0.10000000894069672,
+            "roundtrip_ms": 0.6000000089406967,
+            "payload_bytes": 696784
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 4993028,
+              "totalSize": 6234112,
+              "embedderHeapUsedSize": 751120,
+              "backingStorageSize": 9668458
+            },
+            "after_measure": {
+              "usedSize": 5552992,
+              "totalSize": 5971968,
+              "embedderHeapUsedSize": 388928,
+              "backingStorageSize": 9668495
+            },
+            "after_dispose": {
+              "usedSize": 2243460,
+              "totalSize": 3145728,
+              "embedderHeapUsedSize": 382248,
+              "backingStorageSize": 377451
+            }
+          }
+        },
+        {
+          "case": "synthetic-10k",
+          "policy": "items-16384",
+          "scene_sha256": "3ab41a1afab59abf04110b367be4b7efb19968cb15f71dad866b610b6ee22815",
+          "source_metrics": {
+            "input_bytes": 1075716,
+            "walked": 10000,
+            "entities": 10000,
+            "chunks": 1,
+            "lines": 10000,
+            "vertices": 20000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 696336,
+            "tolerance": 0.01,
+            "max_chunk_span": 1.0003567934036255,
+            "checked_lines": 10000,
+            "max_coordinate_error": 3.985769581049681e-08,
+            "error_over_tolerance": 3.985769581049681e-06,
+            "identity_order_fnv1a": "476ad143e0f63626",
+            "diagnostics": ""
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 95.5,
+          "scene_bytes": 696336,
+          "column_bytes": 695716,
+          "header_and_padding_bytes": 620,
+          "calculated_order_index_bytes": 40000,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 10000
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 67.20000000298023,
+          "render_complete_ms": 75.70000000298023,
+          "select_rect_ms": 819.3999999910593,
+          "render_to_next_raf_ms": 66,
+          "render_readback_ms": 92.3999999910593,
+          "selected_count": 5360,
+          "full_selected_count": 10000,
+          "selection_json_utf8_bytes": 131834,
+          "selection_sha256": "70c0e495aeabd959168280e4dc20071900e80314b217058998045d238551aaa1",
+          "full_selection_sha256": "2fea54041a522669a585e07348d7316aff061719ad2fad9abfdaf7866b50ed85",
+          "pixel_sha256": "a735930b23377d1078500829f4791fbe7a0c7ea5959a581c12740ea056654a18",
+          "nonwhite_pixels": 6975,
+          "drawn": {
+            "lines": 10000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "color-unresolved:fallback": 10000
+          },
+          "independent_selection": {
+            "expected_count": 5360,
+            "actual_only_count": 0,
+            "missing_count": 0,
+            "exact": true,
+            "expected_sha256": "70c0e495aeabd959168280e4dc20071900e80314b217058998045d238551aaa1",
+            "source_formula_expected_count": 5360,
+            "formula_vs_encoded_difference": 0,
+            "full_expected_count": 10000,
+            "full_exact": true,
+            "first_missing_probe": null
+          },
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.20000000298023224,
+            "payload_bytes": 696336
+          },
+          "clone": {
+            "post_message_ms": 0.20000000298023224,
+            "roundtrip_ms": 0.8999999910593033,
+            "payload_bytes": 696336
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1572864,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 4984064,
+              "totalSize": 5709824,
+              "embedderHeapUsedSize": 751120,
+              "backingStorageSize": 9668010
+            },
+            "after_measure": {
+              "usedSize": 5543640,
+              "totalSize": 6234112,
+              "embedderHeapUsedSize": 388896,
+              "backingStorageSize": 9668047
+            },
+            "after_dispose": {
+              "usedSize": 2241168,
+              "totalSize": 2883584,
+              "embedderHeapUsedSize": 382248,
+              "backingStorageSize": 377451
+            }
+          }
+        },
+        {
+          "case": "synthetic-100k",
+          "policy": "provisional",
+          "scene_sha256": "31fe4f08bb4af6574618e8d2cc676da39597406920f06390cbd7d3b357f1a137",
+          "source_metrics": {
+            "input_bytes": 10830181,
+            "walked": 100000,
+            "entities": 100000,
+            "chunks": 200,
+            "lines": 100000,
+            "vertices": 200000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 7041128,
+            "tolerance": 0.01,
+            "max_chunk_span": 654.9308471679688,
+            "checked_lines": 100000,
+            "max_coordinate_error": 3.0473442166112363e-05,
+            "error_over_tolerance": 0.0030473442166112363,
+            "identity_order_fnv1a": "2901998d62125c7c",
+            "diagnostics": ""
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 1131.2000000029802,
+          "scene_bytes": 7041128,
+          "column_bytes": 7040529,
+          "header_and_padding_bytes": 599,
+          "calculated_order_index_bytes": 400000,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 100000
+          },
+          "default_limit_rejection": "limits.issues",
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 741,
+          "render_complete_ms": 808.9000000059605,
+          "select_rect_ms": 10340.90000000596,
+          "render_to_next_raf_ms": 942.2999999970198,
+          "render_readback_ms": 1076,
+          "selected_count": 45694,
+          "full_selected_count": 100000,
+          "selection_json_utf8_bytes": 1152515,
+          "selection_sha256": "cbb2ddd9e310d7422e6e01610696da77604ada761a7949d21a00dd9a8624c6d9",
+          "full_selection_sha256": "7c720435b8b95bebaa619cdef6059c3e08407f7d090d5f975a2c8e7e8dc0f462",
+          "pixel_sha256": "2161b32471d722a6c1ab22a89007f26f6d2f950c9432dd9374ee91b5fd15c1ea",
+          "nonwhite_pixels": 43299,
+          "drawn": {
+            "lines": 100000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "color-unresolved:fallback": 100000
+          },
+          "independent_selection": {
+            "expected_count": 45694,
+            "actual_only_count": 0,
+            "missing_count": 0,
+            "exact": true,
+            "expected_sha256": "cbb2ddd9e310d7422e6e01610696da77604ada761a7949d21a00dd9a8624c6d9",
+            "source_formula_expected_count": 45694,
+            "formula_vs_encoded_difference": 0,
+            "full_expected_count": 100000,
+            "full_exact": true,
+            "first_missing_probe": null
+          },
+          "transfer": {
+            "post_message_ms": 0.09999999403953552,
+            "roundtrip_ms": 0.29999999701976776,
+            "payload_bytes": 7041128
+          },
+          "clone": {
+            "post_message_ms": 2.7000000029802322,
+            "roundtrip_ms": 10.899999991059303,
+            "payload_bytes": 7041128
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1572864,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 33146896,
+              "totalSize": 35463168,
+              "embedderHeapUsedSize": 373640,
+              "backingStorageSize": 77181811
+            },
+            "after_measure": {
+              "usedSize": 33869052,
+              "totalSize": 34701312,
+              "embedderHeapUsedSize": 389080,
+              "backingStorageSize": 77181848
+            },
+            "after_dispose": {
+              "usedSize": 2427644,
+              "totalSize": 5005312,
+              "embedderHeapUsedSize": 382192,
+              "backingStorageSize": 377451
+            }
+          }
+        },
+        {
+          "case": "synthetic-100k",
+          "policy": "span-16384",
+          "scene_sha256": "3a7da722466b17a2c69bea95204b91670a414fe5cb4bcdc839f5ca4b92c173c1",
+          "source_metrics": {
+            "input_bytes": 10830181,
+            "walked": 100000,
+            "entities": 100000,
+            "chunks": 700,
+            "lines": 100000,
+            "vertices": 200000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 7067128,
+            "tolerance": 0.01,
+            "max_chunk_span": 163.32469177246094,
+            "checked_lines": 100000,
+            "max_coordinate_error": 7.451773853972554e-06,
+            "error_over_tolerance": 0.0007451773853972554,
+            "identity_order_fnv1a": "2901998d62125c7c",
+            "diagnostics": ""
+          },
+          "reader_ms": 0.09999999403953552,
+          "set_scene_ms": 1333.2999999970198,
+          "scene_bytes": 7067128,
+          "column_bytes": 7066529,
+          "header_and_padding_bytes": 599,
+          "calculated_order_index_bytes": 400000,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 100000
+          },
+          "default_limit_rejection": "limits.issues",
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 969.2000000029802,
+          "render_complete_ms": 1081.8999999910593,
+          "select_rect_ms": 11177,
+          "render_to_next_raf_ms": 984.2000000029802,
+          "render_readback_ms": 1100.2000000029802,
+          "selected_count": 45694,
+          "full_selected_count": 100000,
+          "selection_json_utf8_bytes": 1152515,
+          "selection_sha256": "cbb2ddd9e310d7422e6e01610696da77604ada761a7949d21a00dd9a8624c6d9",
+          "full_selection_sha256": "7c720435b8b95bebaa619cdef6059c3e08407f7d090d5f975a2c8e7e8dc0f462",
+          "pixel_sha256": "173384f942c7de202bed38d7ae91292613661cacffc074008ece01b96711a1d8",
+          "nonwhite_pixels": 43302,
+          "drawn": {
+            "lines": 100000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "color-unresolved:fallback": 100000
+          },
+          "independent_selection": {
+            "expected_count": 45694,
+            "actual_only_count": 0,
+            "missing_count": 0,
+            "exact": true,
+            "expected_sha256": "cbb2ddd9e310d7422e6e01610696da77604ada761a7949d21a00dd9a8624c6d9",
+            "source_formula_expected_count": 45694,
+            "formula_vs_encoded_difference": 0,
+            "full_expected_count": 100000,
+            "full_exact": true,
+            "first_missing_probe": null
+          },
+          "transfer": {
+            "post_message_ms": 0.09999999403953552,
+            "roundtrip_ms": 0.20000000298023224,
+            "payload_bytes": 7067128
+          },
+          "clone": {
+            "post_message_ms": 2.199999988079071,
+            "roundtrip_ms": 11,
+            "payload_bytes": 7067128
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1572864,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 33440396,
+              "totalSize": 35463168,
+              "embedderHeapUsedSize": 758736,
+              "backingStorageSize": 77195011
+            },
+            "after_measure": {
+              "usedSize": 34343132,
+              "totalSize": 35106816,
+              "embedderHeapUsedSize": 388888,
+              "backingStorageSize": 77195048
+            },
+            "after_dispose": {
+              "usedSize": 2572704,
+              "totalSize": 4362240,
+              "embedderHeapUsedSize": 382192,
+              "backingStorageSize": 377451
+            }
+          }
+        },
+        {
+          "case": "synthetic-100k",
+          "policy": "span-262144",
+          "scene_sha256": "19ff1aab7186b104ceb1ef1bc5b8eedc36c5c5bbdb7927d502a043077f06a21a",
+          "source_metrics": {
+            "input_bytes": 10830181,
+            "walked": 100000,
+            "entities": 100000,
+            "chunks": 25,
+            "lines": 100000,
+            "vertices": 200000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 7032048,
+            "tolerance": 0.01,
+            "max_chunk_span": 1000.3568115234375,
+            "checked_lines": 100000,
+            "max_coordinate_error": 3.0480194254778326e-05,
+            "error_over_tolerance": 0.0030480194254778326,
+            "identity_order_fnv1a": "2901998d62125c7c",
+            "diagnostics": ""
+          },
+          "reader_ms": 0.09999999403953552,
+          "set_scene_ms": 1324.300000011921,
+          "scene_bytes": 7032048,
+          "column_bytes": 7031429,
+          "header_and_padding_bytes": 619,
+          "calculated_order_index_bytes": 400000,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 100000
+          },
+          "default_limit_rejection": "limits.issues",
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 920,
+          "render_complete_ms": 1040.7000000029802,
+          "select_rect_ms": 10662.29999999702,
+          "render_to_next_raf_ms": 856.5,
+          "render_readback_ms": 875.7000000029802,
+          "selected_count": 45694,
+          "full_selected_count": 100000,
+          "selection_json_utf8_bytes": 1152515,
+          "selection_sha256": "cbb2ddd9e310d7422e6e01610696da77604ada761a7949d21a00dd9a8624c6d9",
+          "full_selection_sha256": "7c720435b8b95bebaa619cdef6059c3e08407f7d090d5f975a2c8e7e8dc0f462",
+          "pixel_sha256": "4db48eff925c2a90003fb70951098558e3d323b4d3b4f26bef15e5dc0c828457",
+          "nonwhite_pixels": 43299,
+          "drawn": {
+            "lines": 100000,
+            "faces": 0,
+            "texts": 0,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "color-unresolved:fallback": 100000
+          },
+          "independent_selection": {
+            "expected_count": 45694,
+            "actual_only_count": 0,
+            "missing_count": 0,
+            "exact": true,
+            "expected_sha256": "cbb2ddd9e310d7422e6e01610696da77604ada761a7949d21a00dd9a8624c6d9",
+            "source_formula_expected_count": 45694,
+            "formula_vs_encoded_difference": 0,
+            "full_expected_count": 100000,
+            "full_exact": true,
+            "first_missing_probe": null
+          },
+          "transfer": {
+            "post_message_ms": 0.09999999403953552,
+            "roundtrip_ms": 0.20000000298023224,
+            "payload_bytes": 7032048
+          },
+          "clone": {
+            "post_message_ms": 1.2999999970197678,
+            "roundtrip_ms": 6.0999999940395355,
+            "payload_bytes": 7032048
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 33032808,
+              "totalSize": 34938880,
+              "embedderHeapUsedSize": 373408,
+              "backingStorageSize": 77172731
+            },
+            "after_measure": {
+              "usedSize": 33669312,
+              "totalSize": 34082816,
+              "embedderHeapUsedSize": 389080,
+              "backingStorageSize": 77172768
+            },
+            "after_dispose": {
+              "usedSize": 2337732,
+              "totalSize": 4648960,
+              "embedderHeapUsedSize": 382192,
+              "backingStorageSize": 377451
+            }
+          }
+        }
+      ],
+      "producer_source_commit": "97f05dfc32f66220b120e147cf64c1d6ed0894fc",
+      "raw_results_sha256": "30fdfd0d0f822475383c2e6a1551db2d9d62e4e4066502b89586e55495c09e58"
+    },
+    "city-min": {
+      "schema": 1,
+      "measured_at": "2026-11-20T16:00:04.580Z",
+      "source_commit": "79e58d0b106f2960ffcd34d65684e3cf47302cdb",
+      "repeats": 7,
+      "warmups": 1,
+      "producer_results_sha256": "e90629a539d23f88a72f628a43e936b543fdf7cfac01e4b908d4d8ceeaf6d15b",
+      "wasm_bytes": 18296823,
+      "wasm_sha256": "75c7224ad261bd6a25301f1f1116a3184f44ee9b1da3cc131dc7faeb7216f9cd",
+      "producer_harness_sha256": {
+        "Cargo.toml": "04259c6785153a534eea709c73d4c10dc7721dac1a48e4ca968766e532fa48ba",
+        "Cargo.lock": "bba7bc8587ad71a6c8e075c02c490b3cff0824d149867558d9ee22813b977789",
+        "src/lib.rs": "61e65346825f4e871c4865fb3c46abcb93bdf1d52d734f28b3a3c361d75c5d39",
+        "src/main.rs": "820fc5ab36a44263516684322d5572fefbe6cc65829665475db2379aafdcb6e7",
+        "run.mjs": "e3d99741b41ed2fe273047e3ae1e3f0287f40f3b0e5aeaded62d9e1a9d851f1d"
+      },
+      "producer_inputs": [
+        {
+          "case": "sheet",
+          "bytes": 7127755,
+          "sha256": "daaeae68e4f6956f34e37c04bb134aca78ef98993aa40dca181ae9bb55e32363"
+        }
+      ],
+      "validation": {
+        "producer_native_wasm_exact_pairs": 5,
+        "node_worker_exact_cases": 1,
+        "synthetic_selection_exact": true,
+        "policy_selection_exact": true
+      },
+      "node_worker": [
+        {
+          "case": "sheet",
+          "input_bytes": 7127755,
+          "input_sha256": "daaeae68e4f6956f34e37c04bb134aca78ef98993aa40dca181ae9bb55e32363",
+          "scene_bytes": 2172144,
+          "scene_sha256": "238236305d523c1df0f29f6f23d7338113fa14191223d1effe634900c9ea22dd",
+          "counts": {
+            "chunks": 5,
+            "lines": 17094,
+            "vertices": 123745,
+            "faces": 0,
+            "texts": 1541,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "tolerance": 0.05000611466446979,
+          "job_to_exit_ms": 254.24490000000014,
+          "memory_before": {
+            "rss": 176877568,
+            "heapTotal": 13680640,
+            "heapUsed": 8333952,
+            "external": 107185646,
+            "arrayBuffers": 27810495
+          },
+          "memory_after": {
+            "rss": 195407872,
+            "heapTotal": 11321344,
+            "heapUsed": 7693944,
+            "external": 115905165,
+            "arrayBuffers": 27808841
+          }
+        }
+      ],
+      "browser_results": [
+        {
+          "case": "sheet",
+          "policy": "provisional",
+          "scene_sha256": "bfc5f0f64583eab955b7b1ccb8b93cb2edba29f3fbde43a433d8bc1db88c9315",
+          "source_metrics": {
+            "input_bytes": 7127755,
+            "walked": 20481,
+            "entities": 18635,
+            "chunks": 2661,
+            "lines": 17094,
+            "vertices": 147082,
+            "faces": 0,
+            "texts": 1541,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2496952,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 158,
+            "max_coordinate_error": 2.9315720894373953e-05,
+            "error_over_tolerance": 0.0029315720894373953,
+            "identity_order_fnv1a": "d13fcb9b927feced",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 362.09999999403954,
+          "scene_bytes": 2496952,
+          "column_bytes": 2496259,
+          "header_and_padding_bytes": 693,
+          "calculated_order_index_bytes": 74540,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 18635
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 285.6000000089407,
+          "render_complete_ms": 324.20000000298023,
+          "select_rect_ms": 5238.5,
+          "render_to_next_raf_ms": 293.20000000298023,
+          "render_readback_ms": 428.5,
+          "selected_count": 8085,
+          "full_selected_count": 18635,
+          "selection_json_utf8_bytes": 273941,
+          "selection_sha256": "a5cce57e3aca2a0dfb27c98cabed9544d855b358d15cea9425d8e12aadcc067b",
+          "full_selection_sha256": "4b90e98774d13f8c72f6607a52b28b7d2c4ae48ed2c48c86f06c039b21b43eb9",
+          "pixel_sha256": "c2382ddde999016657cc45093e5c9e0bfe767089d74fd438053e8976e93af5cd",
+          "nonwhite_pixels": 251152,
+          "drawn": {
+            "lines": 17094,
+            "faces": 0,
+            "texts": 1541,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 1541
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0.09999999403953552,
+            "roundtrip_ms": 0.20000000298023224,
+            "payload_bytes": 2496952
+          },
+          "clone": {
+            "post_message_ms": 0.5,
+            "roundtrip_ms": 3.2000000029802322,
+            "payload_bytes": 2496952
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 9383088,
+              "totalSize": 10625024,
+              "embedderHeapUsedSize": 1703320,
+              "backingStorageSize": 137427738
+            },
+            "after_measure": {
+              "usedSize": 9905300,
+              "totalSize": 10887168,
+              "embedderHeapUsedSize": 1388456,
+              "backingStorageSize": 137427782
+            },
+            "after_dispose": {
+              "usedSize": 2328516,
+              "totalSize": 3932160,
+              "embedderHeapUsedSize": 1270912,
+              "backingStorageSize": 377485
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "items-1024",
+          "scene_sha256": "bfc5f0f64583eab955b7b1ccb8b93cb2edba29f3fbde43a433d8bc1db88c9315",
+          "source_metrics": {
+            "input_bytes": 7127755,
+            "walked": 20481,
+            "entities": 18635,
+            "chunks": 2661,
+            "lines": 17094,
+            "vertices": 147082,
+            "faces": 0,
+            "texts": 1541,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2496952,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 158,
+            "max_coordinate_error": 2.9315720894373953e-05,
+            "error_over_tolerance": 0.0029315720894373953,
+            "identity_order_fnv1a": "d13fcb9b927feced",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0.09999999403953552,
+          "set_scene_ms": 423.5,
+          "scene_bytes": 2496952,
+          "column_bytes": 2496259,
+          "header_and_padding_bytes": 693,
+          "calculated_order_index_bytes": 74540,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 18635
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 322.79999999701977,
+          "render_complete_ms": 323.5,
+          "select_rect_ms": 7159.79999999702,
+          "render_to_next_raf_ms": 350.09999999403954,
+          "render_readback_ms": 453.59999999403954,
+          "selected_count": 8085,
+          "full_selected_count": 18635,
+          "selection_json_utf8_bytes": 273941,
+          "selection_sha256": "a5cce57e3aca2a0dfb27c98cabed9544d855b358d15cea9425d8e12aadcc067b",
+          "full_selection_sha256": "4b90e98774d13f8c72f6607a52b28b7d2c4ae48ed2c48c86f06c039b21b43eb9",
+          "pixel_sha256": "c2382ddde999016657cc45093e5c9e0bfe767089d74fd438053e8976e93af5cd",
+          "nonwhite_pixels": 251152,
+          "drawn": {
+            "lines": 17094,
+            "faces": 0,
+            "texts": 1541,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 1541
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.20000000298023224,
+            "payload_bytes": 2496952
+          },
+          "clone": {
+            "post_message_ms": 0.5999999940395355,
+            "roundtrip_ms": 2.7000000029802322,
+            "payload_bytes": 2496952
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1572864,
+              "embedderHeapUsedSize": 352216,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 9383872,
+              "totalSize": 10362880,
+              "embedderHeapUsedSize": 1473144,
+              "backingStorageSize": 137427738
+            },
+            "after_measure": {
+              "usedSize": 9907376,
+              "totalSize": 11149312,
+              "embedderHeapUsedSize": 1372600,
+              "backingStorageSize": 137427782
+            },
+            "after_dispose": {
+              "usedSize": 2330500,
+              "totalSize": 3407872,
+              "embedderHeapUsedSize": 1255056,
+              "backingStorageSize": 377485
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "items-16384",
+          "scene_sha256": "bfc5f0f64583eab955b7b1ccb8b93cb2edba29f3fbde43a433d8bc1db88c9315",
+          "source_metrics": {
+            "input_bytes": 7127755,
+            "walked": 20481,
+            "entities": 18635,
+            "chunks": 2661,
+            "lines": 17094,
+            "vertices": 147082,
+            "faces": 0,
+            "texts": 1541,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2496952,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 158,
+            "max_coordinate_error": 2.9315720894373953e-05,
+            "error_over_tolerance": 0.0029315720894373953,
+            "identity_order_fnv1a": "d13fcb9b927feced",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0.09999999403953552,
+          "set_scene_ms": 500.59999999403954,
+          "scene_bytes": 2496952,
+          "column_bytes": 2496259,
+          "header_and_padding_bytes": 693,
+          "calculated_order_index_bytes": 74540,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 18635
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 370.20000000298023,
+          "render_complete_ms": 438.79999999701977,
+          "select_rect_ms": 7041.600000008941,
+          "render_to_next_raf_ms": 221.70000000298023,
+          "render_readback_ms": 320.70000000298023,
+          "selected_count": 8085,
+          "full_selected_count": 18635,
+          "selection_json_utf8_bytes": 273941,
+          "selection_sha256": "a5cce57e3aca2a0dfb27c98cabed9544d855b358d15cea9425d8e12aadcc067b",
+          "full_selection_sha256": "4b90e98774d13f8c72f6607a52b28b7d2c4ae48ed2c48c86f06c039b21b43eb9",
+          "pixel_sha256": "c2382ddde999016657cc45093e5c9e0bfe767089d74fd438053e8976e93af5cd",
+          "nonwhite_pixels": 251152,
+          "drawn": {
+            "lines": 17094,
+            "faces": 0,
+            "texts": 1541,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 1541
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0.10000000894069672,
+            "roundtrip_ms": 0.10000000894069672,
+            "payload_bytes": 2496952
+          },
+          "clone": {
+            "post_message_ms": 0.4000000059604645,
+            "roundtrip_ms": 1.9000000059604645,
+            "payload_bytes": 2496952
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1572864,
+              "embedderHeapUsedSize": 357696,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 9384468,
+              "totalSize": 10100736,
+              "embedderHeapUsedSize": 1472656,
+              "backingStorageSize": 137427738
+            },
+            "after_measure": {
+              "usedSize": 9864360,
+              "totalSize": 10625024,
+              "embedderHeapUsedSize": 1388632,
+              "backingStorageSize": 137427782
+            },
+            "after_dispose": {
+              "usedSize": 2287472,
+              "totalSize": 3670016,
+              "embedderHeapUsedSize": 1271088,
+              "backingStorageSize": 377485
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "span-16384",
+          "scene_sha256": "66edfa1a624f6607a3e08b5cfbbf3b693a997c3d5036f81c4aafe5b8da49190d",
+          "source_metrics": {
+            "input_bytes": 7127755,
+            "walked": 20481,
+            "entities": 18635,
+            "chunks": 6332,
+            "lines": 17094,
+            "vertices": 147082,
+            "faces": 0,
+            "texts": 1541,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2687824,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 158,
+            "max_coordinate_error": 7.0922833401709795e-06,
+            "error_over_tolerance": 0.000709228334017098,
+            "identity_order_fnv1a": "d13fcb9b927feced",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0.09999999403953552,
+          "set_scene_ms": 344.90000000596046,
+          "scene_bytes": 2687824,
+          "column_bytes": 2687151,
+          "header_and_padding_bytes": 673,
+          "calculated_order_index_bytes": 74540,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 18635
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 222.29999999701977,
+          "render_complete_ms": 287.70000000298023,
+          "select_rect_ms": 6746.79999999702,
+          "render_to_next_raf_ms": 330.1000000089407,
+          "render_readback_ms": 445.59999999403954,
+          "selected_count": 8085,
+          "full_selected_count": 18635,
+          "selection_json_utf8_bytes": 273941,
+          "selection_sha256": "a5cce57e3aca2a0dfb27c98cabed9544d855b358d15cea9425d8e12aadcc067b",
+          "full_selection_sha256": "4b90e98774d13f8c72f6607a52b28b7d2c4ae48ed2c48c86f06c039b21b43eb9",
+          "pixel_sha256": "19b8cafa0ef93e11c69b9ca655577302e525e03aae60d9037c6a0e64ac99a27b",
+          "nonwhite_pixels": 251152,
+          "drawn": {
+            "lines": 17094,
+            "faces": 0,
+            "texts": 1541,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 1541
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0.09999999403953552,
+            "roundtrip_ms": 0.20000000298023224,
+            "payload_bytes": 2687824
+          },
+          "clone": {
+            "post_message_ms": 0.7999999970197678,
+            "roundtrip_ms": 3.2999999970197678,
+            "payload_bytes": 2687824
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 352216,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 11795572,
+              "totalSize": 13246464,
+              "embedderHeapUsedSize": 1816680,
+              "backingStorageSize": 137573122
+            },
+            "after_measure": {
+              "usedSize": 12270444,
+              "totalSize": 13246464,
+              "embedderHeapUsedSize": 1488344,
+              "backingStorageSize": 137573166
+            },
+            "after_dispose": {
+              "usedSize": 2282516,
+              "totalSize": 3145728,
+              "embedderHeapUsedSize": 1370768,
+              "backingStorageSize": 377485
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "span-262144",
+          "scene_sha256": "d6a7637bafbc8f114be1814ab7999610226360d0842a30b3ecc83dee440805ec",
+          "source_metrics": {
+            "input_bytes": 7127755,
+            "walked": 20481,
+            "entities": 18635,
+            "chunks": 5,
+            "lines": 17094,
+            "vertices": 147082,
+            "faces": 0,
+            "texts": 1541,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2358840,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 158,
+            "max_coordinate_error": 6.094314994697925e-05,
+            "error_over_tolerance": 0.006094314994697925,
+            "identity_order_fnv1a": "d13fcb9b927feced",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 346,
+          "scene_bytes": 2358840,
+          "column_bytes": 2358147,
+          "header_and_padding_bytes": 693,
+          "calculated_order_index_bytes": 74540,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 18635
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 344.09999999403954,
+          "render_complete_ms": 276.09999999403954,
+          "select_rect_ms": 6658.5999999940395,
+          "render_to_next_raf_ms": 266.20000000298023,
+          "render_readback_ms": 338.40000000596046,
+          "selected_count": 8085,
+          "full_selected_count": 18635,
+          "selection_json_utf8_bytes": 273941,
+          "selection_sha256": "a5cce57e3aca2a0dfb27c98cabed9544d855b358d15cea9425d8e12aadcc067b",
+          "full_selection_sha256": "4b90e98774d13f8c72f6607a52b28b7d2c4ae48ed2c48c86f06c039b21b43eb9",
+          "pixel_sha256": "8d288288ea718dc67e47bc5298b2466cbf374a16d1b2e79c89e53f36ed6c690a",
+          "nonwhite_pixels": 251152,
+          "drawn": {
+            "lines": 17094,
+            "faces": 0,
+            "texts": 1541,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 1541
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.20000000298023224,
+            "payload_bytes": 2358840
+          },
+          "clone": {
+            "post_message_ms": 0.4000000059604645,
+            "roundtrip_ms": 1.7999999970197678,
+            "payload_bytes": 2358840
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 352216,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 7561356,
+              "totalSize": 8790016,
+              "embedderHeapUsedSize": 1472656,
+              "backingStorageSize": 137376594
+            },
+            "after_measure": {
+              "usedSize": 8107804,
+              "totalSize": 8790016,
+              "embedderHeapUsedSize": 1486912,
+              "backingStorageSize": 137376638
+            },
+            "after_dispose": {
+              "usedSize": 2327440,
+              "totalSize": 3670016,
+              "embedderHeapUsedSize": 1369336,
+              "backingStorageSize": 377485
+            }
+          }
+        }
+      ],
+      "producer_source_commit": "138654774518f53064485761bda1411c6ba62a1f",
+      "raw_results_sha256": "c75d257c6b4a6e54b97602160d6bf4c4ca4b3418b0ab63930b71309fc1f82348"
+    },
+    "city-vertices": {
+      "schema": 1,
+      "measured_at": "2026-11-20T16:14:06.419Z",
+      "source_commit": "34750d0a1b2199becc7aa6da3ba82a606962a462",
+      "repeats": 7,
+      "warmups": 1,
+      "producer_results_sha256": "bfc61a34ee753965f73bc2d6c13057241db937aa244c2fddc25f1e60d8aa02bf",
+      "wasm_bytes": 18296823,
+      "wasm_sha256": "75c7224ad261bd6a25301f1f1116a3184f44ee9b1da3cc131dc7faeb7216f9cd",
+      "producer_harness_sha256": {
+        "Cargo.toml": "04259c6785153a534eea709c73d4c10dc7721dac1a48e4ca968766e532fa48ba",
+        "Cargo.lock": "bba7bc8587ad71a6c8e075c02c490b3cff0824d149867558d9ee22813b977789",
+        "src/lib.rs": "61e65346825f4e871c4865fb3c46abcb93bdf1d52d734f28b3a3c361d75c5d39",
+        "src/main.rs": "820fc5ab36a44263516684322d5572fefbe6cc65829665475db2379aafdcb6e7",
+        "run.mjs": "e3d99741b41ed2fe273047e3ae1e3f0287f40f3b0e5aeaded62d9e1a9d851f1d"
+      },
+      "producer_inputs": [
+        {
+          "case": "sheet",
+          "bytes": 22079701,
+          "sha256": "866de4cfd49540622e04b2073c294347c838a0553f1e5bae712072a53b3a5d9c"
+        }
+      ],
+      "validation": {
+        "producer_native_wasm_exact_pairs": 5,
+        "node_worker_exact_cases": 1,
+        "synthetic_selection_exact": true,
+        "policy_selection_exact": true
+      },
+      "node_worker": [
+        {
+          "case": "sheet",
+          "input_bytes": 22079701,
+          "input_sha256": "866de4cfd49540622e04b2073c294347c838a0553f1e5bae712072a53b3a5d9c",
+          "scene_bytes": 1888280,
+          "scene_sha256": "873655c9a784c4e49bece02c3ee0acc88f15d60be6e3fde4fdef8975052a15ba",
+          "counts": {
+            "chunks": 4,
+            "lines": 13391,
+            "vertices": 128483,
+            "faces": 0,
+            "texts": 668,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "tolerance": 0.05000425712413512,
+          "job_to_exit_ms": 1047.9440999999997,
+          "memory_before": {
+            "rss": 271495168,
+            "heapTotal": 10534912,
+            "heapUsed": 6904752,
+            "external": 200033583,
+            "arrayBuffers": 42478392
+          },
+          "memory_after": {
+            "rss": 280236032,
+            "heapTotal": 9748480,
+            "heapUsed": 7367672,
+            "external": 203841271,
+            "arrayBuffers": 42476923
+          }
+        }
+      ],
+      "browser_results": [
+        {
+          "case": "sheet",
+          "policy": "provisional",
+          "scene_sha256": "b9620b7e97e6b470bbc5b7d31e3e08c40d09fb70350ba9e668562f5fc6639e23",
+          "source_metrics": {
+            "input_bytes": 22079701,
+            "walked": 16629,
+            "entities": 14059,
+            "chunks": 1205,
+            "lines": 13391,
+            "vertices": 136443,
+            "faces": 0,
+            "texts": 668,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2014432,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 64,
+            "max_coordinate_error": 2.930880873464048e-05,
+            "error_over_tolerance": 0.002930880873464048,
+            "identity_order_fnv1a": "eb8c7969467641ca",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 323.5,
+          "scene_bytes": 2014432,
+          "column_bytes": 2013775,
+          "header_and_padding_bytes": 657,
+          "calculated_order_index_bytes": 56236,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 14059
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 171.8999999910593,
+          "render_complete_ms": 221,
+          "select_rect_ms": 2299.2999999970198,
+          "render_to_next_raf_ms": 253.29999999701977,
+          "render_readback_ms": 322.09999999403954,
+          "selected_count": 3849,
+          "full_selected_count": 14059,
+          "selection_json_utf8_bytes": 132468,
+          "selection_sha256": "f05206ab4c316265bbe810ad3147a48ac2ca7c1c045c6d0b4e257c859f548f0a",
+          "full_selection_sha256": "eb9375072fc51aab47e380f606c42b71b8d06cf557b357f2a0352059f428f92c",
+          "pixel_sha256": "59a216997a634e4cc90078288a6b3a8d1ab126fcdd8db20b4499ad9210f392de",
+          "nonwhite_pixels": 92042,
+          "drawn": {
+            "lines": 13391,
+            "faces": 0,
+            "texts": 668,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 668
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0.09999999403953552,
+            "roundtrip_ms": 0.20000000298023224,
+            "payload_bytes": 2014432
+          },
+          "clone": {
+            "post_message_ms": 0.3999999910593033,
+            "roundtrip_ms": 1.6000000089406967,
+            "payload_bytes": 2014432
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1572864,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 6940436,
+              "totalSize": 8855552,
+              "embedderHeapUsedSize": 1359856,
+              "backingStorageSize": 136858584
+            },
+            "after_measure": {
+              "usedSize": 7446816,
+              "totalSize": 8593408,
+              "embedderHeapUsedSize": 1342424,
+              "backingStorageSize": 136858628
+            },
+            "after_dispose": {
+              "usedSize": 2340392,
+              "totalSize": 3932160,
+              "embedderHeapUsedSize": 1287648,
+              "backingStorageSize": 377485
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "items-1024",
+          "scene_sha256": "de8e844b11d36db1719b77b6d24ef739458d6757f32acc49f7ce18a782b47865",
+          "source_metrics": {
+            "input_bytes": 22079701,
+            "walked": 16629,
+            "entities": 14059,
+            "chunks": 1206,
+            "lines": 13391,
+            "vertices": 136443,
+            "faces": 0,
+            "texts": 668,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2014464,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 64,
+            "max_coordinate_error": 2.930880873464048e-05,
+            "error_over_tolerance": 0.002930880873464048,
+            "identity_order_fnv1a": "eb8c7969467641ca",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0.09999999403953552,
+          "set_scene_ms": 286.40000000596046,
+          "scene_bytes": 2014464,
+          "column_bytes": 2013827,
+          "header_and_padding_bytes": 637,
+          "calculated_order_index_bytes": 56236,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 14059
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 219.3999999910593,
+          "render_complete_ms": 259.90000000596046,
+          "select_rect_ms": 2205.5999999940395,
+          "render_to_next_raf_ms": 203.6000000089407,
+          "render_readback_ms": 282.90000000596046,
+          "selected_count": 3849,
+          "full_selected_count": 14059,
+          "selection_json_utf8_bytes": 132468,
+          "selection_sha256": "f05206ab4c316265bbe810ad3147a48ac2ca7c1c045c6d0b4e257c859f548f0a",
+          "full_selection_sha256": "eb9375072fc51aab47e380f606c42b71b8d06cf557b357f2a0352059f428f92c",
+          "pixel_sha256": "59a216997a634e4cc90078288a6b3a8d1ab126fcdd8db20b4499ad9210f392de",
+          "nonwhite_pixels": 92042,
+          "drawn": {
+            "lines": 13391,
+            "faces": 0,
+            "texts": 668,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 668
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.19999998807907104,
+            "payload_bytes": 2014464
+          },
+          "clone": {
+            "post_message_ms": 0.4000000059604645,
+            "roundtrip_ms": 2.0999999940395355,
+            "payload_bytes": 2014464
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 352216,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 6886856,
+              "totalSize": 9117696,
+              "embedderHeapUsedSize": 1360520,
+              "backingStorageSize": 136858616
+            },
+            "after_measure": {
+              "usedSize": 7442824,
+              "totalSize": 8069120,
+              "embedderHeapUsedSize": 1341856,
+              "backingStorageSize": 136858660
+            },
+            "after_dispose": {
+              "usedSize": 2337016,
+              "totalSize": 3670016,
+              "embedderHeapUsedSize": 1287080,
+              "backingStorageSize": 377485
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "items-16384",
+          "scene_sha256": "b9620b7e97e6b470bbc5b7d31e3e08c40d09fb70350ba9e668562f5fc6639e23",
+          "source_metrics": {
+            "input_bytes": 22079701,
+            "walked": 16629,
+            "entities": 14059,
+            "chunks": 1205,
+            "lines": 13391,
+            "vertices": 136443,
+            "faces": 0,
+            "texts": 668,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2014432,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 64,
+            "max_coordinate_error": 2.930880873464048e-05,
+            "error_over_tolerance": 0.002930880873464048,
+            "identity_order_fnv1a": "eb8c7969467641ca",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0.09999999403953552,
+          "set_scene_ms": 363,
+          "scene_bytes": 2014432,
+          "column_bytes": 2013775,
+          "header_and_padding_bytes": 657,
+          "calculated_order_index_bytes": 56236,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 14059
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 270.29999999701977,
+          "render_complete_ms": 323.5,
+          "select_rect_ms": 2394.4000000059605,
+          "render_to_next_raf_ms": 198.70000000298023,
+          "render_readback_ms": 264.79999999701977,
+          "selected_count": 3849,
+          "full_selected_count": 14059,
+          "selection_json_utf8_bytes": 132468,
+          "selection_sha256": "f05206ab4c316265bbe810ad3147a48ac2ca7c1c045c6d0b4e257c859f548f0a",
+          "full_selection_sha256": "eb9375072fc51aab47e380f606c42b71b8d06cf557b357f2a0352059f428f92c",
+          "pixel_sha256": "59a216997a634e4cc90078288a6b3a8d1ab126fcdd8db20b4499ad9210f392de",
+          "nonwhite_pixels": 92042,
+          "drawn": {
+            "lines": 13391,
+            "faces": 0,
+            "texts": 668,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 668
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0.09999999403953552,
+            "roundtrip_ms": 0.20000000298023224,
+            "payload_bytes": 2014432
+          },
+          "clone": {
+            "post_message_ms": 0.29999999701976776,
+            "roundtrip_ms": 1.3999999910593033,
+            "payload_bytes": 2014432
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 357784,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 6887660,
+              "totalSize": 8593408,
+              "embedderHeapUsedSize": 1360032,
+              "backingStorageSize": 136858584
+            },
+            "after_measure": {
+              "usedSize": 7479952,
+              "totalSize": 8069120,
+              "embedderHeapUsedSize": 1342600,
+              "backingStorageSize": 136858628
+            },
+            "after_dispose": {
+              "usedSize": 2372548,
+              "totalSize": 3145728,
+              "embedderHeapUsedSize": 1287824,
+              "backingStorageSize": 377485
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "span-16384",
+          "scene_sha256": "54956e5b39695199e980e3a2e78bf1d50be85d35ea557750ca444d96c6ad7d69",
+          "source_metrics": {
+            "input_bytes": 22079701,
+            "walked": 16629,
+            "entities": 14059,
+            "chunks": 3189,
+            "lines": 13391,
+            "vertices": 136443,
+            "faces": 0,
+            "texts": 668,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2117600,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 64,
+            "max_coordinate_error": 3.662105882540345e-06,
+            "error_over_tolerance": 0.0003662105882540345,
+            "identity_order_fnv1a": "eb8c7969467641ca",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 261.59999999403954,
+          "scene_bytes": 2117600,
+          "column_bytes": 2116943,
+          "header_and_padding_bytes": 657,
+          "calculated_order_index_bytes": 56236,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 14059
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 217.59999999403954,
+          "render_complete_ms": 235.40000000596046,
+          "select_rect_ms": 2161.9000000059605,
+          "render_to_next_raf_ms": 185.6000000089407,
+          "render_readback_ms": 234,
+          "selected_count": 3849,
+          "full_selected_count": 14059,
+          "selection_json_utf8_bytes": 132468,
+          "selection_sha256": "f05206ab4c316265bbe810ad3147a48ac2ca7c1c045c6d0b4e257c859f548f0a",
+          "full_selection_sha256": "eb9375072fc51aab47e380f606c42b71b8d06cf557b357f2a0352059f428f92c",
+          "pixel_sha256": "c35a5b657d2156d592144150ce98d0c5e98bc9c4b16846885ba8b755052f5725",
+          "nonwhite_pixels": 92042,
+          "drawn": {
+            "lines": 13391,
+            "faces": 0,
+            "texts": 668,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 668
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0.09999999403953552,
+            "roundtrip_ms": 0.19999998807907104,
+            "payload_bytes": 2117600
+          },
+          "clone": {
+            "post_message_ms": 0.4000000059604645,
+            "roundtrip_ms": 2.0999999940395355,
+            "payload_bytes": 2117600
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 352216,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 8251884,
+              "totalSize": 10166272,
+              "embedderHeapUsedSize": 1360520,
+              "backingStorageSize": 136934456
+            },
+            "after_measure": {
+              "usedSize": 8758800,
+              "totalSize": 9641984,
+              "embedderHeapUsedSize": 1341856,
+              "backingStorageSize": 136934500
+            },
+            "after_dispose": {
+              "usedSize": 2342644,
+              "totalSize": 3407872,
+              "embedderHeapUsedSize": 1287080,
+              "backingStorageSize": 377485
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "span-262144",
+          "scene_sha256": "ad279d7860b743d1399cfafe12a5e20b12cd49f35898e559f85f1a7d660f5b3e",
+          "source_metrics": {
+            "input_bytes": 22079701,
+            "walked": 16629,
+            "entities": 14059,
+            "chunks": 4,
+            "lines": 13391,
+            "vertices": 136443,
+            "faces": 0,
+            "texts": 668,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 1951960,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 64,
+            "max_coordinate_error": 3.9077400288078934e-05,
+            "error_over_tolerance": 0.003907740028807893,
+            "identity_order_fnv1a": "eb8c7969467641ca",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0.09999999403953552,
+          "set_scene_ms": 243.29999999701977,
+          "scene_bytes": 1951960,
+          "column_bytes": 1951323,
+          "header_and_padding_bytes": 637,
+          "calculated_order_index_bytes": 56236,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 14059
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 175.30000001192093,
+          "render_complete_ms": 213.6000000089407,
+          "select_rect_ms": 2434.8999999910593,
+          "render_to_next_raf_ms": 255.59999999403954,
+          "render_readback_ms": 297.1000000089407,
+          "selected_count": 3849,
+          "full_selected_count": 14059,
+          "selection_json_utf8_bytes": 132468,
+          "selection_sha256": "f05206ab4c316265bbe810ad3147a48ac2ca7c1c045c6d0b4e257c859f548f0a",
+          "full_selection_sha256": "eb9375072fc51aab47e380f606c42b71b8d06cf557b357f2a0352059f428f92c",
+          "pixel_sha256": "bb6664243e4c63ca602dd54b1d156d2e35f47e7989676bcf738071f1226d94d6",
+          "nonwhite_pixels": 92042,
+          "drawn": {
+            "lines": 13391,
+            "faces": 0,
+            "texts": 668,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 668
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.20000000298023224,
+            "payload_bytes": 1951960
+          },
+          "clone": {
+            "post_message_ms": 0.5,
+            "roundtrip_ms": 2.300000011920929,
+            "payload_bytes": 1951960
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 352216,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 6075400,
+              "totalSize": 7806976,
+              "embedderHeapUsedSize": 1360032,
+              "backingStorageSize": 136836224
+            },
+            "after_measure": {
+              "usedSize": 6669764,
+              "totalSize": 7544832,
+              "embedderHeapUsedSize": 1374416,
+              "backingStorageSize": 136836268
+            },
+            "after_dispose": {
+              "usedSize": 2375128,
+              "totalSize": 3670016,
+              "embedderHeapUsedSize": 1319640,
+              "backingStorageSize": 377485
+            }
+          }
+        }
+      ],
+      "producer_source_commit": "138654774518f53064485761bda1411c6ba62a1f",
+      "raw_results_sha256": "211de578311b2c5d167b7eb409a8957ae07cc43a252d1acfe079af4a25081b0a"
+    },
+    "city-max": {
+      "schema": 1,
+      "measured_at": "2026-11-20T16:21:57.336Z",
+      "source_commit": "34750d0a1b2199becc7aa6da3ba82a606962a462",
+      "repeats": 7,
+      "warmups": 1,
+      "producer_results_sha256": "664bb2eb5e35cff622cf7c8248c93555a1d2591e289399498b149d6270fda75b",
+      "wasm_bytes": 18296823,
+      "wasm_sha256": "75c7224ad261bd6a25301f1f1116a3184f44ee9b1da3cc131dc7faeb7216f9cd",
+      "producer_harness_sha256": {
+        "Cargo.toml": "04259c6785153a534eea709c73d4c10dc7721dac1a48e4ca968766e532fa48ba",
+        "Cargo.lock": "bba7bc8587ad71a6c8e075c02c490b3cff0824d149867558d9ee22813b977789",
+        "src/lib.rs": "61e65346825f4e871c4865fb3c46abcb93bdf1d52d734f28b3a3c361d75c5d39",
+        "src/main.rs": "820fc5ab36a44263516684322d5572fefbe6cc65829665475db2379aafdcb6e7",
+        "run.mjs": "e3d99741b41ed2fe273047e3ae1e3f0287f40f3b0e5aeaded62d9e1a9d851f1d"
+      },
+      "producer_inputs": [
+        {
+          "case": "sheet",
+          "bytes": 42133507,
+          "sha256": "365f5beb4d8b98503f9efcdcd3e9cf3b2445cc1b67de70d3174dd8e22db7250d"
+        }
+      ],
+      "validation": {
+        "producer_native_wasm_exact_pairs": 5,
+        "node_worker_exact_cases": 1,
+        "synthetic_selection_exact": true,
+        "policy_selection_exact": true
+      },
+      "node_worker": [
+        {
+          "case": "sheet",
+          "input_bytes": 42133507,
+          "input_sha256": "365f5beb4d8b98503f9efcdcd3e9cf3b2445cc1b67de70d3174dd8e22db7250d",
+          "scene_bytes": 2503656,
+          "scene_sha256": "940307e91e0349fb8577710a3d1206a671d9a778722cb98aa9700fca98c324e4",
+          "counts": {
+            "chunks": 6,
+            "lines": 20118,
+            "vertices": 122439,
+            "faces": 0,
+            "texts": 2968,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "tolerance": 0.050018422624291514,
+          "job_to_exit_ms": 6799.1019000000015,
+          "memory_before": {
+            "rss": 488263680,
+            "heapTotal": 10534912,
+            "heapUsed": 6900896,
+            "external": 435399182,
+            "arrayBuffers": 63148055
+          },
+          "memory_after": {
+            "rss": 517459968,
+            "heapTotal": 9486336,
+            "heapUsed": 8050088,
+            "external": 455459077,
+            "arrayBuffers": 63146105
+          }
+        }
+      ],
+      "browser_results": [
+        {
+          "case": "sheet",
+          "policy": "provisional",
+          "scene_sha256": "9f75e6811bc68bc5b55ff52b17291a43071f4cec88ef8fa93bf4026344f9c10f",
+          "source_metrics": {
+            "input_bytes": 42133507,
+            "walked": 25538,
+            "entities": 23086,
+            "chunks": 1567,
+            "lines": 20118,
+            "vertices": 146446,
+            "faces": 0,
+            "texts": 2968,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2776904,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 56,
+            "max_coordinate_error": 1.4246950740925968e-05,
+            "error_over_tolerance": 0.0014246950740925968,
+            "identity_order_fnv1a": "16bd114ae4cab9c9",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0.09999999403953552,
+          "set_scene_ms": 509.29999999701977,
+          "scene_bytes": 2776904,
+          "column_bytes": 2776286,
+          "header_and_padding_bytes": 618,
+          "calculated_order_index_bytes": 92344,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 23086
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 375.90000000596046,
+          "render_complete_ms": 429.20000000298023,
+          "select_rect_ms": 4289.5,
+          "render_to_next_raf_ms": 258.20000000298023,
+          "render_readback_ms": 387.20000000298023,
+          "selected_count": 7429,
+          "full_selected_count": 23086,
+          "selection_json_utf8_bytes": 248990,
+          "selection_sha256": "449587041fb622e64bdfbe87a580d3707439183db4a38c0299019de1ccb425d8",
+          "full_selection_sha256": "10815d4ea2c1312bcd7c68b848b7371fb686550e9f1e927ee2a7dd8d3d3f7bb4",
+          "pixel_sha256": "363c8687dd47c07c6b946fe7b213a6a770a4db3051ca4f59d942757e9289ff8f",
+          "nonwhite_pixels": 235296,
+          "drawn": {
+            "lines": 20118,
+            "faces": 0,
+            "texts": 2968,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 2968
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.20000000298023224,
+            "payload_bytes": 2776904
+          },
+          "clone": {
+            "post_message_ms": 0.3999999910593033,
+            "roundtrip_ms": 1.7999999970197678,
+            "payload_bytes": 2776904
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 9902996,
+              "totalSize": 10379264,
+              "embedderHeapUsedSize": 1754192,
+              "backingStorageSize": 137847327
+            },
+            "after_measure": {
+              "usedSize": 10460208,
+              "totalSize": 11689984,
+              "embedderHeapUsedSize": 1324256,
+              "backingStorageSize": 137847371
+            },
+            "after_dispose": {
+              "usedSize": 2365572,
+              "totalSize": 3932160,
+              "embedderHeapUsedSize": 1103968,
+              "backingStorageSize": 377479
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "items-1024",
+          "scene_sha256": "9f75e6811bc68bc5b55ff52b17291a43071f4cec88ef8fa93bf4026344f9c10f",
+          "source_metrics": {
+            "input_bytes": 42133507,
+            "walked": 25538,
+            "entities": 23086,
+            "chunks": 1567,
+            "lines": 20118,
+            "vertices": 146446,
+            "faces": 0,
+            "texts": 2968,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2776904,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 56,
+            "max_coordinate_error": 1.4246950740925968e-05,
+            "error_over_tolerance": 0.0014246950740925968,
+            "identity_order_fnv1a": "16bd114ae4cab9c9",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 463.59999999403954,
+          "scene_bytes": 2776904,
+          "column_bytes": 2776286,
+          "header_and_padding_bytes": 618,
+          "calculated_order_index_bytes": 92344,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 23086
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 308.40000000596046,
+          "render_complete_ms": 421.09999999403954,
+          "select_rect_ms": 3955.5999999940395,
+          "render_to_next_raf_ms": 403.79999999701977,
+          "render_readback_ms": 591.7999999970198,
+          "selected_count": 7429,
+          "full_selected_count": 23086,
+          "selection_json_utf8_bytes": 248990,
+          "selection_sha256": "449587041fb622e64bdfbe87a580d3707439183db4a38c0299019de1ccb425d8",
+          "full_selection_sha256": "10815d4ea2c1312bcd7c68b848b7371fb686550e9f1e927ee2a7dd8d3d3f7bb4",
+          "pixel_sha256": "363c8687dd47c07c6b946fe7b213a6a770a4db3051ca4f59d942757e9289ff8f",
+          "nonwhite_pixels": 235296,
+          "drawn": {
+            "lines": 20118,
+            "faces": 0,
+            "texts": 2968,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 2968
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0.09999999403953552,
+            "roundtrip_ms": 0.29999999701976776,
+            "payload_bytes": 2776904
+          },
+          "clone": {
+            "post_message_ms": 1,
+            "roundtrip_ms": 3.7999999970197678,
+            "payload_bytes": 2776904
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 352216,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 9924440,
+              "totalSize": 11427840,
+              "embedderHeapUsedSize": 1243592,
+              "backingStorageSize": 137847327
+            },
+            "after_measure": {
+              "usedSize": 10460612,
+              "totalSize": 11165696,
+              "embedderHeapUsedSize": 1324432,
+              "backingStorageSize": 137847371
+            },
+            "after_dispose": {
+              "usedSize": 2365788,
+              "totalSize": 3932160,
+              "embedderHeapUsedSize": 1104144,
+              "backingStorageSize": 377479
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "items-16384",
+          "scene_sha256": "9f75e6811bc68bc5b55ff52b17291a43071f4cec88ef8fa93bf4026344f9c10f",
+          "source_metrics": {
+            "input_bytes": 42133507,
+            "walked": 25538,
+            "entities": 23086,
+            "chunks": 1567,
+            "lines": 20118,
+            "vertices": 146446,
+            "faces": 0,
+            "texts": 2968,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2776904,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 56,
+            "max_coordinate_error": 1.4246950740925968e-05,
+            "error_over_tolerance": 0.0014246950740925968,
+            "identity_order_fnv1a": "16bd114ae4cab9c9",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 586.4000000059605,
+          "scene_bytes": 2776904,
+          "column_bytes": 2776286,
+          "header_and_padding_bytes": 618,
+          "calculated_order_index_bytes": 92344,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 23086
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 429.40000000596046,
+          "render_complete_ms": 581.4000000059605,
+          "select_rect_ms": 5704.20000000298,
+          "render_to_next_raf_ms": 432.3999999910593,
+          "render_readback_ms": 612,
+          "selected_count": 7429,
+          "full_selected_count": 23086,
+          "selection_json_utf8_bytes": 248990,
+          "selection_sha256": "449587041fb622e64bdfbe87a580d3707439183db4a38c0299019de1ccb425d8",
+          "full_selection_sha256": "10815d4ea2c1312bcd7c68b848b7371fb686550e9f1e927ee2a7dd8d3d3f7bb4",
+          "pixel_sha256": "363c8687dd47c07c6b946fe7b213a6a770a4db3051ca4f59d942757e9289ff8f",
+          "nonwhite_pixels": 235296,
+          "drawn": {
+            "lines": 20118,
+            "faces": 0,
+            "texts": 2968,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 2968
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0.09999999403953552,
+            "roundtrip_ms": 0.30000001192092896,
+            "payload_bytes": 2776904
+          },
+          "clone": {
+            "post_message_ms": 0.8999999910593033,
+            "roundtrip_ms": 3.699999988079071,
+            "payload_bytes": 2776904
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1572864,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 9907784,
+              "totalSize": 10903552,
+              "embedderHeapUsedSize": 1309864,
+              "backingStorageSize": 137847327
+            },
+            "after_measure": {
+              "usedSize": 10460788,
+              "totalSize": 11689984,
+              "embedderHeapUsedSize": 1324960,
+              "backingStorageSize": 137847371
+            },
+            "after_dispose": {
+              "usedSize": 2367320,
+              "totalSize": 3670016,
+              "embedderHeapUsedSize": 1104672,
+              "backingStorageSize": 377479
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "span-16384",
+          "scene_sha256": "25581cfeb20a388b7990b3fe6ad63c0703ab49133f812f5e0818acbbc74d29e8",
+          "source_metrics": {
+            "input_bytes": 42133507,
+            "walked": 25538,
+            "entities": 23086,
+            "chunks": 4892,
+            "lines": 20118,
+            "vertices": 146446,
+            "faces": 0,
+            "texts": 2968,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2949784,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 56,
+            "max_coordinate_error": 2.7465721359476447e-06,
+            "error_over_tolerance": 0.00027465721359476447,
+            "identity_order_fnv1a": "16bd114ae4cab9c9",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0.09999999403953552,
+          "set_scene_ms": 617.2000000029802,
+          "scene_bytes": 2949784,
+          "column_bytes": 2949186,
+          "header_and_padding_bytes": 598,
+          "calculated_order_index_bytes": 92344,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 23086
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 436.79999999701977,
+          "render_complete_ms": 585.7999999970198,
+          "select_rect_ms": 5624.699999988079,
+          "render_to_next_raf_ms": 286.29999999701977,
+          "render_readback_ms": 367.09999999403954,
+          "selected_count": 7429,
+          "full_selected_count": 23086,
+          "selection_json_utf8_bytes": 248990,
+          "selection_sha256": "449587041fb622e64bdfbe87a580d3707439183db4a38c0299019de1ccb425d8",
+          "full_selection_sha256": "10815d4ea2c1312bcd7c68b848b7371fb686550e9f1e927ee2a7dd8d3d3f7bb4",
+          "pixel_sha256": "0c9f17e39656370fca1a2718d3fa4c543fad09d5fcf8234fe5845302e9a58680",
+          "nonwhite_pixels": 235298,
+          "drawn": {
+            "lines": 20118,
+            "faces": 0,
+            "texts": 2968,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 2968
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.10000000894069672,
+            "payload_bytes": 2949784
+          },
+          "clone": {
+            "post_message_ms": 0.5,
+            "roundtrip_ms": 2.1000000089406967,
+            "payload_bytes": 2949784
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1310720,
+              "embedderHeapUsedSize": 357584,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 12151148,
+              "totalSize": 13262848,
+              "embedderHeapUsedSize": 1194944,
+              "backingStorageSize": 137944207
+            },
+            "after_measure": {
+              "usedSize": 12643912,
+              "totalSize": 13787136,
+              "embedderHeapUsedSize": 1324040,
+              "backingStorageSize": 137944251
+            },
+            "after_dispose": {
+              "usedSize": 2326692,
+              "totalSize": 3670016,
+              "embedderHeapUsedSize": 1103720,
+              "backingStorageSize": 377479
+            }
+          }
+        },
+        {
+          "case": "sheet",
+          "policy": "span-262144",
+          "scene_sha256": "20043e79d7a7468bce190a0ead33ee04d31578fdd2af32e72345339f63d9bd59",
+          "source_metrics": {
+            "input_bytes": 42133507,
+            "walked": 25538,
+            "entities": 23086,
+            "chunks": 6,
+            "lines": 20118,
+            "vertices": 146446,
+            "faces": 0,
+            "texts": 2968,
+            "points": 0,
+            "images": 0,
+            "scene_bytes": 2695712,
+            "tolerance": 0.01,
+            "max_chunk_span": 2000,
+            "checked_lines": 56,
+            "max_coordinate_error": 5.860865076101618e-05,
+            "error_over_tolerance": 0.005860865076101618,
+            "identity_order_fnv1a": "16bd114ae4cab9c9",
+            "diagnostics": "scene.curve.approximated:1"
+          },
+          "reader_ms": 0,
+          "set_scene_ms": 437.09999999403954,
+          "scene_bytes": 2695712,
+          "column_bytes": 2695114,
+          "header_and_padding_bytes": 598,
+          "calculated_order_index_bytes": 92344,
+          "readback_rgba_bytes": 2457600,
+          "reader_copied_column_bytes": 0,
+          "limits": {
+            "issues": 23086
+          },
+          "default_limit_rejection": null,
+          "webgpu_adapter": {
+            "vendor": "nvidia",
+            "architecture": "lovelace",
+            "device": "",
+            "description": ""
+          },
+          "render_submit_ms": 279.90000000596046,
+          "render_complete_ms": 369.19999998807907,
+          "select_rect_ms": 4172.29999999702,
+          "render_to_next_raf_ms": 279.29999999701977,
+          "render_readback_ms": 375.8999999910593,
+          "selected_count": 7429,
+          "full_selected_count": 23086,
+          "selection_json_utf8_bytes": 248990,
+          "selection_sha256": "449587041fb622e64bdfbe87a580d3707439183db4a38c0299019de1ccb425d8",
+          "full_selection_sha256": "10815d4ea2c1312bcd7c68b848b7371fb686550e9f1e927ee2a7dd8d3d3f7bb4",
+          "pixel_sha256": "9a1d78b238bd57822091e422d9ff3abd3fc56ce97e54f0cd805d00bbc863ea0a",
+          "nonwhite_pixels": 235294,
+          "drawn": {
+            "lines": 20118,
+            "faces": 0,
+            "texts": 2968,
+            "points": 0,
+            "images": 0,
+            "glyphs": 0
+          },
+          "issue_counts": {
+            "browser-text:fallback": 2968
+          },
+          "independent_selection": null,
+          "transfer": {
+            "post_message_ms": 0,
+            "roundtrip_ms": 0.09999999403953552,
+            "payload_bytes": 2695712
+          },
+          "clone": {
+            "post_message_ms": 0.5,
+            "roundtrip_ms": 2.5999999940395355,
+            "payload_bytes": 2695712
+          },
+          "provisional_selection_equal": true,
+          "provisional_full_selection_equal": true,
+          "retained_heap_observations": {
+            "before": {
+              "usedSize": 854032,
+              "totalSize": 1572864,
+              "embedderHeapUsedSize": 352216,
+              "backingStorageSize": 374635
+            },
+            "after_setup": {
+              "usedSize": 8852048,
+              "totalSize": 9854976,
+              "embedderHeapUsedSize": 1440200,
+              "backingStorageSize": 137814935
+            },
+            "after_measure": {
+              "usedSize": 9417368,
+              "totalSize": 10379264,
+              "embedderHeapUsedSize": 1257872,
+              "backingStorageSize": 137814979
+            },
+            "after_dispose": {
+              "usedSize": 2373592,
+              "totalSize": 3145728,
+              "embedderHeapUsedSize": 1037584,
+              "backingStorageSize": 377479
+            }
+          }
+        }
+      ],
+      "producer_source_commit": "138654774518f53064485761bda1411c6ba62a1f",
+      "raw_results_sha256": "fc9236d4c46ce1b0e092d39d8b01e548fda5516bb57abe049fe98d7594011211"
+    }
+  }
+}

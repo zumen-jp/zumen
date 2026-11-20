@@ -1,6 +1,6 @@
 # シーンを使う側の測定
 
-[#219](https://github.com/zumen-jp/zumen/issues/219) の追加測定です。[生成側](README.md)と同じ公開 3 入力・合成 2 入力を使います。[静岡市の都市計画基本図の測定](https://github.com/zumen-jp/zumen/issues/219#issuecomment-6982317268)で保存した各図郭の入力・シーン・結果も使えます。表示部品の現行の経路を呼び、描画・範囲選択・転送・メモリを分けて記録します。結果は [CONSUMER-RESULTS.md](CONSUMER-RESULTS.md) にあります。値を決めるための参考で、仮値の変更や issue 全体の完了ではありません。
+[#219](https://github.com/zumen-jp/zumen/issues/219) の追加測定です。[生成側](README.md)と同じ公開 3 入力・合成 2 入力を使います。[静岡市の都市計画基本図の測定](https://github.com/zumen-jp/zumen/issues/219#issuecomment-6982317268)で保存した各図郭の入力・シーン・結果も使えます。表示部品の現行の経路を呼び、描画・範囲選択・転送・メモリを分けて記録します。塊の大きさの採否は #219 で扱います。[WebGPU の結果](WEBGPU-RESULTS.md)・[以前の Canvas による結果](CONSUMER-RESULTS.md)。
 
 ## 再現する手順
 
