@@ -579,18 +579,20 @@ samples = ["Jw_cad に付くサンプル", "ezjww のリポジトリにある図
 docs = ["docs/formats/jww.md"]
 
 [formats.jww.read]
-level = "external"
-scope = "公開サンプルの JWW（samples/jww/ezjww-geometry.jww）とテストの中で作った JWW を毎晩の CI で ezjww 0.7.6 でも読み、レイヤ・要素の種類（円ソリッドを含む）・線と点と円と円弧の形・黙って捨てない診断の場所が zumen の読みと合うことを確かめる（xtask/verify、#528・#874）。受け取った図面（JWW 10 件）と公開サンプルを読んで図面モデルに移し、書き戻して読み直せることもテスト（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。Jw_cad での照合はまだ（#503）"
+level = "application"
+scope = "公開サンプルの JWW（samples/jww/ezjww-geometry.jww）とテストの中で作った JWW を毎晩の CI で ezjww 0.7.6 でも読み、レイヤ・要素の種類（円ソリッドを含む）・線と点と円と円弧の形・黙って捨てない診断の場所が zumen の読みと合うことを確かめる（xtask/verify、#528・#874）。受け取った図面（JWW 10 件）と公開サンプルを読んで図面モデルに移し、書き戻して読み直せることもテスト（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。Jw_cad 10.3.6.0 が書いた JWW の 2 点について、線分の始点からの位置・印番号・回転・倍率を公開 API で読んで照合した（#342）"
 public-samples = ["samples/jww/"]
 implementations = [{ name = "ezjww", version = "0.7.6" }]
 received = [{ kind = "JWW", count = 10 }]
-checked = "2026-11-13"
+software = [{ name = "Jw_cad", version = "10.3.6.0" }]
+checked = "2026-11-21"
 
 [formats.jww.write]
-level = "external"
-scope = "テストの中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った JWW に点・線分・円・円弧を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528・#702）。従来の編集の外部照合は追加の書き戻しを対象とする。書いたファイルを Jw_cad で開いてはいない（#342・#503）。新しい JWW 700 への変換（#360）は、合成 DXF の線・円・円弧・折れ線を分けた線分・文字・点、RGB・線幅・レイヤと線種の番号を ezjww 0.7.6 と照らす（xtask/verify/check_convert_cad.py）。破線の列は ezjww の API が返さず、自前の再読で確かめる。実機の表示は未確認。"
+level = "application"
+scope = "テストの中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った JWW に点・線分・円・円弧を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528・#702）。従来の編集の外部照合は追加の書き戻しを対象とする。普通点と記号点を書き戻した JWW を Jw_cad 10.3.6.0 で開き、座標の出力で位置・記号の番号・角度・倍率を照合した（#342）。新しい JWW 700 への変換（#360）は、合成 DXF の線・円・円弧・折れ線を分けた線分・文字・点、RGB・線幅・レイヤと線種の番号を ezjww 0.7.6 と照らす（xtask/verify/check_convert_cad.py）。破線の列は ezjww の API が返さず、自前の再読で確かめる。実機の表示は未確認。"
 implementations = [{ name = "ezjww", version = "0.7.6" }]
-checked = "2026-11-16"
+software = [{ name = "Jw_cad", version = "10.3.6.0" }]
+checked = "2026-11-21"
 
 [formats.jwc]
 name = "JWC（Jw_cad for DOS の図面）"

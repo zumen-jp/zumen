@@ -33,7 +33,7 @@
 | [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` | `external` |  |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `none` |  |  |
 | [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `none` |  |  |
-| [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `external` | `external` |
+| [jww](#format-jww) | JWW（Jw\_cad for Windows の図面） | jwcad | drawing | `public` | `core` | `application` | `application` |
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `external` |  |
@@ -895,14 +895,16 @@
 - 参照した実装: [ezjww](https://github.com/monozukuri-ai/ezjww)（MIT）
 - 照合に使う候補: Jw\_cad
 - サンプルの出どころ: Jw\_cad に付くサンプル・ezjww のリポジトリにある図面
-- 読みの確かめた度合い: `external`（確認日: 2026-11-13）
-- 読みの確かめた範囲: 公開サンプルの JWW（samples/jww/ezjww-geometry.jww）とテストの中で作った JWW を毎晩の CI で ezjww 0.7.6 でも読み、レイヤ・要素の種類（円ソリッドを含む）・線と点と円と円弧の形・黙って捨てない診断の場所が zumen の読みと合うことを確かめる（xtask/verify、#528・#874）。受け取った図面（JWW 10 件）と公開サンプルを読んで図面モデルに移し、書き戻して読み直せることもテスト（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。Jw\_cad での照合はまだ（#503）
+- 読みの確かめた度合い: `application`（確認日: 2026-11-21）
+- 読みの確かめた範囲: 公開サンプルの JWW（samples/jww/ezjww-geometry.jww）とテストの中で作った JWW を毎晩の CI で ezjww 0.7.6 でも読み、レイヤ・要素の種類（円ソリッドを含む）・線と点と円と円弧の形・黙って捨てない診断の場所が zumen の読みと合うことを確かめる（xtask/verify、#528・#874）。受け取った図面（JWW 10 件）と公開サンプルを読んで図面モデルに移し、書き戻して読み直せることもテスト（crates/zumen-jww/tests/samples.rs）で確かめた（#289）。Jw\_cad 10.3.6.0 が書いた JWW の 2 点について、線分の始点からの位置・印番号・回転・倍率を公開 API で読んで照合した（#342）
 - 読みで使った公開サンプル: [samples/jww/](../../samples/jww/)
 - 読みで使った受け取った図面: JWW 10 件
 - 読みで照らした外部の実装: ezjww 0.7.6
-- 書きの確かめた度合い: `external`（確認日: 2026-11-16）
-- 書きの確かめた範囲: テストの中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った JWW に点・線分・円・円弧を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528・#702）。従来の編集の外部照合は追加の書き戻しを対象とする。書いたファイルを Jw\_cad で開いてはいない（#342・#503）。新しい JWW 700 への変換（#360）は、合成 DXF の線・円・円弧・折れ線を分けた線分・文字・点、RGB・線幅・レイヤと線種の番号を ezjww 0.7.6 と照らす（xtask/verify/check\_convert\_cad.py）。破線の列は ezjww の API が返さず、自前の再読で確かめる。実機の表示は未確認。
+- 読みで開いたソフト: Jw\_cad 10.3.6.0
+- 書きの確かめた度合い: `application`（確認日: 2026-11-21）
+- 書きの確かめた範囲: テストの中で作った JWW と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った JWW に点・線分・円・円弧を足して書き戻したファイルを ezjww 0.7.6 で読み、変更で決めた形・レイヤ・ペンの番号が、ezjww の読んだ値と合うことを確かめる（xtask/verify、#528・#702）。従来の編集の外部照合は追加の書き戻しを対象とする。普通点と記号点を書き戻した JWW を Jw\_cad 10.3.6.0 で開き、座標の出力で位置・記号の番号・角度・倍率を照合した（#342）。新しい JWW 700 への変換（#360）は、合成 DXF の線・円・円弧・折れ線を分けた線分・文字・点、RGB・線幅・レイヤと線種の番号を ezjww 0.7.6 と照らす（xtask/verify/check\_convert\_cad.py）。破線の列は ezjww の API が返さず、自前の再読で確かめる。実機の表示は未確認。
 - 書きで照らした外部の実装: ezjww 0.7.6
+- 書きで開いたソフト: Jw\_cad 10.3.6.0
 - 形式の文書: [docs/formats/jww.md](../../docs/formats/jww.md)
 
 ### format-kokuban
