@@ -332,6 +332,96 @@ fn management_files_read_as_lxml_reads_them_after_dtd_validation() {
 }
 
 #[test]
+fn geology_management_links_match_the_distributed_files() {
+    let Some((folder, oracle)) = setup() else {
+        return;
+    };
+    // 地質・土質調査成果電子納品要領の地質情報・土質試験のフォルダー構成。
+    // 後者では BORING を起点にする。入力の根と直下の管理 XML がコアの対象。
+    for (manager, field, data_name, data_dtd, data_path) in [
+        (
+            "BORING/BORING.XML",
+            "ボーリング交換用データファイル名",
+            "BED0001.XML",
+            "BED0500.DTD",
+            "BORING/DATA/BED0001.XML",
+        ),
+        (
+            "TEST/GRNDTST.XML",
+            "土質試験結果一覧表データファイル名",
+            "STB0001.XML",
+            "ST0500.DTD",
+            "TEST/STB0001.XML",
+        ),
+    ] {
+        let (parent, name) = manager.split_once('/').unwrap();
+        let mut paths = Vec::new();
+        find(&folder, &|f| f == name || f == data_name, &mut paths);
+        assert_eq!(paths.len(), 2);
+        let path_for = |wanted: &str| {
+            paths
+                .iter()
+                .find(|p| p.file_name().is_some_and(|f| f == wanted))
+                .unwrap()
+        };
+        let xml = path_for(name);
+        let target = path_for(data_name);
+        let source_bytes = std::fs::read(xml).unwrap();
+        let data_bytes = std::fs::read(target).unwrap();
+        let (_, elements) = external(&oracle, xml.parent().unwrap(), &source_bytes).unwrap();
+        let ((_, system), _) = external(&oracle, target.parent().unwrap(), &data_bytes).unwrap();
+        assert_eq!(system, data_dtd);
+        let names: Vec<_> = elements
+            .iter()
+            .filter(|((_, name, _), _, _)| name == field)
+            .map(|((_, _, value), _, _)| value.as_deref().unwrap())
+            .collect();
+        assert_eq!(names.iter().filter(|n| **n == data_name).count(), 1);
+        assert!(names.len() > 1);
+        for include_target in [true, false] {
+            let mut files = vec![(manager, source_bytes.as_slice())];
+            if include_target {
+                files.push((data_path, data_bytes.as_slice()));
+            }
+            let (package, codes) = with_cx(|cx| read(&files, cx));
+            assert!(codes.is_empty());
+            let package = package.unwrap();
+            let root = &package
+                .managed
+                .iter()
+                .find(|m| m.name == manager)
+                .unwrap()
+                .root;
+            let mut links = Vec::new();
+            collect_named_links(root, field, &mut links);
+            assert_eq!(links.len(), names.len());
+            for (link, basename) in links.iter().zip(&names) {
+                let present = include_target && *basename == data_name;
+                let expected = if present {
+                    data_path.to_owned()
+                } else {
+                    format!("{parent}/{basename}")
+                };
+                assert_eq!((&link.name, link.found), (&expected, present));
+            }
+        }
+    }
+}
+
+fn collect_named_links<'a>(
+    record: &'a Record,
+    field: &str,
+    links: &mut Vec<&'a zumen_delivery::Link>,
+) {
+    if record.name == field {
+        links.push(record.file.as_ref().expect("ファイル名に参照がある"));
+    }
+    for child in &record.children {
+        collect_named_links(child, field, links);
+    }
+}
+
+#[test]
 fn rewritten_management_files_stay_valid_under_the_dtd() {
     let Some((folder, oracle)) = setup() else {
         return;
