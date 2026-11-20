@@ -42,6 +42,39 @@ def repeatable(content, name, repeated=False):
     return False
 
 
+def ledger_input(etree, path):
+    """施設・機器台帳の DTD から、並びにある各要素を 1 つずつ持つ自作入力を組む。"""
+    def children(content):
+        if content.type == "seq":
+            yield from children(content.left)
+            yield from children(content.right)
+        elif content.type == "element":
+            yield content.name
+        elif content.type != "pcdata":
+            raise ValueError("施設・機器台帳の DTD の対象外の内容モデルです")
+
+    dtd = etree.DTD(str(path))
+    elements = {entry.name: list(children(entry.content)) for entry in dtd.iterelements()}
+    root, = set(elements) - {name for names in elements.values() for name in names}
+
+    def build(name, ancestors):
+        if name in ancestors:
+            raise ValueError("施設・機器台帳の要素が循環しています")
+        entry = etree.Element(name)
+        for child in elements[name]:
+            entry.append(build(child, ancestors | {name}))
+        if not elements[name]:
+            entry.text = "入力"
+        return entry
+
+    return etree.tostring(
+        build(root, set()),
+        encoding="Shift_JIS",
+        xml_declaration=True,
+        doctype=f'<!DOCTYPE {root} SYSTEM "{path.name}">',
+    )
+
+
 def main():
     try:
         import lxml
@@ -50,6 +83,9 @@ def main():
         sys.exit(77)
     if sys.argv[1:] == ["--check"]:
         print(f"lxml\t{lxml.__version__}")
+        return
+    if sys.argv[1:2] == ["--ledger-input"] and len(sys.argv) == 3:
+        sys.stdout.buffer.write(ledger_input(etree, pathlib.Path(sys.argv[2])))
         return
     folder = pathlib.Path(sys.argv[1]).resolve()
     data = sys.stdin.buffer.read()

@@ -228,29 +228,32 @@ fn managed(
     let root = reader.record(root, cx)?;
     Ok(Some(Managed {
         name: name.to_string(),
-        doctype: doc.doctype().and_then(|range| {
-            if matches!(
-                doc.encoding(),
-                zumen_xml::Encoding::Utf16Le | zumen_xml::Encoding::Utf16Be
-            ) {
-                system_id(doc.cdata(range).as_bytes())
-            } else {
-                system_id(doc.bytes(range))
-            }
-        }),
+        doctype: doc.doctype().and_then(|range| system_id(&doc.cdata(range))),
         root,
     }))
 }
 
-/// 文書型宣言の、最後の引用符の中の文字（システム識別子）
-fn system_id(declaration: &[u8]) -> Option<String> {
-    let text = String::from_utf8_lossy(declaration);
-    let text = text.split('[').next().unwrap_or_default();
-    let quote = text.rfind(['"', '\''])?;
-    let mark = text.get(quote..quote + 1)?;
-    let start = text.get(..quote)?.rfind(mark)?;
-    let id = text.get(start + 1..quote)?.trim();
-    (!id.is_empty()).then(|| id.to_string())
+/// XML 1.0 §2.8 の ExternalID。文書の符号化を戻した宣言から SYSTEM または PUBLIC のシステム識別子を読む。
+fn system_id(declaration: &str) -> Option<String> {
+    const SPACE: [char; 4] = [' ', '\t', '\r', '\n'];
+    fn literal(text: &str) -> Option<(&str, &str)> {
+        let text = text.trim_start_matches(SPACE);
+        let quote = text.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+        text.strip_prefix(quote)?.split_once(quote)
+    }
+    let after_name = declaration
+        .strip_prefix("<!DOCTYPE")?
+        .trim_start_matches(SPACE)
+        .split_once(SPACE)?
+        .1;
+    let (keyword, rest) = after_name.trim_start_matches(SPACE).split_once(SPACE)?;
+    let (id, _) = match keyword {
+        "SYSTEM" => literal(rest)?,
+        "PUBLIC" => literal(literal(rest)?.1)?,
+        _ => return None,
+    };
+    let id = id.trim();
+    (!id.is_empty()).then(|| id.to_owned())
 }
 
 struct Reader<'d> {

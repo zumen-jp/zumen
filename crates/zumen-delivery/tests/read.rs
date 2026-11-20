@@ -192,3 +192,29 @@ fn utf16_management_files_keep_japanese_records_and_dtd_standard_checks() {
         }
     }
 }
+
+/// Shift_JIS の長音「ー」は第 2 バイトが 0x5b。宣言の引用符内の角括弧も識別子の一部として扱う。
+#[test]
+fn shift_jis_root_and_quoted_system_id_survive_brackets() {
+    let name = b"\x83\x65\x81\x5b\x83\x75\x83\x8b"; // テーブル
+    for (suffix, expected) in [
+        (" SYSTEM 'sample.dtd'>", Some("sample.dtd")),
+        (
+            " PUBLIC '-//Example//EN' \"dir/[test]a'b.dtd\" [<!ELEMENT x EMPTY>]>",
+            Some("dir/[test]a'b.dtd"),
+        ),
+        (" [<!ENTITY note 'sample.dtd'>]>", None),
+    ] {
+        let mut xml = b"<?xml version='1.0' encoding='Shift_JIS'?><!DOCTYPE ".to_vec();
+        xml.extend_from_slice(name);
+        xml.extend_from_slice(suffix.as_bytes());
+        xml.push(b'<');
+        xml.extend_from_slice(name);
+        xml.extend_from_slice(b"/>");
+        let (package, diagnostics) = with_cx(|cx| read(&[("DLA001_M.XML", &xml)], cx));
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let package = package.unwrap();
+        assert_eq!(package.managed[0].root.name, "テーブル");
+        assert_eq!(package.managed[0].doctype.as_deref(), expected);
+    }
+}

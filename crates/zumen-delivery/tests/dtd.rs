@@ -129,7 +129,7 @@ fn setup() -> Option<(PathBuf, Oracle)> {
 }
 
 /// フォルダーの下の、名前が `MANAGED` にあるファイル（大文字と小文字を区別しない）。道筋の順
-fn find(folder: &Path, out: &mut Vec<PathBuf>) {
+fn find(folder: &Path, accept: &impl Fn(&str) -> bool, out: &mut Vec<PathBuf>) {
     let mut entries: Vec<PathBuf> = std::fs::read_dir(folder)
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -137,15 +137,11 @@ fn find(folder: &Path, out: &mut Vec<PathBuf>) {
     entries.sort();
     for path in entries {
         if path.is_dir() {
-            find(&path, out);
+            find(&path, accept, out);
         } else if path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| {
-                MANAGED
-                    .iter()
-                    .any(|(file, _)| file.eq_ignore_ascii_case(name))
-            })
+            .is_some_and(accept)
         {
             out.push(path);
         }
@@ -283,7 +279,15 @@ fn core(name: &str, bytes: &[u8]) -> (Option<String>, Record) {
 /// 作成例を読み、ファイルの名前・バイト列・DTD のフォルダーを返す
 fn examples(folder: &Path) -> Vec<(String, Vec<u8>, PathBuf)> {
     let mut files = Vec::new();
-    find(folder, &mut files);
+    find(
+        folder,
+        &|name| {
+            MANAGED
+                .iter()
+                .any(|(file, _)| file.eq_ignore_ascii_case(name))
+        },
+        &mut files,
+    );
     files
         .iter()
         .map(|path| {
@@ -335,39 +339,43 @@ fn rewritten_management_files_stay_valid_under_the_dtd() {
     let examples = examples(&folder);
     assert_eq!(examples.len(), MANAGED.len(), "作成例が足りない");
     for (name, bytes, dtd) in examples {
-        let (_, lxml) = external(&oracle, &dtd, &bytes).unwrap();
-        let (_, record) = core(&name, &bytes);
-        let mut expected = rows(&record);
-        assert_eq!(expected.len(), lxml.len(), "{name}");
-        // DTD が文字を許す、子の要素を持たない項目だけを変える。値は文字参照にする記号と、Shift_JIS で書ける日本語
-        let mut paths = Vec::new();
-        let mut values = Vec::new();
-        for ((row, leaf), (_, allowed, _)) in expected.iter_mut().zip(&lxml) {
-            if let (Some(path), true) = (leaf.take(), *allowed) {
-                let value = format!("更新{} <&> \"'値", values.len());
-                row.2 = Some(value.clone());
-                paths.push(path);
-                values.push(value);
-            }
-        }
-        assert!(!paths.is_empty(), "{name}");
-        let edits: Vec<Edit<'_>> = paths
-            .iter()
-            .zip(&values)
-            .map(|(path, value)| Edit::SetText { path, value })
-            .collect();
-        let (written, codes) = with_cx(|cx| write_xml(&bytes, &edits, cx));
-        assert!(codes.is_empty(), "{name}: {codes:?}");
-        let written = written.unwrap();
-        let (_, after) = external(&oracle, &dtd, &written)
-            .unwrap_or_else(|error| panic!("{name} の書き戻し: {error}"));
-        let expected: Vec<Row> = expected.into_iter().map(|(row, _)| row).collect();
-        let after: Vec<Row> = after.into_iter().map(|(row, _, _)| row).collect();
-        assert_eq!(after, expected, "{name} の書き戻し");
-        let (_, reread) = core(&name, &written);
-        let reread: Vec<Row> = rows(&reread).into_iter().map(|(row, _)| row).collect();
-        assert_eq!(reread, expected, "{name} の再読");
+        check_rewrite(&name, &bytes, &dtd, &oracle);
     }
+}
+
+fn check_rewrite(name: &str, bytes: &[u8], dtd: &Path, oracle: &Oracle) {
+    let (_, lxml) = external(oracle, dtd, bytes).unwrap();
+    let (_, record) = core(name, bytes);
+    let mut expected = rows(&record);
+    assert_eq!(expected.len(), lxml.len(), "{name}");
+    // DTD が文字を許す、子の要素を持たない項目だけを変える。値は文字参照にする記号と、Shift_JIS で書ける日本語
+    let mut paths = Vec::new();
+    let mut values = Vec::new();
+    for ((row, leaf), (_, allowed, _)) in expected.iter_mut().zip(&lxml) {
+        if let (Some(path), true) = (leaf.take(), *allowed) {
+            let value = format!("更新{} <&> \"'値", values.len());
+            row.2 = Some(value.clone());
+            paths.push(path);
+            values.push(value);
+        }
+    }
+    assert!(!paths.is_empty(), "{name}");
+    let edits: Vec<Edit<'_>> = paths
+        .iter()
+        .zip(&values)
+        .map(|(path, value)| Edit::SetText { path, value })
+        .collect();
+    let (written, codes) = with_cx(|cx| write_xml(bytes, &edits, cx));
+    assert!(codes.is_empty(), "{name}: {codes:?}");
+    let written = written.unwrap();
+    let (_, after) = external(oracle, dtd, &written)
+        .unwrap_or_else(|error| panic!("{name} の書き戻し: {error}"));
+    let expected: Vec<Row> = expected.into_iter().map(|(row, _)| row).collect();
+    let after: Vec<Row> = after.into_iter().map(|(row, _, _)| row).collect();
+    assert_eq!(after, expected, "{name} の書き戻し");
+    let (_, reread) = core(name, &written);
+    let reread: Vec<Row> = rows(&reread).into_iter().map(|(row, _)| row).collect();
+    assert_eq!(reread, expected, "{name} の再読");
 }
 
 /// 要素ごとの記録と、根からの経路。文書の順
@@ -453,48 +461,122 @@ fn appended_records_stay_valid_under_the_dtd() {
     let examples = examples(&folder);
     assert_eq!(examples.len(), MANAGED.len(), "作成例が足りない");
     for (name, bytes, dtd) in examples {
-        let (_, lxml) = external(&oracle, &dtd, &bytes).unwrap();
-        let (_, record) = core(&name, &bytes);
-        let mut all = Vec::new();
-        elements(&record, &mut Vec::new(), &mut all);
-        assert_eq!(all.len(), lxml.len(), "{name}");
-        let allowed: BTreeSet<String> = lxml
-            .iter()
-            .filter(|(_, allowed, _)| *allowed)
-            .map(|((_, element, _), _, _)| element.clone())
-            .collect();
-        // 親の最後の子の要素で、DTD が親の中で単独の繰り返しを許すものを、写して親の末尾に足す
-        let mut count = 0;
-        let mut added: Vec<(Vec<PathStep>, NewElement)> = Vec::new();
-        for (index, ((element, path), (_, _, repeat))) in all.iter().zip(&lxml).enumerate() {
-            let depth = path.len();
-            let last = all
-                .get(index + 1..)
-                .unwrap()
-                .iter()
-                .take_while(|(_, next)| next.len() >= depth)
-                .all(|(_, next)| next.len() > depth);
-            if *repeat && last && depth > 0 {
-                let parent = path.get(..depth - 1).unwrap().to_vec();
-                added.push((parent, copy(element, &allowed, &mut count)));
-            }
-        }
-        assert!(!added.is_empty(), "{name}: 足せる記録がない");
-        let edits: Vec<Edit<'_>> = added
-            .iter()
-            .map(|(path, child)| Edit::Append { path, child })
-            .collect();
-        let (written, codes) = with_cx(|cx| write_xml(&bytes, &edits, cx));
-        assert!(codes.is_empty(), "{name}: {codes:?}");
-        let written = written.unwrap();
-        let (_, after) = external(&oracle, &dtd, &written)
-            .unwrap_or_else(|error| panic!("{name} の記録の追加: {error}"));
-        let mut expected = Vec::new();
-        grown(&record, 0, &mut Vec::new(), &added, &mut expected);
-        let after: Vec<Row> = after.into_iter().map(|(row, _, _)| row).collect();
-        assert_eq!(after, expected, "{name} の記録の追加");
-        let (_, reread) = core(&name, &written);
-        let reread: Vec<Row> = rows(&reread).into_iter().map(|(row, _)| row).collect();
-        assert_eq!(reread, expected, "{name} の追加の再読");
+        check_append(&name, &bytes, &dtd, &oracle);
     }
+}
+
+fn check_append(name: &str, bytes: &[u8], dtd: &Path, oracle: &Oracle) -> usize {
+    let ((root, system), lxml) = external(oracle, dtd, bytes).unwrap();
+    let (doctype, record) = core(name, bytes);
+    assert_eq!(record.name, root, "{name}");
+    assert_eq!(doctype.as_deref(), Some(system.as_str()), "{name}");
+    assert!(
+        rows(&record)
+            .iter()
+            .map(|(row, _)| row)
+            .eq(lxml.iter().map(|(row, _, _)| row)),
+        "{name} の読み"
+    );
+    let mut all = Vec::new();
+    elements(&record, &mut Vec::new(), &mut all);
+    assert_eq!(all.len(), lxml.len(), "{name}");
+    let allowed: BTreeSet<String> = lxml
+        .iter()
+        .filter(|(_, allowed, _)| *allowed)
+        .map(|((_, element, _), _, _)| element.clone())
+        .collect();
+    // 親の最後の子の要素で、DTD が親の中で単独の繰り返しを許すものを、写して親の末尾に足す
+    let mut count = 0;
+    let mut added: Vec<(Vec<PathStep>, NewElement)> = Vec::new();
+    for (index, ((element, path), (_, _, repeat))) in all.iter().zip(&lxml).enumerate() {
+        let depth = path.len();
+        let last = all
+            .get(index + 1..)
+            .unwrap()
+            .iter()
+            .take_while(|(_, next)| next.len() >= depth)
+            .all(|(_, next)| next.len() > depth);
+        if *repeat && last && depth > 0 {
+            let parent = path.get(..depth - 1).unwrap().to_vec();
+            added.push((parent, copy(element, &allowed, &mut count)));
+        }
+    }
+    assert!(!added.is_empty(), "{name}: 足せる記録がない");
+    let edits: Vec<Edit<'_>> = added
+        .iter()
+        .map(|(path, child)| Edit::Append { path, child })
+        .collect();
+    let (written, codes) = with_cx(|cx| write_xml(bytes, &edits, cx));
+    assert!(codes.is_empty(), "{name}: {codes:?}");
+    let written = written.unwrap();
+    let (_, after) = external(oracle, dtd, &written)
+        .unwrap_or_else(|error| panic!("{name} の記録の追加: {error}"));
+    let mut expected = Vec::new();
+    grown(&record, 0, &mut Vec::new(), &added, &mut expected);
+    let after: Vec<Row> = after.into_iter().map(|(row, _, _)| row).collect();
+    assert_eq!(after, expected, "{name} の記録の追加");
+    let (_, reread) = core(name, &written);
+    let reread: Vec<Row> = rows(&reread).into_iter().map(|(row, _)| row).collect();
+    assert_eq!(reread, expected, "{name} の追加の再読");
+    added.len()
+}
+
+/// 作成例のない施設台帳 29 種・機器台帳 79 種に、DTD の要素を 1 つずつ持つ自作の管理 XML を作る。
+#[test]
+fn facility_and_equipment_ledgers_without_examples_accept_text_and_new_records() {
+    let Some((folder, oracle)) = setup() else {
+        return;
+    };
+    let mut files = Vec::new();
+    find(
+        &folder,
+        &|name| {
+            let name = name.to_ascii_uppercase();
+            let number = name
+                .strip_suffix("_03.DTD")
+                .and_then(|stem| stem.strip_prefix(['I', 'A']));
+            number.is_some_and(|n| n.len() == 3 && n.bytes().all(|b| b.is_ascii_digit()))
+                && !matches!(name.as_str(), "I020_03.DTD" | "A026_03.DTD")
+        },
+        &mut files,
+    );
+    let mut seen = BTreeSet::new();
+    let mut groups = [(0usize, 0usize); 2];
+    for path in files {
+        let dtd = path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_ascii_uppercase();
+        assert!(seen.insert(dtd.clone()), "{dtd} が重複しています");
+        let xml = Command::new(&oracle.0)
+            .args(["-I", "-X", "utf8"])
+            .arg(&oracle.1)
+            .arg("--ledger-input")
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(
+            xml.status.success(),
+            "{dtd} の自作入力を作れませんでした: {}",
+            String::from_utf8_lossy(&xml.stderr)
+        );
+        let group = usize::from(dtd.starts_with('A'));
+        let directory = path.parent().unwrap();
+        let name = if group == 0 {
+            "DLI001_M.XML"
+        } else {
+            "DLA001_M.XML"
+        };
+        check_rewrite(name, &xml.stdout, directory, &oracle);
+        let added = check_append(name, &xml.stdout, directory, &oracle);
+        groups[group].0 += 1;
+        groups[group].1 += added;
+    }
+    assert_eq!(
+        groups,
+        [(29, 29), (79, 171)],
+        "施設・機器台帳の（DTD の種類数、追加した記録数）"
+    );
 }
