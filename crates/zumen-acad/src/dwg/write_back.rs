@@ -835,7 +835,7 @@ impl DwgFile {
     /// 足した表のレコード `object` のハンドルと、R2000 のレコードのデータ（決定 0061〜0068）。所有者（330）の
     /// 表のオブジェクトの項目の数を増やし、終わりに新しいレコードのハンドルを足したデータを `changes` に入れる。
     /// 画層・文字スタイル・線種・アプリケーションの名前（APPID）・寸法スタイル・ビュー・ビューポートの設定（VPORT）・
-    /// ブロックのレコードだけを扱い、名前（2）が表にないことが要る。
+    /// ブロックのレコードと、R2010 以降の名前付き UCS を扱い、名前（2）が表にないことが要る。
     /// 画層は、フラグ（70）・色（62）・線の太さ（370）を持ち、印刷スタイル（390）と線種（6）が表になければ
     /// ならない。印刷スタイルがなければ、画層 0 と同じものにする。文字スタイルは、型ごとのフィールドをみな持たなければ
     /// ならない。線種は、要素がみな形も文字も持たないことが要る。アプリケーションの名前は、フラグ（70）が 0 で
@@ -878,6 +878,7 @@ impl DwgFile {
             b"APPID" => (kinds::APPID, kinds::APPID_CONTROL, &[70]),
             b"DIMSTYLE" => (kinds::DIMSTYLE, kinds::DIMSTYLE_CONTROL, &dimstyle_codes),
             b"VIEW" => (kinds::VIEW, kinds::VIEW_CONTROL, &view_codes),
+            b"UCS" if self.release >= Release::R2010 => (kinds::UCS, kinds::UCS_CONTROL, UCS),
             b"VPORT" => (kinds::VPORT, kinds::VPORT_CONTROL, &vport_codes),
             b"BLOCK_RECORD" => (
                 kinds::BLOCK_RECORD,
@@ -1080,6 +1081,18 @@ impl DwgFile {
             if r2010 {
                 handles.handle(4, 0);
             }
+        } else if type_code == kinds::UCS {
+            // 名前付き UCS の原点と 2 軸（3BD）、高さ（BD）、正投影の種類と原点数（BS）。
+            // #156 の自作サンプルと同じ、基準・名前付き UCS への参照を持たない座標系を足す。
+            (record_flags(object, false, 0)? == 0 && small(object, 79)?? == 0).then_some(())?;
+            for code in [10, 11, 12] {
+                point3(&mut fields, object, code)?;
+            }
+            fields.bd(real(object, 146)??);
+            fields.bs(0);
+            fields.bs(0);
+            handles.handle(5, 0);
+            handles.handle(5, 0);
         } else if type_code == kinds::VPORT {
             // 使い道の分からないビットは、サンプルの図面と同じく偽とする
             let (lighting, bits) = default_lighting();

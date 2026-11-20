@@ -584,10 +584,10 @@ pub(super) fn adopt_r2010(
 /// R2010 から後の DWG に足せるものか（決定 0092〜0102）。型ごとのフィールドと文字列のストリームが R2000 と同じ形に
 /// 書ける図形と、MTEXT と、属性を持つ INSERT とその ATTRIB・SEQEND と、SPLINE（R2013 からは
 /// 制御点のものだけ）と、
-/// UCS のほかの表のレコードと、足したブロックを足せる。格子を持つもの（MINSERT）も足せる
+/// 表のレコードと、足したブロックを足せる。格子を持つもの（MINSERT）も足せる
 pub(super) fn r2010_addable(object: &Object) -> bool {
     // 表のレコードは、LAYER・STYLE・LTYPE・APPID（決定 0094）と、DIMSTYLE・VIEW・ブロックのレコード
-    // （決定 0095）を足せる
+    // （決定 0095）、VPORT と名前付き UCS を足せる
     if object.section == Section::Tables {
         return matches!(
             object.kind.as_slice(),
@@ -598,6 +598,7 @@ pub(super) fn r2010_addable(object: &Object) -> bool {
                 | b"DIMSTYLE"
                 | b"VIEW"
                 | b"VPORT"
+                | b"UCS"
                 | b"BLOCK_RECORD"
         );
     }

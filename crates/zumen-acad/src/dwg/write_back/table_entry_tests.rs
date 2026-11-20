@@ -228,3 +228,103 @@ fn named_ucs_keeps_its_axes_and_handles_when_moving_the_origin() {
         assert!(edit(&changed_axis).is_none());
     }
 }
+
+/// 名前付き UCS の追加で表の項目と HANDSEED が進み、正投影の UCS を要求したときは原本を保つ（#156）。
+#[test]
+fn new_named_ucs_updates_the_control_and_preserves_the_original_on_rejection() {
+    let src = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../samples/dwg/zumen-layout-r2018.dwg"),
+    )
+    .unwrap();
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let mut file = crate::Dwg::read(&src, &mut cx).unwrap();
+    let control = |file: &DwgFile| {
+        let entry = file
+            .entries
+            .iter()
+            .find(|entry| entry.type_code == kinds::UCS_CONTROL)
+            .unwrap();
+        let (count, entries) = listed(file.data(entry), entry.handles, file.release);
+        (entry.handle, entries[..count].to_vec())
+    };
+    let (owner, mut listed_handles) = control(&file);
+    let seed = file.handle_seed().unwrap();
+    let mut db = file.objects(&mut cx).unwrap();
+    let mut values = vec![
+        Value {
+            code: 5,
+            data: Data::Handle(seed),
+        },
+        Value {
+            code: 330,
+            data: Data::Handle(owner),
+        },
+        Value {
+            code: 2,
+            data: Data::Text(b"TEST_UCS".to_vec()),
+        },
+        Value {
+            code: 70,
+            data: Data::Int(0),
+        },
+    ];
+    for (base, xyz) in [
+        (10, [1.0, 2.0, 3.0]),
+        (11, [0.0, 1.0, 0.0]),
+        (12, [-1.0, 0.0, 0.0]),
+    ] {
+        for (code, v) in [base, base + 10, base + 20].into_iter().zip(xyz) {
+            values.push(Value {
+                code,
+                data: Data::Real(v),
+            });
+        }
+    }
+    values.push(Value {
+        code: 79,
+        data: Data::Int(0),
+    });
+    values.push(Value {
+        code: 146,
+        data: Data::Real(3.5),
+    });
+    let new = Object {
+        kind: b"UCS".to_vec(),
+        section: Section::Tables,
+        origin: Origin::New,
+        values,
+    };
+    let mut orthographic = new.clone();
+    orthographic
+        .values
+        .iter_mut()
+        .find(|v| v.code == 79)
+        .unwrap()
+        .data = Data::Int(1);
+    let mut unsupported = db.clone();
+    unsupported.push(orthographic);
+    assert!(file.write_back(&unsupported, &mut cx).is_err());
+    let mut unchanged = Vec::new();
+    crate::Dwg::write(&file, &mut unchanged, &mut cx).unwrap();
+    assert_eq!(unchanged, src.as_slice());
+
+    db.push(new.clone());
+    file.write_back(&db, &mut cx).unwrap();
+    let mut out = Vec::new();
+    crate::Dwg::write(&file, &mut out, &mut cx).unwrap();
+    let saved = crate::Dwg::read(&out, &mut cx).unwrap();
+    listed_handles.push(seed);
+    assert_eq!(control(&saved), (owner, listed_handles));
+    assert_eq!(saved.handle_seed(), Some(seed + 1));
+    let again = saved.objects(&mut cx).unwrap();
+    for value in &new.values {
+        assert_eq!(
+            again.get(seed).unwrap().first(value.code),
+            Some(&value.data)
+        );
+    }
+}
