@@ -5,7 +5,7 @@
 #![cfg(feature = "drawing")]
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
-use zumen_drawing::{Drawing2D, FieldValue};
+use zumen_drawing::{Drawing2D, FieldValue, Target};
 use zumen_sdk::testkit;
 use zumen_sxf::saf::{self, AttributeFile};
 use zumen_sxf::{Sxf, SxfFile};
@@ -205,6 +205,81 @@ fn binds_attributes_to_the_elements_of_the_figure() {
             ("value", text("102.0400")),
         ]
     );
+}
+
+/// P21 の作図グループの定義と配置が SAF 名を省いたときも、指定した SAF を図形識別番号で結ぶ（#902）。
+#[test]
+fn p21_binds_by_figure_id_when_the_group_omits_the_saf_name() {
+    let source = b"ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+#1=DRAUGHTING_PRE_DEFINED_COLOUR('black');
+#2=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');
+#3=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));
+#4=LENGTH_MEASURE_WITH_UNIT(POSITIVE_LENGTH_MEASURE(0.13),#3);
+#5=CURVE_STYLE(' ',#2,#4,#1);
+#6=PRESENTATION_STYLE_ASSIGNMENT((#5));
+#7=PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)));
+#10=CARTESIAN_POINT(' ',(0.,0.));
+#11=AXIS2_PLACEMENT_2D(' ',#10,$);
+#12=CARTESIAN_POINT(' ',(5.,3.));
+#13=POLYLINE(' ',(#10,#12));
+#14=ANNOTATION_CURVE_OCCURRENCE(' ',(#6),#13);
+#20=DRAUGHTING_SUBFIGURE_REPRESENTATION('$$SXF_G_$$ATRF$$7',(#14,#11),$);
+#21=SYMBOL_REPRESENTATION_MAP(#11,#20);
+#22=SYMBOL_TARGET(' ',#11,1.,1.);
+#23=(ANNOTATION_SYMBOL() GEOMETRIC_REPRESENTATION_ITEM() MAPPED_ITEM(#21,#22) REPRESENTATION_ITEM(' '));
+#24=(ANNOTATION_OCCURRENCE() ANNOTATION_SUBFIGURE_OCCURRENCE() ANNOTATION_SYMBOL_OCCURRENCE() DRAUGHTING_ANNOTATION_OCCURRENCE() GEOMETRIC_REPRESENTATION_ITEM() REPRESENTATION_ITEM('$$SXF_G_$$ATRF$$7') STYLED_ITEM((#7),#23));
+#30=DRAWING_SHEET_REVISION('A3_horizontal',(#24),$,'01');
+#31=PRESENTATION_LAYER_ASSIGNMENT('L',' ',(#14,#24));
+ENDSEC;
+END-ISO-10303-21;";
+    let sidecar = r#"<SxfAttributeXML version="3.1" date="2026-01-01" sxfFile="test.p21" application="test">
+<AttributeSet name="measure" version="1" designedBy="test">1</AttributeSet>
+<Figure id="7" name="path"><AttrSetRef id="1"><Attr name="length" type="LEN" unit="m">5</Attr></AttrSetRef></Figure>
+</SxfAttributeXML>"#;
+    let (attributes, codes) = read(sidecar);
+    assert!(codes.is_empty());
+    let attributes = attributes.unwrap();
+    let (file, read_diagnostics) = testkit::read::<Sxf>(source);
+    assert!(read_diagnostics.is_empty());
+    let file = file.unwrap();
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let drawing = file
+        .lift_with(
+            Some(&attributes),
+            &mut Cx::new(&mut budget, &mut diag, &cancel),
+        )
+        .unwrap();
+    assert!(diag.is_empty(), "{diag:?}");
+    let mut bound = drawing
+        .extensions
+        .iter()
+        .filter(|e| e.namespace == "sxf.saf");
+    let attribute = bound.next().unwrap();
+    assert!(bound.next().is_none());
+    assert_eq!(attribute.name, "length");
+    assert!(matches!(attribute.target, Target::Element(_)));
+    let group = drawing
+        .extensions
+        .iter()
+        .find(|e| e.namespace == "sxf.attribute")
+        .unwrap();
+    assert_eq!(attribute.target, group.target);
+    assert!(attribute.is_current(&drawing));
+    for (key, expected) in [("figure", "7"), ("set", "1"), ("unit", "m"), ("value", "5")] {
+        assert!(
+            attribute
+                .fields
+                .iter()
+                .any(|f| f.key == key && f.value == FieldValue::Text(expected.into()))
+        );
+    }
 }
 
 #[test]
