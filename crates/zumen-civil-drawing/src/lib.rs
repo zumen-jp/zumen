@@ -104,6 +104,9 @@ pub fn drawing(
     for value in &alignment.ground_profiles {
         omitted_value("ground_profile", &value.source, cx)?;
     }
+    for value in &alignment.cant {
+        omitted_value("cant", &value.source, cx)?;
+    }
     if let Some(value) = &model.height_reference {
         omitted_value("height_reference", &value.source, cx)?;
     }
