@@ -435,9 +435,19 @@ fn failed_conversion_publishes_neither_document_nor_blob_and_can_be_retried() {
 #[test]
 fn stops_at_different_phases_have_one_diagnostic() {
     use zumen_base::{Kind, Limit, Limits, codes};
+    #[derive(Debug)]
+    enum Format {
+        Sxf,
+        Jww,
+        Dxf,
+    }
     let model = drawing();
     let dimensions = lift_dxf(dimension_source().as_bytes());
-    for (format, input) in [("sxf", &model), ("jww", &model), ("dxf", &dimensions)] {
+    for (format, input) in [
+        (Format::Sxf, &model),
+        (Format::Jww, &model),
+        (Format::Dxf, &dimensions),
+    ] {
         for kind in [Kind::Work, Kind::DecodedBytes] {
             let run = |limit| {
                 let mut budget = Budget::new(Limits::default().with(kind, limit));
@@ -445,16 +455,15 @@ fn stops_at_different_phases_have_one_diagnostic() {
                 let cancel = CancelToken::new();
                 let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
                 let result = match format {
-                    "sxf" => zumen_sxf::lower_to_p21(input, 100, &mut cx).map(|_| ()),
-                    "jww" => zumen_jww::lower_to_jww(input, 100, &mut cx).map(|_| ()),
-                    "dxf" => zumen_acad::lower_to_dxf_with_report(
+                    Format::Sxf => zumen_sxf::lower_to_p21(input, 100, &mut cx).map(|_| ()),
+                    Format::Jww => zumen_jww::lower_to_jww(input, 100, &mut cx).map(|_| ()),
+                    Format::Dxf => zumen_acad::lower_to_dxf_with_report(
                         input,
                         &zumen_acad::Reseat,
                         100,
                         &mut cx,
                     )
                     .map(|_| ()),
-                    _ => unreachable!(),
                 };
                 (result, budget.used(kind), diagnostics)
             };
@@ -478,7 +487,7 @@ fn stops_at_different_phases_have_one_diagnostic() {
                         .map(|d| d.count())
                         .sum::<u64>(),
                     1,
-                    "{format} {kind:?} {limit}"
+                    "{format:?} {kind:?} {limit}"
                 );
                 assert!(
                     !diagnostics
