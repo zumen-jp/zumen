@@ -78,7 +78,7 @@ impl JwwLive {
             let length = 8 + decimal_digits(found.space.0 as usize) + decimal_digits(record);
             cx.check(Kind::DecodedBytes, length as u64)?;
             let id = self.canonical_id(found.space, found.slot);
-            let hash = Hash::element_checked(&found.element, cx)?;
+            let hash = Hash::element_checked(&found.element(), cx)?;
             Ok(Seen { id, hash })
         })();
         result.map(Some).map_err(|stop| {
@@ -223,7 +223,7 @@ impl JwwLive {
             return Ok(None);
         }
         match self.table.row(row) {
-            Some(found) => copied_text(&found.element.shape, cx).map(Some),
+            Some(found) => copied_text(&found.element().shape, cx).map(Some),
             None => Ok(None),
         }
     }
@@ -246,10 +246,11 @@ impl JwwLive {
             .filter(|found| found.space.0 < DEFINITION_SPACES)
             .map(|found| {
                 let space = found.space;
+                let (layer, style) = found.layer_and_style();
                 let template = Placed::Model(Element {
                     source: Ref::default(),
-                    layer: found.element.layer,
-                    style: found.element.style,
+                    layer,
+                    style,
                     shape: Shape::Line {
                         start: ModelPoint {
                             space,
@@ -280,7 +281,7 @@ impl JwwLive {
             return Ok(None);
         }
         match self.table.row(row) {
-            Some(found) => Ok(retexted(&found.element, content, cx)?.map(Placed::Model)),
+            Some(found) => Ok(retexted(&found.element(), content, cx)?.map(Placed::Model)),
             None => Ok(None),
         }
     }
@@ -418,12 +419,8 @@ impl JwwLive {
     /// 記号の定義 `index` のキー。範囲外なら `None`
     pub fn display_symbol_key(&self, index: u32) -> Option<SymbolKey> {
         let target = index as usize;
-        self.base_records.iter().find_map(|rec| match rec.outcome {
-            BaseOutcome::BlockDef {
-                symbol_index,
-                number,
-                ..
-            } if symbol_index == target => Some(block_key(number)),
+        self.base_records.iter().find_map(|rec| match &rec.outcome {
+            BaseOutcome::BlockDef(def) if def.symbol_index == target => Some(block_key(def.number)),
             _ => None,
         })
     }
@@ -477,9 +474,9 @@ impl JwwLive {
         for (_, element) in rows {
             cx.check(Kind::Work, 1)?;
             let (counts, style) =
-                display_definition_counts_and_style(element, &self.symbol_index_by_key);
+                display_definition_counts_and_style(&element, &self.symbol_index_by_key);
             display.push_with_cx(cx, counts, style, |writer| {
-                write_definition_display(element, &self.symbol_index_by_key, writer);
+                write_definition_display(&element, &self.symbol_index_by_key, writer);
             })?;
             written = written.saturating_add(1);
         }

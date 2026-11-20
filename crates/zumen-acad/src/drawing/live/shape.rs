@@ -158,11 +158,11 @@ pub struct ExtraStyle {
 }
 
 impl ExtraStyle {
-    /// すべて `ByLayer`・尺度 `1.0` の既定スタイルか
+    /// `row.color` の符号化だけで完全に戻せる既定スタイルか
     pub fn is_default_layer(&self) -> bool {
-        self.color == Inherit::Layer
+        unpack_color(pack_color(self.color)) == self.color
             && self.line_type == LineTypeSlotRef::Layer
-            && self.line_type_scale == 1.0
+            && self.line_type_scale.to_bits() == 1.0_f64.to_bits()
             && self.line_weight == Inherit::Layer
             && self.transparency == Inherit::Layer
     }
@@ -271,23 +271,17 @@ pub struct PolyGeom {
     pub flags: u8,
 }
 
-/// `TEXT` / `ATTRIB` の幾何
-#[derive(Clone, Copy, Debug)]
-pub struct TextGeom {
-    /// 基点（`Between` のときは始点）
-    pub point: [f64; 2],
-    /// 終点（`Between` のみ使用）
-    pub second: [f64; 2],
-    /// 文字高さ
-    pub height: f64,
-    /// 回転（度）
-    pub rotation: f64,
-    /// 幅の係数
-    pub width_factor: f64,
-    /// 傾斜角（度）
-    pub oblique: f64,
-    /// UTF-8 文字列の `Pools::bytes` 範囲
-    pub content: TextSpan,
+/// `TEXT` / `ATTRIB` で共有する高さ・回転・係数・スタイル・揃えの設定
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextSpec {
+    /// 文字高さのビット表現
+    pub height_bits: u64,
+    /// 回転（度）のビット表現
+    pub rotation_bits: u64,
+    /// 幅係数のビット表現
+    pub width_factor_bits: u64,
+    /// 傾斜角（度）のビット表現
+    pub oblique_bits: u64,
     /// 文字スタイル名の `Pools::bytes` 範囲
     pub style: TextSpan,
     /// 横揃え（`0..=3`、または `4 = Aligned`・`5 = Fit`）
@@ -298,54 +292,98 @@ pub struct TextGeom {
     pub flags: u8,
 }
 
+impl TextSpec {
+    const DEFAULT: Self = Self {
+        height_bits: 1.0_f64.to_bits(),
+        rotation_bits: 0.0_f64.to_bits(),
+        width_factor_bits: 1.0_f64.to_bits(),
+        oblique_bits: 0.0_f64.to_bits(),
+        style: TextSpan::EMPTY,
+        horizontal: 0,
+        vertical: 0,
+        flags: 0,
+    };
+
+    #[inline]
+    pub const fn height(&self) -> f64 {
+        f64::from_bits(self.height_bits)
+    }
+
+    #[inline]
+    pub const fn rotation(&self) -> f64 {
+        f64::from_bits(self.rotation_bits)
+    }
+
+    #[inline]
+    pub const fn width_factor(&self) -> f64 {
+        f64::from_bits(self.width_factor_bits)
+    }
+
+    #[inline]
+    pub const fn oblique(&self) -> f64 {
+        f64::from_bits(self.oblique_bits)
+    }
+}
+
+/// `TEXT` / `ATTRIB` の幾何
+#[derive(Clone, Copy, Debug)]
+pub struct TextGeom {
+    /// 基点（`Between` のときは始点）
+    pub point: [f64; 2],
+    /// UTF-8 文字列の `Pools::bytes` 範囲
+    pub content: TextSpan,
+    /// `Pools::text_specs` の添字
+    pub spec: u32,
+    /// `Between` 終点の `Pools::xy` 添字（`Anchor` なら `u32::MAX`）
+    pub second_xy: u32,
+}
+
+const _: () = assert!(core::mem::size_of::<TextGeom>() == 32);
+
 /// `INSERT` に付く 1 つの `ATTRIB`
 #[derive(Clone, Copy, Debug)]
 pub struct AttribRow {
-    /// レコード番号
-    pub record: u32,
-    /// DWG 出所の開始バイト（DXF では `0`）
-    pub origin_start: u32,
-    /// DWG 出所の終了バイト（DXF では `0`）
-    pub origin_end: u32,
     /// ハンドル（`has_handle` が真のときのみ有効）
     pub handle: u64,
-    /// 画層スロット
-    pub layer_slot: u32,
+    /// 文字の幾何
+    pub text: TextGeom,
+    /// タグ名の `Pools::bytes` 範囲
+    pub tag: TextSpan,
+    /// レコード番号
+    pub record: u32,
+    /// 下位 28 ビットが画層スロット、上位 4 ビットが状態ビット（0: `hidden`、1: `has_handle`、2: `dwg_origin`、3: `born`）
+    pub layer_and_flags: u32,
     /// 表示用 32 ビット色
     pub color: u32,
     /// 共通スタイルの追加添字（`u32::MAX` なら既定）
     pub extra: u32,
-    /// タグ名の `Pools::bytes` 範囲
-    pub tag: TextSpan,
-    /// 文字の幾何
-    pub text: TextGeom,
-    /// 状態ビット（ビット 0: `hidden`、ビット 1: `has_handle`、ビット 2: `dwg_origin`、ビット 3: `born`）
-    pub attrib_flags: u8,
 }
 
+const _: () = assert!(core::mem::size_of::<AttribRow>() == 64);
+
 impl AttribRow {
-    /// 出所 [`Ref`] を組み立てる
-    pub fn source_ref(&self) -> Ref {
-        let base = if self.attrib_flags & (1 << 3) != 0 {
-            Ref::default()
-        } else if self.attrib_flags & (1 << 2) != 0 {
-            Ref::at_bytes(u64::from(self.origin_start), u64::from(self.origin_end))
-        } else {
-            Ref::at_record(u64::from(self.record))
-        };
-        if self.attrib_flags & (1 << 1) != 0 {
-            base.with_key(Key::Handle(self.handle))
-        } else {
-            base
-        }
+    /// 画層スロット番号
+    #[inline]
+    pub const fn layer_slot(&self) -> u32 {
+        self.layer_and_flags & 0x0FFF_FFFF
+    }
+
+    /// 状態ビット
+    #[inline]
+    pub const fn attrib_flags(&self) -> u8 {
+        (self.layer_and_flags >> 28) as u8
+    }
+
+    /// 非表示属性か
+    #[inline]
+    pub const fn is_hidden(&self) -> bool {
+        (self.layer_and_flags >> 28) & 1 != 0
     }
 }
 
-/// `INSERT` の幾何
+/// `INSERT` の既定でない尺度・回転・配列設定
 #[derive(Clone, Copy, Debug)]
-pub struct InsertGeom {
-    /// 挿入基点
-    pub position: [f64; 2],
+pub struct InsertXform {
     /// X・Y 尺度
     pub scale: [f64; 2],
     /// 回転角（度）
@@ -354,8 +392,47 @@ pub struct InsertGeom {
     pub grid: [u32; 2],
     /// 配列の列間隔・行間隔
     pub spacing: [f64; 2],
+}
+
+impl InsertXform {
+    /// 既定値（等倍・無回転・単一配置）
+    pub const DEFAULT: Self = Self {
+        scale: [1.0, 1.0],
+        rotation: 0.0,
+        grid: [1, 1],
+        spacing: [0.0, 0.0],
+    };
+
+    #[inline]
+    pub fn is_default(&self) -> bool {
+        self.scale[0].to_bits() == 1.0_f64.to_bits()
+            && self.scale[1].to_bits() == 1.0_f64.to_bits()
+            && self.rotation.to_bits() == 0.0_f64.to_bits()
+            && self.grid == [1, 1]
+            && self.spacing[0].to_bits() == 0.0_f64.to_bits()
+            && self.spacing[1].to_bits() == 0.0_f64.to_bits()
+    }
+
+    #[inline]
+    pub fn bit_eq(&self, other: &Self) -> bool {
+        self.scale[0].to_bits() == other.scale[0].to_bits()
+            && self.scale[1].to_bits() == other.scale[1].to_bits()
+            && self.rotation.to_bits() == other.rotation.to_bits()
+            && self.grid == other.grid
+            && self.spacing[0].to_bits() == other.spacing[0].to_bits()
+            && self.spacing[1].to_bits() == other.spacing[1].to_bits()
+    }
+}
+
+/// `INSERT` の幾何
+#[derive(Clone, Copy, Debug)]
+pub struct InsertGeom {
+    /// 挿入基点
+    pub position: [f64; 2],
     /// ブロック名の `Pools::bytes` 範囲
     pub name: TextSpan,
+    /// `Pools::insert_xforms` の添字（既定なら `u32::MAX`）
+    pub xform: u32,
     /// 対応する `SymbolDefinition` の添字（なければ [`NO_DEFINITION`]）
     pub definition: u32,
     /// `Pools::attribs` の開始添字
@@ -367,6 +444,8 @@ pub struct InsertGeom {
     /// 切り抜き境界（`Pools::clips` の添字、なければ `u32::MAX`）
     pub clip_index: u32,
 }
+
+const _: () = assert!(core::mem::size_of::<InsertGeom>() == 48);
 
 /// 一般行（6 種類以外の図形または拡張情報つきの図形）
 #[derive(Clone, Debug)]
@@ -388,9 +467,9 @@ pub struct GeneralRow {
 }
 
 /// ページ分割された可変長の補助列
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Pools {
-    /// ポリライン頂点の座標列
+    /// ポリライン頂点の座標列（`TextGeom` のまれな終点にも共有する）
     pub xy: Paged<[f64; 2]>,
     /// ポリライン頂点の膨らみ列
     pub bulges: Paged<f64>,
@@ -398,18 +477,200 @@ pub struct Pools {
     pub widths: Paged<[f64; 2]>,
     /// UTF-8 文字列プール
     pub bytes: BytePool,
+    /// 直近の短文字列キャッシュ（反復するタグ名・文字スタイル名・属性値の重複登録を防ぐ）
+    recent_strs: [TextSpan; 16],
+    /// `TEXT` / `ATTRIB` で共有する設定列
+    pub text_specs: Paged<TextSpec>,
+    /// 直近の `TextSpec` キャッシュ
+    recent_text_specs: [u32; 32],
+    /// `INSERT` の既定でない尺度・回転・配列設定列
+    pub insert_xforms: Paged<InsertXform>,
+    /// 直近の `InsertXform` キャッシュ
+    recent_insert_xforms: [u32; 16],
     /// `INSERT` に付く `ATTRIB` 列
     pub attribs: Paged<AttribRow>,
+    /// DWG 出所を持つ `ATTRIB` の `(attrib_idx, origin_start, origin_end)`（昇順整列）
+    pub dwg_attrib_spans: Vec<(u32, u32, u32)>,
     /// `INSERT` の切り抜き境界プール
     pub clips: Vec<Clip>,
     /// 既定でない共通スタイル列
     pub extras: Paged<ExtraStyle>,
 }
 
+impl Default for Pools {
+    fn default() -> Self {
+        Self {
+            xy: Paged::default(),
+            bulges: Paged::default(),
+            widths: Paged::default(),
+            bytes: BytePool::default(),
+            recent_strs: [TextSpan::EMPTY; 16],
+            text_specs: Paged::default(),
+            recent_text_specs: [u32::MAX; 32],
+            insert_xforms: Paged::default(),
+            recent_insert_xforms: [u32::MAX; 16],
+            attribs: Paged::default(),
+            dwg_attrib_spans: Vec::new(),
+            clips: Vec::new(),
+            extras: Paged::default(),
+        }
+    }
+}
+
 impl Pools {
     /// UTF-8 文字列をプールに積み、[`TextSpan`] を返す
     pub fn push_str(&mut self, text: &str) -> TextSpan {
-        self.bytes.push(text.as_bytes()).unwrap_or(TextSpan::EMPTY)
+        if text.is_empty() {
+            return TextSpan::EMPTY;
+        }
+        if text == "STANDARD" {
+            return TextSpan::STANDARD;
+        }
+        if text == "0" {
+            return TextSpan::ZERO;
+        }
+        let raw = text.as_bytes();
+        if raw.len() <= 64 {
+            let mut h = 0xcbf2_9ce4_8422_2325_u64;
+            for &b in raw {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+            let slot = ((h ^ (h >> 32)) as usize) & 15;
+            let cached = self
+                .recent_strs
+                .get(slot)
+                .copied()
+                .unwrap_or(TextSpan::EMPTY);
+            if cached != TextSpan::EMPTY && self.bytes.str_of(cached) == text {
+                return cached;
+            }
+            let span = self.bytes.push(raw).unwrap_or(TextSpan::EMPTY);
+            if let Some(dst) = self.recent_strs.get_mut(slot) {
+                *dst = span;
+            }
+            return span;
+        }
+        self.bytes.push(raw).unwrap_or(TextSpan::EMPTY)
+    }
+
+    /// 文字設定を登録して添字を返す
+    pub fn intern_text_spec(&mut self, spec: TextSpec) -> u32 {
+        let style_str = self.bytes.str_of(spec.style);
+        let style_hint = u64::from(style_str.as_bytes().first().copied().unwrap_or(0))
+            | ((style_str.len() as u64) << 8);
+        let h = (spec.height_bits
+            ^ spec.rotation_bits.rotate_left(13)
+            ^ spec.width_factor_bits.rotate_left(27)
+            ^ spec.oblique_bits.rotate_left(41)
+            ^ (style_hint << 16)
+            ^ (u64::from(spec.horizontal) << 48)
+            ^ (u64::from(spec.vertical) << 52)
+            ^ (u64::from(spec.flags) << 56))
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        let slot = ((h >> 59) as usize) & 31;
+        let cached = self
+            .recent_text_specs
+            .get(slot)
+            .copied()
+            .unwrap_or(u32::MAX);
+        if cached != u32::MAX && self.text_specs.get(cached as usize) == Some(&spec) {
+            return cached;
+        }
+        let idx = self.text_specs.len() as u32;
+        self.text_specs.push(spec);
+        if let Some(dst) = self.recent_text_specs.get_mut(slot) {
+            *dst = idx;
+        }
+        idx
+    }
+
+    #[inline]
+    fn text_spec(&self, g: &TextGeom) -> TextSpec {
+        self.text_specs
+            .get(g.spec as usize)
+            .copied()
+            .unwrap_or(TextSpec::DEFAULT)
+    }
+
+    #[inline]
+    fn text_second(&self, g: &TextGeom) -> [f64; 2] {
+        if g.second_xy == u32::MAX {
+            [0.0, 0.0]
+        } else {
+            self.xy
+                .get(g.second_xy as usize)
+                .copied()
+                .unwrap_or([0.0, 0.0])
+        }
+    }
+
+    /// `INSERT` の尺度・回転・配列設定を登録し、既定なら `u32::MAX`、それ以外なら添字を返す
+    pub fn intern_insert_xform(&mut self, xf: InsertXform) -> u32 {
+        if xf.is_default() {
+            return u32::MAX;
+        }
+        let h = (xf.scale[0].to_bits()
+            ^ xf.scale[1].to_bits().rotate_left(17)
+            ^ xf.rotation.to_bits().rotate_left(31)
+            ^ (u64::from(xf.grid[0]) << 8)
+            ^ (u64::from(xf.grid[1]) << 24)
+            ^ xf.spacing[0].to_bits().rotate_left(43)
+            ^ xf.spacing[1].to_bits().rotate_left(53))
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        let slot = ((h >> 60) as usize) & 15;
+        let cached = self
+            .recent_insert_xforms
+            .get(slot)
+            .copied()
+            .unwrap_or(u32::MAX);
+        if cached != u32::MAX
+            && let Some(prev) = self.insert_xforms.get(cached as usize)
+            && prev.bit_eq(&xf)
+        {
+            return cached;
+        }
+        let idx = self.insert_xforms.len() as u32;
+        self.insert_xforms.push(xf);
+        if let Some(dst) = self.recent_insert_xforms.get_mut(slot) {
+            *dst = idx;
+        }
+        idx
+    }
+
+    #[inline]
+    fn insert_xform(&self, idx: u32) -> InsertXform {
+        if idx == u32::MAX {
+            InsertXform::DEFAULT
+        } else {
+            self.insert_xforms
+                .get(idx as usize)
+                .copied()
+                .unwrap_or(InsertXform::DEFAULT)
+        }
+    }
+
+    /// `ATTRIB` の出所 [`Ref`] を組み立てる
+    pub fn attrib_source_ref(&self, attrib_idx: u32, attr: &AttribRow) -> Ref {
+        let flags = attr.attrib_flags();
+        let base = if flags & (1 << 3) != 0 {
+            Ref::default()
+        } else if flags & (1 << 2) != 0 {
+            let (start, end) = self
+                .dwg_attrib_spans
+                .binary_search_by_key(&attrib_idx, |&(idx, _, _)| idx)
+                .ok()
+                .and_then(|pos| self.dwg_attrib_spans.get(pos))
+                .map_or((0, 0), |&(_, s, e)| (s, e));
+            Ref::at_bytes(u64::from(start), u64::from(end))
+        } else {
+            Ref::at_record(u64::from(attr.record))
+        };
+        if flags & (1 << 1) != 0 {
+            base.with_key(Key::Handle(attr.handle))
+        } else {
+            base
+        }
     }
 
     /// [`TextSpan`] から所有文字列を復元する
@@ -420,12 +681,18 @@ impl Pools {
     /// 共通スタイルを登録し、既定なら `u32::MAX`、それ以外なら添字を返す
     pub fn intern_extra(&mut self, extra: ExtraStyle) -> u32 {
         if extra.is_default_layer() {
-            u32::MAX
-        } else {
-            let idx = self.extras.len() as u32;
-            self.extras.push(extra);
-            idx
+            return u32::MAX;
         }
+        if let Some(last_idx) = self.extras.len().checked_sub(1)
+            && let Some(last) = self.extras.get(last_idx)
+            && *last == extra
+            && last.line_type_scale.to_bits() == extra.line_type_scale.to_bits()
+        {
+            return last_idx as u32;
+        }
+        let idx = self.extras.len() as u32;
+        self.extras.push(extra);
+        idx
     }
 }
 
@@ -482,6 +749,94 @@ pub struct LineTypeSlotEntry {
     pub model_refs: u32,
     /// 表示名と大文字・小文字だけ違う綴りの参照があったか
     pub spelled_otherwise: bool,
+}
+
+#[inline]
+fn with_ascii_lower<R>(name: &str, f: impl FnOnce(&str) -> R) -> R {
+    if !name.bytes().any(|b| b.is_ascii_uppercase()) {
+        return f(name);
+    }
+    let mut buf = [0u8; 64];
+    if let Some(sub) = buf.get_mut(..name.len()) {
+        for (dst, src) in sub.iter_mut().zip(name.bytes()) {
+            *dst = src.to_ascii_lowercase();
+        }
+        if let Ok(lower) = core::str::from_utf8(sub) {
+            return f(lower);
+        }
+    }
+    let owned = name.to_ascii_lowercase();
+    f(&owned)
+}
+
+#[inline]
+pub(super) fn with_unicode_lower<R>(name: &str, f: impl FnOnce(&str) -> R) -> R {
+    if name.is_ascii() {
+        return with_ascii_lower(name, f);
+    }
+    let owned = name.to_lowercase();
+    f(&owned)
+}
+
+/// 22 バイト以下の短い UTF-8 文字列をヒープ確保なしで保持する軽量文字列
+#[derive(Clone, PartialEq, Eq)]
+pub enum SmallText {
+    /// スタック上のインライン保持
+    Inline([u8; 22], u8),
+    /// ヒープ保持
+    Heap(Box<str>),
+}
+
+impl SmallText {
+    /// 文字列スライスから作る
+    #[inline]
+    pub fn from_slice(text: &str) -> Self {
+        let bytes = text.as_bytes();
+        let mut buf = [0u8; 22];
+        if let Some(sub) = buf.get_mut(..bytes.len()) {
+            sub.copy_from_slice(bytes);
+            Self::Inline(buf, bytes.len() as u8)
+        } else {
+            Self::Heap(text.into())
+        }
+    }
+
+    /// 所有文字列から作る
+    #[inline]
+    pub fn from_owned(text: String) -> Self {
+        if text.len() <= 22 {
+            Self::from_slice(&text)
+        } else {
+            Self::Heap(text.into_boxed_str())
+        }
+    }
+
+    /// 文字列スライスとして借りる
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Inline(buf, len) => buf
+                .get(..usize::from(*len))
+                .and_then(|s| core::str::from_utf8(s).ok())
+                .unwrap_or_default(),
+            Self::Heap(s) => s,
+        }
+    }
+}
+
+impl core::ops::Deref for SmallText {
+    type Target = str;
+
+    #[inline]
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl core::fmt::Debug for SmallText {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self.as_str(), f)
+    }
 }
 
 /// 画層・線種の内部スロットと正規の [`LayerId`]・[`LineTypeId`] の対応表
@@ -548,9 +903,16 @@ impl SlotCatalog {
     }
 
     /// 画層名からスロットを引き、なければ暗黙の画層スロットとして追加する
+    #[inline]
     pub fn intern_layer(&mut self, name: &str) -> u32 {
-        let lower = name.to_ascii_lowercase();
-        if let Some(&slot) = self.by_layer_lower.get(&lower) {
+        if let Some(first) = self.layers.first()
+            && (first.defined.is_some() || first.pinned_outside_model || first.model_refs > 0)
+            && first.name == name
+        {
+            return 0;
+        }
+        let found = with_ascii_lower(name, |lower| self.by_layer_lower.get(lower).copied());
+        if let Some(slot) = found {
             if let Some(entry) = self.layers.get_mut(slot as usize)
                 && entry.name != name
             {
@@ -559,7 +921,7 @@ impl SlotCatalog {
             return slot;
         }
         let slot = self.layers.len() as u32;
-        self.by_layer_lower.insert(lower, slot);
+        self.by_layer_lower.insert(name.to_ascii_lowercase(), slot);
         self.layers.push(LayerSlotEntry {
             name: name.to_owned(),
             defined: None,
@@ -575,9 +937,10 @@ impl SlotCatalog {
     }
 
     /// 線種名からスロットを引き、なければ暗黙の線種スロットとして追加する
+    #[inline]
     pub fn intern_line_type(&mut self, name: &str) -> u32 {
-        let lower = name.to_ascii_lowercase();
-        if let Some(&slot) = self.by_line_type_lower.get(&lower) {
+        let found = with_ascii_lower(name, |lower| self.by_line_type_lower.get(lower).copied());
+        if let Some(slot) = found {
             if let Some(entry) = self.line_types.get_mut(slot as usize)
                 && entry.name != name
             {
@@ -586,7 +949,8 @@ impl SlotCatalog {
             return slot;
         }
         let slot = self.line_types.len() as u32;
-        self.by_line_type_lower.insert(lower, slot);
+        self.by_line_type_lower
+            .insert(name.to_ascii_lowercase(), slot);
         self.line_types.push(LineTypeSlotEntry {
             name: name.to_owned(),
             defined: None,
@@ -702,6 +1066,66 @@ impl SlotCatalog {
     }
 }
 
+/// 4 頂点以下のポリライン座標をスタック上に保持する列
+#[derive(Clone, Debug)]
+pub enum PlainXy {
+    /// 4 頂点以下のインライン保持
+    Inline([[f64; 2]; 4], u8),
+    /// 5 頂点以上のヒープ保持
+    Heap(Vec<[f64; 2]>),
+}
+
+impl Default for PlainXy {
+    #[inline]
+    fn default() -> Self {
+        Self::Inline([[0.0; 2]; 4], 0)
+    }
+}
+
+impl PlainXy {
+    /// 頂点数
+    #[inline]
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Inline(_, n) => usize::from(*n),
+            Self::Heap(v) => v.len(),
+        }
+    }
+
+    /// スライスとして借りる
+    #[inline]
+    pub fn as_slice(&self) -> &[[f64; 2]] {
+        match self {
+            Self::Inline(buf, n) => buf.get(..usize::from(*n)).unwrap_or_default(),
+            Self::Heap(v) => v.as_slice(),
+        }
+    }
+
+    /// 頂点を末尾に足す
+    #[inline]
+    pub fn push(&mut self, pt: [f64; 2]) {
+        match self {
+            Self::Inline(buf, n) => {
+                let idx = usize::from(*n);
+                if let Some(dst) = buf.get_mut(idx) {
+                    *dst = pt;
+                    *n += 1;
+                } else {
+                    let mut v = Vec::with_capacity(8);
+                    v.extend_from_slice(buf);
+                    v.push(pt);
+                    *self = Self::Heap(v);
+                }
+            }
+            Self::Heap(v) => v.push(pt),
+        }
+    }
+}
+
+/// 軽量ポリラインの膨らみ列と頂点ごとの幅列（両方空のときは確保しない）
+pub type PolyExtra = (Vec<f64>, Vec<[f64; 2]>);
+
 /// 6 種類の図形の持ち上げ結果（まだ共有プールに積む前の値）
 #[derive(Clone, Debug)]
 pub enum PlainGeom {
@@ -714,13 +1138,11 @@ pub enum PlainGeom {
     /// 軽量ポリライン
     Polyline {
         /// 頂点座標列
-        xy: Vec<[f64; 2]>,
-        /// 膨らみ列（すべて 0 なら空）
-        bulges: Vec<f64>,
-        /// 始端・終端幅列（すべて 0 なら空）
-        widths: Vec<[f64; 2]>,
-        /// 一定幅
-        constant_width: Option<f64>,
+        xy: PlainXy,
+        /// 膨らみ列・始端終端幅列（両方空なら `None`）
+        extra: Option<Box<PolyExtra>>,
+        /// 一定幅（なければ `NaN`）
+        constant_width: f64,
         /// 閉じているか
         closed: bool,
         /// 線種生成フラグ
@@ -731,7 +1153,7 @@ pub enum PlainGeom {
     /// ブロック挿入
     Insert {
         /// ブロック名
-        name: String,
+        name: SmallText,
         /// 基点
         position: [f64; 2],
         /// 尺度
@@ -749,7 +1171,7 @@ pub enum PlainGeom {
         /// 元のレコード上の `ATTRIB` 件数
         raw_attrib_count: u32,
         /// 切り抜き境界
-        clip: Option<Clip>,
+        clip: Option<Box<Clip>>,
     },
 }
 
@@ -769,9 +1191,9 @@ pub struct PlainText {
     /// 傾斜角（度）
     pub oblique: f64,
     /// 内容（UTF-8）
-    pub content: String,
+    pub content: SmallText,
     /// 文字スタイル名
-    pub style: String,
+    pub style: SmallText,
     /// 横揃え符号
     pub horizontal: u8,
     /// 縦揃え符号
@@ -784,7 +1206,7 @@ pub struct PlainText {
 #[derive(Clone, Debug)]
 pub struct PlainStyle {
     /// 画層名
-    pub layer: String,
+    pub layer: SmallText,
     /// 色
     pub color: Inherit<Color>,
     /// 線種（`None` = `ByLayer`、`Some("")` は使わず個別名または `ByBlock` を区別）
@@ -805,7 +1227,7 @@ pub enum PlainLineType {
     /// ブロックに従う
     Block,
     /// 個別の線種名
-    Own(String),
+    Own(SmallText),
 }
 
 /// 持ち上げた `ATTRIB` 1 件
@@ -818,7 +1240,7 @@ pub struct PlainAttrib {
     /// ハンドル
     pub handle: Option<u64>,
     /// タグ名
-    pub tag: String,
+    pub tag: SmallText,
     /// 非表示か
     pub hidden: bool,
     /// 共通スタイル
@@ -844,7 +1266,7 @@ pub struct PlainLifted {
 
 #[derive(Default)]
 struct VecPolySink {
-    xy: Vec<[f64; 2]>,
+    xy: PlainXy,
     bulges: Vec<f64>,
     widths: Vec<[f64; 2]>,
 }
@@ -884,11 +1306,19 @@ impl PolylineSink for VecPolySink {
     }
 }
 
-fn decode_str(charset: Charset, bytes: &[u8], code: i16) -> Result<String, LiftFail> {
-    if charset == Charset::Other && !bytes.is_ascii() {
+#[inline]
+pub(super) fn decode_str(charset: Charset, bytes: &[u8], code: i16) -> Result<SmallText, LiftFail> {
+    if charset == Charset::Utf8 || bytes.is_ascii() {
+        let s = core::str::from_utf8(bytes).map_err(|_| LiftFail::Invalid(code))?;
+        return Ok(SmallText::from_slice(s));
+    }
+    if charset == Charset::Other {
         return Err(LiftFail::Invalid(code));
     }
-    charset.decode(bytes).ok_or(LiftFail::Invalid(code))
+    charset
+        .decode(bytes)
+        .map(SmallText::from_owned)
+        .ok_or(LiftFail::Invalid(code))
 }
 
 fn decode_plain_style<'a>(
@@ -929,7 +1359,7 @@ fn convert_raw_text(raw: RawText<'_>, charset: Charset) -> Result<PlainText, Lif
     let content = decode_str(charset, raw.content, 1)?;
     let style = match raw.style {
         Some(bytes) => decode_str(charset, bytes, 7)?,
-        None => "STANDARD".to_owned(),
+        None => SmallText::from_slice("STANDARD"),
     };
     let (point, second, horizontal, vertical) = match raw.place {
         RawTextPlace::Anchor {
@@ -1044,11 +1474,15 @@ where
             if !sink.widths.is_empty() {
                 sink.widths.resize(sink.xy.len(), [0.0, 0.0]);
             }
+            let extra = if sink.bulges.is_empty() && sink.widths.is_empty() {
+                None
+            } else {
+                Some(Box::new((sink.bulges, sink.widths)))
+            };
             PlainGeom::Polyline {
                 xy: sink.xy,
-                bulges: sink.bulges,
-                widths: sink.widths,
-                constant_width: meta.width,
+                extra,
+                constant_width: meta.width.unwrap_or(f64::NAN),
                 closed: meta.closed,
                 line_type_generation: meta.line_type_generation,
             }
@@ -1125,18 +1559,28 @@ impl LiveShapes {
     fn store_text(&mut self, text: &PlainText) -> TextGeom {
         let content = self.pools.push_str(&text.content);
         let style = self.pools.push_str(&text.style);
-        TextGeom {
-            point: text.point,
-            second: text.second,
-            height: text.height,
-            rotation: text.rotation,
-            width_factor: text.width_factor,
-            oblique: text.oblique,
-            content,
+        let second_xy = if text.horizontal >= 4 {
+            let idx = self.pools.xy.len() as u32;
+            self.pools.xy.push(text.second);
+            idx
+        } else {
+            u32::MAX
+        };
+        let spec = self.pools.intern_text_spec(TextSpec {
+            height_bits: text.height.to_bits(),
+            rotation_bits: text.rotation.to_bits(),
+            width_factor_bits: text.width_factor.to_bits(),
+            oblique_bits: text.oblique.to_bits(),
             style,
             horizontal: text.horizontal,
             vertical: text.vertical,
             flags: text.flags,
+        });
+        TextGeom {
+            point: text.point,
+            content,
+            spec,
+            second_xy,
         }
     }
 
@@ -1176,28 +1620,34 @@ impl LiveShapes {
             }
             PlainGeom::Polyline {
                 xy,
-                bulges,
-                widths,
+                extra: poly_extra,
                 constant_width,
                 closed,
                 line_type_generation,
             } => {
                 let xy_start = self.pools.xy.len() as u32;
                 let count = xy.len() as u32;
-                self.pools.xy.extend_from_slice(&xy);
-                let bulge_start = if bulges.is_empty() {
-                    u32::MAX
-                } else {
-                    let s = self.pools.bulges.len() as u32;
-                    self.pools.bulges.extend_from_slice(&bulges);
-                    s
-                };
-                let width_start = if widths.is_empty() {
-                    u32::MAX
-                } else {
-                    let s = self.pools.widths.len() as u32;
-                    self.pools.widths.extend_from_slice(&widths);
-                    s
+                self.pools.xy.extend_from_slice(xy.as_slice());
+                let (bulge_start, width_start) = match poly_extra {
+                    Some(boxed) => {
+                        let (bulges, widths) = *boxed;
+                        let bs = if bulges.is_empty() {
+                            u32::MAX
+                        } else {
+                            let s = self.pools.bulges.len() as u32;
+                            self.pools.bulges.extend_from_slice(&bulges);
+                            s
+                        };
+                        let ws = if widths.is_empty() {
+                            u32::MAX
+                        } else {
+                            let s = self.pools.widths.len() as u32;
+                            self.pools.widths.extend_from_slice(&widths);
+                            s
+                        };
+                        (bs, ws)
+                    }
+                    None => (u32::MAX, u32::MAX),
                 };
                 let flags = u8::from(closed) | (u8::from(line_type_generation) << 1);
                 let idx = self.polylines.len() as u32;
@@ -1206,7 +1656,7 @@ impl LiveShapes {
                     count,
                     bulge_start,
                     width_start,
-                    constant_width: constant_width.unwrap_or(f64::NAN),
+                    constant_width,
                     flags,
                 });
                 (LiveKind::Polyline, idx)
@@ -1229,43 +1679,54 @@ impl LiveShapes {
                 raw_attrib_count,
                 clip,
             } => {
-                let definition = block_defs
-                    .get(&name.to_lowercase())
-                    .copied()
+                let definition = with_unicode_lower(&name, |lower| block_defs.get(lower).copied())
                     .unwrap_or(NO_DEFINITION);
                 let name_span = self.pools.push_str(&name);
+                let xform = self.pools.intern_insert_xform(InsertXform {
+                    scale,
+                    rotation,
+                    grid,
+                    spacing,
+                });
                 let attrib_start = self.pools.attribs.len() as u32;
                 let attrib_count = attribs.len() as u32;
                 for attr in attribs {
                     let (a_layer, a_color, a_extra) = self.store_style(&attr.style, catalog, true);
                     let tag = self.pools.push_str(&attr.tag);
                     let text = self.store_text(&attr.text);
-                    let (orig_start, orig_end, dwg_flag, born_flag) = match attr.origin {
-                        Origin::Dwg { offset, end } => (offset as u32, end as u32, 1 << 2, 0),
-                        Origin::New => (0, 0, 0, 1 << 3),
-                        Origin::Dxf { .. } => (0, 0, 0, 0),
+                    let attrib_idx = self.pools.attribs.len() as u32;
+                    let (dwg_flag, born_flag) = match attr.origin {
+                        Origin::Dwg { offset, end } => {
+                            self.pools.dwg_attrib_spans.push((
+                                attrib_idx,
+                                offset as u32,
+                                end as u32,
+                            ));
+                            (1u8 << 2, 0u8)
+                        }
+                        Origin::New => (0, 1 << 3),
+                        Origin::Dxf { .. } => (0, 0),
                     };
                     let attrib_flags = u8::from(attr.hidden)
                         | (u8::from(attr.handle.is_some()) << 1)
                         | dwg_flag
                         | born_flag;
+                    debug_assert!(a_layer < 0x1000_0000);
+                    let layer_and_flags = (a_layer & 0x0FFF_FFFF) | (u32::from(attrib_flags) << 28);
                     self.pools.attribs.push(AttribRow {
-                        record: attr.record,
-                        origin_start: orig_start,
-                        origin_end: orig_end,
                         handle: attr.handle.unwrap_or(0),
-                        layer_slot: a_layer,
+                        text,
+                        tag,
+                        record: attr.record,
+                        layer_and_flags,
                         color: a_color,
                         extra: a_extra,
-                        tag,
-                        text,
-                        attrib_flags,
                     });
                 }
                 let clip_index = match clip {
                     Some(c) => {
                         let idx = self.pools.clips.len() as u32;
-                        self.pools.clips.push(c);
+                        self.pools.clips.push(*c);
                         idx
                     }
                     None => u32::MAX,
@@ -1273,11 +1734,8 @@ impl LiveShapes {
                 let idx = self.inserts.len() as u32;
                 self.inserts.push(InsertGeom {
                     position,
-                    scale,
-                    rotation,
-                    grid,
-                    spacing,
                     name: name_span,
+                    xform,
                     definition,
                     attrib_start,
                     attrib_count,
@@ -1412,7 +1870,7 @@ impl LiveShapes {
                 };
                 for i in 0..g.attrib_count {
                     if let Some(attr) = self.pools.attribs.get((g.attrib_start + i) as usize) {
-                        layers.push(attr.layer_slot);
+                        layers.push(attr.layer_slot());
                         line_types.extend(extra_line_type(attr.extra));
                     }
                 }
@@ -1506,16 +1964,18 @@ impl LiveShapes {
             }
             LiveKind::Insert => {
                 let g = self.inserts.get(row.shape as usize)?;
+                let xf = self.pools.insert_xform(g.xform);
                 let name = self.pools.get_string(g.name);
-                let grid = (g.grid != [1, 1]).then(|| Grid {
-                    columns: g.grid[0],
-                    rows: g.grid[1],
-                    column_spacing: len(g.spacing[0]),
-                    row_spacing: len(g.spacing[1]),
+                let grid = (xf.grid != [1, 1]).then(|| Grid {
+                    columns: xf.grid[0],
+                    rows: xf.grid[1],
+                    column_spacing: len(xf.spacing[0]),
+                    row_spacing: len(xf.spacing[1]),
                 });
                 let mut attributes = Vec::with_capacity(g.attrib_count as usize);
                 for i in 0..g.attrib_count {
-                    let attr = self.pools.attribs.get((g.attrib_start + i) as usize)?;
+                    let attrib_idx = g.attrib_start + i;
+                    let attr = self.pools.attribs.get(attrib_idx as usize)?;
                     let a_style = if attr.extra == u32::MAX {
                         Style {
                             color: unpack_color(attr.color),
@@ -1534,10 +1994,10 @@ impl LiveShapes {
                         tag: self.pools.get_string(attr.tag),
                         text: self.text_to_model(&attr.text, "dxf.ATTRIB.40"),
                         formatted: None,
-                        hidden: attr.attrib_flags & 1 != 0,
-                        layer: catalog.layer_id(attr.layer_slot),
+                        hidden: attr.is_hidden(),
+                        layer: catalog.layer_id(attr.layer_slot()),
                         style: a_style,
-                        source: attr.source_ref(),
+                        source: self.pools.attrib_source_ref(attrib_idx, attr),
                     });
                 }
                 let clip = if g.clip_index == u32::MAX {
@@ -1551,8 +2011,8 @@ impl LiveShapes {
                         name,
                     },
                     position: pt(g.position),
-                    scale: g.scale,
-                    rotation: g.rotation,
+                    scale: xf.scale,
+                    rotation: xf.rotation,
                     grid,
                     attributes,
                     clip,
@@ -1599,8 +2059,9 @@ impl LiveShapes {
         cx.check(Kind::Work, 1)?;
         let mut bytes = 512_u64;
         let text_bytes = |text: &TextGeom| {
+            let spec = self.pools.text_spec(text);
             (self.pools.bytes.str_of(text.content).len() as u64)
-                .saturating_add(self.pools.bytes.str_of(text.style).len() as u64)
+                .saturating_add(self.pools.bytes.str_of(spec.style).len() as u64)
                 .saturating_add(64)
         };
         match row.kind {
@@ -1658,15 +2119,17 @@ impl LiveShapes {
 
     fn text_to_model(&self, g: &TextGeom, height_key: &'static str) -> Text<ModelPoint> {
         let pt = |[x, y]: [f64; 2]| ModelPoint { space: MODEL, x, y };
-        let placement = match g.horizontal {
+        let spec = self.pools.text_spec(g);
+        let second = self.pools.text_second(g);
+        let placement = match spec.horizontal {
             4 => Placement::Between {
                 first: pt(g.point),
-                second: pt(g.second),
+                second: pt(second),
                 fit: Fit::Aligned,
             },
             5 => Placement::Between {
                 first: pt(g.point),
-                second: pt(g.second),
+                second: pt(second),
                 fit: Fit::Fit,
             },
             h => Placement::Anchor {
@@ -1677,7 +2140,7 @@ impl LiveShapes {
                     3 => Horizontal::Middle,
                     _ => Horizontal::Left,
                 },
-                vertical: match g.vertical {
+                vertical: match spec.vertical {
                     1 => Vertical::Bottom,
                     2 => Vertical::Middle,
                     3 => Vertical::Top,
@@ -1690,17 +2153,17 @@ impl LiveShapes {
             height: Height {
                 value: Length::Model(ModelLength {
                     space: MODEL,
-                    value: g.height,
+                    value: spec.height(),
                 }),
                 meaning: HeightMeaning::Declared(height_key.into()),
             },
             placement,
-            rotation: g.rotation,
-            width_factor: g.width_factor,
-            oblique: g.oblique,
-            backward: g.flags & 1 != 0,
-            upside_down: g.flags & 2 != 0,
-            style: self.pools.get_string(g.style),
+            rotation: spec.rotation(),
+            width_factor: spec.width_factor(),
+            oblique: spec.oblique(),
+            backward: spec.flags & 1 != 0,
+            upside_down: spec.flags & 2 != 0,
+            style: self.pools.get_string(spec.style),
         }
     }
 
@@ -1794,7 +2257,7 @@ impl LiveShapes {
         let mut bx = empty_box();
         for i in 0..g.attrib_count {
             if let Some(attr) = self.pools.attribs.get((g.attrib_start + i) as usize)
-                && attr.attrib_flags & 1 == 0
+                && !attr.is_hidden()
             {
                 merge_box(&mut bx, text_geom_bounds(&attr.text, &self.pools));
             }
@@ -1807,14 +2270,15 @@ impl LiveShapes {
                 merge_box(&mut local, shape_bounds(&el.shape, symbols, 1));
             }
             if local[0] <= local[2] {
-                let rad = g.rotation * (core::f64::consts::PI / 180.0);
+                let xf = self.pools.insert_xform(g.xform);
+                let rad = xf.rotation * (core::f64::consts::PI / 180.0);
                 let (s, c) = (libm::sin(rad), libm::cos(rad));
-                let cols = g.grid[0].clamp(1, 256);
-                let rows = g.grid[1].clamp(1, 256);
+                let cols = xf.grid[0].clamp(1, 256);
+                let rows = xf.grid[1].clamp(1, 256);
                 for col in 0..cols {
                     for row in 0..rows {
-                        let ox = f64::from(col) * g.spacing[0];
-                        let oy = f64::from(row) * g.spacing[1];
+                        let ox = f64::from(col) * xf.spacing[0];
+                        let oy = f64::from(row) * xf.spacing[1];
                         let base = [
                             g.position[0] + ox * c - oy * s,
                             g.position[1] + ox * s + oy * c,
@@ -1825,8 +2289,8 @@ impl LiveShapes {
                             [local[2], local[3]],
                             [local[0], local[3]],
                         ] {
-                            let sx = corner[0] * g.scale[0];
-                            let sy = corner[1] * g.scale[1];
+                            let sx = corner[0] * xf.scale[0];
+                            let sy = corner[1] * xf.scale[1];
                             expand_pt(
                                 &mut bx,
                                 [base[0] + sx * c - sy * s, base[1] + sx * s + sy * c],
@@ -1902,7 +2366,7 @@ impl LiveShapes {
         let mut texts = 0u32;
         for i in 0..g.attrib_count {
             if let Some(attr) = self.pools.attribs.get((g.attrib_start + i) as usize)
-                && attr.attrib_flags & 1 == 0
+                && !attr.is_hidden()
             {
                 texts = texts.saturating_add(1);
             }
@@ -2001,25 +2465,26 @@ impl LiveShapes {
         layer_ids: &[LayerId],
         w: &mut DisplayWriter<'_>,
     ) {
+        let xf = self.pools.insert_xform(g.xform);
         for i in 0..g.attrib_count {
             if let Some(attr) = self.pools.attribs.get((g.attrib_start + i) as usize)
-                && attr.attrib_flags & 1 == 0
+                && !attr.is_hidden()
             {
                 write_text_geom(
                     &attr.text,
                     &self.pools,
-                    Some([display_layer(layer_ids, attr.layer_slot), attr.color]),
+                    Some([display_layer(layer_ids, attr.layer_slot()), attr.color]),
                     w,
                 );
             }
         }
         w.push_instance(
             g.position,
-            g.scale,
-            radians_from_deg(g.rotation),
-            g.spacing,
+            xf.scale,
+            radians_from_deg(xf.rotation),
+            xf.spacing,
             g.definition,
-            [g.grid[0].max(1), g.grid[1].max(1)],
+            [xf.grid[0].max(1), xf.grid[1].max(1)],
         );
     }
 }
@@ -2168,24 +2633,27 @@ fn text_axes(rad: f64, width: f64, height: f64) -> ([f64; 2], [f64; 2]) {
 }
 
 fn text_geom_bounds(g: &TextGeom, pools: &Pools) -> [f64; 4] {
-    let chars = pools.get_string(g.content).chars().count().max(1) as f64;
-    let width = if g.horizontal >= 4 {
-        libm::hypot(g.second[0] - g.point[0], g.second[1] - g.point[1]).max(g.height)
+    let spec = pools.text_spec(g);
+    let height = spec.height();
+    let chars = pools.bytes.str_of(g.content).chars().count().max(1) as f64;
+    let second = pools.text_second(g);
+    let width = if spec.horizontal >= 4 {
+        libm::hypot(second[0] - g.point[0], second[1] - g.point[1]).max(height)
     } else {
-        g.height * g.width_factor * 0.6 * chars
+        height * spec.width_factor() * 0.6 * chars
     };
-    let rad = if g.horizontal >= 4 {
-        libm::atan2(g.second[1] - g.point[1], g.second[0] - g.point[0])
+    let rad = if spec.horizontal >= 4 {
+        libm::atan2(second[1] - g.point[1], second[0] - g.point[0])
     } else {
-        radians_from_deg(g.rotation)
+        radians_from_deg(spec.rotation())
     };
-    let (u, v) = text_axes(rad, width, g.height);
-    let x0 = match g.horizontal {
+    let (u, v) = text_axes(rad, width, height);
+    let x0 = match spec.horizontal {
         1 | 3 => g.point[0] - 0.5 * u[0],
         2 => g.point[0] - u[0],
         _ => g.point[0],
     };
-    let y0 = match g.horizontal {
+    let y0 = match spec.horizontal {
         1 | 3 => g.point[1] - 0.5 * u[1],
         2 => g.point[1] - u[1],
         _ => g.point[1],
@@ -2208,27 +2676,31 @@ fn write_text_geom(
     style: Option<[u32; 2]>,
     w: &mut DisplayWriter<'_>,
 ) {
-    let chars = pools.get_string(g.content).chars().count().max(1) as f64;
-    let width = if g.horizontal >= 4 {
-        libm::hypot(g.second[0] - g.point[0], g.second[1] - g.point[1]).max(g.height)
+    let spec = pools.text_spec(g);
+    let height = spec.height();
+    let width_factor = spec.width_factor();
+    let chars = pools.bytes.str_of(g.content).chars().count().max(1) as f64;
+    let second = pools.text_second(g);
+    let width = if spec.horizontal >= 4 {
+        libm::hypot(second[0] - g.point[0], second[1] - g.point[1]).max(height)
     } else {
-        g.height * g.width_factor * 0.6 * chars
+        height * width_factor * 0.6 * chars
     };
-    let rad = if g.horizontal >= 4 {
-        libm::atan2(g.second[1] - g.point[1], g.second[0] - g.point[0])
+    let rad = if spec.horizontal >= 4 {
+        libm::atan2(second[1] - g.point[1], second[0] - g.point[0])
     } else {
-        radians_from_deg(g.rotation)
+        radians_from_deg(spec.rotation())
     };
-    let (u, _) = text_axes(rad, width, g.height);
-    let origin = match g.horizontal {
+    let (u, _) = text_axes(rad, width, height);
+    let origin = match spec.horizontal {
         1 | 3 => [g.point[0] - 0.5 * u[0], g.point[1] - 0.5 * u[1]],
         2 => [g.point[0] - u[0], g.point[1] - u[1]],
         _ => g.point,
     };
-    let oblique_rad = radians_from_deg(g.oblique);
+    let oblique_rad = radians_from_deg(spec.oblique());
     match style {
-        Some(st) => w.push_text_styled(origin, g.height, rad, g.width_factor, oblique_rad, st),
-        None => w.push_text(origin, g.height, rad, g.width_factor, oblique_rad),
+        Some(st) => w.push_text_styled(origin, height, rad, width_factor, oblique_rad, st),
+        None => w.push_text(origin, height, rad, width_factor, oblique_rad),
     }
 }
 

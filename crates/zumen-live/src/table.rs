@@ -22,6 +22,9 @@ pub trait TableRow: Clone {
     /// 予算で数える行本体のバイト数。可変幅の型を持つ行は環境共通の値で上書きする。
     const INLINE_BYTES: usize = core::mem::size_of::<Self>();
 
+    /// 行がハンドルを持ちうるか（常に `None` の形式では `false` にして一時確保を省く）
+    const HAS_HANDLES: bool = true;
+
     /// この行が持つハンドル（なければ `None`）
     fn row_handle(&self) -> Option<u64>;
 
@@ -303,6 +306,77 @@ impl<R> VersionedTable<R> {
 }
 
 impl<R: TableRow> VersionedTable<R> {
+    /// 開いた直後の行配列から、各行の `(囲む箱, 生存フラグ)` を関数で求めながら表を組む（中間配列の複製を避ける）
+    pub fn from_vec_with_cx<F>(
+        initial_rows: Vec<R>,
+        mut measure: F,
+        cx: &mut Cx<'_>,
+    ) -> Result<Self, Stop>
+    where
+        F: FnMut(&R) -> ([f64; 4], bool),
+    {
+        let count = initial_rows.len();
+        cx.check(Kind::Elements, count as u64)?;
+        if count >= u32::MAX as usize {
+            // RowId::NONE と重なる行数は要素予算が Unlimited でも受け付けない
+            return Err(Stop::Exceeded(zumen_base::Exceeded {
+                kind: Kind::Elements,
+                limit: u64::from(u32::MAX - 1),
+                requested: count as u64,
+            }));
+        }
+        let per_row =
+            R::INLINE_BYTES + core::mem::size_of::<bool>() + core::mem::size_of::<[f64; 4]>();
+        let extra_bytes = initial_rows.iter().fold(0u64, |acc, r| {
+            acc.saturating_add(r.extra_heap_bytes() as u64)
+        });
+        cx.check(
+            Kind::DecodedBytes,
+            (count as u64)
+                .saturating_mul(per_row as u64)
+                .saturating_add(extra_bytes),
+        )?;
+
+        let mut rows = CowColumn::with_capacity(count);
+        let mut alive_col = CowColumn::with_capacity(count);
+        let mut bounds_col = CowColumn::with_capacity(count);
+        let mut handle_pairs = if R::HAS_HANDLES {
+            Vec::with_capacity(count)
+        } else {
+            Vec::new()
+        };
+        let mut live_count = 0u32;
+
+        for (idx, row) in initial_rows.into_iter().enumerate() {
+            if (idx & 4095) == 0 {
+                cx.check(Kind::Work, 1)?;
+            }
+            let (bbox, is_alive) = measure(&row);
+            if let Some(id) = RowId::from_index(idx)
+                && is_alive
+            {
+                live_count = live_count.saturating_add(1);
+                if let Some(h) = row.row_handle() {
+                    handle_pairs.push((h, id));
+                }
+            }
+            rows.push(row);
+            alive_col.push(is_alive);
+            bounds_col.push(if is_alive { bbox } else { EMPTY_BOUNDS });
+        }
+        let handles = HandleIndex::from_pairs_with_cx(handle_pairs, cx)?;
+        Ok(Self {
+            revision: Revision::INITIAL,
+            state_id: 0,
+            next_state_id: 1,
+            rows,
+            alive: alive_col,
+            bounds: bounds_col,
+            handles,
+            live_count,
+        })
+    }
+
     /// 開いた直後の行と箱の列から表を組む（予算と中断を確かめる）
     pub fn from_rows_with_cx(
         initial_rows: Vec<(R, [f64; 4], bool)>,
@@ -333,7 +407,11 @@ impl<R: TableRow> VersionedTable<R> {
         let mut rows = CowColumn::with_capacity(count);
         let mut alive_col = CowColumn::with_capacity(count);
         let mut bounds_col = CowColumn::with_capacity(count);
-        let mut handle_pairs = Vec::with_capacity(count);
+        let mut handle_pairs = if R::HAS_HANDLES {
+            Vec::with_capacity(count)
+        } else {
+            Vec::new()
+        };
         let mut live_count = 0u32;
 
         for (idx, (row, bbox, is_alive)) in initial_rows.into_iter().enumerate() {

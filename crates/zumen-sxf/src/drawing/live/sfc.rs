@@ -10,7 +10,7 @@ use zumen_sdk::{Error, quietly};
 use crate::drawing::apply::text::{self, is_string, sfc_string};
 use crate::drawing::apply::{Arguments, line_end, newline, patched, patched_source};
 use crate::drawing::{FeatureRecord, sfc_records, work};
-use crate::{DIALECT, Marker, Mode, Quote, SfcRecord, SxfFile, Value};
+use crate::{DIALECT, Marker, Mode, SfcRecord, SxfFile};
 
 use super::source::SourceMap;
 
@@ -21,20 +21,30 @@ pub(super) enum SfcSlot {
     Born(u32),
 }
 
-#[derive(Clone, Debug)]
-struct BaseFeature {
-    record_idx: usize,
-    span: Range<usize>,
-    line_end: usize,
-    marker: Marker,
-    instance: Option<u64>,
-    name_lower: Box<str>,
-    kind: Box<str>,
-    grouped: bool,
-    /// `span.start` からの相対バイト範囲（`Quote::Plain` または `Value::Token` の引数のみ `Some`）
-    arg_ranges: Box<[Option<Range<u32>>]>,
-    /// 囲みの引用符も含む、`span.start` からの相対バイト範囲（文字列か `Value::Token` の引数のみ `Some`）
-    outer_ranges: Box<[Option<Range<u32>>]>,
+#[derive(Clone, Copy, Debug)]
+pub(super) struct BaseFeature {
+    pub(super) record_idx: usize,
+    pub(super) span_start: usize,
+    pub(super) span_end: usize,
+    pub(super) line_end: usize,
+    pub(super) instance: u64,
+    pub(super) meta_idx: u16,
+    pub(super) arg_count: u16,
+    pub(super) marker: Marker,
+    pub(super) grouped: bool,
+    pub(super) has_instance: bool,
+}
+
+impl BaseFeature {
+    #[inline]
+    fn span(&self) -> Range<usize> {
+        self.span_start..self.span_end
+    }
+
+    #[inline]
+    fn instance(&self) -> Option<u64> {
+        self.has_instance.then_some(self.instance)
+    }
 }
 
 /// 基底フィーチャの引数に書く値
@@ -55,15 +65,159 @@ impl ArgValue {
     }
 }
 
-impl BaseFeature {
-    /// 値を書く、`span.start` からの相対バイト範囲
-    fn range(&self, at: usize, value: &ArgValue) -> Option<Range<usize>> {
-        let ranges = match value {
-            ArgValue::Inner(_) => &self.arg_ranges,
-            ArgValue::Outer(_) => &self.outer_ranges,
+fn is_sjis_lead(byte: u8) -> bool {
+    matches!(byte, 0x81..=0x9f | 0xe0..=0xfc)
+}
+
+type ArgRangePair = (Option<Range<usize>>, Option<Range<usize>>);
+
+/// 1 つの SFC コメント文字列から、各引数の `(内側範囲, 外側範囲)` を走査して取り出す（`zumen_step` と同じ規則）
+fn scan_comment_arg_ranges(raw: &[u8]) -> Option<Vec<ArgRangePair>> {
+    let close_len = Marker::ALL
+        .iter()
+        .find_map(|(_, open, close)| raw.starts_with(open).then_some(close.len()))?;
+    let end = raw.len().checked_sub(close_len)?;
+    let b_at = |i: usize| -> Option<u8> { (i < end).then(|| raw.get(i).copied()).flatten() };
+    let mut pos = raw.iter().position(|&b| b == b'=')?.checked_add(1)?;
+    while b_at(pos).is_some_and(|b| b.is_ascii_whitespace()) {
+        pos += 1;
+    }
+    while b_at(pos).is_some_and(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'!')) {
+        pos += 1;
+    }
+    while b_at(pos).is_some_and(|b| b.is_ascii_whitespace()) {
+        pos += 1;
+    }
+    if raw.get(pos) != Some(&b'(') {
+        return None;
+    }
+    pos += 1;
+    let mut out = Vec::new();
+    while b_at(pos).is_some_and(|b| b.is_ascii_whitespace()) {
+        pos += 1;
+    }
+    if raw.get(pos) == Some(&b')') {
+        return Some(out);
+    }
+    loop {
+        while b_at(pos).is_some_and(|b| b.is_ascii_whitespace()) {
+            pos += 1;
+        }
+        let byte = *raw.get(pos)?;
+        let pair = if byte == b'(' {
+            let mut depth = 1usize;
+            pos += 1;
+            while depth > 0 {
+                let Some(b) = b_at(pos) else {
+                    break;
+                };
+                if b == b'\'' {
+                    pos += 1;
+                    while b_at(pos).is_some_and(|c| c != b'\'') {
+                        pos += 1;
+                    }
+                    if pos >= end {
+                        return None;
+                    }
+                    pos += 1;
+                } else if b == b'\\' && raw.get(pos + 1) == Some(&b'\'') {
+                    pos += 2;
+                    loop {
+                        let cur = b_at(pos)?;
+                        let next = raw.get(pos + 1).copied();
+                        if is_sjis_lead(cur) && next.is_some() {
+                            pos += 2;
+                            continue;
+                        }
+                        if cur == b'\\' && next == Some(b'\\') {
+                            pos += 2;
+                            continue;
+                        }
+                        if cur == b'\\' && next == Some(b'\'') {
+                            let mut after = pos + 2;
+                            while b_at(after).is_some_and(|c| c.is_ascii_whitespace()) {
+                                after += 1;
+                            }
+                            if b_at(after).is_none_or(|c| matches!(c, b',' | b')')) {
+                                pos += 2;
+                                break;
+                            }
+                        }
+                        pos += 1;
+                    }
+                } else {
+                    if b == b'(' {
+                        depth += 1;
+                    } else if b == b')' {
+                        depth -= 1;
+                    }
+                    pos += 1;
+                }
+            }
+            if depth != 0 {
+                return None;
+            }
+            (None, None)
+        } else if byte == b'\'' {
+            let outer_start = pos;
+            pos += 1;
+            let inner_start = pos;
+            while b_at(pos).is_some_and(|c| c != b'\'') {
+                pos += 1;
+            }
+            if pos >= end {
+                return None;
+            }
+            let inner_end = pos;
+            pos += 1;
+            (Some(inner_start..inner_end), Some(outer_start..pos))
+        } else if byte == b'\\' && raw.get(pos + 1) == Some(&b'\'') {
+            let outer_start = pos;
+            pos += 2;
+            loop {
+                let cur = b_at(pos)?;
+                let next = raw.get(pos + 1).copied();
+                if is_sjis_lead(cur) && next.is_some() {
+                    pos += 2;
+                    continue;
+                }
+                if cur == b'\\' && next == Some(b'\\') {
+                    pos += 2;
+                    continue;
+                }
+                if cur == b'\\' && next == Some(b'\'') {
+                    let mut after = pos + 2;
+                    while b_at(after).is_some_and(|c| c.is_ascii_whitespace()) {
+                        after += 1;
+                    }
+                    if b_at(after).is_none_or(|c| matches!(c, b',' | b')')) {
+                        pos += 2;
+                        break;
+                    }
+                }
+                pos += 1;
+            }
+            (None, Some(outer_start..pos))
+        } else {
+            let start = pos;
+            while b_at(pos).is_some_and(|c| c != b',' && c != b')') {
+                pos += 1;
+            }
+            let mut trimmed = pos;
+            while trimmed > start && raw.get(trimmed - 1).is_some_and(u8::is_ascii_whitespace) {
+                trimmed -= 1;
+            }
+            (Some(start..trimmed), Some(start..trimmed))
         };
-        let rel = ranges.get(at)?.as_ref()?;
-        Some(rel.start as usize..rel.end as usize)
+        out.push(pair);
+        while b_at(pos).is_some_and(|b| b.is_ascii_whitespace()) {
+            pos += 1;
+        }
+        match raw.get(pos) {
+            Some(b',') => pos += 1,
+            Some(b')') => return Some(out),
+            _ => return None,
+        }
     }
 }
 
@@ -115,11 +269,11 @@ pub(super) struct SfcStepTx {
 pub(super) struct SfcState {
     src: SourceBytes,
     newline: &'static str,
+    feature_meta: Vec<(Box<str>, Box<str>)>,
     base_features: Vec<BaseFeature>,
-    record_to_base: BTreeMap<usize, usize>,
     first_sheet_base: Option<usize>,
     fixed_max_id: u64,
-    alive_id_counts: BTreeMap<u64, u32>,
+    sorted_base_ids: Vec<(u64, u32)>,
     removed_base: BTreeSet<usize>,
     patched_base: BTreeMap<usize, BTreeMap<usize, ArgValue>>,
     born_features: BTreeMap<u32, BornFeature>,
@@ -127,6 +281,39 @@ pub(super) struct SfcState {
 }
 
 impl SfcState {
+    pub(super) fn from_fast(
+        src: SourceBytes,
+        newline: &'static str,
+        feature_meta: Vec<(Box<str>, Box<str>)>,
+        base_features: Vec<BaseFeature>,
+        first_sheet_base: Option<usize>,
+    ) -> Self {
+        let mut sorted_base_ids: Vec<(u64, u32)> = Vec::with_capacity(base_features.len());
+        for (base_idx, bf) in base_features.iter().enumerate() {
+            if bf.has_instance
+                && let Ok(b_u32) = u32::try_from(base_idx)
+            {
+                sorted_base_ids.push((bf.instance, b_u32));
+            }
+        }
+        if !sorted_base_ids.is_sorted_by(|a, b| a <= b) {
+            sorted_base_ids.sort_unstable();
+        }
+        Self {
+            src,
+            newline,
+            feature_meta,
+            base_features,
+            first_sheet_base,
+            fixed_max_id: 0,
+            sorted_base_ids,
+            removed_base: BTreeSet::new(),
+            patched_base: BTreeMap::new(),
+            born_features: BTreeMap::new(),
+            next_born_seq: 0,
+        }
+    }
+
     pub(super) fn new(
         src: SourceBytes,
         file: &SxfFile,
@@ -135,10 +322,10 @@ impl SfcState {
     ) -> Self {
         let raw = file.as_bytes();
         let nl = newline(raw);
+        let mut feature_meta: Vec<(Box<str>, Box<str>)> = Vec::new();
         let mut base_features = Vec::with_capacity(records.len());
-        let mut record_to_base = BTreeMap::new();
         let mut first_sheet_base = None;
-        let mut alive_id_counts: BTreeMap<u64, u32> = BTreeMap::new();
+        let mut sorted_base_ids: Vec<(u64, u32)> = Vec::with_capacity(records.len());
 
         for rec in records {
             let Some(entry) = file.records().get(rec.record) else {
@@ -150,75 +337,63 @@ impl SfcState {
             let span = entry.span();
             let le = line_end(raw, span.end);
             let instance = entry.id();
-            if let Some(id) = instance {
-                *alive_id_counts.entry(id).or_default() += 1;
-            }
-            let arg_ranges: Vec<Option<Range<u32>>> = entry
+            let arg_count = entry
                 .parts()
                 .first()
-                .map(|part| {
-                    part.args()
-                        .iter()
-                        .map(|val| match val {
-                            Value::Text {
-                                raw,
-                                quote: Quote::Plain,
-                            }
-                            | Value::Token(raw) => {
-                                let s = u32::try_from(raw.start.checked_sub(span.start)?).ok()?;
-                                let e = u32::try_from(raw.end.checked_sub(span.start)?).ok()?;
-                                Some(s..e)
-                            }
-                            _ => None,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let outer_ranges: Vec<Option<Range<u32>>> = entry
-                .parts()
-                .first()
-                .map(|part| {
-                    part.args()
-                        .iter()
-                        .map(|val| {
-                            let raw = match val {
-                                Value::Text { raw, quote } => {
-                                    let width = if *quote == Quote::Backslash { 2 } else { 1 };
-                                    raw.start.checked_sub(width)?..raw.end.checked_add(width)?
-                                }
-                                Value::Token(raw) => raw.clone(),
-                                _ => return None,
-                            };
-                            let s = u32::try_from(raw.start.checked_sub(span.start)?).ok()?;
-                            let e = u32::try_from(raw.end.checked_sub(span.start)?).ok()?;
-                            Some(s..e)
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let name_lower = rec.name.to_ascii_lowercase().into_boxed_str();
+                .and_then(|p| u16::try_from(p.args().len()).ok())
+                .unwrap_or(u16::MAX);
+            let meta_idx = if let Some(pos) = feature_meta.iter().position(|(nl_str, kind_str)| {
+                nl_str.eq_ignore_ascii_case(&rec.name) && **kind_str == rec.kind
+            }) {
+                pos as u16
+            } else {
+                let idx = feature_meta.len() as u16;
+                feature_meta.push((
+                    rec.name.to_ascii_lowercase().into_boxed_str(),
+                    rec.kind.clone().into_boxed_str(),
+                ));
+                idx
+            };
             let base_idx = base_features.len();
-            if first_sheet_base.is_none() && name_lower.as_ref() == "drawing_sheet" {
+            if first_sheet_base.is_none() && rec.name.eq_ignore_ascii_case("drawing_sheet") {
                 first_sheet_base = Some(base_idx);
             }
-            record_to_base.insert(rec.record, base_idx);
+            if let Some(id) = instance
+                && let Ok(b_u32) = u32::try_from(base_idx)
+            {
+                sorted_base_ids.push((id, b_u32));
+            }
             base_features.push(BaseFeature {
                 record_idx: rec.record,
-                span,
+                span_start: span.start,
+                span_end: span.end,
                 line_end: le,
+                instance: instance.unwrap_or(0),
+                meta_idx,
+                arg_count,
                 marker,
-                instance,
-                name_lower,
-                kind: rec.kind.clone().into_boxed_str(),
                 grouped: grouped.contains(&rec.record),
-                arg_ranges: arg_ranges.into_boxed_slice(),
-                outer_ranges: outer_ranges.into_boxed_slice(),
+                has_instance: instance.is_some(),
             });
         }
 
+        if !sorted_base_ids.is_sorted_by(|a, b| a <= b) {
+            sorted_base_ids.sort_unstable();
+        }
+
         let mut fixed_max_id = 0_u64;
+        let mut bf_cursor = 0usize;
         for (idx, entry) in file.records().iter().enumerate() {
-            if !record_to_base.contains_key(&idx)
+            while base_features
+                .get(bf_cursor)
+                .is_some_and(|bf| bf.record_idx < idx)
+            {
+                bf_cursor += 1;
+            }
+            let in_base = base_features
+                .get(bf_cursor)
+                .is_some_and(|bf| bf.record_idx == idx);
+            if !in_base
                 && let Some(id) = entry.id()
                 && id > fixed_max_id
             {
@@ -229,11 +404,11 @@ impl SfcState {
         Self {
             src,
             newline: nl,
+            feature_meta,
             base_features,
-            record_to_base,
             first_sheet_base,
             fixed_max_id,
-            alive_id_counts,
+            sorted_base_ids,
             removed_base: BTreeSet::new(),
             patched_base: BTreeMap::new(),
             born_features: BTreeMap::new(),
@@ -244,6 +419,7 @@ impl SfcState {
     pub(super) fn resident_bytes(&self) -> usize {
         self.src.stored_bytes()
             + self.base_features.capacity() * core::mem::size_of::<BaseFeature>()
+            + self.sorted_base_ids.capacity() * core::mem::size_of::<(u64, u32)>()
             + self.patched_base.len() * 64
             + self.born_features.len() * 96
     }
@@ -255,17 +431,26 @@ impl SfcState {
     }
 
     pub(super) fn slot_for_record(&self, record_idx: usize) -> Option<SfcSlot> {
-        self.record_to_base
-            .get(&record_idx)
-            .copied()
+        self.base_features
+            .binary_search_by_key(&record_idx, |bf| bf.record_idx)
+            .ok()
             .map(SfcSlot::Base)
+    }
+
+    fn base_ranges(&self, bf: &BaseFeature) -> Option<Vec<ArgRangePair>> {
+        self.src.with_range(bf.span(), |rs| {
+            let start = bf.span_start.checked_sub(rs.base)?;
+            let end = bf.span_end.checked_sub(rs.base)?;
+            scan_comment_arg_ranges(rs.bytes.get(start..end)?)
+        })
     }
 
     pub(super) fn slot_meta(&self, slot: SfcSlot) -> Option<(&str, &str, bool, usize)> {
         match slot {
             SfcSlot::Base(idx) => {
                 let bf = self.base_features.get(idx)?;
-                Some((&bf.name_lower, &bf.kind, bf.grouped, bf.record_idx))
+                let (name_lower, kind) = self.feature_meta.get(usize::from(bf.meta_idx))?;
+                Some((name_lower, kind, bf.grouped, bf.record_idx))
             }
             SfcSlot::Born(seq) => {
                 let born = self.born_features.get(&seq)?;
@@ -284,12 +469,19 @@ impl SfcState {
     }
 
     pub(super) fn begin_step(&self) -> SfcStepTx {
-        let max_feat_id = self
-            .alive_id_counts
-            .keys()
-            .next_back()
-            .copied()
+        let max_base = self
+            .sorted_base_ids
+            .iter()
+            .rev()
+            .find(|&&(_, b_idx)| !self.removed_base.contains(&(b_idx as usize)))
+            .map_or(0, |&(id, _)| id);
+        let max_born = self
+            .born_features
+            .values()
+            .map(|b| b.instance)
+            .max()
             .unwrap_or(0);
+        let max_feat_id = max_base.max(max_born);
         let next_id = max_feat_id.max(self.fixed_max_id).saturating_add(1);
         SfcStepTx {
             removed_base: BTreeSet::new(),
@@ -340,7 +532,8 @@ impl SfcState {
         match slot {
             SfcSlot::Base(idx) => {
                 let bf = self.base_features.get(idx)?;
-                bf.arg_ranges.get(at)?.as_ref()?;
+                let ranges = self.base_ranges(bf)?;
+                ranges.get(at)?.0.as_ref()?;
                 tx.base_args.insert((idx, at), ArgValue::Inner(value));
             }
             SfcSlot::Born(seq) => {
@@ -366,7 +559,8 @@ impl SfcState {
         match slot {
             SfcSlot::Base(idx) => {
                 let bf = self.base_features.get(idx)?;
-                bf.outer_ranges.get(at)?.as_ref()?;
+                let ranges = self.base_ranges(bf)?;
+                ranges.get(at)?.1.as_ref()?;
                 let mut bytes = sfc_string(value)?;
                 bytes.extend_from_slice(suffix);
                 tx.base_args.insert((idx, at), ArgValue::Outer(bytes));
@@ -385,7 +579,14 @@ impl SfcState {
 
     fn arg_count(&self, slot: SfcSlot) -> Option<usize> {
         match slot {
-            SfcSlot::Base(idx) => Some(self.base_features.get(idx)?.arg_ranges.len()),
+            SfcSlot::Base(idx) => {
+                let bf = self.base_features.get(idx)?;
+                if bf.arg_count < u16::MAX {
+                    Some(usize::from(bf.arg_count))
+                } else {
+                    Some(self.base_ranges(bf)?.len())
+                }
+            }
             SfcSlot::Born(seq) => Some(self.born_features.get(&seq)?.args.len()),
         }
     }
@@ -424,8 +625,8 @@ impl SfcState {
         match slot {
             SfcSlot::Base(idx) => {
                 let bf = self.base_features.get(idx)?;
-                let id = bf.instance?;
-                if bf.arg_ranges.len() > 1 {
+                let id = bf.instance()?;
+                if self.arg_count(slot)? > 1 {
                     self.stage_string(tx, slot, 0, name, b"")?;
                     self.stage_value(tx, slot, 1, flag.into())?;
                 } else {
@@ -510,17 +711,24 @@ impl SfcState {
                 let Some(bf) = self.base_features.get(idx) else {
                     return Ok(None);
                 };
-                let raw_comment = self.src.with_range(bf.span.clone(), |rs| rs.bytes.to_vec());
+                let raw_comment = self.src.with_range(bf.span(), |rs| rs.bytes.to_vec());
+                let Some(ranges) = scan_comment_arg_ranges(&raw_comment) else {
+                    return Ok(None);
+                };
                 let mut patches = Vec::new();
-                for at in 0..bf.arg_ranges.len() {
+                for (at, (inner, outer)) in ranges.into_iter().enumerate() {
                     let value = tx
                         .base_args
                         .get(&(idx, at))
                         .or_else(|| self.patched_base.get(&idx).and_then(|m| m.get(&at)));
-                    if let Some(value) = value
-                        && let Some(range) = bf.range(at, value)
-                    {
-                        patches.push((range, value.bytes().to_vec()));
+                    if let Some(value) = value {
+                        let range = match value {
+                            ArgValue::Inner(_) => inner,
+                            ArgValue::Outer(_) => outer,
+                        };
+                        if let Some(range) = range {
+                            patches.push((range, value.bytes().to_vec()));
+                        }
                     }
                 }
                 let built = patched(patches, &raw_comment, cx)?;
@@ -584,19 +792,18 @@ impl SfcState {
 
     /// インスタンス番号 `id` を持つ生存フィーチャが、この仮置き変更後に残っているか
     pub(super) fn has_surviving_feature_id(&self, tx: &SfcStepTx, id: u64) -> bool {
-        let mut count = self.alive_id_counts.get(&id).copied().unwrap_or(0);
-        for &idx in &tx.removed_base {
-            if let Some(bf) = self.base_features.get(idx)
-                && bf.instance == Some(id)
-            {
-                count = count.saturating_sub(1);
+        let lo = self.sorted_base_ids.partition_point(|&(k, _)| k < id);
+        let hi = self.sorted_base_ids.partition_point(|&(k, _)| k <= id);
+        let mut count = 0u32;
+        for &(_, b_idx) in self.sorted_base_ids.get(lo..hi).unwrap_or(&[]) {
+            let idx = b_idx as usize;
+            if !self.removed_base.contains(&idx) && !tx.removed_base.contains(&idx) {
+                count = count.saturating_add(1);
             }
         }
-        for &seq in &tx.removed_born {
-            if let Some(born) = self.born_features.get(&seq)
-                && born.instance == id
-            {
-                count = count.saturating_sub(1);
+        for (&seq, born) in &self.born_features {
+            if born.instance == id && !tx.removed_born.contains(&seq) {
+                count = count.saturating_add(1);
             }
         }
         for (_, born) in &tx.added_born {
@@ -611,15 +818,11 @@ impl SfcState {
         let mut patch = SfcPatch::default();
         for idx in tx.removed_base {
             if self.removed_base.insert(idx) {
-                if let Some(Some(id)) = self.base_features.get(idx).map(|b| b.instance) {
-                    dec_id(&mut self.alive_id_counts, id);
-                }
                 patch.removed_base.push(idx);
             }
         }
         for seq in tx.removed_born {
             if let Some(born) = self.born_features.remove(&seq) {
-                dec_id(&mut self.alive_id_counts, born.instance);
                 patch.removed_born.push((seq, born));
             }
         }
@@ -637,7 +840,6 @@ impl SfcState {
             }
         }
         for (seq, born) in tx.added_born {
-            *self.alive_id_counts.entry(born.instance).or_default() += 1;
             self.born_features.insert(seq, born.clone());
             patch.added_born.push((seq, born));
         }
@@ -647,9 +849,7 @@ impl SfcState {
 
     pub(super) fn revert_patch(&mut self, patch: &SfcPatch) {
         for (seq, _) in patch.added_born.iter().rev() {
-            if let Some(born) = self.born_features.remove(seq) {
-                dec_id(&mut self.alive_id_counts, born.instance);
-            }
+            self.born_features.remove(seq);
         }
         for (seq, at, before, _) in patch.born_args.iter().rev() {
             if let Some(born) = self.born_features.get_mut(seq)
@@ -674,30 +874,19 @@ impl SfcState {
             }
         }
         for (seq, born) in patch.removed_born.iter().rev() {
-            *self.alive_id_counts.entry(born.instance).or_default() += 1;
             self.born_features.insert(*seq, born.clone());
         }
         for &idx in patch.removed_base.iter().rev() {
-            if self.removed_base.remove(&idx)
-                && let Some(Some(id)) = self.base_features.get(idx).map(|b| b.instance)
-            {
-                *self.alive_id_counts.entry(id).or_default() += 1;
-            }
+            self.removed_base.remove(&idx);
         }
     }
 
     pub(super) fn reapply_patch(&mut self, patch: &SfcPatch) {
         for &idx in &patch.removed_base {
-            if self.removed_base.insert(idx)
-                && let Some(Some(id)) = self.base_features.get(idx).map(|b| b.instance)
-            {
-                dec_id(&mut self.alive_id_counts, id);
-            }
+            self.removed_base.insert(idx);
         }
         for (seq, _) in &patch.removed_born {
-            if let Some(born) = self.born_features.remove(seq) {
-                dec_id(&mut self.alive_id_counts, born.instance);
-            }
+            self.born_features.remove(seq);
         }
         for (idx, at, _, after) in &patch.base_args {
             self.patched_base
@@ -713,7 +902,6 @@ impl SfcState {
             }
         }
         for (seq, born) in &patch.added_born {
-            *self.alive_id_counts.entry(born.instance).or_default() += 1;
             self.born_features.insert(*seq, born.clone());
         }
     }
@@ -764,7 +952,7 @@ impl SfcState {
         let mut patches: Vec<(Range<usize>, Vec<u8>)> = Vec::new();
         for &idx in &self.removed_base {
             if let Some(bf) = self.base_features.get(idx) {
-                patches.push((bf.span.start..bf.line_end, Vec::new()));
+                patches.push((bf.span_start..bf.line_end, Vec::new()));
             }
         }
         for (&idx, arg_map) in &self.patched_base {
@@ -774,10 +962,17 @@ impl SfcState {
             let Some(bf) = self.base_features.get(idx) else {
                 continue;
             };
+            let Some(ranges) = self.base_ranges(bf) else {
+                return Err(Error::Rejected);
+            };
             for (&at, value) in arg_map {
-                if let Some(range) = bf.range(at, value) {
-                    let start = bf.span.start + range.start;
-                    let end = bf.span.start + range.end;
+                let rel = ranges.get(at).and_then(|(inner, outer)| match value {
+                    ArgValue::Inner(_) => inner.clone(),
+                    ArgValue::Outer(_) => outer.clone(),
+                });
+                if let Some(range) = rel {
+                    let start = bf.span_start + range.start;
+                    let end = bf.span_start + range.end;
                     patches.push((start..end, value.bytes().to_vec()));
                 }
             }
@@ -799,7 +994,7 @@ impl SfcState {
                     inserted.extend_from_slice(&comment);
                     inserted.extend_from_slice(nl.as_bytes());
                 }
-                let at = sheet_bf.span.start;
+                let at = sheet_bf.span_start;
                 patches.push((at..at, inserted));
             } else {
                 // `drawing_sheet` がない場合は、生存している最後の基底フィーチャの直後、または全基底が削除済みなら最初の基底位置に置く
@@ -824,7 +1019,7 @@ impl SfcState {
                         inserted.extend_from_slice(nl.as_bytes());
                         inserted.extend_from_slice(&comment);
                     }
-                    let at = last_bf.span.end;
+                    let at = last_bf.span_end;
                     patches.push((at..at, inserted));
                 } else if let Some(first_bf) = self.base_features.first() {
                     let mut inserted = Vec::new();
@@ -841,23 +1036,13 @@ impl SfcState {
                         inserted.extend_from_slice(&comment);
                         inserted.extend_from_slice(nl.as_bytes());
                     }
-                    let at = first_bf.span.start;
+                    let at = first_bf.span_start;
                     patches.push((at..at, inserted));
                 }
             }
         }
 
         patched_source(patches, &self.src, cx)
-    }
-}
-
-fn dec_id(counts: &mut BTreeMap<u64, u32>, id: u64) {
-    if let Some(slot) = counts.get_mut(&id) {
-        if *slot <= 1 {
-            counts.remove(&id);
-        } else {
-            *slot -= 1;
-        }
     }
 }
 

@@ -12,12 +12,13 @@ use core::f64::consts::TAU;
 use core::ops::Range;
 use std::collections::{BTreeMap, BTreeSet};
 
-use zumen_base::{Cx, Diagnostic, Kind, Ref, codes};
+use zumen_base::{Budget, Cx, Diagnostic, Diagnostics, Kind, Limit, Ref, codes};
 use zumen_drawing::{
     Affine, Applied, Axes, Boundary, Changes, Color, ColorSystem, Draft, Drawing2D, Edge, Edit,
-    Element, Field, FieldValue, Hash, Height, Inherit, Layer, LayerId, Length, LineTypeId,
-    ModelPoint, ModelSpace, PaperLength, Placed, Placement, Position, Seen, Shape, Sheet,
-    SheetItem, SpaceId, Style, SymbolDefinition, Unit, View, transform,
+    Element, Field, FieldValue, Hash, Height, HeightMeaning, Horizontal, Inherit, Layer, LayerId,
+    Length, LineTypeId, ModelPoint, ModelSpace, PaperLength, Placed, Placement, Position, Seen,
+    Shape, Sheet, SheetItem, SpaceId, Style, SymbolDefinition, Text, Unit, Vertical, View,
+    transform,
 };
 use zumen_live::display::{Display, DisplayWriter, color as display_color, radians_from_deg};
 use zumen_live::{
@@ -33,9 +34,9 @@ use super::apply::{
     unsupported, unturned, writable_class, write_count, write_object_tag,
 };
 use super::{
-    DEFINITION_SPACES, Header, PAPERS, POINT_SYMBOL, SCHEMA, SHEET, SingleEntity, block_key,
-    build_edit_state_drafts, build_layers, dropped, images, invalid, lift_single_entity,
-    make_line_type, read_block_definition,
+    DEFINITION_SPACES, Header, PAPERS, PEN_WIDTH_SINCE, POINT_SYMBOL, SCHEMA, SHEET, SingleEntity,
+    TURN, block_key, build_edit_state_drafts, build_layers, decode, dropped, images, invalid,
+    lift_single_entity, make_line_type, read_block_definition,
 };
 use crate::parse::{self, Reader};
 use crate::{Jww, JwwFile, RecordKind};
@@ -52,15 +53,285 @@ enum SlotRef {
     Born(usize),
 }
 
+#[derive(Clone, Copy, Debug)]
+enum JwwPrim {
+    Line([f64; 4]),
+    Circle {
+        center: [f64; 2],
+        radius: f64,
+    },
+    Arc {
+        center: [f64; 2],
+        radius: f64,
+        start: f64,
+        end: f64,
+        ccw: bool,
+    },
+    Point {
+        pos: [f64; 2],
+        construction: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
+struct JwwCompact {
+    record_plus1: u64,
+    weight_bits: u64,
+    prim: JwwPrim,
+    color: Color,
+    layer: LayerId,
+    line_type: u32,
+}
+
+impl JwwCompact {
+    fn encode_weight(weight: Option<Inherit<zumen_drawing::LineWeight>>) -> Option<u64> {
+        match weight {
+            None => Some(u64::MAX),
+            Some(Inherit::Layer) => Some(u64::MAX - 1),
+            Some(Inherit::Own(zumen_drawing::LineWeight::Width(PaperLength(v))))
+                if v.to_bits() < u64::MAX - 1 =>
+            {
+                Some(v.to_bits())
+            }
+            _ => None,
+        }
+    }
+
+    #[inline]
+    fn decode_weight(bits: u64) -> Option<Inherit<zumen_drawing::LineWeight>> {
+        if bits == u64::MAX {
+            None
+        } else if bits == u64::MAX - 1 {
+            Some(Inherit::Layer)
+        } else {
+            Some(Inherit::Own(zumen_drawing::LineWeight::Width(PaperLength(
+                f64::from_bits(bits),
+            ))))
+        }
+    }
+
+    #[inline]
+    fn style(&self) -> Style {
+        Style {
+            color: Inherit::Own(self.color),
+            line_type: if self.line_type == 0 {
+                Inherit::Layer
+            } else {
+                Inherit::Own(LineTypeId(self.line_type))
+            },
+            line_type_scale: 1.0,
+            line_weight: Self::decode_weight(self.weight_bits),
+            transparency: Inherit::Layer,
+        }
+    }
+
+    fn to_element(self, space: SpaceId) -> Element<ModelPoint> {
+        let source = if self.record_plus1 == 0 {
+            Ref::default()
+        } else {
+            Ref::at_record(self.record_plus1 - 1)
+        };
+        let pt = |[x, y]: [f64; 2]| ModelPoint { space, x, y };
+        let mlen = |value: f64| Length::Model(zumen_drawing::ModelLength { space, value });
+        let shape = match self.prim {
+            JwwPrim::Line([x0, y0, x1, y1]) => Shape::Line {
+                start: pt([x0, y0]),
+                end: pt([x1, y1]),
+            },
+            JwwPrim::Circle { center, radius } => Shape::Circle {
+                center: pt(center),
+                radius: mlen(radius),
+            },
+            JwwPrim::Arc {
+                center,
+                radius,
+                start,
+                end,
+                ccw,
+            } => Shape::Curve(Edge::Arc {
+                center: pt(center),
+                radius: mlen(radius),
+                start,
+                end,
+                counterclockwise: ccw,
+            }),
+            JwwPrim::Point { pos, construction } => Shape::Point(zumen_drawing::Point {
+                position: pt(pos),
+                rotation: 0.0,
+                look: zumen_drawing::PointLook::Document,
+                construction,
+            }),
+        };
+        Element {
+            source,
+            layer: self.layer,
+            style: self.style(),
+            shape,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct JwwFull {
+    element: Element<ModelPoint>,
+    own_extensions: Vec<(&'static str, Vec<Field>)>,
+    /// `Shape::Underlay` の `resource.definition` が指す基底レコード番号（`None` なら自分自身のレコード番号）
+    underlay_image_record: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
+enum JwwStored {
+    Compact(JwwCompact),
+    Full(Box<JwwFull>),
+}
+
 /// [`VersionedTable`] に置く JWW の 1 要素
 #[derive(Clone, Debug)]
 struct JwwRow {
     slot: SlotRef,
     space: SpaceId,
-    element: Element<ModelPoint>,
-    own_extensions: Vec<(&'static str, Vec<Field>)>,
-    /// `Shape::Underlay` の `resource.definition` が指す基底レコード番号（`None` なら自分自身のレコード番号）
-    underlay_image_record: Option<usize>,
+    stored: JwwStored,
+}
+
+const _: () = assert!(core::mem::size_of::<JwwRow>() <= 120);
+
+impl JwwRow {
+    fn new(
+        slot: SlotRef,
+        space: SpaceId,
+        element: Element<ModelPoint>,
+        own_extensions: Vec<(&'static str, Vec<Field>)>,
+        underlay_image_record: Option<usize>,
+    ) -> Self {
+        if own_extensions.is_empty()
+            && underlay_image_record.is_none()
+            && element.source.id().is_none()
+            && element.source.bytes().is_none()
+            && element.source.key().is_none()
+            && element.style.line_type_scale.to_bits() == 1.0_f64.to_bits()
+            && element.style.transparency == Inherit::Layer
+            && let Inherit::Own(color) = element.style.color
+            && let Some(weight_bits) = JwwCompact::encode_weight(element.style.line_weight)
+        {
+            let rec_opt = match element.source.record() {
+                None => Some(0u64),
+                Some(r) if r < u64::MAX => Some(r + 1),
+                Some(_) => None,
+            };
+            let lt_opt = match element.style.line_type {
+                Inherit::Layer => Some(0u32),
+                Inherit::Own(LineTypeId(v)) if v > 0 => Some(v),
+                _ => None,
+            };
+            let prim_opt = match &element.shape {
+                Shape::Line { start, end } if start.space == space && end.space == space => {
+                    Some(JwwPrim::Line([start.x, start.y, end.x, end.y]))
+                }
+                Shape::Circle {
+                    center,
+                    radius: Length::Model(r),
+                } if center.space == space && r.space == space => Some(JwwPrim::Circle {
+                    center: [center.x, center.y],
+                    radius: r.value,
+                }),
+                Shape::Curve(Edge::Arc {
+                    center,
+                    radius: Length::Model(r),
+                    start,
+                    end,
+                    counterclockwise,
+                }) if center.space == space && r.space == space => Some(JwwPrim::Arc {
+                    center: [center.x, center.y],
+                    radius: r.value,
+                    start: *start,
+                    end: *end,
+                    ccw: *counterclockwise,
+                }),
+                Shape::Point(p)
+                    if p.position.space == space
+                        && p.rotation.to_bits() == 0.0_f64.to_bits()
+                        && p.look == zumen_drawing::PointLook::Document =>
+                {
+                    Some(JwwPrim::Point {
+                        pos: [p.position.x, p.position.y],
+                        construction: p.construction,
+                    })
+                }
+                _ => None,
+            };
+            if let (Some(record_plus1), Some(line_type), Some(prim)) = (rec_opt, lt_opt, prim_opt) {
+                return Self {
+                    slot,
+                    space,
+                    stored: JwwStored::Compact(JwwCompact {
+                        record_plus1,
+                        weight_bits,
+                        prim,
+                        color,
+                        layer: element.layer,
+                        line_type,
+                    }),
+                };
+            }
+        }
+        Self {
+            slot,
+            space,
+            stored: JwwStored::Full(Box::new(JwwFull {
+                element,
+                own_extensions,
+                underlay_image_record,
+            })),
+        }
+    }
+
+    #[inline]
+    fn element(&self) -> std::borrow::Cow<'_, Element<ModelPoint>> {
+        match &self.stored {
+            JwwStored::Compact(c) => std::borrow::Cow::Owned(c.to_element(self.space)),
+            JwwStored::Full(f) => std::borrow::Cow::Borrowed(&f.element),
+        }
+    }
+
+    #[inline]
+    fn layer_and_style(&self) -> (LayerId, Style) {
+        match &self.stored {
+            JwwStored::Compact(c) => (c.layer, c.style()),
+            JwwStored::Full(f) => (f.element.layer, f.element.style),
+        }
+    }
+
+    #[inline]
+    fn own_extensions(&self) -> &[(&'static str, Vec<Field>)] {
+        match &self.stored {
+            JwwStored::Compact(_) => &[],
+            JwwStored::Full(f) => &f.own_extensions,
+        }
+    }
+
+    #[inline]
+    fn underlay_image_record(&self) -> Option<usize> {
+        match &self.stored {
+            JwwStored::Compact(_) => None,
+            JwwStored::Full(f) => f.underlay_image_record,
+        }
+    }
+
+    #[inline]
+    fn is_symbol(&self) -> bool {
+        matches!(&self.stored, JwwStored::Full(f) if matches!(f.element.shape, Shape::Symbol(_)))
+    }
+
+    #[inline]
+    fn symbol_ref(&self) -> Option<&zumen_drawing::Symbol<ModelPoint>> {
+        match &self.stored {
+            JwwStored::Full(f) => match &f.element.shape {
+                Shape::Symbol(sym) => Some(sym),
+                _ => None,
+            },
+            JwwStored::Compact(_) => None,
+        }
+    }
 }
 
 impl TableRow for JwwRow {
@@ -68,6 +339,7 @@ impl TableRow for JwwRow {
         assert!(core::mem::size_of::<Self>() <= 1024);
         1024
     };
+    const HAS_HANDLES: bool = false;
 
     #[inline]
     fn row_handle(&self) -> Option<u64> {
@@ -75,13 +347,16 @@ impl TableRow for JwwRow {
     }
 
     fn extra_heap_bytes(&self) -> usize {
+        let JwwStored::Full(full) = &self.stored else {
+            return 0;
+        };
         // 予算にも使うため、可変幅の値は 64 bit の論理バイト数で見積もる。
-        let ext_bytes: usize = self
+        let ext_bytes: usize = full
             .own_extensions
             .iter()
             .map(|(_, fields)| fields.capacity() * 128)
             .sum();
-        let shape_bytes = match &self.element.shape {
+        let shape_bytes = match &full.element.shape {
             Shape::Text(t) => t.content.capacity() + t.style.capacity(),
             Shape::Symbol(s) => s.key.name.capacity(),
             Shape::Underlay(u) => u.resource.path.capacity(),
@@ -94,20 +369,26 @@ impl TableRow for JwwRow {
 }
 
 #[derive(Clone, Debug)]
+struct BlockDefOutcome {
+    symbol_index: usize,
+    number: u32,
+    referenced: u32,
+    name: String,
+}
+
+#[derive(Clone, Debug)]
+struct DocumentDraftOutcome {
+    namespace: &'static str,
+    name: String,
+    fields: Vec<Field>,
+}
+
+#[derive(Clone, Debug)]
 enum BaseOutcome {
     None,
     Element(RowId),
-    BlockDef {
-        symbol_index: usize,
-        number: u32,
-        referenced: u32,
-        name: String,
-    },
-    DocumentDraft {
-        namespace: &'static str,
-        name: String,
-        fields: Vec<Field>,
-    },
+    BlockDef(Box<BlockDefOutcome>),
+    DocumentDraft(Box<DocumentDraftOutcome>),
     Dropped,
     Invalid,
 }
@@ -117,7 +398,7 @@ struct BaseRecord {
     span: Range<usize>,
     body: Range<usize>,
     kind: RecordKind,
-    kind_name: Vec<u8>,
+    kind_idx: u16,
     class_bucket: Option<u16>,
     block: Option<usize>,
     outcome: BaseOutcome,
@@ -270,6 +551,7 @@ pub struct JwwLive {
     born_alive: RankBitset,
     element_base_alive: RankBitset,
     element_born_alive: RankBitset,
+    kind_names: Vec<Box<[u8]>>,
     class_buckets: Vec<ClassBucket>,
     same_name_multi_schema: bool,
     images: BTreeMap<String, usize>,
@@ -293,19 +575,11 @@ struct WorkerItem {
     bounds: [f64; 4],
 }
 
-#[expect(clippy::large_enum_variant)]
 enum WorkerOutcome {
     Skip,
-    Element {
-        element: Element<ModelPoint>,
-        own: Vec<(&'static str, Vec<Field>)>,
-        embedded_image: Option<usize>,
-    },
-    DocumentDraft {
-        namespace: &'static str,
-        name: String,
-        fields: Vec<Field>,
-    },
+    Compact { space: SpaceId, compact: JwwCompact },
+    Full(Box<(SpaceId, JwwFull)>),
+    DocumentDraft(Box<DocumentDraftOutcome>),
     Dropped,
     Invalid,
 }
@@ -343,6 +617,32 @@ enum StagedAction {
     },
 }
 
+struct PreparedJww {
+    source: SourceBytes,
+    version: u32,
+    header_valid: bool,
+    header: Header,
+    header_end: usize,
+    paper_origin: [f64; 2],
+    list_layout: Option<ListLayout>,
+    top_end: usize,
+    base_records: Vec<BaseRecord>,
+    base_alive: RankBitset,
+    element_base_alive: RankBitset,
+    kind_names: Vec<Box<[u8]>>,
+    class_buckets: Vec<ClassBucket>,
+    same_name_multi_schema: bool,
+    images: BTreeMap<String, usize>,
+    symbol_index_by_key: BTreeMap<String, u32>,
+    symbol_bounds: Vec<Option<[f64; 4]>>,
+    symbol_users: Vec<Vec<RowId>>,
+    definition_rows: Vec<Vec<RowId>>,
+    underlay_rows: Vec<RowId>,
+    group_counts: [u32; 16],
+    rows_vec: Vec<JwwRow>,
+    bounds_vec: Vec<[f64; 4]>,
+}
+
 impl JwwLive {
     /// JWW のバイト列を開いて常駐文書エンジンを構築する
     pub fn open(src: &[u8], cx: &mut Cx<'_>) -> Result<Self, Error> {
@@ -351,16 +651,25 @@ impl JwwLive {
 
     /// 指定したスレッド数で JWW のバイト列を開いて常駐文書エンジンを構築する
     pub fn open_with_threads(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<Self, Error> {
-        let file = Jww::read(src, cx)?;
-        Self::build_from_file(&file, threads.max(1), cx)
+        let threads = threads.max(1);
+        let prepared = {
+            let file = Jww::read(src, cx)?;
+            Self::prepare_from_file(&file, threads, cx)?
+        };
+        Self::finish_build(prepared, threads, cx)
     }
 
     /// 既存の [`JwwFile`] から常駐文書エンジンを構築する
     pub fn from_file(file: &JwwFile, cx: &mut Cx<'_>) -> Result<Self, Error> {
-        Self::build_from_file(file, 1, cx)
+        let prepared = Self::prepare_from_file(file, 1, cx)?;
+        Self::finish_build(prepared, 1, cx)
     }
 
-    fn build_from_file(file: &JwwFile, threads: usize, cx: &mut Cx<'_>) -> Result<Self, Error> {
+    fn prepare_from_file(
+        file: &JwwFile,
+        threads: usize,
+        cx: &mut Cx<'_>,
+    ) -> Result<PreparedJww, Error> {
         let full_bytes = file.as_bytes();
         let source =
             SourceBytes::compress_slice_with_cx(full_bytes, threads, cx).map_err(|stop| {
@@ -411,59 +720,74 @@ impl JwwLive {
                     .or_insert(sym_idx as u32);
                 block_parsed.insert(
                     index,
-                    BaseOutcome::BlockDef {
+                    BaseOutcome::BlockDef(Box::new(BlockDefOutcome {
                         symbol_index: sym_idx,
                         number,
                         referenced,
                         name,
-                    },
+                    })),
                 );
             }
         }
 
         // 図形レコードの単体変換は純粋関数なので、スレッド数に応じて分割して計算し、元の順序で統合する
         let record_len = records.len();
-        let worker_results = lift_records_deterministic(
-            file,
-            &header,
-            paper_origin,
-            &definitions,
-            &images_map,
-            threads,
-        );
-
         let mut base_records = Vec::with_capacity(record_len);
         let base_alive = RankBitset::all_ones(record_len);
         let mut element_base_alive = RankBitset::all_zeros(record_len);
-        let mut initial_rows: Vec<(JwwRow, [f64; 4], bool)> = Vec::new();
+        let mut rows_vec: Vec<JwwRow> = Vec::with_capacity(record_len);
+        let mut bounds_vec: Vec<[f64; 4]> = Vec::with_capacity(record_len);
         let mut definition_rows: Vec<Vec<RowId>> = vec![Vec::new(); symbol_count];
         let mut symbol_bounds: Vec<Option<[f64; 4]>> = vec![None; symbol_count];
         let mut top_symbol_rows: Vec<usize> = Vec::new();
         let mut underlay_rows: Vec<RowId> = Vec::new();
         let mut group_counts = [0u32; 16];
+        let mut kind_names: Vec<Box<[u8]>> = Vec::new();
+        let mut kind_lookup: Vec<(&[u8], u16)> = Vec::new();
+        let mut cls_to_bucket: Vec<Option<Option<u16>>> = vec![None; file.classes().len()];
 
-        for (index, (record, worker)) in records.iter().zip(worker_results).enumerate() {
-            let source = Ref::at_record(index as u64);
-            cx.check(Kind::Work, 1).map_err(|stop| {
-                cx.report(stop.to_diagnostic().at(source.clone()));
-                Error::Stopped(stop)
-            })?;
-            let kind_name = file.kind_name(record).to_vec();
+        let mut merge_one = |index: usize,
+                             record: &crate::Record,
+                             worker: WorkerItem,
+                             cx: &mut Cx<'_>|
+         -> Result<(), Error> {
+            if let Err(stop) = cx.check(Kind::Work, 1) {
+                cx.report(stop.to_diagnostic().at(Ref::at_record(index as u64)));
+                return Err(Error::Stopped(stop));
+            }
+            let kind_slice = file.kind_name(record);
+            let kind_idx =
+                if let Some(&(_, idx)) = kind_lookup.iter().find(|&&(k, _)| k == kind_slice) {
+                    idx
+                } else {
+                    let idx = u16::try_from(kind_names.len()).unwrap_or(u16::MAX);
+                    if usize::from(idx) == kind_names.len() {
+                        kind_names.push(kind_slice.into());
+                        kind_lookup.push((kind_slice, idx));
+                    }
+                    idx
+                };
             let class_bucket = match record.kind() {
-                RecordKind::Entity | RecordKind::Block => record
-                    .tag()
-                    .and_then(|(_, cls_idx)| file.classes().get(cls_idx))
-                    .and_then(|cls| {
-                        let name = file.bytes(cls.name()).to_vec();
+                RecordKind::Entity | RecordKind::Block => record.tag().and_then(|(_, cls_idx)| {
+                    if let Some(Some(cached)) = cls_to_bucket.get(cls_idx).copied() {
+                        if let Some(b_idx) = cached
+                            && let Some(bucket) = class_buckets.get_mut(usize::from(b_idx))
+                        {
+                            bucket.alive_count = bucket.alive_count.saturating_add(1);
+                        }
+                        return cached;
+                    }
+                    let resolved = file.classes().get(cls_idx).and_then(|cls| {
+                        let name_slice = file.bytes(cls.name());
                         let schema = cls.schema();
-                        if let Some(&prev_schema) = seen_names.get(&name) {
+                        if let Some(&prev_schema) = seen_names.get(name_slice) {
                             if prev_schema != schema {
                                 same_name_multi_schema = true;
                             }
                         } else {
-                            seen_names.insert(name.clone(), schema);
+                            seen_names.insert(name_slice.to_vec(), schema);
                         }
-                        let key = (name.clone(), schema);
+                        let key = (name_slice.to_vec(), schema);
                         if let Some(&b_idx) = bucket_lookup.get(&key) {
                             if let Some(bucket) = class_buckets.get_mut(usize::from(b_idx)) {
                                 bucket.alive_count = bucket.alive_count.saturating_add(1);
@@ -472,14 +796,19 @@ impl JwwLive {
                         } else {
                             let b_idx = u16::try_from(class_buckets.len()).ok()?;
                             class_buckets.push(ClassBucket {
-                                name,
+                                name: key.0.clone(),
                                 schema,
                                 alive_count: 1,
                             });
                             bucket_lookup.insert(key, b_idx);
                             Some(b_idx)
                         }
-                    }),
+                    });
+                    if let Some(slot) = cls_to_bucket.get_mut(cls_idx) {
+                        *slot = Some(resolved);
+                    }
+                    resolved
+                }),
                 _ => None,
             };
 
@@ -487,47 +816,32 @@ impl JwwLive {
                 RecordKind::Block => match block_parsed.remove(&index) {
                     Some(def) => def,
                     None => {
-                        invalid(cx, &kind_name, source);
+                        invalid(cx, kind_slice, Ref::at_record(index as u64));
                         BaseOutcome::Invalid
                     }
                 },
                 RecordKind::Entity => match worker.outcome {
                     WorkerOutcome::Skip => BaseOutcome::None,
                     WorkerOutcome::Dropped => {
-                        dropped(cx, &kind_name, source);
+                        dropped(cx, kind_slice, Ref::at_record(index as u64));
                         BaseOutcome::Dropped
                     }
                     WorkerOutcome::Invalid => {
-                        invalid(cx, &kind_name, source);
+                        invalid(cx, kind_slice, Ref::at_record(index as u64));
                         BaseOutcome::Invalid
                     }
-                    WorkerOutcome::DocumentDraft {
-                        namespace,
-                        name,
-                        fields,
-                    } => BaseOutcome::DocumentDraft {
-                        namespace,
-                        name,
-                        fields,
-                    },
-                    WorkerOutcome::Element {
-                        element,
-                        own,
-                        embedded_image,
-                    } => {
-                        let row_idx = initial_rows.len();
+                    WorkerOutcome::DocumentDraft(doc) => BaseOutcome::DocumentDraft(doc),
+                    WorkerOutcome::Compact { space, compact } => {
+                        let row_idx = rows_vec.len();
                         let Some(row_id) = RowId::from_index(row_idx) else {
                             let stop = zumen_sdk::Stop::Exceeded(zumen_base::Exceeded {
                                 kind: Kind::Elements,
                                 limit: u64::from(u32::MAX - 1),
                                 requested: (row_idx as u64).saturating_add(1),
                             });
-                            cx.report(stop.to_diagnostic().at(source));
+                            cx.report(stop.to_diagnostic().at(Ref::at_record(index as u64)));
                             return Err(Error::Stopped(stop));
                         };
-                        let space = element.space_hint(record.block(), &definitions);
-                        let is_underlay = matches!(element.shape, Shape::Underlay(_));
-                        let is_symbol = matches!(element.shape, Shape::Symbol(_));
                         if space.0 < DEFINITION_SPACES
                             && let Some(cnt) = group_counts.get_mut(space.0 as usize)
                         {
@@ -535,7 +849,7 @@ impl JwwLive {
                         }
                         let mut bounds = worker.bounds;
                         if let Some(def_idx) = space.0.checked_sub(DEFINITION_SPACES) {
-                            let model_box = model_element_bounds(&element.shape);
+                            let model_box = compact_model_bounds(&compact.prim);
                             bounds = model_box;
                             if is_finite_box(model_box)
                                 && let Some(slot_box) = symbol_bounds.get_mut(def_idx as usize)
@@ -545,21 +859,64 @@ impl JwwLive {
                                     None => model_box,
                                 });
                             }
+                            if let Some(rows_in_def) = definition_rows.get_mut(def_idx as usize) {
+                                rows_in_def.push(row_id);
+                            }
                         }
-                        let row = JwwRow {
+                        rows_vec.push(JwwRow {
                             slot: SlotRef::Base(index),
                             space,
-                            element,
-                            own_extensions: own,
-                            underlay_image_record: embedded_image,
-                        };
-                        initial_rows.push((row, bounds, true));
+                            stored: JwwStored::Compact(compact),
+                        });
+                        bounds_vec.push(bounds);
                         element_base_alive.set(index, true);
-                        if let Some(def_idx) = space.0.checked_sub(DEFINITION_SPACES)
-                            && let Some(rows_in_def) = definition_rows.get_mut(def_idx as usize)
+                        BaseOutcome::Element(row_id)
+                    }
+                    WorkerOutcome::Full(boxed) => {
+                        let (space, full) = *boxed;
+                        let row_idx = rows_vec.len();
+                        let Some(row_id) = RowId::from_index(row_idx) else {
+                            let stop = zumen_sdk::Stop::Exceeded(zumen_base::Exceeded {
+                                kind: Kind::Elements,
+                                limit: u64::from(u32::MAX - 1),
+                                requested: (row_idx as u64).saturating_add(1),
+                            });
+                            cx.report(stop.to_diagnostic().at(Ref::at_record(index as u64)));
+                            return Err(Error::Stopped(stop));
+                        };
+                        let is_underlay = matches!(full.element.shape, Shape::Underlay(_));
+                        let is_symbol = matches!(full.element.shape, Shape::Symbol(_));
+                        if space.0 < DEFINITION_SPACES
+                            && let Some(cnt) = group_counts.get_mut(space.0 as usize)
                         {
-                            rows_in_def.push(row_id);
+                            *cnt = cnt.saturating_add(1);
                         }
+                        let mut bounds = worker.bounds;
+                        if let Some(def_idx) = space.0.checked_sub(DEFINITION_SPACES) {
+                            let model_box = model_element_bounds(&full.element.shape);
+                            bounds = model_box;
+                            if is_finite_box(model_box)
+                                && let Some(slot_box) = symbol_bounds.get_mut(def_idx as usize)
+                            {
+                                *slot_box = Some(match *slot_box {
+                                    Some(prev) => union_box(prev, model_box),
+                                    None => model_box,
+                                });
+                            }
+                            if let Some(rows_in_def) = definition_rows.get_mut(def_idx as usize) {
+                                rows_in_def.push(row_id);
+                            }
+                        }
+                        let row = JwwRow::new(
+                            SlotRef::Base(index),
+                            space,
+                            full.element,
+                            full.own_extensions,
+                            full.underlay_image_record,
+                        );
+                        rows_vec.push(row);
+                        bounds_vec.push(bounds);
+                        element_base_alive.set(index, true);
                         if is_underlay {
                             underlay_rows.push(row_id);
                         }
@@ -576,19 +933,127 @@ impl JwwLive {
                 span: record.span(),
                 body: record.body(),
                 kind: record.kind(),
-                kind_name,
+                kind_idx,
                 class_bucket,
                 block: record.block(),
                 outcome,
             });
+            Ok(())
+        };
+
+        if !cfg!(target_arch = "wasm32") && threads >= 2 && record_len >= 1024 {
+            let worker_count = threads;
+            let header_ref = &header;
+            let defs_ref = &definitions;
+            let imgs_ref = &images_map;
+            std::thread::scope(|scope| -> Result<(), Error> {
+                let (win_tx, win_rx) = std::sync::mpsc::sync_channel::<Vec<Vec<WorkerItem>>>(2);
+                let producer = scope.spawn(move || {
+                    let mut task_txs = Vec::with_capacity(worker_count);
+                    let mut res_rxs = Vec::with_capacity(worker_count);
+                    std::thread::scope(|inner| {
+                        for _ in 0..worker_count {
+                            let (t_tx, t_rx) = std::sync::mpsc::sync_channel::<(usize, usize)>(1);
+                            let (r_tx, r_rx) = std::sync::mpsc::sync_channel::<Vec<WorkerItem>>(1);
+                            task_txs.push(t_tx);
+                            res_rxs.push(r_rx);
+                            inner.spawn(move || {
+                                while let Ok((s_start, s_end)) = t_rx.recv() {
+                                    let slice =
+                                        file.records().get(s_start..s_end).unwrap_or_default();
+                                    let out: Vec<WorkerItem> = slice
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(off, rec)| {
+                                            lift_jww_record_one(
+                                                file,
+                                                s_start + off,
+                                                rec,
+                                                header_ref,
+                                                paper_origin,
+                                                defs_ref,
+                                                imgs_ref,
+                                            )
+                                        })
+                                        .collect();
+                                    if r_tx.send(out).is_err() {
+                                        break;
+                                    }
+                                }
+                            });
+                        }
+                        const WINDOW: usize = 8192;
+                        for w_start in (0..record_len).step_by(WINDOW) {
+                            let w_end = (w_start + WINDOW).min(record_len);
+                            let w_len = w_end - w_start;
+                            let chunk_sz = w_len.div_ceil(worker_count).max(1);
+                            let mut sent = 0usize;
+                            for (w_idx, s_start) in (w_start..w_end).step_by(chunk_sz).enumerate() {
+                                let s_end = (s_start + chunk_sz).min(w_end);
+                                if let Some(tx) = task_txs.get(w_idx)
+                                    && tx.send((s_start, s_end)).is_ok()
+                                {
+                                    sent += 1;
+                                }
+                            }
+                            let mut parts_out = Vec::with_capacity(sent);
+                            for rx in res_rxs.iter().take(sent) {
+                                if let Ok(part) = rx.recv() {
+                                    parts_out.push(part);
+                                }
+                            }
+                            if win_tx.send(parts_out).is_err() {
+                                break;
+                            }
+                        }
+                        drop(task_txs);
+                    });
+                });
+                let mut index = 0usize;
+                let mut res = Ok(());
+                while let Ok(parts_out) = win_rx.recv() {
+                    for part in parts_out {
+                        for worker in part {
+                            if let Some(record) = records.get(index)
+                                && let Err(e) = merge_one(index, record, worker, cx)
+                            {
+                                res = Err(e);
+                                break;
+                            }
+                            index += 1;
+                        }
+                        if res.is_err() {
+                            break;
+                        }
+                    }
+                    if res.is_err() {
+                        break;
+                    }
+                }
+                drop(win_rx);
+                let _ = producer.join();
+                res
+            })?;
+        } else {
+            for (index, record) in records.iter().enumerate() {
+                let worker = lift_jww_record_one(
+                    file,
+                    index,
+                    record,
+                    &header,
+                    paper_origin,
+                    &definitions,
+                    &images_map,
+                );
+                merge_one(index, record, worker, cx)?;
+            }
         }
 
         // 入れ子の記号参照があれば、ブロック定義の囲む箱を内側から外側へ伝播させる（最大 16 段）
-        let has_nested_symbol = definition_rows.iter().flatten().any(|&rid| {
-            initial_rows
-                .get(rid.index())
-                .is_some_and(|(row, _, _)| matches!(row.element.shape, Shape::Symbol(_)))
-        });
+        let has_nested_symbol = definition_rows
+            .iter()
+            .flatten()
+            .any(|&rid| rows_vec.get(rid.index()).is_some_and(JwwRow::is_symbol));
         if has_nested_symbol {
             for _ in 0..16 {
                 let mut changed_any = false;
@@ -596,9 +1061,11 @@ impl JwwLive {
                     let mut acc: Option<[f64; 4]> = None;
                     for &rid in rows_in_def {
                         work_live(cx, 1)?;
-                        if let Some((row, bbox, _)) = initial_rows.get_mut(rid.index()) {
+                        if let (Some(row), Some(bbox)) =
+                            (rows_vec.get(rid.index()), bounds_vec.get_mut(rid.index()))
+                        {
                             let next_box = compute_sheet_bounds(
-                                &row.element,
+                                &row.element(),
                                 row.space,
                                 &header,
                                 paper_origin,
@@ -642,8 +1109,8 @@ impl JwwLive {
         let mut symbol_users = vec![Vec::new(); symbol_count];
         for row_idx in top_symbol_rows {
             work_live(cx, 1)?;
-            if let Some((row, bbox, _)) = initial_rows.get_mut(row_idx) {
-                if let Shape::Symbol(symbol) = &row.element.shape
+            if let (Some(row), Some(bbox)) = (rows_vec.get(row_idx), bounds_vec.get_mut(row_idx)) {
+                if let Some(symbol) = row.symbol_ref()
                     && let Some(&index) = symbol_index_by_key.get(&symbol.key.name)
                     && let Some(users) = symbol_users.get_mut(index as usize)
                     && let Some(row_id) = RowId::from_index(row_idx)
@@ -651,7 +1118,7 @@ impl JwwLive {
                     users.push(row_id);
                 }
                 *bbox = compute_sheet_bounds(
-                    &row.element,
+                    &row.element(),
                     row.space,
                     &header,
                     paper_origin,
@@ -661,39 +1128,175 @@ impl JwwLive {
             }
         }
 
-        let table = VersionedTable::from_rows_with_cx(initial_rows, cx).map_err(|stop| {
-            cx.report(stop.to_diagnostic());
-            Error::Stopped(stop)
-        })?;
-        let spatial = SpatialGrid::build_with_cx(table.bounds_column(), cx).map_err(|stop| {
-            cx.report(stop.to_diagnostic());
-            Error::Stopped(stop)
-        })?;
+        Ok(PreparedJww {
+            source,
+            version,
+            header_valid,
+            header,
+            header_end,
+            paper_origin,
+            list_layout,
+            top_end,
+            base_records,
+            base_alive,
+            element_base_alive,
+            kind_names,
+            class_buckets,
+            same_name_multi_schema,
+            images: images_map,
+            symbol_index_by_key,
+            symbol_bounds,
+            symbol_users,
+            definition_rows,
+            underlay_rows,
+            group_counts,
+            rows_vec,
+            bounds_vec,
+        })
+    }
 
-        let mut display = Display::with_rows_with_cx(cx, table.len()).map_err(|stop| {
-            cx.report(stop.to_diagnostic());
-            Error::Stopped(stop)
-        })?;
-        for (_, row) in table.iter_live() {
-            let (counts, style) =
-                display_counts_and_style(&row.element, row.space, &symbol_index_by_key);
-            display
-                .push_with_cx(cx, counts, style, |w| {
-                    write_display_element(
-                        &row.element,
-                        row.space,
-                        &header,
-                        paper_origin,
-                        &symbol_index_by_key,
-                        w,
+    fn finish_build(prepared: PreparedJww, threads: usize, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        let PreparedJww {
+            source,
+            version,
+            header_valid,
+            header,
+            header_end,
+            paper_origin,
+            list_layout,
+            top_end,
+            base_records,
+            base_alive,
+            element_base_alive,
+            kind_names,
+            class_buckets,
+            same_name_multi_schema,
+            images,
+            symbol_index_by_key,
+            symbol_bounds,
+            symbol_users,
+            definition_rows,
+            underlay_rows,
+            group_counts,
+            rows_vec,
+            bounds_vec,
+        } = prepared;
+
+        let n_u64 = rows_vec.len() as u64;
+        let can_parallel_tail = !cfg!(target_arch = "wasm32")
+            && threads > 1
+            && rows_vec.len() >= 1024
+            && cx.cancel.stop().is_none()
+            && jww_budget_has_room(
+                cx.budget,
+                Kind::Work,
+                n_u64.saturating_mul(16).saturating_add(65536),
+            )
+            && jww_budget_has_room(
+                cx.budget,
+                Kind::DecodedBytes,
+                n_u64.saturating_mul(2048).saturating_add(4_194_304),
+            )
+            && jww_budget_has_room(
+                cx.budget,
+                Kind::Elements,
+                n_u64.saturating_mul(8).saturating_add(65536),
+            );
+
+        let (display, table, spatial) = if can_parallel_tail {
+            let cancel = cx.cancel;
+            let rows_ref = &rows_vec;
+            let bounds_slice = bounds_vec.as_slice();
+            let header_ref = &header;
+            let sym_ref = &symbol_index_by_key;
+            let ((disp_res, disp_used), (spat_res, spat_used)) = std::thread::scope(|scope| {
+                let spat_handle = scope.spawn(move || {
+                    let mut b = Budget::default();
+                    let mut d = Diagnostics::new();
+                    let res = SpatialGrid::build_with_cx(
+                        bounds_slice,
+                        &mut Cx::new(&mut b, &mut d, cancel),
                     );
-                })
-                .map_err(|stop| {
+                    (res, Kind::ALL.map(|k| b.used(k)))
+                });
+                let disp_pair = {
+                    let mut b = Budget::default();
+                    let mut d = Diagnostics::new();
+                    let mut sub_cx = Cx::new(&mut b, &mut d, cancel);
+                    let res = (|| -> Result<Display, zumen_sdk::Stop> {
+                        let mut disp = Display::with_rows_with_cx(&mut sub_cx, rows_ref.len())?;
+                        for row in rows_ref {
+                            let (counts, style) = display_row_counts_and_style(row, sym_ref);
+                            disp.push_with_cx(&mut sub_cx, counts, style, |w| {
+                                write_display_row(row, header_ref, paper_origin, sym_ref, w);
+                            })?;
+                        }
+                        disp.clear_dirty();
+                        Ok(disp)
+                    })();
+                    (res, Kind::ALL.map(|k| b.used(k)))
+                };
+                let spat_pair = spat_handle
+                    .join()
+                    .unwrap_or((Err(zumen_sdk::Stop::Cancelled), [0u64; Kind::ALL.len()]));
+                (disp_pair, spat_pair)
+            });
+            jww_spend_used(cx.budget, &disp_used);
+            let display = disp_res.map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+            let mut bounds_iter = bounds_vec.into_iter();
+            let table = VersionedTable::from_vec_with_cx(
+                rows_vec,
+                |_| (bounds_iter.next().unwrap_or(zumen_live::EMPTY_BOUNDS), true),
+                cx,
+            )
+            .map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+            jww_spend_used(cx.budget, &spat_used);
+            let spatial = spat_res.map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+            (display, table, spatial)
+        } else {
+            let mut display = Display::with_rows_with_cx(cx, rows_vec.len()).map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+            for row in &rows_vec {
+                let (counts, style) = display_row_counts_and_style(row, &symbol_index_by_key);
+                display
+                    .push_with_cx(cx, counts, style, |w| {
+                        write_display_row(row, &header, paper_origin, &symbol_index_by_key, w);
+                    })
+                    .map_err(|stop| {
+                        cx.report(stop.to_diagnostic());
+                        Error::Stopped(stop)
+                    })?;
+            }
+            display.clear_dirty();
+
+            let mut bounds_iter = bounds_vec.into_iter();
+            let table = VersionedTable::from_vec_with_cx(
+                rows_vec,
+                |_| (bounds_iter.next().unwrap_or(zumen_live::EMPTY_BOUNDS), true),
+                cx,
+            )
+            .map_err(|stop| {
+                cx.report(stop.to_diagnostic());
+                Error::Stopped(stop)
+            })?;
+            let spatial =
+                SpatialGrid::build_with_cx(table.bounds_column(), cx).map_err(|stop| {
                     cx.report(stop.to_diagnostic());
                     Error::Stopped(stop)
                 })?;
-        }
-        display.clear_dirty();
+            (display, table, spatial)
+        };
 
         Ok(Self {
             source,
@@ -712,9 +1315,10 @@ impl JwwLive {
             born_alive: RankBitset::new(),
             element_base_alive,
             element_born_alive: RankBitset::new(),
+            kind_names,
             class_buckets,
             same_name_multi_schema,
-            images: images_map,
+            images,
             symbol_index_by_key,
             symbol_bounds,
             symbol_users,
@@ -783,13 +1387,13 @@ impl JwwLive {
     pub(super) fn definition_rows_alive(
         &self,
         def_idx: usize,
-    ) -> Option<impl Iterator<Item = (RowId, &Element<ModelPoint>)>> {
+    ) -> Option<impl Iterator<Item = (RowId, std::borrow::Cow<'_, Element<ModelPoint>>)>> {
         let rows = self.definition_rows.get(def_idx)?;
         Some(rows.iter().filter_map(|&row| {
             if !self.table.is_alive(row) {
                 return None;
             }
-            self.table.row(row).map(|found| (row, &found.element))
+            self.table.row(row).map(|found| (row, found.element()))
         }))
     }
 
@@ -996,6 +1600,13 @@ impl JwwLive {
             .is_some_and(|(class, ..)| class == TEXT)
     }
 
+    #[inline]
+    fn base_kind_bytes(&self, rec: &BaseRecord) -> &[u8] {
+        self.kind_names
+            .get(usize::from(rec.kind_idx))
+            .map_or(&[], Box::as_ref)
+    }
+
     fn slot_class_and_def(&self, slot: SlotRef) -> Option<(&[u8], Option<SpaceId>, bool)> {
         match slot {
             SlotRef::Base(r) => {
@@ -1010,7 +1621,7 @@ impl JwwLive {
                     }
                     _ => None,
                 };
-                Some((rec.kind_name.as_slice(), def_space, in_def))
+                Some((self.base_kind_bytes(rec), def_space, in_def))
             }
             SlotRef::Born(b) => {
                 let rec = self.born_records.get(b)?;
@@ -1465,7 +2076,7 @@ impl JwwLive {
                 StagedAction::Updated {
                     after_row, slot, ..
                 } => {
-                    let h = Hash::element_checked(&after_row.element, cx).map_err(|stop| {
+                    let h = Hash::element_checked(&after_row.element(), cx).map_err(|stop| {
                         cx.report(stop.to_diagnostic());
                         Error::Stopped(stop)
                     })?;
@@ -1476,7 +2087,7 @@ impl JwwLive {
                     after_row,
                     ..
                 } => {
-                    let h = Hash::element_checked(&after_row.element, cx).map_err(|stop| {
+                    let h = Hash::element_checked(&after_row.element(), cx).map_err(|stop| {
                         cx.report(stop.to_diagnostic());
                         Error::Stopped(stop)
                     })?;
@@ -2091,17 +2702,12 @@ impl JwwLive {
         };
         match &rec.outcome {
             BaseOutcome::None => {}
-            BaseOutcome::Dropped => dropped(cx, &rec.kind_name, source),
-            BaseOutcome::Invalid => invalid(cx, &rec.kind_name, source),
-            BaseOutcome::BlockDef {
-                symbol_index,
-                number,
-                referenced,
-                name,
-            } => {
-                let space = SpaceId(DEFINITION_SPACES + *symbol_index as u32);
+            BaseOutcome::Dropped => dropped(cx, self.base_kind_bytes(rec), source),
+            BaseOutcome::Invalid => invalid(cx, self.base_kind_bytes(rec), source),
+            BaseOutcome::BlockDef(def) => {
+                let space = SpaceId(DEFINITION_SPACES + def.symbol_index as u32);
                 out.symbols.push(SymbolDefinition {
-                    key: block_key(*number),
+                    key: block_key(def.number),
                     space: ModelSpace {
                         id: space,
                         unit: Unit::Millimeter,
@@ -2121,7 +2727,7 @@ impl JwwLive {
                 });
                 drafts.push(Draft {
                     namespace: "jww.block".into(),
-                    name: number.to_string(),
+                    name: def.number.to_string(),
                     version: Some(version_text.to_owned()),
                     schema: SCHEMA,
                     at: Position::Document,
@@ -2129,29 +2735,25 @@ impl JwwLive {
                         Field {
                             key: "name".into(),
                             code: None,
-                            value: FieldValue::Text(name.clone()),
+                            value: FieldValue::Text(def.name.clone()),
                         },
                         Field {
                             key: "referenced".into(),
                             code: None,
-                            value: FieldValue::Integer(i64::from(*referenced)),
+                            value: FieldValue::Integer(i64::from(def.referenced)),
                         },
                     ],
                     source,
                 });
             }
-            BaseOutcome::DocumentDraft {
-                namespace,
-                name,
-                fields,
-            } => {
+            BaseOutcome::DocumentDraft(doc) => {
                 drafts.push(Draft {
-                    namespace: (*namespace).into(),
-                    name: name.clone(),
+                    namespace: doc.namespace.into(),
+                    name: doc.name.clone(),
                     version: Some(version_text.to_owned()),
                     schema: SCHEMA,
                     at: Position::Document,
-                    fields: fields.clone(),
+                    fields: doc.fields.clone(),
                     source,
                 });
             }
@@ -2199,7 +2801,7 @@ impl JwwLive {
             cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", seen.id.as_str()));
             return Ok(None);
         };
-        let actual_hash = Hash::element_checked(&row.element, cx).map_err(|stop| {
+        let actual_hash = Hash::element_checked(&row.element(), cx).map_err(|stop| {
             cx.report(stop.to_diagnostic().at(Ref::at_record(eff_rec as u64)));
             Error::Stopped(stop)
         })?;
@@ -2219,7 +2821,7 @@ impl JwwLive {
             SlotRef::Base(r) => self
                 .base_records
                 .get(r)
-                .map(|rec| String::from_utf8_lossy(&rec.kind_name).into_owned())
+                .map(|rec| String::from_utf8_lossy(self.base_kind_bytes(rec)).into_owned())
                 .unwrap_or_default(),
             SlotRef::Born(b) => self
                 .born_records
@@ -2286,15 +2888,11 @@ impl JwwLive {
         let Some(was) = RawBase::read(&body, 0, self.version) else {
             return Ok(None);
         };
-        let (want_layer, want_style) = restyle.over(row.element.layer, &row.element.style);
-        let Some(new_base) = base_for_style(
-            &self.header,
-            was,
-            &row.element,
-            want_layer,
-            &want_style,
-            in_def,
-        ) else {
+        let row_el = row.element();
+        let (want_layer, want_style) = restyle.over(row_el.layer, &row_el.style);
+        let Some(new_base) =
+            base_for_style(&self.header, was, &row_el, want_layer, &want_style, in_def)
+        else {
             return Ok(None);
         };
         // 点の線種（線種 100 は記号の点）と線幅、文字の線種と線幅は、見え方ではないので変えない
@@ -2319,7 +2917,7 @@ impl JwwLive {
             body,
             expected_layer,
             expected_style,
-            &row.element.shape,
+            &row_el.shape,
         )
         .map(Some)
     }
@@ -2354,10 +2952,11 @@ impl JwwLive {
         let Some(was) = RawBase::read(&body, 0, self.version) else {
             return Ok(None);
         };
+        let row_el = row.element();
         let Some(new_base) = base_for_style(
             &self.header,
             was,
-            &row.element,
+            &row_el,
             target_el.layer,
             &target_el.style,
             in_def,
@@ -2370,7 +2969,7 @@ impl JwwLive {
         {
             return Ok(None);
         }
-        let Some(space) = space_of(&row.element.shape) else {
+        let Some(space) = space_of(&row_el.shape) else {
             return Ok(None);
         };
         let scale = scale_of_group(&self.header, was.group, in_def);
@@ -2435,8 +3034,8 @@ impl JwwLive {
         let Some((class_name_raw, def_space, in_def)) = self.slot_class_and_def(slot) else {
             return Ok(None);
         };
-        let Some(transformed) = transform::transform(&row.element.shape, xform).map(unturned)
-        else {
+        let row_el = row.element();
+        let Some(transformed) = transform::transform(&row_el.shape, xform).map(unturned) else {
             return Ok(None);
         };
         if writable_class(&transformed) != Some(class_name_raw) {
@@ -2448,7 +3047,7 @@ impl JwwLive {
         let Some(was) = RawBase::read(&body, 0, self.version) else {
             return Ok(None);
         };
-        let Some(space) = space_of(&row.element.shape) else {
+        let Some(space) = space_of(&row_el.shape) else {
             return Ok(None);
         };
         let scale = scale_of_group(&self.header, was.group, in_def);
@@ -2484,8 +3083,8 @@ impl JwwLive {
             class_name_raw,
             def_space,
             body,
-            row.element.layer,
-            row.element.style,
+            row_el.layer,
+            row_el.style,
             &transformed,
         )
         .map(Some)
@@ -2536,13 +3135,7 @@ impl JwwLive {
             &self.symbol_index_by_key,
             &self.symbol_bounds,
         );
-        let after_row = JwwRow {
-            slot,
-            space: after_space,
-            element: lifted_el,
-            own_extensions: own,
-            underlay_image_record: embedded_image,
-        };
+        let after_row = JwwRow::new(slot, after_space, lifted_el, own, embedded_image);
         let body_diff = match slot {
             SlotRef::Base(r) => BodyDiff::Base {
                 record: r,
@@ -2611,13 +3204,7 @@ impl JwwLive {
             &self.symbol_index_by_key,
             &self.symbol_bounds,
         );
-        let after_row = JwwRow {
-            slot: SlotRef::Born(0),
-            space,
-            element: lifted_el,
-            own_extensions: own,
-            underlay_image_record: embedded_image,
-        };
+        let after_row = JwwRow::new(SlotRef::Born(0), space, lifted_el, own, embedded_image);
         Some(StagedAction::Added {
             born_offset,
             class_name,
@@ -2684,7 +3271,7 @@ impl JwwLive {
             {
                 continue;
             }
-            let target_slot = match row.underlay_image_record {
+            let target_slot = match row.underlay_image_record() {
                 Some(img_rec) => SlotRef::Base(img_rec),
                 None => row.slot,
             };
@@ -2950,11 +3537,9 @@ impl JwwLive {
             let mut changed_any = false;
             for (def_idx, rows) in self.definition_rows.iter().enumerate() {
                 if pass == 0 && !touched.contains(&def_idx) {
-                    let has_nested = rows.iter().any(|&rid| {
-                        self.table
-                            .row(rid)
-                            .is_some_and(|r| matches!(r.element.shape, Shape::Symbol(_)))
-                    });
+                    let has_nested = rows
+                        .iter()
+                        .any(|&rid| self.table.row(rid).is_some_and(JwwRow::is_symbol));
                     if !has_nested {
                         continue;
                     }
@@ -2968,9 +3553,9 @@ impl JwwLive {
                             after_bounds,
                             ..
                         }) => {
-                            if matches!(after_row.element.shape, Shape::Symbol(_)) {
+                            if after_row.is_symbol() {
                                 compute_sheet_bounds(
-                                    &after_row.element,
+                                    &after_row.element(),
                                     after_row.space,
                                     &self.header,
                                     self.paper_origin,
@@ -2984,10 +3569,10 @@ impl JwwLive {
                         Some(StagedAction::Removed { .. }) => continue,
                         _ if self.table.is_alive(rid) => {
                             if let Some(row) = self.table.row(rid)
-                                && matches!(row.element.shape, Shape::Symbol(_))
+                                && row.is_symbol()
                             {
                                 let next_b = compute_sheet_bounds(
-                                    &row.element,
+                                    &row.element(),
                                     row.space,
                                     &self.header,
                                     self.paper_origin,
@@ -3058,7 +3643,7 @@ impl JwwLive {
                         None => continue,
                     },
                 };
-                let Shape::Symbol(symbol) = &row.element.shape else {
+                let Some(symbol) = row.symbol_ref() else {
                     continue;
                 };
                 let bounds =
@@ -3259,10 +3844,10 @@ fn push_row_to_drawing(
     drafts: &mut Vec<Draft>,
     out: &mut Drawing2D,
 ) {
-    let mut element = row.element.clone();
+    let mut element = row.element().into_owned();
     element.source = source.clone();
     if let Shape::Underlay(u) = &mut element.shape {
-        u.resource.definition = match row.underlay_image_record {
+        u.resource.definition = match row.underlay_image_record() {
             Some(img_rec) => Ref::at_record(live.effective_record(SlotRef::Base(img_rec)) as u64),
             None => source.clone(),
         };
@@ -3285,7 +3870,7 @@ fn push_row_to_drawing(
         groups.entry(row.space.0 as usize).or_default()
     };
     let elem_index = elements.len();
-    for (namespace, fields) in &row.own_extensions {
+    for (namespace, fields) in row.own_extensions() {
         drafts.push(Draft {
             namespace: (*namespace).into(),
             name: String::new(),
@@ -3326,133 +3911,394 @@ impl ElementSpaceExt for Element<ModelPoint> {
     }
 }
 
-fn lift_records_deterministic(
+fn compact_model_bounds(prim: &JwwPrim) -> [f64; 4] {
+    match *prim {
+        JwwPrim::Line([x0, y0, x1, y1]) => [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)],
+        JwwPrim::Point { pos: [x, y], .. } => [x, y, x, y],
+        JwwPrim::Circle { center, radius } => {
+            let r = radius.abs();
+            [center[0] - r, center[1] - r, center[0] + r, center[1] + r]
+        }
+        JwwPrim::Arc {
+            center,
+            radius,
+            start,
+            end,
+            ccw,
+        } => arc_bounds_2d(center, radius.abs(), start, end, ccw),
+    }
+}
+
+fn compact_sheet_bounds(
+    prim: &JwwPrim,
+    space: SpaceId,
+    header: &Header,
+    [ox, oy]: [f64; 2],
+) -> [f64; 4] {
+    if space.0 >= DEFINITION_SPACES {
+        return EMPTY_BOUNDS;
+    }
+    let model_box = compact_model_bounds(prim);
+    if !is_finite_box(model_box) {
+        return EMPTY_BOUNDS;
+    }
+    let k = 1.0 / header.scale(space.0 as usize);
+    let [mx0, my0, mx1, my1] = model_box;
+    [mx0 * k + ox, my0 * k + oy, mx1 * k + ox, my1 * k + oy]
+}
+
+fn try_fast_jww_entity(
+    body: &[u8],
+    kind_name: &[u8],
+    header: &Header,
+    def_space: Option<SpaceId>,
+    index: usize,
+    paper_origin: [f64; 2],
+) -> Option<WorkerItem> {
+    if !matches!(
+        kind_name,
+        b"CDataSen" | b"CDataTen" | b"CDataEnko" | b"CDataMoji"
+    ) {
+        return None;
+    }
+    let mut r = Reader::new(body, 0);
+    let curve = r.u32().ok()?;
+    let pen_style = r.u8().ok()?;
+    let pen_color = r.u16().ok()?;
+    let pen_width = if header.version >= PEN_WIDTH_SINCE {
+        r.u16().ok()?
+    } else {
+        0
+    };
+    let layer_idx = usize::from(r.u16().ok()? & 0xF);
+    let group_idx = usize::from(r.u16().ok()? & 0xF);
+    let flag = r.u16().ok()?;
+    if curve != 0 || flag != 0 || (index as u64) == u64::MAX {
+        return None;
+    }
+    let (space, scale) = match def_space {
+        Some(sp) => (sp, 1.0),
+        None => (SpaceId(group_idx as u32), header.scale(group_idx)),
+    };
+    if !(1.0 / scale).is_finite() {
+        return None;
+    }
+    let scaled_xy = |x: f64, y: f64| -> Option<[f64; 2]> {
+        let sx = x * scale;
+        let sy = y * scale;
+        (x.is_finite() && y.is_finite() && sx.is_finite() && sy.is_finite()).then_some([sx, sy])
+    };
+    let layer = LayerId((group_idx * 16 + layer_idx + 1) as u32);
+    let record_plus1 = (index as u64) + 1;
+    let color = header.color(pen_color);
+    match kind_name {
+        b"CDataSen" => {
+            let x1 = r.f64().ok()?;
+            let y1 = r.f64().ok()?;
+            let x2 = r.f64().ok()?;
+            let y2 = r.f64().ok()?;
+            let [sx0, sy0] = scaled_xy(x1, y1)?;
+            let [sx1, sy1] = scaled_xy(x2, y2)?;
+            let weight_bits = JwwCompact::encode_weight(header.weight(pen_color, pen_width))?;
+            let prim = JwwPrim::Line([sx0, sy0, sx1, sy1]);
+            let bounds = compact_sheet_bounds(&prim, space, header, paper_origin);
+            Some(WorkerItem {
+                outcome: WorkerOutcome::Compact {
+                    space,
+                    compact: JwwCompact {
+                        record_plus1,
+                        weight_bits,
+                        prim,
+                        color,
+                        layer,
+                        line_type: u32::from(pen_style.max(1)),
+                    },
+                },
+                bounds,
+            })
+        }
+        b"CDataTen" => {
+            if pen_style == POINT_SYMBOL {
+                return None;
+            }
+            let x = r.f64().ok()?;
+            let y = r.f64().ok()?;
+            let construction = r.u32().ok()? != 0;
+            let pos = scaled_xy(x, y)?;
+            let prim = JwwPrim::Point { pos, construction };
+            let bounds = compact_sheet_bounds(&prim, space, header, paper_origin);
+            Some(WorkerItem {
+                outcome: WorkerOutcome::Compact {
+                    space,
+                    compact: JwwCompact {
+                        record_plus1,
+                        weight_bits: u64::MAX,
+                        prim,
+                        color,
+                        layer,
+                        line_type: 0,
+                    },
+                },
+                bounds,
+            })
+        }
+        b"CDataEnko" => {
+            let cx_v = r.f64().ok()?;
+            let cy_v = r.f64().ok()?;
+            let rad_v = r.f64().ok()?;
+            let start_v = r.f64().ok()?;
+            let sweep_v = r.f64().ok()?;
+            let tilt_v = r.f64().ok()?;
+            let flat_v = r.f64().ok()?;
+            if ![cx_v, cy_v, rad_v, start_v, sweep_v, tilt_v, flat_v]
+                .into_iter()
+                .all(f64::is_finite)
+            {
+                return None;
+            }
+            let full = r.u32().ok()? != 0;
+            let flatness = if flat_v > 0.0 { flat_v } else { 1.0 };
+            if (flatness - 1.0).abs() > 1e-9 {
+                return None;
+            }
+            let center = scaled_xy(cx_v, cy_v)?;
+            let r_scaled = rad_v.abs() * scale;
+            if !r_scaled.is_finite() {
+                return None;
+            }
+            let weight_bits = JwwCompact::encode_weight(header.weight(pen_color, pen_width))?;
+            let prim = if full {
+                JwwPrim::Circle {
+                    center,
+                    radius: r_scaled,
+                }
+            } else {
+                let st_deg = (tilt_v + start_v).to_degrees();
+                let en_deg = (tilt_v + start_v + sweep_v).to_degrees();
+                if !st_deg.is_finite() || !en_deg.is_finite() {
+                    return None;
+                }
+                let _ = TURN;
+                JwwPrim::Arc {
+                    center,
+                    radius: r_scaled,
+                    start: st_deg,
+                    end: en_deg,
+                    ccw: sweep_v >= 0.0,
+                }
+            };
+            let bounds = compact_sheet_bounds(&prim, space, header, paper_origin);
+            Some(WorkerItem {
+                outcome: WorkerOutcome::Compact {
+                    space,
+                    compact: JwwCompact {
+                        record_plus1,
+                        weight_bits,
+                        prim,
+                        color,
+                        layer,
+                        line_type: u32::from(pen_style.max(1)),
+                    },
+                },
+                bounds,
+            })
+        }
+        b"CDataMoji" => {
+            let x1 = r.f64().ok()?;
+            let y1 = r.f64().ok()?;
+            let x2 = r.f64().ok()?;
+            let y2 = r.f64().ok()?;
+            let kind = r.u32().ok()?;
+            let size_x = r.f64().ok()?;
+            let size_y = r.f64().ok()?;
+            let spacing = r.f64().ok()?;
+            let angle = r.f64().ok()?;
+            if ![x1, y1, x2, y2, size_x, size_y, spacing, angle]
+                .into_iter()
+                .all(f64::is_finite)
+            {
+                return None;
+            }
+            if [x1, y1] == [0.0, -1000.0] || kind != 0 || spacing != 0.0 {
+                return None;
+            }
+            let (u_font, font_bytes) = r.string().ok()?;
+            let (u_cont, cont_bytes) = r.string().ok()?;
+            if !u_cont && cont_bytes.starts_with(b"^@") {
+                return None;
+            }
+            let content = decode(u_cont, cont_bytes);
+            if content.starts_with("^@") {
+                return None;
+            }
+            let font = decode(u_font, font_bytes);
+            let width_factor = if size_y > 0.0 {
+                let wf = size_x / size_y;
+                if !wf.is_finite() {
+                    return None;
+                }
+                wf
+            } else {
+                1.0
+            };
+            let [ax, ay] = scaled_xy(x1, y1)?;
+            let anchor = ModelPoint {
+                space,
+                x: ax,
+                y: ay,
+            };
+            let element = Element {
+                source: Ref::at_record(index as u64),
+                layer,
+                style: Style {
+                    color: Inherit::Own(color),
+                    line_type: Inherit::Layer,
+                    line_type_scale: 1.0,
+                    line_weight: None,
+                    transparency: Inherit::Layer,
+                },
+                shape: Shape::Text(Text {
+                    content,
+                    height: Height {
+                        value: Length::Paper(PaperLength(size_y)),
+                        meaning: HeightMeaning::Declared("jww.moji.size_y".into()),
+                    },
+                    placement: Placement::Anchor {
+                        point: anchor,
+                        horizontal: Horizontal::Left,
+                        vertical: Vertical::Bottom,
+                    },
+                    rotation: angle,
+                    width_factor,
+                    oblique: 0.0,
+                    backward: false,
+                    upside_down: false,
+                    style: font,
+                }),
+            };
+            let bounds = if space.0 < DEFINITION_SPACES {
+                compute_sheet_bounds(&element, space, header, paper_origin, &BTreeMap::new(), &[])
+            } else {
+                EMPTY_BOUNDS
+            };
+            Some(WorkerItem {
+                outcome: WorkerOutcome::Full(Box::new((
+                    space,
+                    JwwFull {
+                        element,
+                        own_extensions: Vec::new(),
+                        underlay_image_record: None,
+                    },
+                ))),
+                bounds,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn jww_budget_has_room(budget: &Budget, kind: Kind, need: u64) -> bool {
+    if budget.exceeded().is_some() {
+        return false;
+    }
+    match budget.limits().get(kind) {
+        Limit::Unlimited => true,
+        Limit::Finite(max) => budget
+            .used(kind)
+            .checked_add(need)
+            .is_some_and(|req| req <= max),
+    }
+}
+
+fn jww_spend_used(budget: &mut Budget, used: &[u64; Kind::ALL.len()]) {
+    for (kind, &amount) in Kind::ALL.into_iter().zip(used) {
+        if kind != Kind::Depth && amount > 0 {
+            let _ = budget.spend(kind, amount);
+        }
+    }
+}
+
+fn lift_jww_record_one(
     file: &JwwFile,
+    index: usize,
+    record: &crate::Record,
     header: &Header,
     paper_origin: [f64; 2],
     definitions: &BTreeMap<usize, (usize, SpaceId)>,
     images_map: &BTreeMap<String, usize>,
-    threads: usize,
-) -> Vec<WorkerItem> {
-    let records = file.records();
-    let total = records.len();
-    let lift_one = |index: usize, record: &crate::Record| -> WorkerItem {
-        if record.kind() != RecordKind::Entity {
-            return WorkerItem {
-                outcome: WorkerOutcome::Skip,
-                bounds: EMPTY_BOUNDS,
-            };
-        }
-        let def_space = match record.block() {
-            Some(parent) => match definitions.get(&parent) {
-                Some(&(_, space)) => Some(space),
-                None => {
-                    return WorkerItem {
-                        outcome: WorkerOutcome::Skip,
-                        bounds: EMPTY_BOUNDS,
-                    };
-                }
-            },
-            None => None,
+) -> WorkerItem {
+    if record.kind() != RecordKind::Entity {
+        return WorkerItem {
+            outcome: WorkerOutcome::Skip,
+            bounds: EMPTY_BOUNDS,
         };
-        let source = Ref::at_record(index as u64);
-        let kind_name = file.kind_name(record);
-        match lift_single_entity(
-            file.bytes(record.body()),
-            kind_name,
-            header,
-            def_space,
-            images_map,
-            &source,
-        ) {
-            SingleEntity::Dropped => WorkerItem {
-                outcome: WorkerOutcome::Dropped,
-                bounds: EMPTY_BOUNDS,
-            },
-            SingleEntity::Invalid => WorkerItem {
-                outcome: WorkerOutcome::Invalid,
-                bounds: EMPTY_BOUNDS,
-            },
-            SingleEntity::DocumentDraft {
+    }
+    let def_space = match record.block() {
+        Some(parent) => match definitions.get(&parent) {
+            Some(&(_, space)) => Some(space),
+            None => {
+                return WorkerItem {
+                    outcome: WorkerOutcome::Skip,
+                    bounds: EMPTY_BOUNDS,
+                };
+            }
+        },
+        None => None,
+    };
+    let body = file.bytes(record.body());
+    let kind_name = file.kind_name(record);
+    if let Some(fast) = try_fast_jww_entity(body, kind_name, header, def_space, index, paper_origin)
+    {
+        return fast;
+    }
+    let source = Ref::at_record(index as u64);
+    match lift_single_entity(body, kind_name, header, def_space, images_map, &source) {
+        SingleEntity::Dropped => WorkerItem {
+            outcome: WorkerOutcome::Dropped,
+            bounds: EMPTY_BOUNDS,
+        },
+        SingleEntity::Invalid => WorkerItem {
+            outcome: WorkerOutcome::Invalid,
+            bounds: EMPTY_BOUNDS,
+        },
+        SingleEntity::DocumentDraft {
+            namespace,
+            name,
+            fields,
+        } => WorkerItem {
+            outcome: WorkerOutcome::DocumentDraft(Box::new(DocumentDraftOutcome {
                 namespace,
                 name,
                 fields,
-            } => WorkerItem {
-                outcome: WorkerOutcome::DocumentDraft {
-                    namespace,
-                    name,
-                    fields,
-                },
-                bounds: EMPTY_BOUNDS,
-            },
-            SingleEntity::Element {
-                element,
-                own,
-                embedded_image,
-            } => {
-                let space = element.space_hint(record.block(), definitions);
-                let bounds =
-                    if space.0 < DEFINITION_SPACES && !matches!(element.shape, Shape::Symbol(_)) {
-                        compute_sheet_bounds(
-                            &element,
-                            space,
-                            header,
-                            paper_origin,
-                            &BTreeMap::new(),
-                            &[],
-                        )
-                    } else {
-                        EMPTY_BOUNDS
-                    };
-                WorkerItem {
-                    outcome: WorkerOutcome::Element {
+            })),
+            bounds: EMPTY_BOUNDS,
+        },
+        SingleEntity::Element {
+            element,
+            own,
+            embedded_image,
+        } => {
+            let space = element.space_hint(record.block(), definitions);
+            let bounds = if space.0 < DEFINITION_SPACES
+                && !matches!(element.shape, Shape::Symbol(_))
+            {
+                compute_sheet_bounds(&element, space, header, paper_origin, &BTreeMap::new(), &[])
+            } else {
+                EMPTY_BOUNDS
+            };
+            WorkerItem {
+                outcome: WorkerOutcome::Full(Box::new((
+                    space,
+                    JwwFull {
                         element,
-                        own,
-                        embedded_image,
+                        own_extensions: own,
+                        underlay_image_record: embedded_image,
                     },
-                    bounds,
-                }
+                ))),
+                bounds,
             }
         }
-    };
-
-    if threads <= 1 || total < 256 {
-        return records
-            .iter()
-            .enumerate()
-            .map(|(idx, rec)| lift_one(idx, rec))
-            .collect();
     }
-
-    let chunk_size = total.div_ceil(threads);
-    let mut chunks_out: Vec<Vec<WorkerItem>> = Vec::with_capacity(threads);
-    std::thread::scope(|s| {
-        let mut handles = Vec::new();
-        let mut start = 0usize;
-        while start < total {
-            let end = (start + chunk_size).min(total);
-            let slice = records.get(start..end).unwrap_or_default();
-            let base_idx = start;
-            handles.push(s.spawn(move || {
-                slice
-                    .iter()
-                    .enumerate()
-                    .map(|(off, rec)| lift_one(base_idx + off, rec))
-                    .collect::<Vec<_>>()
-            }));
-            start = end;
-        }
-        for h in handles {
-            if let Ok(part) = h.join() {
-                chunks_out.push(part);
-            }
-        }
-    });
-    let mut flat = Vec::with_capacity(total);
-    for part in chunks_out {
-        flat.extend(part);
-    }
-    flat
 }
 
 fn revert_display_for_jww(
@@ -3473,20 +4319,9 @@ fn revert_display_for_jww(
             ExistingRowDiff::Updated {
                 row, before_row, ..
             } => {
-                let (counts, style) = display_counts_and_style(
-                    &before_row.element,
-                    before_row.space,
-                    symbol_index_by_key,
-                );
+                let (counts, style) = display_row_counts_and_style(before_row, symbol_index_by_key);
                 display.update_with(row.0, counts, style, |w| {
-                    write_display_element(
-                        &before_row.element,
-                        before_row.space,
-                        header,
-                        paper_origin,
-                        symbol_index_by_key,
-                        w,
-                    );
+                    write_display_row(before_row, header, paper_origin, symbol_index_by_key, w);
                 });
             }
         }
@@ -3503,20 +4338,9 @@ fn reapply_display_for_jww(
     for diff in committed.existing() {
         match diff {
             ExistingRowDiff::Updated { row, after_row, .. } => {
-                let (counts, style) = display_counts_and_style(
-                    &after_row.element,
-                    after_row.space,
-                    symbol_index_by_key,
-                );
+                let (counts, style) = display_row_counts_and_style(after_row, symbol_index_by_key);
                 display.update_with(row.0, counts, style, |w| {
-                    write_display_element(
-                        &after_row.element,
-                        after_row.space,
-                        header,
-                        paper_origin,
-                        symbol_index_by_key,
-                        w,
-                    );
+                    write_display_row(after_row, header, paper_origin, symbol_index_by_key, w);
                 });
             }
             ExistingRowDiff::Removed { row, .. } => {
@@ -3525,15 +4349,10 @@ fn reapply_display_for_jww(
         }
     }
     for born in committed.born() {
-        let (counts, style) = display_counts_and_style(
-            &born.after_row.element,
-            born.after_row.space,
-            symbol_index_by_key,
-        );
+        let (counts, style) = display_row_counts_and_style(&born.after_row, symbol_index_by_key);
         display.push_with(counts, style, |w| {
-            write_display_element(
-                &born.after_row.element,
-                born.after_row.space,
+            write_display_row(
+                &born.after_row,
                 header,
                 paper_origin,
                 symbol_index_by_key,
@@ -3543,35 +4362,103 @@ fn reapply_display_for_jww(
     }
 }
 
+fn pack_jww_color_own(c: &Color) -> u32 {
+    match (c.rgb, c.code) {
+        (Some(rgb), _) => display_color::rgb(rgb),
+        (None, Some(code)) => display_color::code(
+            match code.system {
+                ColorSystem::Aci => display_color::ACI,
+                ColorSystem::Sxf => display_color::SXF,
+                ColorSystem::Jww => display_color::JWW,
+            },
+            code.value,
+        ),
+        (None, None) => display_color::LAYER,
+    }
+}
+
 fn pack_jww_color(color: &Inherit<Color>) -> u32 {
     match color {
-        Inherit::Own(c) => match (c.rgb, c.code) {
-            (Some(rgb), _) => display_color::rgb(rgb),
-            (None, Some(code)) => display_color::code(
-                match code.system {
-                    ColorSystem::Aci => display_color::ACI,
-                    ColorSystem::Sxf => display_color::SXF,
-                    ColorSystem::Jww => display_color::JWW,
-                },
-                code.value,
-            ),
-            (None, None) => display_color::LAYER,
-        },
+        Inherit::Own(c) => pack_jww_color_own(c),
         Inherit::Layer => display_color::LAYER,
         Inherit::Block => display_color::BLOCK,
     }
 }
 
-fn display_counts_and_style(
-    element: &Element<ModelPoint>,
-    space: SpaceId,
+fn display_row_counts_and_style(
+    row: &JwwRow,
     symbol_index_by_key: &BTreeMap<String, u32>,
 ) -> ([u32; 4], [u32; 2]) {
-    let style = display_style(element);
-    if space.0 >= DEFINITION_SPACES {
-        return ([0, 0, 0, 0], style);
+    match &row.stored {
+        JwwStored::Compact(c) => {
+            let style = [c.layer.0, pack_jww_color_own(&c.color)];
+            if row.space.0 >= DEFINITION_SPACES {
+                return ([0, 0, 0, 0], style);
+            }
+            let counts = match c.prim {
+                JwwPrim::Line(_) | JwwPrim::Point { .. } => [1, 0, 0, 0],
+                JwwPrim::Circle { .. } | JwwPrim::Arc { .. } => [0, 1, 0, 0],
+            };
+            (counts, style)
+        }
+        JwwStored::Full(f) => {
+            let style = display_style(&f.element);
+            if row.space.0 >= DEFINITION_SPACES {
+                return ([0, 0, 0, 0], style);
+            }
+            (shape_counts(&f.element, symbol_index_by_key), style)
+        }
     }
-    (shape_counts(element, symbol_index_by_key), style)
+}
+
+fn write_display_row(
+    row: &JwwRow,
+    header: &Header,
+    [ox, oy]: [f64; 2],
+    symbol_index_by_key: &BTreeMap<String, u32>,
+    w: &mut DisplayWriter<'_>,
+) {
+    if row.space.0 >= DEFINITION_SPACES {
+        return;
+    }
+    let k = 1.0 / header.scale(row.space.0 as usize);
+    match &row.stored {
+        JwwStored::Compact(c) => match c.prim {
+            JwwPrim::Line([x0, y0, x1, y1]) => {
+                w.push_segment([x0 * k + ox, y0 * k + oy], [x1 * k + ox, y1 * k + oy]);
+            }
+            JwwPrim::Point { pos: [x, y], .. } => {
+                let p = [x * k + ox, y * k + oy];
+                w.push_segment(p, p);
+            }
+            JwwPrim::Circle { center, radius } => {
+                w.push_arc_rad(
+                    [center[0] * k + ox, center[1] * k + oy],
+                    radius * k,
+                    0.0,
+                    TAU,
+                );
+            }
+            JwwPrim::Arc {
+                center,
+                radius,
+                start,
+                end,
+                ccw,
+            } => {
+                let sweep = zumen_geom2d::sweep(start, end, ccw);
+                w.push_arc_rad(
+                    [center[0] * k + ox, center[1] * k + oy],
+                    radius * k,
+                    radians_from_deg(start),
+                    radians_from_deg(sweep),
+                );
+            }
+        },
+        JwwStored::Full(f) => {
+            write_display_shape(&f.element, k, [ox, oy], symbol_index_by_key, w);
+        }
+    }
 }
 
 /// 記号の定義の空間の要素 1 つが、定義の座標のまま表示の行に確保する個数と、行の書式。
@@ -3689,21 +4576,6 @@ fn count_hatch_primitives(hatch: &zumen_drawing::Hatch<ModelPoint>) -> [u32; 4] 
         }
     }
     [segs, arcs, 0, 0]
-}
-
-fn write_display_element(
-    element: &Element<ModelPoint>,
-    space: SpaceId,
-    header: &Header,
-    paper_origin: [f64; 2],
-    symbol_index_by_key: &BTreeMap<String, u32>,
-    w: &mut DisplayWriter<'_>,
-) {
-    if space.0 >= DEFINITION_SPACES {
-        return;
-    }
-    let k = 1.0 / header.scale(space.0 as usize);
-    write_display_shape(element, k, paper_origin, symbol_index_by_key, w);
 }
 
 /// 要素の形を、座標を `k` 倍して `origin` だけ動かした表示の行に書く
@@ -4497,10 +5369,10 @@ mod equivalence_tests {
             let mut display = Display::with_rows(0);
             for (_, element) in live.definition_rows_alive(def_idx).unwrap() {
                 let (counts, style) =
-                    display_definition_counts_and_style(element, &live.symbol_index_by_key);
-                assert_eq!(style, display_style(element));
+                    display_definition_counts_and_style(&element, &live.symbol_index_by_key);
+                assert_eq!(style, display_style(&element));
                 display.push_with(counts, style, |w| {
-                    write_definition_display(element, &live.symbol_index_by_key, w);
+                    write_definition_display(&element, &live.symbol_index_by_key, w);
                 });
             }
             display.canonical()
@@ -4547,7 +5419,7 @@ mod equivalence_tests {
             .unwrap()
             .nth(nth)
             .unwrap();
-        display_style(element)
+        display_style(&element)
     }
 
     fn check_selection(live: &JwwLive) {

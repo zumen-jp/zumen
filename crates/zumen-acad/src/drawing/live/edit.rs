@@ -1377,7 +1377,7 @@ fn check_block_element_seen(
     let Some(Key::Handle(handle)) = was.source.key() else {
         return Ok(Err(FastAttempt::Fallback));
     };
-    if handle == 0 || state.attached_inserts.contains(&handle) {
+    if handle == 0 || state.attached_inserts.binary_search(&handle).is_ok() {
         return Ok(Err(FastAttempt::Fallback));
     }
     let copied_bytes = cx
@@ -1688,7 +1688,7 @@ fn check_sheet_element_seen(
     let Some(Key::Handle(handle)) = was.source.key() else {
         return Ok(Err(FastAttempt::Fallback));
     };
-    if handle == 0 || state.attached_inserts.contains(&handle) {
+    if handle == 0 || state.attached_inserts.binary_search(&handle).is_ok() {
         return Ok(Err(FastAttempt::Fallback));
     }
     let Some(&frame) = state.sheet_frames.get(&sheet.id) else {

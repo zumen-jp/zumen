@@ -26,26 +26,77 @@ use crate::{DIALECT, Form, Mode, Record, SxfFile, Value};
 use super::source::SourceMap;
 
 /// 引数の場所（文の通し番号・部分の番号・引数の番号）
-type Slot = (usize, usize, usize);
+pub(super) type Slot = (usize, usize, usize);
 
 const MINI_P21_HEADER: &[u8] = b"ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('AP202'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n";
 const MINI_P21_FOOTER: &[u8] = b"\nENDSEC;\nEND-ISO-10303-21;\n";
 
+/// 開いた時点の基底文の範囲とインスタンス番号（`Record` 木を常駐させない省メモリ索引）
+#[derive(Clone, Copy, Debug)]
+pub(super) struct BaseSpan {
+    start: u64,
+    len_and_flags: u64,
+    id: u64,
+}
+
+impl BaseSpan {
+    #[inline]
+    pub(super) fn new(span: Range<usize>, id: Option<u64>, simple_one_part: bool) -> Self {
+        let len = (span.end - span.start) as u64;
+        let flags = u64::from(id.is_some()) | (u64::from(simple_one_part) << 1);
+        Self {
+            start: span.start as u64,
+            len_and_flags: (len << 2) | flags,
+            id: id.unwrap_or(0),
+        }
+    }
+
+    #[inline]
+    pub(super) fn span(self) -> Range<usize> {
+        let s = self.start as usize;
+        s..(s + (self.len_and_flags >> 2) as usize)
+    }
+
+    #[inline]
+    pub(super) fn id(self) -> Option<u64> {
+        ((self.len_and_flags & 1) != 0).then_some(self.id)
+    }
+
+    #[inline]
+    pub(super) fn is_simple_one_part(self) -> bool {
+        (self.len_and_flags & 2) != 0
+    }
+}
+
+fn parse_single_data_record(buf: &[u8]) -> Option<Record> {
+    let mut budget = zumen_base::Budget::default();
+    let mut diagnostics = zumen_base::Diagnostics::new();
+    let cancel = zumen_base::CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let exchange = zumen_step::read(buf, &DIALECT, &mut cx).ok()?;
+    let data_start = MINI_P21_HEADER.len();
+    let data_end = buf.len().checked_sub(MINI_P21_FOOTER.len())?;
+    exchange
+        .records
+        .into_iter()
+        .find(|r| r.span().start >= data_start && r.span().end <= data_end)
+}
+
 #[derive(Clone)]
-struct InstanceIndex {
+pub(super) struct InstanceIndex {
     dense: Vec<u32>,
     sparse: BTreeMap<u64, usize>,
 }
 
 impl InstanceIndex {
-    fn with_capacity(dense_cap: usize) -> Self {
+    pub(super) fn with_capacity(dense_cap: usize) -> Self {
         Self {
             dense: vec![u32::MAX; dense_cap],
             sparse: BTreeMap::new(),
         }
     }
 
-    fn insert_first(&mut self, id: u64, stmt: usize) -> bool {
+    pub(super) fn insert_first(&mut self, id: u64, stmt: usize) -> bool {
         if let Ok(idx) = usize::try_from(id)
             && let Some(slot) = self.dense.get_mut(idx)
         {
@@ -95,8 +146,8 @@ impl InstanceIndex {
 
 /// 要素の並びを持つコンテナー実体（用紙・レイヤ・非表示・複合図形定義）の `O(log K)` 差分リスト
 #[derive(Clone, Debug)]
-struct ContainerList {
-    base_len: usize,
+pub(super) struct ContainerList {
+    base_items: Box<[u64]>,
     /// 同じ `#id` が元の並びの中に 2 回以上現れるときだけその回数を覚える
     base_dups: BTreeMap<u64, u32>,
     removed_base: BTreeSet<u64>,
@@ -116,19 +167,29 @@ struct ContainerListSnapshot {
 }
 
 impl ContainerList {
-    fn from_base(items: &[Value]) -> Option<(Self, Vec<u64>)> {
-        let mut counts: BTreeMap<u64, u32> = BTreeMap::new();
-        for item in items {
-            let Value::Ref(id) = item else {
-                return None;
-            };
-            *counts.entry(*id).or_default() += 1;
-        }
-        let unique: Vec<u64> = counts.keys().copied().collect();
-        let base_dups: BTreeMap<u64, u32> = counts.into_iter().filter(|(_, c)| *c >= 2).collect();
-        Some((
+    pub(super) fn from_base_ids(base_items: Box<[u64]>) -> (Self, Vec<u64>) {
+        let mut ids = base_items.to_vec();
+        let (unique, base_dups) = if ids.is_sorted_by(|a, b| a < b) {
+            (ids, BTreeMap::new())
+        } else {
+            ids.sort_unstable();
+            let mut unique = Vec::with_capacity(ids.len());
+            let mut base_dups = BTreeMap::new();
+            for run in ids.chunk_by(|a, b| a == b) {
+                let Some(&id) = run.first() else {
+                    continue;
+                };
+                unique.push(id);
+                let count = run.len() as u32;
+                if count >= 2 {
+                    base_dups.insert(id, count);
+                }
+            }
+            (unique, base_dups)
+        };
+        (
             Self {
-                base_len: items.len(),
+                base_items,
                 base_dups,
                 removed_base: BTreeSet::new(),
                 removed_base_total: 0,
@@ -138,12 +199,24 @@ impl ContainerList {
                 dirty: false,
             },
             unique,
-        ))
+        )
+    }
+
+    fn from_base(items: &[Value]) -> Option<(Self, Vec<u64>)> {
+        let mut ids = Vec::with_capacity(items.len());
+        for item in items {
+            let Value::Ref(id) = item else {
+                return None;
+            };
+            ids.push(*id);
+        }
+        Some(Self::from_base_ids(ids.into_boxed_slice()))
     }
 
     #[inline]
     fn len(&self) -> usize {
-        self.base_len
+        self.base_items
+            .len()
             .saturating_sub(self.removed_base_total)
             .saturating_add(self.tail_by_seq.len())
     }
@@ -224,13 +297,11 @@ impl ContainerList {
         self.dirty = true;
     }
 
-    fn write_rendered(&self, base_items: &[Value], out: &mut Vec<u8>) {
+    fn write_rendered(&self, out: &mut Vec<u8>) {
         out.push(b'(');
         let mut first = true;
-        for item in base_items {
-            if let Value::Ref(id) = item
-                && !self.removed_base.contains(id)
-            {
+        for &id in &self.base_items {
+            if !self.removed_base.contains(&id) {
                 if !first {
                     out.push(b',');
                 }
@@ -320,23 +391,138 @@ pub(super) struct P21StepTx {
     added_layers: Vec<u64>,
 }
 
+/// `#id` がどのコンテナー `Slot` に属するかを省メモリで保持する索引（初期状態は CSR、編集分だけ上書き表）
+#[derive(Clone, Default)]
+pub(super) struct ContainerMembership {
+    slots: Vec<Slot>,
+    base_ids: Vec<u64>,
+    base_offsets: Vec<u32>,
+    base_slot_indices: Vec<u32>,
+    overrides: BTreeMap<u64, Vec<Slot>>,
+}
+
+impl ContainerMembership {
+    pub(super) fn from_raw(slots: Vec<Slot>, mut pairs: Vec<(u64, u32)>) -> Self {
+        if !pairs.is_sorted_by(|a, b| a <= b) {
+            pairs.sort_unstable();
+        }
+        pairs.dedup();
+        let mut base_ids = Vec::new();
+        let mut base_offsets = Vec::new();
+        let mut base_slot_indices = Vec::with_capacity(pairs.len());
+        for run in pairs.chunk_by(|a, b| a.0 == b.0) {
+            let Some(&(id, _)) = run.first() else {
+                continue;
+            };
+            base_ids.push(id);
+            base_offsets.push(base_slot_indices.len() as u32);
+            base_slot_indices.extend(run.iter().map(|&(_, si)| si));
+        }
+        base_offsets.push(base_slot_indices.len() as u32);
+        Self {
+            slots,
+            base_ids,
+            base_offsets,
+            base_slot_indices,
+            overrides: BTreeMap::new(),
+        }
+    }
+
+    fn base_range(&self, id: u64) -> Option<Range<usize>> {
+        let pos = self.base_ids.binary_search(&id).ok()?;
+        let s = *self.base_offsets.get(pos)? as usize;
+        let e = *self.base_offsets.get(pos + 1)? as usize;
+        Some(s..e)
+    }
+
+    fn in_base(&self, id: u64, slot: Slot) -> bool {
+        let Some(range) = self.base_range(id) else {
+            return false;
+        };
+        self.base_slot_indices
+            .get(range)
+            .into_iter()
+            .flatten()
+            .any(|&si| self.slots.get(si as usize).copied() == Some(slot))
+    }
+
+    fn base_slots_vec(&self, id: u64) -> Vec<Slot> {
+        let Some(range) = self.base_range(id) else {
+            return Vec::new();
+        };
+        let mut out: Vec<Slot> = self
+            .base_slot_indices
+            .get(range)
+            .into_iter()
+            .flatten()
+            .filter_map(|&si| self.slots.get(si as usize).copied())
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    fn current_slots(&self, id: u64) -> Vec<Slot> {
+        if let Some(ov) = self.overrides.get(&id) {
+            return ov.clone();
+        }
+        self.base_slots_vec(id)
+    }
+
+    fn set_current(&mut self, id: u64, slot: Slot, present: bool) {
+        if !self.overrides.contains_key(&id) {
+            let initial = self.base_slots_vec(id);
+            self.overrides.insert(id, initial);
+        }
+        if let Some(vec) = self.overrides.get_mut(&id) {
+            match vec.binary_search(&slot) {
+                Ok(pos) => {
+                    if !present {
+                        vec.remove(pos);
+                    }
+                }
+                Err(pos) => {
+                    if present {
+                        vec.insert(pos, slot);
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub(super) struct FastP21StateInit {
+    pub(super) src: SourceBytes,
+    pub(super) newline: &'static str,
+    pub(super) base_spans: Vec<BaseSpan>,
+    pub(super) last_base_instance: Option<(usize, Range<usize>, usize)>,
+    pub(super) instances: InstanceIndex,
+    pub(super) sorted_base_ids: Vec<(u64, u32)>,
+    pub(super) alive_id_counts: RefCounts,
+    pub(super) ref_counts: RefCounts,
+    pub(super) container_lists: BTreeMap<Slot, ContainerList>,
+    pub(super) membership: ContainerMembership,
+    pub(super) non_container_refs: RefCounts,
+    pub(super) first_sheet: Option<(u64, Slot)>,
+    pub(super) length_measures: Vec<(u64, usize, usize)>,
+    pub(super) codes: Codes,
+}
+
 #[derive(Clone)]
 pub(super) struct P21State {
     src: SourceBytes,
     newline: &'static str,
-    base_records: Arc<[Record]>,
+    base_spans: Vec<BaseSpan>,
     last_base_instance: Option<(usize, Range<usize>, usize)>,
     born_stmts: Vec<BornStmt>,
     instances: InstanceIndex,
-    alive_id_counts: BTreeMap<u64, u32>,
+    sorted_base_ids: Vec<(u64, u32)>,
+    alive_id_counts: RefCounts,
     ref_counts: RefCounts,
     container_lists: BTreeMap<Slot, ContainerList>,
-    /// 元のコンテナーの要素列に `#id` が入っていた `Slot` の集合
-    base_id_containers: BTreeMap<u64, BTreeSet<Slot>>,
-    /// いま `#id` が入っているコンテナーの `Slot` の集合
-    current_id_containers: BTreeMap<u64, BTreeSet<Slot>>,
+    membership: ContainerMembership,
     /// コンテナーの要素列以外の引数から `#id` を指している生存文の数
-    non_container_refs: BTreeMap<u64, u32>,
+    non_container_refs: RefCounts,
     first_sheet: Option<(u64, Slot)>,
     length_measures: Vec<(u64, usize, usize)>,
     codes: Codes,
@@ -349,6 +535,31 @@ pub(super) struct P21State {
 }
 
 impl P21State {
+    pub(super) fn from_fast(init: FastP21StateInit) -> Self {
+        Self {
+            src: init.src,
+            newline: init.newline,
+            base_spans: init.base_spans,
+            last_base_instance: init.last_base_instance,
+            born_stmts: Vec::new(),
+            instances: init.instances,
+            sorted_base_ids: init.sorted_base_ids,
+            alive_id_counts: init.alive_id_counts,
+            ref_counts: init.ref_counts,
+            container_lists: init.container_lists,
+            membership: init.membership,
+            non_container_refs: init.non_container_refs,
+            first_sheet: init.first_sheet,
+            length_measures: init.length_measures,
+            codes: init.codes,
+            base_widths: Vec::new(),
+            user_width_counts: Vec::new(),
+            args: BTreeMap::new(),
+            small_lists: BTreeMap::new(),
+            removed: BTreeSet::new(),
+        }
+    }
+
     pub(super) fn new(
         src: SourceBytes,
         file: &SxfFile,
@@ -360,22 +571,37 @@ impl P21State {
         let dense_cap = records_slice.len().saturating_mul(4).saturating_add(64);
         let mut instances = InstanceIndex::with_capacity(dense_cap);
         let mut ref_counts = RefCounts::with_capacity(dense_cap);
-        let mut alive_id_counts: BTreeMap<u64, u32> = BTreeMap::new();
+        let mut alive_id_counts = RefCounts::with_capacity(dense_cap);
+        let mut sorted_base_ids: Vec<(u64, u32)> = Vec::with_capacity(records_slice.len());
+        let mut base_spans: Vec<BaseSpan> = Vec::with_capacity(records_slice.len());
         let mut first_sheet: Option<(u64, Slot)> = None;
         let mut length_measures = Vec::new();
         let mut last_base_instance: Option<(usize, Range<usize>, usize)> = None;
         let mut container_lists: BTreeMap<Slot, ContainerList> = BTreeMap::new();
-        let mut base_id_containers: BTreeMap<u64, BTreeSet<Slot>> = BTreeMap::new();
-        let mut current_id_containers: BTreeMap<u64, BTreeSet<Slot>> = BTreeMap::new();
-        let mut non_container_refs: BTreeMap<u64, u32> = BTreeMap::new();
+        let mut member_slots: Vec<Slot> = Vec::new();
+        let mut member_pairs: Vec<(u64, u32)> = Vec::new();
+        let mut non_container_refs = RefCounts::with_capacity(dense_cap);
         let mut user_width_counts = vec![0_u32; base_widths.len()];
 
         let raw = file.as_bytes();
         for (record_idx, entry) in records_slice.iter().enumerate() {
             work(cx, 1, &Ref::default())?;
+            let span = entry.span();
+            let simple_one_part = entry.id().is_some()
+                && entry.form() == Form::Entity
+                && entry.parts().len() == 1
+                && entry.parts().first().is_some_and(|p| {
+                    !file
+                        .bytes(span.start..p.name().end)
+                        .windows(2)
+                        .any(|w| w == b"/*")
+                });
+            base_spans.push(BaseSpan::new(span.clone(), entry.id(), simple_one_part));
             if let Some(id) = entry.id() {
-                *alive_id_counts.entry(id).or_default() += 1;
-                let span = entry.span();
+                alive_id_counts.add(id);
+                if let Ok(r_u32) = u32::try_from(record_idx) {
+                    sorted_base_ids.push((id, r_u32));
+                }
                 let le = line_end(raw, span.end);
                 if last_base_instance
                     .as_ref()
@@ -415,14 +641,16 @@ impl P21State {
                         && let Value::List(items) = val
                         && let Some((clist, unique_ids)) = ContainerList::from_base(items)
                     {
+                        let slot_idx = member_slots.len() as u32;
+                        member_slots.push(slot);
+                        member_pairs.reserve(unique_ids.len());
                         for uid in unique_ids {
-                            base_id_containers.entry(uid).or_default().insert(slot);
-                            current_id_containers.entry(uid).or_default().insert(slot);
+                            member_pairs.push((uid, slot_idx));
                         }
                         container_lists.insert(slot, clist);
                     } else {
                         for_each_ref(core::slice::from_ref(val), &mut |rid| {
-                            *non_container_refs.entry(rid).or_default() += 1;
+                            non_container_refs.add(rid);
                         });
                     }
                 }
@@ -431,6 +659,10 @@ impl P21State {
                 work(cx, ref_count, &Ref::default())?;
             }
         }
+        if !sorted_base_ids.is_sorted_by(|a, b| a <= b) {
+            sorted_base_ids.sort_unstable();
+        }
+        let membership = ContainerMembership::from_raw(member_slots, member_pairs);
         length_measures.sort_unstable_by_key(|(id, _, _)| *id);
 
         if !base_widths.is_empty() {
@@ -451,21 +683,20 @@ impl P21State {
             }
         }
 
-        let base_records: Arc<[Record]> = Arc::from(records_slice.to_vec());
         let nl = newline(raw);
 
         Ok(Self {
             src,
             newline: nl,
-            base_records,
+            base_spans,
             last_base_instance,
             born_stmts: Vec::new(),
             instances,
+            sorted_base_ids,
             alive_id_counts,
             ref_counts,
             container_lists,
-            base_id_containers,
-            current_id_containers,
+            membership,
             non_container_refs,
             first_sheet,
             length_measures,
@@ -479,8 +710,14 @@ impl P21State {
     }
 
     pub(super) fn resident_bytes(&self) -> usize {
+        let container_bytes: usize = self
+            .container_lists
+            .values()
+            .map(|c| c.base_items.len() * core::mem::size_of::<u64>())
+            .sum();
         self.src.stored_bytes()
-            + self.base_records.len() * core::mem::size_of::<Record>()
+            + self.base_spans.len() * core::mem::size_of::<BaseSpan>()
+            + container_bytes
             + self.born_stmts.capacity() * core::mem::size_of::<BornStmt>()
             + self.args.len() * 64
             + self.small_lists.len() * 64
@@ -511,13 +748,30 @@ impl P21State {
         (!self.removed.contains(&stmt)).then_some(stmt)
     }
 
-    fn record_of(&self, stmt: usize) -> Option<&Record> {
-        let base_len = self.base_records.len();
+    #[inline]
+    fn stmt_id(&self, stmt: usize) -> Option<u64> {
+        let base_len = self.base_spans.len();
         if stmt < base_len {
-            self.base_records.get(stmt)
+            self.base_spans.get(stmt)?.id()
         } else {
-            self.born_stmts.get(stmt - base_len).map(|b| &b.record)
+            self.born_stmts.get(stmt - base_len).map(|b| b.id)
         }
+    }
+
+    fn with_record<R>(&self, stmt: usize, f: impl FnOnce(&Record) -> R) -> Option<R> {
+        let base_len = self.base_spans.len();
+        if stmt < base_len {
+            self.with_stmt_bytes(stmt, |_, rec| f(rec))
+        } else {
+            self.born_stmts.get(stmt - base_len).map(|b| f(&b.record))
+        }
+    }
+
+    fn with_value<R>(&self, (stmt, part, at): Slot, f: impl FnOnce(&Value) -> R) -> Option<R> {
+        self.with_record(stmt, |rec| {
+            Some(f(rec.parts().get(part)?.args().get(at)?))
+        })
+        .flatten()
     }
 
     fn with_stmt_bytes<R>(
@@ -525,10 +779,24 @@ impl P21State {
         stmt: usize,
         f: impl FnOnce(RecordSlice<'_>, &Record) -> R,
     ) -> Option<R> {
-        let base_len = self.base_records.len();
+        let base_len = self.base_spans.len();
         if stmt < base_len {
-            let rec = self.base_records.get(stmt)?;
-            Some(self.src.with_range(rec.span(), |rs| f(rs, rec)))
+            let bs = *self.base_spans.get(stmt)?;
+            let span = bs.span();
+            let stmt_len = span.end.saturating_sub(span.start);
+            let mut buf =
+                Vec::with_capacity(MINI_P21_HEADER.len() + stmt_len + MINI_P21_FOOTER.len());
+            buf.extend_from_slice(MINI_P21_HEADER);
+            self.src.append_range(&mut buf, span);
+            buf.extend_from_slice(MINI_P21_FOOTER);
+            let rec = parse_single_data_record(&buf)?;
+            Some(f(
+                RecordSlice {
+                    base: 0,
+                    bytes: &buf,
+                },
+                &rec,
+            ))
         } else {
             let born = self.born_stmts.get(stmt - base_len)?;
             Some(f(
@@ -542,14 +810,14 @@ impl P21State {
     }
 
     fn last_alive_stmt(&self) -> Option<usize> {
-        let base_len = self.base_records.len();
+        let base_len = self.base_spans.len();
         for idx in (0..self.born_stmts.len()).rev() {
             let stmt = base_len + idx;
             if !self.removed.contains(&stmt) {
                 return Some(stmt);
             }
         }
-        for (idx, entry) in self.base_records.iter().enumerate().rev() {
+        for (idx, entry) in self.base_spans.iter().enumerate().rev() {
             if entry.id().is_some() && !self.removed.contains(&idx) {
                 return Some(idx);
             }
@@ -558,9 +826,26 @@ impl P21State {
     }
 
     pub(super) fn begin_step(&self) -> P21StepTx {
-        let next = match self.alive_id_counts.keys().next_back().copied() {
-            Some(max_id) => max_id.saturating_add(1),
-            None => 1,
+        let base_len = self.base_spans.len();
+        let max_base = self
+            .sorted_base_ids
+            .iter()
+            .rev()
+            .find(|&&(_, stmt)| !self.removed.contains(&(stmt as usize)))
+            .map_or(0, |&(id, _)| id);
+        let max_born = self
+            .born_stmts
+            .iter()
+            .enumerate()
+            .filter(|&(idx, _)| !self.removed.contains(&(base_len + idx)))
+            .map(|(_, b)| b.id)
+            .max()
+            .unwrap_or(0);
+        let max_id = max_base.max(max_born);
+        let next = if max_id == 0 {
+            1
+        } else {
+            max_id.saturating_add(1)
         };
         P21StepTx {
             args: BTreeMap::new(),
@@ -587,26 +872,61 @@ impl P21State {
     /// 部分の名前の範囲だけを読む。所属の一覧のような長い文でも、
     /// 文全体のページを展開しない。
     fn part(&self, stmt: usize, name: &str) -> Option<usize> {
-        let base_len = self.base_records.len();
+        let base_len = self.base_spans.len();
         if stmt < base_len {
-            let rec = self.base_records.get(stmt)?;
-            rec.parts().iter().position(|p| {
-                self.src.with_range(p.name(), |rs| {
-                    slice_in(rs, p.name()).is_some_and(|n| n.eq_ignore_ascii_case(name.as_bytes()))
-                })
-            })
-        } else {
-            self.with_stmt_bytes(stmt, |rs, rec| {
-                rec.parts().iter().position(|p| {
-                    slice_in(rs, p.name()).is_some_and(|n| n.eq_ignore_ascii_case(name.as_bytes()))
-                })
-            })
-            .flatten()
+            let bs = *self.base_spans.get(stmt)?;
+            if bs.is_simple_one_part() {
+                let span = bs.span();
+                let probe_end = span
+                    .end
+                    .min(span.start.saturating_add(96).saturating_add(name.len()));
+                let fast = self.src.with_range(span.start..probe_end, |rs| {
+                    let bytes = rs.bytes;
+                    let mut i = 0;
+                    if *bytes.get(i)? != b'#' {
+                        return None;
+                    }
+                    i += 1;
+                    while bytes.get(i).is_some_and(u8::is_ascii_digit) {
+                        i += 1;
+                    }
+                    while bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
+                        i += 1;
+                    }
+                    if *bytes.get(i)? != b'=' {
+                        return None;
+                    }
+                    i += 1;
+                    while bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
+                        i += 1;
+                    }
+                    let name_start = i;
+                    while bytes
+                        .get(i)
+                        .is_some_and(|&b| b.is_ascii_alphanumeric() || b == b'_')
+                    {
+                        i += 1;
+                    }
+                    if i >= bytes.len() || i == name_start {
+                        return None;
+                    }
+                    Some(
+                        bytes
+                            .get(name_start..i)?
+                            .eq_ignore_ascii_case(name.as_bytes()),
+                    )
+                });
+                if let Some(matched) = fast {
+                    return matched.then_some(0);
+                }
+            }
         }
-    }
-
-    fn value_ref(&self, (stmt, part, at): Slot) -> Option<&Value> {
-        self.record_of(stmt)?.parts().get(part)?.args().get(at)
+        self.with_stmt_bytes(stmt, |rs, rec| {
+            rec.parts().iter().position(|p| {
+                slice_in(rs, p.name()).is_some_and(|n| n.eq_ignore_ascii_case(name.as_bytes()))
+            })
+        })
+        .flatten()
     }
 
     fn number_at(&self, (stmt, part, at): Slot) -> Option<f64> {
@@ -632,7 +952,7 @@ impl P21State {
         if let Some(list) = self.small_lists.get(&slot) {
             return Some(list.clone());
         }
-        match self.value_ref(slot)? {
+        self.with_value(slot, |val| match val {
             Value::List(items) => items
                 .iter()
                 .map(|item| match item {
@@ -641,31 +961,34 @@ impl P21State {
                 })
                 .collect(),
             _ => None,
-        }
+        })
+        .flatten()
     }
 
     fn reference(&self, tx: &P21StepTx, slot: Slot) -> Option<u64> {
         if let Some(text) = tx.args.get(&slot).or_else(|| self.args.get(&slot)) {
             return text.trim().strip_prefix('#')?.parse::<u64>().ok();
         }
-        match self.value_ref(slot)? {
+        self.with_value(slot, |val| match val {
             Value::Ref(id) => Some(*id),
             _ => None,
-        }
+        })
+        .flatten()
     }
 
     fn occurrence(&self, stmt: usize) -> Option<(Slot, Slot)> {
         self.part(stmt, "ANNOTATION_CURVE_OCCURRENCE")
             .or_else(|| self.part(stmt, "ANNOTATION_SYMBOL_OCCURRENCE"))
             .or_else(|| self.part(stmt, "ANNOTATION_TEXT_OCCURRENCE"))?;
-        let part = self.part(stmt, "STYLED_ITEM").or_else(|| {
-            let rec = self.record_of(stmt)?;
-            (rec.parts().len() == 1).then_some(0)
-        })?;
-        let rec = self.record_of(stmt)?;
-        let count = rec.parts().get(part)?.args().len();
-        let at = usize::from(count >= 3);
-        Some(((stmt, part, at), (stmt, part, at + 1)))
+        self.with_record(stmt, |rec| {
+            let part = self
+                .part(stmt, "STYLED_ITEM")
+                .or_else(|| (rec.parts().len() == 1).then_some(0))?;
+            let count = rec.parts().get(part)?.args().len();
+            let at = usize::from(count >= 3);
+            Some(((stmt, part, at), (stmt, part, at + 1)))
+        })
+        .flatten()
     }
 
     fn alloc_instance(&self, tx: &mut P21StepTx, body: impl Into<Vec<u8>>) -> Option<u64> {
@@ -920,10 +1243,7 @@ impl P21State {
                 StagedContainerOp::MoveToEnd => true,
             });
         }
-        let in_base = self
-            .base_id_containers
-            .get(&id)
-            .is_some_and(|s| s.contains(&slot));
+        let in_base = self.membership.in_base(id, slot);
         Some(clist.contains(id, in_base))
     }
 
@@ -932,10 +1252,7 @@ impl P21State {
         let mut len = clist.len() as isize;
         let range = (slot, 0)..=(slot, u64::MAX);
         for (&(_, id), &op) in tx.container_ops.range(range) {
-            let in_base = self
-                .base_id_containers
-                .get(&id)
-                .is_some_and(|s| s.contains(&slot));
+            let in_base = self.membership.in_base(id, slot);
             let was_in = clist.contains(id, in_base);
             let mult = if was_in && in_base && !clist.removed_base.contains(&id) {
                 clist.base_dups.get(&id).copied().unwrap_or(1) as isize
@@ -1021,7 +1338,7 @@ impl P21State {
             let id = if let Some(source) = source {
                 let id = match (source.record(), source.key()) {
                     (Some(record), _) => {
-                        self.base_records.get(usize::try_from(record).ok()?)?.id()?
+                        self.base_spans.get(usize::try_from(record).ok()?)?.id()?
                     }
                     (None, Some(Key::Instance(id))) => id,
                     _ => return None,
@@ -1051,7 +1368,7 @@ impl P21State {
                 .container_lists
                 .keys()
                 .copied()
-                .chain((0..self.born_stmts.len()).map(|at| (self.base_records.len() + at, 0, 0)))
+                .chain((0..self.born_stmts.len()).map(|at| (self.base_spans.len() + at, 0, 0)))
                 .filter_map(|(stmt, _, _)| {
                     if self.is_removed(tx, stmt) {
                         return None;
@@ -1107,8 +1424,7 @@ impl P21State {
         self.count_codes_work(stmt, codes, active_widths, cx)?;
         Ok((|| {
             let (styles, _) = self.occurrence(stmt)?;
-            let rec = self.record_of(stmt)?;
-            let id = rec.id()?;
+            let id = self.stmt_id(stmt)?;
             for (at, code) in codes {
                 if *at == 0 {
                     self.assign_layer(tx, id, *code)?;
@@ -1205,8 +1521,8 @@ impl P21State {
         args: &Arguments,
         cx: &mut Cx,
     ) -> Result<Option<()>, Error> {
-        if let Some(rec) = self.record_of(stmt) {
-            work(cx, rec.parts().len() as u64, &Ref::default())?;
+        if let Some(parts_len) = self.with_record(stmt, |rec| rec.parts().len() as u64) {
+            work(cx, parts_len, &Ref::default())?;
         }
         count_arguments(args, cx)?;
         if args.name == text::NAME {
@@ -1241,19 +1557,21 @@ impl P21State {
         stmt: usize,
         cx: &mut Cx,
     ) -> Result<Option<()>, Error> {
-        if let Some(rec) = self.record_of(stmt) {
+        if let Some(res) = self.with_record(stmt, |rec| -> Result<(), Error> {
             for part in rec.parts() {
                 work(cx, 1, &Ref::default())?;
                 count_values(part.args(), cx)?;
             }
+            Ok(())
+        }) {
+            res?;
         }
         Ok((|| {
-            let rec = self.record_of(stmt)?;
-            let id = rec.id()?;
+            let id = self.stmt_id(stmt)?;
             if self.instances.get(id) != Some(stmt) || self.is_removed(tx, stmt) {
                 return None;
             }
-            if self.non_container_refs.get(&id).copied().unwrap_or(0) > 0 {
+            if self.non_container_refs.get(id) > 0 {
                 return None;
             }
             // 文書エンジンで足したレイヤの並びからは除かない
@@ -1266,15 +1584,11 @@ impl P21State {
                 }
             }
             let slots: Vec<Slot> = self
-                .current_id_containers
-                .get(&id)
-                .map(|set| {
-                    set.iter()
-                        .copied()
-                        .filter(|s| !self.is_removed(tx, s.0))
-                        .collect()
-                })
-                .unwrap_or_default();
+                .membership
+                .current_slots(id)
+                .into_iter()
+                .filter(|s| !self.is_removed(tx, s.0))
+                .collect();
             for &slot in &slots {
                 tx.container_ops
                     .insert((slot, id), StagedContainerOp::Remove);
@@ -1369,8 +1683,8 @@ impl P21State {
         active_widths: &[Option<f64>],
         cx: &mut Cx,
     ) -> Result<(), Error> {
-        if let Some(rec) = self.record_of(stmt) {
-            work(cx, rec.parts().len() as u64, &Ref::default())?;
+        if let Some(parts_len) = self.with_record(stmt, |rec| rec.parts().len() as u64) {
+            work(cx, parts_len, &Ref::default())?;
         }
         if codes.iter().any(|(at, _)| *at == 0) {
             work(cx, 1 + self.codes.layers.len() as u64 * 2, &Ref::default())?;
@@ -1393,9 +1707,14 @@ impl P21State {
                 if valid.is_some() {
                     for &(_, l_stmt, l_part) in &self.length_measures {
                         work(cx, 1, &Ref::default())?;
-                        if let Some(val) = self.value_ref((l_stmt, l_part, 0)) {
-                            count_values(core::slice::from_ref(val), cx)?;
-                            count_number(val, cx)?;
+                        if let Some(res) =
+                            self.with_value((l_stmt, l_part, 0), |val| -> Result<(), Error> {
+                                count_values(core::slice::from_ref(val), cx)?;
+                                count_number(val, cx)?;
+                                Ok(())
+                            })
+                        {
+                            res?;
                             if self.number_at((l_stmt, l_part, 0)) == valid {
                                 break;
                             }
@@ -1417,29 +1736,27 @@ impl P21State {
             return;
         }
         if let Some(clist) = self.container_lists.get(&slot) {
-            if let Some(Value::List(items)) = self.value_ref(slot) {
-                for item in items {
-                    if let Value::Ref(id) = item
-                        && !clist.removed_base.contains(id)
-                    {
-                        out.push(*id);
-                    }
+            for &id in &clist.base_items {
+                if !clist.removed_base.contains(&id) {
+                    out.push(id);
                 }
             }
             out.extend(clist.tail_by_seq.values().copied());
             return;
         }
-        if let Some(val) = self.value_ref(slot) {
+        self.with_value(slot, |val| {
             collect(core::slice::from_ref(val), out);
-        }
+        });
     }
 
     fn collect_stmt_effective_refs(&self, stmt: usize, out: &mut Vec<u64>) {
-        let Some(rec) = self.record_of(stmt) else {
+        let Some(arg_counts): Option<Vec<usize>> = self.with_record(stmt, |rec| {
+            rec.parts().iter().map(|part| part.args().len()).collect()
+        }) else {
             return;
         };
-        for (p_idx, part) in rec.parts().iter().enumerate() {
-            for at in 0..part.args().len() {
+        for (p_idx, len) in arg_counts.into_iter().enumerate() {
+            for at in 0..len {
                 self.collect_slot_effective_refs((stmt, p_idx, at), out);
             }
         }
@@ -1500,10 +1817,7 @@ impl P21State {
             let Some(clist) = self.container_lists.get(&slot) else {
                 continue;
             };
-            let in_base = self
-                .base_id_containers
-                .get(&id)
-                .is_some_and(|s| s.contains(&slot));
+            let in_base = self.membership.in_base(id, slot);
             let was_count = if clist.tail_seq_of.contains_key(&id) {
                 1_i64
             } else if in_base && !clist.removed_base.contains(&id) {
@@ -1537,33 +1851,36 @@ impl P21State {
             if self.is_removed(tx, stmt) {
                 continue;
             }
-            let is_garbage = self
-                .with_stmt_bytes(stmt, |rs, rec| {
-                    rec.parts().len() == 1
+            let (is_garbage, children_res) = self
+                .with_stmt_bytes(stmt, |rs, rec| -> Result<(bool, Vec<u64>), Error> {
+                    let g = rec.parts().len() == 1
                         && rec
                             .parts()
                             .first()
                             .and_then(|p| slice_in(rs, p.name()))
                             .is_some_and(|n| {
                                 GARBAGE.iter().any(|g| n.eq_ignore_ascii_case(g.as_bytes()))
-                            })
+                            });
+                    let effective = (self.ref_counts.get(id) as i64)
+                        .saturating_add(deltas.get(&id).copied().unwrap_or(0));
+                    if !g || effective > 0 {
+                        return Ok((false, Vec::new()));
+                    }
+                    let mut children = Vec::new();
+                    for part in rec.parts() {
+                        work(cx, 1, &Ref::default())?;
+                        count_values(part.args(), cx)?;
+                        collect(part.args(), &mut children);
+                    }
+                    Ok((true, children))
                 })
-                .unwrap_or(false);
-            let effective = (self.ref_counts.get(id) as i64)
-                .saturating_add(deltas.get(&id).copied().unwrap_or(0));
-            if !is_garbage || effective > 0 {
+                .transpose()?
+                .unwrap_or((false, Vec::new()));
+            if !is_garbage {
                 continue;
             }
             tx.removed.insert(stmt);
-            let mut children = Vec::new();
-            if let Some(rec) = self.record_of(stmt) {
-                for part in rec.parts() {
-                    work(cx, 1, &Ref::default())?;
-                    count_values(part.args(), cx)?;
-                    collect(part.args(), &mut children);
-                }
-            }
-            for child in children {
+            for child in children_res {
                 work(cx, 1, &Ref::default())?;
                 *deltas.entry(child).or_default() -= 1;
                 tx.loose.push(child);
@@ -1606,9 +1923,8 @@ impl P21State {
                         out.extend_from_slice(format!("({})", items.join(",")).as_bytes());
                     } else if let Some(clist) = self.container_lists.get(&slot)
                         && clist.dirty
-                        && let Value::List(base_items) = val
                     {
-                        clist.write_rendered(base_items, &mut out);
+                        clist.write_rendered(&mut out);
                     } else {
                         write_value_slice(rs, val, &mut out);
                     }
@@ -1727,12 +2043,9 @@ impl P21State {
         if tx.added.iter().any(|(aid, _)| *aid == id) {
             return true;
         }
-        let mut count = self.alive_id_counts.get(&id).copied().unwrap_or(0);
+        let mut count = self.alive_id_counts.get(id);
         for &stmt in &tx.removed {
-            if !self.removed.contains(&stmt)
-                && let Some(rec) = self.record_of(stmt)
-                && rec.id() == Some(id)
-            {
+            if !self.removed.contains(&stmt) && self.stmt_id(stmt) == Some(id) {
                 count = count.saturating_sub(1);
             }
         }
@@ -1775,9 +2088,9 @@ impl P21State {
                     record,
                     extra_leading_nl: idx == 0 && tx.removed_last_alive,
                 };
-                let stmt_idx = self.base_records.len() + self.born_stmts.len();
+                let stmt_idx = self.base_spans.len() + self.born_stmts.len();
                 self.instances.insert_first(id, stmt_idx);
-                *self.alive_id_counts.entry(id).or_default() += 1;
+                self.alive_id_counts.add(id);
                 self.note_stmt_aux_added(stmt_idx, &born.parsed_buf, &born.record);
                 self.born_stmts.push(born.clone());
                 patch.added_stmts.push(born);
@@ -1804,24 +2117,11 @@ impl P21State {
 
         // 4. コンテナーの要素列の差分適用
         for ((slot, id), op) in tx.container_ops {
-            let in_base = self
-                .base_id_containers
-                .get(&id)
-                .is_some_and(|s| s.contains(&slot));
+            let in_base = self.membership.in_base(id, slot);
             let push_after_remove = matches!(op, StagedContainerOp::MoveToEnd);
             if let Some(clist) = self.container_lists.get_mut(&slot) {
                 let snap = clist.apply_op(id, in_base, push_after_remove);
-                if push_after_remove {
-                    self.current_id_containers
-                        .entry(id)
-                        .or_default()
-                        .insert(slot);
-                } else if let Some(set) = self.current_id_containers.get_mut(&id) {
-                    set.remove(&slot);
-                    if set.is_empty() {
-                        self.current_id_containers.remove(&id);
-                    }
-                }
+                self.membership.set_current(id, slot, push_after_remove);
                 patch.container_ops.push((slot, id, in_base, snap));
             }
         }
@@ -1873,17 +2173,7 @@ impl P21State {
             if let Some(clist) = self.container_lists.get_mut(slot) {
                 clist.revert_op(*id, *in_base, snap);
                 let now_present = clist.contains(*id, *in_base);
-                if now_present {
-                    self.current_id_containers
-                        .entry(*id)
-                        .or_default()
-                        .insert(*slot);
-                } else if let Some(set) = self.current_id_containers.get_mut(id) {
-                    set.remove(slot);
-                    if set.is_empty() {
-                        self.current_id_containers.remove(id);
-                    }
-                }
+                self.membership.set_current(*id, *slot, now_present);
             }
         }
         for (slot, before, _) in patch.small_list_diffs.iter().rev() {
@@ -1913,19 +2203,19 @@ impl P21State {
         }
         for _ in 0..patch.added_stmts.len() {
             if let Some(born) = self.born_stmts.pop() {
-                let stmt_idx = self.base_records.len() + self.born_stmts.len();
+                let stmt_idx = self.base_spans.len() + self.born_stmts.len();
                 self.note_stmt_aux_unadded(stmt_idx, &born.parsed_buf, &born.record);
                 self.instances.remove_exact(born.id, stmt_idx);
-                dec_u32(&mut self.alive_id_counts, born.id);
+                self.alive_id_counts.sub(born.id);
             }
         }
     }
 
     pub(super) fn reapply_patch(&mut self, patch: &P21Patch) {
         for born in &patch.added_stmts {
-            let stmt_idx = self.base_records.len() + self.born_stmts.len();
+            let stmt_idx = self.base_spans.len() + self.born_stmts.len();
             self.instances.insert_first(born.id, stmt_idx);
-            *self.alive_id_counts.entry(born.id).or_default() += 1;
+            self.alive_id_counts.add(born.id);
             self.note_stmt_aux_added(stmt_idx, &born.parsed_buf, &born.record);
             self.born_stmts.push(born.clone());
         }
@@ -1943,17 +2233,8 @@ impl P21State {
         for (slot, id, in_base, snap) in &patch.container_ops {
             if let Some(clist) = self.container_lists.get_mut(slot) {
                 clist.reapply_op(*id, *in_base, snap);
-                if clist.contains(*id, *in_base) {
-                    self.current_id_containers
-                        .entry(*id)
-                        .or_default()
-                        .insert(*slot);
-                } else if let Some(set) = self.current_id_containers.get_mut(id) {
-                    set.remove(slot);
-                    if set.is_empty() {
-                        self.current_id_containers.remove(id);
-                    }
-                }
+                let now_present = clist.contains(*id, *in_base);
+                self.membership.set_current(*id, *slot, now_present);
             }
         }
         for &(id, delta) in &patch.ref_deltas {
@@ -1973,7 +2254,7 @@ impl P21State {
         for part in rec.parts() {
             for val in part.args() {
                 for_each_ref(core::slice::from_ref(val), &mut |rid| {
-                    *self.non_container_refs.entry(rid).or_default() += 1;
+                    self.non_container_refs.add(rid);
                 });
             }
         }
@@ -1994,7 +2275,7 @@ impl P21State {
         for part in rec.parts() {
             for val in part.args() {
                 for_each_ref(core::slice::from_ref(val), &mut |rid| {
-                    dec_u32(&mut self.non_container_refs, rid);
+                    self.non_container_refs.sub(rid);
                 });
             }
         }
@@ -2036,9 +2317,9 @@ impl P21State {
         };
         if let Some(id) = id_opt {
             if removing {
-                dec_u32(&mut self.alive_id_counts, id);
+                self.alive_id_counts.sub(id);
             } else {
-                *self.alive_id_counts.entry(id).or_default() += 1;
+                self.alive_id_counts.add(id);
             }
         }
 
@@ -2050,9 +2331,9 @@ impl P21State {
                 }
                 for_each_ref(core::slice::from_ref(val), &mut |rid| {
                     if removing {
-                        dec_u32(&mut self.non_container_refs, rid);
+                        self.non_container_refs.sub(rid);
                     } else {
-                        *self.non_container_refs.entry(rid).or_default() += 1;
+                        self.non_container_refs.add(rid);
                     }
                 });
             }
@@ -2110,49 +2391,52 @@ impl P21State {
             {
                 return Ok(false);
             }
-            let Some(statement) = self.record_of(record) else {
-                return Ok(false);
-            };
-            for (part_index, part) in statement.parts().iter().enumerate() {
-                work(cx, 1, &Ref::at_record(record as u64))?;
-                for (argument, value) in part.args().iter().enumerate() {
-                    let slot = (record, part_index, argument);
+            let Some(res) = self.with_record(record, |statement| -> Result<bool, Error> {
+                for (part_index, part) in statement.parts().iter().enumerate() {
                     work(cx, 1, &Ref::at_record(record as u64))?;
-                    let present = if let Some(text) = self.args.get(&slot) {
-                        work(cx, text.len() as u64, &Ref::default())?;
-                        cx.check(
-                            zumen_base::Kind::DecodedBytes,
-                            (text.len() as u64).saturating_mul(16),
-                        )
-                        .map_err(|stop| {
-                            cx.report(stop.to_diagnostic());
-                            Error::Stopped(stop)
-                        })?;
-                        scan(text.as_bytes()).contains(id)
-                    } else if let Some(list) = self.small_lists.get(&slot) {
-                        work(cx, list.len() as u64, &Ref::default())?;
-                        list.contains(id)
-                    } else {
-                        count_values(core::slice::from_ref(value), cx)?;
-                        let mut in_base = false;
-                        for_each_ref(core::slice::from_ref(value), &mut |reference| {
-                            in_base |= reference == *id
-                        });
-                        self.container_lists
-                            .get(&slot)
-                            .map_or(in_base, |list| list.contains(*id, in_base))
-                    };
-                    if present {
-                        return Ok(true);
+                    for (argument, value) in part.args().iter().enumerate() {
+                        let slot = (record, part_index, argument);
+                        work(cx, 1, &Ref::at_record(record as u64))?;
+                        let present = if let Some(text) = self.args.get(&slot) {
+                            work(cx, text.len() as u64, &Ref::default())?;
+                            cx.check(
+                                zumen_base::Kind::DecodedBytes,
+                                (text.len() as u64).saturating_mul(16),
+                            )
+                            .map_err(|stop| {
+                                cx.report(stop.to_diagnostic());
+                                Error::Stopped(stop)
+                            })?;
+                            scan(text.as_bytes()).contains(id)
+                        } else if let Some(list) = self.small_lists.get(&slot) {
+                            work(cx, list.len() as u64, &Ref::default())?;
+                            list.contains(id)
+                        } else {
+                            count_values(core::slice::from_ref(value), cx)?;
+                            let mut in_base = false;
+                            for_each_ref(core::slice::from_ref(value), &mut |reference| {
+                                in_base |= reference == *id
+                            });
+                            self.container_lists
+                                .get(&slot)
+                                .map_or(in_base, |list| list.contains(*id, in_base))
+                        };
+                        if present {
+                            return Ok(true);
+                        }
                     }
                 }
-            }
-            return Ok(false);
-        }
-        if event.code() == codes::SXF_P21_LAYER_MEMBER_DROPPED {
-            let Some(containers) = self.current_id_containers.get(id) else {
+                Ok(false)
+            }) else {
                 return Ok(false);
             };
+            return res;
+        }
+        if event.code() == codes::SXF_P21_LAYER_MEMBER_DROPPED {
+            let containers = self.membership.current_slots(*id);
+            if containers.is_empty() {
+                return Ok(false);
+            }
             let mut assigned = false;
             for layer in &self.codes.layers {
                 work(cx, 1, &Ref::at_record(record as u64))?;
@@ -2178,7 +2462,7 @@ impl P21State {
             self.removed.len().saturating_add(self.born_stmts.len()) as u64,
             &Ref::default(),
         )?;
-        let base_len = self.base_records.len();
+        let base_len = self.base_spans.len();
         SourceMap::build(
             self.removed.range(..base_len).map(|record| *record as u64),
             self.last_base_instance
@@ -2201,12 +2485,12 @@ impl P21State {
             return Ok(out);
         }
 
-        let base_len = self.base_records.len();
+        let base_len = self.base_spans.len();
         let mut patches: Vec<(Range<usize>, Vec<u8>)> = Vec::new();
 
         for &stmt in &self.removed {
             if stmt < base_len
-                && let Some(entry) = self.base_records.get(stmt)
+                && let Some(entry) = self.base_spans.get(stmt)
             {
                 work(cx, 1, &Ref::default())?;
                 let span = entry.span();
@@ -2231,7 +2515,7 @@ impl P21State {
         }
 
         for stmt in rewritten_base {
-            let Some(entry) = self.base_records.get(stmt) else {
+            let Some(entry) = self.base_spans.get(stmt) else {
                 return Err(Error::Rejected);
             };
             let span = entry.span();
@@ -2362,16 +2646,6 @@ fn apply_ref_delta(counts: &mut RefCounts, id: u64, delta: i64) {
     }
 }
 
-fn dec_u32(map: &mut BTreeMap<u64, u32>, key: u64) {
-    if let Some(slot) = map.get_mut(&key) {
-        if *slot <= 1 {
-            map.remove(&key);
-        } else {
-            *slot -= 1;
-        }
-    }
-}
-
 /// 文字の実体を組む仮置きの書き方。バッチと同じ関数で同じ実体を足す
 struct Staging<'a> {
     state: &'a P21State,
@@ -2428,7 +2702,7 @@ impl Build for Staging<'_> {
     }
 
     fn record_id(&self, record: usize) -> Option<u64> {
-        self.state.record_of(record)?.id()
+        self.state.stmt_id(record)
     }
 
     fn layer(&mut self, id: u64, code: i64) -> Option<()> {
@@ -2444,7 +2718,7 @@ impl Build for Staging<'_> {
             self.tx.args.remove(&slot);
         }
         let rendered = rendered?;
-        let id = self.state.record_of(slot.0)?.id()?;
+        let id = self.state.stmt_id(slot.0)?;
         let start = format!("#{id}=").len();
         Some(
             rendered

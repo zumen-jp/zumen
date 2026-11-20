@@ -305,60 +305,56 @@ pub fn grid_add(src: &[u8], count: usize, threads: usize) -> Result<Vec<u8>, Str
     let width = (bbox[2] - bbox[0]).max(1.0);
     let step = width / columns as f64;
     let size = step * 0.4;
-    let chunk_size = 5_000usize;
-    for start in (0..count).step_by(chunk_size) {
-        let end = (start + chunk_size).min(count);
-        let mut edits = Vec::with_capacity(end - start);
-        for i in start..end {
-            let x = bbox[0] + (i % columns) as f64 * step;
-            let y = bbox[1] + (i / columns) as f64 * step;
-            let shape = match i % 5 {
-                0 => crate::born::NewShape::Line {
-                    start: [x, y],
-                    end: [x + size, y + size],
-                },
-                1 => crate::born::NewShape::Polyline {
-                    points: vec![[x, y], [x + size, y], [x + size, y + size]],
-                    bulges: None,
-                    closed: false,
-                },
-                2 => crate::born::NewShape::Circle {
-                    center: [x, y],
-                    radius: size / 2.0,
-                },
-                3 => crate::born::NewShape::Arc {
-                    center: [x, y],
-                    radius: size / 2.0,
-                    start: 0.0,
-                    end: 90.0,
-                },
-                _ => crate::born::NewShape::Text(crate::born::NewText {
-                    content: format!("T{i}"),
-                    position: [x, y],
-                    end: None,
-                    horizontal: None,
-                    vertical: None,
-                    height: size / 2.0,
-                    rotation: 0.0,
-                    width_factor: None,
-                    oblique: None,
-                    backward: false,
-                    upside_down: false,
-                    style: None,
-                }),
-            };
-            edits.push(crate::edit::Edit::Add(Box::new(crate::born::Add {
-                layer: layer.clone(),
-                color: Some(crate::born::ColorSpec::Aci(1)),
-                line_type: None,
-                line_weight: None,
-                shape,
-            })));
-        }
-        document
-            .apply(&edits)
-            .map_err(|error| format!("{start} 件目からの追加が失敗: {error:?}"))?;
+    let mut edits = Vec::with_capacity(count);
+    for i in 0..count {
+        let x = bbox[0] + (i % columns) as f64 * step;
+        let y = bbox[1] + (i / columns) as f64 * step;
+        let shape = match i % 5 {
+            0 => crate::born::NewShape::Line {
+                start: [x, y],
+                end: [x + size, y + size],
+            },
+            1 => crate::born::NewShape::Polyline {
+                points: vec![[x, y], [x + size, y], [x + size, y + size]],
+                bulges: None,
+                closed: false,
+            },
+            2 => crate::born::NewShape::Circle {
+                center: [x, y],
+                radius: size / 2.0,
+            },
+            3 => crate::born::NewShape::Arc {
+                center: [x, y],
+                radius: size / 2.0,
+                start: 0.0,
+                end: 90.0,
+            },
+            _ => crate::born::NewShape::Text(crate::born::NewText {
+                content: format!("T{i}"),
+                position: [x, y],
+                end: None,
+                horizontal: None,
+                vertical: None,
+                height: size / 2.0,
+                rotation: 0.0,
+                width_factor: None,
+                oblique: None,
+                backward: false,
+                upside_down: false,
+                style: None,
+            }),
+        };
+        edits.push(crate::edit::Edit::Add(Box::new(crate::born::Add {
+            layer: layer.clone(),
+            color: Some(crate::born::ColorSpec::Aci(1)),
+            line_type: None,
+            line_weight: None,
+            shape,
+        })));
     }
+    document
+        .apply(&edits)
+        .map_err(|error| format!("追加が失敗: {error:?}"))?;
     Ok(document.save())
 }
 

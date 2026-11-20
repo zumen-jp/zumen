@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use zumen_base::{Cx, Kind, Stop};
 
 use crate::handle::RowId;
+use crate::paged::Paged;
 
 /// 取り消し用に記録する、1 つの行に関わる変更前の依存辺
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,13 +30,25 @@ impl DepBefore {
 }
 
 /// 行どうしの依存グラフ
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default)]
 pub struct DepGraph {
-    /// `dependent -> その行が参照する source 行の集合`
-    sources_by_dep: BTreeMap<RowId, BTreeSet<RowId>>,
+    /// 実在行がちょうど 1 つの参照元を持つときの高速列（0 個または 2 個以上なら `RowId::NONE`）
+    single_source: Paged<RowId>,
+    /// インライン配列に載せる行番号の上限目安
+    dense_limit: usize,
+    /// 仮想ノード、疎な行番号、または 2 個以上の参照元を持つ行の集合
+    many_sources: BTreeMap<RowId, BTreeSet<RowId>>,
     /// `source -> その行に依存する dependent 行の集合`
     deps_by_source: BTreeMap<RowId, BTreeSet<RowId>>,
 }
+
+impl PartialEq for DepGraph {
+    fn eq(&self, other: &Self) -> bool {
+        self.deps_by_source == other.deps_by_source
+    }
+}
+
+impl Eq for DepGraph {}
 
 impl DepGraph {
     /// 空の依存グラフを作る
@@ -43,13 +56,92 @@ impl DepGraph {
         Self::default()
     }
 
+    /// 初期構築用に `rows` 行までの単一参照元スロット利用を許可する（ページは辺があるときだけ確保する）
+    pub fn with_row_capacity(rows: usize) -> Self {
+        Self {
+            single_source: Paged::with_capacity(rows),
+            dense_limit: rows,
+            many_sources: BTreeMap::new(),
+            deps_by_source: BTreeMap::new(),
+        }
+    }
+
+    #[inline]
+    fn can_inline_single(&self, row: RowId) -> bool {
+        let cap = self.dense_limit.max(self.single_source.len());
+        row.0 < RowId::VIRTUAL_TAG && row.index() <= cap.saturating_add(4096)
+    }
+
+    #[inline]
+    fn inline_single(&self, row: RowId) -> Option<RowId> {
+        if row.0 >= RowId::VIRTUAL_TAG {
+            return None;
+        }
+        self.single_source
+            .get(row.index())
+            .copied()
+            .filter(|s| !s.is_none())
+    }
+
+    #[inline]
+    fn put_single(&mut self, row: RowId, src: RowId) {
+        let idx = row.index();
+        if idx >= self.single_source.len() {
+            self.single_source.resize(idx + 1, RowId::NONE);
+        }
+        if let Some(slot) = self.single_source.get_mut(idx) {
+            *slot = src;
+        }
+    }
+
+    fn insert_forward_only(&mut self, dependent: RowId, src: RowId) {
+        if let Some(set) = self.many_sources.get_mut(&dependent) {
+            set.insert(src);
+            return;
+        }
+        if let Some(existing) = self.inline_single(dependent) {
+            if existing == src {
+                return;
+            }
+            if let Some(slot) = self.single_source.get_mut(dependent.index()) {
+                *slot = RowId::NONE;
+            }
+            let mut set = BTreeSet::new();
+            set.insert(existing);
+            set.insert(src);
+            self.many_sources.insert(dependent, set);
+            return;
+        }
+        if self.can_inline_single(dependent) {
+            self.put_single(dependent, src);
+        } else {
+            self.many_sources.entry(dependent).or_default().insert(src);
+        }
+    }
+
+    fn remove_forward_only(&mut self, dependent: RowId, src: RowId) {
+        if let Some(existing) = self.inline_single(dependent) {
+            if existing == src
+                && let Some(slot) = self.single_source.get_mut(dependent.index())
+            {
+                *slot = RowId::NONE;
+            }
+            return;
+        }
+        let empty = if let Some(srcs) = self.many_sources.get_mut(&dependent) {
+            srcs.remove(&src);
+            srcs.is_empty()
+        } else {
+            false
+        };
+        if empty {
+            self.many_sources.remove(&dependent);
+        }
+    }
+
     /// `row` に関わる現在の辺を、取り消し用に記録する
     pub fn snapshot_row(&self, row: RowId) -> DepBefore {
-        let sources = self
-            .sources_by_dep
-            .get(&row)
-            .map(|s| s.iter().copied().collect())
-            .unwrap_or_default();
+        let sources = self.sources_of(row);
         let dependents = self
             .deps_by_source
             .get(&row)
@@ -74,9 +166,13 @@ impl DepGraph {
     }
 
     fn source_count(&self, row: RowId) -> u64 {
-        self.sources_by_dep
-            .get(&row)
-            .map_or(0, |sources| sources.len() as u64)
+        if self.inline_single(row).is_some() {
+            1
+        } else {
+            self.many_sources
+                .get(&row)
+                .map_or(0, |sources| sources.len() as u64)
+        }
     }
 
     fn row_edge_count(&self, row: RowId) -> u64 {
@@ -147,30 +243,115 @@ impl DepGraph {
         Self::check_new_edges(restored, rows, cx)
     }
 
+    /// 初期構築時に単一参照元の辺 `(source, dependent)` の列を一括で登録する
+    pub fn insert_initial_single_edges(&mut self, mut edges: Vec<(RowId, RowId)>) {
+        if edges.is_empty() {
+            return;
+        }
+        edges.retain(|&(src, dep)| src != dep && !src.is_none() && !dep.is_none());
+        edges.sort_unstable();
+        edges.dedup();
+        for &(src, dep) in &edges {
+            self.insert_forward_only(dep, src);
+        }
+        for slice in edges.chunk_by(|a, b| a.0 == b.0) {
+            let Some(&(src, _)) = slice.first() else {
+                continue;
+            };
+            if let Some(existing) = self.deps_by_source.get_mut(&src) {
+                existing.extend(slice.iter().map(|&(_, dep)| dep));
+            } else {
+                let set: BTreeSet<RowId> = slice.iter().map(|&(_, dep)| dep).collect();
+                self.deps_by_source.insert(src, set);
+            }
+        }
+    }
+
+    /// `dependent` がただ 1 つの参照元 `source` を持つように置き換える
+    pub fn set_single_source(&mut self, dependent: RowId, source: RowId) {
+        self.clear_dependent(dependent);
+        if source == dependent || source.is_none() || dependent.is_none() {
+            return;
+        }
+        self.deps_by_source
+            .entry(source)
+            .or_default()
+            .insert(dependent);
+        if self.can_inline_single(dependent) {
+            self.put_single(dependent, source);
+        } else {
+            let mut set = BTreeSet::new();
+            set.insert(source);
+            self.many_sources.insert(dependent, set);
+        }
+    }
+
     /// `dependent` が参照する元の行の集合を `sources` に置き換える（自分自身への辺は除く）
     pub fn set_sources(&mut self, dependent: RowId, sources: impl IntoIterator<Item = RowId>) {
         self.clear_dependent(dependent);
-        let mut set = BTreeSet::new();
-        for src in sources {
-            if src != dependent && !src.is_none() {
-                set.insert(src);
-            }
-        }
-        if set.is_empty() {
+        if dependent.is_none() {
             return;
         }
-        for &src in &set {
+        let mut first: Option<RowId> = None;
+        let mut many: Option<BTreeSet<RowId>> = None;
+        for src in sources {
+            if src == dependent || src.is_none() {
+                continue;
+            }
+            if let Some(set) = &mut many {
+                set.insert(src);
+            } else if let Some(prev) = first {
+                if prev != src {
+                    let mut set = BTreeSet::new();
+                    set.insert(prev);
+                    set.insert(src);
+                    many = Some(set);
+                }
+            } else {
+                first = Some(src);
+            }
+        }
+        if let Some(set) = many {
+            for &src in &set {
+                self.deps_by_source
+                    .entry(src)
+                    .or_default()
+                    .insert(dependent);
+            }
+            self.many_sources.insert(dependent, set);
+        } else if let Some(src) = first {
             self.deps_by_source
                 .entry(src)
                 .or_default()
                 .insert(dependent);
+            if self.can_inline_single(dependent) {
+                self.put_single(dependent, src);
+            } else {
+                let mut set = BTreeSet::new();
+                set.insert(src);
+                self.many_sources.insert(dependent, set);
+            }
         }
-        self.sources_by_dep.insert(dependent, set);
     }
 
     /// `dependent` が持つ参照元の辺をすべて外す
     pub fn clear_dependent(&mut self, dependent: RowId) {
-        let Some(old_sources) = self.sources_by_dep.remove(&dependent) else {
+        if let Some(src) = self.inline_single(dependent) {
+            if let Some(slot) = self.single_source.get_mut(dependent.index()) {
+                *slot = RowId::NONE;
+            }
+            let remove_key = if let Some(deps) = self.deps_by_source.get_mut(&src) {
+                deps.remove(&dependent);
+                deps.is_empty()
+            } else {
+                false
+            };
+            if remove_key {
+                self.deps_by_source.remove(&src);
+            }
+            return;
+        }
+        let Some(old_sources) = self.many_sources.remove(&dependent) else {
             return;
         };
         for src in old_sources {
@@ -191,15 +372,7 @@ impl DepGraph {
         self.clear_dependent(row);
         if let Some(deps) = self.deps_by_source.remove(&row) {
             for dep in deps {
-                let empty = if let Some(srcs) = self.sources_by_dep.get_mut(&dep) {
-                    srcs.remove(&row);
-                    srcs.is_empty()
-                } else {
-                    false
-                };
-                if empty {
-                    self.sources_by_dep.remove(&dep);
-                }
+                self.remove_forward_only(dep, row);
             }
         }
     }
@@ -212,10 +385,7 @@ impl DepGraph {
         }
         for &dep in &before.dependents {
             if dep != before.row && !dep.is_none() {
-                self.sources_by_dep
-                    .entry(dep)
-                    .or_default()
-                    .insert(before.row);
+                self.insert_forward_only(dep, before.row);
                 self.deps_by_source
                     .entry(before.row)
                     .or_default()
@@ -226,7 +396,10 @@ impl DepGraph {
 
     /// `dependent` が直接参照している行を昇順で返す
     pub fn sources_of(&self, dependent: RowId) -> Vec<RowId> {
-        self.sources_by_dep
+        if let Some(src) = self.inline_single(dependent) {
+            return vec![src];
+        }
+        self.many_sources
             .get(&dependent)
             .map(|s| s.iter().copied().collect())
             .unwrap_or_default()
@@ -412,7 +585,7 @@ impl DepGraph {
 
     /// 登録されている依存辺の総数
     pub fn edge_count(&self) -> usize {
-        self.sources_by_dep.values().map(BTreeSet::len).sum()
+        self.deps_by_source.values().map(BTreeSet::len).sum()
     }
 }
 

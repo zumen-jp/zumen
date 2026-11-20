@@ -200,11 +200,11 @@ fn write_f32_checked<const N: usize>(
     at: usize,
     val: [f32; N],
 ) {
-    if let Some(place) = col.get_mut(at)
-        && !same_f32(place, &val)
-    {
-        *place = val;
-        if track {
+    if let Some(place) = col.get_mut(at) {
+        if !track {
+            *place = val;
+        } else if !same_f32(place, &val) {
+            *place = val;
             dirty.mark_one(at);
         }
     }
@@ -218,11 +218,11 @@ fn write_u32_arr_checked<const N: usize>(
     at: usize,
     val: [u32; N],
 ) {
-    if let Some(place) = col.get_mut(at)
-        && *place != val
-    {
-        *place = val;
-        if track {
+    if let Some(place) = col.get_mut(at) {
+        if !track {
+            *place = val;
+        } else if *place != val {
+            *place = val;
             dirty.mark_one(at);
         }
     }
@@ -608,7 +608,11 @@ impl DisplayWriter<'_> {
     }
 
     /// 書き残したスロットがあれば既定スタイルで埋める
+    #[inline]
     fn finish(self) {
+        if self.at == self.end {
+            return;
+        }
         let track = self.display.track_dirty;
         let style = self.default_style;
         for at in self.at[0]..self.end[0] {

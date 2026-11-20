@@ -120,8 +120,10 @@ impl HandleIndex {
 
     /// `(ハンドル, 行)` の列から整列済みの索引を作る（同じハンドルがあれば先の行を残す）
     pub fn from_pairs(mut pairs: Vec<(u64, RowId)>) -> Self {
-        pairs.sort_by_key(|&(h, row)| (h, row));
-        pairs.dedup_by_key(|pair| pair.0);
+        if !pairs.is_sorted_by(|a, b| a.0 < b.0) {
+            pairs.sort_unstable();
+            pairs.dedup_by_key(|pair| pair.0);
+        }
         Self {
             base: Arc::new(pairs),
             overrides: Arc::new(BTreeMap::new()),

@@ -5,10 +5,10 @@ use crate::drawing::Arg;
 use zumen_drawing::{LineType, LineTypeId};
 use zumen_live::{RowId, VersionedTable};
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 enum Use {
     Row(RowId),
-    Fixed(usize),
+    Fixed(u32),
     Born,
 }
 
@@ -40,6 +40,19 @@ struct Plan<'a> {
 }
 
 impl TypeOrder {
+    pub(super) fn from_clean_sheet(row_count: usize) -> Self {
+        let mut uses = Vec::with_capacity(row_count.saturating_add(1));
+        for i in 0..row_count {
+            uses.push(Use::Row(RowId(i as u32)));
+        }
+        uses.push(Use::Born);
+        Self {
+            uses,
+            fixed: Vec::new(),
+            sheet_insertion: row_count,
+        }
+    }
+
     pub(super) fn build(
         records: &[FeatureRecord],
         file: &SxfFile,
@@ -175,7 +188,7 @@ impl TypeOrder {
                     }
                 }
                 Use::Fixed(index) => {
-                    let Some(site) = self.fixed.get(*index) else {
+                    let Some(site) = self.fixed.get(*index as usize) else {
                         continue;
                     };
                     current_type(
@@ -201,7 +214,7 @@ impl TypeOrder {
     }
 
     pub(super) fn bytes(&self) -> usize {
-        self.uses.capacity() * 16 + self.fixed.capacity() * 160
+        self.uses.capacity() * core::mem::size_of::<Use>() + self.fixed.capacity() * 160
     }
 }
 
@@ -283,7 +296,7 @@ impl<'a> Plan<'a> {
                 let visible = record.args.len() < 4 || integer(record, 3) == Some(1);
                 if visible {
                     allocated(cx, 352)?;
-                    out.uses.push(Use::Fixed(out.fixed.len()));
+                    out.uses.push(Use::Fixed(out.fixed.len() as u32));
                     out.fixed.push(Fixed {
                         code: integer(record, 1).unwrap_or_default(),
                         source,

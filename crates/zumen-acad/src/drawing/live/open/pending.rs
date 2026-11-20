@@ -19,6 +19,7 @@ impl<T> Pending<T> {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn prepare(&mut self, index: usize) -> Option<&mut Vec<Option<T>>> {
         if index >= self.len {
             return None;
@@ -45,6 +46,7 @@ impl<T> Pending<T> {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn push(&mut self, value: Option<T>) {
         let index = self.len;
         self.len = self.len.saturating_add(1);

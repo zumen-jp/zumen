@@ -8,6 +8,8 @@
 mod bounds;
 mod diagnostics;
 mod display;
+mod fast_p21;
+mod fast_sfc;
 mod ipc;
 mod p21;
 mod sfc;
@@ -59,6 +61,86 @@ pub(super) enum SxfContainer {
     Sheet(SheetId),
 }
 
+/// 22 バイト以下の正規 ID をインライン保持する文字列
+#[derive(Clone, Debug)]
+pub(super) enum SmallId {
+    Inline([u8; 22], u8),
+    Heap(Box<str>),
+}
+
+impl SmallId {
+    #[inline]
+    pub(super) fn from_string(s: String) -> Self {
+        let bytes = s.as_bytes();
+        let mut buf = [0u8; 22];
+        if let Some(dst) = buf.get_mut(..bytes.len()) {
+            dst.copy_from_slice(bytes);
+            Self::Inline(buf, bytes.len() as u8)
+        } else {
+            Self::Heap(s.into_boxed_str())
+        }
+    }
+
+    #[inline]
+    pub(super) fn as_str(&self) -> &str {
+        match self {
+            Self::Inline(buf, len) => buf
+                .get(..usize::from(*len))
+                .and_then(|s| core::str::from_utf8(s).ok())
+                .unwrap_or(""),
+            Self::Heap(boxed) => boxed,
+        }
+    }
+}
+
+impl core::ops::Deref for SmallId {
+    type Target = str;
+
+    #[inline]
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsRef<str> for SmallId {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+#[inline]
+fn parse_trailing_instance_id(id: &str) -> Option<u64> {
+    let (_, tail) = id.rsplit_once("/i")?;
+    if tail.is_empty() || (tail.len() > 1 && tail.starts_with('0')) {
+        return None;
+    }
+    if !tail.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    tail.parse::<u64>().ok()
+}
+
+fn intern_feature_meta_vec(
+    table: &mut Vec<(Box<str>, Box<str>)>,
+    name_lower: &str,
+    kind: &str,
+) -> (u32, u32) {
+    let meta_bytes = (name_lower.len().saturating_add(kind.len())) as u32;
+    if let Some(pos) = table
+        .iter()
+        .position(|(n, k)| n.as_ref() == name_lower && k.as_ref() == kind)
+    {
+        return (pos as u32, meta_bytes);
+    }
+    let idx = table.len() as u32;
+    table.push((
+        name_lower.to_owned().into_boxed_str(),
+        kind.to_owned().into_boxed_str(),
+    ));
+    (idx, meta_bytes)
+}
+
 /// [`VersionedTable`] の 1 行に持つ SXF 要素
 #[derive(Clone, Debug)]
 pub(super) struct SxfRow {
@@ -67,14 +149,24 @@ pub(super) struct SxfRow {
     pub(super) record_idx: usize,
     pub(super) local_space_idx: u32,
     sfc_slot: Option<SfcSlot>,
-    pub(super) p21_kind: Box<str>,
-    pub(super) p21_name: Box<str>,
+    pub(super) meta_idx: u32,
+    pub(super) meta_bytes: u32,
     pub(super) grouped: bool,
     pub(super) container: SxfContainer,
-    pub(super) canonical_id: Box<str>,
+    pub(super) canonical_id: SmallId,
     pub(super) placed: Placed,
     pub(super) drafts: Box<[Draft]>,
     diagnostics: Vec<Diagnostic>,
+}
+
+impl SxfRow {
+    #[inline]
+    fn uses_handle_lookup(&self) -> bool {
+        match self.unique_handle {
+            Some(inst) => parse_trailing_instance_id(&self.canonical_id) == Some(inst),
+            None => false,
+        }
+    }
 }
 
 impl TableRow for SxfRow {
@@ -90,8 +182,7 @@ impl TableRow for SxfRow {
 
     fn extra_heap_bytes(&self) -> usize {
         // 予算にも使うため、可変幅の値は 64 bit の論理バイト数で見積もる。
-        self.p21_kind.len()
-            + self.p21_name.len()
+        self.meta_bytes as usize
             + self.canonical_id.len()
             + self.drafts.len() * 256
             + diagnostics::heap_bytes(&self.diagnostics)
@@ -256,6 +347,7 @@ pub struct SxfLive {
     attributes: Option<AttributeFile>,
     diagnostics: LiveDiagnostics,
     lifter_tables: LifterTables,
+    feature_meta: Vec<(Box<str>, Box<str>)>,
     /// 読めない字体の定義があり、字体のコードを決められない
     fonts_broken: bool,
     static_layer_ids: BTreeSet<u32>,
@@ -284,6 +376,34 @@ pub struct SxfLive {
     display: Display,
     history: History<SxfRow, SharedPatch>,
     history_max_bytes: usize,
+}
+
+struct PreparedBuild {
+    backing: SxfBacking,
+    attributes: Option<AttributeFile>,
+    diagnostics: LiveDiagnostics,
+    lifter_tables: LifterTables,
+    feature_meta: Vec<(Box<str>, Box<str>)>,
+    fonts_broken: bool,
+    static_layer_ids: BTreeSet<u32>,
+    static_user_lt_ids: BTreeSet<u32>,
+    raster_groups: Vec<LiveRasterGroup>,
+    record_to_raster_group: BTreeMap<usize, usize>,
+    space_templates: Vec<SpaceTemplate>,
+    space_rows: Vec<Vec<RowId>>,
+    symbol_templates: Vec<SymbolTemplate>,
+    symbol_rows: Vec<Vec<RowId>>,
+    sheet_template: SheetTemplate,
+    base_sheet_slots: Vec<BaseSheetSlot>,
+    title_blocks: Vec<TitleBlock>,
+    doc_drafts: Vec<Draft>,
+    sheet_name_map: BTreeMap<String, SheetId>,
+    space_views: BTreeMap<SpaceId, Vec<Affine>>,
+    symbol_bounds: BTreeMap<SymbolKey, [f64; 4]>,
+    symbol_indices: BTreeMap<SymbolKey, u32>,
+    space_spatial: BTreeMap<SpaceId, SpaceSpatialIndex>,
+    symbol_dep_edges: Vec<(RowId, BTreeSet<RowId>)>,
+    rows: Vec<SxfRow>,
 }
 
 const DEFAULT_HISTORY_LIMIT: usize = 64 * 1024 * 1024;
@@ -315,13 +435,24 @@ impl SxfLive {
         attributes: Option<AttributeFile>,
         cx: &mut Cx<'_>,
     ) -> Result<Self, Error> {
-        let file = Sxf::read(bytes, cx)?;
-        let src = SourceBytes::compress_slice_with_cx(file.as_bytes(), threads.max(1), cx)
-            .map_err(|stop| {
-                cx.report(stop.to_diagnostic());
-                Error::Stopped(stop)
-            })?;
-        Self::build(src, &file, attributes, cx)
+        if attributes.is_none() && fast_sfc::has_generous_budget(cx, bytes.len()) {
+            if let Some(prepared) = fast_sfc::try_open_fast_sfc(bytes, threads, cx)? {
+                return Self::finish_build(prepared, cx);
+            }
+            if let Some(prepared) = fast_p21::try_open_fast_p21(bytes, threads, cx)? {
+                return Self::finish_build(prepared, cx);
+            }
+        }
+        let prepared = {
+            let file = Sxf::read(bytes, cx)?;
+            let src = SourceBytes::compress_slice_with_cx(file.as_bytes(), threads.max(1), cx)
+                .map_err(|stop| {
+                    cx.report(stop.to_diagnostic());
+                    Error::Stopped(stop)
+                })?;
+            Self::prepare_from_file(src, &file, attributes, cx)?
+        };
+        Self::finish_build(prepared, cx)
     }
 
     /// 既読の [`SxfFile`] から常駐エンジンを構築する
@@ -339,15 +470,16 @@ impl SxfLive {
             cx.report(stop.to_diagnostic());
             Error::Stopped(stop)
         })?;
-        Self::build(src, file, attributes, cx)
+        let prepared = Self::prepare_from_file(src, file, attributes, cx)?;
+        Self::finish_build(prepared, cx)
     }
 
-    fn build(
+    fn prepare_from_file(
         src: SourceBytes,
         file: &SxfFile,
         attributes: Option<AttributeFile>,
         cx: &mut Cx<'_>,
-    ) -> Result<Self, Error> {
+    ) -> Result<PreparedBuild, Error> {
         let ((records, codes, mut lifted), events) = cx.with_diagnostic_events(u64::MAX, |cx| {
             cx.with_diagnostics_in_record_order(|cx| {
                 let (records, codes) = match file.mode() {
@@ -367,10 +499,26 @@ impl SxfLive {
             r.name.eq_ignore_ascii_case("text_font")
                 && !matches!(r.args.first(), Some(Arg::Text(_)))
         });
-        let record_meta: BTreeMap<usize, (&str, &str)> = records
-            .iter()
-            .map(|r| (r.record, (r.name.as_str(), r.kind.as_str())))
-            .collect();
+        let mut feature_meta: Vec<(Box<str>, Box<str>)> = Vec::with_capacity(32);
+        let _ = intern_feature_meta_vec(&mut feature_meta, "", "");
+        let mut record_meta: Vec<(usize, u32, u32)> = Vec::with_capacity(records.len());
+        let mut record_meta_sorted = true;
+        let mut prev_rec = None;
+        for r in &records {
+            let name_lower = r.name.to_ascii_lowercase();
+            let (meta_idx, meta_bytes) =
+                intern_feature_meta_vec(&mut feature_meta, &name_lower, r.kind.as_str());
+            if let Some(prev) = prev_rec
+                && r.record <= prev
+            {
+                record_meta_sorted = false;
+            }
+            prev_rec = Some(r.record);
+            record_meta.push((r.record, meta_idx, meta_bytes));
+        }
+        if !record_meta_sorted {
+            record_meta.sort_unstable_by_key(|&(rec, _, _)| rec);
+        }
 
         let static_layer_ids: BTreeSet<u32> = lifted
             .tables
@@ -440,7 +588,8 @@ impl SxfLive {
                 symbol_indices.insert(sym_def.key.clone(), idx_u32);
             }
         }
-        let mut dep = DepGraph::new();
+        let mut sym_dep = DepGraph::new();
+        let mut symbol_dep_edges: Vec<(RowId, BTreeSet<RowId>)> = Vec::new();
         for (idx, sym_def) in drawing.symbols.iter().enumerate() {
             let Some(vnode) = u32::try_from(idx).ok().and_then(RowId::virtual_node) else {
                 continue;
@@ -455,11 +604,12 @@ impl SxfLive {
                 }
             }
             if !srcs.is_empty() {
-                dep.set_sources(vnode, srcs);
+                sym_dep.set_sources(vnode, srcs.clone());
+                symbol_dep_edges.push((vnode, srcs));
             }
         }
         let mut symbol_bounds: BTreeMap<SymbolKey, [f64; 4]> = BTreeMap::new();
-        for sym_idx in ordered_symbol_indices(drawing.symbols.len(), &dep, cx)? {
+        for sym_idx in ordered_symbol_indices(drawing.symbols.len(), &sym_dep, cx)? {
             let Some(sym_def) = drawing.symbols.get(sym_idx) else {
                 continue;
             };
@@ -483,6 +633,7 @@ impl SxfLive {
                 symbol_bounds.insert(sym_def.key.clone(), b);
             }
         }
+        drop(sym_dep);
 
         let total_rows = drawing
             .spaces
@@ -499,7 +650,7 @@ impl SxfLive {
 
         let make_row_meta = |source: &Ref,
                              backing: &SxfBacking,
-                             record_meta: &BTreeMap<usize, (&str, &str)>,
+                             record_meta: &[(usize, u32, u32)],
                              grouped_set: &BTreeSet<usize>| {
             let instance = match source.key() {
                 Some(Key::Instance(n)) => Some(n),
@@ -513,15 +664,14 @@ impl SxfLive {
                 SxfBacking::Sfc(s) => s.slot_for_record(record_idx),
                 SxfBacking::P21(_) => None,
             };
-            let (fname, fkind) = record_meta.get(&record_idx).copied().unwrap_or(("", ""));
+            let (meta_idx, meta_bytes) = record_meta
+                .binary_search_by_key(&record_idx, |&(rec, _, _)| rec)
+                .ok()
+                .and_then(|pos| record_meta.get(pos).map(|&(_, mi, mb)| (mi, mb)))
+                .unwrap_or((0, 0));
             let is_grouped = grouped_set.contains(&record_idx);
             (
-                instance,
-                record_idx,
-                sfc_slot,
-                fkind.to_owned().into_boxed_str(),
-                fname.to_ascii_lowercase().into_boxed_str(),
-                is_grouped,
+                instance, record_idx, sfc_slot, meta_idx, meta_bytes, is_grouped,
             )
         };
 
@@ -535,19 +685,19 @@ impl SxfLive {
             });
             let mut sp_bounds = Vec::with_capacity(sp.elements.len());
             let mut r_ids = Vec::with_capacity(sp.elements.len());
-            let elem_refs: Vec<String> = {
+            let elem_refs: Vec<SmallId> = {
                 let mut namer = id::Namer::new(&place);
                 sp.elements
                     .iter()
                     .enumerate()
-                    .map(|(at, e)| namer.next(at, e))
+                    .map(|(at, e)| SmallId::from_string(namer.next(at, e)))
                     .collect()
             };
             for ((at, elem), cid) in sp.elements.into_iter().enumerate().zip(elem_refs) {
                 let row_id = RowId(rows.len() as u32);
                 let local_space_idx = u32::try_from(sp_bounds.len()).unwrap_or(0);
                 sp_bounds.push(model_shape_bounds(&elem.shape, &symbol_bounds));
-                let (instance, record_idx, sfc_slot, p21_kind, p21_name, is_grouped) =
+                let (instance, record_idx, sfc_slot, meta_idx, meta_bytes, is_grouped) =
                     make_row_meta(&elem.source, &backing, &record_meta, &grouped_set);
                 let drafts = model_drafts
                     .remove(&(sp_id, at))
@@ -559,11 +709,11 @@ impl SxfLive {
                     record_idx,
                     local_space_idx,
                     sfc_slot,
-                    p21_kind,
-                    p21_name,
+                    meta_idx,
+                    meta_bytes,
                     grouped: is_grouped,
                     container: SxfContainer::Space(sp_id),
-                    canonical_id: cid.into_boxed_str(),
+                    canonical_id: cid,
                     placed: Placed::Model(elem),
                     drafts,
                     diagnostics: Vec::new(),
@@ -599,14 +749,14 @@ impl SxfLive {
                 base: sym_def.base,
                 source: sym_def.source,
             });
-            let elem_refs: Vec<String> = {
+            let elem_refs: Vec<SmallId> = {
                 let mut namer = id::Namer::new(&place);
                 sym_def
                     .space
                     .elements
                     .iter()
                     .enumerate()
-                    .map(|(at, e)| namer.next(at, e))
+                    .map(|(at, e)| SmallId::from_string(namer.next(at, e)))
                     .collect()
             };
             let mut r_ids = Vec::with_capacity(sym_def.space.elements.len());
@@ -618,7 +768,7 @@ impl SxfLive {
                 .zip(elem_refs)
             {
                 let row_id = RowId(rows.len() as u32);
-                let (instance, record_idx, sfc_slot, p21_kind, p21_name, is_grouped) =
+                let (instance, record_idx, sfc_slot, meta_idx, meta_bytes, is_grouped) =
                     make_row_meta(&elem.source, &backing, &record_meta, &grouped_set);
                 let drafts = model_drafts
                     .remove(&(sp_id, at))
@@ -630,11 +780,11 @@ impl SxfLive {
                     record_idx,
                     local_space_idx: 0,
                     sfc_slot,
-                    p21_kind,
-                    p21_name,
+                    meta_idx,
+                    meta_bytes,
                     grouped: is_grouped,
                     container: SxfContainer::Symbol(sym_idx),
-                    canonical_id: cid.into_boxed_str(),
+                    canonical_id: cid,
                     placed: Placed::Model(elem),
                     drafts,
                     diagnostics: Vec::new(),
@@ -649,19 +799,19 @@ impl SxfLive {
         let mut sheet_name_map = BTreeMap::new();
         sheet_name_map.insert(sheet_place.clone(), sheet.id);
 
-        let sheet_cids: Vec<String> = {
+        let sheet_cids: Vec<SmallId> = {
             let mut namer = id::Namer::new(&sheet_place);
             sheet
                 .elements
                 .iter()
                 .enumerate()
-                .map(|(at, e)| namer.next(at, e))
+                .map(|(at, e)| SmallId::from_string(namer.next(at, e)))
                 .collect()
         };
         let mut paper_idx_to_row: Vec<RowId> = Vec::with_capacity(sheet.elements.len());
         for ((at, elem), cid) in sheet.elements.into_iter().enumerate().zip(sheet_cids) {
             let row_id = RowId(rows.len() as u32);
-            let (instance, record_idx, sfc_slot, p21_kind, p21_name, is_grouped) =
+            let (instance, record_idx, sfc_slot, meta_idx, meta_bytes, is_grouped) =
                 make_row_meta(&elem.source, &backing, &record_meta, &grouped_set);
             let drafts = paper_drafts
                 .remove(&(sheet.id, at))
@@ -673,17 +823,19 @@ impl SxfLive {
                 record_idx,
                 local_space_idx: 0,
                 sfc_slot,
-                p21_kind,
-                p21_name,
+                meta_idx,
+                meta_bytes,
                 grouped: is_grouped,
                 container: SxfContainer::Sheet(sheet.id),
-                canonical_id: cid.into_boxed_str(),
+                canonical_id: cid,
                 placed: Placed::Paper(elem),
                 drafts,
                 diagnostics: Vec::new(),
             });
             paper_idx_to_row.push(row_id);
         }
+        drop(record_meta);
+        drop(grouped_set);
 
         let mut base_sheet_slots = Vec::with_capacity(sheet.order.len());
         for item in sheet.order {
@@ -696,6 +848,7 @@ impl SxfLive {
                 }
             }
         }
+        drop(paper_idx_to_row);
 
         let sheet_template = SheetTemplate {
             id: sheet.id,
@@ -714,20 +867,98 @@ impl SxfLive {
             (&base_sheet_slots, &sheet_template),
             cx,
         )?;
+        drop(records);
         // 空の複合曲線の線種も使用順から求めるので、初期変換の補助表は持ち続けない。
         lifted.tables.extra_line_types.clear();
         lifted.tables.extra_line_types.shrink_to_fit();
 
-        let mut inst_counts: BTreeMap<u64, u32> = BTreeMap::new();
+        Ok(PreparedBuild {
+            backing,
+            attributes,
+            diagnostics,
+            lifter_tables: lifted.tables,
+            feature_meta,
+            fonts_broken,
+            static_layer_ids,
+            static_user_lt_ids,
+            raster_groups: lifted.raster_groups,
+            record_to_raster_group,
+            space_templates,
+            space_rows,
+            symbol_templates,
+            symbol_rows,
+            sheet_template,
+            base_sheet_slots,
+            title_blocks: drawing.title_blocks,
+            doc_drafts,
+            sheet_name_map,
+            space_views,
+            symbol_bounds,
+            symbol_indices,
+            space_spatial,
+            symbol_dep_edges,
+            rows,
+        })
+    }
+
+    fn finish_build(prepared: PreparedBuild, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        let PreparedBuild {
+            backing,
+            attributes,
+            diagnostics,
+            lifter_tables,
+            feature_meta,
+            fonts_broken,
+            static_layer_ids,
+            static_user_lt_ids,
+            raster_groups,
+            record_to_raster_group,
+            space_templates,
+            space_rows,
+            symbol_templates,
+            symbol_rows,
+            sheet_template,
+            base_sheet_slots,
+            title_blocks,
+            doc_drafts,
+            sheet_name_map,
+            space_views,
+            symbol_bounds,
+            symbol_indices,
+            space_spatial,
+            symbol_dep_edges,
+            mut rows,
+        } = prepared;
+
+        let mut strictly_increasing = true;
+        let mut prev_inst = None;
         for row in &rows {
             if let Some(inst) = row.instance {
-                *inst_counts.entry(inst).or_default() += 1;
+                if let Some(prev) = prev_inst
+                    && inst <= prev
+                {
+                    strictly_increasing = false;
+                    break;
+                }
+                prev_inst = Some(inst);
             }
         }
-        let shared_instances: BTreeSet<u64> = inst_counts
-            .into_iter()
-            .filter_map(|(inst, cnt)| (cnt > 1).then_some(inst))
-            .collect();
+        let shared_instances: Vec<u64> = if strictly_increasing {
+            Vec::new()
+        } else {
+            let mut all_insts: Vec<u64> = rows.iter().filter_map(|r| r.instance).collect();
+            all_insts.sort_unstable();
+            let mut dups = Vec::new();
+            for win in all_insts.windows(2) {
+                if let [a, b] = *win
+                    && a == b
+                    && dups.last().copied() != Some(a)
+                {
+                    dups.push(a);
+                }
+            }
+            dups
+        };
 
         let mut by_canonical_id = BTreeMap::new();
         let mut display = Display::with_rows_with_cx(cx, rows.len()).map_err(|stop| {
@@ -739,38 +970,55 @@ impl SxfLive {
             symbol_indices: &symbol_indices,
         };
 
-        let mut initial_rows = Vec::with_capacity(rows.len());
-        for (i, mut row) in rows.into_iter().enumerate() {
+        let mut row_dep_edges: Vec<(RowId, RowId)> = Vec::new();
+        for (i, row) in rows.iter_mut().enumerate() {
             let row_id = RowId(i as u32);
-            by_canonical_id.insert(row.canonical_id.to_string(), row_id);
             if matches!(
                 row.container,
                 SxfContainer::Space(_) | SxfContainer::Sheet(_)
             ) && let Some(vnode) = placed_symbol_dep_source(&row.placed, &symbol_indices)
             {
-                dep.set_sources(row_id, [vnode]);
+                row_dep_edges.push((vnode, row_id));
             }
             row.unique_handle = match (row.instance, placed_source(&row.placed).record()) {
-                (Some(inst), Some(_)) if !shared_instances.contains(&inst) => Some(inst),
+                (Some(inst), Some(_)) if shared_instances.binary_search(&inst).is_err() => {
+                    Some(inst)
+                }
                 _ => None,
             };
-            let bounds =
-                compute_sheet_bounds(row.container, &row.placed, &space_views, &symbol_bounds);
-            let (counts, style) = display_counts_and_style(&row, &disp_ctx);
+            if !row.uses_handle_lookup() {
+                by_canonical_id.insert(row.canonical_id.to_string(), row_id);
+            }
+            let (counts, style) = display_counts_and_style(row, &disp_ctx);
             display
                 .push_with_cx(cx, counts, style, |w| {
-                    write_display_row(&row, &disp_ctx, w);
+                    write_display_row(row, &disp_ctx, w);
                 })
                 .map_err(|stop| {
                     cx.report(stop.to_diagnostic());
                     Error::Stopped(stop)
                 })?;
-            initial_rows.push((row, bounds, true));
         }
         display.clear_dirty();
 
-        let base_row_count = initial_rows.len() as u32;
-        let table = VersionedTable::from_rows_with_cx(initial_rows, cx).map_err(|stop| {
+        let mut dep = DepGraph::with_row_capacity(rows.len());
+        dep.insert_initial_single_edges(row_dep_edges);
+        for (vnode, srcs) in symbol_dep_edges {
+            dep.set_sources(vnode, srcs);
+        }
+
+        let base_row_count = rows.len() as u32;
+        let table = VersionedTable::from_vec_with_cx(
+            rows,
+            |row| {
+                (
+                    compute_sheet_bounds(row.container, &row.placed, &space_views, &symbol_bounds),
+                    true,
+                )
+            },
+            cx,
+        )
+        .map_err(|stop| {
             cx.report(stop.to_diagnostic());
             Error::Stopped(stop)
         })?;
@@ -783,11 +1031,12 @@ impl SxfLive {
             backing,
             attributes,
             diagnostics,
-            lifter_tables: lifted.tables,
+            lifter_tables,
+            feature_meta,
             fonts_broken,
             static_layer_ids,
             static_user_lt_ids,
-            raster_groups: lifted.raster_groups,
+            raster_groups,
             record_to_raster_group,
             space_templates,
             space_rows,
@@ -796,7 +1045,7 @@ impl SxfLive {
             sheet_template,
             base_sheet_slots,
             base_row_count,
-            title_blocks: drawing.title_blocks,
+            title_blocks,
             doc_drafts,
             sheet_name_map,
             space_views,
@@ -812,6 +1061,20 @@ impl SxfLive {
             history: History::new(),
             history_max_bytes: DEFAULT_HISTORY_LIMIT,
         })
+    }
+
+    #[inline]
+    fn row_p21_name(&self, row: &SxfRow) -> &str {
+        self.feature_meta
+            .get(row.meta_idx as usize)
+            .map_or("", |(name, _)| name.as_ref())
+    }
+
+    #[inline]
+    fn row_p21_kind(&self, row: &SxfRow) -> &str {
+        self.feature_meta
+            .get(row.meta_idx as usize)
+            .map_or("", |(_, kind)| kind.as_ref())
     }
 
     /// 部分図と配置要素の依存グラフへの参照
@@ -987,8 +1250,16 @@ impl SxfLive {
 
     /// 正規 ID（`sheet/0/i70` など）から生存 [`RowId`] を引く
     pub fn row_id_for_canonical_id(&self, id: &str) -> Option<RowId> {
-        let &row = self.by_canonical_id.get(id)?;
-        self.table.is_alive(row).then_some(row)
+        if let Some(&row) = self.by_canonical_id.get(id) {
+            return self.table.is_alive(row).then_some(row);
+        }
+        let inst = parse_trailing_instance_id(id)?;
+        let row = self.table.find_handle(inst)?;
+        if !self.table.is_alive(row) {
+            return None;
+        }
+        let found = self.table.row(row)?;
+        (found.canonical_id.as_str() == id).then_some(row)
     }
 
     /// [`RowId`] の正規 ID を返す
@@ -1179,7 +1450,7 @@ impl SxfLive {
         (format, edit): (&str, &str),
         cx: &mut Cx,
     ) -> Result<Option<(RowId, u64)>, Error> {
-        let Some(&row_id) = self.by_canonical_id.get(seen.id.as_str()) else {
+        let Some(row_id) = self.row_id_for_canonical_id(seen.id.as_str()) else {
             cx.report(Diagnostic::new(codes::CHANGE_ELEMENT_MISSING).with("id", seen.id.as_str()));
             return Ok(None);
         };
@@ -1319,7 +1590,7 @@ impl SxfLive {
                     return Ok(None);
                 };
                 let meta = row.sfc_slot.and_then(|slot| sfc.slot_meta(slot));
-                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(row.p21_kind.as_ref());
+                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(self.row_p21_kind(row));
                 let ok = row.sfc_slot.and_then(|slot| {
                     let (name_lower, _, is_grouped, _) = meta?;
                     if !REMOVABLE.contains(&name_lower) || is_grouped {
@@ -1355,7 +1626,7 @@ impl SxfLive {
                 count_placed_copy(&row.placed, cx, 1)?;
                 let mut expected = with_layer_style(&row.placed, new_layer, new_style, None);
                 let meta = row.sfc_slot.and_then(|slot| sfc.slot_meta(slot));
-                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(row.p21_kind.as_ref());
+                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(self.row_p21_kind(row));
                 let ok = row.sfc_slot.and_then(|slot| {
                     let (name_lower, _, is_grouped, _) = meta?;
                     let codes = compute_style_codes(
@@ -1404,7 +1675,7 @@ impl SxfLive {
                     )?;
                 }
                 let meta = row.sfc_slot.and_then(|slot| sfc.slot_meta(slot));
-                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(row.p21_kind.as_ref());
+                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(self.row_p21_kind(row));
                 let mut shape_counted = false;
                 if let Some(rep) = &replaced {
                     count_placed_shape(rep, cx)?;
@@ -1466,7 +1737,7 @@ impl SxfLive {
                     count_placed_shape(tr, cx)?;
                 }
                 let meta = row.sfc_slot.and_then(|slot| sfc.slot_meta(slot));
-                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(row.p21_kind.as_ref());
+                let kind_str = meta.map(|(_, k, _, _)| k).unwrap_or(self.row_p21_kind(row));
                 let mut ok = None;
                 if let Some(mut expected) = transformed
                     && let Some(slot) = row.sfc_slot
@@ -1607,7 +1878,9 @@ impl SxfLive {
                     return Ok(None);
                 };
                 let stmt_opt = p21.stmt_for_instance(inst);
-                let ok = if REMOVABLE.contains(&row.p21_name.as_ref()) && !row.grouped {
+                let row_name = self.row_p21_name(row);
+                let row_kind = self.row_p21_kind(row);
+                let ok = if REMOVABLE.contains(&row_name) && !row.grouped {
                     if let Some(stmt) = stmt_opt {
                         p21.stage_remove(tx, stmt, cx)?
                             .map(|()| StagedP21Op::Removed { row_id, inst })
@@ -1619,7 +1892,7 @@ impl SxfLive {
                 };
                 if ok.is_none() {
                     self.report_at(
-                        unsupported(format, "remove", &row.p21_kind),
+                        unsupported(format, "remove", row_kind),
                         placed_source(&row.placed),
                         cx,
                     )?;
@@ -1635,6 +1908,8 @@ impl SxfLive {
                 let Some(row) = self.table.row(row_id) else {
                     return Ok(None);
                 };
+                let row_name = self.row_p21_name(row);
+                let row_kind = self.row_p21_kind(row);
                 let (new_layer, new_style) = over_placed(&row.placed, style);
                 work(
                     cx,
@@ -1645,7 +1920,7 @@ impl SxfLive {
                 let mut expected = with_layer_style(&row.placed, new_layer, new_style, None);
                 let stmt_opt = p21.stmt_for_instance(inst);
                 let codes_opt = compute_style_codes(
-                    &row.p21_name,
+                    row_name,
                     row.grouped,
                     &row.placed,
                     &mut expected,
@@ -1669,7 +1944,7 @@ impl SxfLive {
                 };
                 if ok.is_none() {
                     self.report_at(
-                        unsupported(format, "restyle", &row.p21_kind),
+                        unsupported(format, "restyle", row_kind),
                         placed_source(&row.placed),
                         cx,
                     )?;
@@ -1685,6 +1960,8 @@ impl SxfLive {
                 let Some(row) = self.table.row(row_id) else {
                     return Ok(None);
                 };
+                let row_name = self.row_p21_name(row);
+                let row_kind = self.row_p21_kind(row);
                 count_placed_copy(element, cx, 1)?;
                 let replaced = replaced_placed(&row.placed, element);
                 if let Some(rep) = &replaced {
@@ -1697,7 +1974,7 @@ impl SxfLive {
                 let stmt_opt = p21.stmt_for_instance(inst);
                 let ok = if let (Some(stmt), Some(mut expected)) = (stmt_opt, replaced) {
                     let style_ok = if let Some(codes) = compute_style_codes(
-                        &row.p21_name,
+                        row_name,
                         row.grouped,
                         &row.placed,
                         &mut expected,
@@ -1719,7 +1996,7 @@ impl SxfLive {
                             tx,
                             &tables.widths,
                             (inst, row.record_idx),
-                            (&row.p21_name, row.grouped),
+                            (row_name, row.grouped),
                             &mut expected,
                             &mut stage.fonts,
                             cx,
@@ -1742,7 +2019,7 @@ impl SxfLive {
                 };
                 if ok.is_none() {
                     self.report_at(
-                        unsupported(format, "replace", &row.p21_kind),
+                        unsupported(format, "replace", row_kind),
                         placed_source(&row.placed),
                         cx,
                     )?;
@@ -1758,6 +2035,8 @@ impl SxfLive {
                 let Some(row) = self.table.row(row_id) else {
                     return Ok(None);
                 };
+                let row_name = self.row_p21_name(row);
+                let row_kind = self.row_p21_kind(row);
                 count_placed_copy(&row.placed, cx, 2)?;
                 let transformed = transformed_placed(&row.placed, transform);
                 let stmt_opt = p21.stmt_for_instance(inst);
@@ -1768,7 +2047,7 @@ impl SxfLive {
                         tx,
                         &tables.widths,
                         (inst, row.record_idx),
-                        (&row.p21_name, row.grouped),
+                        (row_name, row.grouped),
                         &mut expected,
                         &mut stage.fonts,
                         cx,
@@ -1787,7 +2066,7 @@ impl SxfLive {
                 };
                 if ok.is_none() {
                     self.report_at(
-                        unsupported(format, "transform", &row.p21_kind),
+                        unsupported(format, "transform", row_kind),
                         placed_source(&row.placed),
                         cx,
                     )?;
@@ -2422,6 +2701,7 @@ impl SxfLive {
         let symbol_bounds_ref = next_symbol_bounds.as_ref().unwrap_or(&self.symbol_bounds);
 
         let mut explicit_rows = BTreeSet::new();
+        let mut born_meta = Vec::new();
         for op in &verified {
             match op {
                 VerifiedOp::Remove(rid) => {
@@ -2430,9 +2710,26 @@ impl SxfLive {
                 VerifiedOp::Update { row_id, .. } => {
                     explicit_rows.insert(*row_id);
                 }
-                VerifiedOp::AddSfc { .. } | VerifiedOp::AddP21 { .. } => {}
+                VerifiedOp::AddSfc {
+                    feat_name,
+                    feat_kind,
+                    ..
+                }
+                | VerifiedOp::AddP21 {
+                    feat_name,
+                    feat_kind,
+                    ..
+                } => {
+                    let name_lower = feat_name.to_ascii_lowercase();
+                    born_meta.push(intern_feature_meta_vec(
+                        &mut self.feature_meta,
+                        &name_lower,
+                        feat_kind,
+                    ));
+                }
             }
         }
+        let mut born_meta_iter = born_meta.into_iter();
         let mut dependent_updates = Vec::new();
         for dep_rid in affected {
             if dep_rid.is_virtual() || explicit_rows.contains(&dep_rid) {
@@ -2511,12 +2808,12 @@ impl SxfLive {
                             inst,
                             sheet_id,
                             canonical_id,
-                            feat_name,
-                            feat_kind,
                             placed,
                             drafts,
                             diagnostics,
+                            ..
                         } => {
+                            let (meta_idx, meta_bytes) = born_meta_iter.next().unwrap_or((0, 0));
                             let container = SxfContainer::Sheet(sheet_id);
                             let new_bounds = compute_sheet_bounds(
                                 container,
@@ -2531,11 +2828,11 @@ impl SxfLive {
                                 record_idx: 0,
                                 local_space_idx: 0,
                                 sfc_slot: Some(SfcSlot::Born(seq)),
-                                p21_kind: feat_kind.into_boxed_str(),
-                                p21_name: feat_name.to_ascii_lowercase().into_boxed_str(),
+                                meta_idx,
+                                meta_bytes,
                                 grouped: false,
                                 container,
-                                canonical_id: canonical_id.into_boxed_str(),
+                                canonical_id: SmallId::from_string(canonical_id),
                                 placed,
                                 drafts: drafts.into_boxed_slice(),
                                 diagnostics,
@@ -2549,12 +2846,12 @@ impl SxfLive {
                             inst,
                             sheet_id,
                             canonical_id,
-                            feat_name,
-                            feat_kind,
                             placed,
                             drafts,
                             diagnostics,
+                            ..
                         } => {
+                            let (meta_idx, meta_bytes) = born_meta_iter.next().unwrap_or((0, 0));
                             let container = SxfContainer::Sheet(sheet_id);
                             let new_bounds = compute_sheet_bounds(
                                 container,
@@ -2569,11 +2866,11 @@ impl SxfLive {
                                 record_idx: 0,
                                 local_space_idx: 0,
                                 sfc_slot: None,
-                                p21_kind: feat_kind.into_boxed_str(),
-                                p21_name: feat_name.to_ascii_lowercase().into_boxed_str(),
+                                meta_idx,
+                                meta_bytes,
                                 grouped: false,
                                 container,
-                                canonical_id: canonical_id.into_boxed_str(),
+                                canonical_id: SmallId::from_string(canonical_id),
                                 placed,
                                 drafts: drafts.into_boxed_slice(),
                                 diagnostics,
@@ -2634,8 +2931,10 @@ impl SxfLive {
             for diff in committed.existing() {
                 match diff {
                     ExistingRowDiff::Removed { before_row, .. } => {
-                        self.by_canonical_id
-                            .remove(before_row.canonical_id.as_ref());
+                        if !before_row.uses_handle_lookup() {
+                            self.by_canonical_id
+                                .remove(before_row.canonical_id.as_ref());
+                        }
                         if let SxfContainer::Space(sp) = before_row.container
                             && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
                         {
@@ -2662,8 +2961,10 @@ impl SxfLive {
                 }
             }
             for born in committed.born() {
-                self.by_canonical_id
-                    .insert(born.after_row.canonical_id.to_string(), born.row);
+                if !born.after_row.uses_handle_lookup() {
+                    self.by_canonical_id
+                        .insert(born.after_row.canonical_id.to_string(), born.row);
+                }
             }
             let disp_ctx = DisplayContext {
                 space_views: &self.space_views,
@@ -2701,8 +3002,10 @@ impl SxfLive {
         };
         revert_display_commit(&mut self.display, &disp_ctx, &committed);
         for born in committed.born().iter().rev() {
-            self.by_canonical_id
-                .remove(born.after_row.canonical_id.as_ref());
+            if !born.after_row.uses_handle_lookup() {
+                self.by_canonical_id
+                    .remove(born.after_row.canonical_id.as_ref());
+            }
         }
         for patch in committed.patches().iter().rev() {
             self.restore_symbol_bounds(&patch.0.symbol_bounds, true);
@@ -2712,8 +3015,10 @@ impl SxfLive {
                 ExistingRowDiff::Removed {
                     row, before_row, ..
                 } => {
-                    self.by_canonical_id
-                        .insert(before_row.canonical_id.to_string(), *row);
+                    if !before_row.uses_handle_lookup() {
+                        self.by_canonical_id
+                            .insert(before_row.canonical_id.to_string(), *row);
+                    }
                     if let SxfContainer::Space(sp) = before_row.container
                         && let Placed::Model(m_elem) = &before_row.placed
                         && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
@@ -2799,8 +3104,10 @@ impl SxfLive {
         for diff in committed.existing() {
             match diff {
                 ExistingRowDiff::Removed { before_row, .. } => {
-                    self.by_canonical_id
-                        .remove(before_row.canonical_id.as_ref());
+                    if !before_row.uses_handle_lookup() {
+                        self.by_canonical_id
+                            .remove(before_row.canonical_id.as_ref());
+                    }
                     if let SxfContainer::Space(sp) = before_row.container
                         && let Some(sp_idx) = self.space_spatial.get_mut(&sp)
                     {
@@ -2827,8 +3134,10 @@ impl SxfLive {
             }
         }
         for born in committed.born() {
-            self.by_canonical_id
-                .insert(born.after_row.canonical_id.to_string(), born.row);
+            if !born.after_row.uses_handle_lookup() {
+                self.by_canonical_id
+                    .insert(born.after_row.canonical_id.to_string(), born.row);
+            }
         }
         let disp_ctx = DisplayContext {
             space_views: &self.space_views,
@@ -5572,6 +5881,188 @@ mod equivalence_tests {
                 assert!(run(|cx| live.redo(cx)).0.unwrap());
                 assert_eq!(&run(|cx| live.drawing(cx)), &expected.0);
                 assert_eq!(&run(|cx| live.save(cx)).0.unwrap(), &expected.1);
+            }
+        }
+    }
+
+    #[test]
+    fn fast_sfc_and_p21_open_matches_from_file_across_threads_and_edits() {
+        let mut sfc_body = String::from(
+            "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n/*SXF3\n#10 = layer_feature(\\'L1\\','1')\nSXF3*/\n/*SXF3\n#11 = user_defined_colour_feature('12','34','56')\nSXF3*/\n/*SXF3\n#12 = user_defined_font_feature(\\'UF1\\','2','(2.0,1.0)')\nSXF3*/\n/*SXF3\n#13 = width_feature('0.42')\nSXF3*/\n",
+        );
+        for i in 0..40u64 {
+            let base = 100 + i * 5;
+            let x = i as f64 * 2.0;
+            sfc_body.push_str(&format!(
+                "/*SXF3\n#{base} = line_feature('1','17','17','11','{x}','0','{}','1')\nSXF3*/\n",
+                x + 1.0
+            ));
+            sfc_body.push_str(&format!(
+                "/*SXF3\n#{} = polyline_feature('1','2','1','3','3','({x},{},{})','(2,2,3)')\nSXF3*/\n",
+                base + 1,
+                x + 0.5,
+                x + 0.5
+            ));
+            sfc_body.push_str(&format!(
+                "/*SXF3\n#{} = circle_feature('1','3','2','4','{x}','5','0.4')\nSXF3*/\n",
+                base + 2
+            ));
+            sfc_body.push_str(&format!(
+                "/*SXF3\n#{} = arc_feature('1','4','3','5','{x}','8','0.5','0','0','90')\nSXF3*/\n",
+                base + 3
+            ));
+            sfc_body.push_str(&format!(
+                "/*SXF3\n#{} = point_marker_feature('1','1','{x}','10','2','0','1.5')\nSXF3*/\n",
+                base + 4
+            ));
+        }
+        sfc_body.push_str("/*SXF3\n#9999 = drawing_sheet_feature(\\'S\\','3','1','0','0')\nSXF3*/\nENDSEC;\nEND-ISO-10303-21;\n");
+
+        let mut p21_body = String::from(
+            "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n#1=DRAUGHTING_PRE_DEFINED_COLOUR('red');\n#2=DRAUGHTING_PRE_DEFINED_COLOUR('black');\n#3=COLOUR_RGB(' ',0.5,0.25,0.75);\n#4=DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous');\n#5=DRAUGHTING_PRE_DEFINED_CURVE_FONT('dashed');\n",
+        );
+        let mut next_id = 20u64;
+        let mut occ_ids = Vec::new();
+        for i in 0..40u64 {
+            let x = i as f64 * 0.5;
+            // Line
+            let p1 = next_id;
+            let p2 = next_id + 1;
+            let d = next_id + 2;
+            let v = next_id + 3;
+            let ln = next_id + 4;
+            let tc = next_id + 5;
+            let cs = next_id + 6;
+            let sa = next_id + 7;
+            let occ1 = next_id + 8;
+            next_id += 9;
+            p21_body.push_str(&format!(
+                "#{p1}=CARTESIAN_POINT(' ',({x},0.));\n#{p2}=CARTESIAN_POINT(' ',({},0.1));\n#{d}=DIRECTION(' ',(0.7071067811865475,0.7071067811865475));\n#{v}=VECTOR(' ',#{d},0.1414213562373095);\n#{ln}=LINE(' ',#{p1},#{v});\n#{tc}=TRIMMED_CURVE(' ',#{ln},(#{p1}),(#{p2}),.T.,.CARTESIAN.);\n#{cs}=CURVE_STYLE(' ',#{},POSITIVE_LENGTH_MEASURE(0.25),#{});\n#{sa}=PRESENTATION_STYLE_ASSIGNMENT((#{cs}));\n#{occ1}=ANNOTATION_CURVE_OCCURRENCE(' ',(#{sa}),#{tc});\n",
+                x + 0.1,
+                if i % 2 == 0 { 4 } else { 5 },
+                if i % 3 == 0 { 3 } else { 1 },
+            ));
+            occ_ids.push(occ1);
+
+            // Polyline
+            let q1 = next_id;
+            let q2 = next_id + 1;
+            let q3 = next_id + 2;
+            let pl = next_id + 3;
+            let cs2 = next_id + 4;
+            let sa2 = next_id + 5;
+            let occ2 = next_id + 6;
+            next_id += 7;
+            p21_body.push_str(&format!(
+                "#{q1}=CARTESIAN_POINT(' ',({x},1.));\n#{q2}=CARTESIAN_POINT(' ',({},1.));\n#{q3}=CARTESIAN_POINT(' ',({},1.2));\n#{pl}=POLYLINE(' ',(#{q1},#{q2},#{q3}));\n#{cs2}=CURVE_STYLE(' ',#4,POSITIVE_LENGTH_MEASURE(0.35),#2);\n#{sa2}=PRESENTATION_STYLE_ASSIGNMENT((#{cs2}));\n#{occ2}=ANNOTATION_CURVE_OCCURRENCE(' ',(#{sa2}),#{pl});\n",
+                x + 0.2,
+                x + 0.2
+            ));
+            occ_ids.push(occ2);
+
+            // Circle + Arc
+            let c1 = next_id;
+            let ax1 = next_id + 1;
+            let cir1 = next_id + 2;
+            let cs3 = next_id + 3;
+            let sa3 = next_id + 4;
+            let occ3 = next_id + 5;
+            let arc_tc = next_id + 6;
+            let occ4 = next_id + 7;
+            next_id += 8;
+            p21_body.push_str(&format!(
+                "#{c1}=CARTESIAN_POINT(' ',({x},2.));\n#{ax1}=AXIS2_PLACEMENT_2D(' ',#{c1},$);\n#{cir1}=CIRCLE(' ',#{ax1},0.15);\n#{cs3}=CURVE_STYLE(' ',#4,POSITIVE_LENGTH_MEASURE(0.25),#2);\n#{sa3}=PRESENTATION_STYLE_ASSIGNMENT((#{cs3}));\n#{occ3}=ANNOTATION_CURVE_OCCURRENCE(' ',(#{sa3}),#{cir1});\n#{arc_tc}=TRIMMED_CURVE(' ',#{cir1},(PARAMETER_VALUE(0.)),(PARAMETER_VALUE(1.5707963267948966)),.T.,.PARAMETER.);\n#{occ4}=ANNOTATION_CURVE_OCCURRENCE(' ',(#{sa3}),#{arc_tc});\n",
+            ));
+            occ_ids.push(occ3);
+            occ_ids.push(occ4);
+        }
+        let refs_csv: String = occ_ids
+            .iter()
+            .map(|id| format!("#{id}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        p21_body.push_str(&format!(
+            "#10=PRESENTATION_LAYER_ASSIGNMENT('A',' ',({refs_csv}));\n#11=DRAWING_SHEET_REVISION('A3_horizontal',({refs_csv}),' ',' ');\nENDSEC;\nEND-ISO-10303-21;\n"
+        ));
+
+        for raw in [sfc_body.as_bytes(), p21_body.as_bytes()] {
+            let file = run(|cx| Sxf::read(raw, cx)).0.unwrap();
+            let slow = run(|cx| SxfLive::from_file(&file, cx)).0.unwrap();
+            let slow_drawing = run(|cx| slow.drawing(cx));
+            let slow_saved = run(|cx| slow.save(cx)).0.unwrap();
+            let slow_display = format!("{:?}", slow.display());
+
+            for threads in [1, 4] {
+                let mut fast = run(|cx| SxfLive::open_with_threads(raw, threads, cx))
+                    .0
+                    .unwrap();
+                assert_eq!(run(|cx| fast.drawing(cx)), slow_drawing);
+                assert_eq!(run(|cx| fast.save(cx)).0.unwrap(), slow_saved);
+                assert_eq!(format!("{:?}", fast.display()), slow_display);
+                assert_eq!(fast.row_count(), slow.row_count());
+
+                let mut slow_clone = slow.clone();
+                let target = run(|cx| fast.seen_of_row(RowId(0), cx)).0.unwrap().unwrap();
+                assert_eq!(
+                    Some(target.clone()),
+                    run(|cx| slow_clone.seen_of_row(RowId(0), cx)).0.unwrap()
+                );
+
+                let changes = Changes {
+                    document: None,
+                    edits: vec![
+                        Edit::Transform {
+                            target,
+                            transform: Affine::translation(5.0, -3.0),
+                        },
+                        Edit::Add {
+                            place: "sheet/0".to_owned(),
+                            element: Box::new(Placed::Paper(Element {
+                                layer: zumen_drawing::LayerId(1),
+                                style: Style {
+                                    color: sxf_color(2),
+                                    line_type: Inherit::Own(zumen_drawing::LineTypeId(1)),
+                                    line_type_scale: 1.0,
+                                    line_weight: Some(Inherit::Own(
+                                        zumen_drawing::LineWeight::Width(PaperLength(0.25)),
+                                    )),
+                                    transparency: Inherit::Layer,
+                                },
+                                source: Ref::default(),
+                                shape: Shape::Line {
+                                    start: PaperPoint {
+                                        sheet: SHEET,
+                                        x: 1.0,
+                                        y: 2.0,
+                                    },
+                                    end: PaperPoint {
+                                        sheet: SHEET,
+                                        x: 9.0,
+                                        y: 8.0,
+                                    },
+                                },
+                            })),
+                        },
+                    ],
+                };
+                assert_eq!(
+                    run(|cx| fast.apply(&changes, cx)),
+                    run(|cx| slow_clone.apply(&changes, cx))
+                );
+                assert_eq!(run(|cx| fast.drawing(cx)), run(|cx| slow_clone.drawing(cx)));
+                assert_eq!(
+                    run(|cx| fast.save(cx)).0.unwrap(),
+                    run(|cx| slow_clone.save(cx)).0.unwrap()
+                );
+                assert!(run(|cx| fast.undo(cx)).0.unwrap());
+                assert!(run(|cx| slow_clone.undo(cx)).0.unwrap());
+                assert_eq!(run(|cx| fast.save(cx)).0.unwrap(), slow_saved);
+                assert!(run(|cx| fast.redo(cx)).0.unwrap());
+                assert!(run(|cx| slow_clone.redo(cx)).0.unwrap());
+                assert_eq!(
+                    run(|cx| fast.save(cx)).0.unwrap(),
+                    run(|cx| slow_clone.save(cx)).0.unwrap()
+                );
             }
         }
     }

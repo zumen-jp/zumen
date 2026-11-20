@@ -255,7 +255,12 @@ impl<T: Copy, const BITS: usize> Paged<T, BITS> {
     }
 
     /// 長さを `new_len` に変え、伸ばす分は `value` で埋める
+    #[inline]
     pub fn resize(&mut self, new_len: usize, value: T) {
+        if new_len == self.len.wrapping_add(1) && self.len < usize::MAX {
+            self.push(value);
+            return;
+        }
         if new_len <= self.len {
             self.truncate(new_len);
             return;

@@ -89,7 +89,8 @@ fn sheet_of_row_maps_the_space_to_the_display_bounds() {
         let Some(found) = live.table.row(row) else {
             continue;
         };
-        let Shape::Line { start, end } = &found.element.shape else {
+        let elem = found.element();
+        let Shape::Line { start, end } = elem.shape else {
             continue;
         };
         if !live.table.is_alive(row) || found.space.0 >= DEFINITION_SPACES {
@@ -421,11 +422,11 @@ fn display_symbol_writes_definitions_in_their_coordinates() {
     for index in [0, 1] {
         for (_, element) in live.definition_rows_alive(index).unwrap() {
             let (counts, style) = super::super::display_definition_counts_and_style(
-                element,
+                &element,
                 &live.symbol_index_by_key,
             );
             expected.push_with(counts, style, |w| {
-                super::super::write_definition_display(element, &live.symbol_index_by_key, w);
+                super::super::write_definition_display(&element, &live.symbol_index_by_key, w);
             });
         }
     }
@@ -436,7 +437,7 @@ fn display_symbol_writes_definitions_in_their_coordinates() {
     let mut line = Display::with_rows(0);
     let (_, element) = live.definition_rows_alive(0).unwrap().next().unwrap();
     let (_, style) =
-        super::super::display_definition_counts_and_style(element, &live.symbol_index_by_key);
+        super::super::display_definition_counts_and_style(&element, &live.symbol_index_by_key);
     line.push_with([1, 0, 0, 0], style, |w| {
         w.push_segment([0.0, 0.0], [10.0, 0.0]);
     });

@@ -29,6 +29,14 @@ pub(super) struct LiveDiagnostics {
 }
 
 impl LiveDiagnostics {
+    pub(super) fn from_clean_sheet(row_count: usize) -> Self {
+        Self {
+            fixed: Vec::new(),
+            tail: Vec::new(),
+            type_order: TypeOrder::from_clean_sheet(row_count),
+        }
+    }
+
     pub(super) fn build(
         events: Vec<Diagnostic>,
         records: &[FeatureRecord],

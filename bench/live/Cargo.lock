@@ -349,6 +349,7 @@ dependencies = [
  "zumen-scene3d",
  "zumen-sdk",
  "zumen-sima",
+ "zumen-stbridge",
  "zumen-sxf",
  "zumen-text",
  "zumen-tiff",
@@ -363,6 +364,7 @@ dependencies = [
  "encoding_rs",
  "libm",
  "zumen-base",
+ "zumen-crs",
  "zumen-drawing",
  "zumen-geom2d",
  "zumen-live",
@@ -466,6 +468,7 @@ version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
+ "zumen-xml",
 ]
 
 [[package]]
@@ -759,6 +762,17 @@ dependencies = [
  "zumen-drawing",
  "zumen-geo",
  "zumen-geom2d",
+ "zumen-sdk",
+ "zumen-xml",
+]
+
+[[package]]
+name = "zumen-stbridge"
+version = "0.3.0"
+dependencies = [
+ "libm",
+ "zumen-base",
+ "zumen-building",
  "zumen-sdk",
  "zumen-xml",
 ]

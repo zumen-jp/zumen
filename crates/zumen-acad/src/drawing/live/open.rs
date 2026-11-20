@@ -101,7 +101,7 @@ pub struct LiveState {
     pub sheets: Vec<Sheet>,
     /// 点の表示スタイル
     pub point_style: Option<PointStyle>,
-    /// 図面から地図への相似の変換
+    /// モデル空間から地図への相似の変換
     pub georeference: Option<Georeference>,
     /// モデル空間の `SORTENTSTABLE`
     pub model_sort_keys: Option<(Ref, BTreeMap<u64, u64>)>,
@@ -119,9 +119,9 @@ pub struct LiveState {
     pub sheet_element_targets: BTreeMap<String, (u32, u32)>,
     /// 用紙ごとの、用紙の座標と元の図形の座標の対応（一括の `apply` が同じ文書から作るものと同じ）
     pub sheet_frames: BTreeMap<SheetId, PaperFrame>,
-    /// ATTRIB などが所有者（330）か続くフラグで付く INSERT のハンドル（ENTITIES・BLOCKS セクション）。
+    /// ATTRIB などが所有者（330）か続くフラグで付く INSERT のハンドル（ENTITIES・BLOCKS セクション、昇順整列）。
     /// 一括の `apply` が数える属性の数と読み込んだ数が違いうるので、用紙・ブロック定義の要素の差分の経路では扱わない
-    pub attached_inserts: BTreeSet<u64>,
+    pub attached_inserts: Arc<[u64]>,
     /// ハンドル一意索引に乗らないモデル要素の `ID -> RowId`
     pub non_unique_model_ids: BTreeMap<String, RowId>,
     /// ハンドル一意索引に乗らないモデル要素の `RowId -> ID`（定数／対数時間の逆引き用）
@@ -454,23 +454,84 @@ fn is_dwg_magic(src: &[u8]) -> bool {
             .is_some_and(|digits| digits.iter().all(u8::is_ascii_digit))
 }
 
-#[derive(Clone)]
-struct ScannedRecord {
+#[derive(Default)]
+struct HandleDupChecker {
+    last: u64,
+    unsorted: bool,
+    duplicate: bool,
+    seen: Vec<u64>,
+}
+
+impl HandleDupChecker {
+    #[inline]
+    fn record(&mut self, h: u64, keep_vec: bool) {
+        if h == 0 {
+            return;
+        }
+        if h == self.last {
+            self.duplicate = true;
+        } else if h < self.last {
+            self.unsorted = true;
+        }
+        self.last = h;
+        if keep_vec && !self.duplicate {
+            self.seen.push(h);
+        }
+    }
+
+    fn finish(mut self) -> bool {
+        if self.duplicate {
+            return true;
+        }
+        if !self.unsorted {
+            return false;
+        }
+        self.seen.sort_unstable();
+        self.seen.windows(2).any(|w| matches!(w, [a, b] if a == b))
+    }
+}
+
+const REC_HAS_CODE_100: u8 = 1 << 0;
+const REC_HAS_EXT_OR_PAPER: u8 = 1 << 1;
+const REC_HAS_HANDLE: u8 = 1 << 2;
+
+#[derive(Clone, Copy)]
+struct ScannedRecord<'a> {
     start: u32,
     end: u32,
     tag_count: u32,
-    kind: Box<[u8]>,
-    handle: Option<u64>,
-    followed: Option<Followed>,
-    has_code_100: bool,
-    has_ext_or_paper: bool,
     work_extra: u32,
+    handle_raw: u64,
+    kind: &'a [u8],
+    flags: u8,
 }
 
-struct ChunkScan {
+impl ScannedRecord<'_> {
+    #[inline]
+    const fn handle(&self) -> Option<u64> {
+        if self.flags & REC_HAS_HANDLE != 0 {
+            Some(self.handle_raw)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    const fn has_code_100(&self) -> bool {
+        self.flags & REC_HAS_CODE_100 != 0
+    }
+
+    #[inline]
+    const fn has_ext_or_paper(&self) -> bool {
+        self.flags & REC_HAS_EXT_OR_PAPER != 0
+    }
+}
+
+struct ChunkScan<'a> {
     invalid: bool,
     leading_tags: u32,
-    records: Vec<ScannedRecord>,
+    records: Vec<ScannedRecord<'a>>,
+    followed: Vec<(u32, Followed)>,
 }
 
 fn is_plain_six(kind: &[u8]) -> bool {
@@ -480,55 +541,67 @@ fn is_plain_six(kind: &[u8]) -> bool {
     )
 }
 
-fn scan_dxf_chunk(
-    src: &[u8],
+fn scan_dxf_chunk<'a>(
+    src: &'a [u8],
     chunk_start: usize,
     chunk_end: usize,
     is_first_chunk: bool,
-) -> ChunkScan {
+) -> ChunkScan<'a> {
     let mut pos = chunk_start;
-    let mut records: Vec<ScannedRecord> = Vec::new();
+    let mut records: Vec<ScannedRecord<'a>> = Vec::new();
+    let mut followed_vec: Vec<(u32, Followed)> = Vec::new();
     let mut leading_tags = 0u32;
 
     let mut cur_start = 0u32;
     let mut cur_end = 0u32;
     let mut cur_tags = 0u32;
-    let mut cur_kind: &[u8] = b"";
+    let mut cur_kind: &'a [u8] = b"";
     let mut cur_has_record = false;
     let mut cur_handle: Option<u64> = None;
     let mut cur_has_code_100 = false;
     let mut cur_has_ext_or_paper = false;
     let mut cur_work_extra = 0u32;
-    let mut raw_tags: Vec<RawTag<'_>> = Vec::new();
+    let mut raw_tags: Vec<RawTag<'a>> = Vec::new();
     let mut need_raw_tags = false;
 
-    let flush_record = |records: &mut Vec<ScannedRecord>,
-                        start: u32,
-                        end: u32,
-                        tag_count: u32,
-                        kind: &[u8],
-                        handle: Option<u64>,
-                        raw_tags: &mut Vec<RawTag<'_>>,
-                        has_100: bool,
-                        has_ext: bool,
-                        work_extra: u32| {
-        let followed = if !raw_tags.is_empty() {
-            let f = followed_tags(kind, raw_tags);
+    let mut flush_record = |records: &mut Vec<ScannedRecord<'a>>,
+                            start: u32,
+                            end: u32,
+                            tag_count: u32,
+                            kind: &'a [u8],
+                            handle: Option<u64>,
+                            raw_tags: &mut Vec<RawTag<'a>>,
+                            has_100: bool,
+                            has_ext: bool,
+                            work_extra: u32| {
+        if !raw_tags.is_empty() {
+            if let Some(f) = followed_tags(kind, raw_tags) {
+                followed_vec.push((records.len() as u32, f));
+            }
             raw_tags.clear();
-            f
-        } else {
-            None
+        }
+        let mut flags = 0u8;
+        if has_100 {
+            flags |= REC_HAS_CODE_100;
+        }
+        if has_ext {
+            flags |= REC_HAS_EXT_OR_PAPER;
+        }
+        let handle_raw = match handle {
+            Some(h) => {
+                flags |= REC_HAS_HANDLE;
+                h
+            }
+            None => 0,
         };
         records.push(ScannedRecord {
             start,
             end,
             tag_count,
-            kind: kind.into(),
-            handle,
-            followed,
-            has_code_100: has_100,
-            has_ext_or_paper: has_ext,
             work_extra,
+            handle_raw,
+            kind,
+            flags,
         });
     };
 
@@ -540,6 +613,7 @@ fn scan_dxf_chunk(
                     invalid: true,
                     leading_tags: 0,
                     records: Vec::new(),
+                    followed: Vec::new(),
                 };
             }
             Next::Tag(span) => {
@@ -663,6 +737,7 @@ fn scan_dxf_chunk(
         invalid: false,
         leading_tags,
         records,
+        followed: followed_vec,
     }
 }
 
@@ -685,7 +760,7 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
     };
     let cuts = split_points(src, parts);
     let chunk_count = cuts.len().saturating_sub(1);
-    let scans: Vec<ChunkScan> = if !cfg!(target_arch = "wasm32") && chunk_count > 1 {
+    let scans: Vec<ChunkScan<'_>> = if !cfg!(target_arch = "wasm32") && chunk_count > 1 {
         std::thread::scope(|scope| {
             let mut handles = Vec::with_capacity(chunk_count);
             for i in 0..chunk_count {
@@ -700,6 +775,7 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
                         invalid: true,
                         leading_tags: 0,
                         records: Vec::new(),
+                        followed: Vec::new(),
                     })
                 })
                 .collect()
@@ -708,24 +784,39 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
         vec![scan_dxf_chunk(src, 0, src.len(), true)]
     };
 
-    let mut records: Vec<ScannedRecord> = Vec::new();
+    let total_est: usize = scans.iter().map(|s| s.records.len()).sum();
+    let mut records: Vec<ScannedRecord<'_>> = Vec::with_capacity(total_est);
+    let mut followed_records: Vec<(u32, Followed)> = Vec::new();
     let mut trailer_start = src.len() as u32;
     'merge: for scan in scans {
         if scan.invalid || scan.leading_tags > 0 {
             return open_ascii_via_dxf_file_after_input_check(src, cx);
         }
-        for rec in scan.records {
-            let is_eof = rec.kind.as_ref() == b"EOF"
+        let base_rec = records.len() as u32;
+        let mut chunk_limit = scan.records.len() as u32;
+        let mut hit_eof = false;
+        for (local_idx, rec) in scan.records.into_iter().enumerate() {
+            let is_eof = rec.kind == b"EOF"
                 && src
                     .get(rec.start as usize..rec.end as usize)
                     .is_some_and(|b| matches!(next_tag(b, 0), Next::Tag(t) if t.code == 0));
             records.push(rec);
             if is_eof {
+                chunk_limit = (local_idx + 1) as u32;
                 if let Some(last) = records.last() {
                     trailer_start = last.end;
                 }
-                break 'merge;
+                hit_eof = true;
+                break;
             }
+        }
+        for (local_idx, f) in scan.followed {
+            if local_idx < chunk_limit {
+                followed_records.push((base_rec + local_idx, f));
+            }
+        }
+        if hit_eof {
+            break 'merge;
         }
     }
 
@@ -749,8 +840,8 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
     let mut header_known_starts: BTreeMap<Vec<u8>, usize> = BTreeMap::new();
     let mut entity_indices: Vec<u32> = Vec::new();
     let mut any_entity_code_100 = false;
-    let mut seen_handles: BTreeSet<u64> = BTreeSet::new();
-    let mut duplicate_handles_global = false;
+    let mut dup_checker = HandleDupChecker::default();
+    let mut stopped_at = records.len();
     let mut ref_entity_handles: BTreeSet<u64> = BTreeSet::new();
 
     for (idx, rec) in records.iter().enumerate() {
@@ -759,7 +850,7 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
             cx.report(stop.to_diagnostic().at(Ref::at_record(idx as u64)));
             Error::Stopped(stop)
         })?;
-        match rec.kind.as_ref() {
+        match rec.kind {
             b"SECTION" => {
                 let sec = decode_section_name(src, rec.start as usize..rec.end as usize);
                 if sec == Section::Other(b"HEADER".to_vec()) {
@@ -784,20 +875,20 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
                 }
                 section = None;
             }
-            b"EOF" => break,
+            b"EOF" => {
+                stopped_at = idx;
+                break;
+            }
             _ => {
                 let Some(sec) = &section else {
                     continue;
                 };
-                if let Some(h) = rec.handle
-                    && h != 0
-                    && !seen_handles.insert(h)
-                {
-                    duplicate_handles_global = true;
+                if let Some(h) = rec.handle() {
+                    dup_checker.record(h, false);
                 }
                 if *sec == Section::Entities {
-                    any_entity_code_100 |= rec.has_code_100;
-                    if matches!(rec.kind.as_ref(), b"HATCH" | b"LEADER")
+                    any_entity_code_100 |= rec.has_code_100();
+                    if matches!(rec.kind, b"HATCH" | b"LEADER")
                         && let Some((kind, values)) =
                             decode_dxf_slice(src, rec.start as usize..rec.end as usize)
                     {
@@ -819,9 +910,37 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
         }
     }
 
+    let duplicate_handles_global = if dup_checker.duplicate {
+        true
+    } else if !dup_checker.unsorted {
+        false
+    } else {
+        let mut hs = Vec::new();
+        let mut in_sec = false;
+        for rec in records.get(..stopped_at).unwrap_or(&records) {
+            match rec.kind {
+                b"SECTION" => in_sec = true,
+                b"ENDSEC" => in_sec = false,
+                b"EOF" => break,
+                _ if in_sec => {
+                    if let Some(h) = rec.handle()
+                        && h != 0
+                    {
+                        hs.push(h);
+                    }
+                }
+                _ => {}
+            }
+        }
+        hs.sort_unstable();
+        hs.windows(2).any(|w| matches!(w, [a, b] if a == b))
+    };
+
     if !ref_entity_handles.is_empty() {
         for &rec_u32 in &entity_indices {
-            if let Some(h) = records.get(rec_u32 as usize).and_then(|r| r.handle)
+            if let Some(h) = records
+                .get(rec_u32 as usize)
+                .and_then(ScannedRecord::handle)
                 && ref_entity_handles.contains(&h)
                 && shell_db.get(h).is_none()
             {
@@ -849,12 +968,13 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
     };
 
     // `ENTITIES` の親子（`ATTRIB`・`VERTEX`・`SEQEND`）を軽量情報だけで対応づける
-    let (att_map, owned_set) = attach_scanned_entities(&entity_indices, &records);
+    let attached_ents = attach_scanned_entities(&entity_indices, &followed_records);
+    drop(followed_records);
 
     // 最初のペーパー空間図形の所有者を探す（`current_mm` と `Sheet.source` 用）
     let first_paper_owner = entity_indices.iter().find_map(|&rec_u32| {
         let rec = records.get(rec_u32 as usize)?;
-        if !rec.has_ext_or_paper {
+        if !rec.has_ext_or_paper() {
             return None;
         }
         let (_, vals) = decode_dxf_slice(src, rec.start as usize..rec.end as usize)?;
@@ -885,51 +1005,46 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
     let cs = charset(version_bytes.as_deref(), code_page_bytes.as_deref());
 
     // 平面 6 種類の対象を並列に持ち上げる
-    let plain_tasks: Vec<(usize, u32)> = entity_indices
+    let plain_tasks: Vec<(u32, u32)> = entity_indices
         .iter()
         .copied()
         .enumerate()
-        .filter(|&(ent_pos, rec_u32)| {
-            if owned_set.contains(&ent_pos) {
-                return false;
+        .filter_map(|(ent_pos, rec_u32)| {
+            if attached_ents.is_owned(ent_pos) {
+                return None;
             }
-            let Some(rec) = records.get(rec_u32 as usize) else {
-                return false;
-            };
-            if rec.has_ext_or_paper || !is_plain_six(&rec.kind) {
-                return false;
+            let rec = records.get(rec_u32 as usize)?;
+            if rec.has_ext_or_paper() || !is_plain_six(rec.kind) {
+                return None;
             }
-            if let Some(children) = att_map.get(&ent_pos) {
+            if let Some(children) = attached_ents.children_of(ent_pos) {
                 for &child_pos in children {
-                    let Some(&c_rec) = entity_indices.get(child_pos) else {
-                        return false;
-                    };
-                    let Some(c_info) = records.get(c_rec as usize) else {
-                        return false;
-                    };
-                    if c_info.has_ext_or_paper {
-                        return false;
+                    let &c_rec = entity_indices.get(child_pos as usize)?;
+                    let c_info = records.get(c_rec as usize)?;
+                    if c_info.has_ext_or_paper() {
+                        return None;
                     }
                 }
             }
-            true
+            Some((ent_pos as u32, rec_u32))
         })
         .collect();
 
     let lift_one =
-        |(ent_pos, rec_u32): (usize, u32), tags: &mut Vec<_>| -> (usize, Option<PlainLifted>) {
+        |(ent_pos_u32, rec_u32): (u32, u32), tags: &mut Vec<_>| -> (usize, Option<PlainLifted>) {
+            let ent_pos = ent_pos_u32 as usize;
             let Some(rec) = records.get(rec_u32 as usize) else {
                 return (ent_pos, None);
             };
             let mut attribs = Vec::new();
             let mut raw_attrib_count = 0u32;
-            if rec.kind.as_ref() == b"INSERT"
-                && let Some(children) = att_map.get(&ent_pos)
+            if rec.kind == b"INSERT"
+                && let Some(children) = attached_ents.children_of(ent_pos)
             {
                 raw_attrib_count = children.len() as u32;
                 attribs.reserve(children.len());
                 for &child_pos in children {
-                    let Some(&c_rec_u32) = entity_indices.get(child_pos) else {
+                    let Some(&c_rec_u32) = entity_indices.get(child_pos as usize) else {
                         return (ent_pos, None);
                     };
                     let Some(c_rec) = records.get(c_rec_u32 as usize) else {
@@ -950,7 +1065,7 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
             let plain = lift_plain_entity_from_dxf(
                 src,
                 rec.start as usize..rec.end as usize,
-                &rec.kind,
+                rec.kind,
                 cs,
                 rec_u32,
                 attribs,
@@ -968,8 +1083,8 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
             };
             let start = (first_page + page_offset) * PAGE_ROWS;
             let end = start.saturating_add(page.len());
-            let first = plain_tasks.partition_point(|&(position, _)| position < start);
-            let last = plain_tasks.partition_point(|&(position, _)| position < end);
+            let first = plain_tasks.partition_point(|&(position, _)| (position as usize) < start);
+            let last = plain_tasks.partition_point(|&(position, _)| (position as usize) < end);
             for &task in plain_tasks.get(first..last).unwrap_or_default() {
                 let (position, item) = lift_one(task, &mut tags);
                 if let Some(slot) = page.get_mut(position - start) {
@@ -988,10 +1103,10 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
             (first_page..last_page).map(|_| None).collect();
         let start = first_page * PAGE_ROWS;
         let end = last_page * PAGE_ROWS;
-        let first = plain_tasks.partition_point(|&(position, _)| position < start);
-        let last = plain_tasks.partition_point(|&(position, _)| position < end);
+        let first = plain_tasks.partition_point(|&(position, _)| (position as usize) < start);
+        let last = plain_tasks.partition_point(|&(position, _)| (position as usize) < end);
         for &(position, _) in plain_tasks.get(first..last).unwrap_or_default() {
-            let page_index = position / PAGE_ROWS;
+            let page_index = (position as usize) / PAGE_ROWS;
             let len = (entity_count - page_index * PAGE_ROWS).min(PAGE_ROWS);
             if let Some(page) = pages.get_mut(page_index - first_page) {
                 page.get_or_insert_with(|| (0..len).map(|_| None).collect());
@@ -1060,8 +1175,8 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
 
     let finish_inputs = EntityPassInputs {
         count: entity_indices.len(),
-        owned_set: &owned_set,
-        att_map: &att_map,
+        threads: parts,
+        attached: &attached_ents,
         first_paper_owner,
         any_entity_code_100,
         duplicate_handles_global,
@@ -1124,11 +1239,19 @@ pub fn open_dxf(src: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<LiveState
             |ent_pos| {
                 let rec_u32 = *entity_indices.get(ent_pos)?;
                 let rec = records.get(rec_u32 as usize)?;
-                let at = match rec.handle {
+                Some((rec_u32, u64::from(1 + rec.work_extra), rec.handle()))
+            },
+            |ent_pos| {
+                let Some(&rec_u32) = entity_indices.get(ent_pos) else {
+                    return Ref::default();
+                };
+                let h_opt = records
+                    .get(rec_u32 as usize)
+                    .and_then(ScannedRecord::handle);
+                match h_opt {
                     Some(h) => Ref::at_record(u64::from(rec_u32)).with_key(Key::Handle(h)),
                     None => Ref::at_record(u64::from(rec_u32)),
-                };
-                Some((rec_u32, u64::from(1 + rec.work_extra), at, rec.handle))
+                }
             },
             |ent_pos, _cx| {
                 let rec_u32 = *entity_indices.get(ent_pos)?;
@@ -1326,18 +1449,24 @@ pub fn open_from_dwg_file(
     struct DwgEntSlot {
         record: u32,
         work_amount: u64,
+        span_start: u64,
+        span_end: u64,
         handle: Option<u64>,
         followed: Option<Followed>,
-        obj: Option<Object>,
+        plain_idx: u32,
+        obj: Option<Box<Object>>,
     }
 
-    // 全体分の `DwgEntryPayload` を一度に保持せず、1024 件単位の窓で復号してすぐ消費し、最大確保量を抑える
-    const DWG_DECODE_WINDOW: usize = 1024;
-    let mut ent_slots: Vec<DwgEntSlot> = Vec::new();
-    let mut lifted_plains = Pending::with_len(0);
+    // 全体分の `DwgEntryPayload` を一度に保持せず、4096 件単位の窓で復号してすぐ消費し、最大確保量を抑える
+    const DWG_DECODE_WINDOW: usize = 4096;
+    let mut ent_slots: Vec<DwgEntSlot> = Vec::with_capacity(total_entries);
+    let mut dwg_plains: Vec<Option<PlainLifted>> = Vec::with_capacity(total_entries);
     let mut any_entity_code_100 = false;
-    let mut seen_handles: BTreeSet<u64> = BTreeSet::new();
-    let mut duplicate_handles_global = false;
+    let mut any_child_follow_dwg = false;
+    let mut dup_checker = HandleDupChecker {
+        seen: Vec::with_capacity(total_entries),
+        ..HandleDupChecker::default()
+    };
     let mut ref_entity_handles: BTreeSet<u64> = BTreeSet::new();
 
     let model_owner = single.model_owner();
@@ -1349,13 +1478,14 @@ pub fn open_from_dwg_file(
             has_100,
             plain,
         } => {
-            if let Some(h) = handle
-                && h != 0
-                && !seen_handles.insert(h)
-            {
-                duplicate_handles_global = true;
+            if let Some(h) = handle {
+                dup_checker.record(h, true);
             }
             any_entity_code_100 |= has_100;
+            let (span_start, span_end) = match plain.origin {
+                Origin::Dwg { offset, end } => (offset as u64, end as u64),
+                _ => (0, 0),
+            };
             let followed = match &plain.geom {
                 super::shape::PlainGeom::Insert { followed, .. } => Some(Followed {
                     kind: Follow::Insert { opens: *followed },
@@ -1364,43 +1494,52 @@ pub fn open_from_dwg_file(
                 }),
                 _ => None,
             };
+            let plain_idx = dwg_plains.len() as u32;
+            dwg_plains.push(Some(plain));
             ent_slots.push(DwgEntSlot {
                 record,
                 work_amount,
+                span_start,
+                span_end,
                 handle,
                 followed,
+                plain_idx,
                 obj: None,
             });
-            lifted_plains.push(Some(plain));
         }
         DwgEntryPayload::EntityObj { record, obj } => {
             collect_entity_ref_handles(&obj.kind, &obj.values, &mut ref_entity_handles);
             let h = obj.handle();
-            if let Some(hv) = h
-                && hv != 0
-                && !seen_handles.insert(hv)
-            {
-                duplicate_handles_global = true;
+            if let Some(hv) = h {
+                dup_checker.record(hv, true);
             }
             any_entity_code_100 |= obj.values.iter().any(|v| v.code == 100);
+            let (span_start, span_end) = match obj.origin {
+                Origin::Dwg { offset, end } => (offset as u64, end as u64),
+                _ => (0, 0),
+            };
             let work_amount = amount(&obj);
             let followed = followed_object(&obj);
+            if let Some(role) = followed
+                && is_child_follow(role.kind)
+            {
+                any_child_follow_dwg = true;
+            }
             ent_slots.push(DwgEntSlot {
                 record,
                 work_amount,
+                span_start,
+                span_end,
                 handle: h,
                 followed,
-                obj: Some(obj),
+                plain_idx: u32::MAX,
+                obj: Some(Box::new(obj)),
             });
-            lifted_plains.push(None);
         }
         DwgEntryPayload::ShellObj { obj } => {
             collect_entity_ref_handles(&obj.kind, &obj.values, &mut ref_entity_handles);
-            if let Some(hv) = obj.handle()
-                && hv != 0
-                && !seen_handles.insert(hv)
-            {
-                duplicate_handles_global = true;
+            if let Some(hv) = obj.handle() {
+                dup_checker.record(hv, true);
             }
             shell_db.push(obj);
         }
@@ -1428,85 +1567,283 @@ pub fn open_from_dwg_file(
         Ok(classify_obj(idx, opt_obj))
     };
 
-    for w_start in (0..total_entries).step_by(DWG_DECODE_WINDOW) {
-        let w_end = (w_start + DWG_DECODE_WINDOW).min(total_entries);
-        let w_len = w_end - w_start;
-        if !cfg!(target_arch = "wasm32") && parts > 1 && w_len >= 64 {
-            let snap_budget = cx.budget.clone();
-            let cancel = cx.cancel;
-            let chunk_sz = w_len.div_ceil(parts);
-            let window_items: Vec<WorkerItem> = std::thread::scope(|scope| {
-                let mut handles = Vec::new();
-                for sub_start in (w_start..w_end).step_by(chunk_sz) {
-                    let sub_end = (sub_start + chunk_sz).min(w_end);
-                    let snap_ref = &snap_budget;
-                    let single_ref = &single;
-                    let file_ref = &file;
-                    handles.push(scope.spawn(move || {
+    let can_pipeline_dwg = !cfg!(target_arch = "wasm32")
+        && parts >= 3
+        && total_entries >= 1024
+        && cx.cancel.stop().is_none()
+        && can_spend_both(
+            cx.budget,
+            (total_entries as u64)
+                .saturating_mul(512)
+                .saturating_add(1_000_000),
+            (total_entries as u64)
+                .saturating_mul(4096)
+                .saturating_add(16_777_216),
+        );
+
+    if can_pipeline_dwg {
+        let cancel = cx.cancel;
+        let single_ref = &single;
+        let file_ref = &file;
+        let classify_ref = &classify_obj;
+        let worker_count = parts.max(2);
+        const PIPE_CHUNK: usize = 512;
+        std::thread::scope(|scope| -> Result<(), Error> {
+            let mut task_senders = Vec::with_capacity(worker_count);
+            let mut result_receivers = Vec::with_capacity(worker_count);
+            for _ in 0..worker_count {
+                let (t_tx, t_rx) = std::sync::mpsc::sync_channel::<(usize, usize)>(2);
+                let (r_tx, r_rx) =
+                    std::sync::mpsc::sync_channel::<(usize, usize, Vec<WorkerItem>)>(2);
+                task_senders.push(t_tx);
+                result_receivers.push(r_rx);
+                scope.spawn(move || {
+                    let mut local_diag = Diagnostics::with_max_places(usize::MAX);
+                    while let Ok((sub_start, sub_end)) = t_rx.recv() {
                         let mut out = Vec::with_capacity(sub_end - sub_start);
                         for idx in sub_start..sub_end {
                             if cancel.stop().is_some() {
                                 out.push(WorkerItem::Replay);
                                 continue;
                             }
-                            let mut local_budget = snap_ref.clone();
-                            let mut local_diag = Diagnostics::with_max_places(usize::MAX);
-                            let mut local_cx = Cx::new(&mut local_budget, &mut local_diag, cancel);
-                            match single_ref.decode_record_open(file_ref, idx, &mut local_cx) {
+                            let mut local_budget = Budget::default();
+                            let res = single_ref.decode_record_open(
+                                file_ref,
+                                idx,
+                                &mut Cx::new(&mut local_budget, &mut local_diag, cancel),
+                            );
+                            match res {
+                                Ok(opt_obj) if local_diag.is_empty() => {
+                                    out.push(WorkerItem::Ready {
+                                        work_delta: local_budget.used(Kind::Work),
+                                        decoded_delta: local_budget.used(Kind::DecodedBytes),
+                                        payload: classify_ref(idx, opt_obj),
+                                    });
+                                }
+                                _ => {
+                                    if !local_diag.is_empty() {
+                                        local_diag = Diagnostics::with_max_places(usize::MAX);
+                                    }
+                                    out.push(WorkerItem::Replay);
+                                }
+                            }
+                        }
+                        if r_tx.send((sub_start, sub_end, out)).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            let dispatcher = scope.spawn(move || {
+                for (chunk_idx, c_start) in (0..total_entries).step_by(PIPE_CHUNK).enumerate() {
+                    let c_end = (c_start + PIPE_CHUNK).min(total_entries);
+                    let w_idx = chunk_idx % worker_count;
+                    if task_senders
+                        .get(w_idx)
+                        .is_none_or(|tx| tx.send((c_start, c_end)).is_err())
+                    {
+                        break;
+                    }
+                }
+                drop(task_senders);
+            });
+            let mut next_expected = 0usize;
+            let mut main_res = Ok(());
+            for (chunk_idx, c_start) in (0..total_entries).step_by(PIPE_CHUNK).enumerate() {
+                let c_end = (c_start + PIPE_CHUNK).min(total_entries);
+                let w_idx = chunk_idx % worker_count;
+                let Some(rx) = result_receivers.get(w_idx) else {
+                    break;
+                };
+                let Ok((sub_start, sub_end, part)) = rx.recv() else {
+                    break;
+                };
+                while next_expected < sub_start {
+                    match decode_sequential(next_expected, cx, &mut pre_lift_collector) {
+                        Ok(p) => consume_payload(p),
+                        Err(e) => {
+                            main_res = Err(e);
+                            break;
+                        }
+                    }
+                    next_expected += 1;
+                }
+                if main_res.is_err() {
+                    break;
+                }
+                for item in part {
+                    let idx = next_expected;
+                    next_expected += 1;
+                    match item {
+                        WorkerItem::Ready {
+                            work_delta,
+                            decoded_delta,
+                            payload,
+                        } if cx.cancel.stop().is_none()
+                            && can_spend_both(cx.budget, work_delta, decoded_delta) =>
+                        {
+                            let _ = cx.budget.spend(Kind::Work, work_delta);
+                            let _ = cx.budget.spend(Kind::DecodedBytes, decoded_delta);
+                            consume_payload(payload);
+                        }
+                        _ => match decode_sequential(idx, cx, &mut pre_lift_collector) {
+                            Ok(p) => consume_payload(p),
+                            Err(e) => {
+                                main_res = Err(e);
+                                break;
+                            }
+                        },
+                    }
+                }
+                if main_res.is_err() {
+                    break;
+                }
+                let end_target = sub_end.max(c_end);
+                while next_expected < end_target {
+                    match decode_sequential(next_expected, cx, &mut pre_lift_collector) {
+                        Ok(p) => consume_payload(p),
+                        Err(e) => {
+                            main_res = Err(e);
+                            break;
+                        }
+                    }
+                    next_expected += 1;
+                }
+                if main_res.is_err() {
+                    break;
+                }
+            }
+            drop(result_receivers);
+            let _ = dispatcher.join();
+            main_res?;
+            while next_expected < total_entries {
+                let payload = decode_sequential(next_expected, cx, &mut pre_lift_collector)?;
+                consume_payload(payload);
+                next_expected += 1;
+            }
+            Ok(())
+        })?;
+    } else if !cfg!(target_arch = "wasm32") && parts > 1 && total_entries >= 64 {
+        let cancel = cx.cancel;
+        let single_ref = &single;
+        let file_ref = &file;
+        let classify_ref = &classify_obj;
+        std::thread::scope(|scope| -> Result<(), Error> {
+            let mut task_senders = Vec::with_capacity(parts);
+            let mut result_receivers = Vec::with_capacity(parts);
+            for _ in 0..parts {
+                let (task_tx, task_rx) = std::sync::mpsc::sync_channel::<(usize, usize, Budget)>(1);
+                let (res_tx, res_rx) = std::sync::mpsc::sync_channel::<Vec<WorkerItem>>(1);
+                task_senders.push(task_tx);
+                result_receivers.push(res_rx);
+                scope.spawn(move || {
+                    let mut local_diag = Diagnostics::with_max_places(usize::MAX);
+                    while let Ok((sub_start, sub_end, snap_budget)) = task_rx.recv() {
+                        let mut out = Vec::with_capacity(sub_end - sub_start);
+                        for idx in sub_start..sub_end {
+                            if cancel.stop().is_some() {
+                                out.push(WorkerItem::Replay);
+                                continue;
+                            }
+                            let mut local_budget = snap_budget.clone();
+                            let res = single_ref.decode_record_open(
+                                file_ref,
+                                idx,
+                                &mut Cx::new(&mut local_budget, &mut local_diag, cancel),
+                            );
+                            match res {
                                 Ok(opt_obj) if local_diag.is_empty() => {
                                     let work_delta = local_budget
                                         .used(Kind::Work)
-                                        .saturating_sub(snap_ref.used(Kind::Work));
+                                        .saturating_sub(snap_budget.used(Kind::Work));
                                     let decoded_delta = local_budget
                                         .used(Kind::DecodedBytes)
-                                        .saturating_sub(snap_ref.used(Kind::DecodedBytes));
+                                        .saturating_sub(snap_budget.used(Kind::DecodedBytes));
                                     out.push(WorkerItem::Ready {
                                         work_delta,
                                         decoded_delta,
-                                        payload: classify_obj(idx, opt_obj),
+                                        payload: classify_ref(idx, opt_obj),
                                     });
                                 }
-                                _ => out.push(WorkerItem::Replay),
+                                _ => {
+                                    if !local_diag.is_empty() {
+                                        local_diag = Diagnostics::with_max_places(usize::MAX);
+                                    }
+                                    out.push(WorkerItem::Replay);
+                                }
                             }
                         }
-                        out
-                    }));
-                }
-                let mut merged = Vec::with_capacity(w_len);
-                for h in handles {
-                    if let Ok(part) = h.join() {
-                        merged.extend(part);
+                        if res_tx.send(out).is_err() {
+                            break;
+                        }
                     }
-                }
-                merged
-            });
-            for (offset, item) in window_items.into_iter().enumerate() {
-                let idx = w_start + offset;
-                match item {
-                    WorkerItem::Ready {
-                        work_delta,
-                        decoded_delta,
-                        payload,
-                    } if cx.cancel.stop().is_none()
-                        && can_spend_both(cx.budget, work_delta, decoded_delta) =>
-                    {
-                        let _ = cx.budget.spend(Kind::Work, work_delta);
-                        let _ = cx.budget.spend(Kind::DecodedBytes, decoded_delta);
-                        consume_payload(payload);
-                    }
-                    _ => {
+                });
+            }
+            for w_start in (0..total_entries).step_by(DWG_DECODE_WINDOW) {
+                let w_end = (w_start + DWG_DECODE_WINDOW).min(total_entries);
+                let w_len = w_end - w_start;
+                if w_len < 64 {
+                    for idx in w_start..w_end {
                         let payload = decode_sequential(idx, cx, &mut pre_lift_collector)?;
                         consume_payload(payload);
                     }
+                    continue;
+                }
+                let snap_budget = cx.budget.clone();
+                let chunk_sz = w_len.div_ceil(parts);
+                let mut sent = 0usize;
+                for (worker_idx, sub_start) in (w_start..w_end).step_by(chunk_sz).enumerate() {
+                    let sub_end = (sub_start + chunk_sz).min(w_end);
+                    if let Some(tx) = task_senders.get(worker_idx)
+                        && tx.send((sub_start, sub_end, snap_budget.clone())).is_ok()
+                    {
+                        sent += 1;
+                    }
+                }
+                let mut offset = 0usize;
+                for rx in result_receivers.iter().take(sent) {
+                    if let Ok(part) = rx.recv() {
+                        for item in part {
+                            let idx = w_start + offset;
+                            offset += 1;
+                            match item {
+                                WorkerItem::Ready {
+                                    work_delta,
+                                    decoded_delta,
+                                    payload,
+                                } if cx.cancel.stop().is_none()
+                                    && can_spend_both(cx.budget, work_delta, decoded_delta) =>
+                                {
+                                    let _ = cx.budget.spend(Kind::Work, work_delta);
+                                    let _ = cx.budget.spend(Kind::DecodedBytes, decoded_delta);
+                                    consume_payload(payload);
+                                }
+                                _ => {
+                                    let payload =
+                                        decode_sequential(idx, cx, &mut pre_lift_collector)?;
+                                    consume_payload(payload);
+                                }
+                            }
+                        }
+                    }
+                }
+                while offset < w_len {
+                    let idx = w_start + offset;
+                    offset += 1;
+                    let payload = decode_sequential(idx, cx, &mut pre_lift_collector)?;
+                    consume_payload(payload);
                 }
             }
-        } else {
-            for idx in w_start..w_end {
-                let payload = decode_sequential(idx, cx, &mut pre_lift_collector)?;
-                consume_payload(payload);
-            }
+            drop(task_senders);
+            Ok(())
+        })?;
+    } else {
+        for idx in 0..total_entries {
+            let payload = decode_sequential(idx, cx, &mut pre_lift_collector)?;
+            consume_payload(payload);
         }
     }
+    let duplicate_handles_global = dup_checker.finish();
 
     if !ref_entity_handles.is_empty() {
         for s in &ent_slots {
@@ -1533,16 +1870,21 @@ pub fn open_from_dwg_file(
         }
     }
 
-    let roles: Vec<Option<Followed>> = ent_slots.iter().map(|s| s.followed).collect();
-    let (att_map, owned_set) = attach_roles(&roles);
+    let attached_ents = if any_child_follow_dwg {
+        let roles: Vec<Option<Followed>> = ent_slots.iter().map(|s| s.followed).collect();
+        attach_roles(&roles)
+    } else {
+        AttachedEntities::default()
+    };
 
     // もし `PlainModel` の `INSERT`（66=0）に対して所有者 330 で `ATTRIB` がぶら下がっていた場合は、
     // その `ATTRIB` も高速経路または一般経路へ統合する
-    for (&parent_pos, children) in &att_map {
+    for (parent_pos, children) in attached_ents.iter_parents() {
         if children.is_empty() {
             continue;
         }
-        if let Some(Some(plain)) = lifted_plains.get_mut(parent_pos)
+        let plain_idx = ent_slots.get(parent_pos).map_or(u32::MAX, |s| s.plain_idx);
+        if let Some(Some(plain)) = dwg_plains.get_mut(plain_idx as usize)
             && let super::shape::PlainGeom::Insert {
                 attribs,
                 raw_attrib_count,
@@ -1553,11 +1895,11 @@ pub fn open_from_dwg_file(
             let mut all_ok = true;
             let mut lifted_attrs = Vec::with_capacity(children.len());
             for &c_pos in children {
-                let Some(c_slot) = ent_slots.get(c_pos) else {
+                let Some(c_slot) = ent_slots.get(c_pos as usize) else {
                     all_ok = false;
                     break;
                 };
-                let Some(c_obj) = c_slot.obj.as_ref() else {
+                let Some(c_obj) = c_slot.obj.as_deref() else {
                     all_ok = false;
                     break;
                 };
@@ -1578,8 +1920,11 @@ pub fn open_from_dwg_file(
                 *attribs = lifted_attrs;
             } else if let Some(p_slot) = ent_slots.get_mut(parent_pos) {
                 // 一般経路へ戻すため親レコードを共有予算で再復号する
-                p_slot.obj = single.decode_record_with_cx(&file, p_slot.record as usize, cx)?;
-                if let Some(slot_opt) = lifted_plains.get_mut(parent_pos) {
+                p_slot.obj = single
+                    .decode_record_with_cx(&file, p_slot.record as usize, cx)?
+                    .map(Box::new);
+                p_slot.plain_idx = u32::MAX;
+                if let Some(slot_opt) = dwg_plains.get_mut(plain_idx as usize) {
                     *slot_opt = None;
                 }
             }
@@ -1587,19 +1932,11 @@ pub fn open_from_dwg_file(
     }
 
     let first_paper_owner = ent_slots.iter().find_map(|s| {
-        let obj = s.obj.as_ref()?;
+        let obj = s.obj.as_deref()?;
         matches!(obj.first(67), Some(Data::Int(1)))
             .then(|| obj.owner())
             .flatten()
     });
-
-    let entry_spans: Vec<(u64, u64)> = (0..total_entries)
-        .map(|idx| {
-            file.entry_summary(idx).map_or((0, 0), |(_, _, _, span)| {
-                (span.start as u64, span.end as u64)
-            })
-        })
-        .collect();
 
     let handseed = single.handle_seed();
     let source_records = file.entry_count() as u32;
@@ -1621,8 +1958,8 @@ pub fn open_from_dwg_file(
 
     let finish_inputs = EntityPassInputs {
         count: ent_slots.len(),
-        owned_set: &owned_set,
-        att_map: &att_map,
+        threads: parts,
+        attached: &attached_ents,
         first_paper_owner,
         any_entity_code_100,
         duplicate_handles_global,
@@ -1632,19 +1969,27 @@ pub fn open_from_dwg_file(
     let mut state = finish_live_open_with_pre_diags(
         &shell_db,
         finish_inputs,
-        |ent_pos| lifted_plains.take_ordered(ent_pos),
+        |ent_pos| {
+            let plain_idx = ent_slots.get(ent_pos)?.plain_idx;
+            dwg_plains.get_mut(plain_idx as usize)?.take()
+        },
         |ent_pos| {
             let s = ent_slots.get(ent_pos)?;
-            let &(start, end) = entry_spans.get(s.record as usize).unwrap_or(&(0, 0));
-            let mut src_ref = Ref::at_bytes(start, end);
+            Some((s.record, s.work_amount, s.handle))
+        },
+        |ent_pos| {
+            let Some(s) = ent_slots.get(ent_pos) else {
+                return Ref::default();
+            };
+            let mut src_ref = Ref::at_bytes(s.span_start, s.span_end);
             if let Some(h) = s.handle {
                 src_ref = src_ref.with_key(Key::Handle(h));
             }
-            Some((s.record, s.work_amount, src_ref, s.handle))
+            src_ref
         },
         |ent_pos, _cx| {
             let s = ent_slots.get(ent_pos)?;
-            Some((s.record, s.obj.clone()?))
+            Some((s.record, (**s.obj.as_ref()?).clone()))
         },
         LiveBacking::Dwg(dwg_backing),
         pre_lift_collector.into_vec(),
@@ -1753,14 +2098,15 @@ fn open_from_db_and_backing(
     }
     let ent_refs: Vec<&Object> = entities.iter().map(|(_, o)| o).collect();
     let (att_map, owned_set) = attached(&ent_refs);
+    let attached_ents = AttachedEntities::from_maps(att_map, owned_set, entities.len());
     let first_paper_owner = ent_refs
         .iter()
         .find(|o| matches!(o.first(67), Some(Data::Int(1))))
         .and_then(|o| o.owner());
     let finish_inputs = EntityPassInputs {
         count: entities.len(),
-        owned_set: &owned_set,
-        att_map: &att_map,
+        threads: 1,
+        attached: &attached_ents,
         first_paper_owner,
         any_entity_code_100,
         duplicate_handles_global,
@@ -1772,7 +2118,12 @@ fn open_from_db_and_backing(
         |_| None,
         |pos| {
             let (rec_u32, obj) = entities.get(pos)?;
-            Some((*rec_u32, amount(obj), source(obj), obj.handle()))
+            Some((*rec_u32, amount(obj), obj.handle()))
+        },
+        |pos| {
+            entities
+                .get(pos)
+                .map_or_else(Ref::default, |(_, obj)| source(obj))
         },
         |pos, _cx| entities.get(pos).cloned(),
         backing,
@@ -1785,17 +2136,19 @@ fn open_from_db_and_backing(
 fn attached_insert_handles(
     shell_db: &AcadDb,
     inputs: &EntityPassInputs<'_>,
-    entity_meta: &impl Fn(usize) -> Option<(u32, u64, Ref, Option<u64>)>,
+    keep_entities: bool,
+    entity_meta: &impl Fn(usize) -> Option<(u32, u64, Option<u64>)>,
     cx: &mut Cx<'_>,
-) -> Result<BTreeSet<u64>, Error> {
-    let mut handles = BTreeSet::new();
+) -> Result<Arc<[u64]>, Error> {
+    let mut handles = Vec::new();
     let place = Ref::default();
-    for (&parent, children) in inputs.att_map {
+    for (parent, children) in inputs.attached.iter_parents() {
         work(cx, 1, &place)?;
-        if !children.is_empty()
-            && let Some((_, _, _, Some(handle))) = entity_meta(parent)
+        if keep_entities
+            && !children.is_empty()
+            && let Some((_, _, Some(handle))) = entity_meta(parent)
         {
-            handles.insert(handle);
+            handles.push(handle);
         }
     }
     let mut blocks = Vec::new();
@@ -1810,16 +2163,20 @@ fn attached_insert_handles(
         if !children.is_empty()
             && let Some(handle) = blocks.get(parent).and_then(|object| object.handle())
         {
-            handles.insert(handle);
+            handles.push(handle);
         }
     }
-    Ok(handles)
+    if !handles.is_sorted_by(|a, b| a < b) {
+        handles.sort_unstable();
+        handles.dedup();
+    }
+    Ok(Arc::from(handles))
 }
 
 struct EntityPassInputs<'a> {
     count: usize,
-    owned_set: &'a BTreeSet<usize>,
-    att_map: &'a BTreeMap<usize, Vec<usize>>,
+    threads: usize,
+    attached: &'a AttachedEntities,
     first_paper_owner: Option<u64>,
     any_entity_code_100: bool,
     duplicate_handles_global: bool,
@@ -1829,11 +2186,13 @@ struct EntityPassInputs<'a> {
 /// 図面モデルへの変換と同じ順で常駐の状態を作る。変換の診断を別の収集先に集めて呼び出し元へ同じ順で移し、
 /// 状態にも持つ（[`LiveState::lift_diagnostics`]）。届いた順にまとめる収集先へ移すので、件数・場所・順は
 /// 1 件ずつ報告したときと同じになり、そのような収集先への報告は予算を使わない
+#[allow(clippy::too_many_arguments)]
 fn finish_live_open(
     shell_db: &AcadDb,
     inputs: EntityPassInputs<'_>,
     take_plain: impl FnMut(usize) -> Option<PlainLifted>,
-    entity_meta: impl Fn(usize) -> Option<(u32, u64, Ref, Option<u64>)>,
+    entity_meta: impl Fn(usize) -> Option<(u32, u64, Option<u64>)>,
+    entity_source: impl Fn(usize) -> Ref,
     decode_general: impl Fn(usize, &mut Cx<'_>) -> Option<(u32, Object)>,
     backing: LiveBacking,
     cx: &mut Cx<'_>,
@@ -1843,6 +2202,7 @@ fn finish_live_open(
         inputs,
         take_plain,
         entity_meta,
+        entity_source,
         decode_general,
         backing,
         Vec::new(),
@@ -1855,7 +2215,8 @@ fn finish_live_open_with_pre_diags(
     shell_db: &AcadDb,
     inputs: EntityPassInputs<'_>,
     take_plain: impl FnMut(usize) -> Option<PlainLifted>,
-    entity_meta: impl Fn(usize) -> Option<(u32, u64, Ref, Option<u64>)>,
+    entity_meta: impl Fn(usize) -> Option<(u32, u64, Option<u64>)>,
+    entity_source: impl Fn(usize) -> Ref,
     decode_general: impl Fn(usize, &mut Cx<'_>) -> Option<(u32, Object)>,
     backing: LiveBacking,
     pre_lift_diags: Vec<Diagnostic>,
@@ -1867,6 +2228,7 @@ fn finish_live_open_with_pre_diags(
         inputs,
         take_plain,
         entity_meta,
+        entity_source,
         decode_general,
         backing,
         &mut Cx::new(cx.budget, &mut lifted, cx.cancel),
@@ -1900,11 +2262,13 @@ fn finish_live_open_with_pre_diags(
     Ok(state)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lift_live_state(
     shell_db: &AcadDb,
     inputs: EntityPassInputs<'_>,
     mut take_plain: impl FnMut(usize) -> Option<PlainLifted>,
-    entity_meta: impl Fn(usize) -> Option<(u32, u64, Ref, Option<u64>)>,
+    entity_meta: impl Fn(usize) -> Option<(u32, u64, Option<u64>)>,
+    entity_source: impl Fn(usize) -> Ref,
     decode_general: impl Fn(usize, &mut Cx<'_>) -> Option<(u32, Object)>,
     backing: LiveBacking,
     cx: &mut Cx<'_>,
@@ -2022,7 +2386,8 @@ fn lift_live_state(
     let mut row_line_types: Vec<u32> = Vec::new();
 
     let mut shapes = LiveShapes::default();
-    let mut rows: Vec<LiveRow> = Vec::new();
+    let mut rows: Vec<LiveRow> =
+        Vec::with_capacity(inputs.count.saturating_sub(inputs.attached.owned_count));
     let mut row_reactors: Vec<(usize, u64)> = Vec::new();
     let mut row_ext_dicts: Vec<(usize, u64)> = Vec::new();
     let empty_block_defs: BTreeMap<String, u32> = BTreeMap::new();
@@ -2108,12 +2473,15 @@ fn lift_live_state(
                 record,
             );
         }
-        let Some((rec_u32, work_amt, src_ref, handle_opt)) = entity_meta(ent_pos) else {
+        let Some((rec_u32, work_amt, handle_opt)) = entity_meta(ent_pos) else {
             continue;
         };
         pending_new = Some((rec_u32, catalog.layers.len(), catalog.line_types.len()));
-        work(cx, work_amt, &src_ref)?;
-        if inputs.owned_set.contains(&ent_pos) {
+        if let Err(stop) = cx.check(Kind::Work, work_amt) {
+            cx.report(stop.to_diagnostic().at(entity_source(ent_pos)));
+            return Err(Error::Stopped(stop));
+        }
+        if inputs.attached.is_owned(ent_pos) {
             if let Some(h) = handle_opt {
                 non_table_max_handle = Some(non_table_max_handle.map_or(h, |m| m.max(h)));
             }
@@ -2133,6 +2501,7 @@ fn lift_live_state(
         }
 
         // 一般図形・ペーパー空間・拡張つき図形・診断が出る図形
+        let src_ref = entity_source(ent_pos);
         sync_catalog_to_out(&catalog, &mut out);
         let Some((_, obj)) = decode_general(ent_pos, cx) else {
             continue;
@@ -2140,9 +2509,9 @@ fn lift_live_state(
         collect_forget_handles(&obj.kind, &obj.values, &mut forget_referenced_handles);
         extension_work(shell_db, &obj, cx)?;
         let mut child_objs: Vec<(u32, Object)> = Vec::new();
-        if let Some(children) = inputs.att_map.get(&ent_pos) {
+        if let Some(children) = inputs.attached.children_of(ent_pos) {
             for &c_pos in children {
-                if let Some(c_pair) = decode_general(c_pos, cx) {
+                if let Some(c_pair) = decode_general(c_pos as usize, cx) {
                     if let Some(ch) = c_pair.1.handle() {
                         non_table_max_handle = Some(non_table_max_handle.map_or(ch, |m| m.max(ch)));
                     }
@@ -2335,11 +2704,11 @@ fn lift_live_state(
         if row.kind == LiveKind::Insert
             && let Some(ins) = shapes.inserts.get(row.shape as usize)
         {
-            let name = shapes.pools.get_string(ins.name);
-            let def_idx = block_defs_by_lower
-                .get(&name.to_lowercase())
-                .copied()
-                .unwrap_or(NO_DEFINITION);
+            let name = shapes.pools.bytes.str_of(ins.name);
+            let def_idx = super::shape::with_unicode_lower(name, |lower| {
+                block_defs_by_lower.get(lower).copied()
+            })
+            .unwrap_or(NO_DEFINITION);
             if def_idx != ins.definition
                 && let Some(slot) = shapes.inserts.get_mut(row.shape as usize)
             {
@@ -2433,23 +2802,31 @@ fn lift_live_state(
     }
     sheets.extend(out.layouts.into_iter().map(|(_, _, sheet, _)| sheet));
     let sheet_frames = std::mem::take(&mut out.frames);
-    let attached_inserts = attached_insert_handles(shell_db, &inputs, &entity_meta, cx)?;
+    let keep_ent_attached = !sheets.is_empty() || inputs.duplicate_handles_global;
+    let attached_inserts =
+        attached_insert_handles(shell_db, &inputs, keep_ent_attached, &entity_meta, cx)?;
 
     // ハンドル重複・共有 `Ref`・非モデル要素 ID の検査
     // 100 万行でも速いよう、全ハンドルを整列して 2 回以上現れるものだけを集める。
-    let mut all_handles: Vec<u64> = Vec::with_capacity(rows.len());
     let mut source_seen: BTreeSet<Ref> = BTreeSet::new();
     let mut shared_sources: BTreeSet<Ref> = BTreeSet::new();
     let mut non_model_element_ids: BTreeSet<String> = BTreeSet::new();
     let mut block_element_targets: BTreeMap<String, (u32, u32)> = BTreeMap::new();
-    all_handles.extend(rows.iter().filter_map(LiveRow::raw_handle));
+    let mut non_model_handles: Vec<u64> = Vec::new();
+    let mut non_model_missing_or_zero_handle = false;
     let mut def_namer = id::DefinitionNamer::default();
     for (def_idx, sym) in symbols.iter().enumerate() {
         let place = def_namer.next(sym);
         let mut namer = id::Namer::new(&place);
         for (idx, el) in sym.space.elements.iter().enumerate() {
-            if let Some(Key::Handle(h)) = el.source.key() {
-                all_handles.push(h);
+            match el.source.key() {
+                Some(Key::Handle(h)) => {
+                    if h == 0 {
+                        non_model_missing_or_zero_handle = true;
+                    }
+                    non_model_handles.push(h);
+                }
+                _ => non_model_missing_or_zero_handle = true,
             }
             let elem_id = namer.next(idx, el);
             if !sym.anonymous
@@ -2470,8 +2847,14 @@ fn lift_live_state(
         let place = sheet_namer.next(sheet);
         let mut namer = id::Namer::new(&place);
         for (idx, el) in sheet.elements.iter().enumerate() {
-            if let Some(Key::Handle(h)) = el.source.key() {
-                all_handles.push(h);
+            match el.source.key() {
+                Some(Key::Handle(h)) => {
+                    if h == 0 {
+                        non_model_missing_or_zero_handle = true;
+                    }
+                    non_model_handles.push(h);
+                }
+                _ => non_model_missing_or_zero_handle = true,
             }
             let elem_id = namer.next(idx, el);
             if let Ok(s_u32) = u32::try_from(sheet_idx)
@@ -2484,135 +2867,287 @@ fn lift_live_state(
             non_model_element_ids.insert(elem_id);
         }
     }
-    all_handles.sort_unstable();
-    let repeated_handles: BTreeSet<u64> = all_handles
-        .windows(2)
-        .filter_map(|pair| match pair {
-            [a, b] if a == b => Some(*a),
-            _ => None,
-        })
-        .collect();
-    drop(all_handles);
-    let mut seen_origins: BTreeMap<String, u64> = BTreeMap::new();
+    let all_rows_nonzero_handle = !inputs.duplicate_handles_global
+        && rows.iter().all(|r| r.raw_handle().is_some_and(|h| h != 0));
     let mut non_unique_model_ids: BTreeMap<String, RowId> = BTreeMap::new();
     let mut non_unique_ids_by_row: BTreeMap<RowId, String> = BTreeMap::new();
-    for (idx, row) in rows.iter_mut().enumerate() {
-        let is_unique = row
-            .raw_handle()
-            .is_some_and(|h| !repeated_handles.contains(&h));
-        if is_unique {
-            continue;
-        }
-        let src_ref = row.source_ref();
-        if src_ref != Ref::default() && !source_seen.insert(src_ref.clone()) {
-            shared_sources.insert(src_ref.clone());
-        }
-        let orig = id::origin(&src_ref, idx);
-        let repeat =
-            if src_ref.key().is_none() && src_ref.record().is_none() && src_ref.bytes().is_none() {
+    if !(all_rows_nonzero_handle && !non_model_missing_or_zero_handle) {
+        let repeated_handles: BTreeSet<u64> = if !inputs.duplicate_handles_global
+            && !rows.iter().any(|r| r.raw_handle() == Some(0))
+            && !non_model_handles.contains(&0)
+        {
+            BTreeSet::new()
+        } else {
+            let mut all_handles: Vec<u64> =
+                Vec::with_capacity(rows.len() + non_model_handles.len());
+            all_handles.extend(rows.iter().filter_map(LiveRow::raw_handle));
+            all_handles.extend(non_model_handles);
+            if all_handles.is_sorted_by(|a, b| a < b) {
+                BTreeSet::new()
+            } else {
+                all_handles.sort_unstable();
+                all_handles
+                    .windows(2)
+                    .filter_map(|pair| match pair {
+                        [a, b] if a == b => Some(*a),
+                        _ => None,
+                    })
+                    .collect()
+            }
+        };
+        let mut seen_origins: BTreeMap<String, u64> = BTreeMap::new();
+        for (idx, row) in rows.iter_mut().enumerate() {
+            let is_unique = row
+                .raw_handle()
+                .is_some_and(|h| !repeated_handles.contains(&h));
+            if is_unique {
+                continue;
+            }
+            let src_ref = row.source_ref();
+            if src_ref != Ref::default() && !source_seen.insert(src_ref.clone()) {
+                shared_sources.insert(src_ref.clone());
+            }
+            let orig = id::origin(&src_ref, idx);
+            let repeat = if src_ref.key().is_none()
+                && src_ref.record().is_none()
+                && src_ref.bytes().is_none()
+            {
                 0
             } else {
                 let count = seen_origins.entry(orig.clone()).or_insert(0);
                 *count += 1;
                 *count - 1
             };
-        row.flags &= !ROW_UNIQUE_HANDLE;
-        if let Some(h) = row.raw_handle() {
-            non_table_max_handle = Some(non_table_max_handle.map_or(h, |m| m.max(h)));
-        }
-        if let Some(row_id) = RowId::from_index(idx) {
-            let elem_id = match repeat {
-                0 => format!("space/0/{orig}"),
-                n => format!("space/0/{orig}/{n}"),
-            };
-            if let std::collections::btree_map::Entry::Vacant(slot) =
-                non_unique_model_ids.entry(elem_id.clone())
-            {
-                slot.insert(row_id);
-                non_unique_ids_by_row.insert(row_id, elem_id);
+            row.flags &= !ROW_UNIQUE_HANDLE;
+            if let Some(h) = row.raw_handle() {
+                non_table_max_handle = Some(non_table_max_handle.map_or(h, |m| m.max(h)));
+            }
+            if let Some(row_id) = RowId::from_index(idx) {
+                let elem_id = match repeat {
+                    0 => format!("space/0/{orig}"),
+                    n => format!("space/0/{orig}/{n}"),
+                };
+                if let std::collections::btree_map::Entry::Vacant(slot) =
+                    non_unique_model_ids.entry(elem_id.clone())
+                {
+                    slot.insert(row_id);
+                    non_unique_ids_by_row.insert(row_id, elem_id);
+                }
             }
         }
-    }
-    // 一意なハンドルを持つ出所は、ほかの要素と共有されない。
-    for source in symbols
-        .iter()
-        .flat_map(|symbol| symbol.space.elements.iter().map(|element| &element.source))
-        .chain(
-            sheets
-                .iter()
-                .flat_map(|sheet| sheet.elements.iter().map(|element| &element.source)),
-        )
-    {
-        if matches!(source.key(), Some(Key::Handle(handle)) if !repeated_handles.contains(&handle))
+        // 一意なハンドルを持つ出所は、ほかの要素と共有されない。
+        for source in symbols
+            .iter()
+            .flat_map(|symbol| symbol.space.elements.iter().map(|element| &element.source))
+            .chain(
+                sheets
+                    .iter()
+                    .flat_map(|sheet| sheet.elements.iter().map(|element| &element.source)),
+            )
         {
-            continue;
+            if matches!(source.key(), Some(Key::Handle(handle)) if !repeated_handles.contains(&handle))
+            {
+                continue;
+            }
+            if source != &Ref::default() && !source_seen.insert(source.clone()) {
+                shared_sources.insert(source.clone());
+            }
         }
-        if source != &Ref::default() && !source_seen.insert(source.clone()) {
-            shared_sources.insert(source.clone());
-        }
+    } else {
+        drop(non_model_handles);
     }
-    drop(seen_origins);
-    drop(repeated_handles);
     drop(source_seen);
 
     // 要素数予算と境界矩形の計算
     let total_elements = (rows.len() as u64)
         .saturating_add(sheets.iter().map(|s| s.elements.len() as u64).sum::<u64>());
     let _ = total_elements;
-    let initial_rows: Vec<(LiveRow, [f64; 4], bool)> = rows
-        .into_iter()
-        .map(|row| {
-            let bbox = shapes.row_bounds(&row, &symbols);
-            (row, bbox, true)
-        })
-        .collect();
+    let n_rows = rows.len();
+    let n_u64 = n_rows as u64;
+    let can_parallel_tail = !cfg!(target_arch = "wasm32")
+        && inputs.threads > 1
+        && n_rows >= 1024
+        && cx.cancel.stop().is_none()
+        && acad_budget_has_room(
+            cx.budget,
+            Kind::Work,
+            n_u64.saturating_mul(32).saturating_add(131_072),
+        )
+        && acad_budget_has_room(
+            cx.budget,
+            Kind::DecodedBytes,
+            n_u64.saturating_mul(2048).saturating_add(8_388_608),
+        )
+        && acad_budget_has_room(
+            cx.budget,
+            Kind::Elements,
+            n_u64.saturating_mul(8).saturating_add(65_536),
+        );
 
-    let table = VersionedTable::from_rows_with_cx(initial_rows, cx).map_err(|stop| {
-        cx.report(stop.to_diagnostic());
-        Error::Stopped(stop)
-    })?;
-    let spatial = SpatialGrid::build_with_cx(table.bounds_column(), cx).map_err(|stop| {
-        cx.report(stop.to_diagnostic());
-        Error::Stopped(stop)
-    })?;
-    let mut display = Display::with_rows_with_cx(cx, table.len()).map_err(|stop| {
-        cx.report(stop.to_diagnostic());
-        Error::Stopped(stop)
-    })?;
-    for idx in 0..table.len() {
-        let (counts, style) = RowId::from_index(idx)
-            .and_then(|rid| table.row(rid))
-            .map_or(([0; 4], [0; 2]), |r| {
-                (
-                    shapes.display_counts(r, &symbols),
-                    display_style(&catalog.layer_remap, r),
-                )
+    let (table, spatial, display, (dep, external_dep_sources)) = if can_parallel_tail {
+        let shapes_ref = &shapes;
+        let symbols_ref = symbols.as_slice();
+        let chunk_sz = n_rows.div_ceil(inputs.threads).max(256);
+        let bounds_chunks: Vec<Vec<[f64; 4]>> = std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for slice in rows.chunks(chunk_sz) {
+                handles.push(scope.spawn(move || {
+                    slice
+                        .iter()
+                        .map(|row| shapes_ref.row_bounds(row, symbols_ref))
+                        .collect::<Vec<_>>()
+                }));
+            }
+            handles.into_iter().filter_map(|h| h.join().ok()).collect()
+        });
+        let mut chunk_iter = bounds_chunks.into_iter().flatten();
+        let table = VersionedTable::from_vec_with_cx(
+            rows,
+            |_| (chunk_iter.next().unwrap_or([0.0; 4]), true),
+            cx,
+        )
+        .map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        let cancel = cx.cancel;
+        let table_ref = &table;
+        let remap_ref = catalog.layer_remap.as_slice();
+        let bdefs_ref = &block_defs_by_lower;
+        let reactors_ref = row_reactors.as_slice();
+        let dicts_ref = row_ext_dicts.as_slice();
+        let ((spat_res, spat_used), (disp_res, disp_used), (dep_res, dep_used, dep_diags)) =
+            std::thread::scope(|scope| {
+                let spat_h = scope.spawn(move || {
+                    let mut b = Budget::default();
+                    let mut d = Diagnostics::new();
+                    let res = SpatialGrid::build_with_cx(
+                        table_ref.bounds_column(),
+                        &mut Cx::new(&mut b, &mut d, cancel),
+                    );
+                    (res, Kind::ALL.map(|k| b.used(k)))
+                });
+                let disp_h = scope.spawn(move || {
+                    let mut b = Budget::default();
+                    let mut d = Diagnostics::new();
+                    let mut sub_cx = Cx::new(&mut b, &mut d, cancel);
+                    let res = (|| -> Result<Display, zumen_base::Stop> {
+                        let mut disp = Display::with_rows_with_cx(&mut sub_cx, table_ref.len())?;
+                        for idx in 0..table_ref.len() {
+                            let (counts, style) = RowId::from_index(idx)
+                                .and_then(|rid| table_ref.row(rid))
+                                .map_or(([0; 4], [0; 2]), |r| {
+                                    (
+                                        shapes_ref.display_counts(r, symbols_ref),
+                                        display_style(remap_ref, r),
+                                    )
+                                });
+                            disp.push_with_cx(&mut sub_cx, counts, style, |writer| {
+                                if let Some(rid) = RowId::from_index(idx)
+                                    && let Some(r) = table_ref.row(rid)
+                                {
+                                    shapes_ref.write_display(r, symbols_ref, remap_ref, writer);
+                                }
+                            })?;
+                        }
+                        disp.clear_dirty();
+                        Ok(disp)
+                    })();
+                    (res, Kind::ALL.map(|k| b.used(k)))
+                });
+                let dep_triple = {
+                    let mut b = Budget::default();
+                    let mut d = Diagnostics::with_max_places(usize::MAX);
+                    let res = build_dep_graph(
+                        shell_db,
+                        table_ref,
+                        shapes_ref,
+                        symbols_ref,
+                        bdefs_ref,
+                        reactors_ref,
+                        dicts_ref,
+                        &mut Cx::new(&mut b, &mut d, cancel),
+                    );
+                    (res, Kind::ALL.map(|k| b.used(k)), d.into_vec())
+                };
+                let s_pair = spat_h
+                    .join()
+                    .unwrap_or((Err(zumen_base::Stop::Cancelled), [0; Kind::ALL.len()]));
+                let d_pair = disp_h
+                    .join()
+                    .unwrap_or((Err(zumen_base::Stop::Cancelled), [0; Kind::ALL.len()]));
+                (s_pair, d_pair, dep_triple)
             });
-        display
-            .push_with_cx(cx, counts, style, |writer| {
-                if let Some(rid) = RowId::from_index(idx)
-                    && let Some(r) = table.row(rid)
-                {
-                    shapes.write_display(r, &symbols, &catalog.layer_remap, writer);
-                }
-            })
-            .map_err(|stop| {
-                cx.report(stop.to_diagnostic());
-                Error::Stopped(stop)
-            })?;
-    }
-    display.clear_dirty();
+        acad_spend_used(cx.budget, &spat_used);
+        let spatial = spat_res.map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        acad_spend_used(cx.budget, &disp_used);
+        let display = disp_res.map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        acad_spend_used(cx.budget, &dep_used);
+        for d in dep_diags {
+            cx.report(d);
+        }
+        let dep_out = dep_res?;
+        (table, spatial, display, dep_out)
+    } else {
+        let table = VersionedTable::from_vec_with_cx(
+            rows,
+            |row| (shapes.row_bounds(row, &symbols), true),
+            cx,
+        )
+        .map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        let spatial = SpatialGrid::build_with_cx(table.bounds_column(), cx).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        let mut display = Display::with_rows_with_cx(cx, table.len()).map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+        for idx in 0..table.len() {
+            let (counts, style) = RowId::from_index(idx)
+                .and_then(|rid| table.row(rid))
+                .map_or(([0; 4], [0; 2]), |r| {
+                    (
+                        shapes.display_counts(r, &symbols),
+                        display_style(&catalog.layer_remap, r),
+                    )
+                });
+            display
+                .push_with_cx(cx, counts, style, |writer| {
+                    if let Some(rid) = RowId::from_index(idx)
+                        && let Some(r) = table.row(rid)
+                    {
+                        shapes.write_display(r, &symbols, &catalog.layer_remap, writer);
+                    }
+                })
+                .map_err(|stop| {
+                    cx.report(stop.to_diagnostic());
+                    Error::Stopped(stop)
+                })?;
+        }
+        display.clear_dirty();
 
-    let (dep, external_dep_sources) = build_dep_graph(
-        shell_db,
-        &table,
-        &shapes,
-        &symbols,
-        &block_defs_by_lower,
-        &row_reactors,
-        &row_ext_dicts,
-        cx,
-    )?;
+        let dep_out = build_dep_graph(
+            shell_db,
+            &table,
+            &shapes,
+            &symbols,
+            &block_defs_by_lower,
+            &row_reactors,
+            &row_ext_dicts,
+            cx,
+        )?;
+        (table, spatial, display, dep_out)
+    };
 
     // `SingleTables` を組む
     let mut table_names_map: BTreeMap<&'static [u8], BTreeMap<String, String>> = BTreeMap::new();
@@ -3122,7 +3657,7 @@ fn build_dep_graph(
     row_ext_dicts: &[(usize, u64)],
     cx: &mut Cx<'_>,
 ) -> Result<(DepGraph, BTreeMap<RowId, Vec<RowId>>), Error> {
-    let mut dep = DepGraph::new();
+    let mut dep = DepGraph::with_row_capacity(table.len());
     // 1. 入れ子ブロック定義どうしの辺（内側のブロック定義 -> 外側のブロック定義）
     for (outer_idx, sym) in symbols.iter().enumerate() {
         let Some(outer_node) = u32::try_from(outer_idx).ok().and_then(RowId::virtual_node) else {
@@ -3211,6 +3746,7 @@ fn build_dep_graph(
         })?;
 
     // 3. モデル空間の各行について、ブロック定義・ハッチング境界・引出線注釈・連想寸法の依存元を登録する
+    let mut single_edges: Vec<(RowId, RowId)> = Vec::new();
     for idx in 0..table.len() {
         let Some(rid) = RowId::from_index(idx) else {
             break;
@@ -3218,6 +3754,26 @@ fn build_dep_graph(
         let Some(row) = table.row(rid) else {
             continue;
         };
+        let has_extra = !extra_sources.is_empty() && extra_sources.contains_key(&rid);
+        if !has_extra {
+            match row.kind {
+                LiveKind::Line
+                | LiveKind::Circle
+                | LiveKind::Arc
+                | LiveKind::Polyline
+                | LiveKind::Text => continue,
+                LiveKind::Insert => {
+                    if let Some(ins) = shapes.inserts.get(row.shape as usize)
+                        && ins.definition != NO_DEFINITION
+                        && let Some(vnode) = RowId::virtual_node(ins.definition)
+                    {
+                        single_edges.push((vnode, rid));
+                    }
+                    continue;
+                }
+                LiveKind::General => {}
+            }
+        }
         let mut srcs =
             collect_row_dep_sources(shapes, block_defs_by_lower, |h| table.find_handle(h), row);
         if let Some(extra) = extra_sources.get(&rid) {
@@ -3230,7 +3786,29 @@ fn build_dep_graph(
             dep.set_sources(rid, srcs);
         }
     }
+    dep.insert_initial_single_edges(single_edges);
     Ok((dep, extra_sources))
+}
+
+fn acad_budget_has_room(budget: &Budget, kind: Kind, need: u64) -> bool {
+    if budget.exceeded().is_some() {
+        return false;
+    }
+    match budget.limits().get(kind) {
+        Limit::Unlimited => true,
+        Limit::Finite(max) => budget
+            .used(kind)
+            .checked_add(need)
+            .is_some_and(|req| req <= max),
+    }
+}
+
+fn acad_spend_used(budget: &mut Budget, used: &[u64; Kind::ALL.len()]) {
+    for (kind, &amount) in Kind::ALL.into_iter().zip(used) {
+        if kind != Kind::Depth && amount > 0 {
+            let _ = budget.spend(kind, amount);
+        }
+    }
 }
 
 fn has_extension_or_paper_values(values: &[Value]) -> bool {
@@ -3242,25 +3820,167 @@ fn has_extension_or_paper_values(values: &[Value]) -> bool {
     })
 }
 
+fn is_child_follow(kind: Follow) -> bool {
+    !matches!(kind, Follow::Insert { .. } | Follow::Polyline { .. })
+}
+
+#[derive(Default)]
+struct AttachedEntities {
+    owned_bits: Vec<u64>,
+    owned_count: usize,
+    parents: Vec<(u32, u32, u32)>,
+    children: Vec<u32>,
+}
+
+impl AttachedEntities {
+    #[inline]
+    fn is_owned(&self, pos: usize) -> bool {
+        let word = pos >> 6;
+        self.owned_bits
+            .get(word)
+            .is_some_and(|&bits| (bits & (1u64 << (pos & 63))) != 0)
+    }
+
+    #[inline]
+    fn children_of(&self, parent: usize) -> Option<&[u32]> {
+        let p = u32::try_from(parent).ok()?;
+        let idx = self
+            .parents
+            .binary_search_by_key(&p, |&(par, _, _)| par)
+            .ok()?;
+        let &(_, start, len) = self.parents.get(idx)?;
+        self.children.get(start as usize..(start + len) as usize)
+    }
+
+    fn iter_parents(&self) -> impl Iterator<Item = (usize, &[u32])> + '_ {
+        self.parents.iter().filter_map(|&(par, start, len)| {
+            Some((
+                par as usize,
+                self.children.get(start as usize..(start + len) as usize)?,
+            ))
+        })
+    }
+
+    fn from_maps(
+        att_map: BTreeMap<usize, Vec<usize>>,
+        owned_set: BTreeSet<usize>,
+        total_len: usize,
+    ) -> Self {
+        if att_map.is_empty() && owned_set.is_empty() {
+            return Self::default();
+        }
+        let mut owned_bits = vec![0u64; total_len.div_ceil(64)];
+        let mut owned_count = 0usize;
+        for pos in owned_set {
+            if let Some(slot) = owned_bits.get_mut(pos >> 6) {
+                let mask = 1u64 << (pos & 63);
+                if *slot & mask == 0 {
+                    *slot |= mask;
+                    owned_count += 1;
+                }
+            }
+        }
+        let total_children: usize = att_map.values().map(Vec::len).sum();
+        let mut parents = Vec::with_capacity(att_map.len());
+        let mut children = Vec::with_capacity(total_children);
+        for (parent, list) in att_map {
+            let start = children.len() as u32;
+            let len = list.len() as u32;
+            children.extend(list.into_iter().map(|c| c as u32));
+            parents.push((parent as u32, start, len));
+        }
+        Self {
+            owned_bits,
+            owned_count,
+            parents,
+            children,
+        }
+    }
+}
+
 fn attach_scanned_entities(
     entity_indices: &[u32],
-    records: &[ScannedRecord],
-) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usize>) {
-    let roles: Vec<Option<Followed>> = entity_indices
+    followed_records: &[(u32, Followed)],
+) -> AttachedEntities {
+    if !followed_records
         .iter()
-        .map(|&rec_u32| records.get(rec_u32 as usize).and_then(|r| r.followed))
-        .collect();
+        .any(|&(_, role)| is_child_follow(role.kind))
+    {
+        return AttachedEntities::default();
+    }
+    let mut roles: Vec<Option<Followed>> = Vec::with_capacity(entity_indices.len());
+    let mut f_cur = 0usize;
+    for &rec_u32 in entity_indices {
+        while followed_records.get(f_cur).is_some_and(|f| f.0 < rec_u32) {
+            f_cur += 1;
+        }
+        if let Some(&(_, role)) = followed_records.get(f_cur).filter(|f| f.0 == rec_u32) {
+            roles.push(Some(role));
+        } else {
+            roles.push(None);
+        }
+    }
     attach_roles(&roles)
 }
 
-fn attach_roles(roles: &[Option<Followed>]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usize>) {
-    let by_handle: BTreeMap<u64, usize> = roles
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, role)| Some(((*role)?.handle?, idx)))
-        .collect();
-    let mut attributes: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-    let mut owned = BTreeSet::new();
+fn attach_roles(roles: &[Option<Followed>]) -> AttachedEntities {
+    let mut any_child = false;
+    let mut any_child_owner = false;
+    for role in roles.iter().flatten() {
+        if is_child_follow(role.kind) {
+            any_child = true;
+            if role.owner.is_some() {
+                any_child_owner = true;
+                break;
+            }
+        }
+    }
+    if !any_child {
+        return AttachedEntities::default();
+    }
+    let (by_handle, unique_handles): (Vec<(u64, usize)>, bool) = if any_child_owner {
+        let mut pairs: Vec<(u64, usize)> = roles
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, role)| Some(((*role)?.handle?, idx)))
+            .collect();
+        if pairs.is_sorted_by(|a, b| a.0 < b.0) {
+            (pairs, true)
+        } else {
+            pairs.sort_by_key(|&(h, _)| h);
+            let mut has_dup = false;
+            // 同じハンドルが複数ある場合は最後の添字を優先する（`BTreeMap::collect` と同じ規則）
+            let mut deduped: Vec<(u64, usize)> = Vec::with_capacity(pairs.len());
+            for (h, idx) in pairs {
+                if let Some(last) = deduped.last_mut().filter(|(lh, _)| *lh == h) {
+                    last.1 = idx;
+                    has_dup = true;
+                } else {
+                    deduped.push((h, idx));
+                }
+            }
+            (deduped, !has_dup)
+        }
+    } else {
+        (Vec::new(), true)
+    };
+    let lookup_handle = |h: u64, open_hint: Option<usize>| -> Option<usize> {
+        if unique_handles
+            && let Some(p) = open_hint
+            && roles.get(p).and_then(|r| *r).and_then(|r| r.handle) == Some(h)
+        {
+            return Some(p);
+        }
+        by_handle
+            .binary_search_by_key(&h, |&(k, _)| k)
+            .ok()
+            .and_then(|i| by_handle.get(i).map(|p| p.1))
+    };
+    let mut owned_bits = vec![0u64; roles.len().div_ceil(64)];
+    let mut owned_count = 0usize;
+    let mut parents: Vec<(u32, u32, u32)> = Vec::new();
+    let mut children: Vec<u32> = Vec::new();
+    let mut fallback_attrs: Option<BTreeMap<usize, Vec<usize>>> = None;
     let mut open = None;
     for (index, role) in roles.iter().enumerate() {
         match role {
@@ -3272,7 +3992,7 @@ fn attach_roles(roles: &[Option<Followed>]) -> (BTreeMap<usize, Vec<usize>>, BTr
             }
             Some(Followed { kind, owner, .. }) => {
                 let parent = owner
-                    .and_then(|o| by_handle.get(&o).copied())
+                    .and_then(|h| lookup_handle(h, open))
                     .or(open)
                     .filter(|parent| {
                         roles
@@ -3281,21 +4001,80 @@ fn attach_roles(roles: &[Option<Followed>]) -> (BTreeMap<usize, Vec<usize>>, BTr
                             .is_some_and(|parent_role| followed_expected(*kind, parent_role.kind))
                     });
                 if let Some(parent) = parent {
-                    owned.insert(index);
+                    if let Some(slot) = owned_bits.get_mut(index >> 6) {
+                        let mask = 1u64 << (index & 63);
+                        if *slot & mask == 0 {
+                            *slot |= mask;
+                            owned_count += 1;
+                        }
+                    }
                     match kind {
                         Follow::Seqend => {
                             if open == Some(parent) {
                                 open = None;
                             }
                         }
-                        _ => attributes.entry(parent).or_default().push(index),
+                        _ => {
+                            if let Some(map) = &mut fallback_attrs {
+                                map.entry(parent).or_default().push(index);
+                            } else {
+                                let p_u32 = parent as u32;
+                                let c_u32 = index as u32;
+                                match parents.last_mut() {
+                                    Some(last) if last.0 == p_u32 => {
+                                        children.push(c_u32);
+                                        last.2 += 1;
+                                    }
+                                    Some(last) if last.0 < p_u32 => {
+                                        let start = children.len() as u32;
+                                        children.push(c_u32);
+                                        parents.push((p_u32, start, 1));
+                                    }
+                                    None => {
+                                        children.push(c_u32);
+                                        parents.push((p_u32, 0, 1));
+                                    }
+                                    Some(_) => {
+                                        let mut map: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+                                        for (par, st, ln) in parents.drain(..) {
+                                            let slice = children
+                                                .get(st as usize..(st + ln) as usize)
+                                                .unwrap_or_default();
+                                            map.insert(
+                                                par as usize,
+                                                slice.iter().map(|&v| v as usize).collect(),
+                                            );
+                                        }
+                                        children.clear();
+                                        map.entry(parent).or_default().push(index);
+                                        fallback_attrs = Some(map);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
             None => open = None,
         }
     }
-    (attributes, owned)
+    if let Some(map) = fallback_attrs {
+        let total_c: usize = map.values().map(Vec::len).sum();
+        parents.reserve(map.len());
+        children.reserve(total_c);
+        for (par, list) in map {
+            let st = children.len() as u32;
+            let ln = list.len() as u32;
+            children.extend(list.into_iter().map(|v| v as u32));
+            parents.push((par as u32, st, ln));
+        }
+    }
+    AttachedEntities {
+        owned_bits,
+        owned_count,
+        parents,
+        children,
+    }
 }
 
 fn decode_section_name(src: &[u8], range: core::ops::Range<usize>) -> Section {
@@ -3410,6 +4189,272 @@ fn lift_plain_attrib_from_dxf<'a>(
     )
 }
 
+const POW10_F64: [f64; 16] = [
+    1.0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+];
+
+#[inline]
+fn fast_parse_real(raw: &[u8]) -> Option<f64> {
+    let trimmed = raw.trim_ascii();
+    let (neg, s) = match trimmed.split_first()? {
+        (b'-', rest) => (true, rest),
+        (b'+', rest) => (false, rest),
+        _ => (false, trimmed),
+    };
+    if s.is_empty() || s.len() > 16 {
+        return crate::dxf::parse_real(raw);
+    }
+    let mut mantissa: u64 = 0;
+    let mut digits = 0u32;
+    let mut frac = 0usize;
+    let mut seen_dot = false;
+    for &b in s {
+        if b.is_ascii_digit() {
+            mantissa = mantissa * 10 + u64::from(b - b'0');
+            digits += 1;
+            if seen_dot {
+                frac += 1;
+            }
+        } else if b == b'.' && !seen_dot {
+            seen_dot = true;
+        } else {
+            return crate::dxf::parse_real(raw);
+        }
+    }
+    if digits == 0 || digits > 15 {
+        return crate::dxf::parse_real(raw);
+    }
+    let &scale = POW10_F64.get(frac)?;
+    let v = (mantissa as f64) / scale;
+    Some(if neg { -v } else { v })
+}
+
+fn try_fast_dxf_plain_primitive(
+    bytes: &[u8],
+    kind: &[u8],
+    cs: Charset,
+    record: u32,
+) -> Option<PlainLifted> {
+    if !matches!(kind, b"LINE" | b"CIRCLE" | b"ARC") {
+        return None;
+    }
+    let mut pos = 0usize;
+    let Next::Tag(first) = next_tag(bytes, pos) else {
+        return None;
+    };
+    if first.code != 0 {
+        return None;
+    }
+    pos = first.end as usize;
+
+    let mut handle: Option<u64> = None;
+    let mut seen_owner = false;
+    let mut layer_raw: Option<&[u8]> = None;
+    let mut lt_raw: Option<&[u8]> = None;
+    let mut color_code: Option<i32> = None;
+    let mut lt_scale: Option<f64> = None;
+    let mut x0: Option<f64> = None;
+    let mut y0: Option<f64> = None;
+    let mut z0_seen = false;
+    let mut x1: Option<f64> = None;
+    let mut y1: Option<f64> = None;
+    let mut z1_seen = false;
+    let mut r40: Option<f64> = None;
+    let mut a50: Option<f64> = None;
+    let mut a51: Option<f64> = None;
+
+    while pos < bytes.len() {
+        let Next::Tag(span) = next_tag(bytes, pos) else {
+            return None;
+        };
+        pos = span.end as usize;
+        let val = bytes.get(span.value as usize..span.value_end as usize)?;
+        match span.code {
+            5 => {
+                if handle.is_some() {
+                    return None;
+                }
+                handle = Some(crate::dxf::parse_hex(val.trim_ascii())?);
+            }
+            330 => {
+                if seen_owner {
+                    return None;
+                }
+                let _ = crate::dxf::parse_hex(val.trim_ascii())?;
+                seen_owner = true;
+            }
+            100 => {}
+            8 => {
+                if layer_raw.is_some() {
+                    return None;
+                }
+                layer_raw = Some(val);
+            }
+            6 => {
+                if lt_raw.is_some() {
+                    return None;
+                }
+                lt_raw = Some(val);
+            }
+            62 => {
+                if color_code.is_some() {
+                    return None;
+                }
+                let t = core::str::from_utf8(val.trim_ascii()).ok()?;
+                let n: i32 = t.parse().ok()?;
+                if !(0..=256).contains(&n) {
+                    return None;
+                }
+                color_code = Some(n);
+            }
+            48 => {
+                if lt_scale.is_some() {
+                    return None;
+                }
+                let s = fast_parse_real(val)?;
+                if !s.is_finite() || s <= 0.0 {
+                    return None;
+                }
+                lt_scale = Some(s);
+            }
+            10 => {
+                if x0.is_some() {
+                    return None;
+                }
+                let v = fast_parse_real(val)?;
+                if !v.is_finite() {
+                    return None;
+                }
+                x0 = Some(v);
+            }
+            20 => {
+                if y0.is_some() {
+                    return None;
+                }
+                let v = fast_parse_real(val)?;
+                if !v.is_finite() {
+                    return None;
+                }
+                y0 = Some(v);
+            }
+            30 => {
+                if z0_seen || fast_parse_real(val)? != 0.0 {
+                    return None;
+                }
+                z0_seen = true;
+            }
+            11 if kind == b"LINE" => {
+                if x1.is_some() {
+                    return None;
+                }
+                let v = fast_parse_real(val)?;
+                if !v.is_finite() {
+                    return None;
+                }
+                x1 = Some(v);
+            }
+            21 if kind == b"LINE" => {
+                if y1.is_some() {
+                    return None;
+                }
+                let v = fast_parse_real(val)?;
+                if !v.is_finite() {
+                    return None;
+                }
+                y1 = Some(v);
+            }
+            31 if kind == b"LINE" => {
+                if z1_seen || fast_parse_real(val)? != 0.0 {
+                    return None;
+                }
+                z1_seen = true;
+            }
+            40 if kind != b"LINE" => {
+                if r40.is_some() {
+                    return None;
+                }
+                let v = fast_parse_real(val)?;
+                if !v.is_finite() || v <= 0.0 {
+                    return None;
+                }
+                r40 = Some(v);
+            }
+            50 if kind == b"ARC" => {
+                if a50.is_some() {
+                    return None;
+                }
+                let v = fast_parse_real(val)?;
+                if !v.is_finite() {
+                    return None;
+                }
+                a50 = Some(v);
+            }
+            51 if kind == b"ARC" => {
+                if a51.is_some() {
+                    return None;
+                }
+                let v = fast_parse_real(val)?;
+                if !v.is_finite() {
+                    return None;
+                }
+                a51 = Some(v);
+            }
+            _ => return None,
+        }
+    }
+
+    let layer = super::shape::decode_str(cs, layer_raw?, 8).ok()?;
+    if layer.is_empty() {
+        return None;
+    }
+    let line_type = match lt_raw {
+        None => super::shape::PlainLineType::Layer,
+        Some(raw) if raw.eq_ignore_ascii_case(b"BYLAYER") => super::shape::PlainLineType::Layer,
+        Some(raw) if raw.eq_ignore_ascii_case(b"BYBLOCK") => super::shape::PlainLineType::Block,
+        Some(raw) => {
+            let decoded = super::shape::decode_str(cs, raw, 6).ok()?;
+            if decoded.is_empty() {
+                return None;
+            }
+            super::shape::PlainLineType::Own(decoded)
+        }
+    };
+    let color = match color_code {
+        None | Some(256) => zumen_drawing::Inherit::Layer,
+        Some(0) => zumen_drawing::Inherit::Block,
+        Some(c @ 1..=255) => zumen_drawing::Inherit::Own(Color {
+            code: Some(ColorCode {
+                system: ColorSystem::Aci,
+                value: c as u32,
+            }),
+            rgb: None,
+        }),
+        _ => return None,
+    };
+    let geom = match kind {
+        b"LINE" => super::shape::PlainGeom::Line([x0?, y0?, x1?, y1?]),
+        b"CIRCLE" => super::shape::PlainGeom::Circle([x0?, y0?, r40?]),
+        b"ARC" => super::shape::PlainGeom::Arc([x0?, y0?, r40?, a50?, a51?]),
+        _ => return None,
+    };
+    Some(PlainLifted {
+        record,
+        origin: Origin::Dxf {
+            record: record as usize,
+        },
+        handle,
+        style: super::shape::PlainStyle {
+            layer,
+            color,
+            line_type,
+            line_type_scale: lt_scale.unwrap_or(1.0),
+            line_weight: zumen_drawing::Inherit::Layer,
+            transparency: zumen_drawing::Inherit::Layer,
+        },
+        geom,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn lift_plain_entity_from_dxf<'a>(
     src: &'a [u8],
@@ -3422,6 +4467,12 @@ fn lift_plain_entity_from_dxf<'a>(
     tags: &mut Vec<RawTag<'a>>,
 ) -> Option<PlainLifted> {
     let bytes = src.get(range)?;
+    if attribs.is_empty()
+        && raw_attrib_count == 0
+        && let Some(fast) = try_fast_dxf_plain_primitive(bytes, kind, cs, record)
+    {
+        return Some(fast);
+    }
     tags.clear();
     let mut pos = 0usize;
     let Next::Tag(first) = next_tag(bytes, pos) else {
@@ -3563,8 +4614,12 @@ fn check_symbols_live(
     }
 
     let mut by_name = BTreeMap::new();
+    let mut exact_block_names = BTreeSet::new();
     for (idx, sym) in symbols.iter().enumerate() {
         by_name.entry(&sym.key).or_insert(idx);
+        if sym.key.namespace == BLOCK {
+            exact_block_names.insert(sym.key.name.as_str());
+        }
     }
 
     let mut checks: Vec<(SymbolKey, Ref)> = Vec::new();
@@ -3573,20 +4628,31 @@ fn check_symbols_live(
         match row.kind {
             LiveKind::Insert => {
                 if let Some(ins) = shapes.inserts.get(row.shape as usize) {
-                    checks.push((
-                        SymbolKey {
-                            namespace: BLOCK.into(),
-                            name: shapes.pools.get_string(ins.name),
-                        },
-                        row.source_ref(),
-                    ));
+                    let at = row.source_ref();
+                    work(cx, 1, &at)?;
+                    let name_str = shapes.pools.bytes.str_of(ins.name);
+                    if !exact_block_names.contains(name_str) {
+                        cx.report(
+                            Diagnostic::new(codes::DXF_BLOCK_MISSING)
+                                .with("name", name_str.to_owned())
+                                .at(at),
+                        );
+                    }
                 }
             }
             LiveKind::General => {
                 if let Some(general) = shapes.generals.get(row.shape as usize)
                     && let Shape::Symbol(sym) = &general.element.shape
                 {
-                    checks.push((sym.key.clone(), row.source_ref()));
+                    let at = row.source_ref();
+                    work(cx, 1, &at)?;
+                    if sym.key.namespace == BLOCK && !by_name.contains_key(&sym.key) {
+                        cx.report(
+                            Diagnostic::new(codes::DXF_BLOCK_MISSING)
+                                .with("name", sym.key.name.clone())
+                                .at(at),
+                        );
+                    }
                 }
             }
             _ => {}

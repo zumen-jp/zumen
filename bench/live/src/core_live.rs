@@ -24,10 +24,10 @@ struct Probe<T> {
 }
 
 fn probe<T>(decoded_mib: u64, call: impl FnOnce(&mut Cx<'_>) -> Result<T, Error>) -> Probe<T> {
-    let limits = Limits::default().with(
-        Kind::DecodedBytes,
-        Limit::Finite(decoded_mib.saturating_mul(1024 * 1024)),
-    );
+    let bytes_limit = Limit::Finite(decoded_mib.saturating_mul(1024 * 1024));
+    let limits = Limits::default()
+        .with(Kind::DecodedBytes, bytes_limit)
+        .with(Kind::ModelBytes, bytes_limit);
     let mut budget = Budget::new(limits);
     let mut diagnostics = Diagnostics::new();
     let cancel = CancelToken::new();
@@ -242,6 +242,20 @@ fn query<P>(shape: &Shape<P>, xy: impl Fn(&P) -> [f64; 2]) -> Option<[f64; 4]> {
     Some([x, y, x, y])
 }
 
+fn fallback_query<P>(shape: &Shape<P>, xy: impl Fn(&P) -> [f64; 2]) -> Option<[f64; 4]> {
+    let point = match shape {
+        Shape::Symbol(symbol) => &symbol.position,
+        Shape::Curve(zumen_drawing::Edge::Arc { center, .. }) => center,
+        Shape::Text(text) => match &text.placement {
+            zumen_drawing::Placement::Anchor { point, .. } => point,
+            zumen_drawing::Placement::Between { first, .. } => first,
+        },
+        _ => return None,
+    };
+    let [x, y] = xy(point);
+    Some([x, y, x, y])
+}
+
 fn target(drawing: &Drawing2D) -> Result<Target, String> {
     let desired = drawing
         .spaces
@@ -249,10 +263,23 @@ fn target(drawing: &Drawing2D) -> Result<Target, String> {
         .map(|space| Origin::Space(space.id))
         .or_else(|| drawing.sheets.first().map(|sheet| Origin::Sheet(sheet.id)));
     let mut found = None;
+    let mut fallback = None;
     id::each_element(drawing, |position, name, element| {
-        let query = match element {
+        let primary = match element {
             id::Found::Model(element) => query(&element.shape, |point| [point.x, point.y]),
             id::Found::Paper(element) => query(&element.shape, |point| [point.x, point.y]),
+        };
+        let secondary = if primary.is_none() {
+            match element {
+                id::Found::Model(element) => {
+                    fallback_query(&element.shape, |point| [point.x, point.y])
+                }
+                id::Found::Paper(element) => {
+                    fallback_query(&element.shape, |point| [point.x, point.y])
+                }
+            }
+        } else {
+            None
         };
         let origin = match position {
             Position::Model { space, .. }
@@ -263,21 +290,34 @@ fn target(drawing: &Drawing2D) -> Result<Target, String> {
             Position::Paper { sheet, .. } => Some(Origin::Sheet(sheet)),
             _ => None,
         };
-        if let (Some(query), Some(origin)) = (query, origin)
+        if let Some(origin) = origin
             && Some(origin) == desired
         {
-            found = Some(Target {
-                seen: Seen {
-                    id: name,
-                    hash: element.hash(),
-                },
-                origin,
-                query,
-            });
+            if let Some(query) = primary {
+                found = Some(Target {
+                    seen: Seen {
+                        id: name,
+                        hash: element.hash(),
+                    },
+                    origin,
+                    query,
+                });
+            } else if let Some(query) = secondary {
+                fallback = Some(Target {
+                    seen: Seen {
+                        id: name,
+                        hash: element.hash(),
+                    },
+                    origin,
+                    query,
+                });
+            }
         }
         Ok::<_, String>(())
     })?;
-    found.ok_or_else(|| "最初の空間か用紙に、線・点・円・折れ線が見つからない".to_owned())
+    found
+        .or(fallback)
+        .ok_or_else(|| "最初の空間か用紙に、対象の要素が見つからない".to_owned())
 }
 
 fn identities(drawing: &Drawing2D) -> Vec<(String, Hash)> {
