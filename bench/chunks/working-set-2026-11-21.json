@@ -1,0 +1,386 @@
+[
+  {
+    "case": "city-min",
+    "input_bytes": 7127755,
+    "input_sha256": "daaeae68e4f6956f34e37c04bb134aca78ef98993aa40dca181ae9bb55e32363",
+    "requested_tolerance": null,
+    "scene": {
+      "tolerance": 0.05000611466446979,
+      "chunks": 5,
+      "vertices": 123745,
+      "bytes": 2172144,
+      "sha256": "238236305d523c1df0f29f6f23d7338113fa14191223d1effe634900c9ea22dd",
+      "diagnostics": [
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 416
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 10
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 1351
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 1
+        },
+        {
+          "code": "scene.curve.approximated",
+          "count": 1
+        }
+      ]
+    },
+    "runs": [
+      {
+        "push_peak_bytes": 19079168,
+        "open_peak_bytes": 57995264,
+        "drawing_peak_bytes": 102780928,
+        "scene_peak_bytes": 102780928,
+        "open_sampled_bytes": 57995264,
+        "drawing_sampled_bytes": 97288192,
+        "scene_sampled_bytes": 81502208
+      },
+      {
+        "push_peak_bytes": 19066880,
+        "open_peak_bytes": 58212352,
+        "drawing_peak_bytes": 102916096,
+        "scene_peak_bytes": 102916096,
+        "open_sampled_bytes": 58212352,
+        "drawing_sampled_bytes": 97460224,
+        "scene_sampled_bytes": 80080896
+      },
+      {
+        "push_peak_bytes": 19070976,
+        "open_peak_bytes": 57958400,
+        "drawing_peak_bytes": 102850560,
+        "scene_peak_bytes": 102850560,
+        "open_sampled_bytes": 57958400,
+        "drawing_sampled_bytes": 97665024,
+        "scene_sampled_bytes": 83087360
+      }
+    ]
+  },
+  {
+    "case": "city-min",
+    "input_bytes": 7127755,
+    "input_sha256": "daaeae68e4f6956f34e37c04bb134aca78ef98993aa40dca181ae9bb55e32363",
+    "requested_tolerance": 0.01,
+    "scene": {
+      "tolerance": 0.01,
+      "chunks": 2661,
+      "vertices": 147082,
+      "bytes": 2496952,
+      "sha256": "bfc5f0f64583eab955b7b1ccb8b93cb2edba29f3fbde43a433d8bc1db88c9315",
+      "diagnostics": [
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 416
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 10
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 1351
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 1
+        },
+        {
+          "code": "scene.curve.approximated",
+          "count": 1
+        }
+      ]
+    },
+    "runs": [
+      {
+        "push_peak_bytes": 19079168,
+        "open_peak_bytes": 58085376,
+        "drawing_peak_bytes": 102780928,
+        "scene_peak_bytes": 102780928,
+        "open_sampled_bytes": 58085376,
+        "drawing_sampled_bytes": 97910784,
+        "scene_sampled_bytes": 80998400
+      },
+      {
+        "push_peak_bytes": 19075072,
+        "open_peak_bytes": 58073088,
+        "drawing_peak_bytes": 102797312,
+        "scene_peak_bytes": 102797312,
+        "open_sampled_bytes": 58073088,
+        "drawing_sampled_bytes": 97861632,
+        "scene_sampled_bytes": 81534976
+      },
+      {
+        "push_peak_bytes": 19079168,
+        "open_peak_bytes": 58056704,
+        "drawing_peak_bytes": 102744064,
+        "scene_peak_bytes": 102744064,
+        "open_sampled_bytes": 58056704,
+        "drawing_sampled_bytes": 97341440,
+        "scene_sampled_bytes": 80949248
+      }
+    ]
+  },
+  {
+    "case": "city-vertices",
+    "input_bytes": 22079701,
+    "input_sha256": "866de4cfd49540622e04b2073c294347c838a0553f1e5bae712072a53b3a5d9c",
+    "requested_tolerance": null,
+    "scene": {
+      "tolerance": 0.05000425712413512,
+      "chunks": 4,
+      "vertices": 128483,
+      "bytes": 1888280,
+      "sha256": "873655c9a784c4e49bece02c3ee0acc88f15d60be6e3fde4fdef8975052a15ba",
+      "diagnostics": [
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 2094
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 351
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 1
+        },
+        {
+          "code": "scene.curve.approximated",
+          "count": 1
+        }
+      ]
+    },
+    "runs": [
+      {
+        "push_peak_bytes": 48979968,
+        "open_peak_bytes": 145747968,
+        "drawing_peak_bytes": 214872064,
+        "scene_peak_bytes": 214872064,
+        "open_sampled_bytes": 145747968,
+        "drawing_sampled_bytes": 213909504,
+        "scene_sampled_bytes": 165875712
+      },
+      {
+        "push_peak_bytes": 48979968,
+        "open_peak_bytes": 145768448,
+        "drawing_peak_bytes": 214847488,
+        "scene_peak_bytes": 214847488,
+        "open_sampled_bytes": 145768448,
+        "drawing_sampled_bytes": 210112512,
+        "scene_sampled_bytes": 165847040
+      },
+      {
+        "push_peak_bytes": 48975872,
+        "open_peak_bytes": 144715776,
+        "drawing_peak_bytes": 213766144,
+        "scene_peak_bytes": 213766144,
+        "open_sampled_bytes": 144715776,
+        "drawing_sampled_bytes": 213364736,
+        "scene_sampled_bytes": 165572608
+      }
+    ]
+  },
+  {
+    "case": "city-vertices",
+    "input_bytes": 22079701,
+    "input_sha256": "866de4cfd49540622e04b2073c294347c838a0553f1e5bae712072a53b3a5d9c",
+    "requested_tolerance": 0.01,
+    "scene": {
+      "tolerance": 0.01,
+      "chunks": 1205,
+      "vertices": 136443,
+      "bytes": 2014432,
+      "sha256": "b9620b7e97e6b470bbc5b7d31e3e08c40d09fb70350ba9e668562f5fc6639e23",
+      "diagnostics": [
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 2094
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 351
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 1
+        },
+        {
+          "code": "scene.curve.approximated",
+          "count": 1
+        }
+      ]
+    },
+    "runs": [
+      {
+        "push_peak_bytes": 48971776,
+        "open_peak_bytes": 144871424,
+        "drawing_peak_bytes": 214065152,
+        "scene_peak_bytes": 214065152,
+        "open_sampled_bytes": 144871424,
+        "drawing_sampled_bytes": 213463040,
+        "scene_sampled_bytes": 159649792
+      },
+      {
+        "push_peak_bytes": 48975872,
+        "open_peak_bytes": 145604608,
+        "drawing_peak_bytes": 214736896,
+        "scene_peak_bytes": 214736896,
+        "open_sampled_bytes": 145604608,
+        "drawing_sampled_bytes": 211357696,
+        "scene_sampled_bytes": 159260672
+      },
+      {
+        "push_peak_bytes": 48975872,
+        "open_peak_bytes": 144830464,
+        "drawing_peak_bytes": 213987328,
+        "scene_peak_bytes": 213987328,
+        "open_sampled_bytes": 144830464,
+        "drawing_sampled_bytes": 210673664,
+        "scene_sampled_bytes": 161427456
+      }
+    ]
+  },
+  {
+    "case": "city-max",
+    "input_bytes": 42133507,
+    "input_sha256": "365f5beb4d8b98503f9efcdcd3e9cf3b2445cc1b67de70d3174dd8e22db7250d",
+    "requested_tolerance": null,
+    "scene": {
+      "tolerance": 0.050018422624291514,
+      "chunks": 6,
+      "vertices": 122439,
+      "bytes": 2503656,
+      "sha256": "940307e91e0349fb8577710a3d1206a671d9a778722cb98aa9700fca98c324e4",
+      "diagnostics": [
+        {
+          "code": "dxf.extension-dictionary.dropped",
+          "count": 18029
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 523
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 5355
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 2
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 1
+        },
+        {
+          "code": "scene.curve.approximated",
+          "count": 1
+        }
+      ]
+    },
+    "runs": [
+      {
+        "push_peak_bytes": 89088000,
+        "open_peak_bytes": 330514432,
+        "drawing_peak_bytes": 535425024,
+        "scene_peak_bytes": 535425024,
+        "open_sampled_bytes": 330514432,
+        "drawing_sampled_bytes": 532652032,
+        "scene_sampled_bytes": 371806208
+      },
+      {
+        "push_peak_bytes": 89088000,
+        "open_peak_bytes": 330432512,
+        "drawing_peak_bytes": 535662592,
+        "scene_peak_bytes": 535662592,
+        "open_sampled_bytes": 330432512,
+        "drawing_sampled_bytes": 532819968,
+        "scene_sampled_bytes": 372744192
+      },
+      {
+        "push_peak_bytes": 89088000,
+        "open_peak_bytes": 330211328,
+        "drawing_peak_bytes": 535629824,
+        "scene_peak_bytes": 535629824,
+        "open_sampled_bytes": 330211328,
+        "drawing_sampled_bytes": 532717568,
+        "scene_sampled_bytes": 372051968
+      }
+    ]
+  },
+  {
+    "case": "city-max",
+    "input_bytes": 42133507,
+    "input_sha256": "365f5beb4d8b98503f9efcdcd3e9cf3b2445cc1b67de70d3174dd8e22db7250d",
+    "requested_tolerance": 0.01,
+    "scene": {
+      "tolerance": 0.01,
+      "chunks": 1567,
+      "vertices": 146446,
+      "bytes": 2776904,
+      "sha256": "9f75e6811bc68bc5b55ff52b17291a43071f4cec88ef8fa93bf4026344f9c10f",
+      "diagnostics": [
+        {
+          "code": "dxf.extension-dictionary.dropped",
+          "count": 18029
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 523
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 5355
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 2
+        },
+        {
+          "code": "dxf.non-planar.dropped",
+          "count": 1
+        },
+        {
+          "code": "scene.curve.approximated",
+          "count": 1
+        }
+      ]
+    },
+    "runs": [
+      {
+        "push_peak_bytes": 89079808,
+        "open_peak_bytes": 330485760,
+        "drawing_peak_bytes": 535523328,
+        "scene_peak_bytes": 535523328,
+        "open_sampled_bytes": 330485760,
+        "drawing_sampled_bytes": 532623360,
+        "scene_sampled_bytes": 371982336
+      },
+      {
+        "push_peak_bytes": 89079808,
+        "open_peak_bytes": 330444800,
+        "drawing_peak_bytes": 535556096,
+        "scene_peak_bytes": 535556096,
+        "open_sampled_bytes": 330444800,
+        "drawing_sampled_bytes": 532611072,
+        "scene_sampled_bytes": 371961856
+      },
+      {
+        "push_peak_bytes": 89088000,
+        "open_peak_bytes": 330481664,
+        "drawing_peak_bytes": 535441408,
+        "scene_peak_bytes": 535441408,
+        "open_sampled_bytes": 330481664,
+        "drawing_sampled_bytes": 532439040,
+        "scene_sampled_bytes": 372867072
+      }
+    ]
+  }
+]
