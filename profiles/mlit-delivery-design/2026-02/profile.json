@@ -3,7 +3,7 @@
   "format": "0.1",
   "id": "mlit-delivery-design",
   "license": "CC-BY-4.0",
-  "revision": 2,
+  "revision": 3,
   "rules": [
     {
       "check": "delivery-required",
@@ -51,6 +51,7 @@
     },
     {
       "check": "delivery-link",
+      "elements": ["報告書ファイル名", "報告書オリジナルファイル名", "公開用成果品ファイル名", "オリジナルファイル名"],
       "folders": ["INDEX_D.XML", "REPORT/", "OPENREP/", "REGISTER/"],
       "id": "link",
       "level": "error",

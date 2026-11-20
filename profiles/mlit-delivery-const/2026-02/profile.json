@@ -3,7 +3,7 @@
   "format": "0.1",
   "id": "mlit-delivery-const",
   "license": "CC-BY-4.0",
-  "revision": 2,
+  "revision": 3,
   "rules": [
     {
       "characters": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-",
@@ -89,6 +89,7 @@
     },
     {
       "check": "delivery-link",
+      "elements": ["施工計画書オリジナルファイル名", "打合せ簿オリジナルファイル名", "図面ファイル名", "着手前写真ファイル名", "完成写真ファイル名", "オリジナルファイル名"],
       "folders": ["INDEX_C.XML", "PLAN/", "MEET/", "REGISTER/", "OTHRS/"],
       "id": "link",
       "level": "error",

@@ -8,7 +8,7 @@
 format = "0.1"
 id = "mlit-delivery-const"
 edition = "2026-02"
-revision = 2
+revision = 3
 title = "工事完成図書の電子納品等要領"
 license = "CC-BY-4.0"
 
@@ -95,6 +95,8 @@ check = "delivery-link"
 level = "error"
 source = { document = "main", section = "4" }
 folders = ["INDEX_C.XML", "PLAN/", "MEET/", "REGISTER/", "OTHRS/"]
+# 第 4 章の管理項目と DTD。ファイル日本語名は説明用の名称で、成果品のファイルを指さない。
+elements = ["施工計画書オリジナルファイル名", "打合せ簿オリジナルファイル名", "図面ファイル名", "着手前写真ファイル名", "完成写真ファイル名", "オリジナルファイル名"]
 
 # オリジナルファイルは管理ファイルに名前を書く（表 4-3〜4-5）。どれも指さないファイルを指摘にする。
 [[rules]]

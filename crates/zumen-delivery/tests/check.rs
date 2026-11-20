@@ -1,5 +1,5 @@
 //! テストの中で作った成果品を、工事完成図書の電子納品等要領のプロファイルと照らす（決定 0241、#384）。要領の
-//! 作成例は転載が禁じられているので、要素の名前と構成はテストのために決めたもの。
+//! 作成例は転載が禁じられているので、項目の値と組み合わせはテストのために作る。
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostic, Diagnostics, Severity, Value, codes};
 use zumen_delivery::{Report, check, read};
@@ -24,8 +24,9 @@ const PLAN: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plandata SYSTEM "PLAN05.DTD">
 <plandata>
   <施工計画書情報>
-    <オリジナルファイル名>PLA01_01.PDF</オリジナルファイル名>
-    <オリジナルファイル名>PLA02_01.PDF</オリジナルファイル名>
+    <施工計画書オリジナルファイル名>PLA01_01.PDF</施工計画書オリジナルファイル名>
+    <施工計画書オリジナルファイル日本語名>手順書.pdf</施工計画書オリジナルファイル日本語名>
+    <施工計画書オリジナルファイル名>PLA02_01.PDF</施工計画書オリジナルファイル名>
   </施工計画書情報>
 </plandata>
 "#;

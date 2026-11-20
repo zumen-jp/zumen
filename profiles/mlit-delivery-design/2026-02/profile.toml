@@ -8,7 +8,7 @@
 format = "0.1"
 id = "mlit-delivery-design"
 edition = "2026-02"
-revision = 2
+revision = 3
 title = "土木設計業務等の電子納品要領"
 license = "CC-BY-4.0"
 
@@ -63,6 +63,8 @@ check = "delivery-link"
 level = "error"
 source = { document = "main", section = "4" }
 folders = ["INDEX_D.XML", "REPORT/", "OPENREP/", "REGISTER/"]
+# 第 4 章の管理項目と DTD。ファイル日本語名は説明用の名称で、成果品のファイルを指さない。
+elements = ["報告書ファイル名", "報告書オリジナルファイル名", "公開用成果品ファイル名", "オリジナルファイル名"]
 
 # 要素の名前は、表 4-1 の項目の名前とする（選んだ値）。
 [[rules]]

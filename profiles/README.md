@@ -12,6 +12,8 @@
 | `mlit-cad-building-drawing` | [2025-12](mlit-cad-building-drawing/2025-12/README.md) | CAD製図基準（2025-12）に合わせる建物の切り出しと図面チェック（`mlit-cad` を継承） |
 | `zumen-building-drawing` | [2026-11](zumen-building-drawing/2026-11/README.md) | 建物の線・模様・建具と通り芯の記号・階名・切断高さ（Rust の `zumen_profile::building_drawing`） |
 
+電子納品の工事・業務の `link` 規則は、要領の管理項目と DTD にある実ファイル名を使います。説明用の日本語名に拡張子があっても、別のファイルを要求しません。[公式作成例を使った正しい組・欠落の照合](../xtask/verify/dtd/README.md#公開-api-で要領の規則と参照先を照らす)
+
 ## 直し方
 
 - 元は `<id>/<edition>/profile.toml` です。直したら `cargo xtask codegen` で `profile.json` を作り直し、両方をコミットします。
