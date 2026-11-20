@@ -543,18 +543,20 @@ docs = ["docs/formats/sxf.md"]
 issues = ["zumen-jp/zumen#385"]
 
 [formats.sxf.read]
-level = "external"
-scope = "公開サンプルの SFC（samples/sxf/ezsxf-writer-all-features.sfc）とテストの中で作った SFC・P21 を毎晩の CI で ezsxf 0.3.7 でも読み、レイヤ・要素の種類・用紙と属性付加機構の作図グループへの所属・線と円と点マーカーの形・黙って捨てない診断の場所が zumen の読みと合うことを確かめる（xtask/verify、#528・#874）。受け取った図面（SFC 1 件・P21 1 件）と公開サンプルを読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることもテスト（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。同じ番号の SFC フィーチャも出所のレコードで区別し、用紙への所属は元の番号で比べる（#553）。SXF ブラウザでの照合はまだ（#503）"
+level = "application"
+scope = "公開サンプルの SFC（samples/sxf/ezsxf-writer-all-features.sfc）とテストの中で作った SFC・P21 を毎晩の CI で ezsxf 0.3.7 でも読み、レイヤ・要素の種類・用紙と属性付加機構の作図グループへの所属・線と円と点マーカーの形・黙って捨てない診断の場所が zumen の読みと合うことを確かめる（xtask/verify、#528・#874）。受け取った図面（SFC 1 件・P21 1 件）と公開サンプルを読み、要素の ID がインスタンスの番号で重ならないことと、書き戻して読み直せることもテスト（crates/zumen-sxf/tests/samples.rs）で確かめた（#288・#290）。同じ番号の SFC フィーチャも出所のレコードで区別し、用紙への所属は元の番号で比べる（#553）。型付き SFC の 2 点を DynaCAD で選択し、Jw_cad の書き出しで位置・印・回転・倍率・赤が一致した（#342）"
 public-samples = ["samples/sxf/"]
 implementations = [{ name = "ezsxf", version = "0.3.7" }]
 received = [{ kind = "SFC", count = 1 }, { kind = "P21", count = 1 }]
-checked = "2026-11-13"
+software = [{ name = "Jw_cad", version = "10.3.6.0" }, { name = "DynaCAD ビューアー", version = "9.00.00" }]
+checked = "2026-11-21"
 
 [formats.sxf.write]
-level = "external"
-scope = "テストの中で作った SFC・P21 と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った SFC・P21 に点を足して書き戻したファイルを ezsxf 0.3.7 で読み、変更で決めた形・レイヤと、SFC の色（既定義色の番号）が、ezsxf の読んだ値と合うことを確かめる（xtask/verify、#528）。P21 では、点マーカーの種類を比べない。ezsxf は P21 の文字列のエスケープを戻さないので、P21 のレイヤの名前は、照合がファイルのバイトから戻す。Shift_JIS のレイヤ「図枠」へ追加した 2 点の所属を照らし、書き戻したファイルに元の名前のバイトが残ることを確かめた（#552）。従来の編集の照合は点の書き戻しを対象とする。SFZ・P2Z に書き戻したアーカイブは、外部の実装と照らしていない。書いたファイルを SXF ブラウザなどで開いてはいない（#342・#503）。新しい P21 への変換（#360）は、合成 DXF の線・円・円弧・折れ線・文字・点、色・線種・線幅・レイヤの参照を ezsxf 0.3.7 の解析値と照らす（xtask/verify/check_convert_cad.py）。P21 の文字エスケープは検証キットで戻す。ブラウザーでの表示は未確認。"
+level = "application"
+scope = "テストの中で作った SFC・P21 と受け取った図面に書き戻し、自前の読み取りで読み直して、変えた要素が求めた値になることを確かめた。毎晩の CI で、テストの中で作った SFC・P21 に点を足して書き戻したファイルを ezsxf 0.3.7 で読み、変更で決めた形・レイヤと、SFC の色（既定義色の番号）が、ezsxf の読んだ値と合うことを確かめる（xtask/verify、#528）。P21 では、点マーカーの種類を比べない。ezsxf は P21 の文字列のエスケープを戻さないので、P21 のレイヤの名前は、照合がファイルのバイトから戻す。Shift_JIS のレイヤ「図枠」へ追加した 2 点の所属を照らし、書き戻したファイルに元の名前のバイトが残ることを確かめた（#552）。従来の編集の照合は点の書き戻しを対象とする。SFC の書き戻しを Jw_cad で開き、2 点の位置・印・回転・倍率・赤を同じ SFC への書き出しと照合した（#342）。SFZ・P2Z の 8 組は ZIP の非対象の項目・SAF・図形を Python と ezsxf で照合した（#494）。新しい P21 への変換（#360）は、合成 DXF の線・円・円弧・折れ線・文字・点、色・線種・線幅・レイヤの参照を ezsxf 0.3.7 の解析値と照らす（xtask/verify/check_convert_cad.py）。P21 の文字エスケープは検証キットで戻す。ブラウザーでの表示は未確認。"
 implementations = [{ name = "ezsxf", version = "0.3.7" }]
-checked = "2026-11-16"
+software = [{ name = "Jw_cad", version = "10.3.6.0" }, { name = "DynaCAD ビューアー", version = "9.00.00" }]
+checked = "2026-11-21"
 
 [[formats.sxf.evidence]]
 title = "国土交通省 電子納品に関する要領・基準の「リンク・著作権」"
@@ -1305,9 +1307,10 @@ docs = ["docs/formats/sxf.md"]
 issues = ["zumen-jp/zumen#386"]
 
 [formats.saf.read]
-level = "synthetic"
-scope = "属性付加機構編と、テストの中で作った SAF とアーカイブ（crates/zumen-sxf/tests/saf.rs）で確かめた。SXF ブラウザでの照合は #494・#505 で行う"
-checked = "2026-11-03"
+level = "application"
+scope = "同名幹の SAF を持つ SFZ の無圧縮・deflate の 2 組で、線分の識別番号と 2 属性の名前・値を編集前後に DynaCAD で照合した（#494）。拡張子付きの SAF は同じソフトで表示されない。P2Z の表示は未確認（#902）。文字コードと未知の要素の診断は自作のサンプルで検査した"
+software = [{ name = "DynaCAD ビューアー", version = "9.00.00" }]
+checked = "2026-11-21"
 
 [formats.jpeg]
 name = "工事写真（JPEG と Exif・XMP）"
