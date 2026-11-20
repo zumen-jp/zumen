@@ -111,6 +111,21 @@ def jww_display(header):
             "printerDpi": pens["printer_dpi"], "pointRadiusMm": pens["printer"][2]["point_radius"]}
 
 
+def sfc_point_colors(data):
+    parsed = check_ezsxf.ezsxf.parse_sfc(data, strict=False)
+    features = {item["id"]: item for item in parsed["typed_features"]}
+    colors = {row["code"]: features.get(row["entity_id"], {}) for row in parsed["model"]["code_tables"]["colors"]}
+    points = [item for item in parsed["typed_features"] if item["kind"] == "point_marker"]
+    need(len(points) == 2, "自作 SFC の点が 2 個ありません")
+    names = []
+    for point in points:
+        definition = colors.get(point["style"]["color_code"], {})
+        need(definition.get("kind") == "pre_defined_colour" and definition.get("name") == "red",
+             "追加した点が既定義色の赤を参照していません")
+        names.append(definition["name"])
+    return names
+
+
 def compare_case(folder, before_entry, entry):
     expected = complete_edit(entry)
     readings = [json.loads((folder / "zumen" / (e["path"] + ".json")).read_text(encoding="utf8")) for e in (before_entry, entry)]
@@ -141,6 +156,7 @@ def compare_case(folder, before_entry, entry):
             if want["geometry"]["shape"] == "point":
                 entity = after["entities"][by_id[want["id"]]["source"]["record"] - 1]
                 need(entity["base"]["pen_style"] == (100 if "marker" in want["geometry"] else 1), "JWWの点の線種が期待と異なります")
+    point_colors = sfc_point_colors((folder / entry["path"]).read_bytes()) if entry["format"] == "sfc" and not untyped else None
     partial = untyped or entry["format"] == "p21"
     return {
         "path": entry["path"],
@@ -153,6 +169,7 @@ def compare_case(folder, before_entry, entry):
         "preservedCoreElements": kept,
         "preservedExternalEntities": external_kept,
         **({"display": display, "headerPreserved": True, "headerSha256": sha(header)} if display is not None else {}),
+        **({"pointColorNames": point_colors} if point_colors is not None else {}),
         "audits": audits,
         "expected": entry["steps"][0]["expect"],
         "status": "partial" if partial else "verified",

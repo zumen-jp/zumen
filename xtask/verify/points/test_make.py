@@ -69,6 +69,14 @@ class KitTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "外部実装との不一致"):
                     make.compare_case(KIT, before, entry)
 
+    def test_sfc_points_must_reference_the_red_definition(self):
+        _, entry = self.pair("made-features.points.sfc")
+        data = (KIT / entry["path"]).read_bytes()
+        self.assertEqual(make.sfc_point_colors(data), ["red", "red"])
+        for replacement in (b"blue", b"unknown"):
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(ValueError, "赤を参照"):
+                make.sfc_point_colors(data.replace(b"red", replacement))
+
     def test_jww_rejects_wrong_marker_and_pen(self):
         before, original = self.pair("made-points.points.jww")
         for field in ("code", "color"):
