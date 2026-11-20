@@ -266,6 +266,11 @@ impl AcadLive {
         self.state.seen_of_row(row, cx)
     }
 
+    /// 今のモデル空間の要素 ID を、生きている常駐行へ引く。用紙やブロックの要素は行を持たない。
+    pub fn row_of_model_id(&self, id: &str) -> Option<RowId> {
+        edit::resolve_model_target(&self.state, id)
+    }
+
     /// 保存後と同じ出所を持つ要素を、共有予算で復元する。
     pub fn element_with_source(
         &self,

@@ -2355,6 +2355,20 @@ fn explicit_copy_place_matches_batch_and_undoes_both_copies_together() {
         assert_eq!(actual, expected);
         let applied = actual.0.unwrap();
         assert_eq!(applied.len(), 2);
+        for added in &applied {
+            assert_eq!(
+                pair.live.row_of_model_id(added.id.as_deref().unwrap()),
+                None
+            );
+        }
+        for handle in [0x2D9, 0x2DA] {
+            let expected = pair.seen(handle);
+            let row = pair.live.row_of_model_id(&expected.id).unwrap();
+            assert_eq!(
+                fresh_cx(|cx| pair.live.seen_of_row(row, cx)).0.unwrap(),
+                Some(expected)
+            );
+        }
         assert!(applied.iter().all(|a| {
             a.id.as_deref()
                 .is_some_and(|id| id.starts_with("sheet/h2DC/"))

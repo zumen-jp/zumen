@@ -602,7 +602,7 @@ fn parse_canonical_handle_id(id: &str) -> Option<u64> {
     (format!("{h:X}") == rest).then_some(h)
 }
 
-fn resolve_model_target(state: &LiveState, id: &str) -> Option<RowId> {
+pub(super) fn resolve_model_target(state: &LiveState, id: &str) -> Option<RowId> {
     if let Some(h) = parse_canonical_handle_id(id)
         && let Some(rid) = state.table.find_handle(h)
     {
