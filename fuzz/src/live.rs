@@ -7,6 +7,7 @@ use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Stop
 use zumen_drawing::{Affine, Changes, Drawing2D, Edit, Hash, Placed, Position, Restyle, Seen, id};
 use zumen_ifc::IfcLive;
 use zumen_jww::JwwLive;
+use zumen_live::display::Display;
 use zumen_sdk::Error;
 use zumen_sxf::SxfLive;
 
@@ -394,6 +395,110 @@ impl Trace {
         }
     }
 
+    /// 常駐 IPC が呼ぶ読み取り（画層・線種・描く順・文字・内容の置き換え・記号の定義）を、
+    /// 全量の予算・小さい予算・中断で呼ぶ。行の数を越える番号は `None` で、表示に何も足さない
+    fn ipc_reads(&mut self, engine: &Engine, seed: u64) {
+        let (row_count, symbol_count) = match engine {
+            Engine::Acad(live) => (live.row_count(), live.display_symbol_count()),
+            Engine::Jww(live) => (live.row_count(), live.display_symbol_count()),
+            Engine::Sxf(live) => (live.row_count(), live.display_symbol_count()),
+            Engine::Ifc(_) => return,
+        };
+        let rows = [0, (seed % row_count.max(1) as u64) as u32, u32::MAX];
+        let symbols = [
+            0,
+            (seed % u64::from(symbol_count.max(1))) as u32,
+            symbol_count,
+        ];
+        let content = format!("fuzz-{seed:X}");
+        for (limits, cancel) in [
+            (self.limits, false),
+            (
+                self.limits.with(Kind::Work, Limit::Finite(seed % 64)),
+                false,
+            ),
+            (
+                self.limits
+                    .with(Kind::DecodedBytes, Limit::Finite(seed % 64)),
+                false,
+            ),
+            (self.limits, true),
+        ] {
+            if let Ok(result) = self.call(limits, cancel, |cx| {
+                let tables = match engine {
+                    Engine::Acad(live) => (
+                        live.display_layers(cx)?,
+                        live.display_line_types(cx)?,
+                        live.display_order(cx)?,
+                    ),
+                    Engine::Jww(live) => (
+                        live.display_layers(cx)?,
+                        live.display_line_types(cx)?,
+                        live.display_order(cx)?,
+                    ),
+                    Engine::Sxf(live) => (
+                        live.display_layers(cx)?,
+                        live.display_line_types(cx)?,
+                        live.display_order(cx)?,
+                    ),
+                    Engine::Ifc(_) => return Err(Error::Unsupported),
+                };
+                bounded_debug(&tables, cx)
+            }) {
+                self.bytes.push(result);
+            }
+            for row in rows {
+                let row = zumen_live::RowId(row);
+                if let Ok(result) = self.call(limits, cancel, |cx| {
+                    let read = match engine {
+                        Engine::Acad(live) => (
+                            live.display_text(row, cx)?,
+                            live.display_retexted(row, &content, cx)?,
+                        ),
+                        Engine::Jww(live) => (
+                            live.display_text(row, cx)?,
+                            live.display_retexted(row, &content, cx)?,
+                        ),
+                        Engine::Sxf(live) => (
+                            live.display_text(row, cx)?,
+                            live.display_retexted(row, &content, cx)?,
+                        ),
+                        Engine::Ifc(_) => return Err(Error::Unsupported),
+                    };
+                    bounded_debug(&read, cx)
+                }) {
+                    self.bytes.push(result);
+                }
+            }
+            for symbol in symbols {
+                if let Ok(result) = self.call(limits, cancel, |cx| {
+                    let mut display = Display::with_rows(0);
+                    let written = match engine {
+                        Engine::Acad(live) => live.display_symbol(symbol, &mut display, cx)?,
+                        Engine::Sxf(live) => live.display_symbol(symbol, &mut display, cx)?,
+                        Engine::Jww(live) => live.display_symbol(symbol, &mut display, cx)?,
+                        Engine::Ifc(_) => return Err(Error::Unsupported),
+                    };
+                    let rows = display.canonical();
+                    match written {
+                        Some(written) => assert_eq!(
+                            written as usize,
+                            rows.len(),
+                            "記号の定義の行の数が表示と合わない"
+                        ),
+                        None => {
+                            assert!(symbol >= symbol_count, "範囲内の定義が None になった");
+                            assert!(rows.is_empty(), "範囲外の定義が表示に行を足した");
+                        }
+                    }
+                    bounded_debug(&(written, rows), cx)
+                }) {
+                    self.bytes.push(result);
+                }
+            }
+        }
+    }
+
     fn rectangle_queries(&mut self, engine: &Engine, seed: u64) {
         if !matches!(engine, Engine::Acad(_) | Engine::Jww(_)) {
             return;
@@ -511,6 +616,7 @@ pub fn run(data: &[u8], format: Format, limits: Limits, threads: usize) -> Vec<V
         let before = trace.snapshot(&engine);
         trace.row_targets(&engine, seed);
         trace.rectangle_queries(&engine, seed);
+        trace.ipc_reads(&engine, seed);
         let edit_limits = if mode == 2 {
             limits.with(Kind::Work, Limit::Finite(seed % 128))
         } else {
@@ -527,6 +633,7 @@ pub fn run(data: &[u8], format: Format, limits: Limits, threads: usize) -> Vec<V
         let after = trace.snapshot(&engine);
         trace.row_targets(&engine, seed);
         trace.rectangle_queries(&engine, seed);
+        trace.ipc_reads(&engine, seed);
         trace
             .bytes
             .push(format!("{before_state:?}\n{after_state:?}").into_bytes());

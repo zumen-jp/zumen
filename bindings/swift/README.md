@@ -1,6 +1,6 @@
 # Swift のラッパー
 
-zumen の C ABI を、Swift から呼ぶラッパーです。下限は iOS・iPadOS 15 と macOS 12 です（[docs/support.md](../../docs/support.md)）。まだ公開していません。SwiftPM のミラーのリポジトリに出すことは、別の issue で扱います。
+zumen の C ABI を、Swift から呼ぶラッパーです。下限は iOS・iPadOS 17 と macOS 14 です（[docs/support.md](../../docs/support.md)）。まだ公開していません。SwiftPM のミラーのリポジトリに出すことは、別の issue で扱います。
 
 ## 使い方
 
@@ -53,7 +53,7 @@ cd bindings/swift && swift run ZumenConformance ../..
 sh bindings/swift/test-simulator.sh
 ```
 
-`test-simulator.sh` は、ラッパーとテストを `swiftc` で iOS 15 のシミュレーターに向けて作り、使える iPhone のシミュレーターの 1 つめで `xcrun simctl spawn` で流します。シミュレーターの名前か UDID を引数で選べます。
+`test-simulator.sh` は、ラッパーとテストを `swiftc` で iOS 17 のシミュレーターに向けて作り、使える iPhone のシミュレーターの 1 つめで `xcrun simctl spawn` で流します。シミュレーターの名前か UDID を引数で選べます。
 
 ## 3D のシーン
 

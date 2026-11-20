@@ -264,6 +264,24 @@
         "/diagnostics/0/code": "call.value.invalid",
         "/diagnostics/0/params/pointer": "/pointcloud"
       }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "whole.laz",
+        "doc": "copc_bytes",
+        "pointcloud": {
+          "limit": 3
+        },
+        "budget": {
+          "input_bytes": 1
+        }
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "budget.input-bytes.exceeded"
+      }
     }
   ]
 }

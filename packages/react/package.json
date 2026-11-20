@@ -1,15 +1,50 @@
 {
   "name": "@zumen-jp/react",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.3.0",
   "description": "図面の読み込みと表示部品の寿命を管理する React フック",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zumen-jp/zumen.git",
+    "directory": "packages/react"
+  },
   "license": "MIT OR Apache-2.0",
   "type": "module",
-  "exports": {
-    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" },
-    "./view3d": { "types": "./src/view3d.d.ts", "default": "./src/view3d.js" }
+  "engines": {
+    "node": ">=24"
   },
-  "files": ["src", "README.md"],
-  "peerDependencies": { "@zumen-jp/zumen": "^0.2.0 || ^0.3.0", "@zumen-jp/view2d": "^0.1.0", "@zumen-jp/view3d": "^0.1.0", "react": "^19.3.1", "three": ">=0.187.0 <0.188.0" },
-  "peerDependenciesMeta": { "@zumen-jp/view2d": { "optional": true }, "@zumen-jp/view3d": { "optional": true }, "three": { "optional": true } }
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./view3d": {
+      "types": "./src/view3d.d.ts",
+      "default": "./src/view3d.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "@zumen-jp/zumen": "^0.3.0",
+    "@zumen-jp/view2d": "^0.3.0",
+    "@zumen-jp/view3d": "^0.3.0",
+    "react": "^19.3.1",
+    "three": ">=0.187.0 <0.188.0"
+  },
+  "peerDependenciesMeta": {
+    "@zumen-jp/view2d": {
+      "optional": true
+    },
+    "@zumen-jp/view3d": {
+      "optional": true
+    },
+    "three": {
+      "optional": true
+    }
+  }
 }

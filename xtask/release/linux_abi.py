@@ -1,4 +1,4 @@
-"""GNU Linux の配布物が glibc 2.28 の下限を超えないことを、実行せずに確かめる（決定 0014）。"""
+"""GNU Linux の配布物が glibc 2.34 の下限を超えないことを、実行せずに確かめる（決定 0014）。"""
 
 import argparse
 import json
@@ -8,7 +8,7 @@ import struct
 import sys
 from pathlib import Path
 
-FLOOR = (2, 28)
+FLOOR = (2, 34)
 MACHINES = {"x86_64-unknown-linux-gnu": (62, "x86_64"), "aarch64-unknown-linux-gnu": (183, "aarch64")}
 
 
@@ -82,10 +82,10 @@ def verify_linux(binary, target):
     if machine is None:
         require(not target["target"].endswith("-linux-gnu"), "検査に対応していない GNU Linux の target")
         return []
-    require(target["wheel"] == f"manylinux_2_28_{machine[1]}", "Linux wheel のタグが glibc 2.28 の下限と違う")
+    require(target["wheel"] == f"manylinux_2_34_{machine[1]}", "Linux wheel のタグが glibc 2.34 の下限と違う")
     versions = glibc_versions(binary, machine[0])
     require(all(tuple(map(int, version[6:].split("."))) <= FLOOR for version in versions),
-            "ELF が glibc 2.28 の下限を超えるバージョンを要求する: " + versions[-1])
+            "ELF が glibc 2.34 の下限を超えるバージョンを要求する: " + versions[-1])
     return versions
 
 
@@ -94,8 +94,8 @@ def verify_environment(target):
     if machine is None:
         require(not target["target"].endswith("-linux-gnu"), "検査に対応していない GNU Linux の target")
         return
-    require(sys.platform == "linux" and os.confstr("CS_GNU_LIBC_VERSION") == "glibc 2.28",
-            "GNU Linux の配布物は manylinux_2_28 の環境で作り、実行を確かめる")
+    require(sys.platform == "linux" and os.confstr("CS_GNU_LIBC_VERSION") == "glibc 2.34",
+            "GNU Linux の配布物は manylinux_2_34 の環境で作り、実行を確かめる")
     require(os.uname().machine == machine[1], "Linux のビルド・実行のアーキテクチャが対象と違う")
 
 
@@ -108,4 +108,4 @@ if __name__ == "__main__":
     target = next(target for target in targets if target["rid"] == args.rid)
     for path in args.binary:
         versions = verify_linux(path.read_bytes(), target)
-        print(f"{path.name}: glibc 2.28 以下（最大の要求 {versions[-1]}）")
+        print(f"{path.name}: glibc 2.34 以下（最大の要求 {versions[-1]}）")

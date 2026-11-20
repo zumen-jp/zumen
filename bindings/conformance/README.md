@@ -12,19 +12,19 @@
 | Rust から直接 | `tests/conformance.rs` | `cargo test -p zumen-conformance` |
 | C ABI（プロセスの中） | `tests/conformance.rs` | 同上 |
 | Rust の利用者向けの crate（`zumen`） | `tests/conformance.rs`（`src/wrapper.rs`） | 同上。シーンの blob を crate のリーダーで読み、応答の数と比べる（[Rust の API](../../crates/zumen/src/lib.rs)） |
-| wasm | `wasm.mjs`（Node.js 22 以降） | `cargo build -p zumen-abi --target wasm32-unknown-unknown --release` のあと、`node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm` |
-| TypeScript・JavaScript のラッパー（wasm） | `../js/test/conformance.mjs`（Node.js 22 以降） | 同じく作ったあと、`node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm`（[JavaScript の使い方](../js/README.md)） |
+| wasm | `wasm.mjs`（Node.js 24 以降） | `cargo build -p zumen-abi --target wasm32-unknown-unknown --release` のあと、`node bindings/conformance/wasm.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm` |
+| TypeScript・JavaScript のラッパー（wasm） | `../js/test/conformance.mjs`（Node.js 24 以降） | 同じく作ったあと、`node bindings/js/test/conformance.mjs target/wasm32-unknown-unknown/release/zumen_abi1.wasm`（[JavaScript の使い方](../js/README.md)） |
 | TypeScript・JavaScript のラッパー（ブラウザー） | `../js/test/browser/run.mjs`（Playwright） | 同じく作ったあと、`node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm`（手順は `../js/README.md`） |
-| Python のラッパー（C ABI） | `../python/tests/conformance.py`（Python 3.9 以降） | `cargo build -p zumen-abi` のあと、`python3 bindings/python/tests/conformance.py target/debug/libzumen_abi1.so`（macOS は `.dylib`、Windows は `zumen_abi1.dll`。[Python の使い方](../python/README.md)） |
-| .NET のラッパー（C ABI） | `../dotnet/tests/Conformance`（.NET 10。Windows では .NET Framework 4.8 も） | `cargo build -p zumen-abi` のあと、`dotnet run --project bindings/dotnet/tests/Conformance --framework net10.0 -- target/debug/libzumen_abi1.so`（[.NET の使い方](../dotnet/README.md)） |
-| Java のラッパー（C ABI、JNA） | `../java/src/test/java/dev/zumen/Conformance.java`（Java 8 以降。Android 7.0 以降のエミュレーターでも） | `cargo build -p zumen-abi` と `sh bindings/java/fetch-jna.sh target/jna` のあと、`../java/README.md` の手順で作って流す（[Java の使い方](../java/README.md)）。毎晩 |
-| Swift のラッパー（C ABI の静的ライブラリ） | `../swift/Sources/ZumenConformance`（macOS 12・iOS 15 以降） | `sh bindings/swift/build-xcframework.sh debug aarch64-apple-darwin aarch64-apple-ios-sim` のあと、`bindings/swift` で `swift run ZumenConformance ../..`。iOS のシミュレーターは `sh bindings/swift/test-simulator.sh`（[Swift の使い方](../swift/README.md)） |
+| Python のラッパー（C ABI） | `../python/tests/conformance.py`（Python 3.12 以降） | `cargo build -p zumen-abi` のあと、`python3 bindings/python/tests/conformance.py target/debug/libzumen_abi1.so`（macOS は `.dylib`、Windows は `zumen_abi1.dll`。[Python の使い方](../python/README.md)） |
+| .NET のラッパー（C ABI） | `../dotnet/tests/Conformance`（.NET 8・.NET 10） | `cargo build -p zumen-abi` のあと、`dotnet run --project bindings/dotnet/tests/Conformance --framework net10.0 -- target/debug/libzumen_abi1.so`（[.NET の使い方](../dotnet/README.md)） |
+| Java のラッパー（C ABI、JNA） | `../java/src/test/java/dev/zumen/Conformance.java`（Java 21 以降。Android 12 以降のエミュレーターでも） | `cargo build -p zumen-abi` と `sh bindings/java/fetch-jna.sh target/jna` のあと、`../java/README.md` の手順で作って流す（[Java の使い方](../java/README.md)）。毎晩 |
+| Swift のラッパー（C ABI の静的ライブラリ） | `../swift/Sources/ZumenConformance`（macOS 14・iOS 17 以降） | `sh bindings/swift/build-xcframework.sh debug aarch64-apple-darwin aarch64-apple-ios-sim` のあと、`bindings/swift` で `swift run ZumenConformance ../..`。iOS のシミュレーターは `sh bindings/swift/test-simulator.sh`（[Swift の使い方](../swift/README.md)） |
 | Go のラッパー（wasm、wazero） | `../go/conformance_test.go`（Go 1.26 以降） | `cargo build -p zumen-abi --target wasm32-unknown-unknown --release` のあと、モジュールを `bindings/go` に写し、`bindings/go` で `go test ./...`（[Go の使い方](../go/README.md)）。毎晩 |
-| Dart のラッパー（C ABI、dart:ffi） | `../dart/tool/conformance.dart`（Dart 3.0 以降） | `cargo build -p zumen-abi` のあと、`bindings/dart` で `dart pub get` と `dart run tool/conformance.dart ../../target/debug/libzumen_abi1.so`（[Dart の使い方](../dart/README.md)）。毎晩 |
-| VBA7 のラッパー（Windows、C ABI） | `../vba/ZumenConformance.bas` | `python bindings/vba/prepare.py target/vba-conformance.tsv` のあと、Office のマクロで全手順とハッシュを確認する。[VBA の手順](../vba/README.md)。Office 実機は [#800](https://github.com/zumen-jp/zumen/issues/800) で未確認。CI は Windows x86/x64 の DLL と手順の対応を検査する |
+| Dart のラッパー（C ABI、dart:ffi） | `../dart/tool/conformance.dart`（Dart 3.5 以降） | `cargo build -p zumen-abi` のあと、`bindings/dart` で `dart pub get` と `dart run tool/conformance.dart ../../target/debug/libzumen_abi1.so`（[Dart の使い方](../dart/README.md)）。毎晩 |
+| VBA7 のラッパー（Windows 64 bit、C ABI） | `../vba/ZumenConformance.bas` | `python bindings/vba/prepare.py target/vba-conformance.tsv` のあと、Office のマクロで全手順とハッシュを確認する。CI は Windows x64 の DLL と手順の対応を検査する。[VBA の手順と Excel 実機の結果](../vba/README.md#確かめ方) |
 | C のヘッダーと C++ のラッパー（C ABI） | `../c/tests/conformance.rs` | `cargo test -p zumen-c`。組の手順は Rust のテストのツールが読み、API の関数は C と C++ の側から呼ぶ（[C・C++ の使い方](../c/README.md)） |
 | CLI（`zumen serve --stdio` と `zumen mcp`） | `../cli/tests/conformance.rs` | `cargo test -p zumen-cli`。MCP はツールで表せる組だけを流す（[CLI の使い方](../cli/README.md)） |
-| 言語に依らない形態（`zumen call`・`serve --stdio`・`serve --http`・WASI） | `cli.mjs`（Node.js 22 以降） | `cargo build -p zumen-cli --release` のあと、`node bindings/conformance/cli.mjs <call・stdio・http> target/release/zumen`。WASI は `cargo build -p zumen-cli --release --target wasm32-wasip1` のあと、`node bindings/conformance/cli.mjs wasi target/wasm32-wasip1/release/zumen.wasm`（ランタイムは `wasi.mjs` の node:wasi）。`call` は 1 回が 1 つのセッションなので、セッションの最初の call と直後の take だけを流す。Tier 3 の言語の代わり（[対応する環境](../../docs/support.md)）。毎晩 |
+| 言語に依らない形態（`zumen call`・`serve --stdio`・`serve --http`・WASI） | `cli.mjs`（Node.js 24 以降） | `cargo build -p zumen-cli --release` のあと、`node bindings/conformance/cli.mjs <call・stdio・http> target/release/zumen`。WASI は `cargo build -p zumen-cli --release --target wasm32-wasip1` のあと、`node bindings/conformance/cli.mjs wasi target/wasm32-wasip1/release/zumen.wasm`（ランタイムは `wasi.mjs` の node:wasi）。`call` は 1 回が 1 つのセッションなので、セッションの最初の call と直後の take だけを流す。毎晩 |
 
 JavaScript で流すものは、手順の読み方と応答の確かめ方を `cases.mjs` で共有します。ブラウザーでも読み込むため、ファイルを読まない部分は `steps.mjs` に置き、`cases.mjs` から出し直します。各言語のバインディングを足すときは、その言語で同じ組を流すものを足し、CI に入れます（[対応する環境](../../docs/support.md) の「適合テストに通る」）。
 
@@ -68,7 +68,7 @@ cargo run -p zumen-conformance -- --write
 
 `apply_hatch.json` は、合成 DXF と公開 DWG（R2000・R2004・R2013・R2018）に、塗りつぶしと線を定義する模様の HATCH を足します。膨らみを持つ外周・円の穴・模様・種点、既存の ID とハッシュ、無効な境界を含む変更と予算停止の原子性を確かめます。形式の正しさは、この一致検査と分けて [ezdxf・ACadSharp で照合](../../xtask/verify/README.md)します。
 
-`apply_copy.json` は、自作 DXF の LINE（線種の倍率・透過性・XDATA）と属性を持つ INSERT、公開 DWG（R2000）の折れ線と円を `copy` で写します（#889）。写しの ID・ハッシュと値、元の要素の不変、リアクターと XDATA のハンドルを持つ要素・予算停止で何も残らないことを照らします。
+`apply_copy.json` は、自作 DXF の LINE（線種の倍率・透過性・XDATA）と属性を持つ INSERT、公開 DWG（R2000）の折れ線と円および別文書への貼り付け（`from_doc`・`place`）、合成 JWW・SFC・P21 の線分を `copy` で写します（#889）。写しの ID・ハッシュと値、元の要素の不変、リアクターと XDATA のハンドルを持つ要素・予算停止で何も残らないことを照らします。
 
 `apply_dwg_table.json` は、[自作の表](../../crates/zumen-acad/tests/fixtures/README.md)を持つ R2000・R2004・R2010・R2013・R2018 の DWG で、位置だけの `replace` と `transform` を確かめます。ID・セル・表示用ブロックの参照と未変更要素のハッシュを保ち、未対応のセルの変更・回転・予算停止で変更が残らないことを比べます。形式の照合は、検証キットで ACadSharp と別に行います。
 
@@ -209,7 +209,7 @@ node bindings/conformance/generate-font-cases.mjs --check
 
 ### 3D の建物のシーン
 
-scene3d.json は自作の IFC4 です。共有メッシュ、開口を引く壁、円柱、1e12 の座標、mm の単位、地図変換の元値、階・ID・クラス・箱の積、空の選択、不正な条件、予算停止後の再利用を照らします。全応答・blob のハッシュに加え、各言語で 8 種の件数とインスタンスから要素 ID への参照を確かめます。Rust の合成 Building の試験では元モデルの ID 検索にも照合します。VBA は同じ手順とクラスを用意し、実機の実行状況は #800 の記録と区別します。
+scene3d.json は自作の IFC4 です。共有メッシュ、開口を引く壁、円柱、1e12 の座標、mm の単位、地図変換の元値、階・ID・クラス・箱の積、空の選択、不正な条件、予算停止後の再利用を照らします。全応答・blob のハッシュに加え、各言語で 8 種の件数とインスタンスから要素 ID への参照を確かめます。Rust の合成 Building の試験では元モデルの ID 検索にも照合します。VBA は同じ手順を [Excel 64 bit の実機](../vba/README.md#実機の検証結果)で確認しました。
 
 `scene3d_pointcloud.json` は自作の形式 2 の LAS を点群のモジュールで開き、`scene3d` で八分木の節ごとの点の区画を持つ ZMS3 1.1 を返します。点の数・節の数・範囲・座標系、範囲と件数での絞り込み、点群に使えない条件・予算停止の後の再利用を照らします。各言語の読み手は塊ごとの点の数を応答と比べます（[点群の 3D のシーン](../../schema/README.md#点群の-3d-のシーン)）。
 

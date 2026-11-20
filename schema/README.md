@@ -7,11 +7,42 @@
 | `boundary.toml` | バージョン（ABI・メッセージのスキーマ）、状態コード、関数とその引数 | `bindings/c/include/zumen.h`、`crates/zumen-abi/src/abi.rs`、`bindings/js/src/constants.js`・`constants.d.ts`、`bindings/python/zumen/constants.py`、`bindings/dotnet/Zumen/Constants.g.cs` |
 | `messages.json` | 要求・応答・op ごとのフィールド・診断・セッションの設定・カタログの形（JSON Schema 2020-12） | `crates/zumen-abi/src/messages.rs`、`bindings/js/src/messages.d.ts`、`bindings/python/zumen/messages.py`、`bindings/dotnet/Zumen/Messages.g.cs`、`bindings/cli/src/tools.json`（MCP のツール） |
 | `scene.toml` | シーンの blob の配置（セクションと値の組） | `crates/zumen-scene/src/layout.rs`、`bindings/c/include/zumen_scene.h`、`bindings/js/src/constants.js`・`constants.d.ts`、`bindings/python/zumen/constants.py`、`bindings/dotnet/Zumen/Constants.g.cs` |
-| `drawing.toml` | 図面モデル（L2）のバイナリの型の契約（型ごとのフィールドと値の並びと、バージョン）。生成器が図面モデルの型から書き足す | `crates/zumen-drawing/src/binary/generated.rs` |
+| `drawing.toml` | 図面モデル（L2）のバイナリの型の契約（型ごとのフィールドと値の並びと、バージョン）。生成器が図面モデルの型から書き足す | `crates/zumen-drawing/src/binary/generated.rs`、`crates/zumen-drawing/src/model_size/generated.rs` |
 
 生成したファイルもコミットします。CI の `cargo xtask codegen --check` が、元と合わないものを見つけます。
 
 VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenNative.bas` にネイティブの宣言・ABI の型・バージョン・状態コード・シーンの配置を生成します。メッセージは UTF-8 の JSON のまま受け渡します。所有権と型の対応は [VBA のバインディング](../bindings/vba/README.md) にあります。
+
+## 図面モデルのメモリ予算
+
+スキーマ 1.113 から、要求の `budget` とセッション既定の予算で `model_bytes` を指定できます（#559）。
+
+```json
+{"v":1,"op":"drawing","doc":"plan.dxf","budget":{"model_bytes":67108864}}
+```
+
+図面モデル（L2）が保持する要素・頂点・輪・文字列・表・拡張を、ポインター幅によらない 64 ビット相当の論理バイト数で数えます。圧縮や符号化を展開した `decoded_bytes`、要素の件数だけを数える `elements` とは別の予算です。既定は 512 MiB です。上限を超えたときは元のレコードや要素の出所を添えた `budget.model-bytes.exceeded` を返して失敗し、途中の部分結果は返しません。開いていた文書は変更されません。
+
+## 部品を持たない寸法の表示設定
+
+図面モデルのバイナリ 1.2 では、`Drawing2D` の末尾に `dimension_display` を書きます。1.0・1.1 の図面を読むと、この一覧は空になります。既存の要素の ID と、編集の前提条件に使う要素・寸法スタイルのハッシュは同じです。[バイナリの型](drawing.toml)
+
+基本の設定は寸法スタイルの名前で、個別の上書きは要素の ID と読み取り時のハッシュで結びます。スタイル名は ASCII の大文字と小文字を区別せず、同じ対象が複数あれば先の設定を使います。個別の値は要素のハッシュが一致するときだけ使い、省いた項目はスタイルから継承します。長さは、倍率を掛ける前の図面の単位です。倍率・矢印・目盛りの共通値は既存の寸法スタイルにあり、表示設定はその 3 項目の個別の値を持ちます。たとえば目盛りの大きさを 0 にすると、スタイルが指定する斜線を取り消せます。
+
+表示設定だけの変更も編集時に検出するには、元の文書のハッシュを指定します。DXF の寸法を同じ文書内で複写すると、個別の上書きは写しにも付きます。別文書へ引出線や記号を複写するときは、参照する寸法スタイルの表示設定と文字スタイルの定義も照合します。記号に含まれる寸法では個別の上書きも照合し、異なれば複写全体を拒みます。
+
+寸法文字の垂直配置（`text_vertical_placement`）は 0〜4 を使います。寸法文字と線のすき間（`text_gap`）は図面の単位で、負の値は文字の囲みを含む指定として符号も保存します。[DIMTAD](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-60D1241D-CEA7-4493-BD6A-4EF433F3C946.htm)・[DIMGAP](https://help.autodesk.com/cloudhelp/2025/ENG/AutoCAD-Core/files/GUID-EB367187-A5D6-404A-8121-A6D1D25B626A.htm)
+
+## 図面から地図への変換
+
+スキーマ 1.112 から、`drawing` の応答は文書が地理位置（DXF・DWG の `GEODATA`）を持ち変換を作れたときに `result.georeference`（EPSG コードの `crs` と IFC の `IfcMapConversion` と同じ形の `conversion`）を返します。合わせて、図面と土木・地理のモジュールで `georeference` を使えます（#685）。
+
+```json
+{"v":1,"op":"georeference","doc":"plan.dwg","points":[{"x":1200,"y":3400}]}
+{"v":1,"op":"georeference","crs":6677,"control_points":[{"drawing":{"x":0,"y":0},"map":{"easting":1000,"northing":2000}},{"drawing":{"x":10000,"y":0},"map":{"easting":1010,"northing":2000}}],"points":[{"x":5000,"y":0}]}
+```
+
+`doc` を渡すと開いた図面から変換を取り出し、任意の `expected_hash` で元の文書ハッシュを確かめます。変換を作れない設定・座標系の文書では診断を添えて成功し、`georeference` と `mapped` を省きます。`crs`（平面直角座標系の EPSG コード）と `control_points`（2 組以上の図面座標と地図投影座標）を渡すと、尺度・回転・平行移動の相似の変換を最小二乗で求め、組ごとの残差（`residuals`）とともに返します。どちらの形でも `points` を渡せば地図の東・北の座標（メートル）に写して `mapped` に返します。式と診断は[座標系と標高](../docs/formats/crs.md#対応点から地図への変換)にあります。
 
 ## レビューのシーン
 
@@ -117,9 +148,17 @@ DXF のバージョン・既定の表・空間と用紙は、[新規作成の規
 
 ## 要素の複写
 
-マイナーバージョン 100 からは、`copy` で要素を同じ空間か用紙に複写できます（#889）。要素の ID とハッシュ、写しを動かすアフィン変換（`matrix`、元の位置なら `[1, 0, 0, 0, 1, 0]`）を渡します。写しは元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（XDATA など）を保ち、図形とともに動く XDATA と記号の属性を同じ変換で直します。`apply` の結果は写しの ID とハッシュを返し、元の要素は変えません。同じ要素を同じ一覧で何度も写せます。
+マイナーバージョン 100 からは、`copy` で要素を複写できます（#889）。要素の ID とハッシュ、写しを動かすアフィン変換（`matrix`、元の位置なら `[1, 0, 0, 0, 1, 0]`）を渡し、マイナーバージョン 110 からは配置先の空間・用紙（`place`）と複写元の文書（`from_doc`）も指定できます。写しは元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（DXF・DWG の XDATA、JWW のフラグ・文字種・字間、SXF の文字範囲の幅・字間など）を保ち、図形とともに動く XDATA と記号の属性を同じ変換で直します。DXF の寸法・表は、写しごとに新しい匿名ブロックを作ります。`apply` の結果は写しの ID とハッシュを返し、元の要素と複写元の文書は変えません。同じ要素を同じ一覧で何度も写せます。
 
-写せない要素は、`change.copy.unsupported` で変更の添字・種類・フィールド・理由を返して全体を拒みます。リアクター・拡張辞書・XDATA のハンドル・ほかの図形を指す参照を持つ要素、寸法・表など写せない種類、同じ一覧の先の変更が変えた要素が、それにあたります。書ける形式は DXF と DWG で、DWG は足せる図形の値だけを書きます（書けない値を持てば `dwg.change.unsupported` で拒みます）。JWW・SXF は `change.edit.unsupported` で断ります。ほかの空間・文書への貼り付け（単位・レイヤ・スタイル・記号の定義の対応と名前の衝突）は、まだ受けません。
+別の空間・用紙・文書へ貼り付けるときの規則は次のとおりです。
+
+- **形式と配置先**: `place` を省けば元の要素と同じ場所 ID を使い、同じ形式の間（DXF 同士、DWG 同士、JWW 同士、SFC 同士、P21 同士）だけを受け付けます。ない `place` は `change.element.missing`、形式の不一致は `change.copy.unsupported`（`field = format`・`value = mismatch`）にします。
+- **単位**: 配置元と配置先の長さの単位がともに決まっていて一致するときだけ写します（用紙は mm）。単位が不明または異なるとき（JWW のレイヤグループの縮尺違いを含む）は、`field = unit`・`value = mismatch` で拒みます。ワールド座標に結ばれた動く XDATA（1011〜1013・1041・1042）は、モデル空間（`space/0`）以外の配置では `field = xdata`・`value = world_space` で拒みます。
+- **レイヤ**: DXF・DWG は大文字と小文字を区別しない名前、SXF は完全一致の名前で貼り付け先のレイヤに結び、なければ `field = layer`・`value = missing` で拒みます。JWW はレイヤ番号がレイヤグループを決めるため同じグループ番号の空間に限り、貼り付け先の枠に異なる非空のレイヤ名があれば `field = layer`・`value = conflict` で拒みます。
+- **線種・文字スタイル・寸法スタイル・APPID**: 要素が指す定義が貼り付け先になければ `missing`、同じ名前で定義の内容が異なれば名前衝突として `conflict`（`field` は `line_type`・`text_style`・`dimension_style`・`appid`）で拒み、異なる定義へ黙って差し替えません。SXF の利用者定義色や JWW のペン色が異なる RGB になる場合も `field = style` で拒みます。
+- **記号定義**: 要素が指すブロックや複合図形が貼り付け先になければ `field = symbol`・`value = missing`、同名の定義の基点や中身が異なれば `field = symbol`・`value = conflict` で拒みます。定義の空間へ記号を写して入れ子が輪になるときは `change.symbol-cycle.invalid` で拒みます。
+
+写せない要素は、`change.copy.unsupported` で変更の添字・種類・フィールド・理由を返して全体を拒みます。リアクター・拡張辞書・XDATA のハンドル・ほかの図形を指す参照を持つ要素、JWW の曲線属性番号（`curve != 0`）、SXF の複合曲線や属性付加機構（`$$ATR*`・SAF の `$$ATRF$$`）が付いた要素、同じ一覧の先の変更が変えた要素が、それにあたります。
 
 DXF・DWG は 4 種類の表、JWW・SXF は各形式が追加できるレイヤを扱います。TEXT・MTEXT の置き換えは、既存または先に追加した文字スタイルへ指し替えられます。文字の位置合わせや高さの意味は保ちます。寸法・引出線の置き換えで別の寸法スタイルへ移す操作は対象に含めません。
 

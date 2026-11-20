@@ -1212,7 +1212,7 @@ def partial_arc_steps(_fmt):
 
 
 def table_cell_steps(_fmt):
-    """#684: 旧版 DWG の単純な表で文字のセルを変え、表示用ブロックも作り直す。"""
+    """#684: DWG（R2000〜R2018）の単純な表で文字のセルを変え、表示用ブロックも作り直す。"""
     def replaced(reading):
         edits = []
         for table in model(reading, "table"):
@@ -1264,7 +1264,7 @@ RECIPES = [
     ("partial-arc-moved", 684, lambda name, fmt: fmt in ("dxf", "dwg") and "-arcdim-" in name, partial_arc_steps),
     ("table-moved", 684, lambda name, fmt: fmt == "dwg" and ("apply_dwg_table-" in name or "apply_styled_dwg_table-" in name), lambda _: table_position_steps(True)),
     ("table-placed", 684, lambda name, fmt: fmt == "dwg" and ("apply_dwg_table-" in name or "apply_styled_dwg_table-" in name), lambda _: table_position_steps(False)),
-    ("table-cells", 684, lambda name, fmt: fmt == "dwg" and name in ("apply_dwg_table-table-r2000.dwg", "apply_dwg_table-table-r2004.dwg"), table_cell_steps),
+    ("table-cells", 684, lambda name, fmt: fmt == "dwg" and ("apply_dwg_table-" in name or "apply_styled_dwg_table-" in name), table_cell_steps),
 ]
 # 記号の定義の中の要素も読む組（read の definitions）。定義の中に足した要素を、書いたファイルの読みに残す
 INSIDE = {"added"}
@@ -1909,14 +1909,14 @@ SECTIONS = {
 
 - **AutoCAD。** 共通の手順で、格子の列・行・間隔と、属性（TAGGED の NO・KIND）が記号とともに動いたことを確かめる。
 
-**点の印刷（決定 0159）。** `input/zumen-points-a-r2018.dwg` を、モデルのタブから PDF に印刷する。期待は、画層 0 の点（ハンドル 2DB）と記号 BYBLOCKPOINT（2E5）の中の点が印刷され、印刷しない画層（NOPLOT の 2DC、Defpoints の 2DD）の点が印刷されないこと。zumen は、表示し、実効の画層が印刷するものを印刷するとしている（推定）。
+**点の印刷（#316）。** `input/zumen-points-a-r2018.dwg` を、モデルのタブから PDF に印刷する。画層 0 の点（ハンドル 2DB）と記号 BYBLOCKPOINT（2E5）の中の点には、円と十字が出る。印刷しない画層（NOPLOT の 2DC、Defpoints の 2DD）の点は出ない。AutoCAD 2027 のモデル空間からの PDF 出力で、4 か所ともこの予想どおりだった。
 
 **まだサンプルのない値。** MTEXT の `\\c` と `\\p` の左インデント・揃え、MULTILEADER の線ごとの上書き、文字スタイルの太字・斜体（1071 のビット 24・25）は、`316/controls/README.md` の手順で確かめる。合成の `neutral.dxf` を画面のある AutoCAD で開き、項目ごとに設定して保存した DXF を、`observe.py` で変更前の DXF と照らして、結果を #316 に記録する。保存した図面はリポジトリの外のキットのフォルダーに残し、`samples/dwg` に足すかは記録を受けて決める（足すときは決定 0171 に従う）。
 """,
     ),
     684: (
-        "#684 表の位置だけの書き戻し",
-        """自作の 2 行 2 列の表を ACadSharp 3.8.0 で符号化した R2010・R2013・R2018 の DWG に、平行移動（table-moved）または位置の置き換え（table-placed）を当てました。セルの値・大きさ・向きと表示用ブロックを保ちます。ACadSharp で、位置・方向・行の高さ・列の幅・セルの文字を照らします。`apply_styled_dwg_table` の 3 入力は文書内の表スタイルと文字スタイルを参照し、入力と出力の読取通知が 0 件であることも確認します。セルの変更・回転・拡大は、この組では扱いません。AutoCAD では共通の手順で開けることと監査を確認し、表全体が指定した位置へ動き、セルの書式と罫線が保たれることを確かめます。
+        "#684 表の位置とセルの書き戻し",
+        """自作の 2 行 2 列の表を符号化した R2000・R2004・R2010・R2013・R2018 の DWG に、平行移動（table-moved）、位置の置き換え（table-placed）、およびセル文字列・空セルの置き換えと表示用ブロックの再生成（table-cells）を当てました。ACadSharp で、位置・方向・行の高さ・列の幅・セルの文字を照らします。`apply_styled_dwg_table` の 3 入力は文書内の表スタイルと文字スタイルを参照し、入力と出力の読取通知が 0 件であることも確認します。AutoCAD では共通の手順で開けることと監査を確認し、表の位置・セルの文字・書式・罫線が保たれることを確かめます。
 """,
     ),
     314: (

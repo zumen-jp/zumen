@@ -37,7 +37,7 @@ function reference(c, rotation) {
 }
 
 /** 巨大な線幅の側面を、半幅で広がる数値 guard を持たない独立した二乗式と比較する。 */
-export function testWideBoundaries(assert) {
+export async function testWideBoundaries(assert) {
   const totals = { scenes: 0, points: 0, rectangles: 0, boundaryExcluded: 0 };
   for (const half of [Math.fround(2e9), Math.fround(2e15), Math.fround(1e38)]) for (const rotation of [0, Math.PI / 6, Math.PI / 2]) for (const pixelRatio of [1, 1.5, 8]) {
     const strings = [...new TextEncoder().encode(ID)], input = bundle({
@@ -47,7 +47,7 @@ export function testWideBoundaries(assert) {
       entity_ids: [0, strings.length], entity_kinds: [V.entity_kind.line], entity_paths: [0], strings,
       color_systems: [0], color_codes: [0], color_files: [0, 0, 0, 0], color_rgba: [0, 0, 0, 128], color_flags: [0],
     });
-    const viewer = new View2D(document.createElement("canvas"), { width: 200, height: 200, pixelRatio, pixelsPerMillimeter: 1,
+    const viewer = await View2D.create(document.createElement("canvas"), { width: 200, height: 200, pixelRatio, pixelsPerMillimeter: 1,
       view: { center: { x: 0, y: 0 }, scale: 1, rotation } });
     try {
       viewer.setScene(input); const expected = reference(input.scene.columns, rotation), element = viewer.getElements()[0];

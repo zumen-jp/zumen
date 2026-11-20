@@ -1334,22 +1334,44 @@ fn drawings_take_back_dimensions_replaced_through_the_boundary() {
             .collect();
         returned += dimensions.len();
         if !dimensions.is_empty() {
+            let mut add_trial = Session::new(b"").unwrap();
+            add_trial.push(b"in", &raw).unwrap();
+            assert!(open(&mut add_trial, "in"));
             let sent = r#"{"shape":"dimension","kind":"linear","first":[0,0],"second":[10,0],"line":[10,5],"rotation":0,"oblique":0,"label":"measurement","style":"Standard"}"#;
             let (add_status, add_res) = call(
-                &mut session,
+                &mut add_trial,
                 &format!(
                     r#"{{"v":1,"op":"apply","doc":"in","edits":[{{"kind":"add","place":"space/0","geometry":{sent}}}],"budget":{{"work":"unlimited","elements":"unlimited","records":"unlimited"}}}}"#
                 ),
             );
-            assert_eq!(add_status, Status::Failed, "{}", path.display());
-            let printed = format!("{add_res:?}");
-            assert!(
-                printed.contains("change.edit.unsupported")
-                    || printed.contains("dwg.edit.unsupported"),
-                "{} {add_res:?}",
-                path.display()
-            );
-            assert_eq!(shapes(&mut session, "in"), found, "{}", path.display());
+            match add_status {
+                Status::Ok => {
+                    let added_id = text(&add_res, "/result/applied/0/id").unwrap().to_owned();
+                    let added_hash = text(&add_res, "/result/applied/0/hash").unwrap().to_owned();
+                    let written = add_trial.take(0).unwrap();
+                    add_trial.push(b"added", &written).unwrap();
+                    assert!(open(&mut add_trial, "added"), "{}", path.display());
+                    let after_seen = entities(&mut add_trial, "added");
+                    assert!(
+                        after_seen.iter().any(|(id, kind, hash)| id == &added_id
+                            && kind == "dimension"
+                            && hash == &added_hash),
+                        "{} {after_seen:?}",
+                        path.display()
+                    );
+                }
+                Status::Failed => {
+                    let printed = format!("{add_res:?}");
+                    assert!(
+                        printed.contains("change.edit.unsupported")
+                            || printed.contains("dwg.edit.unsupported"),
+                        "{} {add_res:?}",
+                        path.display()
+                    );
+                    assert_eq!(shapes(&mut add_trial, "in"), found, "{}", path.display());
+                }
+                other => panic!("{} {other:?} {add_res:?}", path.display()),
+            }
         }
         for (index, (id, hash, geometry)) in dimensions.into_iter().take(5).enumerate() {
             let mut trial = Session::new(b"").unwrap();

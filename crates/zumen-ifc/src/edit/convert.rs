@@ -11,19 +11,19 @@
 //!   書いた祖先まで変換を畳む。解けない配置と、正規直交でない変換は書かない
 //! - 階の高さは、IFC2X3 と IFC4 では 10 Elevation に書く。元に値がなければ、建物モデルの階の高さを書く。IFC4.3
 //!   では配置だけが高さを持つので、元の値が親からの配置の z と同じでなければ落とす
-//! - 書き手が足す関係の GlobalId は、名前空間と、足した順から導く
+//! - 書き手が足す関係とセットの GlobalId は、名前空間と、種類・結ぶ要素の GlobalId・セットの名前から導く
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use zumen_base::{Diagnostic, Kind, codes};
 use zumen_building::{
-    Acquired, AreaProfileKind, AxisPlacement2, AxisPlacement3, Building, ConnectedFaces,
-    Coordinates, CurveGraph, CurveKind, CurveRef, ElementRef, EnclosureCoordinates, FaceBoundRef,
-    FaceBoundary, FaceGraph, FaceLoopRef, FaceModelKind, FacePointRef, FacePolygon, FaceRef,
-    FaceSetRef, GeometryData, GeometryDefinition, GeometryLinks, GeometryNode, GeometryRef,
-    GlobalId, HalfSpaceLimit, Id, IndexedFaceSet, IndexedFaces, Literal, Local, Material,
-    MaterialKind, Measured, Opening, ParentKind, PolygonFace, Property, Quantity, SpatialKind,
-    Unit,
+    Acquired, AreaProfile, AreaProfileKind, AxisPlacement2, AxisPlacement3, Building,
+    ConnectedFaces, Coordinates, CurveGraph, CurveKind, CurveRef, ElementRef, EnclosureCoordinates,
+    FaceBoundRef, FaceBoundary, FaceGraph, FaceLoopRef, FaceModelKind, FacePointRef, FacePolygon,
+    FaceRef, FaceSetRef, GeometryData, GeometryDefinition, GeometryLinks, GeometryNode,
+    GeometryRef, GlobalId, HalfSpaceLimit, Id, IndexedFaceSet, IndexedFaces, Literal, Local,
+    Material, MaterialKind, Measured, Opening, ParentKind, PolygonFace, Property, Quantity,
+    SpatialKind, Unit,
 };
 use zumen_sdk::conversion::{ConversionFidelity, ConversionReport, Report, note};
 use zumen_sdk::{Codec, Cx, Error};
@@ -31,13 +31,13 @@ use zumen_sdk::{Codec, Cx, Error};
 use super::author::{
     NewAxis2, NewAxis3, NewBoolean, NewConstituent, NewFaces, NewHalfSpace, NewHalfSpaceLimit,
     NewItem, NewLayerUsage, NewMapped, NewMaterial, NewMaterialLayer, NewProfile, NewProfileKind,
-    NewShape, NewSolid, NewType, SHAPE_NESTING, enumeration, material_rejected, predefined_at,
-    rigid, shape_rejected, writable_type,
+    NewRevolution, NewShape, NewSolid, NewSweptDisk, NewType, SHAPE_NESTING, enumeration,
+    material_rejected, predefined_at, rigid, shape_rejected, valid_predefined, writable_type,
 };
 use super::create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
 use super::quantity::{NewQuantity, NewUnit, quantity_value, si_unit};
 use super::{
-    Edit, NewElement, NewLiteral, NewPlacement, NewSpace, NewValue, SpaceKind, Target, apply,
+    Edit, NewElement, NewLiteral, NewPlacement, NewSpace, NewValue, SpaceKind, Target, apply, typed,
 };
 use crate::building::{Version, arg};
 use crate::{Ifc, IfcFile, Value, stopped};
@@ -168,10 +168,22 @@ fn instances(file: &IfcFile, cx: &mut Cx) -> Result<BTreeMap<String, u64>, Error
     Ok(found)
 }
 
-/// 書けるプロパティの値。値の型の名前があり、単一の値のもの
-fn property_value(property: &Property) -> Option<NewValue> {
+/// 書けるプロパティの値。値の型の名前があり、単一の値のもの。IFC4X3 の `IfcCountMeasure` は整数なので、整数値の実数は整数に直し、小数は落とす
+fn property_value(property: &Property, version: Version) -> Option<NewValue> {
     let value = property.value.as_ref()?;
+    let type_name = value.type_name.clone()?;
     let literal = match &value.value {
+        Literal::Real(real)
+            if version == Version::Ifc4x3 && type_name.eq_ignore_ascii_case("IfcCountMeasure") =>
+        {
+            const EXACT: f64 = 9_007_199_254_740_992.0;
+            if real.is_finite() && real.fract() == 0.0 && real.abs() <= EXACT {
+                #[allow(clippy::cast_possible_truncation)]
+                NewLiteral::Integer(*real as i64)
+            } else {
+                return None;
+            }
+        }
         Literal::Real(real) => NewLiteral::Real(*real),
         Literal::Integer(integer) => NewLiteral::Integer(*integer),
         Literal::Text(text) => NewLiteral::Text(text.clone()),
@@ -179,10 +191,8 @@ fn property_value(property: &Property) -> Option<NewValue> {
         Literal::Logical(logical) => NewLiteral::Logical(*logical),
         Literal::Enumeration(_) | Literal::Element(_) | Literal::List(_) => return None,
     };
-    Some(NewValue {
-        type_name: value.type_name.clone()?,
-        literal,
-    })
+    let candidate = NewValue { type_name, literal };
+    typed(&candidate).is_some().then_some(candidate)
 }
 
 /// 元の文書の長さの単位。ひな形に書けなければ `None`
@@ -378,6 +388,13 @@ impl Plan<'_, '_> {
                 && unit.prefix.is_none()
                 && unit.name.eq_ignore_ascii_case("RADIAN")
             {
+                if !self
+                    .units
+                    .iter()
+                    .any(|u| u.kind.eq_ignore_ascii_case("PLANEANGLEUNIT"))
+                {
+                    self.units.push(unit);
+                }
                 continue;
             }
             let new = NewUnit {
@@ -440,9 +457,16 @@ impl Plan<'_, '_> {
     /// 型（`IfcWallType` など）を書く。PredefinedType は必須なので、元になければ `NOTDEFINED` にする
     fn element_type(&mut self, element: ElementRef, kind: &'static str) {
         let source = self.building.components.class.get(element);
+        let element_type = source.and_then(|c| c.user_defined.clone());
         let mut dropped = Vec::new();
         let predefined = match source.and_then(|c| c.predefined.clone()) {
-            Some(value) if enumeration(&value).is_some() => Some(value),
+            Some(value)
+                if enumeration(&value).is_some()
+                    && valid_predefined(kind, &value, self.version)
+                    && (!value.eq_ignore_ascii_case("USERDEFINED") || element_type.is_some()) =>
+            {
+                Some(value)
+            }
             Some(_) => {
                 dropped.push("predefined");
                 None
@@ -470,7 +494,7 @@ impl Plan<'_, '_> {
         self.edits.push(Edit::ElementType(NewType {
             class: kind.to_owned(),
             predefined,
-            element_type: source.and_then(|c| c.user_defined.clone()),
+            element_type,
             name: self.name(element),
             global_id: self.global_id(element),
         }));
@@ -701,6 +725,12 @@ impl Plan<'_, '_> {
         if let Some(solid) = self.new_solid(node) {
             return Some((NewItem::Solid(solid), true));
         }
+        if let Some(revolution) = self.new_revolution(node) {
+            return Some((NewItem::Revolution(revolution), true));
+        }
+        if let Some(disk) = self.new_disk(node) {
+            return Some((NewItem::SweptDisk(disk), true));
+        }
         self.new_faces(node)
             .map(|(faces, same)| (NewItem::Faces(faces), same))
     }
@@ -766,14 +796,93 @@ impl Plan<'_, '_> {
         else {
             return None;
         };
-        if !self.length_written(length_unit.as_ref())
-            || boundary
-                .as_ref()
-                .is_some_and(|graph| !self.length_written(graph.length_unit.as_ref()))
-        {
+        if !self.length_written(length_unit.as_ref()) {
             return None;
         }
-        let profile = &definition.profile;
+        Some(NewSolid {
+            profile: self.new_profile(&definition.profile, boundary.as_ref())?,
+            position: definition.position.as_ref().map(new_axis3),
+            direction: definition.direction,
+            depth: definition.depth,
+        })
+    }
+
+    /// 断面の回転。軸が断面の平面にあり、角度をラジアンに直せるもの
+    fn new_revolution(&self, node: &GeometryNode) -> Option<NewRevolution> {
+        let GeometryDefinition::Revolution {
+            definition,
+            boundary,
+            length_unit,
+        } = &node.definition
+        else {
+            return None;
+        };
+        if !self.length_written(length_unit.as_ref()) {
+            return None;
+        }
+        let axis = &definition.axis;
+        let [x, y, 0.0] = axis.location else {
+            return None;
+        };
+        let [dx, dy, 0.0] = axis.direction else {
+            return None;
+        };
+        // 角度は文書の平面角の単位のまま持つ。換算する単位は SI の単位（ラジアン）での大きさを掛ける
+        let unit = definition.angle.unit.as_ref()?;
+        let scale = match unit.scale {
+            Some(scale) => scale,
+            None if unit.prefix.is_none() && unit.name.eq_ignore_ascii_case("RADIAN") => 1.0,
+            None => return None,
+        };
+        Some(NewRevolution {
+            profile: self.new_profile(&definition.profile, boundary.as_ref())?,
+            position: definition.position.as_ref().map(new_axis3),
+            location: [x, y],
+            direction: [dx, dy],
+            angle: definition.angle.value * scale,
+        })
+    }
+
+    /// 3 次元の折れ線に沿う円盤の掃引
+    fn new_disk(&self, node: &GeometryNode) -> Option<NewSweptDisk> {
+        let GeometryDefinition::SweptDisk {
+            definition,
+            directrix,
+        } = &node.definition
+        else {
+            return None;
+        };
+        if !self.length_written(directrix.length_unit.as_ref()) {
+            return None;
+        }
+        let CurveKind::Polyline(points) = &directrix.item(definition.directrix)?.kind else {
+            return None;
+        };
+        let points = points
+            .iter()
+            .map(|point| match point {
+                Coordinates::Three(point) => Some(*point),
+                Coordinates::Two(_) => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(NewSweptDisk {
+            directrix: points,
+            radius: definition.radius,
+            inner_radius: definition.inner_radius,
+            start: definition.start_parameter,
+            end: definition.end_parameter,
+        })
+    }
+
+    /// 矩形・円・折れ線の面の断面
+    fn new_profile(
+        &self,
+        profile: &AreaProfile,
+        boundary: Option<&CurveGraph>,
+    ) -> Option<NewProfile> {
+        if boundary.is_some_and(|graph| !self.length_written(graph.length_unit.as_ref())) {
+            return None;
+        }
         let axis2 = |p: &AxisPlacement2| NewAxis2 {
             location: p.location,
             reference: p.reference_direction,
@@ -789,14 +898,14 @@ impl Plan<'_, '_> {
                 position: profile.position.as_ref().map(axis2),
             },
             AreaProfileKind::ArbitraryClosed { boundary: outer } => NewProfileKind::Polygon {
-                outer: ring(boundary.as_ref()?, *outer)?,
+                outer: ring(boundary?, *outer)?,
                 holes: Vec::new(),
             },
             AreaProfileKind::ArbitraryWithVoids {
                 boundary: outer,
                 holes,
             } => {
-                let graph = boundary.as_ref()?;
+                let graph = boundary?;
                 NewProfileKind::Polygon {
                     outer: ring(graph, *outer)?,
                     holes: holes
@@ -807,14 +916,9 @@ impl Plan<'_, '_> {
             }
             _ => return None,
         };
-        Some(NewSolid {
-            profile: NewProfile {
-                name: profile.name.clone(),
-                kind,
-            },
-            position: definition.position.as_ref().map(new_axis3),
-            direction: definition.direction,
-            depth: definition.depth,
+        Some(NewProfile {
+            name: profile.name.clone(),
+            kind,
         })
     }
 
@@ -1025,25 +1129,34 @@ impl Plan<'_, '_> {
         let elevation = match kind {
             SpaceKind::Site => spatial
                 .and_then(|s| s.ref_elevation.as_ref())
-                .map(|m| m.value),
+                .map(|m| m.value)
+                .filter(|v| v.is_finite()),
             SpaceKind::Building | SpaceKind::Storey => {
-                let written = spatial.and_then(|s| s.elevation.as_ref()).map(|m| m.value);
+                let written = spatial
+                    .and_then(|s| s.elevation.as_ref())
+                    .map(|m| m.value)
+                    .filter(|v| v.is_finite());
                 let level = if kind == SpaceKind::Storey {
                     building
                         .components
                         .level
                         .get(element)
                         .map(|level| level.height.value)
+                        .filter(|v| v.is_finite())
                 } else {
                     None
                 };
                 match self.version {
                     Version::Ifc4x3 => {
-                        // 高さは配置だけが持つ。元の値が親からの配置の z と同じなら落とさない
-                        let placed = placement
-                            .as_ref()
-                            .filter(|p| p.relative_to == Some(parent))
-                            .map(|p| p.local.0[2][3]);
+                        // 高さは配置だけが持つ。階で元の値が親からの配置の z と同じなら落とさない
+                        let placed = (kind == SpaceKind::Storey)
+                            .then(|| {
+                                placement
+                                    .as_ref()
+                                    .filter(|p| p.relative_to == Some(parent))
+                                    .map(|p| p.local.0[2][3])
+                            })
+                            .flatten();
                         if written.is_some_and(|h| Some(h) != placed) {
                             dropped.push("elevation");
                         }
@@ -1082,7 +1195,14 @@ impl Plan<'_, '_> {
         let mut dropped = Vec::new();
         let source = building.components.class.get(element);
         let predefined = match source.and_then(|c| c.predefined.clone()) {
-            Some(value) if slot > 0 && enumeration(&value).is_some() => Some(value),
+            Some(value)
+                if slot > 0
+                    && enumeration(&value).is_some()
+                    && valid_predefined(kind, &value, self.version)
+                    && !value.eq_ignore_ascii_case("USERDEFINED") =>
+            {
+                Some(value)
+            }
             Some(_) => {
                 dropped.push("predefined");
                 None
@@ -1098,7 +1218,7 @@ impl Plan<'_, '_> {
             .get(element)
             .and_then(|p| p.of.as_ref());
         let container = match membership {
-            Some(of) if of.kind == ParentKind::Contained => {
+            Some(of) if of.kind == ParentKind::Contained && kind != "IfcOpeningElement" => {
                 let spatial = building.components.spatial.get(of.target).is_some_and(|s| {
                     matches!(
                         s.kind,
@@ -1124,10 +1244,18 @@ impl Plan<'_, '_> {
         // 形は配置に置くので、配置を書く要素にだけ書く
         let placed = placement.is_some();
         dropped.extend(self.components(element));
+        let expected_type = format!("{kind}Type");
         let type_of = building
             .components
             .r#type
             .get(element)
+            .filter(|t| {
+                building
+                    .components
+                    .class
+                    .get(t.target)
+                    .is_some_and(|c| c.name.eq_ignore_ascii_case(&expected_type))
+            })
             .and_then(|t| self.target(t.target));
         if type_of.is_some() {
             dropped.retain(|&value| value != "type");
@@ -1236,9 +1364,16 @@ impl Plan<'_, '_> {
             };
             if let Some(sets) = building.components.quantities.get(element) {
                 let mut lost = false;
+                let mut seen_sets = BTreeSet::new();
+                let mut seen_items = BTreeSet::new();
                 for set in &sets.sets {
+                    lost |= !seen_sets.insert(set.name.as_str());
                     lost |= set.quantities.is_empty();
                     for quantity in &set.quantities {
+                        if !seen_items.insert((set.name.as_str(), quantity.name.as_str())) {
+                            lost = true;
+                            continue;
+                        }
                         match self.quantity(quantity) {
                             Some((quantity, partial)) => {
                                 lost |= partial;
@@ -1261,10 +1396,17 @@ impl Plan<'_, '_> {
                 continue;
             };
             let mut lost = false;
+            let mut seen_sets = BTreeSet::new();
+            let mut seen_items = BTreeSet::new();
             for set in &sets.sets {
+                lost |= !seen_sets.insert(set.name.as_str());
                 lost |= set.properties.is_empty();
                 for property in &set.properties {
-                    match property_value(property) {
+                    if !seen_items.insert((set.name.as_str(), property.name.as_str())) {
+                        lost = true;
+                        continue;
+                    }
+                    match property_value(property, self.version) {
                         Some(value) => edits.push(Edit::Property {
                             element: instance,
                             set: set.name.clone(),
@@ -1300,22 +1442,50 @@ impl Plan<'_, '_> {
         Some((new, quantity.formula.is_some() && !keeps_formula))
     }
 
-    /// 開口と建具の関係。両方を書いたものだけを結ぶ
+    /// 開口と建具の関係。両方を書き、役割が合うものだけを結ぶ（1 つの開口を埋める建具は 1 つまで）
     fn openings(&mut self) {
         let building = self.building;
+        let mut filled = BTreeSet::new();
         for (element, opening) in building.components.opening.iter() {
             let Some(this) = self.target(element) else {
                 continue;
             };
-            let (other, edit): (ElementRef, fn(Target, Target) -> Edit) = match *opening {
-                Opening::Voids(host) => (host, |host, opening| Edit::Void { host, opening }),
-                Opening::Fills(opening) => {
-                    (opening, |opening, filler| Edit::Fill { opening, filler })
+            let this_opening = self
+                .notes
+                .get(&element)
+                .is_some_and(|(kind, _)| *kind == "IfcOpeningElement");
+            match *opening {
+                Opening::Voids(host) => {
+                    let host_ok = self.notes.get(&host).is_some_and(|(kind, _)| {
+                        *kind != "IfcOpeningElement" && WRITABLE_NAMES.contains(kind)
+                    });
+                    match self.target(host).filter(|_| this_opening && host_ok) {
+                        Some(host) => self.edits.push(Edit::Void {
+                            host,
+                            opening: this,
+                        }),
+                        None => self.lost(element, "opening"),
+                    }
                 }
-            };
-            match self.target(other) {
-                Some(other) => self.edits.push(edit(other, this)),
-                None => self.lost(element, "opening"),
+                Opening::Fills(opening_elem) => {
+                    let opening_ok = self
+                        .notes
+                        .get(&opening_elem)
+                        .is_some_and(|(kind, _)| *kind == "IfcOpeningElement");
+                    let filler_ok = self.notes.get(&element).is_some_and(|(kind, _)| {
+                        *kind != "IfcOpeningElement" && WRITABLE_NAMES.contains(kind)
+                    });
+                    match self
+                        .target(opening_elem)
+                        .filter(|_| opening_ok && filler_ok && filled.insert(opening_elem))
+                    {
+                        Some(opening) => self.edits.push(Edit::Fill {
+                            opening,
+                            filler: this,
+                        }),
+                        None => self.lost(element, "opening"),
+                    }
+                }
             }
         }
     }

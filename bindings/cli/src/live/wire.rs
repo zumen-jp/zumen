@@ -7,7 +7,21 @@ use zumen_base::{Kind, Limit, Limits, Stop};
 pub(super) const HEADER_BYTES: usize = 24;
 pub(super) const CONTROL_BYTES: usize = 72;
 pub(super) const REPLY_BYTES: usize = 136;
+/// 文書 IPC（版 1）の固定枠が運ぶ 7 種の予算単位
+pub(super) const KINDS: [Kind; 7] = [
+    Kind::InputBytes,
+    Kind::DecodedBytes,
+    Kind::Records,
+    Kind::Elements,
+    Kind::Depth,
+    Kind::Segments,
+    Kind::Work,
+];
 pub(super) const MAX_INPUT_BYTES: usize = 256 << 20;
+/// Open に添える属性ファイル（SAF）の上限
+pub(super) const MAX_SAF_BYTES: usize = 64 << 20;
+/// Open の 2 語目に立てる、属性ファイル（SAF）ありの印。下位 31 bit がバイト数
+pub(super) const OPEN_HAS_SAF: u32 = 0x8000_0000;
 pub(super) const MAX_ROWS: usize = 65_536;
 /// SetText の内容のバイト数の上限
 pub(super) const MAX_TEXT_BYTES: usize = 1 << 20;
@@ -38,6 +52,14 @@ pub(super) enum Command {
     Texts = 17,
     SetText = 18,
     Symbols = 19,
+    Draw = 20,
+    SelectPoint = 21,
+    DirtySymbols = 22,
+    EditLayer = 23,
+    EditLineType = 24,
+    AddElement = 25,
+    AddSymbol = 26,
+    TransformSymbol = 27,
 }
 
 impl Command {
@@ -63,6 +85,14 @@ impl Command {
             17 => Self::Texts,
             18 => Self::SetText,
             19 => Self::Symbols,
+            20 => Self::Draw,
+            21 => Self::SelectPoint,
+            22 => Self::DirtySymbols,
+            23 => Self::EditLayer,
+            24 => Self::EditLineType,
+            25 => Self::AddElement,
+            26 => Self::AddSymbol,
+            27 => Self::TransformSymbol,
             _ => return None,
         })
     }
@@ -70,8 +100,13 @@ impl Command {
     fn length_range(self) -> (usize, usize) {
         match self {
             Self::Cancel | Self::Close => (0, 0),
-            Self::Open => (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_INPUT_BYTES),
-            Self::Transform | Self::Copy => (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4),
+            Self::Open => (
+                CONTROL_BYTES + 8,
+                CONTROL_BYTES + 8 + MAX_INPUT_BYTES + MAX_SAF_BYTES,
+            ),
+            Self::Transform | Self::Copy | Self::TransformSymbol => {
+                (CONTROL_BYTES + 56, CONTROL_BYTES + 56 + MAX_ROWS * 4)
+            }
             Self::Remove | Self::Texts | Self::Symbols => {
                 (CONTROL_BYTES + 8, CONTROL_BYTES + 8 + MAX_ROWS * 4)
             }
@@ -80,9 +115,33 @@ impl Command {
                 CONTROL_BYTES + 8,
                 CONTROL_BYTES + 8 + MAX_TEXT_BYTES + MAX_ROWS * 4,
             ),
-            Self::Target => (CONTROL_BYTES + 4, CONTROL_BYTES + 4),
+            Self::Target | Self::DirtySymbols => (CONTROL_BYTES + 4, CONTROL_BYTES + 4),
+            Self::Draw => (CONTROL_BYTES + 48, CONTROL_BYTES + 48),
             Self::Diagnostics => (CONTROL_BYTES + 8, CONTROL_BYTES + 8),
             Self::Select => (CONTROL_BYTES + 32, CONTROL_BYTES + 32),
+            Self::SelectPoint => (CONTROL_BYTES + 24, CONTROL_BYTES + 24),
+            Self::EditLayer => (
+                CONTROL_BYTES + 8,
+                CONTROL_BYTES + 52 + super::edits::MAX_NAME_BYTES,
+            ),
+            Self::EditLineType => (
+                CONTROL_BYTES + 8,
+                CONTROL_BYTES
+                    + 24
+                    + super::edits::MAX_NAME_BYTES * 2
+                    + super::edits::MAX_PATTERN_LEN * 8,
+            ),
+            Self::AddElement => (
+                CONTROL_BYTES + 56,
+                CONTROL_BYTES + 56 + MAX_TEXT_BYTES.max(MAX_ROWS * 24),
+            ),
+            Self::AddSymbol => (
+                CONTROL_BYTES + 36,
+                CONTROL_BYTES
+                    + 32
+                    + super::edits::MAX_NAME_BYTES
+                    + super::edits::MAX_SYMBOL_ELEMENTS * 48,
+            ),
             Self::Display
             | Self::Undo
             | Self::Redo
@@ -102,6 +161,10 @@ impl Command {
                 | Self::Remove
                 | Self::Restyle
                 | Self::SetText
+                | Self::EditLayer
+                | Self::EditLineType
+                | Self::AddSymbol
+                | Self::TransformSymbol
                 | Self::Undo
                 | Self::Redo
         )
@@ -189,7 +252,7 @@ impl Control {
     pub fn parse(bytes: &[u8; CONTROL_BYTES]) -> Option<Self> {
         let mut input = Words(bytes);
         let mut limits = Limits::default();
-        for kind in Kind::ALL {
+        for kind in KINDS {
             let value = input.u64()?;
             limits.set(
                 kind,
@@ -317,10 +380,10 @@ impl Reply {
             Some(Stop::Cancelled) => (8, 0, 0),
             Some(Stop::TimedOut) => (9, 0, 0),
             Some(Stop::Exceeded(value)) => (
-                Kind::ALL
+                KINDS
                     .iter()
                     .position(|&kind| kind == value.kind)
-                    .map_or(0, |index| index as u32 + 1),
+                    .map_or(2, |index| index as u32 + 1),
                 value.limit,
                 value.requested,
             ),

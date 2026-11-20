@@ -59,21 +59,13 @@ impl LiveState {
                 cx.check(Kind::DecodedBytes, 9 + u64::from(digits))?;
                 format!("space/0/h{handle:X}")
             } else {
-                // キーなし・重複ハンドルの正規 ID は、現在の状態を作ったときの表を使う。
-                // 表を逆引きする走査は予算で制限し、ID の生成規則をここで重ねない。
-                let mut found = None;
-                for (id, &candidate) in &self.non_unique_model_ids {
-                    cx.check(Kind::Work, 1)?;
-                    if candidate == row_id {
-                        cx.check(Kind::DecodedBytes, id.len() as u64)?;
-                        found = Some(id.clone());
-                        break;
-                    }
-                }
-                let Some(id) = found else {
+                // キーなし・重複ハンドルの正規 ID は、現在の状態を作ったときの逆引き索引から引く。
+                cx.check(Kind::Work, 1)?;
+                let Some(id) = self.non_unique_ids_by_row.get(&row_id) else {
                     return Ok(None);
                 };
-                id
+                cx.check(Kind::DecodedBytes, id.len() as u64)?;
+                id.clone()
             };
             self.shapes.check_element_copy(row, cx)?;
             let Some(element) = self.shapes.to_element(row, &self.catalog) else {

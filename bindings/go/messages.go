@@ -245,6 +245,11 @@ func (u Request) AsRasterRequest() *RasterRequest {
 	return asTagged[RasterRequest](u, "op", "raster")
 }
 
+// AsGeoreferenceRequest は、op が georeference の形なら、その型で読む。違えば nil。
+func (u Request) AsGeoreferenceRequest() *GeoreferenceRequest {
+	return asTagged[GeoreferenceRequest](u, "op", "georeference")
+}
+
 // RequestCommon: どの op の要求にも置けるフィールド
 type RequestCommon struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
@@ -270,6 +275,9 @@ type Budget struct {
 
 	// 展開・復号で作ったバイト数。入れ子の分も足す
 	DecodedBytes json.RawMessage `json:"decoded_bytes,omitempty"`
+
+	// 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から
+	ModelBytes json.RawMessage `json:"model_bytes,omitempty"`
 
 	// L0・L1 で読んだレコードの数
 	Records json.RawMessage `json:"records,omitempty"`
@@ -593,6 +601,115 @@ type DrawingResult struct {
 
 	// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
 	PointStyle *PointStyleSummary `json:"point_style,omitempty"`
+
+	// 図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から
+	Georeference *Georeference `json:"georeference,omitempty"`
+}
+
+// MapConversion: 図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height
+type MapConversion struct {
+	// 東への移動（m）
+	Eastings *float64 `json:"eastings,omitempty"`
+
+	// 北への移動（m）
+	Northings *float64 `json:"northings,omitempty"`
+
+	// 高さへの移動（m）
+	OrthogonalHeight *float64 `json:"orthogonal_height,omitempty"`
+
+	// 図面の X 軸の東方向の単位ベクトル成分
+	XAxisAbscissa *float64 `json:"x_axis_abscissa,omitempty"`
+
+	// 図面の X 軸の北方向の単位ベクトル成分
+	XAxisOrdinate *float64 `json:"x_axis_ordinate,omitempty"`
+
+	// 図面の 1 単位あたりの地図のメートル数
+	Scale *float64 `json:"scale,omitempty"`
+}
+
+// Georeference: 地図の座標系と、図面の実寸から地図への相似の変換
+type Georeference struct {
+	// 地図の座標系の EPSG のコード
+	Crs *int64 `json:"crs,omitempty"`
+
+	// 図面の実寸から地図への相似の変換
+	Conversion *MapConversion `json:"conversion,omitempty"`
+}
+
+// MapPoint2: 地図の投影座標（m）。東（easting）と北（northing）を名前で分ける
+type MapPoint2 struct {
+	// 東方向の座標（m。平面直角座標系の Y）
+	Easting *float64 `json:"easting,omitempty"`
+
+	// 北方向の座標（m。平面直角座標系の X）
+	Northing *float64 `json:"northing,omitempty"`
+}
+
+// GeoreferenceControlPoint: 図面の実寸の点と、対応する地図の投影座標の組
+type GeoreferenceControlPoint struct {
+	// 図面の実寸の点
+	Drawing *Point2 `json:"drawing,omitempty"`
+
+	// 対応する地図の投影座標（m）
+	Map *MapPoint2 `json:"map,omitempty"`
+}
+
+// GeoreferenceRequest: 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から
+type GeoreferenceRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない
+	Doc *string `json:"doc,omitempty"`
+
+	// doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる
+	ExpectedHash *string `json:"expected_hash,omitempty"`
+
+	// 対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す
+	Crs *int64 `json:"crs,omitempty"`
+
+	// 図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める
+	ControlPoints []GeoreferenceControlPoint `json:"control_points,omitempty"`
+
+	// 求めた変換で地図へ写す図面の実寸の点
+	Points []Point2 `json:"points,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m GeoreferenceRequest) MarshalJSON() ([]byte, error) {
+	type plain GeoreferenceRequest
+	m.Op = "georeference"
+	return json.Marshal(plain(m))
+}
+
+// GeoreferenceResult: 図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点
+type GeoreferenceResult struct {
+	// doc を渡したときの元の文書のハッシュ
+	Hash *string `json:"hash,omitempty"`
+
+	// 地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない
+	Georeference *Georeference `json:"georeference,omitempty"`
+
+	// control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順
+	Residuals []MapPoint2 `json:"residuals,omitempty"`
+
+	// points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない
+	Mapped []MapPoint2 `json:"mapped,omitempty"`
 }
 
 // Point2: 2 次元の座標
@@ -2988,7 +3105,7 @@ type ApplyResult struct {
 	IdsShifted *bool `json:"ids_shifted,omitempty"`
 }
 
-// CreateRequest: 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+// CreateRequest: 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から
 type CreateRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -3008,14 +3125,17 @@ type CreateRequest struct {
 	// op の名前
 	Op string `json:"op,omitempty"`
 
-	// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+	// 作る形式の名前。dxf か ifc
 	Format *string `json:"format,omitempty"`
 
 	// 作る文書の名前。既存の文書と重ねない
 	To *string `json:"to,omitempty"`
 
-	// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+	// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なしで、ifc では書けない
 	Unit *Unit `json:"unit,omitempty"`
+
+	// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+	Ifc *IfcOutput `json:"ifc,omitempty"`
 }
 
 // MarshalJSON は、タグのフィールドを入れて書く。
@@ -3040,7 +3160,7 @@ type CreateResult struct {
 	Elements *int64 `json:"elements,omitempty"`
 }
 
-// ConvertRequest: 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+// ConvertRequest: 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から
 type ConvertRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -3063,11 +3183,14 @@ type ConvertRequest struct {
 	// 書く元の文書の名前。open で作ったもの
 	Doc *string `json:"doc,omitempty"`
 
-	// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から
+	// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima・ifc のいずれか。sxf・jww はマイナーバージョン 85 から
 	Format *string `json:"format,omitempty"`
 
 	// 作る文書の名前
 	To *string `json:"to,omitempty"`
+
+	// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+	Ifc *IfcOutput `json:"ifc,omitempty"`
 }
 
 // MarshalJSON は、タグのフィールドを入れて書く。
@@ -3092,7 +3215,7 @@ type ConvertResult struct {
 	Elements *int64 `json:"elements,omitempty"`
 }
 
-// ConvertEstimateRequest: 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
+// ConvertEstimateRequest: 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から）
 type ConvertEstimateRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -3115,11 +3238,14 @@ type ConvertEstimateRequest struct {
 	// 書く元の文書の名前
 	Doc *string `json:"doc,omitempty"`
 
-	// 書く形式の名前。dxf・sxf・jww
+	// 書く形式の名前。dxf・sxf・jww・ifc
 	Format *string `json:"format,omitempty"`
 
 	// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
 	To *string `json:"to,omitempty"`
+
+	// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+	Ifc *IfcOutput `json:"ifc,omitempty"`
 
 	// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
 	Limit *int64 `json:"limit,omitempty"`
@@ -3130,6 +3256,86 @@ func (m ConvertEstimateRequest) MarshalJSON() ([]byte, error) {
 	type plain ConvertEstimateRequest
 	m.Op = "convert_estimate"
 	return json.Marshal(plain(m))
+}
+
+// IfcOutput: 新しい IFC を書く設定（#395）。コアは時計を読まないので、時刻は呼び出し元が渡す
+type IfcOutput struct {
+	// 書くバージョン
+	Version *IfcVersion `json:"version,omitempty"`
+
+	// ヘッダー（FILE_DESCRIPTION と FILE_NAME）の値。書かなければ空の値で書く
+	Header *IfcHeader `json:"header,omitempty"`
+
+	// 所有履歴（IfcOwnerHistory）の値。ifc2x3 では必須。ifc4 からは書いたときだけ書く
+	Owner *IfcOwner `json:"owner,omitempty"`
+
+	// GlobalId を導く名前空間。書かなければ、convert は元の IfcProject の GlobalId（なければ元の文書のハッシュ）、create は作る文書の名前を使う。元の文書のハッシュでない名前空間なら、元を一部直して書き直しても、直していない要素の GlobalId は変わらない
+	Namespace *string `json:"namespace,omitempty"`
+}
+
+// IfcVersion: IFC のバージョン。ifc2x3 は IFC2X3 TC1、ifc4 は IFC4 ADD2 TC1、ifc4x3 は IFC4X3 ADD2
+//
+// 列挙の値。知らない値も受け取る。
+type IfcVersion string
+
+// IfcVersionIfc2x3 は ifc2x3。
+const IfcVersionIfc2x3 IfcVersion = "ifc2x3"
+
+// IfcVersionIfc4 は ifc4。
+const IfcVersionIfc4 IfcVersion = "ifc4"
+
+// IfcVersionIfc4x3 は ifc4x3。
+const IfcVersionIfc4x3 IfcVersion = "ifc4x3"
+
+// IfcHeader: IFC のヘッダーの値。書かない値は空で書く
+type IfcHeader struct {
+	// FILE_DESCRIPTION に ViewDefinition [<値>] として書く MVD の名前。書かなければ書かない
+	ViewDefinition *string `json:"view_definition,omitempty"`
+
+	// FILE_NAME の name
+	Name *string `json:"name,omitempty"`
+
+	// FILE_NAME の time_stamp。呼び出し元が書いた時刻
+	TimeStamp *string `json:"time_stamp,omitempty"`
+
+	// FILE_NAME の author
+	Author []string `json:"author,omitempty"`
+
+	// FILE_NAME の organization
+	Organization []string `json:"organization,omitempty"`
+
+	// FILE_NAME の preprocessor_version
+	PreprocessorVersion *string `json:"preprocessor_version,omitempty"`
+
+	// FILE_NAME の originating_system
+	OriginatingSystem *string `json:"originating_system,omitempty"`
+
+	// FILE_NAME の authorization
+	Authorization *string `json:"authorization,omitempty"`
+}
+
+// IfcOwner: 所有履歴の値
+type IfcOwner struct {
+	// 所有する人の IfcPerson の FamilyName
+	Person *string `json:"person,omitempty"`
+
+	// 所有する組織の IfcOrganization の Name
+	Organization *string `json:"organization,omitempty"`
+
+	// 作ったソフトの開発元の IfcOrganization の Name
+	Developer *string `json:"developer,omitempty"`
+
+	// 作ったソフトの名前（IfcApplication の ApplicationFullName）
+	Application *string `json:"application,omitempty"`
+
+	// 作ったソフトのバージョン（IfcApplication の Version）
+	Version *string `json:"version,omitempty"`
+
+	// 作ったソフトの識別子（IfcApplication の ApplicationIdentifier）
+	Identifier *string `json:"identifier,omitempty"`
+
+	// 作った日時。1970-01-01T00:00:00Z からの秒（IfcTimeStamp）
+	Created *int64 `json:"created,omitempty"`
 }
 
 // ConvertEstimateResult: 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない
@@ -3438,7 +3644,7 @@ func (m TransformEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// CopyEdit: 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から
+// CopyEdit: 要素を複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA、JWW のフラグ・文字種・字間、SXF の文字幅・字間など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。DXF の寸法・表は新しい匿名ブロックを作る。place で配置先の空間・用紙を、from_doc で複写元の文書を指定でき（マイナーバージョン 110 から）、単位・画層・線種・文字スタイル・寸法スタイル・記号定義・APPID の対応と名前の衝突を確かめる。保てない値・参照・対応を持つ要素は change.copy.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。マイナーバージョン 100 から
 type CopyEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -3451,6 +3657,12 @@ type CopyEdit struct {
 
 	// [a, b, c, d, e, f]。写しの点 (x, y) を (a x + b y + c, d x + e y + f) に写す。元の位置に写すなら [1, 0, 0, 0, 1, 0]
 	Matrix []float64 `json:"matrix,omitempty"`
+
+	// 配置先の空間か用紙の ID。省けば元の要素と同じ場所 ID。マイナーバージョン 110 から
+	Place *string `json:"place,omitempty"`
+
+	// 複写元の文書の名前。open で作ったもの。省けば doc と同じ文書。マイナーバージョン 110 から
+	FromDoc *string `json:"from_doc,omitempty"`
 }
 
 // MarshalJSON は、タグのフィールドを入れて書く。
@@ -5933,6 +6145,11 @@ func (u BuildingEdit) AsBuildingMaterialEdit() *BuildingMaterialEdit {
 	return asTagged[BuildingMaterialEdit](u, "kind", "material")
 }
 
+// AsBuildingShapeEdit は、kind が shape の形なら、その型で読む。違えば nil。
+func (u BuildingEdit) AsBuildingShapeEdit() *BuildingShapeEdit {
+	return asTagged[BuildingShapeEdit](u, "kind", "shape")
+}
+
 // BuildingPropertyEdit: 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
 type BuildingPropertyEdit struct {
 	// 変更の種類
@@ -6198,7 +6415,7 @@ type BuildingWallLayer struct {
 	Thickness *float64 `json:"thickness,omitempty"`
 }
 
-// BuildingAddWallEdit: 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+// BuildingAddWallEdit: 芯の 2 点・高さ・材料の層か型で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から（element_type は 110 から）
 type BuildingAddWallEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6215,11 +6432,14 @@ type BuildingAddWallEdit struct {
 	// 高さ。文書の長さの単位で、正の値
 	Height *float64 `json:"height,omitempty"`
 
-	// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+	// 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type の材料の層を使う
 	Layers []BuildingWallLayer `json:"layers,omitempty"`
 
 	// 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする
 	Offset *float64 `json:"offset,omitempty"`
+
+	// 結ぶ壁の型（IfcWallType）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 
 	// 名前
 	Name *string `json:"name,omitempty"`
@@ -6244,7 +6464,7 @@ type BuildingSection struct {
 	Depth *float64 `json:"depth,omitempty"`
 }
 
-// BuildingAddSlabEdit: 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から
+// BuildingAddSlabEdit: 外形・材料の層か型で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab（型が PredefinedType を持たなければ FLOOR）、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。結果の id は足した床の ID。マイナーバージョン 98 から（element_type は 110 から）
 type BuildingAddSlabEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6255,11 +6475,14 @@ type BuildingAddSlabEdit struct {
 	// 外形の頂点。空間の配置の [x, y] の並びで、3 つ以上。最後の点が最初の点と同じなら、その点は除く
 	Outline [][]float64 `json:"outline,omitempty"`
 
-	// 材料の層。上から下へ並べる。1 つ以上
+	// 材料の層。上から下へ並べる。省くか空なら element_type の材料の層を使う
 	Layers []BuildingWallLayer `json:"layers,omitempty"`
 
 	// 上の面の高さ（空間の配置の z）。書かなければ 0
 	Elevation *float64 `json:"elevation,omitempty"`
+
+	// 結ぶ床の型（IfcSlabType）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 
 	// 名前
 	Name *string `json:"name,omitempty"`
@@ -6275,7 +6498,7 @@ func (m BuildingAddSlabEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingAddColumnEdit: 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から
+// BuildingAddColumnEdit: 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から（element_type は 110 から）
 type BuildingAddColumnEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6301,6 +6524,9 @@ type BuildingAddColumnEdit struct {
 	// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
 	Material *string `json:"material,omitempty"`
 
+	// 結ぶ柱の型（IfcColumnType）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
+
 	// 名前
 	Name *string `json:"name,omitempty"`
 
@@ -6315,7 +6541,7 @@ func (m BuildingAddColumnEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingAddBeamEdit: 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から
+// BuildingAddBeamEdit: 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から（element_type は 110 から）
 type BuildingAddBeamEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6334,6 +6560,9 @@ type BuildingAddBeamEdit struct {
 
 	// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
 	Material *string `json:"material,omitempty"`
+
+	// 結ぶ梁の型（IfcBeamType）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 
 	// 名前
 	Name *string `json:"name,omitempty"`
@@ -6383,7 +6612,7 @@ func (m BuildingAddOpeningEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingAddDoorEdit: 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から
+// BuildingAddDoorEdit: 開口を扉で埋める。扉は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcDoor（IFC4 と IFC4X3 で型が PredefinedType を持たなければ DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
 type BuildingAddDoorEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6391,11 +6620,14 @@ type BuildingAddDoorEdit struct {
 	// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Opening *BuildingRef `json:"opening,omitempty"`
 
-	// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+	// 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う
 	Width *float64 `json:"width,omitempty"`
 
-	// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+	// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う
 	Height *float64 `json:"height,omitempty"`
+
+	// 結ぶ扉の型（IFC4 からの IfcDoorType、IFC2X3 の IfcDoorStyle）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 
 	// 名前
 	Name *string `json:"name,omitempty"`
@@ -6411,7 +6643,7 @@ func (m BuildingAddDoorEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingAddWindowEdit: 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から
+// BuildingAddWindowEdit: 開口を窓で埋める。窓は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcWindow（IFC4 と IFC4X3 で型が PredefinedType を持たなければ WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
 type BuildingAddWindowEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6419,11 +6651,14 @@ type BuildingAddWindowEdit struct {
 	// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
 	Opening *BuildingRef `json:"opening,omitempty"`
 
-	// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+	// 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う
 	Width *float64 `json:"width,omitempty"`
 
-	// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+	// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う
 	Height *float64 `json:"height,omitempty"`
+
+	// 結ぶ窓の型（IFC4 からの IfcWindowType、IFC2X3 の IfcWindowStyle）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 
 	// 名前
 	Name *string `json:"name,omitempty"`
@@ -6501,7 +6736,7 @@ func (m BuildingElevationEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingWallShapeEdit: 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+// BuildingWallShapeEdit: 壁の芯・高さ・材料の層か型を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口と建具の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から（element_type は 110 から）
 type BuildingWallShapeEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6518,11 +6753,14 @@ type BuildingWallShapeEdit struct {
 	// 高さ。文書の長さの単位で、正の値
 	Height *float64 `json:"height,omitempty"`
 
-	// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+	// 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type（なければ今の壁の型）の材料の層を使う
 	Layers []BuildingWallLayer `json:"layers,omitempty"`
 
 	// 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
 	Offset *float64 `json:"offset,omitempty"`
+
+	// 付け替える壁の型（IfcWallType）。マイナーバージョン 110 から
+	ElementType *BuildingRef `json:"element_type,omitempty"`
 }
 
 // MarshalJSON は、タグのフィールドを入れて書く。
@@ -6532,7 +6770,7 @@ func (m BuildingWallShapeEdit) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(m))
 }
 
-// BuildingOpeningShapeEdit: 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+// BuildingOpeningShapeEdit: 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の Body と全体の高さ・幅（OverallHeight・OverallWidth）を合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
 type BuildingOpeningShapeEdit struct {
 	// 変更の種類
 	Kind string `json:"kind,omitempty"`
@@ -6749,6 +6987,262 @@ type BuildingMaterialConstituent struct {
 
 	// 構成要素の名前
 	Name *string `json:"name,omitempty"`
+}
+
+// BuildingShapeEdit: 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・AdvancedSweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
+type BuildingShapeEdit struct {
+	// 変更の種類
+	Kind string `json:"kind,omitempty"`
+
+	// 形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+	Element *BuildingRef `json:"element,omitempty"`
+
+	// 芯の線（Axis の IfcPolyline）。要素の配置の [x, y] を 2 点以上。書かなければ Axis を書かない
+	Axis [][]float64 `json:"axis,omitempty"`
+
+	// 形の項目の表
+	Items []BuildingShapeItem `json:"items,omitempty"`
+
+	// Body の表現に置く項目の、items の位置（0 から）。空なら Body を書かない
+	Body []int64 `json:"body,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingShapeEdit) MarshalJSON() ([]byte, error) {
+	type plain BuildingShapeEdit
+	m.Kind = "shape"
+	return json.Marshal(plain(m))
+}
+
+// BuildingShapeItem: 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、revolution は profile・position・axis・angle、swept_disk は directrix・radius・inner_radius・start・end、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位
+type BuildingShapeItem struct {
+	// 項目の種類
+	Kind *BuildingShapeItemKind `json:"kind,omitempty"`
+
+	// 押し出す・回す断面
+	Profile *BuildingShapeProfile `json:"profile,omitempty"`
+
+	// 押し出し・回転の局所の配置。書かなければ要素の配置のまま
+	Position *BuildingAxis3 `json:"position,omitempty"`
+
+	// 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1]
+	Direction []float64 `json:"direction,omitempty"`
+
+	// 押し出す深さ。正の値
+	Depth *float64 `json:"depth,omitempty"`
+
+	// 断面を回す軸。断面の平面（局所の XY 平面）にある。マイナーバージョン 108 から
+	Axis *BuildingShapeRevolutionAxis `json:"axis,omitempty"`
+
+	// 回す角度（ラジアン）。0 より大きく 2π 以下。文書の平面角の単位に直して書くので、文書は平面角の単位を持つこと。マイナーバージョン 108 から
+	Angle *float64 `json:"angle,omitempty"`
+
+	// 円盤を沿わせる折れ線の [x, y, z] を 2 点以上。続く点は重ならない。マイナーバージョン 108 から
+	Directrix [][]float64 `json:"directrix,omitempty"`
+
+	// 円盤の半径。正の値。マイナーバージョン 108 から
+	Radius *float64 `json:"radius,omitempty"`
+
+	// 管の内側の半径。正で radius より小さい。書かなければ中実。マイナーバージョン 108 から
+	InnerRadius *float64 `json:"inner_radius,omitempty"`
+
+	// 掃引を始める折れ線のパラメーター（1 区間で 1 進む）。書かなければ始点。IFC2X3 では書かなければ 0 を書く。マイナーバージョン 108 から
+	Start *float64 `json:"start,omitempty"`
+
+	// 掃引を終える折れ線のパラメーター。start より大きく区間の数以下。書かなければ終点。IFC2X3 では書かなければ区間の数を書く。マイナーバージョン 108 から
+	End *float64 `json:"end,omitempty"`
+
+	// 面集合の点 [x, y, z]
+	Points [][]float64 `json:"points,omitempty"`
+
+	// 面集合の面
+	Faces []BuildingShapeFace `json:"faces,omitempty"`
+
+	// true なら閉殻（立体。IfcFacetedBrep）。false か書かなければ開殻の面（IFC2X3 は IfcShellBasedSurfaceModel、IFC4 からは IfcPolygonalFaceSet）
+	Closed *bool `json:"closed,omitempty"`
+
+	// 集合演算
+	Operation *BuildingBooleanOperation `json:"operation,omitempty"`
+
+	// 集合演算の第 1 の対象。items の前にある項目の位置
+	First *int64 `json:"first,omitempty"`
+
+	// 集合演算の第 2 の対象。差では第 1 から取り除く。items の前にある項目の位置
+	Second *int64 `json:"second,omitempty"`
+
+	// 半空間の基準面の配置。局所の z 軸が面の法線
+	Plane *BuildingAxis3 `json:"plane,omitempty"`
+
+	// true なら法線と逆の側、false か書かなければ法線の向く側を内部とする
+	Agreement *bool `json:"agreement,omitempty"`
+
+	// 半空間の計算用の囲みの箱（IfcBoxedHalfSpace）。座標系は IFC2X3 では基準面、IFC4 からは要素
+	Box *BuildingShapeBox `json:"box,omitempty"`
+
+	// 半空間を制限する多角形（IfcPolygonalBoundedHalfSpace）
+	Polygon *BuildingShapePolygon `json:"polygon,omitempty"`
+
+	// 写像元の基準位置。書かなければ原点
+	Origin *BuildingAxis3 `json:"origin,omitempty"`
+
+	// 写像先の変換
+	Target *BuildingShapeMapping `json:"target,omitempty"`
+
+	// 写像元の表現の項目。items の前にある項目の位置で、1 つ以上
+	Members []int64 `json:"members,omitempty"`
+}
+
+// BuildingShapeItemKind: 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）。revolution は断面の回転（IfcRevolvedAreaSolid）、swept_disk は円盤の掃引（IfcSweptDiskSolid）で、マイナーバージョン 108 から
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingShapeItemKind string
+
+// BuildingShapeItemKindExtrusion は extrusion。
+const BuildingShapeItemKindExtrusion BuildingShapeItemKind = "extrusion"
+
+// BuildingShapeItemKindFaces は faces。
+const BuildingShapeItemKindFaces BuildingShapeItemKind = "faces"
+
+// BuildingShapeItemKindBoolean は boolean。
+const BuildingShapeItemKindBoolean BuildingShapeItemKind = "boolean"
+
+// BuildingShapeItemKindHalfSpace は half_space。
+const BuildingShapeItemKindHalfSpace BuildingShapeItemKind = "half_space"
+
+// BuildingShapeItemKindMapped は mapped。
+const BuildingShapeItemKindMapped BuildingShapeItemKind = "mapped"
+
+// BuildingShapeItemKindRevolution は revolution。
+const BuildingShapeItemKindRevolution BuildingShapeItemKind = "revolution"
+
+// BuildingShapeItemKindSweptDisk は swept_disk。
+const BuildingShapeItemKindSweptDisk BuildingShapeItemKind = "swept_disk"
+
+// BuildingShapeRevolutionAxis: 断面を回す軸（IfcAxis1Placement）。断面の平面にある
+type BuildingShapeRevolutionAxis struct {
+	// 軸の通る点 [x, y]
+	Location []float64 `json:"location,omitempty"`
+
+	// 軸の向き [x, y]。0 にできない
+	Direction []float64 `json:"direction,omitempty"`
+}
+
+// BuildingBooleanOperation: 集合演算。union は和、intersection は積、difference は差
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingBooleanOperation string
+
+// BuildingBooleanOperationUnion は union。
+const BuildingBooleanOperationUnion BuildingBooleanOperation = "union"
+
+// BuildingBooleanOperationIntersection は intersection。
+const BuildingBooleanOperationIntersection BuildingBooleanOperation = "intersection"
+
+// BuildingBooleanOperationDifference は difference。
+const BuildingBooleanOperationDifference BuildingBooleanOperation = "difference"
+
+// BuildingAxis3: 3 次元の局所の配置
+type BuildingAxis3 struct {
+	// 原点 [x, y, z]
+	Location []float64 `json:"location,omitempty"`
+
+	// 局所の z 軸 [x, y, z]
+	Axis []float64 `json:"axis,omitempty"`
+
+	// 局所の x 軸の参照方向 [x, y, z]
+	Reference []float64 `json:"reference,omitempty"`
+}
+
+// BuildingShapeProfile: 押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く
+type BuildingShapeProfile struct {
+	// 断面の種類
+	Kind *BuildingShapeProfileKind `json:"kind,omitempty"`
+
+	// 断面の名前
+	Name *string `json:"name,omitempty"`
+
+	// 矩形の局所の x の全幅。正の値
+	X *float64 `json:"x,omitempty"`
+
+	// 矩形の局所の y の全高。正の値
+	Y *float64 `json:"y,omitempty"`
+
+	// 円の半径。正の値
+	Radius *float64 `json:"radius,omitempty"`
+
+	// 矩形と円の中心 [x, y]。書かなければ原点
+	Location []float64 `json:"location,omitempty"`
+
+	// 矩形と円の局所の x 軸の参照方向 [x, y]。location と一緒に書く
+	Reference []float64 `json:"reference,omitempty"`
+
+	// 多角形の外輪の [x, y] を 3 点以上。始点に戻る点は書かない
+	Outer [][]float64 `json:"outer,omitempty"`
+
+	// 多角形の内輪
+	Holes [][][]float64 `json:"holes,omitempty"`
+}
+
+// BuildingShapeProfileKind: 断面の種類。rectangle は IfcRectangleProfileDef、circle は IfcCircleProfileDef、polygon は IfcArbitraryClosedProfileDef（内輪があれば IfcArbitraryProfileDefWithVoids）
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingShapeProfileKind string
+
+// BuildingShapeProfileKindRectangle は rectangle。
+const BuildingShapeProfileKindRectangle BuildingShapeProfileKind = "rectangle"
+
+// BuildingShapeProfileKindCircle は circle。
+const BuildingShapeProfileKindCircle BuildingShapeProfileKind = "circle"
+
+// BuildingShapeProfileKindPolygon は polygon。
+const BuildingShapeProfileKindPolygon BuildingShapeProfileKind = "polygon"
+
+// BuildingShapeFace: 面集合の面。points の位置（0 から）で外輪と内輪を書く
+type BuildingShapeFace struct {
+	// 外輪の点の位置。3 つ以上
+	Boundary []int64 `json:"boundary,omitempty"`
+
+	// 内輪ごとの点の位置
+	Holes [][]int64 `json:"holes,omitempty"`
+}
+
+// BuildingShapeBox: 囲みの箱
+type BuildingShapeBox struct {
+	// 箱の隅 [x, y, z]
+	Corner []float64 `json:"corner,omitempty"`
+
+	// 各軸の長さ [x, y, z]。正の値
+	Dimensions []float64 `json:"dimensions,omitempty"`
+}
+
+// BuildingShapePolygon: 半空間を制限する多角形
+type BuildingShapePolygon struct {
+	// 境界の配置
+	Position *BuildingAxis3 `json:"position,omitempty"`
+
+	// 境界の局所の XY 平面の [x, y] を 3 点以上。始点に戻る点は書かない
+	Boundary [][]float64 `json:"boundary,omitempty"`
+}
+
+// BuildingShapeMapping: 写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform）
+type BuildingShapeMapping struct {
+	// 写像先の原点 [x, y, z]。要素の座標系
+	Origin []float64 `json:"origin,omitempty"`
+
+	// x 軸を導く方向 [x, y, z]
+	Axis1 []float64 `json:"axis1,omitempty"`
+
+	// y 軸を導く方向 [x, y, z]
+	Axis2 []float64 `json:"axis2,omitempty"`
+
+	// z 軸を定める方向 [x, y, z]
+	Axis3 []float64 `json:"axis3,omitempty"`
+
+	// 一様な尺度。正の値で、書かなければ 1
+	Scale *float64 `json:"scale,omitempty"`
+
+	// 軸ごとの尺度 [x, y, z]。正の値。scale とは一緒に書けない
+	Scales []float64 `json:"scales,omitempty"`
 }
 
 // BuildingFillEdit: 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
@@ -9235,3 +9729,6 @@ const OpRender = "render"
 
 // OpRaster は、op の名前 raster。
 const OpRaster = "raster"
+
+// OpGeoreference は、op の名前 georeference。
+const OpGeoreference = "georeference"

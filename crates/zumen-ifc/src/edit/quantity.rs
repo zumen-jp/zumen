@@ -174,7 +174,7 @@ impl Draft<'_> {
                 let stmt = Stmt {
                     name: QUANTITY_SET.to_vec(),
                     args: vec![
-                        self.global_id(),
+                        self.keyed_global_id(QUANTITY_SET, &[element], set),
                         history,
                         text(set),
                         null(),
@@ -200,21 +200,20 @@ impl Draft<'_> {
         args: Vec<Item>,
         cx: &mut Cx,
     ) -> Result<bool, Error> {
-        let Some(mut set) = self.stmt(qset) else {
+        if !self.changed.contains_key(&qset) && self.stmt(qset).is_none() {
             cx.report(unsupported("quantity", kind));
             return Ok(false);
-        };
+        }
         let name = match args.first() {
             Some(item) => self.text_of(item),
             None => None,
         };
         let mut found = None;
-        for existing in refs_of(set.arg(6)) {
+        for existing in self.arg_refs(qset, 6) {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, None))?;
             let same = self
-                .stmt(existing)
-                .and_then(|stmt| self.text_of(stmt.arg(1)?))
+                .arg_text(existing, 1)
                 .is_some_and(|text| Some(&text) == name.as_ref());
             if same {
                 found = Some(existing);
@@ -235,6 +234,10 @@ impl Draft<'_> {
                 if self.referrers(existing) == [qset] {
                     self.put(existing, stmt);
                 } else {
+                    let Some(mut set) = self.stmt(qset) else {
+                        cx.report(unsupported("quantity", kind));
+                        return Ok(false);
+                    };
                     let copy = self.add(stmt);
                     let quantities = swap(set.arg(6), existing, copy);
                     set.set(6, quantities);
@@ -243,13 +246,7 @@ impl Draft<'_> {
             }
             None => {
                 let added = self.add(stmt);
-                let mut items = match set.arg(6) {
-                    Some(Item::List(items)) => items.clone(),
-                    _ => Vec::new(),
-                };
-                items.push(Item::Ref(added));
-                set.set(6, Item::List(items));
-                self.put(qset, set);
+                self.append_ref(qset, 6, added);
             }
         }
         Ok(true)

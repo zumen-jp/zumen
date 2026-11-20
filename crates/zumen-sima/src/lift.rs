@@ -11,9 +11,9 @@ use zumen_civil::{
 use zumen_crs::{Axes, MapPoint, Realization, VerticalCrs};
 use zumen_drawing::{
     Draft, Drawing2D, Edge, Element, Field, FieldValue, Height, HeightMeaning, Horizontal, Inherit,
-    Layer, LayerId, LayerState, Length, ModelLength, ModelPoint, ModelSpace, Placement, Point,
-    PointLook, PointMark, PointSize, PointStyle, Polyline, Position as ExtPosition, Shape, SpaceId,
-    Style, Text, Unit, Vertex, Vertical,
+    Layer, LayerId, LayerState, Length, ModelLength, ModelPoint, ModelSize, ModelSpace, Placement,
+    Point, PointLook, PointMark, PointSize, PointStyle, Polyline, Position as ExtPosition, Shape,
+    SpaceId, Style, Text, Unit, Vertex, Vertical, check_draft_bytes, check_model_bytes,
 };
 use zumen_geo::{
     Attribute as GeoAttribute, Feature, Form, GeoModel, Geometry, Location, Position as GeoPos,
@@ -88,9 +88,35 @@ fn attr_to_field(key: String, val: &AttributeVal) -> Field {
     }
 }
 
+fn charge_item<T: ModelSize>(
+    item: &T,
+    place: Option<&Ref>,
+    accounted: &mut u64,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    let bytes = check_model_bytes(item, cx).map_err(|s| stopped(cx, s, place.cloned()))?;
+    *accounted = accounted.saturating_add(bytes);
+    Ok(())
+}
+
+fn charge_drafts(
+    drafts: &[Draft],
+    from: usize,
+    place: Option<&Ref>,
+    accounted: &mut u64,
+    cx: &mut Cx,
+) -> Result<(), Error> {
+    for draft in drafts.get(from..).unwrap_or_default() {
+        let bytes = check_draft_bytes(draft, cx).map_err(|s| stopped(cx, s, place.cloned()))?;
+        *accounted = accounted.saturating_add(bytes);
+    }
+    Ok(())
+}
+
 pub(crate) fn lift_drawing(data: &SimaData, cx: &mut Cx) -> Result<Drawing2D, Error> {
     let mut elements: Vec<Element<ModelPoint>> = Vec::new();
     let mut drafts: Vec<Draft> = Vec::new();
+    let mut accounted = 0u64;
 
     // 文書レベルの拡張（現場名・座標系・現場情報）
     let mut doc_fields = Vec::new();
@@ -121,6 +147,7 @@ pub(crate) fn lift_drawing(data: &SimaData, cx: &mut Cx) -> Result<Drawing2D, Er
             fields: doc_fields,
             source: Ref::default(),
         });
+        charge_drafts(&drafts, 0, None, &mut accounted, cx)?;
     }
 
     // 1. 測点（点＋ラベル文字）
@@ -130,6 +157,8 @@ pub(crate) fn lift_drawing(data: &SimaData, cx: &mut Cx) -> Result<Drawing2D, Er
         cx.check(Kind::Elements, 1)
             .map_err(|s| stopped(cx, s, Some(pt.source.clone())))?;
 
+        let prev_el = elements.len();
+        let prev_dr = drafts.len();
         let idx = elements.len();
         elements.push(Element {
             source: pt.source.clone(),
@@ -232,6 +261,10 @@ pub(crate) fn lift_drawing(data: &SimaData, cx: &mut Cx) -> Result<Drawing2D, Er
                 source: pt.source.clone(),
             });
         }
+        for el in elements.get(prev_el..).unwrap_or_default() {
+            charge_item(el, Some(&pt.source), &mut accounted, cx)?;
+        }
+        charge_drafts(&drafts, prev_dr, Some(&pt.source), &mut accounted, cx)?;
     }
 
     // 2. 画地・開放画地・地番
@@ -240,9 +273,10 @@ pub(crate) fn lift_drawing(data: &SimaData, cx: &mut Cx) -> Result<Drawing2D, Er
             .map_err(|s| stopped(cx, s, Some(parcel.source.clone())))?;
 
         let first_idx = elements.len();
+        let prev_dr = drafts.len();
         if !parcel.curve_segments.is_empty() {
             for seg in &parcel.curve_segments {
-                push_segment_element(&mut elements, LAYER_PARCELS, seg, cx)?;
+                push_segment_element(&mut elements, LAYER_PARCELS, seg, &mut accounted, cx)?;
             }
         } else {
             if parcel.ring_curve_approximated {
@@ -298,6 +332,9 @@ pub(crate) fn lift_drawing(data: &SimaData, cx: &mut Cx) -> Result<Drawing2D, Er
                     }),
                 });
             }
+            for el in elements.get(first_idx..).unwrap_or_default() {
+                charge_item(el, Some(&parcel.source), &mut accounted, cx)?;
+            }
         }
 
         if first_idx < elements.len() {
@@ -335,14 +372,16 @@ pub(crate) fn lift_drawing(data: &SimaData, cx: &mut Cx) -> Result<Drawing2D, Er
                 fields,
                 source: parcel.source.clone(),
             });
+            charge_drafts(&drafts, prev_dr, Some(&parcel.source), &mut accounted, cx)?;
         }
     }
 
     // 3. 路線
     for route in &data.routes {
         let first_idx = elements.len();
+        let prev_dr = drafts.len();
         for seg in &route.segments {
-            push_segment_element(&mut elements, LAYER_ROUTES, seg, cx)?;
+            push_segment_element(&mut elements, LAYER_ROUTES, seg, &mut accounted, cx)?;
         }
         if first_idx < elements.len() {
             let mut fields = vec![Field {
@@ -372,6 +411,7 @@ pub(crate) fn lift_drawing(data: &SimaData, cx: &mut Cx) -> Result<Drawing2D, Er
                 fields,
                 source: route.source.clone(),
             });
+            charge_drafts(&drafts, prev_dr, Some(&route.source), &mut accounted, cx)?;
         }
     }
 
@@ -400,6 +440,9 @@ pub(crate) fn lift_drawing(data: &SimaData, cx: &mut Cx) -> Result<Drawing2D, Er
     drawing
         .settle_extensions(drafts, cx)
         .map_err(|s| stopped(cx, s, None))?;
+    drawing
+        .finish_model_bytes(accounted, cx)
+        .map_err(|s| stopped(cx, s, None))?;
     Ok(drawing)
 }
 
@@ -407,6 +450,7 @@ fn push_segment_element(
     elements: &mut Vec<Element<ModelPoint>>,
     layer: LayerId,
     seg: &RouteSegment,
+    accounted: &mut u64,
     cx: &mut Cx,
 ) -> Result<(), Error> {
     cx.check(Kind::Work, 1)
@@ -491,12 +535,14 @@ fn push_segment_element(
             }
         }
     };
-    elements.push(Element {
+    let element = Element {
         source: seg.source.clone(),
         layer,
         style: default_style(),
         shape,
-    });
+    };
+    charge_item(&element, Some(&seg.source), accounted, cx)?;
+    elements.push(element);
     Ok(())
 }
 

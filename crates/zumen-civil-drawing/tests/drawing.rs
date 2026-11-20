@@ -730,3 +730,54 @@ fn steep_vertical_clothoids_count_the_work_of_their_points() {
         "{stopped:?}"
     );
 }
+
+/// 横断勾配・カント区間（`alignment.cant`）を図面化しない間は、区間ごとの出所で `civil.value.dropped` を報告する（#912）
+#[test]
+fn cant_segments_are_diagnosed_as_dropped_values() {
+    use zumen_civil::{Cant, CantKind};
+
+    let mut line = alignment();
+    line.cant = vec![
+        Cant {
+            start_distance: 0.0,
+            length: 50.0,
+            kind: CantKind::Superelevation {
+                start: [-2.0, 2.0],
+                end: [-4.0, 4.0],
+            },
+            transition: None,
+            source: Ref::at_bytes(10, 20),
+        },
+        Cant {
+            start_distance: 50.0,
+            length: 40.0,
+            kind: CantKind::Rail {
+                start: [0.0, 105.0],
+                end: [0.0, 105.0],
+                gauge: Some(1067.0),
+            },
+            transition: Some("CONSTANTCANT".into()),
+            source: Ref::at_bytes(30, 40),
+        },
+    ];
+    let mut diag = Diagnostics::new();
+    drawing(
+        &CivilModel::default(),
+        &line,
+        &Options::default(),
+        &mut Cx::new(&mut Budget::default(), &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    let dropped: Vec<_> = diag
+        .iter()
+        .filter(|d| d.code() == codes::CIVIL_VALUE_DROPPED)
+        .collect();
+    assert_eq!(dropped.len(), 1);
+    assert_eq!(dropped[0].count(), 2);
+    assert_eq!(dropped[0].param("kind"), Some(&"cant".into()));
+    assert_eq!(dropped[0].param("target"), Some(&"civil_drawing".into()));
+    assert_eq!(
+        dropped[0].places(),
+        [Ref::at_bytes(10, 20), Ref::at_bytes(30, 40)]
+    );
+}

@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）のメジャーバージョン。要求と応答の v
 schema-major = 1
 # メッセージのスキーマのマイナーバージョン。op・フィールド・列挙の値を足すたびに上げる
-schema-minor = 106
+schema-minor = 113
 
 # 状態コード。理由は応答の診断で返す
 
@@ -167,7 +167,7 @@ formats = ["dxf", "dwg", "sxf", "jww", "sima", "tiff", "landxml", "drawing"]
 ops = [
     "capabilities", "open", "close", "describe", "drawing", "entities", "apply", "create", "convert", "convert_estimate", "tables", "scene",
     "check", "review_carry", "review_adopt", "review_scene", "civil", "civil_drawing", "delivery_check", "delivery_apply", "photo", "boring",
-    "lift", "render", "calibrations", "measure_distance", "measure", "intersect", "regions", "construct", "raster",
+    "lift", "render", "calibrations", "measure_distance", "measure", "intersect", "regions", "construct", "raster", "georeference",
 ]
 
 [[modules]]
@@ -176,7 +176,8 @@ description = "IFC と ST-Bridge と建物モデル、EXPRESS・IDS の照合と
 formats = ["ifc", "stbridge"]
 ops = [
     "capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements",
-    "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply", "civil", "scene3d",
+    "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply", "create", "convert", "convert_estimate",
+    "civil", "scene3d",
 ]
 
 # 土木・地理のモジュール（決定 0253）。J-LandXML・SIMA・TIFF は図面のモジュールにも置く
@@ -184,7 +185,7 @@ ops = [
 name = "civil"
 description = "土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）"
 formats = ["landxml", "citygml", "fgd", "extdm", "geojson", "sima", "tiff"]
-ops = ["capabilities", "open", "close", "describe", "convert", "civil", "geo", "scene3d"]
+ops = ["capabilities", "open", "close", "describe", "convert", "civil", "geo", "scene3d", "georeference"]
 
 # 点群のモジュール（決定 0232・0253）。設計の TIN との差のために、J-LandXML も読む
 [[modules]]

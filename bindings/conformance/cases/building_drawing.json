@@ -30,6 +30,50 @@
         "/diagnostics/0/params/name": "a.ifc",
         "/diagnostics/0/params/op": "drawing"
       }
+    },
+    {
+      "push": {
+        "name": "road.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('road.ifc','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4X3_ADD2'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Road',$,$,$,$,$,#10);\n#10=IFCUNITASSIGNMENT((#11,#12));\n#11=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n#12=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);\n#20=IFCALIGNMENT('0000000000000000000020',$,'本線',$,$,$,$,$);\n#21=IFCRELAGGREGATES('0000000000000000000021',$,$,$,#1,(#20));\n#30=IFCALIGNMENTHORIZONTAL('0000000000000000000030',$,$,$,$,$,$);\n#31=IFCCARTESIANPOINT((0.,0.));\n#32=IFCALIGNMENTHORIZONTALSEGMENT($,$,#31,0.,0.,0.,100.,$,.LINE.);\n#33=IFCALIGNMENTSEGMENT('0000000000000000000033',$,$,$,$,$,$,#32);\n#34=IFCRELNESTS('0000000000000000000034',$,$,$,#30,(#33));\n#40=IFCALIGNMENTVERTICAL('0000000000000000000040',$,$,$,$,$,$);\n#41=IFCALIGNMENTVERTICALSEGMENT($,$,0.,100.,10.,0.02,0.02,$,.CONSTANTGRADIENT.);\n#42=IFCALIGNMENTSEGMENT('0000000000000000000042',$,$,$,$,$,$,#41);\n#43=IFCRELNESTS('0000000000000000000043',$,$,$,#40,(#42));\n#50=IFCALIGNMENTCANT('0000000000000000000050',$,$,$,$,$,$,1.067);\n#51=IFCALIGNMENTCANTSEGMENT($,$,0.,100.,0.,0.105,0.,0.,.LINEARTRANSITION.);\n#52=IFCALIGNMENTSEGMENT('0000000000000000000052',$,$,$,$,$,$,#51);\n#53=IFCRELNESTS('0000000000000000000053',$,$,$,#50,(#52));\n#60=IFCRELNESTS('0000000000000000000060',$,$,$,#20,(#30,#40,#50));\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "road.ifc"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil",
+        "doc": "road.ifc",
+        "details": true
+      },
+      "expect": {
+        "/result/details/alignment/cant/0/length": 100
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "civil_drawing",
+        "doc": "road.ifc",
+        "sheet": "平面図",
+        "to": "plan.dxf"
+      },
+      "expect": {
+        "/result/doc": "plan.dxf",
+        "/result/sheet": "平面図",
+        "/diagnostics/0/code": "civil.value.dropped",
+        "/diagnostics/0/count": 1,
+        "/diagnostics/0/params/kind": "cant",
+        "/diagnostics/0/params/target": "civil_drawing"
+      }
     }
   ]
 }

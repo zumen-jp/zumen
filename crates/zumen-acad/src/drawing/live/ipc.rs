@@ -1,11 +1,16 @@
 //! 常駐 IPC が表示の定義を引く読み取り。状態・保存・`apply` と表示の作り方は変えない。
 
-use zumen_base::{Cx, Kind, Stop};
-use zumen_drawing::{Element, FormattedText, Layer, LineType, MarkContent, Piece, Placed, Shape};
-use zumen_live::RowId;
+use zumen_base::{Cx, Kind, Ref, Stop};
+use zumen_drawing::{
+    Element, Hash, Layer, Length, LineType, MarkContent, ModelLength, ModelPoint, Placed, Seen,
+    Shape, SpaceId, SymbolKey, id,
+};
 use zumen_live::display::Display;
+use zumen_live::hit::SymbolHitCache;
+use zumen_live::{BoundsSource, RowId};
 use zumen_sdk::Error;
 
+use super::super::mtext;
 use super::AcadLive;
 use super::shape::{Xform, display_layer, pack_color, shape_display_counts, write_shape_display};
 
@@ -142,6 +147,39 @@ impl AcadLive {
         }
     }
 
+    /// 行を雛形にして要素を足すときの、足す先の場所の ID（`Edit::Add` の `place`）と、雛形の画層・スタイルを持つ要素。
+    /// 要素の形は、足す先の原点の長さ 0 の線分で、雛形の形は写さない。生きた最上位の要素の行だけが雛形になり、
+    /// 生きていない行と記号の定義の中の要素は `None`。行 1 つを共有の予算で数える
+    pub fn display_template(
+        &self,
+        row: RowId,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<(String, Placed)>, Error> {
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        // DXF・DWG の行は、どれもモデル空間（空間 0）の要素
+        let space = SpaceId(0);
+        Ok(self.element_with_source(row, cx)?.map(|element| {
+            let template = Placed::Model(Element {
+                source: Ref::default(),
+                layer: element.layer,
+                style: element.style,
+                shape: Shape::Line {
+                    start: ModelPoint {
+                        space,
+                        x: 0.0,
+                        y: 0.0,
+                    },
+                    end: ModelPoint {
+                        space,
+                        x: 0.0,
+                        y: 0.0,
+                    },
+                },
+            });
+            (id::space(space), template)
+        }))
+    }
+
     /// 生きた文字の行（`Shape::Text`・`Shape::Formatted`）の要素を、内容だけ `content` に替えて返す。`Edit::Replace` の
     /// 新しい値に使う。行が生きていないか、文字でなければ `None`。行 1 つと新しい内容のバイト数を共有の予算で数える
     pub fn display_retexted(
@@ -167,37 +205,42 @@ fn text_of<P>(shape: &Shape<P>) -> (u32, &str) {
     }
 }
 
-/// 内容だけを替えられる文字の要素なら、内容を `content` に替えた写し。替えられるのは `Shape::Text` と、区間が
-/// 文字列 1 つだけの `Shape::Formatted`（区間の中身も替える）。ほかの形は `None`。
-/// 新しい内容のバイト数を共有の予算で数えてから写す
-fn retexted<P: Clone>(
-    element: &Element<P>,
+/// 文字の要素なら、内容を `content` に替えた写し。替えられるのは `Shape::Text` と `Shape::Formatted`（書式・段落の
+/// 符号を含む内容から区間を作り直す）。ほかの形は `None`。新しい内容と区間のバイト数を共有の予算で数えてから写す
+fn retexted(
+    element: &Element<ModelPoint>,
     content: &str,
     cx: &mut Cx<'_>,
-) -> Result<Option<Element<P>>, Error> {
-    let plain = |text: &FormattedText<P>| match text.spans.as_slice() {
-        [span] => span.piece == Piece::Text(text.content.clone()),
-        _ => false,
-    };
+) -> Result<Option<Element<ModelPoint>>, Error> {
     match &element.shape {
-        Shape::Text(_) => {}
-        Shape::Formatted(text) if plain(text) => {}
-        _ => return Ok(None),
-    }
-    cx.check(Kind::DecodedBytes, content.len() as u64)
-        .map_err(|stop| stopped(cx, stop))?;
-    let mut out = element.clone();
-    match &mut out.shape {
-        Shape::Text(text) => content.clone_into(&mut text.content),
-        Shape::Formatted(text) => {
-            content.clone_into(&mut text.content);
-            if let Some(span) = text.spans.first_mut() {
-                span.piece = Piece::Text(content.to_owned());
+        Shape::Text(_) => {
+            cx.check(Kind::DecodedBytes, content.len() as u64)
+                .map_err(|stop| stopped(cx, stop))?;
+            let mut out = element.clone();
+            if let Shape::Text(text) = &mut out.shape {
+                content.clone_into(&mut text.content);
             }
+            Ok(Some(out))
         }
-        _ => {}
+        Shape::Formatted(current) => {
+            let space = current.point.space;
+            cx.check(Kind::Work, 1 + content.len() as u64 / 64)
+                .and_then(|()| cx.check(Kind::DecodedBytes, content.len() as u64))
+                .map_err(|stop| stopped(cx, stop))?;
+            let spans = mtext::spans(content, &|value| {
+                Length::Model(ModelLength { space, value })
+            });
+            cx.check(Kind::DecodedBytes, (spans.len() as u64).saturating_mul(128))
+                .map_err(|stop| stopped(cx, stop))?;
+            let mut out = element.clone();
+            if let Shape::Formatted(text) = &mut out.shape {
+                content.clone_into(&mut text.content);
+                text.spans = spans;
+            }
+            Ok(Some(out))
+        }
+        _ => Ok(None),
     }
-    Ok(Some(out))
 }
 
 /// [`text_of`] の内容を、バイト数を共有の予算で数えてから写す
@@ -229,9 +272,160 @@ pub(crate) fn line_type_bytes(line_type: &LineType) -> u64 {
 }
 
 impl AcadLive {
+    /// 表示の座標の点 `point` から許容距離 `tolerance` 以内にある生きた最上位の行を、昇順で `out` の後ろに足す。
+    /// 負や非有限の値では何も足さない。停止時は `out` を呼ぶ前の長さに戻し、診断を 1 件報告する
+    pub fn select_point_with_cx(
+        &self,
+        point: [f64; 2],
+        tolerance: f64,
+        out: &mut Vec<RowId>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        if !(point[0].is_finite()
+            && point[1].is_finite()
+            && tolerance.is_finite()
+            && tolerance >= 0.0)
+        {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            return Ok(());
+        }
+        let start = out.len();
+        let query = [
+            point[0] - tolerance,
+            point[1] - tolerance,
+            point[0] + tolerance,
+            point[1] + tolerance,
+        ];
+        if let Err(err) = self.select_rect_with_cx(query, out, cx) {
+            out.truncate(start);
+            return Err(err);
+        }
+        let bounds_col = self.state.table.bounds_column();
+        let mut cache = SymbolHitCache::new();
+        let result = (|| -> Result<(), Stop> {
+            let mut write = start;
+            for read in start..out.len() {
+                let Some(row) = out.get(read).copied() else {
+                    continue;
+                };
+                let bounds = bounds_col.bounds_at(row.index());
+                let hits = cache.row_hits_with_cx(
+                    &self.state.display,
+                    row.0,
+                    bounds,
+                    point,
+                    tolerance,
+                    &mut |def_idx, sym_display, inner_cx| {
+                        self.display_symbol_raw(def_idx, sym_display, inner_cx)
+                    },
+                    cx,
+                )?;
+                if hits {
+                    if let Some(slot) = out.get_mut(write) {
+                        *slot = row;
+                    }
+                    write += 1;
+                }
+            }
+            out.truncate(write);
+            Ok(())
+        })();
+        result.map_err(|stop| {
+            out.truncate(start);
+            stopped(cx, stop)
+        })
+    }
+
     /// 表示の挿入が指す記号の定義の数。挿入の定義の値は `0..` この数か、定義が見つからない印
     pub fn display_symbol_count(&self) -> u32 {
         u32::try_from(self.state.symbols.len()).unwrap_or(u32::MAX)
+    }
+
+    /// 記号の定義 `index` のキー。範囲外なら `None`
+    pub fn display_symbol_key(&self, index: u32) -> Option<SymbolKey> {
+        self.state
+            .symbols
+            .get(index as usize)
+            .map(|sym| sym.key.clone())
+    }
+
+    /// 記号の定義 `symbol` の中の `element` 番目の要素の正規 ID とハッシュを共有予算で返す。範囲外なら `None`
+    pub fn seen_of_symbol_element(
+        &self,
+        symbol: u32,
+        element: u32,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Seen>, Error> {
+        let sym_idx = symbol as usize;
+        let elem_idx = element as usize;
+        let Some(def) = self.state.symbols.get(sym_idx) else {
+            return Ok(None);
+        };
+        let Some(target_el) = def.space.elements.get(elem_idx) else {
+            return Ok(None);
+        };
+        let work_steps = (sym_idx as u64 + 1).saturating_add(elem_idx as u64 + 1);
+        cx.check(Kind::Work, work_steps)
+            .map_err(|stop| stopped(cx, stop))?;
+        let mut def_namer = id::DefinitionNamer::default();
+        let mut place = String::new();
+        for item in self.state.symbols.iter().take(sym_idx + 1) {
+            place = def_namer.next(item);
+        }
+        let any_keyless = def
+            .space
+            .elements
+            .iter()
+            .take(elem_idx + 1)
+            .any(|item| item.source.key().is_none());
+        let dxf_mapper = match &self.state.backing {
+            super::backing::LiveBacking::AsciiDxf(dxf) if any_keyless => {
+                dxf.record_mapper_with_cx(cx)?
+            }
+            _ => None,
+        };
+        let dwg_mapper = match &self.state.backing {
+            super::backing::LiveBacking::Dwg(dwg) if any_keyless => dwg.source_mapper(cx)?,
+            _ => None,
+        };
+        let mut seen = std::collections::BTreeMap::<String, u64>::new();
+        let mut canonical = String::new();
+        for (idx, item) in def.space.elements.iter().enumerate().take(elem_idx + 1) {
+            let mut source = item.source.clone();
+            if source.key().is_none() {
+                if let Some(mapper) = &dxf_mapper {
+                    mapper.remap_ref(&mut source);
+                }
+                if let Some(mapper) = &dwg_mapper {
+                    mapper.remap_ref(&mut source);
+                }
+            }
+            let origin = id::origin(&source, idx);
+            let repeat = if source.key().is_none()
+                && source.record().is_none()
+                && source.bytes().is_none()
+            {
+                0
+            } else {
+                let count = seen.entry(origin.clone()).or_insert(0);
+                let current = *count;
+                *count += 1;
+                current
+            };
+            if idx == elem_idx {
+                canonical = match repeat {
+                    0 => format!("{place}/{origin}"),
+                    n => format!("{place}/{origin}/{n}"),
+                };
+            }
+        }
+        cx.check(Kind::DecodedBytes, canonical.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
+        let hash = Hash::element_checked(target_el, cx).map_err(|stop| stopped(cx, stop))?;
+        Ok(Some(Seen {
+            id: canonical,
+            hash,
+        }))
     }
 
     /// 記号の定義 `index` の要素を、定義の座標のまま 1 要素 1 行で `display` の末尾に足し、足した行の数を返す。
@@ -242,6 +436,22 @@ impl AcadLive {
         display: &mut Display,
         cx: &mut Cx<'_>,
     ) -> Result<Option<u32>, Error> {
+        let written = self
+            .display_symbol_raw(index, display, cx)
+            .map_err(|stop| stopped(cx, stop))?;
+        match written {
+            None => Ok(None),
+            Some(u32::MAX) => Err(Error::Invalid),
+            Some(rows) => Ok(Some(rows)),
+        }
+    }
+
+    fn display_symbol_raw(
+        &self,
+        index: u32,
+        display: &mut Display,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<u32>, Stop> {
         let symbols = &self.state.symbols;
         let Some(definition) = symbols.get(index as usize) else {
             return Ok(None);
@@ -253,21 +463,19 @@ impl AcadLive {
                 display_layer(layer_ids, element.layer.0),
                 pack_color(element.style.color),
             ];
-            display
-                .push_with_cx(cx, counts, style, |writer| {
-                    write_shape_display(
-                        &element.shape,
-                        symbols,
-                        layer_ids,
-                        &Xform::IDENTITY,
-                        0,
-                        writer,
-                    );
-                })
-                .map_err(|stop| stopped(cx, stop))?;
+            display.push_with_cx(cx, counts, style, |writer| {
+                write_shape_display(
+                    &element.shape,
+                    symbols,
+                    layer_ids,
+                    &Xform::IDENTITY,
+                    0,
+                    writer,
+                );
+            })?;
         }
         Ok(Some(
-            u32::try_from(definition.space.elements.len()).map_err(|_| Error::Invalid)?,
+            u32::try_from(definition.space.elements.len()).unwrap_or(u32::MAX),
         ))
     }
 }

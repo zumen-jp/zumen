@@ -29,6 +29,14 @@ pub(crate) enum Opened {
     Need(Vec<InputRange>),
 }
 
+/// 読む処理と移す処理が返した誤りを失敗にする。予算による停止は診断にして足す
+fn failed(cx: &mut Cx<'_>, err: zumen_sdk::Error) -> Failed {
+    match err {
+        zumen_sdk::Error::Stopped(stop) => stopped(cx, stop),
+        _ => Failed,
+    }
+}
+
 /// 範囲の入力の名前
 fn range_name(input: &str, range: ByteRange) -> String {
     format!("{input}#{}-{}", range.start, range.end)
@@ -95,14 +103,14 @@ pub(crate) fn read(
             }),
         );
     }
-    // 失敗の理由は、コーデックと移す処理が診断として足してある
+    // 失敗の理由は、コーデックと移す処理が診断として足してある。予算による停止はここで診断にする
     Some(match Las::read_ranged(&source, cx) {
         Ok(file) => file
             .lift(cx)
             .map(|cloud| Opened::Cloud(Box::new(cloud), ranges, None))
-            .map_err(|_| Failed),
+            .map_err(|err| failed(cx, err)),
         Err(Missing::Need(needs)) => Ok(need(needs)),
-        Err(Missing::Failed(_)) => Err(Failed),
+        Err(Missing::Failed(err)) => Err(failed(cx, err)),
     })
 }
 
@@ -130,7 +138,7 @@ fn read_copc(
         spacing,
         limit: condition.limit.unwrap_or(u64::MAX),
     };
-    // 失敗の理由は、読む処理が診断として足してある
+    // 失敗の理由は、読む処理が診断として足してある。予算による停止はここで診断にする
     match zumen_las::copc::read(source, &query, cx) {
         Ok(copc) => Ok(Ok(Opened::Cloud(
             Box::new(copc.cloud),
@@ -138,7 +146,7 @@ fn read_copc(
             Some(copc.truncated),
         ))),
         Err(Missing::Need(needs)) => Ok(Err(needs)),
-        Err(Missing::Failed(_)) => Err(Failed),
+        Err(Missing::Failed(err)) => Err(failed(cx, err)),
     }
 }
 
@@ -162,11 +170,11 @@ pub(crate) fn read_whole(
     where
         C::File: Lift<PointCloud>,
     {
-        // 失敗の理由は、コーデックと移す処理が診断として足してある
+        // 失敗の理由は、コーデックと移す処理が診断として足してある。予算による停止はここで診断にする
         C::read(bytes, cx)
             .and_then(|file| file.lift(cx))
             .map(|cloud| (C::FORMAT, cloud))
-            .map_err(|_| Failed)
+            .map_err(|err| failed(cx, err))
     }
     if format == Some(Xyz::FORMAT) {
         return Some(open::<Xyz>(bytes, cx));

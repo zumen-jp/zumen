@@ -3923,3 +3923,396 @@ fn dwg_leader_dependencies_follow_every_edit_like_reopening() {
         assert_eq!(dwg_dependency_matrix(&input, &handles, threads), expected);
     }
 }
+
+fn check_add_symbol_and_nested_propagation<C: Codec>(mut pair: AcadPair<C>)
+where
+    C::File: Lift<Drawing2D> + Apply<Changes, Output = Vec<Applied>>,
+{
+    use zumen_drawing::{Axes, ModelSpace, SpaceId, Symbol, SymbolDefinition, SymbolKey};
+
+    let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let base_style = model.spaces[0].elements[0].style;
+    let layer_id = model.layers[0].id;
+    let def_space = SpaceId(100);
+    let inner_key = SymbolKey {
+        namespace: "dxf.block".into(),
+        name: "LIVE_INNER".to_owned(),
+    };
+    let outer_key = SymbolKey {
+        namespace: "dxf.block".into(),
+        name: "LIVE_OUTER".to_owned(),
+    };
+
+    let inner_def = SymbolDefinition {
+        key: inner_key.clone(),
+        space: ModelSpace {
+            id: def_space,
+            unit: model.spaces[0].unit,
+            axes: Axes::EastNorth,
+            elements: vec![Element {
+                source: Default::default(),
+                layer: layer_id,
+                style: base_style,
+                shape: Shape::Line {
+                    start: zumen_drawing::ModelPoint {
+                        space: def_space,
+                        x: 0.0,
+                        y: 0.0,
+                    },
+                    end: zumen_drawing::ModelPoint {
+                        space: def_space,
+                        x: 4.0,
+                        y: 0.0,
+                    },
+                },
+            }],
+            order: vec![0],
+        },
+        base: Some(zumen_drawing::ModelPoint {
+            space: def_space,
+            x: 0.0,
+            y: 0.0,
+        }),
+        attributes: Vec::new(),
+        anonymous: false,
+        external: None,
+        source: Default::default(),
+    };
+    pair.apply(Edit::AddSymbol {
+        symbol: Box::new(inner_def),
+    });
+
+    let outer_def = SymbolDefinition {
+        key: outer_key.clone(),
+        space: ModelSpace {
+            id: def_space,
+            unit: model.spaces[0].unit,
+            axes: Axes::EastNorth,
+            elements: vec![Element {
+                source: Default::default(),
+                layer: layer_id,
+                style: base_style,
+                shape: Shape::Symbol(Symbol {
+                    key: inner_key.clone(),
+                    position: zumen_drawing::ModelPoint {
+                        space: def_space,
+                        x: 10.0,
+                        y: 20.0,
+                    },
+                    scale: [1.0, 1.0],
+                    rotation: 0.0,
+                    grid: None,
+                    attributes: Vec::new(),
+                    clip: None,
+                }),
+            }],
+            order: vec![0],
+        },
+        base: Some(zumen_drawing::ModelPoint {
+            space: def_space,
+            x: 0.0,
+            y: 0.0,
+        }),
+        attributes: Vec::new(),
+        anonymous: false,
+        external: None,
+        source: Default::default(),
+    };
+    pair.apply(Edit::AddSymbol {
+        symbol: Box::new(outer_def),
+    });
+
+    let space_id = model.spaces[0].id;
+    let added = pair
+        .apply(Edit::Add {
+            place: "space/0".to_owned(),
+            element: Box::new(Placed::Model(Element {
+                source: Default::default(),
+                layer: layer_id,
+                style: base_style,
+                shape: Shape::Symbol(Symbol {
+                    key: outer_key.clone(),
+                    position: zumen_drawing::ModelPoint {
+                        space: space_id,
+                        x: 500.0,
+                        y: 600.0,
+                    },
+                    scale: [1.0, 1.0],
+                    rotation: 0.0,
+                    grid: None,
+                    attributes: Vec::new(),
+                    clip: None,
+                }),
+            })),
+        })
+        .pop()
+        .unwrap();
+    let inserted_id = added.id.unwrap();
+    let (_, ins_hex) = inserted_id.rsplit_once("/h").unwrap();
+    let ins_handle = u64::from_str_radix(ins_hex, 16).unwrap();
+    let ins_row = pair.live.table().find_handle(ins_handle).unwrap();
+
+    let select = |live: &AcadLive, rect: [f64; 4]| -> Vec<RowId> {
+        let mut out = Vec::new();
+        fresh_cx(|cx| live.select_rect_with_cx(rect, &mut out, cx))
+            .0
+            .unwrap();
+        out
+    };
+    // 初期の挿入範囲は (510, 620)..(514, 620) を含む
+    assert!(select(&pair.live, [509.0, 619.0, 515.0, 621.0]).contains(&ins_row));
+    assert!(!select(&pair.live, [559.0, 659.0, 565.0, 661.0]).contains(&ins_row));
+
+    let cur_model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+    let inner_idx = cur_model
+        .symbols
+        .iter()
+        .position(|s| s.key == inner_key)
+        .unwrap() as u32;
+    let outer_idx = cur_model
+        .symbols
+        .iter()
+        .position(|s| s.key == outer_key)
+        .unwrap() as u32;
+    let Some(Key::Handle(inner_line_handle)) = cur_model.symbols[inner_idx as usize].space.elements
+        [0]
+    .source
+    .key() else {
+        panic!("handle required");
+    };
+
+    pair.live.clear_dirty_symbols();
+    let before_move = fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap();
+    let before_move_bytes = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+
+    // 内側定義の線分を (+50, +40) 動かすと、高速経路で外側定義と最上位挿入の箱・変更定義集合へ伝播する
+    let target = pair.seen(inner_line_handle);
+    let changes = Changes {
+        document: None,
+        edits: vec![Edit::Transform {
+            target,
+            transform: Affine::translation(50.0, 40.0),
+        }],
+    };
+    let actual = fresh_cx(|cx| pair.live.apply(&changes, cx));
+    let expected = fresh_cx(|cx| pair.reference.apply(&changes, cx));
+    assert_eq!(actual, expected);
+    assert_eq!(pair.live.journal.last_is_fast(), Some(true));
+    assert!(pair.live.dirty_symbols().contains(&inner_idx));
+    assert!(pair.live.dirty_symbols().contains(&outer_idx));
+    assert!(select(&pair.live, [559.0, 659.0, 565.0, 661.0]).contains(&ins_row));
+    pair.assert_model();
+
+    let after_move_bytes = fresh_cx(|cx| pair.live.save(cx)).0.unwrap();
+    let expected_bytes = fresh_cx(|cx| {
+        let mut out = Vec::new();
+        C::write(&pair.reference, &mut out, cx).map(|()| out)
+    })
+    .0
+    .unwrap();
+    assert_eq!(after_move_bytes, expected_bytes);
+
+    pair.live.clear_dirty_symbols();
+    assert!(fresh_cx(|cx| pair.live.undo(cx)).0.unwrap());
+    assert!(pair.live.dirty_symbols().contains(&inner_idx));
+    assert!(pair.live.dirty_symbols().contains(&outer_idx));
+    assert_eq!(fresh_cx(|cx| pair.live.drawing(cx)).0.unwrap(), before_move);
+    assert_eq!(
+        fresh_cx(|cx| pair.live.save(cx)).0.unwrap(),
+        before_move_bytes
+    );
+    assert!(!select(&pair.live, [559.0, 659.0, 565.0, 661.0]).contains(&ins_row));
+    assert!(select(&pair.live, [509.0, 619.0, 515.0, 621.0]).contains(&ins_row));
+
+    assert!(fresh_cx(|cx| pair.live.redo(cx)).0.unwrap());
+    assert_eq!(
+        fresh_cx(|cx| pair.live.save(cx)).0.unwrap(),
+        after_move_bytes
+    );
+    assert!(select(&pair.live, [559.0, 659.0, 565.0, 661.0]).contains(&ins_row));
+    pair.assert_model();
+}
+
+#[test]
+fn add_symbol_and_nested_definition_propagation_match_apply() {
+    let dxf = dwg_sample("zumen-layout-r2018_ascii.dxf");
+    for threads in [1, 4] {
+        check_add_symbol_and_nested_propagation(DxfPair::open(&dxf, threads));
+        for name in [
+            "zumen-layout-r2000.dwg",
+            "zumen-layout-r2004.dwg",
+            "zumen-layout-r2018.dwg",
+        ] {
+            check_add_symbol_and_nested_propagation(DwgPair::open(&dwg_sample(name), threads));
+        }
+    }
+}
+
+#[test]
+fn callout_table_attributed_insert_and_remaining_dwg_samples_match_apply() {
+    let mut source = String::from_utf8(synthetic_rich_dxf()).unwrap();
+    let at = source.rfind("  0\nENDSEC\n").unwrap();
+    let extra = concat!(
+        "0\nMULTILEADER\n5\n125\n330\n41\n100\nAcDbEntity\n8\n0\n100\nAcDbMLeader\n42\n2.5\n",
+        "300\nCONTEXT_DATA{\n40\n1.0\n10\n0.0\n20\n0.0\n30\n0.0\n140\n2.5\n290\n1\n304\nCALL\n",
+        "12\n15.0\n22\n25.0\n32\n0.0\n41\n2.5\n",
+        "302\nLEADER{\n290\n1\n10\n12.0\n20\n25.0\n30\n0.0\n",
+        "304\nLEADER_LINE{\n10\n5.0\n20\n10.0\n30\n0.0\n10\n10.0\n20\n25.0\n30\n0.0\n305\n}\n303\n}\n301\n}\n",
+        "0\nACAD_TABLE\n5\n126\n330\n41\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockReference\n",
+        "10\n30.0\n20\n40.0\n30\n0.0\n100\nAcDbTable\n91\n1\n92\n2\n141\n5.0\n142\n12.0\n142\n15.0\n",
+        "171\n1\n1\nA1\n171\n1\n1\nB1\n",
+    );
+    source.insert_str(at, extra);
+    let dxf_bytes = source.into_bytes();
+
+    for threads in [1, 4] {
+        let mut pair = DxfPair::open(&dxf_bytes, threads);
+        let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+        assert!(
+            model.spaces[0]
+                .elements
+                .iter()
+                .any(|e| matches!(e.shape, Shape::Callout(_)))
+        );
+        assert!(
+            model.spaces[0]
+                .elements
+                .iter()
+                .any(|e| matches!(e.shape, Shape::Table(_)))
+        );
+
+        // MULTILEADER と ACAD_TABLE に対するスタイル変更・平行移動・削除を逐次 apply と照らす
+        for handle in [0x125_u64, 0x126] {
+            for candidate in [
+                Edit::Restyle {
+                    target: pair.seen(handle),
+                    style: Restyle {
+                        line_type_scale: Some(2.0),
+                        ..Restyle::default()
+                    },
+                },
+                Edit::Transform {
+                    target: pair.seen(handle),
+                    transform: Affine::translation(3.0, 4.0),
+                },
+            ] {
+                let mut probe = pair.reference.clone();
+                let changes = Changes {
+                    document: None,
+                    edits: vec![candidate.clone()],
+                };
+                if fresh_cx(|cx| probe.apply(&changes, cx)).0.is_ok() {
+                    pair.apply(candidate);
+                } else {
+                    pair.reject(candidate);
+                }
+            }
+            let remove = Edit::Remove {
+                target: pair.seen(handle),
+            };
+            let mut probe = pair.reference.clone();
+            let changes = Changes {
+                document: None,
+                edits: vec![remove.clone()],
+            };
+            if fresh_cx(|cx| probe.apply(&changes, cx)).0.is_ok() {
+                pair.apply(remove);
+            } else {
+                pair.reject(remove);
+            }
+        }
+
+        // 属性つき INSERT（h106）の移動・属性文字書き換え・属性つき挿入追加・点スタイル変更
+        pair.apply(Edit::SetPointStyle {
+            style: zumen_drawing::PointStyle {
+                mark: zumen_drawing::PointMark::Cross,
+                circle: true,
+                square: true,
+                size: zumen_drawing::PointSize::Length(3.0),
+            },
+        });
+        pair.apply(Edit::Transform {
+            target: pair.seen(0x106),
+            transform: Affine::translation(4.0, -2.0),
+        });
+        let mut insert = pair.element(0x106);
+        let Shape::Symbol(sym) = &mut insert.shape else {
+            panic!("symbol required");
+        };
+        sym.attributes[0].text.content = "B-99".to_owned();
+        pair.apply(Edit::Replace {
+            target: pair.seen(0x106),
+            element: Box::new(Placed::Model(insert.clone())),
+        });
+        let added_ins = pair
+            .apply(Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(insert)),
+            })
+            .pop()
+            .unwrap();
+        // 属性（ATTRIB・SEQEND）を伴う INSERT の削除は逐次 apply と同じ診断で断り、状態を変えない
+        pair.reject(Edit::Remove {
+            target: Seen {
+                id: added_ins.id.unwrap(),
+                hash: added_ins.hash.unwrap(),
+            },
+        });
+    }
+
+    // 公開サンプルの残りの DWG（xclip・points-b）のオープン・編集・取り消し・やり直し照合
+    for name in [
+        "zumen-xclip-r2013.dwg",
+        "zumen-xclip-r2018.dwg",
+        "zumen-points-b-r2000.dwg",
+        "zumen-points-b-r2018.dwg",
+    ] {
+        let bytes = dwg_sample(name);
+        for threads in [1, 4] {
+            let mut pair = DwgPair::open(&bytes, threads);
+            pair.apply(Edit::SetPointStyle {
+                style: zumen_drawing::PointStyle {
+                    mark: zumen_drawing::PointMark::Plus,
+                    circle: false,
+                    square: true,
+                    size: zumen_drawing::PointSize::Length(1.5),
+                },
+            });
+            let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
+            if let Some(handle) =
+                model.spaces[0]
+                    .elements
+                    .iter()
+                    .find_map(|el| match el.source.key() {
+                        Some(Key::Handle(h)) => Some(h),
+                        _ => None,
+                    })
+            {
+                let restyle = Edit::Restyle {
+                    target: pair.seen(handle),
+                    style: Restyle {
+                        line_type_scale: Some(2.0),
+                        ..Restyle::default()
+                    },
+                };
+                let mut probe = pair.reference.clone();
+                if fresh_cx(|cx| {
+                    probe.apply(
+                        &Changes {
+                            document: None,
+                            edits: vec![restyle.clone()],
+                        },
+                        cx,
+                    )
+                })
+                .0
+                .is_ok()
+                {
+                    pair.apply(restyle);
+                } else {
+                    pair.reject(restyle);
+                }
+            }
+        }
+    }
+}

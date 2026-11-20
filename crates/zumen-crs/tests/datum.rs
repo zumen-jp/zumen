@@ -770,3 +770,58 @@ fn jgd2011_coordinates_follow_later_revisions() {
         [codes::BUDGET_WORK_EXCEEDED]
     );
 }
+
+/// 秒 `seconds` を度分秒にし、度分秒から度に直す。測量計算サイトに度分秒で入れた点と同じく、格子の線の上の点も
+/// 度にする丸めで線から外れうる
+#[cfg(test)]
+fn from_dms(seconds: u32) -> f64 {
+    let (d, m, s) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+    f64::from(d) + f64::from(m) / 60.0 + f64::from(s) / 3600.0
+}
+
+/// 補間は、点の南西の格子点と、その北・東・北東の格子点の四隅を使い、格子点の上と格子の線の上の点でも、重みが 0 の
+/// 格子点を含む四隅がそろわなければ値を返さない。国土地理院の測量計算サイトの TKY2JGD・PatchJGD は、北か東の側の
+/// 格子点が欠けた線の上の点を変換せず、南か西の側だけが欠けた線の上の点を変換する（#664）。度分秒で書いた線の上の
+/// 点は、度への換算の丸めで隣の区画に移さない
+#[test]
+fn points_on_grid_lines_use_the_cell_to_the_north_east() {
+    let mut checked = 0;
+    for i0 in (4200..4260).step_by(3) {
+        for j0 in (3200..3260).step_by(7) {
+            // 南西の隅を (i0, j0) とする 3 × 3 の格子点。補正量はどこも同じ
+            let mut text = String::from("for PatchJGD Ver.1.0.0\nMeshCode   dB(sec)   dL(sec)\n");
+            for i in i0..i0 + 3 {
+                for j in j0..j0 + 3 {
+                    text.push_str(&format!("{} 1.5 -2.5\n", code(i, j)));
+                }
+            }
+            let grid = read(&text);
+            let at = |i: u32, j: u32, di: u32, dj: u32| GeoPoint {
+                latitude: from_dms(i * 30 + di),
+                longitude: from_dms(360_000 + j * 45 + dj),
+            };
+            let cases = [
+                // 南の縁の東西の線と、西の縁の南北の線の上（南か西の側が欠ける）
+                (at(i0, j0 + 1, 0, 15), true),
+                (at(i0 + 1, j0, 10, 0), true),
+                // 南西の隅と、真ん中の格子点
+                (at(i0, j0, 0, 0), true),
+                (at(i0 + 1, j0 + 1, 0, 0), true),
+                // 北の縁の東西の線と、東の縁の南北の線の上（北か東の側が欠ける）
+                (at(i0 + 2, j0, 0, 15), false),
+                (at(i0, j0 + 2, 10, 0), false),
+                // 北東の隅
+                (at(i0 + 2, j0 + 2, 0, 0), false),
+            ];
+            for (point, expected) in cases {
+                let found = grid.correction(point);
+                assert_eq!(found.is_some(), expected, "{i0} {j0} {point:?}");
+                if let Some((b, l)) = found {
+                    assert!((b - 1.5).abs() < 1e-9 && (l + 2.5).abs() < 1e-9, "{b} {l}");
+                }
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 20 * 9 * 7);
+}

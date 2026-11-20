@@ -569,3 +569,167 @@ fn building_apply_on_the_engine_stops_without_changing_the_document() {
         }
     }
 }
+
+fn element_hash(session: &mut Session, doc: &str, id: &str) -> String {
+    let (_, response) = call(
+        session,
+        &format!(r#"{{"v":1,"op":"building_elements","doc":"{doc}","ids":["{id}"]}}"#),
+    );
+    match zumen_json::parse(&response)
+        .unwrap()
+        .pointer("/result/elements/0/hash")
+    {
+        Some(Value::String(hash)) => hash.clone(),
+        _ => panic!("{doc} {id}: {}", String::from_utf8_lossy(&response)),
+    }
+}
+
+fn structural_reads(doc: &str) -> Vec<String> {
+    vec![
+        format!(r#"{{"v":1,"op":"building","doc":"{doc}"}}"#),
+        format!(
+            r#"{{"v":1,"op":"building_elements","doc":"{doc}","components":["class","identity","spatial","parent","placement","type_of","opening","relations"],"limit":60}}"#
+        ),
+    ]
+}
+
+#[test]
+fn building_apply_on_the_engine_matches_the_old_path_and_stops_atomically_for_structural_edits() {
+    for schema in ["IFC2X3", "IFC4", "IFC4X3_ADD2"] {
+        let spf = format!(
+            concat!(
+                "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('','',(''),(''),'','','');\n",
+                "FILE_SCHEMA(('{schema}'));\nENDSEC;\nDATA;\n",
+                "#1=IFCPROJECT('0000000000000000000001',#2,'Project',$,$,$,$,$,#10);\n",
+                "#2=IFCOWNERHISTORY($,$,$,.ADDED.,$,$,$,0);\n",
+                "#10=IFCUNITASSIGNMENT((#11));\n",
+                "#11=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n",
+                "ENDSEC;\nEND-ISO-10303-21;\n"
+            ),
+            schema = schema
+        );
+        let zipped = zumen_zip::write(&[("model/a.ifc", spf.as_bytes())]).unwrap();
+        let wall_predefined = if schema == "IFC2X3" {
+            ""
+        } else {
+            r#","predefined":"SHEAR""#
+        };
+        for (ext, bytes) in [("ifc", spf.into_bytes()), ("ifczip", zipped)] {
+            let name = format!("s.{ext}");
+            let (mut engine, mut old) = twins(&name, &bytes, "");
+            let proj_hash = element_hash(&mut engine, &name, "0000000000000000000001");
+            let step1_edits = vec![
+                format!(
+                    r#"{{"kind":"add_space","space":"site","parent":{{"id":"0000000000000000000001","hash":"{proj_hash}"}},"name":"Site","global_id":"0000000000000000000010","elevation":12000,"placement":{{"matrix":[[1,0,0,0],[0,1,0,0],[0,0,1,0]]}}}}"#
+                ),
+                r#"{"kind":"add_space","space":"building","parent":{"added":0},"name":"Building","global_id":"0000000000000000000100"}"#.to_owned(),
+                r#"{"kind":"add_space","space":"storey","parent":{"added":1},"name":"1F","global_id":"0000000000000000000101","elevation":0}"#.to_owned(),
+                r#"{"kind":"add_space","space":"storey","parent":{"added":1},"name":"2F","global_id":"0000000000000000000102","elevation":3000,"placement":{"matrix":[[1,0,0,0],[0,1,0,0],[0,0,1,3000]],"relative_to":{"added":1}}}"#.to_owned(),
+                r#"{"kind":"add_grid","storey":{"added":2},"name":"G1","global_id":"0000000000000000000103","u":[{"tag":"A","start":[0,0],"end":[0,4000]}],"v":[{"tag":"1","start":[0,0],"end":[6000,0]}]}"#.to_owned(),
+                r#"{"kind":"add_type","class":"IfcWallType","predefined":"SHEAR","name":"WT1","global_id":"0000000000000000000110"}"#.to_owned(),
+                format!(
+                    r#"{{"kind":"add_element","class":"IfcWall"{wall_predefined},"name":"W1","global_id":"0000000000000000000200","container":{{"added":2}},"placement":{{"matrix":[[1,0,0,1000],[0,1,0,0],[0,0,1,0]],"relative_to":{{"added":2}}}}}}"#
+                ),
+                r#"{"kind":"add_element","class":"IfcOpeningElement","name":"O1","global_id":"0000000000000000000201","placement":{"matrix":[[1,0,0,500],[0,1,0,0],[0,0,1,0]],"relative_to":{"added":6}}}"#.to_owned(),
+                r#"{"kind":"add_element","class":"IfcDoor","name":"D1","global_id":"0000000000000000000202","container":{"added":2},"placement":{"matrix":[[1,0,0,0],[0,1,0,0],[0,0,1,0]],"relative_to":{"added":7}}}"#.to_owned(),
+                r#"{"kind":"void","host":{"added":6},"opening":{"added":7}}"#.to_owned(),
+                r#"{"kind":"fill","opening":{"added":7},"filler":{"added":8}}"#.to_owned(),
+                r#"{"kind":"type","element":{"added":6},"element_type":{"added":5}}"#.to_owned(),
+            ];
+
+            // 構造の編集でも、予算で止まれば文書を変えず、通れば今までの経路と一致する
+            let before_reads: Vec<_> = structural_reads(&name)
+                .iter()
+                .map(|r| answer(&mut engine, r))
+                .collect();
+            let mut stops = 0;
+            for kind in [
+                "work",
+                "decoded_bytes",
+                "records",
+                "elements",
+                "input_bytes",
+            ] {
+                for limit in [0_u64, 1, 10, 100, 1_000, 10_000] {
+                    let req = request(
+                        &name,
+                        &format!(r#","budget":{{"{kind}":{limit}}}"#),
+                        &step1_edits,
+                    );
+                    let (status, response, blobs) = answer(&mut engine, &req);
+                    if status == Status::Ok {
+                        let expected = answer(&mut old, &request(&name, "", &step1_edits));
+                        assert_eq!(
+                            (status, &response, &blobs),
+                            (expected.0, &expected.1, &expected.2)
+                        );
+                        (engine, old) = twins(&name, &bytes, "");
+                        continue;
+                    }
+                    stops += 1;
+                    assert!(
+                        stopped_on_budget(&response),
+                        "{schema} {name} {kind} {limit}"
+                    );
+                    assert!(blobs.is_empty());
+                    let after_reads: Vec<_> = structural_reads(&name)
+                        .iter()
+                        .map(|r| answer(&mut engine, r))
+                        .collect();
+                    assert_eq!(after_reads, before_reads, "{schema} {name} {kind} {limit}");
+                }
+            }
+            assert!(stops > 0, "{schema} {name}");
+
+            let (status, _) = same(&mut engine, &mut old, &request(&name, "", &step1_edits));
+            assert_eq!(status, Status::Ok, "{schema} {name}");
+            assert_eq!(engine.engine_applies, 1);
+            assert!(engine_kept(&engine, &name));
+            for read in structural_reads(&name) {
+                same(&mut engine, &mut old, &read);
+            }
+
+            // 置き直し・所属変更・型の解除と属性変更の混在
+            let wall_hash = element_hash(&mut engine, &name, "0000000000000000000200");
+            let second_hash = element_hash(&mut engine, &name, "0000000000000000000102");
+            let site_hash = element_hash(&mut engine, &name, "0000000000000000000010");
+            let step2_edits = vec![
+                format!(
+                    r#"{{"kind":"place","element":{{"id":"0000000000000000000200","hash":"{wall_hash}"}},"placement":{{"matrix":[[1,0,0,2000],[0,1,0,500],[0,0,1,0]],"relative_to":{{"id":"0000000000000000000102","hash":"{second_hash}"}}}}}}"#
+                ),
+                format!(
+                    r#"{{"kind":"contain","element":{{"id":"0000000000000000000200","hash":"{wall_hash}"}},"space":{{"id":"0000000000000000000102","hash":"{second_hash}"}}}}"#
+                ),
+                format!(
+                    r#"{{"kind":"type","element":{{"id":"0000000000000000000200","hash":"{wall_hash}"}}}}"#
+                ),
+                attribute("0000000000000000000010", &site_hash, "name", Some("敷地A")),
+            ];
+            let (status, _) = same(&mut engine, &mut old, &request(&name, "", &step2_edits));
+            assert_eq!(status, Status::Ok, "{schema} {name}");
+            assert_eq!(engine.engine_applies, 2);
+            for read in structural_reads(&name) {
+                same(&mut engine, &mut old, &read);
+            }
+
+            // 扉と壁（開口も連鎖）の除去
+            let door_hash = element_hash(&mut engine, &name, "0000000000000000000202");
+            let wall_hash2 = element_hash(&mut engine, &name, "0000000000000000000200");
+            let step3_edits = vec![
+                format!(
+                    r#"{{"kind":"remove","id":"0000000000000000000202","hash":"{door_hash}"}}"#
+                ),
+                format!(
+                    r#"{{"kind":"remove","id":"0000000000000000000200","hash":"{wall_hash2}"}}"#
+                ),
+            ];
+            let (status, _) = same(&mut engine, &mut old, &request(&name, "", &step3_edits));
+            assert_eq!(status, Status::Ok, "{schema} {name}");
+            assert_eq!(engine.engine_applies, 3);
+            assert!(engine_kept(&engine, &name));
+            for read in structural_reads(&name) {
+                same(&mut engine, &mut old, &read);
+            }
+        }
+    }
+}

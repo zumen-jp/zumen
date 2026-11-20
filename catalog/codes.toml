@@ -140,6 +140,13 @@ params = { limit = "uint", requested = "uint" }
 since = "0.0.0"
 status = "active"
 
+[codes."budget.model-bytes.exceeded"]
+description = "図面モデルのメモリ量が上限を超えた"
+severity = "error"
+params = { limit = "uint", requested = "uint" }
+since = "0.4.0"
+status = "active"
+
 [codes."budget.records.exceeded"]
 description = "L0・L1 で読んだレコードの数が上限を超えた"
 severity = "error"

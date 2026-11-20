@@ -1,7 +1,7 @@
 use super::*;
 use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
 
-fn context<T>(limits: Limits, run: impl FnOnce(&mut Cx<'_>) -> T) -> (T, [u64; 7]) {
+fn context<T>(limits: Limits, run: impl FnOnce(&mut Cx<'_>) -> T) -> (T, [u64; Kind::ALL.len()]) {
     let mut budget = Budget::new(limits);
     let mut diagnostics = Diagnostics::new();
     let cancel = CancelToken::new();

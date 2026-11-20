@@ -1,4 +1,4 @@
-// 点群のアダプター（#817）をブラウザーの WebGL2 で検査する。位置は地図の変換の逆を独立に計算し、色・当たりはコアの ZMS3 の列と照らす。
+// 点群のアダプター（#817）をブラウザーの WebGPU で検査する。位置は地図の変換の逆を独立に計算し、色・当たりはコアの ZMS3 の列と照らす。
 import { load, readScene3D } from "@zumen-jp/zumen";
 import { View3D, View3DError } from "../src/index.js";
 import { attachPointCloud } from "../src/pointcloud.js";
@@ -59,15 +59,16 @@ export async function testPointCloud(wasmPath, { las, gml }) {
   const canvas = Object.assign(globalThis.document.createElement("canvas"), { width: 200, height: 200 });
   canvas.style.cssText = "width:200px;height:200px";
   globalThis.document.body.append(canvas);
-  const viewer = new View3D(canvas, { width: 200, height: 200, shading: "unlit", views: [pcView()] });
-  const gl = canvas.getContext("webgl2");
-  const read = (x, y) => {
-    const out = new Uint8Array(4);
-    gl.readPixels(Math.floor(x), 200 - Math.floor(y) - 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
-    return [...out.slice(0, 3)];
+  const viewer = await View3D.create(canvas, { width: 200, height: 200, shading: "unlit", views: [pcView()] });
+  let shot = null;
+  const render = () => { shot = null; return viewer.render(); };
+  const read = async (x, y) => {
+    if (shot === null) shot = await viewer.snapshot("pc");
+    const offset = (Math.floor(y) * shot.width + Math.floor(x)) * 4;
+    return [shot.pixels[offset], shot.pixels[offset + 1], shot.pixels[offset + 2]];
   };
-  const pixel = (at, color, message) => {
-    const value = read(at.x, at.y);
+  const pixel = async (at, color, message) => {
+    const value = await read(at.x, at.y);
     assert(value.every((v, i) => Math.abs(v - color[i]) <= 3), `${message}: ${value} / ${color}`);
   };
   rejects(() => attachPointCloud(viewer, { id: "cloud" }), "no-scene", "シーンがなければ重ねない");
@@ -108,13 +109,13 @@ export async function testPointCloud(wasmPath, { las, gml }) {
   assert(report.status === "ready" && report.reason === null && report.height === "same" && report.color === "rgba", `重ねる: ${JSON.stringify(report)}`);
   assert(report.points === 12 && report.chunks === 9 && report.drawn.points === 4 && report.drawn.chunks === 1 && report.skipped.budget === 8, `予算で粗い段を選ぶ: ${JSON.stringify(report)}`);
   assert(report.displayBytes === 0, "色の列は blob から借用する");
-  viewer.render();
+  render();
   const rgba = core.columns.point_rgba;
   for (const [row, point] of points.entries()) {
     const at = screen(expected(map, point));
-    pixel(at, [0, 1, 2].map((k) => Math.round((rgba[row * 4 + k] / 65535) * 255)), `点 ${row} の位置と色`);
+    await pixel(at, [0, 1, 2].map((k) => Math.round((rgba[row * 4 + k] / 65535) * 255)), `点 ${row} の位置と色`);
   }
-  pixel({ x: 100, y: 30 }, WHITE, "点のない所");
+  await pixel({ x: 100, y: 30 }, WHITE, "点のない所");
 
   // 当たり
   let hit = cloud.hitTest("pc", screen(expected(map, points[1])));
@@ -142,9 +143,9 @@ export async function testPointCloud(wasmPath, { las, gml }) {
 
   // 切断面の外の点は描かず当たらない
   viewer.setViews([pcView("pc", [{ point: [CENTER[0], CENTER[1], 0.5], normal: [0, 0, 1] }])]);
-  viewer.render();
-  pixel(screen(expected(map, points[1])), WHITE, "切断面の外（高さ 1）の点は描かない");
-  pixel(screen(expected(map, points[0])), [0, 1, 2].map((k) => Math.round((rgba[k] / 65535) * 255)), "切断面の内の点は描く");
+  render();
+  await pixel(screen(expected(map, points[1])), WHITE, "切断面の外（高さ 1）の点は描かない");
+  await pixel(screen(expected(map, points[0])), [0, 1, 2].map((k) => Math.round((rgba[k] / 65535) * 255)), "切断面の内の点は描く");
   assert(cloud.hitTest("pc", screen(expected(map, points[1]))).hits.length === 0, "切断面の外の点は当たらない");
   assert(cloud.hitTest("pc", screen(expected(map, points[0]))).hits.length === 1, "切断面の内の点は当たる");
 
@@ -162,9 +163,9 @@ export async function testPointCloud(wasmPath, { las, gml }) {
   ]) {
     const colored = attachPointCloud(viewer, { id: mode, input: cloudInput, color: mode, pointSize: 6, maxPoints: 4, scope: "viewer" });
     cloud.setInput(null);
-    assert(colored.getReport().color === mode && colored.getReport().displayBytes === 36, `${mode} の表示色の大きさ`);
-    viewer.render();
-    for (const [row, point] of points.entries()) pixel(screen(expected(map, point)), colorOf(row), `${mode} の点 ${row}`);
+    assert(colored.getReport().color === mode && colored.getReport().displayBytes === 48, `${mode} の表示色の大きさ`);
+    render();
+    for (const [row, point] of points.entries()) await pixel(screen(expected(map, point)), colorOf(row), `${mode} の点 ${row}`);
     colored.remove();
     cloud.setInput(cloudInput);
   }
@@ -252,8 +253,8 @@ export async function testPointCloud(wasmPath, { las, gml }) {
   report = large.getReport();
   assert(report.points === 1000000 && report.drawn.points === 1000000 && report.displayBytes === 0, `大きな点群: ${JSON.stringify(report)}`);
   start = performance.now();
-  viewer.render();
-  read(0, 0);
+  render();
+  await read(0, 0);
   timings.renderMs = performance.now() - start;
   start = performance.now();
   const bigHit = large.hitTest("pc", { x: 100, y: 100 });
@@ -285,7 +286,7 @@ export async function testPointCloud(wasmPath, { las, gml }) {
   globalThis.document.body.append(featureCanvas);
   const geoView = { id: "geo", rect: { x: 0, y: 0, width: 200, height: 200 },
     camera: { projection: "orthographic", position: [105, 205, 50], direction: [0, 0, -1], up: [0, 1, 0], width: 40 } };
-  const geo = new View3D(featureCanvas, { width: 200, height: 200, shading: "unlit", views: [geoView] });
+  const geo = await View3D.create(featureCanvas, { width: 200, height: 200, shading: "unlit", views: [geoView] });
   geo.setScene(featureInput);
   const area = geo.getElement(featureInput.document, "area");
   assert(area !== null && area.class === "bldg:Building" && area.name === "面" && area.storey === null, `地物の ID・型・名前: ${JSON.stringify(area)}`);

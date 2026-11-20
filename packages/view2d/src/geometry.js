@@ -86,10 +86,30 @@ export function transparentStyle(style) {
 /** 描画と当たり判定の元の形を CSS px で作る。輪郭の派生データは問い合わせの間だけ持つ。 */
 class Path {
   constructor(collect, charge) {
-    this.path = new Path2D(); this.contours = []; this.circles = [];
+    this.subpaths = []; this.currentSubpath = null; this.arcs = [];
+    this.contours = []; this.circles = [];
     this.collect = collect; this.charge = charge; this.points = null;
     this.bounds = { min_x: Infinity, min_y: Infinity, max_x: -Infinity, max_y: -Infinity };
     this.work = 0;
+  }
+  beginSubpath(x, y) {
+    this.currentSubpath = { coords: [x, y], closed: false };
+    this.subpaths.push(this.currentSubpath);
+  }
+  extendSubpath(x, y) {
+    if (!this.currentSubpath) {
+      this.beginSubpath(x, y);
+      return;
+    }
+    const c = this.currentSubpath.coords;
+    if (c.length < 2 || c[c.length - 2] !== x || c[c.length - 1] !== y) c.push(x, y);
+  }
+  endClosedSubpath() {
+    if (!this.currentSubpath) return;
+    const c = this.currentSubpath.coords;
+    if (c.length >= 4 && c[0] === c[c.length - 2] && c[1] === c[c.length - 1]) c.length -= 2;
+    this.currentSubpath.closed = true;
+    this.currentSubpath = null;
   }
   addPoint(p, radius = 0) {
     this.charge(1); this.work++;
@@ -107,16 +127,16 @@ class Path {
     }
   }
   move(p) {
-    this.flush(); this.path.moveTo(p.x, p.y); this.addPoint(p);
+    this.flush(); this.beginSubpath(p.x, p.y); this.addPoint(p);
     if (this.collect) this.points = [p];
   }
   line(p) {
-    this.path.lineTo(p.x, p.y); this.addPoint(p);
+    this.extendSubpath(p.x, p.y); this.addPoint(p);
     if (this.collect && !equal(this.points[this.points.length - 1], p)) this.points.push(p);
   }
-  close() { this.path.closePath(); this.flush(true); }
+  close() { this.endClosedSubpath(); this.flush(true); }
   circle(p, radius, exactRadius) {
-    this.flush(); this.path.moveTo(p.x + radius, p.y); this.path.arc(p.x, p.y, radius, 0, 2 * Math.PI);
+    this.flush(); this.currentSubpath = null; this.arcs.push({ x: p.x, y: p.y, radius });
     this.addPoint(p, radius);
     if (this.collect) this.circles.push({ ...p, radius, exactRadius });
   }
@@ -125,13 +145,13 @@ class Path {
   }
   finish(fill, width = 0) {
     this.flush();
-    return { path: this.path, contours: this.contours, circles: this.circles, bounds: this.bounds, work: this.work, fill, width };
+    return { subpaths: this.subpaths, arcs: this.arcs, contours: this.contours, circles: this.circles, bounds: this.bounds, work: this.work, fill, width };
   }
 }
 
 /** HTML の line styles / trace a path の butt・round・同一 stroke の union を保つ。
  * https://html.spec.whatwg.org/multipage/canvas.html#line-styles
- * 画面内の領域を変えず、Canvas に渡す直線や塗りの座標を画面近傍へ収める。
+ * 画面内の領域を変えず、GPU に渡す直線や塗りの座標を画面近傍へ収める。
  */
 class StrokePath extends Path {
   constructor(charge, size, width) {
@@ -143,7 +163,7 @@ class StrokePath extends Path {
     this.previous = null; this.tip = null;
     const padding = 2 / size.pixelRatio;
     this.wideBox = { min_x: -padding, min_y: -padding, max_x: size.width + padding, max_y: size.height + padding };
-    this.widePath = new Path2D(); this.strokePoints = null; this.radius = width / 2; this.wideCovered = false;
+    this.wideSubpaths = []; this.strokePoints = null; this.radius = width / 2; this.wideCovered = false;
     // B の L1 直径に由来する幅。全元頂点の両円盤が B を覆う場合だけ、一度の局所 stroke に使う。
     this.localWidth = Math.min(width, 2 * (this.wideBox.max_x - this.wideBox.min_x + this.wideBox.max_y - this.wideBox.min_y));
     this.localStroke = Number.isFinite(this.localWidth); this.widePieces = 0;
@@ -154,32 +174,29 @@ class StrokePath extends Path {
   }
   move(p) {
     this.certifyPoint(p);
-    this.flushStroke(); if (this.widePath && !this.wideCovered) this.strokePoints = [p];
+    this.flushStroke(); if (this.wideSubpaths && !this.wideCovered) this.strokePoints = [p];
     this.previous = p; this.tip = null; this.addPoint(p);
   }
   line(p) {
     this.certifyPoint(p);
-    if (this.widePath && !this.wideCovered && !equal(this.strokePoints[this.strokePoints.length - 1], p)) this.strokePoints.push(p);
+    if (this.wideSubpaths && !this.wideCovered && !equal(this.strokePoints[this.strokePoints.length - 1], p)) this.strokePoints.push(p);
     const segment = clipSegment(this.previous, p, this.box);
     if (segment) {
       const [a, b] = segment;
-      if (!this.tip || !equal(this.tip, a)) this.path.moveTo(a.x, a.y);
-      this.path.lineTo(b.x, b.y); this.tip = b;
+      if (!this.tip || !equal(this.tip, a)) this.beginSubpath(a.x, a.y);
+      this.extendSubpath(b.x, b.y); this.tip = b;
     } else this.tip = null;
     this.previous = p; this.addPoint(p);
   }
   rectangle(minX, minY, maxX, maxY, at = (x, y) => ({ x, y })) {
     const points = [at(minX, minY), at(maxX, minY), at(maxX, maxY), at(minX, maxY)];
     for (const p of points) this.certifyPoint(p);
-    if (this.widePath && !this.wideCovered) {
+    if (this.wideSubpaths && !this.wideCovered) {
       const polygon = wideClosedStroke(points, this.radius, this.wideBox);
       // 明示的な閉輪だけを扱う。open な輪の先終端が一致しても closed とはみなさない。
       // 凸片の内部 AA を作らず、全包を証明できる場合だけ単一の近傍矩形を塗る。
-      this.widePath = polygon ? new Path2D() : null;
-      if (polygon) {
-        for (let i = 0; i < polygon.length; i++) this.widePath[i ? "lineTo" : "moveTo"](polygon[i].x, polygon[i].y);
-        this.widePath.closePath(); this.wideCovered = true;
-      }
+      this.wideSubpaths = polygon ? [{ coords: polygon.flatMap((q) => [q.x, q.y]), closed: true }] : null;
+      if (polygon) this.wideCovered = true;
     }
     this.strokePoints = null;
     const outside = points.findIndex((p) => !inside(p, this.box));
@@ -194,30 +211,32 @@ class StrokePath extends Path {
   }
   circle(p, radius, exactRadius) {
     // 同じ part のマーク・円・四角を一度の stroke にし、重なりの alpha を保つ。
-    this.widePath = null; this.strokePoints = null; this.localStroke = false;
+    this.wideSubpaths = null; this.strokePoints = null; this.localStroke = false;
     if (needsCircleArcs(p, radius, this.radius * 2, this.pixelRatio)) {
       for (const points of circleArcs(p, radius, this.box, 1 / (64 * this.pixelRatio), this.charge, exactRadius)) {
-        for (let i = 0; i < points.length; i++) this.path[i ? "lineTo" : "moveTo"](points[i].x, points[i].y);
-        if (points.length > 2 && equal(points[0], points[points.length - 1])) this.path.closePath();
+        if (points.length < 2) continue;
+        const closed = points.length > 2 && equal(points[0], points[points.length - 1]);
+        const list = closed ? points.slice(0, -1) : points;
+        this.subpaths.push({ coords: list.flatMap((q) => [q.x, q.y]), closed });
+        this.currentSubpath = null;
       }
       this.addPoint(p, radius);
     } else super.circle(p, radius, exactRadius);
   }
   flushStroke() {
     const points = this.strokePoints; this.strokePoints = null;
-    if (!this.widePath || !points?.length) return;
+    if (!this.wideSubpaths || !points?.length) return;
     const append = (polygon) => {
       if (this.wideCovered) return true;
-      if (polygon === null) { this.widePath = null; return false; }
+      if (polygon === null) { this.wideSubpaths = null; return false; }
       if (!polygon.length) return true;
       if (polygon.coversBox) {
-        this.widePath = new Path2D(); this.wideCovered = true;
+        this.wideSubpaths = []; this.wideCovered = true;
       } else if (this.widePieces++) {
         // 複数の凸片の内部境界には backend の AA の差が残る。局所 stroke の証明も不成立なら従来へ戻す。
-        this.widePath = null; return false;
+        this.wideSubpaths = null; return false;
       }
-      for (let i = 0; i < polygon.length; i++) this.widePath[i ? "lineTo" : "moveTo"](polygon[i].x, polygon[i].y);
-      if (polygon.length) this.widePath.closePath();
+      this.wideSubpaths.push({ coords: polygon.flatMap((q) => [q.x, q.y]), closed: true });
       return true;
     };
     for (let i = 0; i < points.length - 1; i++) {
@@ -231,7 +250,7 @@ class StrokePath extends Path {
     this.flushStroke();
     const part = super.finish(fill, width);
     if (!this.wideCovered && this.localStroke) return { ...part, width: this.localWidth };
-    return this.widePath ? { ...part, path: this.widePath, fill: "nonzero", width: 0 } : part;
+    return this.wideSubpaths ? { ...part, subpaths: this.wideSubpaths, arcs: [], fill: "nonzero", width: 0 } : part;
   }
 }
 
@@ -264,12 +283,8 @@ class RegionStrokePath extends Path {
       const inner = offsetCircle(circle, -this.radius);
       if (inner.exactRadius.integer > 0n) append(diskRegion(inner, this.box, this.tolerance, charge), -1);
     }
-    const path = new Path2D();
-    for (const points of unionRegions(regions, charge)) {
-      for (let i = 0; i < points.length; i++) path[i ? "lineTo" : "moveTo"](points[i].x, points[i].y);
-      path.closePath();
-    }
-    return { ...part, path, fill: "nonzero", width: 0 };
+    const subpaths = unionRegions(regions, charge).map((points) => ({ coords: points.flatMap((q) => [q.x, q.y]), closed: true }));
+    return { ...part, subpaths, arcs: [], fill: "nonzero", width: 0 };
   }
 }
 
@@ -294,8 +309,14 @@ class FillPath extends Path {
     // 一度に一輪だけ持つ。4回の半平面検査は元頂点ごとの固定上限の作業。
     // 描画前の列・共有字形・clip の使用回数の上限で、この一時確保も制限する。
     const points = clipRing(this.points, this.box);
-    for (let i = 0; i < points.length; i++) this.path[i ? "lineTo" : "moveTo"](points[i].x, points[i].y);
-    if (points.length) this.path.closePath();
+    if (points.length >= 3) {
+      const coords = [];
+      for (const q of points) {
+        if (coords.length < 2 || coords[coords.length - 2] !== q.x || coords[coords.length - 1] !== q.y) coords.push(q.x, q.y);
+      }
+      if (coords.length >= 4 && coords[0] === coords[coords.length - 2] && coords[1] === coords[coords.length - 1]) coords.length -= 2;
+      if (coords.length >= 6) this.subpaths.push({ coords, closed: true });
+    }
     if (this.collect && points.length) {
       const unique = points.filter((p, i) => i === 0 || !equal(p, points[i - 1]));
       if (unique.length > 1 && equal(unique[0], unique[unique.length - 1])) unique.pop();
@@ -383,8 +404,10 @@ function fallbackText(ctx, c, i, settings, view, at, collect, charge) {
   const text = stringAt(c, "text_strings", i), flags = c.text_flags[i];
   const mx = flags & V.text_flag.backward ? -1 : 1, my = flags & V.text_flag.upside_down ? -1 : 1;
   const horizontal = c.text_aligns[i * 2], vertical = c.text_aligns[i * 2 + 1];
-  ctx.font = `${c.text_heights[i]}px ${settings.fallbackFont}`;
-  ctx.textAlign = ["left", "center", "right", "center"][horizontal];
+  const font = `${c.text_heights[i]}px ${settings.fallbackFont}`;
+  const textAlign = ["left", "center", "right", "center"][horizontal];
+  ctx.font = font;
+  ctx.textAlign = textAlign;
   ctx.textBaseline = "alphabetic";
   const measure = () => { charge(c.text_strings[i * 2 + 1]); return ctx.measureText(text); };
   let offsetY = 0;
@@ -398,13 +421,20 @@ function fallbackText(ctx, c, i, settings, view, at, collect, charge) {
   }
   const p = at(c.text_xy[i * 2], c.text_xy[i * 2 + 1]), angle = -view.rotation - c.text_rotations[i] * Math.PI / 180;
   const shear = -mx * Math.tan(c.text_obliques[i] * Math.PI / 180), stretch = c.text_widths[i] * mx;
-  const apply = (target) => {
-    target.translate(p.x, p.y); target.rotate(angle); target.scale(view.scale, view.scale);
-    target.translate(0, my * offsetY); target.transform(stretch, 0, shear, my, 0, 0);
-  };
-  if (!collect) return { text, apply };
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  if (!collect) {
+    const matrixOf = (pr) => [
+      pr * view.scale * stretch * cos,
+      pr * view.scale * stretch * sin,
+      pr * view.scale * (shear * cos - my * sin),
+      pr * view.scale * (shear * sin + my * cos),
+      pr * (p.x - sin * view.scale * my * offsetY),
+      pr * (p.y + cos * view.scale * my * offsetY),
+    ];
+    return { text, font, textAlign, matrixOf };
+  }
   // ブラウザーの文字には輪郭がない。字形外形の矩形を同じ変換で写す近似に限る。
-  const m = measure(), path = new Path(true, charge), cos = Math.cos(angle), sin = Math.sin(angle);
+  const m = measure(), path = new Path(true, charge);
   const transform = (x, y) => {
     const dx = view.scale * (stretch * x + shear * y), dy = view.scale * my * (y + offsetY);
     return { x: p.x + cos * dx - sin * dy, y: p.y + sin * dx + cos * dy };

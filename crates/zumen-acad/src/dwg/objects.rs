@@ -616,7 +616,6 @@ pub(super) fn unmetered_copy(_: u64, _: u64, _: &mut Cx) -> Result<(), core::con
 }
 
 /// コピーする値の数と可変長部分を、確保容量によらない共通の単位で数える。
-#[cfg(any(feature = "drawing", test))]
 pub(super) fn check_copy(rows: u64, payload: u64, cx: &mut Cx) -> Result<(), Error> {
     cx.check(Kind::Work, rows.saturating_add(payload))
         .map_err(|stop| super::stopped(cx, stop))?;
@@ -1005,10 +1004,14 @@ pub(super) fn read(
             vec![int(90, i64::from(bits.bl()?))]
         } else if kind == b"LAYOUT" {
             layout(&mut bits, release, &mut handles)?
+        } else if kind == b"GEODATA" {
+            geodata(&mut bits, &mut handles)?
         } else if kind == b"TABLESTYLE" && release < Release::R2010 {
             // 行ごとの文字スタイル（7）のハンドルは、ハンドルのストリームで仮の値を埋める
             handles.extend([7; 3]);
             tablestyle(&mut bits)?
+        } else if kind == b"TABLESTYLE" {
+            tablestyle_r2010(&mut bits, &mut handles)?
         } else if sortents {
             for _ in 0..bits.bl()? {
                 sorts.push(bits.handle()?.resolve(entry.handle)?);
@@ -1073,11 +1076,18 @@ pub(super) fn read(
                     data: Data::Handle(item),
                 });
             }
-            for code in handles {
+            for (index, code) in handles.into_iter().enumerate() {
                 let handle = bits.handle()?.resolve(entry.handle)?;
-                let slot = values
-                    .iter_mut()
-                    .find(|value| value.code == code && value.data == Data::Handle(SLOT));
+                let numbered = SLOT + index as u64;
+                let slot_pos = values
+                    .iter()
+                    .position(|value| value.code == code && value.data == Data::Handle(numbered))
+                    .or_else(|| {
+                        values.iter().position(|value| {
+                            value.code == code && value.data == Data::Handle(SLOT)
+                        })
+                    });
+                let slot = slot_pos.and_then(|pos| values.get_mut(pos));
                 match (code, slot) {
                     (0, _) => {}
                     // TABLESTYLE の行の 7 と LTYPE の要素の 340 は、0 でも区切りとして残す
@@ -1148,20 +1158,28 @@ fn xdata(bytes: &[u8], release: Release) -> Option<Vec<Xdata>> {
         match kind {
             0 if release >= Release::R2007 => {
                 let len = usize::from(u16::from_le_bytes(take(2)?.try_into().ok()?));
-                let units: Vec<u16> = take(len * 2)?
+                let mut units: Vec<u16> = take(len * 2)?
                     .as_chunks::<2>()
                     .0
                     .iter()
                     .map(|unit| u16::from_le_bytes(*unit))
                     .collect();
-                items.push(value(Data::Text(
-                    String::from_utf16_lossy(&units).into_bytes(),
+                if units.last() == Some(&0) {
+                    units.pop();
+                }
+                items.push(Xdata::Value(text_value(
+                    code,
+                    String::from_utf16_lossy(&units).as_bytes(),
                 )));
             }
             0 => {
                 let len = usize::from(*take(1)?.first()?);
                 take(2)?;
-                items.push(value(Data::Text(take(len)?.to_vec())));
+                let mut raw = take(len)?.to_vec();
+                if raw.last() == Some(&0) {
+                    raw.pop();
+                }
+                items.push(Xdata::Value(text_value(code, &raw)));
             }
             2 => items.push(value(Data::Text(match take(1)? {
                 [0] => b"{".to_vec(),

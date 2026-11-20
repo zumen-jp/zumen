@@ -346,8 +346,6 @@ mod win {
 
     #[cfg(target_pointer_width = "64")]
     const _: () = assert!(size_of::<ExtendedLimit>() == 144);
-    #[cfg(target_pointer_width = "32")]
-    const _: () = assert!(size_of::<ExtendedLimit>() == 112);
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -412,7 +410,6 @@ mod win {
         let job = Job(handle);
         let mut info = ExtendedLimit::default();
         info.basic.limit_flags = LIMIT_PROCESS_MEMORY | LIMIT_KILL_ON_JOB_CLOSE;
-        // 32 bit で表せない値は、上限なしと同じ
         info.process_memory_limit = usize::try_from(bytes).unwrap_or(usize::MAX);
         let size = u32::try_from(size_of::<ExtendedLimit>()).ok()?;
         // SAFETY: info は size バイトの JOBOBJECT_EXTENDED_LIMIT_INFORMATION

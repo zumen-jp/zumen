@@ -28,7 +28,7 @@ pub fn render(version: &str, boundary: &Boundary, scene: &Scene) -> Result<Strin
     .unwrap();
     writeln!(
         out,
-        "Public Const ZM_ABI_VERSION As Long = {}",
+        "Public Const ZM_EXPECTED_ABI_VERSION As Long = {}",
         boundary.versions.abi
     )
     .unwrap();

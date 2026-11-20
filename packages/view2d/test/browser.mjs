@@ -25,38 +25,69 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   const assert = (ok, message) => { assertions++; if (!ok) throw new Error(message); };
   const near = (a, b, message, tolerance = 1e-8) => assert(Math.abs(a - b) <= tolerance, `${message}: ${a} / ${b}`);
   const throws = (fn, message) => { let caught = false; try { fn(); } catch (error) { caught = error instanceof RangeError || error instanceof Error; } assert(caught, message); };
-  testFallbackText({ assert, near });
-  testState({ assert, throws });
-  const largeStrokeRaster = testHit({ assert, near });
-  const strokeSat = testStrokeSat(assert);
-  const strokeTolerance = testStrokeTolerance(assert);
+  const throwsAsync = async (fn, message) => { let caught = false; try { await fn(); } catch (error) { caught = error instanceof RangeError || error instanceof Error; } assert(caught, message); };
+  throws(() => new View2D(document.createElement("canvas")), "直接のコンストラクター呼び出しは拒む");
+  {
+    const originalGpu = Object.getOwnPropertyDescriptor(Navigator.prototype, "gpu") ?? Object.getOwnPropertyDescriptor(navigator, "gpu");
+    try {
+      for (const [label, fakeGpu] of [
+        ["navigator.gpu なし", undefined],
+        ["アダプターなし", { requestAdapter: async () => null }],
+        ["デバイス取得失敗", { requestAdapter: async () => ({ requestDevice: async () => { throw new Error("denied"); } }) }],
+      ]) {
+        Object.defineProperty(navigator, "gpu", { value: fakeGpu, configurable: true });
+        let caught = null;
+        try { await View2D.create(document.createElement("canvas"), { width: 50, height: 50 }); } catch (error) { caught = error; }
+        assert(caught?.reason === "webgpu-unavailable", `${label}で webgpu-unavailable を返す: ${caught?.reason ?? caught}`);
+      }
+    } finally {
+      if (originalGpu) Object.defineProperty(Navigator.prototype, "gpu", originalGpu);
+      delete navigator.gpu;
+    }
+    const twoD = document.createElement("canvas"); twoD.getContext("2d");
+    let caught = null;
+    try { await View2D.create(twoD, { width: 50, height: 50 }); } catch (error) { caught = error; }
+    assert(caught?.reason === "webgpu-unavailable", `WebGPU を使えない Canvas を拒む: ${caught}`);
+  }
+  await testFallbackText({ assert, near });
+  await testState({ assert, throws, throwsAsync });
+  const largeStrokeRaster = await testHit({ assert, near });
+  const strokeSat = await testStrokeSat(assert);
+  const strokeTolerance = await testStrokeTolerance(assert);
   testRasterClipping(assert);
-  testLargeStrokes(assert);
-  const buttEnds = testButtEnds(assert);
-  const largeFills = testLargeFills(assert);
-  const wideStrokes = testWideStrokes(assert);
-  const wideBoundaries = testWideBoundaries(assert);
-  const wideDrawing = testWideDrawing(assert);
+  await testLargeStrokes(assert);
+  const buttEnds = await testButtEnds(assert);
+  const largeFills = await testLargeFills(assert);
+  const wideStrokes = await testWideStrokes(assert);
+  const wideBoundaries = await testWideBoundaries(assert);
+  const wideDrawing = await testWideDrawing(assert);
   const regionUnion = testRegionUnion(assert);
-  const circles = testCircles(assert);
-  const circleDrawing = testCircleDrawing(assert);
-  const circleClips = testCircleClips(assert);
-  const circleProjection = testCircleProjection(assert);
+  const circles = await testCircles(assert);
+  const circleDrawing = await testCircleDrawing(assert);
+  const circleClips = await testCircleClips(assert);
+  const circleProjection = await testCircleProjection(assert);
   testSnap({ assert, near });
-  testTools({ assert, near, throws });
-  testCalibration({ assert, throws });
+  await testTools({ assert, near, throws, throwsAsync });
+  await testCalibration({ assert, throws });
   testReviewStore({ assert, throws });
-  await testUnderlays({ assert, near, throws });
+  await testUnderlays({ assert, near, throws, throwsAsync });
   const canvas = document.createElement("canvas");
   document.body.append(canvas);
-  const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2, foreground: "#123456", pixelsPerMillimeter: 2 });
-  const ctx = canvas.getContext("2d");
-  const rgb = (x, y) => Array.from(ctx.getImageData(Math.floor(x * viewer.getSize().pixelRatio), Math.floor(y * viewer.getSize().pixelRatio), 1, 1).data).slice(0, 3);
+  const viewer = await View2D.create(canvas, { width: 200, height: 200, pixelRatio: 2, foreground: "#123456", pixelsPerMillimeter: 2 });
+  throws(() => new View2D(document.createElement("canvas")), "WebGPU 初期化後も直接のコンストラクター呼び出しは拒む");
+  let shot = null;
+  const snap = async () => { shot = await viewer.snapshot(); return shot; };
+  const rgb = (x, y) => {
+    const px = Math.floor(x * shot.pixelRatio), py = Math.floor(y * shot.pixelRatio);
+    const offset = (py * shot.width + px) * 4;
+    return [shot.pixels[offset], shot.pixels[offset + 1], shot.pixels[offset + 2]];
+  };
   const pixel = (x, y, expected, message) => assert(rgb(x, y).every((v, i) => Math.abs(v - expected[i]) <= 4), `${message}: ${rgb(x, y)} / ${expected}`);
   const source = fixture();
   const input = bundle(source, { extent: { min_x: -45, min_y: -45, max_x: 45, max_y: 45 } });
   viewer.jumpTo({ center: { x: 0, y: 0 }, scale: 2, rotation: 0 });
   const report = viewer.setScene(input);
+  await snap();
   assert(report.drawn.lines === 1 && report.drawn.faces === 2 && report.drawn.texts === 2 && report.drawn.glyphs === 1, "種類ごとの描画数");
   assert(report.issues.filter((i) => i.reason === "browser-text").length === 1, "字形がある文字は代替しない");
   assert(report.issues.some((i) => i.reason === "resource-unresolved" && i.disposition === "omitted" && i.element.id === "space/0/h5"), "画像の未解決を要素付きで返す");
@@ -72,17 +103,25 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   pixel(105, 25, [255, 0, 0], "字形付きの元文字列を重ねない");
   pixel(170, 30, [0x12, 0x34, 0x56], "背景に対する前景色");
   assert(!report.issues.some((i) => i.primitive.kind === "point" && i.primitive.index === 1), "前景色を未解決と報告しない");
-  const fallbackPixels = ctx.getImageData(60, 308, 160, 20).data;
-  assert(fallbackPixels.some((v, i) => i % 4 === 2 && v > 200 && fallbackPixels[i - 2] < 100), "代替文字を描く");
+  let fallbackFound = false;
+  for (let py = 308; py < 328 && !fallbackFound; py++) {
+    for (let px = 60; px < 220; px++) {
+      const o = (py * shot.width + px) * 4;
+      if (shot.pixels[o + 2] > 200 && shot.pixels[o] < 100) { fallbackFound = true; break; }
+    }
+  }
+  assert(fallbackFound, "代替文字を描く");
   const twoChunks = fixture();
   twoChunks.chunk_origins = [0, 0, 0, 0]; twoChunks.chunk_bounds.push(...twoChunks.chunk_bounds);
   twoChunks.chunk_lines = [0, 1]; twoChunks.chunk_faces = [0, 1]; twoChunks.chunk_texts = [0, 2];
   twoChunks.chunk_points = [0, 2]; twoChunks.chunk_images = [0, 1];
   twoChunks.unit_clips[6] = SCENE_NONE;
   viewer.setScene(bundle(twoChunks));
+  await snap();
   pixel(100, 70, [0, 180, 0], "後の塊の面を前の塊の線より前に描く");
   const alpha = fixture(); alpha.color_rgba[3] = 128;
   viewer.setScene(bundle(alpha));
+  await snap();
   pixel(130, 100, [255, 127, 127], "RGBA の不透明度");
   viewer.setScene(input);
 
@@ -115,6 +154,7 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   large.unit_weights[1] = 0.5;
   const huge = bundle(large);
   viewer.setScene(huge); viewer.jumpTo({ center: { x: 1e16, y: 1e16 }, scale: 16, rotation: 0 });
+  await snap();
   pixel(104, 50, [0, 0, 255], "塊の相対座標の下位桁を保つ");
   viewer.setScene(input); viewer.jumpTo(original);
 
@@ -151,9 +191,9 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   throws(() => viewer.resize(100000, 100000), "巨大な Canvas");
   throws(() => viewer.fitBounds({ min_x: 1, max_x: 0, min_y: 0, max_y: 1 }), "逆転した範囲");
   assert(viewer.getScene() === current, "不正な操作でシーンを変えない");
-  const tiny = new View2D(document.createElement("canvas"), { width: 100, height: 100, limits: { columnValues: 100 } });
+  const tiny = await View2D.create(document.createElement("canvas"), { width: 100, height: 100, limits: { columnValues: 100 } });
   throws(() => tiny.setScene(input), "列の上限"); tiny.destroy();
-  const limited = new View2D(document.createElement("canvas"), { width: 100, height: 100, limits: { work: 2000 } });
+  const limited = await View2D.create(document.createElement("canvas"), { width: 100, height: 100, limits: { work: 2000 } });
   const many = fixture();
   many.line_vertices = Array.from({ length: 200 }, (_, i) => i * 2);
   many.line_xy = Array.from({ length: 800 }, (_, i) => i % 2);
@@ -164,19 +204,19 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
   manyGlyphs.glyph_axes = Array.from({ length: 400 }, (_, i) => i % 4 === 0 || i % 4 === 3 ? 1 : 0);
   manyGlyphs.glyph_xy = Array(200).fill(0); manyGlyphs.outline_vertices = [0];
   manyGlyphs.outline_xy = Array.from({ length: 2000 }, (_, i) => i % 3);
-  const glyphLimited = new View2D(document.createElement("canvas"), { width: 100, height: 100, limits: { work: 10000 } });
+  const glyphLimited = await View2D.create(document.createElement("canvas"), { width: 100, height: 100, limits: { work: 10000 } });
   throws(() => glyphLimited.setScene(bundle(manyGlyphs)), "共有字形の反復の上限"); glyphLimited.destroy();
   if (typeof OffscreenCanvas !== "undefined") {
-    const offscreen = new View2D(new OffscreenCanvas(100, 100));
+    const offscreen = await View2D.create(new OffscreenCanvas(100, 100));
     assert(offscreen.setScene(input).drawn.glyphs === 1, "OffscreenCanvas がある環境でも描く");
     offscreen.destroy();
   }
   const repeated = fixture();
   repeated.strings.push(...Array(500).fill(65));
   for (let i = 1; i < repeated.entity_ids.length; i += 2) repeated.entity_ids[i] = 500;
-  const stringsLimited = new View2D(document.createElement("canvas"), { width: 100, height: 100, limits: { work: 3000 } });
+  const stringsLimited = await View2D.create(document.createElement("canvas"), { width: 100, height: 100, limits: { work: 3000 } });
   throws(() => stringsLimited.setScene(bundle(repeated)), "同じ文字列の参照を繰り返す復号の上限"); stringsLimited.destroy();
-  const issueLimited = new View2D(document.createElement("canvas"), { width: 100, height: 100, limits: { issues: 1 } });
+  const issueLimited = await View2D.create(document.createElement("canvas"), { width: 100, height: 100, limits: { issues: 1 } });
   throws(() => issueLimited.setScene(input), "報告の上限"); issueLimited.destroy();
   const oldColumns = fixture();
   for (const key of ["text_glyphs", "glyph_shapes", "glyph_axes", "glyph_xy", "shape_rings", "outline_vertices", "outline_xy"]) oldColumns[key] = [];
@@ -192,10 +232,10 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
 
   // 実際の wasm の読み取りと scene の応答を、そのまま受け取る。
   const zumen = await load(fetch(wasmPath));
-  testCalibrationCore(zumen, calibrationInput, { assert });
-  testPlacedSelection(zumen, { assert, throws });
-  testReviewCore(zumen, { assert, throws });
-  testReviewDrawn(zumen, { assert });
+  await testCalibrationCore(zumen, calibrationInput, { assert });
+  await testPlacedSelection(zumen, { assert, throws });
+  await testReviewCore(zumen, { assert, throws });
+  await testReviewDrawn(zumen, { assert });
   const formats = [];
   for (const source of inputs) {
     const session = zumen.open();
@@ -210,15 +250,40 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
       const rendered = viewer.setScene({ scene, result, document: { doc: source.name, format: opened.format, hash: drawing.hash } });
       viewer.fit();
       assert(rendered.drawn.lines > 0, `${opened.format} の線を描く`);
-      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const pixels = (await viewer.snapshot()).pixels;
       assert(pixels.some((value, i) => i % 4 !== 3 && value < 200), `${opened.format} の画素`);
       formats.push(opened.format);
     } finally { session.close(); }
   }
   assert(formats.join(",") === "dxf,jww,sxf", "3 形式をコアから描く");
+
+  // デバイス喪失の通知と保護（独立した GPUDevice で確かめる）
+  let contextLoss = "unavailable";
+  const lossAdapter = (await globalThis.navigator.gpu?.requestAdapter())
+    ?? (await globalThis.navigator.gpu?.requestAdapter({ fallbackAdapter: true }));
+  if (lossAdapter) {
+    const lossDevice = await lossAdapter.requestDevice();
+    const lossViewer = await View2D.create(document.createElement("canvas"), { width: 50, height: 50, device: lossDevice });
+    try {
+      lossViewer.setScene(input);
+      const lost = new Promise((resolve) => lossViewer.on("contextlost", resolve));
+      lossDevice.destroy();
+      await lost;
+      assert(lossViewer.getState().contextLost === true && lossViewer.render().drawn.lines === 1, "失ったデバイスでは GPU 描画を止め状態を保つ");
+      let lossSnapshotReason = null;
+      try { await lossViewer.snapshot(); } catch (error) { lossSnapshotReason = error?.reason; }
+      assert(lossSnapshotReason === "context-lost", `失ったデバイスでは snapshot を拒む: ${lossSnapshotReason}`);
+      contextLoss = "checked";
+    } finally {
+      lossViewer.destroy();
+    }
+  }
+
   viewer.setScene(null); assert(viewer.getScene() === null && viewer.getReport().issues.length === 0, "消去で前の報告を捨てる");
   viewer.destroy(); viewer.destroy();
-  assert(ctx.getImageData(0, 0, 1, 1).data[3] === 0, "破棄で画面を消す");
   throws(() => viewer.render(), "破棄後の描画"); throws(() => viewer.setScene(input), "破棄後の差し替え");
-  return { assertions, formats, largeStrokeRaster, strokeSat, strokeTolerance, buttEnds, largeFills, wideStrokes, wideBoundaries, wideDrawing, regionUnion, circles, circleDrawing, circleClips, circleProjection };
+  let snapshotRejected = false;
+  try { await viewer.snapshot(); } catch { snapshotRejected = true; }
+  assert(snapshotRejected, "破棄後の snapshot を拒む");
+  return { assertions, formats, contextLoss, largeStrokeRaster, strokeSat, strokeTolerance, buttEnds, largeFills, wideStrokes, wideBoundaries, wideDrawing, regionUnion, circles, circleDrawing, circleClips, circleProjection };
 }

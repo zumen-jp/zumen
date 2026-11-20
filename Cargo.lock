@@ -940,6 +940,7 @@ dependencies = [
  "zumen-scene",
  "zumen-sdk",
  "zumen-sxf",
+ "zumen-zip",
 ]
 
 [[package]]
@@ -1220,7 +1221,9 @@ dependencies = [
  "zumen-geom3d",
  "zumen-ifc",
  "zumen-json",
+ "zumen-jww",
  "zumen-sdk",
+ "zumen-sxf",
 ]
 
 [[package]]

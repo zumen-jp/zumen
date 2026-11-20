@@ -376,3 +376,113 @@ fn display_retexted_skips_rows_without_text() {
     let outside = RowId(u32::try_from(live.table.len()).unwrap());
     assert!(live.display_retexted(outside, "x", cx).unwrap().is_none());
 }
+
+/// 記号の定義の要素を、定義の座標のまま 1 要素 1 行で書く。入れ子の記号はインスタンスのまま。
+/// 範囲外の定義は `None`、止まれば止まった理由を返す
+#[test]
+fn display_symbol_writes_definitions_in_their_coordinates() {
+    use super::super::equivalence_common::{Archive, Spec};
+    let mut spec = Spec::new(700);
+    spec.groups[0] = (3, 1.0, [3; 16]);
+    spec.groups[3] = (3, 50.0, [3; 16]);
+    let mut archive = Archive::new(700);
+    archive.count(1);
+    archive.tag("CDataBlock");
+    archive.base(1, 1);
+    archive.reals(&[5.0, 5.0, 1.0, 1.0, 0.0]);
+    archive.out.extend(2u32.to_le_bytes());
+    archive.count(2);
+    archive.block("部品");
+    archive.tag("CDataList");
+    archive.base(1, 1);
+    archive.out.extend(2u32.to_le_bytes());
+    archive.out.extend([0; 8]);
+    archive.cstring("外側");
+    archive.count(2);
+    archive.tag("CDataBlock");
+    archive.base(1, 1);
+    archive.reals(&[7.0, 8.0, 2.0, 0.5, core::f64::consts::FRAC_PI_2]);
+    archive.out.extend(1u32.to_le_bytes());
+    archive.line();
+    archive.out.extend(0u32.to_le_bytes());
+    let mut bytes = spec.build();
+    bytes.extend(archive.out);
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let live = JwwLive::open(&bytes, cx).unwrap();
+    assert_eq!(live.display_symbol_count(), 2);
+    let mut display = Display::with_rows(0);
+    assert_eq!(live.display_symbol(2, &mut display, cx).unwrap(), None);
+    assert_eq!(live.display_symbol(0, &mut display, cx).unwrap(), Some(1));
+    assert_eq!(live.display_symbol(1, &mut display, cx).unwrap(), Some(2));
+    let mut expected = Display::with_rows(0);
+    for index in [0, 1] {
+        for (_, element) in live.definition_rows_alive(index).unwrap() {
+            let (counts, style) = super::super::display_definition_counts_and_style(
+                element,
+                &live.symbol_index_by_key,
+            );
+            expected.push_with(counts, style, |w| {
+                super::super::write_definition_display(element, &live.symbol_index_by_key, w);
+            });
+        }
+    }
+    assert_eq!(display.canonical(), expected.canonical());
+    // 定義の 1 つ目の行は、縮尺 1/50 の用紙の座標ではなく、定義の座標の線分
+    let mut first = Display::with_rows(0);
+    live.display_symbol(0, &mut first, cx).unwrap();
+    let mut line = Display::with_rows(0);
+    let (_, element) = live.definition_rows_alive(0).unwrap().next().unwrap();
+    let (_, style) =
+        super::super::display_definition_counts_and_style(element, &live.symbol_index_by_key);
+    line.push_with([1, 0, 0, 0], style, |w| {
+        w.push_segment([0.0, 0.0], [10.0, 0.0]);
+    });
+    assert_eq!(first.canonical(), line.canonical());
+    // 作業の予算が尽きれば止まる
+    let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(0)));
+    let mut diag = Diagnostics::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let mut display = Display::with_rows(0);
+    assert!(live.display_symbol(1, &mut display, cx).is_err());
+
+    // 点選択: 用紙座標で入れ子の線分 (ox+12, oy+13)..(ox+12, oy+33) は当たり、囲む箱の中の空白 (ox+6, oy+25) は外れる
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+    let [ox, oy] = live.paper_origin;
+    let mut rect_hit = Vec::new();
+    let probe = [ox + 6.0, oy + 25.0];
+    live.select_rect_with_cx(
+        [
+            probe[0] - 0.1,
+            probe[1] - 0.1,
+            probe[0] + 0.1,
+            probe[1] + 0.1,
+        ],
+        &mut rect_hit,
+        cx,
+    )
+    .unwrap();
+    assert_eq!(rect_hit, [RowId(0)]);
+    let mut hit = vec![RowId(99)];
+    live.select_point_with_cx([ox + 12.0, oy + 20.0], 0.25, &mut hit, cx)
+        .unwrap();
+    assert_eq!(hit, [RowId(99), RowId(0)]);
+    let mut miss = Vec::new();
+    live.select_point_with_cx(probe, 0.25, &mut miss, cx)
+        .unwrap();
+    assert!(miss.is_empty());
+    let mut tight = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(2)));
+    let mut tight_diag = Diagnostics::new();
+    let tight_cx = &mut Cx::new(&mut tight, &mut tight_diag, &cancel);
+    let mut preserved = vec![RowId(77)];
+    assert!(
+        live.select_point_with_cx([ox + 12.0, oy + 20.0], 0.25, &mut preserved, tight_cx)
+            .is_err()
+    );
+    assert_eq!(preserved, [RowId(77)]);
+    assert_eq!(tight_diag.len(), 1);
+}

@@ -297,12 +297,18 @@ fn parse(bytes: &[u8], minor: &mut u16, cx: &mut Cx<'_>) -> Result<(Source, Draw
         minor: written,
         elements: 0,
         limit: elements as u64,
+        in_drawing: false,
         cx,
     };
     let source = Source::unpack(&mut reader)?;
     reader.finish()?;
     reader.at = second.start;
     reader.end = second.end;
+    reader.in_drawing = true;
+    reader
+        .cx
+        .check(Kind::ModelBytes, <Drawing2D as Unpack>::SIZE)
+        .map_err(Bad::Stopped)?;
     let drawing = Drawing2D::unpack(&mut reader)?;
     reader.finish()?;
     // 後のマイナーバージョンの書き手は、このバージョンが読み飛ばすフィールドの要素も数える。そのときのヘッダーの数は、上限として確かめる
@@ -477,6 +483,8 @@ pub(crate) struct Reader<'a, 'b, 'c> {
     /// 読んだ要素の数と、ヘッダーにある数
     elements: u64,
     limit: u64,
+    /// 図面モデルのセクションを読んでいる間は `Kind::ModelBytes` にも数える
+    in_drawing: bool,
     cx: &'b mut Cx<'c>,
 }
 
@@ -605,7 +613,13 @@ impl Input for Reader<'_, '_, '_> {
     fn decoded(&mut self, bytes: u64) -> Result<(), Bad> {
         self.cx
             .check(Kind::DecodedBytes, bytes)
-            .map_err(Bad::Stopped)
+            .map_err(Bad::Stopped)?;
+        if self.in_drawing {
+            self.cx
+                .check(Kind::ModelBytes, bytes)
+                .map_err(Bad::Stopped)?;
+        }
+        Ok(())
     }
 
     fn text(&mut self) -> Result<String, Bad> {
@@ -948,6 +962,22 @@ impl Unpack for Ref {
             }
             Ok(place)
         })
+    }
+}
+
+// 平面直角座標系の系（1〜19）はフィールドを外に見せないので、0〜18 の符号なし整数として手で読み書きする
+impl Pack for crate::Zone {
+    fn pack(&self, out: &mut Writer) {
+        out.uint(u64::from(self.number() - 1));
+    }
+}
+
+impl Unpack for crate::Zone {
+    const SIZE: u64 = 1;
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        let raw = input.uint(18)?;
+        Self::new((raw + 1) as u8).ok_or_else(|| input.invalid("zone"))
     }
 }
 

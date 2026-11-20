@@ -1,6 +1,7 @@
 // 点群の 3D のシーン（ZMS3 1.1 の点の区画）を、表示中の建物・地物と同じビューに重ねる任意のアダプター（docs/view3d.md#地面の-2d地物点群）。
 // 列は元の blob から借用し、八分木の節（塊）を単位に表示範囲と予算で描く節を選ぶ。点ごとの永続 ID は仮定しない。
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
+import { attribute, mix, step, vec4 } from "three/tsl";
 import { readScene3D } from "@zumen-jp/zumen";
 import { cross, dot, fail, finite, invalid, isObject, normalize, sub } from "./common.js";
 
@@ -12,11 +13,6 @@ const CLASS_COLORS = [
   [255, 0, 255], [255, 220, 0], [60, 120, 230], [140, 140, 140], [90, 90, 90], [255, 160, 0],
 ];
 const NONE_COLOR = 0x888888;
-/** 頂点色の sRGB を線形へ戻す。点群の色は sRGB の値として持つ。 */
-const SRGB_TO_LINEAR = `#include <color_vertex>
-#if defined( USE_COLOR_ALPHA ) || defined( USE_COLOR )
-  vColor.rgb = mix( vColor.rgb / 12.92, pow( ( vColor.rgb + 0.055 ) / 1.055, vec3( 2.4 ) ), step( vec3( 0.04045 ), vColor.rgb ) );
-#endif`;
 
 /** EPSG の 3 つの書き方を番号にそろえる。ほかの名前はそのまま比べる。 */
 function crsKey(name) {
@@ -83,10 +79,21 @@ export function attachPointCloud(viewer, options) {
   if (scene3d.unit.prefix !== undefined) unit.prefix = scene3d.unit.prefix;
   if (scene3d.unit.scale !== undefined) unit.scale = scene3d.unit.scale;
   const root = new THREE.Group();
-  const material = new THREE.PointsMaterial({ size: pointSize, sizeAttenuation: false, vertexColors: colorMode !== "none" });
-  material.onBeforeCompile = (shader) => { shader.vertexShader = shader.vertexShader.replace("#include <color_vertex>", SRGB_TO_LINEAR); };
-  material.customProgramCacheKey = () => "zumen-points-srgb";
-  if (colorMode === "none") material.color.setHex(NONE_COLOR);
+  // WebGPU の point-list は 1 px 固定のため、塊ごとに Sprite のインスタンシングで複数 px の点を描く。
+  // 点群の色は sRGB の値として持ち、出力の変換と合うよう線形へ戻す。
+  const pointPosNode = attribute("pointPos", "vec3");
+  const rawColor = attribute("pointColor", "vec4");
+  const srgb = rawColor.xyz;
+  const linearRgb = mix(srgb.div(12.92), srgb.add(0.055).div(1.055).pow(2.4), step(0.04045, srgb));
+  const coloredMaterial = new THREE.PointsNodeMaterial({
+    size: pointSize, sizeAttenuation: false,
+    positionNode: pointPosNode,
+    colorNode: vec4(linearRgb, rawColor.w),
+  });
+  const plainMaterial = new THREE.PointsNodeMaterial({
+    size: pointSize, sizeAttenuation: false, color: NONE_COLOR,
+    positionNode: pointPosNode,
+  });
 
   let alive = true, current = null, place = null, reason = "empty", controller = null, generation = 0;
   let drawn = { points: 0, chunks: 0 }, skipped = { outside: 0, budget: 0 }, colorsUsed = null, displayBytes = 0;
@@ -106,7 +113,8 @@ export function attachPointCloud(viewer, options) {
     const errors = [];
     for (const off of unsubscribes.splice(0)) { try { off(); } catch (error) { errors.push(error); } }
     clear();
-    material.dispose();
+    coloredMaterial.dispose();
+    plainMaterial.dispose();
     if (errors.length > 0) throw errors[0];
   };
 
@@ -144,7 +152,9 @@ export function attachPointCloud(viewer, options) {
   const choose = () => {
     if (!alive) return;
     const state = viewer.getState();
-    material.size = pointSize * state.size.pixelRatio;
+    // PointsNodeMaterial はシェーダー内で screenDPR を掛けるため、CSS px のまま保つ。
+    coloredMaterial.size = pointSize;
+    plainMaterial.size = pointSize;
     if (place === null || current === null) { viewer.invalidate(); return; }
     const candidates = [];
     let outside = 0;
@@ -181,15 +191,26 @@ export function attachPointCloud(viewer, options) {
     choose();
   };
 
-  /** 表示用の色。rgba は元の列を借用し、強度（点群の最大で正規化）・分類は表示用の 8 ビットの色を作る。 */
+  /** 表示用の色。rgba は元の列を借用し、強度（点群の最大で正規化）・分類は WebGPU の 4 バイト境界に合わせて RGBA の 8 ビット色を作る。 */
   const colorAttribute = (points, mode, peak) => {
     const count = points.end - points.begin;
-    if (mode === "rgba") return new THREE.BufferAttribute(points.rgba, 4, true);
-    const out = new Uint8Array(count * 3);
-    if (mode === "intensity") for (let i = 0; i < count; i++) out.fill(peak === 0 ? 0 : Math.round((points.intensity[i] * 255) / peak), i * 3, i * 3 + 3);
-    else for (let i = 0; i < count; i++) out.set(CLASS_COLORS[points.classification[i]] ?? CLASS_COLORS[0], i * 3);
+    if (mode === "rgba") return new THREE.InstancedBufferAttribute(points.rgba, 4, true);
+    const out = new Uint8Array(count * 4);
+    if (mode === "intensity") {
+      for (let i = 0; i < count; i++) {
+        const v = peak === 0 ? 0 : Math.round((points.intensity[i] * 255) / peak);
+        const o = i * 4;
+        out[o] = v; out[o + 1] = v; out[o + 2] = v; out[o + 3] = 255;
+      }
+    } else {
+      for (let i = 0; i < count; i++) {
+        const rgb = CLASS_COLORS[points.classification[i]] ?? CLASS_COLORS[0];
+        const o = i * 4;
+        out[o] = rgb[0]; out[o + 1] = rgb[1]; out[o + 2] = rgb[2]; out[o + 3] = 255;
+      }
+    }
     displayBytes += out.byteLength;
-    return new THREE.BufferAttribute(out, 3, true);
+    return new THREE.InstancedBufferAttribute(out, 4, true);
   };
 
   /** 検査に通ったときだけ差し替える。 */
@@ -209,21 +230,27 @@ export function attachPointCloud(viewer, options) {
     let peak = 0;
     if (mode === "intensity") for (const value of columns.point_intensity) if (value > peak) peak = value;
     clear();
-    material.vertexColors = mode !== "none";
-    material.needsUpdate = true;
+    const chunkMaterial = mode === "none" ? plainMaterial : coloredMaterial;
     for (let row = 0; row < scene.chunks; row++) {
       const points = scene.points(row), count = points.end - points.begin;
       if (count === 0) continue;
       const chunk = scene.chunk(row);
       const mapOrigin = [...chunk.origin], bounds = chunk.bounds;
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute("position", new THREE.BufferAttribute(points.positions, 3));
-      if (mode !== "none") geometry.setAttribute("color", colorAttribute(points, mode, peak));
+      const geometry = new THREE.InstancedBufferGeometry();
+      geometry.setIndex(new THREE.Uint16BufferAttribute([0, 1, 2, 0, 2, 3], 1));
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3));
+      geometry.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+      geometry.setAttribute("pointPos", new THREE.InstancedBufferAttribute(points.positions, 3));
+      if (mode !== "none") geometry.setAttribute("pointColor", colorAttribute(points, mode, peak));
+      geometry.instanceCount = count;
       const middle = [0, 1, 2].map((k) => (bounds[k] + bounds[k + 3]) / 2);
       const radius = Math.hypot(bounds[3] - bounds[0], bounds[4] - bounds[1], bounds[5] - bounds[2]) / 2;
       geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(...middle), radius);
       geometry.boundingBox = new THREE.Box3(new THREE.Vector3(bounds[0], bounds[1], bounds[2]), new THREE.Vector3(bounds[3], bounds[4], bounds[5]));
-      const object = new THREE.Points(geometry, material);
+      const object = new THREE.Sprite(chunkMaterial);
+      object.geometry = geometry;
+      object.count = count;
+      object.frustumCulled = false;
       object.matrixAutoUpdate = false;
       object.visible = false;
       object.userData.zumen = { chunk: row, count, level: points.node === null ? 0 : points.node[0], node: points.node, points,

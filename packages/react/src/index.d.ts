@@ -1,8 +1,8 @@
 import type { ConvertEstimateResult, ConvertResult, Diagnostic, DrawingResult, Source } from "@zumen-jp/zumen";
-import type { ElementRef, ElementSource, ReviewLayer, ReviewStore, ReviewStoreEvent, ReviewStoreState, SceneInput, View2D, View2DEvent, View2DEventType, View2DOptions, View2DState } from "@zumen-jp/view2d";
+import type { ElementRef, ElementSource, ReviewLayer, ReviewStore, ReviewStoreEvent, ReviewStoreState, SceneInput, View2D, View2DErrorReason, View2DEvent, View2DEventType, View2DOptions, View2DState } from "@zumen-jp/view2d";
 import type { ReviewSceneResult, ReviewSceneStyle } from "@zumen-jp/zumen";
 
-export declare function useDrawingViewer(canvas: HTMLCanvasElement | OffscreenCanvas | null, options?: View2DOptions): View2D | null;
+export declare function useDrawingViewer(canvas: HTMLCanvasElement | OffscreenCanvas | null, options?: View2DOptions, onError?: (error: Error & { readonly reason?: View2DErrorReason }) => void): View2D | null;
 export declare function useViewerState(viewer: View2D | null): View2DState | null;
 export declare function useViewerEvent(viewer: View2D | null, type: View2DEventType, listener: (event: View2DEvent) => void): void;
 export declare function useReviewState(store: ReviewStore | null): ReviewStoreState | null;

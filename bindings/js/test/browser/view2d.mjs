@@ -3,18 +3,20 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
+import { chromiumLaunchOptions } from "./launch.mjs";
 
 const browsers = { chromium, firefox, webkit };
 const [name, wasmPath] = process.argv.slice(2);
 if (!browsers[name] || !wasmPath) throw new Error("使い方: node bindings/js/test/browser/view2d.mjs <chromium|firefox|webkit> <zumen_abi1.wasm>");
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const origin = `http://localhost:${process.env.ZUMEN_TEST_PORT ?? 24191}`;
+const origin = `http://localhost:${process.env.ZUMEN_TEST_PORT ?? 24120}`;
 const pdfjs = existsSync(join(root, "xtask/verify/pdfjs/node_modules/pdfjs-dist/build/pdf.mjs"));
 if (!pdfjs && process.env.ZUMEN_PDFJS_REQUIRED) throw new Error("PDF の検査には xtask/verify/pdfjs の npm ci が必要です");
 const inputs = ["scene", "open_jww", "open_sxf"].map((test) =>
   JSON.parse(readFileSync(join(root, `bindings/conformance/cases/${test}.json`), "utf8")).steps.find((s) => s.push).push);
 const calibrationInput = JSON.parse(readFileSync(join(root, "bindings/conformance/cases/calibration.json"), "utf8")).steps.find((s) => s.push).push;
-const browser = await browsers[name].launch();
+const launchOptions = name === "chromium" ? chromiumLaunchOptions(chromium) : {};
+const browser = await browsers[name].launch(launchOptions);
 try {
   const page = await browser.newPage({ hasTouch: true });
   const failures = [];
@@ -30,19 +32,27 @@ try {
   });
   page.on("pageerror", (error) => failures.push(error.message));
   await page.goto(origin);
-  const result = await page.evaluate(async ({ inputs, calibrationInput }) => {
-    // 本体の下限を Safari 15.4 や Firefox 92 まで上げない。下限の実機の検査の代わりではない。
-    const hasOwn = Object.hasOwn, at = Array.prototype.at;
-    Object.hasOwn = undefined;
-    Array.prototype.at = undefined;
-    try {
-      const { testView2D } = await import("/packages/view2d/test/browser.mjs");
-      return await testView2D("/zumen_abi1.wasm", inputs, calibrationInput);
-    } finally {
-      Object.hasOwn = hasOwn;
-      Array.prototype.at = at;
+  const result = await page.evaluate(async ({ inputs, calibrationInput, requireWebGPU }) => {
+    const adapter = (await globalThis.navigator.gpu?.requestAdapter())
+      ?? (await globalThis.navigator.gpu?.requestAdapter({ fallbackAdapter: true }));
+    if (!adapter && !requireWebGPU) {
+      const { View2D } = await import("/packages/view2d/src/index.js");
+      let caught = null;
+      try { await View2D.create(globalThis.document.createElement("canvas"), { width: 50, height: 50 }); } catch (error) { caught = error; }
+      if (caught?.reason !== "webgpu-unavailable") {
+        throw new Error(`WebGPU がない環境での例外: ${caught?.reason ?? caught}`);
+      }
+      return { skippedNoWebGPU: true, assertions: 1 };
     }
-  }, { inputs, calibrationInput });
+    const { testView2D } = await import("/packages/view2d/test/browser.mjs");
+    return await testView2D("/zumen_abi1.wasm", inputs, calibrationInput);
+  }, { inputs, calibrationInput, requireWebGPU: name === "chromium" });
+  if (result.skippedNoWebGPU) {
+    if (failures.length) throw new Error(failures.join("\n"));
+    const summary = `${name} ${browser.version()}: WebGPU 非対応環境のため webgpu-unavailable の拒否（1 件）を確認`;
+    console.log(summary);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n`);
+  } else {
   // 外部の pdf.js の下限と、表示部品自身の下限の検査を分ける。
   if (pdfjs) result.assertions += await page.evaluate(async () => {
     const { testPdfUnderlays } = await import("/packages/view2d/test/pdf.mjs");
@@ -59,7 +69,7 @@ try {
     const canvas = document.createElement("canvas");
     canvas.id = "native-input"; canvas.tabIndex = 0; canvas.style.cssText = "display:block;width:200px;height:200px;touch-action:none";
     document.body.append(canvas);
-    const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2, view: { center: { x: 0, y: 0 }, scale: 2, rotation: 0 } });
+    const viewer = await View2D.create(canvas, { width: 200, height: 200, pixelRatio: 2, view: { center: { x: 0, y: 0 }, scale: 2, rotation: 0 } });
     const input = inputFixture(); viewer.setScene(input); viewer.setTool("pan");
     const state = window.inputTest = { viewer, canvas, input, detach: viewer.attachInput(), pointerId: null, context: null, cleanup: 0, observed: 0 };
     canvas.addEventListener("pointerdown", (event) => { state.pointerId = event.pointerId; });
@@ -93,7 +103,7 @@ try {
     window.addEventListener("error", state.captureError);
   });
   await page.mouse.move(box.x + 20, box.y + 20); await page.mouse.down(); await page.mouse.move(box.x + 60, box.y + 60);
-  await native("通知の失敗前には実ポインターを捕捉し範囲を描く", () => inputTest.canvas.hasPointerCapture(inputTest.pointerId) && inputTest.canvas.getContext("2d").getImageData(0, 0, 400, 400).data.some((value) => value !== 255));
+  await native("通知の失敗前には実ポインターを捕捉し範囲を描く", async () => inputTest.canvas.hasPointerCapture(inputTest.pointerId) && (await inputTest.viewer.snapshot()).pixels.some((value) => value !== 255));
   await page.evaluate(() => {
     inputTest.offFailure = inputTest.viewer.on("input", ({ state }) => { inputTest.failedNotifications++; throw state.gesture ? inputTest.first : inputTest.second; });
     inputTest.offAfter = inputTest.viewer.subscribe((state) => inputTest.afterFailure.push(state));
@@ -104,7 +114,7 @@ try {
     const state = inputTest.viewer.getState();
     return state.gesture === null && state.measurement === null && inputTest.beforeFailure[inputTest.beforeFailure.length - 1] === state && inputTest.afterFailure[inputTest.afterFailure.length - 1] === state;
   });
-  await native("通知の失敗後は Canvas の範囲も消す", () => inputTest.canvas.getContext("2d").getImageData(0, 0, 400, 400).data.every((value) => value === 255));
+  await native("通知の失敗後は Canvas の範囲も消す", async () => (await inputTest.viewer.snapshot()).pixels.every((value) => value === 255));
   await page.mouse.up();
   await page.evaluate(() => {
     inputTest.offBefore(); inputTest.offAfter(); inputTest.offFailure(); window.removeEventListener("error", inputTest.captureError);
@@ -177,4 +187,5 @@ try {
   console.log(circleDetails);
   console.log(regions);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${summary}\n\n${raster}\n\n${sat}\n\n${tolerance}\n\n${butt}\n\n${fills}\n\n${wide}\n\n${circles}\n\n${boundaries}\n\n${circleDetails}\n\n${regions}\n`);
+  }
 } finally { await browser.close(); }

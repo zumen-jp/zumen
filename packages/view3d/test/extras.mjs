@@ -1,4 +1,4 @@
-// 利用側の追加描画と入力（#815）をブラウザーの WebGL2 で検査する。画素は表示の確認で、ID・順序・後始末は独立した期待値と照らす。
+// 利用側の追加描画と入力（#815）をブラウザーの WebGPU で検査する。画素は表示の確認で、ID・順序・後始末は独立した期待値と照らす。
 import * as THREE from "three";
 import { View3D, View3DError } from "../src/index.js";
 import { document, encode, ORIGIN, result, synthetic, topView } from "./fixture.mjs";
@@ -25,15 +25,19 @@ export async function testExtras() {
   const canvas = Object.assign(globalThis.document.createElement("canvas"), { width: 200, height: 200 });
   canvas.style.cssText = "width:200px;height:200px;display:block";
   globalThis.document.body.append(canvas);
-  const viewer = new View3D(canvas, { width: 200, height: 200, shading: "unlit", edges: false, views: [topView()] });
-  const gl = canvas.getContext("webgl2");
-  const read = (x, y) => {
-    const out = new Uint8Array(4);
-    gl.readPixels(x, 200 - y - 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
-    return [...out.slice(0, 3)];
+  const viewer = await View3D.create(canvas, { width: 200, height: 200, shading: "unlit", edges: false, views: [topView()] });
+  const shots = new Map();
+  const render = () => { shots.clear(); return viewer.render(); };
+  const read = async (x, y) => {
+    const view = viewer.getState().views.find((v) => x >= v.rect.x && x < v.rect.x + v.rect.width && y >= v.rect.y && y < v.rect.y + v.rect.height);
+    let shot = shots.get(view.id);
+    if (!shot) { shot = await viewer.snapshot(view.id); shots.set(view.id, shot); }
+    const lx = Math.floor((x - view.rect.x) * shot.pixelRatio), ly = Math.floor((y - view.rect.y) * shot.pixelRatio);
+    const offset = (ly * shot.width + lx) * 4;
+    return [shot.pixels[offset], shot.pixels[offset + 1], shot.pixels[offset + 2]];
   };
-  const pixel = (x, y, expected, message) => {
-    const value = read(x, y);
+  const pixel = async (x, y, expected, message) => {
+    const value = await read(x, y);
     assert(value.every((v, i) => Math.abs(v - expected[i]) <= 3), `${message}: ${value} / ${expected}`);
   };
   const { columns } = synthetic();
@@ -54,10 +58,10 @@ export async function testExtras() {
       { kind: "region", points: square(-0.5, -0.5, -0.02, 0.5), color: "#0000ff" },
       { kind: "region", points: square(0.02, -0.5, 0.5, 0.5), color: "#00ff00" },
     ], { id: "pair", origin: at(2.5, 2.5), unit: METRE });
-    viewer.render();
-    pixel(90, 100, BLUE, "大きな原点の左の範囲");
-    pixel(110, 100, GREEN, "大きな原点の右の範囲");
-    pixel(100, 100, WHITE, "0.04 単位の隙間");
+    render();
+    await pixel(90, 100, BLUE, "大きな原点の左の範囲");
+    await pixel(110, 100, GREEN, "大きな原点の右の範囲");
+    await pixel(100, 100, WHITE, "0.04 単位の隙間");
     const left = viewer.hitTest("close", { x: 90, y: 100 }).hits[0];
     assert(left?.kind === "geometry" && left.id === "pair" && left.part === 0 && left.priority === 0, `幾何の記述の当たり: ${JSON.stringify(left)}`);
     near(left.distance, 10, "幾何の記述の距離");
@@ -76,9 +80,9 @@ export async function testExtras() {
     high.remove(); zero.remove();
     const front = viewer.addGeometry([{ kind: "region", points: square(-7.5, -3.5, -6.5, -2.5, 1), color: "#0000ff" }], { id: "front", origin: ORIGIN, unit: METRE, priority: -5 });
     const back = viewer.addGeometry([{ kind: "region", points: square(-8.5, -3.5, -7.6, -2.5, -1), color: "#00ff00" }], { id: "back", origin: ORIGIN, unit: METRE, priority: 5 });
-    viewer.render();
-    pixel(30, 130, BLUE, "手前の追加物が要素を隠す");
-    pixel(22, 130, RED, "奥の追加物は要素に隠れる");
+    render();
+    await pixel(30, 130, BLUE, "手前の追加物が要素を隠す");
+    await pixel(22, 130, RED, "奥の追加物は要素に隠れる");
     assert(viewer.hitTest("top", { x: 30, y: 130 }).hits.map((h) => h.id).join() === "front,red", "手前の追加物が先");
     assert(viewer.hitTest("top", { x: 22, y: 130 }).hits.map((h) => h.id).join() === "red,back", "優先度より距離が先");
     front.remove(); back.remove();
@@ -96,22 +100,22 @@ export async function testExtras() {
     const borrowed = viewer.addObject(root, { id: "machine", origin: at(2.25, 2.5), unit: METRE, dispose: () => { disposeCalls++; } });
     rejects(() => viewer.addObject(root, { id: "again", origin: ORIGIN, unit: METRE }), "invalid-input", "親のある root");
     rejects(() => viewer.addGeometry([{ kind: "line", points: [[0, 0, 0], [1, 0, 0]] }], { id: "machine", origin: ORIGIN, unit: METRE }), "invalid-input", "重なる ID");
-    viewer.render();
-    pixel(125, 75, GREEN, "借用した Object3D を描く");
+    render();
+    await pixel(125, 75, GREEN, "借用した Object3D を描く");
     let hit = viewer.hitTest("top", { x: 125, y: 75 }).hits[0];
     assert(hit?.kind === "object" && hit.id === "machine" && hit.object === root && hit.part === undefined, `Object3D の当たり: ${hit?.kind} ${hit?.id}`);
     material.transparent = true; material.opacity = 0;
     assert(viewer.hitTest("top", { x: 125, y: 75 }).hits.length === 0, "透明度 0 の材質は選ばない");
     material.transparent = false; material.opacity = 1;
     root.visible = false;
-    viewer.render();
-    pixel(125, 75, WHITE, "非表示の Object3D は描かない");
+    render();
+    await pixel(125, 75, WHITE, "非表示の Object3D は描かない");
     assert(viewer.hitTest("top", { x: 125, y: 75 }).hits.length === 0, "非表示の Object3D は選ばない");
     root.visible = true;
     viewer.setViews([{ ...topView(), clips: [{ point: at(2.25, 0), normal: [1, 0, 0] }] }]);
-    viewer.render();
-    pixel(120, 75, GREEN, "切断面の残す側の Object3D");
-    pixel(127, 75, WHITE, "切断面の除く側の Object3D");
+    render();
+    await pixel(120, 75, GREEN, "切断面の残す側の Object3D");
+    await pixel(127, 75, WHITE, "切断面の除く側の Object3D");
     assert(viewer.hitTest("top", { x: 121, y: 75 }).hits[0]?.id === "machine" && viewer.hitTest("top", { x: 127, y: 75 }).hits.length === 0, "切断面と当たり");
     const after = JSON.stringify({ p: root.position.toArray(), q: root.quaternion.toArray(), s: root.scale.toArray(), u: root.userData, c: material.color.getHex(), o: material.opacity });
     assert(after === before && root.material === material && root.geometry === geometry, "借用物を改変しない");
@@ -121,13 +125,13 @@ export async function testExtras() {
     const shader = viewer.addObject(custom, { id: "shader", origin: at(0, 6), unit: METRE, clipping: false });
     let excluded = null;
     const offRender = viewer.on("render", (event) => { excluded = event.excluded; });
-    viewer.render();
-    pixel(100, 40, WHITE, "切り抜きに対応しない物は切断面のあるビューで描かない");
+    render();
+    await pixel(100, 40, WHITE, "切り抜きに対応しない物は切断面のあるビューで描かない");
     assert(excluded.length === 1 && excluded[0].id === "shader" && excluded[0].reason === "clipping-unsupported", `除いた理由: ${JSON.stringify(excluded)}`);
     assert(viewer.hitTest("top", { x: 100, y: 40 }).hits.length === 0, "切り抜きに対応しない物は選ばない");
     viewer.setViews([topView()]);
-    viewer.render();
-    pixel(100, 40, BLUE, "切断面のないビューでは描く");
+    render();
+    await pixel(100, 40, BLUE, "切断面のないビューでは描く");
     assert(excluded.length === 0 && viewer.hitTest("top", { x: 100, y: 40 }).hits[0]?.id === "shader", "切断面のないビューでは選ぶ");
     offRender();
     shader.remove();
@@ -138,29 +142,29 @@ export async function testExtras() {
     borrowed.remove();
     assert(root.parent === null && disposeCalls === 1 && disposed === 0, `借用物の後始末: ${root.parent} ${disposeCalls} ${disposed}`);
     assert(borrowed.signal.aborted && borrowed.signal.reason === "removed", "解除の通知");
-    viewer.render();
-    pixel(125, 75, WHITE, "解除した物は描かない");
+    render();
+    await pixel(125, 75, WHITE, "解除した物は描かない");
 
     // 別の表示が共有する資源を保つ
     const shareCanvas = Object.assign(globalThis.document.createElement("canvas"), { width: 50, height: 50 });
-    const other = new View3D(shareCanvas, { width: 50, height: 50, shading: "unlit", views: [{ id: "o", rect: { x: 0, y: 0, width: 50, height: 50 },
+    const other = await View3D.create(shareCanvas, { width: 50, height: 50, shading: "unlit", views: [{ id: "o", rect: { x: 0, y: 0, width: 50, height: 50 },
       camera: { projection: "orthographic", position: [0, 0, 10], direction: [0, 0, -1], up: [0, 1, 0], width: 2 } }] });
     try {
       const a = new THREE.Mesh(geometry, material), b = new THREE.Mesh(geometry, material);
       const onThis = viewer.addObject(a, { id: "shared", origin: at(2.25, 2.5), unit: METRE });
       other.addObject(b, { id: "shared", origin: [0, 0, 0], unit: METRE, scope: "viewer" });
-      viewer.render(); other.render();
+      render(); other.render();
       onThis.remove();
-      other.render();
-      const otherGl = shareCanvas.getContext("webgl2"), out = new Uint8Array(4);
-      otherGl.readPixels(25, 25, 1, 1, otherGl.RGBA, otherGl.UNSIGNED_BYTE, out);
+      const otherShot = await other.snapshot("o");
+      const offset = (25 * otherShot.width + 25) * 4;
+      const out = otherShot.pixels.subarray(offset, offset + 4);
       assert(out[1] > 250 && out[0] < 5 && disposed === 0, `共有の資源を保つ: ${[...out]}`);
     } finally { other.destroy(); }
     assert(disposed === 0, "別の表示を破棄しても借用物を解放しない");
 
     // 幾何の記述の資源は部品が所有し、解除で解放する
     const label = new ImageData(new Uint8ClampedArray(Array.from({ length: 16 }, () => [0, 0, 255, 255]).flat()), 4, 4);
-    viewer.render();
+    render();
     const baseline = viewer.getStats();
     const drawing = viewer.addGeometry([
       { kind: "line", points: [[-8.95, -9, 0], [-8.95, -5, 0]], color: "#000000" },
@@ -168,34 +172,34 @@ export async function testExtras() {
       { kind: "dimension", from: [0, -9, 0], to: [4, -9, 0], offset: [0, 0.5, 0], label: { image: label, width: 8, height: 8 } },
       { kind: "label", position: [5, -6, 0], image: label, width: 20, height: 10, anchor: [0, 0] },
     ], { id: "drawing", origin: ORIGIN, unit: METRE });
-    viewer.render();
+    render();
     const added = viewer.getStats();
     assert(added.geometries > baseline.geometries && added.textures === baseline.textures + 2, `部品が作った資源: ${JSON.stringify(added)}`);
     assert(drawing.parts[2].length === 4 && drawing.parts[1].segments >= 8, `寸法の長さ（文書単位）と円の分割: ${JSON.stringify(drawing.parts)}`);
-    pixel(10, 170, BLACK, "線");
+    await pixel(10, 170, BLACK, "線");
     assert(viewer.hitTest("top", { x: 11, y: 170 }).hits[0]?.part === 0, "線の当たりは CSS px の許容差");
     assert(viewer.hitTest("top", { x: 15, y: 170 }).hits.length === 0, "許容差の外の線");
     // ラベルは CSS px の寸法で、左下を位置に合わせる
-    pixel(155, 155, BLUE, "ラベルの内側");
+    await pixel(155, 155, BLUE, "ラベルの内側");
     assert(viewer.hitTest("top", { x: 165, y: 155 }).hits[0]?.part === 3 && viewer.hitTest("top", { x: 172, y: 155 }).hits.length === 0, "ラベルの当たりは CSS px の範囲");
     drawing.remove();
-    viewer.render();
+    render();
     const freed = viewer.getStats();
     assert(freed.geometries === baseline.geometries && freed.textures === baseline.textures, `解除で解放する: ${JSON.stringify(freed)} / ${JSON.stringify(baseline)}`);
     // three.js が共有する Sprite の geometry は、最後のラベルを外すときに GPU の写しを解放し、次に描くときに転送し直す
     const tag = [{ kind: "label", position: [5, -6, 0], image: label, width: 20, height: 10, anchor: [0, 0] }];
     const first = viewer.addGeometry(tag, { id: "tag-1", origin: ORIGIN, unit: METRE }), second = viewer.addGeometry(tag, { id: "tag-2", origin: ORIGIN, unit: METRE });
-    viewer.render();
+    render();
     const both = viewer.getStats();
-    first.remove(); viewer.render();
+    first.remove(); render();
     assert(viewer.getStats().geometries === both.geometries, "ほかのラベルが残る間は共有の geometry を残す");
-    pixel(155, 155, BLUE, "残したラベル");
-    second.remove(); viewer.render();
+    await pixel(155, 155, BLUE, "残したラベル");
+    second.remove(); render();
     assert(viewer.getStats().geometries === baseline.geometries, `最後のラベルで共有の geometry を解放する: ${JSON.stringify(viewer.getStats())}`);
     const third = viewer.addGeometry(tag, { id: "tag-3", origin: ORIGIN, unit: METRE });
-    viewer.render();
-    pixel(155, 155, BLUE, "解放の後のラベル");
-    third.remove(); viewer.render();
+    render();
+    await pixel(155, 155, BLUE, "解放の後のラベル");
+    third.remove(); render();
 
     // 不正な登録は状態を変えない
     const kept = viewer.getState();
@@ -236,8 +240,8 @@ export async function testExtras() {
     const up = (x, y, extra = {}) => viewer.handleInput({ type: "pointerup", pointerId: 1, button: 0, point: { x, y }, ...extra });
     assert(down(30, 70) && up(31, 70), "クリックを扱う");
     assert(viewer.getState().views[0].selected.join() === "red" && picked.hits[0].id === "red" && picked.view === "top", "クリックで選ぶ");
-    viewer.render();
-    pixel(30, 130, SELECTED, "クリックで選んだ要素の色");
+    render();
+    await pixel(30, 130, SELECTED, "クリックで選んだ要素の色");
     down(180, 20); up(180, 20);
     assert(viewer.getState().views[0].selected.length === 0, "何もない所のクリックは選択を外す");
     down(30, 70); move(60, 70); up(60, 70);

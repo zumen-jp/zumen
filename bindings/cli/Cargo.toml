@@ -23,6 +23,7 @@ zumen-live = { version = "0.3.0", path = "../../crates/zumen-live" }
 zumen-scene = { version = "0.3.0", path = "../../crates/zumen-scene" }
 zumen-sdk = { version = "0.3.0", path = "../../crates/zumen-sdk" }
 zumen-sxf = { version = "0.3.0", path = "../../crates/zumen-sxf" }
+zumen-zip = { version = "0.3.0", path = "../../crates/zumen-zip" }
 
 [dev-dependencies]
 zumen-conformance = { path = "../conformance" }

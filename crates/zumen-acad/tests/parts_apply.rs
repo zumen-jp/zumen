@@ -4,11 +4,12 @@
 mod support;
 
 use std::path::PathBuf;
-use zumen_acad::{Data, Dwg, DwgFile, Dxf, DxfFile};
-use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, codes};
+use zumen_acad::{CopyFrom, Data, Dwg, DwgFile, Dxf, DxfFile};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits, Ref, codes};
 use zumen_drawing::{
-    Affine, Axis, CellContent, Changes, DimensionKind, Drawing2D, Edge, Edit, Element, Hash, Label,
-    Length, ModelLength, ModelPoint, PaperLength, PaperPoint, Placed, Seen, Shape, SpaceId, id,
+    Affine, Axis, CellContent, Changes, Dimension, DimensionKind, Drawing2D, Edge, Edit, Element,
+    Hash, Inherit, Label, Length, ModelLength, ModelPoint, PaperPoint, Placed, Seen, Shape,
+    SpaceId, Style, Table, id,
 };
 use zumen_sdk::{Apply, Codec, Error, Lift, testkit};
 
@@ -222,6 +223,7 @@ fn all_dimensions_dxf() -> Vec<u8> {
         (42, "0.625"),
         (44, "1.25"),
         (140, "2.5"),
+        (144, "-10.0"), // 長さの表示倍率は用紙上の寸法だけに掛かる。
         (271, "2"),
         (179, "1"),
         (340, "11"),
@@ -1459,8 +1461,17 @@ fn partial_arc_translation_rejects_unmapped_auxiliary_points_and_leaders_atomica
 }
 
 #[test]
-fn replaces_plain_legacy_table_cells_and_rebuilds_cache() {
-    for name in ["table-r2000.dwg", "table-r2004.dwg"] {
+fn replaces_and_transforms_dwg_tables_and_rebuilds_cache() {
+    for name in [
+        "table-r2000.dwg",
+        "table-r2004.dwg",
+        "table-r2010.dwg",
+        "table-r2013.dwg",
+        "table-r2018.dwg",
+        "table-styled-r2010.dwg",
+        "table-styled-r2013.dwg",
+        "table-styled-r2018.dwg",
+    ] {
         let raw = std::fs::read(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures")
@@ -1494,6 +1505,9 @@ fn replaces_plain_legacy_table_cells_and_rebuilds_cache() {
         let Shape::Table(mut table) = element.shape.clone() else {
             panic!()
         };
+        table.position = mpt(14.0, 26.0);
+        table.row_heights = vec![mlen(12.0), mlen(18.0)];
+        table.column_widths = vec![mlen(28.0), mlen(36.0)];
         for (index, content) in ["CHANGED".to_owned(), "x".repeat(251), "".to_owned()]
             .into_iter()
             .enumerate()
@@ -1506,8 +1520,19 @@ fn replaces_plain_legacy_table_cells_and_rebuilds_cache() {
                     spans: Vec::new(),
                 }
             };
+            table.cells[index].value = None;
         }
-        let expected = table.clone();
+        let expected_cells: Vec<_> = table
+            .cells
+            .iter()
+            .map(|c| match &c.content {
+                CellContent::Text { content, .. } => CellContent::Text {
+                    content: content.clone(),
+                    spans: Vec::new(),
+                },
+                other => other.clone(),
+            })
+            .collect();
         element.shape = Shape::Table(table);
         let (result, diagnostics) = cx_run(|cx| {
             file.apply(
@@ -1521,28 +1546,27 @@ fn replaces_plain_legacy_table_cells_and_rebuilds_cache() {
                 cx,
             )
         });
-        assert!(result.is_ok(), "{name}: {diagnostics:?}");
+        let applied = result.unwrap_or_else(|e| panic!("{name}: {e:?} {diagnostics:?}"));
         let bytes = testkit::write::<Dwg>(&file).unwrap();
-        let again = testkit::read::<Dwg>(&bytes).0.unwrap();
+        let mut again = testkit::read::<Dwg>(&bytes).0.unwrap();
         let after = cx_run(|cx| again.lift(cx).unwrap()).0;
         let (seen, changed) = seen_model(&after, 0);
         assert_eq!(seen.id, target.id);
+        assert_eq!(Some(seen.hash), applied[0].hash, "{name}");
         let Shape::Table(mut table) = changed.shape else {
             panic!()
         };
+        assert_eq!(table.position, mpt(14.0, 26.0), "{name}");
+        assert_eq!(table.row_heights, vec![mlen(12.0), mlen(18.0)], "{name}");
+        assert_eq!(table.column_widths, vec![mlen(28.0), mlen(36.0)], "{name}");
         // 読み手が作る文字の区間は、渡した文字列から別に検査する。
         for cell in &mut table.cells {
             if let CellContent::Text { spans, .. } = &mut cell.content {
                 spans.clear();
             }
         }
-        let mut expected = expected;
-        for cell in &mut expected.cells {
-            if let CellContent::Text { spans, .. } = &mut cell.content {
-                spans.clear();
-            }
-        }
-        assert_eq!(table, expected, "{name}");
+        let found_cells: Vec<_> = table.cells.iter().map(|c| c.content.clone()).collect();
+        assert_eq!(found_cells, expected_cells, "{name}");
         assert_eq!(seen_model(&after, 1).0, seen_model(&before, 1).0);
         for index in 0..original.entry_count() {
             let handle = original.entry_summary(index).unwrap().0;
@@ -1574,7 +1598,121 @@ fn replaces_plain_legacy_table_cells_and_rebuilds_cache() {
                 .any(|e| matches!(&e.shape, Shape::Formatted(t) if t.content == "x".repeat(251))),
             "{name}"
         );
+
+        // 回転と平行移動を伴う Edit::Transform も通り、さらに空セルから文字列へ戻せる
+        let (rot_res, rot_diag) = cx_run(|cx| {
+            again.apply(
+                &Changes {
+                    document: None,
+                    edits: vec![Edit::Transform {
+                        target: seen,
+                        transform: Affine {
+                            m: [0.0, -1.0, 5.0, 1.0, 0.0, 3.0],
+                        },
+                    }],
+                },
+                cx,
+            )
+        });
+        let rot_applied = rot_res.unwrap_or_else(|e| panic!("{name}: {e:?} {rot_diag:?}"));
+        let rot_bytes = testkit::write::<Dwg>(&again).unwrap();
+        let mut rot_file = testkit::read::<Dwg>(&rot_bytes).0.unwrap();
+        let rot_after = cx_run(|cx| rot_file.lift(cx).unwrap()).0;
+        let (rot_seen, mut rot_el) = seen_model(&rot_after, 0);
+        assert_eq!(Some(rot_seen.hash), rot_applied[0].hash, "{name}");
+        let Shape::Table(ref mut rot_table) = rot_el.shape else {
+            panic!()
+        };
+        assert!((rot_table.direction[0]).abs() < 1e-9, "{name}");
+        assert!((rot_table.direction[1] - 1.0).abs() < 1e-9, "{name}");
+        assert_eq!(
+            rot_table.row_heights,
+            vec![mlen(12.0), mlen(18.0)],
+            "{name}"
+        );
+        assert_eq!(
+            rot_table.column_widths,
+            vec![mlen(28.0), mlen(36.0)],
+            "{name}"
+        );
+        rot_table.cells[2].content = CellContent::Text {
+            content: "RESTORED".to_owned(),
+            spans: Vec::new(),
+        };
+        rot_table.cells[2].value = None;
+        let (re_res, re_diag) = cx_run(|cx| {
+            rot_file.apply(
+                &Changes {
+                    document: None,
+                    edits: vec![Edit::Replace {
+                        target: rot_seen,
+                        element: Box::new(Placed::Model(rot_el)),
+                    }],
+                },
+                cx,
+            )
+        });
+        assert!(re_res.is_ok(), "{name}: {re_diag:?}");
     }
+
+    // 対応済みのセル文字高・ACI 色上書きを持つ表（table-format-cases-r2018.dwg の 0 番目）は書き戻せ、
+    // 真の色上書きを持つ表（同 1 番目）は未対応診断を保って断る
+    let fmt_raw = std::fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/table-format-cases-r2018.dwg"),
+    )
+    .unwrap();
+    let mut fmt_file = testkit::read::<Dwg>(&fmt_raw).0.unwrap();
+    let fmt_before = cx_run(|cx| fmt_file.lift(cx).unwrap()).0;
+    let (ok_target, mut ok_el) = seen_model(&fmt_before, 0);
+    let Shape::Table(ref mut ok_table) = ok_el.shape else {
+        panic!()
+    };
+    ok_table.cells[0].content = CellContent::Text {
+        content: "UPDATED".to_owned(),
+        spans: Vec::new(),
+    };
+    ok_table.cells[0].value = None;
+    let (ok_res, ok_diag) = cx_run(|cx| {
+        fmt_file.apply(
+            &Changes {
+                document: None,
+                edits: vec![Edit::Replace {
+                    target: ok_target,
+                    element: Box::new(Placed::Model(ok_el)),
+                }],
+            },
+            cx,
+        )
+    });
+    assert!(ok_res.is_ok(), "{ok_diag:?}");
+
+    let mut bad_file = testkit::read::<Dwg>(&fmt_raw).0.unwrap();
+    let (bad_target, mut bad_el) = seen_model(&fmt_before, 1);
+    let Shape::Table(ref mut bad_table) = bad_el.shape else {
+        panic!()
+    };
+    bad_table.cells[0].content = CellContent::Empty;
+    bad_table.cells[0].value = None;
+    let (bad_res, bad_diag) = cx_run(|cx| {
+        bad_file.apply(
+            &Changes {
+                document: None,
+                edits: vec![Edit::Replace {
+                    target: bad_target,
+                    element: Box::new(Placed::Model(bad_el)),
+                }],
+            },
+            cx,
+        )
+    });
+    assert!(matches!(bad_res, Err(Error::Rejected)));
+    assert!(
+        bad_diag
+            .iter()
+            .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+    );
+    assert_eq!(testkit::write::<Dwg>(&bad_file).unwrap(), fmt_raw);
 }
 
 #[test]
@@ -1727,12 +1865,9 @@ fn moves_dwg_tables_without_rebuilding_cells_or_cache() {
                 panic!()
             };
             match change {
-                0 if name == "table-r2000.dwg" || name == "table-r2004.dwg" => {
-                    table.cells[0].rotation = 10.0;
-                }
-                0 => table.cells[0].content = CellContent::Empty,
-                1 => table.column_widths[0] = mlen(99.0),
-                _ => table.direction = [0.0, 1.0],
+                0 => table.cells[0].rotation = 10.0,
+                1 => table.cells[0].span = [2, 1],
+                _ => table.row_heights = vec![mlen(10.0)],
             }
             let invalid = Changes {
                 document: None,
@@ -1990,24 +2125,76 @@ fn replaces_and_transforms_paper_space_dimension() {
         oblique: 0.0,
     };
     dim.measurement = None;
-    let _ = PaperLength(1.0);
+    let mut added = updated.clone();
+    added.source = Ref::default();
+    let Shape::Dimension(dim) = &mut added.shape else {
+        panic!()
+    };
+    dim.block = None;
 
     let changes = Changes {
         document: None,
-        edits: vec![Edit::Replace {
-            target,
-            element: Box::new(Placed::Paper(updated)),
-        }],
+        edits: vec![
+            Edit::Replace {
+                target,
+                element: Box::new(Placed::Paper(updated)),
+            },
+            Edit::Add {
+                place,
+                element: Box::new(Placed::Paper(added)),
+            },
+        ],
     };
     let (applied, diag) = cx_run(|cx| file.apply(&changes, cx).unwrap());
     assert!(diag.is_empty(), "{diag:?}");
-    assert_eq!(applied.len(), 1);
+    assert_eq!(applied.len(), 2);
 
     let after = lift_dxf(&read_dxf(&write_dxf(&file)));
-    let Shape::Dimension(after_dim) = &after.sheets[0].elements[0].shape else {
-        panic!();
+    assert_eq!(after.sheets[0].elements.len(), 2);
+    for element in &after.sheets[0].elements {
+        let Shape::Dimension(dim) = &element.shape else {
+            panic!()
+        };
+        assert_eq!(dim.measurement.as_ref().unwrap().value, 120.0);
+        let parts = symbol_elements(&after, dim.block.as_deref().unwrap());
+        assert!(
+            parts
+                .iter()
+                .any(|e| matches!(&e.shape, Shape::Formatted(t) if t.content == "1200"))
+        );
+    }
+    // 用紙から実寸の空間へ写すと、寸法値の文字は配置先の規則で作り直す。
+    let mut reopened = read_dxf(&write_dxf(&file));
+    let (copied, diag) = cx_run(|cx| {
+        reopened.apply_with_copies(
+            &Changes {
+                document: None,
+                edits: vec![Edit::Copy {
+                    target: Seen {
+                        id: applied[0].id.clone().unwrap(),
+                        hash: applied[0].hash.unwrap(),
+                    },
+                    transform: Affine::translation(5.0, 0.0),
+                }],
+            },
+            &[CopyFrom {
+                place: Some("space/0"),
+                from: None,
+            }],
+            cx,
+        )
+    });
+    copied.unwrap_or_else(|_| panic!("{diag:?}"));
+    let copied = lift_dxf(&read_dxf(&write_dxf(&reopened)));
+    let Shape::Dimension(dim) = &copied.spaces[0].elements.last().unwrap().shape else {
+        panic!()
     };
-    assert!((after_dim.measurement.as_ref().unwrap().value - 120.0).abs() < 1e-9);
+    let parts = symbol_elements(&copied, dim.block.as_deref().unwrap());
+    assert!(
+        parts
+            .iter()
+            .any(|e| matches!(&e.shape, Shape::Formatted(t) if t.content == "120"))
+    );
 }
 
 #[test]
@@ -2222,4 +2409,362 @@ fn linear_dimension_places_angles_before_rotated_subclass_and_dwg_removes_owned_
         dwg_after.spaces[0].elements.len() + 1,
         dwg_before.spaces[0].elements.len()
     );
+}
+
+#[test]
+fn adds_dimensions_arc_dimensions_and_tables_with_anonymous_blocks() {
+    let by_layer = Style {
+        color: Inherit::Layer,
+        line_type: Inherit::Layer,
+        line_type_scale: 1.0,
+        line_weight: None,
+        transparency: Inherit::Layer,
+    };
+    let make_dim = |kind: DimensionKind<ModelPoint>, style: &str| Dimension {
+        kind,
+        label: Label::Measurement,
+        measurement: None,
+        text: zumen_drawing::DimensionText {
+            position: None,
+            moved: false,
+            rotation: None,
+            attachment: None,
+        },
+        style: style.to_owned(),
+        block: None,
+    };
+    let eight_kinds = || {
+        vec![
+            DimensionKind::Linear {
+                first: mpt(0.0, 0.0),
+                second: mpt(80.0, 0.0),
+                line: mpt(80.0, 15.0),
+                rotation: 0.0,
+                oblique: 0.0,
+            },
+            DimensionKind::Aligned {
+                first: mpt(0.0, 0.0),
+                second: mpt(30.0, 40.0),
+                line: mpt(30.0, 50.0),
+                oblique: 0.0,
+            },
+            DimensionKind::Radius {
+                center: mpt(0.0, 0.0),
+                chord: mpt(20.0, 0.0),
+                leader: mlen(0.0),
+            },
+            DimensionKind::Diameter {
+                chord: mpt(15.0, 0.0),
+                opposite: mpt(-15.0, 0.0),
+                leader: mlen(0.0),
+            },
+            DimensionKind::Angular {
+                vertex: mpt(0.0, 0.0),
+                first: mpt(25.0, 0.0),
+                second: mpt(0.0, 25.0),
+                arc: mpt(18.0, 18.0),
+            },
+            DimensionKind::AngularLines {
+                first: [mpt(0.0, 0.0), mpt(25.0, 0.0)],
+                second: [mpt(0.0, 0.0), mpt(0.0, 25.0)],
+                arc: mpt(15.0, 15.0),
+            },
+            DimensionKind::Ordinate {
+                origin: mpt(0.0, 0.0),
+                feature: mpt(42.0, 10.0),
+                leader_end: mpt(42.0, 20.0),
+                axis: zumen_drawing::Axis::X,
+            },
+            DimensionKind::ArcLength {
+                center: mpt(0.0, 0.0),
+                first: mpt(30.0, 0.0),
+                second: mpt(0.0, 30.0),
+                arc: mpt(22.0, 22.0),
+            },
+        ]
+    };
+
+    // 1. DXF への全 8 種類の寸法追加（*D8..*D15 が作られ、読み直したハッシュと一致する）
+    let mut dxf_file = read_dxf(&all_dimensions_dxf());
+    let dxf_before = lift_dxf(&dxf_file);
+    let layer0 = dxf_before.layers[0].id;
+    let dxf_edits: Vec<Edit> = eight_kinds()
+        .into_iter()
+        .map(|kind| Edit::Add {
+            place: "space/0".to_owned(),
+            element: Box::new(Placed::Model(Element {
+                source: Ref::default(),
+                layer: layer0,
+                style: by_layer,
+                shape: Shape::Dimension(make_dim(kind, "ISO-25")),
+            })),
+        })
+        .collect();
+    let (dxf_applied, dxf_diag) = cx_run(|cx| {
+        dxf_file
+            .apply(
+                &Changes {
+                    document: None,
+                    edits: dxf_edits,
+                },
+                cx,
+            )
+            .unwrap()
+    });
+    assert!(dxf_diag.is_empty(), "{dxf_diag:?}");
+    assert_eq!(dxf_applied.len(), 8);
+    let dxf_after = lift_dxf(&read_dxf(&write_dxf(&dxf_file)));
+    assert_eq!(dxf_after.spaces[0].elements.len(), 15);
+    for (idx, item) in dxf_applied.iter().enumerate() {
+        let (seen, el) = seen_model(&dxf_after, 7 + idx);
+        assert_eq!(Some(seen.id.as_str()), item.id.as_deref());
+        assert_eq!(Some(seen.hash), item.hash);
+        let Shape::Dimension(dim) = &el.shape else {
+            panic!()
+        };
+        let block_name = dim.block.as_deref().unwrap();
+        assert_eq!(block_name, format!("*D{}", 8 + idx));
+        assert!(!symbol_elements(&dxf_after, block_name).is_empty());
+    }
+
+    // 2. R2000..R2018 DWG への通常 7 種類の寸法追加（ARC_DIMENSION クラスのない DWG は弧長だけ断る）
+    for name in [
+        "table-r2000.dwg",
+        "table-r2004.dwg",
+        "table-r2010.dwg",
+        "table-r2013.dwg",
+        "table-r2018.dwg",
+    ] {
+        let raw = std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name),
+        )
+        .unwrap();
+        let mut dwg = testkit::read::<Dwg>(&raw).0.unwrap();
+        let before = cx_run(|cx| dwg.lift(cx).unwrap()).0;
+        let dwg_layer = before.layers[0].id;
+        let kinds = eight_kinds();
+        let std_edits: Vec<Edit> = kinds[..7]
+            .iter()
+            .cloned()
+            .map(|kind| Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(Element {
+                    source: Ref::default(),
+                    layer: dwg_layer,
+                    style: by_layer,
+                    shape: Shape::Dimension(make_dim(kind, "Standard")),
+                })),
+            })
+            .collect();
+        let (applied, diag) = cx_run(|cx| {
+            dwg.apply(
+                &Changes {
+                    document: None,
+                    edits: std_edits,
+                },
+                cx,
+            )
+            .unwrap()
+        });
+        assert!(diag.is_empty(), "{name}: {diag:?}");
+        assert_eq!(applied.len(), 7, "{name}");
+        let written = testkit::write::<Dwg>(&dwg).unwrap();
+        let reopened = testkit::read::<Dwg>(&written).0.unwrap();
+        let after = cx_run(|cx| reopened.lift(cx).unwrap()).0;
+        assert_eq!(
+            after.spaces[0].elements.len(),
+            before.spaces[0].elements.len() + 7,
+            "{name}"
+        );
+        for (idx, item) in applied.iter().enumerate() {
+            let (seen, el) = seen_model(&after, before.spaces[0].elements.len() + idx);
+            assert_eq!(Some(seen.id.as_str()), item.id.as_deref(), "{name}");
+            assert_eq!(Some(seen.hash), item.hash, "{name}");
+            let Shape::Dimension(dim) = &el.shape else {
+                panic!()
+            };
+            assert!(dim.block.as_deref().unwrap().starts_with("*D"), "{name}");
+        }
+
+        // ARC_DIMENSION クラスを持たない DWG では ArcLength の追加を change.edit.unsupported で断る
+        let mut arc_trial = testkit::read::<Dwg>(&raw).0.unwrap();
+        let (arc_res, arc_diag) = cx_run(|cx| {
+            arc_trial.apply(
+                &Changes {
+                    document: None,
+                    edits: vec![Edit::Add {
+                        place: "space/0".to_owned(),
+                        element: Box::new(Placed::Model(Element {
+                            source: Ref::default(),
+                            layer: dwg_layer,
+                            style: by_layer,
+                            shape: Shape::Dimension(make_dim(kinds[7], "Standard")),
+                        })),
+                    }],
+                },
+                cx,
+            )
+        });
+        assert!(matches!(arc_res, Err(Error::Rejected)), "{name}");
+        assert!(
+            arc_diag
+                .iter()
+                .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED),
+            "{name}"
+        );
+    }
+
+    // 3. ARC_DIMENSION クラスを持つ DWG サンプル（R2004・R2018）では ArcLength の追加も通る
+    for sample_name in ["zumen-arcdim-r2004.dwg", "zumen-arcdim-r2018.dwg"] {
+        let arc_sample = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../samples/dwg")
+            .join(sample_name);
+        if let Ok(arc_raw) = std::fs::read(&arc_sample) {
+            let mut arc_dwg = testkit::read::<Dwg>(&arc_raw).0.unwrap();
+            let arc_before = cx_run(|cx| arc_dwg.lift(cx).unwrap()).0;
+            let arc_layer = arc_before.layers[0].id;
+            let arc_dim_style = arc_before.dimension_styles[0].name.clone();
+            let (arc_applied, arc_diag) = cx_run(|cx| {
+                arc_dwg
+                    .apply(
+                        &Changes {
+                            document: None,
+                            edits: vec![Edit::Add {
+                                place: "space/0".to_owned(),
+                                element: Box::new(Placed::Model(Element {
+                                    source: Ref::default(),
+                                    layer: arc_layer,
+                                    style: by_layer,
+                                    shape: Shape::Dimension(make_dim(
+                                        eight_kinds()[7],
+                                        &arc_dim_style,
+                                    )),
+                                })),
+                            }],
+                        },
+                        cx,
+                    )
+                    .unwrap()
+            });
+            assert!(arc_diag.is_empty(), "{sample_name}: {arc_diag:?}");
+            let arc_out = testkit::write::<Dwg>(&arc_dwg).unwrap();
+            let arc_after =
+                cx_run(|cx| testkit::read::<Dwg>(&arc_out).0.unwrap().lift(cx).unwrap()).0;
+            let (last_seen, last_elem) =
+                seen_model(&arc_after, arc_after.spaces[0].elements.len() - 1);
+            assert_eq!(
+                Some(last_seen.id.as_str()),
+                arc_applied[0].id.as_deref(),
+                "{sample_name}"
+            );
+            assert_eq!(Some(last_seen.hash), arc_applied[0].hash, "{sample_name}");
+            let Shape::Dimension(added_arc_dim) = &last_elem.shape else {
+                panic!("{sample_name}: ArcLength でない");
+            };
+            assert!(
+                matches!(added_arc_dim.kind, DimensionKind::ArcLength { .. }),
+                "{sample_name}"
+            );
+            let arc_parts = symbol_elements(&arc_after, added_arc_dim.block.as_ref().unwrap());
+            assert!(!arc_parts.is_empty(), "{sample_name}");
+        }
+    }
+
+    // 4. DXF（AC1018・AC1032）への ACAD_TABLE 追加（結合セル・空セル・250 バイト超の文字・*T2 生成）
+    for r2018 in [false, true] {
+        let mut tbl_file = read_dxf(&table_dxf(r2018));
+        let tbl_before = lift_dxf(&tbl_file);
+        let tbl_layer = tbl_before.layers[0].id;
+        let new_table = Table {
+            position: mpt(120.0, 80.0),
+            direction: [1.0, 0.0],
+            row_heights: vec![mlen(10.0), mlen(7.0)],
+            column_widths: vec![mlen(25.0), mlen(35.0)],
+            cells: vec![
+                zumen_drawing::Cell {
+                    content: CellContent::Text {
+                        content: "Header".to_owned(),
+                        spans: Vec::new(),
+                    },
+                    span: [2, 1],
+                    covered: false,
+                    value: None,
+                    rotation: 0.0,
+                    format: Default::default(),
+                },
+                zumen_drawing::Cell {
+                    content: CellContent::Empty,
+                    span: [1, 1],
+                    covered: true,
+                    value: None,
+                    rotation: 0.0,
+                    format: Default::default(),
+                },
+                zumen_drawing::Cell {
+                    content: CellContent::Empty,
+                    span: [1, 1],
+                    covered: false,
+                    value: None,
+                    rotation: 0.0,
+                    format: Default::default(),
+                },
+                zumen_drawing::Cell {
+                    content: CellContent::Text {
+                        content: "z".repeat(255),
+                        spans: Vec::new(),
+                    },
+                    span: [1, 1],
+                    covered: false,
+                    value: None,
+                    rotation: 0.0,
+                    format: Default::default(),
+                },
+            ],
+            style: None,
+            formats: None,
+            drawn: None,
+        };
+        let (tbl_applied, tbl_diag) = cx_run(|cx| {
+            tbl_file
+                .apply(
+                    &Changes {
+                        document: None,
+                        edits: vec![Edit::Add {
+                            place: "space/0".to_owned(),
+                            element: Box::new(Placed::Model(Element {
+                                source: Ref::default(),
+                                layer: tbl_layer,
+                                style: by_layer,
+                                shape: Shape::Table(new_table),
+                            })),
+                        }],
+                    },
+                    cx,
+                )
+                .unwrap()
+        });
+        assert!(tbl_diag.is_empty(), "r2018={r2018}: {tbl_diag:?}");
+        let tbl_after = lift_dxf(&read_dxf(&write_dxf(&tbl_file)));
+        assert_eq!(tbl_after.spaces[0].elements.len(), 2);
+        let (added_seen, added_el) = seen_model(&tbl_after, 1);
+        assert_eq!(Some(added_seen.id.as_str()), tbl_applied[0].id.as_deref());
+        assert_eq!(Some(added_seen.hash), tbl_applied[0].hash);
+        let Shape::Table(lifted_tbl) = &added_el.shape else {
+            panic!()
+        };
+        assert_eq!(lifted_tbl.drawn.as_ref().unwrap().name, "*T2");
+        let t2_parts = symbol_elements(&tbl_after, "*T2");
+        assert!(
+            t2_parts
+                .iter()
+                .any(|e| matches!(&e.shape, Shape::Formatted(t) if t.content == "Header"))
+        );
+        assert!(
+            t2_parts
+                .iter()
+                .any(|e| matches!(&e.shape, Shape::Formatted(t) if t.content == "z".repeat(255)))
+        );
+    }
 }

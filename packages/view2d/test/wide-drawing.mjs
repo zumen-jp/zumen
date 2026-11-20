@@ -86,7 +86,7 @@ function localReference(c, rotation, ratio, clipped, width, height) {
   return ctx.getImageData(0, 0, width, height).data;
 }
 
-export function testWideDrawing(assert) {
+export async function testWideDrawing(assert) {
   const items = [
     { name: "側面", xy: (h) => [-2 * h, h, 2 * h, h] },
     { name: "側面と二つの端", xy: (h) => [-30, h, 40, h] },
@@ -101,11 +101,11 @@ export function testWideDrawing(assert) {
   const totals = { scenes: 0, pixels: 0, boundaryExcluded: 0, points: 0, shortLinePixels: 0 };
   for (const item of items) for (const half of [40000, 2 ** 30, 2 ** 50, 2 ** 125]) for (const rotation of [0, Math.PI / 6, Math.PI / 2]) for (const pixelRatio of [1, 1.5, 8]) {
     const alpha = rotation === 0 ? 128 : 255, clipped = pixelRatio === 1.5;
-    const canvas = document.createElement("canvas"), viewer = new View2D(canvas, { width: SIZE, height: SIZE, pixelRatio, pixelsPerMillimeter: 1,
+    const canvas = document.createElement("canvas"), viewer = await View2D.create(canvas, { width: SIZE, height: SIZE, pixelRatio, pixelsPerMillimeter: 1,
       view: { center: { x: 0, y: 0 }, scale: 1, rotation } });
     try {
       const input = source(item, half, alpha, clipped), report = viewer.setScene(input), expected = reference(input.scene.columns, rotation, clipped);
-      const actual = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data, label = `${item.name}/half=${half}/rotation=${rotation}/ratio=${pixelRatio}`;
+      const actual = (await viewer.snapshot()).pixels, label = `${item.name}/half=${half}/rotation=${rotation}/ratio=${pixelRatio}`;
       assert(report.issues.length === 0 && viewer.getElements()[0].id === ID, `${label}: 診断・ID を保つ`);
       let mismatch = 0, first;
       const step = Math.max(1, Math.round(4 * pixelRatio));
@@ -126,8 +126,8 @@ export function testWideDrawing(assert) {
           const error = Math.abs(actual[i] - local[i]);
           let stable = true;
           for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (local[((y + dy) * canvas.width + x + dx) * 4] !== local[i]) stable = false;
-          // 近傍 fill と長い Canvas stroke の AA は分ける。安定内部は 4、境界は 16/255 以下。
-          if (error > (stable ? 4 : 16)) { difference++; first ??= `${x},${y}: ${actual[i]}/${local[i]}`; }
+          // 安定内部・外部は 4 以下、1 画素の境界は 4x MSAA（4 段階被覆）と Canvas 2D 解析 AA の量子化差（最大約 1/4 被覆）まで許す。
+          if (error > (stable ? 4 : (alpha <= 128 ? 36 : 68))) { difference++; first ??= `${x},${y}: ${actual[i]}/${local[i]}`; }
           peak = Math.max(peak, error);
           totals.shortLinePixels++;
         }
@@ -140,33 +140,34 @@ export function testWideDrawing(assert) {
       totals.scenes++;
     } finally { viewer.destroy(); }
   }
-  totals.contracts = testWideDrawingBudget(assert);
+  totals.contracts = await testWideDrawingBudget(assert);
   return totals;
 }
 
-export function testWideDrawingBudget(assert) {
+export async function testWideDrawingBudget(assert) {
+  const samePixels = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
   const circle = { point: true, radius: (h) => h, xy: (h) => [0, 2 * h] };
   const input = source(circle, 40000, 128, false);
-  const canvas = document.createElement("canvas"), viewer = new View2D(canvas, { width: SIZE, height: SIZE, pixelsPerMillimeter: 1,
+  const canvas = document.createElement("canvas"), viewer = await View2D.create(canvas, { width: SIZE, height: SIZE, pixelsPerMillimeter: 1,
     limits: { work: 150 }, view: { center: { x: 0, y: -1e6 }, scale: 1, rotation: 0 } });
   try {
     viewer.setScene(input);
-    const before = viewer.getState(), pixels = canvas.toDataURL();
+    const before = viewer.getState(), pixels = (await viewer.snapshot()).pixels;
     let stopped = false;
     try { viewer.jumpTo({ center: { x: 0, y: 0 }, scale: 1, rotation: 0 }); }
     catch (error) { stopped = error instanceof RangeError && error.message.includes("limits.work"); }
-    assert(stopped && viewer.getState() === before && canvas.toDataURL() === pixels, "太い円の領域分割が予算を超えたカメラ変更は状態と画面を保つ");
+    assert(stopped && viewer.getState() === before && samePixels((await viewer.snapshot()).pixels, pixels), "太い円の領域分割が予算を超えたカメラ変更は状態と画面を保つ");
     viewer.setScene(null); viewer.jumpTo({ center: { x: 0, y: 0 }, scale: 1, rotation: 0 });
-    const empty = viewer.getState(), blank = canvas.toDataURL(); stopped = false;
+    const empty = viewer.getState(), blank = (await viewer.snapshot()).pixels; stopped = false;
     try { viewer.setScene(input); } catch (error) { stopped = error instanceof RangeError && error.message.includes("limits.work"); }
-    assert(stopped && viewer.getState() === empty && canvas.toDataURL() === blank, "領域の分割・結合が予算を超えた setScene は以前の画面を保つ");
+    assert(stopped && viewer.getState() === empty && samePixels((await viewer.snapshot()).pixels, blank), "領域の分割・結合が予算を超えた setScene は以前の画面を保つ");
   } finally { viewer.destroy(); }
-  const resizing = new View2D(canvas, { width: SIZE, height: SIZE, pixelsPerMillimeter: 1, limits: { work: 5000 } });
+  const resizing = await View2D.create(document.createElement("canvas"), { width: SIZE, height: SIZE, pixelsPerMillimeter: 1, limits: { work: 5000 } });
   try {
     resizing.setScene(input);
-    const before = resizing.getState(), pixels = canvas.toDataURL(); let stopped = false;
+    const before = resizing.getState(), pixels = (await resizing.snapshot()).pixels; let stopped = false;
     try { resizing.resize(8192, SIZE); } catch (error) { stopped = error instanceof RangeError && error.message.includes("limits.work"); }
-    assert(stopped && resizing.getState() === before && canvas.toDataURL() === pixels, "拡張した画面の円弧・結合が予算を超えた resize は状態と画面を保つ");
+    assert(stopped && resizing.getState() === before && samePixels((await resizing.snapshot()).pixels, pixels), "拡張した画面の円弧・結合が予算を超えた resize は状態と画面を保つ");
   } finally { resizing.destroy(); }
   return 3;
 }

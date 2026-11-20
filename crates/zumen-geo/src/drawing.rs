@@ -75,6 +75,7 @@ pub fn build(model: &GeoModel, options: Options<'_>, cx: &mut Cx) -> Result<Outp
         ..Drawing2D::default()
     };
     let mut sources = Vec::new();
+    let mut accounted = 0u64;
     for feature in &model.features {
         if !options.selection.includes(feature, cx)? {
             continue;
@@ -98,7 +99,7 @@ pub fn build(model: &GeoModel, options: Options<'_>, cx: &mut Cx) -> Result<Outp
                 u32::try_from(drawing.layers.len()).map_err(|_| Failure::Invalid("layers"))?,
             );
             visual::reserve(&mut drawing.layers, 1, 256, cx)?;
-            drawing.layers.push(d::Layer {
+            let layer = d::Layer {
                 id,
                 name: visual::text(layer_name, cx)?,
                 state: None,
@@ -106,7 +107,9 @@ pub fn build(model: &GeoModel, options: Options<'_>, cx: &mut Cx) -> Result<Outp
                 follows_placement: false,
                 description: None,
                 source: Ref::default(),
-            });
+            };
+            accounted = accounted.saturating_add(d::check_model_bytes(&layer, cx)?);
+            drawing.layers.push(layer);
             id
         };
         for (geometry_index, geometry) in feature.geometries.iter().enumerate() {
@@ -138,8 +141,7 @@ pub fn build(model: &GeoModel, options: Options<'_>, cx: &mut Cx) -> Result<Outp
                 visual::reserve(&mut model_space.order, 1, 8, cx)?;
                 visual::reserve(&mut sources, 1, 96, cx)?;
                 let source = visual::source(feature, cx)?;
-                model_space.order.push(model_space.elements.len());
-                model_space.elements.push(d::Element {
+                let element = d::Element {
                     source,
                     layer: layer_id,
                     style: d::Style {
@@ -150,7 +152,10 @@ pub fn build(model: &GeoModel, options: Options<'_>, cx: &mut Cx) -> Result<Outp
                         transparency: d::Inherit::Layer,
                     },
                     shape,
-                });
+                };
+                accounted = accounted.saturating_add(d::check_model_bytes(&element, cx)?);
+                model_space.order.push(model_space.elements.len());
+                model_space.elements.push(element);
                 sources.push(Source {
                     drawing_id: String::new(),
                     feature: visual::text(&feature.id, cx)?,
@@ -168,6 +173,7 @@ pub fn build(model: &GeoModel, options: Options<'_>, cx: &mut Cx) -> Result<Outp
         source.drawing_id = namer.next(index, element);
     }
     cx.check(Kind::Work, 0)?;
+    drawing.finish_model_bytes(accounted, cx)?;
     Ok(Output {
         drawing,
         zone: projection.zone,

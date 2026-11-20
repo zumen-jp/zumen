@@ -677,7 +677,7 @@ impl Display {
 
     /// スロットが指す 4 列それぞれの先頭位置と個数を返す
     #[inline]
-    fn slot_ranges(&self, slot: Slot) -> ([u32; 4], [u32; 4]) {
+    pub(crate) fn slot_ranges(&self, slot: Slot) -> ([u32; 4], [u32; 4]) {
         match slot.tag() {
             TAG_SEG_ARC => (
                 [slot.a_first, slot.b_first, 0, 0],
@@ -1384,6 +1384,59 @@ impl Display {
     }
 }
 
+/// 表示のスタイルの 2 つ目の値（色）の符号化。どの形式も同じ読み方にする。
+///
+/// 上位 8 bit が種類で、0 は画層の色（または指定なし）、1 はブロックの色、2 は色番号、3 は下位 24 bit の RGB
+/// （`0xRRGGBB`）。色番号は、bit 16〜23 に体系（[`ACI`]・[`SXF`]・[`JWW`]。Layers の表と同じ値）、
+/// 下位 16 bit に番号を置く
+pub mod color {
+    /// 画層の色（または指定なし）
+    pub const LAYER: u32 = 0;
+    /// ブロックの色
+    pub const BLOCK: u32 = 1 << 24;
+    /// 色番号の種類
+    pub const CODE: u32 = 2 << 24;
+    /// RGB の種類
+    pub const RGB: u32 = 3 << 24;
+    /// 色番号の体系: AutoCAD の色の番号（ACI）
+    pub const ACI: u8 = 1;
+    /// 色番号の体系: SXF の色のコード
+    pub const SXF: u8 = 2;
+    /// 色番号の体系: Jw_cad のペンの番号
+    pub const JWW: u8 = 3;
+
+    /// 体系 `system` の番号 `value` の色。番号が 16 bit に収まらなければ、画層の色（[`LAYER`]）
+    pub const fn code(system: u8, value: u32) -> u32 {
+        if value > 0xFFFF {
+            return LAYER;
+        }
+        CODE | ((system as u32) << 16) | value
+    }
+
+    /// RGB の色
+    pub const fn rgb([r, g, b]: [u8; 3]) -> u32 {
+        RGB | ((r as u32) << 16) | ((g as u32) << 8) | b as u32
+    }
+
+    /// 色番号なら、その体系と番号
+    pub const fn code_of(bits: u32) -> Option<(u8, u32)> {
+        if bits & 0xFF00_0000 == CODE {
+            Some((((bits >> 16) & 0xFF) as u8, bits & 0xFFFF))
+        } else {
+            None
+        }
+    }
+
+    /// RGB なら、その値
+    pub const fn rgb_of(bits: u32) -> Option<[u8; 3]> {
+        if bits & 0xFF00_0000 == RGB {
+            Some([(bits >> 16) as u8, (bits >> 8) as u8, bits as u8])
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use zumen_base::{Budget, CancelToken, Diagnostics, Limit, Limits};
@@ -1534,5 +1587,22 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err2, Stop::Exceeded(e) if e.kind == Kind::DecodedBytes));
         assert_eq!(display, snapshot);
+    }
+
+    /// 色は種類・体系・番号・RGB を往復し、16 bit に収まらない番号は画層の色になる
+    #[test]
+    fn colors_share_one_encoding() {
+        assert_eq!(color::code(color::ACI, 3), 0x0201_0003);
+        assert_eq!(color::code(color::JWW, 356), 0x0203_0164);
+        assert_eq!(color::code(color::SXF, 0x1_0000), color::LAYER);
+        assert_eq!(color::rgb([0x12, 0x34, 0x56]), 0x0312_3456);
+        assert_eq!(color::code_of(0x0202_0011), Some((color::SXF, 17)));
+        assert_eq!(color::rgb_of(0x0312_3456), Some([0x12, 0x34, 0x56]));
+        for other in [color::LAYER, color::BLOCK, color::rgb([1, 2, 3])] {
+            assert_eq!(color::code_of(other), None);
+        }
+        for other in [color::LAYER, color::BLOCK, color::code(color::ACI, 7)] {
+            assert_eq!(color::rgb_of(other), None);
+        }
     }
 }

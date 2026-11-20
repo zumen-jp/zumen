@@ -24,7 +24,7 @@ uv run --no-python-downloads --no-build --python 3.14 --with ezdxf==1.4.5 python
 
 Windows では CLI に `.exe` を付けます。終了コードは、全件一致なら 0、不一致があれば 1、実行できなければ 2 です。不一致の条件も最後まで流し、全 180 件を `results.json` に残します。既存の記録は上書きしません。
 
-wasm では、`cargo build -p zumen-cli --release --target wasm32-wasip1` で作った `zumen.wasm` を `--cli` の代わりに `--wasi` で渡します。Node.js 22 以降の WASI（`bindings/conformance/wasi.mjs`）の上の `serve --stdio` で流します。`--same-as` に先に流したネイティブの `results.json` を渡すと、各条件の出力の SHA-256 が同じことも確かめ、違えば `same-as` の不一致にします。
+wasm では、`cargo build -p zumen-cli --release --target wasm32-wasip1` で作った `zumen.wasm` を `--cli` の代わりに `--wasi` で渡します。Node.js 24 以降の WASI（`bindings/conformance/wasi.mjs`）の上の `serve --stdio` で流します。`--same-as` に先に流したネイティブの `results.json` を渡すと、各条件の出力の SHA-256 が同じことも確かめ、違えば `same-as` の不一致にします。
 
 ```sh
 uv run --no-python-downloads --no-build --python 3.14 --with ezdxf==1.4.5 python -I xtask/verify/polyline/check.py --wasi target/wasm32-wasip1/release/zumen.wasm --out ../zumen-polyline-verify-wasi --same-as ../zumen-polyline-verify/results.json

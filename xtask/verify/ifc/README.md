@@ -54,7 +54,7 @@ Windows では Python 3.13、毎晩の CI では Python 3.12 を使います。u
 
 これは属性と参照の比較です。形を計算した体積・描画・見え方や、ネイティブと wasm のバイト一致には広げません。比較器の検査は、実際の公開モデルをメモリ内で改変し、値・型・共有値・座標・参照・ID・欠落・重複・関連付けの食い違いを検出します。
 
-毎晩の CI でもキットを作って外部実装と照らし、CLI 比較器 15 本と外部比較器 9 本を検査します。外部照合が成功したときだけ、帰属表記・許諾本文・実測用の様式を含むキットを `verify-ifc-edit` に保存します。BIM ソフトでの確認は、引き続き利用者待ちです。
+毎晩の CI でもキットを作って外部実装と照らし、CLI 比較器 15 本と外部比較器 9 本を検査します。外部照合が成功したときだけ、帰属表記・許諾本文・実測用の様式を含むキットを `verify-ifc-edit` に保存します。公開モデルを BIM ソフトで開いた結果は [#526](https://github.com/zumen-jp/zumen/issues/526) にあります。
 
 ## 対象と期待する値
 
@@ -107,4 +107,16 @@ python -I xtask/verify/ifc/make.py observe target/debug/zumen.exe ../ifc-edit-ch
 
 このキットの生成と CLI による再読み込みは `synthetic` です。外部照合は `external/check.py` を別に実行し、成功した固定出力のハッシュと比較範囲を `external/results.json` に記録します。ネイティブと wasm の一致や、BIM ソフトでの `application` の確認を、この検査で済んだとは扱いません。
 
-既存の合成入力の外部照合は `crates/zumen-ifc/tests/edit.rs` と `tests/ifcopenshell/check.py` にあります。このキットは、その操作を既存 CLI から公開モデルに当て、外部実装と実機で確認するためのものです。キットの追加だけでは台帳の段を上げず、製品での結果を #526 に記録してから、形式の文書と台帳を更新します。
+既存の合成入力の外部照合は `crates/zumen-ifc/tests/edit.rs` と `tests/ifcopenshell/check.py` にあります。このキットは、その操作を既存 CLI から公開モデルに当て、外部実装と実機で確認するためのものです。FreeCAD で両版、FZKViewer で IFC4 を確認した範囲は、[形式の文書](../../../docs/formats/ifc.md#確かめた度合い)にあります。
+
+## 新規作成 2 階建てのキット（#898）
+
+`create` と `building_apply` だけで一から作った 3 版（IFC2X3・IFC4・IFC4X3）の 2 階建て建物と、階高・壁厚・開口を直した文書を BIM ソフトで確かめるには、`author.py` を使います（既存の `make.py`・`external/check.py` は変更しません）。
+
+```powershell
+cargo build -p zumen-cli
+python -I xtask/verify/ifc/author.py make target/debug/zumen.exe ../ifc-author-check
+python -I xtask/verify/ifc/author.py observe target/debug/zumen.exe ../ifc-author-check ifc4 changed ../ifc4-changed-exported.ifc
+```
+
+各版のフォルダー（`ifc2x3/`・`ifc4/`・`ifc4x3/`）に、作成直後の `built.ifc` と変更後の `changed.ifc`、要素・配置・3D シーン件数の記録、`report.md` と `manifest.json` を出力します。

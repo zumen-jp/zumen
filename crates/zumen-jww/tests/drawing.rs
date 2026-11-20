@@ -105,7 +105,7 @@ fn entities(archive: &mut Archive) -> u16 {
     archive.base(100, 2);
     archive.reals(&[3.0, 3.0]);
     archive.out.extend([0, 0, 0, 0, 3, 0, 0, 0]);
-    archive.reals(&[45.0, 2.0]);
+    archive.reals(&[PI / 4.0, 2.0]);
     // グループ 1 の文字と、設定の文字
     archive.group = 1;
     archive.tag("CDataMoji");
@@ -750,6 +750,7 @@ fn rejects_non_finite_results_of_finite_values() {
             "",
             1,
         ),
+        ("CDataTen", &[1.0, 2.0, f64::MAX, 2.0], "", 100),
         ("CDataBlock", &[0.0, 0.0, f64::MAX, 1.0, 0.0], "", 1),
         ("CDataBlock", &[0.0, 0.0, 1.0, 1.0, f64::MAX], "", 1),
         // 文字の幅比と画像の角の座標。

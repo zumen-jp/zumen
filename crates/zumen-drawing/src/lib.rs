@@ -32,10 +32,12 @@ mod calibration;
 mod callout;
 mod change;
 mod dimension;
+mod dimension_display;
 mod extension;
 mod hash;
 mod hatch;
 pub mod id;
+pub mod model_size;
 mod palette;
 pub mod parts;
 mod point;
@@ -54,11 +56,16 @@ pub use calibration::{Calibration, MeasurementError, SplitPaperPoint, split_dist
 pub use callout::{AttributeValue, Branch, Callout, CalloutContent, Dogleg, PathKind};
 pub use change::{Applied, Changes, Edit, Placed, Restyle, Seen};
 pub use dimension::{Axis, Dimension, DimensionKind, DimensionText, Label, Leader, Measured};
+pub use dimension_display::{
+    DimensionDisplayIndex, DimensionDisplayRecord, DimensionDisplayTarget, DimensionDisplayValues,
+    ResolvedDimensionDisplay,
+};
 pub use extension::{Basis, Draft, Extension, Field, FieldValue, Position, Target};
 pub use hash::{Canon, Encode, Hash};
 pub use hatch::{
     Boundary, Fill, Gradient, Hatch, HatchLoop, Islands, Pattern, PatternLine, PatternOrigin,
 };
+pub use model_size::{ModelSize, check_draft_bytes, check_model_bytes};
 pub use palette::Palette;
 pub use point::{MarkerKey, Point, PointLook, PointMark, PointSize, PointStyle};
 pub use shape::{Edge, Element, KnotParameterization, Polyline, Shape, Spline, Vertex};
@@ -83,6 +90,7 @@ pub use text::{
 };
 pub use underlay::{Clip, Resource, Underlay, UnderlayFrame, UnderlayKind};
 pub use walk::{Clipping, Item, Origin, Step, Visit, VisitRef, WalkVisitor};
+pub use zumen_crs::{Crs, Georeference, MapConversion, Zone};
 
 /// 図面。実寸の空間と用紙を、順序のある一覧で持つ
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -115,6 +123,10 @@ pub struct Drawing2D {
     pub title_blocks: Vec<TitleBlock>,
     /// 文書の点の表し方（決定 0160）。元の形式が持たなければ `None` で、表示する側は小さな点として描く
     pub point_style: Option<PointStyle>,
+    /// 図面の実寸の空間から地図の座標系への相似の変換（#685）。元の形式が持たないか読めなければ `None`
+    pub georeference: Option<Georeference>,
+    /// 部品のない寸法を描くための、寸法スタイルの補足と要素ごとの上書き。元の定義の順。
+    pub dimension_display: Vec<DimensionDisplayRecord>,
 }
 
 impl Drawing2D {

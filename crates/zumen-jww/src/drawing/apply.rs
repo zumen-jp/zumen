@@ -15,12 +15,17 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Apply, Codec, Cx, Error, Lift, quietly};
 
-use super::{Header, PEN_WIDTH_SINCE, POINT_SYMBOL, SXF_SINCE, TURN};
+use super::{
+    CIRCLE_SOLID, Header, PEN_WIDTH_SINCE, POINT_SYMBOL, SOLID_OWN_COLOR, SXF_SINCE, TURN,
+};
 use crate::parse::Reader;
 use crate::{Jww, JwwFile, RecordKind};
 
+pub(crate) mod copy;
 pub(super) mod layers;
 pub(super) mod text;
+
+pub use copy::CopyFrom;
 
 /// 診断に書く形式の名前
 pub(super) const FORMAT: &str = "JWW";
@@ -46,6 +51,18 @@ impl Apply<Changes> for JwwFile {
     type Output = (Vec<Applied>, bool);
 
     fn apply(&mut self, changes: &Changes, cx: &mut Cx) -> Result<(Vec<Applied>, bool), Error> {
+        self.apply_with_copies(changes, &[], cx)
+    }
+}
+
+impl JwwFile {
+    /// 配置先・複写元つきの変更を当てて書き戻す（#889）
+    pub fn apply_with_copies(
+        &mut self,
+        changes: &Changes,
+        copies: &[CopyFrom<'_>],
+        cx: &mut Cx,
+    ) -> Result<(Vec<Applied>, bool), Error> {
         // 変えていないファイルは元のバイトのまま書くので、元のバイト列のハッシュと比べる
         let current = match changes.document {
             None => true,
@@ -69,9 +86,41 @@ impl Apply<Changes> for JwwFile {
             cx.report(unsupported("apply", "header"));
             return Err(Error::Rejected);
         };
-        let drawing = quietly(cx, |cx| self.lift(cx))?;
-        let before = Index::new(&drawing, cx)?;
-        let before_layers = &drawing.layers;
+        let mut sources: BTreeMap<usize, copy::SourceJww> = BTreeMap::new();
+        for item in copies {
+            if let Some(other) = item.from {
+                let key = core::ptr::from_ref(other) as usize;
+                if let std::collections::btree_map::Entry::Vacant(slot) = sources.entry(key) {
+                    let other_header = other
+                        .records()
+                        .first()
+                        .filter(|record| record.kind() == RecordKind::Header)
+                        .and_then(|record| Header::read(other, record.span().end).ok());
+                    let Some(other_header) = other_header else {
+                        cx.report(unsupported("apply", "header"));
+                        return Err(Error::Rejected);
+                    };
+                    let other_drawing = quietly(cx, |cx| other.lift(cx))?;
+                    slot.insert(copy::SourceJww {
+                        file: other.clone(),
+                        header: other_header,
+                        drawing: other_drawing,
+                    });
+                }
+            }
+        }
+        let specs: Vec<copy::CopySpec<'_>> = copies
+            .iter()
+            .map(|item| copy::CopySpec {
+                place: item.place,
+                from: item
+                    .from
+                    .and_then(|other| sources.get(&(core::ptr::from_ref(other) as usize))),
+            })
+            .collect();
+        let before_drawing = quietly(cx, |cx| self.lift(cx))?;
+        let before = Index::new(&before_drawing, cx)?;
+        let before_layers = &before_drawing.layers;
         let mut plan = Plan {
             file: self,
             header: &header,
@@ -84,7 +133,7 @@ impl Apply<Changes> for JwwFile {
         let mut expected = Vec::new();
         let mut targets = BTreeSet::new();
         let mut rejected = false;
-        for change in &changes.edits {
+        for (edit_index, change) in changes.edits.iter().enumerate() {
             work(cx, 1)?;
             let result = match change {
                 Edit::Remove { target } => {
@@ -182,9 +231,9 @@ impl Apply<Changes> for JwwFile {
                         if let Shape::Symbol(symbol) = &element.shape {
                             work(
                                 cx,
-                                drawing.symbols.len() as u64 + symbol.key.name.len() as u64,
+                                before_drawing.symbols.len() as u64 + symbol.key.name.len() as u64,
                             )?;
-                            if !drawing
+                            if !before_drawing
                                 .symbols
                                 .iter()
                                 .any(|definition| definition.key == symbol.key)
@@ -254,10 +303,19 @@ impl Apply<Changes> for JwwFile {
                     cx.report(unsupported(change.name(), "dimension_style"));
                     None
                 }
-                // 写しの形式固有の値と参照を保つ書き方は、まだない（#889）
-                Edit::Copy { .. } => {
-                    cx.report(unsupported(change.name(), "copy"));
-                    None
+                Edit::Copy { target, transform } => {
+                    let spec = specs.get(edit_index).copied().unwrap_or_default();
+                    copy::copy_element(
+                        &mut plan,
+                        &before_drawing,
+                        &before,
+                        &targets,
+                        target,
+                        transform,
+                        spec,
+                        edit_index,
+                        cx,
+                    )?
                 }
                 // JWW は文書の点の表し方を持たない（決定 0190）
                 Edit::AddSymbol { .. } => {
@@ -298,7 +356,7 @@ impl Apply<Changes> for JwwFile {
         let mut changed_layers = BTreeSet::new();
         for (edit, expected) in &expected {
             work(cx, 1)?;
-            let (record, layer, style, shape) = match expected {
+            let (record, layer, style, shape, expected_exts) = match expected {
                 Expected::Layer(layer) => {
                     let found = drawing.layers.iter().find(|found| found.id == layer.id);
                     if found != Some(layer) {
@@ -321,11 +379,24 @@ impl Apply<Changes> for JwwFile {
                 }
                 Expected::Changed(record, layer, style, shape) => {
                     changed.insert(*record);
-                    (written.moved.get(record).copied(), layer, style, shape)
+                    (
+                        written.moved.get(record).copied(),
+                        layer,
+                        style,
+                        shape,
+                        None,
+                    )
                 }
                 Expected::Added(at, layer, style, shape) => {
-                    (written.added.get(*at).copied(), layer, style, shape)
+                    (written.added.get(*at).copied(), layer, style, shape, None)
                 }
+                Expected::Copied(at, layer, style, shape, exts) => (
+                    written.added.get(*at).copied(),
+                    layer,
+                    style,
+                    shape,
+                    Some(exts.as_slice()),
+                ),
             };
             let found = record
                 .and_then(|record| after.found(record))
@@ -333,6 +404,8 @@ impl Apply<Changes> for JwwFile {
                     found.element.layer == *layer
                         && found.element.style == *style
                         && near(&found.element.shape, shape)
+                        && expected_exts
+                            .is_none_or(|exts| copy::extensions_match(&drawing, &found.id, exts))
                 });
             let Some(found) = found else {
                 cx.report(unsupported(edit, "round_trip"));
@@ -415,6 +488,14 @@ enum Expected {
     Changed(usize, LayerId, Style, Shape<ModelPoint>),
     /// 足した順の番号の要素が、このレイヤ・スタイル・形になる
     Added(usize, LayerId, Style, Shape<ModelPoint>),
+    /// 複写した要素が、このレイヤ・スタイル・形・拡張になる
+    Copied(
+        usize,
+        LayerId,
+        Style,
+        Shape<ModelPoint>,
+        Vec<copy::ExpectedExt>,
+    ),
 }
 /// 当てられない変更の診断
 pub(super) fn unsupported(edit: &str, kind: &str) -> Diagnostic {
@@ -548,6 +629,31 @@ pub(super) fn near(a: &Shape<ModelPoint>, b: &Shape<ModelPoint>) -> bool {
                 && angle(*start, *s)
                 && angle(*end, *e)
         }
+        (
+            Shape::Curve(Edge::Elliptic {
+                center,
+                major,
+                ratio,
+                start,
+                end,
+                counterclockwise,
+            }),
+            Shape::Curve(Edge::Elliptic {
+                center: c,
+                major: m,
+                ratio: r,
+                start: s,
+                end: e,
+                counterclockwise: ccw,
+            }),
+        ) => {
+            point(center, c)
+                && point(major, m)
+                && value(*ratio, *r)
+                && counterclockwise == ccw
+                && angle(*start, *s)
+                && angle(*end, *e)
+        }
         (Shape::Point(a), Shape::Point(b)) => {
             point(&a.position, &b.position)
                 && angle(a.rotation, b.rotation)
@@ -619,6 +725,10 @@ struct Index<'a> {
     records: BTreeMap<usize, Option<String>>,
     /// 実寸の空間の ID
     spaces: BTreeMap<String, SpaceId>,
+    /// 定義の空間を含むすべての空間の ID
+    all_spaces: BTreeMap<String, SpaceId>,
+    /// 要素 ID から属する空間
+    element_spaces: BTreeMap<String, SpaceId>,
 }
 
 impl<'a> Index<'a> {
@@ -627,15 +737,20 @@ impl<'a> Index<'a> {
             elements: BTreeMap::new(),
             records: BTreeMap::new(),
             spaces: BTreeMap::new(),
+            all_spaces: BTreeMap::new(),
+            element_spaces: BTreeMap::new(),
         };
         for space in &drawing.spaces {
             let place = id::space(space.id);
             let mut namer = id::Namer::new(&place);
             for (at, element) in space.elements.iter().enumerate() {
                 work(cx, 1)?;
-                index.note(namer.next(at, element), element);
+                let eid = namer.next(at, element);
+                index.element_spaces.insert(eid.clone(), space.id);
+                index.note(eid, element);
             }
-            index.spaces.insert(place, space.id);
+            index.spaces.insert(place.clone(), space.id);
+            index.all_spaces.insert(place, space.id);
         }
         let mut definitions = id::DefinitionNamer::default();
         for definition in &drawing.symbols {
@@ -644,8 +759,13 @@ impl<'a> Index<'a> {
             let mut namer = id::Namer::new(&place);
             for (at, element) in definition.space.elements.iter().enumerate() {
                 work(cx, 1)?;
-                index.note(namer.next(at, element), element);
+                let eid = namer.next(at, element);
+                index
+                    .element_spaces
+                    .insert(eid.clone(), definition.space.id);
+                index.note(eid, element);
             }
+            index.all_spaces.insert(place, definition.space.id);
         }
         Ok(index)
     }
@@ -927,8 +1047,8 @@ struct Plan<'f> {
     rewritten: BTreeMap<usize, Vec<u8>>,
     /// 除くレコード
     removed: BTreeSet<usize>,
-    /// 図形の一覧の終わりに足す図形のクラスと、タグの後ろのバイト列
-    added: Vec<(&'static [u8], Vec<u8>)>,
+    /// 図形の一覧またはブロック定義の終わりに足す `(定義レコード, クラス, タグの後ろのバイト列)`
+    added: Vec<(Option<usize>, &'static [u8], Vec<u8>)>,
     layers: layers::Changes,
 }
 
@@ -1211,7 +1331,7 @@ impl Plan<'_> {
         };
         // 新しいクラスのタグは、ファイルのクラスのスキーマで書く
         self.file.classes().first()?;
-        self.added.push((class, bytes));
+        self.added.push((None, class, bytes));
         Some((base.layer(), self.style(&base, class), shape))
     }
 
@@ -1269,7 +1389,7 @@ impl Plan<'_> {
         bytes.extend(values.iter().flat_map(|value| value.to_le_bytes()));
         bytes.extend(number.to_le_bytes());
         self.file.classes().first()?;
-        self.added.push((b"CDataBlock", bytes));
+        self.added.push((None, b"CDataBlock", bytes));
         Some((base.layer(), style, element.shape.clone()))
     }
 
@@ -1307,7 +1427,7 @@ impl Plan<'_> {
         let added = self
             .added
             .iter()
-            .map(|(_, body)| body)
+            .map(|(_, _, body)| body)
             .chain(self.rewritten.values())
             .fold(0u64, |total, body| total.saturating_add(body.len() as u64));
         work(cx, (src.len() as u64).saturating_add(added).div_ceil(1024))?;
@@ -1382,36 +1502,28 @@ impl Lists<'_> {
             r.pos = record.span().end;
             at += 1;
         }
-        write_count(&mut self.out, kept.len() + self.plan.added.len());
+        let top_added = self
+            .plan
+            .added
+            .iter()
+            .filter(|(block, ..)| block.is_none())
+            .count();
+        write_count(&mut self.out, kept.len() + top_added);
         for record in kept {
             work(cx, 1)?;
             if !self.object(record) {
                 return Ok(None);
             }
         }
-        let mut added = Vec::new();
-        for (class, body) in &self.plan.added {
-            work(cx, 1)?;
-            let classes = self.plan.file.classes();
-            work(cx, classes.len() as u64)?;
-            // 同じクラスがすでにあれば、そのスキーマを使う。なければ全クラスが同じ場合だけ推定できる。
-            let same = classes
-                .iter()
-                .find(|item| self.plan.file.bytes(item.name()) == *class);
-            let schema = same.map(crate::Class::schema).or_else(|| {
-                let schema = classes.first()?.schema();
-                classes
-                    .iter()
-                    .all(|item| item.schema() == schema)
-                    .then_some(schema)
-            });
-            let Some(schema) = schema else {
+        let mut added = vec![0usize; self.plan.added.len()];
+        for (slot, (block, class, body)) in added.iter_mut().zip(&self.plan.added) {
+            if block.is_some() {
+                continue;
+            }
+            if !self.write_added(class, body, cx)? {
                 return Ok(None);
-            };
-            self.tag(class, schema);
-            self.out.extend_from_slice(body);
-            added.push(self.records);
-            self.records += 1;
+            }
+            *slot = self.records - 1;
         }
         let Some(blocks) = count(&mut r) else {
             return Ok(None);
@@ -1463,12 +1575,27 @@ impl Lists<'_> {
                 }
                 at += 1;
             }
-            write_count(&mut self.out, kept.len());
+            let def_added = self
+                .plan
+                .added
+                .iter()
+                .filter(|(block, ..)| *block == Some(definition))
+                .count();
+            write_count(&mut self.out, kept.len() + def_added);
             for record in kept {
                 work(cx, 1)?;
                 if !self.object(record) {
                     return Ok(None);
                 }
+            }
+            for (slot, (block, class, body)) in added.iter_mut().zip(&self.plan.added) {
+                if *block != Some(definition) {
+                    continue;
+                }
+                if !self.write_added(class, body, cx)? {
+                    return Ok(None);
+                }
+                *slot = self.records - 1;
             }
         }
         // 画像の一覧と、読めなかった残りは写す。定義がなければ、元のファイルの定義の件数の後から写す
@@ -1494,6 +1621,30 @@ impl Lists<'_> {
             self.records += 1;
         }
         Ok(Some((self.out, self.moved, added)))
+    }
+
+    /// 足す図形のクラス・タグ・本体を書く
+    fn write_added(&mut self, class: &[u8], body: &[u8], cx: &mut Cx) -> Result<bool, Error> {
+        work(cx, 1)?;
+        let classes = self.plan.file.classes();
+        work(cx, classes.len() as u64)?;
+        let same = classes
+            .iter()
+            .find(|item| self.plan.file.bytes(item.name()) == class);
+        let schema = same.map(crate::Class::schema).or_else(|| {
+            let schema = classes.first()?.schema();
+            classes
+                .iter()
+                .all(|item| item.schema() == schema)
+                .then_some(schema)
+        });
+        let Some(schema) = schema else {
+            return Ok(false);
+        };
+        self.tag(class, schema);
+        self.out.extend_from_slice(body);
+        self.records += 1;
+        Ok(true)
     }
 
     /// オブジェクトを、タグを数え直して写す
@@ -1690,7 +1841,7 @@ pub(super) fn shape_bytes(
     Some(out)
 }
 
-/// 点の形の値（決定 0183）。位置・仮点か（u32）と、記号の点は記号の番号（u32）・角度（度、推定）・倍率を書く。
+/// 点の形の値（決定 0183）。位置・仮点か（u32）と、記号の点は記号の番号（u32）・角度（ラジアン）・倍率を書く。
 /// 記号の点は名前空間 `jww.point` の既定義のマーカーを、ほかの点は文書の点の表し方に従う角度 0 の点を表す。記号の点と
 /// ほかの点を入れ替えると図形の大きさが変わるので、書かない
 fn point_bytes(
@@ -1716,7 +1867,7 @@ fn point_bytes(
                 return None;
             }
             out.extend(code.to_le_bytes());
-            out.extend(dot.rotation.to_le_bytes());
+            out.extend(dot.rotation.to_radians().to_le_bytes());
             out.extend(size.to_le_bytes());
         }
         _ => return None,

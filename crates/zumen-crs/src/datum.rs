@@ -168,20 +168,21 @@ impl ShiftGrid {
         self.nodes.iter().map(|(at, (b, l))| (code(*at), *b, *l))
     }
 
-    /// 点 `at` の緯度・経度の補正量（秒）を、囲む四隅の格子点から双一次に補間する。重みが 0 でない格子点の
-    /// どれかがなければ `None`。PatchJGD の範囲の外の点を補正量 0 とするのは、[`to_jgd2011`] が決める
+    /// 点 `at` の緯度・経度の補正量（秒）を、囲む四隅の格子点から双一次に補間する。四隅の格子点のどれかが
+    /// なければ `None`。PatchJGD の範囲の外の点を補正量 0 とするのは、[`to_jgd2011`] が決める
     pub fn correction(&self, at: GeoPoint) -> Option<(f64, f64)> {
         self.interpolate(at).1
     }
 
-    /// 点 `at` の緯度・経度の補正量（秒）を、囲む四隅の格子点から双一次に補間する。重みが 0 でない格子点の
-    /// どれかがなければ `None`。囲む格子点が 1 つもなければ `Some(None)` にせず、呼ぶ側が決められるよう
-    /// 見つかった数を返す
+    /// 点 `at` の緯度・経度の補正量（秒）を、囲む四隅の格子点から双一次に補間する。四隅は、点の南西の格子点と、
+    /// その北・東・北東の格子点で、格子点の上と格子の線の上の点も、重みが 0 の格子点を含む四隅がそろわなければ
+    /// `None`（国土地理院の測量計算サイトの TKY2JGD・PatchJGD と同じ。#664）。囲む格子点が 1 つもなければ
+    /// `Some(None)` にせず、呼ぶ側が決められるよう見つかった数を返す
     fn interpolate(&self, at: GeoPoint) -> (usize, Option<(f64, f64)>) {
         // 1 度あたりの格子の数を先に求める。5 倍の格子線にある点を、途中の丸めで隣の区画に移さない
         let step = f64::from(self.step);
-        let y = at.latitude * (120.0 / step);
-        let x = (at.longitude - 100.0) * (80.0 / step);
+        let y = on_line(at.latitude * (120.0 / step));
+        let x = on_line((at.longitude - 100.0) * (80.0 / step));
         // 3 次メッシュのコードで表せない所（NaN と無限を含む）には、格子点がない。番号が u32 であふれないようにする
         let limit = 0.0..f64::from(MESH_LIMIT / self.step);
         if !(limit.contains(&y) && limit.contains(&x)) {
@@ -203,9 +204,6 @@ impl ShiftGrid {
             .count();
         let mut shift = (0.0, 0.0);
         for (i, j, weight) in corners {
-            if weight == 0.0 {
-                continue;
-            }
             let Some((b, l)) = self.nodes.get(&(i, j)) else {
                 return (found, None);
             };
@@ -214,6 +212,13 @@ impl ShiftGrid {
         }
         (found, Some(shift))
     }
+}
+
+/// 格子の番号の位置 `v` が、格子の線から 10⁻⁹ 格子（3 次メッシュの間隔で 0.00000003 秒）より近ければ、線の上に
+/// 寄せる。度分秒で書いた線の上の点が、度への換算の丸めで線から外れ、隣の区画の格子点を使わないようにする（#664）
+fn on_line(v: f64) -> f64 {
+    let near = libm::round(v);
+    if libm::fabs(v - near) < 1e-9 { near } else { v }
 }
 
 /// 格子で経緯度を直す。`partial` が真なら、囲む格子点が 1 つもない点の補正量を 0 とする

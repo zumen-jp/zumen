@@ -1163,7 +1163,7 @@ const BLOCKS_DXF: &[u8] = b"0\nSECTION\n2\nBLOCKS\n\
 0\nENDBLK\n0\nENDSEC\n\
 0\nSECTION\n2\nENTITIES\n0\nINSERT\n8\n0\n2\nB2\n10\n0\n20\n0\n0\nENDSEC\n0\nEOF\n";
 
-/// 記号の定義を要求の順に返し、範囲・予約の語・まだ書けない形式を断る
+/// 記号の定義を要求の順に返し、範囲・予約の語を断る
 #[test]
 fn symbols_carry_the_display_of_definitions() {
     let mut budget = zumen_base::Budget::default();
@@ -1257,20 +1257,995 @@ fn symbols_carry_the_display_of_definitions() {
     assert!(wire::Header::parse(&header).is_some());
     header[20] = 1;
     assert!(wire::Header::parse(&header).is_none());
-    // JWW・SXF の定義はまだ書けない
-    for bytes in [JWW, SFC] {
-        let mut host = Host::default();
-        open_bytes(&mut host, bytes);
-        let rejected = call(
+    // SXF は複合図形の定義を返す
+    let live = zumen_sxf::SxfLive::open(SFC, cx).unwrap();
+    let total = live.display_symbol_count();
+    assert!(total > 0);
+    let mut host = Host::default();
+    open_bytes(&mut host, SFC);
+    let indices: Vec<u32> = (0..total).collect();
+    let reply = call(
+        &mut host,
+        Command::Symbols,
+        2,
+        0,
+        wire::NONE,
+        0,
+        &rows_body(&indices),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    let mut expected = zumen_live::display::Display::with_rows(0);
+    for &index in &indices {
+        live.display_symbol(index, &mut expected, cx)
+            .unwrap()
+            .unwrap();
+    }
+    let packet = zumen_live::display_wire::encode(&expected, true, cx).unwrap();
+    assert!(reply.data.ends_with(&packet));
+    assert_eq!(reply.data.len(), 8 + indices.len() * 8 + packet.len());
+    // JWW は記号の定義を返す。公開サンプルの定義の数は文書エンジンと同じ
+    let live = zumen_jww::JwwLive::open(JWW, cx).unwrap();
+    let total = live.display_symbol_count();
+    let mut host = Host::default();
+    open_bytes(&mut host, JWW);
+    let indices: Vec<u32> = (0..total).collect();
+    let reply = call(
+        &mut host,
+        Command::Symbols,
+        2,
+        0,
+        wire::NONE,
+        0,
+        &rows_body(&indices),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.data.get(..4), Some(total.to_le_bytes().as_slice()));
+    let mut expected = zumen_live::display::Display::with_rows(0);
+    for &index in &indices {
+        live.display_symbol(index, &mut expected, cx)
+            .unwrap()
+            .unwrap();
+    }
+    let packet = zumen_live::display_wire::encode(&expected, true, cx).unwrap();
+    assert!(reply.data.ends_with(&packet));
+    let outside = call(
+        &mut host,
+        Command::Symbols,
+        3,
+        0,
+        wire::NONE,
+        0,
+        &rows_body(&[total]),
+    );
+    assert_eq!(outside.status, Status::Invalid);
+}
+
+fn draw_body(template: u32, kind: u32, values: [f64; 5]) -> Vec<u8> {
+    let mut data = template.to_le_bytes().to_vec();
+    data.extend_from_slice(&kind.to_le_bytes());
+    for value in values {
+        data.extend_from_slice(&value.to_le_bytes());
+    }
+    data
+}
+
+/// 線分・円・円弧を、表示の座標で遠くに足す。足した行は表示の座標で選ばれ、保存して開き直しても同じ場所で選ばれ、
+/// 取り消すと消える。雛形にならない行は断られ、版は進まない
+fn draws_shapes_in_display_coordinates(bytes: &[u8]) {
+    let mut host = Host::default();
+    open_bytes(&mut host, bytes);
+    let rows = select(&mut host, 2, 0, EVERYWHERE);
+    assert!(!rows.is_empty());
+    let shapes = [
+        (1, [FAR, FAR, FAR * 1.5, FAR * 1.5, 0.0]),
+        (2, [FAR * 1.2, FAR * 1.2, 10.0, 0.0, 0.0]),
+        (3, [FAR * 1.4, FAR * 1.4, 10.0, 30.0, 120.0]),
+    ];
+    let mut id = 10;
+    let mut revision = 0;
+    let mut drawn = Vec::new();
+    for (kind, values) in shapes {
+        let mut added = None;
+        for &row in &rows {
+            id += 1;
+            let reply = call(
+                &mut host,
+                Command::Draw,
+                id,
+                revision,
+                wire::NONE,
+                0,
+                &draw_body(row, kind, values),
+            );
+            assert!(matches!(reply.status, Status::Ok | Status::Rejected));
+            if reply.status == Status::Ok {
+                added = Some(reply);
+                break;
+            }
+            assert_eq!(reply.revision, revision);
+        }
+        let reply = added.unwrap();
+        revision += 1;
+        assert_eq!(reply.revision, revision);
+        assert_eq!((reply.data_kind, reply.result), (5, 1));
+        let mut words = Words(&reply.data);
+        assert_eq!(words.u32(), Some(1));
+        drawn.push(words.u32().unwrap());
+        assert!(words.0.is_empty());
+    }
+    let far = [FAR * 0.5, FAR * 0.5, FAR * 2.0, FAR * 2.0];
+    let mut found = select(&mut host, 30, revision, far);
+    found.sort_unstable();
+    assert_eq!(found, drawn);
+    let saved = call(&mut host, Command::Save, 31, revision, wire::NONE, 0, &[]).data;
+    let mut reopened = Host::default();
+    open_bytes(&mut reopened, &saved);
+    assert_eq!(select(&mut reopened, 2, 0, far).len(), drawn.len());
+    for step in 0..3 {
+        let undone = call(
             &mut host,
-            Command::Symbols,
-            2,
+            Command::Undo,
+            32 + step,
+            revision,
+            wire::NONE,
+            0,
+            &[],
+        );
+        assert_eq!(undone.status, Status::Ok);
+        revision += 1;
+    }
+    assert!(select(&mut host, 40, revision, far).is_empty());
+}
+
+#[test]
+fn draw_adds_shapes_like_a_template_row() {
+    for bytes in [super::DXF, JWW, SFC] {
+        draws_shapes_in_display_coordinates(bytes);
+    }
+}
+
+/// 形の種類・使わない値・半径・有限でない値の誤りは invalid、生きていない行は missing で、版は進まない
+#[test]
+fn malformed_draws_are_refused() {
+    let mut host = Host::default();
+    open_bytes(&mut host, super::DXF);
+    for (id, (row, kind, values, status)) in [
+        (0, 0, [0.0, 0.0, 1.0, 1.0, 0.0], Status::Invalid),
+        (0, 4, [0.0, 0.0, 1.0, 1.0, 0.0], Status::Invalid),
+        (0, 1, [0.0, 0.0, 1.0, 1.0, 1.0], Status::Invalid),
+        (0, 2, [0.0, 0.0, 0.0, 0.0, 0.0], Status::Invalid),
+        (0, 2, [0.0, 0.0, 1.0, 1.0, 0.0], Status::Invalid),
+        (0, 3, [0.0, 0.0, -1.0, 0.0, 90.0], Status::Invalid),
+        (0, 1, [f64::NAN, 0.0, 1.0, 1.0, 0.0], Status::Invalid),
+        (0, 3, [0.0, 0.0, 1.0, f64::INFINITY, 90.0], Status::Invalid),
+        (u32::MAX - 1, 1, [0.0, 0.0, 1.0, 1.0, 0.0], Status::Missing),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let reply = call(
+            &mut host,
+            Command::Draw,
+            id as u64 + 2,
             0,
             wire::NONE,
             0,
-            &rows_body(&[]),
+            &draw_body(row, kind, values),
         );
-        assert_eq!(rejected.status, Status::Rejected);
-        assert_eq!(rejected.diagnostics, 1);
+        assert_eq!(reply.status, status, "{kind} {values:?}");
+        assert_eq!(reply.revision, 0);
     }
+    // 長さの違う本文は、要求ごと断る
+    let mut long = draw_body(0, 1, [0.0, 0.0, 1.0, 1.0, 0.0]);
+    long.extend_from_slice(&[0; 4]);
+    let reply = call(&mut host, Command::Draw, 20, 0, wire::NONE, 0, &long);
+    assert_ne!(reply.status, Status::Ok);
+    assert_eq!(select(&mut host, 21, 0, EVERYWHERE).len(), 2);
+}
+
+/// 表示のスタイルの色は、どの形式も `display::color` の符号化で、色番号の体系は形式の体系。RGB も持つ色は RGB を運ぶ。
+/// 公開サンプルの要素は自分の色番号を持たないので、表示に出る行の色を形式の色番号に変えて確かめる
+#[test]
+fn display_colors_share_one_encoding() {
+    use zumen_drawing::{Changes, Color, ColorCode, ColorSystem, Edit, Inherit, Restyle};
+    use zumen_live::display::{Display, color};
+    let mut budget = zumen_base::Budget::default();
+    let mut diag = zumen_base::Diagnostics::new();
+    let cancel = zumen_base::CancelToken::new();
+    let cx = &mut zumen_base::Cx::new(&mut budget, &mut diag, &cancel);
+    let restyle = |target, system, value| Changes {
+        document: None,
+        edits: vec![Edit::Restyle {
+            target,
+            style: Restyle {
+                layer: None,
+                color: Some(Inherit::Own(Color {
+                    code: Some(ColorCode { system, value }),
+                    rgb: None,
+                })),
+                line_type: None,
+                line_type_scale: None,
+                line_weight: None,
+            },
+        }],
+    };
+    // 行の色をどれも符号化のとおりに読み、変えた行は形式の体系の色番号になる
+    let check = |display: &Display, rows: usize, changed: u32, system: u8, value: u32| {
+        for row in 0..rows as u32 {
+            for [_, bits] in display.row_styles(row).into_iter().flatten() {
+                assert!(matches!(bits >> 24, 0..=3), "{bits:#x}");
+                if bits >> 24 == 0 {
+                    assert_eq!(bits, color::LAYER);
+                }
+                if bits >> 24 == 1 {
+                    assert_eq!(bits, color::BLOCK);
+                }
+            }
+        }
+        let styles: Vec<_> = display.row_styles(changed).into_iter().flatten().collect();
+        assert!(!styles.is_empty());
+        // RGB も持つ色（JWW のペンなど）は RGB を運ぶ
+        for [_, bits] in styles {
+            assert!(
+                color::code_of(bits) == Some((system, value)) || color::rgb_of(bits).is_some(),
+                "{bits:#x}"
+            );
+        }
+    };
+    macro_rules! case {
+        ($live:expr, $system:expr, $wire:expr, $value:expr) => {{
+            let mut live = $live;
+            let changed = live
+                .display_order(cx)
+                .unwrap()
+                .into_iter()
+                .find(|&row| {
+                    let target = live.seen_of_row(row, cx).unwrap().unwrap();
+                    live.apply(&restyle(target, $system, $value), cx).is_ok()
+                })
+                .unwrap();
+            check(live.display(), live.row_count(), changed.0, $wire, $value);
+        }};
+    }
+    case!(
+        zumen_acad::AcadLive::open(super::DXF, cx).unwrap(),
+        ColorSystem::Aci,
+        color::ACI,
+        3
+    );
+    case!(
+        zumen_jww::JwwLive::open(JWW, cx).unwrap(),
+        ColorSystem::Jww,
+        color::JWW,
+        2
+    );
+    case!(
+        zumen_sxf::SxfLive::open(SFC, cx).unwrap(),
+        ColorSystem::Sxf,
+        color::SXF,
+        3
+    );
+}
+
+/// P2Z・SFZ のアーカイブと属性ファイル（SAF）を常駐 IPC で開き、編集・保存・取り消しでアーカイブの他項目と診断を保つ
+#[test]
+fn sxf_archives_and_saf_round_trip_through_ipc() {
+    let saf_missing = br#"<?xml version="1.0" encoding="UTF-8"?>
+<SxfAttributeXML version="3.1" date="2026-11-19" sxfFile="D0PL001Z.SFC" application="test">
+  <Figure id="999" name="unbound"/>
+</SxfAttributeXML>"#;
+    let extra = b"RASTER-PLACEHOLDER";
+    let sfz = zumen_zip::write(&[
+        ("D0PL001Z.SFC", SFC),
+        ("D0PL001Z.SAF", saf_missing.as_slice()),
+        ("OTHER/NOTE.TXT", extra.as_slice()),
+    ])
+    .unwrap();
+
+    let mut host = Host::default();
+    let mut open_data = 1_u32.to_le_bytes().to_vec();
+    open_data.extend_from_slice(&0_u32.to_le_bytes());
+    open_data.extend_from_slice(&sfz);
+    let opened = call(
+        &mut host,
+        Command::Open,
+        1,
+        wire::NONE,
+        wire::NONE,
+        1,
+        &open_data,
+    );
+    assert_eq!(opened.status, Status::Ok);
+    assert_eq!(opened.display_status, Status::Ok);
+    // アーカイブ内の SAF の未解決図形診断が Open で報告される
+    assert!(opened.diagnostics > 0);
+    let diag_reply = call(
+        &mut host,
+        Command::Diagnostics,
+        2,
+        wire::NONE,
+        wire::NONE,
+        0,
+        &1_u64.to_le_bytes(),
+    );
+    assert_eq!(diag_reply.status, Status::Ok);
+    let diag_text = String::from_utf8(diag_reply.data).unwrap();
+    assert!(diag_text.contains("sxf.saf-figure.dropped"), "{diag_text}");
+
+    let initial_archive = saved(&mut host, 3, 0);
+    let rows = select(&mut host, 4, 0, EVERYWHERE);
+    let moved_row = rows
+        .iter()
+        .copied()
+        .find(|&row| {
+            let reply = call(
+                &mut host,
+                Command::Transform,
+                5,
+                0,
+                0,
+                1,
+                &transform(&[row], Affine::translation(FAR, FAR)),
+            );
+            reply.status == Status::Ok
+        })
+        .unwrap();
+    let far = [FAR * 0.5, FAR * 0.5, FAR * 2.0, FAR * 2.0];
+    assert_eq!(select(&mut host, 6, 1, far), [moved_row]);
+
+    let edited_archive = saved(&mut host, 7, 1);
+    assert_ne!(edited_archive, initial_archive);
+    // 保存したアーカイブから他項目が失われず、再オープンできる
+    let mut budget = zumen_base::Budget::default();
+    let mut diag = zumen_base::Diagnostics::new();
+    let cancel = zumen_base::CancelToken::new();
+    let cx = &mut zumen_base::Cx::new(&mut budget, &mut diag, &cancel);
+    let parsed_zip = zumen_zip::read(&edited_archive, cx).unwrap();
+    let names: Vec<&str> = parsed_zip.entries().iter().map(|e| e.name()).collect();
+    assert_eq!(names, ["D0PL001Z.SFC", "D0PL001Z.SAF", "OTHER/NOTE.TXT"]);
+    assert_eq!(
+        parsed_zip.extract(&parsed_zip.entries()[1], cx).unwrap(),
+        saf_missing
+    );
+    assert_eq!(
+        parsed_zip.extract(&parsed_zip.entries()[2], cx).unwrap(),
+        extra
+    );
+
+    let undone = call(&mut host, Command::Undo, 8, 1, wire::NONE, 1, &[]);
+    assert_eq!(undone.status, Status::Ok);
+    assert_eq!(saved(&mut host, 9, 2), initial_archive);
+
+    // 単独の SFC に SAF を添えて開くこともでき、SXF でない形式に SAF を添えると Invalid
+    let mut with_saf = 1_u32.to_le_bytes().to_vec();
+    with_saf.extend_from_slice(&(wire::OPEN_HAS_SAF | saf_missing.len() as u32).to_le_bytes());
+    with_saf.extend_from_slice(SFC);
+    with_saf.extend_from_slice(saf_missing);
+    let mut host_saf = Host::default();
+    let reply_saf = call(
+        &mut host_saf,
+        Command::Open,
+        1,
+        wire::NONE,
+        wire::NONE,
+        1,
+        &with_saf,
+    );
+    assert_eq!(reply_saf.status, Status::Ok);
+    assert!(reply_saf.diagnostics > 0);
+
+    let mut dxf_with_saf = 1_u32.to_le_bytes().to_vec();
+    dxf_with_saf.extend_from_slice(&(wire::OPEN_HAS_SAF | saf_missing.len() as u32).to_le_bytes());
+    dxf_with_saf.extend_from_slice(super::DXF);
+    dxf_with_saf.extend_from_slice(saf_missing);
+    let mut host_bad = Host::default();
+    assert_eq!(
+        call(
+            &mut host_bad,
+            Command::Open,
+            1,
+            wire::NONE,
+            wire::NONE,
+            1,
+            &dxf_with_saf
+        )
+        .status,
+        Status::Invalid
+    );
+}
+
+/// SetText は書式や段落（`\P`）を持つ MTEXT の内容も 1 トランザクションで替え、取り消せる
+#[test]
+fn set_text_replaces_formatted_mtext_with_paragraphs() {
+    let mtext_dxf =
+        b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nMTEXT\n5\n20\n100\nAcDbEntity\n8\n0\n100\nAcDbMText\n\
+10\n1.0\n20\n2.0\n40\n2.5\n41\n40.0\n71\n1\n\
+1\n{\\fArial;FIRST}\\P{\\C1;SECOND}\n\
+0\nENDSEC\n0\nEOF\n";
+    let mut host = Host::default();
+    open_bytes(&mut host, mtext_dxf);
+    let original = saved(&mut host, 2, 0);
+    let before = texts(&mut host, 3, 0, &[0]);
+    assert_eq!(before, [(2, "{\\fArial;FIRST}\\P{\\C1;SECOND}".to_owned())]);
+    let next = "{\\H2x;CHANGED}\\PLINE2\\P\\S1/2;";
+    let reply = call(
+        &mut host,
+        Command::SetText,
+        4,
+        0,
+        0,
+        1,
+        &set_text_body(next.as_bytes(), &[0]),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.result, 1);
+    assert_eq!(texts(&mut host, 5, 1, &[0]), [(2, next.to_owned())]);
+    let undone = call(&mut host, Command::Undo, 6, 1, wire::NONE, 0, &[]);
+    assert_eq!(undone.status, Status::Ok);
+    assert_eq!(saved(&mut host, 7, 2), original);
+}
+
+fn select_point_body(point: [f64; 2], tolerance: f64) -> Vec<u8> {
+    let mut out = Vec::with_capacity(24);
+    out.extend_from_slice(&point[0].to_bits().to_le_bytes());
+    out.extend_from_slice(&point[1].to_bits().to_le_bytes());
+    out.extend_from_slice(&tolerance.to_bits().to_le_bytes());
+    out
+}
+
+fn decode_u32_rows(data: &[u8], expected_result: u64) -> Vec<u32> {
+    let mut words = Words(data);
+    let count = words.u32().unwrap();
+    assert_eq!(u64::from(count), expected_result);
+    let rows: Vec<u32> = (0..count).map(|_| words.u32().unwrap()).collect();
+    assert!(words.0.is_empty());
+    rows
+}
+
+fn select_point(host: &mut Host, id: u64, revision: u64, point: [f64; 2], tol: f64) -> Vec<u32> {
+    let reply = call(
+        host,
+        Command::SelectPoint,
+        id,
+        revision,
+        wire::NONE,
+        0,
+        &select_point_body(point, tol),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.data_kind, 5);
+    decode_u32_rows(&reply.data, reply.result)
+}
+
+/// SelectPoint は囲む箱の空白や円の内側を除いて線分・円弧・記号定義の実形だけで当たり判定し、移動・取り消しに追従する
+#[test]
+fn select_point_hits_geometry_and_symbol_instances_across_formats() {
+    let dxf = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nBLOCKS\n\
+0\nBLOCK\n8\n0\n2\nFRAME\n70\n0\n10\n0.0\n20\n0.0\n\
+0\nLINE\n8\n0\n10\n0.0\n20\n0.0\n11\n20.0\n21\n0.0\n\
+0\nLINE\n8\n0\n10\n20.0\n20\n0.0\n11\n20.0\n21\n20.0\n\
+0\nENDBLK\n8\n0\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nLINE\n5\n10\n8\n0\n10\n0.0\n20\n0.0\n11\n10.0\n21\n10.0\n\
+0\nCIRCLE\n5\n11\n8\n0\n10\n50.0\n20\n0.0\n40\n10.0\n\
+0\nINSERT\n5\n12\n8\n0\n2\nFRAME\n10\n100.0\n20\n0.0\n41\n1.0\n42\n1.0\n50\n0.0\n\
+0\nENDSEC\n0\nEOF\n";
+    let mut host = Host::default();
+    open_bytes(&mut host, dxf);
+
+    // 対角線 (0,0)-(10,10): 線分上 (5,5) は当たり、囲む箱の中の空白 (0,10) は外れる
+    assert_eq!(select(&mut host, 2, 0, [0.0, 9.5, 0.5, 10.0]), [0]);
+    assert_eq!(select_point(&mut host, 3, 0, [5.0, 5.0], 0.25), [0]);
+    assert!(select_point(&mut host, 4, 0, [0.0, 10.0], 0.25).is_empty());
+
+    // 円: 円周上 (60, 0) は当たり、中心 (50, 0) は外れる
+    assert_eq!(select_point(&mut host, 5, 0, [60.1, 0.0], 0.25), [1]);
+    assert!(select_point(&mut host, 6, 0, [50.0, 0.0], 0.25).is_empty());
+
+    // 記号挿入 FRAME: 定義の辺 (110, 0) と (120, 10) は当たり、囲む箱の左上 (102, 18) は外れる
+    assert_eq!(select_point(&mut host, 7, 0, [110.0, 0.1], 0.25), [2]);
+    assert_eq!(select_point(&mut host, 8, 0, [120.0, 10.0], 0.25), [2]);
+    assert!(select_point(&mut host, 9, 0, [102.0, 18.0], 0.25).is_empty());
+
+    // 移動と取り消しに追従し、古い版は Stale、不正な座標や負の許容距離は Invalid
+    let moved = call(
+        &mut host,
+        Command::Transform,
+        10,
+        0,
+        wire::NONE,
+        0,
+        &transform(&[0], Affine::translation(0.0, 20.0)),
+    );
+    assert_eq!(moved.status, Status::Ok);
+    assert_eq!(
+        call(
+            &mut host,
+            Command::SelectPoint,
+            11,
+            0,
+            wire::NONE,
+            0,
+            &select_point_body([5.0, 5.0], 0.25),
+        )
+        .status,
+        Status::Stale
+    );
+    assert!(select_point(&mut host, 12, 1, [5.0, 5.0], 0.25).is_empty());
+    assert_eq!(select_point(&mut host, 13, 1, [5.0, 25.0], 0.25), [0]);
+    assert_eq!(
+        call(&mut host, Command::Undo, 14, 1, wire::NONE, 0, &[]).status,
+        Status::Ok
+    );
+    assert_eq!(select_point(&mut host, 15, 2, [5.0, 5.0], 0.25), [0]);
+
+    for [bx, by, btol] in [
+        [f64::NAN, 0.0, 1.0],
+        [0.0, f64::INFINITY, 1.0],
+        [0.0, 0.0, -0.1],
+        [0.0, 0.0, f64::INFINITY],
+    ] {
+        assert_eq!(
+            call(
+                &mut host,
+                Command::SelectPoint,
+                16,
+                2,
+                wire::NONE,
+                0,
+                &select_point_body([bx, by], btol),
+            )
+            .status,
+            Status::Invalid
+        );
+    }
+
+    // JWW と SFC の公開サンプルでも Draw で足した遠方の線分が線分上だけで選ばれ、空白では選ばれない
+    for sample in [JWW, SFC] {
+        let mut shost = Host::default();
+        open_bytes(&mut shost, sample);
+        let rows = select(&mut shost, 2, 0, EVERYWHERE);
+        let mut req_id = 3_u64;
+        let drawn = rows
+            .into_iter()
+            .find_map(|row| {
+                req_id += 1;
+                let reply = call(
+                    &mut shost,
+                    Command::Draw,
+                    req_id,
+                    0,
+                    wire::NONE,
+                    0,
+                    &draw_body(row, 1, [FAR, FAR, FAR + 10.0, FAR + 10.0, 0.0]),
+                );
+                (reply.status == Status::Ok).then_some(reply)
+            })
+            .unwrap();
+        let added = decode_u32_rows(&drawn.data, drawn.result);
+        assert_eq!(added.len(), 1);
+        assert_eq!(
+            select_point(&mut shost, req_id + 1, 1, [FAR + 5.0, FAR + 5.0], 0.2),
+            added
+        );
+        assert!(select_point(&mut shost, req_id + 2, 1, [FAR, FAR + 10.0], 0.2).is_empty());
+    }
+}
+
+fn pad_utf8(out: &mut Vec<u8>, text: &str) {
+    out.extend_from_slice(text.as_bytes());
+    let rem = text.len() % 4;
+    if rem != 0 {
+        out.extend(core::iter::repeat_n(0_u8, 4 - rem));
+    }
+}
+
+fn dirty_symbols(host: &mut Host, id: u64, revision: u64, clear: bool) -> Vec<u32> {
+    let reply = call(
+        host,
+        Command::DirtySymbols,
+        id,
+        revision,
+        wire::NONE,
+        0,
+        &u32::from(clear).to_le_bytes(),
+    );
+    assert_eq!(reply.status, Status::Ok);
+    assert_eq!(reply.data_kind, 5);
+    decode_u32_rows(&reply.data, reply.result)
+}
+
+fn transform_symbol_body(symbol: u32, matrix: Affine, elements: &[u32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(56 + elements.len() * 4);
+    out.extend_from_slice(&symbol.to_le_bytes());
+    out.extend_from_slice(&(elements.len() as u32).to_le_bytes());
+    for v in matrix.m {
+        out.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    for &elem in elements {
+        out.extend_from_slice(&elem.to_le_bytes());
+    }
+    out
+}
+
+/// TransformSymbol と DirtySymbols は DXF・SFC・JWW の記号定義の編集と Undo を追跡し、保存を一致させる
+#[test]
+fn dirty_symbols_and_transform_symbol_sync_across_formats() {
+    let dxf = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nBLOCK_RECORD\n5\n1\n70\n1\n\
+0\nBLOCK_RECORD\n5\n1F\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\nB1\n\
+0\nENDTAB\n0\nENDSEC\n\
+0\nSECTION\n2\nBLOCKS\n\
+0\nBLOCK\n5\n20\n8\n0\n100\nAcDbEntity\n100\nAcDbBlockBegin\n2\nB1\n70\n0\n10\n0.0\n20\n0.0\n\
+0\nLINE\n5\n21\n8\n0\n100\nAcDbEntity\n100\nAcDbLine\n10\n0.0\n20\n0.0\n11\n10.0\n21\n0.0\n\
+0\nENDBLK\n5\n22\n8\n0\n100\nAcDbEntity\n100\nAcDbBlockEnd\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nINSERT\n5\n30\n8\n0\n100\nAcDbEntity\n100\nAcDbBlockReference\n2\nB1\n10\n0.0\n20\n0.0\n\
+0\nENDSEC\n0\nEOF\n";
+
+    for sample in [dxf.as_slice(), SFC] {
+        let mut host = Host::default();
+        open_bytes(&mut host, sample);
+        let original = saved(&mut host, 2, 0);
+        assert!(dirty_symbols(&mut host, 3, 0, false).is_empty());
+
+        let sym_info = call(&mut host, Command::Symbols, 4, 0, wire::NONE, 0, &[0; 8]);
+        assert_eq!(sym_info.status, Status::Ok);
+        let total = Words(&sym_info.data).u32().unwrap();
+        let target_sym = (0..total)
+            .find(|&idx| {
+                let mut req = 1_u32.to_le_bytes().to_vec();
+                req.extend_from_slice(&0_u32.to_le_bytes());
+                req.extend_from_slice(&idx.to_le_bytes());
+                let rep = call(
+                    &mut host,
+                    Command::Symbols,
+                    5 + u64::from(idx),
+                    0,
+                    wire::NONE,
+                    0,
+                    &req,
+                );
+                let mut w = Words(&rep.data);
+                let _ = (w.u32(), w.u32(), w.u32());
+                w.u32().unwrap_or(0) > 0
+            })
+            .unwrap();
+
+        let moved = call(
+            &mut host,
+            Command::TransformSymbol,
+            200,
+            0,
+            wire::NONE,
+            1,
+            &transform_symbol_body(target_sym, Affine::translation(5.0, 7.0), &[0]),
+        );
+        assert_eq!(moved.status, Status::Ok);
+        assert_eq!(moved.result, 1);
+        assert!(dirty_symbols(&mut host, 201, 1, false).contains(&target_sym));
+        assert!(dirty_symbols(&mut host, 202, 1, true).contains(&target_sym));
+        assert!(dirty_symbols(&mut host, 203, 1, false).is_empty());
+
+        let undone = call(&mut host, Command::Undo, 204, 1, wire::NONE, 1, &[]);
+        assert_eq!(undone.status, Status::Ok);
+        assert!(dirty_symbols(&mut host, 205, 2, true).contains(&target_sym));
+        assert_eq!(saved(&mut host, 206, 2), original);
+    }
+}
+
+/// EditLayer・EditLineType・AddSymbol・AddElement が 1 トランザクションずつ確定し、Undo で完全に元へ戻る
+#[test]
+fn table_edits_and_extended_elements_round_trip_and_undo() {
+    let dxf = b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$HANDSEED\n5\n80\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nTABLES\n\
+0\nTABLE\n2\nLTYPE\n5\n5\n100\nAcDbSymbolTable\n70\n3\n\
+0\nLTYPE\n5\n14\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nByBlock\n70\n0\n3\n\n72\n65\n73\n0\n40\n0.0\n\
+0\nLTYPE\n5\n15\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nByLayer\n70\n0\n3\n\n72\n65\n73\n0\n40\n0.0\n\
+0\nLTYPE\n5\n16\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nContinuous\n70\n0\n3\nSolid\n72\n65\n73\n0\n40\n0.0\n\
+0\nENDTAB\n\
+0\nTABLE\n2\nLAYER\n5\n2\n100\nAcDbSymbolTable\n70\n1\n\
+0\nLAYER\n5\n10\n330\n2\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nContinuous\n\
+0\nENDTAB\n\
+0\nTABLE\n2\nSTYLE\n5\n3\n100\nAcDbSymbolTable\n70\n1\n\
+0\nSTYLE\n5\n11\n330\n3\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n\
+0\nENDTAB\n\
+0\nTABLE\n2\nBLOCK_RECORD\n5\n1\n100\nAcDbSymbolTable\n70\n1\n\
+0\nBLOCK_RECORD\n5\n1F\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Model_Space\n\
+0\nENDTAB\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nBLOCKS\n\
+0\nBLOCK\n5\n20\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Model_Space\n70\n0\n10\n0.0\n20\n0.0\n\
+0\nENDBLK\n5\n21\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nLINE\n5\n30\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbLine\n10\n0.0\n20\n0.0\n11\n10.0\n21\n0.0\n\
+0\nENDSEC\n0\nEOF\n";
+
+    let mut host = Host::default();
+    open_bytes(&mut host, dxf);
+    let initial = saved(&mut host, 2, 0);
+    let mut rev = 0_u64;
+    let mut id = 10_u64;
+
+    // 1. 画層 WALL を追加 -> 状態変更 -> 削除
+    let mut add_layer = Vec::new();
+    add_layer.extend_from_slice(&2_u32.to_le_bytes()); // Add
+    add_layer.extend_from_slice(&0_u32.to_le_bytes()); // layer=0
+    add_layer.extend_from_slice(&(1_u32 | 2 | 16).to_le_bytes()); // state + color + name
+    add_layer.extend_from_slice(&0b0111_u32.to_le_bytes()); // visible, printable, editable
+    add_layer.extend_from_slice(&2_u32.to_le_bytes()); // RGB
+    add_layer.extend_from_slice(&0_u32.to_le_bytes());
+    add_layer.extend_from_slice(&0x00112233_u32.to_le_bytes());
+    add_layer.extend_from_slice(&0_u32.to_le_bytes()); // weight_kind
+    add_layer.extend_from_slice(&0.0_f64.to_bits().to_le_bytes());
+    add_layer.extend_from_slice(&0_u32.to_le_bytes()); // lt_kind
+    add_layer.extend_from_slice(&0_u32.to_le_bytes()); // lt_val
+    add_layer.extend_from_slice(&4_u32.to_le_bytes()); // "WALL"
+    pad_utf8(&mut add_layer, "WALL");
+    id += 1;
+    assert_eq!(
+        call(
+            &mut host,
+            Command::EditLayer,
+            id,
+            rev,
+            wire::NONE,
+            1,
+            &add_layer
+        )
+        .status,
+        Status::Ok
+    );
+    rev += 1;
+
+    // 2. 線種 DASHED を追加
+    let mut add_lt = Vec::new();
+    add_lt.extend_from_slice(&2_u32.to_le_bytes()); // Add
+    add_lt.extend_from_slice(&0_u32.to_le_bytes());
+    add_lt.extend_from_slice(&0_u32.to_le_bytes()); // Element basis
+    add_lt.extend_from_slice(&6_u32.to_le_bytes()); // "DASHED"
+    add_lt.extend_from_slice(&4_u32.to_le_bytes()); // "Dash"
+    add_lt.extend_from_slice(&2_u32.to_le_bytes()); // 2 pattern items
+    pad_utf8(&mut add_lt, "DASHED");
+    pad_utf8(&mut add_lt, "Dash");
+    add_lt.extend_from_slice(&5.0_f64.to_bits().to_le_bytes());
+    add_lt.extend_from_slice(&(-2.5_f64).to_bits().to_le_bytes());
+    id += 1;
+    assert_eq!(
+        call(
+            &mut host,
+            Command::EditLineType,
+            id,
+            rev,
+            wire::NONE,
+            1,
+            &add_lt
+        )
+        .status,
+        Status::Ok
+    );
+    rev += 1;
+
+    // 3. 記号定義 SYM1 を追加 -> DirtySymbols で検出 -> AddElement(Symbol) で配置
+    let mut add_sym = Vec::new();
+    add_sym.extend_from_slice(&0_u32.to_le_bytes()); // template=0
+    add_sym.extend_from_slice(&4_u32.to_le_bytes()); // "SYM1"
+    add_sym.extend_from_slice(&1_u32.to_le_bytes()); // 1 element
+    add_sym.extend_from_slice(&0_u32.to_le_bytes());
+    add_sym.extend_from_slice(&0.0_f64.to_bits().to_le_bytes());
+    add_sym.extend_from_slice(&0.0_f64.to_bits().to_le_bytes());
+    pad_utf8(&mut add_sym, "SYM1");
+    add_sym.extend_from_slice(&1_u32.to_le_bytes()); // Line
+    add_sym.extend_from_slice(&0_u32.to_le_bytes());
+    for v in [0.0_f64, 0.0, 20.0, 0.0, 0.0] {
+        add_sym.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    id += 1;
+    let sym_rep = call(
+        &mut host,
+        Command::AddSymbol,
+        id,
+        rev,
+        wire::NONE,
+        1,
+        &add_sym,
+    );
+    assert_eq!(sym_rep.status, Status::Ok);
+    let sym_idx = sym_rep.result as u32;
+    rev += 1;
+    id += 1;
+    assert!(dirty_symbols(&mut host, id, rev, true).contains(&sym_idx));
+
+    // 4. 折れ線・文字・記号挿入を AddElement で追加
+    let mut add_poly = Vec::new();
+    add_poly.extend_from_slice(&0_u32.to_le_bytes()); // template
+    add_poly.extend_from_slice(&1_u32.to_le_bytes()); // Polyline
+    add_poly.extend_from_slice(&1_u32.to_le_bytes()); // closed
+    add_poly.extend_from_slice(&3_u32.to_le_bytes()); // 3 vertices
+    for [x, y, b] in [[100.0_f64, 0.0, 0.0], [110.0, 0.0, 0.5], [110.0, 10.0, 0.0]] {
+        add_poly.extend_from_slice(&x.to_bits().to_le_bytes());
+        add_poly.extend_from_slice(&y.to_bits().to_le_bytes());
+        add_poly.extend_from_slice(&b.to_bits().to_le_bytes());
+    }
+    id += 1;
+    assert_eq!(
+        call(
+            &mut host,
+            Command::AddElement,
+            id,
+            rev,
+            wire::NONE,
+            0,
+            &add_poly
+        )
+        .status,
+        Status::Ok
+    );
+    rev += 1;
+
+    let mut add_txt = Vec::new();
+    add_txt.extend_from_slice(&0_u32.to_le_bytes());
+    add_txt.extend_from_slice(&2_u32.to_le_bytes()); // Text
+    add_txt.extend_from_slice(&5_u32.to_le_bytes()); // "HELLO"
+    add_txt.extend_from_slice(&0_u32.to_le_bytes());
+    for v in [200.0_f64, 10.0, 3.5, 0.0, 1.0] {
+        add_txt.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    pad_utf8(&mut add_txt, "HELLO");
+    id += 1;
+    let txt_rep = call(
+        &mut host,
+        Command::AddElement,
+        id,
+        rev,
+        wire::NONE,
+        0,
+        &add_txt,
+    );
+    assert_eq!(txt_rep.status, Status::Ok);
+    let txt_row = *decode_u32_rows(&txt_rep.data, txt_rep.result)
+        .first()
+        .unwrap();
+    rev += 1;
+    id += 1;
+    assert_eq!(
+        texts(&mut host, id, rev, &[txt_row]),
+        [(1, "HELLO".to_owned())]
+    );
+
+    let mut add_ins = Vec::new();
+    add_ins.extend_from_slice(&0_u32.to_le_bytes());
+    add_ins.extend_from_slice(&3_u32.to_le_bytes()); // Symbol
+    add_ins.extend_from_slice(&sym_idx.to_le_bytes());
+    add_ins.extend_from_slice(&0_u32.to_le_bytes());
+    for v in [300.0_f64, 50.0, 1.0, 1.0, 0.0] {
+        add_ins.extend_from_slice(&v.to_bits().to_le_bytes());
+    }
+    id += 1;
+    let ins_rep = call(
+        &mut host,
+        Command::AddElement,
+        id,
+        rev,
+        wire::NONE,
+        0,
+        &add_ins,
+    );
+    assert_eq!(ins_rep.status, Status::Ok);
+    let ins_row = *decode_u32_rows(&ins_rep.data, ins_rep.result)
+        .first()
+        .unwrap();
+    rev += 1;
+    id += 1;
+    assert_eq!(
+        select_point(&mut host, id, rev, [310.0, 50.0], 0.25),
+        [ins_row]
+    );
+
+    // 6 段すべて Undo すると保存バイト列が完全に初期状態へ戻る
+    for _ in 0..6 {
+        id += 1;
+        assert_eq!(
+            call(&mut host, Command::Undo, id, rev, wire::NONE, 1, &[]).status,
+            Status::Ok
+        );
+        rev += 1;
+    }
+    id += 1;
+    assert_eq!(saved(&mut host, id, rev), initial);
+}
+
+/// アーカイブの展開・`texts`・`symbols` は、配列の確保の前に展開量の予算を数えて上限で止まる
+#[test]
+fn document_archive_texts_and_symbols_count_decoded_bytes() {
+    use super::super::document::Problem;
+    use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Error, Kind, Limit, Limits, codes};
+
+    let sfz = zumen_zip::write(&[
+        ("D0PL001Z.SFC", SFC),
+        ("OTHER/A.TXT", b"a"),
+        ("OTHER/B.TXT", b"b"),
+    ])
+    .unwrap();
+    let mut probe_budget = Budget::default();
+    let mut probe_diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    zumen_zip::read(
+        &sfz,
+        &mut Cx::new(&mut probe_budget, &mut probe_diag, &cancel),
+    )
+    .unwrap();
+    let zip_used = probe_budget.used(Kind::DecodedBytes);
+
+    let mut archive_budget = Budget::new(Limits::default().with(
+        Kind::DecodedBytes,
+        Limit::Finite(zip_used.saturating_add(32)),
+    ));
+    let mut archive_diag = Diagnostics::new();
+    let archive_err = Document::open(
+        &sfz,
+        1,
+        &mut Cx::new(&mut archive_budget, &mut archive_diag, &cancel),
+    )
+    .err()
+    .unwrap();
+    assert!(matches!(archive_err, Error::Stopped(_)), "{archive_err:?}");
+    assert!(
+        archive_diag
+            .iter()
+            .any(|d| d.code() == codes::BUDGET_DECODED_BYTES_EXCEEDED)
+    );
+
+    let mut open_budget = Budget::default();
+    let mut open_diag = Diagnostics::new();
+    let doc = Document::open(
+        super::DXF,
+        1,
+        &mut Cx::new(&mut open_budget, &mut open_diag, &cancel),
+    )
+    .unwrap();
+
+    let mut text_budget =
+        Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(32)));
+    let mut text_diag = Diagnostics::new();
+    let text_err = doc
+        .texts(
+            &[RowId(0), RowId(1)],
+            &mut Cx::new(&mut text_budget, &mut text_diag, &cancel),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(text_err, Problem::Core(Error::Stopped(_))),
+        "{text_err:?}"
+    );
+    assert!(
+        text_diag
+            .iter()
+            .any(|d| d.code() == codes::BUDGET_DECODED_BYTES_EXCEEDED)
+    );
+
+    let mut sym_budget = Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(8)));
+    let mut sym_diag = Diagnostics::new();
+    let sym_err = doc
+        .symbols(
+            &[0, 1],
+            &mut Cx::new(&mut sym_budget, &mut sym_diag, &cancel),
+        )
+        .err()
+        .unwrap();
+    assert!(
+        matches!(sym_err, Problem::Core(Error::Stopped(_))),
+        "{sym_err:?}"
+    );
+    assert!(
+        sym_diag
+            .iter()
+            .any(|d| d.code() == codes::BUDGET_DECODED_BYTES_EXCEEDED)
+    );
 }

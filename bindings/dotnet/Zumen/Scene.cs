@@ -8,9 +8,7 @@
 
 using System;
 using System.Collections.Generic;
-#if NET
 using System.Runtime.InteropServices;
-#endif
 
 namespace Zumen
 {
@@ -158,7 +156,6 @@ namespace Zumen
             return values;
         }
 
-#if NET
         /// <summary>
         /// セクションの値を、行ごとに Width 個の値を並べた列で見る。T はセクションの値の型（SceneSection.Type）にする。
         /// リトルエンディアンの環境では blob を写さない
@@ -174,7 +171,6 @@ namespace Zumen
             var (start, length) = columns[name];
             return MemoryMarshal.Cast<byte, T>(new ReadOnlySpan<byte>(blob, start, length));
         }
-#endif
 
         /// <summary>strings のセクションから、始まりと長さ（バイト）で文字列を引く</summary>
         public string Text(uint start, uint length)

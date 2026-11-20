@@ -1,7 +1,7 @@
 //! 曲線の数値近似。計測の値の誤差上限とは分け、応答に近似したことを残す。
 
 use super::*;
-use zumen_drawing::{KnotParameterization, Spline};
+use zumen_drawing::Spline;
 
 fn segments(points: Vec<Xy>, closed: bool, cx: &mut Cx<'_>) -> Result<Path, Error> {
     if points.len() < 2 || points.len() > MAX_POINTS + 1 {
@@ -114,19 +114,8 @@ fn spline(
     let output = if input.control.is_empty() {
         let fit = collect(&input.fit)?;
         cx.check(Kind::Work, 128 * (fit.len() as u64 + 1).pow(2))?;
-        let spacing = match input.knot_parameterization {
-            Some(KnotParameterization::SquareRoot) => geom::Spacing::SquareRoot,
-            Some(KnotParameterization::Uniform) => geom::Spacing::Uniform,
-            _ => geom::Spacing::Chord,
-        };
-        let (knots, control) = geom::interpolate(
-            &fit,
-            input.start_tangent,
-            input.end_tangent,
-            spacing,
-            closed,
-        )
-        .ok_or(Error::Geometry("invalid-curve"))?;
+        let (knots, control) = zumen_scene::interpolate_fit_points(input, &fit)
+            .ok_or(Error::Geometry("invalid-curve"))?;
         geom::try_spline_with_work(3, &knots, &control, &[], tolerance, |work| {
             cx.check(Kind::Work, work)
         })?

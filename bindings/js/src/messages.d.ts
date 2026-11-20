@@ -48,7 +48,8 @@ export type Request =
   | BuildingApplyRequest
   | LiftRequest
   | RenderRequest
-  | RasterRequest;
+  | RasterRequest
+  | GeoreferenceRequest;
 
 /** どの op の要求にも置けるフィールド */
 export interface RequestCommon {
@@ -70,6 +71,8 @@ export interface Budget {
   input_bytes?: Limit;
   /** 展開・復号で作ったバイト数。入れ子の分も足す */
   decoded_bytes?: Limit;
+  /** 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から */
+  model_bytes?: Limit;
   /** L0・L1 で読んだレコードの数 */
   records?: Limit;
   /** L2・L3 で作った要素の数 */
@@ -244,6 +247,76 @@ export interface DrawingResult {
   sheets: SheetSummary[];
   /** 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から */
   point_style?: PointStyleSummary;
+  /** 図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から */
+  georeference?: Georeference;
+}
+
+/** 図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height */
+export interface MapConversion {
+  /** 東への移動（m） */
+  eastings: number;
+  /** 北への移動（m） */
+  northings: number;
+  /** 高さへの移動（m） */
+  orthogonal_height: number;
+  /** 図面の X 軸の東方向の単位ベクトル成分 */
+  x_axis_abscissa: number;
+  /** 図面の X 軸の北方向の単位ベクトル成分 */
+  x_axis_ordinate: number;
+  /** 図面の 1 単位あたりの地図のメートル数 */
+  scale: number;
+}
+
+/** 地図の座標系と、図面の実寸から地図への相似の変換 */
+export interface Georeference {
+  /** 地図の座標系の EPSG のコード */
+  crs: number;
+  /** 図面の実寸から地図への相似の変換 */
+  conversion: MapConversion;
+}
+
+/** 地図の投影座標（m）。東（easting）と北（northing）を名前で分ける */
+export interface MapPoint2 {
+  /** 東方向の座標（m。平面直角座標系の Y） */
+  easting: number;
+  /** 北方向の座標（m。平面直角座標系の X） */
+  northing: number;
+}
+
+/** 図面の実寸の点と、対応する地図の投影座標の組 */
+export interface GeoreferenceControlPoint {
+  /** 図面の実寸の点 */
+  drawing: Point2;
+  /** 対応する地図の投影座標（m） */
+  map: MapPoint2;
+}
+
+/** 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から */
+export interface GeoreferenceRequest extends RequestCommon {
+  /** op の名前 */
+  op: "georeference";
+  /** 開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない */
+  doc?: string;
+  /** doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる */
+  expected_hash?: string;
+  /** 対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す */
+  crs?: number;
+  /** 図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める */
+  control_points?: GeoreferenceControlPoint[];
+  /** 求めた変換で地図へ写す図面の実寸の点 */
+  points?: Point2[];
+}
+
+/** 図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点 */
+export interface GeoreferenceResult {
+  /** doc を渡したときの元の文書のハッシュ */
+  hash?: string;
+  /** 地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない */
+  georeference?: Georeference;
+  /** control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順 */
+  residuals?: MapPoint2[];
+  /** points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない */
+  mapped?: MapPoint2[];
 }
 
 /** 2 次元の座標 */
@@ -1561,16 +1634,18 @@ export interface ApplyResult {
   ids_shifted?: boolean;
 }
 
-/** 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から */
+/** 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から */
 export interface CreateRequest extends RequestCommon {
   /** op の名前 */
   op: "create";
-  /** 作る形式の名前。capabilities.formats の create が true の id。今は dxf */
+  /** 作る形式の名前。dxf か ifc */
   format: string;
   /** 作る文書の名前。既存の文書と重ねない */
   to: string;
-  /** 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし */
+  /** 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なしで、ifc では書けない */
   unit?: Unit;
+  /** IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から */
+  ifc?: IfcOutput;
 }
 
 /** 作った空の文書。書いたファイルは blobs の file で返す */
@@ -1585,16 +1660,18 @@ export interface CreateResult {
   elements: number;
 }
 
-/** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から */
+/** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から */
 export interface ConvertRequest extends RequestCommon {
   /** op の名前 */
   op: "convert";
   /** 書く元の文書の名前。open で作ったもの */
   doc: string;
-  /** 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から */
+  /** 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima・ifc のいずれか。sxf・jww はマイナーバージョン 85 から */
   format: string;
   /** 作る文書の名前 */
   to: string;
+  /** IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から */
+  ifc?: IfcOutput;
 }
 
 /** 書いた文書。書いたファイルは blobs の file で返す */
@@ -1609,18 +1686,77 @@ export interface ConvertResult {
   elements: number;
 }
 
-/** 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から） */
+/** 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から） */
 export interface ConvertEstimateRequest extends RequestCommon {
   /** op の名前 */
   op: "convert_estimate";
   /** 書く元の文書の名前 */
   doc: string;
-  /** 書く形式の名前。dxf・sxf・jww */
+  /** 書く形式の名前。dxf・sxf・jww・ifc */
   format: string;
   /** 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない */
   to: string;
+  /** IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から */
+  ifc?: IfcOutput;
   /** 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない */
   limit?: number;
+}
+
+/** 新しい IFC を書く設定（#395）。コアは時計を読まないので、時刻は呼び出し元が渡す */
+export interface IfcOutput {
+  /** 書くバージョン */
+  version: IfcVersion;
+  /** ヘッダー（FILE_DESCRIPTION と FILE_NAME）の値。書かなければ空の値で書く */
+  header?: IfcHeader;
+  /** 所有履歴（IfcOwnerHistory）の値。ifc2x3 では必須。ifc4 からは書いたときだけ書く */
+  owner?: IfcOwner;
+  /** GlobalId を導く名前空間。書かなければ、convert は元の IfcProject の GlobalId（なければ元の文書のハッシュ）、create は作る文書の名前を使う。元の文書のハッシュでない名前空間なら、元を一部直して書き直しても、直していない要素の GlobalId は変わらない */
+  namespace?: string;
+}
+
+/** IFC のバージョン。ifc2x3 は IFC2X3 TC1、ifc4 は IFC4 ADD2 TC1、ifc4x3 は IFC4X3 ADD2 */
+export type IfcVersion =
+  | "ifc2x3"
+  | "ifc4"
+  | "ifc4x3"
+  | (string & {});
+
+/** IFC のヘッダーの値。書かない値は空で書く */
+export interface IfcHeader {
+  /** FILE_DESCRIPTION に ViewDefinition [<値>] として書く MVD の名前。書かなければ書かない */
+  view_definition?: string;
+  /** FILE_NAME の name */
+  name?: string;
+  /** FILE_NAME の time_stamp。呼び出し元が書いた時刻 */
+  time_stamp?: string;
+  /** FILE_NAME の author */
+  author?: string[];
+  /** FILE_NAME の organization */
+  organization?: string[];
+  /** FILE_NAME の preprocessor_version */
+  preprocessor_version?: string;
+  /** FILE_NAME の originating_system */
+  originating_system?: string;
+  /** FILE_NAME の authorization */
+  authorization?: string;
+}
+
+/** 所有履歴の値 */
+export interface IfcOwner {
+  /** 所有する人の IfcPerson の FamilyName */
+  person: string;
+  /** 所有する組織の IfcOrganization の Name */
+  organization: string;
+  /** 作ったソフトの開発元の IfcOrganization の Name */
+  developer: string;
+  /** 作ったソフトの名前（IfcApplication の ApplicationFullName） */
+  application: string;
+  /** 作ったソフトのバージョン（IfcApplication の Version） */
+  version: string;
+  /** 作ったソフトの識別子（IfcApplication の ApplicationIdentifier） */
+  identifier: string;
+  /** 作った日時。1970-01-01T00:00:00Z からの秒（IfcTimeStamp） */
+  created: number;
 }
 
 /** 予定する変換の結果。元の文書・ID を保ち、ファイルの blob を返さない */
@@ -1773,7 +1909,7 @@ export interface TransformEdit {
   matrix: number[];
 }
 
-/** 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から */
+/** 要素を複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA、JWW のフラグ・文字種・字間、SXF の文字幅・字間など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。DXF の寸法・表は新しい匿名ブロックを作る。place で配置先の空間・用紙を、from_doc で複写元の文書を指定でき（マイナーバージョン 110 から）、単位・画層・線種・文字スタイル・寸法スタイル・記号定義・APPID の対応と名前の衝突を確かめる。保てない値・参照・対応を持つ要素は change.copy.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。マイナーバージョン 100 から */
 export interface CopyEdit {
   /** 変更の種類 */
   kind: "copy";
@@ -1783,6 +1919,10 @@ export interface CopyEdit {
   hash: string;
   /** [a, b, c, d, e, f]。写しの点 (x, y) を (a x + b y + c, d x + e y + f) に写す。元の位置に写すなら [1, 0, 0, 0, 1, 0] */
   matrix: number[];
+  /** 配置先の空間か用紙の ID。省けば元の要素と同じ場所 ID。マイナーバージョン 110 から */
+  place?: string;
+  /** 複写元の文書の名前。open で作ったもの。省けば doc と同じ文書。マイナーバージョン 110 から */
+  from_doc?: string;
 }
 
 /** 要素を除く */
@@ -3203,7 +3343,8 @@ export type BuildingEdit =
   | BuildingAddTypeEdit
   | BuildingQuantityEdit
   | BuildingAddUnitEdit
-  | BuildingMaterialEdit;
+  | BuildingMaterialEdit
+  | BuildingShapeEdit;
 
 /** 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える */
 export interface BuildingPropertyEdit {
@@ -3360,7 +3501,7 @@ export interface BuildingWallLayer {
   thickness: number;
 }
 
-/** 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から */
+/** 芯の 2 点・高さ・材料の層か型で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から（element_type は 110 から） */
 export interface BuildingAddWallEdit {
   /** 変更の種類 */
   kind: "add_wall";
@@ -3372,10 +3513,12 @@ export interface BuildingAddWallEdit {
   end: number[];
   /** 高さ。文書の長さの単位で、正の値 */
   height: number;
-  /** 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上 */
-  layers: BuildingWallLayer[];
+  /** 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type の材料の層を使う */
+  layers?: BuildingWallLayer[];
   /** 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする */
   offset?: number;
+  /** 結ぶ壁の型（IfcWallType）。マイナーバージョン 110 から */
+  element_type?: BuildingRef;
   /** 名前 */
   name?: string;
   /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
@@ -3390,7 +3533,7 @@ export interface BuildingSection {
   depth: number;
 }
 
-/** 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から */
+/** 外形・材料の層か型で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab（型が PredefinedType を持たなければ FLOOR）、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。結果の id は足した床の ID。マイナーバージョン 98 から（element_type は 110 から） */
 export interface BuildingAddSlabEdit {
   /** 変更の種類 */
   kind: "add_slab";
@@ -3398,17 +3541,19 @@ export interface BuildingAddSlabEdit {
   storey: BuildingRef;
   /** 外形の頂点。空間の配置の [x, y] の並びで、3 つ以上。最後の点が最初の点と同じなら、その点は除く */
   outline: number[][];
-  /** 材料の層。上から下へ並べる。1 つ以上 */
-  layers: BuildingWallLayer[];
+  /** 材料の層。上から下へ並べる。省くか空なら element_type の材料の層を使う */
+  layers?: BuildingWallLayer[];
   /** 上の面の高さ（空間の配置の z）。書かなければ 0 */
   elevation?: number;
+  /** 結ぶ床の型（IfcSlabType）。マイナーバージョン 110 から */
+  element_type?: BuildingRef;
   /** 名前 */
   name?: string;
   /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
   global_id?: string;
 }
 
-/** 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から */
+/** 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から（element_type は 110 から） */
 export interface BuildingAddColumnEdit {
   /** 変更の種類 */
   kind: "add_column";
@@ -3426,13 +3571,15 @@ export interface BuildingAddColumnEdit {
   direction?: number[];
   /** 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ */
   material?: string;
+  /** 結ぶ柱の型（IfcColumnType）。マイナーバージョン 110 から */
+  element_type?: BuildingRef;
   /** 名前 */
   name?: string;
   /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
   global_id?: string;
 }
 
-/** 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から */
+/** 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から（element_type は 110 から） */
 export interface BuildingAddBeamEdit {
   /** 変更の種類 */
   kind: "add_beam";
@@ -3446,6 +3593,8 @@ export interface BuildingAddBeamEdit {
   section: BuildingSection;
   /** 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ */
   material?: string;
+  /** 結ぶ梁の型（IfcBeamType）。マイナーバージョン 110 から */
+  element_type?: BuildingRef;
   /** 名前 */
   name?: string;
   /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
@@ -3472,32 +3621,36 @@ export interface BuildingAddOpeningEdit {
   global_id?: string;
 }
 
-/** 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から */
+/** 開口を扉で埋める。扉は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcDoor（IFC4 と IFC4X3 で型が PredefinedType を持たなければ DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から（Body と element_type は 110 から） */
 export interface BuildingAddDoorEdit {
   /** 変更の種類 */
   kind: "add_door";
   /** 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す */
   opening: BuildingRef;
-  /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値 */
+  /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う */
   width?: number;
-  /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値 */
+  /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う */
   height?: number;
+  /** 結ぶ扉の型（IFC4 からの IfcDoorType、IFC2X3 の IfcDoorStyle）。マイナーバージョン 110 から */
+  element_type?: BuildingRef;
   /** 名前 */
   name?: string;
   /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
   global_id?: string;
 }
 
-/** 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から */
+/** 開口を窓で埋める。窓は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcWindow（IFC4 と IFC4X3 で型が PredefinedType を持たなければ WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から（Body と element_type は 110 から） */
 export interface BuildingAddWindowEdit {
   /** 変更の種類 */
   kind: "add_window";
   /** 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す */
   opening: BuildingRef;
-  /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値 */
+  /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う */
   width?: number;
-  /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値 */
+  /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う */
   height?: number;
+  /** 結ぶ窓の型（IFC4 からの IfcWindowType、IFC2X3 の IfcWindowStyle）。マイナーバージョン 110 から */
+  element_type?: BuildingRef;
   /** 名前 */
   name?: string;
   /** GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める */
@@ -3542,7 +3695,7 @@ export interface BuildingElevationEdit {
   elevation: number;
 }
 
-/** 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から */
+/** 壁の芯・高さ・材料の層か型を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口と建具の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から（element_type は 110 から） */
 export interface BuildingWallShapeEdit {
   /** 変更の種類 */
   kind: "wall_shape";
@@ -3554,13 +3707,15 @@ export interface BuildingWallShapeEdit {
   end: number[];
   /** 高さ。文書の長さの単位で、正の値 */
   height: number;
-  /** 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上 */
-  layers: BuildingWallLayer[];
+  /** 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type（なければ今の壁の型）の材料の層を使う */
+  layers?: BuildingWallLayer[];
   /** 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする */
   offset?: number;
+  /** 付け替える壁の型（IfcWallType）。マイナーバージョン 110 から */
+  element_type?: BuildingRef;
 }
 
-/** 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から */
+/** 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の Body と全体の高さ・幅（OverallHeight・OverallWidth）を合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から */
 export interface BuildingOpeningShapeEdit {
   /** 変更の種類 */
   kind: "opening_shape";
@@ -3693,6 +3848,179 @@ export interface BuildingMaterialConstituent {
   material: string;
   /** 構成要素の名前 */
   name?: string;
+}
+
+/** 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・AdvancedSweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から */
+export interface BuildingShapeEdit {
+  /** 変更の種類 */
+  kind: "shape";
+  /** 形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す */
+  element: BuildingRef;
+  /** 芯の線（Axis の IfcPolyline）。要素の配置の [x, y] を 2 点以上。書かなければ Axis を書かない */
+  axis?: number[][];
+  /** 形の項目の表 */
+  items: BuildingShapeItem[];
+  /** Body の表現に置く項目の、items の位置（0 から）。空なら Body を書かない */
+  body: number[];
+}
+
+/** 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、revolution は profile・position・axis・angle、swept_disk は directrix・radius・inner_radius・start・end、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位 */
+export interface BuildingShapeItem {
+  /** 項目の種類 */
+  kind: BuildingShapeItemKind;
+  /** 押し出す・回す断面 */
+  profile?: BuildingShapeProfile;
+  /** 押し出し・回転の局所の配置。書かなければ要素の配置のまま */
+  position?: BuildingAxis3;
+  /** 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1] */
+  direction?: number[];
+  /** 押し出す深さ。正の値 */
+  depth?: number;
+  /** 断面を回す軸。断面の平面（局所の XY 平面）にある。マイナーバージョン 108 から */
+  axis?: BuildingShapeRevolutionAxis;
+  /** 回す角度（ラジアン）。0 より大きく 2π 以下。文書の平面角の単位に直して書くので、文書は平面角の単位を持つこと。マイナーバージョン 108 から */
+  angle?: number;
+  /** 円盤を沿わせる折れ線の [x, y, z] を 2 点以上。続く点は重ならない。マイナーバージョン 108 から */
+  directrix?: number[][];
+  /** 円盤の半径。正の値。マイナーバージョン 108 から */
+  radius?: number;
+  /** 管の内側の半径。正で radius より小さい。書かなければ中実。マイナーバージョン 108 から */
+  inner_radius?: number;
+  /** 掃引を始める折れ線のパラメーター（1 区間で 1 進む）。書かなければ始点。IFC2X3 では書かなければ 0 を書く。マイナーバージョン 108 から */
+  start?: number;
+  /** 掃引を終える折れ線のパラメーター。start より大きく区間の数以下。書かなければ終点。IFC2X3 では書かなければ区間の数を書く。マイナーバージョン 108 から */
+  end?: number;
+  /** 面集合の点 [x, y, z] */
+  points?: number[][];
+  /** 面集合の面 */
+  faces?: BuildingShapeFace[];
+  /** true なら閉殻（立体。IfcFacetedBrep）。false か書かなければ開殻の面（IFC2X3 は IfcShellBasedSurfaceModel、IFC4 からは IfcPolygonalFaceSet） */
+  closed?: boolean;
+  /** 集合演算 */
+  operation?: BuildingBooleanOperation;
+  /** 集合演算の第 1 の対象。items の前にある項目の位置 */
+  first?: number;
+  /** 集合演算の第 2 の対象。差では第 1 から取り除く。items の前にある項目の位置 */
+  second?: number;
+  /** 半空間の基準面の配置。局所の z 軸が面の法線 */
+  plane?: BuildingAxis3;
+  /** true なら法線と逆の側、false か書かなければ法線の向く側を内部とする */
+  agreement?: boolean;
+  /** 半空間の計算用の囲みの箱（IfcBoxedHalfSpace）。座標系は IFC2X3 では基準面、IFC4 からは要素 */
+  box?: BuildingShapeBox;
+  /** 半空間を制限する多角形（IfcPolygonalBoundedHalfSpace） */
+  polygon?: BuildingShapePolygon;
+  /** 写像元の基準位置。書かなければ原点 */
+  origin?: BuildingAxis3;
+  /** 写像先の変換 */
+  target?: BuildingShapeMapping;
+  /** 写像元の表現の項目。items の前にある項目の位置で、1 つ以上 */
+  members?: number[];
+}
+
+/** 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）。revolution は断面の回転（IfcRevolvedAreaSolid）、swept_disk は円盤の掃引（IfcSweptDiskSolid）で、マイナーバージョン 108 から */
+export type BuildingShapeItemKind =
+  | "extrusion"
+  | "faces"
+  | "boolean"
+  | "half_space"
+  | "mapped"
+  | "revolution"
+  | "swept_disk"
+  | (string & {});
+
+/** 断面を回す軸（IfcAxis1Placement）。断面の平面にある */
+export interface BuildingShapeRevolutionAxis {
+  /** 軸の通る点 [x, y] */
+  location: number[];
+  /** 軸の向き [x, y]。0 にできない */
+  direction: number[];
+}
+
+/** 集合演算。union は和、intersection は積、difference は差 */
+export type BuildingBooleanOperation =
+  | "union"
+  | "intersection"
+  | "difference"
+  | (string & {});
+
+/** 3 次元の局所の配置 */
+export interface BuildingAxis3 {
+  /** 原点 [x, y, z] */
+  location: number[];
+  /** 局所の z 軸 [x, y, z] */
+  axis?: number[];
+  /** 局所の x 軸の参照方向 [x, y, z] */
+  reference?: number[];
+}
+
+/** 押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く */
+export interface BuildingShapeProfile {
+  /** 断面の種類 */
+  kind: BuildingShapeProfileKind;
+  /** 断面の名前 */
+  name?: string;
+  /** 矩形の局所の x の全幅。正の値 */
+  x?: number;
+  /** 矩形の局所の y の全高。正の値 */
+  y?: number;
+  /** 円の半径。正の値 */
+  radius?: number;
+  /** 矩形と円の中心 [x, y]。書かなければ原点 */
+  location?: number[];
+  /** 矩形と円の局所の x 軸の参照方向 [x, y]。location と一緒に書く */
+  reference?: number[];
+  /** 多角形の外輪の [x, y] を 3 点以上。始点に戻る点は書かない */
+  outer?: number[][];
+  /** 多角形の内輪 */
+  holes?: number[][][];
+}
+
+/** 断面の種類。rectangle は IfcRectangleProfileDef、circle は IfcCircleProfileDef、polygon は IfcArbitraryClosedProfileDef（内輪があれば IfcArbitraryProfileDefWithVoids） */
+export type BuildingShapeProfileKind =
+  | "rectangle"
+  | "circle"
+  | "polygon"
+  | (string & {});
+
+/** 面集合の面。points の位置（0 から）で外輪と内輪を書く */
+export interface BuildingShapeFace {
+  /** 外輪の点の位置。3 つ以上 */
+  boundary: number[];
+  /** 内輪ごとの点の位置 */
+  holes?: number[][];
+}
+
+/** 囲みの箱 */
+export interface BuildingShapeBox {
+  /** 箱の隅 [x, y, z] */
+  corner: number[];
+  /** 各軸の長さ [x, y, z]。正の値 */
+  dimensions: number[];
+}
+
+/** 半空間を制限する多角形 */
+export interface BuildingShapePolygon {
+  /** 境界の配置 */
+  position: BuildingAxis3;
+  /** 境界の局所の XY 平面の [x, y] を 3 点以上。始点に戻る点は書かない */
+  boundary: number[][];
+}
+
+/** 写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform） */
+export interface BuildingShapeMapping {
+  /** 写像先の原点 [x, y, z]。要素の座標系 */
+  origin: number[];
+  /** x 軸を導く方向 [x, y, z] */
+  axis1?: number[];
+  /** y 軸を導く方向 [x, y, z] */
+  axis2?: number[];
+  /** z 軸を定める方向 [x, y, z] */
+  axis3?: number[];
+  /** 一様な尺度。正の値で、書かなければ 1 */
+  scale?: number;
+  /** 軸ごとの尺度 [x, y, z]。正の値。scale とは一緒に書けない */
+  scales?: number[];
 }
 
 /** 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から */
@@ -5212,4 +5540,5 @@ export interface Operations {
   lift: { request: LiftRequest; result: LiftResult };
   render: { request: RenderRequest; result: RenderResult };
   raster: { request: RasterRequest; result: RasterResult };
+  georeference: { request: GeoreferenceRequest; result: GeoreferenceResult };
 }

@@ -1771,6 +1771,7 @@ impl SingleCatalog {
         self.out.sheet.clear();
         self.out.views.clear();
         self.out.extensions.clear();
+        self.out.mtext_column_followers.clear();
     }
 
     fn lookup_ascii_lower<V: Copy>(map: &BTreeMap<String, V>, name: &str) -> Option<V> {

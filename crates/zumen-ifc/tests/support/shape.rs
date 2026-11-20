@@ -5,15 +5,16 @@
 use std::collections::BTreeMap;
 
 use zumen_building::{
-    AreaProfileKind, AxisPlacement3, BooleanOperation, Building, CartesianMapping3, ConnectedFaces,
-    Coordinates, CurveGraph, CurveKind, CurveRef, ElementRef, FaceBoundRef, FaceBoundary,
-    FaceGraph, FaceLoopRef, FaceModelKind, FacePointRef, FacePolygon, FaceRef, FaceSetRef,
-    GeometryData, GeometryDefinition, GeometryLinks, GeometryNode, GeometryRef, HalfSpaceLimit,
-    IndexedFaceSet, IndexedFaces, IndexedPolygon, IndexedPolygonRef, MappingScale3, PolygonFace,
+    AreaProfile, AreaProfileKind, AxisPlacement3, BooleanOperation, Building, CartesianMapping3,
+    ConnectedFaces, Coordinates, CurveGraph, CurveKind, CurveRef, ElementRef, FaceBoundRef,
+    FaceBoundary, FaceGraph, FaceLoopRef, FaceModelKind, FacePointRef, FacePolygon, FaceRef,
+    FaceSetRef, GeometryData, GeometryDefinition, GeometryLinks, GeometryNode, GeometryRef,
+    HalfSpaceLimit, IndexedFaceSet, IndexedFaces, IndexedPolygon, IndexedPolygonRef, MappingScale3,
+    PolygonFace,
 };
 use zumen_ifc::{
     NewAxis2, NewAxis3, NewBoolean, NewFaces, NewHalfSpace, NewHalfSpaceLimit, NewItem, NewMapped,
-    NewProfile, NewProfileKind, NewShape, NewSolid,
+    NewProfile, NewProfileKind, NewRevolution, NewShape, NewSolid, NewSweptDisk,
 };
 
 /// 要素の `Axis` の折れ線と `Body` の項目。ほかの表現や項目があれば `None`
@@ -135,6 +136,43 @@ fn item_of(data: &GeometryData, at: GeometryRef) -> Option<NewItem> {
                 },
             },
         }),
+        GeometryDefinition::Revolution {
+            definition,
+            boundary,
+            ..
+        } => {
+            let [x, y, _] = definition.axis.location;
+            let [dx, dy, _] = definition.axis.direction;
+            let scale = definition.angle.unit.as_ref()?.scale.unwrap_or(1.0);
+            NewItem::Revolution(NewRevolution {
+                profile: profile_of(&definition.profile, boundary.as_ref())?,
+                position: definition.position.as_ref().map(axis3),
+                location: [x, y],
+                direction: [dx, dy],
+                angle: definition.angle.value * scale,
+            })
+        }
+        GeometryDefinition::SweptDisk {
+            definition,
+            directrix,
+        } => {
+            let CurveKind::Polyline(points) = &directrix.item(definition.directrix)?.kind else {
+                return None;
+            };
+            NewItem::SweptDisk(NewSweptDisk {
+                directrix: points
+                    .iter()
+                    .map(|p| match p {
+                        Coordinates::Three(p) => Some(*p),
+                        Coordinates::Two(_) => None,
+                    })
+                    .collect::<Option<_>>()?,
+                radius: definition.radius,
+                inner_radius: definition.inner_radius,
+                start: definition.start_parameter,
+                end: definition.end_parameter,
+            })
+        }
         _ => NewItem::Solid(solid(node)?),
     })
 }
@@ -148,7 +186,15 @@ fn solid(node: &GeometryNode) -> Option<NewSolid> {
     else {
         return None;
     };
-    let profile = &definition.profile;
+    Some(NewSolid {
+        profile: profile_of(&definition.profile, boundary.as_ref())?,
+        position: definition.position.as_ref().map(axis3),
+        direction: definition.direction,
+        depth: definition.depth,
+    })
+}
+
+fn profile_of(profile: &AreaProfile, boundary: Option<&CurveGraph>) -> Option<NewProfile> {
     let position = profile.position.as_ref().map(|p| NewAxis2 {
         location: p.location,
         reference: p.reference_direction,
@@ -164,14 +210,14 @@ fn solid(node: &GeometryNode) -> Option<NewSolid> {
             position,
         },
         AreaProfileKind::ArbitraryClosed { boundary: outer } => NewProfileKind::Polygon {
-            outer: ring(boundary.as_ref()?, *outer)?,
+            outer: ring(boundary?, *outer)?,
             holes: Vec::new(),
         },
         AreaProfileKind::ArbitraryWithVoids {
             boundary: outer,
             holes,
         } => {
-            let graph = boundary.as_ref()?;
+            let graph = boundary?;
             NewProfileKind::Polygon {
                 outer: ring(graph, *outer)?,
                 holes: holes
@@ -182,14 +228,9 @@ fn solid(node: &GeometryNode) -> Option<NewSolid> {
         }
         _ => return None,
     };
-    Some(NewSolid {
-        profile: NewProfile {
-            name: profile.name.clone(),
-            kind,
-        },
-        position: definition.position.as_ref().map(axis3),
-        direction: definition.direction,
-        depth: definition.depth,
+    Some(NewProfile {
+        name: profile.name.clone(),
+        kind,
     })
 }
 
@@ -217,22 +258,31 @@ pub fn as_written(shape: &NewShape) -> NewShape {
         location: [0.0; 2],
         reference: None,
     };
+    let origin3 = NewAxis3 {
+        location: [0.0; 3],
+        axis: None,
+        reference: None,
+    };
+    let profile = |profile: &mut NewProfile| {
+        if let NewProfileKind::Rectangle { position, .. }
+        | NewProfileKind::Circle { position, .. } = &mut profile.kind
+        {
+            position.get_or_insert(origin2.clone());
+        }
+    };
     let mut shape = shape.clone();
     let mut stack: Vec<&mut NewItem> = shape.body.iter_mut().collect();
     while let Some(item) = stack.pop() {
         match item {
             NewItem::Solid(solid) => {
-                solid.position.get_or_insert(NewAxis3 {
-                    location: [0.0; 3],
-                    axis: None,
-                    reference: None,
-                });
-                if let NewProfileKind::Rectangle { position, .. }
-                | NewProfileKind::Circle { position, .. } = &mut solid.profile.kind
-                {
-                    position.get_or_insert(origin2.clone());
-                }
+                solid.position.get_or_insert(origin3.clone());
+                profile(&mut solid.profile);
             }
+            NewItem::Revolution(revolution) => {
+                revolution.position.get_or_insert(origin3.clone());
+                profile(&mut revolution.profile);
+            }
+            NewItem::SweptDisk(_) => {}
             NewItem::Boolean(boolean) => {
                 let NewBoolean { first, second, .. } = &mut **boolean;
                 stack.push(first);
@@ -735,8 +785,71 @@ pub fn unboxed(mut shape: NewShape) -> NewShape {
                 stack.push(second);
             }
             NewItem::Mapped(mapped) => stack.extend(mapped.items.iter_mut()),
-            NewItem::Solid(_) | NewItem::Faces(_) => {}
+            NewItem::Solid(_)
+            | NewItem::Revolution(_)
+            | NewItem::SweptDisk(_)
+            | NewItem::Faces(_) => {}
         }
     }
     shape
+}
+
+/// IFC2X3 が要る掃引の始点と終点を、折れ線の全体で埋めた形
+pub fn with_parameters(mut shape: NewShape) -> NewShape {
+    for item in &mut shape.body {
+        if let NewItem::SweptDisk(disk) = item {
+            disk.start.get_or_insert(0.0);
+            disk.end
+                .get_or_insert(disk.directrix.len().saturating_sub(1) as f64);
+        }
+    }
+    shape
+}
+
+/// 回転と掃引の例。
+///
+/// - 回転: x が 200〜400、y が 0〜1000 の矩形を y 軸のまわりに半回転する。パップスの定理で
+///   π × 300 × 200,000 立方ミリメートル
+/// - 掃引: L 字の 2,000 の経路に沿う外半径 50・内半径 40 の管。π × (50² − 40²) × 2,000 立方ミリメートル
+/// - 両方: 始点と終点を書いた経路の全体（0 から 2）の半径 50 の棒と、押し出し（`SolidModel`）。IfcOpenShell
+///   0.9.0.post1 は始点と終点を使わずに経路の全体を掃引するので、外の読み手と体積を照らせる全体の区間にする
+pub fn sweep_examples() -> [NewShape; 3] {
+    let revolution = NewItem::Revolution(NewRevolution {
+        profile: NewProfile {
+            name: Some("R".to_owned()),
+            kind: NewProfileKind::Rectangle {
+                x: 200.0,
+                y: 1000.0,
+                position: Some(NewAxis2 {
+                    location: [300.0, 500.0],
+                    reference: None,
+                }),
+            },
+        },
+        position: None,
+        location: [0.0, 0.0],
+        direction: [0.0, 1.0],
+        angle: std::f64::consts::PI,
+    });
+    let path = vec![[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [1000.0, 1000.0, 0.0]];
+    let pipe = NewItem::SweptDisk(NewSweptDisk {
+        directrix: path.clone(),
+        radius: 50.0,
+        inner_radius: Some(40.0),
+        start: None,
+        end: None,
+    });
+    let bar = NewItem::SweptDisk(NewSweptDisk {
+        directrix: path,
+        radius: 50.0,
+        inner_radius: None,
+        start: Some(0.0),
+        end: Some(2.0),
+    });
+    let shape = |body: Vec<NewItem>| NewShape { axis: None, body };
+    [
+        shape(vec![revolution]),
+        shape(vec![pipe]),
+        shape(vec![bar, block(200.0, 200.0, 1000.0)]),
+    ]
 }

@@ -153,6 +153,17 @@ test("矩形選択は版・編集・取り消しに追従し、予算停止で�
       assert.equal(first.selection.length, 1);
       assert.equal(first.result, 1n);
       assert.deepEqual([...first.selection.rows()], [65]);
+      // 点選択: 行 65 は移動前 y = 0 (x = 130..131)。線上は当たり、少し離れた点は外れる
+      const pointHit = await live.selectPoint([130.5, 0.0], 0.05, 0n);
+      assert.equal(pointHit.status, "ok");
+      assert.deepEqual([...pointHit.selection.rows()], [65]);
+      const pointMiss = await live.selectPoint([130.5, 0.5], 0.05, 0n);
+      assert.equal(pointMiss.status, "ok");
+      assert.deepEqual([...pointMiss.selection.rows()], []);
+      await assert.rejects(live.selectPoint([0], 0.1, 0n), TypeError);
+      await assert.rejects(live.selectPoint([NaN, 0], 0.1, 0n), TypeError);
+      await assert.rejects(live.selectPoint([0, 0], -0.1, 0n), RangeError);
+      await assert.rejects(live.selectPoint([0, 0], Infinity, 0n), RangeError);
       const all = await live.select([-Infinity, -Infinity, Infinity, Infinity], 0n);
       assert.deepEqual([...all.selection.rows()], Array.from({ length: 130 }, (_, i) => i));
       const record = { data: all.data, used: all.used, diagnosticCount: all.diagnosticCount };
@@ -184,6 +195,8 @@ test("矩形選択は版・編集・取り消しに追従し、予算停止で�
         assert.deepEqual([...result.selection.rows()], []);
       }
       assert.deepEqual([...first.selection.rows()], [65]);
+      assert.deepEqual([...(await live.selectPoint([135.5, -2.0], 0.05, live.revision)).selection.rows()], [65]);
+      assert.deepEqual([...(await live.selectPoint([130.5, 0.0], 0.05, live.revision)).selection.rows()], []);
     } finally { await live.close(); }
   }
 });
@@ -379,6 +392,146 @@ test("実プロセスで文字の内容を替え、取り消す", { skip: !execu
     assert.equal((await live.setText({ revision: changed.revision, rows: [1 - row], content: "x" })).status, "rejected");
     assert.equal((await live.setText({ revision: opened.revision, rows: [row], content: "x" })).status, "stale");
     await live.undo(changed.revision);
+    assert.deepEqual((await live.save()).data, input);
+  } finally { await live.close(); }
+});
+
+test("実プロセスで書式つき MTEXT の置換と SFC＋SAF のオープン・診断取得を通す", { skip: !executable, timeout: 30000 }, async () => {
+  const mtextLive = await openLiveProcess(executable);
+  try {
+    const input = Buffer.from("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n"
+      + "0\nSECTION\n2\nENTITIES\n0\nMTEXT\n5\n20\n100\nAcDbEntity\n8\n0\n100\nAcDbMText\n"
+      + "10\n0\n20\n0\n40\n2.5\n41\n30\n71\n1\n1\n{\\fArial;A}\\P{\\C1;B}\n0\nENDSEC\n0\nEOF\n");
+    const opened = await mtextLive.open(input, { display: false });
+    assert.equal(opened.status, "ok");
+    const replaced = await mtextLive.setText({ revision: opened.revision, rows: [0], content: "{\\H2x;X}\\PY\\P\\S1/2;" });
+    assert.equal(replaced.status, "ok");
+    assert.deepEqual((await mtextLive.texts([0], replaced.revision)).texts, [{ kind: "formatted", content: "{\\H2x;X}\\PY\\P\\S1/2;" }]);
+    await mtextLive.undo(replaced.revision);
+    assert.deepEqual((await mtextLive.save()).data, input);
+  } finally { await mtextLive.close(); }
+
+  const safLive = await openLiveProcess(executable);
+  try {
+    const sfc = await readFile(new URL("../../../samples/sxf/ezsxf-writer-all-features.sfc", import.meta.url));
+    const saf = Buffer.from('<?xml version="1.0" encoding="UTF-8"?><SxfAttributeXML version="3.1" date="2026-11-19" sxfFile="test.SFC" application="test"><Figure id="999" name="unbound"/></SxfAttributeXML>');
+    assert.equal((await safLive.open(dxf(2), { saf, display: false })).status, "invalid");
+    const opened = await safLive.open(sfc, { saf, threads: 2 });
+    assert.equal(opened.status, "ok");
+    assert(opened.diagnosticCount > 0);
+    const diag = await safLive.diagnostics(opened.requestId);
+    assert.match(new TextDecoder().decode(diag.data), /sxf\.saf-figure\.dropped/);
+  } finally { await safLive.close(); }
+});
+
+test("draw の引数を送る前に検査する", async () => {
+  const { live } = await fake("order");
+  try {
+    await assert.rejects(live.draw({ revision: 0n, template: 0, shape: { line: [0, 0, 1, 1] } }, { display: true }), TypeError);
+    for (const shape of [null, {}, { line: [0, 0, 1] }, { line: [0, 0, 1, Number.NaN] }, { circle: [0, 0, "1"] },
+      { line: [0, 0, 1, 1], circle: [0, 0, 1] }, { square: [0, 0, 1, 1] }, { arc: [0, 0, 1, 0, Infinity] }]) {
+      await assert.rejects(live.draw({ revision: 0n, template: 0, shape }), TypeError);
+    }
+    await assert.rejects(live.draw({ revision: 0n, template: 0, shape: { circle: [0, 0, 0] } }), RangeError);
+    await assert.rejects(live.draw({ revision: 0n, template: -1, shape: { line: [0, 0, 1, 1] } }), RangeError);
+  } finally { await live.close(); }
+});
+
+test("実プロセスで雛形の行に倣って線分・円・円弧を足す", { skip: !executable, timeout: 30000 }, async () => {
+  const live = await openLiveProcess(executable);
+  try {
+    const input = dxf();
+    const opened = await live.open(input);
+    const far = [1e6, 1e6, 2e6, 2e6];
+    let revision = opened.revision;
+    const rows = [];
+    for (const shape of [{ line: [1.1e6, 1.1e6, 1.2e6, 1.2e6] }, { circle: [1.3e6, 1.3e6, 10] }, { arc: [1.4e6, 1.4e6, 10, 30, 120] }]) {
+      const drawn = await live.draw({ revision, template: 3, shape });
+      assert.equal(drawn.status, "ok");
+      assert.equal(drawn.result, 1n);
+      assert.equal(drawn.display, null);
+      revision = drawn.revision;
+      rows.push(...drawn.selection.rows());
+    }
+    assert.deepEqual(rows, [130, 131, 132]);
+    assert.deepEqual([...(await live.select(far, revision)).selection.rows()], rows);
+    assert.equal((await live.draw({ revision: revision + 1n, template: 3, shape: { line: [0, 0, 1, 1] } })).status, "stale");
+    for (let i = 0; i < 3; i++) revision = (await live.undo(revision)).revision;
+    assert.deepEqual((await live.save()).data, input);
+  } finally { await live.close(); }
+});
+
+test("実プロセスで画層・線種・記号定義・折れ線・文字・記号挿入・定義内移動と dirtySymbols を通す", { skip: !executable, timeout: 30000 }, async () => {
+  const live = await openLiveProcess(executable);
+  try {
+    const input = Buffer.from(
+      "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$HANDSEED\n5\n80\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n"
+      + "0\nSECTION\n2\nTABLES\n"
+      + "0\nTABLE\n2\nLTYPE\n5\n5\n100\nAcDbSymbolTable\n70\n3\n"
+      + "0\nLTYPE\n5\n14\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nByBlock\n70\n0\n3\n\n72\n65\n73\n0\n40\n0.0\n"
+      + "0\nLTYPE\n5\n15\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nByLayer\n70\n0\n3\n\n72\n65\n73\n0\n40\n0.0\n"
+      + "0\nLTYPE\n5\n16\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nContinuous\n70\n0\n3\nSolid\n72\n65\n73\n0\n40\n0.0\n"
+      + "0\nENDTAB\n"
+      + "0\nTABLE\n2\nLAYER\n5\n2\n100\nAcDbSymbolTable\n70\n1\n"
+      + "0\nLAYER\n5\n10\n330\n2\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nContinuous\n"
+      + "0\nENDTAB\n"
+      + "0\nTABLE\n2\nSTYLE\n5\n3\n100\nAcDbSymbolTable\n70\n1\n"
+      + "0\nSTYLE\n5\n11\n330\n3\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n"
+      + "0\nENDTAB\n"
+      + "0\nTABLE\n2\nBLOCK_RECORD\n5\n1\n100\nAcDbSymbolTable\n70\n1\n"
+      + "0\nBLOCK_RECORD\n5\n1F\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Model_Space\n"
+      + "0\nENDTAB\n0\nENDSEC\n"
+      + "0\nSECTION\n2\nBLOCKS\n"
+      + "0\nBLOCK\n5\n20\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Model_Space\n70\n0\n10\n0.0\n20\n0.0\n"
+      + "0\nENDBLK\n5\n21\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n0\nENDSEC\n"
+      + "0\nSECTION\n2\nENTITIES\n"
+      + "0\nLINE\n5\n30\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbLine\n10\n0.0\n20\n0.0\n11\n10.0\n21\n0.0\n"
+      + "0\nENDSEC\n0\nEOF\n",
+    );
+    const opened = await live.open(input);
+    let rev = opened.revision;
+    assert.deepEqual([...(await live.dirtySymbols(rev)).selection.rows()], []);
+
+    rev = (await live.editLayer({ op: "add", revision: rev, name: "WALL", state: { visible: true, printable: true, editable: true, frozen: false }, color: { rgb: [12, 34, 56] } })).revision;
+    const layers = (await live.layers(rev)).layers;
+    const wall = layers.find((item) => item.name === "WALL");
+    assert(wall);
+    rev = (await live.editLayer({ op: "update", revision: rev, layer: wall.value, state: { visible: false, printable: true, editable: true, frozen: false } })).revision;
+    assert.equal((await live.layers(rev)).layers.find((item) => item.value === wall.value).state.visible, false);
+
+    rev = (await live.editLineType({ op: "add", revision: rev, name: "DASH2", description: "Dash", pattern: [4, -2] })).revision;
+    assert((await live.lineTypes(rev)).lineTypes.some((lt) => lt.name === "DASH2"));
+
+    const symAdded = await live.addSymbol({ revision: rev, template: 0, name: "PART1", elements: [{ line: [0, 0, 20, 0] }] });
+    assert.equal(symAdded.status, "ok");
+    const symIdx = Number(symAdded.result);
+    rev = symAdded.revision;
+    assert.equal((await live.dirtySymbols(rev, { clear: true })).selection.rows().next().value !== undefined, true);
+    assert.deepEqual([...(await live.dirtySymbols(rev)).selection.rows()], []);
+
+    const polyAdded = await live.addElement({ revision: rev, template: 0, element: { polyline: { closed: true, vertices: [[500, 0], [510, 0, 0.5], [510, 10]] } } });
+    assert.equal(polyAdded.status, "ok");
+    rev = polyAdded.revision;
+
+    const txtAdded = await live.addElement({ revision: rev, template: 0, element: { text: { position: [600, 20], height: 3, content: "NOTE1" } } });
+    assert.equal(txtAdded.status, "ok");
+    rev = txtAdded.revision;
+    const [txtRow] = [...txtAdded.selection.rows()];
+    assert.deepEqual((await live.texts([txtRow], rev)).texts, [{ kind: "text", content: "NOTE1" }]);
+
+    const insAdded = await live.addElement({ revision: rev, template: 0, element: { symbol: { definition: symIdx, position: [700, 50] } } });
+    assert.equal(insAdded.status, "ok");
+    rev = insAdded.revision;
+    const [insRow] = [...insAdded.selection.rows()];
+    assert.deepEqual([...(await live.selectPoint([710, 50], 0.25, rev)).selection.rows()], [insRow]);
+
+    const symMoved = await live.transformSymbol({ revision: rev, symbol: symIdx, rows: [0], matrix: [1, 0, 0, 0, 1, 10] });
+    assert.equal(symMoved.status, "ok");
+    rev = symMoved.revision;
+    assert.deepEqual([...(await live.dirtySymbols(rev, { clear: true })).selection.rows()], [symIdx]);
+    assert.deepEqual([...(await live.selectPoint([710, 60], 0.25, rev)).selection.rows()], [insRow]);
+
+    for (let i = 0; i < 8; i++) rev = (await live.undo(rev)).revision;
     assert.deepEqual((await live.save()).data, input);
   } finally { await live.close(); }
 });

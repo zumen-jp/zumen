@@ -24,7 +24,7 @@ class Buffer(c.Structure):
 class Contract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # CI の Windows x86 と同じ出力のコードページでも、CLI が実ファイルを書けることを確かめる。
+        # Windows の既定のコードページでも、CLI が実ファイルを書けることを確かめる。
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "conformance.tsv"
             environment = dict(os.environ, PYTHONIOENCODING="cp1252")
@@ -54,6 +54,8 @@ class Contract(unittest.TestCase):
             if 'targets = ["wasm"]' not in block:
                 expected[re.search(r'name = "(zm_\w+)"', block)[1]] = block
         self.assertEqual(set(declarations), set(expected))
+        constants = re.findall(r"^Public Const (\w+)", source, re.M)
+        self.assertEqual({name.lower() for name in constants} & {name.lower() for name in declarations}, set())
         widths = {"size": "ByVal {name} As LongPtr", "bytes": "ByVal {name} As LongPtr", "bytes_mut": "ByVal {name} As LongPtr", "session": "ByVal {name} As LongPtr", "arrow_stream": "ByVal {name} As LongPtr", "session_out": "ByRef {name} As LongPtr", "buf": "ByRef {name} As ZmBuf", "u32": "ByVal {name} As Long"}
         for name, function in expected.items():
             for param_name, param_type in re.findall(r'\{ name = "(\w+)", type = "(\w+)"', function):
@@ -78,7 +80,7 @@ class Contract(unittest.TestCase):
 
     @unittest.skipUnless(LIBRARY, "DLL の指定時に、共通手順と ABI を照合する")
     def test_fixture_against_native_dll(self):
-        library = c.WinDLL(str(LIBRARY))
+        library = c.CDLL(str(LIBRARY))
         signatures = {
             "zm_abi_version": (c.c_uint32, []),
             "zm_session_new": (c.c_int32, [c.c_void_p, c.c_size_t, c.POINTER(c.c_void_p)]),

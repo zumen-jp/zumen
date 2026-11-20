@@ -1,9 +1,9 @@
-//! buildingSMART IFC2X3 TC1 / IFC4 ADD2 TC1 / IFC4.3 ADD2 の設備と部品の実体。
+//! buildingSMART IFC2X3 TC1 / IFC4 ADD2 TC1 / IFC4.3 ADD2 の設備・部品・土木インフラの実体。
 //! 自然文の属性から読む位置だけを記す。スキーマを使わず、型の共通の成分は既存の lift で読む。
 //! 旧版の DistributionPointFunction・OperationType は、種類の列として保つ。
-//! 対象の領域・属性の節へのリンクと推定の範囲は docs/formats/ifc.md「設備の要素と型」にある。
+//! 対象の領域・属性の節へのリンクと推定の範囲は docs/formats/ifc.md「設備の要素と型」「道路・鉄道・橋の空間と要素」にある。
 
-use super::{ABSENT, Category, E, Entity, NONE, T};
+use super::{ABSENT, Category, E, Entity, NONE, S, T};
 
 const fn item(name: &'static str, category: Category, predefined: [u8; 3]) -> Entity {
     super::entity(name, name, category, predefined)
@@ -171,4 +171,44 @@ pub(super) const ADDITIONAL: &[Entity] = &[
     item("IfcVibrationIsolatorType", T, [10, 10, 10]),
     item("IfcWasteTerminal", E, [ABSENT, 9, 9]),
     item("IfcWasteTerminalType", T, [10, 10, 10]),
+];
+
+/// IFC4・IFC4.3 の道路・鉄道・橋・港湾・土工・深礎・地理の空間と要素・型（#376）。
+/// 施設の部分空間（`IfcBridgePart`・`IfcRoadPart`・`IfcRailwayPart`・`IfcMarinePart`・`IfcFacilityPartCommon`）は
+/// `IfcFacilityPart` の 10 UsageType に続く 11 PredefinedType を読む。
+pub(super) const INFRA: &[Entity] = &[
+    item("IfcBearing", E, [ABSENT, ABSENT, 9]),
+    item("IfcBearingType", T, [ABSENT, ABSENT, 10]),
+    item("IfcBridgePart", S, [ABSENT, ABSENT, 11]),
+    item("IfcCaissonFoundation", E, [ABSENT, ABSENT, 9]),
+    item("IfcCaissonFoundationType", T, [ABSENT, ABSENT, 10]),
+    item("IfcCourse", E, [ABSENT, ABSENT, 9]),
+    item("IfcCourseType", T, [ABSENT, ABSENT, 10]),
+    item("IfcDeepFoundation", E, [ABSENT, ABSENT, NONE]),
+    item("IfcDeepFoundationType", T, [ABSENT, ABSENT, NONE]),
+    item("IfcEarthworksCut", E, [ABSENT, ABSENT, 9]),
+    item("IfcEarthworksElement", E, [ABSENT, ABSENT, NONE]),
+    item("IfcEarthworksFill", E, [ABSENT, ABSENT, 9]),
+    item("IfcFacilityPart", S, [ABSENT, ABSENT, NONE]),
+    item("IfcFacilityPartCommon", S, [ABSENT, ABSENT, 11]),
+    item("IfcGeographicElement", E, [ABSENT, 9, 9]),
+    item("IfcGeographicElementType", T, [ABSENT, 10, 10]),
+    item("IfcKerb", E, [ABSENT, ABSENT, 9]),
+    item("IfcKerbType", T, [ABSENT, ABSENT, 10]),
+    item("IfcMarineFacility", S, [ABSENT, ABSENT, 10]),
+    item("IfcMarinePart", S, [ABSENT, ABSENT, 11]),
+    item("IfcPavement", E, [ABSENT, ABSENT, 9]),
+    item("IfcPavementType", T, [ABSENT, ABSENT, 10]),
+    item("IfcRail", E, [ABSENT, ABSENT, 9]),
+    item("IfcRailType", T, [ABSENT, ABSENT, 10]),
+    item("IfcRailwayPart", S, [ABSENT, ABSENT, 11]),
+    item("IfcReinforcedSoil", E, [ABSENT, ABSENT, 9]),
+    item("IfcRoadPart", S, [ABSENT, ABSENT, 11]),
+    item("IfcSign", E, [ABSENT, ABSENT, 9]),
+    item("IfcSignType", T, [ABSENT, ABSENT, 10]),
+    item("IfcSignal", E, [ABSENT, ABSENT, 9]),
+    item("IfcSignalType", T, [ABSENT, ABSENT, 10]),
+    item("IfcSurfaceFeature", E, [ABSENT, ABSENT, 9]),
+    item("IfcTrackElement", E, [ABSENT, ABSENT, 9]),
+    item("IfcTrackElementType", T, [ABSENT, ABSENT, 10]),
 ];

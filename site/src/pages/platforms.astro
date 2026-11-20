@@ -5,15 +5,15 @@ import { hostApps, releasedSource, releaseUrl, releaseVersion, repo } from '../d
 import Page from '../layouts/Page.astro';
 
 const os = [
-  ['Windows', 'Windows 10、Windows Server 2016（x64・x86・ARM64）'],
-  ['macOS', 'macOS 11（arm64）、macOS 10.12（x64）'],
-  ['Linux', 'glibc 2.28（x64・arm64）'],
-  ['iOS・iPadOS', 'iOS 15'],
-  ['Android', 'Android 7.0（API 24）'],
-  ['ブラウザー', 'Chrome・Edge 96、Firefox 91、Safari 15.1'],
-  ['Node.js', '22'],
-  ['Python', '3.9（Rhino 8・Dynamo 3.x に合わせる）'],
-  ['.NET', '.NET Framework 4.8、.NET 8 以降（Revit・AutoCAD 2024 に合わせる）'],
+  ['Windows', 'Windows 11、Windows Server 2022（x64・ARM64）'],
+  ['macOS', 'macOS 14（Apple Silicon / arm64）'],
+  ['Linux', 'glibc 2.34（x64・arm64）'],
+  ['iOS・iPadOS', 'iOS 17（arm64）'],
+  ['Android', 'Android 12（API 31、arm64-v8a・x86_64）'],
+  ['ブラウザー', 'Chrome・Edge 113、Firefox 141、Safari 26（WebGPU・wasm simd128）'],
+  ['Node.js', '24'],
+  ['Python', '3.12'],
+  ['.NET', '.NET 8、.NET 10（Revit・AutoCAD 2025 以降）'],
 ];
 
 const packages = [
@@ -53,8 +53,8 @@ const packages = [
         </div>
         <div class="card">
           <h3>Tier 3</h3>
-          <p>C ABI・wasm・CLI・HTTP を使う手順とサンプルを用意します。</p>
-          <ul class="chips"><li>Ruby</li><li>PHP</li><li>R</li><li>Julia</li><li>MATLAB</li><li>AutoLISP</li><li>PowerShell</li><li>ほか</li></ul>
+          <p>C ABI、ネイティブと WASI の CLI、HTTP で図面を開くサンプルを毎晩検証します。</p>
+          <ul class="chips"><li>Ruby</li><li>PHP</li><li>PowerShell</li></ul>
         </div>
       </div>
       <p class="note">Tier の決め方は<a href={`${repo}/blob/main/docs/support.md`}>対応する環境</a>にあります。</p>
@@ -69,9 +69,8 @@ const packages = [
           <tbody>{os.map(([k, v]) => <tr><th scope="row">{k}</th><td>{v}</td></tr>)}</tbody>
         </table>
       </div>
-      <p class="note">ブラウザーの下限は wasm と JavaScript の互換性の資料に基づきます。下限の実機は未確認です。根拠と CI での確かめ方は<a href={`${repo}/blob/main/docs/support.md`}>対応する環境</a>にあります。</p>
-      <p class="note">表はプロジェクトが対象にする環境です。v{releaseVersion} のネイティブ配布物は Windows（x86・x64・ARM64）・macOS（x64・arm64）・GNU Linux（x64・arm64）向けです。musl・iOS・Android のバイナリはまだ配布していません。</p>
-      <p class="note">v{releaseVersion} の GNU Linux の CLI・共有ライブラリは glibc 2.28 で作り、要求するシンボルの版を検査しています。Python wheel のタグは <code>manylinux_2_28</code> です。v0.2.0 の配布物は glibc 2.34（wheel は 2.35）以降を要求します（<a href={`${repo}/issues/789`}>#789</a>）。</p>
+      <p class="note">ブラウザーの下限は WebGPU と wasm の <code>simd128</code> が標準で使える世代に合わせています。根拠と CI での確かめ方は<a href={`${repo}/blob/main/docs/support.md`}>対応する環境</a>にあります。</p>
+      <p class="note">表は <code>main</code>（次のマイナーバージョン以降）が対象にする 64 bit 環境です。公開済み v{releaseVersion} の配布物は引き上げ前の条件（Windows x86・macOS x64・GNU Linux glibc 2.28 / <code>manylinux_2_28</code> など、<a href={`${repo}/issues/789`}>#789</a>）で作られています。iOS・Android のバイナリはまだ配布していません。</p>
     </div>
   </section>
 

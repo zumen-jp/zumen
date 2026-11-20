@@ -71,7 +71,7 @@ fn outcome<'d>(
 }
 
 /// 止まる所の前後を含む上限の組。単位ごとに、変換が使う量の前後と途中を試す
-fn limit_sets(spent: &[u64; 7]) -> Vec<Limits> {
+fn limit_sets(spent: &[u64; Kind::ALL.len()]) -> Vec<Limits> {
     let mut sets = vec![Limits::default()];
     for (kind, &spent) in Kind::ALL.iter().zip(spent) {
         let values: Vec<u64> = if *kind == Kind::Depth {
@@ -606,6 +606,8 @@ fn apply_on_the_engine_reports_unreadable_dwg_objects_like_the_file_model() {
         for read in reads("a", "") {
             same(&mut engine, &mut old, &read);
         }
+        // DWG もファイルモデルを読み直さず常駐文書エンジンから直接答える
+        assert!(resident(&engine, "a").held().is_none());
     }
     assert!(engine_kept(&engine, "a"));
 }
@@ -939,6 +941,18 @@ fn apply_on_the_engine_keeps_the_attribute_file() {
     );
     assert!(accepted > 0);
     assert!(engine_kept(&engine, name));
+    // 新しく開いた文書に受け付ける変更だけを当てると、属性ファイル（SAF）を結んだ SXF もファイルモデルを読み直さず常駐文書エンジンから直接答える
+    let (mut engine, mut old) = (open(true), open(false));
+    let (id0, hash0) = elements(&mut engine, name)[0].clone();
+    let move_one = format!(
+        r#"{{"v":1,"op":"apply","doc":"{name}","edits":[{{"kind":"transform","id":"{id0}","hash":"{hash0}","matrix":[1,0,5,0,1,7]}}]}}"#
+    );
+    assert_eq!(same(&mut engine, &mut old, &move_one).0, Status::Ok);
+    assert!(resident(&engine, name).held().is_none());
+    for read in reads(name, "") {
+        same(&mut engine, &mut old, &read);
+    }
+    assert!(resident(&engine, name).held().is_none());
     // 属性ファイルの診断は、当てたあとの読み取りでも返す
     let (_, response) = call(
         &mut engine,

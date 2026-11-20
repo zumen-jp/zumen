@@ -189,6 +189,7 @@ fn linear_parts(
     degrees: f64,
     oblique: f64,
     offsets: DimensionOffsets,
+    suppress: [bool; 2],
 ) -> Option<DimensionParts> {
     if !degrees.is_finite() || !oblique.is_finite() {
         return None;
@@ -231,10 +232,12 @@ fn linear_parts(
     };
     let measured = (dx * (second[0] - first[0]) + dy * (second[1] - first[1])).abs();
     Some(DimensionParts {
-        extension_lines: vec![
-            extension_segment(first, f1, offsets),
-            extension_segment(second, f2, offsets),
-        ],
+        extension_lines: [(first, f1), (second, f2)]
+            .into_iter()
+            .zip(suppress)
+            .filter(|(_, hide)| !hide)
+            .map(|((from, to), _)| extension_segment(from, to, offsets))
+            .collect(),
         curve: Some(DimensionCurve::Line([f1, f2])),
         ends,
         middle: [(f1[0] + f2[0]) / 2.0, (f1[1] + f2[1]) / 2.0],
@@ -254,6 +257,7 @@ fn arc_parts(
     start_side: usize,
     ext_from: Option<([f64; 2], [f64; 2])>,
     offsets: DimensionOffsets,
+    suppress: [bool; 2],
     display_value: f64,
     raw_measurement: f64,
 ) -> DimensionParts {
@@ -269,10 +273,15 @@ fn arc_parts(
     ];
     let mut extension_lines = Vec::new();
     if let Some((from0, from1)) = ext_from {
-        if distance(from0, p0) > 1e-9 {
+        let [skip_start, skip_end] = if start_side == 0 {
+            suppress
+        } else {
+            [suppress[1], suppress[0]]
+        };
+        if !skip_start && distance(from0, p0) > 1e-9 {
             extension_lines.push(extension_segment(from0, p0, offsets));
         }
-        if distance(from1, p1) > 1e-9 {
+        if !skip_end && distance(from1, p1) > 1e-9 {
             extension_lines.push(extension_segment(from1, p1, offsets));
         }
     }
@@ -319,6 +328,18 @@ pub fn dimension<P>(
     len: impl Fn(&Length) -> Option<f64>,
     offsets: DimensionOffsets,
 ) -> Option<DimensionParts> {
+    dimension_with_suppression(dimension, xy, len, offsets, [false; 2])
+}
+
+/// 第1・第2の定義点に対応する補助線を個別に省いて、寸法の部品と測定値を求める。
+/// 円弧を始める側や、長さがゼロで省かれる補助線の有無にかかわらず、元の定義点の順で指定する。
+pub fn dimension_with_suppression<P>(
+    dimension: &Dimension<P>,
+    xy: impl Fn(&P) -> Option<[f64; 2]>,
+    len: impl Fn(&Length) -> Option<f64>,
+    offsets: DimensionOffsets,
+    suppress: [bool; 2],
+) -> Option<DimensionParts> {
     let pt = |p: &P| {
         let [x, y] = xy(p)?;
         (x.is_finite() && y.is_finite()).then_some([x, y])
@@ -337,6 +358,7 @@ pub fn dimension<P>(
             *rotation,
             *oblique,
             offsets,
+            suppress,
         ),
         DimensionKind::Aligned {
             first,
@@ -345,7 +367,7 @@ pub fn dimension<P>(
             oblique,
         } => {
             let (a, b, l) = (pt(first)?, pt(second)?, pt(line)?);
-            linear_parts(a, b, l, angle(a, b), *oblique, offsets)
+            linear_parts(a, b, l, angle(a, b), *oblique, offsets, suppress)
         }
         DimensionKind::Radius {
             center,
@@ -471,6 +493,7 @@ pub fn dimension<P>(
                 side,
                 ext,
                 offsets,
+                suppress,
                 sweep,
                 sweep.to_radians(),
             ))
@@ -531,6 +554,7 @@ pub fn dimension<P>(
                 side,
                 ext,
                 offsets,
+                suppress,
                 sweep,
                 sweep.to_radians(),
             ))
@@ -553,7 +577,7 @@ pub fn dimension<P>(
             let arc_len = distance(c, a) * sweep.to_radians();
             let ext = (offsets.offset > 0.0 || offsets.extension > 0.0).then_some(pair);
             Some(arc_parts(
-                c, radius, start, sweep, side, ext, offsets, arc_len, arc_len,
+                c, radius, start, sweep, side, ext, offsets, suppress, arc_len, arc_len,
             ))
         }
     }
@@ -566,6 +590,56 @@ pub fn readable_angle(degrees: f64) -> f64 {
         degrees + 180.0
     } else {
         degrees
+    }
+}
+
+/// 水平な寸法線の上に、1 行の測定値を中央でそろえる自動配置（#343）。
+/// すき間と文字高は寸法の倍率を掛けた値。手で移動した位置や、ほかの配置には適用しない。
+pub fn automatic_dimension_text_position<P>(
+    dimension: &Dimension<P>,
+    drawn: &DimensionParts,
+    saved: Option<[f64; 2]>,
+    vertical_placement: Option<u8>,
+    scaled_gap: Option<f64>,
+    text_height: f64,
+) -> Option<[f64; 2]> {
+    let gap = scaled_gap.filter(|g| g.is_finite() && *g >= 0.0)?;
+    let single_measurement = match &dimension.label {
+        Label::Measurement => true,
+        Label::Override { content, .. } => content == "<>",
+        Label::Hidden => false,
+    };
+    if dimension.text.moved
+        || !single_measurement
+        || vertical_placement != Some(1)
+        || !matches!(
+            dimension.kind,
+            DimensionKind::Linear { .. } | DimensionKind::Aligned { .. }
+        )
+        || drawn.along.rem_euclid(360.0) != 0.0
+        || dimension.text.rotation.unwrap_or(0.0).rem_euclid(360.0) != 0.0
+        || dimension
+            .text
+            .attachment
+            .is_some_and(|a| a != (Horizontal::Center, Vertical::Middle))
+        || !(text_height.is_finite() && text_height > 0.0)
+    {
+        return None;
+    }
+    let Some(DimensionCurve::Line([a, b])) = drawn.curve else {
+        return None;
+    };
+    let x = saved.unwrap_or(drawn.middle)[0];
+    let y = drawn.middle[1] + gap + text_height / 2.0;
+    (x >= a[0].min(b[0]) && x <= a[0].max(b[0]) && y.is_finite()).then_some([x, y])
+}
+
+/// AutoCAD の DIMLFAC。正値は両空間の長さに、負値の絶対値は用紙に属する寸法の長さに掛ける。
+pub fn dimension_linear_factor(factor: f64, paper: bool) -> f64 {
+    if factor.is_finite() && (factor > 0.0 || (factor < 0.0 && paper)) {
+        factor.abs()
+    } else {
+        1.0
     }
 }
 
@@ -591,12 +665,31 @@ pub fn default_dimension_mtext<P>(
     display_value: f64,
     precision: usize,
 ) -> String {
+    dimension_value(kind, display_value, precision, "\\U+2205", "\\U+00B0")
+}
+
+/// 寸法の種類に応じた、画面に描く寸法値の文字列。
+pub fn default_dimension_text<P>(
+    kind: &DimensionKind<P>,
+    display_value: f64,
+    precision: usize,
+) -> String {
+    dimension_value(kind, display_value, precision, "∅", "°")
+}
+
+fn dimension_value<P>(
+    kind: &DimensionKind<P>,
+    display_value: f64,
+    precision: usize,
+    diameter: &str,
+    degree: &str,
+) -> String {
     let num = format_measurement(display_value, precision);
     match kind {
         DimensionKind::Radius { .. } => format!("R{num}"),
-        DimensionKind::Diameter { .. } => format!("\\U+2205{num}"),
+        DimensionKind::Diameter { .. } => format!("{diameter}{num}"),
         DimensionKind::Angular { .. } | DimensionKind::AngularLines { .. } => {
-            format!("{num}\\U+00B0")
+            format!("{num}{degree}")
         }
         DimensionKind::Linear { .. }
         | DimensionKind::Aligned { .. }
@@ -668,7 +761,7 @@ pub fn arrow_triangle(tip: [f64; 2], toward_tip: [f64; 2], size: f64) -> Option<
     Some([tip, [bx + nx, by + ny], [bx - nx, by - ny]])
 }
 
-/// 寸法線の端に矢印の代わりに描く 45 度の斜線
+/// 寸法線の端に矢印の代わりに描く 45 度の斜線。`size` は斜線の全長。
 pub fn tick_line(tip: [f64; 2], toward_tip: [f64; 2], size: f64) -> Option<[[f64; 2]; 2]> {
     if !(size > 0.0 && size.is_finite()) {
         return None;
@@ -681,10 +774,21 @@ pub fn tick_line(tip: [f64; 2], toward_tip: [f64; 2], size: f64) -> Option<[[f64
     let inv_sqrt2 = core::f64::consts::FRAC_1_SQRT_2;
     let [tx, ty] = [(dx - dy) * inv_sqrt2, (dx + dy) * inv_sqrt2];
     let half = size / 2.0;
-    Some([
+    let line = [
         [tip[0] - tx * half, tip[1] - ty * half],
         [tip[0] + tx * half, tip[1] + ty * half],
-    ])
+    ];
+    line.iter().flatten().all(|v| v.is_finite()).then_some(line)
+}
+
+/// 寸法スタイルの目盛り。端点は基点から寸法線に沿って前後に `size`、垂直にも
+/// `size` ずれる（AutoCAD の DIMTSZ、#343）。
+pub fn dimension_tick_line(
+    tip: [f64; 2],
+    toward_tip: [f64; 2],
+    size: f64,
+) -> Option<[[f64; 2]; 2]> {
+    tick_line(tip, toward_tip, 2.0 * core::f64::consts::SQRT_2 * size)
 }
 
 /// 表の行と列から、枠の線分とセルの文字・記号の配置を求める。`origin` は挿入点の座標（シーンでは
@@ -933,6 +1037,58 @@ mod tests {
         assert_eq!(format_measurement(10.0, 2), "10");
         assert_eq!(format_measurement(10.5, 2), "10.5");
         assert_eq!(format_measurement(-0.0001, 2), "0");
+    }
+
+    #[test]
+    fn angular_extension_suppression_follows_definition_points() {
+        let draw = |first_x, arc, suppress| {
+            let dim = Dimension {
+                kind: DimensionKind::Angular {
+                    vertex: pt(0.0, 0.0),
+                    first: pt(first_x, 0.0),
+                    second: pt(0.0, 2.0),
+                    arc,
+                },
+                measurement: None,
+                label: Label::Measurement,
+                text: DimensionText {
+                    position: None,
+                    moved: false,
+                    rotation: None,
+                    attachment: None,
+                },
+                style: "Standard".to_owned(),
+                block: None,
+            };
+            dimension_with_suppression(
+                &dim,
+                |p| Some([p.x, p.y]),
+                |_| None,
+                DimensionOffsets {
+                    offset: 0.0,
+                    extension: 1.0,
+                },
+                suppress,
+            )
+            .unwrap()
+            .extension_lines
+        };
+
+        // 第1の定義点が弧の上にあり、第2の補助線だけが描かれる。
+        let forward = pt(3.0, 4.0);
+        let second = draw(5.0, forward, [true, false]);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0][0], [0.0, 2.0]);
+        assert!(draw(5.0, forward, [false, true]).is_empty());
+
+        // 第2の側から反時計回りに長い弧を取るときも、各指定は同じ定義点を指す。
+        let reverse = pt(-3.0, -4.0);
+        let first = draw(2.0, reverse, [false, true]);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0][0], [2.0, 0.0]);
+        let second = draw(2.0, reverse, [true, false]);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0][0], [0.0, 2.0]);
     }
 
     #[test]

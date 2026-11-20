@@ -28,8 +28,8 @@
 | [fgd](#format-fgd) | 基盤地図情報（GML） | fgd | geo | `public` | `core` | `synthetic` |  |
 | [geojson](#format-geojson) | GeoJSON | geojson | geo | `public` | `core` | `synthetic` | `external` |
 | [ids](#format-ids) | IDS（Information Delivery Specification） | ids | building | `public` | `core` | `synthetic` |  |
-| [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` | `external` | `external` |
-| [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` | `synthetic` |  |
+| [ifc](#format-ifc) | IFC | ifc | building・civil | `public` | `core` | `external` | `application` |
+| [isg](#format-isg) | ISG 形式（ジオイド高と基準面補正量の格子） | isg | geo | `public` | `core` | `external` |  |
 | [jpeg](#format-jpeg) | 工事写真（JPEG と Exif・XMP） | jpeg | delivery | `public` | `core` | `external` |  |
 | [jwc](#format-jwc) | JWC（Jw\_cad for DOS の図面） | jwcad | drawing | `public` | `none` |  |  |
 | [jws](#format-jws) | JWS（Jw\_cad の図形） | jwcad | drawing | `public` | `none` |  |  |
@@ -37,7 +37,7 @@
 | [kokuban](#format-kokuban) | 電子小黒板の情報と信憑性確認（改ざん検知） | jpeg | delivery | `permission` | `none` |  |  |
 | [landxml](#format-landxml) | J-LandXML（LandXML 1.2 に準じた 3 次元設計データ交換標準） | landxml | civil | `public` | `core` | `synthetic` |  |
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `external` |  |
-| [par](#format-par) | TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子） | par | geo | `public` | `core` | `synthetic` |  |
+| [par](#format-par) | TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子） | par | geo | `public` | `core` | `external` |  |
 | [pdf](#format-pdf) | PDF | pdf | drawing | `unknown` | `none` |  |  |
 | [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `external` |  |
 | [png](#format-png) | PNG | png | drawing | `public` | `core` |  | `external` |
@@ -664,11 +664,11 @@
 - 照合に使う候補: 国土交通省の電子納品チェックシステム（手元でだけ使う）
 - サンプルの出どころ: 再配布を認める公開サンプルは見つかっていない。国土交通省の作成例は転載が禁じられているので、リポジトリのテストの入力はテストの中で作る。作成例は、利用者が入手したものを手元で読んで DTD で照らす（xtask/verify/dtd/README.md）
 - 読みの確かめた度合い: `external`（確認日: 2026-11-18）
-- 読みの確かめた範囲: 国土交通省が DTD とともに配る管理ファイルの作成例 16 件（工事・業務・地質の令和 8 年 2 月の版の INDEX\_C・INDEX\_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS と、令和 4 年 3 月の版の工事の束の PHOTO・DRAWINGF・DRAWINGS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift\_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。電気通信設備・機械設備の要領の管理ファイル、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）
+- 読みの確かめた範囲: 国土交通省が DTD とともに配る管理ファイルの作成例 46 件（工事・業務・地質の令和 8 年 2 月の版の INDEX\_C・INDEX\_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS、電気通信設備と機械設備の工事・業務の令和 8 年 2 月の版の 27 件、測量の令和 7 年の版の SURVEY・SURV\_DOC・SURV\_KTN と、令和 4 年 3 月の版の工事の束の PHOTO・DRAWINGF・DRAWINGS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift\_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。機械設備の施設台帳・機器台帳の作成例のない DTD、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）
 - 読みで使った公開サンプル: [https://www.cals-ed.go.jp/cri\_dtdxml/](https://www.cals-ed.go.jp/cri_dtdxml/)
 - 読みで照らした外部の実装: lxml 6.1.3
 - 書きの確かめた度合い: `external`（確認日: 2026-11-18）
-- 書きの確かめた範囲: 既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 16 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書くものと、DTD が親の中で単独の繰り返しを許す最後の子の記録を写して親の末尾に足すものを、lxml 6.1.3 が要領の DTD の検証に通し、読んだ木が書いた木と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。コアは DTD を処理しないので、繰り返せない記録を足したり、DTD が子の要素だけを許す項目に文字を書いたりすると検証に通らない。電子納品チェックシステムでの検証はまだ
+- 書きの確かめた範囲: 既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 46 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書くものと、DTD が親の中で単独の繰り返しを許す最後の子の記録を写して親の末尾に足すものを、lxml 6.1.3 が要領の DTD の検証に通し、読んだ木が書いた木と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。コアは DTD を処理しないので、繰り返せない記録を足したり、DTD が子の要素だけを許す項目に文字を書いたりすると検証に通らない。電子納品チェックシステムでの検証はまだ
 - 書きで照らした外部の実装: lxml 6.1.3
 - issue: [zumen-jp/zumen#383](https://github.com/zumen-jp/zumen/issues/383)
 - issue: [zumen-jp/zumen#384](https://github.com/zumen-jp/zumen/issues/384)
@@ -835,9 +835,10 @@
 - 読みの確かめた範囲: 公開サンプルの IFC 12 件（samples/ifc）を建物モデルに写し、毎晩の CI で IfcOpenShell が同じファイルから読んだ値と照らす。照らすのは、実体のクラス・GlobalId・名前・所属の先と型・プロジェクトの空間への変換・開口・プロパティと数量の値（crates/zumen-ifc/tests/ifcopenshell/samples.py、#412・#512）。手元の照合では、12 件とも食い違いは 0。必要時の曲線の getter は、合成の IFC2X3 の 9 曲線・IFC4 と IFC4X3 の各 10 曲線、公開サンプル gni/model\_9 の 1 曲線で、元の属性の座標・方向の比・半径・ベクトルの大きさ・添字・区間の向き・切る位置を IfcOpenShell と照らし、食い違いは 0（crates/zumen-ifc/tests/ifcopenshell/curves.py、#419）。公開サンプルの IndexedPolyCurve 1 件を読みの external とし、自作した 29 件は synthetic の範囲で外部の実装とも照合したものとする。単位・診断・予算・幾何の評価は、この外部の曲線の照合には含めない。要素から形状表現・共有写像元をたどる L1 の getter は、合成 3 版の各 9 項目と補助レコード各 8 件、公開サンプルの柱の 6 項目と補助レコード 16 件で、参照と元の配置・写像の属性、曲線の点を IfcOpenShell と照らした（product\_shapes.py、#419）。公開の表現と写像は external、合成は synthetic の範囲で外部の実装とも照合したものとする。配置・写像・単位の適用と立体・断面の型への変換はしていない。既存の形の葉から押し出し・閉じた断面・外輪を取得する経路は、合成各版 2 件と公開の柱 1 件、計 7 件で、未適用の深さ・方向・配置と断面の名前・参照・外輪、SI 単位の名前・接頭辞を IfcOpenShell と照らし、食い違いは 0（extrusions.py、#419）。公開 1 件は external、合成 6 件は synthetic とする。配置・写像・単位の適用や自己交差・面積・形の評価、ほかの立体・断面の対応を検証した結果ではない。形の項目に直接付く面の表示は、合成各版 2 件と公開の柱 1 件、計 7 件で、色・透明度・Rendering の全属性と出所の参照を IfcOpenShell と照らし、食い違いは 0（styles.py、#419）。公開 1 件は external、合成 6 件は synthetic とする。表示・材質・レイヤ・写像による継承と反射の式は評価しない。診断と全 Kind の予算使用量はネイティブと WASI のバイト列を比較する。Building の Style 成分と形の意味値の Hash は未実装。通り芯から U/V/W 軸と曲線を取得する経路は、合成 3 Grid の 20 軸・26 曲線と公開 1 Grid の 21 軸・21 曲線で、配置と表現の参照・レイアウト・所属と順序・タグ・SameSense・曲線の元属性と共有を IfcOpenShell と照らし、食い違いは 0（grids.py、#419）。公開 1 Grid は external、合成 3 Grid は synthetic とする。単位・補助レコード・診断・予算と、配置・反転・幾何の評価は外部照合に含めない。各軸の CurveGraph 内の共有と複数軸間の同一出所を区別し、Building/Hash は未統合。別の複合 Grid の全 Part とローカル属性の所属確認、未知の属性配置の拒否、追加 Part の予算と停止位置は、合成の 3 版で native/WASI の記録を照合する synthetic の範囲。判定・インスタンスのグラフ・壊れた所の扱いと、上に記した属性以外の値は、外部の実装と照らしていない。公開サンプル 12 件は、自前のテストでも L1 で読み、変えずに書くと元のバイト列に戻ることと、写さない値の診断の code・実体のクラス・件数を確かめる（crates/zumen-ifc/tests/samples.rs）。壊れた所の扱いと ifcZIP は、仕様とテストの中で作った IFC-SPF と ifcZIP（crates/zumen-ifc/tests）だけで確かめた。許諾の要る国内の BIM ソフトの書き出しは #513 で足す
 - 読みで使った公開サンプル: [samples/ifc/](../../samples/ifc/)
 - 読みで照らした外部の実装: IfcOpenShell 0.9.0.post1
-- 書きの確かめた度合い: `external`（確認日: 2026-11-18）
-- 書きの確かめた範囲: building\_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。変更だけで作った 2 階建てとそれを直した IFC の 3 版は、IfcOpenShell の検査（スキーマと EXPRESS の規則）と数・配置・所属・関係・層・開口を引いた体積の照合（crates/zumen-ifc/tests/ifcopenshell/author.py）、buildingSMART の ifc-gherkin-rules の規則（gherkin.py）にかけ、毎晩の CI で誤りがないことを確かめる（#898）。ifc-gherkin-rules の警告は、試験の入力に座標参照系がないことの GRF003 だけを許す。書いたファイルを BIM ソフトで開いてはいない（#526）
-- 書きで照らした外部の実装: IfcOpenShell 0.9.0.post1・ifc-gherkin-rules 893f8275049b8960c3ce0c7379b4b57aefeaa8f9（IfcOpenShell 0.8.5 で動かす）
+- 書きの確かめた度合い: `application`（確認日: 2026-11-19）
+- 書きの確かめた範囲: building\_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。空間・通り芯・型・要素・関係を足し・除き・置き直した IFC（#897）、変更だけで作った 2 階建てとそれを直した IFC（#898）、create のひな形と合成および公開サンプルから convert した IFC（#395）の 3 版は、IfcOpenShell 0.9.0.post1 の検査（スキーマと EXPRESS の規則、buildingSMART の validate が呼ぶスキーマ検査と同じ）と GlobalId・空間の親子・配置・所属・単位・型・関係・層・開口を引いた体積の照合（crates/zumen-ifc/tests/ifcopenshell/author.py）、buildingSMART の validate が使う ifc-gherkin-rules の規則（gherkin.py）にかけ、毎晩の CI で誤りがないことを確かめる。ifc-gherkin-rules の警告は、試験の入力に座標参照系がないことの GRF003 だけを許す。公開サンプル 12 件から 3 版へ convert した 36 件も手元の IfcOpenShell 0.9.0.post1 で調べ、元の nakano 5 件が持つ IfcPositiveRatioMeasure(0.) の規則違反のほかにスキーマ・規則の誤りが 0 件なことを確かめた。公開モデル各 1 件の名前・説明・プロパティの編集は、FreeCAD 1.1.4 で IFC4 と IFC2X3 の値・形・配置・対象外の壁を照らした。同じ視点の表示は一致し、読み込み時の誤りと警告は増えず、再保存をキットで読み直した差は両版とも 0 件。IFC4 は FZKViewer でも確認した。新規作成と IFC4X3 の書きは外部実装との照合まで（#526）
+- 書きで照らした外部の実装: IfcOpenShell 0.9.0.post1・ifc-gherkin-rules 893f8275049b8960c3ce0c7379b4b57aefeaa8f9（IfcOpenShell 0.8.5 で動かす。buildingSMART/validate 5ceadbca687667601d687c2a5ff686ed263f2917 と同じスキーマ・規則検査）
+- 書きで開いたソフト: FreeCAD 1.1.4・FZKViewer 6.5.1 Build 2587
 - 形式の文書: [docs/formats/ifc.md](../../docs/formats/ifc.md)
 
 ### format-isg
@@ -849,8 +850,10 @@
 - 権利の根拠にした文書: [「ジオイド2024日本とその周辺」と「基準面補正パラメータ」の説明書（2026 年 4 月）](https://www.gsi.go.jp/common/000277542.pdf)（確認日: 2026-10-31）
 - 照合に使う候補: 国土地理院のジオイド高計算サービス（ジオイド2024日本とその周辺）・国土地理院の内挿計算プログラム（geoidcalc。ISG 形式のモデルと一緒に配られる）
 - サンプルの出どころ: 利用者が国土地理院から入手したジオイド・モデル。Git・パッケージ・テストに入れない
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: ISG format 2.0 の例と同じ形の合成の格子（crates/zumen-crs/tests/grid.rs）で確かめた。国土地理院のジオイド・モデルで、ジオイド高計算サービスか内挿計算プログラムと比べる照合は、検証キット（xtask/verify/geoid）を使って #438 で行う
+- 読みの確かめた度合い: `external`（確認日: 2026-11-20）
+- 読みの確かめた範囲: 国土地理院のジオイド高・基準面補正量・統合の 3 モデルを読み、内挿計算プログラムと各 43 点で照合した。値を比べた点はすべて 0.1 mm 以内で合った。ジオイド高の外周の 4 点では、外周を含める zumen だけが値を返した。モデル別の件数と最大差は docs/formats/crs.md の「内挿計算プログラムとの照合」にある（#438）。ほかのヘッダーの表記、壊れた入力と予算の扱いは合成の格子で確かめた
+- 読みで使った受け取った図面: 国土地理院の ISG 形式のモデル 3 件
+- 読みで照らした外部の実装: 国土地理院の内挿計算プログラム geoidcalc\_win64 1.3.1
 - 形式の文書: [docs/formats/crs.md](../../docs/formats/crs.md)
 
 ### format-jpeg
@@ -959,8 +962,10 @@
 - 文書の補足: パラメーターのファイル（TKY2JGD.par の Ver.2.1.1・2.1.2 など）と、プログラム開発用の TKY2JGD のソースコードを配る。ソースコードは国土地理院コンテンツ利用規約に従う。書式と、申請の要否の記述はない。プログラムの配布は 2017-06-05 に終え、測量計算サイトの TKY2JGD を案内する
 - 照合に使う候補: 国土地理院の測量計算サイト（TKY2JGD・PatchJGD）・jgdtrans 0.3.1（dev の依存。テストの中で作った格子で、読んだ格子点・補間の値・変換した座標を照らす。決定 0286）
 - サンプルの出どころ: 利用者が国土地理院から入手したパラメーターのファイル。Git・パッケージ・テストに入れない。テストの中で合成の格子を作る
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-17）
-- 読みの確かめた範囲: TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子（桁の幅と行の終わりが表 2 と違うものと、表 2 の桁の幅のもの）と、行の終わりが CR+LF で長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs・jgdtrans.rs）で、ヘッダーの読み飛ばし・壊れた行（初めのデータの行の後の UTF-8 でない行を含む）・格子点を数える予算・隣り合う格子点からの間隔の見分け（3 次メッシュの間隔と、公共測量成果改定マニュアル（令和 7 年 4 月）の 5 倍の間隔。格子点が 1 つだけのものや 15 倍の間隔のものは読まない）・双一次の補間（5 倍の格子の南端を含む）・複数の PatchJGD のファイルを古い順に当てる変換と、その作業量の上限や中断の合図で止まること・JGD2000 の成果に当てるファイルと JGD2011 の成果の改定のファイルを分けて受け、JGD2011 の座標には改定のファイルだけを当てること（#678）を確かめた（決定 0286）。テストの中で作った格子を jgdtrans 0.3.1 にも読ませ、読んだ格子点・補間の値・変換した座標を照らした（自前で作った格子なので、段は上げない）。国土地理院のパラメーターのファイルは読んでいない。国土地理院のファイルの間隔とヘッダーと、測量計算サイトの TKY2JGD・PatchJGD との照合は #664 で行う
+- 読みの確かめた度合い: `external`（確認日: 2026-11-19）
+- 読みの確かめた範囲: 国土地理院の TKY2JGD.par（Ver.2.1.2）・tokachi2003.par・kumamoto2026\_BL.par を読み、ファイルごとに 19 点を測量計算サイトの Web 版 TKY2JGD（Ver.1.3.80）・Web 版 PatchJGD（Ver.1.0.1）の 1 点ごとの計算に入れ、結果の経緯度と ShiftGrid::correction で直した経緯度を比べた。四隅のそろった格子点の上・格子の線の上・格子の中と、南か西の側だけが欠けた線の上の 42 点は、差が表示の桁（0.00001 秒）の中で 0。四隅のそろわない際の点と格子の外の点は、サイトも zumen も補間しない（PatchJGD の際の点は、サイトが補正せず、zumen は診断して直さない）。パラメーターのファイルは利用者の手元に置き、点の位置と値は書かない（#664、docs/formats/crs.md の「測量計算サイトとの照合」）。サイトの一括計算・平面直角座標の入力・to\_jgd2011 の変換は照らしていない。ほかの規則は、TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子（桁の幅と行の終わりが表 2 と違うものと、表 2 の桁の幅のもの）と、行の終わりが CR+LF で長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs・jgdtrans.rs）で、ヘッダーの読み飛ばし・壊れた行（初めのデータの行の後の UTF-8 でない行を含む）・格子点を数える予算・隣り合う格子点からの間隔の見分け（3 次メッシュの間隔と、公共測量成果改定マニュアル（令和 7 年 4 月）の 5 倍の間隔。格子点が 1 つだけのものや 15 倍の間隔のものは読まない）・双一次の補間（5 倍の格子の南端を含む）・複数の PatchJGD のファイルを古い順に当てる変換と、その作業量の上限や中断の合図で止まること・JGD2000 の成果に当てるファイルと JGD2011 の成果の改定のファイルを分けて受け、JGD2011 の座標には改定のファイルだけを当てること（#678）を確かめた（決定 0286）。テストの中で作った格子を jgdtrans 0.3.1 にも読ませ、読んだ格子点・補間の値・変換した座標を照らした（自前で作った格子なので、段の根拠にしない）。国土地理院のファイル 3 件の間隔・ヘッダー・ファイルの終わりの形は 2026-11-18 に確かめた（#664）
+- 読みで使った公開サンプル: [https://www.gsi.go.jp/sokuchikijun/tky2jgd\_download.html](https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html)・[https://www.gsi.go.jp/sokuchikijun/sokuchikijun41012.html](https://www.gsi.go.jp/sokuchikijun/sokuchikijun41012.html)
+- 読みで照らした外部の実装: 国土地理院の測量計算サイトの Web 版 TKY2JGD 1.3.80・国土地理院の測量計算サイトの Web 版 PatchJGD 1.0.1
 - 既知の crate: jgdtrans
 - issue: [zumen-jp/zumen#471](https://github.com/zumen-jp/zumen/issues/471)
 - issue: [zumen-jp/zumen#529](https://github.com/zumen-jp/zumen/issues/529)

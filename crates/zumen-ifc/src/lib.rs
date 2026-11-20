@@ -50,9 +50,9 @@ pub use edit::{
     Applied, Edit, FillingKind, NewAxis2, NewAxis3, NewBeam, NewBoolean, NewColumn, NewConstituent,
     NewElement, NewFaces, NewFilling, NewGrid, NewGridAxis, NewHalfSpace, NewHalfSpaceLimit,
     NewItem, NewLayer, NewLayerUsage, NewLiteral, NewMapped, NewMaterial, NewMaterialLayer,
-    NewOpening, NewPlacement, NewProfile, NewProfileKind, NewQuantity, NewSection, NewShape,
-    NewSlab, NewSolid, NewSpace, NewType, NewUnit, NewValue, NewWall, OpeningChange, RootAttribute,
-    SpaceKind, Target, WallChange, apply,
+    NewOpening, NewPlacement, NewProfile, NewProfileKind, NewQuantity, NewRevolution, NewSection,
+    NewShape, NewSlab, NewSolid, NewSpace, NewSweptDisk, NewType, NewUnit, NewValue, NewWall,
+    OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
 };
 #[cfg(feature = "building")]
 pub use edit::{

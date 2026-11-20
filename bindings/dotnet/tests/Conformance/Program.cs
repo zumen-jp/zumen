@@ -15,13 +15,11 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Zumen;
-#if NET
-using System.Text.Json;
 using Zumen.Messages;
-#endif
 
 namespace Zumen.Conformance
 {
@@ -301,12 +299,10 @@ namespace Zumen.Conformance
             };
             // 文字の文字列は、strings のセクションから引ける
             var strings = scene.ToArray<uint>("text_strings");
-#if NET
             if (!scene.Column<uint>("text_strings").SequenceEqual(strings))
             {
                 failures.Add(at + ": text_strings の Column と ToArray が合わない");
             }
-#endif
             for (var row = 0; row + 1 < strings.Length; row += 2)
             {
                 try
@@ -499,7 +495,6 @@ namespace Zumen.Conformance
                         failures.Add("ない入力を開く call の失敗が、診断のある failed でない: " + error.Message);
                     }
                 }
-#if NET
                 // 型つきの要求と応答（System.Text.Json）
                 var typed = session.Call<CapabilitiesResult>(new CapabilitiesRequest { V = major });
                 if (typed.V != major || string.IsNullOrEmpty(typed.Result?.Package) || typed.Diagnostics == null)
@@ -518,7 +513,6 @@ namespace Zumen.Conformance
                         failures.Add("型つきの失敗の応答に、error の診断がない");
                     }
                 }
-#endif
                 // ほかのスレッドから Cancel を呼べる（動いている呼び出しがなければ、何もしない）
                 var thread = new Thread(session.Cancel);
                 thread.Start();

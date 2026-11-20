@@ -10,7 +10,6 @@ from __future__ import annotations
 import ctypes
 import json
 import os
-import struct
 import sys
 from typing import Any, BinaryIO, Callable, Mapping, Optional, Union
 
@@ -325,13 +324,8 @@ def load(path: Union[str, os.PathLike, None] = None) -> Zumen:
     """ネイティブのライブラリを、ファイルの道筋から読み込み、ABI のメジャーバージョンを確かめる。
 
     道筋を渡さなければ、wheel に入れたライブラリ（zumen/_native）を読む（決定 0205）。
-    32 bit の Windows では、関数を stdcall で呼ぶ（決定 0011）。
     """
     path = os.path.abspath(os.fspath(path)) if path is not None else _bundled()
     if not os.path.isfile(path):
         raise OSError(f"zumen のネイティブのライブラリがない: {path}")
-    if sys.platform == "win32" and struct.calcsize("P") == 4:
-        library: ctypes.CDLL = ctypes.WinDLL(path)
-    else:
-        library = ctypes.CDLL(path)
-    return Zumen(library)
+    return Zumen(ctypes.CDLL(path))

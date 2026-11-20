@@ -177,15 +177,18 @@ export function Playground() {
   const [place, setPlace] = useState(null);
   const [sample, setSample] = useState(null);
   const [fetchError, setFetchError] = useState(null);
+  const [viewerError, setViewerError] = useState(null);
   const picker = useRef(null);
   const fetching = useRef(0);
-  const viewer = useDrawingViewer(canvas, viewOptions);
+  const viewer = useDrawingViewer(canvas, viewOptions, setViewerError);
   const overlay = useDrawingViewer(overlayCanvas, overlayOptions);
   const state = useViewerState(viewer);
   const opened = useDrawing(file, { from: place?.id, loadModule, catalog });
   const [renderError, setRenderError] = useState(null);
   const input = opened.status === "ready" ? opened.input : null;
-  const ready = Boolean(input && state?.scene?.scene === input.scene && !renderError);
+  const ready = Boolean(input && state?.scene?.scene === input.scene && !renderError && !viewerError);
+  useLayoutEffect(() => { setViewerError(null); }, [canvas]);
+  useLayoutEffect(() => { if (viewer) setViewerError(null); }, [viewer]);
   useLayoutEffect(() => {
     if (!viewer || !canvas) return;
     const detach = viewer.attachInput();
@@ -244,8 +247,10 @@ export function Playground() {
   }
   // 同じ図面の用紙を読み直す間も候補とフォーカスを保つ。別のファイルを選べば候補を捨てる。
   const drawing = opened.status === "ready" ? opened.drawing : place?.drawing;
-  const failed = opened.status === "error" || renderError || fetchError;
-  const status = fetchError ? "サンプルを取れませんでした。" : failed ? opened.error?.message === "drawing.input.limit" ? "64 MiB 以下のファイルを選んでください。" : "図面を表示できませんでした。"
+  const failed = opened.status === "error" || renderError || fetchError || viewerError;
+  const status = viewerError?.reason === "webgpu-unavailable" ? "このブラウザーでは WebGPU を使えないため、図面を表示できません。"
+    : fetchError ? "サンプルを取れませんでした。"
+    : failed ? opened.error?.message === "drawing.input.limit" ? "64 MiB 以下のファイルを選んでください。" : "図面を表示できませんでした。"
     : ready ? viewer.getElements().length ? "表示しました。" : "表示できる要素がありません。診断を確認してください。" : file || sample ? "図面を読んでいます。" : "図面を選んでください。";
   return <>
   <a className="skip" href="#viewer-main">本文へ移動</a>
@@ -304,7 +309,7 @@ export function Playground() {
       </div>
       {ready && <Inspector key={opened.input.document.hash + "/" + state.scene.result.from} viewer={viewer} state={state} opened={opened}/>}
     </div>
-    {failed && !opened.diagnostics?.length && <details><summary>エラーの詳細</summary><p>{(fetchError ?? renderError ?? opened.error)?.message}</p></details>}
+    {failed && !opened.diagnostics?.length && <details><summary>エラーの詳細</summary><p>{(viewerError ?? fetchError ?? renderError ?? opened.error)?.message}</p></details>}
     {(ready || failed) && <Diagnostics entries={opened.diagnostics ?? []} issues={ready ? viewer.getReport().issues : []}/>}
     {ready && opened.canReview && overlay && <Review key={opened.input.document.hash + "/" + state.scene.result.from} opened={opened} viewer={viewer} overlay={overlay} canvas={canvas}/>}
     {ready && opened.canEstimate && <Export key={opened.input.document.hash} opened={opened} name={file?.name}/>}

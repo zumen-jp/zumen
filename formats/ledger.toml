@@ -721,10 +721,11 @@ implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }]
 checked = "2026-11-11"
 
 [formats.ifc.write]
-level = "external"
-scope = "building_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。変更だけで作った 2 階建てとそれを直した IFC の 3 版は、IfcOpenShell の検査（スキーマと EXPRESS の規則）と数・配置・所属・関係・層・開口を引いた体積の照合（crates/zumen-ifc/tests/ifcopenshell/author.py）、buildingSMART の ifc-gherkin-rules の規則（gherkin.py）にかけ、毎晩の CI で誤りがないことを確かめる（#898）。ifc-gherkin-rules の警告は、試験の入力に座標参照系がないことの GRF003 だけを許す。書いたファイルを BIM ソフトで開いてはいない（#526）"
-implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }, { name = "ifc-gherkin-rules", version = "893f8275049b8960c3ce0c7379b4b57aefeaa8f9（IfcOpenShell 0.8.5 で動かす）" }]
-checked = "2026-11-18"
+level = "application"
+scope = "building_apply でプロパティ・名前・説明を変えて書いた IFC4 と IFC2X3 を IfcOpenShell で開き、変更が見え、スキーマと EXPRESS の規則の検査の誤りが増えないことを、毎晩の CI で確かめる（#482、決定 0244）。空間・通り芯・型・要素・関係を足し・除き・置き直した IFC（#897）、変更だけで作った 2 階建てとそれを直した IFC（#898）、create のひな形と合成および公開サンプルから convert した IFC（#395）の 3 版は、IfcOpenShell 0.9.0.post1 の検査（スキーマと EXPRESS の規則、buildingSMART の validate が呼ぶスキーマ検査と同じ）と GlobalId・空間の親子・配置・所属・単位・型・関係・層・開口を引いた体積の照合（crates/zumen-ifc/tests/ifcopenshell/author.py）、buildingSMART の validate が使う ifc-gherkin-rules の規則（gherkin.py）にかけ、毎晩の CI で誤りがないことを確かめる。ifc-gherkin-rules の警告は、試験の入力に座標参照系がないことの GRF003 だけを許す。公開サンプル 12 件から 3 版へ convert した 36 件も手元の IfcOpenShell 0.9.0.post1 で調べ、元の nakano 5 件が持つ IfcPositiveRatioMeasure(0.) の規則違反のほかにスキーマ・規則の誤りが 0 件なことを確かめた。公開モデル各 1 件の名前・説明・プロパティの編集は、FreeCAD 1.1.4 で IFC4 と IFC2X3 の値・形・配置・対象外の壁を照らした。同じ視点の表示は一致し、読み込み時の誤りと警告は増えず、再保存をキットで読み直した差は両版とも 0 件。IFC4 は FZKViewer でも確認した。新規作成と IFC4X3 の書きは外部実装との照合まで（#526）"
+implementations = [{ name = "IfcOpenShell", version = "0.9.0.post1" }, { name = "ifc-gherkin-rules", version = "893f8275049b8960c3ce0c7379b4b57aefeaa8f9（IfcOpenShell 0.8.5 で動かす。buildingSMART/validate 5ceadbca687667601d687c2a5ff686ed263f2917 と同じスキーマ・規則検査）" }]
+software = [{ name = "FreeCAD", version = "1.1.4" }, { name = "FZKViewer", version = "6.5.1 Build 2587" }]
+checked = "2026-11-19"
 
 [[formats.ifc.evidence]]
 title = "IFC 4.3.x の文書の表紙（ライセンスと連絡の注意）"
@@ -794,9 +795,11 @@ samples = ["利用者が国土地理院から入手したジオイド・モデ�
 docs = ["docs/formats/crs.md"]
 
 [formats.isg.read]
-level = "synthetic"
-scope = "ISG format 2.0 の例と同じ形の合成の格子（crates/zumen-crs/tests/grid.rs）で確かめた。国土地理院のジオイド・モデルで、ジオイド高計算サービスか内挿計算プログラムと比べる照合は、検証キット（xtask/verify/geoid）を使って #438 で行う"
-checked = "2026-11-03"
+level = "external"
+scope = "国土地理院のジオイド高・基準面補正量・統合の 3 モデルを読み、内挿計算プログラムと各 43 点で照合した。値を比べた点はすべて 0.1 mm 以内で合った。ジオイド高の外周の 4 点では、外周を含める zumen だけが値を返した。モデル別の件数と最大差は docs/formats/crs.md の「内挿計算プログラムとの照合」にある（#438）。ほかのヘッダーの表記、壊れた入力と予算の扱いは合成の格子で確かめた"
+checked = "2026-11-20"
+received = [{ kind = "国土地理院の ISG 形式のモデル", count = 3 }]
+implementations = [{ name = "国土地理院の内挿計算プログラム geoidcalc_win64", version = "1.3.1" }]
 
 [[formats.isg.evidence]]
 title = "「ジオイド2024日本とその周辺」と「基準面補正パラメータ」の説明書（2026 年 4 月）"
@@ -820,9 +823,11 @@ issues = ["zumen-jp/zumen#471", "zumen-jp/zumen#529", "zumen-jp/zumen#664", "zum
 notes = "PatchJGD のファイルのヘッダーの行数と文字コード（UTF-8・Shift_JIS）は、ファイルのバージョンで違う。2026-11-09 に確かめた国土地理院の座標補正パラメータファイルの更新の履歴では、noto2024_BL.par の Ver.1.0.1 がヘッダーを 14 行から 15 行に、noto2024_02BL.par の Ver.1.0.1 が文字コードを UTF-8 から Shift_JIS に直した。初めのデータの行の前をヘッダーとして読まないのは、これに合わせた推定。更新の履歴と、ファイルと各ファイルのヘッダーの一覧へのリンクは、docs/formats/crs.md の「座標の補正量の格子」にある"
 
 [formats.par.read]
-level = "synthetic"
-scope = "TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子（桁の幅と行の終わりが表 2 と違うものと、表 2 の桁の幅のもの）と、行の終わりが CR+LF で長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs・jgdtrans.rs）で、ヘッダーの読み飛ばし・壊れた行（初めのデータの行の後の UTF-8 でない行を含む）・格子点を数える予算・隣り合う格子点からの間隔の見分け（3 次メッシュの間隔と、公共測量成果改定マニュアル（令和 7 年 4 月）の 5 倍の間隔。格子点が 1 つだけのものや 15 倍の間隔のものは読まない）・双一次の補間（5 倍の格子の南端を含む）・複数の PatchJGD のファイルを古い順に当てる変換と、その作業量の上限や中断の合図で止まること・JGD2000 の成果に当てるファイルと JGD2011 の成果の改定のファイルを分けて受け、JGD2011 の座標には改定のファイルだけを当てること（#678）を確かめた（決定 0286）。テストの中で作った格子を jgdtrans 0.3.1 にも読ませ、読んだ格子点・補間の値・変換した座標を照らした（自前で作った格子なので、段は上げない）。国土地理院のパラメーターのファイルは読んでいない。国土地理院のファイルの間隔とヘッダーと、測量計算サイトの TKY2JGD・PatchJGD との照合は #664 で行う"
-checked = "2026-11-17"
+level = "external"
+scope = "国土地理院の TKY2JGD.par（Ver.2.1.2）・tokachi2003.par・kumamoto2026_BL.par を読み、ファイルごとに 19 点を測量計算サイトの Web 版 TKY2JGD（Ver.1.3.80）・Web 版 PatchJGD（Ver.1.0.1）の 1 点ごとの計算に入れ、結果の経緯度と ShiftGrid::correction で直した経緯度を比べた。四隅のそろった格子点の上・格子の線の上・格子の中と、南か西の側だけが欠けた線の上の 42 点は、差が表示の桁（0.00001 秒）の中で 0。四隅のそろわない際の点と格子の外の点は、サイトも zumen も補間しない（PatchJGD の際の点は、サイトが補正せず、zumen は診断して直さない）。パラメーターのファイルは利用者の手元に置き、点の位置と値は書かない（#664、docs/formats/crs.md の「測量計算サイトとの照合」）。サイトの一括計算・平面直角座標の入力・to_jgd2011 の変換は照らしていない。ほかの規則は、TKY2JGD の論文の表 2 と同じ項目の並びの合成の格子（桁の幅と行の終わりが表 2 と違うものと、表 2 の桁の幅のもの）と、行の終わりが CR+LF で長いヘッダーに UTF-8 でない行を含む合成の格子（crates/zumen-crs/tests/datum.rs・jgdtrans.rs）で、ヘッダーの読み飛ばし・壊れた行（初めのデータの行の後の UTF-8 でない行を含む）・格子点を数える予算・隣り合う格子点からの間隔の見分け（3 次メッシュの間隔と、公共測量成果改定マニュアル（令和 7 年 4 月）の 5 倍の間隔。格子点が 1 つだけのものや 15 倍の間隔のものは読まない）・双一次の補間（5 倍の格子の南端を含む）・複数の PatchJGD のファイルを古い順に当てる変換と、その作業量の上限や中断の合図で止まること・JGD2000 の成果に当てるファイルと JGD2011 の成果の改定のファイルを分けて受け、JGD2011 の座標には改定のファイルだけを当てること（#678）を確かめた（決定 0286）。テストの中で作った格子を jgdtrans 0.3.1 にも読ませ、読んだ格子点・補間の値・変換した座標を照らした（自前で作った格子なので、段の根拠にしない）。国土地理院のファイル 3 件の間隔・ヘッダー・ファイルの終わりの形は 2026-11-18 に確かめた（#664）"
+checked = "2026-11-19"
+public-samples = ["https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html", "https://www.gsi.go.jp/sokuchikijun/sokuchikijun41012.html"]
+implementations = [{ name = "国土地理院の測量計算サイトの Web 版 TKY2JGD", version = "1.3.80" }, { name = "国土地理院の測量計算サイトの Web 版 PatchJGD", version = "1.0.1" }]
 
 [[formats.par.evidence]]
 title = "国土地理院コンテンツ利用規約"
@@ -1263,7 +1268,7 @@ issues = ["zumen-jp/zumen#383", "zumen-jp/zumen#384", "zumen-jp/zumen#388"]
 
 [formats.delivery.read]
 level = "external"
-scope = "国土交通省が DTD とともに配る管理ファイルの作成例 16 件（工事・業務・地質の令和 8 年 2 月の版の INDEX_C・INDEX_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS と、令和 4 年 3 月の版の工事の束の PHOTO・DRAWINGF・DRAWINGS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。電気通信設備・機械設備の要領の管理ファイル、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）"
+scope = "国土交通省が DTD とともに配る管理ファイルの作成例 46 件（工事・業務・地質の令和 8 年 2 月の版の INDEX_C・INDEX_D・REGISTER 2 版・MEET・PLAN・OTHRS・REPORT・OPENREP・BORING・COREPIC・GRNDTST・OTHRFLS、電気通信設備と機械設備の工事・業務の令和 8 年 2 月の版の 27 件、測量の令和 7 年の版の SURVEY・SURV_DOC・SURV_KTN と、令和 4 年 3 月の版の工事の束の PHOTO・DRAWINGF・DRAWINGS）を、lxml 6.1.3 に要領の DTD で検証させ、lxml が読んだ文書型宣言と要素の順・深さ・名前・値がコアの読みとすべて合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。external の根拠はこの作成例で、転載が禁じられているので同梱せず、利用者が入手したものを手元で読む。Shift_JIS の対応の違う 8 字は WHATWG の側にそろえて比べた。ほかの読みは、要領・基準とテストの中で作った成果品と管理ファイル（crates/zumen-delivery/tests）で確かめた。機械設備の施設台帳・機器台帳の作成例のない DTD、受け取った成果品、電子納品チェックシステムとの照合はまだ（#505）"
 checked = "2026-11-18"
 public-samples = ["https://www.cals-ed.go.jp/cri_dtdxml/"]
 implementations = [{ name = "lxml", version = "6.1.3" }]
@@ -1275,7 +1280,7 @@ checked = "2026-11-01"
 
 [formats.delivery.write]
 level = "external"
-scope = "既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 16 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書くものと、DTD が親の中で単独の繰り返しを許す最後の子の記録を写して親の末尾に足すものを、lxml 6.1.3 が要領の DTD の検証に通し、読んだ木が書いた木と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。コアは DTD を処理しないので、繰り返せない記録を足したり、DTD が子の要素だけを許す項目に文字を書いたりすると検証に通らない。電子納品チェックシステムでの検証はまだ"
+scope = "既存の管理 XML の文字の更新と記録の追加。国土交通省の管理ファイルの作成例 46 件で、DTD が文字を許す項目の値を、文字参照にする記号と日本語を含む値にすべて置き換えて書くものと、DTD が親の中で単独の繰り返しを許す最後の子の記録を写して親の末尾に足すものを、lxml 6.1.3 が要領の DTD の検証に通し、読んだ木が書いた木と合うことを確かめた（crates/zumen-delivery/tests/dtd.rs、#505）。自作の符号化・BOM 7 通りで元の範囲と宣言、ファイル参照とプロファイルの再照合、予算停止を検査した（#866）。XML 自体は Python 3.14・Expat 2.8.5 で別に照合した。コアは DTD を処理しないので、繰り返せない記録を足したり、DTD が子の要素だけを許す項目に文字を書いたりすると検証に通らない。電子納品チェックシステムでの検証はまだ"
 checked = "2026-11-18"
 implementations = [{ name = "lxml", version = "6.1.3" }]
 

@@ -1,6 +1,6 @@
 // View2D に描かせた Canvas を 3D の地面の平面に敷く任意のアダプター（docs/view3d.md#地面の-2d地物点群）。
 // View2D を読み込まず、利用側が作った View2D と Canvas を受け取る。2D の列や描画を作り直さず、Canvas をそのまま texture にする。
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
 import { cross, dot, fail, finite, invalid, isObject, length, normalize, positive, vector } from "./common.js";
 
 /** 2D のシーンの単位の、1 単位あたりの m。 */

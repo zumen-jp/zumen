@@ -2,18 +2,16 @@
 //
 // ネイティブのライブラリ（zumen_abi1.dll・libzumen_abi1.so・libzumen_abi1.dylib）を利用者が渡した道筋から読み込み、
 // API の関数（schema/boundary.toml）を、セッションのメソッドにして出す。関数は、生成した委譲の型（Constants.g.cs）で
-// 呼ぶ。委譲は Winapi の呼び方なので、32 bit の Windows では stdcall、ほかでは cdecl になる。
+// 呼ぶ（64 bit の標準呼び出し規約）。
 
 #nullable enable
 
 using System;
 using System.Runtime.InteropServices;
-using System.Threading;
-#if NET
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using Zumen.Messages;
-#endif
 
 namespace Zumen
 {
@@ -46,13 +44,11 @@ namespace Zumen
         /// <summary>応答の JSON。書かれなかったときは null</summary>
         public string? ResponseText => ResponseBytes == null ? null : Utf8.GetString(ResponseBytes);
 
-#if NET
         /// <summary>応答。書かれなかったときは null。failed の応答は診断を持つ</summary>
         public Response<JsonElement>? Response =>
             ResponseBytes == null
                 ? null
                 : JsonSerializer.Deserialize<Response<JsonElement>>(ResponseBytes, ZumenLibrary.JsonOptions);
-#endif
 
         internal static readonly System.Text.Encoding Utf8 = new System.Text.UTF8Encoding(false, true);
     }
@@ -72,13 +68,11 @@ namespace Zumen
         internal readonly NativeFunctions.ZmSessionClose SessionClose;
         internal readonly NativeFunctions.ZmFree Free;
 
-#if NET
         /// <summary>型つきの要求と応答を読み書きする設定。値のないフィールドは書かない</summary>
         public static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
         {
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
-#endif
 
         private ZumenLibrary(IntPtr handle)
         {
@@ -134,7 +128,6 @@ namespace Zumen
                 : "linux";
             var arch = RuntimeInformation.ProcessArchitecture switch
             {
-                Architecture.X86 => "x86",
                 Architecture.X64 => "x64",
                 Architecture.Arm64 => "arm64",
                 var other => other.ToString().ToLowerInvariant(),
@@ -178,11 +171,9 @@ namespace Zumen
         /// <summary>セッションを作る。設定（session_options）は JSON の文字列で渡す</summary>
         public Session Open(string options) => Open(ZumenException.Utf8.GetBytes(options));
 
-#if NET
         /// <summary>セッションを作る。設定は SessionOptions などの値で渡す</summary>
         public Session Open<TOptions>(TOptions options) =>
             Open(JsonSerializer.SerializeToUtf8Bytes(options, ZumenLibrary.JsonOptions));
-#endif
 
         /// <summary>fixed で NULL にならないように、空の列を置き換える</summary>
         internal static byte[] Pin(byte[] data) => data.Length == 0 ? Empty : data;
@@ -276,7 +267,6 @@ namespace Zumen
         public string Call(string request) =>
             ZumenException.Utf8.GetString(CallBytes(ZumenException.Utf8.GetBytes(request)));
 
-#if NET
         /// <summary>
         /// 要求（OpenRequest などの値）を渡し、応答を受け取る。結果の型は Operations.Types が op から引く型。
         /// 失敗した応答は、ZumenException の Response にある
@@ -286,7 +276,6 @@ namespace Zumen
             var bytes = JsonSerializer.SerializeToUtf8Bytes(request, request.GetType(), ZumenLibrary.JsonOptions);
             return JsonSerializer.Deserialize<Response<TResult>>(CallBytes(bytes), ZumenLibrary.JsonOptions)!;
         }
-#endif
 
         /// <summary>直前の Call が作ったバイナリの結果を、応答の blobs にある番号で取り出す</summary>
         public byte[] Take(uint blob)
@@ -328,79 +317,9 @@ namespace Zumen
     /// <summary>ネイティブのライブラリを読み込み、関数の番地を引く</summary>
     internal static class Loader
     {
-        internal static IntPtr Open(string path)
-        {
-#if NET
-            return NativeLibrary.Load(path);
-#else
-            IntPtr handle;
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                handle = Windows.LoadLibraryW(path);
-            }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                handle = Mac.dlopen(path, Unix.Now);
-            }
-            else
-            {
-                handle = Linux.dlopen(path, Unix.Now);
-            }
-            if (handle == IntPtr.Zero)
-            {
-                throw new DllNotFoundException("ネイティブのライブラリを読み込めない: " + path);
-            }
-            return handle;
-#endif
-        }
+        internal static IntPtr Open(string path) => NativeLibrary.Load(path);
 
-        internal static IntPtr Symbol(IntPtr handle, string name)
-        {
-#if NET
-            return NativeLibrary.TryGetExport(handle, name, out var address) ? address : IntPtr.Zero;
-#else
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                return Windows.GetProcAddress(handle, name);
-            }
-            return RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? Mac.dlsym(handle, name) : Linux.dlsym(handle, name);
-#endif
-        }
-
-#if !NET
-        // netstandard2.0 には NativeLibrary がないので、OS の関数で読み込む
-
-        private static class Windows
-        {
-            [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
-            internal static extern IntPtr LoadLibraryW(string path);
-
-            [DllImport("kernel32", CharSet = CharSet.Ansi, BestFitMapping = false, ExactSpelling = true)]
-            internal static extern IntPtr GetProcAddress(IntPtr module, string name);
-        }
-
-        private static class Unix
-        {
-            internal const int Now = 2;
-        }
-
-        private static class Linux
-        {
-            [DllImport("libdl.so.2", CharSet = CharSet.Ansi, BestFitMapping = false)]
-            internal static extern IntPtr dlopen(string path, int flags);
-
-            [DllImport("libdl.so.2", CharSet = CharSet.Ansi, BestFitMapping = false)]
-            internal static extern IntPtr dlsym(IntPtr handle, string name);
-        }
-
-        private static class Mac
-        {
-            [DllImport("/usr/lib/libSystem.dylib", CharSet = CharSet.Ansi, BestFitMapping = false)]
-            internal static extern IntPtr dlopen(string path, int flags);
-
-            [DllImport("/usr/lib/libSystem.dylib", CharSet = CharSet.Ansi, BestFitMapping = false)]
-            internal static extern IntPtr dlsym(IntPtr handle, string name);
-        }
-#endif
+        internal static IntPtr Symbol(IntPtr handle, string name) =>
+            NativeLibrary.TryGetExport(handle, name, out var address) ? address : IntPtr.Zero;
     }
 }

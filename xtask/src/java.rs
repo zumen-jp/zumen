@@ -3,7 +3,7 @@
 //! - `Messages.java`: メッセージのスキーマ（`schema/messages.json`）の型
 //! - `Constants.java`: API のバージョン・状態コード（`schema/boundary.toml`）と、シーンの配置（`schema/scene.toml`）
 //!
-//! Java 8 と Android 7.0（docs/support.md の下限）で読めるように、標準の `java.util` だけを使う。型は、読んだ JSON
+//! Java 21 と Android 12（API 31、docs/support.md の下限）に向けて、標準の `java.util` だけを使う。型は、読んだ JSON
 //! （`Map`・`List`・`String`・`Long`・`Double`・`Boolean`）を包むビューで、知らないフィールドと値もそのまま持つ（決定 0015）。
 
 use std::fmt::Write;

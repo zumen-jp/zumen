@@ -284,6 +284,27 @@ impl Born {
         self.build(element, frame, home, index, false)
     }
 
+    /// 同じ変更の一覧で新しく作るブロック（まだ ENDBLK を持たない）の中に要素を足す図形
+    pub(in crate::drawing::apply) fn record_in_new_block<P: Copy>(
+        &self,
+        element: &Element<P>,
+        frame: &impl Frame<P>,
+        home: Home,
+        index: u64,
+    ) -> Option<Record> {
+        self.build(element, frame, home, index, true)
+    }
+
+    /// `home` が BLOCKS の所なら、所有者のブロックが ENDBLK を持つか
+    pub(in crate::drawing::apply) fn home_ready(&self, home: Home) -> bool {
+        !home.blocks || home.owner.is_some_and(|owner| self.ends.contains(&owner))
+    }
+
+    /// サブクラスマーカー（100）を書く表か
+    pub(in crate::drawing::apply) fn has_markers(&self) -> bool {
+        self.markers
+    }
+
     /// [`Born::record`]。`new_block` なら、所有者は同じ変更の一覧で足すブロックのレコードで、まだ ENDBLK を
     /// 持たない（[`symbol`]）
     fn build<P: Copy>(
@@ -947,9 +968,11 @@ impl Born {
         corners: [[f64; 2]; 4],
         home: Home,
         index: u64,
+        new_block: bool,
     ) -> Option<Record> {
         self.next?.checked_add(index)?.checked_add(1)?;
-        if home.blocks && !home.owner.is_some_and(|owner| self.ends.contains(&owner)) {
+        if home.blocks && !new_block && !home.owner.is_some_and(|owner| self.ends.contains(&owner))
+        {
             return None;
         }
         let paper = home.paper && !(home.blocks && self.dwg());

@@ -6,6 +6,7 @@
 //! 呼び出し元が決める。既定は [`Reseat`]（点と長さの空間を付け替える）。
 
 use std::collections::{BTreeMap, BTreeSet};
+mod dimension;
 
 use zumen_base::{Cx, Diagnostic, Diagnostics, Kind, Ref, Stop, Value, codes};
 use zumen_drawing::transform::Point as _;
@@ -13,11 +14,11 @@ use zumen_drawing::{
     Attribute, Boundary, Branch, Callout, CalloutContent, Changes, Color, ColorCode, ColorSystem,
     Dimension, DimensionKind, DimensionStyle, Dogleg, Drawing2D, Edge, Edit, Element,
     FormattedText, Grid, Hatch, HatchLoop, HeightMeaning, Inherit, Layer, LayerId, LayerState,
-    LayerStyle, Leader, Length, LineType, LineTypeId, ModelLength, ModelPoint, PaperPoint, Placed,
-    Placement, Polyline, Shape, SheetId, SheetItem, SpaceId, Spline, Symbol, Text, TextStyle,
-    Vertex, id,
+    LayerStyle, Leader, Length, LineType, LineTypeId, ModelLength, ModelPoint, PaperLength,
+    PaperPoint, Placed, Placement, Polyline, Position, Shape, SheetId, SheetItem, SpaceId, Spline,
+    Symbol, Text, TextStyle, Vertex, id,
 };
-use zumen_sdk::{Apply, Codec, Error, Lift};
+use zumen_sdk::{Codec, Error, Lift};
 
 use super::bake;
 use super::template::NewDxfTemplate;
@@ -261,13 +262,42 @@ pub fn lower_to_dxf_with_report(
                 .map_err(|error| failed(cx, error))?;
         }
     }
+    let template_styles = if drawing.dimension_styles.is_empty() {
+        BTreeMap::new()
+    } else {
+        dimension_style_index(&target, cx)?
+    };
     for style in &drawing.dimension_styles {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        if !target
-            .dimension_styles
-            .iter()
-            .any(|known| known.name.eq_ignore_ascii_case(&style.name))
+        cx.check(Kind::DecodedBytes, style.name.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
+        let existing = template_styles
+            .get(&style.name.to_ascii_lowercase())
+            .copied();
+        if let Some((index, known)) = existing
+            && (known.size, known.tick, known.scale) != (style.size, style.tick, style.scale)
         {
+            let mut addition = Addition::new(
+                Edit::ReplaceDimensionStyle {
+                    target: zumen_drawing::Seen {
+                        id: id::dimension_style(known, index),
+                        hash: zumen_drawing::Hash::dimension_style_checked(known, cx)
+                            .map_err(|stop| stopped(cx, stop))?,
+                    },
+                    style: Box::new(DimensionStyle {
+                        size: style.size,
+                        tick: style.tick,
+                        scale: style.scale,
+                        ..known.clone()
+                    }),
+                },
+                "dimension_style",
+                &style.source,
+            );
+            addition.fidelity = ConversionFidelity::Drawn;
+            addition.reasons.push("template_definition");
+            edits.push(addition);
+        } else if existing.is_none() {
             edits.push(Addition::new(
                 Edit::AddDimensionStyle {
                     style: Box::new(DimensionStyle {
@@ -391,6 +421,7 @@ pub fn lower_to_dxf_with_report(
         edits.push(addition);
     }
     fields.extend(add_all(&mut file, edits, None, report, cx)?.layer_fields);
+    let mut dimension_xdata = dimension::prepare(&mut file, drawing, report, cx)?;
 
     // 3. 要素。記号の定義の中身を先に、実寸の空間の要素を後に足す
     let target = lift(&file, cx)?;
@@ -405,6 +436,7 @@ pub fn lower_to_dxf_with_report(
     let maps = Maps {
         source: drawing,
         target: &target,
+        dimension_styles: dimension_style_index(&target, cx)?,
         blocks: &template,
         relocate,
     };
@@ -419,9 +451,13 @@ pub fn lower_to_dxf_with_report(
         let Some(place) = places.get(&name.to_lowercase()) else {
             continue;
         };
-        for element in &definition.space.elements {
+        for (index, element) in definition.space.elements.iter().enumerate() {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            maps.element(element, place, &mut edits, report, cx)?;
+            let fields = dimension_xdata.remove(&Position::Model {
+                space: definition.space.id,
+                index,
+            });
+            maps.element((element, fields), place, None, &mut edits, report, cx)?;
         }
         for attribute in &definition.attributes {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
@@ -432,7 +468,7 @@ pub fn lower_to_dxf_with_report(
                     style: attribute.attribute.style,
                     shape: Shape::Text(attribute.attribute.text.clone()),
                 };
-                maps.element(&text, place, &mut edits, report, cx)?;
+                maps.element((&text, None), place, None, &mut edits, report, cx)?;
             } else {
                 report_dropped(
                     cx,
@@ -448,9 +484,21 @@ pub fn lower_to_dxf_with_report(
         .iter()
         .filter(|space| modelled(drawing, space.id))
     {
-        for element in &space.elements {
+        let paper_factor = space_paper_factor(drawing, space.id).map(|factor| (space.id, factor));
+        for (index, element) in space.elements.iter().enumerate() {
             cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-            maps.element(element, &model, &mut edits, report, cx)?;
+            let fields = dimension_xdata.remove(&Position::Model {
+                space: space.id,
+                index,
+            });
+            maps.element(
+                (element, fields),
+                &model,
+                paper_factor,
+                &mut edits,
+                report,
+                cx,
+            )?;
         }
     }
     // 用紙は 1 つだけ書ける（DXF の Paper_Space）。ほかの用紙は落とす
@@ -510,7 +558,11 @@ pub fn lower_to_dxf_with_report(
             match item {
                 SheetItem::Element(index) => {
                     if let Some(element) = sheet.elements.get(index) {
-                        maps.element(element, paper, &mut edits, report, cx)?;
+                        let fields = dimension_xdata.remove(&Position::Paper {
+                            sheet: sheet.id,
+                            index,
+                        });
+                        maps.element((element, fields), paper, None, &mut edits, report, cx)?;
                     }
                 }
                 SheetItem::View(index) => {
@@ -559,7 +611,7 @@ pub fn lower_to_dxf_with_report(
                         match baked.element {
                             Some(baked) => {
                                 let before = edits.len();
-                                maps.element(&baked, paper, &mut edits, report, cx)?;
+                                maps.element((&baked, None), paper, None, &mut edits, report, cx)?;
                                 for addition in edits.iter_mut().skip(before) {
                                     addition.fidelity =
                                         addition.fidelity.max(ConversionFidelity::Drawn);
@@ -613,6 +665,9 @@ pub fn lower_to_dxf_with_report(
                 cx,
             )
             .map_err(|error| failed(cx, error))?;
+    }
+    if drawing.georeference.is_some() {
+        report_dropped(cx, report, "georeference", &Ref::default())?;
     }
     for (kind, present) in [
         ("line_type_scale", drawing.line_type_scale.is_some()),
@@ -698,6 +753,7 @@ struct Addition<'a> {
     source: Ref,
     detached: bool,
     layer_fields: Option<&'a Layer>,
+    dimension_xdata: Vec<crate::db::Value>,
     fidelity: ConversionFidelity,
     reasons: Vec<&'static str>,
 }
@@ -710,6 +766,7 @@ impl Addition<'_> {
             source: source.clone(),
             detached: false,
             layer_fields: None,
+            dimension_xdata: Vec::new(),
             fidelity: ConversionFidelity::Equivalent,
             reasons: Vec::new(),
         }
@@ -725,6 +782,7 @@ trait Spot: zumen_drawing::transform::Point {
         source: &Shape<Self>,
         output: &Shape<Self>,
     ) -> ConversionFidelity;
+    fn scale_paper_text(shape: &mut Shape<Self>, factor: Option<(SpaceId, f64)>) -> bool;
 }
 
 impl Spot for ModelPoint {
@@ -741,6 +799,39 @@ impl Spot for ModelPoint {
 
     fn relocate(relocate: &dyn Relocate, shape: &Shape<Self>, origin: Self) -> Option<Shape<Self>> {
         relocate.model(shape, origin)
+    }
+
+    fn scale_paper_text(shape: &mut Shape<Self>, factor: Option<(SpaceId, f64)>) -> bool {
+        let Some((space, factor)) = factor else {
+            return false;
+        };
+        let to_model = |length: &mut Length, allow_zero: bool| match *length {
+            Length::Paper(PaperLength(mm)) => {
+                let scaled = mm * factor;
+                if scaled.is_finite() && (scaled > 0.0 || (allow_zero && scaled == 0.0)) {
+                    *length = Length::Model(ModelLength {
+                        space,
+                        value: scaled,
+                    });
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        };
+        match shape {
+            Shape::Text(text) => to_model(&mut text.height.value, false),
+            Shape::Formatted(text) => {
+                let height = to_model(&mut text.height.value, false);
+                let frame = text
+                    .frame_height
+                    .as_mut()
+                    .is_some_and(|frame| to_model(frame, true));
+                height || frame
+            }
+            _ => false,
+        }
     }
 }
 
@@ -759,14 +850,36 @@ impl Spot for PaperPoint {
     fn relocate(relocate: &dyn Relocate, shape: &Shape<Self>, origin: Self) -> Option<Shape<Self>> {
         relocate.paper(shape, origin)
     }
+
+    fn scale_paper_text(_shape: &mut Shape<Self>, _factor: Option<(SpaceId, f64)>) -> bool {
+        false
+    }
 }
 
 /// 書いた先の表と記号の定義の名前への対応
 struct Maps<'a> {
     source: &'a Drawing2D,
     target: &'a Drawing2D,
+    dimension_styles: BTreeMap<String, (usize, &'a DimensionStyle)>,
     blocks: &'a NewDxfTemplate,
     relocate: &'a dyn Relocate,
+}
+
+fn dimension_style_index<'a>(
+    drawing: &'a Drawing2D,
+    cx: &mut Cx<'_>,
+) -> Result<BTreeMap<String, (usize, &'a DimensionStyle)>, Error> {
+    let mut index = BTreeMap::new();
+    for (i, style) in drawing.dimension_styles.iter().enumerate() {
+        cx.check(Kind::Work, 1 + style.name.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
+        cx.check(Kind::DecodedBytes, 64 + style.name.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
+        index
+            .entry(style.name.to_ascii_lowercase())
+            .or_insert((i, style));
+    }
+    Ok(index)
 }
 
 impl Maps<'_> {
@@ -774,8 +887,9 @@ impl Maps<'_> {
     /// 記号から離した文字にする
     fn element<P: Spot + Clone>(
         &self,
-        element: &Element<P>,
+        (element, dimension_xdata): (&Element<P>, Option<Vec<crate::db::Value>>),
         place: &Place<P>,
+        paper_factor: Option<(SpaceId, f64)>,
         edits: &mut Vec<Addition<'_>>,
         report: &mut Report,
         cx: &mut Cx<'_>,
@@ -788,10 +902,25 @@ impl Maps<'_> {
             return Ok(());
         }
         let mut shape = element.shape.clone();
+        let paper_scaled = P::scale_paper_text(&mut shape, paper_factor);
         let mut detached = Vec::new();
+        let mut default_dimension_style = false;
         match &mut shape {
             Shape::Text(text) => self.text_style(&mut text.style),
             Shape::Formatted(text) => self.text_style(&mut text.style),
+            Shape::Dimension(dimension) => {
+                dimension.block = None;
+                dimension.measurement = None;
+                cx.check(Kind::DecodedBytes, dimension.style.len() as u64)
+                    .map_err(|stop| stopped(cx, stop))?;
+                if !self
+                    .dimension_styles
+                    .contains_key(&dimension.style.to_ascii_lowercase())
+                {
+                    "Standard".clone_into(&mut dimension.style);
+                    default_dimension_style = true;
+                }
+            }
             Shape::Symbol(symbol) => {
                 for attribute in symbol.attributes.drain(..) {
                     if !attribute.hidden {
@@ -829,6 +958,10 @@ impl Maps<'_> {
         ) {
             reasons.push("relocated_shape");
         }
+        if paper_scaled {
+            reasons.push("paper_text_height");
+            fidelity = fidelity.max(ConversionFidelity::Drawn);
+        }
         match &element.shape {
             Shape::Text(text)
                 if text.height.meaning != HeightMeaning::Declared("dxf.TEXT.40".into()) =>
@@ -840,6 +973,10 @@ impl Maps<'_> {
                 if text.height.meaning != HeightMeaning::Declared("dxf.MTEXT.40".into()) =>
             {
                 reasons.push("text_height_meaning");
+                fidelity = fidelity.max(ConversionFidelity::Drawn);
+            }
+            Shape::Dimension(_) if default_dimension_style => {
+                reasons.push("dimension_style_default");
                 fidelity = fidelity.max(ConversionFidelity::Drawn);
             }
             _ => {}
@@ -854,15 +991,47 @@ impl Maps<'_> {
                 reasons.push("spline_knot_parameterization");
             }
         }
-        // 境界を探した輪の印（92 の 4）は、書き戻しの追加が書かない。境界の形は同じなので、印を外して見た目だけで書く
-        if let Shape::Hatch(hatch) = &mut shape
-            && hatch.loops.iter().any(|ring| ring.derived)
-        {
-            for ring in &mut hatch.loops {
-                ring.derived = false;
+        // 連動フラグ・境界を探した輪の印・境界の出所は、新しい DXF への追加が書かないため外して見た目だけで書く。
+        // R2004 の HATCH のスプライン辺はフィット点と許容差を持たないため、持っていれば理由に残す。
+        if let (Shape::Hatch(before), Shape::Hatch(after)) = (&element.shape, &mut shape) {
+            if before.associative {
+                after.associative = false;
+                reasons.push("hatch_associative");
+                fidelity = fidelity.max(ConversionFidelity::Drawn);
             }
-            reasons.push("hatch_derived_loop");
-            fidelity = fidelity.max(ConversionFidelity::Drawn);
+            if before.loops.iter().any(|ring| ring.derived) {
+                for ring in &mut after.loops {
+                    ring.derived = false;
+                }
+                reasons.push("hatch_derived_loop");
+                fidelity = fidelity.max(ConversionFidelity::Drawn);
+            }
+            if before.loops.iter().any(|ring| !ring.sources.is_empty()) {
+                for ring in &mut after.loops {
+                    ring.sources.clear();
+                }
+                reasons.push("hatch_boundary_sources");
+                fidelity = fidelity.max(ConversionFidelity::Drawn);
+            }
+            let loses_spline_fit = before.loops.iter().any(|ring| {
+                matches!(
+                    &ring.boundary,
+                    Boundary::Edges(edges)
+                        if edges.iter().any(|edge| {
+                            matches!(
+                                edge,
+                                Edge::Spline(spline)
+                                    if !spline.fit.is_empty()
+                                        || spline.fit_tolerance.is_some()
+                                        || spline.knot_parameterization.is_some()
+                            )
+                        })
+                )
+            });
+            if loses_spline_fit {
+                reasons.push("hatch_spline_fit");
+                fidelity = fidelity.max(ConversionFidelity::Drawn);
+            }
         }
         if let (Shape::Symbol(symbol), Some(name)) = (&mut shape, block) {
             name.clone_into(&mut symbol.key.name);
@@ -876,6 +1045,13 @@ impl Maps<'_> {
             reasons.push("style_default");
             fidelity = fidelity.max(ConversionFidelity::Drawn);
         }
+        let dimension_xdata = match dimension_xdata {
+            Some(_) if !matches!(shape, Shape::Dimension(_)) => {
+                report_dropped(cx, report, "dimension_display_target", &element.source)?;
+                None
+            }
+            fields => fields,
+        };
         let mut addition = Addition::new(
             Edit::Add {
                 place: place.id.clone(),
@@ -891,10 +1067,13 @@ impl Maps<'_> {
         );
         addition.fidelity = fidelity;
         addition.reasons = reasons;
+        if let Some(xdata) = dimension_xdata {
+            addition.dimension_xdata = xdata;
+        }
         edits.push(addition);
         for text in detached {
             let before = edits.len();
-            self.element(&text, place, edits, report, cx)?;
+            self.element((&text, None), place, paper_factor, edits, report, cx)?;
             if let Some(addition) = edits.get_mut(before) {
                 addition.detached = true;
             }
@@ -1004,7 +1183,24 @@ fn add_all<'a>(
             edits: edits.iter().map(|addition| addition.edit.clone()).collect(),
             document: None,
         };
-        match quiet(cx, |cx| file.apply(&changes, cx)) {
+        let mut dimension_xdata = Vec::new();
+        if let Some(last) = edits
+            .iter()
+            .rposition(|addition| !addition.dimension_xdata.is_empty())
+        {
+            let count = last + 1;
+            cx.check(Kind::DecodedBytes, count as u64 * 16)
+                .map_err(|stop| stopped(cx, stop))?;
+            dimension_xdata.extend(
+                edits
+                    .iter()
+                    .take(count)
+                    .map(|addition| addition.dimension_xdata.as_slice()),
+            );
+        }
+        match quiet(cx, |cx| {
+            file.apply_for_lower(&changes, &dimension_xdata, cx)
+        }) {
             Ok(_) => {
                 for addition in &edits {
                     let (fidelity, reasons) = if addition.detached {
@@ -1220,6 +1416,25 @@ fn modelled(drawing: &Drawing2D, space: SpaceId) -> bool {
                 .iter()
                 .any(|view| view.space == space && !bake::bakes(view))
         })
+}
+
+/// 空間を置くビューが 1 つで、鏡映のない相似変換なら、用紙 1 mm の実寸空間での長さ。
+fn space_paper_factor(drawing: &Drawing2D, space: SpaceId) -> Option<f64> {
+    let mut views = drawing
+        .sheets
+        .iter()
+        .flat_map(|sheet| &sheet.views)
+        .filter(|view| view.space == space);
+    let view = views.next()?;
+    if views.next().is_some() {
+        return None;
+    }
+    let similar = view.transform.similarity()?;
+    if similar.mirrored || similar.scale <= 0.0 {
+        return None;
+    }
+    let factor = 1.0 / similar.scale;
+    (factor.is_finite() && factor > 0.0).then_some(factor)
 }
 
 /// 形の点を `point` で、長さを `length` で写す。表・下絵は `None`
@@ -1684,6 +1899,262 @@ mod tests {
             hatch.loops[0].derived = false;
         }
         assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn associative_source_linked_and_edge_loop_hatches_are_written() {
+        use zumen_drawing::{Fill, Islands};
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let template = NewDxfTemplate::new(&Drawing2D::default());
+        let mut drawing = Dxf::read(template.bytes(), &mut cx)
+            .unwrap()
+            .lift(&mut cx)
+            .unwrap();
+        let layer = drawing.layers.first().unwrap().id;
+        let space = drawing.spaces.first_mut().unwrap();
+        let origin = ModelPoint {
+            space: space.id,
+            x: 0.0,
+            y: 0.0,
+        };
+        let edge_hatch = Shape::Hatch(Hatch {
+            loops: vec![HatchLoop {
+                boundary: Boundary::Edges(vec![
+                    Edge::Line {
+                        start: origin.at([0.0, 0.0]),
+                        end: origin.at([20.0, 0.0]),
+                    },
+                    Edge::Arc {
+                        center: origin.at([20.0, 10.0]),
+                        radius: Length::Model(ModelLength {
+                            space: origin.space,
+                            value: 10.0,
+                        }),
+                        start: 270.0,
+                        end: 90.0,
+                        counterclockwise: true,
+                    },
+                    Edge::Line {
+                        start: origin.at([20.0, 20.0]),
+                        end: origin.at([0.0, 20.0]),
+                    },
+                    Edge::Line {
+                        start: origin.at([0.0, 20.0]),
+                        end: origin.at([0.0, 0.0]),
+                    },
+                ]),
+                external: true,
+                outermost: true,
+                derived: false,
+                text_box: false,
+                sources: vec![Ref::at_record(11), Ref::at_record(12)],
+            }],
+            islands: Islands::Nested,
+            fill: Fill::Solid,
+            associative: true,
+            seeds: Vec::new(),
+        });
+        let elliptic_hatch = Shape::Hatch(Hatch {
+            loops: vec![HatchLoop {
+                boundary: Boundary::Edges(vec![Edge::Elliptic {
+                    center: origin.at([50.0, 10.0]),
+                    major: origin.at([60.0, 10.0]),
+                    ratio: 0.5,
+                    start: 0.0,
+                    end: 360.0,
+                    counterclockwise: true,
+                }]),
+                external: true,
+                outermost: true,
+                derived: false,
+                text_box: false,
+                sources: Vec::new(),
+            }],
+            islands: Islands::Nested,
+            fill: Fill::Solid,
+            associative: false,
+            seeds: Vec::new(),
+        });
+        let spline_hatch = Shape::Hatch(Hatch {
+            loops: vec![HatchLoop {
+                boundary: Boundary::Edges(vec![
+                    Edge::Spline(Spline {
+                        degree: 2,
+                        knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                        control: vec![
+                            origin.at([80.0, 0.0]),
+                            origin.at([90.0, 15.0]),
+                            origin.at([100.0, 0.0]),
+                        ],
+                        weights: Vec::new(),
+                        fit: Vec::new(),
+                        start_tangent: None,
+                        end_tangent: None,
+                        closed: false,
+                        periodic: false,
+                        fit_tolerance: None,
+                        knot_parameterization: None,
+                    }),
+                    Edge::Line {
+                        start: origin.at([100.0, 0.0]),
+                        end: origin.at([80.0, 0.0]),
+                    },
+                ]),
+                external: true,
+                outermost: true,
+                derived: false,
+                text_box: false,
+                sources: Vec::new(),
+            }],
+            islands: Islands::Nested,
+            fill: Fill::Solid,
+            associative: false,
+            seeds: Vec::new(),
+        });
+        for (record, shape) in [
+            (910, edge_hatch),
+            (911, elliptic_hatch),
+            (912, spline_hatch),
+        ] {
+            space.elements.push(Element {
+                source: Ref::at_record(record),
+                layer,
+                style: zumen_drawing::Style {
+                    transparency: Inherit::Layer,
+                    ..zumen_drawing::Style::BLOCK
+                },
+                shape,
+            });
+        }
+        let mut expected: Vec<_> = space.elements.iter().map(|e| e.shape.clone()).collect();
+        let written = lower_to_dxf_with_report(&drawing, &Reseat, 1000, &mut cx).unwrap();
+        assert_eq!(written.elements, 3);
+        let row = |record: u64| {
+            written
+                .report
+                .details
+                .iter()
+                .find(|row| row.source.record() == Some(record))
+                .unwrap()
+        };
+        assert_eq!(row(910).fidelity, ConversionFidelity::Drawn);
+        assert_eq!(
+            row(910).reasons,
+            ["hatch_associative", "hatch_boundary_sources"]
+        );
+        assert_eq!(row(911).fidelity, ConversionFidelity::Equivalent);
+        assert_eq!(row(912).fidelity, ConversionFidelity::Equivalent);
+        if let Shape::Hatch(hatch) = &mut expected[0] {
+            hatch.associative = false;
+            hatch.loops[0].sources.clear();
+        }
+        let back = Dxf::read(&written.bytes, &mut cx)
+            .unwrap()
+            .lift(&mut cx)
+            .unwrap();
+        let read: Vec<_> = back.spaces[0]
+            .elements
+            .iter()
+            .map(|e| e.shape.clone())
+            .collect();
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn paper_text_in_single_similarity_view_scales_to_model_units() {
+        use zumen_drawing::{Affine, Height, Horizontal, Vertical, View};
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let template = NewDxfTemplate::new(&Drawing2D::default());
+        let mut drawing = Dxf::read(template.bytes(), &mut cx)
+            .unwrap()
+            .lift(&mut cx)
+            .unwrap();
+        let layer = drawing.layers.first().unwrap().id;
+        let space_id = drawing.spaces[0].id;
+        let sheet_id = drawing.sheets[0].id;
+        drawing.sheets[0].size = Some([PaperLength(420.0), PaperLength(297.0)]);
+        drawing.sheets[0].views.push(View {
+            space: space_id,
+            sheet: sheet_id,
+            transform: Affine {
+                m: [0.01, 0.0, 210.0, 0.0, 0.01, 148.5],
+            },
+            clip: Vec::new(),
+            hidden_layers: Vec::new(),
+            source: Ref::at_record(1),
+        });
+        drawing.spaces[0].elements.push(Element {
+            source: Ref::at_record(500),
+            layer,
+            style: by_layer(),
+            shape: Shape::Text(Text {
+                content: "JWW文字".into(),
+                height: Height {
+                    value: Length::Paper(PaperLength(3.5)),
+                    meaning: HeightMeaning::Declared("jww.moji.size_y".into()),
+                },
+                placement: Placement::Anchor {
+                    point: ModelPoint {
+                        space: space_id,
+                        x: 1000.0,
+                        y: 2000.0,
+                    },
+                    horizontal: Horizontal::Left,
+                    vertical: Vertical::Bottom,
+                },
+                rotation: 0.0,
+                width_factor: 1.0,
+                oblique: 0.0,
+                backward: false,
+                upside_down: false,
+                style: String::new(),
+            }),
+        });
+        let written = lower_to_dxf_with_report(&drawing, &Reseat, 1000, &mut cx).unwrap();
+        assert_eq!(written.elements, 1);
+        let detail = written
+            .report
+            .details
+            .iter()
+            .find(|row| row.source.record() == Some(500))
+            .unwrap();
+        assert_eq!(detail.fidelity, ConversionFidelity::Drawn);
+        assert_eq!(detail.reasons, ["paper_text_height", "text_height_meaning"]);
+        let back = Dxf::read(&written.bytes, &mut cx)
+            .unwrap()
+            .lift(&mut cx)
+            .unwrap();
+        let Shape::Text(read_text) = &back.spaces[0].elements[0].shape else {
+            panic!("TEXT が読めない");
+        };
+        assert_eq!(read_text.content, "JWW文字");
+        assert_eq!(
+            read_text.height.value,
+            Length::Model(ModelLength {
+                space: back.spaces[0].id,
+                value: 350.0,
+            })
+        );
+
+        // 同じ空間を異なる縮尺の 2 つのビューが置くときは、推測せずに落とす
+        drawing.sheets[0].views.push(View {
+            space: space_id,
+            sheet: sheet_id,
+            transform: Affine {
+                m: [0.02, 0.0, 210.0, 0.0, 0.02, 148.5],
+            },
+            clip: Vec::new(),
+            hidden_layers: Vec::new(),
+            source: Ref::at_record(2),
+        });
+        let ambiguous = lower_to_dxf_with_report(&drawing, &Reseat, 1000, &mut cx).unwrap();
+        assert_eq!(ambiguous.elements, 0);
     }
 
     #[test]

@@ -31,6 +31,8 @@ use crate::messages::{
 };
 #[cfg(feature = "bim")]
 use crate::plugin;
+
+mod shape;
 use crate::session::{Failed, fail, invalid_value, message_of, stopped};
 
 /// 2 つの数の並び（`[x, y]`）。数が 2 つでなければ `None`
@@ -363,6 +365,16 @@ pub(crate) fn prepare(
                 }),
                 Outcome::Removed,
             )),
+            BuildingEdit::Shape(edit) => {
+                // 項目の形は、要素を引く前に確かめる。面集合の書き方は文書のバージョンで決める
+                let ifc2x3 = model
+                    .file
+                    .as_ref()
+                    .is_some_and(|file| file.schema().eq_ignore_ascii_case(b"IFC2X3"));
+                let shape = shape::new_shape(edit, ifc2x3, &at, cx)?;
+                let element = refs.resolve(&edit.element, &format!("{at}/element"), cx)?;
+                element.map(|(element, outcome)| (Edit::Shape { element, shape }, outcome))
+            }
             BuildingEdit::Material(edit) => {
                 // 材料の形は、要素を引く前に確かめる
                 let material = new_material(&edit.material)
@@ -417,20 +429,26 @@ pub(crate) fn prepare(
             }
             BuildingEdit::AddWall(edit) => {
                 let storey = refs.resolve(&edit.storey, &format!("{at}/storey"), cx)?;
+                let type_of = refs.optional(
+                    edit.element_type.as_ref(),
+                    &format!("{at}/element_type"),
+                    cx,
+                )?;
                 let start = pair(&edit.start)
                     .ok_or_else(|| fail(cx, invalid_value(format!("{at}/start"))))?;
                 let end =
                     pair(&edit.end).ok_or_else(|| fail(cx, invalid_value(format!("{at}/end"))))?;
                 let global_id = slot.ok_or(Failed)?;
-                storey.map(|(storey, _)| {
+                storey.zip(type_of).map(|((storey, _), type_of)| {
                     (
                         Edit::Wall(NewWall {
                             storey,
                             start,
                             end,
                             height: edit.height,
-                            layers: layers(&edit.layers),
+                            layers: layers(edit.layers.as_deref().unwrap_or(&[])),
                             offset: edit.offset,
+                            type_of,
                             name: edit.name.clone(),
                             global_id: Some(global_id),
                         }),
@@ -440,6 +458,11 @@ pub(crate) fn prepare(
             }
             BuildingEdit::AddSlab(edit) => {
                 let storey = refs.resolve(&edit.storey, &format!("{at}/storey"), cx)?;
+                let type_of = refs.optional(
+                    edit.element_type.as_ref(),
+                    &format!("{at}/element_type"),
+                    cx,
+                )?;
                 let mut outline = Vec::with_capacity(edit.outline.len());
                 for (i, point) in edit.outline.iter().enumerate() {
                     outline.push(
@@ -448,13 +471,14 @@ pub(crate) fn prepare(
                     );
                 }
                 let global_id = slot.ok_or(Failed)?;
-                storey.map(|(storey, _)| {
+                storey.zip(type_of).map(|((storey, _), type_of)| {
                     (
                         Edit::Slab(NewSlab {
                             storey,
                             outline,
-                            layers: layers(&edit.layers),
+                            layers: layers(edit.layers.as_deref().unwrap_or(&[])),
                             elevation: edit.elevation,
+                            type_of,
                             name: edit.name.clone(),
                             global_id: Some(global_id),
                         }),
@@ -464,6 +488,11 @@ pub(crate) fn prepare(
             }
             BuildingEdit::AddColumn(edit) => {
                 let storey = refs.resolve(&edit.storey, &format!("{at}/storey"), cx)?;
+                let type_of = refs.optional(
+                    edit.element_type.as_ref(),
+                    &format!("{at}/element_type"),
+                    cx,
+                )?;
                 let position = pair(&edit.position)
                     .ok_or_else(|| fail(cx, invalid_value(format!("{at}/position"))))?;
                 let direction = match &edit.direction {
@@ -474,7 +503,7 @@ pub(crate) fn prepare(
                     None => None,
                 };
                 let global_id = slot.ok_or(Failed)?;
-                storey.map(|(storey, _)| {
+                storey.zip(type_of).map(|((storey, _), type_of)| {
                     (
                         Edit::Column(NewColumn {
                             storey,
@@ -484,6 +513,7 @@ pub(crate) fn prepare(
                             section: section(&edit.section),
                             direction,
                             material: edit.material.clone(),
+                            type_of,
                             name: edit.name.clone(),
                             global_id: Some(global_id),
                         }),
@@ -493,12 +523,17 @@ pub(crate) fn prepare(
             }
             BuildingEdit::AddBeam(edit) => {
                 let storey = refs.resolve(&edit.storey, &format!("{at}/storey"), cx)?;
+                let type_of = refs.optional(
+                    edit.element_type.as_ref(),
+                    &format!("{at}/element_type"),
+                    cx,
+                )?;
                 let start = triple(&edit.start)
                     .ok_or_else(|| fail(cx, invalid_value(format!("{at}/start"))))?;
                 let end = triple(&edit.end)
                     .ok_or_else(|| fail(cx, invalid_value(format!("{at}/end"))))?;
                 let global_id = slot.ok_or(Failed)?;
-                storey.map(|(storey, _)| {
+                storey.zip(type_of).map(|((storey, _), type_of)| {
                     (
                         Edit::Beam(NewBeam {
                             storey,
@@ -506,6 +541,7 @@ pub(crate) fn prepare(
                             end,
                             section: section(&edit.section),
                             material: edit.material.clone(),
+                            type_of,
                             name: edit.name.clone(),
                             global_id: Some(global_id),
                         }),
@@ -533,14 +569,20 @@ pub(crate) fn prepare(
             }
             BuildingEdit::AddDoor(edit) => {
                 let opening = refs.resolve(&edit.opening, &format!("{at}/opening"), cx)?;
+                let type_of = refs.optional(
+                    edit.element_type.as_ref(),
+                    &format!("{at}/element_type"),
+                    cx,
+                )?;
                 let global_id = slot.ok_or(Failed)?;
-                opening.map(|(opening, _)| {
+                opening.zip(type_of).map(|((opening, _), type_of)| {
                     (
                         Edit::Filling(NewFilling {
                             opening,
                             kind: FillingKind::Door,
                             width: edit.width,
                             height: edit.height,
+                            type_of,
                             name: edit.name.clone(),
                             global_id: Some(global_id),
                         }),
@@ -550,14 +592,20 @@ pub(crate) fn prepare(
             }
             BuildingEdit::AddWindow(edit) => {
                 let opening = refs.resolve(&edit.opening, &format!("{at}/opening"), cx)?;
+                let type_of = refs.optional(
+                    edit.element_type.as_ref(),
+                    &format!("{at}/element_type"),
+                    cx,
+                )?;
                 let global_id = slot.ok_or(Failed)?;
-                opening.map(|(opening, _)| {
+                opening.zip(type_of).map(|((opening, _), type_of)| {
                     (
                         Edit::Filling(NewFilling {
                             opening,
                             kind: FillingKind::Window,
                             width: edit.width,
                             height: edit.height,
+                            type_of,
                             name: edit.name.clone(),
                             global_id: Some(global_id),
                         }),
@@ -598,19 +646,25 @@ pub(crate) fn prepare(
             }
             BuildingEdit::WallShape(edit) => {
                 let wall = refs.resolve(&edit.wall, &format!("{at}/wall"), cx)?;
+                let type_of = refs.optional(
+                    edit.element_type.as_ref(),
+                    &format!("{at}/element_type"),
+                    cx,
+                )?;
                 let start = pair(&edit.start)
                     .ok_or_else(|| fail(cx, invalid_value(format!("{at}/start"))))?;
                 let end =
                     pair(&edit.end).ok_or_else(|| fail(cx, invalid_value(format!("{at}/end"))))?;
-                wall.map(|(wall, outcome)| {
+                wall.zip(type_of).map(|((wall, outcome), type_of)| {
                     (
                         Edit::WallShape(WallChange {
                             wall,
                             start,
                             end,
                             height: edit.height,
-                            layers: layers(&edit.layers),
+                            layers: layers(edit.layers.as_deref().unwrap_or(&[])),
                             offset: edit.offset,
+                            type_of,
                         }),
                         outcome,
                     )
@@ -798,6 +852,18 @@ struct Refs<'a> {
 }
 
 impl Refs<'_> {
+    fn optional(
+        &self,
+        r: Option<&BuildingRef>,
+        at: &str,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Option<Target>>, Failed> {
+        match r {
+            Some(r) => Ok(self.resolve(r, at, cx)?.map(|(target, _)| Some(target))),
+            None => Ok(Some(None)),
+        }
+    }
+
     /// `r` が指す要素を L1 の指し方にする。形が違えば失敗し、要素がないか古ければ診断して `None`
     fn resolve(
         &self,

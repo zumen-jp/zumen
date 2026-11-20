@@ -1,12 +1,16 @@
 //! 常駐 IPC の文書と、表示の受領確認を直列に扱う。
 
 use zumen_acad::AcadLive;
-use zumen_base::{Cx, Diagnostic, Error, Kind, codes};
-use zumen_drawing::{Affine, Applied, Changes, Edit, Layer, LineType, Placed, Restyle, Seen};
+use zumen_base::{Cx, Diagnostic, Diagnostics, Error, Kind, Stop, codes};
+use zumen_drawing::{
+    Affine, Applied, Changes, Edge, Edit, Element, Layer, Length, LineType, ModelLength,
+    ModelPoint, PaperLength, PaperPoint, Placed, Restyle, Seen, Shape,
+};
 use zumen_jww::{Jww, JwwLive};
 use zumen_live::display::Display;
 use zumen_live::{Revision, RowId, display_wire};
 use zumen_sdk::{Codec, Signature};
+use zumen_sxf::saf::AttributeFile;
 use zumen_sxf::{Mode, Sxf, SxfLive};
 
 // 編集列の固定部分を、環境共通の 1 行 256 バイトで確保前に検査する。
@@ -25,6 +29,109 @@ pub(super) enum RowEdit {
     Remove,
     /// 文字の内容を替える。替えられるのは文書エンジンの `display_retexted` が受ける文字だけ
     Text(String),
+}
+
+/// Draw で足す形。値は表示の座標で、有限。半径は正
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum DrawShape {
+    /// 始点と終点 `[x0, y0, x1, y1]`
+    Line([f64; 4]),
+    /// 中心と半径 `[x, y, r]`
+    Circle([f64; 3]),
+    /// 中心・半径と、始まり・終わりの角度（度、反時計回り）`[x, y, r, start, end]`
+    Arc([f64; 5]),
+}
+
+/// 表示の座標の形を、`sheet`（行の座標から表示の座標への写し）の逆で、行の座標に写す。
+/// 線分はどの写しでも受ける。円・円弧は、軸に沿った正の一様な拡大縮小と平行移動の写しだけを受け、半径を同じ比で直す。
+/// 受けない写しか、逆に写せないか、結果が有限でなければ `None`
+fn unsheet(shape: DrawShape, sheet: Affine) -> Option<DrawShape> {
+    let inverse = invert(sheet)?;
+    let [a, b, c, d, e, f] = inverse.m;
+    let point = |x: f64, y: f64| {
+        let (px, py) = (a * x + b * y + c, d * x + e * y + f);
+        (px.is_finite() && py.is_finite()).then_some((px, py))
+    };
+    let radius = |r: f64| {
+        let [sa, sb, _, sd, se, _] = sheet.m;
+        let uniform = sb == 0.0 && sd == 0.0 && sa == se && sa > 0.0;
+        let value = r * a;
+        (uniform && value.is_finite() && value > 0.0).then_some(value)
+    };
+    Some(match shape {
+        DrawShape::Line([x0, y0, x1, y1]) => {
+            let ((x0, y0), (x1, y1)) = (point(x0, y0)?, point(x1, y1)?);
+            DrawShape::Line([x0, y0, x1, y1])
+        }
+        DrawShape::Circle([x, y, r]) => {
+            let (x, y) = point(x, y)?;
+            DrawShape::Circle([x, y, radius(r)?])
+        }
+        DrawShape::Arc([x, y, r, start, end]) => {
+            let (x, y) = point(x, y)?;
+            DrawShape::Arc([x, y, radius(r)?, start, end])
+        }
+    })
+}
+
+/// 行の座標の形 `shape` を、点の作り方 `point` と長さの作り方 `length` で、図面モデルの形にする
+pub(super) fn model_shape<P: Copy>(
+    shape: DrawShape,
+    point: impl Fn(f64, f64) -> P,
+    length: impl Fn(f64) -> Length,
+) -> Shape<P> {
+    match shape {
+        DrawShape::Line([x0, y0, x1, y1]) => Shape::Line {
+            start: point(x0, y0),
+            end: point(x1, y1),
+        },
+        DrawShape::Circle([x, y, r]) => Shape::Circle {
+            radius: length(r),
+            center: point(x, y),
+        },
+        DrawShape::Arc([x, y, r, start, end]) => Shape::Curve(Edge::Arc {
+            radius: length(r),
+            center: point(x, y),
+            start,
+            end,
+            counterclockwise: true,
+        }),
+    }
+}
+
+/// 雛形 `template`（足す先の原点の線分）の画層・スタイルと足す先で、行の座標の形 `shape` の要素を作る。
+/// 雛形が線分でなければ `None`
+fn drawn(template: Placed, shape: DrawShape) -> Option<Placed> {
+    Some(match template {
+        Placed::Model(element) => {
+            let Shape::Line { start, .. } = element.shape else {
+                return None;
+            };
+            let space = start.space;
+            Placed::Model(Element {
+                shape: model_shape(
+                    shape,
+                    |x, y| ModelPoint { space, x, y },
+                    |value| Length::Model(ModelLength { space, value }),
+                ),
+                ..element
+            })
+        }
+        Placed::Paper(element) => {
+            let Shape::Line { start, .. } = element.shape else {
+                return None;
+            };
+            let sheet = start.sheet;
+            Placed::Paper(Element {
+                shape: model_shape(
+                    shape,
+                    |x, y| PaperPoint { sheet, x, y },
+                    |value| Length::Paper(PaperLength(value)),
+                ),
+                ..element
+            })
+        }
+    })
 }
 
 /// 記号の定義の表示
@@ -57,6 +164,139 @@ impl From<Error> for Problem {
     }
 }
 
+const ZIP_SIGNATURE: &[u8] = b"PK\x03\x04";
+
+/// P2Z・SFZ のアーカイブの項目。中の SXF の項目だけを保存時に置き換え、ほかの項目（SAF・画像）は保つ
+struct SxfArchive {
+    entries: Vec<(String, Vec<u8>)>,
+    index: usize,
+}
+
+fn is_sxf_entry(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".p21") || lower.ends_with(".sfc")
+}
+
+fn report_stop(cx: &mut Cx<'_>, stop: Stop) -> Error {
+    let diagnostic = stop.to_diagnostic();
+    if !cx
+        .diag
+        .iter()
+        .any(|reported| reported.code() == diagnostic.code())
+    {
+        cx.report(diagnostic);
+    }
+    Error::Stopped(stop)
+}
+
+/// ZIP で `.p21`・`.sfc` の項目があれば展開し、アーカイブの残りの項目と一緒に返す。
+/// ZIP でないか SXF の項目がなければ診断を足さず `None` を返す
+fn read_sxf_archive(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<(Vec<u8>, SxfArchive)>, Error> {
+    if !bytes.starts_with(ZIP_SIGNATURE) {
+        return Ok(None);
+    }
+    let mut quiet = Diagnostics::with_max_places(cx.diag.max_places());
+    let archive = match zumen_zip::read(bytes, &mut Cx::new(cx.budget, &mut quiet, cx.cancel)) {
+        Ok(archive) => archive,
+        Err(Error::Stopped(stop)) => return Err(report_stop(cx, stop)),
+        Err(_) => return Ok(None),
+    };
+    let Some(index) = archive
+        .entries()
+        .iter()
+        .position(|entry| !entry.is_directory() && is_sxf_entry(entry.name()))
+    else {
+        return Ok(None);
+    };
+    for diagnostic in quiet.iter() {
+        cx.report(diagnostic.clone());
+    }
+    cx.check(
+        Kind::DecodedBytes,
+        (archive.entries().len() as u64).saturating_mul(64),
+    )
+    .map_err(|stop| report_stop(cx, stop))?;
+    let mut entries = Vec::with_capacity(archive.entries().len());
+    let mut sxf = Vec::new();
+    for (at, entry) in archive.entries().iter().enumerate() {
+        cx.check(Kind::Work, 1)
+            .and_then(|()| cx.check(Kind::DecodedBytes, entry.name().len() as u64))
+            .map_err(|stop| report_stop(cx, stop))?;
+        let data = if entry.is_directory() {
+            Vec::new()
+        } else {
+            archive.extract(entry, cx).map_err(|error| match error {
+                Error::Stopped(stop) => report_stop(cx, stop),
+                other => other,
+            })?
+        };
+        if at == index {
+            sxf = data;
+            entries.push((entry.name().to_owned(), Vec::new()));
+        } else {
+            entries.push((entry.name().to_owned(), data));
+        }
+    }
+    Ok(Some((sxf, SxfArchive { entries, index })))
+}
+
+impl SxfArchive {
+    /// SXF の項目と同じ名前の属性ファイル（`{幹}.saf` または `{項目名}.saf`、大小文字を区別しない）
+    fn attribute_file(&self) -> Option<&[u8]> {
+        let (sxf, _) = self.entries.get(self.index)?;
+        let sxf = sxf.to_ascii_lowercase();
+        let stem = sxf.rsplit_once('.').map_or(sxf.as_str(), |(stem, _)| stem);
+        let names = [format!("{stem}.saf"), format!("{sxf}.saf")];
+        self.entries
+            .iter()
+            .enumerate()
+            .find(|(at, (name, _))| *at != self.index && names.contains(&name.to_ascii_lowercase()))
+            .map(|(_, (_, data))| data.as_slice())
+    }
+
+    /// SXF の項目を `sxf` に置き換えたアーカイブを、共有の予算を確かめてから書く
+    fn write(&self, sxf: &[u8], cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
+        let estimated = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(at, (name, data))| {
+                let body = if at == self.index {
+                    sxf.len()
+                } else {
+                    data.len()
+                };
+                (name.len().saturating_mul(2).saturating_add(body) as u64).saturating_add(96)
+            })
+            .fold(32_u64, u64::saturating_add);
+        cx.check(Kind::Work, self.entries.len() as u64 + 1)
+            .and_then(|()| cx.check(Kind::DecodedBytes, estimated))
+            .map_err(|stop| report_stop(cx, stop))?;
+        let entries: Vec<(&str, &[u8])> = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(at, (name, data))| {
+                let data = if at == self.index { sxf } else { data };
+                (name.as_str(), data)
+            })
+            .collect();
+        zumen_zip::write(&entries).ok_or_else(|| {
+            cx.report(Diagnostic::new(codes::SXF_ARCHIVE_UNSUPPORTED));
+            Error::Rejected
+        })
+    }
+}
+
+/// 属性ファイル（SAF）を読む。読めなければ診断を残して属性ファイルなしで続け、停止したときは停止を返す
+fn read_saf(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<AttributeFile>, Error> {
+    match zumen_sxf::saf::read(bytes, cx) {
+        Ok(file) => Ok(Some(file)),
+        Err(Error::Stopped(stop)) => Err(report_stop(cx, stop)),
+        Err(_) => Ok(None),
+    }
+}
+
 /// 文書エンジン。表示の座標は、DXF・DWG はモデル空間、JWW・SXF は用紙の座標
 enum Engine {
     Acad(Box<AcadLive>),
@@ -65,16 +305,41 @@ enum Engine {
 }
 
 impl Engine {
-    /// 形式の署名で文書エンジンを選んで開く。JWW・SXF のどちらでもなければ、DXF・DWG として開く
-    fn open(bytes: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<Self, Error> {
+    /// 形式の署名と ZIP の中身で文書エンジンを選んで開く。SXF には P2Z・SFZ と属性ファイル（SAF）も受ける
+    fn open(
+        bytes: &[u8],
+        saf: Option<&[u8]>,
+        threads: usize,
+        cx: &mut Cx<'_>,
+    ) -> Result<(Self, Option<SxfArchive>), Error> {
         let signed =
             |signatures: &[Signature]| signatures.iter().any(|signature| signature.matches(bytes));
+        if let Some((sxf_bytes, archive)) = read_sxf_archive(bytes, cx)? {
+            let attributes = match saf.or_else(|| archive.attribute_file()) {
+                Some(saf_bytes) => read_saf(saf_bytes, cx)?,
+                None => None,
+            };
+            let live =
+                SxfLive::open_with_threads_and_attributes(&sxf_bytes, threads, attributes, cx)?;
+            return Ok((Self::Sxf(Box::new(live)), Some(archive)));
+        }
+        if signed(Sxf::SIGNATURES) {
+            let attributes = match saf {
+                Some(saf_bytes) => read_saf(saf_bytes, cx)?,
+                None => None,
+            };
+            let live = SxfLive::open_with_threads_and_attributes(bytes, threads, attributes, cx)?;
+            return Ok((Self::Sxf(Box::new(live)), None));
+        }
+        if saf.is_some() {
+            return Err(Error::Invalid);
+        }
         if signed(Jww::SIGNATURES) {
-            JwwLive::open_with_threads(bytes, threads, cx).map(|live| Self::Jww(Box::new(live)))
-        } else if signed(Sxf::SIGNATURES) {
-            SxfLive::open_with_threads(bytes, threads, cx).map(|live| Self::Sxf(Box::new(live)))
+            JwwLive::open_with_threads(bytes, threads, cx)
+                .map(|live| (Self::Jww(Box::new(live)), None))
         } else {
-            AcadLive::open_with_threads(bytes, threads, cx).map(|live| Self::Acad(Box::new(live)))
+            AcadLive::open_with_threads(bytes, threads, cx)
+                .map(|live| (Self::Acad(Box::new(live)), None))
         }
     }
 
@@ -132,6 +397,26 @@ impl Engine {
             Self::Acad(live) => live.seen_of_row(row, cx),
             Self::Jww(live) => live.seen_of_row(row, cx),
             Self::Sxf(live) => live.seen_of_row(row, cx),
+        }
+    }
+
+    /// 行を雛形にして足すときの、足す先の場所の ID と、雛形の画層・スタイルを持つ要素
+    fn template(&self, row: RowId, cx: &mut Cx<'_>) -> Result<Option<(String, Placed)>, Error> {
+        match self {
+            Self::Acad(live) => live.display_template(row, cx),
+            Self::Jww(live) => live.display_template(row, cx),
+            Self::Sxf(live) => live.display_template(row, cx),
+        }
+    }
+
+    /// 行の座標から表示の座標への写し。DXF・DWG は恒等。1 つに決まらなければ `None`
+    fn sheet(&self, row: RowId) -> Option<Affine> {
+        match self {
+            Self::Acad(_) => Some(Affine {
+                m: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            }),
+            Self::Jww(live) => live.sheet_of_row(row),
+            Self::Sxf(live) => live.sheet_of_row(row),
         }
     }
 
@@ -243,11 +528,89 @@ impl Engine {
             Self::Sxf(live) => live.select_rect_with_cx(rect, out, cx),
         }
     }
+
+    fn select_point(
+        &self,
+        point: [f64; 2],
+        tolerance: f64,
+        out: &mut Vec<RowId>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        match self {
+            Self::Acad(live) => live.select_point_with_cx(point, tolerance, out, cx),
+            Self::Jww(live) => live.select_point_with_cx(point, tolerance, out, cx),
+            Self::Sxf(live) => live.select_point_with_cx(point, tolerance, out, cx),
+        }
+    }
+
+    fn flavor(&self) -> super::edits::FormatFlavor {
+        match self {
+            Self::Acad(_) => super::edits::FormatFlavor::Acad,
+            Self::Jww(_) => super::edits::FormatFlavor::Jww,
+            Self::Sxf(_) => super::edits::FormatFlavor::Sxf,
+        }
+    }
+
+    fn dirty_symbols(&self) -> &std::collections::BTreeSet<u32> {
+        match self {
+            Self::Acad(live) => live.dirty_symbols(),
+            Self::Jww(live) => live.dirty_symbols(),
+            Self::Sxf(live) => live.dirty_symbols(),
+        }
+    }
+
+    fn clear_dirty_symbols(&mut self) {
+        match self {
+            Self::Acad(live) => live.clear_dirty_symbols(),
+            Self::Jww(live) => live.clear_dirty_symbols(),
+            Self::Sxf(live) => live.clear_dirty_symbols(),
+        }
+    }
+
+    fn symbol_count(&self) -> u32 {
+        match self {
+            Self::Acad(live) => live.display_symbol_count(),
+            Self::Jww(live) => live.display_symbol_count(),
+            Self::Sxf(live) => live.display_symbol_count(),
+        }
+    }
+
+    fn symbol_key(&self, index: u32) -> Option<zumen_drawing::SymbolKey> {
+        match self {
+            Self::Acad(live) => live.display_symbol_key(index),
+            Self::Jww(live) => live.display_symbol_key(index),
+            Self::Sxf(live) => live.display_symbol_key(index),
+        }
+    }
+
+    fn seen_of_symbol_element(
+        &self,
+        symbol: u32,
+        element: u32,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Seen>, Error> {
+        match self {
+            Self::Acad(live) => live.seen_of_symbol_element(symbol, element, cx),
+            Self::Jww(live) => live.seen_of_symbol_element(symbol, element, cx),
+            Self::Sxf(live) => live.seen_of_symbol_element(symbol, element, cx),
+        }
+    }
 }
 
 /// `sheet` で写した座標での `transform` を、写す前の座標の変換にする（`sheet` の逆 ∘ `transform` ∘ `sheet`）。
 /// `sheet` が逆に写せないか、結果が有限でなければ `None`
 pub(super) fn conjugate(sheet: Affine, transform: Affine) -> Option<Affine> {
+    let inverse = invert(sheet)?;
+    let result = compose(inverse, compose(transform, sheet));
+    result
+        .m
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(result)
+}
+
+/// `sheet` の逆の写し。逆に写せないか、値が有限でなければ `None`
+pub(super) fn invert(sheet: Affine) -> Option<Affine> {
     let [a, b, c, d, e, f] = sheet.m;
     let det = a * e - b * d;
     if !(det.is_finite() && det != 0.0) {
@@ -263,12 +626,11 @@ pub(super) fn conjugate(sheet: Affine, transform: Affine) -> Option<Affine> {
             (c * d - a * f) / det,
         ],
     };
-    let result = compose(inverse, compose(transform, sheet));
-    result
+    inverse
         .m
         .iter()
         .all(|value| value.is_finite())
-        .then_some(result)
+        .then_some(inverse)
 }
 
 /// `outer ∘ inner`（`inner` を先に当てる）
@@ -290,6 +652,7 @@ fn compose(outer: Affine, inner: Affine) -> Affine {
 /// 行番号の意味と表示の差分は、この文書の現在の版に結び付く。
 pub(super) struct Document {
     live: Engine,
+    archive: Option<SxfArchive>,
     sent: Option<Revision>,
     confirmed: Option<Revision>,
 }
@@ -301,9 +664,21 @@ pub(super) struct DisplayReply {
 }
 
 impl Document {
+    #[cfg(test)]
     pub fn open(bytes: &[u8], threads: usize, cx: &mut Cx<'_>) -> Result<Self, Error> {
+        Self::open_with_saf(bytes, None, threads, cx)
+    }
+
+    pub fn open_with_saf(
+        bytes: &[u8],
+        saf: Option<&[u8]>,
+        threads: usize,
+        cx: &mut Cx<'_>,
+    ) -> Result<Self, Error> {
+        let (live, archive) = Engine::open(bytes, saf, threads, cx)?;
         Ok(Self {
-            live: Engine::open(bytes, threads, cx)?,
+            live,
+            archive,
             sent: None,
             confirmed: None,
         })
@@ -432,6 +807,54 @@ impl Document {
             .map_err(Problem::Core)
     }
 
+    /// 行 `template` の空間か用紙に、その画層とスタイルで形 `shape` の要素を 1 つ足す。1 トランザクションで当てる。
+    /// 生きていない行は `Problem::Missing`。雛形にならない行（記号の定義の中の要素）と、表示の座標を
+    /// 行の座標に写せない形は `change.edit.unsupported`（`edit` は `add`）を診断して Rejected
+    pub fn draw(
+        &mut self,
+        expected: Revision,
+        template: RowId,
+        shape: DrawShape,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<Applied>, Problem> {
+        self.require_revision(expected)?;
+        let reject = |kind: &str, format: &str, cx: &mut Cx<'_>| {
+            cx.report(
+                Diagnostic::new(codes::CHANGE_EDIT_UNSUPPORTED)
+                    .with("edit", "add")
+                    .with("kind", kind)
+                    .with("format", format),
+            );
+            Problem::Core(Error::Rejected)
+        };
+        let Some((place, template_element)) = self.live.template(template, cx)? else {
+            if self.live.seen_of_row(template, cx)?.is_none() {
+                return Err(Problem::Missing(template));
+            }
+            return Err(reject("place", self.live.format(), cx));
+        };
+        let Some(element) = self
+            .live
+            .sheet(template)
+            .and_then(|sheet| unsheet(shape, sheet))
+            .and_then(|shape| drawn(template_element, shape))
+        else {
+            return Err(reject("view", self.live.format(), cx));
+        };
+        self.live
+            .apply(
+                &Changes {
+                    document: None,
+                    edits: vec![Edit::Add {
+                        place,
+                        element: Box::new(element),
+                    }],
+                },
+                cx,
+            )
+            .map_err(Problem::Core)
+    }
+
     /// 表の行の数（削除した行を含む）。写しの行は、当てる前のこの数から順に足される
     pub fn row_count(&self) -> usize {
         self.live.row_count()
@@ -448,7 +871,11 @@ impl Document {
     }
 
     pub fn save(&self, cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
-        self.live.save(cx)
+        let saved = self.live.save(cx)?;
+        match &self.archive {
+            Some(archive) => archive.write(&saved, cx),
+            None => Ok(saved),
+        }
     }
 
     pub fn target(&self, row: RowId, cx: &mut Cx<'_>) -> Result<Seen, Problem> {
@@ -458,6 +885,17 @@ impl Document {
     pub fn select(&self, rect: [f64; 4], cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
         let mut rows = Vec::new();
         self.live.select(rect, &mut rows, cx)?;
+        Ok(rows)
+    }
+
+    pub fn select_point(
+        &self,
+        point: [f64; 2],
+        tolerance: f64,
+        cx: &mut Cx<'_>,
+    ) -> Result<Vec<RowId>, Error> {
+        let mut rows = Vec::new();
+        self.live.select_point(point, tolerance, &mut rows, cx)?;
         Ok(rows)
     }
 
@@ -473,6 +911,10 @@ impl Document {
     /// 行の文字の種類（0 文字でない・1 文字・2 書式つきの文字）と、元の符号のままの内容。要求の順に返す。
     /// 生きていない行があれば `Problem::Missing`
     pub fn texts(&self, rows: &[RowId], cx: &mut Cx<'_>) -> Result<Vec<(u32, String)>, Problem> {
+        let count = rows.len() as u64;
+        cx.check(Kind::Work, count)
+            .and_then(|()| cx.check(Kind::DecodedBytes, count.saturating_mul(32)))
+            .map_err(|stop| Problem::Core(report_stop(cx, stop)))?;
         let mut out = Vec::with_capacity(rows.len());
         for &row in rows {
             out.push(self.live.text(row, cx)?.ok_or(Problem::Missing(row))?);
@@ -485,27 +927,34 @@ impl Document {
         self.live.line_types(cx)
     }
 
-    /// 記号の定義 `indices` の要素を、定義の座標のまま要求の順に並べる。範囲外の定義は Invalid。
-    /// 定義をまだ書けない形式（JWW・SXF）は `call.op.unsupported` を診断して Rejected
+    /// 記号の定義 `indices` の要素を、定義の座標のまま要求の順に並べる。範囲外の定義は Invalid
     pub fn symbols(&self, indices: &[u32], cx: &mut Cx<'_>) -> Result<Symbols, Problem> {
-        let Engine::Acad(live) = &self.live else {
-            cx.report(Diagnostic::new(codes::CALL_OP_UNSUPPORTED).with("op", "symbols"));
-            return Err(Problem::Core(Error::Rejected));
+        let count = indices.len() as u64;
+        cx.check(Kind::Work, count)
+            .and_then(|()| cx.check(Kind::DecodedBytes, count.saturating_mul(8)))
+            .map_err(|stop| Problem::Core(report_stop(cx, stop)))?;
+        let total = match &self.live {
+            Engine::Acad(live) => live.display_symbol_count(),
+            Engine::Sxf(live) => live.display_symbol_count(),
+            Engine::Jww(live) => live.display_symbol_count(),
         };
         let mut display = Display::with_rows(0);
         let mut ranges = Vec::with_capacity(indices.len());
         let mut first = 0_u32;
         for &index in indices {
-            let rows = live
-                .display_symbol(index, &mut display, cx)?
-                .ok_or(Problem::Core(Error::Invalid))?;
+            let rows = match &self.live {
+                Engine::Acad(live) => live.display_symbol(index, &mut display, cx)?,
+                Engine::Sxf(live) => live.display_symbol(index, &mut display, cx)?,
+                Engine::Jww(live) => live.display_symbol(index, &mut display, cx)?,
+            }
+            .ok_or(Problem::Core(Error::Invalid))?;
             ranges.push([first, rows]);
             first = first
                 .checked_add(rows)
                 .ok_or(Problem::Core(Error::Invalid))?;
         }
         Ok(Symbols {
-            total: live.display_symbol_count(),
+            total,
             ranges,
             display,
         })
@@ -514,5 +963,147 @@ impl Document {
     /// 表示に出る生きた行を、先に描くものから並べたもの
     pub fn order(&self, cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
         self.live.order(cx)
+    }
+
+    /// 変更された記号の定義の番号を昇順で返す
+    pub fn dirty_symbols(&self, cx: &mut Cx<'_>) -> Result<Vec<RowId>, Error> {
+        let dirty = self.live.dirty_symbols();
+        let count = dirty.len() as u64;
+        cx.check(Kind::Work, count.max(1))
+            .and_then(|()| cx.check(Kind::Elements, count))
+            .and_then(|()| cx.check(Kind::DecodedBytes, count.saturating_mul(4)))
+            .map_err(|stop| report_stop(cx, stop))?;
+        Ok(dirty.iter().copied().map(RowId).collect())
+    }
+
+    pub fn clear_dirty_symbols(&mut self) {
+        self.live.clear_dirty_symbols();
+    }
+
+    pub fn apply_single(
+        &mut self,
+        expected: Revision,
+        edit: Edit,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Problem> {
+        self.require_revision(expected)?;
+        cx.check(Kind::DecodedBytes, 256)
+            .and_then(|()| cx.check(Kind::Work, 1))
+            .map_err(|stop| Problem::Core(report_stop(cx, stop)))?;
+        self.live
+            .apply(
+                &Changes {
+                    document: None,
+                    edits: vec![edit],
+                },
+                cx,
+            )
+            .map(|_| ())
+            .map_err(Problem::Core)
+    }
+
+    pub fn add_element(
+        &mut self,
+        expected: Revision,
+        template: RowId,
+        shape: super::edits::AddedShape<'_>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Problem> {
+        self.require_revision(expected)?;
+        let symbol_key = match &shape {
+            super::edits::AddedShape::Symbol { symbol_index, .. } => Some(
+                self.live
+                    .symbol_key(*symbol_index)
+                    .ok_or(Problem::Core(Error::Invalid))?,
+            ),
+            _ => None,
+        };
+        let Some((place, template_element)) = self.live.template(template, cx)? else {
+            if self.live.seen_of_row(template, cx)?.is_none() {
+                return Err(Problem::Missing(template));
+            }
+            return Err(super::edits::reject_add("place", self.live.format(), cx));
+        };
+        let Some(sheet) = self.live.sheet(template) else {
+            return Err(super::edits::reject_add("view", self.live.format(), cx));
+        };
+        let Some(placed) = super::edits::build_added_placed(
+            template_element,
+            sheet,
+            shape,
+            symbol_key,
+            self.live.flavor(),
+            cx,
+        )?
+        else {
+            return Err(super::edits::reject_add("view", self.live.format(), cx));
+        };
+        self.apply_single(
+            expected,
+            Edit::Add {
+                place,
+                element: Box::new(placed),
+            },
+            cx,
+        )
+    }
+
+    pub fn add_symbol(
+        &mut self,
+        expected: Revision,
+        spec: super::edits::NewSymbol<'_>,
+        cx: &mut Cx<'_>,
+    ) -> Result<u32, Problem> {
+        self.require_revision(expected)?;
+        let template = spec.template;
+        let Some((_, template_element)) = self.live.template(template, cx)? else {
+            if self.live.seen_of_row(template, cx)?.is_none() {
+                return Err(Problem::Missing(template));
+            }
+            return Err(super::edits::reject_add("place", self.live.format(), cx));
+        };
+        let symbol_space_id = self.live.symbol_count().saturating_add(1024);
+        let edit =
+            super::edits::build_symbol_definition(template_element, symbol_space_id, spec, cx)?;
+        self.apply_single(expected, edit, cx)?;
+        Ok(self.live.symbol_count().saturating_sub(1))
+    }
+
+    pub fn transform_symbol(
+        &mut self,
+        expected: Revision,
+        symbol: u32,
+        elements: &[u32],
+        transform: Affine,
+        cx: &mut Cx<'_>,
+    ) -> Result<usize, Problem> {
+        self.require_revision(expected)?;
+        if symbol >= self.live.symbol_count() || !transform.m.iter().all(|v| v.is_finite()) {
+            return Err(Problem::Core(Error::Invalid));
+        }
+        cx.check(Kind::Work, elements.len() as u64)
+            .and_then(|()| {
+                cx.check(
+                    Kind::DecodedBytes,
+                    (elements.len() as u64).saturating_mul(256),
+                )
+            })
+            .map_err(|stop| Problem::Core(report_stop(cx, stop)))?;
+        let mut edits = Vec::with_capacity(elements.len());
+        for &elem in elements {
+            let target = self
+                .live
+                .seen_of_symbol_element(symbol, elem, cx)?
+                .ok_or(Problem::Missing(RowId(elem)))?;
+            edits.push(Edit::Transform { target, transform });
+        }
+        let applied = self.live.apply(
+            &Changes {
+                document: None,
+                edits,
+            },
+            cx,
+        )?;
+        Ok(applied.len())
     }
 }

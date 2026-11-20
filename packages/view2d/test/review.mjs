@@ -112,11 +112,11 @@ export function testReviewStore({ assert, throws }) {
 }
 
 /** 実際の wasm の review_scene に編集した文書を渡し、図面に重ねて描き、当たり判定から編集の項目へ戻す */
-export function testReviewCore(zumen, { assert, throws }) {
+export async function testReviewCore(zumen, { assert, throws }) {
   const session = zumen.open();
-  const base = new View2D(document.createElement("canvas"), { width: 200, height: 160, pixelRatio: 1 });
+  const base = await View2D.create(document.createElement("canvas"), { width: 200, height: 160, pixelRatio: 1 });
   const overlayCanvas = document.createElement("canvas");
-  const overlay = new View2D(overlayCanvas, { width: 10, height: 10, background: "transparent" });
+  const overlay = await View2D.create(overlayCanvas, { width: 10, height: 10, background: "transparent" });
   let layer = null;
   try {
     session.push("a.dxf", new TextEncoder().encode(DXF));
@@ -150,8 +150,8 @@ export function testReviewCore(zumen, { assert, throws }) {
     const onLine = base.toScreen({ x: 6, y: 0 });
     const picked = layer.pick(onLine, 3);
     assert(picked.some((ref) => ref.kind === "markup" && ref.id === "m1"), "当たり判定から図形へ戻す");
-    const ctx = overlayCanvas.getContext("2d");
-    const alpha = (point) => ctx.getImageData(Math.floor(point.x), Math.floor(point.y), 1, 1).data[3];
+    const shot = await overlay.snapshot();
+    const alpha = (point) => shot.pixels[(Math.floor(point.y) * shot.width + Math.floor(point.x)) * 4 + 3];
     assert(alpha(base.toScreen({ x: 45, y: 25 })) === 0, "背景を透明にして図面を隠さない");
     assert(alpha(onLine) > 0, "赤入れを描く");
 
@@ -185,11 +185,11 @@ export function testReviewCore(zumen, { assert, throws }) {
  * 実際の wasm の review_scene の形を ReviewLayer で描き、docs/formats/review.md の規則から別に求めた位置の画素を確かめる。
  * 雲は入力の向きによらず外へ膨らみ、矢じりは指定した端だけを塗り、写真と指摘の記号・範囲は内側を塗らない。
  */
-export function testReviewDrawn(zumen, { assert }) {
+export async function testReviewDrawn(zumen, { assert }) {
   const session = zumen.open();
-  const base = new View2D(document.createElement("canvas"), { width: 960, height: 240, pixelRatio: 1 });
+  const base = await View2D.create(document.createElement("canvas"), { width: 960, height: 240, pixelRatio: 1 });
   const overlayCanvas = document.createElement("canvas");
-  const overlay = new View2D(overlayCanvas, { width: 10, height: 10, background: "transparent" });
+  const overlay = await View2D.create(overlayCanvas, { width: 10, height: 10, background: "transparent" });
   let layer = null;
   try {
     session.push("a.dxf", new TextEncoder().encode(DXF));
@@ -219,11 +219,17 @@ export function testReviewDrawn(zumen, { assert }) {
     assert(response.result?.sources?.length === 6, `6 件を描く: ${JSON.stringify(response)}`);
     layer = new ReviewLayer(base, overlay, new ReviewStore(review));
     layer.setResult({ scene: readScene(session.take(response.result.blob)), result: response.result, document: identity });
-    const ctx = overlayCanvas.getContext("2d");
+    const shot = await overlay.snapshot();
     // 線の縁のにじみで 1 画素ずれても読めるように、3×3 の画素の最大の不透明度を見る
     const alpha = (x, y) => {
-      const p = base.toScreen({ x, y });
-      return Math.max(...Array.from(ctx.getImageData(Math.floor(p.x) - 1, Math.floor(p.y) - 1, 3, 3).data).filter((_, i) => i % 4 === 3));
+      const p = base.toScreen({ x, y }), cx = Math.floor(p.x), cy = Math.floor(p.y);
+      let max = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const px = cx + dx, py = cy + dy;
+        if (px < 0 || px >= shot.width || py < 0 || py >= shot.height) continue;
+        max = Math.max(max, shot.pixels[(py * shot.width + px) * 4 + 3]);
+      }
+      return max;
     };
     const painted = (x, y, message) => assert(alpha(x, y) > 0, `${message}: (${x}, ${y})`);
     const empty = (x, y, message) => assert(alpha(x, y) === 0, `${message}: (${x}, ${y})`);

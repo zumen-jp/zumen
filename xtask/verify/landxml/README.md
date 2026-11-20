@@ -4,7 +4,7 @@
 
 ## 実行
 
-リポジトリが指定する Rust と Node.js 22 以降を使います。`wasm32-wasip1` がなければ、同じ Rust toolchain に追加します。Node.js の [WASI](https://nodejs.org/docs/latest-v24.x/api/wasi.html) だけで実行し、追加の npm パッケージは使いません。
+リポジトリが指定する Rust と Node.js 24 以降を使います。`wasm32-wasip1` がなければ、同じ Rust toolchain に追加します。Node.js の [WASI](https://nodejs.org/docs/latest-v24.x/api/wasi.html) だけで実行し、追加の npm パッケージは使いません。
 
 ```powershell
 rustup target add wasm32-wasip1

@@ -7,7 +7,16 @@ import { useDrawing, useDrawingViewer, useViewerEvent, useViewerState } from "@z
 import { loadModule } from "../src/module.js";
 import { Playground } from "../src/playground.jsx";
 
-const counts = { workers: 0, starts: 0, ends: 0, transferred: 0, state: 0, events: 0, destroyed: 0, inputs: 0 };
+const counts = { workers: 0, starts: 0, ends: 0, transferred: 0, state: 0, events: 0, created: 0, destroyed: 0, inputs: 0 };
+let holdCreate = false;
+const pendingCreates = [];
+const createViewer = View2D.create.bind(View2D);
+View2D.create = async function (...args) {
+  if (holdCreate) await new Promise((resolve) => pendingCreates.push(resolve));
+  const instance = await createViewer(...args);
+  counts.created++;
+  return instance;
+};
 const NativeWorker = window.Worker;
 let holdNext = false, reply;
 window.Worker = class extends NativeWorker {
@@ -57,12 +66,22 @@ function Probe({ file, loader, version }) {
 }
 let file;
 window.probe = {
-  counts, delayed, get status() { return opened?.status; }, get format() { return opened?.input?.document.format; },
+  counts, delayed,
+  get status() { return opened?.status === "ready" && (!viewer || snapshot?.scene?.document.hash !== opened.input.document.hash) ? "loading" : opened?.status; },
+  get format() { return opened?.status === "ready" && viewer && snapshot?.scene?.document.hash === opened.input.document.hash ? opened.input.document.format : null; },
   get selected() { return snapshot?.selection[0]?.id; }, get eventVersion() { return eventVersion; },
+  get pendingCreates() { return pendingCreates.length; },
+  holdCreate() { holdCreate = true; },
+  releaseCreate() { holdCreate = false; for (const resume of pendingCreates.splice(0)) resume(); },
   render(bytes, delay = false, version = 0) {
     if (!root) root = createRoot(document.querySelector("#root"));
     if (bytes) file = new Blob([Uint8Array.from(bytes)]);
     flushSync(() => root.render(<StrictMode><Probe file={file} loader={delay ? delayModule : loadModule} version={version}/></StrictMode>));
+  },
+  unmount() {
+    if (!root) return;
+    flushSync(() => root.unmount());
+    root = null;
   },
   async release() {
     const module = await loadModule(new AbortController().signal);
@@ -76,6 +95,7 @@ window.probe = {
     const lookup = opened.getSource, element = viewer.getElements()[0];
     const pending = lookup(element).catch((error) => error.name);
     flushSync(() => root.unmount());
+    root = null;
     return [await pending, await lookup(element).catch((error) => error.name)];
   },
 };

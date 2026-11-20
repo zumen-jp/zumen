@@ -1,15 +1,15 @@
 # Tier 3 の言語から使う
 
-公式のラッパーのない言語（Ruby・PHP・R・Julia・PowerShell・MATLAB・Delphi など、[対応する環境](support.md) の Tier 3）から zumen を使う手順です。API は 4 つの形態（[API のスキーマ](../schema/README.md)）で、どれも同じ要求と応答（[schema/messages.json](../schema/messages.json) の JSON）を運びます。言語の FFI・子プロセス・HTTP のどれが使いやすいかで、形態を選びます。
+[Tier 3](support.md#言語ごとの約束) では、公式のラッパーを使わずに図面を開く 4 つの経路を、Ruby・PHP・PowerShell のサンプルで確かめます。図面に対する要求と応答には、どの経路でも[同じ JSON](../schema/messages.json) を使います。
 
 | 形態 | 向く場面 | サンプル |
 | --- | --- | --- |
-| C ABI | 言語に FFI がある。同じプロセスで速く呼びたい | [Ruby（Fiddle）](../examples/tier3/ruby/c_abi.rb) |
-| CLI と `process` | 子プロセスを起こせる。ライブラリを読み込みたくない | [PHP（proc_open）](../examples/tier3/php/stdio.php) |
-| wasm（WASI） | ネイティブのライブラリを置けない。WASI のランタイムがある | PHP のサンプルを、WASI のランタイムの上の CLI で動かす |
-| HTTP | 言語から HTTP だけを使える。別のマシンやコンテナーに置きたい | [PowerShell（Invoke-RestMethod）](../examples/tier3/powershell/http.ps1) |
+| C ABI | 同じプロセスで共有ライブラリを呼ぶ | [Ruby の Fiddle](../examples/tier3/ruby/c_abi.rb) |
+| CLI | 子プロセスの標準入出力で要求と応答をやり取りする | [PHP の proc_open](../examples/tier3/php/stdio.php) |
+| wasm（WASI） | WASI のランタイムで CLI を動かす | 同じ PHP のサンプルで [Node.js の WASI ランタイム](../bindings/conformance/wasi.mjs)を起動 |
+| HTTP | 別プロセスのサーバーに HTTP で要求を送る | [PowerShell の Invoke-RestMethod](../examples/tier3/powershell/http.ps1) |
 
-サンプルは、同じ図面（[samples/dwg/zumen-layout-r2000_ascii.dxf](../samples/dwg/zumen-layout-r2000_ascii.dxf)）を開き、形式と図形の数（[examples/tier3/expected.txt](../examples/tier3/expected.txt)）を書きます。毎晩の CI（`nightly.yml` の `tier3`）が流し、書いたものが `expected.txt` と同じかを確かめます。言語に依らない適合テストは、[bindings/conformance/cli.mjs](../bindings/conformance/cli.mjs) が同じ形で流します。
+[毎晩の CI](../.github/workflows/nightly.yml) では、各経路で[同じ DXF](../samples/dwg/zumen-layout-r2000_ascii.dxf) を開き、形式と図形の数を[共通の期待値](../examples/tier3/expected.txt) と照らします。CLI・WASI・HTTP の応答とバイナリの結果は、[適合テスト](../bindings/conformance/cli.mjs)で確かめます。
 
 CLI と C ABI の共有ライブラリは [GitHub Release](https://github.com/zumen-jp/zumen/releases) でも配っています。下のサンプルは、このリポジトリでビルドしたもの（`target/release`）を使う手順です。
 
@@ -36,7 +36,7 @@ CLI と C ABI の共有ライブラリは [GitHub Release](https://github.com/zu
 
 - 状態コードは 0 が ok、1 が failed、2 が invalid、3 が busy、4 が panicked です。failed と panicked でも、`buf` に応答があります。
 - `zm_buf` は、ポインターと `size_t` の 2 つのフィールドの構造体です。FFI では、この大きさの領域を確保して渡し、読んだあとに `zm_free` に渡します。
-- 32 bit の Windows（32 bit の Office の VBA など）では、関数は stdcall です。ほかの環境は、その環境の C の呼び出し規約です。
+- 関数は各環境の 64 bit の標準 C 呼び出し規約です。
 - 1 つのセッションを、同時に 2 つのスレッドから呼ばないでください。呼ぶと busy を返します。
 
 ## CLI と `process`
@@ -72,3 +72,26 @@ wasmtime run target/wasm32-wasip1/release/zumen.wasm serve --stdio
 
 - TLS と認証は持ちません。ループバックの外で待ち受けるときは、前に TLS と認証を持つサーバーを置いてください。
 - ブラウザーが付ける `Origin` のある要求は受けません。ブラウザーからは wasm のモジュールを使います。
+
+## 製品で確かめた利用例
+
+### AutoLISP
+
+[AutoLISP のサンプル](../examples/tier3/autolisp/cli.lsp)は、Windows 版 AutoCAD の `WScript.Shell` から `zumen open` と `zumen entities` を呼び、`jq.exe` で形式と図形の総数を取り出します。`jq.exe` を PATH に置き、リポジトリのルートで次を実行すると、Core Console が公開 DXF の一時コピーを開きます。
+
+```powershell
+py -3 examples/tier3/autolisp/verify.py target/release/zumen.exe 'C:\Program Files\Autodesk\AutoCAD 2027\accoreconsole.exe'
+```
+
+Windows x64 の AutoCAD 2027（26.0.118.0.0）と jq 1.8.2 で、改行を LF にそろえた出力が `expected.txt` と一致しました。
+
+### MATLAB
+
+ターミナルで `zumen serve --http` を起動します。MATLAB の作業フォルダーをリポジトリのルートにして、[HTTP のサンプル](../examples/tier3/matlab/zumen_http.m)を実行します。
+
+```matlab
+addpath('examples/tier3/matlab')
+zumen_http('http://127.0.0.1:24180/', 'samples/dwg/zumen-layout-r2000_ascii.dxf')
+```
+
+Linux x64 の MATLAB R2025b Update 7 で、出力が `expected.txt` と一致しました。[MATLAB の検証](../.github/workflows/verify-matlab.yml)は、サンプル・入力図面・期待値・検証手順を変える PR と手動実行で、出力を照合します。

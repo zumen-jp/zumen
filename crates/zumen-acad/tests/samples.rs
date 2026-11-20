@@ -297,19 +297,39 @@ fn dwg_and_dxf_of_the_same_drawing_give_the_same_table() {
             if let Some(start) = values.iter().position(|v| v.code == 1001) {
                 values.truncate(start);
             }
+            let other_style_rows: Vec<&[Value]> = if object.kind == b"TABLESTYLE" {
+                let first = other
+                    .values
+                    .iter()
+                    .position(|v| v.code == 7)
+                    .unwrap_or(other.values.len());
+                other.values[first..]
+                    .chunk_by(|_, next| next.code != 7)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let mut style_row: Option<usize> = None;
             let mut embedded = false;
             for value in values {
                 embedded |= value.code == 101;
-                if matches!(value.code, 5 | 105 | 330) {
+                if value.code < 0 || matches!(value.code, 5 | 105 | 330) {
                     continue;
+                }
+                if object.kind == b"TABLESTYLE" && value.code == 7 {
+                    style_row = Some(style_row.map_or(0, |r| r + 1));
+                    seen.clear();
                 }
                 // SPLINE の 70 は、DXF を書くときに平らかどうかから決まるので比べない
                 if object.kind == b"SPLINE" && value.code == 70 {
                     continue;
                 }
+                let scope = match style_row {
+                    Some(row) => other_style_rows.get(row).copied().unwrap_or(&[]),
+                    None => &other.values,
+                };
                 let nth = seen.entry(value.code).or_default();
-                let theirs = other
-                    .values
+                let theirs = scope
                     .iter()
                     .filter(|v| v.code == value.code)
                     .nth(*nth)

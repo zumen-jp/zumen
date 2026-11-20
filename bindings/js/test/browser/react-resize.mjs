@@ -78,15 +78,20 @@ export async function checkPlaygroundResize(page, input, mode) {
     const rows = [], canvas = document.querySelector('canvas[aria-label="図面の表示"]');
     for (let frame = 0; frame < 8; frame++) {
       await resizeTrace.nextFrame();
-      const data = canvas.getContext("2d").getImageData(0, Math.floor(canvas.height / 2), canvas.width, 1).data;
+      const client = [canvas.clientWidth, canvas.clientHeight], bitmap = [canvas.width, canvas.height];
+      const callbacks = resizeTrace.callbacks, pending = resizeTrace.pending, ratio = Math.min(devicePixelRatio || 1, 2);
+      const viewer = canvas[Symbol.for("zumen.view2d")];
       let hash = 2166136261, groups = 0, previous = false;
-      for (let i = 0; i < data.length; i++) hash = Math.imul(hash ^ data[i], 16777619) >>> 0;
-      for (let i = 0; i < data.length; i += 4) {
-        const ink = data[i] < 225 || data[i + 1] < 225 || data[i + 2] < 225;
-        if (ink && !previous) groups++; previous = ink;
+      if (viewer) {
+        const shot = await viewer.snapshot();
+        const start = Math.floor(shot.height / 2) * shot.width * 4, end = start + shot.width * 4;
+        for (let i = start; i < end; i++) hash = Math.imul(hash ^ shot.pixels[i], 16777619) >>> 0;
+        for (let i = start; i < end; i += 4) {
+          const ink = shot.pixels[i] < 225 || shot.pixels[i + 1] < 225 || shot.pixels[i + 2] < 225;
+          if (ink && !previous) groups++; previous = ink;
+        }
       }
-      rows.push({ client: [canvas.clientWidth, canvas.clientHeight], bitmap: [canvas.width, canvas.height], hash, groups,
-        callbacks: resizeTrace.callbacks, pending: resizeTrace.pending, ratio: Math.min(devicePixelRatio || 1, 2) });
+      rows.push({ client, bitmap, hash, groups, callbacks, pending, ratio });
     }
     return rows;
   });

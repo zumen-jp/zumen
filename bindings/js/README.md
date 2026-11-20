@@ -1,6 +1,6 @@
 # TypeScript・JavaScript のラッパー
 
-wasm のモジュール（`zumen_abi1.wasm`）をブラウザーと Node.js（22 以降）から呼び、Node.js ではネイティブの CLI を子プロセスとしても使えるラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。
+wasm のモジュール（`zumen_abi1.wasm`）をブラウザーと Node.js（24 以降）から呼び、Node.js ではネイティブの CLI を子プロセスとしても使えるラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。
 
 - npm の `@zumen-jp/zumen` で配ります（[コアの設計](../../docs/architecture.md)・[配布の手順](../../xtask/release/README.md)）。パッケージには全体版と 4 つの分割版の wasm を入れます。依存のライセンスの文は `THIRD_PARTY_LICENSES` にあります。
 - 素の ESM の JavaScript で書き、ビルドも npm の依存もありません。型は `.d.ts` にあります。
@@ -118,11 +118,13 @@ try {
 
 `live.restyle({ revision, rows, layer, color, lineWeight, lineType, lineTypeScale })` は、指定した画層・色・線幅・線種・線種の倍率だけを変えます。`layer` は `live.layers` の `value`、`color` は `"layer"`・`"block"` か `{ code, rgb }`、`lineWeight` は `"layer"`・`"block"`・`"default"` か mm、`lineType` は `"layer"`・`"block"` か `live.lineTypes` の `value` です。
 
-`live.symbols(definitions, revision)` は、記号の定義の表示を `reply.symbols` に返します。`total` は文書の定義の数、`definitions` は要求した定義ごとの `{ first, rows }`、`display` は定義の座標のままの全量の表示です。表示の挿入の定義の値が、この定義の番号です。今は DXF・DWG だけが返し、JWW・SXF は rejected です。
+`live.symbols(definitions, revision)` は、記号の定義の表示を `reply.symbols` に返します。`total` は文書の定義の数、`definitions` は要求した定義ごとの `{ first, rows }`、`display` は定義の座標のままの全量の表示です。表示の挿入の定義の値が、この定義の番号です。DXF・DWG はブロック、JWW は記号、SXF は複合図形の定義を返します。
 
 `live.setText({ revision, rows, content })` は、文字の行の内容を `content` に替えます。替えられるのは `live.texts` の `kind` が `"text"` の行と、区間が文字列 1 つだけの `"formatted"` の行で、ほかの行を含めば rejected で何も替えません。
 
 `live.remove({ revision, rows })` は行を除き、`live.copy({ revision, rows, matrix })` は行を写して写しを動かします。`copy` は写しの行を `reply.selection` に対象の順で返し、表示は返さないので `live.display()` で取り直します。JWW・SXF の写しは、まだ rejected です。
+
+`live.draw({ revision, template, shape })` は、行 `template` と同じ空間か用紙に、その画層とスタイルで形を 1 つ足します。`shape` は表示の座標の `{ line: [x0, y0, x1, y1] }`・`{ circle: [x, y, r] }`・`{ arc: [x, y, r, start, end] }`（角度は度、反時計回り）のどれかです。足した行を `reply.selection` に返し、表示は返さないので `live.display()` で取り直します。
 
 `live.order(revision)` は、表示に出る生きた行を、図面モデルと同じ規則で先に描くものから並べて `reply.order` に返します。`reply.order.rows()` は描く順で反復し、昇順とは限りません。
 
@@ -178,7 +180,7 @@ export async function POST(request: Request) {
 3. 入力は専有する `ArrayBuffer` にし、転送リストに入れる。転送後は、主スレッドでそのバッファーを使わない。`request.arrayBuffer()` の結果はそのまま使える。`readFile` の `Buffer` は `Uint8Array.from(buffer).buffer` で写す。
 4. worker の中で `push`・`open`・`scene`・`take` を呼び、`take` が返した blob のバッファーを親へ転送する。JSON の応答も一緒に返す。最後にセッションと通信ポートを閉じ、worker の終了を待つ。
 
-`WebAssembly.Module` は転送リストに入れません。`Session` や wasm の memory も渡しません。転送は、そのバッファーを使うすべてのビューを無効にします。Node.js の `Buffer` の共有プールをそのまま転送すると、必要な範囲だけを渡せるとは限りません（[Node.js の転送の説明](https://nodejs.org/download/release/latest-v22.x/docs/api/worker_threads.html#considerations-when-transferring-typedarrays-and-buffers)）。
+`WebAssembly.Module` は転送リストに入れません。`Session` や wasm の memory も渡しません。転送は、そのバッファーを使うすべてのビューを無効にします。Node.js の `Buffer` の共有プールをそのまま転送すると、必要な範囲だけを渡せるとは限りません（[Node.js の転送の説明](https://nodejs.org/download/release/latest-v24.x/docs/api/worker_threads.html#considerations-when-transferring-typedarrays-and-buffers)）。
 
 ```js
 import { readFile } from "node:fs/promises";
@@ -199,7 +201,7 @@ const { response, blob } = await result;
 - この例は、要求ごとに worker を作り、`result` は worker が終了してから成功か失敗になります。サーバーでは、実行中の worker 数と待ち行列の長さに上限を付けます。頻繁な小さい要求では、worker のプールで起動の費用を減らせます。その場合も、インスタンスは要求ごとに作り直します。
 - wasm が同期処理をしている間は、その worker のイベントループも止まります。`cancel` を呼ぶメッセージを送るだけでは処理中に届かないため、この例は AbortSignal で worker 自体を `terminate()` します。中断した要求の入力は転送済みなので、再試行には入力を再び用意します。
 - API の失敗は、状態・操作・診断を持つ Error として返します。スレッドを越えるため、`instanceof ZumenError` では判断せず、`error.status` と `error.response` を見ます。worker の異常終了や転送の失敗も Promise の失敗になり、worker を残しません。
-- worker は同じプロセスの中で動きます。[`resourceLimits` の対象](https://nodejs.org/download/release/latest-v22.x/docs/api/worker_threads.html#new-workerfilename-options)は JavaScript のエンジンで、ArrayBuffer や wasm のメモリの上限にはなりません。入力の大きさと API の `budget`、同時実行数で量を制限します。ネイティブの CLI を別のプロセスとして動かす場合は、[子プロセスの入口](#nodejs-の子プロセス)を使えます。OS のメモリ制限は、別に設定します。
+- worker は同じプロセスの中で動きます。[`resourceLimits` の対象](https://nodejs.org/download/release/latest-v24.x/docs/api/worker_threads.html#new-workerfilename-options)は JavaScript のエンジンで、ArrayBuffer や wasm のメモリの上限にはなりません。入力の大きさと API の `budget`、同時実行数で量を制限します。ネイティブの CLI を別のプロセスとして動かす場合は、[子プロセスの入口](#nodejs-の子プロセス)を使えます。OS のメモリ制限は、別に設定します。
 - この例は素の Node.js で確かめています。Next.js などで組むときは、worker のファイルと、そのファイルから解決できる npm パッケージをサーバーの出力に含めます。上の同期の API ルートの例に対する bundler のテストは、worker の配布までを確認するものではありません。
 
 リポジトリでは、作った wasm のパスを渡して実行できます。

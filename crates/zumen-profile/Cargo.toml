@@ -29,8 +29,10 @@ blake3 = { version = "1.8.2", default-features = false, features = ["pure"], opt
 # zumen-ifc の側から zumen-profile の feature を有効にすると、配る SBOM に実ビルドにない辺が載る
 zumen-ifc = { path = "../zumen-ifc" }
 zumen-sdk = { path = "../zumen-sdk" }
-# 切り出した図面を、convert と同じ書き手で新しい DXF に書く試験（tests/building_dxf.rs）
+# 切り出した図面を、convert と同じ書き手で新しい DXF・SXF（P21）・JWW に書く試験（#397）
 zumen-acad = { path = "../zumen-acad" }
+zumen-jww = { path = "../zumen-jww" }
+zumen-sxf = { path = "../zumen-sxf" }
 
 [lints]
 workspace = true

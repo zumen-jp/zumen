@@ -110,14 +110,15 @@ fn cell_formats_and_table_styles_are_lifted() {
                 .iter()
                 .any(|v| name.starts_with(v));
         if dwg_r2010 {
-            assert!(
-                table
-                    .cells
-                    .iter()
-                    .all(|cell| cell.format == CellFormat::default()),
-                "{name}"
-            );
-            assert_eq!(table.formats, None, "{name}");
+            let formats = table.formats.as_deref().unwrap();
+            let height = |format: &CellFormat| match format.text_height {
+                Some(Length::Model(length)) => (length.value * 1e9).round() / 1e9,
+                _ => panic!("{name}"),
+            };
+            assert_eq!(height(&formats.title_format), 0.25, "{name}");
+            assert_eq!(height(&formats.header_format), 0.18, "{name}");
+            assert_eq!(height(&formats.data_format), 0.18, "{name}");
+            assert_eq!(table.cells[12].format.text_color, aci(7), "{name}");
             checked += 1;
             continue;
         }

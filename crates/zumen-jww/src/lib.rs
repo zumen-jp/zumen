@@ -8,6 +8,8 @@ mod drawing;
 mod parse;
 
 #[cfg(feature = "drawing")]
+pub use drawing::apply::CopyFrom;
+#[cfg(feature = "drawing")]
 pub use drawing::live::JwwLive;
 #[cfg(feature = "drawing")]
 pub use drawing::lower::{Lowered, lower_to_jww};

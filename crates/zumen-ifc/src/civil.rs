@@ -81,6 +81,98 @@ impl Lift<Vec<LinearPosition>> for IfcZipFile {
     }
 }
 
+/// 建物モデルの `IfcLinearPlacement` を評価するための線形（#376）。`IfcAlignment` の局所座標（メートル）での
+/// 平面・縦断線形と、6 ObjectPlacement、表現の曲線を持つ
+pub(crate) struct LocalAlignment {
+    pub placement: Option<u64>,
+    pub alignment: Alignment,
+    pub gradient_curves: Vec<u64>,
+    pub composite_curves: Vec<u64>,
+}
+
+/// ファイルの中の `IfcAlignment` を、局所座標（メートル）の線形として読む。`IfcMapConversion` と測点は使わない
+pub(crate) fn local_alignments(
+    file: &IfcFile,
+    length: f64,
+    angle: f64,
+    cx: &mut Cx,
+) -> Result<Vec<LocalAlignment>, Error> {
+    let inverse = file.inverse(cx)?;
+    let lifter = Lifter {
+        file,
+        inverse,
+        length,
+        angle,
+        map: Map::default(),
+    };
+    let ids: Vec<u64> = file.ids().collect();
+    let mut out = Vec::new();
+    for id in ids {
+        if !lifter.is(id, b"IFCALIGNMENT") {
+            continue;
+        }
+        let Some(record) = file.instance(id) else {
+            continue;
+        };
+        cx.check(Kind::Work, 1)
+            .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
+        let mut alignment = Alignment::default();
+        for child in lifter.nested(id) {
+            let Some(layout) = file.instance(child) else {
+                continue;
+            };
+            let kind = file.kind(layout).to_ascii_uppercase();
+            match kind.as_slice() {
+                b"IFCALIGNMENTHORIZONTAL" => {
+                    for (segment, design) in lifter.segments(child, cx)? {
+                        if let Some(horizontal) =
+                            lifter.horizontal(segment, design, &Place::IDENTITY, cx)
+                        {
+                            alignment.horizontal.push(horizontal);
+                        }
+                    }
+                }
+                b"IFCALIGNMENTVERTICAL" => {
+                    for (segment, design) in lifter.segments(child, cx)? {
+                        if let Some(vertical) =
+                            lifter.vertical(segment, design, &Place::IDENTITY, cx)
+                        {
+                            alignment.vertical.push(vertical);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let curves = lifter.curves(record);
+        let mut gradient_curves = Vec::new();
+        let mut composite_curves = Vec::new();
+        for curve in curves {
+            if lifter.is(curve, b"IFCGRADIENTCURVE") {
+                gradient_curves.push(curve);
+            } else if lifter.is(curve, b"IFCCOMPOSITECURVE") {
+                composite_curves.push(curve);
+            }
+        }
+        let items = (alignment.horizontal.len()
+            + alignment.vertical.len()
+            + gradient_curves.len()
+            + composite_curves.len()) as u64;
+        cx.check(
+            Kind::DecodedBytes,
+            items.saturating_mul(128).saturating_add(256),
+        )
+        .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
+        out.push(LocalAlignment {
+            placement: reference(arg(record, 6)),
+            alignment,
+            gradient_curves,
+            composite_curves,
+        });
+    }
+    Ok(out)
+}
+
 /// プロジェクトの空間から地図の空間への変換（`IfcMapConversion`）
 #[derive(Clone, Copy, Debug)]
 struct Map {
@@ -375,18 +467,36 @@ impl<'f> Lifter<'f> {
         }
     }
 
-    /// 単位の種類と、SI の単位（メートル・ラジアン）への倍率。`IfcSIUnit` は 2 UnitType・3 Prefix・4 Name、
+    /// 単位の種類と、SI の単位（メートル・ラジアン）への倍率。`IfcSIUnit` は 2 UnitType・3 Prefix・4 Name
+    /// （`IfcNamedUnit` との複合インスタンスでは `IfcNamedUnit` の 2 UnitType と `IfcSIUnit` の 1 Prefix・2 Name）、
     /// `IfcConversionBasedUnit` は 2 UnitType・4 ConversionFactor（`IfcMeasureWithUnit` の 1 ValueComponent・
     /// 2 UnitComponent）
     fn unit(&self, record: &Record, depth: usize) -> Option<(String, f64)> {
-        let kind = self.enumeration(arg(record, 2))?;
-        let name = self.file.kind(record);
-        if name.eq_ignore_ascii_case(b"IFCSIUNIT") {
-            let base = match self.enumeration(arg(record, 4))?.as_str() {
+        let parts = record.parts();
+        let is_part = |part: &zumen_step::Part, expected: &[u8]| {
+            self.file.bytes(part.name()).eq_ignore_ascii_case(expected)
+        };
+        if let Some(si) = parts.iter().find(|p| is_part(p, b"IFCSIUNIT")) {
+            let (kind, prefix, unit_name) = match (parts, si.args()) {
+                ([_], [_, kind, prefix, unit_name]) => (Some(kind), Some(prefix), Some(unit_name)),
+                ([a, b], [prefix, unit_name]) => {
+                    let named = if is_part(a, b"IFCNAMEDUNIT") && is_part(b, b"IFCSIUNIT") {
+                        a
+                    } else if is_part(b, b"IFCNAMEDUNIT") && is_part(a, b"IFCSIUNIT") {
+                        b
+                    } else {
+                        return None;
+                    };
+                    (named.args().get(1), Some(prefix), Some(unit_name))
+                }
+                _ => return None,
+            };
+            let kind = self.enumeration(kind)?;
+            let base = match self.enumeration(unit_name)?.as_str() {
                 "METRE" | "RADIAN" => 1.0,
                 _ => return None,
             };
-            let prefix = match self.enumeration(arg(record, 3)).as_deref() {
+            let prefix = match self.enumeration(prefix).as_deref() {
                 None => 1.0,
                 Some(prefix) => PREFIXES
                     .iter()
@@ -395,6 +505,8 @@ impl<'f> Lifter<'f> {
             };
             return Some((kind, base * prefix));
         }
+        let kind = self.enumeration(arg(record, 2))?;
+        let name = self.file.kind(record);
         if name.eq_ignore_ascii_case(b"IFCCONVERSIONBASEDUNIT") && depth < 4 {
             let measure = self.instance_of(arg(record, 4), b"IFCMEASUREWITHUNIT")?;
             let value = self.real(arg(measure, 1))?;

@@ -1,4 +1,4 @@
-// シーンの列を直接描く表示部品（決定 0267）。図面の読み取り・字形の配置・曲線の展開はコアに任せる。
+// シーンの列を直接 WebGPU で描く表示部品（docs/view2d.md）。図面の読み取り・字形の配置・曲線の展開はコアに任せる。
 import { bounds, finite, limitsOf, prepare, valid, VIEW_SCALE_LIMITS } from "./validate.js";
 import { paint, project, reportOf, unproject } from "./render.js";
 import { appearance, emptyInteraction, hiddenLayers, indexElements, references } from "./interaction.js";
@@ -9,15 +9,21 @@ import { inputOptions, normalizeInput, Tools } from "./tools.js";
 import { bindInput } from "./controls.js";
 import { Underlays } from "./underlays.js";
 import { calibratedMeasurement, calibrationOf } from "./calibration.js";
+import { normalizeCssColor, premultipliedRgba } from "./color.js";
+import { OverlayContext2D } from "./overlay.js";
+import { getTextMeasureContext } from "./text-raster.js";
+import { createWebGPUUnavailableError, initWebGPU, WebGPU2DSurface } from "./webgpu.js";
 export { findSource } from "./source.js";
 export { measureDistance } from "./calibration.js";
 export { ReviewStore, reviewReference, reviewSceneId } from "./review.js";
 export { ReviewLayer } from "./review-layer.js";
 export { VIEW_SCALE_LIMITS };
 
+const CREATE_TOKEN = Symbol("View2D.create");
+const CANVAS_VIEW2D = Symbol.for("zumen.view2d");
 const EMPTY_REPORT = Object.freeze({ drawn: Object.freeze({ lines: 0, faces: 0, texts: 0, points: 0, images: 0, glyphs: 0 }), issues: Object.freeze([]) });
 const EMPTY = Object.freeze([]);
-const EVENTS = ["scene", "view", "size", "layers", "selection", "hover", "highlight", "tool", "input", "measurement", "underlay"];
+const EVENTS = ["scene", "view", "size", "layers", "selection", "hover", "highlight", "tool", "input", "measurement", "underlay", "contextlost"];
 const equalList = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
 
 function point(value, name) {
@@ -34,22 +40,40 @@ function camera(value) {
   return Object.freeze({ center, scale, rotation });
 }
 
-function color(ctx, value, field) {
-  valid(typeof value === "string", field);
-  // 無効な CSS 色を Canvas が黙って無視することに頼らない。
-  ctx.fillStyle = "#010203";
-  ctx.fillStyle = value;
-  const first = ctx.fillStyle;
-  ctx.fillStyle = "#040506";
-  ctx.fillStyle = value;
-  valid(ctx.fillStyle === first, field);
-  return first;
+function parseOptions(canvas, options) {
+  valid(canvas && typeof canvas.getContext === "function", "canvas");
+  valid(options && typeof options === "object" && !Array.isArray(options), "options");
+  const limits = limitsOf(options.limits);
+  const view = camera(options.view ?? { center: { x: 0, y: 0 }, scale: 1, rotation: 0 });
+  const settings = {
+    background: normalizeCssColor(options.background ?? "#ffffff", "background"),
+    foreground: normalizeCssColor(options.foreground ?? "#111111", "foreground"),
+    unresolvedColor: normalizeCssColor(options.unresolvedColor ?? "#777777", "unresolvedColor"),
+    selectionColor: normalizeCssColor(options.selectionColor ?? "#ff8800", "selectionColor"),
+    hoverColor: normalizeCssColor(options.hoverColor ?? "#00aacc", "hoverColor"),
+    overlayColor: normalizeCssColor(options.overlayColor ?? "#cc0066", "overlayColor"),
+    pixelsPerMillimeter: finite(options.pixelsPerMillimeter ?? 96 / 25.4, "pixelsPerMillimeter"),
+    fallbackFont: options.fallbackFont ?? "sans-serif",
+  };
+  valid(settings.pixelsPerMillimeter > 0 && settings.pixelsPerMillimeter <= 1e6, "pixelsPerMillimeter");
+  valid(["sans-serif", "serif", "monospace"].includes(settings.fallbackFont), "fallbackFont");
+  valid(options.underlayRenderer === undefined || options.underlayRenderer === null || typeof options.underlayRenderer === "function", "underlayRenderer");
+  if (options.device !== undefined) valid(options.device && typeof options.device.createBuffer === "function", "device");
+  const width = options.width ?? canvas.clientWidth ?? canvas.width;
+  const height = options.height ?? canvas.clientHeight ?? canvas.height;
+  const pixelRatio = options.pixelRatio ?? 1;
+  finite(width, "width"); finite(height, "height"); finite(pixelRatio, "pixelRatio");
+  valid(width > 0 && height > 0 && pixelRatio > 0 && pixelRatio <= 8, "size");
+  const pixelsX = Math.ceil(width * pixelRatio), pixelsY = Math.ceil(height * pixelRatio);
+  valid(pixelsX <= 16384 && pixelsY <= 16384 && pixelsX * pixelsY <= limits.canvasPixels, "limits.canvasPixels");
+  return { limits, view, settings: Object.freeze(settings), width, height, pixelRatio };
 }
 
-/** 呼び出し側が所有する Canvas に描く。CSS と外部資源の取得は利用側に置く。 */
+/** 呼び出し側が所有する Canvas に WebGPU で描く。CSS と外部資源の取得は利用側に置く。 */
 export class View2D {
   #canvas;
-  #ctx;
+  #surface;
+  #measureCtx;
   #settings;
   #limits;
   #prepared = null;
@@ -70,41 +94,50 @@ export class View2D {
   #overlays = new Map();
   #nextOverlay = 0;
   #underlays;
+  #lost = false;
 
-  constructor(canvas, options = {}) {
-    valid(canvas && typeof canvas.getContext === "function", "canvas");
-    this.#limits = limitsOf(options.limits);
-    this.#view = camera(options.view ?? { center: { x: 0, y: 0 }, scale: 1, rotation: 0 });
-    const ctx = canvas.getContext("2d");
-    valid(ctx !== null, "canvas.context2d");
-    const settings = {
-      background: color(ctx, options.background ?? "#ffffff", "background"),
-      foreground: color(ctx, options.foreground ?? "#111111", "foreground"),
-      unresolvedColor: color(ctx, options.unresolvedColor ?? "#777777", "unresolvedColor"),
-      selectionColor: color(ctx, options.selectionColor ?? "#ff8800", "selectionColor"),
-      hoverColor: color(ctx, options.hoverColor ?? "#00aacc", "hoverColor"),
-      overlayColor: color(ctx, options.overlayColor ?? "#cc0066", "overlayColor"),
-      pixelsPerMillimeter: finite(options.pixelsPerMillimeter ?? 96 / 25.4, "pixelsPerMillimeter"),
-      fallbackFont: options.fallbackFont ?? "sans-serif",
-    };
-    valid(settings.pixelsPerMillimeter > 0 && settings.pixelsPerMillimeter <= 1e6, "pixelsPerMillimeter");
-    valid(["sans-serif", "serif", "monospace"].includes(settings.fallbackFont), "fallbackFont");
-    this.#settings = Object.freeze(settings);
-    this.#canvas = canvas;
-    this.#ctx = ctx;
-    this.#tools = new Tools(this, this.#limits, () => this.#binding?.release());
-    this.#underlays = new Underlays(this.#limits, () => this.#refresh("underlay"));
-    this.#underlays.setRenderer(options.underlayRenderer ?? null);
-    this.resize(options.width ?? canvas.clientWidth ?? canvas.width, options.height ?? canvas.clientHeight ?? canvas.height, options.pixelRatio ?? 1);
+  static async create(canvas, options = {}) {
+    const parsed = parseOptions(canvas, options);
+    if (options.device === undefined && (typeof navigator === "undefined" || !navigator.gpu)) {
+      throw createWebGPUUnavailableError("WebGPU を使えない");
+    }
+    if (!canvas.getContext("webgpu")) throw createWebGPUUnavailableError("Canvas から WebGPU コンテキストを取得できない");
+    if (options.device === undefined) await initWebGPU();
+    return new View2D(CREATE_TOKEN, canvas, options, parsed);
   }
 
-  #live() { if (!this.#ctx) throw new Error("View2D は破棄済み"); }
+  constructor(token, canvas, options = {}, parsed = null) {
+    valid(token === CREATE_TOKEN, "View2D.create");
+    const resolved = parsed ?? parseOptions(canvas, options);
+    this.#limits = resolved.limits;
+    this.#view = resolved.view;
+    this.#settings = resolved.settings;
+    this.#surface = new WebGPU2DSurface(canvas, options.device, () => {
+      if (!this.#surface || this.#lost) return;
+      this.#lost = true;
+      try { this.#publish("contextlost"); } catch { /* デバイス喪失の非同期通知 */ }
+    });
+    this.#measureCtx = getTextMeasureContext();
+    this.#canvas = canvas;
+    canvas[CANVAS_VIEW2D] = this;
+    this.#tools = new Tools(this, this.#limits, () => this.#binding?.release());
+    this.#underlays = new Underlays(
+      this.#limits,
+      () => this.#refresh("underlay"),
+      (raster) => this.#surface?.releaseUnderlayTexture(raster),
+    );
+    this.#underlays.setRenderer(options.underlayRenderer ?? null);
+    this.resize(resolved.width, resolved.height, resolved.pixelRatio);
+  }
+
+  #live() { if (!this.#surface) throw new Error("View2D は破棄済み"); }
   #mutable() { this.#live(); valid(!this.#resolvingMeasurement, "measurement.reentrant"); valid(!this.#notifying, "state.notification"); valid(!this.#drawing && !this.#underlays?.calling, "render.reentrant"); }
   #structural() { this.#mutable(); this.#tools.idle(); }
 
   #state() {
     return Object.freeze({ scene: this.getScene(), view: this.#view, size: this.#size, layers: this.getLayers(), ...this.#interaction,
-      tool: this.#tools.name, input: this.#tools.options, gesture: this.#tools.gesture, measurement: this.#measurement, underlays: this.#underlays.state });
+      tool: this.#tools.name, input: this.#tools.options, gesture: this.#tools.gesture, measurement: this.#measurement, underlays: this.#underlays.state,
+      contextLost: this.#lost });
   }
 
   #publish(type) {
@@ -231,7 +264,7 @@ export class View2D {
   setHighlight(name, elements, value = "#cc00cc") {
     this.#mutable(); valid(typeof name === "string" && name.length > 0 && name.length <= this.#limits.textLength, "highlight.name");
     const refs = references(elements, this.#index, this.#limits);
-    const style = color(this.#ctx, value, "highlight.color");
+    const style = normalizeCssColor(value, "highlight.color");
     const highlights = this.#interaction.highlights.filter((group) => group.name !== name);
     if (refs.length) {
       const previous = this.#interaction.highlights.find((group) => group.name === name);
@@ -242,19 +275,19 @@ export class View2D {
 
   hitTest(value, tolerance = 3) {
     this.#live(); const p = point(value, "point"); finite(tolerance, "tolerance"); valid(tolerance >= 0, "tolerance");
-    return this.#prepared ? hitPoint(this.#ctx, this.#prepared, this.#settings, this.#view, this.#size, this.#display, this.#index, this.#limits, p, tolerance) : EMPTY;
+    return this.#prepared ? hitPoint(this.#measureCtx, this.#prepared, this.#settings, this.#view, this.#size, this.#display, this.#index, this.#limits, p, tolerance) : EMPTY;
   }
 
   hitTestRect(value) {
     this.#live(); const rect = bounds(value);
-    return this.#prepared ? hitRect(this.#ctx, this.#prepared, this.#settings, this.#view, this.#size, this.#display, this.#index, this.#limits, rect) : EMPTY;
+    return this.#prepared ? hitRect(this.#measureCtx, this.#prepared, this.#settings, this.#view, this.#size, this.#display, this.#index, this.#limits, rect) : EMPTY;
   }
 
   positionAt(value) { this.#live(); return positionAt(this.#view, this.#size, point(value, "point")); }
 
   snapAt(value, tolerance = 8, options = {}) {
     this.#live(); const p = point(value, "point"); finite(tolerance, "tolerance"); valid(tolerance >= 0, "tolerance");
-    return snapPoint(this.#ctx, this.#prepared, this.#settings, this.#view, this.#size, this.#display, this.#index, this.#limits, p, tolerance, options);
+    return snapPoint(this.#measureCtx, this.#prepared, this.#settings, this.#view, this.#size, this.#display, this.#index, this.#limits, p, tolerance, options);
   }
 
   setMeasurement(value) {
@@ -285,7 +318,7 @@ export class View2D {
     this.#structural(); this.#tools.register(name, definition);
     let active = true;
     return () => {
-      if (!active || !this.#ctx) return;
+      if (!active || !this.#surface) return;
       this.#structural();
       try { if (this.#tools.name === name) this.setTool("select"); }
       finally { this.#tools.definitions.delete(name); active = false; }
@@ -313,7 +346,7 @@ export class View2D {
     try { this.#refresh("input", cleanup); }
     catch (error) { binding.disconnect(); this.#binding = null; throw error; }
     return () => {
-      if (!this.#ctx || this.#binding !== binding) return;
+      if (!this.#surface || this.#binding !== binding) return;
       this.#structural(); const stopped = this.#tools.reset("detach"); binding.disconnect(); this.#binding = null; this.#measurement = null;
       this.#refresh("input", stopped);
     };
@@ -351,7 +384,7 @@ export class View2D {
       throw error;
     }
     return () => {
-      if (!this.#ctx || !this.#overlays.has(id)) return;
+      if (!this.#surface || !this.#overlays.has(id)) return;
       this.#mutable(); this.#overlays.delete(id); this.invalidate();
     };
   }
@@ -371,34 +404,44 @@ export class View2D {
     valid(!this.#drawing && !this.#underlays.calling, "render.reentrant"); this.#drawing = true;
     let failed = false, first;
     try {
-      const ctx = this.#ctx, size = this.#size;
+      const surface = this.#surface, size = this.#size;
       this.#underlays.update(this.#view, size, this.#display);
       this.#updateReport();
-      paint(ctx, this.#prepared, this.#settings, this.#view, size, this.#display, this.#underlays);
+      if (this.#lost) return this.getReport();
+      paint(surface, this.#measureCtx, this.#prepared, this.#settings, this.#view, size, this.#display, this.#underlays);
       this.#updateReport(); // 合成が失敗した場合は、その報告を同じ描画のうちに返す。
-      ctx.save();
+      const overlayCtx = new OverlayContext2D(surface, size);
+      overlayCtx.save();
       try {
-        ctx.setTransform(size.pixelRatio, 0, 0, size.pixelRatio, 0, 0); ctx.strokeStyle = this.#settings.overlayColor; ctx.lineWidth = 1;
+        overlayCtx.setTransform(size.pixelRatio, 0, 0, size.pixelRatio, 0, 0);
+        overlayCtx.strokeStyle = this.#settings.overlayColor;
+        overlayCtx.lineWidth = 1;
         if (this.#measurement) {
           const at = ({ origin, offset }) => project(this.#view, size.width, size.height, offset.x, offset.y, origin.x, origin.y);
           const a = at(this.#measurement.start), b = at(this.#measurement.end);
-          ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+          overlayCtx.setLineDash([]); overlayCtx.beginPath(); overlayCtx.moveTo(a.x, a.y); overlayCtx.lineTo(b.x, b.y); overlayCtx.stroke();
         }
         const gesture = this.#tools.gesture;
         if (gesture?.type === "select") {
-          ctx.setLineDash([4, 4]); ctx.strokeRect(gesture.start.x, gesture.start.y, gesture.end.x - gesture.start.x, gesture.end.y - gesture.start.y);
+          overlayCtx.setLineDash([4, 4]); overlayCtx.strokeRect(gesture.start.x, gesture.start.y, gesture.end.x - gesture.start.x, gesture.end.y - gesture.start.y);
         }
-      } finally { ctx.restore(); }
+      } finally { overlayCtx.restore(); }
       const state = this.#state();
       for (const { draw } of this.#overlays.values()) {
-        ctx.save();
-        try { ctx.setTransform(size.pixelRatio, 0, 0, size.pixelRatio, 0, 0); draw(ctx, state); }
+        overlayCtx.save();
+        try { overlayCtx.setTransform(size.pixelRatio, 0, 0, size.pixelRatio, 0, 0); draw(overlayCtx, state); }
         catch (error) { if (!failed) { failed = true; first = error; } }
-        finally { ctx.restore(); }
+        finally { overlayCtx.restore(); }
       }
+      surface.endFrame(premultipliedRgba(this.#settings.background));
     } finally { this.#drawing = false; }
     if (failed) throw first;
     return this.getReport();
+  }
+
+  async snapshot() {
+    this.#live();
+    return this.#surface.readPixelsAsync();
   }
 
   jumpTo(view) {
@@ -482,26 +525,28 @@ export class View2D {
     this.#canvas.width = pixelsX;
     this.#canvas.height = pixelsY;
     this.#size = next;
+    this.#surface.resize(pixelsX, pixelsY, width, height, pixelRatio);
     return this.#refresh("size");
   }
 
   /** Canvas の所有権は呼び出し側に残す。繰り返して呼べる。 */
   destroy() {
-    if (!this.#ctx) return;
+    if (!this.#surface) return;
     this.#structural();
     const cleanup = this.#tools.reset("destroy");
     this.#underlays.destroy();
     this.#binding?.disconnect(); this.#binding = null; this.#measurement = null; this.#overlays.clear(); this.#tools.definitions.clear();
     this.#measurementCalibration = null;
-    this.#ctx.setTransform(1, 0, 0, 1, 0, 0);
-    this.#ctx.clearRect(0, 0, this.#canvas.width, this.#canvas.height);
+    this.#surface.destroy();
     this.#prepared = null;
     this.#index = null;
     this.#interaction = emptyInteraction();
     this.#display = { hidden: new Set(), colors: new Map() };
     this.#snapshot = null;
     this.#listeners.clear();
-    this.#ctx = null;
+    this.#surface = null;
+    this.#measureCtx = null;
+    if (this.#canvas?.[CANVAS_VIEW2D] === this) delete this.#canvas[CANVAS_VIEW2D];
     this.#canvas = null;
     if (cleanup.failed) throw cleanup.error;
   }

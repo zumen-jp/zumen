@@ -37,11 +37,11 @@ pub enum Request {
     Construct(ConstructRequest),
     /// 開いた文書に、変更の一覧を当てて書き戻す（決定 0139・0156）。要素は、entities が返す ID とハッシュで指す。どれか 1 つでも当てられなければ、何も変えない。当てたら、文書を書き戻したものに替え、書き戻したファイルを blobs で返す。マイナーバージョン 7 から
     Apply(ApplyRequest),
-    /// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+    /// 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から
     Create(CreateRequest),
-    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+    /// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から
     Convert(ConvertRequest),
-    /// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
+    /// 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から）
     ConvertEstimate(ConvertEstimateRequest),
     /// 開いた文書を図面モデル（L2）に変換し、レイヤと線種の表の項目を返す（決定 0156）。マイナーバージョン 8 から
     Tables(TablesRequest),
@@ -97,6 +97,8 @@ pub enum Request {
     Render(RenderRequest),
     /// 開いた TIFF・GeoTIFF の指定ページの画素を RGBA8・非インターレースの PNG に復号し、画像の blob で返す（#877）。複数ページの TIFF は page で 1 から数えるページ番号を選ぶ（書かなければ 1）。max_side を指定すると、長辺が max_side 以下になるよう縦横比を保って縮小して返す（最大 16777216 画素）。マイナーバージョン 73 から
     Raster(RasterRequest),
+    /// 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から
+    Georeference(GeoreferenceRequest),
 }
 
 impl Request {
@@ -145,6 +147,7 @@ impl Request {
         "lift",
         "render",
         "raster",
+        "georeference",
     ];
 
     /// タグのフィールド（`op`）の値
@@ -193,6 +196,7 @@ impl Request {
             Self::Lift(_) => "lift",
             Self::Render(_) => "render",
             Self::Raster(_) => "raster",
+            Self::Georeference(_) => "georeference",
         }
     }
 }
@@ -258,6 +262,7 @@ impl FromJson for Request {
             "lift" => Self::Lift(LiftRequest::read_fields(&mut object)?),
             "render" => Self::Render(RenderRequest::read_fields(&mut object)?),
             "raster" => Self::Raster(RasterRequest::read_fields(&mut object)?),
+            "georeference" => Self::Georeference(GeoreferenceRequest::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("op")),
         };
         object.finish()?;
@@ -311,6 +316,7 @@ impl ToJson for Request {
             Self::Lift(value) => value.to_json(out),
             Self::Render(value) => value.to_json(out),
             Self::Raster(value) => value.to_json(out),
+            Self::Georeference(value) => value.to_json(out),
         }
     }
 }
@@ -378,6 +384,8 @@ pub struct Budget {
     pub input_bytes: Option<Limit>,
     /// 展開・復号で作ったバイト数。入れ子の分も足す
     pub decoded_bytes: Option<Limit>,
+    /// 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から
+    pub model_bytes: Option<Limit>,
     /// L0・L1 で読んだレコードの数
     pub records: Option<Limit>,
     /// L2・L3 で作った要素の数
@@ -394,6 +402,7 @@ impl Budget {
     fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
         let input_bytes = object.optional("input_bytes", Limit::from_json)?;
         let decoded_bytes = object.optional("decoded_bytes", Limit::from_json)?;
+        let model_bytes = object.optional("model_bytes", Limit::from_json)?;
         let records = object.optional("records", Limit::from_json)?;
         let elements = object.optional("elements", Limit::from_json)?;
         let depth = object.optional("depth", Limit::from_json)?;
@@ -402,6 +411,7 @@ impl Budget {
         Ok(Self {
             input_bytes,
             decoded_bytes,
+            model_bytes,
             records,
             elements,
             depth,
@@ -417,6 +427,10 @@ impl Budget {
         }
         if let Some(value) = &self.decoded_bytes {
             out.key("decoded_bytes");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.model_bytes {
+            out.key("model_bytes");
             value.to_json(out);
         }
         if let Some(value) = &self.records {
@@ -1253,6 +1267,8 @@ pub struct DrawingResult {
     pub sheets: Vec<SheetSummary>,
     /// 文書の点の表し方（marker を持たない点の見え方、決定 0160）。point_style の変更で変える。文書が持たなければ（JWW・SXF）持たない。マイナーバージョン 39 から
     pub point_style: Option<PointStyleSummary>,
+    /// 図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から
+    pub georeference: Option<Georeference>,
 }
 
 impl DrawingResult {
@@ -1265,11 +1281,13 @@ impl DrawingResult {
             json::array(value, SheetSummary::from_json)
         })?;
         let point_style = object.optional("point_style", PointStyleSummary::from_json)?;
+        let georeference = object.optional("georeference", Georeference::from_json)?;
         Ok(Self {
             hash,
             spaces,
             sheets,
             point_style,
+            georeference,
         })
     }
 
@@ -1286,6 +1304,10 @@ impl DrawingResult {
             out.key("point_style");
             value.to_json(out);
         }
+        if let Some(value) = &self.georeference {
+            out.key("georeference");
+            value.to_json(out);
+        }
     }
 }
 
@@ -1299,6 +1321,345 @@ impl FromJson for DrawingResult {
 }
 
 impl ToJson for DrawingResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapConversion {
+    /// 東への移動（m）
+    pub eastings: f64,
+    /// 北への移動（m）
+    pub northings: f64,
+    /// 高さへの移動（m）
+    pub orthogonal_height: f64,
+    /// 図面の X 軸の東方向の単位ベクトル成分
+    pub x_axis_abscissa: f64,
+    /// 図面の X 軸の北方向の単位ベクトル成分
+    pub x_axis_ordinate: f64,
+    /// 図面の 1 単位あたりの地図のメートル数
+    pub scale: f64,
+}
+
+impl MapConversion {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let eastings = object.required("eastings", json::number)?;
+        let northings = object.required("northings", json::number)?;
+        let orthogonal_height = object.required("orthogonal_height", json::number)?;
+        let x_axis_abscissa = object.required("x_axis_abscissa", json::number)?;
+        let x_axis_ordinate = object.required("x_axis_ordinate", json::number)?;
+        let scale = object.required("scale", json::number)?;
+        Ok(Self {
+            eastings,
+            northings,
+            orthogonal_height,
+            x_axis_abscissa,
+            x_axis_ordinate,
+            scale,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("eastings");
+        out.float(self.eastings);
+        out.key("northings");
+        out.float(self.northings);
+        out.key("orthogonal_height");
+        out.float(self.orthogonal_height);
+        out.key("x_axis_abscissa");
+        out.float(self.x_axis_abscissa);
+        out.key("x_axis_ordinate");
+        out.float(self.x_axis_ordinate);
+        out.key("scale");
+        out.float(self.scale);
+    }
+}
+
+impl FromJson for MapConversion {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MapConversion {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地図の座標系と、図面の実寸から地図への相似の変換
+#[derive(Clone, Debug, PartialEq)]
+pub struct Georeference {
+    /// 地図の座標系の EPSG のコード
+    pub crs: u64,
+    /// 図面の実寸から地図への相似の変換
+    pub conversion: MapConversion,
+}
+
+impl Georeference {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let crs = object.required("crs", |value| json::uint(value, 0, 9007199254740991))?;
+        let conversion = object.required("conversion", MapConversion::from_json)?;
+        Ok(Self { crs, conversion })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("crs");
+        out.uint(self.crs);
+        out.key("conversion");
+        self.conversion.to_json(out);
+    }
+}
+
+impl FromJson for Georeference {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for Georeference {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 地図の投影座標（m）。東（easting）と北（northing）を名前で分ける
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapPoint2 {
+    /// 東方向の座標（m。平面直角座標系の Y）
+    pub easting: f64,
+    /// 北方向の座標（m。平面直角座標系の X）
+    pub northing: f64,
+}
+
+impl MapPoint2 {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let easting = object.required("easting", json::number)?;
+        let northing = object.required("northing", json::number)?;
+        Ok(Self { easting, northing })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("easting");
+        out.float(self.easting);
+        out.key("northing");
+        out.float(self.northing);
+    }
+}
+
+impl FromJson for MapPoint2 {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for MapPoint2 {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 図面の実寸の点と、対応する地図の投影座標の組
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeoreferenceControlPoint {
+    /// 図面の実寸の点
+    pub drawing: Point2,
+    /// 対応する地図の投影座標（m）
+    pub map: MapPoint2,
+}
+
+impl GeoreferenceControlPoint {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let drawing = object.required("drawing", Point2::from_json)?;
+        let map = object.required("map", MapPoint2::from_json)?;
+        Ok(Self { drawing, map })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("drawing");
+        self.drawing.to_json(out);
+        out.key("map");
+        self.map.to_json(out);
+    }
+}
+
+impl FromJson for GeoreferenceControlPoint {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoreferenceControlPoint {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeoreferenceRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない
+    pub doc: Option<String>,
+    /// doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる
+    pub expected_hash: Option<String>,
+    /// 対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す
+    pub crs: Option<u64>,
+    /// 図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める
+    pub control_points: Option<Vec<GeoreferenceControlPoint>>,
+    /// 求めた変換で地図へ写す図面の実寸の点
+    pub points: Option<Vec<Point2>>,
+}
+
+impl GeoreferenceRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "georeference")?;
+        let doc = object.optional("doc", json::string)?;
+        let expected_hash = object.optional("expected_hash", json::string)?;
+        let crs = object.optional("crs", |value| json::uint(value, 0, 9007199254740991))?;
+        let control_points = object.optional("control_points", |value| {
+            json::array(value, GeoreferenceControlPoint::from_json)
+        })?;
+        let points = object.optional("points", |value| json::array(value, Point2::from_json))?;
+        Ok(Self {
+            request_common,
+            doc,
+            expected_hash,
+            crs,
+            control_points,
+            points,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("georeference");
+        if let Some(value) = &self.doc {
+            out.key("doc");
+            out.string(value);
+        }
+        if let Some(value) = &self.expected_hash {
+            out.key("expected_hash");
+            out.string(value);
+        }
+        if let Some(value) = &self.crs {
+            out.key("crs");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.control_points {
+            out.key("control_points");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.points {
+            out.key("points");
+            out.array(value, |out, item| item.to_json(out));
+        }
+    }
+}
+
+impl FromJson for GeoreferenceRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoreferenceRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GeoreferenceResult {
+    /// doc を渡したときの元の文書のハッシュ
+    pub hash: Option<String>,
+    /// 地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない
+    pub georeference: Option<Georeference>,
+    /// control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順
+    pub residuals: Option<Vec<MapPoint2>>,
+    /// points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない
+    pub mapped: Option<Vec<MapPoint2>>,
+}
+
+impl GeoreferenceResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let hash = object.optional("hash", json::string)?;
+        let georeference = object.optional("georeference", Georeference::from_json)?;
+        let residuals = object.optional("residuals", |value| {
+            json::array(value, MapPoint2::from_json)
+        })?;
+        let mapped = object.optional("mapped", |value| json::array(value, MapPoint2::from_json))?;
+        Ok(Self {
+            hash,
+            georeference,
+            residuals,
+            mapped,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.hash {
+            out.key("hash");
+            out.string(value);
+        }
+        if let Some(value) = &self.georeference {
+            out.key("georeference");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.residuals {
+            out.key("residuals");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.mapped {
+            out.key("mapped");
+            out.array(value, |out, item| item.to_json(out));
+        }
+    }
+}
+
+impl FromJson for GeoreferenceResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for GeoreferenceResult {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
@@ -7786,17 +8147,19 @@ impl ToJson for ApplyResult {
     }
 }
 
-/// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+/// 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
-    /// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+    /// 作る形式の名前。dxf か ifc
     pub format: String,
     /// 作る文書の名前。既存の文書と重ねない
     pub to: String,
-    /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+    /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なしで、ifc では書けない
     pub unit: Option<Unit>,
+    /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+    pub ifc: Option<IfcOutput>,
 }
 
 impl CreateRequest {
@@ -7806,11 +8169,13 @@ impl CreateRequest {
         let format = object.required("format", json::string)?;
         let to = object.required("to", json::string)?;
         let unit = object.optional("unit", Unit::from_json)?;
+        let ifc = object.optional("ifc", IfcOutput::from_json)?;
         Ok(Self {
             request_common,
             format,
             to,
             unit,
+            ifc,
         })
     }
 
@@ -7824,6 +8189,10 @@ impl CreateRequest {
         out.string(&self.to);
         if let Some(value) = &self.unit {
             out.key("unit");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.ifc {
+            out.key("ifc");
             value.to_json(out);
         }
     }
@@ -7903,17 +8272,19 @@ impl ToJson for CreateResult {
     }
 }
 
-/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConvertRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
     /// 書く元の文書の名前。open で作ったもの
     pub doc: String,
-    /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から
+    /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima・ifc のいずれか。sxf・jww はマイナーバージョン 85 から
     pub format: String,
     /// 作る文書の名前
     pub to: String,
+    /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+    pub ifc: Option<IfcOutput>,
 }
 
 impl ConvertRequest {
@@ -7923,11 +8294,13 @@ impl ConvertRequest {
         let doc = object.required("doc", json::string)?;
         let format = object.required("format", json::string)?;
         let to = object.required("to", json::string)?;
+        let ifc = object.optional("ifc", IfcOutput::from_json)?;
         Ok(Self {
             request_common,
             doc,
             format,
             to,
+            ifc,
         })
     }
 
@@ -7941,6 +8314,10 @@ impl ConvertRequest {
         out.string(&self.format);
         out.key("to");
         out.string(&self.to);
+        if let Some(value) = &self.ifc {
+            out.key("ifc");
+            value.to_json(out);
+        }
     }
 }
 
@@ -8018,17 +8395,19 @@ impl ToJson for ConvertResult {
     }
 }
 
-/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
+/// 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConvertEstimateRequest {
     /// `request_common` のフィールド
     pub request_common: RequestCommon,
     /// 書く元の文書の名前
     pub doc: String,
-    /// 書く形式の名前。dxf・sxf・jww
+    /// 書く形式の名前。dxf・sxf・jww・ifc
     pub format: String,
     /// 予定する文書の名前。convert と同じ条件で検査するが、名前を確保しない
     pub to: String,
+    /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+    pub ifc: Option<IfcOutput>,
     /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
     pub limit: Option<u64>,
 }
@@ -8040,12 +8419,14 @@ impl ConvertEstimateRequest {
         let doc = object.required("doc", json::string)?;
         let format = object.required("format", json::string)?;
         let to = object.required("to", json::string)?;
+        let ifc = object.optional("ifc", IfcOutput::from_json)?;
         let limit = object.optional("limit", |value| json::uint(value, 0, 1000))?;
         Ok(Self {
             request_common,
             doc,
             format,
             to,
+            ifc,
             limit,
         })
     }
@@ -8060,6 +8441,10 @@ impl ConvertEstimateRequest {
         out.string(&self.format);
         out.key("to");
         out.string(&self.to);
+        if let Some(value) = &self.ifc {
+            out.key("ifc");
+            value.to_json(out);
+        }
         if let Some(value) = &self.limit {
             out.key("limit");
             out.uint(*value);
@@ -8077,6 +8462,288 @@ impl FromJson for ConvertEstimateRequest {
 }
 
 impl ToJson for ConvertEstimateRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 新しい IFC を書く設定（#395）。コアは時計を読まないので、時刻は呼び出し元が渡す
+#[derive(Clone, Debug, PartialEq)]
+pub struct IfcOutput {
+    /// 書くバージョン
+    pub version: IfcVersion,
+    /// ヘッダー（FILE_DESCRIPTION と FILE_NAME）の値。書かなければ空の値で書く
+    pub header: Option<IfcHeader>,
+    /// 所有履歴（IfcOwnerHistory）の値。ifc2x3 では必須。ifc4 からは書いたときだけ書く
+    pub owner: Option<IfcOwner>,
+    /// GlobalId を導く名前空間。書かなければ、convert は元の IfcProject の GlobalId（なければ元の文書のハッシュ）、create は作る文書の名前を使う。元の文書のハッシュでない名前空間なら、元を一部直して書き直しても、直していない要素の GlobalId は変わらない
+    pub namespace: Option<String>,
+}
+
+impl IfcOutput {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let version = object.required("version", IfcVersion::from_json)?;
+        let header = object.optional("header", IfcHeader::from_json)?;
+        let owner = object.optional("owner", IfcOwner::from_json)?;
+        let namespace = object.optional("namespace", json::string)?;
+        Ok(Self {
+            version,
+            header,
+            owner,
+            namespace,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("version");
+        self.version.to_json(out);
+        if let Some(value) = &self.header {
+            out.key("header");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.owner {
+            out.key("owner");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.namespace {
+            out.key("namespace");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for IfcOutput {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IfcOutput {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// IFC のバージョン。ifc2x3 は IFC2X3 TC1、ifc4 は IFC4 ADD2 TC1、ifc4x3 は IFC4X3 ADD2
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IfcVersion {
+    /// `ifc2x3`
+    Ifc2x3,
+    /// `ifc4`
+    Ifc4,
+    /// `ifc4x3`
+    Ifc4x3,
+}
+
+impl IfcVersion {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Ifc2x3, Self::Ifc4, Self::Ifc4x3];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Ifc2x3 => "ifc2x3",
+            Self::Ifc4 => "ifc4",
+            Self::Ifc4x3 => "ifc4x3",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "ifc2x3" => Some(Self::Ifc2x3),
+            "ifc4" => Some(Self::Ifc4),
+            "ifc4x3" => Some(Self::Ifc4x3),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for IfcVersion {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for IfcVersion {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// IFC のヘッダーの値。書かない値は空で書く
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct IfcHeader {
+    /// FILE_DESCRIPTION に ViewDefinition [<値>] として書く MVD の名前。書かなければ書かない
+    pub view_definition: Option<String>,
+    /// FILE_NAME の name
+    pub name: Option<String>,
+    /// FILE_NAME の time_stamp。呼び出し元が書いた時刻
+    pub time_stamp: Option<String>,
+    /// FILE_NAME の author
+    pub author: Option<Vec<String>>,
+    /// FILE_NAME の organization
+    pub organization: Option<Vec<String>>,
+    /// FILE_NAME の preprocessor_version
+    pub preprocessor_version: Option<String>,
+    /// FILE_NAME の originating_system
+    pub originating_system: Option<String>,
+    /// FILE_NAME の authorization
+    pub authorization: Option<String>,
+}
+
+impl IfcHeader {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let view_definition = object.optional("view_definition", json::string)?;
+        let name = object.optional("name", json::string)?;
+        let time_stamp = object.optional("time_stamp", json::string)?;
+        let author = object.optional("author", |value| json::array(value, json::string))?;
+        let organization =
+            object.optional("organization", |value| json::array(value, json::string))?;
+        let preprocessor_version = object.optional("preprocessor_version", json::string)?;
+        let originating_system = object.optional("originating_system", json::string)?;
+        let authorization = object.optional("authorization", json::string)?;
+        Ok(Self {
+            view_definition,
+            name,
+            time_stamp,
+            author,
+            organization,
+            preprocessor_version,
+            originating_system,
+            authorization,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.view_definition {
+            out.key("view_definition");
+            out.string(value);
+        }
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.time_stamp {
+            out.key("time_stamp");
+            out.string(value);
+        }
+        if let Some(value) = &self.author {
+            out.key("author");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.organization {
+            out.key("organization");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.preprocessor_version {
+            out.key("preprocessor_version");
+            out.string(value);
+        }
+        if let Some(value) = &self.originating_system {
+            out.key("originating_system");
+            out.string(value);
+        }
+        if let Some(value) = &self.authorization {
+            out.key("authorization");
+            out.string(value);
+        }
+    }
+}
+
+impl FromJson for IfcHeader {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IfcHeader {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 所有履歴の値
+#[derive(Clone, Debug, PartialEq)]
+pub struct IfcOwner {
+    /// 所有する人の IfcPerson の FamilyName
+    pub person: String,
+    /// 所有する組織の IfcOrganization の Name
+    pub organization: String,
+    /// 作ったソフトの開発元の IfcOrganization の Name
+    pub developer: String,
+    /// 作ったソフトの名前（IfcApplication の ApplicationFullName）
+    pub application: String,
+    /// 作ったソフトのバージョン（IfcApplication の Version）
+    pub version: String,
+    /// 作ったソフトの識別子（IfcApplication の ApplicationIdentifier）
+    pub identifier: String,
+    /// 作った日時。1970-01-01T00:00:00Z からの秒（IfcTimeStamp）
+    pub created: i64,
+}
+
+impl IfcOwner {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let person = object.required("person", json::string)?;
+        let organization = object.required("organization", json::string)?;
+        let developer = object.required("developer", json::string)?;
+        let application = object.required("application", json::string)?;
+        let version = object.required("version", json::string)?;
+        let identifier = object.required("identifier", json::string)?;
+        let created = object.required("created", |value| {
+            json::int(value, -9007199254740991, 9007199254740991)
+        })?;
+        Ok(Self {
+            person,
+            organization,
+            developer,
+            application,
+            version,
+            identifier,
+            created,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("person");
+        out.string(&self.person);
+        out.key("organization");
+        out.string(&self.organization);
+        out.key("developer");
+        out.string(&self.developer);
+        out.key("application");
+        out.string(&self.application);
+        out.key("version");
+        out.string(&self.version);
+        out.key("identifier");
+        out.string(&self.identifier);
+        out.key("created");
+        out.int(self.created);
+    }
+}
+
+impl FromJson for IfcOwner {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for IfcOwner {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);
@@ -8561,7 +9228,7 @@ pub enum Edit {
     Restyle(RestyleEdit),
     /// 要素を、アフィン変換で動かす。AutoCAD の系統では、図形とともに動く XDATA と記号の属性も同じ変換で直す。変換した形を元の種類で表せなければ当てない
     Transform(TransformEdit),
-    /// 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から
+    /// 要素を複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA、JWW のフラグ・文字種・字間、SXF の文字幅・字間など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。DXF の寸法・表は新しい匿名ブロックを作る。place で配置先の空間・用紙を、from_doc で複写元の文書を指定でき（マイナーバージョン 110 から）、単位・画層・線種・文字スタイル・寸法スタイル・記号定義・APPID の対応と名前の衝突を確かめる。保てない値・参照・対応を持つ要素は change.copy.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。マイナーバージョン 100 から
     Copy(CopyEdit),
     /// 要素を除く
     Remove(RemoveEdit),
@@ -8863,7 +9530,7 @@ impl ToJson for TransformEdit {
     }
 }
 
-/// 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から
+/// 要素を複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA、JWW のフラグ・文字種・字間、SXF の文字幅・字間など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。DXF の寸法・表は新しい匿名ブロックを作る。place で配置先の空間・用紙を、from_doc で複写元の文書を指定でき（マイナーバージョン 110 から）、単位・画層・線種・文字スタイル・寸法スタイル・記号定義・APPID の対応と名前の衝突を確かめる。保てない値・参照・対応を持つ要素は change.copy.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。マイナーバージョン 100 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct CopyEdit {
     /// 複写する要素の ID。entities が返したもの
@@ -8872,6 +9539,10 @@ pub struct CopyEdit {
     pub hash: String,
     /// [a, b, c, d, e, f]。写しの点 (x, y) を (a x + b y + c, d x + e y + f) に写す。元の位置に写すなら [1, 0, 0, 0, 1, 0]
     pub matrix: Vec<f64>,
+    /// 配置先の空間か用紙の ID。省けば元の要素と同じ場所 ID。マイナーバージョン 110 から
+    pub place: Option<String>,
+    /// 複写元の文書の名前。open で作ったもの。省けば doc と同じ文書。マイナーバージョン 110 から
+    pub from_doc: Option<String>,
 }
 
 impl CopyEdit {
@@ -8880,7 +9551,15 @@ impl CopyEdit {
         let id = object.required("id", json::string)?;
         let hash = object.required("hash", json::string)?;
         let matrix = object.required("matrix", |value| json::array(value, json::number))?;
-        Ok(Self { id, hash, matrix })
+        let place = object.optional("place", json::string)?;
+        let from_doc = object.optional("from_doc", json::string)?;
+        Ok(Self {
+            id,
+            hash,
+            matrix,
+            place,
+            from_doc,
+        })
     }
 
     fn write_fields(&self, out: &mut Writer) {
@@ -8892,6 +9571,14 @@ impl CopyEdit {
         out.string(&self.hash);
         out.key("matrix");
         out.array(&self.matrix, |out, item| out.float(*item));
+        if let Some(value) = &self.place {
+            out.key("place");
+            out.string(value);
+        }
+        if let Some(value) = &self.from_doc {
+            out.key("from_doc");
+            out.string(value);
+        }
     }
 }
 
@@ -15644,27 +16331,27 @@ pub enum BuildingEdit {
     Void(BuildingVoidEdit),
     /// 扉や窓を開口（IfcOpeningElement）に IfcRelFillsElement で結ぶ。1 つの開口は 1 つの要素だけで埋める。マイナーバージョン 96 から
     Fill(BuildingFillEdit),
-    /// 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+    /// 芯の 2 点・高さ・材料の層か型で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から（element_type は 110 から）
     AddWall(BuildingAddWallEdit),
-    /// 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から
+    /// 外形・材料の層か型で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab（型が PredefinedType を持たなければ FLOOR）、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。結果の id は足した床の ID。マイナーバージョン 98 から（element_type は 110 から）
     AddSlab(BuildingAddSlabEdit),
-    /// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から
+    /// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から（element_type は 110 から）
     AddColumn(BuildingAddColumnEdit),
-    /// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から
+    /// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から（element_type は 110 から）
     AddBeam(BuildingAddBeamEdit),
     /// 壁の芯に沿う位置・下端・矩形の大きさで開口を足し、IfcRelVoidsElement で壁に穴をあける。開口は壁の配置からの相対に置き、壁の材料の層の使い方（AXIS2）の厚さだけ押し出す Body と IfcOpeningElement をコアが書く。空間には所属させない。層の使い方を持たない要素は断る。結果の id は足した開口の ID。マイナーバージョン 98 から
     AddOpening(BuildingAddOpeningEdit),
-    /// 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から
+    /// 開口を扉で埋める。扉は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcDoor（IFC4 と IFC4X3 で型が PredefinedType を持たなければ DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
     AddDoor(BuildingAddDoorEdit),
-    /// 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から
+    /// 開口を窓で埋める。窓は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcWindow（IFC4 と IFC4X3 で型が PredefinedType を持たなければ WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
     AddWindow(BuildingAddWindowEdit),
     /// U と V の軸で通り芯（IfcGrid）を足し、空間に包含で結ぶ。通り芯は空間の配置からの相対に置く。U か V が空・同じ名前の軸・始点と終点が同じ軸は断る。結果の id は足した通り芯の ID。マイナーバージョン 101 から
     AddGrid(BuildingAddGridEdit),
     /// 階の高さ（IfcBuildingStorey の Elevation）を直し、階の配置の z を高さの差だけ動かす。今の高さがなければ、配置の z を今の高さとみなす。階に属する要素は配置の相対で付いてくる。結果の id は直した階の ID。マイナーバージョン 103 から
     Elevation(BuildingElevationEdit),
-    /// 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+    /// 壁の芯・高さ・材料の層か型を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口と建具の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から（element_type は 110 から）
     WallShape(BuildingWallShapeEdit),
-    /// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+    /// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の Body と全体の高さ・幅（OverallHeight・OverallWidth）を合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
     OpeningShape(BuildingOpeningShapeEdit),
     /// 型を足す。配置と表現は持たず、要素とは type で結ぶ。足せるのは、壁・床・柱・梁・部材・板・被覆・手すり・代理要素の型と、IFC4 からの屋根・階段・斜路・基礎・杭・扉・窓の型。PredefinedType を書かなければ NOTDEFINED を書き、扉と窓の型の OperationType・PartitioningType も NOTDEFINED にする。結果の id は足した型の ID。マイナーバージョン 106 から
     AddType(BuildingAddTypeEdit),
@@ -15674,6 +16361,8 @@ pub enum BuildingEdit {
     AddUnit(BuildingAddUnitEdit),
     /// 要素か型に材料の構成を IfcRelAssociatesMaterial で結ぶ。結んであった材料は外す。同じ名前の材料（IfcMaterial）は文書のものを使う。結果の id は要素の ID。マイナーバージョン 106 から
     Material(BuildingMaterialEdit),
+    /// 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・AdvancedSweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
+    Shape(BuildingShapeEdit),
 }
 
 impl BuildingEdit {
@@ -15704,6 +16393,7 @@ impl BuildingEdit {
         "quantity",
         "add_unit",
         "material",
+        "shape",
     ];
 
     /// タグのフィールド（`kind`）の値
@@ -15734,6 +16424,7 @@ impl BuildingEdit {
             Self::Quantity(_) => "quantity",
             Self::AddUnit(_) => "add_unit",
             Self::Material(_) => "material",
+            Self::Shape(_) => "shape",
         }
     }
 }
@@ -15769,6 +16460,7 @@ impl FromJson for BuildingEdit {
             "quantity" => Self::Quantity(BuildingQuantityEdit::read_fields(&mut object)?),
             "add_unit" => Self::AddUnit(BuildingAddUnitEdit::read_fields(&mut object)?),
             "material" => Self::Material(BuildingMaterialEdit::read_fields(&mut object)?),
+            "shape" => Self::Shape(BuildingShapeEdit::read_fields(&mut object)?),
             other => return Err(Invalid::new(Problem::Tag(other.to_string())).in_key("kind")),
         };
         object.finish()?;
@@ -15804,6 +16496,7 @@ impl ToJson for BuildingEdit {
             Self::Quantity(value) => value.to_json(out),
             Self::AddUnit(value) => value.to_json(out),
             Self::Material(value) => value.to_json(out),
+            Self::Shape(value) => value.to_json(out),
         }
     }
 }
@@ -16555,7 +17248,7 @@ impl ToJson for BuildingWallLayer {
     }
 }
 
-/// 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+/// 芯の 2 点・高さ・材料の層か型で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から（element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddWallEdit {
     /// 所属する空間（階など）。壁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
@@ -16566,10 +17259,12 @@ pub struct BuildingAddWallEdit {
     pub end: Vec<f64>,
     /// 高さ。文書の長さの単位で、正の値
     pub height: f64,
-    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
-    pub layers: Vec<BuildingWallLayer>,
+    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type の材料の層を使う
+    pub layers: Option<Vec<BuildingWallLayer>>,
     /// 芯から最初の層の面までのずれ（OffsetFromReferenceLine、左が正）。書かなければ厚さの合計の半分を負にして、芯を厚さの中央にする
     pub offset: Option<f64>,
+    /// 結ぶ壁の型（IfcWallType）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -16583,10 +17278,11 @@ impl BuildingAddWallEdit {
         let start = object.required("start", |value| json::array(value, json::number))?;
         let end = object.required("end", |value| json::array(value, json::number))?;
         let height = object.required("height", json::number)?;
-        let layers = object.required("layers", |value| {
+        let layers = object.optional("layers", |value| {
             json::array(value, BuildingWallLayer::from_json)
         })?;
         let offset = object.optional("offset", json::number)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
@@ -16596,6 +17292,7 @@ impl BuildingAddWallEdit {
             height,
             layers,
             offset,
+            element_type,
             name,
             global_id,
         })
@@ -16612,11 +17309,17 @@ impl BuildingAddWallEdit {
         out.array(&self.end, |out, item| out.float(*item));
         out.key("height");
         out.float(self.height);
-        out.key("layers");
-        out.array(&self.layers, |out, item| item.to_json(out));
+        if let Some(value) = &self.layers {
+            out.key("layers");
+            out.array(value, |out, item| item.to_json(out));
+        }
         if let Some(value) = &self.offset {
             out.key("offset");
             out.float(*value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -16687,17 +17390,19 @@ impl ToJson for BuildingSection {
     }
 }
 
-/// 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から
+/// 外形・材料の層か型で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab（型が PredefinedType を持たなければ FLOOR）、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。結果の id は足した床の ID。マイナーバージョン 98 から（element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddSlabEdit {
     /// 所属する空間（階など）。床はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     pub storey: BuildingRef,
     /// 外形の頂点。空間の配置の [x, y] の並びで、3 つ以上。最後の点が最初の点と同じなら、その点は除く
     pub outline: Vec<Vec<f64>>,
-    /// 材料の層。上から下へ並べる。1 つ以上
-    pub layers: Vec<BuildingWallLayer>,
+    /// 材料の層。上から下へ並べる。省くか空なら element_type の材料の層を使う
+    pub layers: Option<Vec<BuildingWallLayer>>,
     /// 上の面の高さ（空間の配置の z）。書かなければ 0
     pub elevation: Option<f64>,
+    /// 結ぶ床の型（IfcSlabType）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -16711,10 +17416,11 @@ impl BuildingAddSlabEdit {
         let outline = object.required("outline", |value| {
             json::array(value, |value| json::array(value, json::number))
         })?;
-        let layers = object.required("layers", |value| {
+        let layers = object.optional("layers", |value| {
             json::array(value, BuildingWallLayer::from_json)
         })?;
         let elevation = object.optional("elevation", json::number)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
@@ -16722,6 +17428,7 @@ impl BuildingAddSlabEdit {
             outline,
             layers,
             elevation,
+            element_type,
             name,
             global_id,
         })
@@ -16736,11 +17443,17 @@ impl BuildingAddSlabEdit {
         out.array(&self.outline, |out, item| {
             out.array(item, |out, item| out.float(*item))
         });
-        out.key("layers");
-        out.array(&self.layers, |out, item| item.to_json(out));
+        if let Some(value) = &self.layers {
+            out.key("layers");
+            out.array(value, |out, item| item.to_json(out));
+        }
         if let Some(value) = &self.elevation {
             out.key("elevation");
             out.float(*value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -16770,7 +17483,7 @@ impl ToJson for BuildingAddSlabEdit {
     }
 }
 
-/// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から
+/// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から（element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddColumnEdit {
     /// 所属する空間（階など）。柱はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
@@ -16787,6 +17500,8 @@ pub struct BuildingAddColumnEdit {
     pub direction: Option<Vec<f64>>,
     /// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
     pub material: Option<String>,
+    /// 結ぶ柱の型（IfcColumnType）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -16803,6 +17518,7 @@ impl BuildingAddColumnEdit {
         let section = object.required("section", BuildingSection::from_json)?;
         let direction = object.optional("direction", |value| json::array(value, json::number))?;
         let material = object.optional("material", json::string)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
@@ -16813,6 +17529,7 @@ impl BuildingAddColumnEdit {
             section,
             direction,
             material,
+            element_type,
             name,
             global_id,
         })
@@ -16840,6 +17557,10 @@ impl BuildingAddColumnEdit {
         if let Some(value) = &self.material {
             out.key("material");
             out.string(value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -16869,7 +17590,7 @@ impl ToJson for BuildingAddColumnEdit {
     }
 }
 
-/// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から
+/// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から（element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddBeamEdit {
     /// 所属する空間（階など）。梁はこの空間の配置からの相対に置く。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
@@ -16882,6 +17603,8 @@ pub struct BuildingAddBeamEdit {
     pub section: BuildingSection,
     /// 材料の名前（IfcMaterial の Name）。書けば IfcRelAssociatesMaterial で結ぶ
     pub material: Option<String>,
+    /// 結ぶ梁の型（IfcBeamType）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -16896,6 +17619,7 @@ impl BuildingAddBeamEdit {
         let end = object.required("end", |value| json::array(value, json::number))?;
         let section = object.required("section", BuildingSection::from_json)?;
         let material = object.optional("material", json::string)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
@@ -16904,6 +17628,7 @@ impl BuildingAddBeamEdit {
             end,
             section,
             material,
+            element_type,
             name,
             global_id,
         })
@@ -16923,6 +17648,10 @@ impl BuildingAddBeamEdit {
         if let Some(value) = &self.material {
             out.key("material");
             out.string(value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -17033,15 +17762,17 @@ impl ToJson for BuildingAddOpeningEdit {
     }
 }
 
-/// 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から
+/// 開口を扉で埋める。扉は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcDoor（IFC4 と IFC4X3 で型が PredefinedType を持たなければ DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddDoorEdit {
     /// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     pub opening: BuildingRef,
-    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う
     pub width: Option<f64>,
-    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う
     pub height: Option<f64>,
+    /// 結ぶ扉の型（IFC4 からの IfcDoorType、IFC2X3 の IfcDoorStyle）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -17054,12 +17785,14 @@ impl BuildingAddDoorEdit {
         let opening = object.required("opening", BuildingRef::from_json)?;
         let width = object.optional("width", json::number)?;
         let height = object.optional("height", json::number)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
             opening,
             width,
             height,
+            element_type,
             name,
             global_id,
         })
@@ -17077,6 +17810,10 @@ impl BuildingAddDoorEdit {
         if let Some(value) = &self.height {
             out.key("height");
             out.float(*value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -17106,15 +17843,17 @@ impl ToJson for BuildingAddDoorEdit {
     }
 }
 
-/// 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から
+/// 開口を窓で埋める。窓は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcWindow（IFC4 と IFC4X3 で型が PredefinedType を持たなければ WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingAddWindowEdit {
     /// 埋める開口（IfcOpeningElement）。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
     pub opening: BuildingRef,
-    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う
     pub width: Option<f64>,
-    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う
     pub height: Option<f64>,
+    /// 結ぶ窓の型（IFC4 からの IfcWindowType、IFC2X3 の IfcWindowStyle）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
     /// 名前
     pub name: Option<String>,
     /// GlobalId（22 文字）。書かなければ、文書のハッシュと変更の位置から決める
@@ -17127,12 +17866,14 @@ impl BuildingAddWindowEdit {
         let opening = object.required("opening", BuildingRef::from_json)?;
         let width = object.optional("width", json::number)?;
         let height = object.optional("height", json::number)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         let name = object.optional("name", json::string)?;
         let global_id = object.optional("global_id", json::string)?;
         Ok(Self {
             opening,
             width,
             height,
+            element_type,
             name,
             global_id,
         })
@@ -17150,6 +17891,10 @@ impl BuildingAddWindowEdit {
         if let Some(value) = &self.height {
             out.key("height");
             out.float(*value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
         if let Some(value) = &self.name {
             out.key("name");
@@ -17346,7 +18091,7 @@ impl ToJson for BuildingElevationEdit {
     }
 }
 
-/// 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+/// 壁の芯・高さ・材料の層か型を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口と建具の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から（element_type は 110 から）
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingWallShapeEdit {
     /// 直す壁（IfcWall か IfcWallStandardCase）。材料の層の使い方（AXIS2）を持つもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
@@ -17357,10 +18102,12 @@ pub struct BuildingWallShapeEdit {
     pub end: Vec<f64>,
     /// 高さ。文書の長さの単位で、正の値
     pub height: f64,
-    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
-    pub layers: Vec<BuildingWallLayer>,
+    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type（なければ今の壁の型）の材料の層を使う
+    pub layers: Option<Vec<BuildingWallLayer>>,
     /// 芯から最初の層の面までのずれ（左が正）。書かなければ厚さの合計の半分を負にして、芯を壁の厚さの中央にする
     pub offset: Option<f64>,
+    /// 付け替える壁の型（IfcWallType）。マイナーバージョン 110 から
+    pub element_type: Option<BuildingRef>,
 }
 
 impl BuildingWallShapeEdit {
@@ -17370,10 +18117,11 @@ impl BuildingWallShapeEdit {
         let start = object.required("start", |value| json::array(value, json::number))?;
         let end = object.required("end", |value| json::array(value, json::number))?;
         let height = object.required("height", json::number)?;
-        let layers = object.required("layers", |value| {
+        let layers = object.optional("layers", |value| {
             json::array(value, BuildingWallLayer::from_json)
         })?;
         let offset = object.optional("offset", json::number)?;
+        let element_type = object.optional("element_type", BuildingRef::from_json)?;
         Ok(Self {
             wall,
             start,
@@ -17381,6 +18129,7 @@ impl BuildingWallShapeEdit {
             height,
             layers,
             offset,
+            element_type,
         })
     }
 
@@ -17395,11 +18144,17 @@ impl BuildingWallShapeEdit {
         out.array(&self.end, |out, item| out.float(*item));
         out.key("height");
         out.float(self.height);
-        out.key("layers");
-        out.array(&self.layers, |out, item| item.to_json(out));
+        if let Some(value) = &self.layers {
+            out.key("layers");
+            out.array(value, |out, item| item.to_json(out));
+        }
         if let Some(value) = &self.offset {
             out.key("offset");
             out.float(*value);
+        }
+        if let Some(value) = &self.element_type {
+            out.key("element_type");
+            value.to_json(out);
         }
     }
 }
@@ -17421,7 +18176,7 @@ impl ToJson for BuildingWallShapeEdit {
     }
 }
 
-/// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+/// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の Body と全体の高さ・幅（OverallHeight・OverallWidth）を合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingOpeningShapeEdit {
     /// 直す開口（IfcOpeningElement）。材料の層の使い方を持つ要素に穴をあけるもの。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
@@ -18063,6 +18818,909 @@ impl FromJson for BuildingMaterialConstituent {
 }
 
 impl ToJson for BuildingMaterialConstituent {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・AdvancedSweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingShapeEdit {
+    /// 形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    pub element: BuildingRef,
+    /// 芯の線（Axis の IfcPolyline）。要素の配置の [x, y] を 2 点以上。書かなければ Axis を書かない
+    pub axis: Option<Vec<Vec<f64>>>,
+    /// 形の項目の表
+    pub items: Vec<BuildingShapeItem>,
+    /// Body の表現に置く項目の、items の位置（0 から）。空なら Body を書かない
+    pub body: Vec<u64>,
+}
+
+impl BuildingShapeEdit {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        object.constant("kind", "shape")?;
+        let element = object.required("element", BuildingRef::from_json)?;
+        let axis = object.optional("axis", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let items = object.required("items", |value| {
+            json::array(value, BuildingShapeItem::from_json)
+        })?;
+        let body = object.required("body", |value| {
+            json::array(value, |value| json::uint(value, 0, 9007199254740991))
+        })?;
+        Ok(Self {
+            element,
+            axis,
+            items,
+            body,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        out.string("shape");
+        out.key("element");
+        self.element.to_json(out);
+        if let Some(value) = &self.axis {
+            out.key("axis");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.float(*item))
+            });
+        }
+        out.key("items");
+        out.array(&self.items, |out, item| item.to_json(out));
+        out.key("body");
+        out.array(&self.body, |out, item| out.uint(*item));
+    }
+}
+
+impl FromJson for BuildingShapeEdit {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingShapeEdit {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、revolution は profile・position・axis・angle、swept_disk は directrix・radius・inner_radius・start・end、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingShapeItem {
+    /// 項目の種類
+    pub kind: BuildingShapeItemKind,
+    /// 押し出す・回す断面
+    pub profile: Option<BuildingShapeProfile>,
+    /// 押し出し・回転の局所の配置。書かなければ要素の配置のまま
+    pub position: Option<BuildingAxis3>,
+    /// 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1]
+    pub direction: Option<Vec<f64>>,
+    /// 押し出す深さ。正の値
+    pub depth: Option<f64>,
+    /// 断面を回す軸。断面の平面（局所の XY 平面）にある。マイナーバージョン 108 から
+    pub axis: Option<BuildingShapeRevolutionAxis>,
+    /// 回す角度（ラジアン）。0 より大きく 2π 以下。文書の平面角の単位に直して書くので、文書は平面角の単位を持つこと。マイナーバージョン 108 から
+    pub angle: Option<f64>,
+    /// 円盤を沿わせる折れ線の [x, y, z] を 2 点以上。続く点は重ならない。マイナーバージョン 108 から
+    pub directrix: Option<Vec<Vec<f64>>>,
+    /// 円盤の半径。正の値。マイナーバージョン 108 から
+    pub radius: Option<f64>,
+    /// 管の内側の半径。正で radius より小さい。書かなければ中実。マイナーバージョン 108 から
+    pub inner_radius: Option<f64>,
+    /// 掃引を始める折れ線のパラメーター（1 区間で 1 進む）。書かなければ始点。IFC2X3 では書かなければ 0 を書く。マイナーバージョン 108 から
+    pub start: Option<f64>,
+    /// 掃引を終える折れ線のパラメーター。start より大きく区間の数以下。書かなければ終点。IFC2X3 では書かなければ区間の数を書く。マイナーバージョン 108 から
+    pub end: Option<f64>,
+    /// 面集合の点 [x, y, z]
+    pub points: Option<Vec<Vec<f64>>>,
+    /// 面集合の面
+    pub faces: Option<Vec<BuildingShapeFace>>,
+    /// true なら閉殻（立体。IfcFacetedBrep）。false か書かなければ開殻の面（IFC2X3 は IfcShellBasedSurfaceModel、IFC4 からは IfcPolygonalFaceSet）
+    pub closed: Option<bool>,
+    /// 集合演算
+    pub operation: Option<BuildingBooleanOperation>,
+    /// 集合演算の第 1 の対象。items の前にある項目の位置
+    pub first: Option<u64>,
+    /// 集合演算の第 2 の対象。差では第 1 から取り除く。items の前にある項目の位置
+    pub second: Option<u64>,
+    /// 半空間の基準面の配置。局所の z 軸が面の法線
+    pub plane: Option<BuildingAxis3>,
+    /// true なら法線と逆の側、false か書かなければ法線の向く側を内部とする
+    pub agreement: Option<bool>,
+    /// 半空間の計算用の囲みの箱（IfcBoxedHalfSpace）。座標系は IFC2X3 では基準面、IFC4 からは要素
+    pub r#box: Option<BuildingShapeBox>,
+    /// 半空間を制限する多角形（IfcPolygonalBoundedHalfSpace）
+    pub polygon: Option<BuildingShapePolygon>,
+    /// 写像元の基準位置。書かなければ原点
+    pub origin: Option<BuildingAxis3>,
+    /// 写像先の変換
+    pub target: Option<BuildingShapeMapping>,
+    /// 写像元の表現の項目。items の前にある項目の位置で、1 つ以上
+    pub members: Option<Vec<u64>>,
+}
+
+impl BuildingShapeItem {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", BuildingShapeItemKind::from_json)?;
+        let profile = object.optional("profile", BuildingShapeProfile::from_json)?;
+        let position = object.optional("position", BuildingAxis3::from_json)?;
+        let direction = object.optional("direction", |value| json::array(value, json::number))?;
+        let depth = object.optional("depth", json::number)?;
+        let axis = object.optional("axis", BuildingShapeRevolutionAxis::from_json)?;
+        let angle = object.optional("angle", json::number)?;
+        let directrix = object.optional("directrix", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let radius = object.optional("radius", json::number)?;
+        let inner_radius = object.optional("inner_radius", json::number)?;
+        let start = object.optional("start", json::number)?;
+        let end = object.optional("end", json::number)?;
+        let points = object.optional("points", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let faces = object.optional("faces", |value| {
+            json::array(value, BuildingShapeFace::from_json)
+        })?;
+        let closed = object.optional("closed", json::boolean)?;
+        let operation = object.optional("operation", BuildingBooleanOperation::from_json)?;
+        let first = object.optional("first", |value| json::uint(value, 0, 9007199254740991))?;
+        let second = object.optional("second", |value| json::uint(value, 0, 9007199254740991))?;
+        let plane = object.optional("plane", BuildingAxis3::from_json)?;
+        let agreement = object.optional("agreement", json::boolean)?;
+        let r#box = object.optional("box", BuildingShapeBox::from_json)?;
+        let polygon = object.optional("polygon", BuildingShapePolygon::from_json)?;
+        let origin = object.optional("origin", BuildingAxis3::from_json)?;
+        let target = object.optional("target", BuildingShapeMapping::from_json)?;
+        let members = object.optional("members", |value| {
+            json::array(value, |value| json::uint(value, 0, 9007199254740991))
+        })?;
+        Ok(Self {
+            kind,
+            profile,
+            position,
+            direction,
+            depth,
+            axis,
+            angle,
+            directrix,
+            radius,
+            inner_radius,
+            start,
+            end,
+            points,
+            faces,
+            closed,
+            operation,
+            first,
+            second,
+            plane,
+            agreement,
+            r#box,
+            polygon,
+            origin,
+            target,
+            members,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.profile {
+            out.key("profile");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.position {
+            out.key("position");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.direction {
+            out.key("direction");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.depth {
+            out.key("depth");
+            out.float(*value);
+        }
+        if let Some(value) = &self.axis {
+            out.key("axis");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.angle {
+            out.key("angle");
+            out.float(*value);
+        }
+        if let Some(value) = &self.directrix {
+            out.key("directrix");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.float(*item))
+            });
+        }
+        if let Some(value) = &self.radius {
+            out.key("radius");
+            out.float(*value);
+        }
+        if let Some(value) = &self.inner_radius {
+            out.key("inner_radius");
+            out.float(*value);
+        }
+        if let Some(value) = &self.start {
+            out.key("start");
+            out.float(*value);
+        }
+        if let Some(value) = &self.end {
+            out.key("end");
+            out.float(*value);
+        }
+        if let Some(value) = &self.points {
+            out.key("points");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.float(*item))
+            });
+        }
+        if let Some(value) = &self.faces {
+            out.key("faces");
+            out.array(value, |out, item| item.to_json(out));
+        }
+        if let Some(value) = &self.closed {
+            out.key("closed");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.operation {
+            out.key("operation");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.first {
+            out.key("first");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.second {
+            out.key("second");
+            out.uint(*value);
+        }
+        if let Some(value) = &self.plane {
+            out.key("plane");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.agreement {
+            out.key("agreement");
+            out.bool(*value);
+        }
+        if let Some(value) = &self.r#box {
+            out.key("box");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.polygon {
+            out.key("polygon");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.origin {
+            out.key("origin");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.target {
+            out.key("target");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.members {
+            out.key("members");
+            out.array(value, |out, item| out.uint(*item));
+        }
+    }
+}
+
+impl FromJson for BuildingShapeItem {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingShapeItem {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）。revolution は断面の回転（IfcRevolvedAreaSolid）、swept_disk は円盤の掃引（IfcSweptDiskSolid）で、マイナーバージョン 108 から
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildingShapeItemKind {
+    /// `extrusion`
+    Extrusion,
+    /// `faces`
+    Faces,
+    /// `boolean`
+    Boolean,
+    /// `half_space`
+    HalfSpace,
+    /// `mapped`
+    Mapped,
+    /// `revolution`
+    Revolution,
+    /// `swept_disk`
+    SweptDisk,
+}
+
+impl BuildingShapeItemKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[
+        Self::Extrusion,
+        Self::Faces,
+        Self::Boolean,
+        Self::HalfSpace,
+        Self::Mapped,
+        Self::Revolution,
+        Self::SweptDisk,
+    ];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Extrusion => "extrusion",
+            Self::Faces => "faces",
+            Self::Boolean => "boolean",
+            Self::HalfSpace => "half_space",
+            Self::Mapped => "mapped",
+            Self::Revolution => "revolution",
+            Self::SweptDisk => "swept_disk",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "extrusion" => Some(Self::Extrusion),
+            "faces" => Some(Self::Faces),
+            "boolean" => Some(Self::Boolean),
+            "half_space" => Some(Self::HalfSpace),
+            "mapped" => Some(Self::Mapped),
+            "revolution" => Some(Self::Revolution),
+            "swept_disk" => Some(Self::SweptDisk),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for BuildingShapeItemKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for BuildingShapeItemKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 断面を回す軸（IfcAxis1Placement）。断面の平面にある
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingShapeRevolutionAxis {
+    /// 軸の通る点 [x, y]
+    pub location: Vec<f64>,
+    /// 軸の向き [x, y]。0 にできない
+    pub direction: Vec<f64>,
+}
+
+impl BuildingShapeRevolutionAxis {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let location = object.required("location", |value| json::array(value, json::number))?;
+        let direction = object.required("direction", |value| json::array(value, json::number))?;
+        Ok(Self {
+            location,
+            direction,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("location");
+        out.array(&self.location, |out, item| out.float(*item));
+        out.key("direction");
+        out.array(&self.direction, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for BuildingShapeRevolutionAxis {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingShapeRevolutionAxis {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 集合演算。union は和、intersection は積、difference は差
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildingBooleanOperation {
+    /// `union`
+    Union,
+    /// `intersection`
+    Intersection,
+    /// `difference`
+    Difference,
+}
+
+impl BuildingBooleanOperation {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Union, Self::Intersection, Self::Difference];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Union => "union",
+            Self::Intersection => "intersection",
+            Self::Difference => "difference",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "union" => Some(Self::Union),
+            "intersection" => Some(Self::Intersection),
+            "difference" => Some(Self::Difference),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for BuildingBooleanOperation {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for BuildingBooleanOperation {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 3 次元の局所の配置
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingAxis3 {
+    /// 原点 [x, y, z]
+    pub location: Vec<f64>,
+    /// 局所の z 軸 [x, y, z]
+    pub axis: Option<Vec<f64>>,
+    /// 局所の x 軸の参照方向 [x, y, z]
+    pub reference: Option<Vec<f64>>,
+}
+
+impl BuildingAxis3 {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let location = object.required("location", |value| json::array(value, json::number))?;
+        let axis = object.optional("axis", |value| json::array(value, json::number))?;
+        let reference = object.optional("reference", |value| json::array(value, json::number))?;
+        Ok(Self {
+            location,
+            axis,
+            reference,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("location");
+        out.array(&self.location, |out, item| out.float(*item));
+        if let Some(value) = &self.axis {
+            out.key("axis");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.reference {
+            out.key("reference");
+            out.array(value, |out, item| out.float(*item));
+        }
+    }
+}
+
+impl FromJson for BuildingAxis3 {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingAxis3 {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingShapeProfile {
+    /// 断面の種類
+    pub kind: BuildingShapeProfileKind,
+    /// 断面の名前
+    pub name: Option<String>,
+    /// 矩形の局所の x の全幅。正の値
+    pub x: Option<f64>,
+    /// 矩形の局所の y の全高。正の値
+    pub y: Option<f64>,
+    /// 円の半径。正の値
+    pub radius: Option<f64>,
+    /// 矩形と円の中心 [x, y]。書かなければ原点
+    pub location: Option<Vec<f64>>,
+    /// 矩形と円の局所の x 軸の参照方向 [x, y]。location と一緒に書く
+    pub reference: Option<Vec<f64>>,
+    /// 多角形の外輪の [x, y] を 3 点以上。始点に戻る点は書かない
+    pub outer: Option<Vec<Vec<f64>>>,
+    /// 多角形の内輪
+    pub holes: Option<Vec<Vec<Vec<f64>>>>,
+}
+
+impl BuildingShapeProfile {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let kind = object.required("kind", BuildingShapeProfileKind::from_json)?;
+        let name = object.optional("name", json::string)?;
+        let x = object.optional("x", json::number)?;
+        let y = object.optional("y", json::number)?;
+        let radius = object.optional("radius", json::number)?;
+        let location = object.optional("location", |value| json::array(value, json::number))?;
+        let reference = object.optional("reference", |value| json::array(value, json::number))?;
+        let outer = object.optional("outer", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        let holes = object.optional("holes", |value| {
+            json::array(value, |value| {
+                json::array(value, |value| json::array(value, json::number))
+            })
+        })?;
+        Ok(Self {
+            kind,
+            name,
+            x,
+            y,
+            radius,
+            location,
+            reference,
+            outer,
+            holes,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("kind");
+        self.kind.to_json(out);
+        if let Some(value) = &self.name {
+            out.key("name");
+            out.string(value);
+        }
+        if let Some(value) = &self.x {
+            out.key("x");
+            out.float(*value);
+        }
+        if let Some(value) = &self.y {
+            out.key("y");
+            out.float(*value);
+        }
+        if let Some(value) = &self.radius {
+            out.key("radius");
+            out.float(*value);
+        }
+        if let Some(value) = &self.location {
+            out.key("location");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.reference {
+            out.key("reference");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.outer {
+            out.key("outer");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.float(*item))
+            });
+        }
+        if let Some(value) = &self.holes {
+            out.key("holes");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| {
+                    out.array(item, |out, item| out.float(*item))
+                })
+            });
+        }
+    }
+}
+
+impl FromJson for BuildingShapeProfile {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingShapeProfile {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 断面の種類。rectangle は IfcRectangleProfileDef、circle は IfcCircleProfileDef、polygon は IfcArbitraryClosedProfileDef（内輪があれば IfcArbitraryProfileDefWithVoids）
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildingShapeProfileKind {
+    /// `rectangle`
+    Rectangle,
+    /// `circle`
+    Circle,
+    /// `polygon`
+    Polygon,
+}
+
+impl BuildingShapeProfileKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Rectangle, Self::Circle, Self::Polygon];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Rectangle => "rectangle",
+            Self::Circle => "circle",
+            Self::Polygon => "polygon",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "rectangle" => Some(Self::Rectangle),
+            "circle" => Some(Self::Circle),
+            "polygon" => Some(Self::Polygon),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for BuildingShapeProfileKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for BuildingShapeProfileKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// 面集合の面。points の位置（0 から）で外輪と内輪を書く
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingShapeFace {
+    /// 外輪の点の位置。3 つ以上
+    pub boundary: Vec<u64>,
+    /// 内輪ごとの点の位置
+    pub holes: Option<Vec<Vec<u64>>>,
+}
+
+impl BuildingShapeFace {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let boundary = object.required("boundary", |value| {
+            json::array(value, |value| json::uint(value, 0, 9007199254740991))
+        })?;
+        let holes = object.optional("holes", |value| {
+            json::array(value, |value| {
+                json::array(value, |value| json::uint(value, 0, 9007199254740991))
+            })
+        })?;
+        Ok(Self { boundary, holes })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("boundary");
+        out.array(&self.boundary, |out, item| out.uint(*item));
+        if let Some(value) = &self.holes {
+            out.key("holes");
+            out.array(value, |out, item| {
+                out.array(item, |out, item| out.uint(*item))
+            });
+        }
+    }
+}
+
+impl FromJson for BuildingShapeFace {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingShapeFace {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 囲みの箱
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingShapeBox {
+    /// 箱の隅 [x, y, z]
+    pub corner: Vec<f64>,
+    /// 各軸の長さ [x, y, z]。正の値
+    pub dimensions: Vec<f64>,
+}
+
+impl BuildingShapeBox {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let corner = object.required("corner", |value| json::array(value, json::number))?;
+        let dimensions = object.required("dimensions", |value| json::array(value, json::number))?;
+        Ok(Self { corner, dimensions })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("corner");
+        out.array(&self.corner, |out, item| out.float(*item));
+        out.key("dimensions");
+        out.array(&self.dimensions, |out, item| out.float(*item));
+    }
+}
+
+impl FromJson for BuildingShapeBox {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingShapeBox {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 半空間を制限する多角形
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingShapePolygon {
+    /// 境界の配置
+    pub position: BuildingAxis3,
+    /// 境界の局所の XY 平面の [x, y] を 3 点以上。始点に戻る点は書かない
+    pub boundary: Vec<Vec<f64>>,
+}
+
+impl BuildingShapePolygon {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let position = object.required("position", BuildingAxis3::from_json)?;
+        let boundary = object.required("boundary", |value| {
+            json::array(value, |value| json::array(value, json::number))
+        })?;
+        Ok(Self { position, boundary })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("position");
+        self.position.to_json(out);
+        out.key("boundary");
+        out.array(&self.boundary, |out, item| {
+            out.array(item, |out, item| out.float(*item))
+        });
+    }
+}
+
+impl FromJson for BuildingShapePolygon {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingShapePolygon {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform）
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingShapeMapping {
+    /// 写像先の原点 [x, y, z]。要素の座標系
+    pub origin: Vec<f64>,
+    /// x 軸を導く方向 [x, y, z]
+    pub axis1: Option<Vec<f64>>,
+    /// y 軸を導く方向 [x, y, z]
+    pub axis2: Option<Vec<f64>>,
+    /// z 軸を定める方向 [x, y, z]
+    pub axis3: Option<Vec<f64>>,
+    /// 一様な尺度。正の値で、書かなければ 1
+    pub scale: Option<f64>,
+    /// 軸ごとの尺度 [x, y, z]。正の値。scale とは一緒に書けない
+    pub scales: Option<Vec<f64>>,
+}
+
+impl BuildingShapeMapping {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let origin = object.required("origin", |value| json::array(value, json::number))?;
+        let axis1 = object.optional("axis1", |value| json::array(value, json::number))?;
+        let axis2 = object.optional("axis2", |value| json::array(value, json::number))?;
+        let axis3 = object.optional("axis3", |value| json::array(value, json::number))?;
+        let scale = object.optional("scale", json::number)?;
+        let scales = object.optional("scales", |value| json::array(value, json::number))?;
+        Ok(Self {
+            origin,
+            axis1,
+            axis2,
+            axis3,
+            scale,
+            scales,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("origin");
+        out.array(&self.origin, |out, item| out.float(*item));
+        if let Some(value) = &self.axis1 {
+            out.key("axis1");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.axis2 {
+            out.key("axis2");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.axis3 {
+            out.key("axis3");
+            out.array(value, |out, item| out.float(*item));
+        }
+        if let Some(value) = &self.scale {
+            out.key("scale");
+            out.float(*value);
+        }
+        if let Some(value) = &self.scales {
+            out.key("scales");
+            out.array(value, |out, item| out.float(*item));
+        }
+    }
+}
+
+impl FromJson for BuildingShapeMapping {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingShapeMapping {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

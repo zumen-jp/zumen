@@ -4,7 +4,7 @@ React で図面ファイルを開き、Canvas に表示するフックです。�
 
 ## 表示と購読
 
-`useDrawingViewer(canvas, options?)` は、Canvas の接続後に `View2D` を返し、Canvas・設定の差し替えとアンマウントで破棄します。接続前は `null` です。Canvas はコールバック ref で渡せます。設定には同じ参照を渡し、変更する場合だけ作り直してください。
+`useDrawingViewer(canvas, options?, onError?)` は、Canvas の接続後に `View2D.create` で初期化した `View2D` を返し、Canvas・設定の差し替え、初期化途中の切り離し、アンマウントで GPU 資源を含めて破棄します。初期化の完了前と失敗時は `null` です。WebGPU を使えない環境（`reason: "webgpu-unavailable"`）などの初期化失敗は `onError` で受け取れます。Canvas はコールバック ref で渡せます。設定には同じ参照を渡し、変更する場合だけ作り直してください。
 
 `useViewerState(viewer)` は `useSyncExternalStore` で表示部品の状態を購読します。選択は要素の ID と配置の道筋を持ちます。`useViewerEvent(viewer, type, listener)` ではイベントの種類を絞れます。再描画後のコールバックを使い、表示部品か種類が変わると前の購読を解除します。
 
@@ -79,7 +79,7 @@ useEffect(() => {
 
 3D のフックは `@zumen-jp/react/view3d` から読み込みます（[#818](https://github.com/zumen-jp/zumen/issues/818)）。表示部品は `@zumen-jp/view3d` と three.js 0.187 で、どちらも 3D を使うときだけ要る peer dependency です。2D だけを使う利用側は、この入口を読まない限り three.js を読みません。
 
-`useView3D(canvas, options?)` は Canvas の接続後に `View3D` を返し、Canvas・設定の差し替えとアンマウントで破棄します。GPU の資源と RAF も一緒に放します。`useView3DInput(viewer, element, options?)` は `attachInput` を要素につなぎ、差し替えとアンマウントで外します。`useView3DState` と `useView3DEvent` は 2D の `useViewerState`・`useViewerEvent` と同じ購読です。
+`useView3D(canvas, options?, onError?)` は Canvas の接続後に `View3D.create` で初期化した `View3D` を返し、Canvas・設定の差し替え、初期化途中の切り離し、アンマウントで破棄します。GPU の資源と RAF も一緒に放します。WebGPU を使えない環境（`reason: "webgpu-unavailable"`）などの初期化失敗は `onError` で受け取れます。`useView3DInput(viewer, element, options?)` は `attachInput` を要素につなぎ、差し替えとアンマウントで外します。`useView3DState` と `useView3DEvent` は 2D の `useViewerState`・`useViewerEvent` と同じ購読です。
 
 `useScene3D(file, { loadModule, catalog?, tolerance? })` は、入力の先頭のバイト列で形式を判定し、その形式の `scene3d` を持つモジュール（`bim`・`civil`・`pointcloud`）の名前で `loadModule(name, signal)` を呼びます。どのモジュールにもない形式は `NotSupportedError`（`scene3d.format.unsupported`、`format` 付き）で拒みます。入力は 256 MiB までで、入力ごとに module Worker を専有し、`open`・`scene3d` を呼んでシーンのバッファーを転送します。
 
@@ -103,4 +103,4 @@ IFC では、`await opened.getElement(id)` が `building_elements` の名前・�
 
 React は利用側が渡す peer dependency です。プレイグラウンドでは既存の Next.js の検査と同じ React・React DOM 19.3.1（MIT）を固定します。React DOM の scheduler も MIT です。コアと同じ図面用 wasm を使い、ネイティブと共通のシーンを既存のリーダーで読みます。
 
-PR の Chromium と毎晩の Firefox・WebKit のブラウザー検査には、[適合テスト](../../bindings/conformance/README.md) の Playwright を使います。製品の下限バージョンは別の検査です。とくに module Worker は Firefox 114 以降を必要とします（[対応する環境](../../docs/support.md)）。パッケージは未公開です。[2D の表示部品](../../docs/view2d.md)
+PR の Chromium と毎晩の Firefox・WebKit のブラウザー検査には、[適合テスト](../../bindings/conformance/README.md) の Playwright を使います。対応ブラウザー（WebGPU と WebAssembly SIMD を備えた現行環境）は[ラッパーの対応環境](../../docs/support.md)に従います。`@zumen-jp/zumen`・`@zumen-jp/view2d`・`@zumen-jp/view3d` と同じ版数で npm の配布物を組みます（初回のレジストリ公開は [#909](https://github.com/zumen-jp/zumen/issues/909) で準備中）。[2D の表示部品](../../docs/view2d.md)

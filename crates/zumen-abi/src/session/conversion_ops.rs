@@ -248,39 +248,15 @@ impl Session {
         let (converted, hash) =
             self.prepare_conversion(&request.doc, &request.format, &request.to, limit, true, cx)?;
         let input_diagnostics = conversion_input_diagnostics(&converted.input_diagnostics, cx)?;
-        let report = converted.report;
         Ok(messages::ConvertEstimateResult {
-            estimate: messages::ConversionEstimate {
-                doc: request.to.clone(),
-                format: request.format.clone(),
-                hash: hash.to_string(),
-                elements: converted.elements,
-                total: report.total,
-                counts: report
-                    .counts
-                    .into_iter()
-                    .map(|row| messages::ConversionCount {
-                        kind: row.kind,
-                        fidelity: conversion_fidelity(row.fidelity),
-                        count: row.count,
-                        output_elements: row.output_elements,
-                    })
-                    .collect(),
-                details: report
-                    .details
-                    .into_iter()
-                    .map(|row| messages::ConversionDetail {
-                        kind: row.kind,
-                        fidelity: conversion_fidelity(row.fidelity),
-                        id: row.source.id().map(str::to_string),
-                        reasons: row.reasons,
-                        source: source_of(&row.source),
-                        output_elements: row.output_elements,
-                    })
-                    .collect(),
-                truncated: report.truncated,
-                input_diagnostics: Some(input_diagnostics),
-            },
+            estimate: conversion_estimate(
+                &request.to,
+                &request.format,
+                hash,
+                converted.elements,
+                converted.report,
+                Some(input_diagnostics),
+            ),
         })
     }
 
@@ -333,9 +309,54 @@ impl Session {
     }
 }
 
-#[cfg(feature = "drawing")]
-fn conversion_fidelity(value: zumen_acad::ConversionFidelity) -> messages::ConversionFidelity {
-    use zumen_acad::ConversionFidelity as Core;
+/// 予定する変換の結果。図面と IFC の見積もりで共用する
+#[cfg(any(feature = "drawing", feature = "bim"))]
+pub(super) fn conversion_estimate(
+    to: &str,
+    format: &str,
+    hash: Hash,
+    elements: u64,
+    report: zumen_sdk::conversion::ConversionReport,
+    input_diagnostics: Option<messages::ConversionInputDiagnostics>,
+) -> messages::ConversionEstimate {
+    messages::ConversionEstimate {
+        doc: to.to_owned(),
+        format: format.to_owned(),
+        hash: hash.to_string(),
+        elements,
+        total: report.total,
+        counts: report
+            .counts
+            .into_iter()
+            .map(|row| messages::ConversionCount {
+                kind: row.kind,
+                fidelity: conversion_fidelity(row.fidelity),
+                count: row.count,
+                output_elements: row.output_elements,
+            })
+            .collect(),
+        details: report
+            .details
+            .into_iter()
+            .map(|row| messages::ConversionDetail {
+                kind: row.kind,
+                fidelity: conversion_fidelity(row.fidelity),
+                id: row.source.id().map(str::to_string),
+                reasons: row.reasons,
+                source: source_of(&row.source),
+                output_elements: row.output_elements,
+            })
+            .collect(),
+        truncated: report.truncated,
+        input_diagnostics,
+    }
+}
+
+#[cfg(any(feature = "drawing", feature = "bim"))]
+fn conversion_fidelity(
+    value: zumen_sdk::conversion::ConversionFidelity,
+) -> messages::ConversionFidelity {
+    use zumen_sdk::conversion::ConversionFidelity as Core;
     match value {
         Core::Native => messages::ConversionFidelity::Native,
         Core::Equivalent => messages::ConversionFidelity::Equivalent,
@@ -345,7 +366,7 @@ fn conversion_fidelity(value: zumen_acad::ConversionFidelity) -> messages::Conve
     }
 }
 
-#[cfg(feature = "drawing")]
+#[cfg(any(feature = "drawing", feature = "bim"))]
 fn source_of(place: &Ref) -> Source {
     Source {
         record: place.record(),
@@ -365,8 +386,8 @@ fn source_of(place: &Ref) -> Source {
 }
 
 /// コアの診断を、メッセージの診断にする
-#[cfg(feature = "drawing")]
-fn conversion_input_diagnostics(
+#[cfg(any(feature = "drawing", feature = "bim"))]
+pub(super) fn conversion_input_diagnostics(
     events: &zumen_base::DiagnosticEvents,
     cx: &mut Cx<'_>,
 ) -> Result<messages::ConversionInputDiagnostics, Failed> {

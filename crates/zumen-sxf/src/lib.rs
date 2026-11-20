@@ -9,6 +9,8 @@
 #[cfg(feature = "drawing")]
 mod drawing;
 #[cfg(feature = "drawing")]
+pub use drawing::apply::CopyFrom;
+#[cfg(feature = "drawing")]
 pub use drawing::live::SxfLive;
 #[cfg(feature = "drawing")]
 pub use drawing::lower::{Lowered, lower_to_p21};

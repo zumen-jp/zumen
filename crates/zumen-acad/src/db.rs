@@ -235,6 +235,9 @@ impl Object {
     }
 }
 
+/// R2010 以降の DWG の `ACAD_TABLE`・`TABLESTYLE` が、まだ図面モデルに移せない書式のフィールドを持つことを示す内部の印
+pub(crate) const DWG_UNSUPPORTED_TABLE_FORMAT: i16 = -2;
+
 /// 値の並び `values` からハンドル（5。`DIMSTYLE` は 105）を読む。なければ `None`
 pub fn handle_of_values(kind: &[u8], values: &[Value]) -> Option<u64> {
     let expected = if kind == b"DIMSTYLE" { 105 } else { 5 };

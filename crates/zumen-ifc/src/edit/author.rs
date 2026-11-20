@@ -4,7 +4,7 @@
 //! 属性の位置は、buildingSMART が公開する各バージョンの仕様の実体の節（IFC2X3 TC1 の 5.4・7.1・7.2、IFC4 ADD2 TC1 と
 //! IFC4X3 ADD2 の 5.4・8.18・8.19 の実体の定義）による。表にない実体と、そのバージョンにない実体は書かずに診断する。
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use zumen_base::Kind;
 use zumen_building::{GlobalId, Transform};
@@ -16,6 +16,7 @@ use crate::stopped;
 
 mod intent;
 mod material;
+mod predefined;
 mod shape;
 
 pub use intent::{
@@ -24,10 +25,11 @@ pub use intent::{
 };
 pub(super) use material::rejected as material_rejected;
 pub use material::{NewConstituent, NewLayerUsage, NewMaterial, NewMaterialLayer};
+pub(super) use predefined::valid_predefined;
 pub(super) use shape::{NESTING as SHAPE_NESTING, rejected as shape_rejected};
 pub use shape::{
     NewAxis2, NewAxis3, NewBoolean, NewFaces, NewHalfSpace, NewHalfSpaceLimit, NewItem, NewMapped,
-    NewProfile, NewProfileKind, NewShape, NewSolid,
+    NewProfile, NewProfileKind, NewRevolution, NewShape, NewSolid, NewSweptDisk,
 };
 
 /// 変更が指す要素。文書にあるインスタンスか、同じ要求の中で足した要素
@@ -526,25 +528,22 @@ impl Draft<'_> {
 
     /// 関係 `relation` で `relating` に `related` を結ぶ。`relating` の関係があれば、関係する側の列へ足し、なければ関係を足す
     fn join(&mut self, relation: Relation, relating: u64, related: u64, history: Item) {
-        let existing = self.referrers(relating).into_iter().find(|&rel| {
-            self.kind(rel) == relation.name
-                && self
-                    .stmt(rel)
-                    .is_some_and(|stmt| refs_of(stmt.arg(relation.relating)) == [relating])
-        });
-        if let Some(rel) = existing
-            && let Some(mut stmt) = self.stmt(rel)
-        {
-            let mut items = match stmt.arg(relation.related) {
-                Some(Item::List(items)) => items.clone(),
-                _ => Vec::new(),
-            };
-            items.push(Item::Ref(related));
-            stmt.set(relation.related, Item::List(items));
-            self.put(rel, stmt);
+        let existing = self
+            .referrers
+            .get(&relating)
+            .into_iter()
+            .flatten()
+            .copied()
+            .find(|&rel| {
+                self.kind(rel) == relation.name
+                    && self.arg_refs(rel, relation.relating) == [relating]
+            });
+        if let Some(rel) = existing {
+            self.append_ref(rel, relation.related, related);
             return;
         }
-        let mut args = vec![self.global_id(), history, null(), null(), null(), null()];
+        let global_id = self.keyed_global_id(relation.name, &[relating, related], "");
+        let mut args = vec![global_id, history, null(), null(), null(), null()];
         if let Some(slot) = args.get_mut(relation.relating - 1) {
             *slot = Item::Ref(relating);
         }
@@ -669,30 +668,35 @@ impl Draft<'_> {
         Ok(true)
     }
 
-    /// 要素を足す
     /// 型を足す。型は所属する空間も配置も持たない
     pub(super) fn add_type(&mut self, new: &NewType, cx: &mut Cx) -> Result<bool, Error> {
         let kind = new.class.to_ascii_uppercase().into_bytes();
-        let entity = self.version().and_then(|version| {
-            TYPES
+        let Some((version, arity)) = self.version().and_then(|version| {
+            let arity = TYPES
                 .iter()
                 .find(|(name, _)| name.eq_ignore_ascii_case(&new.class))
                 .map(|(_, arity)| usize::from(pick(*arity, version)))
-                .filter(|&arity| arity != usize::from(ABSENT))
-        });
-        let Some(arity) = entity else {
+                .filter(|&arity| arity != usize::from(ABSENT))?;
+            Some((version, arity))
+        }) else {
             cx.report(unsupported("element_type", &kind));
             return Ok(false);
         };
         let predefined = match &new.predefined {
             None => raw(b".NOTDEFINED."),
-            Some(value) => match enumeration(value) {
-                Some(item) => item,
-                None => {
-                    cx.report(unsupported("element_type", &kind).with("value", "predefined"));
-                    return Ok(false);
+            Some(value) => {
+                let user_ok =
+                    !value.eq_ignore_ascii_case("USERDEFINED") || new.element_type.is_some();
+                match enumeration(value)
+                    .filter(|_| valid_predefined(&new.class, value, version) && user_ok)
+                {
+                    Some(item) => item,
+                    None => {
+                        cx.report(unsupported("element_type", &kind).with("value", "predefined"));
+                        return Ok(false);
+                    }
                 }
-            },
+            }
         };
         let Some(history) = self.history("element_type", &kind, cx) else {
             return Ok(false);
@@ -743,18 +747,26 @@ impl Draft<'_> {
                     null()
                 },
             )),
-            (Some(value), at) if at > 0 => match enumeration(value) {
-                Some(item) => Some((at, item)),
-                None => {
-                    cx.report(unsupported("element", &kind).with("value", "predefined"));
-                    return Ok(false);
+            (Some(value), at) if at > 0 => {
+                let ok = valid_predefined(&element.class, value, version)
+                    && !value.eq_ignore_ascii_case("USERDEFINED");
+                match enumeration(value).filter(|_| ok) {
+                    Some(item) => Some((at, item)),
+                    None => {
+                        cx.report(unsupported("element", &kind).with("value", "predefined"));
+                        return Ok(false);
+                    }
                 }
-            },
+            }
             (Some(_), _) => {
                 cx.report(unsupported("element", &kind).with("value", "predefined"));
                 return Ok(false);
             }
         };
+        if kind == b"IFCOPENINGELEMENT" && element.container.is_some() {
+            cx.report(unsupported("element", &kind).with("value", "container"));
+            return Ok(false);
+        }
         let container = match element.container {
             Some(target) => match self.object(target, &[Category::Spatial], "element", cx) {
                 Some((id, ..)) => Some(id),
@@ -882,6 +894,10 @@ impl Draft<'_> {
         ) else {
             return Ok(false);
         };
+        if stmt.name == b"IFCOPENINGELEMENT" {
+            cx.report(unsupported("contain", &stmt.name));
+            return Ok(false);
+        }
         let (relation, allowed): (Relation, &[Category]) = if category == Category::Spatial {
             (AGGREGATES, &[Category::Project, Category::Spatial])
         } else {
@@ -890,10 +906,32 @@ impl Draft<'_> {
         let Some((container, ..)) = self.object(space, allowed, "contain", cx) else {
             return Ok(false);
         };
-        if container == id {
-            let found = self.kind(container);
-            cx.report(unsupported("contain", &found).with("value", "container"));
-            return Ok(false);
+        if category == Category::Spatial {
+            let mut at = container;
+            let mut seen = BTreeSet::new();
+            loop {
+                cx.check(Kind::Work, 1)
+                    .map_err(|stop| stopped(cx, stop, None))?;
+                if at == id {
+                    let found = self.kind(container);
+                    cx.report(unsupported("contain", &found).with("value", "container"));
+                    return Ok(false);
+                }
+                if !seen.insert(at) {
+                    break;
+                }
+                let parent = self.referrers(at).into_iter().find_map(|rel| {
+                    (self.kind(rel) == AGGREGATES.name)
+                        .then(|| self.stmt(rel))
+                        .flatten()
+                        .filter(|s| refs_of(s.arg(AGGREGATES.related)).contains(&at))
+                        .and_then(|s| refs_of(s.arg(AGGREGATES.relating)).into_iter().next())
+                });
+                match parent {
+                    Some(next) => at = next,
+                    None => break,
+                }
+            }
         }
         let history = stmt.arg(2).cloned().unwrap_or_else(null);
         self.detach(relation, id);
@@ -967,7 +1005,7 @@ impl Draft<'_> {
             return Ok(false);
         }
         let history = relating_stmt.arg(2).cloned().unwrap_or_else(null);
-        let global_id = self.global_id();
+        let global_id = self.keyed_global_id(name, &[relating, related], "");
         self.add(Stmt {
             name: name.to_vec(),
             args: vec![
@@ -1018,6 +1056,7 @@ impl Draft<'_> {
         }
         let mut queue = VecDeque::from([id]);
         let mut doomed = BTreeSet::new();
+        let mut rewritten = BTreeMap::<u64, Stmt>::new();
         let mut loose = Vec::new();
         while let Some(at) = queue.pop_front() {
             cx.check(Kind::Work, 1)
@@ -1034,7 +1073,7 @@ impl Draft<'_> {
                     cx.report(unsupported("remove", &kind).with("value", "referenced"));
                     return Ok(false);
                 }
-                let Some(mut rel) = self.stmt(by) else {
+                let Some(mut rel) = rewritten.get(&by).cloned().or_else(|| self.stmt(by)) else {
                     continue;
                 };
                 // 要素の開口は、要素とともに除く
@@ -1053,9 +1092,10 @@ impl Draft<'_> {
                     }
                 }
                 if whole {
+                    rewritten.remove(&by);
                     queue.push_back(by);
                 } else {
-                    self.put(by, rel);
+                    rewritten.insert(by, rel);
                 }
             }
         }
@@ -1063,6 +1103,9 @@ impl Draft<'_> {
             if let Some(stmt) = self.stmt(at) {
                 loose.extend(refs_in(&stmt.args));
             }
+        }
+        for (by, rel) in rewritten {
+            self.put(by, rel);
         }
         for &at in &doomed {
             self.drop_instance(at);

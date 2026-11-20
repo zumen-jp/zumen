@@ -153,6 +153,9 @@ pub(super) fn summary(
         spaces,
         sheets,
         point_style: drawing.point_style.map(point_style_summary),
+        georeference: drawing
+            .georeference
+            .map(super::super::georeference_ops::georeference_message),
     })
 }
 

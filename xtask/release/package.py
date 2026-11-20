@@ -158,7 +158,7 @@ def verify_nuget(path, expected, expression):
         require(license_ is not None and license_.get("type") == "expression" and license_.text == expression,
                 "NuGet のライセンスの式が違う")
         require(metadata.findtext("{*}metadata/{*}version") == VERSION, "NuGet のバージョンが違う")
-        for framework in ("netstandard2.0", "net8.0"):
+        for framework in ("net8.0", "net10.0"):
             require(f"lib/{framework}/Zumen.dll" in names, "NuGet のアセンブリに抜けがある")
         for target in TARGETS:
             binary = f"runtimes/{target['rid']}/native/{target['library']}"
@@ -197,10 +197,17 @@ def package_nuget(artifacts, output):
         subprocess.run(["dotnet", "pack", str(project / "Zumen.csproj"), "-c", "Release", "-o", str(output),
                         f"-p:PackageLicenseExpression={expression}", f"-p:PathMap={stage}=/_/"], check=True)
     verify_nuget(output / f"Zumen.{VERSION}.nupkg", expected, expression)
-    print("NuGet: 7 対象のライセンス本文、バイナリ、メタデータを確認した")
+    print(f"NuGet: {len(TARGETS)} 対象のライセンス本文、バイナリ、メタデータを確認した")
 
 
 WASM_BOMS = f"zumen-{VERSION}-wasm-sboms.tar.gz"
+NPM_REPOSITORY_URL = "git+https://github.com/zumen-jp/zumen.git"
+NPM_PACKAGES = (
+    ("bindings/js", "@zumen-jp/zumen"),
+    ("packages/view2d", "@zumen-jp/view2d"),
+    ("packages/view3d", "@zumen-jp/view3d"),
+    ("packages/react", "@zumen-jp/react"),
+)
 
 
 def wasm_bom(licenses, module, binary):
@@ -234,45 +241,97 @@ def package_wasm(built, licenses, output):
         sbom.verify((output / name).read_bytes(), packed[key], documents[key])
 
 
-def package_npm(artifacts, output):
+def verify_npm_metadata(metadata, expected_name, directory, packed):
+    require(metadata.get("name") == expected_name, f"{directory} の name が違う")
+    require(metadata.get("version") == VERSION, f"{directory} の version がコアの {VERSION} と違う")
+    require("private" not in metadata, f"{directory} に private が残っている")
+    require(metadata.get("license") == "MIT OR Apache-2.0", f"{directory} の license が違う")
+    require(metadata.get("type") == "module", f"{directory} の type が module でない")
+    require(metadata.get("repository") == {"type": "git", "url": NPM_REPOSITORY_URL, "directory": directory},
+            f"{directory} の repository が違う")
+    for key in ("dependencies", "bundledDependencies", "bundleDependencies"):
+        require(key not in metadata, f"{directory} に実行時のバンドル依存 {key} がある")
+    for peer_name, peer_range in metadata.get("peerDependencies", {}).items():
+        if peer_name.startswith("@zumen-jp/"):
+            require(peer_range == f"^{VERSION}", f"{directory} の peerDependencies[{peer_name}] が ^{VERSION} でない")
+    exports = metadata.get("exports")
+    require(isinstance(exports, dict) and "." in exports, f"{directory} の exports に . がない")
+    for subpath, target in exports.items():
+        if isinstance(target, str):
+            paths = (target,)
+        else:
+            require(isinstance(target, dict) and {"types", "default"} <= set(target),
+                    f"{directory} の exports[{subpath}] に types・default がない")
+            paths = tuple(target.values())
+        for rel in paths:
+            require(isinstance(rel, str) and rel.startswith("./") and ("package/" + rel[2:]) in packed,
+                    f"{directory} の exports[{subpath}] が指す {rel} が配布物にない")
+
+
+def pack_single_npm(source_root, directory, expected_name, extra_contents, output):
+    source_dir = source_root / directory
+    expected_files = {}
+    for name in ("package.json", "README.md"):
+        expected_files[name] = (source_dir / name).read_bytes()
+    for path in sorted((source_dir / "src").rglob("*")):
+        if path.is_dir():
+            continue
+        rel = path.relative_to(source_dir).as_posix()
+        require(path.suffix in (".js", ".ts") and (path.suffix == ".js" or path.name.endswith(".d.ts")),
+                f"{directory} の {rel} は配布対象の拡張子でない")
+        expected_files[rel] = path.read_bytes()
+    for name, content in extra_contents.items():
+        expected_files[name] = content
+
+    npm_cmd = shutil.which("npm.cmd") or shutil.which("npm") or "npm"
+    with tempfile.TemporaryDirectory(prefix="zumen-npm-") as temporary:
+        stage = Path(temporary)
+        for name, content in expected_files.items():
+            target = stage / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        packed_dir = stage / "packed"
+        packed_dir.mkdir()
+        subprocess.run([npm_cmd, "pack", "--ignore-scripts", "--silent",
+                        "--pack-destination", str(packed_dir)], cwd=stage, check=True)
+        archives = list(packed_dir.glob("*.tgz"))
+        require(len(archives) == 1, f"{expected_name} の npm パッケージが一意でない")
+        expected_filename = expected_name.lstrip("@").replace("/", "-") + f"-{VERSION}.tgz"
+        require(archives[0].name == expected_filename, f"{expected_name} のファイル名が {expected_filename} でない")
+        packed = read_archive(archives[0])
+        expected_packed = {"package/" + name: content for name, content in expected_files.items()}
+        require(packed == expected_packed, f"{expected_name} の収録ファイルが予定と違う")
+        metadata = json.loads(packed["package/package.json"].decode("utf-8"))
+        verify_npm_metadata(metadata, expected_name, directory, packed)
+        shutil.copyfile(archives[0], output / archives[0].name)
+        return packed
+
+
+def package_npm(artifacts, output, *, source_root=ROOT):
     output.mkdir(parents=True, exist_ok=True)
     documents = read_archive(artifacts / WASM_BOMS)
     require(set(documents) == {"sboms/" + wasm_name(m) + ".cdx.json" for m in MODULES}, "wasm の SBOM の組が違う")
-    contents = {**documents, "THIRD_PARTY_LICENSES": (artifacts / "THIRD_PARTY_LICENSES").read_bytes()}
+    own_licenses = {name: (source_root / name).read_bytes() for name in OWN_LICENSES}
+    core_extras = {**documents, **own_licenses,
+                   "THIRD_PARTY_LICENSES": (artifacts / "THIRD_PARTY_LICENSES").read_bytes()}
     _, notice = read_info(artifacts / "licenses" / "wasm" / "abi", "zumen-abi", WASM)
-    require(contents["THIRD_PARTY_LICENSES"] == notice, "npm に入れる wasm のライセンス本文が違う")
-    for name in OWN_LICENSES:
-        contents[name] = (ROOT / name).read_bytes()
+    require(core_extras["THIRD_PARTY_LICENSES"] == notice, "npm に入れる wasm のライセンス本文が違う")
     for module in MODULES:
         name = wasm_name(module)
-        contents[name] = (artifacts / name).read_bytes()
-        _, expected = wasm_bom(artifacts, module, contents[name])
+        core_extras[name] = (artifacts / name).read_bytes()
+        _, expected = wasm_bom(artifacts, module, core_extras[name])
         require(documents["sboms/" + name + ".cdx.json"] == expected, "wasm の SBOM とビルドが違う")
-    with tempfile.TemporaryDirectory(prefix="zumen-npm-") as temporary:
-        stage = Path(temporary)
-        for name in ("package.json", "README.md"):
-            shutil.copyfile(ROOT / "bindings/js" / name, stage / name)
-        shutil.copytree(ROOT / "bindings/js/src", stage / "src")
-        for name, content in contents.items():
-            path = stage / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(content)
-        packed_dir = stage / "packed"
-        packed_dir.mkdir()
-        subprocess.run([shutil.which("npm") or "npm", "pack", "--ignore-scripts", "--silent",
-                        "--pack-destination", str(packed_dir)], cwd=stage, check=True)
-        archives = list(packed_dir.glob("*.tgz"))
-        require(len(archives) == 1, "npm のパッケージが一意でない")
-        packed = read_archive(archives[0])
-        require({n.removeprefix("package/") for n in packed if n.startswith("package/sboms/")} == set(documents),
-                "npm の SBOM の組が違う")
-        for name, content in contents.items():
-            require(packed["package/" + name] == content, f"npm の {name} が違う")
-        for module in MODULES:
-            name = wasm_name(module)
-            key = "sboms/" + name + ".cdx.json"
-            sbom.verify(packed["package/" + name], packed["package/" + key], documents[key])
-        shutil.copyfile(archives[0], output / archives[0].name)
+
+    for directory, package_name in NPM_PACKAGES:
+        extras = core_extras if directory == "bindings/js" else own_licenses
+        packed = pack_single_npm(source_root, directory, package_name, extras, output)
+        if directory == "bindings/js":
+            require({n.removeprefix("package/") for n in packed if n.startswith("package/sboms/")} == set(documents),
+                    "npm の SBOM の組が違う")
+            for module in MODULES:
+                name = wasm_name(module)
+                key = "sboms/" + name + ".cdx.json"
+                sbom.verify(packed["package/" + name], packed["package/" + key], documents[key])
 
 
 def main():

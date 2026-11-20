@@ -1,10 +1,10 @@
 # @zumen-jp/view2d
 
-zumen のシーンの列を、Canvas 2D に描く表示部品です。線・面・文字・字形・点と、利用側が解決した画像・PDF を描き、表示範囲・レイヤ・選択・計測を操作します。入力は必要なときだけ接続し、React・CSS・ラベル・操作用のボタンは利用側に置きます。[2D の表示部品](../../docs/view2d.md) に従い、実行時の外部描画ライブラリは使いません。
+zumen のシーンの列を、利用側の Canvas に WebGPU で描く表示部品です。線・面・文字・字形・点と、利用側が解決した画像・PDF を描き、表示範囲・レイヤ・選択・計測を操作します。入力は必要なときだけ接続し、React・CSS・ラベル・操作用のボタンは利用側に置きます。[2D の表示部品](../../docs/view2d.md) に従い、実行時の外部描画ライブラリは使いません。
 
-このパッケージは未公開です。名前の確保と公開は別の作業です。手元では `packages/view2d/src/index.js` を ESM として読み込み、`@zumen-jp/zumen` を `bindings/js/src/index.js` に解決します。バンドラーの alias か、[最小の例](example/index.html) の import map を使えます。例を開くサーバーはリポジトリのルートを配り、開発用のポートは 24100〜24199 にします。
+`@zumen-jp/zumen` と同じ版数で npm の配布物を組みます（初回のレジストリ公開は [#909](https://github.com/zumen-jp/zumen/issues/909) で準備中）。手元では `packages/view2d/src/index.js` を ESM として読み込み、`@zumen-jp/zumen` を `bindings/js/src/index.js` に解決します。バンドラーの alias か、[最小の例](example/index.html) の import map を使えます。例を開くサーバーはリポジトリのルートを配り、開発用のポートは 24100〜24199 にします。
 
-最小の例の [import map](https://github.com/mdn/browser-compat-data/blob/188707c73f5a93701429eadcdaf35d6e31715c67/html/elements/script.json) は、Firefox 108・Safari 16.4 以降で使えます。それより前の環境ではバンドラーで解決します。表示部品の本体は import map を作らず、[ラッパーの下限](../../docs/support.md)で使えない `Object.hasOwn`・`Array.at` にも依存しません。`OffscreenCanvas` がない環境では通常の Canvas を使えます。下限の製品そのものでの検査はまだ行っていません。
+対応ブラウザーは[ラッパーの対応環境](../../docs/support.md)（WebGPU と WebAssembly SIMD を備えた現行環境）に従います。`OffscreenCanvas` がある環境でも同じ操作で使えます。下限の製品そのものでの検査はまだ行っていません。
 
 ## 使い方
 
@@ -12,7 +12,7 @@ zumen のシーンの列を、Canvas 2D に描く表示部品です。線・面�
 import { readScene } from "@zumen-jp/zumen";
 import { View2D } from "@zumen-jp/view2d";
 
-const viewer = new View2D(canvas, {
+const viewer = await View2D.create(canvas, {
   width: 800,
   height: 600,
   pixelRatio: window.devicePixelRatio,
@@ -91,10 +91,10 @@ Canvas の CSS の幅・高さは利用側で指定します。`resize(width, he
 | `zoomBy(factor, anchor?)`・`rotateBy(radians, anchor?)` | 画面上の固定点を保って拡大・回転。固定点の既定は中心 |
 | `panBy(dx, dy)` | 描画が画面上で右・下へ動く向きの CSS px |
 | `resize(width, height, pixelRatio?)` | カメラを保って Canvas の画素数を変え、描き直す |
-| `getSize()`・`getReport()`・`render()` | 現在の大きさ・報告の取得と、明示的な再描画 |
+| `getSize()`・`getReport()`・`render()`・`snapshot()` | 現在の大きさ・報告の取得、明示的な再描画、device px の RGBA 画素の非同期読み出し |
 | `destroy()` | 画面を消し、シーンと Canvas への参照を解放。繰り返して呼べる。Canvas 自体は利用側に残る |
 
-破棄後のほかのメソッドは `Error` を返します。`destroy()` は状態の購読・DOM のイベント・ポインターの捕捉を解除し、独自ツールも中断します。解除関数は破棄後も呼べます。[React のフック](../react/README.md)は表示部品と購読の寿命を管理します。
+破棄後のほかのメソッドは `Error` を返します。WebGPU を使えない環境では `View2D.create` が `reason: "webgpu-unavailable"` の例外を返し、途中でデバイスを失うと `contextlost` を通知して GPU 描画を止め、`snapshot()` は `reason: "context-lost"` の例外を返します。`destroy()` は状態の購読・DOM のイベント・ポインターの捕捉と部品が作った GPU 資源を解放し、独自ツールも中断します。解除関数は破棄後も呼べます。[React のフック](../react/README.md)は表示部品と購読の寿命を管理します。
 
 ## レイヤと選択
 
@@ -142,7 +142,7 @@ viewer.setHighlight("search", viewer.hitTestRect({ min_x: 0, min_y: 0, max_x: 30
 
 ## 状態の購読と出所
 
-`getState()` は `scene`・`view`・`size`・`layers`・`hiddenLayers`・`selection`・`hovered`・`highlights` と、ツール名 `tool`・入力設定 `input`・進行中の操作 `gesture`・計測 `measurement`・画像の状態 `underlays` を返します。凍結した状態で、変わるまで同じ参照を返すため、状態を直接変更しないでください。`subscribe(listener)` はすべての変化で `listener(state)`、`on(type, listener)` は種類を絞って `listener({ type, state })` を呼びます。種類は `scene`・`view`・`size`・`layers`・`selection`・`hover`・`highlight`・`tool`・`input`・`measurement`・`underlay` です。
+`getState()` は `scene`・`view`・`size`・`layers`・`hiddenLayers`・`selection`・`hovered`・`highlights` と、ツール名 `tool`・入力設定 `input`・進行中の操作 `gesture`・計測 `measurement`・画像の状態 `underlays`・デバイス喪失 `contextLost` を返します。凍結した状態で、変わるまで同じ参照を返すため、状態を直接変更しないでください。`subscribe(listener)` はすべての変化で `listener(state)`、`on(type, listener)` は種類を絞って `listener({ type, state })` を呼びます。種類は `scene`・`view`・`size`・`layers`・`selection`・`hover`・`highlight`・`tool`・`input`・`measurement`・`underlay`・`contextlost` です。
 
 登録だけでは通知せず、描画と状態の更新後に同期で通知します。通知の中から状態を変えると `RangeError` になります。通知する関数が例外を投げても残りへ通知し、最初の例外を返します。この場合、状態の更新は済んでいます。通知中に解除した購読は呼ばず、追加した購読は次の変更から呼びます。
 
@@ -274,7 +274,7 @@ viewer.setMeasurementCalibration({
 
 操作の状態は選択・計測・カメラの同期通知より先に更新します。通知中の変更の禁止は従来どおりです。独自ツールの関数から選択・カメラ・計測を更新できますが、ツール・入力の構成変更、シーンの差し替え、再度の入力、破棄はできません。これらは関数を抜けてから行います。入力の関数か同期通知が失敗した場合も、進行中の操作を片づけてから例外を返します。
 
-`addOverlay(draw, { scope: "scene" })` は図面と標準の計測線の上に描きます。`draw(context, state)` には CSS px の座標系の Canvas 2D と現在の状態を渡し、登録順に呼びます。前後で Canvas の状態を保存・復元します。既定の `scope: "scene"` はシーンの差し替えで除き、`scope: "viewer"` は解除か破棄まで保ちます。返す関数で除けます。外部の表示データを変えたら `invalidate()` で描き直します。描画する関数の中から状態を変更したり再び描画したりしないでください。
+`addOverlay(draw, { scope: "scene" })` は図面と標準の計測線の上に描きます。`draw(context, state)` には CSS px の座標系の WebGPU 重ね描きコンテキストと現在の状態を渡し、登録順に呼びます。前後でコンテキストの状態を保存・復元します。既定の `scope: "scene"` はシーンの差し替えで除き、`scope: "viewer"` は解除か破棄まで保ちます。返す関数で除けます。外部の表示データを変えたら `invalidate()` で描き直します。描画する関数の中から状態を変更したり再び描画したりしないでください。
 
 [最小の例](example/index.html) の「位置にしるし」は、入力・吸着・重ね描き・後始末を使う独自ツールです。しるしの形・色・ラベルは例の側で指定します。
 
@@ -357,7 +357,8 @@ session.call({ v: 1, op: "close", inputs: ["review.json"] });
 `ReviewLayer` は、`review_scene` のシーンを背景を透明にした別の `View2D` で図面に重ねます。重ねる Canvas は図面の Canvas と同じ位置・CSS の大きさに置き、入力は図面の Canvas に付けて重ねる側は `pointer-events: none` にします。
 
 ```js
-const reviewLayer = new ReviewLayer(viewer, new View2D(overlayCanvas, { background: "transparent" }), store);
+const overlayViewer = await View2D.create(overlayCanvas, { background: "transparent" });
+const reviewLayer = new ReviewLayer(viewer, overlayViewer, store);
 reviewLayer.setResult({ scene: readScene(session.take(result.blob)), result, document });
 canvas.addEventListener("click", (event) => store.select(reviewLayer.pick({ x: event.offsetX, y: event.offsetY }).slice(0, 1)));
 ```

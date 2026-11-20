@@ -62,6 +62,12 @@ impl Lifter<'_> {
         let paper = std::mem::take(&mut out.paper);
         let views = std::mem::take(&mut out.views);
         let sheet = std::mem::take(&mut out.sheet);
+        let is_current_paper_block = record.is_some_and(|r| {
+            matches!(
+                r.first(2),
+                Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"*Paper_Space")
+            )
+        });
         let (attached, owned) = attached(members);
         for (index, object) in members.iter().enumerate() {
             let source = source(object);
@@ -75,10 +81,14 @@ impl Lifter<'_> {
                 .iter()
                 .filter_map(|at| members.get(*at).copied())
                 .collect();
+            let mark = out.mark();
             if let Err(diagnostic) =
                 lifter.place(db, object, source.clone(), &inserted, true, out, cx)
             {
-                cx.report((*diagnostic).at(source));
+                cx.report((*diagnostic).at(source.clone()));
+            }
+            if !is_current_paper_block {
+                out.charge_since(mark, &source, cx)?;
             }
         }
         let elements = std::mem::replace(&mut out.paper, paper);

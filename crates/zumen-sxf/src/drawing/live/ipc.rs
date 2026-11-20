@@ -2,15 +2,21 @@
 //!
 //! 状態・保存・`apply` は変えない。名前と形は `AcadLive` の同名の関数に合わせる。
 
-use zumen_base::{Cx, Kind, Stop};
+use zumen_base::{Cx, Kind, Ref, Stop};
 use zumen_drawing::{
-    Affine, Element, FormattedText, Layer, LineType, LineTypeId, Piece, Placed, Seen, Shape,
+    Affine, Element, FormattedText, Layer, LineType, LineTypeId, ModelPoint, PaperPoint, Piece,
+    Placed, Seen, Shape, SymbolKey, id,
 };
-use zumen_live::RowId;
+use zumen_live::display::Display;
+use zumen_live::hit::SymbolHitCache;
+use zumen_live::{BoundsSource, RowId};
 use zumen_sdk::Error;
 
 use super::super::{LINE_TYPES, USER_LINE_TYPE};
-use super::{BaseSheetSlot, SxfContainer, SxfLive, hash_placed};
+use super::display::{
+    DisplayContext, count_model_shape_for_view, display_counts_and_style, write_shape,
+};
+use super::{BaseSheetSlot, SxfContainer, SxfLive, SxfRow, hash_placed};
 
 impl SxfLive {
     /// 表示の座標の矩形に掛かる生きた行を `out` の後ろに足す。[`Self::select_sheet`] と同じ行を返す。
@@ -86,6 +92,73 @@ impl SxfLive {
             },
             _ => None,
         }
+    }
+
+    /// 行を雛形にして要素を足すときの、足す先の場所の ID（`Edit::Add` の `place`）と、雛形の画層・スタイルを持つ要素。
+    /// 要素の形は、足す先の原点の長さ 0 の線分で、雛形の形は写さない。生きた最上位の要素の行だけが雛形になり、
+    /// 生きていない行と記号の定義の中の要素は `None`。行 1 つを共有の予算で数える
+    pub fn display_template(
+        &self,
+        row: RowId,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<(String, Placed)>, Error> {
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        if !self.table.is_alive(row) {
+            return Ok(None);
+        }
+        Ok(match self.table.row(row) {
+            Some(SxfRow {
+                container: SxfContainer::Space(space),
+                placed: Placed::Model(element),
+                ..
+            }) => {
+                let space = *space;
+                let template = Placed::Model(Element {
+                    source: Ref::default(),
+                    layer: element.layer,
+                    style: element.style,
+                    shape: Shape::Line {
+                        start: ModelPoint {
+                            space,
+                            x: 0.0,
+                            y: 0.0,
+                        },
+                        end: ModelPoint {
+                            space,
+                            x: 0.0,
+                            y: 0.0,
+                        },
+                    },
+                });
+                Some((id::space(space), template))
+            }
+            Some(SxfRow {
+                container: SxfContainer::Sheet(sheet),
+                placed: Placed::Paper(element),
+                ..
+            }) => self
+                .sheet_name_map
+                .iter()
+                .find(|(_, id)| *id == sheet)
+                .map(|(place, _)| {
+                    let origin = PaperPoint {
+                        sheet: *sheet,
+                        x: 0.0,
+                        y: 0.0,
+                    };
+                    let template = Placed::Paper(Element {
+                        source: Ref::default(),
+                        layer: element.layer,
+                        style: element.style,
+                        shape: Shape::Line {
+                            start: origin,
+                            end: origin,
+                        },
+                    });
+                    (place.clone(), template)
+                }),
+            _ => None,
+        })
     }
 
     /// 表示のスタイルの画層の値（図面モデルの `LayerId`）と、その画層の組。図面モデルの `layers` と同じ順。
@@ -191,6 +264,170 @@ impl SxfLive {
             Some(Placed::Paper(element)) => retexted(element, content, cx)?.map(Placed::Paper),
             None => None,
         })
+    }
+}
+
+impl SxfLive {
+    /// 表示の座標の点 `point` から許容距離 `tolerance` 以内にある生きた最上位の行を、昇順で `out` の後ろに足す。
+    /// 負や非有限の値では何も足さない。停止時は `out` を呼ぶ前の長さに戻し、診断を 1 件報告する
+    pub fn select_point_with_cx(
+        &self,
+        point: [f64; 2],
+        tolerance: f64,
+        out: &mut Vec<RowId>,
+        cx: &mut Cx<'_>,
+    ) -> Result<(), Error> {
+        if !(point[0].is_finite()
+            && point[1].is_finite()
+            && tolerance.is_finite()
+            && tolerance >= 0.0)
+        {
+            cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+            return Ok(());
+        }
+        let start = out.len();
+        let query = [
+            point[0] - tolerance,
+            point[1] - tolerance,
+            point[0] + tolerance,
+            point[1] + tolerance,
+        ];
+        if let Err(err) = self.select_rect_with_cx(query, out, cx) {
+            out.truncate(start);
+            return Err(err);
+        }
+        let bounds_col = self.table.bounds_column();
+        let mut cache = SymbolHitCache::new();
+        let result = (|| -> Result<(), Stop> {
+            let mut write = start;
+            for read in start..out.len() {
+                let Some(row) = out.get(read).copied() else {
+                    continue;
+                };
+                let bounds = bounds_col.bounds_at(row.index());
+                let hits = cache.row_hits_with_cx(
+                    &self.display,
+                    row.0,
+                    bounds,
+                    point,
+                    tolerance,
+                    &mut |def_idx, sym_display, inner_cx| {
+                        self.display_symbol_raw(def_idx, sym_display, inner_cx)
+                    },
+                    cx,
+                )?;
+                if hits {
+                    if let Some(slot) = out.get_mut(write) {
+                        *slot = row;
+                    }
+                    write += 1;
+                }
+            }
+            out.truncate(write);
+            Ok(())
+        })();
+        result.map_err(|stop| {
+            out.truncate(start);
+            stopped(cx, stop)
+        })
+    }
+
+    /// 表示の挿入が指す記号の定義（複合図形）の数。挿入の定義の値は `0..` この数
+    pub fn display_symbol_count(&self) -> u32 {
+        u32::try_from(self.symbol_rows.len()).unwrap_or(u32::MAX)
+    }
+
+    /// 記号の定義 `index` のキー。範囲外なら `None`
+    pub fn display_symbol_key(&self, index: u32) -> Option<SymbolKey> {
+        self.symbol_indices
+            .iter()
+            .find_map(|(key, &found)| (found == index).then(|| key.clone()))
+    }
+
+    /// 記号の定義 `symbol` の中の `element` 番目の生きた要素の正規 ID とハッシュを共有予算で返す。範囲外なら `None`
+    pub fn seen_of_symbol_element(
+        &self,
+        symbol: u32,
+        element: u32,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Seen>, Error> {
+        cx.check(Kind::Work, u64::from(element) + 1)
+            .map_err(|stop| stopped(cx, stop))?;
+        let Some(rows) = self.symbol_rows.get(symbol as usize) else {
+            return Ok(None);
+        };
+        let Some(row_id) = rows
+            .iter()
+            .copied()
+            .filter(|&row| {
+                self.table.is_alive(row)
+                    && self
+                        .table
+                        .row(row)
+                        .is_some_and(|found| matches!(found.placed, Placed::Model(_)))
+            })
+            .nth(element as usize)
+        else {
+            return Ok(None);
+        };
+        self.seen_of_row(row_id, cx)
+    }
+
+    /// 記号の定義 `index` の生きた要素を、定義の座標のまま 1 要素 1 行で `display` の末尾に足し、足した行の数を返す。
+    /// 行のスタイルは文書の表示と同じ画層の値と色。入れ子の挿入は、挿入のまま書く。範囲外なら `None`
+    pub fn display_symbol(
+        &self,
+        index: u32,
+        display: &mut Display,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<u32>, Error> {
+        let written = self
+            .display_symbol_raw(index, display, cx)
+            .map_err(|stop| stopped(cx, stop))?;
+        match written {
+            None => Ok(None),
+            Some(u32::MAX) => Err(Error::Invalid),
+            Some(rows) => Ok(Some(rows)),
+        }
+    }
+
+    fn display_symbol_raw(
+        &self,
+        index: u32,
+        display: &mut Display,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<u32>, Stop> {
+        let Some(rows) = self.symbol_rows.get(index as usize) else {
+            return Ok(None);
+        };
+        let identity = Affine {
+            m: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        };
+        let ctx = DisplayContext {
+            space_views: &self.space_views,
+            symbol_indices: &self.symbol_indices,
+        };
+        let mut written = 0_u32;
+        for &row in rows {
+            cx.check(Kind::Work, 1)?;
+            if !self.table.is_alive(row) {
+                continue;
+            }
+            let Some(found) = self.table.row(row) else {
+                continue;
+            };
+            let Placed::Model(element) = &found.placed else {
+                continue;
+            };
+            let (_, style) = display_counts_and_style(found, &ctx);
+            let counts =
+                count_model_shape_for_view(&element.shape, &identity, &self.symbol_indices);
+            display.push_with_cx(cx, counts, style, |writer| {
+                write_shape(&element.shape, &identity, &self.symbol_indices, writer);
+            })?;
+            written = written.saturating_add(1);
+        }
+        Ok(Some(written))
     }
 }
 

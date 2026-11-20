@@ -5,7 +5,11 @@ export type LiveBudgetKind = "inputBytes" | "decodedBytes" | "records" | "elemen
 export type LiveBudget = Partial<Record<LiveBudgetKind, number | bigint | null>>;
 export interface LiveOptions { budget?: LiveBudget; }
 export interface LiveDisplayOptions extends LiveOptions { display?: boolean; full?: boolean; }
-export interface LiveOpenOptions extends LiveDisplayOptions { threads?: number; }
+export interface LiveOpenOptions extends LiveDisplayOptions {
+  threads?: number;
+  /** SXF の属性ファイル（SAF、64 MiB まで）。省略時は P2Z・SFZ の中の図面と同じ名前の SAF を使う */
+  saf?: Bytes;
+}
 export interface LiveProcessLimits {
   /** 1 要求の期限。既定 30000 ms。1 から 2147483647 まで */
   timeoutMs?: number;
@@ -37,7 +41,8 @@ export interface LiveSelection {
   /** 全件の検証後、昇順で借りる。次の要求後も有効 */
   rows(): IterableIterator<number>;
 }
-/** 表示のスタイル [画層, 色] の画層の値に対応する画層。DXF・DWG は画層の表の位置、JWW・SXF は図面モデルの画層の ID */
+/** 表示のスタイル [画層, 色] の画層の値に対応する画層。DXF・DWG は画層の表の位置、JWW・SXF は図面モデルの画層の ID。
+ * 色は上位 8 bit が 0 画層・1 ブロック・2 色番号（bit 16〜23 に体系 1 ACI・2 SXF・3 JWW、下位 16 bit に番号）・3 RGB */
 export interface LiveLayer {
   readonly value: number;
   readonly name: string;
@@ -137,6 +142,96 @@ export interface LiveRemove {
   revision: bigint | number;
   rows: readonly number[] | Uint32Array;
 }
+/** 表示の座標で足す形。角度は度で反時計回り。半径は正 */
+export type LiveDrawShape =
+  | { line: readonly [number, number, number, number] }
+  | { circle: readonly [number, number, number] }
+  | { arc: readonly [number, number, number, number, number] };
+export interface LiveDraw {
+  /** 雛形の行が属する版。現在の版と異なれば stale */
+  revision: bigint | number;
+  /** 足す先と画層・スタイルを決める行。記号の定義の中の行は rejected */
+  template: number;
+  shape: LiveDrawShape;
+}
+export interface LiveDirtySymbolsOptions extends LiveOptions {
+  /** true なら取得した後に変更フラグを消す */
+  clear?: boolean;
+}
+export type LiveLayerColor = null | {
+  code?: { system: "aci" | "sxf" | "jww"; value: number };
+  rgb?: readonly [number, number, number];
+};
+export type LiveEditLayer =
+  | {
+      op?: "update";
+      revision: bigint | number;
+      layer: number;
+      name?: string;
+      state?: { visible: boolean; printable: boolean; editable: boolean; frozen: boolean };
+      color?: LiveLayerColor;
+      lineWeight?: null | "default" | number;
+      lineType?: null | number;
+    }
+  | {
+      op: "add";
+      revision: bigint | number;
+      name: string;
+      state?: { visible: boolean; printable: boolean; editable: boolean; frozen: boolean };
+      color?: LiveLayerColor;
+      lineWeight?: null | "default" | number;
+      lineType?: null | number;
+    }
+  | {
+      op: "remove";
+      revision: bigint | number;
+      layer: number;
+    };
+export type LiveEditLineType =
+  | {
+      op?: "update";
+      revision: bigint | number;
+      lineType: number;
+      name: string;
+      description?: string;
+      basis?: "element" | "paper";
+      pattern: readonly number[] | Float64Array;
+    }
+  | {
+      op: "add";
+      revision: bigint | number;
+      name: string;
+      description?: string;
+      basis?: "element" | "paper";
+      pattern: readonly number[] | Float64Array;
+    }
+  | {
+      op: "remove";
+      revision: bigint | number;
+      lineType: number;
+    };
+export type LiveAddedElement =
+  | { polyline: { closed?: boolean; vertices: readonly (readonly [number, number] | readonly [number, number, number])[] } }
+  | { text: { position: readonly [number, number]; height: number; rotation?: number; widthFactor?: number; content: string } }
+  | { symbol: { definition: number; position: readonly [number, number]; scale?: readonly [number, number]; rotation?: number } };
+export interface LiveAddElement {
+  revision: bigint | number;
+  template: number;
+  element: LiveAddedElement;
+}
+export interface LiveAddSymbol {
+  revision: bigint | number;
+  template: number;
+  name: string;
+  base?: readonly [number, number];
+  elements?: readonly LiveDrawShape[];
+}
+export interface LiveTransformSymbol {
+  revision: bigint | number;
+  symbol: number;
+  rows: readonly number[] | Uint32Array;
+  matrix: readonly number[] | Float64Array;
+}
 /** DXF・DWG・JWW・SXF の常駐文書。通常の同時呼び出しは ZumenError の busy */
 export declare class LiveProcess {
   private constructor();
@@ -153,22 +248,38 @@ export declare class LiveProcess {
   lineTypes(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** 行の文字（TEXT・MTEXT・JWW の文字・SXF の文字要素）。属性・寸法・表の中の文字は返さない。生きていない行があれば missing */
   texts(rows: readonly number[] | Uint32Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
-  /** 記号の定義の表示（DXF・DWG）。JWW・SXF はまだ rejected。範囲外の定義は invalid */
+  /** 記号の定義の表示（DXF・DWG・JWW・SXF）。範囲外の定義は invalid */
   symbols(definitions: readonly number[] | Uint32Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** 図面モデルの描く順（DXF・DWG は SORTENTSTABLE、JWW は画層グループ、SXF は用紙の並び）に合わせた行 */
   order(revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   /** モデル空間の [minX,minY,maxX,maxY] と囲む箱が交差する行。NaN・逆転は空、無限大は全域指定 */
   select(rect: readonly number[] | Float64Array, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
+  /** 表示の座標の [x,y] から許容距離 tolerance 以内の生きた最上位の行。tolerance は 0 以上の有限値 */
+  selectPoint(point: readonly number[] | Float64Array, tolerance: number, revision: bigint | number, options?: LiveOptions): Promise<LiveReply>;
   transform(change: LiveTransform, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行の画層・色・線幅・線種・線種の倍率を変える。result は変えた数 */
   restyle(change: LiveRestyle, options?: LiveDisplayOptions): Promise<LiveReply>;
-  /** 文字の行の内容を替える。替えられるのは texts の kind が "text" の行と、区間が文字列 1 つだけの "formatted" の行。
-   * ほかの行を含めば rejected で何も替えない。result は替えた数 */
+  /** 文字の行の内容を替える。替えられるのは texts の kind が "text" の行と、DXF・DWG の "formatted" の行、
+   * SXF の区間が文字列 1 つだけの "formatted" の行。ほかの行を含めば rejected で何も替えない。result は替えた数 */
   setText(change: LiveSetText, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行を除く。result は除いた数 */
   remove(change: LiveRemove, options?: LiveDisplayOptions): Promise<LiveReply>;
   /** 行を写し、写しを matrix で動かす。写しの行を selection に対象の順で返す。表示は display で取り直す。JWW・SXF は rejected */
   copy(change: LiveTransform, options?: LiveOptions): Promise<LiveReply>;
+  /** 行 template の空間か用紙に、その画層・スタイルで形を 1 つ足す。足した行を selection に返す。表示は display で取り直す */
+  draw(change: LiveDraw, options?: LiveOptions): Promise<LiveReply>;
+  /** 変更された記号定義の番号を selection に返す。clear: true で取得後に変更フラグを消す */
+  dirtySymbols(revision: bigint | number, options?: LiveDirtySymbolsOptions): Promise<LiveReply>;
+  /** 画層の変更・追加・削除。result は 1 */
+  editLayer(change: LiveEditLayer, options?: LiveDisplayOptions): Promise<LiveReply>;
+  /** 線種の変更・追加・削除。result は 1 */
+  editLineType(change: LiveEditLineType, options?: LiveDisplayOptions): Promise<LiveReply>;
+  /** 行 template に倣って表示の座標の折れ線・文字・記号挿入を 1 つ足し、足した行を selection に返す */
+  addElement(change: LiveAddElement, options?: LiveOptions): Promise<LiveReply>;
+  /** 記号の定義を 1 つ足し、新しい定義の番号を result に返す */
+  addSymbol(change: LiveAddSymbol, options?: LiveDisplayOptions): Promise<LiveReply>;
+  /** 記号の定義 symbol の中の要素 rows を定義の座標で動かす。result は動かした数 */
+  transformSymbol(change: LiveTransformSymbol, options?: LiveDisplayOptions): Promise<LiveReply>;
   undo(revision: bigint | number, options?: LiveDisplayOptions): Promise<LiveReply>;
   redo(revision: bigint | number, options?: LiveDisplayOptions): Promise<LiveReply>;
   save(options?: LiveOptions): Promise<LiveReply>;

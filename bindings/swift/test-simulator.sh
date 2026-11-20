@@ -12,7 +12,7 @@ slice=$(find "$framework" -type d -path '*simulator*' -name 'ios-*' -maxdepth 1 
 [ -n "$slice" ] || { echo "XCFramework に iOS のシミュレーターの対象がない: $framework" >&2; exit 2; }
 
 sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
-target=$(uname -m)-apple-ios15.0-simulator
+target=$(uname -m)-apple-ios17.0-simulator
 rm -rf "$build"
 mkdir -p "$build"
 xcrun --sdk iphonesimulator swiftc -sdk "$sdk" -target "$target" -O -parse-as-library -emit-library -static -module-name Zumen \

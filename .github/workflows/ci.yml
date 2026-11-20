@@ -65,7 +65,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: contains(fromJSON(steps.select.outputs.plan).checks, 'text')
         with:
-          node-version: 22
+          node-version: 24
       - name: 変更した文書・コメントの表記を確かめる
         if: contains(fromJSON(steps.select.outputs.plan).checks, 'text')
         run: |
@@ -153,7 +153,7 @@ jobs:
         run: npm run check
       - name: TypeScript・JavaScript のラッパーの型を、サイトと同じバージョンの TypeScript で確かめる（決定 0194）
         run: npx --no-install tsc -p ../bindings/js/tsconfig.json
-      - name: Canvas 2D の表示部品の型を確かめる（決定 0267）
+      - name: 2D の表示部品の型を確かめる（決定 0267）
         run: npx --no-install tsc -p ../packages/view2d/tsconfig.json
       - name: React のフックの型を確かめる（決定 0267）
         run: npx --no-install tsc -p ../packages/react/tsconfig.json
@@ -161,8 +161,9 @@ jobs:
         run: npx --no-install tsc -p ../packages/view3d/tsconfig.json
       - name: zumen.dev のページを作る
         run: npm run build
-      - name: サイトのビューアーを Chromium で確かめる（決定 0296）
+      - name: サイトのビューアーを Chromium の WebGPU で確かめる（決定 0296）
         run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers
           npx --no-install playwright install --with-deps --only-shell chromium
           npm run test:browser
 
@@ -175,13 +176,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # python は、Python のラッパーの適合テストに使うバージョン。docs/support.md の下限（3.9）と最新を、行で分けて試す（決定 0195）
-          # dotnet は、.NET のラッパーの適合テストに使う TFM。.NET 10 と、32 bit の .NET Framework 4.8 を試す（決定 0196）
-          # Python 3.9 は、Ubuntu 26.04 の setup-python にない。下限を試す行は 24.04 に留める
+          # python は、Python のラッパーの適合テストに使うバージョン。docs/support.md の下限（3.12）と最新を、行で分けて試す（決定 0195）
+          # dotnet は、.NET のラッパーの適合テストに使う TFM。.NET 8 と .NET 10 を試す（決定 0196）
           - name: Linux x64
             os: ubuntu-24.04
-            python: '3.9'
-            dotnet: net10.0
+            python: '3.12'
+            dotnet: net8.0
             library: libzumen_abi1.so
           - name: macOS arm64
             os: macos-latest
@@ -193,41 +193,28 @@ jobs:
             python: '3.x'
             dotnet: net10.0
             library: zumen_abi1.dll
-          # 32 bit の Office の VBA のため、関数を stdcall で出す（決定 0011・0014）
-          - name: Windows x86
-            os: windows-latest
-            target: i686-pc-windows-msvc
-            python: '3.9'
-            python-architecture: x86
-            dotnet: net48
-            dotnet-platform: x86
-            library: zumen_abi1.dll
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: rust-toolchain.toml のバージョンの Rust を入れる
         run: rustup toolchain install
-      - name: テストする target を入れる
-        if: matrix.target
-        run: rustup target add ${{ matrix.target }}
       - name: Rust のテストと、OS・呼び出し規約ごとの適合テストを流す
         if: github.event_name == 'pull_request' || contains(fromJSON(needs.checks.outputs.plan).checks, 'rust')
         shell: bash
         env:
           CARGO_ARGS: ${{ runner.os == 'Linux' && fromJSON(needs.checks.outputs.plan).linux_args || fromJSON(needs.checks.outputs.plan).native_args }}
-          TARGET: ${{ matrix.target }}
         run: |
           read -ra packages <<< "$CARGO_ARGS"
-          cargo test --locked "${packages[@]}" ${TARGET:+--target "$TARGET"}
+          cargo test --locked "${packages[@]}"
       - name: 子プロセスのラッパーに使う Node.js を入れる
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
       - name: Node.js の子プロセスの寿命・通信と適合ハッシュを確かめる（#358）
         shell: bash
         run: |
-          cargo build --package zumen-cli --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          executable="target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/zumen${{ runner.os == 'Windows' && '.exe' || '' }}"
+          cargo build --package zumen-cli --locked
+          executable="target/debug/zumen${{ runner.os == 'Windows' && '.exe' || '' }}"
           node bindings/js/test/process.mjs "$executable"
           node bindings/js/test/process-conformance.mjs "$executable"
           node bindings/js/test/live.mjs "$executable"
@@ -235,65 +222,66 @@ jobs:
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-          architecture: ${{ matrix.python-architecture }}
       - name: Python のラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0195）
         shell: bash
         run: |
-          cargo build --package zumen-abi --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          python bindings/python/tests/conformance.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
-          python bindings/python/tests/ranged.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
+          cargo build --package zumen-abi --locked
+          python bindings/python/tests/conformance.py "target/debug/${{ matrix.library }}"
+          python bindings/python/tests/ranged.py "target/debug/${{ matrix.library }}"
       - name: 整数格子の幾何演算・丸め・予算停止を同じバイト列で照らす（#886）
         shell: bash
         run: |
-          cargo build --package zumen-geom2d --example topology_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          python crates/zumen-geom2d/tests/check_topology.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/topology_contract"
+          cargo build --package zumen-geom2d --example topology_contract --locked
+          python crates/zumen-geom2d/tests/check_topology.py "target/debug/examples/topology_contract"
       - name: 建物の形と開口・診断・予算停止を同じバイト列で照らす（#420）
         shell: bash
         run: |
-          cargo build --package zumen-building --example evaluation_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          python crates/zumen-building/tests/check_evaluation.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/evaluation_contract"
+          cargo build --package zumen-building --example evaluation_contract --locked
+          python crates/zumen-building/tests/check_evaluation.py "target/debug/examples/evaluation_contract"
       - name: 建物の切断・隠れ線・出所・予算停止を同じバイト列で照らす（#422）
         shell: bash
         run: |
-          cargo clippy --package zumen-building --package zumen-ifc --features zumen-building/drawing,zumen-ifc/drawing --all-targets --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }} -- -D warnings
-          cargo test --package zumen-building --features drawing --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          cargo test --package zumen-ifc --features drawing --test building_drawing --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          cargo build --package zumen-building --features drawing --example drawing_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          python crates/zumen-building/tests/check_drawing.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/drawing_contract"
+          cargo clippy --package zumen-building --package zumen-ifc --features zumen-building/drawing,zumen-ifc/drawing --all-targets --locked -- -D warnings
+          cargo test --package zumen-building --features drawing --locked
+          cargo test --package zumen-ifc --features drawing --test building_drawing --locked
+          cargo build --package zumen-building --features drawing --example drawing_contract --locked
+          python crates/zumen-building/tests/check_drawing.py "target/debug/examples/drawing_contract"
       - name: 建物の数量・丸め・根拠・予算停止を同じバイト列で照らす（#424）
         shell: bash
         run: |
-          cargo clippy --package zumen-building --package zumen-ifc --features zumen-building/measure,zumen-ifc/measure,zumen-ifc/drawing --all-targets --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }} -- -D warnings
-          cargo test --package zumen-building --features measure --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          cargo test --package zumen-ifc --features drawing,measure --test author --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          cargo build --package zumen-ifc --features drawing,measure --example author_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          python crates/zumen-ifc/tests/check_author.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/author_contract"
-          cargo build --package zumen-building --features measure --example measure_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          python crates/zumen-building/tests/check_measure.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/measure_contract"
+          cargo clippy --package zumen-building --package zumen-ifc --features zumen-building/measure,zumen-ifc/measure,zumen-ifc/drawing --all-targets --locked -- -D warnings
+          cargo test --package zumen-building --features measure --locked
+          cargo test --package zumen-ifc --features drawing,measure --test author --locked
+          cargo build --package zumen-ifc --features drawing,measure --example author_contract --locked
+          python crates/zumen-ifc/tests/check_author.py "target/debug/examples/author_contract"
+          cargo build --package zumen-building --features measure --example measure_contract --locked
+          python crates/zumen-building/tests/check_measure.py "target/debug/examples/measure_contract"
       - name: 確認申請のプロファイル・面積・診断・予算停止を同じバイト列で照らす（#426）
         shell: bash
         run: |
-          cargo clippy --package zumen-profile --features building-drawing --all-targets --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }} -- -D warnings
-          cargo test --package zumen-profile --features building-drawing --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          cargo build --package zumen-profile --features building --example building_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          python crates/zumen-profile/tests/check_building.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/building_contract"
-          cargo build --package zumen-profile --features building-drawing --example drawing_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          python crates/zumen-profile/tests/check_building.py --kind drawing "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/drawing_contract"
+          cargo clippy --package zumen-profile --features building-drawing --all-targets --locked -- -D warnings
+          cargo test --package zumen-profile --features building-drawing --locked
+          cargo build --package zumen-profile --features building --example building_contract --locked
+          python crates/zumen-profile/tests/check_building.py "target/debug/examples/building_contract"
+          cargo build --package zumen-profile --features building-drawing --example drawing_contract --locked
+          python crates/zumen-profile/tests/check_building.py --kind drawing "target/debug/examples/drawing_contract"
       - name: 地物の図面・3D シーン・出所・予算停止を同じバイト列で照らす（#472）
         shell: bash
         run: |
-          cargo clippy --package zumen-geo --all-features --all-targets --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }} -- -D warnings
-          cargo test --package zumen-geo --all-features --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          cargo build --package zumen-geo --all-features --example visual_contract --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-          python crates/zumen-geo/tests/check_visual.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/examples/visual_contract"
+          cargo clippy --package zumen-geo --all-features --all-targets --locked -- -D warnings
+          cargo test --package zumen-geo --all-features --locked
+          cargo build --package zumen-geo --all-features --example visual_contract --locked
+          python crates/zumen-geo/tests/check_visual.py "target/debug/examples/visual_contract"
       - name: .NET のラッパーの適合テストに使う .NET の SDK を入れる
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: |
+            8.0.x
+            10.0.x
       - name: VBA の宣言と実機用の手順を Windows の DLL と照らす（Office の実行は含まない）
         if: runner.os == 'Windows'
         shell: bash
-        run: python bindings/vba/test_contract.py "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
+        run: python bindings/vba/test_contract.py "target/debug/${{ matrix.library }}"
       - name: .NET のラッパーを通しても、ネイティブと同じハッシュの一覧になることを確かめる（決定 0196）
         shell: bash
         env:
@@ -301,15 +289,14 @@ jobs:
           DOTNET_NOLOGO: '1'
         run: >-
           dotnet run --project bindings/dotnet/tests/Conformance --framework ${{ matrix.dotnet }}
-          ${{ matrix.dotnet-platform && format('-p:PlatformTarget={0}', matrix.dotnet-platform) || '' }}
-          -- "target/${{ matrix.target && format('{0}/', matrix.target) || '' }}debug/${{ matrix.library }}"
+          -- "target/debug/${{ matrix.library }}"
       - name: DLL が、飾りのない名前で API の関数を出すことを確かめる（VBA の Declare のため）
-        if: matrix.target == 'i686-pc-windows-msvc'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $dumpbin = & $vswhere -latest -products * -find "VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
-          $exports = & $dumpbin /nologo /exports "target\${{ matrix.target }}\debug\zumen_abi1.dll"
+          $exports = & $dumpbin /nologo /exports "target\debug\zumen_abi1.dll"
           $exports
           # 行の形は「ordinal hint RVA 出す名前 = 中の名前」。出す名前を集める
           $exported = $exports | ForEach-Object { if ($_ -match '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]{8}\s+(\S+)') { $Matches[1] } }
@@ -353,7 +340,7 @@ jobs:
         if: env.TEST_BROWSER == 'true'
         with:
           # docs/support.md の Node.js の下限
-          node-version: 22
+          node-version: 24
       - name: 分けた wasm のモジュールを作る（決定 0013・0221）
         if: env.WASM_MODULES != ''
         run: |
@@ -460,21 +447,23 @@ jobs:
       - name: Playwright のバージョンに合う Chromium と、それが使う OS のライブラリを入れる
         if: env.TEST_BROWSER == 'true'
         working-directory: bindings/js/test/browser
-        run: npx --no-install playwright install --with-deps --only-shell chromium
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers
+          npx --no-install playwright install --with-deps --only-shell chromium
       - name: ブラウザー（Chromium）の中でラッパーを通しても、同じハッシュの一覧になることを確かめる（決定 0199）
         if: env.TEST_CORE == 'true'
         run: node bindings/js/test/browser/run.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm modules/zumen_abi1_drawing.wasm modules/zumen_abi1_bim.wasm modules/zumen_abi1_civil.wasm modules/zumen_abi1_pointcloud.wasm modules/zumen_abi1_plugin.wasm
       - name: 書いた SVG の描画順・字形・切り抜きを Chromium で照合する
         if: env.TEST_CORE == 'true'
         run: node crates/zumen-render/tests/browser.mjs target/svg-check/drawing.svg target/svg-check/region.svg
-      - name: Canvas 2D で合成シーンと DXF・JWW・SXF を描く（決定 0267）
+      - name: WebGPU の 2D 表示部品で合成シーンと DXF・JWW・SXF を描く（決定 0267）
         if: env.TEST_VIEW2D == 'true'
         env:
           ZUMEN_PDFJS_REQUIRED: '1'
         run: |
           npm ci --ignore-scripts --no-audit --no-fund --prefix xtask/verify/pdfjs
           node bindings/js/test/browser/view2d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
-      - name: 3D の表示部品を、固定した three.js と Chromium の WebGL2 で確かめる（docs/view3d.md）
+      - name: 3D の表示部品を、固定した three.js と Chromium の WebGPU で確かめる（docs/view3d.md）
         if: env.TEST_VIEW3D == 'true'
         run: node bindings/js/test/browser/view3d.mjs chromium target/wasm32-unknown-unknown/release/zumen_abi1.wasm
       - name: React のフックの寿命とプレイグラウンドの操作・通信を Chromium で確かめる（3D は #818）

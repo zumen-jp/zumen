@@ -359,6 +359,17 @@ impl Lifter<'_> {
             scale: non_negative(40, 1.0)?,
             source,
         });
+        let values = super::dimension_display::style_values(db, object, self.charset);
+        // DIMTSZ だけを持つ表でも、元の CAD の斜線の大きさと旧 L2 の近似を区別する。
+        if (tick > 0.0 || values != zumen_drawing::DimensionDisplayValues::default())
+            && let Some(style) = out.dimension_styles.last()
+        {
+            out.dimension_display
+                .push(zumen_drawing::DimensionDisplayRecord {
+                    target: zumen_drawing::DimensionDisplayTarget::Style(style.name.clone()),
+                    values,
+                });
+        }
         Ok(())
     }
 

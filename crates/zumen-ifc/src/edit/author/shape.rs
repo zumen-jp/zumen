@@ -31,10 +31,16 @@
 //! - `IfcMappedItem`: 1 MappingSource・2 MappingTarget。`IfcRepresentationMap`: 1 MappingOrigin・
 //!   2 MappedRepresentation。`IfcCartesianTransformationOperator3D`: 1 Axis1・2 Axis2・3 LocalOrigin・4 Scale・
 //!   5 Axis3。`NonUniform` は 6 Scale2・7 Scale3。同じ原点と項目の写像元は 1 つにまとめる
-//! - 表現の種類（RepresentationType）は項目から決める。押し出しは `SweptSolid`、`IfcFacetedBrep` は `Brep`、
-//!   両方なら `SolidModel`、面の模型は `SurfaceModel`、添字の面集合は `Tessellation`、切り取りは `Clipping`、
-//!   ほかの集合演算（切り取りを含む）は `CSG`、写像は `MappedRepresentation`。ほかの組み合わせと、表現の項目に
-//!   直接置く半空間は書かない
+//! - `IfcRevolvedAreaSolid`: 1 SweptArea・2 Position・3 Axis（`IfcAxis1Placement`: 1 Location・2 Axis）・4 Angle。
+//!   軸は立体の局所の XY 平面に置く（IFC4 からの規則 AxisStartInXY・AxisDirectionInXY）。角度は文書の平面角の
+//!   単位で書く。断面が軸をまたがないことは確かめない
+//! - `IfcSweptDiskSolid`: 1 Directrix・2 Radius・3 InnerRadius・4 StartParam・5 EndParam。経路は 3 次元
+//!   （DirectrixDim）。内半径は外半径より小さい。IFC2X3 は始点と終点が要るので、省略したら折れ線の全体（0 から
+//!   区間の数）を書く。`IfcPolyline` の媒介変数は区間ごとに 1 進む
+//! - 表現の種類（RepresentationType）は項目から決める。押し出しと回転は `SweptSolid`、円盤の掃引は
+//!   `AdvancedSweptSolid`、`IfcFacetedBrep` は `Brep`、これらを合わせると `SolidModel`、面の模型は
+//!   `SurfaceModel`、添字の面集合は `Tessellation`、切り取りは `Clipping`、ほかの集合演算（切り取りを含む）は
+//!   `CSG`、写像は `MappedRepresentation`。ほかの組み合わせと、表現の項目に直接置く半空間は書かない
 
 use std::collections::BTreeSet;
 
@@ -64,6 +70,10 @@ pub struct NewShape {
 pub enum NewItem {
     /// 断面の押し出し（`IfcExtrudedAreaSolid`）
     Solid(NewSolid),
+    /// 断面の回転（`IfcRevolvedAreaSolid`）
+    Revolution(NewRevolution),
+    /// 円盤の掃引（`IfcSweptDiskSolid`）
+    SweptDisk(NewSweptDisk),
     /// 面集合
     Faces(NewFaces),
     /// 集合演算（`IfcBooleanResult`・`IfcBooleanClippingResult`）
@@ -154,6 +164,36 @@ pub struct NewSolid {
     pub depth: f64,
 }
 
+/// 断面の回転。断面と軸は立体の局所の XY 平面にある
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewRevolution {
+    /// 断面
+    pub profile: NewProfile,
+    /// 立体の局所の配置。なければ要素の配置のまま
+    pub position: Option<NewAxis3>,
+    /// 回転軸の点
+    pub location: [f64; 2],
+    /// 回転軸の向き。0 でない
+    pub direction: [f64; 2],
+    /// 回転角（ラジアン）。0 より大きく 2π 以下。文書の平面角の単位に直して書く
+    pub angle: f64,
+}
+
+/// 円盤を 3 次元の折れ線に沿って掃引する
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewSweptDisk {
+    /// 経路の点。2 点以上で、続く点は重ならない
+    pub directrix: Vec<[f64; 3]>,
+    /// 外半径。正
+    pub radius: f64,
+    /// 内半径。正で、外半径より小さい
+    pub inner_radius: Option<f64>,
+    /// 経路の媒介変数の始点。0 から区間の数まで
+    pub start: Option<f64>,
+    /// 経路の媒介変数の終点。0 から区間の数までで、始点より大きい
+    pub end: Option<f64>,
+}
+
 /// 3 次元の局所の配置。向きは元の比のまま書く
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewAxis3 {
@@ -228,8 +268,10 @@ impl Draft<'_> {
             cx.report(unsupported(EDIT, &stmt.name));
             return Ok(false);
         };
+        let angle = self.angle_unit();
         let reason = rejected(shape, version)
-            .or_else(|| matches!(stmt.arg(6), None | Some(Item::Raw(_))).then_some("placement"));
+            .or_else(|| matches!(stmt.arg(6), None | Some(Item::Raw(_))).then_some("placement"))
+            .or_else(|| (angle.is_none() && revolves(&shape.body)).then_some("angle_unit"));
         if let Some(value) = reason {
             cx.report(unsupported(EDIT, &stmt.name).with("value", value));
             return Ok(false);
@@ -261,10 +303,15 @@ impl Draft<'_> {
                 .map_err(|stop| stopped(cx, stop, None))?;
             let context = self.subcontext(model, "Body", b".MODEL_VIEW.");
             let mut maps = Vec::new();
+            let mut written = Written {
+                maps: &mut maps,
+                angle: angle.unwrap_or(1.0),
+                version,
+            };
             let items = shape
                 .body
                 .iter()
-                .map(|item| Item::Ref(self.item(item, context, &mut maps)))
+                .map(|item| Item::Ref(self.item(item, context, &mut written)))
                 .collect();
             representations.push(self.add(Stmt {
                 name: b"IFCSHAPEREPRESENTATION".to_vec(),
@@ -284,16 +331,18 @@ impl Draft<'_> {
         Ok(true)
     }
 
-    /// 形の項目。値は [`rejected`] で確かめてある。写像元は `maps` で共有する
-    fn item(&mut self, item: &NewItem, context: u64, maps: &mut Vec<(u64, NewMapped)>) -> u64 {
+    /// 形の項目。値は [`rejected`] で確かめてある。写像元は `written.maps` で共有する
+    fn item(&mut self, item: &NewItem, context: u64, written: &mut Written) -> u64 {
         match item {
             NewItem::Solid(solid) => self.solid(solid),
+            NewItem::Revolution(revolution) => self.revolution(revolution, written.angle),
+            NewItem::SweptDisk(disk) => self.swept_disk(disk, written.version),
             NewItem::Faces(NewFaces::Polygons(graph)) => self.face_graph(graph),
             NewItem::Faces(NewFaces::Indexed(set)) => self.indexed_faces(set),
             NewItem::HalfSpace(half) => self.half_space(half),
             NewItem::Boolean(boolean) => {
-                let first = self.item(&boolean.first, context, maps);
-                let second = self.item(&boolean.second, context, maps);
+                let first = self.item(&boolean.first, context, written);
+                let second = self.item(&boolean.second, context, written);
                 let operation: &[u8] = match boolean.operation {
                     BooleanOperation::Union => b".UNION.",
                     BooleanOperation::Intersection => b".INTERSECTION.",
@@ -310,7 +359,8 @@ impl Draft<'_> {
                 })
             }
             NewItem::Mapped(mapped) => {
-                let known = maps
+                let known = written
+                    .maps
                     .iter()
                     .find(|(_, m)| m.origin == mapped.origin && m.items == mapped.items)
                     .map(|(id, _)| *id);
@@ -321,7 +371,7 @@ impl Draft<'_> {
                         let items = mapped
                             .items
                             .iter()
-                            .map(|item| Item::Ref(self.item(item, context, maps)))
+                            .map(|item| Item::Ref(self.item(item, context, written)))
                             .collect();
                         let kind = items_type(&mapped.items).unwrap_or_default();
                         let representation = self.add(Stmt {
@@ -337,7 +387,7 @@ impl Draft<'_> {
                             name: b"IFCREPRESENTATIONMAP".to_vec(),
                             args: vec![Item::Ref(origin), Item::Ref(representation)],
                         });
-                        maps.push((id, (**mapped).clone()));
+                        written.maps.push((id, (**mapped).clone()));
                         id
                     }
                 };
@@ -413,15 +463,108 @@ impl Draft<'_> {
         value.map_or_else(null, |v| Item::Ref(self.point(b"IFCDIRECTION", &v)))
     }
 
-    /// 押し出し。値は [`rejected`] で確かめてある
-    fn solid(&mut self, solid: &NewSolid) -> u64 {
-        let profile = self.profile(&solid.profile);
-        let position = solid.position.clone().unwrap_or(NewAxis3 {
+    /// 文書の平面角の単位の、ラジアンでの大きさ。SI のラジアンか、ラジアンで換算する単位だけを読む
+    fn angle_unit(&self) -> Option<f64> {
+        let project = self.stmt(self.project?)?;
+        let Some(Item::Ref(assignment)) = project.arg(9) else {
+            return None;
+        };
+        let assignment = self.stmt(*assignment)?;
+        let radian = |id: u64| {
+            self.stmt(id).is_some_and(|s| {
+                s.name == b"IFCSIUNIT"
+                    && matches!(s.arg(2), Some(Item::Raw(b)) if b.eq_ignore_ascii_case(b".PLANEANGLEUNIT."))
+                    && matches!(s.arg(3), Some(Item::Raw(b)) if b == b"$")
+                    && matches!(s.arg(4), Some(Item::Raw(b)) if b.eq_ignore_ascii_case(b".RADIAN."))
+            })
+        };
+        refs_of(assignment.arg(1)).into_iter().find_map(|id| {
+            let unit = self.stmt(id)?;
+            if !matches!(unit.arg(2), Some(Item::Raw(b)) if b.eq_ignore_ascii_case(b".PLANEANGLEUNIT."))
+            {
+                return None;
+            }
+            if radian(id) {
+                return Some(1.0);
+            }
+            // `IfcConversionBasedUnit`: 4 ConversionFactor（`IfcMeasureWithUnit`: 1 ValueComponent・2 UnitComponent）
+            let Some(Item::Ref(factor)) = unit.arg(4).filter(|_| unit.name == b"IFCCONVERSIONBASEDUNIT")
+            else {
+                return None;
+            };
+            let factor = self.stmt(*factor).filter(|s| s.name == b"IFCMEASUREWITHUNIT")?;
+            let Some(Item::Ref(base)) = factor.arg(2) else {
+                return None;
+            };
+            let Some(Item::Raw(value)) = factor.arg(1) else {
+                return None;
+            };
+            let open = value.iter().position(|&b| b == b'(')?;
+            let inner = value.get(open + 1..)?.strip_suffix(b")")?;
+            let scale: f64 = std::str::from_utf8(inner).ok()?.trim().parse().ok()?;
+            (radian(*base) && scale.is_finite() && scale > 0.0).then_some(scale)
+        })
+    }
+
+    /// 回転。角度は `angle`（文書の平面角の単位の、ラジアンでの大きさ）で割って書く
+    fn revolution(&mut self, revolution: &NewRevolution, angle: f64) -> u64 {
+        let profile = self.profile(&revolution.profile);
+        let position = self.position(revolution.position.as_ref());
+        let [x, y] = revolution.location;
+        let location = self.point(b"IFCCARTESIANPOINT", &[x, y, 0.0]);
+        let [dx, dy] = revolution.direction;
+        let direction = self.point(b"IFCDIRECTION", &[dx, dy, 0.0]);
+        let axis = self.add(Stmt {
+            name: b"IFCAXIS1PLACEMENT".to_vec(),
+            args: vec![Item::Ref(location), Item::Ref(direction)],
+        });
+        self.add(Stmt {
+            name: b"IFCREVOLVEDAREASOLID".to_vec(),
+            args: vec![
+                Item::Ref(profile),
+                Item::Ref(position),
+                Item::Ref(axis),
+                number(revolution.angle / angle),
+            ],
+        })
+    }
+
+    /// 円盤の掃引。IFC2X3 では省略した始点と終点を折れ線の全体で書く
+    fn swept_disk(&mut self, disk: &NewSweptDisk, version: Version) -> u64 {
+        let directrix = self.polyline(&disk.directrix, false);
+        let required = version == Version::Ifc2x3;
+        let segments = disk.directrix.len().saturating_sub(1) as f64;
+        let parameter = |value: Option<f64>, whole: f64| match value {
+            Some(v) => number(v),
+            None if required => number(whole),
+            None => null(),
+        };
+        self.add(Stmt {
+            name: b"IFCSWEPTDISKSOLID".to_vec(),
+            args: vec![
+                Item::Ref(directrix),
+                number(disk.radius),
+                disk.inner_radius.map_or_else(null, number),
+                parameter(disk.start, 0.0),
+                parameter(disk.end, segments),
+            ],
+        })
+    }
+
+    /// 立体の局所の配置。なければ原点
+    fn position(&mut self, position: Option<&NewAxis3>) -> u64 {
+        let origin = NewAxis3 {
             location: [0.0; 3],
             axis: None,
             reference: None,
-        });
-        let position = self.axis3(&position);
+        };
+        self.axis3(position.unwrap_or(&origin))
+    }
+
+    /// 押し出し。値は [`rejected`] で確かめてある
+    fn solid(&mut self, solid: &NewSolid) -> u64 {
+        let profile = self.profile(&solid.profile);
+        let position = self.position(solid.position.as_ref());
         let direction = self.point(b"IFCDIRECTION", &solid.direction);
         self.add(Stmt {
             name: b"IFCEXTRUDEDAREASOLID".to_vec(),
@@ -479,8 +622,8 @@ impl Draft<'_> {
         })
     }
 
-    /// 2 次元の点の `IfcPolyline`。`closed` なら始点と同じインスタンスで閉じる
-    fn polyline(&mut self, points: &[[f64; 2]], closed: bool) -> u64 {
+    /// 点の `IfcPolyline`。`closed` なら始点と同じインスタンスで閉じる
+    fn polyline<const N: usize>(&mut self, points: &[[f64; N]], closed: bool) -> u64 {
         let mut items: Vec<Item> = points
             .iter()
             .map(|p| Item::Ref(self.point(b"IFCCARTESIANPOINT", p)))
@@ -745,6 +888,31 @@ impl Draft<'_> {
     }
 }
 
+/// 項目を書くときに持ち回る値
+struct Written<'a> {
+    /// 書いた写像元
+    maps: &'a mut Vec<(u64, NewMapped)>,
+    /// 文書の平面角の単位の、ラジアンでの大きさ
+    angle: f64,
+    version: Version,
+}
+
+/// 回転を含むか
+fn revolves(items: &[NewItem]) -> bool {
+    items.iter().any(revolves_item)
+}
+
+fn revolves_item(item: &NewItem) -> bool {
+    match item {
+        NewItem::Revolution(_) => true,
+        NewItem::Boolean(boolean) => {
+            revolves_item(&boolean.first) || revolves_item(&boolean.second)
+        }
+        NewItem::Mapped(mapped) => revolves(&mapped.items),
+        _ => false,
+    }
+}
+
 /// 書いた面の模型の行のインスタンス
 struct FaceIds {
     sets: Vec<Option<u64>>,
@@ -775,7 +943,8 @@ fn integers(values: &[u32]) -> Item {
 /// 項目を書く作業量
 fn item_size(item: &NewItem) -> u64 {
     match item {
-        NewItem::Solid(_) => 1,
+        NewItem::Solid(_) | NewItem::Revolution(_) => 1,
+        NewItem::SweptDisk(disk) => 1 + disk.directrix.len() as u64,
         NewItem::Faces(faces) => faces_size(faces),
         NewItem::HalfSpace(half) => match &half.limit {
             NewHalfSpaceLimit::Polygonal { boundary, .. } => 1 + boundary.len() as u64,
@@ -796,7 +965,7 @@ fn clipping(boolean: &NewBoolean) -> bool {
     boolean.operation == BooleanOperation::Difference
         && matches!(boolean.second, NewItem::HalfSpace(_))
         && match &boolean.first {
-            NewItem::Solid(_) => true,
+            NewItem::Solid(_) | NewItem::Revolution(_) => true,
             NewItem::Boolean(first) => clipping(first),
             _ => false,
         }
@@ -822,7 +991,8 @@ fn faces_size(faces: &NewFaces) -> u64 {
 /// 1 つの項目の表現の種類。半空間は表現に直接置かないので空
 fn item_type(item: &NewItem) -> &'static str {
     match item {
-        NewItem::Solid(_) => "SweptSolid",
+        NewItem::Solid(_) | NewItem::Revolution(_) => "SweptSolid",
+        NewItem::SweptDisk(_) => "AdvancedSweptSolid",
         NewItem::Faces(NewFaces::Polygons(graph)) if graph.kind == FaceModelKind::FacetedSolid => {
             "Brep"
         }
@@ -843,7 +1013,10 @@ fn items_type(items: &[NewItem]) -> Option<&'static str> {
         [] => None,
         [""] => Some(""),
         [kind] => Some(kind),
-        ["Brep", "SweptSolid"] => Some("SolidModel"),
+        ["AdvancedSweptSolid", "Brep"]
+        | ["AdvancedSweptSolid", "SweptSolid"]
+        | ["Brep", "SweptSolid"]
+        | ["AdvancedSweptSolid", "Brep", "SweptSolid"] => Some("SolidModel"),
         ["CSG", "Clipping"] => Some("CSG"),
         _ => Some(""),
     }
@@ -999,6 +1172,8 @@ fn item_rejected(item: &NewItem, version: Version, depth: usize) -> Option<&'sta
     }
     match item {
         NewItem::Solid(solid) => solid_rejected(solid),
+        NewItem::Revolution(revolution) => revolution_rejected(revolution),
+        NewItem::SweptDisk(disk) => disk_rejected(disk),
         NewItem::Faces(faces) => faces_rejected(faces, version),
         NewItem::HalfSpace(half) => {
             let limit = match &half.limit {
@@ -1017,7 +1192,11 @@ fn item_rejected(item: &NewItem, version: Version, depth: usize) -> Option<&'sta
                 .into_iter()
                 .find_map(|operand| {
                     let ok = match operand {
-                        NewItem::Solid(_) | NewItem::HalfSpace(_) | NewItem::Boolean(_) => true,
+                        NewItem::Solid(_)
+                        | NewItem::Revolution(_)
+                        | NewItem::SweptDisk(_)
+                        | NewItem::HalfSpace(_)
+                        | NewItem::Boolean(_) => true,
                         NewItem::Faces(NewFaces::Polygons(graph)) => {
                             graph.kind == FaceModelKind::FacetedSolid
                         }
@@ -1075,8 +1254,44 @@ fn solid_rejected(solid: &NewSolid) -> Option<&'static str> {
     if solid.position.as_ref().is_some_and(|p| !axis3(p)) {
         return Some("position");
     }
+    profile_rejected(&solid.profile)
+}
+
+fn revolution_rejected(revolution: &NewRevolution) -> Option<&'static str> {
+    let angle = revolution.angle;
+    if !(angle.is_finite() && angle > 0.0 && angle <= std::f64::consts::TAU) {
+        return Some("angle");
+    }
+    if !finite(&revolution.location) || !direction(&revolution.direction) {
+        return Some("axis");
+    }
+    if revolution.position.as_ref().is_some_and(|p| !axis3(p)) {
+        return Some("position");
+    }
+    profile_rejected(&revolution.profile)
+}
+
+fn disk_rejected(disk: &NewSweptDisk) -> Option<&'static str> {
+    let points = &disk.directrix;
+    let path = points.len() >= 2
+        && points.iter().all(|p| finite(p))
+        && points.windows(2).all(|w| w.first() != w.last());
     let positive = |v: f64| v.is_finite() && v > 0.0;
-    let profile = match &solid.profile.kind {
+    let radii = positive(disk.radius)
+        && disk
+            .inner_radius
+            .is_none_or(|r| positive(r) && r < disk.radius);
+    let segments = points.len().saturating_sub(1) as f64;
+    let within = |v: Option<f64>| v.is_none_or(|v| v.is_finite() && (0.0..=segments).contains(&v));
+    let parameters = within(disk.start)
+        && within(disk.end)
+        && disk.start.unwrap_or(0.0) < disk.end.unwrap_or(segments);
+    (!(path && radii && parameters)).then_some("sweep")
+}
+
+fn profile_rejected(profile: &NewProfile) -> Option<&'static str> {
+    let positive = |v: f64| v.is_finite() && v > 0.0;
+    let profile = match &profile.kind {
         NewProfileKind::Rectangle { x, y, position } => {
             positive(*x) && positive(*y) && axis2(position.as_ref())
         }

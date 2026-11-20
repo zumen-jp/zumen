@@ -109,6 +109,27 @@ impl DrawingProfile {
         Ok(view)
     }
 
+    /// 呼び出し側が指定した切断線の始点・終点・見る側に、プロファイルの深さを文書単位へ換算して断面図の面を作る。
+    pub fn default_section(
+        &self,
+        building: &Building,
+        start: ProjectPoint,
+        end: ProjectPoint,
+        side: b::Side,
+        cx: &mut Cx<'_>,
+    ) -> Result<b::View, Error> {
+        let unit = length_unit(building, cx)?;
+        let view = b::View::Vertical {
+            start,
+            end,
+            side,
+            depth: self.settings.defaults.depth / unit,
+            section: true,
+        };
+        view.frame().map_err(Error::Geometry)?;
+        Ok(view)
+    }
+
     /// 元の Plan の曲線、明記された開閉形式の記号、3D の切断の順で切り出し、慣習を当てる。
     pub fn cut(
         &self,

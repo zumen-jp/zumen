@@ -228,6 +228,11 @@ public struct Request: Message {
     public var asRasterRequest: RasterRequest? {
         taggedView("op", "raster")
     }
+
+    /// op が georeference の形なら、そのビュー。違えば nil
+    public var asGeoreferenceRequest: GeoreferenceRequest? {
+        taggedView("op", "georeference")
+    }
 }
 
 /// どの op の要求にも置けるフィールド
@@ -301,6 +306,12 @@ public struct Budget: Message {
     public var decodedBytes: JSON? {
         get { readField("decoded_bytes") }
         set { writeField("decoded_bytes", newValue) }
+    }
+
+    /// 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から
+    public var modelBytes: JSON? {
+        get { readField("model_bytes") }
+        set { writeField("model_bytes", newValue) }
     }
 
     /// L0・L1 で読んだレコードの数
@@ -996,6 +1007,270 @@ public struct DrawingResult: Message {
     public var pointStyle: PointStyleSummary? {
         get { readField("point_style") }
         set { writeField("point_style", newValue) }
+    }
+
+    /// 図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から
+    public var georeference: Georeference? {
+        get { readField("georeference") }
+        set { writeField("georeference", newValue) }
+    }
+}
+
+/// 図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height
+public struct MapConversion: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 東への移動（m）
+    public var eastings: Double? {
+        get { readField("eastings") }
+        set { writeField("eastings", newValue) }
+    }
+
+    /// 北への移動（m）
+    public var northings: Double? {
+        get { readField("northings") }
+        set { writeField("northings", newValue) }
+    }
+
+    /// 高さへの移動（m）
+    public var orthogonalHeight: Double? {
+        get { readField("orthogonal_height") }
+        set { writeField("orthogonal_height", newValue) }
+    }
+
+    /// 図面の X 軸の東方向の単位ベクトル成分
+    public var xAxisAbscissa: Double? {
+        get { readField("x_axis_abscissa") }
+        set { writeField("x_axis_abscissa", newValue) }
+    }
+
+    /// 図面の X 軸の北方向の単位ベクトル成分
+    public var xAxisOrdinate: Double? {
+        get { readField("x_axis_ordinate") }
+        set { writeField("x_axis_ordinate", newValue) }
+    }
+
+    /// 図面の 1 単位あたりの地図のメートル数
+    public var scale: Double? {
+        get { readField("scale") }
+        set { writeField("scale", newValue) }
+    }
+}
+
+/// 地図の座標系と、図面の実寸から地図への相似の変換
+public struct Georeference: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 地図の座標系の EPSG のコード
+    public var crs: Int64? {
+        get { readField("crs") }
+        set { writeField("crs", newValue) }
+    }
+
+    /// 図面の実寸から地図への相似の変換
+    public var conversion: MapConversion? {
+        get { readField("conversion") }
+        set { writeField("conversion", newValue) }
+    }
+}
+
+/// 地図の投影座標（m）。東（easting）と北（northing）を名前で分ける
+public struct MapPoint2: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 東方向の座標（m。平面直角座標系の Y）
+    public var easting: Double? {
+        get { readField("easting") }
+        set { writeField("easting", newValue) }
+    }
+
+    /// 北方向の座標（m。平面直角座標系の X）
+    public var northing: Double? {
+        get { readField("northing") }
+        set { writeField("northing", newValue) }
+    }
+}
+
+/// 図面の実寸の点と、対応する地図の投影座標の組
+public struct GeoreferenceControlPoint: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 図面の実寸の点
+    public var drawing: Point2? {
+        get { readField("drawing") }
+        set { writeField("drawing", newValue) }
+    }
+
+    /// 対応する地図の投影座標（m）
+    public var map: MapPoint2? {
+        get { readField("map") }
+        set { writeField("map", newValue) }
+    }
+}
+
+/// 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から
+public struct GeoreferenceRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("georeference")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる
+    public var expectedHash: String? {
+        get { readField("expected_hash") }
+        set { writeField("expected_hash", newValue) }
+    }
+
+    /// 対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す
+    public var crs: Int64? {
+        get { readField("crs") }
+        set { writeField("crs", newValue) }
+    }
+
+    /// 図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める
+    public var controlPoints: [GeoreferenceControlPoint]? {
+        get { readField("control_points") }
+        set { writeField("control_points", newValue) }
+    }
+
+    /// 求めた変換で地図へ写す図面の実寸の点
+    public var points: [Point2]? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+}
+
+/// 図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点
+public struct GeoreferenceResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// doc を渡したときの元の文書のハッシュ
+    public var hash: String? {
+        get { readField("hash") }
+        set { writeField("hash", newValue) }
+    }
+
+    /// 地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない
+    public var georeference: Georeference? {
+        get { readField("georeference") }
+        set { writeField("georeference", newValue) }
+    }
+
+    /// control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順
+    public var residuals: [MapPoint2]? {
+        get { readField("residuals") }
+        set { writeField("residuals", newValue) }
+    }
+
+    /// points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない
+    public var mapped: [MapPoint2]? {
+        get { readField("mapped") }
+        set { writeField("mapped", newValue) }
     }
 }
 
@@ -5188,7 +5463,7 @@ public struct ApplyResult: Message {
     }
 }
 
-/// 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から
+/// 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から
 public struct CreateRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -5239,7 +5514,7 @@ public struct CreateRequest: Message {
         set { writeField("op", newValue) }
     }
 
-    /// 作る形式の名前。capabilities.formats の create が true の id。今は dxf
+    /// 作る形式の名前。dxf か ifc
     public var format: String? {
         get { readField("format") }
         set { writeField("format", newValue) }
@@ -5251,10 +5526,16 @@ public struct CreateRequest: Message {
         set { writeField("to", newValue) }
     }
 
-    /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし
+    /// 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なしで、ifc では書けない
     public var unit: String? {
         get { readField("unit") }
         set { writeField("unit", newValue) }
+    }
+
+    /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+    public var ifc: IfcOutput? {
+        get { readField("ifc") }
+        set { writeField("ifc", newValue) }
     }
 }
 
@@ -5298,7 +5579,7 @@ public struct CreateResult: Message {
     }
 }
 
-/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から
+/// 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から
 public struct ConvertRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -5355,7 +5636,7 @@ public struct ConvertRequest: Message {
         set { writeField("doc", newValue) }
     }
 
-    /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から
+    /// 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima・ifc のいずれか。sxf・jww はマイナーバージョン 85 から
     public var format: String? {
         get { readField("format") }
         set { writeField("format", newValue) }
@@ -5365,6 +5646,12 @@ public struct ConvertRequest: Message {
     public var to: String? {
         get { readField("to") }
         set { writeField("to", newValue) }
+    }
+
+    /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+    public var ifc: IfcOutput? {
+        get { readField("ifc") }
+        set { writeField("ifc", newValue) }
     }
 }
 
@@ -5408,7 +5695,7 @@ public struct ConvertResult: Message {
     }
 }
 
-/// 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から）
+/// 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から）
 public struct ConvertEstimateRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -5465,7 +5752,7 @@ public struct ConvertEstimateRequest: Message {
         set { writeField("doc", newValue) }
     }
 
-    /// 書く形式の名前。dxf・sxf・jww
+    /// 書く形式の名前。dxf・sxf・jww・ifc
     public var format: String? {
         get { readField("format") }
         set { writeField("format", newValue) }
@@ -5477,10 +5764,187 @@ public struct ConvertEstimateRequest: Message {
         set { writeField("to", newValue) }
     }
 
+    /// IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から
+    public var ifc: IfcOutput? {
+        get { readField("ifc") }
+        set { writeField("ifc", newValue) }
+    }
+
     /// 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない
     public var limit: Int64? {
         get { readField("limit") }
         set { writeField("limit", newValue) }
+    }
+}
+
+/// 新しい IFC を書く設定（#395）。コアは時計を読まないので、時刻は呼び出し元が渡す
+public struct IfcOutput: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 書くバージョン
+    public var version: String? {
+        get { readField("version") }
+        set { writeField("version", newValue) }
+    }
+
+    /// ヘッダー（FILE_DESCRIPTION と FILE_NAME）の値。書かなければ空の値で書く
+    public var header: IfcHeader? {
+        get { readField("header") }
+        set { writeField("header", newValue) }
+    }
+
+    /// 所有履歴（IfcOwnerHistory）の値。ifc2x3 では必須。ifc4 からは書いたときだけ書く
+    public var owner: IfcOwner? {
+        get { readField("owner") }
+        set { writeField("owner", newValue) }
+    }
+
+    /// GlobalId を導く名前空間。書かなければ、convert は元の IfcProject の GlobalId（なければ元の文書のハッシュ）、create は作る文書の名前を使う。元の文書のハッシュでない名前空間なら、元を一部直して書き直しても、直していない要素の GlobalId は変わらない
+    public var namespace: String? {
+        get { readField("namespace") }
+        set { writeField("namespace", newValue) }
+    }
+}
+
+/// IFC のバージョン。ifc2x3 は IFC2X3 TC1、ifc4 は IFC4 ADD2 TC1、ifc4x3 は IFC4X3 ADD2
+///
+/// 列挙の値。知らない値も受け取る
+public enum IfcVersion {
+    public static let ifc2x3 = "ifc2x3"
+    public static let ifc4 = "ifc4"
+    public static let ifc4x3 = "ifc4x3"
+}
+
+/// IFC のヘッダーの値。書かない値は空で書く
+public struct IfcHeader: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// FILE_DESCRIPTION に ViewDefinition [<値>] として書く MVD の名前。書かなければ書かない
+    public var viewDefinition: String? {
+        get { readField("view_definition") }
+        set { writeField("view_definition", newValue) }
+    }
+
+    /// FILE_NAME の name
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// FILE_NAME の time_stamp。呼び出し元が書いた時刻
+    public var timeStamp: String? {
+        get { readField("time_stamp") }
+        set { writeField("time_stamp", newValue) }
+    }
+
+    /// FILE_NAME の author
+    public var author: [String]? {
+        get { readField("author") }
+        set { writeField("author", newValue) }
+    }
+
+    /// FILE_NAME の organization
+    public var organization: [String]? {
+        get { readField("organization") }
+        set { writeField("organization", newValue) }
+    }
+
+    /// FILE_NAME の preprocessor_version
+    public var preprocessorVersion: String? {
+        get { readField("preprocessor_version") }
+        set { writeField("preprocessor_version", newValue) }
+    }
+
+    /// FILE_NAME の originating_system
+    public var originatingSystem: String? {
+        get { readField("originating_system") }
+        set { writeField("originating_system", newValue) }
+    }
+
+    /// FILE_NAME の authorization
+    public var authorization: String? {
+        get { readField("authorization") }
+        set { writeField("authorization", newValue) }
+    }
+}
+
+/// 所有履歴の値
+public struct IfcOwner: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 所有する人の IfcPerson の FamilyName
+    public var person: String? {
+        get { readField("person") }
+        set { writeField("person", newValue) }
+    }
+
+    /// 所有する組織の IfcOrganization の Name
+    public var organization: String? {
+        get { readField("organization") }
+        set { writeField("organization", newValue) }
+    }
+
+    /// 作ったソフトの開発元の IfcOrganization の Name
+    public var developer: String? {
+        get { readField("developer") }
+        set { writeField("developer", newValue) }
+    }
+
+    /// 作ったソフトの名前（IfcApplication の ApplicationFullName）
+    public var application: String? {
+        get { readField("application") }
+        set { writeField("application", newValue) }
+    }
+
+    /// 作ったソフトのバージョン（IfcApplication の Version）
+    public var version: String? {
+        get { readField("version") }
+        set { writeField("version", newValue) }
+    }
+
+    /// 作ったソフトの識別子（IfcApplication の ApplicationIdentifier）
+    public var identifier: String? {
+        get { readField("identifier") }
+        set { writeField("identifier", newValue) }
+    }
+
+    /// 作った日時。1970-01-01T00:00:00Z からの秒（IfcTimeStamp）
+    public var created: Int64? {
+        get { readField("created") }
+        set { writeField("created", newValue) }
     }
 }
 
@@ -5996,7 +6460,7 @@ public struct TransformEdit: Message {
     }
 }
 
-/// 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から
+/// 要素を複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA、JWW のフラグ・文字種・字間、SXF の文字幅・字間など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。DXF の寸法・表は新しい匿名ブロックを作る。place で配置先の空間・用紙を、from_doc で複写元の文書を指定でき（マイナーバージョン 110 から）、単位・画層・線種・文字スタイル・寸法スタイル・記号定義・APPID の対応と名前の衝突を確かめる。保てない値・参照・対応を持つ要素は change.copy.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。マイナーバージョン 100 から
 public struct CopyEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -6033,6 +6497,18 @@ public struct CopyEdit: Message {
     public var matrix: [Double]? {
         get { readField("matrix") }
         set { writeField("matrix", newValue) }
+    }
+
+    /// 配置先の空間か用紙の ID。省けば元の要素と同じ場所 ID。マイナーバージョン 110 から
+    public var place: String? {
+        get { readField("place") }
+        set { writeField("place", newValue) }
+    }
+
+    /// 複写元の文書の名前。open で作ったもの。省けば doc と同じ文書。マイナーバージョン 110 から
+    public var fromDoc: String? {
+        get { readField("from_doc") }
+        set { writeField("from_doc", newValue) }
     }
 }
 
@@ -10856,6 +11332,11 @@ public struct BuildingEdit: Message {
     public var asBuildingMaterialEdit: BuildingMaterialEdit? {
         taggedView("kind", "material")
     }
+
+    /// kind が shape の形なら、そのビュー。違えば nil
+    public var asBuildingShapeEdit: BuildingShapeEdit? {
+        taggedView("kind", "shape")
+    }
 }
 
 /// 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える
@@ -11349,7 +11830,7 @@ public struct BuildingWallLayer: Message {
     }
 }
 
-/// 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から
+/// 芯の 2 点・高さ・材料の層か型で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から（element_type は 110 から）
 public struct BuildingAddWallEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -11394,7 +11875,7 @@ public struct BuildingAddWallEdit: Message {
         set { writeField("height", newValue) }
     }
 
-    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type の材料の層を使う
     public var layers: [BuildingWallLayer]? {
         get { readField("layers") }
         set { writeField("layers", newValue) }
@@ -11404,6 +11885,12 @@ public struct BuildingAddWallEdit: Message {
     public var offset: Double? {
         get { readField("offset") }
         set { writeField("offset", newValue) }
+    }
+
+    /// 結ぶ壁の型（IfcWallType）。マイナーバージョン 110 から
+    public var elementType: BuildingRef? {
+        get { readField("element_type") }
+        set { writeField("element_type", newValue) }
     }
 
     /// 名前
@@ -11447,7 +11934,7 @@ public struct BuildingSection: Message {
     }
 }
 
-/// 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から
+/// 外形・材料の層か型で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab（型が PredefinedType を持たなければ FLOOR）、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。結果の id は足した床の ID。マイナーバージョン 98 から（element_type は 110 から）
 public struct BuildingAddSlabEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -11480,7 +11967,7 @@ public struct BuildingAddSlabEdit: Message {
         set { writeField("outline", newValue) }
     }
 
-    /// 材料の層。上から下へ並べる。1 つ以上
+    /// 材料の層。上から下へ並べる。省くか空なら element_type の材料の層を使う
     public var layers: [BuildingWallLayer]? {
         get { readField("layers") }
         set { writeField("layers", newValue) }
@@ -11490,6 +11977,12 @@ public struct BuildingAddSlabEdit: Message {
     public var elevation: Double? {
         get { readField("elevation") }
         set { writeField("elevation", newValue) }
+    }
+
+    /// 結ぶ床の型（IfcSlabType）。マイナーバージョン 110 から
+    public var elementType: BuildingRef? {
+        get { readField("element_type") }
+        set { writeField("element_type", newValue) }
     }
 
     /// 名前
@@ -11505,7 +11998,7 @@ public struct BuildingAddSlabEdit: Message {
     }
 }
 
-/// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から
+/// 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から（element_type は 110 から）
 public struct BuildingAddColumnEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -11568,6 +12061,12 @@ public struct BuildingAddColumnEdit: Message {
         set { writeField("material", newValue) }
     }
 
+    /// 結ぶ柱の型（IfcColumnType）。マイナーバージョン 110 から
+    public var elementType: BuildingRef? {
+        get { readField("element_type") }
+        set { writeField("element_type", newValue) }
+    }
+
     /// 名前
     public var name: String? {
         get { readField("name") }
@@ -11581,7 +12080,7 @@ public struct BuildingAddColumnEdit: Message {
     }
 }
 
-/// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から
+/// 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から（element_type は 110 から）
 public struct BuildingAddBeamEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -11630,6 +12129,12 @@ public struct BuildingAddBeamEdit: Message {
     public var material: String? {
         get { readField("material") }
         set { writeField("material", newValue) }
+    }
+
+    /// 結ぶ梁の型（IfcBeamType）。マイナーバージョン 110 から
+    public var elementType: BuildingRef? {
+        get { readField("element_type") }
+        set { writeField("element_type", newValue) }
     }
 
     /// 名前
@@ -11709,7 +12214,7 @@ public struct BuildingAddOpeningEdit: Message {
     }
 }
 
-/// 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から
+/// 開口を扉で埋める。扉は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcDoor（IFC4 と IFC4X3 で型が PredefinedType を持たなければ DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
 public struct BuildingAddDoorEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -11736,16 +12241,22 @@ public struct BuildingAddDoorEdit: Message {
         set { writeField("opening", newValue) }
     }
 
-    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う
     public var width: Double? {
         get { readField("width") }
         set { writeField("width", newValue) }
     }
 
-    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う
     public var height: Double? {
         get { readField("height") }
         set { writeField("height", newValue) }
+    }
+
+    /// 結ぶ扉の型（IFC4 からの IfcDoorType、IFC2X3 の IfcDoorStyle）。マイナーバージョン 110 から
+    public var elementType: BuildingRef? {
+        get { readField("element_type") }
+        set { writeField("element_type", newValue) }
     }
 
     /// 名前
@@ -11761,7 +12272,7 @@ public struct BuildingAddDoorEdit: Message {
     }
 }
 
-/// 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から
+/// 開口を窓で埋める。窓は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcWindow（IFC4 と IFC4X3 で型が PredefinedType を持たなければ WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から（Body と element_type は 110 から）
 public struct BuildingAddWindowEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -11788,16 +12299,22 @@ public struct BuildingAddWindowEdit: Message {
         set { writeField("opening", newValue) }
     }
 
-    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値
+    /// 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う
     public var width: Double? {
         get { readField("width") }
         set { writeField("width", newValue) }
     }
 
-    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値
+    /// 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う
     public var height: Double? {
         get { readField("height") }
         set { writeField("height", newValue) }
+    }
+
+    /// 結ぶ窓の型（IFC4 からの IfcWindowType、IFC2X3 の IfcWindowStyle）。マイナーバージョン 110 から
+    public var elementType: BuildingRef? {
+        get { readField("element_type") }
+        set { writeField("element_type", newValue) }
     }
 
     /// 名前
@@ -11939,7 +12456,7 @@ public struct BuildingElevationEdit: Message {
     }
 }
 
-/// 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から
+/// 壁の芯・高さ・材料の層か型を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口と建具の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から（element_type は 110 から）
 public struct BuildingWallShapeEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -11984,7 +12501,7 @@ public struct BuildingWallShapeEdit: Message {
         set { writeField("height", newValue) }
     }
 
-    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上
+    /// 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type（なければ今の壁の型）の材料の層を使う
     public var layers: [BuildingWallLayer]? {
         get { readField("layers") }
         set { writeField("layers", newValue) }
@@ -11995,9 +12512,15 @@ public struct BuildingWallShapeEdit: Message {
         get { readField("offset") }
         set { writeField("offset", newValue) }
     }
+
+    /// 付け替える壁の型（IfcWallType）。マイナーバージョン 110 から
+    public var elementType: BuildingRef? {
+        get { readField("element_type") }
+        set { writeField("element_type", newValue) }
+    }
 }
 
-/// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
+/// 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の Body と全体の高さ・幅（OverallHeight・OverallWidth）を合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から
 public struct BuildingOpeningShapeEdit: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -12409,6 +12932,517 @@ public struct BuildingMaterialConstituent: Message {
     public var name: String? {
         get { readField("name") }
         set { writeField("name", newValue) }
+    }
+}
+
+/// 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・AdvancedSweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から
+public struct BuildingShapeEdit: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["kind": .string("shape")]
+    }
+
+    /// 変更の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す
+    public var element: BuildingRef? {
+        get { readField("element") }
+        set { writeField("element", newValue) }
+    }
+
+    /// 芯の線（Axis の IfcPolyline）。要素の配置の [x, y] を 2 点以上。書かなければ Axis を書かない
+    public var axis: [[Double]]? {
+        get { readField("axis") }
+        set { writeField("axis", newValue) }
+    }
+
+    /// 形の項目の表
+    public var items: [BuildingShapeItem]? {
+        get { readField("items") }
+        set { writeField("items", newValue) }
+    }
+
+    /// Body の表現に置く項目の、items の位置（0 から）。空なら Body を書かない
+    public var body: [Int64]? {
+        get { readField("body") }
+        set { writeField("body", newValue) }
+    }
+}
+
+/// 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、revolution は profile・position・axis・angle、swept_disk は directrix・radius・inner_radius・start・end、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位
+public struct BuildingShapeItem: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 項目の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 押し出す・回す断面
+    public var profile: BuildingShapeProfile? {
+        get { readField("profile") }
+        set { writeField("profile", newValue) }
+    }
+
+    /// 押し出し・回転の局所の配置。書かなければ要素の配置のまま
+    public var position: BuildingAxis3? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+
+    /// 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1]
+    public var direction: [Double]? {
+        get { readField("direction") }
+        set { writeField("direction", newValue) }
+    }
+
+    /// 押し出す深さ。正の値
+    public var depth: Double? {
+        get { readField("depth") }
+        set { writeField("depth", newValue) }
+    }
+
+    /// 断面を回す軸。断面の平面（局所の XY 平面）にある。マイナーバージョン 108 から
+    public var axis: BuildingShapeRevolutionAxis? {
+        get { readField("axis") }
+        set { writeField("axis", newValue) }
+    }
+
+    /// 回す角度（ラジアン）。0 より大きく 2π 以下。文書の平面角の単位に直して書くので、文書は平面角の単位を持つこと。マイナーバージョン 108 から
+    public var angle: Double? {
+        get { readField("angle") }
+        set { writeField("angle", newValue) }
+    }
+
+    /// 円盤を沿わせる折れ線の [x, y, z] を 2 点以上。続く点は重ならない。マイナーバージョン 108 から
+    public var directrix: [[Double]]? {
+        get { readField("directrix") }
+        set { writeField("directrix", newValue) }
+    }
+
+    /// 円盤の半径。正の値。マイナーバージョン 108 から
+    public var radius: Double? {
+        get { readField("radius") }
+        set { writeField("radius", newValue) }
+    }
+
+    /// 管の内側の半径。正で radius より小さい。書かなければ中実。マイナーバージョン 108 から
+    public var innerRadius: Double? {
+        get { readField("inner_radius") }
+        set { writeField("inner_radius", newValue) }
+    }
+
+    /// 掃引を始める折れ線のパラメーター（1 区間で 1 進む）。書かなければ始点。IFC2X3 では書かなければ 0 を書く。マイナーバージョン 108 から
+    public var start: Double? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 掃引を終える折れ線のパラメーター。start より大きく区間の数以下。書かなければ終点。IFC2X3 では書かなければ区間の数を書く。マイナーバージョン 108 から
+    public var end: Double? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+
+    /// 面集合の点 [x, y, z]
+    public var points: [[Double]]? {
+        get { readField("points") }
+        set { writeField("points", newValue) }
+    }
+
+    /// 面集合の面
+    public var faces: [BuildingShapeFace]? {
+        get { readField("faces") }
+        set { writeField("faces", newValue) }
+    }
+
+    /// true なら閉殻（立体。IfcFacetedBrep）。false か書かなければ開殻の面（IFC2X3 は IfcShellBasedSurfaceModel、IFC4 からは IfcPolygonalFaceSet）
+    public var closed: Bool? {
+        get { readField("closed") }
+        set { writeField("closed", newValue) }
+    }
+
+    /// 集合演算
+    public var operation: String? {
+        get { readField("operation") }
+        set { writeField("operation", newValue) }
+    }
+
+    /// 集合演算の第 1 の対象。items の前にある項目の位置
+    public var first: Int64? {
+        get { readField("first") }
+        set { writeField("first", newValue) }
+    }
+
+    /// 集合演算の第 2 の対象。差では第 1 から取り除く。items の前にある項目の位置
+    public var second: Int64? {
+        get { readField("second") }
+        set { writeField("second", newValue) }
+    }
+
+    /// 半空間の基準面の配置。局所の z 軸が面の法線
+    public var plane: BuildingAxis3? {
+        get { readField("plane") }
+        set { writeField("plane", newValue) }
+    }
+
+    /// true なら法線と逆の側、false か書かなければ法線の向く側を内部とする
+    public var agreement: Bool? {
+        get { readField("agreement") }
+        set { writeField("agreement", newValue) }
+    }
+
+    /// 半空間の計算用の囲みの箱（IfcBoxedHalfSpace）。座標系は IFC2X3 では基準面、IFC4 からは要素
+    public var box: BuildingShapeBox? {
+        get { readField("box") }
+        set { writeField("box", newValue) }
+    }
+
+    /// 半空間を制限する多角形（IfcPolygonalBoundedHalfSpace）
+    public var polygon: BuildingShapePolygon? {
+        get { readField("polygon") }
+        set { writeField("polygon", newValue) }
+    }
+
+    /// 写像元の基準位置。書かなければ原点
+    public var origin: BuildingAxis3? {
+        get { readField("origin") }
+        set { writeField("origin", newValue) }
+    }
+
+    /// 写像先の変換
+    public var target: BuildingShapeMapping? {
+        get { readField("target") }
+        set { writeField("target", newValue) }
+    }
+
+    /// 写像元の表現の項目。items の前にある項目の位置で、1 つ以上
+    public var members: [Int64]? {
+        get { readField("members") }
+        set { writeField("members", newValue) }
+    }
+}
+
+/// 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）。revolution は断面の回転（IfcRevolvedAreaSolid）、swept_disk は円盤の掃引（IfcSweptDiskSolid）で、マイナーバージョン 108 から
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingShapeItemKind {
+    public static let extrusion = "extrusion"
+    public static let faces = "faces"
+    public static let boolean = "boolean"
+    public static let halfSpace = "half_space"
+    public static let mapped = "mapped"
+    public static let revolution = "revolution"
+    public static let sweptDisk = "swept_disk"
+}
+
+/// 断面を回す軸（IfcAxis1Placement）。断面の平面にある
+public struct BuildingShapeRevolutionAxis: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 軸の通る点 [x, y]
+    public var location: [Double]? {
+        get { readField("location") }
+        set { writeField("location", newValue) }
+    }
+
+    /// 軸の向き [x, y]。0 にできない
+    public var direction: [Double]? {
+        get { readField("direction") }
+        set { writeField("direction", newValue) }
+    }
+}
+
+/// 集合演算。union は和、intersection は積、difference は差
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingBooleanOperation {
+    public static let union = "union"
+    public static let intersection = "intersection"
+    public static let difference = "difference"
+}
+
+/// 3 次元の局所の配置
+public struct BuildingAxis3: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 原点 [x, y, z]
+    public var location: [Double]? {
+        get { readField("location") }
+        set { writeField("location", newValue) }
+    }
+
+    /// 局所の z 軸 [x, y, z]
+    public var axis: [Double]? {
+        get { readField("axis") }
+        set { writeField("axis", newValue) }
+    }
+
+    /// 局所の x 軸の参照方向 [x, y, z]
+    public var reference: [Double]? {
+        get { readField("reference") }
+        set { writeField("reference", newValue) }
+    }
+}
+
+/// 押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く
+public struct BuildingShapeProfile: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 断面の種類
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+
+    /// 断面の名前
+    public var name: String? {
+        get { readField("name") }
+        set { writeField("name", newValue) }
+    }
+
+    /// 矩形の局所の x の全幅。正の値
+    public var x: Double? {
+        get { readField("x") }
+        set { writeField("x", newValue) }
+    }
+
+    /// 矩形の局所の y の全高。正の値
+    public var y: Double? {
+        get { readField("y") }
+        set { writeField("y", newValue) }
+    }
+
+    /// 円の半径。正の値
+    public var radius: Double? {
+        get { readField("radius") }
+        set { writeField("radius", newValue) }
+    }
+
+    /// 矩形と円の中心 [x, y]。書かなければ原点
+    public var location: [Double]? {
+        get { readField("location") }
+        set { writeField("location", newValue) }
+    }
+
+    /// 矩形と円の局所の x 軸の参照方向 [x, y]。location と一緒に書く
+    public var reference: [Double]? {
+        get { readField("reference") }
+        set { writeField("reference", newValue) }
+    }
+
+    /// 多角形の外輪の [x, y] を 3 点以上。始点に戻る点は書かない
+    public var outer: [[Double]]? {
+        get { readField("outer") }
+        set { writeField("outer", newValue) }
+    }
+
+    /// 多角形の内輪
+    public var holes: [[[Double]]]? {
+        get { readField("holes") }
+        set { writeField("holes", newValue) }
+    }
+}
+
+/// 断面の種類。rectangle は IfcRectangleProfileDef、circle は IfcCircleProfileDef、polygon は IfcArbitraryClosedProfileDef（内輪があれば IfcArbitraryProfileDefWithVoids）
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingShapeProfileKind {
+    public static let rectangle = "rectangle"
+    public static let circle = "circle"
+    public static let polygon = "polygon"
+}
+
+/// 面集合の面。points の位置（0 から）で外輪と内輪を書く
+public struct BuildingShapeFace: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 外輪の点の位置。3 つ以上
+    public var boundary: [Int64]? {
+        get { readField("boundary") }
+        set { writeField("boundary", newValue) }
+    }
+
+    /// 内輪ごとの点の位置
+    public var holes: [[Int64]]? {
+        get { readField("holes") }
+        set { writeField("holes", newValue) }
+    }
+}
+
+/// 囲みの箱
+public struct BuildingShapeBox: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 箱の隅 [x, y, z]
+    public var corner: [Double]? {
+        get { readField("corner") }
+        set { writeField("corner", newValue) }
+    }
+
+    /// 各軸の長さ [x, y, z]。正の値
+    public var dimensions: [Double]? {
+        get { readField("dimensions") }
+        set { writeField("dimensions", newValue) }
+    }
+}
+
+/// 半空間を制限する多角形
+public struct BuildingShapePolygon: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 境界の配置
+    public var position: BuildingAxis3? {
+        get { readField("position") }
+        set { writeField("position", newValue) }
+    }
+
+    /// 境界の局所の XY 平面の [x, y] を 3 点以上。始点に戻る点は書かない
+    public var boundary: [[Double]]? {
+        get { readField("boundary") }
+        set { writeField("boundary", newValue) }
+    }
+}
+
+/// 写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform）
+public struct BuildingShapeMapping: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 写像先の原点 [x, y, z]。要素の座標系
+    public var origin: [Double]? {
+        get { readField("origin") }
+        set { writeField("origin", newValue) }
+    }
+
+    /// x 軸を導く方向 [x, y, z]
+    public var axis1: [Double]? {
+        get { readField("axis1") }
+        set { writeField("axis1", newValue) }
+    }
+
+    /// y 軸を導く方向 [x, y, z]
+    public var axis2: [Double]? {
+        get { readField("axis2") }
+        set { writeField("axis2", newValue) }
+    }
+
+    /// z 軸を定める方向 [x, y, z]
+    public var axis3: [Double]? {
+        get { readField("axis3") }
+        set { writeField("axis3", newValue) }
+    }
+
+    /// 一様な尺度。正の値で、書かなければ 1
+    public var scale: Double? {
+        get { readField("scale") }
+        set { writeField("scale", newValue) }
+    }
+
+    /// 軸ごとの尺度 [x, y, z]。正の値。scale とは一緒に書けない
+    public var scales: [Double]? {
+        get { readField("scales") }
+        set { writeField("scales", newValue) }
     }
 }
 
@@ -17416,4 +18450,5 @@ public enum Operations {
     public static let lift = "lift"
     public static let render = "render"
     public static let raster = "raster"
+    public static let georeference = "georeference"
 }

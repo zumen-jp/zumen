@@ -10,16 +10,16 @@ use std::io::Write;
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Kind, Limit, Limits};
 use zumen_building::{
     Building, ElementRef, GlobalId, Hash, Id, Transform,
-    drawing::{self, Paper, View},
+    drawing::{self, Paper, Side, View},
     measure::{self, LengthUnit, Rounding, RoundingMode, RoundingStage, Unit},
 };
 use zumen_crs::ProjectPoint;
 use zumen_drawing::{PaperLength, Shape};
 use zumen_geom3d::Tolerance;
 use zumen_ifc::{
-    Edit, FillingKind, Ifc, NewBeam, NewColumn, NewFilling, NewGrid, NewGridAxis, NewLayer,
-    NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall, OpeningChange, SpaceKind,
-    Target, WallChange, apply,
+    Edit, FillingKind, Ifc, IfcLive, NewBeam, NewColumn, NewFilling, NewGrid, NewGridAxis,
+    NewLayer, NewOpening, NewPlacement, NewSection, NewSlab, NewSpace, NewWall, OpeningChange,
+    SpaceKind, Target, WallChange, apply,
 };
 use zumen_sdk::{Codec, Lift};
 
@@ -115,6 +115,7 @@ fn edits(change: bool) -> Vec<Edit> {
                 height: 2800.0,
                 layers: vec![layer("Concrete", 150.0), layer("Insulation", 50.0)],
                 offset: None,
+                type_of: None,
                 name: Some(format!("W{}", base + i as u32)),
                 global_id: Some(global(base + i as u32)),
             }));
@@ -125,6 +126,7 @@ fn edits(change: bool) -> Vec<Edit> {
                 outline: corners.to_vec(),
                 layers: vec![layer("Concrete", 200.0)],
                 elevation: None,
+                type_of: None,
                 name: None,
                 global_id: Some(global(base + 10)),
             }),
@@ -136,6 +138,7 @@ fn edits(change: bool) -> Vec<Edit> {
                 section: section(400.0, 400.0),
                 direction: Some([0.0, 1.0]),
                 material: Some("Concrete".to_owned()),
+                type_of: None,
                 name: None,
                 global_id: Some(global(base + 11)),
             }),
@@ -145,6 +148,7 @@ fn edits(change: bool) -> Vec<Edit> {
                 end: [6000.0, 4000.0, 2800.0],
                 section: section(300.0, 600.0),
                 material: Some("Steel".to_owned()),
+                type_of: None,
                 name: None,
                 global_id: Some(global(base + 12)),
             }),
@@ -171,6 +175,7 @@ fn edits(change: bool) -> Vec<Edit> {
             kind,
             width: Some(size[0]),
             height: Some(size[1]),
+            type_of: None,
             name: None,
             global_id: Some(global(base + 21)),
         }));
@@ -192,6 +197,7 @@ fn edits(change: bool) -> Vec<Edit> {
                     layer("Board", 20.0),
                 ],
                 offset: None,
+                type_of: None,
             }),
             Edit::OpeningShape(OpeningChange {
                 opening: Target::Added(window),
@@ -285,17 +291,44 @@ fn outputs(out: &mut Vec<u8>, bytes: &[u8], floors: [f64; 2]) {
     text(out, &Hash::document_values(&building).to_string());
     let lifted = with(|cx| Ifc::read(bytes, cx).and_then(|file| file.lift(cx))).unwrap();
     text(out, &Hash::document_values(&lifted).to_string());
-    for floor in floors {
-        let options = drawing::Options {
-            view: View::Plan {
-                floor: ProjectPoint {
-                    x: 0.0,
-                    y: 0.0,
-                    z: floor,
-                },
-                height: 1200.0,
-                depth: 2000.0,
+    let mut views = vec![
+        View::Plan {
+            floor: ProjectPoint {
+                x: 0.0,
+                y: 0.0,
+                z: floors[0],
             },
+            height: 1200.0,
+            depth: 2000.0,
+        },
+        View::Plan {
+            floor: ProjectPoint {
+                x: 0.0,
+                y: 0.0,
+                z: floors[1],
+            },
+            height: 1200.0,
+            depth: 2000.0,
+        },
+        View::Vertical {
+            start: ProjectPoint {
+                x: 1500.0,
+                y: -1000.0,
+                z: 0.0,
+            },
+            end: ProjectPoint {
+                x: 1500.0,
+                y: 5000.0,
+                z: 0.0,
+            },
+            side: Side::Right,
+            depth: 1500.0,
+            section: true,
+        },
+    ];
+    for view in views.drain(..) {
+        let options = drawing::Options {
+            view,
             tolerance: 0.01,
             chord: 1.0,
             paper: Paper {
@@ -339,10 +372,12 @@ fn outputs(out: &mut Vec<u8>, bytes: &[u8], floors: [f64; 2]) {
         },
         profile: None,
     };
-    let selected: Vec<ElementRef> = [2000, 2001, 2002, 2003, 2010, 2011, 2012, 3000, 3010]
-        .into_iter()
-        .map(|n| element(&building, n))
-        .collect();
+    let selected: Vec<ElementRef> = [
+        2000, 2001, 2002, 2003, 2010, 2011, 2012, 2021, 3000, 3010, 3021,
+    ]
+    .into_iter()
+    .map(|n| element(&building, n))
+    .collect();
     for openings in [false, true] {
         let report =
             with(|cx| measure::volumes(&building, &selected, openings, options, cx)).unwrap();
@@ -363,6 +398,14 @@ fn record() -> Vec<u8> {
         outputs(&mut out, &built, [0.0, 3000.0]);
         let changed = author(&mut out, src.as_bytes(), &edits(true));
         outputs(&mut out, &changed, [0.0, 3200.0]);
+        // 文書エンジンでの一括適用・取り消し・やり直しが元のバイト列と一致することも記録する
+        let mut live = with(|cx| IfcLive::open(src.as_bytes(), cx)).unwrap();
+        with(|cx| live.apply(&edits(false), b"seed", cx)).unwrap();
+        assert_eq!(with(|cx| live.save_spf(cx)).unwrap(), built);
+        assert!(with(|cx| live.undo(cx)).unwrap());
+        assert_eq!(with(|cx| live.save_spf(cx)).unwrap(), src.as_bytes());
+        assert!(with(|cx| live.redo(cx)).unwrap());
+        assert_eq!(with(|cx| live.save_spf(cx)).unwrap(), built);
         out.extend_from_slice(&built);
         out.extend_from_slice(&changed);
     }

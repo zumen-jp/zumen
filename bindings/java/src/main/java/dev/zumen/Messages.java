@@ -276,6 +276,11 @@ public final class Messages {
         public RasterRequest asRasterRequest() {
             return "raster".equals(json.get("op")) ? new RasterRequest(json) : null;
         }
+
+        /** op が georeference の形なら、そのビュー。違えば null */
+        public GeoreferenceRequest asGeoreferenceRequest() {
+            return "georeference".equals(json.get("op")) ? new GeoreferenceRequest(json) : null;
+        }
     }
 
     /** どの op の要求にも置けるフィールド */
@@ -389,6 +394,17 @@ public final class Messages {
         /** {@link #getDecodedBytes()} を書く。null ならフィールドを除く */
         public Budget withDecodedBytes(Object value) {
             put("decoded_bytes", value);
+            return this;
+        }
+
+        /** 図面モデル（L2）が保持する要素・表・拡張の論理バイト数。マイナーバージョン 113 から */
+        public Object getModelBytes() {
+            return Json.read(json.get("model_bytes"), Json::value);
+        }
+
+        /** {@link #getModelBytes()} を書く。null ならフィールドを除く */
+        public Budget withModelBytes(Object value) {
+            put("model_bytes", value);
             return this;
         }
 
@@ -1522,6 +1538,429 @@ public final class Messages {
         /** {@link #getPointStyle()} を書く。null ならフィールドを除く */
         public DrawingResult withPointStyle(PointStyleSummary value) {
             put("point_style", value);
+            return this;
+        }
+
+        /** 図面の実寸の空間から地図の座標系への相似の変換。DXF・DWG の GEODATA から読めたときだけ持つ。マイナーバージョン 112 から */
+        public Georeference getGeoreference() {
+            return Json.read(json.get("georeference"), Georeference::of);
+        }
+
+        /** {@link #getGeoreference()} を書く。null ならフィールドを除く */
+        public DrawingResult withGeoreference(Georeference value) {
+            put("georeference", value);
+            return this;
+        }
+    }
+
+    /** 図面の実寸から地図の東・北・高さ（m）への相似の変換。東は scale * (x_axis_abscissa * x - x_axis_ordinate * y) + eastings、北は scale * (x_axis_ordinate * x + x_axis_abscissa * y) + northings、高さは scale * z + orthogonal_height */
+    public static final class MapConversion extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MapConversion(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MapConversion of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MapConversion(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public MapConversion() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 東への移動（m） */
+        public Double getEastings() {
+            return Json.read(json.get("eastings"), Json::number);
+        }
+
+        /** {@link #getEastings()} を書く。null ならフィールドを除く */
+        public MapConversion withEastings(Double value) {
+            put("eastings", value);
+            return this;
+        }
+
+        /** 北への移動（m） */
+        public Double getNorthings() {
+            return Json.read(json.get("northings"), Json::number);
+        }
+
+        /** {@link #getNorthings()} を書く。null ならフィールドを除く */
+        public MapConversion withNorthings(Double value) {
+            put("northings", value);
+            return this;
+        }
+
+        /** 高さへの移動（m） */
+        public Double getOrthogonalHeight() {
+            return Json.read(json.get("orthogonal_height"), Json::number);
+        }
+
+        /** {@link #getOrthogonalHeight()} を書く。null ならフィールドを除く */
+        public MapConversion withOrthogonalHeight(Double value) {
+            put("orthogonal_height", value);
+            return this;
+        }
+
+        /** 図面の X 軸の東方向の単位ベクトル成分 */
+        public Double getXAxisAbscissa() {
+            return Json.read(json.get("x_axis_abscissa"), Json::number);
+        }
+
+        /** {@link #getXAxisAbscissa()} を書く。null ならフィールドを除く */
+        public MapConversion withXAxisAbscissa(Double value) {
+            put("x_axis_abscissa", value);
+            return this;
+        }
+
+        /** 図面の X 軸の北方向の単位ベクトル成分 */
+        public Double getXAxisOrdinate() {
+            return Json.read(json.get("x_axis_ordinate"), Json::number);
+        }
+
+        /** {@link #getXAxisOrdinate()} を書く。null ならフィールドを除く */
+        public MapConversion withXAxisOrdinate(Double value) {
+            put("x_axis_ordinate", value);
+            return this;
+        }
+
+        /** 図面の 1 単位あたりの地図のメートル数 */
+        public Double getScale() {
+            return Json.read(json.get("scale"), Json::number);
+        }
+
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
+        public MapConversion withScale(Double value) {
+            put("scale", value);
+            return this;
+        }
+    }
+
+    /** 地図の座標系と、図面の実寸から地図への相似の変換 */
+    public static final class Georeference extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public Georeference(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static Georeference of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new Georeference(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public Georeference() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 地図の座標系の EPSG のコード */
+        public Long getCrs() {
+            return Json.read(json.get("crs"), Json::integer);
+        }
+
+        /** {@link #getCrs()} を書く。null ならフィールドを除く */
+        public Georeference withCrs(Long value) {
+            put("crs", value);
+            return this;
+        }
+
+        /** 図面の実寸から地図への相似の変換 */
+        public MapConversion getConversion() {
+            return Json.read(json.get("conversion"), MapConversion::of);
+        }
+
+        /** {@link #getConversion()} を書く。null ならフィールドを除く */
+        public Georeference withConversion(MapConversion value) {
+            put("conversion", value);
+            return this;
+        }
+    }
+
+    /** 地図の投影座標（m）。東（easting）と北（northing）を名前で分ける */
+    public static final class MapPoint2 extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public MapPoint2(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static MapPoint2 of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new MapPoint2(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public MapPoint2() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 東方向の座標（m。平面直角座標系の Y） */
+        public Double getEasting() {
+            return Json.read(json.get("easting"), Json::number);
+        }
+
+        /** {@link #getEasting()} を書く。null ならフィールドを除く */
+        public MapPoint2 withEasting(Double value) {
+            put("easting", value);
+            return this;
+        }
+
+        /** 北方向の座標（m。平面直角座標系の X） */
+        public Double getNorthing() {
+            return Json.read(json.get("northing"), Json::number);
+        }
+
+        /** {@link #getNorthing()} を書く。null ならフィールドを除く */
+        public MapPoint2 withNorthing(Double value) {
+            put("northing", value);
+            return this;
+        }
+    }
+
+    /** 図面の実寸の点と、対応する地図の投影座標の組 */
+    public static final class GeoreferenceControlPoint extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoreferenceControlPoint(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoreferenceControlPoint of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoreferenceControlPoint(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public GeoreferenceControlPoint() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 図面の実寸の点 */
+        public Point2 getDrawing() {
+            return Json.read(json.get("drawing"), Point2::of);
+        }
+
+        /** {@link #getDrawing()} を書く。null ならフィールドを除く */
+        public GeoreferenceControlPoint withDrawing(Point2 value) {
+            put("drawing", value);
+            return this;
+        }
+
+        /** 対応する地図の投影座標（m） */
+        public MapPoint2 getMap() {
+            return Json.read(json.get("map"), MapPoint2::of);
+        }
+
+        /** {@link #getMap()} を書く。null ならフィールドを除く */
+        public GeoreferenceControlPoint withMap(MapPoint2 value) {
+            put("map", value);
+            return this;
+        }
+    }
+
+    /** 開いた図面の GEODATA、または対応点と地図の平面直角座標系から、図面の実寸から地図への相似の変換を求め、必要なら図面の点を地図の座標へ写す。マイナーバージョン 112 から */
+    public static final class GeoreferenceRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoreferenceRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoreferenceRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoreferenceRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public GeoreferenceRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "georeference");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 開いた図面の文書の名前。GEODATA から変換を読むときに渡し、crs・control_points と一緒には渡せない */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** doc に期待する元の文書のハッシュ。doc と一緒にだけ渡せる */
+        public String getExpectedHash() {
+            return Json.read(json.get("expected_hash"), Json::string);
+        }
+
+        /** {@link #getExpectedHash()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withExpectedHash(String value) {
+            put("expected_hash", value);
+            return this;
+        }
+
+        /** 対応点の地図の平面直角座標系の EPSG のコード（6669〜6687・2443〜2461・30161〜30179）。control_points と一緒に渡す */
+        public Long getCrs() {
+            return Json.read(json.get("crs"), Json::integer);
+        }
+
+        /** {@link #getCrs()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withCrs(Long value) {
+            put("crs", value);
+            return this;
+        }
+
+        /** 図面の実寸の点と地図の投影座標の組（2 組以上）。最小二乗で相似の変換を求める */
+        public List<GeoreferenceControlPoint> getControlPoints() {
+            return Json.read(json.get("control_points"), v0 -> Json.list(v0, GeoreferenceControlPoint::of));
+        }
+
+        /** {@link #getControlPoints()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withControlPoints(List<GeoreferenceControlPoint> value) {
+            put("control_points", value);
+            return this;
+        }
+
+        /** 求めた変換で地図へ写す図面の実寸の点 */
+        public List<Point2> getPoints() {
+            return Json.read(json.get("points"), v0 -> Json.list(v0, Point2::of));
+        }
+
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
+        public GeoreferenceRequest withPoints(List<Point2> value) {
+            put("points", value);
+            return this;
+        }
+    }
+
+    /** 図面の実寸から地図への相似の変換と、対応点の残差・写した地図の点 */
+    public static final class GeoreferenceResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public GeoreferenceResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static GeoreferenceResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new GeoreferenceResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public GeoreferenceResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** doc を渡したときの元の文書のハッシュ */
+        public String getHash() {
+            return Json.read(json.get("hash"), Json::string);
+        }
+
+        /** {@link #getHash()} を書く。null ならフィールドを除く */
+        public GeoreferenceResult withHash(String value) {
+            put("hash", value);
+            return this;
+        }
+
+        /** 地図の座標系と、図面の実寸から地図への相似の変換。doc の GEODATA から作れなかったときは持たない */
+        public Georeference getGeoreference() {
+            return Json.read(json.get("georeference"), Georeference::of);
+        }
+
+        /** {@link #getGeoreference()} を書く。null ならフィールドを除く */
+        public GeoreferenceResult withGeoreference(Georeference value) {
+            put("georeference", value);
+            return this;
+        }
+
+        /** control_points の組ごとの残差（渡した地図の点から、変換で写した図面の点を引いた投影座標。m）。渡した組の順 */
+        public List<MapPoint2> getResiduals() {
+            return Json.read(json.get("residuals"), v0 -> Json.list(v0, MapPoint2::of));
+        }
+
+        /** {@link #getResiduals()} を書く。null ならフィールドを除く */
+        public GeoreferenceResult withResiduals(List<MapPoint2> value) {
+            put("residuals", value);
+            return this;
+        }
+
+        /** points を変換で地図へ写した投影座標（m）。変換が作れなかったときは持たない */
+        public List<MapPoint2> getMapped() {
+            return Json.read(json.get("mapped"), v0 -> Json.list(v0, MapPoint2::of));
+        }
+
+        /** {@link #getMapped()} を書く。null ならフィールドを除く */
+        public GeoreferenceResult withMapped(List<MapPoint2> value) {
+            put("mapped", value);
             return this;
         }
     }
@@ -8342,7 +8781,7 @@ public final class Messages {
         }
     }
 
-    /** 入力なしで空の文書を作り、開く。初めは R2004 の DXF。既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。書いたファイルは blobs で返す。マイナーバージョン 83 から */
+    /** 入力なしで空の文書を作り、開く。dxf は R2004 の DXF で、既定のレイヤとスタイル、空のモデル空間と Layout1 を持つ。ifc は IFC のひな形で、プロジェクト・長さとラジアンの単位・3 次元の Model の文脈と Body の下位の文脈を持つ（#395）。書いたファイルは blobs で返す。マイナーバージョン 83 から。ifc はマイナーバージョン 109 から */
     public static final class CreateRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CreateRequest(Map<String, Object> json) {
@@ -8427,7 +8866,7 @@ public final class Messages {
             return this;
         }
 
-        /** 作る形式の名前。capabilities.formats の create が true の id。今は dxf */
+        /** 作る形式の名前。dxf か ifc */
         public String getFormat() {
             return Json.read(json.get("format"), Json::string);
         }
@@ -8449,7 +8888,7 @@ public final class Messages {
             return this;
         }
 
-        /** 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なし */
+        /** 実寸の空間の長さの単位。省略すると millimeter。unknown は単位なしで、ifc では書けない */
         public String getUnit() {
             return Json.read(json.get("unit"), Json::string);
         }
@@ -8457,6 +8896,17 @@ public final class Messages {
         /** {@link #getUnit()} を書く。null ならフィールドを除く */
         public CreateRequest withUnit(String value) {
             put("unit", value);
+            return this;
+        }
+
+        /** IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から */
+        public IfcOutput getIfc() {
+            return Json.read(json.get("ifc"), IfcOutput::of);
+        }
+
+        /** {@link #getIfc()} を書く。null ならフィールドを除く */
+        public CreateRequest withIfc(IfcOutput value) {
+            put("ifc", value);
             return this;
         }
     }
@@ -8524,7 +8974,7 @@ public final class Messages {
         }
     }
 
-    /** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から */
+    /** 開いた文書から別の形式のファイルを作り、新しい文書として開く。図面からは DXF（対応する R2004 DWG の弧長寸法は共有オブジェクト表から、それ以外は図面モデルから。決定 0139・0206・0281）または SIMA（.sim）、土木モデル（J-LandXML・IFC4.3・SIMA）からは SIMA（.sim）、地理の領域モデルの文書（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）からは GeoJSON または SIMA（.sim）を書く。建物モデルの文書（IFC・ST-Bridge）からは、ifc で指定したバージョンの新しい IFC を書く（#395）。書けないデータは種類ごとの件数を診断で返す。書いたファイルは blobs で返す。マイナーバージョン 41 から。geojson はマイナーバージョン 71 から。sima はマイナーバージョン 72 から。ifc はマイナーバージョン 109 から */
     public static final class ConvertRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ConvertRequest(Map<String, Object> json) {
@@ -8620,7 +9070,7 @@ public final class Messages {
             return this;
         }
 
-        /** 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima のいずれか。sxf・jww はマイナーバージョン 85 から */
+        /** 書く形式の名前（capabilities の formats の id）。dxf・sxf（P21）・jww・geojson・sima・ifc のいずれか。sxf・jww はマイナーバージョン 85 から */
         public String getFormat() {
             return Json.read(json.get("format"), Json::string);
         }
@@ -8639,6 +9089,17 @@ public final class Messages {
         /** {@link #getTo()} を書く。null ならフィールドを除く */
         public ConvertRequest withTo(String value) {
             put("to", value);
+            return this;
+        }
+
+        /** IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から */
+        public IfcOutput getIfc() {
+            return Json.read(json.get("ifc"), IfcOutput::of);
+        }
+
+        /** {@link #getIfc()} を書く。null ならフィールドを除く */
+        public ConvertRequest withIfc(IfcOutput value) {
+            put("ifc", value);
             return this;
         }
     }
@@ -8706,7 +9167,7 @@ public final class Messages {
         }
     }
 
-    /** 開いた図面を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。DXF・SXF（P21）・JWW への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から） */
+    /** 開いた文書を変換したときの忠実度と欠落を、convert と同じ書き手で見積もる。文書もファイルの blob も登録しない。図面から DXF・SXF（P21）・JWW、建物モデルの文書から IFC への変換に対応する。マイナーバージョン 66 から（SXF・JWW は 85 から、IFC は 109 から） */
     public static final class ConvertEstimateRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public ConvertEstimateRequest(Map<String, Object> json) {
@@ -8802,7 +9263,7 @@ public final class Messages {
             return this;
         }
 
-        /** 書く形式の名前。dxf・sxf・jww */
+        /** 書く形式の名前。dxf・sxf・jww・ifc */
         public String getFormat() {
             return Json.read(json.get("format"), Json::string);
         }
@@ -8824,6 +9285,17 @@ public final class Messages {
             return this;
         }
 
+        /** IFC を書く設定。format が ifc のときに必須で、ほかの形式では書けない。マイナーバージョン 109 から */
+        public IfcOutput getIfc() {
+            return Json.read(json.get("ifc"), IfcOutput::of);
+        }
+
+        /** {@link #getIfc()} を書く。null ならフィールドを除く */
+        public ConvertEstimateRequest withIfc(IfcOutput value) {
+            put("ifc", value);
+            return this;
+        }
+
         /** 書き手と読み取り段階のそれぞれで返す明細の最大件数。省略時は 100。総数と全件集計はこの上限によらない */
         public Long getLimit() {
             return Json.read(json.get("limit"), Json::integer);
@@ -8832,6 +9304,287 @@ public final class Messages {
         /** {@link #getLimit()} を書く。null ならフィールドを除く */
         public ConvertEstimateRequest withLimit(Long value) {
             put("limit", value);
+            return this;
+        }
+    }
+
+    /** 新しい IFC を書く設定（#395）。コアは時計を読まないので、時刻は呼び出し元が渡す */
+    public static final class IfcOutput extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public IfcOutput(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static IfcOutput of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new IfcOutput(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public IfcOutput() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 書くバージョン */
+        public String getVersion() {
+            return Json.read(json.get("version"), Json::string);
+        }
+
+        /** {@link #getVersion()} を書く。null ならフィールドを除く */
+        public IfcOutput withVersion(String value) {
+            put("version", value);
+            return this;
+        }
+
+        /** ヘッダー（FILE_DESCRIPTION と FILE_NAME）の値。書かなければ空の値で書く */
+        public IfcHeader getHeader() {
+            return Json.read(json.get("header"), IfcHeader::of);
+        }
+
+        /** {@link #getHeader()} を書く。null ならフィールドを除く */
+        public IfcOutput withHeader(IfcHeader value) {
+            put("header", value);
+            return this;
+        }
+
+        /** 所有履歴（IfcOwnerHistory）の値。ifc2x3 では必須。ifc4 からは書いたときだけ書く */
+        public IfcOwner getOwner() {
+            return Json.read(json.get("owner"), IfcOwner::of);
+        }
+
+        /** {@link #getOwner()} を書く。null ならフィールドを除く */
+        public IfcOutput withOwner(IfcOwner value) {
+            put("owner", value);
+            return this;
+        }
+
+        /** GlobalId を導く名前空間。書かなければ、convert は元の IfcProject の GlobalId（なければ元の文書のハッシュ）、create は作る文書の名前を使う。元の文書のハッシュでない名前空間なら、元を一部直して書き直しても、直していない要素の GlobalId は変わらない */
+        public String getNamespace() {
+            return Json.read(json.get("namespace"), Json::string);
+        }
+
+        /** {@link #getNamespace()} を書く。null ならフィールドを除く */
+        public IfcOutput withNamespace(String value) {
+            put("namespace", value);
+            return this;
+        }
+    }
+
+    /**
+     * IFC のバージョン。ifc2x3 は IFC2X3 TC1、ifc4 は IFC4 ADD2 TC1、ifc4x3 は IFC4X3 ADD2
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class IfcVersion {
+        private IfcVersion() {}
+
+        public static final String IFC2X3 = "ifc2x3";
+
+        public static final String IFC4 = "ifc4";
+
+        public static final String IFC4X3 = "ifc4x3";
+    }
+
+    /** IFC のヘッダーの値。書かない値は空で書く */
+    public static final class IfcHeader extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public IfcHeader(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static IfcHeader of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new IfcHeader(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public IfcHeader() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** FILE_DESCRIPTION に ViewDefinition [<値>] として書く MVD の名前。書かなければ書かない */
+        public String getViewDefinition() {
+            return Json.read(json.get("view_definition"), Json::string);
+        }
+
+        /** {@link #getViewDefinition()} を書く。null ならフィールドを除く */
+        public IfcHeader withViewDefinition(String value) {
+            put("view_definition", value);
+            return this;
+        }
+
+        /** FILE_NAME の name */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public IfcHeader withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** FILE_NAME の time_stamp。呼び出し元が書いた時刻 */
+        public String getTimeStamp() {
+            return Json.read(json.get("time_stamp"), Json::string);
+        }
+
+        /** {@link #getTimeStamp()} を書く。null ならフィールドを除く */
+        public IfcHeader withTimeStamp(String value) {
+            put("time_stamp", value);
+            return this;
+        }
+
+        /** FILE_NAME の author */
+        public List<String> getAuthor() {
+            return Json.read(json.get("author"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getAuthor()} を書く。null ならフィールドを除く */
+        public IfcHeader withAuthor(List<String> value) {
+            put("author", value);
+            return this;
+        }
+
+        /** FILE_NAME の organization */
+        public List<String> getOrganization() {
+            return Json.read(json.get("organization"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getOrganization()} を書く。null ならフィールドを除く */
+        public IfcHeader withOrganization(List<String> value) {
+            put("organization", value);
+            return this;
+        }
+
+        /** FILE_NAME の preprocessor_version */
+        public String getPreprocessorVersion() {
+            return Json.read(json.get("preprocessor_version"), Json::string);
+        }
+
+        /** {@link #getPreprocessorVersion()} を書く。null ならフィールドを除く */
+        public IfcHeader withPreprocessorVersion(String value) {
+            put("preprocessor_version", value);
+            return this;
+        }
+
+        /** FILE_NAME の originating_system */
+        public String getOriginatingSystem() {
+            return Json.read(json.get("originating_system"), Json::string);
+        }
+
+        /** {@link #getOriginatingSystem()} を書く。null ならフィールドを除く */
+        public IfcHeader withOriginatingSystem(String value) {
+            put("originating_system", value);
+            return this;
+        }
+
+        /** FILE_NAME の authorization */
+        public String getAuthorization() {
+            return Json.read(json.get("authorization"), Json::string);
+        }
+
+        /** {@link #getAuthorization()} を書く。null ならフィールドを除く */
+        public IfcHeader withAuthorization(String value) {
+            put("authorization", value);
+            return this;
+        }
+    }
+
+    /** 所有履歴の値 */
+    public static final class IfcOwner extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public IfcOwner(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static IfcOwner of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new IfcOwner(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public IfcOwner() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 所有する人の IfcPerson の FamilyName */
+        public String getPerson() {
+            return Json.read(json.get("person"), Json::string);
+        }
+
+        /** {@link #getPerson()} を書く。null ならフィールドを除く */
+        public IfcOwner withPerson(String value) {
+            put("person", value);
+            return this;
+        }
+
+        /** 所有する組織の IfcOrganization の Name */
+        public String getOrganization() {
+            return Json.read(json.get("organization"), Json::string);
+        }
+
+        /** {@link #getOrganization()} を書く。null ならフィールドを除く */
+        public IfcOwner withOrganization(String value) {
+            put("organization", value);
+            return this;
+        }
+
+        /** 作ったソフトの開発元の IfcOrganization の Name */
+        public String getDeveloper() {
+            return Json.read(json.get("developer"), Json::string);
+        }
+
+        /** {@link #getDeveloper()} を書く。null ならフィールドを除く */
+        public IfcOwner withDeveloper(String value) {
+            put("developer", value);
+            return this;
+        }
+
+        /** 作ったソフトの名前（IfcApplication の ApplicationFullName） */
+        public String getApplication() {
+            return Json.read(json.get("application"), Json::string);
+        }
+
+        /** {@link #getApplication()} を書く。null ならフィールドを除く */
+        public IfcOwner withApplication(String value) {
+            put("application", value);
+            return this;
+        }
+
+        /** 作ったソフトのバージョン（IfcApplication の Version） */
+        public String getVersion() {
+            return Json.read(json.get("version"), Json::string);
+        }
+
+        /** {@link #getVersion()} を書く。null ならフィールドを除く */
+        public IfcOwner withVersion(String value) {
+            put("version", value);
+            return this;
+        }
+
+        /** 作ったソフトの識別子（IfcApplication の ApplicationIdentifier） */
+        public String getIdentifier() {
+            return Json.read(json.get("identifier"), Json::string);
+        }
+
+        /** {@link #getIdentifier()} を書く。null ならフィールドを除く */
+        public IfcOwner withIdentifier(String value) {
+            put("identifier", value);
+            return this;
+        }
+
+        /** 作った日時。1970-01-01T00:00:00Z からの秒（IfcTimeStamp） */
+        public Long getCreated() {
+            return Json.read(json.get("created"), Json::integer);
+        }
+
+        /** {@link #getCreated()} を書く。null ならフィールドを除く */
+        public IfcOwner withCreated(Long value) {
+            put("created", value);
             return this;
         }
     }
@@ -9593,7 +10346,7 @@ public final class Messages {
         }
     }
 
-    /** 要素を、同じ空間か用紙に複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。保てない値・参照を持つ要素と、まだ写せない形式（JWW・SXF）は、change.copy.unsupported か change.edit.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。ほかの空間・文書への貼り付けは、まだ受けない。マイナーバージョン 100 から */
+    /** 要素を複写し、写しをアフィン変換で動かす。元の要素は変えない。写しは、元のレイヤ・色・線種・線種の倍率・線幅・透過性と形式固有の値（AutoCAD の系統の XDATA、JWW のフラグ・文字種・字間、SXF の文字幅・字間など）を保ち、図形とともに動く XDATA と記号の属性も同じ変換で直す。DXF の寸法・表は新しい匿名ブロックを作る。place で配置先の空間・用紙を、from_doc で複写元の文書を指定でき（マイナーバージョン 110 から）、単位・画層・線種・文字スタイル・寸法スタイル・記号定義・APPID の対応と名前の衝突を確かめる。保てない値・参照・対応を持つ要素は change.copy.unsupported で全体を拒む。applied は写しの ID とハッシュを返す。マイナーバージョン 100 から */
     public static final class CopyEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CopyEdit(Map<String, Object> json) {
@@ -9653,6 +10406,28 @@ public final class Messages {
         /** {@link #getMatrix()} を書く。null ならフィールドを除く */
         public CopyEdit withMatrix(List<Double> value) {
             put("matrix", value);
+            return this;
+        }
+
+        /** 配置先の空間か用紙の ID。省けば元の要素と同じ場所 ID。マイナーバージョン 110 から */
+        public String getPlace() {
+            return Json.read(json.get("place"), Json::string);
+        }
+
+        /** {@link #getPlace()} を書く。null ならフィールドを除く */
+        public CopyEdit withPlace(String value) {
+            put("place", value);
+            return this;
+        }
+
+        /** 複写元の文書の名前。open で作ったもの。省けば doc と同じ文書。マイナーバージョン 110 から */
+        public String getFromDoc() {
+            return Json.read(json.get("from_doc"), Json::string);
+        }
+
+        /** {@link #getFromDoc()} を書く。null ならフィールドを除く */
+        public CopyEdit withFromDoc(String value) {
+            put("from_doc", value);
             return this;
         }
     }
@@ -17530,6 +18305,11 @@ public final class Messages {
         public BuildingMaterialEdit asBuildingMaterialEdit() {
             return "material".equals(json.get("kind")) ? new BuildingMaterialEdit(json) : null;
         }
+
+        /** kind が shape の形なら、そのビュー。違えば null */
+        public BuildingShapeEdit asBuildingShapeEdit() {
+            return "shape".equals(json.get("kind")) ? new BuildingShapeEdit(json) : null;
+        }
     }
 
     /** 要素のプロパティのセットの、プロパティ（IfcPropertySingleValue）の値を変える。セットかプロパティがなければ足す。ほかの要素と共有するセットは、写しを作って、この要素だけに付け替える。型の要素では、型のセット（HasPropertySets）を変える */
@@ -18314,7 +19094,7 @@ public final class Messages {
         }
     }
 
-    /** 芯の 2 点・高さ・材料の層で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から */
+    /** 芯の 2 点・高さ・材料の層か型で壁を足し、空間に IfcRelContainedInSpatialStructure で結ぶ。配置（芯の始点を原点、芯の向きを x 軸）・Axis と Body の表現・IfcMaterialLayerSetUsage はコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。IFC2X3 は IfcWallStandardCase、IFC4 と IFC4X3 は IfcWall。結果の id は足した壁の ID。マイナーバージョン 97 から（element_type は 110 から） */
     public static final class BuildingAddWallEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddWallEdit(Map<String, Object> json) {
@@ -18388,7 +19168,7 @@ public final class Messages {
             return this;
         }
 
-        /** 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上 */
+        /** 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type の材料の層を使う */
         public List<BuildingWallLayer> getLayers() {
             return Json.read(json.get("layers"), v0 -> Json.list(v0, BuildingWallLayer::of));
         }
@@ -18407,6 +19187,17 @@ public final class Messages {
         /** {@link #getOffset()} を書く。null ならフィールドを除く */
         public BuildingAddWallEdit withOffset(Double value) {
             put("offset", value);
+            return this;
+        }
+
+        /** 結ぶ壁の型（IfcWallType）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddWallEdit withElementType(BuildingRef value) {
+            put("element_type", value);
             return this;
         }
 
@@ -18474,7 +19265,7 @@ public final class Messages {
         }
     }
 
-    /** 外形・材料の層で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab の FLOOR、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。結果の id は足した床の ID。マイナーバージョン 98 から */
+    /** 外形・材料の層か型で床を足し、空間に包含で結ぶ。上の面を配置の原点にし、層の厚さの合計だけ下へ押し出す Body と、IfcSlab（型が PredefinedType を持たなければ FLOOR）、IfcMaterialLayerSetUsage（AXIS3・NEGATIVE）をコアが書く。layers を省けば element_type の IfcMaterialLayerSet を使う。結果の id は足した床の ID。マイナーバージョン 98 から（element_type は 110 から） */
     public static final class BuildingAddSlabEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddSlabEdit(Map<String, Object> json) {
@@ -18526,7 +19317,7 @@ public final class Messages {
             return this;
         }
 
-        /** 材料の層。上から下へ並べる。1 つ以上 */
+        /** 材料の層。上から下へ並べる。省くか空なら element_type の材料の層を使う */
         public List<BuildingWallLayer> getLayers() {
             return Json.read(json.get("layers"), v0 -> Json.list(v0, BuildingWallLayer::of));
         }
@@ -18545,6 +19336,17 @@ public final class Messages {
         /** {@link #getElevation()} を書く。null ならフィールドを除く */
         public BuildingAddSlabEdit withElevation(Double value) {
             put("elevation", value);
+            return this;
+        }
+
+        /** 結ぶ床の型（IfcSlabType）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddSlabEdit withElementType(BuildingRef value) {
+            put("element_type", value);
             return this;
         }
 
@@ -18571,7 +19373,7 @@ public final class Messages {
         }
     }
 
-    /** 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から */
+    /** 位置・高さ・矩形の断面で柱を足し、空間に包含で結ぶ。断面の中心を配置の原点にして上へ押し出す Body と IfcColumn をコアが書く。結果の id は足した柱の ID。マイナーバージョン 98 から（element_type は 110 から） */
     public static final class BuildingAddColumnEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddColumnEdit(Map<String, Object> json) {
@@ -18678,6 +19480,17 @@ public final class Messages {
             return this;
         }
 
+        /** 結ぶ柱の型（IfcColumnType）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddColumnEdit withElementType(BuildingRef value) {
+            put("element_type", value);
+            return this;
+        }
+
         /** 名前 */
         public String getName() {
             return Json.read(json.get("name"), Json::string);
@@ -18701,7 +19514,7 @@ public final class Messages {
         }
     }
 
-    /** 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から */
+    /** 天端の芯の 2 点・矩形の断面で梁を足し、空間に包含で結ぶ。始点を配置の原点、芯の向きを x 軸、水平で芯の左を y 軸にし、断面を芯に沿って押し出す Body と IfcBeam をコアが書く。鉛直の芯は断る。結果の id は足した梁の ID。マイナーバージョン 98 から（element_type は 110 から） */
     public static final class BuildingAddBeamEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddBeamEdit(Map<String, Object> json) {
@@ -18783,6 +19596,17 @@ public final class Messages {
         /** {@link #getMaterial()} を書く。null ならフィールドを除く */
         public BuildingAddBeamEdit withMaterial(String value) {
             put("material", value);
+            return this;
+        }
+
+        /** 結ぶ梁の型（IfcBeamType）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddBeamEdit withElementType(BuildingRef value) {
+            put("element_type", value);
             return this;
         }
 
@@ -18917,7 +19741,7 @@ public final class Messages {
         }
     }
 
-    /** 開口を扉で埋める。扉は開口の配置に置き、IfcDoor（IFC4 と IFC4X3 は PredefinedType の DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から */
+    /** 開口を扉で埋める。扉は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcDoor（IFC4 と IFC4X3 で型が PredefinedType を持たなければ DOOR）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した扉の ID。マイナーバージョン 98 から（Body と element_type は 110 から） */
     public static final class BuildingAddDoorEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddDoorEdit(Map<String, Object> json) {
@@ -18958,7 +19782,7 @@ public final class Messages {
             return this;
         }
 
-        /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値 */
+        /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う */
         public Double getWidth() {
             return Json.read(json.get("width"), Json::number);
         }
@@ -18969,7 +19793,7 @@ public final class Messages {
             return this;
         }
 
-        /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値 */
+        /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う */
         public Double getHeight() {
             return Json.read(json.get("height"), Json::number);
         }
@@ -18977,6 +19801,17 @@ public final class Messages {
         /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public BuildingAddDoorEdit withHeight(Double value) {
             put("height", value);
+            return this;
+        }
+
+        /** 結ぶ扉の型（IFC4 からの IfcDoorType、IFC2X3 の IfcDoorStyle）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddDoorEdit withElementType(BuildingRef value) {
+            put("element_type", value);
             return this;
         }
 
@@ -19003,7 +19838,7 @@ public final class Messages {
         }
     }
 
-    /** 開口を窓で埋める。窓は開口の配置に置き、IfcWindow（IFC4 と IFC4X3 は PredefinedType の WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。形と型はまだ書かない。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から */
+    /** 開口を窓で埋める。窓は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の板を押し出す Body と、IfcWindow（IFC4 と IFC4X3 で型が PredefinedType を持たなければ WINDOW）を IfcRelFillsElement で開口に、包含で壁と同じ空間に結ぶ。もう埋まった開口は断る。結果の id は足した窓の ID。マイナーバージョン 98 から（Body と element_type は 110 から） */
     public static final class BuildingAddWindowEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingAddWindowEdit(Map<String, Object> json) {
@@ -19044,7 +19879,7 @@ public final class Messages {
             return this;
         }
 
-        /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値 */
+        /** 全体の幅（OverallWidth）。文書の長さの単位で、正の値。書かなければ Body は開口の幅を使う */
         public Double getWidth() {
             return Json.read(json.get("width"), Json::number);
         }
@@ -19055,7 +19890,7 @@ public final class Messages {
             return this;
         }
 
-        /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値 */
+        /** 全体の高さ（OverallHeight）。文書の長さの単位で、正の値。書かなければ Body は開口の高さを使う */
         public Double getHeight() {
             return Json.read(json.get("height"), Json::number);
         }
@@ -19063,6 +19898,17 @@ public final class Messages {
         /** {@link #getHeight()} を書く。null ならフィールドを除く */
         public BuildingAddWindowEdit withHeight(Double value) {
             put("height", value);
+            return this;
+        }
+
+        /** 結ぶ窓の型（IFC4 からの IfcWindowType、IFC2X3 の IfcWindowStyle）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingAddWindowEdit withElementType(BuildingRef value) {
+            put("element_type", value);
             return this;
         }
 
@@ -19291,7 +20137,7 @@ public final class Messages {
         }
     }
 
-    /** 壁の芯・高さ・材料の層を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から */
+    /** 壁の芯・高さ・材料の層か型を、add_wall と同じ値で直す。配置・表現・材料の層の使い方を書き直し、同じ名前の層は元の IfcMaterial を使う。開口と建具は壁の配置からの相対のまま付いてきて、開口と建具の Body の押し出しを新しい層の範囲に合わせる。合わせられない開口があれば断る。結果の id は直した壁の ID。マイナーバージョン 103 から（element_type は 110 から） */
     public static final class BuildingWallShapeEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingWallShapeEdit(Map<String, Object> json) {
@@ -19365,7 +20211,7 @@ public final class Messages {
             return this;
         }
 
-        /** 材料の層。始点から終点を見て、芯の右から左へ並べる。1 つ以上 */
+        /** 材料の層。始点から終点を見て、芯の右から左へ並べる。省くか空なら element_type（なければ今の壁の型）の材料の層を使う */
         public List<BuildingWallLayer> getLayers() {
             return Json.read(json.get("layers"), v0 -> Json.list(v0, BuildingWallLayer::of));
         }
@@ -19386,9 +20232,20 @@ public final class Messages {
             put("offset", value);
             return this;
         }
+
+        /** 付け替える壁の型（IfcWallType）。マイナーバージョン 110 から */
+        public BuildingRef getElementType() {
+            return Json.read(json.get("element_type"), BuildingRef::of);
+        }
+
+        /** {@link #getElementType()} を書く。null ならフィールドを除く */
+        public BuildingWallShapeEdit withElementType(BuildingRef value) {
+            put("element_type", value);
+            return this;
+        }
     }
 
-    /** 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の全体の高さと幅（OverallHeight・OverallWidth）は、書いてあれば合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から */
+    /** 開口の位置と大きさを、add_opening と同じ値で直す。配置と Body を書き直し、埋める扉と窓の Body と全体の高さ・幅（OverallHeight・OverallWidth）を合わせる。結果の id は直した開口の ID。マイナーバージョン 103 から */
     public static final class BuildingOpeningShapeEdit extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingOpeningShapeEdit(Map<String, Object> json) {
@@ -20054,6 +20911,847 @@ public final class Messages {
         /** {@link #getName()} を書く。null ならフィールドを除く */
         public BuildingMaterialConstituent withName(String value) {
             put("name", value);
+            return this;
+        }
+    }
+
+    /** 要素の形（Axis と Body の表現）を置き換える。項目は items に並べ、Body に置く項目を body の位置で挙げる。集合演算と写像は、items の前にある項目を位置で指し、同じ項目を何度指してもよい（それぞれに写して書く）。表現の種類（SweptSolid・AdvancedSweptSolid・Brep・SolidModel・Tessellation・Clipping・CSG・MappedRepresentation）はコアが決め、決まらない組み合わせ・表現に直接置く半空間・16 段を超える入れ子・写して 10,000 項目を超える Body は断る。使われなくなった元の表現は除く。要素は配置を持つこと。結果の id は要素の ID。マイナーバージョン 107 から */
+    public static final class BuildingShapeEdit extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingShapeEdit(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingShapeEdit of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingShapeEdit(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingShapeEdit() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("kind", "shape");
+        }
+
+        /** 変更の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingShapeEdit withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 形を置き換える要素。building_elements が返した ID とハッシュか、同じ要求の前の、要素を足す変更（add_ で始まる種類）の位置で指す */
+        public BuildingRef getElement() {
+            return Json.read(json.get("element"), BuildingRef::of);
+        }
+
+        /** {@link #getElement()} を書く。null ならフィールドを除く */
+        public BuildingShapeEdit withElement(BuildingRef value) {
+            put("element", value);
+            return this;
+        }
+
+        /** 芯の線（Axis の IfcPolyline）。要素の配置の [x, y] を 2 点以上。書かなければ Axis を書かない */
+        public List<List<Double>> getAxis() {
+            return Json.read(json.get("axis"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
+        }
+
+        /** {@link #getAxis()} を書く。null ならフィールドを除く */
+        public BuildingShapeEdit withAxis(List<List<Double>> value) {
+            put("axis", value);
+            return this;
+        }
+
+        /** 形の項目の表 */
+        public List<BuildingShapeItem> getItems() {
+            return Json.read(json.get("items"), v0 -> Json.list(v0, BuildingShapeItem::of));
+        }
+
+        /** {@link #getItems()} を書く。null ならフィールドを除く */
+        public BuildingShapeEdit withItems(List<BuildingShapeItem> value) {
+            put("items", value);
+            return this;
+        }
+
+        /** Body の表現に置く項目の、items の位置（0 から）。空なら Body を書かない */
+        public List<Long> getBody() {
+            return Json.read(json.get("body"), v0 -> Json.list(v0, Json::integer));
+        }
+
+        /** {@link #getBody()} を書く。null ならフィールドを除く */
+        public BuildingShapeEdit withBody(List<Long> value) {
+            put("body", value);
+            return this;
+        }
+    }
+
+    /** 形の項目。kind に合うフィールドだけを書く。extrusion は profile・position・direction・depth、revolution は profile・position・axis・angle、swept_disk は directrix・radius・inner_radius・start・end、faces は points・faces・closed、boolean は operation・first・second、half_space は plane・agreement・box か polygon、mapped は origin・target・members。長さは文書の長さの単位 */
+    public static final class BuildingShapeItem extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingShapeItem(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingShapeItem of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingShapeItem(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingShapeItem() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 項目の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 押し出す・回す断面 */
+        public BuildingShapeProfile getProfile() {
+            return Json.read(json.get("profile"), BuildingShapeProfile::of);
+        }
+
+        /** {@link #getProfile()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withProfile(BuildingShapeProfile value) {
+            put("profile", value);
+            return this;
+        }
+
+        /** 押し出し・回転の局所の配置。書かなければ要素の配置のまま */
+        public BuildingAxis3 getPosition() {
+            return Json.read(json.get("position"), BuildingAxis3::of);
+        }
+
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withPosition(BuildingAxis3 value) {
+            put("position", value);
+            return this;
+        }
+
+        /** 局所の押し出す向き [x, y, z]。z は 0 にできない。書かなければ [0, 0, 1] */
+        public List<Double> getDirection() {
+            return Json.read(json.get("direction"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getDirection()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withDirection(List<Double> value) {
+            put("direction", value);
+            return this;
+        }
+
+        /** 押し出す深さ。正の値 */
+        public Double getDepth() {
+            return Json.read(json.get("depth"), Json::number);
+        }
+
+        /** {@link #getDepth()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withDepth(Double value) {
+            put("depth", value);
+            return this;
+        }
+
+        /** 断面を回す軸。断面の平面（局所の XY 平面）にある。マイナーバージョン 108 から */
+        public BuildingShapeRevolutionAxis getAxis() {
+            return Json.read(json.get("axis"), BuildingShapeRevolutionAxis::of);
+        }
+
+        /** {@link #getAxis()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withAxis(BuildingShapeRevolutionAxis value) {
+            put("axis", value);
+            return this;
+        }
+
+        /** 回す角度（ラジアン）。0 より大きく 2π 以下。文書の平面角の単位に直して書くので、文書は平面角の単位を持つこと。マイナーバージョン 108 から */
+        public Double getAngle() {
+            return Json.read(json.get("angle"), Json::number);
+        }
+
+        /** {@link #getAngle()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withAngle(Double value) {
+            put("angle", value);
+            return this;
+        }
+
+        /** 円盤を沿わせる折れ線の [x, y, z] を 2 点以上。続く点は重ならない。マイナーバージョン 108 から */
+        public List<List<Double>> getDirectrix() {
+            return Json.read(json.get("directrix"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
+        }
+
+        /** {@link #getDirectrix()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withDirectrix(List<List<Double>> value) {
+            put("directrix", value);
+            return this;
+        }
+
+        /** 円盤の半径。正の値。マイナーバージョン 108 から */
+        public Double getRadius() {
+            return Json.read(json.get("radius"), Json::number);
+        }
+
+        /** {@link #getRadius()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withRadius(Double value) {
+            put("radius", value);
+            return this;
+        }
+
+        /** 管の内側の半径。正で radius より小さい。書かなければ中実。マイナーバージョン 108 から */
+        public Double getInnerRadius() {
+            return Json.read(json.get("inner_radius"), Json::number);
+        }
+
+        /** {@link #getInnerRadius()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withInnerRadius(Double value) {
+            put("inner_radius", value);
+            return this;
+        }
+
+        /** 掃引を始める折れ線のパラメーター（1 区間で 1 進む）。書かなければ始点。IFC2X3 では書かなければ 0 を書く。マイナーバージョン 108 から */
+        public Double getStart() {
+            return Json.read(json.get("start"), Json::number);
+        }
+
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withStart(Double value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 掃引を終える折れ線のパラメーター。start より大きく区間の数以下。書かなければ終点。IFC2X3 では書かなければ区間の数を書く。マイナーバージョン 108 から */
+        public Double getEnd() {
+            return Json.read(json.get("end"), Json::number);
+        }
+
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withEnd(Double value) {
+            put("end", value);
+            return this;
+        }
+
+        /** 面集合の点 [x, y, z] */
+        public List<List<Double>> getPoints() {
+            return Json.read(json.get("points"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
+        }
+
+        /** {@link #getPoints()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withPoints(List<List<Double>> value) {
+            put("points", value);
+            return this;
+        }
+
+        /** 面集合の面 */
+        public List<BuildingShapeFace> getFaces() {
+            return Json.read(json.get("faces"), v0 -> Json.list(v0, BuildingShapeFace::of));
+        }
+
+        /** {@link #getFaces()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withFaces(List<BuildingShapeFace> value) {
+            put("faces", value);
+            return this;
+        }
+
+        /** true なら閉殻（立体。IfcFacetedBrep）。false か書かなければ開殻の面（IFC2X3 は IfcShellBasedSurfaceModel、IFC4 からは IfcPolygonalFaceSet） */
+        public Boolean getClosed() {
+            return Json.read(json.get("closed"), Json::bool);
+        }
+
+        /** {@link #getClosed()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withClosed(Boolean value) {
+            put("closed", value);
+            return this;
+        }
+
+        /** 集合演算 */
+        public String getOperation() {
+            return Json.read(json.get("operation"), Json::string);
+        }
+
+        /** {@link #getOperation()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withOperation(String value) {
+            put("operation", value);
+            return this;
+        }
+
+        /** 集合演算の第 1 の対象。items の前にある項目の位置 */
+        public Long getFirst() {
+            return Json.read(json.get("first"), Json::integer);
+        }
+
+        /** {@link #getFirst()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withFirst(Long value) {
+            put("first", value);
+            return this;
+        }
+
+        /** 集合演算の第 2 の対象。差では第 1 から取り除く。items の前にある項目の位置 */
+        public Long getSecond() {
+            return Json.read(json.get("second"), Json::integer);
+        }
+
+        /** {@link #getSecond()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withSecond(Long value) {
+            put("second", value);
+            return this;
+        }
+
+        /** 半空間の基準面の配置。局所の z 軸が面の法線 */
+        public BuildingAxis3 getPlane() {
+            return Json.read(json.get("plane"), BuildingAxis3::of);
+        }
+
+        /** {@link #getPlane()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withPlane(BuildingAxis3 value) {
+            put("plane", value);
+            return this;
+        }
+
+        /** true なら法線と逆の側、false か書かなければ法線の向く側を内部とする */
+        public Boolean getAgreement() {
+            return Json.read(json.get("agreement"), Json::bool);
+        }
+
+        /** {@link #getAgreement()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withAgreement(Boolean value) {
+            put("agreement", value);
+            return this;
+        }
+
+        /** 半空間の計算用の囲みの箱（IfcBoxedHalfSpace）。座標系は IFC2X3 では基準面、IFC4 からは要素 */
+        public BuildingShapeBox getBox() {
+            return Json.read(json.get("box"), BuildingShapeBox::of);
+        }
+
+        /** {@link #getBox()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withBox(BuildingShapeBox value) {
+            put("box", value);
+            return this;
+        }
+
+        /** 半空間を制限する多角形（IfcPolygonalBoundedHalfSpace） */
+        public BuildingShapePolygon getPolygon() {
+            return Json.read(json.get("polygon"), BuildingShapePolygon::of);
+        }
+
+        /** {@link #getPolygon()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withPolygon(BuildingShapePolygon value) {
+            put("polygon", value);
+            return this;
+        }
+
+        /** 写像元の基準位置。書かなければ原点 */
+        public BuildingAxis3 getOrigin() {
+            return Json.read(json.get("origin"), BuildingAxis3::of);
+        }
+
+        /** {@link #getOrigin()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withOrigin(BuildingAxis3 value) {
+            put("origin", value);
+            return this;
+        }
+
+        /** 写像先の変換 */
+        public BuildingShapeMapping getTarget() {
+            return Json.read(json.get("target"), BuildingShapeMapping::of);
+        }
+
+        /** {@link #getTarget()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withTarget(BuildingShapeMapping value) {
+            put("target", value);
+            return this;
+        }
+
+        /** 写像元の表現の項目。items の前にある項目の位置で、1 つ以上 */
+        public List<Long> getMembers() {
+            return Json.read(json.get("members"), v0 -> Json.list(v0, Json::integer));
+        }
+
+        /** {@link #getMembers()} を書く。null ならフィールドを除く */
+        public BuildingShapeItem withMembers(List<Long> value) {
+            put("members", value);
+            return this;
+        }
+    }
+
+    /**
+     * 形の項目の種類。extrusion は断面の押し出し（IfcExtrudedAreaSolid）、faces は面集合、boolean は集合演算（IfcBooleanResult。差で第 2 が半空間なら IfcBooleanClippingResult）、half_space は平面の半空間（集合演算の対象にだけ置く）、mapped は写像（IfcMappedItem）。revolution は断面の回転（IfcRevolvedAreaSolid）、swept_disk は円盤の掃引（IfcSweptDiskSolid）で、マイナーバージョン 108 から
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class BuildingShapeItemKind {
+        private BuildingShapeItemKind() {}
+
+        public static final String EXTRUSION = "extrusion";
+
+        public static final String FACES = "faces";
+
+        public static final String BOOLEAN = "boolean";
+
+        public static final String HALF_SPACE = "half_space";
+
+        public static final String MAPPED = "mapped";
+
+        public static final String REVOLUTION = "revolution";
+
+        public static final String SWEPT_DISK = "swept_disk";
+    }
+
+    /** 断面を回す軸（IfcAxis1Placement）。断面の平面にある */
+    public static final class BuildingShapeRevolutionAxis extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingShapeRevolutionAxis(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingShapeRevolutionAxis of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingShapeRevolutionAxis(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingShapeRevolutionAxis() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 軸の通る点 [x, y] */
+        public List<Double> getLocation() {
+            return Json.read(json.get("location"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getLocation()} を書く。null ならフィールドを除く */
+        public BuildingShapeRevolutionAxis withLocation(List<Double> value) {
+            put("location", value);
+            return this;
+        }
+
+        /** 軸の向き [x, y]。0 にできない */
+        public List<Double> getDirection() {
+            return Json.read(json.get("direction"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getDirection()} を書く。null ならフィールドを除く */
+        public BuildingShapeRevolutionAxis withDirection(List<Double> value) {
+            put("direction", value);
+            return this;
+        }
+    }
+
+    /**
+     * 集合演算。union は和、intersection は積、difference は差
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class BuildingBooleanOperation {
+        private BuildingBooleanOperation() {}
+
+        public static final String UNION = "union";
+
+        public static final String INTERSECTION = "intersection";
+
+        public static final String DIFFERENCE = "difference";
+    }
+
+    /** 3 次元の局所の配置 */
+    public static final class BuildingAxis3 extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingAxis3(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingAxis3 of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingAxis3(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingAxis3() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 原点 [x, y, z] */
+        public List<Double> getLocation() {
+            return Json.read(json.get("location"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getLocation()} を書く。null ならフィールドを除く */
+        public BuildingAxis3 withLocation(List<Double> value) {
+            put("location", value);
+            return this;
+        }
+
+        /** 局所の z 軸 [x, y, z] */
+        public List<Double> getAxis() {
+            return Json.read(json.get("axis"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getAxis()} を書く。null ならフィールドを除く */
+        public BuildingAxis3 withAxis(List<Double> value) {
+            put("axis", value);
+            return this;
+        }
+
+        /** 局所の x 軸の参照方向 [x, y, z] */
+        public List<Double> getReference() {
+            return Json.read(json.get("reference"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getReference()} を書く。null ならフィールドを除く */
+        public BuildingAxis3 withReference(List<Double> value) {
+            put("reference", value);
+            return this;
+        }
+    }
+
+    /** 押し出す断面。rectangle は x と y、circle は radius、polygon は outer と holes を書く */
+    public static final class BuildingShapeProfile extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingShapeProfile(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingShapeProfile of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingShapeProfile(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingShapeProfile() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 断面の種類 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingShapeProfile withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+
+        /** 断面の名前 */
+        public String getName() {
+            return Json.read(json.get("name"), Json::string);
+        }
+
+        /** {@link #getName()} を書く。null ならフィールドを除く */
+        public BuildingShapeProfile withName(String value) {
+            put("name", value);
+            return this;
+        }
+
+        /** 矩形の局所の x の全幅。正の値 */
+        public Double getX() {
+            return Json.read(json.get("x"), Json::number);
+        }
+
+        /** {@link #getX()} を書く。null ならフィールドを除く */
+        public BuildingShapeProfile withX(Double value) {
+            put("x", value);
+            return this;
+        }
+
+        /** 矩形の局所の y の全高。正の値 */
+        public Double getY() {
+            return Json.read(json.get("y"), Json::number);
+        }
+
+        /** {@link #getY()} を書く。null ならフィールドを除く */
+        public BuildingShapeProfile withY(Double value) {
+            put("y", value);
+            return this;
+        }
+
+        /** 円の半径。正の値 */
+        public Double getRadius() {
+            return Json.read(json.get("radius"), Json::number);
+        }
+
+        /** {@link #getRadius()} を書く。null ならフィールドを除く */
+        public BuildingShapeProfile withRadius(Double value) {
+            put("radius", value);
+            return this;
+        }
+
+        /** 矩形と円の中心 [x, y]。書かなければ原点 */
+        public List<Double> getLocation() {
+            return Json.read(json.get("location"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getLocation()} を書く。null ならフィールドを除く */
+        public BuildingShapeProfile withLocation(List<Double> value) {
+            put("location", value);
+            return this;
+        }
+
+        /** 矩形と円の局所の x 軸の参照方向 [x, y]。location と一緒に書く */
+        public List<Double> getReference() {
+            return Json.read(json.get("reference"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getReference()} を書く。null ならフィールドを除く */
+        public BuildingShapeProfile withReference(List<Double> value) {
+            put("reference", value);
+            return this;
+        }
+
+        /** 多角形の外輪の [x, y] を 3 点以上。始点に戻る点は書かない */
+        public List<List<Double>> getOuter() {
+            return Json.read(json.get("outer"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
+        }
+
+        /** {@link #getOuter()} を書く。null ならフィールドを除く */
+        public BuildingShapeProfile withOuter(List<List<Double>> value) {
+            put("outer", value);
+            return this;
+        }
+
+        /** 多角形の内輪 */
+        public List<List<List<Double>>> getHoles() {
+            return Json.read(json.get("holes"), v0 -> Json.list(v0, v1 -> Json.list(v1, v2 -> Json.list(v2, Json::number))));
+        }
+
+        /** {@link #getHoles()} を書く。null ならフィールドを除く */
+        public BuildingShapeProfile withHoles(List<List<List<Double>>> value) {
+            put("holes", value);
+            return this;
+        }
+    }
+
+    /**
+     * 断面の種類。rectangle は IfcRectangleProfileDef、circle は IfcCircleProfileDef、polygon は IfcArbitraryClosedProfileDef（内輪があれば IfcArbitraryProfileDefWithVoids）
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class BuildingShapeProfileKind {
+        private BuildingShapeProfileKind() {}
+
+        public static final String RECTANGLE = "rectangle";
+
+        public static final String CIRCLE = "circle";
+
+        public static final String POLYGON = "polygon";
+    }
+
+    /** 面集合の面。points の位置（0 から）で外輪と内輪を書く */
+    public static final class BuildingShapeFace extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingShapeFace(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingShapeFace of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingShapeFace(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingShapeFace() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 外輪の点の位置。3 つ以上 */
+        public List<Long> getBoundary() {
+            return Json.read(json.get("boundary"), v0 -> Json.list(v0, Json::integer));
+        }
+
+        /** {@link #getBoundary()} を書く。null ならフィールドを除く */
+        public BuildingShapeFace withBoundary(List<Long> value) {
+            put("boundary", value);
+            return this;
+        }
+
+        /** 内輪ごとの点の位置 */
+        public List<List<Long>> getHoles() {
+            return Json.read(json.get("holes"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::integer)));
+        }
+
+        /** {@link #getHoles()} を書く。null ならフィールドを除く */
+        public BuildingShapeFace withHoles(List<List<Long>> value) {
+            put("holes", value);
+            return this;
+        }
+    }
+
+    /** 囲みの箱 */
+    public static final class BuildingShapeBox extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingShapeBox(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingShapeBox of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingShapeBox(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingShapeBox() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 箱の隅 [x, y, z] */
+        public List<Double> getCorner() {
+            return Json.read(json.get("corner"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getCorner()} を書く。null ならフィールドを除く */
+        public BuildingShapeBox withCorner(List<Double> value) {
+            put("corner", value);
+            return this;
+        }
+
+        /** 各軸の長さ [x, y, z]。正の値 */
+        public List<Double> getDimensions() {
+            return Json.read(json.get("dimensions"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getDimensions()} を書く。null ならフィールドを除く */
+        public BuildingShapeBox withDimensions(List<Double> value) {
+            put("dimensions", value);
+            return this;
+        }
+    }
+
+    /** 半空間を制限する多角形 */
+    public static final class BuildingShapePolygon extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingShapePolygon(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingShapePolygon of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingShapePolygon(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingShapePolygon() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 境界の配置 */
+        public BuildingAxis3 getPosition() {
+            return Json.read(json.get("position"), BuildingAxis3::of);
+        }
+
+        /** {@link #getPosition()} を書く。null ならフィールドを除く */
+        public BuildingShapePolygon withPosition(BuildingAxis3 value) {
+            put("position", value);
+            return this;
+        }
+
+        /** 境界の局所の XY 平面の [x, y] を 3 点以上。始点に戻る点は書かない */
+        public List<List<Double>> getBoundary() {
+            return Json.read(json.get("boundary"), v0 -> Json.list(v0, v1 -> Json.list(v1, Json::number)));
+        }
+
+        /** {@link #getBoundary()} を書く。null ならフィールドを除く */
+        public BuildingShapePolygon withBoundary(List<List<Double>> value) {
+            put("boundary", value);
+            return this;
+        }
+    }
+
+    /** 写像先の変換（IfcCartesianTransformationOperator3D）。scales を書けば軸ごとの尺度（NonUniform） */
+    public static final class BuildingShapeMapping extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingShapeMapping(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingShapeMapping of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingShapeMapping(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingShapeMapping() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 写像先の原点 [x, y, z]。要素の座標系 */
+        public List<Double> getOrigin() {
+            return Json.read(json.get("origin"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getOrigin()} を書く。null ならフィールドを除く */
+        public BuildingShapeMapping withOrigin(List<Double> value) {
+            put("origin", value);
+            return this;
+        }
+
+        /** x 軸を導く方向 [x, y, z] */
+        public List<Double> getAxis1() {
+            return Json.read(json.get("axis1"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getAxis1()} を書く。null ならフィールドを除く */
+        public BuildingShapeMapping withAxis1(List<Double> value) {
+            put("axis1", value);
+            return this;
+        }
+
+        /** y 軸を導く方向 [x, y, z] */
+        public List<Double> getAxis2() {
+            return Json.read(json.get("axis2"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getAxis2()} を書く。null ならフィールドを除く */
+        public BuildingShapeMapping withAxis2(List<Double> value) {
+            put("axis2", value);
+            return this;
+        }
+
+        /** z 軸を定める方向 [x, y, z] */
+        public List<Double> getAxis3() {
+            return Json.read(json.get("axis3"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getAxis3()} を書く。null ならフィールドを除く */
+        public BuildingShapeMapping withAxis3(List<Double> value) {
+            put("axis3", value);
+            return this;
+        }
+
+        /** 一様な尺度。正の値で、書かなければ 1 */
+        public Double getScale() {
+            return Json.read(json.get("scale"), Json::number);
+        }
+
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
+        public BuildingShapeMapping withScale(Double value) {
+            put("scale", value);
+            return this;
+        }
+
+        /** 軸ごとの尺度 [x, y, z]。正の値。scale とは一緒に書けない */
+        public List<Double> getScales() {
+            return Json.read(json.get("scales"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getScales()} を書く。null ならフィールドを除く */
+        public BuildingShapeMapping withScales(List<Double> value) {
+            put("scales", value);
             return this;
         }
     }
@@ -28255,5 +29953,7 @@ public final class Messages {
         public static final String RENDER = "render";
 
         public static final String RASTER = "raster";
+
+        public static final String GEOREFERENCE = "georeference";
     }
 }

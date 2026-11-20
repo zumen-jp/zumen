@@ -95,7 +95,7 @@ def geometry(header, e):
     if e["type"] == "POINT":
         g = {"shape": "point", "position": [e["x"] * s, e["y"] * s], "rotation": 0.0}
         if e["base"]["pen_style"] == MARKER_PEN:
-            g["rotation"] = e["angle"]
+            g["rotation"] = math.degrees(e["angle"])
             g["marker"] = {"namespace": "jww.point", "code": str(e["code"]), "scale": e["scale"]}
         if e["is_temporary"]:
             g["construction"] = True

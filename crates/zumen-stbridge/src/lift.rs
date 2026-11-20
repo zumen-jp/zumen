@@ -240,7 +240,7 @@ fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 
 fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
     let [x, y, z] = sub(b, a);
-    (x * x + y * y + z * z).sqrt()
+    libm::sqrt(x * x + y * y + z * z)
 }
 
 /// 面の部材の形。節点を局所の XY に写し、局所の Z が 1 mm を超えてずれる（平面でない）なら作らない
@@ -276,7 +276,7 @@ fn plate(
 
 fn normalize(v: [f64; 3]) -> Option<[f64; 3]> {
     let [x, y, z] = v;
-    let length = (x * x + y * y + z * z).sqrt();
+    let length = libm::sqrt(x * x + y * y + z * z);
     (length > 1e-9).then(|| [x / length, y / length, z / length])
 }
 

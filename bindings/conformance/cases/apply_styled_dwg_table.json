@@ -1,5 +1,5 @@
 {
-  "description": "自作の R2010・R2013・R2018 の表。文書内の表スタイルと文字スタイルを参照する入力で、平行移動と位置の置き換え、未対応の幅の変更と予算超過の原子性、既存 ID と未変更要素のハッシュを確かめる。入力の生成元は xtask/verify/acadsharp/TableFixtures.cs。",
+  "description": "自作の R2010・R2013・R2018 の表。文書内の表スタイルと文字スタイルを参照する入力で、平行移動・位置とセル文字列・幅の置き換え、未対応のセル回転と予算超過の原子性、既存 ID と未変更要素のハッシュを確かめる。入力の生成元は xtask/verify/acadsharp/TableFixtures.cs。",
   "module": "drawing",
   "steps": [
     {
@@ -65,13 +65,14 @@
                 15
               ],
               "column_widths": [
-                99,
+                20,
                 30
               ],
               "cells": [
                 {
                   "content": "text",
-                  "text": "表00"
+                  "text": "表00",
+                  "rotation": 10
                 },
                 {
                   "content": "text",
@@ -96,7 +97,7 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported"
+        "/diagnostics/0/code": "change.edit.unsupported"
       }
     },
     {
@@ -563,13 +564,14 @@
                 15
               ],
               "column_widths": [
-                99,
+                20,
                 30
               ],
               "cells": [
                 {
                   "content": "text",
-                  "text": "表00"
+                  "text": "表00",
+                  "rotation": 10
                 },
                 {
                   "content": "text",
@@ -594,7 +596,7 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported"
+        "/diagnostics/0/code": "change.edit.unsupported"
       }
     },
     {
@@ -1061,13 +1063,14 @@
                 15
               ],
               "column_widths": [
-                99,
+                20,
                 30
               ],
               "cells": [
                 {
                   "content": "text",
-                  "text": "表00"
+                  "text": "表00",
+                  "rotation": 10
                 },
                 {
                   "content": "text",
@@ -1092,7 +1095,7 @@
         "/result"
       ],
       "expect": {
-        "/diagnostics/1/code": "change.edit.unsupported"
+        "/diagnostics/0/code": "change.edit.unsupported"
       }
     },
     {
@@ -1494,6 +1497,117 @@
             ]
           }
         }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "table-styled-r2018.dwg",
+        "edits": [
+          {
+            "kind": "replace",
+            "id": "space/0/h48",
+            "hash": "v2:7b985df4705dcd52556c50660ce84fde",
+            "geometry": {
+              "shape": "table",
+              "position": [
+                0,
+                0
+              ],
+              "direction": [
+                1,
+                0
+              ],
+              "row_heights": [
+                10,
+                15
+              ],
+              "column_widths": [
+                99,
+                30
+              ],
+              "cells": [
+                {
+                  "content": "text",
+                  "text": "更新"
+                },
+                {
+                  "content": "text",
+                  "text": "表01"
+                },
+                {
+                  "content": "empty"
+                },
+                {
+                  "content": "text",
+                  "text": "表11"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "space/0/h48",
+        "/blobs/0/kind": "file",
+        "/diagnostics": []
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "entities",
+        "doc": "table-styled-r2018.dwg",
+        "fields": [
+          "id",
+          "kind",
+          "geometry"
+        ]
+      },
+      "expect": {
+        "/result/total": 2,
+        "/result/items/0/id": "space/0/h48",
+        "/result/items/0/geometry": {
+          "shape": "table",
+          "position": [
+            0,
+            0
+          ],
+          "direction": [
+            1,
+            0
+          ],
+          "row_heights": [
+            10,
+            15
+          ],
+          "column_widths": [
+            99,
+            30
+          ],
+          "cells": [
+            {
+              "content": "text",
+              "text": "更新"
+            },
+            {
+              "content": "text",
+              "text": "表01"
+            },
+            {
+              "content": "empty"
+            },
+            {
+              "content": "text",
+              "text": "表11"
+            }
+          ]
+        },
+        "/result/items/1/id": "space/0/h56"
       }
     }
   ]

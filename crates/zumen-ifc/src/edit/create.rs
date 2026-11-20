@@ -91,7 +91,7 @@ pub struct Template {
     pub unit: LengthUnit,
     /// `IfcProject` の GlobalId。[`derive_global_id`] で名前空間から導くか、元の文書の値を渡す
     pub project: GlobalId,
-    /// `IfcProject` の 3 Name
+    /// `IfcProject` の 3 Name。なければ空の文字列を書く
     pub name: Option<String>,
     /// ヘッダーの値
     pub header: Header,
@@ -130,7 +130,8 @@ pub fn create(template: &Template, cx: &mut Cx) -> Result<Vec<u8>, Error> {
         args: vec![
             text(&template.project.to_string()),
             owner.map_or_else(null, Item::Ref),
-            template.name.as_deref().map_or_else(null, text),
+            // Name は IfcProject の規則 HasName（IFC4 から。IfcOpenShell の検査が示す）で必須なので、名前がなければ空で書く
+            text(template.name.as_deref().unwrap_or_default()),
             null(),
             null(),
             null(),

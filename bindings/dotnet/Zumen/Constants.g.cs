@@ -22,7 +22,7 @@ namespace Zumen
         public const uint SchemaMajor = 1;
 
         /// <summary>メッセージのスキーマのマイナーバージョン</summary>
-        public const uint SchemaMinor = 106;
+        public const uint SchemaMinor = 113;
     }
 
     /// <summary>状態コード。知らない値も、そのまま持てる</summary>
@@ -76,7 +76,7 @@ namespace Zumen
         public nuint Len;
     }
 
-    /// <summary>ネイティブのライブラリが出す関数の形。32 bit の Windows では stdcall、ほかでは cdecl（Winapi）</summary>
+    /// <summary>ネイティブのライブラリが出す関数の形（64 bit の標準呼び出し規約）</summary>
     internal static unsafe class NativeFunctions
     {
         /// <summary>

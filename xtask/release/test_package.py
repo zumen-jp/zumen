@@ -47,6 +47,31 @@ class PackageTests(unittest.TestCase):
         with patch("licenses.subprocess.run", return_value=result), self.assertRaisesRegex(ValueError, "fixture failure"):
             licenses.run_about(["cargo-about", "about", "generate"])
 
+    def test_cargo_wrapper_filters_platform_and_clears_target_predicates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            stage = Path(temporary)
+            fake_cargo = stage / "fake_cargo.py"
+            fake_cargo.write_text(
+                "import json, sys\n"
+                "assert '--filter-platform' in sys.argv and 'wasm32-unknown-unknown' in sys.argv\n"
+                "print(json.dumps({\n"
+                "    'packages': [{'dependencies': [{'name': 'simdutf8', 'target': 'cfg(target_feature = \"simd128\")'}]}],\n"
+                "    'resolve': {'nodes': [{'deps': [{'dep_kinds': [{'kind': None, 'target': 'cfg(target_feature = \"simd128\")'}]}]}]},\n"
+                "}))\n",
+                encoding="utf-8",
+            )
+            fake_launcher = stage / ("fake_cargo.cmd" if sys.platform == "win32" else "fake_cargo")
+            if sys.platform == "win32":
+                fake_launcher.write_text(f'@"{sys.executable}" "{fake_cargo}" %*\r\n', encoding="utf-8")
+            else:
+                fake_launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{fake_cargo}" "$@"\n', encoding="utf-8")
+                fake_launcher.chmod(0o755)
+            with patch("licenses.shutil.which", return_value=str(fake_launcher)):
+                wrapper = licenses.cargo_wrapper(stage, "wasm32-unknown-unknown")
+            out = json.loads(subprocess.check_output([str(wrapper), "metadata", "--format-version", "1"], text=True))
+            self.assertIsNone(out["packages"][0]["dependencies"][0]["target"])
+            self.assertIsNone(out["resolve"]["nodes"][0]["deps"][0]["dep_kinds"][0]["target"])
+
     def test_wrong_target_crate_and_changed_text_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary) / "notice"
@@ -140,10 +165,10 @@ class PackageTests(unittest.TestCase):
                     built = root / "built"
                     built.mkdir()
                     for kind, filename in (("abi", target["library"]), ("cli", target["exe"])):
-                        versions = ("GLIBC_2.34",) if kind == newer else ("GLIBC_2.28",)
+                        versions = ("GLIBC_2.38",) if kind == newer else ("GLIBC_2.34",)
                         (built / filename).write_bytes(elf_fixture(versions, machine, executable=kind == "cli"))
                         notice(root / "licenses" / "native" / rid / kind, kind, target["target"])
-                    with self.assertRaisesRegex(ValueError, "GLIBC_2.34"):
+                    with self.assertRaisesRegex(ValueError, "GLIBC_2.38"):
                         package.package_native(rid, built, root, root / "out")
                     self.assertFalse((root / "out").exists())
 
@@ -151,14 +176,86 @@ class PackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             library = root / "libzumen_abi1.so"
-            library.write_bytes(elf_fixture(("GLIBC_2.34",)))
+            library.write_bytes(elf_fixture(("GLIBC_2.38",)))
             notice(root / "notice", "abi", "x86_64-unknown-linux-gnu")
             result = subprocess.run([sys.executable, str(licenses.ROOT / "bindings/python/build_wheel.py"),
-                                     str(library), "manylinux_2_28_x86_64", str(root / "out"),
+                                     str(library), "manylinux_2_34_x86_64", str(root / "out"),
                                      "--licenses", str(root / "notice")], capture_output=True)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn(b"GLIBC_2.34", result.stderr)
+            self.assertIn(b"GLIBC_2.38", result.stderr)
             self.assertFalse((root / "out").exists())
+
+
+    def test_npm_packages_pack_all_four_with_licenses_and_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifacts = root / "artifacts"
+            artifacts.mkdir()
+            content = b"wasm third party\n" + (licenses.ROOT / "LICENSE-MIT").read_bytes()
+            (artifacts / "THIRD_PARTY_LICENSES").write_bytes(content)
+            documents = {}
+            ref = sbom.bom_ref("local", "zumen-abi", package.VERSION)
+            for module in licenses.MODULES:
+                directory = artifacts / "licenses" / "wasm" / ("abi" if module == "default" else module)
+                directory.mkdir(parents=True)
+                features = "default" if module == "default" else module
+                info = {"package": "zumen-abi", "target": licenses.WASM, "features": features,
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                        "license_expression": licenses.license_expression(["MIT"]),
+                        "dependencies": [{"name": "fixture", "version": "0.0.0", "licenses": ["MIT"]}]}
+                (directory / "THIRD_PARTY_LICENSES").write_bytes(content)
+                (directory / "license-info.json").write_text(json.dumps(info), encoding="utf-8")
+                filename = licenses.wasm_name(module)
+                meta = {"component": {"bom-ref": ref, "scope": "required"}, "properties": [
+                    {"name": k, "value": v} for k, v in {"zumen:crate": "zumen-abi", "zumen:artifact": filename,
+                    "zumen:features": features, "zumen:commit": "fixture", "zumen:lock-sha256": "fixture",
+                    "cdx:rustc:sbom:target:triple": licenses.WASM}.items()]}
+                (directory / sbom.DRAFT).write_bytes(sbom.encode({"metadata": meta, "components": [],
+                                                                  "dependencies": [{"ref": ref, "dependsOn": []}]}))
+                binary = f"synthetic wasm {module}".encode()
+                (artifacts / filename).write_bytes(binary)
+                with patch("sbom.extracted_graph", return_value=(ref, {ref: ("runtime", set())})):
+                    documents["sboms/" + filename + ".cdx.json"] = sbom.bind(directory, info, filename, binary)
+            package.write_archive(artifacts / package.WASM_BOMS, documents, None)
+            out = root / "out"
+            with patch("sbom.extracted_graph", return_value=(ref, {ref: ("runtime", set())})):
+                package.package_npm(artifacts, out)
+            expected_names = {
+                f"zumen-jp-zumen-{package.VERSION}.tgz",
+                f"zumen-jp-view2d-{package.VERSION}.tgz",
+                f"zumen-jp-view3d-{package.VERSION}.tgz",
+                f"zumen-jp-react-{package.VERSION}.tgz",
+            }
+            self.assertEqual({p.name for p in out.glob("*.tgz")}, expected_names)
+            for slug in ("view2d", "view3d", "react"):
+                entries = package.read_archive(out / f"zumen-jp-{slug}-{package.VERSION}.tgz")
+                self.assertEqual(entries["package/LICENSE-MIT"], (licenses.ROOT / "LICENSE-MIT").read_bytes())
+                self.assertEqual(entries["package/LICENSE-APACHE"], (licenses.ROOT / "LICENSE-APACHE").read_bytes())
+                self.assertFalse(any(name.startswith(("package/test/", "package/example/")) for name in entries))
+
+    def test_npm_metadata_rejects_private_wrong_version_repo_and_runtime_deps(self):
+        base = {
+            "name": "@zumen-jp/view3d",
+            "version": package.VERSION,
+            "license": "MIT OR Apache-2.0",
+            "type": "module",
+            "repository": {"type": "git", "url": package.NPM_REPOSITORY_URL, "directory": "packages/view3d"},
+            "exports": {".": {"types": "./src/index.d.ts", "default": "./src/index.js"}},
+            "peerDependencies": {"@zumen-jp/zumen": f"^{package.VERSION}", "three": ">=0.187.0 <0.188.0"},
+        }
+        packed = {"package/src/index.d.ts": b"", "package/src/index.js": b""}
+        package.verify_npm_metadata(base, "@zumen-jp/view3d", "packages/view3d", packed)
+        cases = (
+            ({**base, "private": True}, "private"),
+            ({**base, "version": "0.1.0"}, "version"),
+            ({**base, "repository": {**base["repository"], "directory": "bindings/js"}}, "repository"),
+            ({**base, "dependencies": {"three": "0.187.0"}}, "バンドル依存"),
+            ({**base, "peerDependencies": {"@zumen-jp/zumen": "^0.1.0"}}, "peerDependencies"),
+            ({**base, "exports": {".": {"types": "./src/missing.d.ts", "default": "./src/index.js"}}}, "exports"),
+        )
+        for broken, pattern in cases:
+            with self.subTest(pattern=pattern), self.assertRaisesRegex(ValueError, pattern):
+                package.verify_npm_metadata(broken, "@zumen-jp/view3d", "packages/view3d", packed)
 
 
 if __name__ == "__main__":

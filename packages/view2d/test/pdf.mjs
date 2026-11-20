@@ -37,7 +37,7 @@ export async function testPdfUnderlays({ assert, near }) {
   const doc = await direct.promise, page = await doc.getPage(1), viewport = page.getViewport({ scale: 1 });
   const reference = canvasOf(viewport.width, viewport.height);
   await page.render({ canvasContext: reference.getContext("2d"), viewport }).promise;
-  const canvas = canvasOf(200, 200), viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2 });
+  const canvas = canvasOf(200, 200), viewer = await View2D.create(canvas, { width: 200, height: 200, pixelRatio: 2 });
   const allocated = [], requests = [], disposals = [];
   const originalLength = data.byteLength;
   const base = pdfUnderlayRenderer(pdfjs, () => data, { pageNumber: (name) => name === "front" ? 1 : Number(name), contentUnitsPerPoint: 1,
@@ -52,9 +52,13 @@ export async function testPdfUnderlays({ assert, near }) {
   assert(viewer.getReport().drawn.images === 1 && viewer.getState().underlays[0].status === "ready", "許諾済みの公開 PDF を利用側の描画関数で表示する");
   near(viewer.getState().underlays[0].width, viewport.width, "PDF のページ幅");
   const expected = reference.getContext("2d").getImageData(0, 0, 200, 200).data;
-  const actual = canvas.getContext("2d").getImageData(100, 100, 200, 200).data;
+  const shot = await viewer.snapshot();
   let wrong = 0, painted = 0;
-  for (let i = 0; i < expected.length; i++) { if (Math.abs(expected[i] - actual[i]) > 3) wrong++; if (i % 4 !== 3 && expected[i] < 240) painted++; }
+  for (let y = 0; y < 200; y++) for (let x = 0; x < 200; x++) {
+    const eo = (y * 200 + x) * 4, ao = ((y + 100) * shot.width + (x + 100)) * 4;
+    for (let c = 0; c < 4; c++) if (Math.abs(expected[eo + c] - shot.pixels[ao + c]) > 3) wrong++;
+    if (expected[eo] < 240 || expected[eo + 1] < 240 || expected[eo + 2] < 240) painted++;
+  }
   assert(wrong === 0 && painted > 100, "公開 PDF の画素を直接の pdf.js 描画と配置・画素比まで照らす");
   viewer.refreshUnderlays(); await settled(viewer);
   assert(data.byteLength === originalLength && data[0] === 0x25 && viewer.getState().underlays[0].status === "ready"
@@ -62,14 +66,16 @@ export async function testPdfUnderlays({ assert, near }) {
   viewer.setScene(bundle(imageScene({ kind: V.image_kind.pdf, at: [-50, -50], edges: [100, 0, 0, 100], pages: ["front"],
     clips: [{ xy: [-20, -20, 20, -20, 20, 20, -20, 20], inverted: true }] })));
   await settled(viewer);
-  const middle = canvas.getContext("2d").getImageData(200, 200, 1, 1).data;
+  const middleShot = await viewer.snapshot();
+  const middle = middleShot.pixels.subarray((200 * middleShot.width + 200) * 4, (200 * middleShot.width + 200) * 4 + 4);
   assert(middle[0] === 255 && middle[1] === 255 && middle[2] === 255, "公開 PDF に反転した切り抜きを当てる");
   viewer.setScene(bundle(imageScene({ kind: V.image_kind.pdf, pages: ["2"] }))); await settled(viewer);
   assert(viewer.getReport().issues[0].reason === "resource-resolve-failed", "公開 PDF にないページを別ページへ代替しない");
   const synthetic = pdfUnderlayRenderer(pdfjs, () => Promise.resolve(twoPages()), { pageNumber: Number, contentUnitsPerPoint: 2, createCanvas: canvasOf });
   viewer.setUnderlayRenderer(synthetic);
   viewer.setScene(bundle(imageScene({ kind: V.image_kind.pdf, frame: V.image_frame.unit, at: [-20, -40], edges: [.5, 0, 0, .5], pages: ["2"] }))); await settled(viewer);
-  const blue = canvas.getContext("2d").getImageData(200, 200, 1, 1).data;
+  const blueShot = await viewer.snapshot();
+  const blue = blueShot.pixels.subarray((200 * blueShot.width + 200) * 4, (200 * blueShot.width + 200) * 4 + 4);
   assert(blue[0] === 0 && blue[2] === 255, "合成 PDF の 2 ページ目を描く");
   assert(viewer.getState().underlays[0].width === 80 && viewer.getState().underlays[0].height === 160, "PDF のページ回転と利用側が指定した内容の単位を保つ");
   viewer.destroy(); await direct.destroy();

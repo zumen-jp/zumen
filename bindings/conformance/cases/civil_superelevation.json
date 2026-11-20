@@ -23,6 +23,19 @@
         "/result/alignment": "a",
         "/result/positions/0/northing": 30
       }
+    },
+    {
+      "call": { "v": 1, "op": "civil_drawing", "doc": "cant.xml", "sheet": "平面図", "to": "plan.dxf" },
+      "expect": {
+        "/result/doc": "plan.dxf",
+        "/result/sheet": "平面図",
+        "/diagnostics/0/code": "civil.value.dropped",
+        "/diagnostics/0/params/kind": "height_reference",
+        "/diagnostics/1/code": "civil.value.dropped",
+        "/diagnostics/1/count": 1,
+        "/diagnostics/1/params/kind": "cant",
+        "/diagnostics/1/params/target": "civil_drawing"
+      }
     }
   ]
 }

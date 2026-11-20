@@ -1,5 +1,5 @@
 //! 図形でないオブジェクト（MLINESTYLE・TABLESTYLE・DICTIONARY・XRECORD・GROUP・SCALE・IMAGEDEF・SPATIAL_FILTER・LAYOUT・
-//! DIMASSOC）のフィールドの読み取り。
+//! DIMASSOC・GEODATA）のフィールドの読み取り。
 
 use super::*;
 
@@ -42,6 +42,108 @@ pub(super) fn tablestyle(bits: &mut Bits) -> Option<Vec<Value>> {
         values.extend(weights);
         values.extend(shown);
         values.extend(colors);
+    }
+    Some(values)
+}
+
+/// R2010 からの TABLESTYLE（ODS 5.4.1 の 20.4.101）。バージョン（RC）・説明（3）・既定のハンドル・フラグ・
+/// 次の ID と、表全体のセルのスタイル（4）と行ごとのセルのスタイル（表題 1・見出し 2・データ 3 など）を読む。
+/// データ・表題・見出しのどれかに文字の高さか色があれば、DXF と同じくデータ・表題・見出しの順で文字スタイル（7）・
+/// 高さ（140）・色（62）を置く。まだ移さないフィールド（位置合わせ・背景・枠・余白・回転・真の色・追加のセルのスタイルなど）が
+/// あれば内部の印を置く
+pub(super) fn tablestyle_r2010(bits: &mut Bits, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
+    bits.rc()?;
+    let description = bits.text()?;
+    handles.push(0);
+    bits.bl()?;
+    bits.bl()?;
+    let read_style = |bits: &mut Bits, handles: &mut Vec<i16>| {
+        let mut text_style_index = None;
+        let style = cell_style_bits(bits, |is_text_style| {
+            let index = handles.len();
+            handles.push(0);
+            if is_text_style {
+                text_style_index = Some(index);
+            }
+            Data::Handle(SLOT + index as u64)
+        })?;
+        Some((style, text_style_index))
+    };
+    let (table_style, _) = read_style(bits, handles)?;
+    bits.bl()?;
+    bits.bl()?;
+    bits.text()?;
+    let mut unsupported = table_style.has_any_setting();
+    let count = usize::try_from(bits.bl()?).ok()?;
+    if count > bits.size() {
+        return None;
+    }
+    let mut title = None;
+    let mut header = None;
+    let mut data = None;
+    for _ in 0..count {
+        bits.bl()?;
+        let (style, text_style_index) = read_style(bits, handles)?;
+        let id = bits.bl()?;
+        bits.bl()?;
+        bits.text()?;
+        match id {
+            1 if title.is_none() => title = Some((style, text_style_index)),
+            2 if header.is_none() => header = Some((style, text_style_index)),
+            3 if data.is_none() => data = Some((style, text_style_index)),
+            _ => unsupported |= style.has_any_setting(),
+        }
+    }
+    let mut values = vec![text_value(3, &description)];
+    match (data, title, header) {
+        (Some(data), Some(title), Some(header)) => {
+            let rows = [data, title, header];
+            let any_configured = rows.iter().any(|(style, _)| style.style_row(false).2);
+            for (style, _) in &rows {
+                unsupported |= style.style_row(any_configured).3;
+            }
+            if unsupported {
+                values.push(Value {
+                    code: crate::db::DWG_UNSUPPORTED_TABLE_FORMAT,
+                    data: Data::Bool(true),
+                });
+            }
+            if any_configured {
+                for (style, text_style_index) in rows {
+                    let (height, color, _, _) = style.style_row(true);
+                    let slot = match text_style_index {
+                        Some(index) => {
+                            if let Some(entry) = handles.get_mut(index) {
+                                *entry = 7;
+                            }
+                            Data::Handle(SLOT + index as u64)
+                        }
+                        None => Data::Handle(0),
+                    };
+                    values.push(Value {
+                        code: 7,
+                        data: slot,
+                    });
+                    if let Some(height) = height {
+                        values.push(real(140, height));
+                    }
+                    if let Some(color) = color {
+                        values.push(int(62, i64::from(color)));
+                    }
+                }
+            }
+        }
+        (data, title, header) => {
+            for item in [data, title, header].into_iter().flatten() {
+                unsupported |= item.0.has_any_setting();
+            }
+            if unsupported {
+                values.push(Value {
+                    code: crate::db::DWG_UNSUPPORTED_TABLE_FORMAT,
+                    data: Data::Bool(true),
+                });
+            }
+        }
     }
     Some(values)
 }
@@ -385,6 +487,95 @@ pub(super) fn layout(
     Some(values)
 }
 
+/// GEODATA のフィールド（ODS 5.4.1 の 20.4.102。クラスで決まる型）。DXF と同じく `AcDbGeoData`（100）を先頭に置き、
+/// 版（90）・対象ブロックのレコード（330。ハンドルのストリームで埋める仮の値）・座標の種類（70）と、版ごとの位置・単位・向き・
+/// 座標系の定義（301）・メッシュの点と面を読む（#685）
+pub(super) fn geodata(bits: &mut Bits, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
+    let version = bits.bl()?;
+    if version < 1 {
+        return None;
+    }
+    handles.push(330);
+    let coordinate_type = bits.bs()?;
+    let mut values = vec![
+        text_value(100, b"AcDbGeoData"),
+        int(90, i64::from(version)),
+        Value {
+            code: 330,
+            data: Data::Handle(SLOT),
+        },
+        int(70, i64::from(coordinate_type)),
+    ];
+    let (source_code, dest_code) = if version == 1 {
+        let reference = point3(bits, 11)?;
+        let units = i64::from(bits.bl()?);
+        let design = point3(bits, 10)?;
+        let _obs = point3(bits, 0)?;
+        let up = point3(bits, 210)?;
+        let _north_angle = bits.bd()?;
+        let _scale = point3(bits, 0)?;
+        let definition = text_value(301, &bits.text()?);
+        let rss = text_value(302, &bits.text()?);
+        let unit_scale = bits.bd()?;
+        let _datum = bits.text()?;
+        let _wkt = bits.text()?;
+        values.extend(design);
+        values.extend(reference);
+        values.extend([
+            real(40, unit_scale),
+            int(91, units),
+            real(41, unit_scale),
+            int(92, units),
+        ]);
+        values.extend(up);
+        values.extend([definition, rss]);
+        (12, 13)
+    } else {
+        values.extend(point3(bits, 10)?);
+        values.extend(point3(bits, 11)?);
+        values.push(real(40, bits.bd()?));
+        values.push(int(91, i64::from(bits.bl()?)));
+        values.push(real(41, bits.bd()?));
+        values.push(int(92, i64::from(bits.bl()?)));
+        values.extend(point3(bits, 210)?);
+        values.extend(point2(bits, 12)?);
+        values.push(int(95, i64::from(bits.bl()?)));
+        values.push(real(141, bits.bd()?));
+        values.push(Value {
+            code: 294,
+            data: Data::Bool(bits.bit()?),
+        });
+        values.push(real(142, bits.bd()?));
+        values.push(real(143, bits.bd()?));
+        for code in [301, 302, 305, 306, 307] {
+            values.push(text_value(code, &bits.text()?));
+        }
+        (13, 14)
+    };
+    let mesh_points = usize::try_from(bits.bl()?).ok()?;
+    // 1 組の対応点は 2RD が 2 つで 32 バイト要る。データの長さを超える数は壊れているとして読まない
+    if mesh_points.checked_mul(32)? > bits.size() {
+        return None;
+    }
+    values.push(int(93, mesh_points as i64));
+    for _ in 0..mesh_points {
+        values.extend(point2(bits, source_code)?);
+        values.extend(point2(bits, dest_code)?);
+    }
+    let mesh_faces = usize::try_from(bits.bl()?).ok()?;
+    // 1 つの面は BL が 3 つで少なくとも 6 ビット要る
+    if mesh_faces.checked_mul(6)? > bits.size().checked_mul(8)? {
+        return None;
+    }
+    values.push(int(96, mesh_faces as i64));
+    for _ in 0..mesh_faces {
+        values.push(int(97, i64::from(bits.bl()?)));
+        values.push(int(98, i64::from(bits.bl()?)));
+        values.push(int(99, i64::from(bits.bl()?)));
+    }
+    Some(values)
+}
+
 /// RC を `n` 個読む
 pub(super) fn raw_bytes(bits: &mut Bits, n: usize) -> Option<Vec<u8>> {
     (0..n).map(|_| bits.rc()).collect()
@@ -521,5 +712,59 @@ mod tests {
         let (values, handles) = read_group(&group_fields(-1));
         assert!(values.is_some());
         assert_eq!(handles, []);
+    }
+
+    fn geodata_fields(mesh_points: i32, mesh_faces: i32) -> Vec<u8> {
+        let mut w = BitWriter::default();
+        w.bl(2);
+        w.bs(1);
+        (0..3).for_each(|_| w.bd(0.0));
+        (0..3).for_each(|_| w.bd(0.0));
+        w.bd(0.001);
+        w.bl(4);
+        w.bd(0.001);
+        w.bl(4);
+        w.bd(0.0);
+        w.bd(0.0);
+        w.bd(1.0);
+        w.rd(0.0);
+        w.rd(1.0);
+        w.bl(1);
+        w.bd(1.0);
+        w.bit(false);
+        w.bd(0.0);
+        w.bd(0.0);
+        (0..5).for_each(|_| w.text(b"").unwrap());
+        w.bl(mesh_points);
+        w.bl(mesh_faces);
+        w.into_bytes()
+    }
+
+    #[test]
+    fn geodata_mesh_counts_beyond_the_data_are_invalid() {
+        let data = geodata_fields(0, 0);
+        let mut handles = Vec::new();
+        assert!(geodata(&mut Bits::with_release(&data, Release::R2004), &mut handles).is_some());
+        assert_eq!(handles, [330]);
+
+        let too_many_pts = geodata_fields(100, 0);
+        let mut handles = Vec::new();
+        assert_eq!(
+            geodata(
+                &mut Bits::with_release(&too_many_pts, Release::R2004),
+                &mut handles
+            ),
+            None
+        );
+
+        let too_many_faces = geodata_fields(0, 1000);
+        let mut handles = Vec::new();
+        assert_eq!(
+            geodata(
+                &mut Bits::with_release(&too_many_faces, Release::R2004),
+                &mut handles
+            ),
+            None
+        );
     }
 }

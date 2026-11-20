@@ -1122,7 +1122,19 @@ fn points_are_replaced_transformed_and_added() {
         None,
     );
     assert!(result.is_ok(), "{diagnostics:?}");
-    let found = points(&file);
+    let bytes = write(&file);
+    let reopened = read(&bytes);
+    let record = reopened
+        .records()
+        .iter()
+        .rev()
+        .find(|record| reopened.kind_name(record) == b"CDataTen")
+        .unwrap();
+    // 記号点レコードの末尾は角度と倍率。再読だけでは双方が度でそろう誤りを検出できない。
+    let end = record.body().end;
+    let stored = f64::from_le_bytes(bytes[end - 16..end - 8].try_into().unwrap());
+    assert!((stored - PI / 6.0).abs() < 1e-15, "{stored}");
+    let found = points(&reopened);
     assert_eq!(found.len(), 3);
     assert!(
         close(&found[1], &added) && close(&found[2], &marker),

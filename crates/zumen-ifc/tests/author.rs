@@ -1,18 +1,19 @@
 //! 空間・要素・関係を足し、除き、置き直す変更（#897）。ファイルは、どれもテストの中で作る。
 #![cfg(feature = "building")]
 
-use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
+use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Kind, Limit, Limits, codes};
 use zumen_building::{
     BooleanOperation, Building, CartesianMapping3, ElementRef, FaceBoundRef, FaceSetRef, GlobalId,
     GridSet, Id, IndexedFaces, Local, MappingScale3, MaterialKind, Opening, ParentKind,
     QuantityKind, SpatialKind, Transform,
 };
 use zumen_ifc::{
-    Edit, FillingKind, Ifc, IfcFile, IfcLive, NewAxis3, NewBeam, NewColumn, NewConstituent,
-    NewElement, NewFaces, NewFilling, NewGrid, NewGridAxis, NewHalfSpaceLimit, NewItem, NewLayer,
-    NewLayerUsage, NewMapped, NewMaterial, NewMaterialLayer, NewOpening, NewPlacement,
-    NewProfileKind, NewQuantity, NewSection, NewShape, NewSlab, NewSolid, NewSpace, NewUnit,
-    NewWall, OpeningChange, RootAttribute, SpaceKind, Target, WallChange, apply,
+    Edit, FillingKind, Header, Ifc, IfcFile, IfcLive, LengthUnit, NewAxis3, NewBeam, NewColumn,
+    NewConstituent, NewElement, NewFaces, NewFilling, NewGrid, NewGridAxis, NewHalfSpaceLimit,
+    NewItem, NewLayer, NewLayerUsage, NewLiteral, NewMapped, NewMaterial, NewMaterialLayer,
+    NewOpening, NewPlacement, NewProfileKind, NewQuantity, NewRevolution, NewSection, NewShape,
+    NewSlab, NewSolid, NewSpace, NewSweptDisk, NewType, NewUnit, NewValue, NewWall, OpeningChange,
+    OwnerHistory, RootAttribute, SpaceKind, Target, Template, Version, WallChange, apply, create,
 };
 use zumen_sdk::{Codec, Error, Lift};
 
@@ -560,6 +561,59 @@ fn mints_global_ids_from_the_seed() {
     );
 }
 
+/// 文書の `('` で始まる 22 文字の GlobalId
+fn global_ids(bytes: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .filter_map(|line| {
+            let (_, rest) = line.split_once("('")?;
+            let (global_id, _) = rest.split_once('\'')?;
+            (global_id.len() == 22).then(|| global_id.to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn keys_relation_global_ids_by_what_they_join() {
+    // 関係とセットの GlobalId は、足した順でなく、種類と結ぶ要素とセットの名前から決まる（#395）
+    let note = |set: &str| Edit::Property {
+        element: 10,
+        set: set.to_owned(),
+        name: "Note".to_owned(),
+        value: NewValue {
+            type_name: "IfcLabel".to_owned(),
+            literal: NewLiteral::Text("a".to_owned()),
+        },
+    };
+    let wall = || new_element("IfcWall", 200, Some(Target::Instance(10)), None);
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let (alone, codes) = run(src.as_bytes(), &[wall(), note("Pset_A")]);
+        let alone = alone.unwrap_or_else(|_| panic!("{schema}: {codes:?}"));
+        let (after, codes) = run(
+            src.as_bytes(),
+            &[
+                space(SpaceKind::Building, 100, Target::Instance(10), 0.0),
+                new_element("IfcSlab", 201, Some(Target::Added(0)), None),
+                note("Pset_B"),
+                wall(),
+                note("Pset_A"),
+            ],
+        );
+        let after = after.unwrap_or_else(|_| panic!("{schema}: {codes:?}"));
+        // 壁の包含・セット・セットの関係は、先に足した建物・床・別のセットによらない
+        let (alone, after) = (global_ids(&alone), global_ids(&after));
+        assert_eq!(alone.len(), 8, "{schema}");
+        for global_id in &alone {
+            assert!(after.contains(global_id), "{schema}: {global_id}");
+        }
+        let mut unique = after.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), after.len(), "{schema}");
+    }
+}
+
 #[test]
 fn writes_predefined_types_by_version() {
     let edit = |predefined: Option<&str>| {
@@ -719,6 +773,456 @@ fn the_document_engine_applies_structural_edits_like_reopening() {
 }
 
 #[test]
+fn adds_site_types_and_rejects_invalid_containment_or_cycles() {
+    for (schema, version) in [
+        ("IFC2X3", Version::Ifc2x3),
+        ("IFC4", Version::Ifc4),
+        ("IFC4X3_ADD2", Version::Ifc4x3),
+    ] {
+        let template = Template {
+            version,
+            unit: LengthUnit::Millimeter,
+            project: global(1),
+            name: Some("Project".to_owned()),
+            header: Header::default(),
+            owner: Some(OwnerHistory {
+                person: "Author".to_owned(),
+                organization: "Organization".to_owned(),
+                developer: "zumen".to_owned(),
+                application: "zumen".to_owned(),
+                version: "0.3.0".to_owned(),
+                identifier: "zumen".to_owned(),
+                created: 1_700_000_000,
+            }),
+        };
+        let (base, diag) = with(|cx| create(&template, cx));
+        assert!(diag.is_empty(), "{schema}");
+        let base = String::from_utf8(base.unwrap()).unwrap();
+        let data_end = base.find("\nENDSEC;\nEND-ISO").unwrap();
+
+        // IFC2X3 は扉の型（IfcDoorType）を持たないので断る
+        let door_type = Edit::ElementType(NewType {
+            class: "IfcDoorType".to_owned(),
+            predefined: Some("DOOR".to_owned()),
+            element_type: None,
+            name: Some("DT-1".to_owned()),
+            global_id: Some(global(112)),
+        });
+        let (door_res, door_codes) = run(base.as_bytes(), std::slice::from_ref(&door_type));
+        assert_eq!(
+            door_res.is_ok(),
+            schema != "IFC2X3",
+            "{schema}: {door_codes:?}"
+        );
+
+        let mut edits = vec![
+            Edit::Space(NewSpace {
+                kind: SpaceKind::Site,
+                name: Some("Site".to_owned()),
+                parent: Target::Instance(1),
+                placement: Some(NewPlacement {
+                    relative_to: None,
+                    local: Transform::translation(100.0, 200.0, 0.0),
+                }),
+                elevation: Some(12500.0),
+                global_id: Some(global(10)),
+            }),
+            space(SpaceKind::Building, 100, Target::Added(0), 0.0),
+            space(SpaceKind::Storey, 101, Target::Added(1), 0.0),
+            space(SpaceKind::Storey, 102, Target::Added(1), 3000.0),
+            Edit::ElementType(NewType {
+                class: "IfcWallType".to_owned(),
+                predefined: Some("SHEAR".to_owned()),
+                element_type: None,
+                name: Some("WT-1".to_owned()),
+                global_id: Some(global(110)),
+            }),
+            Edit::ElementType(NewType {
+                class: "IfcColumnType".to_owned(),
+                predefined: Some("USERDEFINED".to_owned()),
+                element_type: Some("C-600".to_owned()),
+                name: Some("CT-1".to_owned()),
+                global_id: Some(global(111)),
+            }),
+            new_element(
+                "IfcWall",
+                200,
+                Some(Target::Added(2)),
+                Some(at(1000.0, 0.0, 0.0, Target::Added(2))),
+            ),
+            new_element(
+                "IfcOpeningElement",
+                201,
+                None,
+                Some(at(500.0, 0.0, 0.0, Target::Added(6))),
+            ),
+            Edit::Void {
+                host: Target::Added(6),
+                opening: Target::Added(7),
+            },
+            Edit::Type {
+                element: Target::Added(6),
+                type_of: Some(Target::Added(4)),
+            },
+        ];
+        if schema != "IFC2X3" {
+            edits.push(door_type);
+        }
+        let (built, codes) = run(base.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let built = String::from_utf8(built.unwrap()).unwrap();
+        assert!(built.starts_with(base.get(..data_end).unwrap()), "{schema}");
+        assert!(built.ends_with(base.get(data_end..).unwrap()), "{schema}");
+
+        let lifted = lift(built.as_bytes()).unwrap();
+        let site = element(&lifted, 10).unwrap();
+        let site_spatial = lifted.components.spatial.get(site).unwrap();
+        assert_eq!(site_spatial.kind, SpatialKind::Site);
+        assert_eq!(
+            site_spatial.ref_elevation.as_ref().map(|m| m.value),
+            Some(12500.0)
+        );
+        let wt = element(&lifted, 110).unwrap();
+        let ct = element(&lifted, 111).unwrap();
+        let w = element(&lifted, 200).unwrap();
+        assert_eq!(lifted.components.r#type.get(w).map(|t| t.target), Some(wt));
+        assert_eq!(
+            lifted
+                .components
+                .class
+                .get(ct)
+                .and_then(|c| c.predefined.as_deref()),
+            Some("USERDEFINED")
+        );
+
+        let site_inst = Target::Instance(instance_of(&built, 10).unwrap());
+        let bldg_inst = Target::Instance(instance_of(&built, 100).unwrap());
+        let first_inst = Target::Instance(instance_of(&built, 101).unwrap());
+        let opening_inst = Target::Instance(instance_of(&built, 201).unwrap());
+        let wt_inst = Target::Instance(instance_of(&built, 110).unwrap());
+
+        // 開口の空間包含と、集約の循環（敷地を子孫の建物・階の下へ移す）は断る
+        let invalid_cases: Vec<Vec<Edit>> = vec![
+            vec![new_element(
+                "IfcOpeningElement",
+                390,
+                Some(first_inst),
+                None,
+            )],
+            vec![Edit::Contain {
+                element: opening_inst,
+                space: first_inst,
+            }],
+            vec![Edit::Contain {
+                element: site_inst,
+                space: bldg_inst,
+            }],
+            vec![Edit::Contain {
+                element: site_inst,
+                space: first_inst,
+            }],
+        ];
+        for invalid in invalid_cases {
+            let (res, codes) = run(built.as_bytes(), &invalid);
+            assert!(matches!(res, Err(Error::Invalid)), "{schema}: {invalid:?}");
+            assert_eq!(
+                codes,
+                [codes::CHANGE_EDIT_UNSUPPORTED],
+                "{schema}: {invalid:?}"
+            );
+        }
+
+        // 開口を IFCREL でないインスタンス（プロパティ参照）が指す壁は、関係を書き換えずに断る
+        let opening_raw = instance_of(&built, 201).unwrap();
+        let wall_raw = instance_of(&built, 200).unwrap();
+        let with_ref = built.replace(
+            "ENDSEC;\nEND-ISO-10303-21;",
+            &format!(
+                "#9900=IFCPROPERTYSINGLEVALUE('Ref',$,#{opening_raw},$);\n\
+                 #9901=IFCPROPERTYSET('{}',#2,'Pset_Ref',$,(#9900));\n\
+                 #9902=IFCRELDEFINESBYPROPERTIES('{}',#2,$,$,(#1),#9901);\n\
+                 ENDSEC;\nEND-ISO-10303-21;",
+                gid(9901),
+                gid(9902),
+            ),
+        );
+        let (res, codes) = run(
+            with_ref.as_bytes(),
+            &[
+                Edit::Remove {
+                    element: Target::Instance(wall_raw),
+                },
+                rename(10, "Untouched"),
+            ],
+        );
+        assert!(matches!(res, Err(Error::Invalid)), "{schema}");
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{schema}");
+
+        // 型を除くと、型の関係も除かれ、要素自体は残る
+        let (after_type_rm, codes) = run(built.as_bytes(), &[Edit::Remove { element: wt_inst }]);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let after_type_rm = after_type_rm.unwrap();
+        let lifted_after = lift(&after_type_rm).unwrap();
+        assert!(element(&lifted_after, 110).is_none());
+        let w_after = element(&lifted_after, 200).unwrap();
+        assert!(lifted_after.components.r#type.get(w_after).is_none());
+    }
+}
+
+#[test]
+fn the_document_engine_tracks_every_structural_dependency_and_zip_history() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let zip_src = zumen_zip::write(&[("model/a.ifc", src.as_bytes())]).unwrap();
+        for zipped in [false, true] {
+            let input = if zipped {
+                zip_src.as_slice()
+            } else {
+                src.as_bytes()
+            };
+            let (live, diag) = with(|cx| IfcLive::open(input, cx));
+            assert!(diag.is_empty(), "{schema} zip={zipped}");
+            let mut live = live.unwrap();
+            assert_eq!(live.is_zip(), zipped);
+
+            // 1 段目: 建物・2 階・通り芯・新しい型・壁・開口・扉・柱と関係をまとめて足す
+            let step1 = vec![
+                space(SpaceKind::Building, 100, Target::Instance(10), 0.0),
+                space(SpaceKind::Storey, 101, Target::Added(0), 0.0),
+                space(SpaceKind::Storey, 102, Target::Added(0), 3000.0),
+                Edit::Grid(grid(103, Target::Added(1))),
+                Edit::ElementType(NewType {
+                    class: "IfcWallType".to_owned(),
+                    predefined: Some("SHEAR".to_owned()),
+                    element_type: None,
+                    name: Some("WT-110".to_owned()),
+                    global_id: Some(global(110)),
+                }),
+                new_element(
+                    "IfcWall",
+                    200,
+                    Some(Target::Added(1)),
+                    Some(at(1000.0, 0.0, 0.0, Target::Added(1))),
+                ),
+                new_element(
+                    "IfcOpeningElement",
+                    201,
+                    None,
+                    Some(at(500.0, 0.0, 0.0, Target::Added(5))),
+                ),
+                new_element(
+                    "IfcDoor",
+                    202,
+                    Some(Target::Added(1)),
+                    Some(at(0.0, 0.0, 0.0, Target::Added(6))),
+                ),
+                new_element(
+                    "IfcColumn",
+                    203,
+                    Some(Target::Added(1)),
+                    Some(at(0.0, 2000.0, 0.0, Target::Added(1))),
+                ),
+                Edit::Void {
+                    host: Target::Added(5),
+                    opening: Target::Added(6),
+                },
+                Edit::Fill {
+                    opening: Target::Added(6),
+                    filler: Target::Added(7),
+                },
+                Edit::Type {
+                    element: Target::Added(5),
+                    type_of: Some(Target::Added(4)),
+                },
+                Edit::Type {
+                    element: Target::Added(8),
+                    type_of: Some(Target::Instance(20)),
+                },
+            ];
+            let expected1 = run(src.as_bytes(), &step1).0.unwrap();
+            let (changed1, diag1) = with(|cx| live.apply(&step1, b"seed", cx));
+            assert!(diag1.is_empty(), "{schema} zip={zipped}");
+            assert!(changed1.unwrap() > 0);
+            assert_eq!(with(|cx| live.save_spf(cx)).0.unwrap(), expected1);
+
+            // 依存辺（包含・集約・相対配置・型・開口と充填・通り芯）がすべて追えることを確かめる
+            let find = |engine: &IfcLive, n: u32| element(engine.building(), n).unwrap();
+            let affected_by = |engine: &IfcLive, n: u32| -> Vec<ElementRef> {
+                let root = find(engine, n);
+                with(|cx| engine.affected_elements(&[root], cx)).0.unwrap()
+            };
+            let [
+                bldg,
+                first,
+                second,
+                grid_ref,
+                wt110,
+                wall_ref,
+                open_ref,
+                door_ref,
+                col_ref,
+                wt20,
+            ] = [100, 101, 102, 103, 110, 200, 201, 202, 203, 20].map(|n| find(&live, n));
+            let site_affected = affected_by(&live, 10);
+            for target in [
+                bldg, first, second, grid_ref, wall_ref, open_ref, door_ref, col_ref,
+            ] {
+                assert!(site_affected.contains(&target), "{schema}: {target:?}");
+            }
+            let first_affected = affected_by(&live, 101);
+            for target in [grid_ref, wall_ref, open_ref, door_ref, col_ref] {
+                assert!(first_affected.contains(&target), "{schema}: {target:?}");
+            }
+            assert!(!first_affected.contains(&second));
+            // 型 -> 要素（壁から開口・扉へも推移する）
+            let wt110_affected = affected_by(&live, 110);
+            for target in [wall_ref, open_ref, door_ref] {
+                assert!(wt110_affected.contains(&target));
+            }
+            assert!(!wt110_affected.contains(&wt110));
+            assert!(!wt110_affected.contains(&col_ref));
+            let wt20_affected = affected_by(&live, 20);
+            assert!(!wt20_affected.contains(&wt20));
+            assert!(wt20_affected.contains(&col_ref));
+            // 相対配置・開口と充填（壁 <-> 開口 -> 扉）
+            let wall_affected = affected_by(&live, 200);
+            assert!(wall_affected.contains(&open_ref));
+            assert!(wall_affected.contains(&door_ref));
+            let open_affected = affected_by(&live, 201);
+            assert!(open_affected.contains(&wall_ref));
+            assert!(open_affected.contains(&door_ref));
+            // 通り芯の軸 -> 通り芯
+            if let Some(zumen_building::Grid::Grid { axes }) =
+                live.building().components.grid.get(grid_ref)
+            {
+                assert_eq!(axes.len(), 4);
+                for &(_, axis_elem) in axes {
+                    let axis_affected = with(|cx| live.affected_elements(&[axis_elem], cx))
+                        .0
+                        .unwrap();
+                    assert!(axis_affected.contains(&grid_ref), "{schema}");
+                }
+            } else {
+                panic!("{schema}: grid missing");
+            }
+            let state1_saved = with(|cx| live.save(cx)).0.unwrap();
+
+            // 2 段目: 差分で当てる編集（属性とプロパティ）
+            let spf1_text = String::from_utf8(expected1.clone()).unwrap();
+            let wall_inst = instance_of(&spf1_text, 200).unwrap();
+            let step2 = vec![
+                rename(wall_inst, "Wall-Renamed"),
+                Edit::Property {
+                    element: wall_inst,
+                    set: "Pset_WallCommon".to_owned(),
+                    name: "Reference".to_owned(),
+                    value: NewValue {
+                        type_name: "IfcIdentifier".to_owned(),
+                        literal: NewLiteral::Text("W1".to_owned()),
+                    },
+                },
+            ];
+            let expected2 = run(&expected1, &step2).0.unwrap();
+            with(|cx| live.apply(&step2, b"seed", cx)).0.unwrap();
+            assert_eq!(with(|cx| live.save_spf(cx)).0.unwrap(), expected2);
+            let state2_saved = with(|cx| live.save(cx)).0.unwrap();
+
+            // 3 段目: 柱と通り芯を 2F へ置き直し・移し、型を付け替え・外す
+            let second_inst = Target::Instance(instance_of(&spf1_text, 102).unwrap());
+            let col_inst = Target::Instance(instance_of(&spf1_text, 203).unwrap());
+            let grid_inst = Target::Instance(instance_of(&spf1_text, 103).unwrap());
+            let step3 = vec![
+                Edit::Place {
+                    element: col_inst,
+                    placement: at(2500.0, 1000.0, 0.0, second_inst),
+                },
+                Edit::Contain {
+                    element: col_inst,
+                    space: second_inst,
+                },
+                Edit::Contain {
+                    element: grid_inst,
+                    space: second_inst,
+                },
+                Edit::Type {
+                    element: Target::Instance(wall_inst),
+                    type_of: Some(Target::Instance(20)),
+                },
+                Edit::Type {
+                    element: col_inst,
+                    type_of: None,
+                },
+            ];
+            let expected3 = run(&expected2, &step3).0.unwrap();
+            with(|cx| live.apply(&step3, b"seed", cx)).0.unwrap();
+            assert_eq!(with(|cx| live.save_spf(cx)).0.unwrap(), expected3);
+            // 置き直した後の依存辺も開き直した状態と一致する
+            let reopened3 = with(|cx| IfcLive::open(&expected3, cx)).0.unwrap();
+            assert_eq!(dependency_edges(&live), dependency_edges(&reopened3));
+            let col3 = find(&live, 203);
+            let grid3 = find(&live, 103);
+            let wall3 = find(&live, 200);
+            assert!(affected_by(&live, 102).contains(&col3));
+            assert!(affected_by(&live, 102).contains(&grid3));
+            assert!(!affected_by(&live, 101).contains(&col3));
+            assert!(affected_by(&live, 110).is_empty());
+            assert!(affected_by(&live, 20).contains(&wall3));
+            assert!(!affected_by(&live, 20).contains(&col3));
+            let _ = wt110;
+            let _ = wt20;
+            let state3_saved = with(|cx| live.save(cx)).0.unwrap();
+
+            // 4 段目: 扉・壁（開口も連鎖）・通り芯を除く
+            let spf3_text = String::from_utf8(expected3.clone()).unwrap();
+            let door_inst = Target::Instance(instance_of(&spf3_text, 202).unwrap());
+            let step4 = vec![
+                Edit::Remove { element: door_inst },
+                Edit::Remove {
+                    element: Target::Instance(instance_of(&spf3_text, 200).unwrap()),
+                },
+                Edit::Remove { element: grid_inst },
+            ];
+            let expected4 = run(&expected3, &step4).0.unwrap();
+            with(|cx| live.apply(&step4, b"seed", cx)).0.unwrap();
+            assert_eq!(with(|cx| live.save_spf(cx)).0.unwrap(), expected4);
+            let state4_saved = with(|cx| live.save(cx)).0.unwrap();
+
+            // 4 段すべて取り消すと元のバイト列（ifcZIP なら元のアーカイブそのもの）に戻り、やり直すと各段に戻る
+            let saved_states = [
+                input.to_vec(),
+                state1_saved,
+                state2_saved,
+                state3_saved,
+                state4_saved,
+            ];
+            let spf_states = [
+                src.as_bytes().to_vec(),
+                expected1,
+                expected2,
+                expected3,
+                expected4,
+            ];
+            assert_eq!((live.undo_len(), live.redo_len()), (4, 0));
+            for idx in (0..4).rev() {
+                assert_eq!(with(|cx| live.undo(cx)).0.ok(), Some(true));
+                assert_eq!(with(|cx| live.save(cx)).0.unwrap(), saved_states[idx]);
+                assert_eq!(with(|cx| live.save_spf(cx)).0.unwrap(), spf_states[idx]);
+                let reopened = with(|cx| IfcLive::open(&spf_states[idx], cx)).0.unwrap();
+                assert_eq!(live.building(), reopened.building());
+                assert_eq!(dependency_edges(&live), dependency_edges(&reopened));
+            }
+            assert!(live.is_clean());
+            assert_eq!(live.state_id(), 0);
+            for idx in 1..=4 {
+                assert_eq!(with(|cx| live.redo(cx)).0.ok(), Some(true));
+                assert_eq!(with(|cx| live.save(cx)).0.unwrap(), saved_states[idx]);
+                assert_eq!(with(|cx| live.save_spf(cx)).0.unwrap(), spf_states[idx]);
+            }
+        }
+    }
+}
+
+#[test]
 fn the_document_engine_keeps_its_state_on_refused_or_stopped_edits() {
     let src = sample("IFC4", true);
     let (live, _) = with(|cx| IfcLive::open(src.as_bytes(), cx));
@@ -732,19 +1236,109 @@ fn the_document_engine_keeps_its_state_on_refused_or_stopped_edits() {
     assert!(matches!(result, Err(Error::Invalid)));
     assert!(!diag.is_empty());
     assert!(live.is_clean());
-    let mut budget = Budget::new(Limits::default());
-    let mut diag = Diagnostics::new();
-    let cancel = CancelToken::new();
-    cancel.cancel();
-    let stopped = live.apply(
-        &building_edits(),
-        b"seed",
-        &mut Cx::new(&mut budget, &mut diag, &cancel),
-    );
-    assert!(matches!(stopped, Err(Error::Stopped(_))));
-    assert!(live.is_clean());
-    assert_eq!((live.undo_len(), live.redo_len()), (0, 0));
-    assert_eq!(with(|cx| live.save(cx)).0.ok(), Some(src.into_bytes()));
+
+    // 構造の編集・差分の編集・それぞれの undo / redo のすべての段で、どの予算や中断で止まっても状態を変えない
+    let structural = building_edits();
+    let diff = [rename(10, "After")];
+    let perform = |engine: &mut IfcLive, phase: usize, cx: &mut Cx| -> Result<bool, Error> {
+        match phase {
+            0 => engine.apply(&structural, b"seed", cx).map(|n| n > 0),
+            1 => engine.apply(&diff, b"seed", cx).map(|n| n > 0),
+            2 | 3 => engine.undo(cx),
+            _ => engine.redo(cx),
+        }
+    };
+    for phase in 0..6 {
+        let before_bytes = with(|cx| live.save(cx)).0.unwrap();
+        let before_building = live.building().clone();
+        let before_edges = dependency_edges(&live).unwrap();
+        let before_meta = (
+            live.is_clean(),
+            live.state_id(),
+            live.undo_len(),
+            live.redo_len(),
+        );
+        let mut measured = Budget::default();
+        let ok_cancel = CancelToken::new();
+        perform(
+            &mut live.clone(),
+            phase,
+            &mut Cx::new(&mut measured, &mut Diagnostics::new(), &ok_cancel),
+        )
+        .unwrap();
+        let mut expected_next = live.clone();
+        with(|cx| perform(&mut expected_next, phase, cx)).0.unwrap();
+        let expected_bytes = with(|cx| expected_next.save(cx)).0.unwrap();
+
+        for kind in Kind::ALL {
+            let used = measured.used(kind);
+            if used == 0 {
+                continue;
+            }
+            for limit in [0, used / 2, used - 1, used] {
+                let mut budget = Budget::new(Limits::default().with(kind, Limit::Finite(limit)));
+                let mut diag = Diagnostics::new();
+                let mut candidate = live.clone();
+                let outcome = perform(
+                    &mut candidate,
+                    phase,
+                    &mut Cx::new(&mut budget, &mut diag, &ok_cancel),
+                );
+                if limit < used {
+                    assert!(
+                        matches!(outcome, Err(Error::Stopped(_))),
+                        "phase={phase} {kind:?} limit={limit} used={used}"
+                    );
+                    assert_eq!(with(|cx| candidate.save(cx)).0.unwrap(), before_bytes);
+                    assert_eq!(candidate.building(), &before_building);
+                    assert_eq!(dependency_edges(&candidate).unwrap(), before_edges);
+                    assert_eq!(
+                        (
+                            candidate.is_clean(),
+                            candidate.state_id(),
+                            candidate.undo_len(),
+                            candidate.redo_len(),
+                        ),
+                        before_meta
+                    );
+                } else {
+                    assert!(
+                        outcome.is_ok(),
+                        "phase={phase} {kind:?} limit={limit} used={used}"
+                    );
+                    assert_eq!(with(|cx| candidate.save(cx)).0.unwrap(), expected_bytes);
+                }
+            }
+        }
+
+        let cancel = CancelToken::new();
+        cancel.cancel();
+        let stopped = perform(
+            &mut live,
+            phase,
+            &mut Cx::new(
+                &mut Budget::new(Limits::default()),
+                &mut Diagnostics::new(),
+                &cancel,
+            ),
+        );
+        assert!(matches!(stopped, Err(Error::Stopped(_))));
+        assert_eq!(with(|cx| live.save(cx)).0.unwrap(), before_bytes);
+        assert_eq!(live.building(), &before_building);
+        assert_eq!(dependency_edges(&live).unwrap(), before_edges);
+        assert_eq!(
+            (
+                live.is_clean(),
+                live.state_id(),
+                live.undo_len(),
+                live.redo_len(),
+            ),
+            before_meta
+        );
+
+        assert_eq!(with(|cx| perform(&mut live, phase, cx)).0.ok(), Some(true));
+        assert_eq!(with(|cx| live.save(cx)).0.unwrap(), expected_bytes);
+    }
 }
 
 fn layer(material: &str, thickness: f64) -> NewLayer {
@@ -763,6 +1357,7 @@ fn wall(n: u32, storey: Target, from: [f64; 2], to: [f64; 2]) -> Edit {
         height: 2800.0,
         layers: vec![layer("Concrete", 150.0), layer("Insulation", 50.0)],
         offset: None,
+        type_of: None,
         name: Some(format!("W{n}")),
         global_id: Some(global(n)),
     })
@@ -944,6 +1539,7 @@ fn slab(n: u32, storey: Target) -> NewSlab {
         outline: vec![[0.0, 0.0], [6000.0, 0.0], [6000.0, 4000.0], [0.0, 4000.0]],
         layers: vec![layer("Concrete", 200.0), layer("Finish", 50.0)],
         elevation: None,
+        type_of: None,
         name: Some(format!("S{n}")),
         global_id: Some(global(n)),
     }
@@ -962,6 +1558,7 @@ fn column(n: u32, storey: Target) -> NewColumn {
         },
         direction: Some([0.0, 1.0]),
         material: Some("Concrete".to_owned()),
+        type_of: None,
         name: Some(format!("C{n}")),
         global_id: Some(global(n)),
     }
@@ -978,6 +1575,7 @@ fn beam(n: u32, storey: Target) -> NewBeam {
             depth: 600.0,
         },
         material: Some("Steel".to_owned()),
+        type_of: None,
         name: Some(format!("B{n}")),
         global_id: Some(global(n)),
     }
@@ -1241,6 +1839,7 @@ fn filling(n: u32, opening: Target, kind: FillingKind, size: [f64; 2]) -> Edit {
         kind,
         width: Some(size[0]),
         height: Some(size[1]),
+        type_of: None,
         name: Some(format!("F{n}")),
         global_id: Some(global(n)),
     })
@@ -1305,10 +1904,10 @@ fn adds_openings_doors_and_windows_to_walls_in_every_version() {
                 Some([1.0, 0.0, 0.0])
             )]
         );
-        // 建具は開口の配置に置き、壁と同じ階に包含で結ぶ
-        for (filling, opening, name, predefined) in [
-            (door, door_opening, "IfcDoor", "DOOR"),
-            (window, window_opening, "IfcWindow", "WINDOW"),
+        // 建具は開口の配置に置き、壁の層の中央に厚さの 4 分の 1 の Body を持ち、壁と同じ階に包含で結ぶ
+        for (filling, opening, n, name, predefined) in [
+            (door, door_opening, 501, "IfcDoor", "DOOR"),
+            (window, window_opening, 503, "IfcWindow", "WINDOW"),
         ] {
             let class = building.components.class.get(filling).unwrap();
             assert_eq!(class.name, name, "{schema}");
@@ -1319,6 +1918,7 @@ fn adds_openings_doors_and_windows_to_walls_in_every_version() {
             let parent = building.components.parent.get(filling).unwrap();
             let of = parent.of.as_ref().unwrap();
             assert_eq!((of.target, of.kind), (storey, ParentKind::Contained));
+            assert_eq!(solids(&bytes, n).unwrap(), [([0.0, 25.0, 0.0], 50.0)]);
         }
         // 開口は空間に所属しない
         assert!(
@@ -1584,6 +2184,7 @@ fn change_edits(text: &str) -> Option<Vec<Edit>> {
                 layer("Board", 50.0),
             ],
             offset: None,
+            type_of: None,
         }),
         Edit::OpeningShape(OpeningChange {
             opening: at(502)?,
@@ -1639,10 +2240,15 @@ fn changes_storeys_walls_and_openings_and_dependents_follow_in_every_version() {
         assert_eq!(count(&changed, "IFCMATERIAL"), 5, "{schema}");
         assert_eq!(count(&changed, "IFCMATERIALLAYER"), 5, "{schema}");
         assert_eq!(count(&changed, "IFCMATERIALLAYERSETUSAGE"), 2, "{schema}");
-        // 壁の開口は新しい層の範囲を貫き、扉は開口の配置のまま
+        // 壁の開口は新しい層の範囲を貫き、扉は開口の配置のまま厚み 75（300 の 4 分の 1）に追従する
         assert_eq!(
             solids(&after, 500).unwrap(),
             [([0.0, 150.0, 0.0], 300.0)],
+            "{schema}"
+        );
+        assert_eq!(
+            solids(&after, 501).unwrap(),
+            [([0.0, 37.5, 0.0], 75.0)],
             "{schema}"
         );
         assert_eq!(
@@ -1651,12 +2257,13 @@ fn changes_storeys_walls_and_openings_and_dependents_follow_in_every_version() {
         );
         let placement = building.components.placement.get(door).unwrap();
         assert_eq!(placement.relative_to, Some(door_opening));
-        // 動かした開口は、壁 301 の層の範囲のまま新しい大きさで押し出し、窓の全体の高さと幅も合わせる
+        // 動かした開口は、壁 301 の層の範囲のまま新しい大きさで押し出し、窓の Body と全体の高さ・幅も合わせる
         assert_eq!(
             translation(&building, window_opening),
             Some([800.0, 0.0, 1000.0])
         );
         assert_eq!(solids(&after, 502).unwrap(), [([0.0, 100.0, 0.0], 200.0)]);
+        assert_eq!(solids(&after, 503).unwrap(), [([0.0, 25.0, 0.0], 50.0)]);
         let window = changed
             .lines()
             .find(|line| line.contains(&gid(503)))
@@ -1829,6 +2436,35 @@ fn the_cut_and_quantities_follow_changed_walls_and_openings() {
             "{schema}: {volume}"
         );
         assert!(!crosses(&lines, -1000.0), "{schema}");
+        // 扉 501 と窓 503 の切断線と体積も、壁の厚さと開口の大きさに追従する
+        let (door_before_lines, door_before_vol) = cut_and_volume(&before, 501, 3000.0).unwrap();
+        assert_eq!(
+            extent(&door_before_lines),
+            [975.0, 1025.0, 1000.0, 1900.0],
+            "{schema}"
+        );
+        assert!(near(door_before_vol, 0.9 * 2.1 * 0.05), "{schema}");
+        let (door_after_lines, door_after_vol) = cut_and_volume(&after, 501, 3500.0).unwrap();
+        assert_eq!(
+            extent(&door_after_lines),
+            [962.5, 1037.5, 1000.0, 1900.0],
+            "{schema}"
+        );
+        assert!(near(door_after_vol, 0.9 * 2.1 * 0.075), "{schema}");
+        let (win_before_lines, win_before_vol) = cut_and_volume(&before, 503, 3000.0).unwrap();
+        assert_eq!(
+            extent(&win_before_lines),
+            [-700.0, 500.0, 3975.0, 4025.0],
+            "{schema}"
+        );
+        assert!(near(win_before_vol, 1.2 * 1.2 * 0.05), "{schema}");
+        let (win_after_lines, win_after_vol) = cut_and_volume(&after, 503, 3500.0).unwrap();
+        assert_eq!(
+            extent(&win_after_lines),
+            [-1300.0, 200.0, 3975.0, 4025.0],
+            "{schema}"
+        );
+        assert!(near(win_after_vol, 1.5 * 1.0 * 0.05), "{schema}");
     }
 }
 
@@ -1846,6 +2482,7 @@ fn refuses_changes_it_cannot_write_without_changing_anything() {
             height: 3000.0,
             layers: vec![layer("Concrete", thickness)],
             offset: None,
+            type_of: None,
         })
     };
     let opening_change = |opening, width: f64| {
@@ -1979,7 +2616,7 @@ fn builds_a_two_storey_building_from_edits_only_in_every_version() {
                 .unwrap();
             assert_eq!(placement.relative_to, Some(second), "{schema}: {n}");
         }
-        // 形まで読める。形を持たないのは空間と建具だけで、ほかの診断は出ない
+        // 形まで読める。形を持たないのは空間と通り芯だけで、建具を含む全建築要素が Body を持ち、ほかの診断は出ない
         let file = read(&built).unwrap();
         let (shaped, diag) = with(|cx| file.lift_geometry(cx));
         assert!(
@@ -1988,7 +2625,7 @@ fn builds_a_two_storey_building_from_edits_only_in_every_version() {
             diag.iter().collect::<Vec<_>>()
         );
         let shaped = shaped.unwrap();
-        for n in [2000, 2010, 2011, 2012, 2020, 3000, 3020] {
+        for n in [2000, 2010, 2011, 2012, 2020, 2021, 3000, 3020, 3021] {
             let at = element(&shaped, n).unwrap();
             assert!(shaped.geometry(at).is_some(), "{schema}: {n}");
         }
@@ -2026,6 +2663,7 @@ fn two_storey_change_edits() -> Option<Vec<Edit>> {
                 layer("Board", 20.0),
             ],
             offset: None,
+            type_of: None,
         }),
         Edit::OpeningShape(OpeningChange {
             opening: Target::Added(window),
@@ -2036,6 +2674,292 @@ fn two_storey_change_edits() -> Option<Vec<Edit>> {
         }),
     ]);
     Some(edits)
+}
+
+#[test]
+#[cfg(all(feature = "drawing", feature = "measure"))]
+fn two_storey_live_edits_follow_section_plan_quantities_and_undo_redo() {
+    use zumen_building::drawing::{self, Paper, Role, Side, View};
+    use zumen_crs::ProjectPoint;
+    use zumen_drawing::{PaperLength, Shape};
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let (live, _) = with(|cx| IfcLive::open(src.as_bytes(), cx));
+        let mut live = live.unwrap();
+        let build_edits = two_storey_edits();
+        with(|cx| live.apply(&build_edits, b"seed", cx)).0.unwrap();
+        let built = with(|cx| live.save_spf(cx)).0.unwrap();
+        let built_text = String::from_utf8(built.clone()).unwrap();
+        let at = |n| Target::Instance(instance_of(&built_text, n).unwrap());
+        // 2F の依存辺が 2F の壁・開口・窓を含むことを確かめる
+        let find = |engine: &IfcLive, n: u32| element(engine.building(), n).unwrap();
+        let affected_2f = with(|cx| live.affected_elements(&[find(&live, 1002)], cx))
+            .0
+            .unwrap();
+        for n in [3000, 3010, 3011, 3012, 3020, 3021] {
+            assert!(affected_2f.contains(&find(&live, n)), "{schema}: {n}");
+        }
+        // 階高・壁厚・開口を文書エンジンで直す
+        let follow_edits = [
+            Edit::Elevation {
+                storey: at(1002),
+                elevation: 3200.0,
+            },
+            Edit::WallShape(WallChange {
+                wall: at(2000),
+                start: [0.0, 0.0],
+                end: [6500.0, 0.0],
+                height: 3000.0,
+                layers: vec![
+                    layer("Concrete", 200.0),
+                    layer("Insulation", 50.0),
+                    layer("Board", 20.0),
+                ],
+                offset: None,
+                type_of: None,
+            }),
+            Edit::OpeningShape(OpeningChange {
+                opening: at(3020),
+                distance: 2000.0,
+                sill: 1000.0,
+                width: 1600.0,
+                height: 1000.0,
+            }),
+        ];
+        let expected_changed = run(&built, &follow_edits).0.unwrap();
+        with(|cx| live.apply(&follow_edits, b"seed", cx)).0.unwrap();
+        let changed = with(|cx| live.save_spf(cx)).0.unwrap();
+        assert_eq!(changed, expected_changed, "{schema}");
+
+        // 断面図（x = 2500 で Y 方向に切る鉛直断面）で 2F の窓 3021 の高さが 3000+900 から 3200+1000 へ追従する
+        let section_y_extent = |bytes: &[u8], target_gid: u32| -> [f64; 4] {
+            let b = lift_geometry(bytes).unwrap();
+            let target = element(&b, target_gid).unwrap();
+            let opts = drawing::Options {
+                view: View::Vertical {
+                    start: ProjectPoint {
+                        x: 2500.0,
+                        y: -1000.0,
+                        z: 0.0,
+                    },
+                    end: ProjectPoint {
+                        x: 2500.0,
+                        y: 5000.0,
+                        z: 0.0,
+                    },
+                    side: Side::Right,
+                    depth: 1000.0,
+                    section: true,
+                },
+                tolerance: 0.01,
+                chord: 1.0,
+                paper: Paper {
+                    denominator: 100.0,
+                    origin: [PaperLength(0.0); 2],
+                    size: None,
+                },
+                symbols: &[],
+            };
+            let cut = with(|cx| drawing::cut(&b, opts, cx)).0.unwrap();
+            let segs: Vec<_> = cut
+                .lines
+                .iter()
+                .filter(|l| {
+                    cut.sources
+                        .get(l.source)
+                        .is_some_and(|s| s.element == target)
+                        && l.role == Role::Cut
+                })
+                .filter_map(
+                    |l| match cut.drawing.spaces.first()?.elements.get(l.index)?.shape {
+                        Shape::Line { start, end } => Some([[start.x, start.y], [end.x, end.y]]),
+                        _ => None,
+                    },
+                )
+                .collect();
+            extent(&segs)
+        };
+        // x = 2500 は直す前は窓（x 1000〜2200）の外で壁を切るが、直した後は窓（x 2000〜3600、z 4200〜5200）を切る
+        let win_sec = section_y_extent(&changed, 3021);
+        assert_eq!(win_sec, [975.0, 1025.0, 4200.0, 5200.0], "{schema}");
+        let (_, win_vol) = cut_and_volume(&changed, 3021, 3200.0).unwrap();
+        assert!(near(win_vol, 1.6 * 1.0 * 0.05), "{schema}: {win_vol}");
+
+        // 2 段の undo で元のバイト列へ一字一句戻り、2 段の redo で変更後のバイト列へ戻る
+        assert_eq!(with(|cx| live.undo(cx)).0.ok(), Some(true));
+        assert_eq!(same_as_reopened(&live), Some(built.clone()), "{schema}");
+        assert_eq!(with(|cx| live.undo(cx)).0.ok(), Some(true));
+        assert_eq!(
+            same_as_reopened(&live),
+            Some(src.as_bytes().to_vec()),
+            "{schema}"
+        );
+        assert_eq!(with(|cx| live.redo(cx)).0.ok(), Some(true));
+        assert_eq!(same_as_reopened(&live), Some(built), "{schema}");
+        assert_eq!(with(|cx| live.redo(cx)).0.ok(), Some(true));
+        assert_eq!(same_as_reopened(&live), Some(changed), "{schema}");
+    }
+}
+
+#[test]
+fn adds_and_reshapes_elements_from_types_in_every_version() {
+    for schema in SCHEMAS {
+        let later = schema != "IFC2X3";
+        let src = sample(schema, true);
+        let mut edits = vec![
+            space(SpaceKind::Building, 100, Target::Instance(10), 0.0),
+            space(SpaceKind::Storey, 101, Target::Added(0), 0.0),
+            Edit::ElementType(NewType {
+                class: "IfcWallType".to_owned(),
+                predefined: Some("SHEAR".to_owned()),
+                element_type: None,
+                name: Some("WT-200".to_owned()),
+                global_id: Some(global(700)),
+            }),
+            Edit::Material {
+                element: Target::Added(2),
+                material: NewMaterial::Layers {
+                    layers: vec![
+                        material_layer(Some("Concrete"), 160.0, None),
+                        material_layer(Some("Insulation"), 40.0, None),
+                    ],
+                    usage: None,
+                },
+            },
+            Edit::ElementType(NewType {
+                class: "IfcWallType".to_owned(),
+                predefined: Some("SHEAR".to_owned()),
+                element_type: None,
+                name: Some("WT-300".to_owned()),
+                global_id: Some(global(701)),
+            }),
+            Edit::Material {
+                element: Target::Added(3),
+                material: NewMaterial::Layers {
+                    layers: vec![material_layer(Some("Concrete"), 300.0, None)],
+                    usage: None,
+                },
+            },
+            Edit::ElementType(NewType {
+                class: "IfcSlabType".to_owned(),
+                predefined: Some("FLOOR".to_owned()),
+                element_type: None,
+                name: Some("ST-220".to_owned()),
+                global_id: Some(global(702)),
+            }),
+            Edit::Material {
+                element: Target::Added(4),
+                material: NewMaterial::Layers {
+                    layers: vec![material_layer(Some("Concrete"), 220.0, None)],
+                    usage: None,
+                },
+            },
+            Edit::ElementType(NewType {
+                class: "IfcColumnType".to_owned(),
+                predefined: Some("COLUMN".to_owned()),
+                element_type: None,
+                name: Some("CT-1".to_owned()),
+                global_id: Some(global(703)),
+            }),
+            Edit::ElementType(NewType {
+                class: "IfcBeamType".to_owned(),
+                predefined: Some("BEAM".to_owned()),
+                element_type: None,
+                name: Some("BT-1".to_owned()),
+                global_id: Some(global(704)),
+            }),
+            // 層を省き、型 WT-200 の IfcMaterialLayerSet を共有する壁
+            Edit::Wall(NewWall {
+                storey: Target::Added(1),
+                start: [0.0, 0.0],
+                end: [4000.0, 0.0],
+                height: 2800.0,
+                layers: Vec::new(),
+                offset: None,
+                type_of: Some(Target::Added(2)),
+                name: Some("W-Typed".to_owned()),
+                global_id: Some(global(710)),
+            }),
+            Edit::Slab(NewSlab {
+                storey: Target::Added(1),
+                outline: vec![[0.0, 0.0], [4000.0, 0.0], [4000.0, 3000.0], [0.0, 3000.0]],
+                layers: Vec::new(),
+                elevation: None,
+                type_of: Some(Target::Added(4)),
+                name: Some("S-Typed".to_owned()),
+                global_id: Some(global(711)),
+            }),
+            Edit::Column({
+                let mut c = column(712, Target::Added(1));
+                c.type_of = Some(Target::Added(5));
+                c
+            }),
+            Edit::Beam({
+                let mut b = beam(713, Target::Added(1));
+                b.type_of = Some(Target::Added(6));
+                b
+            }),
+            opening(714, Target::Added(7), 1000.0, 0.0, [900.0, 2100.0]),
+        ];
+        if later {
+            edits.push(Edit::ElementType(NewType {
+                class: "IfcDoorType".to_owned(),
+                predefined: Some("DOOR".to_owned()),
+                element_type: None,
+                name: Some("DT-1".to_owned()),
+                global_id: Some(global(705)),
+            }));
+        }
+        edits.push(Edit::Filling(NewFilling {
+            opening: Target::Added(11),
+            kind: FillingKind::Door,
+            width: None,
+            height: None,
+            type_of: later.then_some(Target::Added(12)),
+            name: Some("D-Typed".to_owned()),
+            global_id: Some(global(715)),
+        }));
+        let (built, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let built = built.unwrap();
+        let text = String::from_utf8(built.clone()).unwrap();
+        // 3 つの型の層セットだけで、壁と床は同じ層セットを Usage で参照する
+        assert_eq!(count(&text, "IFCMATERIALLAYERSET"), 3, "{schema}");
+        assert_eq!(solids(&built, 714).unwrap(), [([0.0, 100.0, 0.0], 200.0)]);
+        assert_eq!(solids(&built, 715).unwrap(), [([0.0, 25.0, 0.0], 50.0)]);
+        // 扉に DT-1（PredefinedType = DOOR）を結んだ IFC4/4X3 では、OJT001 に従い実例の PredefinedType を空にする
+        if later {
+            let door_line = text.lines().find(|l| l.contains(&gid(715))).unwrap();
+            assert!(door_line.ends_with(",$,$,$,$,$);"), "{schema}: {door_line}");
+        }
+        // 壁を WT-300（厚さ 300）に付け替えると、開口と扉の奥行きも 300・75 に追従し、WT-200 の層セットは残る
+        let reshape = [Edit::WallShape(WallChange {
+            wall: Target::Instance(instance_of(&text, 710).unwrap()),
+            start: [0.0, 0.0],
+            end: [4000.0, 0.0],
+            height: 2800.0,
+            layers: Vec::new(),
+            offset: None,
+            type_of: Some(Target::Instance(instance_of(&text, 701).unwrap())),
+        })];
+        let (after, codes) = run(&built, &reshape);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let after = after.unwrap();
+        let after_text = String::from_utf8(after.clone()).unwrap();
+        assert_eq!(count(&after_text, "IFCMATERIALLAYERSET"), 3, "{schema}");
+        assert_eq!(solids(&after, 714).unwrap(), [([0.0, 150.0, 0.0], 300.0)]);
+        assert_eq!(solids(&after, 715).unwrap(), [([0.0, 37.5, 0.0], 75.0)]);
+        let lifted = lift(&after).unwrap();
+        assert_eq!(
+            lifted
+                .components
+                .r#type
+                .get(element(&lifted, 710).unwrap())
+                .map(|t| t.target),
+            element(&lifted, 701),
+            "{schema}"
+        );
+    }
 }
 
 /// 所有履歴の作り手と使い手を書いた、プロジェクトと敷地だけの文書。ほかの読み手の検査で、入力の誤りを出さない
@@ -2077,6 +3001,167 @@ END-ISO-10303-21;
     )
 }
 
+/// ひな形から空間（敷地・建物・階）・通り芯・型・要素・関係を足し、置き直し・所属変更・型の付け外し・除去まで当てた IFC
+fn structural_authored_bytes(schema: &str) -> Option<Vec<u8>> {
+    let version = match schema {
+        "IFC2X3" => Version::Ifc2x3,
+        "IFC4" => Version::Ifc4,
+        "IFC4X3_ADD2" => Version::Ifc4x3,
+        _ => return None,
+    };
+    let template = Template {
+        version,
+        unit: LengthUnit::Millimeter,
+        project: global(1),
+        name: Some("構造編集".to_owned()),
+        header: Header::default(),
+        owner: Some(OwnerHistory {
+            person: "Author".to_owned(),
+            organization: "Organization".to_owned(),
+            developer: "zumen".to_owned(),
+            application: "zumen".to_owned(),
+            version: "0.3.0".to_owned(),
+            identifier: "zumen".to_owned(),
+            created: 1_700_000_000,
+        }),
+    };
+    let (base, diag) = with(|cx| create(&template, cx));
+    if !diag.is_empty() {
+        return None;
+    }
+    let base = base.ok()?;
+    let later = schema != "IFC2X3";
+    let elem = |class: &str, predefined: Option<&str>, n: u32, container, placement| {
+        Edit::Element(NewElement {
+            class: class.to_owned(),
+            predefined: predefined.map(str::to_owned),
+            name: Some(format!("E{n}")),
+            container,
+            placement,
+            global_id: Some(global(n)),
+        })
+    };
+    let step1 = vec![
+        Edit::Space(NewSpace {
+            kind: SpaceKind::Site,
+            name: Some("Site".to_owned()),
+            parent: Target::Instance(1),
+            placement: Some(NewPlacement {
+                relative_to: None,
+                local: Transform::translation(100.0, 200.0, 0.0),
+            }),
+            elevation: Some(12000.0),
+            global_id: Some(global(10)),
+        }),
+        space(SpaceKind::Building, 100, Target::Added(0), 0.0),
+        space(SpaceKind::Storey, 101, Target::Added(1), 0.0),
+        Edit::Space(NewSpace {
+            kind: SpaceKind::Storey,
+            name: Some("S102".to_owned()),
+            parent: Target::Added(1),
+            placement: Some(at(0.0, 0.0, 3000.0, Target::Added(1))),
+            elevation: Some(3000.0),
+            global_id: Some(global(102)),
+        }),
+        Edit::Grid(grid(103, Target::Added(2))),
+        Edit::ElementType(NewType {
+            class: "IfcWallType".to_owned(),
+            predefined: Some("SHEAR".to_owned()),
+            element_type: None,
+            name: Some("WT-1".to_owned()),
+            global_id: Some(global(110)),
+        }),
+        Edit::ElementType(NewType {
+            class: "IfcColumnType".to_owned(),
+            predefined: Some("USERDEFINED".to_owned()),
+            element_type: Some("C-600".to_owned()),
+            name: Some("CT-1".to_owned()),
+            global_id: Some(global(111)),
+        }),
+        // 型（WT-1）の PredefinedType が NOTDEFINED でない実例（W-1）は、規則 OJT001 に従い自身の PredefinedType を空にする
+        elem(
+            "IfcWall",
+            None,
+            200,
+            Some(Target::Added(2)),
+            Some(at(1000.0, 0.0, 0.0, Target::Added(2))),
+        ),
+        elem(
+            "IfcOpeningElement",
+            later.then_some("OPENING"),
+            201,
+            None,
+            Some(at(500.0, 0.0, 0.0, Target::Added(7))),
+        ),
+        elem(
+            "IfcDoor",
+            later.then_some("DOOR"),
+            202,
+            Some(Target::Added(2)),
+            Some(at(0.0, 0.0, 0.0, Target::Added(8))),
+        ),
+        elem(
+            "IfcColumn",
+            later.then_some("COLUMN"),
+            203,
+            Some(Target::Added(2)),
+            Some(at(0.0, 4000.0, 0.0, Target::Added(2))),
+        ),
+        elem(
+            "IfcSlab",
+            Some("FLOOR"),
+            299,
+            Some(Target::Added(2)),
+            Some(at(0.0, 0.0, 0.0, Target::Added(2))),
+        ),
+        Edit::Void {
+            host: Target::Added(7),
+            opening: Target::Added(8),
+        },
+        Edit::Fill {
+            opening: Target::Added(8),
+            filler: Target::Added(9),
+        },
+        Edit::Type {
+            element: Target::Added(7),
+            type_of: Some(Target::Added(5)),
+        },
+        Edit::Type {
+            element: Target::Added(10),
+            type_of: Some(Target::Added(6)),
+        },
+    ];
+    let (mid, codes) = run(&base, &step1);
+    if !codes.is_empty() {
+        return None;
+    }
+    let mid = mid.ok()?;
+    let mid_text = String::from_utf8(mid.clone()).ok()?;
+    let second = Target::Instance(instance_of(&mid_text, 102)?);
+    let col = Target::Instance(instance_of(&mid_text, 203)?);
+    let temp = Target::Instance(instance_of(&mid_text, 299)?);
+    let step2 = [
+        Edit::Place {
+            element: col,
+            placement: at(2000.0, 500.0, 0.0, second),
+        },
+        Edit::Contain {
+            element: col,
+            space: second,
+        },
+        Edit::Type {
+            element: col,
+            type_of: None,
+        },
+        Edit::Remove { element: temp },
+    ];
+    let (out, codes) = run(&mid, &step2);
+    if !codes.is_empty() {
+        return None;
+    }
+    out.ok()
+}
+
 // 環境変数は照合用の出力先だけに使う。
 #[allow(clippy::disallowed_methods)]
 #[test]
@@ -2096,6 +3181,11 @@ fn writes_the_authored_files_for_other_readers() {
             assert!(codes.is_empty(), "{schema} {name}: {codes:?}");
             std::fs::write(folder.join(format!("{schema}.{name}.ifc")), result.unwrap()).unwrap();
         }
+        std::fs::write(
+            folder.join(format!("{schema}.structural.ifc")),
+            structural_authored_bytes(schema).unwrap(),
+        )
+        .unwrap();
     }
 }
 
@@ -2500,7 +3590,12 @@ fn writes_and_replaces_shapes() {
 // 環境変数は照合用の出力先だけに使う。
 #[allow(clippy::disallowed_methods)]
 fn write_shapes(schema: &str, shapes: &[NewShape], name: &str) -> String {
-    let src = complete_sample(schema);
+    write_shapes_in(&complete_sample(schema), schema, shapes, name)
+}
+
+/// [`write_shapes`] を、渡した文書に
+#[allow(clippy::disallowed_methods)]
+fn write_shapes_in(src: &str, schema: &str, shapes: &[NewShape], name: &str) -> String {
     let mut edits = building_edits();
     edits.truncate(3);
     for (n, class) in [(200, "IfcWall"), (201, "IfcSlab"), (202, "IfcColumn")] {
@@ -2527,9 +3622,15 @@ fn write_shapes(schema: &str, shapes: &[NewShape], name: &str) -> String {
         return String::new();
     };
     for (n, shape) in (200..).zip(shapes) {
+        // IFC2X3 は掃引の始点と終点を省かない
+        let shape = if schema == "IFC2X3" {
+            shape::with_parameters(shape.clone())
+        } else {
+            shape.clone()
+        };
         assert_eq!(
             element(&building, n).and_then(|e| shape::shape_of(&building, e)),
-            Some(shape::as_written(shape)),
+            Some(shape::as_written(&shape)),
             "{schema} {n}"
         );
     }
@@ -2566,6 +3667,68 @@ fn writes_booleans_and_mappings() {
         ] {
             assert_eq!(count(&text, name), n, "{schema} {name}");
         }
+    }
+}
+
+/// 単位の割り当てに平面角の単位を足した文書
+fn with_angle_unit(src: &str, unit: &str) -> String {
+    let replaced = src.replace(
+        "#3=IFCUNITASSIGNMENT((#4));",
+        &format!("#3=IFCUNITASSIGNMENT((#4,#9000));\n{unit}"),
+    );
+    assert_ne!(replaced, src);
+    replaced
+}
+
+#[test]
+fn writes_revolutions_and_sweeps() {
+    let radian = "#9000=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);";
+    for schema in SCHEMAS {
+        let src = with_angle_unit(&complete_sample(schema), radian);
+        let shapes = shape::sweep_examples();
+        let text = write_shapes_in(&src, schema, &shapes, "sweep");
+        for kind in ["SweptSolid", "AdvancedSweptSolid", "SolidModel"] {
+            assert!(
+                text.contains(&format!("'Body','{kind}'")),
+                "{schema} {kind}"
+            );
+        }
+        assert_eq!(count(&text, "IFCREVOLVEDAREASOLID"), 1, "{schema}");
+        assert_eq!(count(&text, "IFCSWEPTDISKSOLID"), 2, "{schema}");
+    }
+}
+
+#[test]
+fn writes_revolution_angles_in_the_document_unit() {
+    let [revolution, ..] = shape::sweep_examples();
+    let degree = "#9000=IFCCONVERSIONBASEDUNIT(#9001,.PLANEANGLEUNIT.,'degree',#9002);\n\
+        #9001=IFCDIMENSIONALEXPONENTS(0,0,0,0,0,0,0);\n\
+        #9002=IFCMEASUREWITHUNIT(IFCPLANEANGLEMEASURE(0.0174532925199433),#9003);\n\
+        #9003=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);";
+    for schema in SCHEMAS {
+        let src = with_angle_unit(&sample(schema, true), degree);
+        let mut edits = building_edits();
+        edits.push(Edit::Shape {
+            element: Target::Added(3),
+            shape: revolution.clone(),
+        });
+        let (result, codes) = run(src.as_bytes(), &edits);
+        assert!(codes.is_empty(), "{schema}: {codes:?}");
+        let text = String::from_utf8(result.unwrap()).unwrap();
+        let line = text
+            .lines()
+            .find(|line| line.contains("IFCREVOLVEDAREASOLID("))
+            .unwrap();
+        let angle: f64 = line
+            .rsplit(',')
+            .next()
+            .and_then(|v| v.strip_suffix(");"))
+            .and_then(|v| v.parse().ok())
+            .unwrap();
+        assert!((angle - 180.0).abs() < 1e-9, "{schema} {line}");
+        // 平面角の単位がなければ、角度を書けない
+        let (_, codes) = run(sample(schema, true).as_bytes(), &edits);
+        assert_eq!(codes, [codes::CHANGE_EDIT_UNSUPPORTED], "{schema}");
     }
 }
 
@@ -2629,6 +3792,21 @@ fn rejects_shapes_it_cannot_write() {
     let block = || shape::block(1.0, 1.0, 1.0);
     let cut = |first: NewItem, second: NewItem| {
         shape::boolean(BooleanOperation::Difference, first, second)
+    };
+    let [rotated, piped, _] = shape::sweep_examples();
+    let revolved = |change: &dyn Fn(&mut NewRevolution)| {
+        let mut shape = rotated.clone();
+        if let Some(NewItem::Revolution(r)) = shape.body.first_mut() {
+            change(r);
+        }
+        shape
+    };
+    let swept = |change: &dyn Fn(&mut NewSweptDisk)| {
+        let mut shape = piped.clone();
+        if let Some(NewItem::SweptDisk(d)) = shape.body.first_mut() {
+            change(d);
+        }
+        shape
     };
     let mut nested = block();
     for _ in 0..16 {
@@ -2705,6 +3883,19 @@ fn rejects_shapes_it_cannot_write() {
                 outer: vec![[0.0, 0.0], [1.0, 0.0]],
                 holes: Vec::new(),
             };
+        }),
+        // 回転の角度と軸、掃引の経路・半径・区間
+        revolved(&|r| r.angle = 0.0),
+        revolved(&|r| r.angle = 7.0),
+        revolved(&|r| r.direction = [0.0, 0.0]),
+        swept(&|d| d.directrix.truncate(1)),
+        swept(&|d| d.directrix.insert(1, [0.0; 3])),
+        swept(&|d| d.radius = 0.0),
+        swept(&|d| d.inner_radius = Some(50.0)),
+        swept(&|d| d.end = Some(2.5)),
+        swept(&|d| {
+            d.start = Some(1.0);
+            d.end = Some(1.0);
         }),
     ];
     for schema in SCHEMAS {

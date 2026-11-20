@@ -624,24 +624,46 @@ impl DwgFile {
         seed: u64,
         parent: Option<(u64, Section)>,
     ) -> Option<NewEntity<'a>> {
-        let &(_, type_code, own) = ADDABLE.iter().find(|(kind, ..)| *kind == object.kind)?;
-        // 列と行の数（70・71）か間隔（44・45）を持つ INSERT は、MINSERT として書く（決定 0060）
-        let grid = object.kind == b"INSERT"
-            && object
-                .values
+        let (type_code, own): (u16, &[i16]) = if object.kind == b"DIMENSION" {
+            let tc = match small(object, 70)?? & 0b1_1111 {
+                0 => kinds::DIMENSION_LINEAR,
+                1 => kinds::DIMENSION_ALIGNED,
+                2 => kinds::DIMENSION_ANGULAR_2LINE,
+                3 => kinds::DIMENSION_DIAMETER,
+                4 => kinds::DIMENSION_RADIUS,
+                5 => kinds::DIMENSION_ANGULAR_3PT,
+                6 => kinds::DIMENSION_ORDINATE,
+                _ => return None,
+            };
+            (tc, DIMENSION_ALL)
+        } else if object.kind == b"ARC_DIMENSION" {
+            (self.release >= Release::R2004).then_some(())?;
+            let class = self
+                .classes
                 .iter()
-                .any(|value| matches!(value.code, 70 | 71 | 44 | 45));
-        let (type_code, own) = if grid {
-            (kinds::MINSERT, MINSERT)
+                .find(|c| c.entity && c.name.as_slice() == b"ARC_DIMENSION")?;
+            (class.number, ARC_DIMENSION)
         } else {
-            (type_code, own)
+            let &(_, type_code, own) = ADDABLE.iter().find(|(kind, ..)| *kind == object.kind)?;
+            // 列と行の数（70・71）か間隔（44・45）を持つ INSERT は、MINSERT として書く（決定 0060）
+            let grid = object.kind == b"INSERT"
+                && object
+                    .values
+                    .iter()
+                    .any(|value| matches!(value.code, 70 | 71 | 44 | 45));
+            if grid {
+                (kinds::MINSERT, MINSERT)
+            } else {
+                (type_code, own)
+            }
         };
         let handle = object.handle().filter(|&h| h >= seed)?;
-        // TEXT と ATTDEF は文字スタイル（7）を、INSERT はブロック（2）を指す
+        // TEXT と ATTDEF は文字スタイル（7）を、INSERT はブロック（2）を、寸法は寸法スタイル（3）と匿名ブロック（2）を指す
         let pointing: &[i16] = match object.kind.as_slice() {
             b"TEXT" | b"ATTDEF" | b"MTEXT" => &[7],
             // LEADER は寸法スタイル（3）を指す（決定 0185）
             b"LEADER" => &[3],
+            b"DIMENSION" | b"ARC_DIMENSION" => &[2, 3],
             b"ATTRIB" => &[7],
             // 属性が続くこと（66）は、1 だけ
             b"INSERT" if small(object, 66)?.is_none_or(|v| v == 1) => &[2, 66],
@@ -654,10 +676,38 @@ impl DwgFile {
             b"ATTRIB" if self.release >= Release::R2010 => &[280],
             _ => &[],
         };
-        let codes = [&[5, 330, 8, 6, 67], COMMON, own, pointing, r2010].concat();
+        let r2004: &[i16] = if self.release >= Release::R2004 {
+            &[420, 440]
+        } else {
+            &[]
+        };
+        let codes = [
+            &[5, 330, 8, 6, 67, 370],
+            COMMON,
+            r2004,
+            own,
+            pointing,
+            r2010,
+        ]
+        .concat();
+        // 拡張データ（1001 から）は先に分け、共通と型ごとのフィールドを検査する
+        let (object, eed) = match object.values.iter().position(|value| value.code == 1001) {
+            Some(at) => {
+                let (head, xdata) = object.values.split_at(at);
+                let eed = encode_xdata(db, xdata, self.release, self.code_page)?;
+                (
+                    std::borrow::Cow::Owned(Object {
+                        values: head.to_vec(),
+                        ..object.clone()
+                    }),
+                    eed,
+                )
+            }
+            None => (std::borrow::Cow::Borrowed(object), Vec::new()),
+        };
         // R2018 からの複数行の ATTRIB は、属性の値の後に、種類（71）・72・埋め込みのオブジェクトのマーカー（101）と
         // MTEXT の値（枠の高さ（46）も）を持つ（決定 0102）
-        let (values, embedded) = match multiline_at(object) {
+        let (values, embedded) = match multiline_at(&object) {
             Some(at) if object.kind == b"ATTRIB" && self.release >= Release::R2018 => {
                 object.values.split_at(at)
             }
@@ -706,30 +756,41 @@ impl DwgFile {
             (mode, section)
         };
         // 用紙空間の図形だけが、67 = 1 を持つ
-        let paper = small(object, 67)?;
+        let paper = small(&object, 67)?;
         if object.section != section || paper != (mode == 1).then_some(1) {
             return None;
         }
-        let layer = record_handle(db, b"LAYER", text_of(object, 8)?)?;
-        let ltype = ltype_ref(db, object)?;
-        let pointed = match object.kind.as_slice() {
+        let layer = record_handle(db, b"LAYER", text_of(&object, 8)?)?;
+        let ltype = ltype_ref(db, &object)?;
+        let (pointed, extra_pointed) = match object.kind.as_slice() {
             // 文字スタイルがなければ Standard
             b"TEXT" | b"ATTRIB" | b"ATTDEF" | b"MTEXT" => {
-                match object.values.iter().any(|value| value.code == 7) {
-                    false => Some(record_handle(db, b"STYLE", b"Standard")?),
-                    true => Some(record_handle(db, b"STYLE", text_of(object, 7)?)?),
-                }
+                let style = match object.values.iter().any(|value| value.code == 7) {
+                    false => record_handle(db, b"STYLE", b"Standard")?,
+                    true => record_handle(db, b"STYLE", text_of(&object, 7)?)?,
+                };
+                (Some(style), None)
             }
             b"LEADER" => {
                 // 注記（340）は、図面にある MTEXT だけを指せる
                 if let Some(Data::Handle(annotation)) = object.first(340) {
                     db.get(*annotation).filter(|found| found.kind == b"MTEXT")?;
                 }
-                Some(record_handle(db, b"DIMSTYLE", text_of(object, 3)?)?)
+                (
+                    Some(record_handle(db, b"DIMSTYLE", text_of(&object, 3)?)?),
+                    None,
+                )
+            }
+            b"DIMENSION" | b"ARC_DIMENSION" => {
+                let dimstyle = record_handle(db, b"DIMSTYLE", text_of(&object, 3)?)?;
+                let block_name = text_of(&object, 2)?;
+                anon_dwg_block_name(block_name)?;
+                let block = record_handle(db, b"BLOCK_RECORD", block_name)?;
+                (Some(dimstyle), Some(block))
             }
             b"INSERT" => {
                 // 空間のブロックと、図形を持つブロックそのものは挿せない
-                let name = text_of(object, 2)?;
+                let name = text_of(&object, 2)?;
                 let space = [b"*Model_Space".as_slice(), b"*Paper_Space"]
                     .iter()
                     .any(|space| {
@@ -737,9 +798,9 @@ impl DwgFile {
                             .is_some_and(|head| head.eq_ignore_ascii_case(space))
                     });
                 let block = record_handle(db, b"BLOCK_RECORD", name)?;
-                (!space && block != owner).then_some(block)
+                ((!space && block != owner).then_some(block), None)
             }
-            _ => None,
+            _ => (None, None),
         };
         if !pointing.is_empty() && pointed.is_none() {
             return None;
@@ -754,6 +815,7 @@ impl DwgFile {
         };
         Some(NewEntity {
             object,
+            eed,
             handle,
             type_code,
             mode,
@@ -761,6 +823,7 @@ impl DwgFile {
             layer,
             ltype,
             pointed,
+            extra_pointed,
             embedded,
             children: None,
         })
@@ -839,8 +902,12 @@ impl DwgFile {
             .filter(|o| text_of(o, 2).is_some_and(|n| n.eq_ignore_ascii_case(name)))
             .count();
         (!name.is_empty() && same == 1).then_some(())?;
-        // 名前のないブロックと空間のブロック（* で始まる）は足せない
-        (type_code != kinds::BLOCK_RECORD || !name.starts_with(b"*")).then_some(())?;
+        // 空間のブロックや未対応の匿名ブロックは足せない。寸法・表の `*D<番号>`・`*T<番号>` だけは DWG の `*D`・`*T` として書く
+        let anon_block = (type_code == kinds::BLOCK_RECORD)
+            .then(|| anon_dwg_block_name(name))
+            .flatten();
+        (type_code != kinds::BLOCK_RECORD || !name.starts_with(b"*") || anon_block.is_some())
+            .then_some(())?;
         let r2004 = self.release >= Release::R2004;
         // R2010 からは、文字列を文字列のストリームに書き、外部参照の番号を持たない（決定 0094）
         let r2010 = self.release >= Release::R2010;
@@ -859,7 +926,10 @@ impl DwgFile {
         if self.release >= Release::R2013 {
             fields.bit(false);
         }
-        string(&mut fields, object, 2)?;
+        match anon_block {
+            Some(anon) => fields.text(anon)?,
+            None => string(&mut fields, object, 2)?,
+        }
         // 参照されるフラグ・外部参照の番号・外部参照に依るフラグ
         fields.bit(true);
         if !r2010 {
@@ -1035,7 +1105,7 @@ impl DwgFile {
             let block = block?;
             // 名前のないフラグ・属性を持つフラグ・外部参照のフラグ・重ねる外部参照のフラグ・読み込んだフラグと基点。属性を
             // 持つのは、ATTDEF を持つブロック
-            fields.bit(false);
+            fields.bit(anon_block.is_some());
             fields.bit(block.attdef);
             for _ in 0..3 {
                 fields.bit(false);
@@ -1843,7 +1913,8 @@ pub(super) fn encode_born_entities(
             false => Some((lookup_table(b"LTYPE", b"ByLayer")?, material_bylayer?)),
         };
         let new = NewEntity {
-            object,
+            object: std::borrow::Cow::Borrowed(object),
+            eed: Vec::new(),
             handle,
             type_code,
             mode,
@@ -1851,6 +1922,7 @@ pub(super) fn encode_born_entities(
             layer,
             ltype,
             pointed,
+            extra_pointed: None,
             embedded,
             children: None,
         };

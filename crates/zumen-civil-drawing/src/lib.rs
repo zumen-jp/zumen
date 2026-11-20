@@ -14,7 +14,7 @@ use zumen_crs::MapPoint;
 use zumen_drawing::{
     Affine, Drawing2D, Edge, Element, Height, HeightMeaning, Inherit, Layer, LayerId, Length,
     ModelLength, ModelPoint, ModelSpace, PaperLength, PaperPoint, Placement, Polyline, Shape,
-    Sheet, SheetId, SheetItem, SpaceId, Style, Text, Unit, Vertex, View,
+    Sheet, SheetId, SheetItem, SpaceId, Style, Text, Unit, Vertex, View, check_model_bytes,
 };
 use zumen_drawing::{Horizontal as TextHorizontal, Vertical as TextVertical};
 use zumen_geom2d::Ramp;
@@ -104,6 +104,9 @@ pub fn drawing(
     for value in &alignment.ground_profiles {
         omitted_value("ground_profile", &value.source, cx)?;
     }
+    for value in &alignment.cant {
+        omitted_value("cant", &value.source, cx)?;
+    }
     if let Some(value) = &model.height_reference {
         omitted_value("height_reference", &value.source, cx)?;
     }
@@ -122,17 +125,22 @@ pub fn drawing(
             .collect(),
         ..Drawing2D::default()
     };
+    let mut accounted = 0u64;
+    for layer in &drawing.layers {
+        accounted = accounted.saturating_add(check_model_bytes(layer, cx)?);
+    }
     let plan = plan(model, alignment, options, cx)?;
-    push(&mut drawing, plan);
+    push(&mut drawing, plan, &mut accounted, cx)?;
     if !alignment.vertical.is_empty() {
         let profile = profile(alignment, options, cx)?;
-        push(&mut drawing, profile);
+        push(&mut drawing, profile, &mut accounted, cx)?;
     }
     for (index, section) in alignment.cross_sections.iter().enumerate() {
         let id = u32::try_from(index).map_or(u32::MAX, |index| index.saturating_add(2));
         let sheet = cross_section(alignment, section, SpaceId(id), SheetId(id), options, cx)?;
-        push(&mut drawing, sheet);
+        push(&mut drawing, sheet, &mut accounted, cx)?;
     }
+    drawing.finish_model_bytes(accounted, cx)?;
     Ok(drawing)
 }
 
@@ -153,9 +161,17 @@ struct Figure {
     sheet: Sheet,
 }
 
-fn push(drawing: &mut Drawing2D, figure: Figure) {
+fn push(
+    drawing: &mut Drawing2D,
+    figure: Figure,
+    accounted: &mut u64,
+    cx: &mut Cx<'_>,
+) -> Result<(), Stop> {
+    *accounted = accounted.saturating_add(check_model_bytes(&figure.space, cx)?);
+    *accounted = accounted.saturating_add(check_model_bytes(&figure.sheet, cx)?);
     drawing.spaces.push(figure.space);
     drawing.sheets.push(figure.sheet);
+    Ok(())
 }
 
 fn element<P>(layer: LayerId, shape: Shape<P>, source: &Ref) -> Element<P> {

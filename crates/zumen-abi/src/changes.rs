@@ -105,6 +105,20 @@ pub(crate) fn changes_at(
                 }
             }
             messages::Edit::Copy(edit) => {
+                if let Some(place) = &edit.place {
+                    cx.check(Kind::Work, u64::try_from(place.len()).unwrap_or(u64::MAX))
+                        .map_err(|stop| stopped(cx, stop))?;
+                }
+                if let Some(from_doc) = &edit.from_doc {
+                    cx.check(
+                        Kind::Work,
+                        u64::try_from(from_doc.len()).unwrap_or(u64::MAX),
+                    )
+                    .map_err(|stop| stopped(cx, stop))?;
+                    if !zumen_base::name::is_safe(from_doc) {
+                        return Err(fail(cx, invalid_value(at("from_doc"))));
+                    }
+                }
                 let target = seen(&edit.id, &edit.hash, cx)?;
                 let m = match edit.matrix.as_slice() {
                     &[a, b, c, d, e, f] if edit.matrix.iter().all(|v| v.is_finite()) => {

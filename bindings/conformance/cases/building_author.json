@@ -1,5 +1,5 @@
 {
-  "description": "building_apply の、空間・要素・関係を足し、除き、置き直す変更（#897）。階に壁を足し、壁に開口を空け、開口を扉で埋め、扉を開口からの相対に置き直し、階の下に階を足す。前の変更で足した要素は edits の位置（added）で指し、結果は足した要素の ID を返す。GlobalId を書かなければ、文書のハッシュと変更の位置から決める。前にない位置・形の違う指し方・子のある階を除く変更・重なる GlobalId は、何も変えずに失敗する。入力はテストの中で書いた小さな IFC4",
+  "description": "building_apply の、空間・通り芯・型・要素・関係を足し、除き、置き直す変更（#897）。階に壁を足し、壁に開口を空け、開口を扉で埋め、扉を開口からの相対に置き直し、階の下に階を足し、さらに敷地・建物・通り芯・壁の型を足して型と所属を結び直し、型を外して扉と壁（開口も連鎖）を除く。前の変更で足した要素は edits の位置（added）で指し、結果は足した要素の ID を返す。GlobalId を書かなければ、文書のハッシュと変更の位置から決める。前にない位置・形の違う指し方・子のある階を除く変更・重なる GlobalId は、何も変えずに失敗する。入力はテストの中で書いた小さな IFC4",
   "steps": [
     {
       "push": {
@@ -289,7 +289,7 @@
         "/result/applied/3/id": "3$xEhtUd2qs2FSkRuOdpkc",
         "/result/applied/4/id": "0000000000000000000080",
         "/result/applied/5/id": "0000000000000000000200",
-        "/result/hash": "v1:ffc72b0d8a183871c8a4a6dab32c638f"
+        "/result/hash": "v1:c37c5da76dc6af04404e660dbc7e6420"
       }
     },
     {
@@ -375,6 +375,221 @@
       "expect": {
         "/diagnostics/0/code": "change.edit.unsupported",
         "/blobs": []
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "edits": [
+          {
+            "kind": "add_space",
+            "space": "site",
+            "parent": {
+              "id": "0000000000000000000001",
+              "hash": "v1:cd1b938433f9bf39893405462244b609"
+            },
+            "name": "Site",
+            "global_id": "0000000000000000000010",
+            "elevation": 12000
+          },
+          {
+            "kind": "add_space",
+            "space": "building",
+            "parent": {
+              "added": 0
+            },
+            "name": "Building",
+            "global_id": "0000000000000000000100"
+          },
+          {
+            "kind": "add_grid",
+            "storey": {
+              "id": "0000000000000000000200",
+              "hash": "v1:ab8cb02a8ec4c0ba241a96d2456c5334"
+            },
+            "name": "G1",
+            "global_id": "0000000000000000000300",
+            "u": [
+              {
+                "tag": "A",
+                "start": [
+                  0,
+                  0
+                ],
+                "end": [
+                  0,
+                  4000
+                ]
+              }
+            ],
+            "v": [
+              {
+                "tag": "1",
+                "start": [
+                  0,
+                  0
+                ],
+                "end": [
+                  6000,
+                  0
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "add_type",
+            "class": "IfcWallType",
+            "predefined": "SHEAR",
+            "name": "WT1",
+            "global_id": "0000000000000000000400"
+          },
+          {
+            "kind": "type",
+            "element": {
+              "id": "3kVMPyLcI5IaKC0oVvsjJZ",
+              "hash": "v1:ad7cd0079ed07dd751f0e1f6d2f4602d"
+            },
+            "element_type": {
+              "added": 3
+            }
+          },
+          {
+            "kind": "contain",
+            "element": {
+              "id": "3kVMPyLcI5IaKC0oVvsjJZ",
+              "hash": "v1:ad7cd0079ed07dd751f0e1f6d2f4602d"
+            },
+            "space": {
+              "id": "0000000000000000000200",
+              "hash": "v1:ab8cb02a8ec4c0ba241a96d2456c5334"
+            }
+          },
+          {
+            "kind": "contain",
+            "element": {
+              "id": "0000000000000000000080",
+              "hash": "v1:fa4a92c2a22169acd11efdb134c97452"
+            },
+            "space": {
+              "id": "0000000000000000000200",
+              "hash": "v1:ab8cb02a8ec4c0ba241a96d2456c5334"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/id": "0000000000000000000010",
+        "/result/applied/1/id": "0000000000000000000100",
+        "/result/applied/2/id": "0000000000000000000300",
+        "/result/applied/3/id": "0000000000000000000400",
+        "/result/hash": "v1:94a19951d34a1f99b90127e2bc118773"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "ids": [
+          "0000000000000000000010",
+          "0000000000000000000100",
+          "0000000000000000000300",
+          "3kVMPyLcI5IaKC0oVvsjJZ"
+        ],
+        "components": [
+          "spatial",
+          "parent",
+          "type_of"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/spatial/ref_elevation/value": 12000,
+        "/result/elements/1/parent/of/target": "0000000000000000000010",
+        "/result/elements/1/parent/of/kind": "aggregates",
+        "/result/elements/2/parent/of/target": "0000000000000000000200",
+        "/result/elements/2/parent/of/kind": "contained",
+        "/result/elements/3/parent/of/target": "0000000000000000000200",
+        "/result/elements/3/type_of": "0000000000000000000400"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "edits": [
+          {
+            "kind": "type",
+            "element": {
+              "id": "3kVMPyLcI5IaKC0oVvsjJZ",
+              "hash": "v1:d5aa26182d0f4e9bf3fa1749bc3bc03a"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "/result/applied/0/hash": "v1:5101bd4eb427a23ff0e46f06bbad9871",
+        "/result/hash": "v1:bd4cee0dd6b9367bcf7bbd65c5b15c22"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "ids": [
+          "3kVMPyLcI5IaKC0oVvsjJZ"
+        ],
+        "components": [
+          "type_of"
+        ]
+      },
+      "absent": [
+        "/result/elements/0/type_of"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_apply",
+        "doc": "a.ifc",
+        "edits": [
+          {
+            "kind": "remove",
+            "id": "0000000000000000000080",
+            "hash": "v1:37c3dbfbac4a4ae031fee347196dbb72"
+          },
+          {
+            "kind": "remove",
+            "id": "3kVMPyLcI5IaKC0oVvsjJZ",
+            "hash": "v1:5101bd4eb427a23ff0e46f06bbad9871"
+          }
+        ]
+      },
+      "expect": {
+        "/result/hash": "v1:ccaada1a03fa80c05fd389e1d1e5cf6d"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "a.ifc",
+        "class": "ifcopeningelement"
+      },
+      "expect": {
+        "/result/total": 0
       }
     }
   ]

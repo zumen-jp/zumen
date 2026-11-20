@@ -8,8 +8,8 @@ use zumen_base::{Ref, Stop, codes};
 use zumen_drawing::parts::{self, DimensionCurve, DimensionOffsets};
 use zumen_drawing::transform::Point as Spot;
 use zumen_drawing::{
-    Arrowhead, Callout, CalloutContent, Dimension, Horizontal, Inherit, Label, Leader, PathKind,
-    Piece, Scaled, Table, Vertical, VisitRef,
+    Arrowhead, Callout, CalloutContent, Dimension, DimensionKind, Horizontal, Inherit, Label,
+    Leader, PathKind, Piece, ResolvedDimensionDisplay, Scaled, Table, Vertical, VisitRef,
 };
 use zumen_geom2d::{self as geom, Xy};
 
@@ -109,22 +109,50 @@ impl Builder<'_, '_, '_> {
         &mut self,
         visit: &VisitRef<'_, '_>,
         dimension: &Dimension<P>,
+        display: Option<ResolvedDimensionDisplay<'_>>,
         local: f64,
         source: &Ref,
         unit: &mut Option<u32>,
     ) -> Result<(), (Stop, Ref)> {
-        let Some(drawn) = parts::dimension(
+        let tick_line = if display.is_some() {
+            parts::dimension_tick_line
+        } else {
+            parts::tick_line
+        };
+        let display = display.unwrap_or_default();
+        let style = self.drawing.dimension_style(&dimension.style);
+        let scale = display
+            .scale
+            .or_else(|| style.map(|s| s.scale))
+            .filter(|&value| value.is_finite() && value > 0.0)
+            .unwrap_or(1.0);
+        let scaled_length = |value: Option<f64>| {
+            value
+                .map(|v| v * scale)
+                .filter(|&v| v.is_finite() && v >= 0.0)
+        };
+        let Some(drawn) = parts::dimension_with_suppression(
             dimension,
             |p| Some(p.xy()),
             |l| Some(length(*l)),
-            DimensionOffsets::default(),
+            DimensionOffsets {
+                offset: scaled_length(display.extension_offset).unwrap_or(0.0),
+                extension: scaled_length(display.extension_beyond).unwrap_or(0.0),
+            },
+            [
+                display.suppress_first_extension.unwrap_or(false),
+                display.suppress_second_extension.unwrap_or(false),
+            ],
         ) else {
             self.report(codes::SCENE_DIMENSION_DROPPED, source);
             return Ok(());
         };
         let unit = self.unit(visit, entity_kind::DIMENSION, unit)?;
         let t = visit.transform;
-        for [a, b] in drawn.extension_lines {
+        for &[a, b] in &drawn.extension_lines {
+            if !a.into_iter().chain(b).all(f64::is_finite) {
+                continue;
+            }
             self.stroke(visit, vec![map(&t, a), map(&t, b)], unit, source)?;
         }
         if let Some(curve) = drawn.curve {
@@ -144,70 +172,128 @@ impl Builder<'_, '_, '_> {
             };
             self.stroke(visit, points, unit, source)?;
         }
-        if let Some(style) = self.drawing.dimension_style(&dimension.style) {
-            let scale = if style.scale > 0.0 { style.scale } else { 1.0 };
-            if let Some(tick) = style.tick.filter(|&v| v > 0.0) {
-                for end in &drawn.ends {
-                    if let Some([a, b]) = parts::tick_line(end.tip, end.toward_tip, tick * scale) {
-                        self.stroke(visit, vec![map(&t, a), map(&t, b)], unit, source)?;
-                    }
+        let tick = scaled_length(display.tick_size.or_else(|| style.and_then(|s| s.tick)));
+        if let Some(tick) = tick.filter(|&v| v > 0.0) {
+            for end in &drawn.ends {
+                if let Some([a, b]) = tick_line(end.tip, end.toward_tip, tick) {
+                    self.stroke(visit, vec![map(&t, a), map(&t, b)], unit, source)?;
                 }
-            } else if style.size > 0.0 {
-                let size = style.size * scale * Self::grow(visit);
-                for end in &drawn.ends {
-                    if style.ends.get(end.side) == Some(&Arrowhead::Default) {
-                        let back = [
-                            end.tip[0] - end.toward_tip[0],
-                            end.tip[1] - end.toward_tip[1],
-                        ];
-                        self.arrow(map(&t, end.tip), map(&t, back), size, unit);
-                    }
+            }
+        } else if let Some(size) =
+            scaled_length(display.arrow_size.or_else(|| style.map(|s| s.size))).filter(|&v| v > 0.0)
+        {
+            let size = size * Self::grow(visit);
+            for end in &drawn.ends {
+                if style.is_none_or(|s| s.ends.get(end.side) == Some(&Arrowhead::Default)) {
+                    let back = [
+                        end.tip[0] - end.toward_tip[0],
+                        end.tip[1] - end.toward_tip[1],
+                    ];
+                    self.arrow(map(&t, end.tip), map(&t, back), size, unit);
                 }
             }
         }
-        // 寸法値は、書式の高さを持つ区間があるときだけ描く。高さは最初の区間の値
-        if let Label::Override { spans, .. } = &dimension.label {
-            let height = spans.iter().find_map(|span| match span.format.height {
+        let spans = match &dimension.label {
+            Label::Override { spans, .. } => spans.as_slice(),
+            _ => &[],
+        };
+        let base_height = scaled_length(display.text_height);
+        let height = spans
+            .iter()
+            .find_map(|span| match span.format.height {
                 Some(Scaled::Value(value)) => Some(length(value)),
-                _ => None,
-            });
-            let font = spans
-                .iter()
-                .find_map(|span| span.format.font.as_ref())
-                .map(|f| f.name.clone());
+                Some(Scaled::Factor(factor)) => base_height.map(|h| h * factor),
+                None => None,
+            })
+            .or(base_height);
+        if let Some(height) = height.filter(|&h| h > 0.0 && h.is_finite())
+            && !matches!(dimension.label, Label::Hidden)
+        {
+            let angular = matches!(
+                dimension.kind,
+                DimensionKind::Angular { .. } | DimensionKind::AngularLines { .. }
+            );
+            let (value, precision) = if angular {
+                (drawn.display_value, 2)
+            } else {
+                let factor = parts::dimension_linear_factor(
+                    display.linear_factor.unwrap_or(1.0),
+                    matches!(visit.item, zumen_drawing::Item::Paper(_)),
+                );
+                (
+                    drawn.display_value * factor,
+                    usize::from(display.linear_precision.unwrap_or(2).min(8)),
+                )
+            };
+            if !value.is_finite()
+                && (matches!(dimension.label, Label::Measurement)
+                    || spans.iter().any(|s| matches!(s.piece, Piece::Measurement)))
+            {
+                self.report(codes::SCENE_DIMENSION_APPROXIMATED, source);
+                return Ok(());
+            }
             let mut content = String::new();
-            for span in spans {
-                match &span.piece {
-                    Piece::Text(text) => content.push_str(text),
-                    Piece::Measurement => {
-                        content.push_str(&parts::format_measurement(drawn.display_value, 2));
+            if matches!(dimension.label, Label::Measurement) {
+                content = parts::default_dimension_text(&dimension.kind, value, precision);
+            } else {
+                for span in spans {
+                    match &span.piece {
+                        Piece::Text(text) => content.push_str(text),
+                        Piece::Measurement => {
+                            content.push_str(&parts::format_measurement(value, precision))
+                        }
+                        Piece::Paragraph => content.push(' '),
+                        _ => {}
                     }
-                    Piece::Paragraph => content.push(' '),
-                    _ => {}
                 }
             }
-            if let Some(height) = height {
-                let at = dimension.text.position.map_or(drawn.middle, |p| p.xy());
-                let degrees = dimension
-                    .text
-                    .rotation
-                    .unwrap_or_else(|| parts::readable_angle(drawn.along));
-                let (h, v) = dimension
-                    .text
-                    .attachment
-                    .unwrap_or((Horizontal::Center, Vertical::Middle));
-                let font = self.font(font.as_deref());
-                self.label(
-                    visit,
-                    at,
-                    degrees,
-                    height,
-                    &content,
-                    [horizontal_code(h), vertical_code(v)],
-                    font,
-                    unit,
-                );
+            let mut font_name = spans
+                .iter()
+                .find_map(|span| span.format.font.as_ref())
+                .map(|f| f.name.as_str());
+            if font_name.is_none()
+                && let Some(name) = display.text_style
+            {
+                let work =
+                    (self.drawing.text_styles.len() as u64).saturating_mul(1 + name.len() as u64);
+                self.work(work, source)?;
+                font_name = self
+                    .drawing
+                    .text_style(name)
+                    .and_then(|s| s.definition.as_ref())
+                    .and_then(|s| s.font.as_ref())
+                    .map(|f| f.name.as_str());
             }
+            let saved = dimension.text.position.map(|p| p.xy());
+            let at = parts::automatic_dimension_text_position(
+                dimension,
+                &drawn,
+                saved,
+                display.text_vertical_placement,
+                scaled_length(display.text_gap),
+                height,
+            )
+            .or(saved)
+            .unwrap_or(drawn.middle);
+            let degrees = dimension
+                .text
+                .rotation
+                .unwrap_or_else(|| parts::readable_angle(drawn.along));
+            let (h, v) = dimension
+                .text
+                .attachment
+                .unwrap_or((Horizontal::Center, Vertical::Middle));
+            let font = self.font(font_name);
+            self.label(
+                visit,
+                at,
+                degrees,
+                height,
+                &content,
+                [horizontal_code(h), vertical_code(v)],
+                font,
+                unit,
+            );
         }
         self.report(codes::SCENE_DIMENSION_APPROXIMATED, source);
         Ok(())

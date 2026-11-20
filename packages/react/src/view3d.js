@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MODULES, detect, modulesWith } from "@zumen-jp/zumen";
 import { View3D } from "@zumen-jp/view3d";
 import { connectWorker } from "./client.js";
@@ -11,16 +11,34 @@ const maxBytes = 256 * 1024 * 1024;
 const sceneWorker = () => new Worker(new URL("./worker3d.js", import.meta.url), { type: "module" });
 
 /** Canvas と設定を所有する間だけ有効な 3D の表示部品。再描画では同じ設定の参照を渡す。 */
-export function useView3D(canvas, options = emptyOptions) {
+export function useView3D(canvas, options = emptyOptions, onError) {
   const [owner, setOwner] = useState(null);
+  const errorRef = useRef(onError);
+  errorRef.current = onError;
   useLayoutEffect(() => {
     if (!canvas) { setOwner(null); return; }
-    const viewer = new View3D(canvas, options);
-    setOwner({ canvas, options, viewer });
+    let viewer = null, cancelled = false;
+    Promise.resolve().then(() => {
+      if (cancelled) return null;
+      return View3D.create(canvas, options);
+    }).then(
+      (created) => {
+        if (!created) return;
+        if (cancelled) { created.destroy(); return; }
+        viewer = created;
+        setOwner({ canvas, options, viewer });
+      },
+      (error) => {
+        if (cancelled) return;
+        setOwner(null);
+        errorRef.current?.(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
     return () => {
       // Activity と Suspense は state を保ったまま layout effect を切り離す。GPU の資源と RAF もここで放す。
+      cancelled = true;
       setOwner(null);
-      viewer.destroy();
+      viewer?.destroy();
     };
   }, [canvas, options]);
   return owner && owner.canvas === canvas && owner.options === options ? owner.viewer : null;

@@ -163,6 +163,14 @@ struct Entry {
 }
 
 impl DwgFile {
+    /// クラスのセクションに、DXF 名 `name` の図形クラスがあるか
+    #[cfg(feature = "drawing")]
+    pub(crate) fn has_entity_class(&self, name: &[u8]) -> bool {
+        self.classes
+            .iter()
+            .any(|class| class.entity && class.name.as_slice() == name)
+    }
+
     /// ファイルを、予算と中断を確かめながら複製する。展開したセクションも保つ
     pub fn snapshot(&self, cx: &mut Cx<'_>) -> Result<Self, Error> {
         use crate::snapshot::{bytes, check};

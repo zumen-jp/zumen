@@ -88,7 +88,8 @@ fn r2010_leaders_are_added_and_replaced_with_their_arrow() {
     for release in [Release::R2010, Release::R2013, Release::R2018] {
         let old = leader_object(&[[0.0, 0.0], [5.0, 5.0]], 1);
         let new = NewEntity {
-            object: &old,
+            object: std::borrow::Cow::Borrowed(&old),
+            eed: Vec::new(),
             handle: 0x40,
             type_code: kinds::LEADER,
             mode: 2,
@@ -96,6 +97,7 @@ fn r2010_leaders_are_added_and_replaced_with_their_arrow() {
             layer: 0x10,
             ltype: (0, 0),
             pointed: Some(0x11),
+            extra_pointed: None,
             embedded: None,
             children: None,
         };
@@ -179,7 +181,8 @@ fn reactors_are_added_to_entities() {
     ] {
         let old = leader_object(&[[0.0, 0.0], [5.0, 5.0]], 1);
         let new = NewEntity {
-            object: &old,
+            object: std::borrow::Cow::Borrowed(&old),
+            eed: Vec::new(),
             handle: 0x40,
             type_code: kinds::LEADER,
             mode: 2,
@@ -187,6 +190,7 @@ fn reactors_are_added_to_entities() {
             layer: 0x10,
             ltype: (0, 0),
             pointed: Some(0x11),
+            extra_pointed: None,
             embedded: None,
             children: None,
         };

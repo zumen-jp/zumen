@@ -15,8 +15,8 @@ pub use author::{
     FillingKind, NewAxis2, NewAxis3, NewBeam, NewBoolean, NewColumn, NewConstituent, NewElement,
     NewFaces, NewFilling, NewGrid, NewGridAxis, NewHalfSpace, NewHalfSpaceLimit, NewItem, NewLayer,
     NewLayerUsage, NewMapped, NewMaterial, NewMaterialLayer, NewOpening, NewPlacement, NewProfile,
-    NewProfileKind, NewSection, NewShape, NewSlab, NewSolid, NewSpace, NewType, NewWall,
-    OpeningChange, SpaceKind, Target, WallChange,
+    NewProfileKind, NewRevolution, NewSection, NewShape, NewSlab, NewSolid, NewSpace, NewSweptDisk,
+    NewType, NewWall, OpeningChange, SpaceKind, Target, WallChange,
 };
 pub use convert::{ConvertOptions, Converted, convert};
 pub use create::{Header, LengthUnit, OwnerHistory, Template, create, derive_global_id};
@@ -251,7 +251,8 @@ pub struct Applied {
 }
 
 /// 変更を順に当て、書き直したファイルを返す。当てられない変更が 1 つでもあれば、診断して失敗する。
-/// `seed` は、足す GlobalId を決めるための値で、同じ入力と変更なら同じ GlobalId になる
+/// `seed` は、足す GlobalId を決めるための値で、同じ入力と変更なら同じ GlobalId になる。足す関係とセットの
+/// GlobalId は、[`Keyed`] の鍵で決め、ほかの変更の順によらない
 pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result<Applied, Error> {
     let mut draft = Draft::new(file, seed, cx)?;
     let mut rejected = false;
@@ -444,6 +445,8 @@ struct Draft<'f> {
     referrers: BTreeMap<u64, BTreeSet<u64>>,
     seed: Vec<u8>,
     minted: u64,
+    /// 関係とセットの GlobalId の鍵ごとの使った数
+    keyed: Keyed,
     /// 除いたインスタンス
     removed: BTreeSet<u64>,
     /// 足す変更が足した要素。[`Target::Added`] の番号の順
@@ -491,6 +494,7 @@ impl<'f> Draft<'f> {
             referrers,
             seed: seed.to_vec(),
             minted: 0,
+            keyed: Keyed::default(),
             removed: BTreeSet::new(),
             handles: Vec::new(),
             project,
@@ -517,6 +521,45 @@ impl<'f> Draft<'f> {
                 .instance(id)
                 .map(|record| self.file.kind(record).to_ascii_uppercase())
                 .unwrap_or_default(),
+        }
+    }
+
+    /// 属性 `slot`（1 から）が指す参照の並び。既に `changed` にあれば、ほかの属性の並びを複製せずに読む
+    fn arg_refs(&self, id: u64, slot: usize) -> Vec<u64> {
+        match self.changed.get(&id) {
+            Some(stmt) => refs_of(stmt.arg(slot)),
+            None => self
+                .stmt(id)
+                .map(|stmt| refs_of(stmt.arg(slot)))
+                .unwrap_or_default(),
+        }
+    }
+
+    /// 属性 `slot`（1 から）の文字列。既に `changed` にあれば、ほかの属性の並びを複製せずに読む
+    fn arg_text(&self, id: u64, slot: usize) -> Option<String> {
+        match self.changed.get(&id) {
+            Some(stmt) => self.text_of(stmt.arg(slot)?),
+            None => {
+                let stmt = self.stmt(id)?;
+                self.text_of(stmt.arg(slot)?)
+            }
+        }
+    }
+
+    /// 並びの属性 `slot`（1 から）の末尾に参照 `target` を足し、逆向きの参照も 1 件だけ足す
+    fn append_ref(&mut self, id: u64, slot: usize, target: u64) {
+        if !self.changed.contains_key(&id)
+            && let Some(stmt) = self.stmt(id)
+        {
+            self.changed.insert(id, stmt);
+        }
+        if let Some(stmt) = self.changed.get_mut(&id) {
+            match stmt.args.get_mut(slot.saturating_sub(1)) {
+                Some(Item::List(items)) => items.push(Item::Ref(target)),
+                Some(other) => *other = Item::List(vec![Item::Ref(target)]),
+                None => {}
+            }
+            self.referrers.entry(target).or_default().insert(id);
         }
     }
 
@@ -551,13 +594,22 @@ impl<'f> Draft<'f> {
         id
     }
 
-    /// 足す GlobalId。`seed` と、足した数から決める
+    /// 足す要素の GlobalId。`seed` と、足した数から決める
     fn global_id(&mut self) -> Item {
         let mut input = self.seed.clone();
         input.extend_from_slice(&self.minted.to_le_bytes());
         self.minted += 1;
         let Hash(bytes) = Hash::document(&input);
         text(&GlobalId::from_uuid(bytes).to_string())
+    }
+
+    /// 足す関係とセットの GlobalId。種類 `name`・結ぶ要素 `ends`・セットの名前 `label` の鍵から決める
+    fn keyed_global_id(&mut self, name: &[u8], ends: &[u64], label: &str) -> Item {
+        let ends = ends
+            .iter()
+            .map(|&end| end_key(self.stmt(end), end))
+            .collect::<Vec<_>>();
+        self.keyed.mint(&self.seed, name, &ends, label)
     }
 
     /// 要素（`IfcRoot`）の 2 OwnerHistory。要素でなければ `None`
@@ -635,7 +687,7 @@ impl<'f> Draft<'f> {
                 let stmt = Stmt {
                     name: PROPERTY_SET.to_vec(),
                     args: vec![
-                        self.global_id(),
+                        self.keyed_global_id(PROPERTY_SET, &[element], set),
                         history,
                         text(set),
                         Item::Raw(b"$".to_vec()),
@@ -658,11 +710,7 @@ impl<'f> Draft<'f> {
         typed_object: bool,
     ) -> u64 {
         let exclusive = self.referrers(pset) == [holder]
-            && (typed_object
-                || self
-                    .stmt(holder)
-                    .map(|rel| refs_of(rel.arg(5)) == [element])
-                    .unwrap_or_default());
+            && (typed_object || self.arg_refs(holder, 5) == [element]);
         if exclusive {
             pset
         } else {
@@ -678,19 +726,16 @@ impl<'f> Draft<'f> {
         set: &str,
         cx: &mut Cx,
     ) -> Result<Option<(u64, u64)>, Error> {
-        for rel in self.referrers(element) {
+        for &rel in self.referrers.get(&element).into_iter().flatten() {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, None))?;
             if self.kind(rel) != b"IFCRELDEFINESBYPROPERTIES" {
                 continue;
             }
-            let Some(stmt) = self.stmt(rel) else {
-                continue;
-            };
-            if !refs_of(stmt.arg(5)).contains(&element) {
+            if !self.arg_refs(rel, 5).contains(&element) {
                 continue;
             }
-            for pset in refs_of(stmt.arg(6)) {
+            for pset in self.arg_refs(rel, 6) {
                 if self.is_set(pset, kind, set) {
                     return Ok(Some((rel, pset)));
                 }
@@ -708,11 +753,7 @@ impl<'f> Draft<'f> {
     }
 
     fn is_set(&self, pset: u64, kind: &[u8], set: &str) -> bool {
-        self.kind(pset) == kind
-            && self
-                .stmt(pset)
-                .and_then(|stmt| self.text_of(stmt.arg(3)?))
-                .is_some_and(|name| name == set)
+        self.kind(pset) == kind && self.arg_text(pset, 3).is_some_and(|name| name == set)
     }
 
     /// 共有されたセットの写しを作り、この要素だけに付け替える
@@ -727,7 +768,8 @@ impl<'f> Draft<'f> {
         let Some(mut copy) = self.stmt(pset) else {
             return pset;
         };
-        copy.set(1, self.global_id());
+        let global_id = self.keyed_global_id(&copy.name, &[element, pset], "");
+        copy.set(1, global_id);
         let copy = self.add(copy);
         if typed_object {
             if let Some(mut stmt) = self.stmt(holder) {
@@ -768,18 +810,7 @@ impl<'f> Draft<'f> {
         let history = owner.arg(2).cloned().unwrap_or(Item::Raw(b"$".to_vec()));
         let pset = self.add(stmt);
         if typed_object {
-            if let Some(mut stmt) = self.stmt(element) {
-                let sets = match stmt.arg(6) {
-                    Some(Item::List(items)) => {
-                        let mut items = items.clone();
-                        items.push(Item::Ref(pset));
-                        Item::List(items)
-                    }
-                    _ => Item::List(vec![Item::Ref(pset)]),
-                };
-                stmt.set(6, sets);
-                self.put(element, stmt);
-            }
+            self.append_ref(element, 6, pset);
         } else {
             self.relate(element, pset, history);
         }
@@ -791,7 +822,7 @@ impl<'f> Draft<'f> {
         let stmt = Stmt {
             name: b"IFCRELDEFINESBYPROPERTIES".to_vec(),
             args: vec![
-                self.global_id(),
+                self.keyed_global_id(b"IFCRELDEFINESBYPROPERTIES", &[element, pset], ""),
                 history,
                 Item::Raw(b"$".to_vec()),
                 Item::Raw(b"$".to_vec()),
@@ -811,19 +842,15 @@ impl<'f> Draft<'f> {
         owner_kind: &[u8],
         cx: &mut Cx,
     ) -> Result<bool, Error> {
-        let Some(mut set) = self.stmt(pset) else {
+        if !self.changed.contains_key(&pset) && self.file.instance(pset).is_none() {
             cx.report(unsupported("property", owner_kind));
             return Ok(false);
-        };
+        }
         let mut found = None;
-        for property in refs_of(set.arg(5)) {
+        for property in self.arg_refs(pset, 5) {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, None))?;
-            let named = self
-                .stmt(property)
-                .and_then(|stmt| self.text_of(stmt.arg(1)?))
-                .is_some_and(|text| text == name);
-            if named {
+            if self.arg_text(property, 1).is_some_and(|text| text == name) {
                 found = Some(property);
                 break;
             }
@@ -842,6 +869,10 @@ impl<'f> Draft<'f> {
                 if self.referrers(property) == [pset] {
                     self.put(property, stmt);
                 } else {
+                    let Some(mut set) = self.stmt(pset) else {
+                        cx.report(unsupported("property", owner_kind));
+                        return Ok(false);
+                    };
                     let copy = self.add(stmt);
                     let properties = swap(set.arg(5), property, copy);
                     set.set(5, properties);
@@ -849,6 +880,15 @@ impl<'f> Draft<'f> {
                 }
             }
             None => {
+                let Some(_) = self
+                    .changed
+                    .get(&pset)
+                    .map(|_| ())
+                    .or_else(|| self.stmt(pset).map(|_| ()))
+                else {
+                    cx.report(unsupported("property", owner_kind));
+                    return Ok(false);
+                };
                 let stmt = Stmt {
                     name: b"IFCPROPERTYSINGLEVALUE".to_vec(),
                     args: vec![
@@ -859,16 +899,7 @@ impl<'f> Draft<'f> {
                     ],
                 };
                 let property = self.add(stmt);
-                let properties = match set.arg(5) {
-                    Some(Item::List(items)) => {
-                        let mut items = items.clone();
-                        items.push(Item::Ref(property));
-                        Item::List(items)
-                    }
-                    _ => Item::List(vec![Item::Ref(property)]),
-                };
-                set.set(5, properties);
-                self.put(pset, set);
+                self.append_ref(pset, 5, property);
             }
         }
         Ok(true)
@@ -1010,6 +1041,43 @@ pub(crate) fn swap(item: Option<&Item>, from: u64, to: u64) -> Item {
         ),
         other => other.cloned().unwrap_or(Item::Raw(b"$".to_vec())),
     }
+}
+
+/// 足す関係とセットの GlobalId の鍵ごとの使った数（#395）。
+///
+/// 関係とセットの GlobalId は、足した順でなく、`seed` と、種類・結ぶ要素の GlobalId・セットの名前の鍵から
+/// 導く。ほかの要素やセットを先に足しても変わらない。同じ鍵が同じ変更で重なれば、重なった数で分ける
+#[derive(Default)]
+pub(crate) struct Keyed(BTreeMap<Vec<u8>, u32>);
+
+impl Keyed {
+    pub(crate) fn mint(&mut self, seed: &[u8], name: &[u8], ends: &[Vec<u8>], label: &str) -> Item {
+        let mut key = name.to_ascii_uppercase();
+        for end in ends {
+            key.push(b'/');
+            key.extend_from_slice(end);
+        }
+        key.push(b'/');
+        key.extend_from_slice(label.as_bytes());
+        let used = self.0.entry(key.clone()).or_default();
+        let repeat = *used;
+        *used = used.saturating_add(1);
+        // 足した数から作る GlobalId（seed と 8 バイト）と入力の長さで分かれるよう、印を挟む
+        let mut input = Vec::with_capacity(seed.len() + key.len() + 16);
+        input.extend_from_slice(seed);
+        input.extend_from_slice(b"\0relation\0");
+        input.extend_from_slice(&key);
+        input.extend_from_slice(&repeat.to_le_bytes());
+        let Hash(bytes) = Hash::document(&input);
+        text(&GlobalId::from_uuid(bytes).to_string())
+    }
+}
+
+/// 鍵に入れる要素。GlobalId があればその値、なければインスタンスの番号
+pub(crate) fn end_key(stmt: Option<Stmt>, id: u64) -> Vec<u8> {
+    stmt.and_then(|stmt| text_of(stmt.arg(1)?))
+        .filter(|global_id| global_id.len() == 22)
+        .map_or_else(|| format!("#{id}").into_bytes(), String::into_bytes)
 }
 
 /// 文字列の値の中身。文字列でなければ `None`

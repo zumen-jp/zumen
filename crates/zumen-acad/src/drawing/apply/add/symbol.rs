@@ -16,7 +16,7 @@ use zumen_drawing::{ModelPoint, SymbolDefinition};
 pub(in crate::drawing::apply) type Refusal = (String, &'static str);
 
 /// DXF の BLOCKS の所の終わり（最後の BLOCKS のオブジェクトの次）。BLOCKS の所がなければ `None`
-pub(super) fn blocks_end(db: &AcadDb) -> Option<usize> {
+pub(in crate::drawing::apply) fn blocks_end(db: &AcadDb) -> Option<usize> {
     db.objects()
         .iter()
         .rposition(|object| object.section == Section::Blocks)
@@ -24,7 +24,7 @@ pub(super) fn blocks_end(db: &AcadDb) -> Option<usize> {
 }
 
 /// モデル空間のブロックのレコード
-fn model_record(db: &AcadDb) -> Option<&Object> {
+pub(in crate::drawing::apply) fn model_record(db: &AcadDb) -> Option<&Object> {
     db.objects().iter().find(|object| {
         object.kind == b"BLOCK_RECORD"
             && matches!(object.first(2), Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"*Model_Space"))

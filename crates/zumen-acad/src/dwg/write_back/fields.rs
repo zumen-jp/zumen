@@ -246,7 +246,10 @@ pub(super) fn own_fields(
         }
         // SEQEND は型ごとのフィールドを持たない
         b"SEQEND" | b"ENDBLK" => {}
-        b"BLOCK" => string(&mut fields, new, 2)?,
+        b"BLOCK" => match text_of(new, 2).and_then(anon_dwg_block_name) {
+            Some(anon) => fields.text(anon)?,
+            None => string(&mut fields, new, 2)?,
+        },
         _ => return None,
     }
     Some(fields)

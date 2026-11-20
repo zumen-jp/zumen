@@ -3,12 +3,13 @@ import { View2D } from "../src/index.js";
 import { bundle, fixture } from "./fixtures.mjs";
 import { findSource } from "../example/source.js";
 
-export function testState({ assert, throws }) {
+export async function testState({ assert, throws }) {
   const canvas = document.createElement("canvas");
-  const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2, view: { center: { x: 0, y: 0 }, scale: 2, rotation: 0 } });
-  const ctx = canvas.getContext("2d");
-  const pixel = (expected, message) => {
-    const rgb = [...ctx.getImageData(200, 140, 1, 1).data].slice(0, 3);
+  const viewer = await View2D.create(canvas, { width: 200, height: 200, pixelRatio: 2, view: { center: { x: 0, y: 0 }, scale: 2, rotation: 0 } });
+  const pixel = async (expected, message) => {
+    const shot = await viewer.snapshot();
+    const offset = (140 * shot.width + 200) * 4;
+    const rgb = [shot.pixels[offset], shot.pixels[offset + 1], shot.pixels[offset + 2]];
     assert(rgb.every((value, i) => Math.abs(value - expected[i]) < 4), `${message}: ${rgb}`);
   };
   const columns = fixture();
@@ -33,7 +34,7 @@ export function testState({ assert, throws }) {
   assert(viewer.getState().selection.length === 1 && events.length === 1 && events[0].type === "selection", "選択の重複と種類別の通知");
   const chosen = viewer.getState().selection[0];
   assert(Object.isFrozen(chosen.path[0]) && chosen !== first, "利用側の参照を保管しない");
-  pixel([255, 136, 0], "選択した配置の色");
+  await pixel([255, 136, 0], "選択した配置の色");
   const selected = viewer.getState();
   viewer.select([first]);
   assert(viewer.getState() === selected, "同じ選択は通知しない");
@@ -48,23 +49,23 @@ export function testState({ assert, throws }) {
   viewer.select([chosen, second], "toggle");
   assert(viewer.getState().selection.length === 1 && viewer.getState().selection[0] === chosen, "選択の切り替え");
   viewer.setHighlight("search", [chosen], "#ff0000");
-  pixel([255, 136, 0], "選択は名前付き強調より上");
-  viewer.setHovered(chosen); pixel([0, 170, 204], "hover は選択より上");
-  viewer.select([]); viewer.setHovered(null); pixel([255, 0, 0], "名前付き強調");
-  viewer.setHighlight("other", [chosen], "#00ff00"); pixel([0, 255, 0], "後の名前付き強調を優先");
-  viewer.setHighlight("search", [chosen], "#ff0000"); pixel([255, 0, 0], "同じ名前の更新を最後にする");
-  viewer.setHighlight("search", []); pixel([0, 255, 0], "名前付き強調を除去");
-  viewer.setHighlight("other", []); pixel([0, 0, 255], "元の色へ戻る");
+  await pixel([255, 136, 0], "選択は名前付き強調より上");
+  viewer.setHovered(chosen); await pixel([0, 170, 204], "hover は選択より上");
+  viewer.select([]); viewer.setHovered(null); await pixel([255, 0, 0], "名前付き強調");
+  viewer.setHighlight("other", [chosen], "#00ff00"); await pixel([0, 255, 0], "後の名前付き強調を優先");
+  viewer.setHighlight("search", [chosen], "#ff0000"); await pixel([255, 0, 0], "同じ名前の更新を最後にする");
+  viewer.setHighlight("search", []); await pixel([0, 255, 0], "名前付き強調を除去");
+  viewer.setHighlight("other", []); await pixel([0, 0, 255], "元の色へ戻る");
   throws(() => viewer.setHighlight("x", [chosen], "invalid-color"), "無効な強調色を拒否");
   viewer.select([chosen]); viewer.setHovered(chosen); viewer.setHighlight("saved", [chosen]);
   viewer.setHiddenLayers(["layer/0", "layer/0"]);
   assert(viewer.getState().hiddenLayers.length === 1 && viewer.getReport().drawn.lines === 0, "非表示レイヤを描画数から除く");
   assert(viewer.getState().selection[0] === chosen, "非表示でも選択を保持");
-  pixel([255, 0, 0], "強調しても非表示は描かない");
+  await pixel([255, 0, 0], "強調しても非表示は描かない");
   const hidden = viewer.getState();
   throws(() => viewer.setLayersVisible(["unknown"], true), "未知のレイヤを拒否");
   assert(viewer.getState() === hidden, "拒否したレイヤで状態を変えない");
-  viewer.setLayersVisible(["layer/0"], true); pixel([0, 170, 204], "再表示で強調を戻す");
+  viewer.setLayersVisible(["layer/0"], true); await pixel([0, 170, 204], "再表示で強調を戻す");
   viewer.setLayersVisible(["layer/0"], false);
   const invalid = fixture(); invalid.line_units[0] = 999;
   const before = viewer.getState();
@@ -103,7 +104,7 @@ export function testState({ assert, throws }) {
   throws(() => viewer.getState(), "破棄後の状態取得");
   throws(() => viewer.subscribe(() => {}), "破棄後の購読");
 
-  const limited = new View2D(document.createElement("canvas"), { width: 100, height: 100, limits: { stateItems: 2 } });
+  const limited = await View2D.create(document.createElement("canvas"), { width: 100, height: 100, limits: { stateItems: 2 } });
   limited.setScene(input); limited.select([chosen, second]);
   const full = limited.getState();
   throws(() => limited.setHovered(chosen), "状態全体の上限");
@@ -112,9 +113,9 @@ export function testState({ assert, throws }) {
   throws(() => limited.subscribe(() => {}), "購読の上限"); limited.destroy();
 }
 
-export function testPlacedSelection(zumen, { assert, throws }) {
+export async function testPlacedSelection(zumen, { assert, throws }) {
   const session = zumen.open();
-  const viewer = new View2D(document.createElement("canvas"), { width: 200, height: 200 });
+  const viewer = await View2D.create(document.createElement("canvas"), { width: 200, height: 200 });
   try {
     // 同じ定義を別の INSERT と、2 列 2 行の格子で配置する。
     const text = [0,"SECTION",2,"BLOCKS",0,"BLOCK",5,"10",2,"MARK",70,0,10,0,20,0,

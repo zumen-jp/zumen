@@ -1,11 +1,13 @@
 import type { MeasureDistanceResult, Response, ReviewSceneResult, Scene, SceneResult, Session } from "@zumen-jp/zumen";
 import { ReviewLayer, ReviewStore, reviewReference, reviewSceneId, type ReviewRef, type ReviewStoreState } from "../src/index.js";
-import { measureDistance, View2D, VIEW_SCALE_LIMITS, type CalibratedDistanceResult, type Camera, type RenderIssue, type View2DState, type View2DEvent } from "../src/index.js";
+import { measureDistance, View2D, VIEW_SCALE_LIMITS, type CalibratedDistanceResult, type Camera, type RenderIssue, type Snapshot2D, type View2DState, type View2DEvent } from "../src/index.js";
 
 declare const scene: Scene;
 declare const result: SceneResult;
 const canvas = document.createElement("canvas");
-const viewer = new View2D(canvas, { width: 300, height: 200, pixelRatio: 2 });
+const viewer = await View2D.create(canvas, { width: 300, height: 200, pixelRatio: 2 });
+const shot2d: Snapshot2D = await viewer.snapshot();
+void shot2d;
 const report = viewer.setScene({ scene, result, document: { doc: "a.dxf", format: "dxf", hash: "v2:0" } });
 const issues: readonly RenderIssue[] = report.issues;
 const view: Camera = viewer.getView();
@@ -103,6 +105,8 @@ viewer.invalidate(); viewer.cancelInput(); removeTool(); removeOverlay(); detach
 unsubscribe(); off();
 viewer.setScene(null);
 viewer.destroy();
+(await View2D.create(new OffscreenCanvas(300, 200))).destroy();
+// @ts-expect-error 直接のコンストラクターは使わない
 new View2D(new OffscreenCanvas(300, 200));
 void issues;
 // @ts-expect-error 文書の hash が要る
@@ -112,7 +116,7 @@ view.center.x = 1;
 // @ts-expect-error 保持したシーンの件数を直接変更しない
 viewer.getScene()!.result.counts.lines = 1;
 // @ts-expect-error 未定義のフォントの取得を指定しない
-new View2D(canvas, { fallbackFont: "https://example.com/font.ttf" });
+await View2D.create(canvas, { fallbackFont: "https://example.com/font.ttf" });
 // @ts-expect-error 状態の選択を直接変更しない
 state.selection.push({ id: "space/0/h1", path: [] });
 // @ts-expect-error 配置の格子の列・行を省かない
@@ -142,7 +146,7 @@ store.select(reviewRefs, "toggle");
 store.setFilter({ kinds: ["location"], statuses: ["open"] });
 const sceneIds: string[] = store.items().map((item) => item.sceneId).concat(reviewRefs.map(reviewSceneId));
 void reviewState; void sceneIds; void store.filteredJSON();
-const overlayViewer = new View2D(document.createElement("canvas"), { background: "transparent" });
+const overlayViewer = await View2D.create(document.createElement("canvas"), { background: "transparent" });
 const layer = new ReviewLayer(viewer, overlayViewer, store);
 layer.setResult({ scene, result: reviewResult, document: { doc: "a.dxf", format: "dxf", hash: "v2:0" } });
 const picked: readonly ReviewRef[] = layer.pick({ x: 1, y: 2 }, 3);

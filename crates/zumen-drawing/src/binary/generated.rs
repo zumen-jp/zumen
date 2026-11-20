@@ -6,7 +6,7 @@ use super::{Input, Pack, Unpack, Writer, largest};
 pub const MAJOR: u16 = 1;
 
 /// マイナーバージョン。型の契約に型・フィールド・値を足すたびに上げる
-pub const MINOR: u16 = 0;
+pub const MINOR: u16 = 2;
 
 impl Pack for crate::space::Affine {
     fn pack(&self, out: &mut Writer) {
@@ -839,6 +839,47 @@ impl Unpack for crate::style::ColorSystem {
     }
 }
 
+impl Pack for zumen_crs::Crs {
+    fn pack(&self, out: &mut Writer) {
+        match self {
+            Self::Geographic => out.uint(0),
+            Self::Wgs84 => out.uint(1),
+            Self::Plane(f0) => {
+                out.uint(2);
+                f0.pack(out);
+            }
+            Self::Jgd2000(f0) => {
+                out.uint(3);
+                f0.pack(out);
+            }
+            Self::Tokyo(f0) => {
+                out.uint(4);
+                f0.pack(out);
+            }
+        }
+    }
+}
+
+impl Unpack for zumen_crs::Crs {
+    const SIZE: u64 = 8 + largest(&[
+        0,
+        0,
+        <zumen_crs::Zone as Unpack>::SIZE,
+        <zumen_crs::Zone as Unpack>::SIZE,
+        <zumen_crs::Zone as Unpack>::SIZE,
+    ]);
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        Ok(match input.variant("Crs", 5)? {
+            0 => Self::Geographic,
+            1 => Self::Wgs84,
+            2 => Self::Plane(Unpack::unpack(input)?),
+            3 => Self::Jgd2000(Unpack::unpack(input)?),
+            _ => Self::Tokyo(Unpack::unpack(input)?),
+        })
+    }
+}
+
 impl Pack for crate::table::DateTime {
     fn pack(&self, out: &mut Writer) {
         let Self {
@@ -924,6 +965,138 @@ impl<P: Unpack> Unpack for crate::dimension::Dimension<P> {
                 text: Unpack::unpack(input)?,
                 style: Unpack::unpack(input)?,
                 block: Unpack::unpack(input)?,
+            })
+        })
+    }
+}
+
+impl Pack for crate::dimension_display::DimensionDisplayRecord {
+    fn pack(&self, out: &mut Writer) {
+        let Self { target, values } = self;
+        out.record(|out| {
+            target.pack(out);
+            values.pack(out);
+        });
+    }
+}
+
+impl Unpack for crate::dimension_display::DimensionDisplayRecord {
+    const SIZE: u64 = <crate::dimension_display::DimensionDisplayTarget as Unpack>::SIZE
+        + <crate::dimension_display::DimensionDisplayValues as Unpack>::SIZE;
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        input.record("DimensionDisplayRecord", |input| {
+            Ok(Self {
+                target: Unpack::unpack(input)?,
+                values: Unpack::unpack(input)?,
+            })
+        })
+    }
+}
+
+impl Pack for crate::dimension_display::DimensionDisplayTarget {
+    fn pack(&self, out: &mut Writer) {
+        match self {
+            Self::Style(f0) => {
+                out.uint(0);
+                f0.pack(out);
+            }
+            Self::Element { id, basis } => {
+                out.uint(1);
+                out.record(|out| {
+                    id.pack(out);
+                    basis.pack(out);
+                });
+            }
+        }
+    }
+}
+
+impl Unpack for crate::dimension_display::DimensionDisplayTarget {
+    const SIZE: u64 = 8 + largest(&[
+        <String as Unpack>::SIZE,
+        <String as Unpack>::SIZE + <crate::hash::Hash as Unpack>::SIZE,
+    ]);
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        Ok(match input.variant("DimensionDisplayTarget", 2)? {
+            0 => Self::Style(Unpack::unpack(input)?),
+            _ => input.record("DimensionDisplayTarget", |input| {
+                Ok(Self::Element {
+                    id: Unpack::unpack(input)?,
+                    basis: Unpack::unpack(input)?,
+                })
+            })?,
+        })
+    }
+}
+
+impl Pack for crate::dimension_display::DimensionDisplayValues {
+    fn pack(&self, out: &mut Writer) {
+        let Self {
+            scale,
+            arrow_size,
+            tick_size,
+            extension_offset,
+            extension_beyond,
+            suppress_first_extension,
+            suppress_second_extension,
+            text_height,
+            linear_factor,
+            linear_precision,
+            text_style,
+            text_vertical_placement,
+            text_gap,
+        } = self;
+        out.record(|out| {
+            scale.pack(out);
+            arrow_size.pack(out);
+            tick_size.pack(out);
+            extension_offset.pack(out);
+            extension_beyond.pack(out);
+            suppress_first_extension.pack(out);
+            suppress_second_extension.pack(out);
+            text_height.pack(out);
+            linear_factor.pack(out);
+            linear_precision.pack(out);
+            text_style.pack(out);
+            text_vertical_placement.pack(out);
+            text_gap.pack(out);
+        });
+    }
+}
+
+impl Unpack for crate::dimension_display::DimensionDisplayValues {
+    const SIZE: u64 = <Option<f64> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<bool> as Unpack>::SIZE
+        + <Option<bool> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE
+        + <Option<u8> as Unpack>::SIZE
+        + <Option<String> as Unpack>::SIZE
+        + <Option<u8> as Unpack>::SIZE
+        + <Option<f64> as Unpack>::SIZE;
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        input.record("DimensionDisplayValues", |input| {
+            Ok(Self {
+                scale: Unpack::unpack(input)?,
+                arrow_size: Unpack::unpack(input)?,
+                tick_size: Unpack::unpack(input)?,
+                extension_offset: Unpack::unpack(input)?,
+                extension_beyond: Unpack::unpack(input)?,
+                suppress_first_extension: Unpack::unpack(input)?,
+                suppress_second_extension: Unpack::unpack(input)?,
+                text_height: Unpack::unpack(input)?,
+                linear_factor: Unpack::unpack(input)?,
+                linear_precision: Unpack::unpack(input)?,
+                text_style: Unpack::unpack(input)?,
+                text_vertical_placement: Unpack::unpack(input)?,
+                text_gap: Unpack::unpack(input)?,
             })
         })
     }
@@ -1249,6 +1422,8 @@ impl Pack for crate::Drawing2D {
             extensions,
             title_blocks,
             point_style,
+            georeference,
+            dimension_display,
         } = self;
         out.record(|out| {
             spaces.pack(out);
@@ -1265,6 +1440,8 @@ impl Pack for crate::Drawing2D {
             extensions.pack(out);
             title_blocks.pack(out);
             point_style.pack(out);
+            georeference.pack(out);
+            dimension_display.pack(out);
         });
     }
 }
@@ -1283,7 +1460,9 @@ impl Unpack for crate::Drawing2D {
         + <Vec<crate::symbol::SymbolDefinition> as Unpack>::SIZE
         + <Vec<crate::extension::Extension> as Unpack>::SIZE
         + <Vec<crate::TitleBlock> as Unpack>::SIZE
-        + <Option<crate::point::PointStyle> as Unpack>::SIZE;
+        + <Option<crate::point::PointStyle> as Unpack>::SIZE
+        + <Option<zumen_crs::Georeference> as Unpack>::SIZE
+        + <Vec<crate::dimension_display::DimensionDisplayRecord> as Unpack>::SIZE;
 
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Drawing2D", |input| {
@@ -1302,6 +1481,16 @@ impl Unpack for crate::Drawing2D {
                 extensions: Unpack::unpack(input)?,
                 title_blocks: Unpack::unpack(input)?,
                 point_style: Unpack::unpack(input)?,
+                georeference: if input.has_field(1) {
+                    Unpack::unpack(input)?
+                } else {
+                    Default::default()
+                },
+                dimension_display: if input.has_field(2) {
+                    Unpack::unpack(input)?
+                } else {
+                    Default::default()
+                },
             })
         })
     }
@@ -1878,6 +2067,29 @@ impl<P: Unpack> Unpack for crate::text::FormattedText<P> {
                 line_spacing: Unpack::unpack(input)?,
                 background: Unpack::unpack(input)?,
                 style: Unpack::unpack(input)?,
+            })
+        })
+    }
+}
+
+impl Pack for zumen_crs::Georeference {
+    fn pack(&self, out: &mut Writer) {
+        let Self { crs, conversion } = self;
+        out.record(|out| {
+            crs.pack(out);
+            conversion.pack(out);
+        });
+    }
+}
+
+impl Unpack for zumen_crs::Georeference {
+    const SIZE: u64 = <zumen_crs::Crs as Unpack>::SIZE + <zumen_crs::MapConversion as Unpack>::SIZE;
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        input.record("Georeference", |input| {
+            Ok(Self {
+                crs: Unpack::unpack(input)?,
+                conversion: Unpack::unpack(input)?,
             })
         })
     }
@@ -2633,6 +2845,49 @@ impl Unpack for crate::style::LineWeight {
         Ok(match input.variant("LineWeight", 2)? {
             0 => Self::Width(Unpack::unpack(input)?),
             _ => Self::Default,
+        })
+    }
+}
+
+impl Pack for zumen_crs::MapConversion {
+    fn pack(&self, out: &mut Writer) {
+        let Self {
+            eastings,
+            northings,
+            orthogonal_height,
+            x_axis_abscissa,
+            x_axis_ordinate,
+            scale,
+        } = self;
+        out.record(|out| {
+            eastings.pack(out);
+            northings.pack(out);
+            orthogonal_height.pack(out);
+            x_axis_abscissa.pack(out);
+            x_axis_ordinate.pack(out);
+            scale.pack(out);
+        });
+    }
+}
+
+impl Unpack for zumen_crs::MapConversion {
+    const SIZE: u64 = <f64 as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE
+        + <f64 as Unpack>::SIZE;
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        input.record("MapConversion", |input| {
+            Ok(Self {
+                eastings: Unpack::unpack(input)?,
+                northings: Unpack::unpack(input)?,
+                orthogonal_height: Unpack::unpack(input)?,
+                x_axis_abscissa: Unpack::unpack(input)?,
+                x_axis_ordinate: Unpack::unpack(input)?,
+                scale: Unpack::unpack(input)?,
+            })
         })
     }
 }

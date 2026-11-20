@@ -14,8 +14,8 @@ export async function checkReview(page, ready, dxf) {
   };
   const items = panel.getByRole("list").getByRole("button");
   const overlay = page.locator("canvas.review-overlay");
-  const ink = () => overlay.evaluate((canvas) => {
-    const data = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+  const ink = () => overlay.evaluate(async (canvas) => {
+    const { pixels: data } = await canvas[Symbol.for("zumen.view2d")].snapshot();
     let count = 0;
     for (let i = 3; i < data.length; i += 4) if (data[i] > 0) count++;
     return count;

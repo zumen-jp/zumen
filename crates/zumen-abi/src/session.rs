@@ -13,6 +13,8 @@ mod delivery_ops;
 mod drawing_ops;
 #[cfg(feature = "drawing")]
 mod element_set;
+mod georeference_ops;
+mod ifc_ops;
 #[cfg(feature = "drawing")]
 mod intersection_ops;
 #[cfg(feature = "drawing")]
@@ -431,13 +433,15 @@ impl Session {
             Request::Entities(request) => self.entities(request, &mut cx).map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Apply(request) => self.apply(request, &mut cx).map(|r| Box::new(r) as _),
-            #[cfg(feature = "drawing")]
-            Request::Create(request) => self.create(request, &mut cx).map(|r| Box::new(r) as _),
-            #[cfg(any(feature = "drawing", feature = "civil"))]
-            Request::Convert(request) => self.convert(request, &mut cx).map(|r| Box::new(r) as _),
-            #[cfg(feature = "drawing")]
+            #[cfg(any(feature = "drawing", feature = "bim"))]
+            Request::Create(request) => self.create_op(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(any(feature = "drawing", feature = "civil", feature = "bim"))]
+            Request::Convert(request) => {
+                self.convert_op(request, &mut cx).map(|r| Box::new(r) as _)
+            }
+            #[cfg(any(feature = "drawing", feature = "bim"))]
             Request::ConvertEstimate(request) => self
-                .convert_estimate(request, &mut cx)
+                .convert_estimate_op(request, &mut cx)
                 .map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::Tables(request) => self.tables(request, &mut cx).map(|r| Box::new(r) as _),
@@ -534,6 +538,10 @@ impl Session {
                 .map(|r| Box::new(r) as _),
             #[cfg(feature = "civil")]
             Request::Geo(request) => self.geo(request, &mut cx).map(|r| Box::new(r) as _),
+            #[cfg(any(feature = "drawing", feature = "civil"))]
+            Request::Georeference(request) => self
+                .georeference(request, &mut cx)
+                .map(|r| Box::new(r) as _),
             #[cfg(feature = "drawing")]
             Request::DeliveryCheck(request) => self
                 .delivery_check(request, &mut cx)
@@ -752,6 +760,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::Deviation(request) => &request.request_common,
         Request::CivilDrawing(request) => &request.request_common,
         Request::Geo(request) => &request.request_common,
+        Request::Georeference(request) => &request.request_common,
         Request::DeliveryCheck(request) => &request.request_common,
         Request::DeliveryApply(request) => &request.request_common,
         Request::Photo(request) => &request.request_common,
@@ -778,6 +787,7 @@ fn budget_field(budget: &messages::Budget, kind: Kind) -> Option<&messages::Limi
     match kind {
         Kind::InputBytes => budget.input_bytes.as_ref(),
         Kind::DecodedBytes => budget.decoded_bytes.as_ref(),
+        Kind::ModelBytes => budget.model_bytes.as_ref(),
         Kind::Records => budget.records.as_ref(),
         Kind::Elements => budget.elements.as_ref(),
         Kind::Depth => budget.depth.as_ref(),

@@ -5,11 +5,11 @@ use std::collections::BTreeMap;
 
 use zumen_drawing::transform::Point as _;
 use zumen_drawing::{
-    Affine, Boundary, CalloutContent, Color, DimensionKind, Edge, FormattedText, Hatch, Inherit,
-    Length, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Rotation, Shape, SpaceId,
-    SymbolKey, UnderlayFrame, transform,
+    Affine, Boundary, CalloutContent, Color, ColorSystem, DimensionKind, Edge, FormattedText,
+    Hatch, Inherit, Length, ModelPoint, PaperLength, PaperPoint, Placed, Placement, Rotation,
+    Shape, SpaceId, SymbolKey, UnderlayFrame, transform,
 };
-use zumen_live::display::{Display, DisplayWriter, radians_from_deg};
+use zumen_live::display::{Display, DisplayWriter, color as display_color, radians_from_deg};
 use zumen_live::{CommittedTxn, EMPTY_BOUNDS, ExistingRowDiff, PatchPayload};
 
 use super::{SxfContainer, SxfRow};
@@ -19,16 +19,20 @@ const DISPLAY_TOLERANCE: f64 = 0.5;
 #[inline]
 pub(super) fn pack_sxf_color(color: &Inherit<Color>) -> u32 {
     match color {
-        Inherit::Own(c) => {
-            if let Some([r, g, b]) = c.rgb {
-                0x0100_0000 | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
-            } else if let Some(code) = c.code {
-                0x0200_0000 | (code.value & 0x00FF_FFFF)
-            } else {
-                0
-            }
-        }
-        Inherit::Layer | Inherit::Block => 0,
+        Inherit::Own(c) => match (c.rgb, c.code) {
+            (Some(rgb), _) => display_color::rgb(rgb),
+            (None, Some(code)) => display_color::code(
+                match code.system {
+                    ColorSystem::Aci => display_color::ACI,
+                    ColorSystem::Sxf => display_color::SXF,
+                    ColorSystem::Jww => display_color::JWW,
+                },
+                code.value,
+            ),
+            (None, None) => display_color::LAYER,
+        },
+        Inherit::Layer => display_color::LAYER,
+        Inherit::Block => display_color::BLOCK,
     }
 }
 
@@ -493,7 +497,7 @@ fn is_conformal_similarity(m: [f64; 6]) -> Option<(f64, f64, bool)> {
     Some((sx, libm::atan2(d, a), det < 0.0))
 }
 
-fn count_model_shape_for_view(
+pub(super) fn count_model_shape_for_view(
     shape: &Shape<ModelPoint>,
     view: &Affine,
     symbol_indices: &BTreeMap<SymbolKey, u32>,
@@ -657,7 +661,7 @@ pub(super) fn write_display_row(row: &SxfRow, ctx: &DisplayContext<'_>, w: &mut 
     }
 }
 
-fn write_shape<P: transform::Point>(
+pub(super) fn write_shape<P: transform::Point>(
     shape: &Shape<P>,
     view: &Affine,
     symbol_indices: &BTreeMap<SymbolKey, u32>,

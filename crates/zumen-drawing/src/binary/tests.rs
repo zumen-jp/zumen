@@ -36,6 +36,7 @@ fn decode_with<T: Unpack>(bytes: &[u8], limits: Limits) -> Result<T, Bad> {
         minor: MINOR,
         elements: 0,
         limit: u64::MAX,
+        in_drawing: false,
         cx: &mut cx,
     };
     let value = T::unpack(&mut reader)?;
@@ -80,10 +81,20 @@ fn source() -> Source {
     }
 }
 
-/// 要素を持つ乱数の図面
+fn has_unique_space_ids(drawing: &Drawing2D) -> bool {
+    let mut spaces = BTreeSet::new();
+    drawing
+        .spaces
+        .iter()
+        .chain(drawing.symbols.iter().map(|s| &s.space))
+        .all(|s| spaces.insert(s.id))
+}
+
+/// 要素を持ち、空間 ID が重ならない乱数の図面
 fn with_elements() -> (Source, Drawing2D, Vec<u8>) {
     (0..)
         .map(|seed| random(seed, true))
+        .filter(|(_, drawing)| has_unique_space_ids(drawing))
         .map(|(source, drawing)| {
             let bytes = written(&source, &drawing);
             (source, drawing, bytes)
@@ -99,14 +110,18 @@ fn reads_back_what_it_wrote() {
         let (source, drawing) = random(seed, true);
         let bytes = written(&source, &drawing);
         elements += u32_at(&bytes, 8).unwrap();
-        let (result, codes) = load(&bytes);
-        let mut spaces = BTreeSet::new();
-        let unique = drawing
-            .spaces
-            .iter()
-            .chain(drawing.symbols.iter().map(|s| &s.space))
-            .all(|s| spaces.insert(s.id));
-        if unique {
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let result = read(&bytes, &mut cx);
+        let codes: Vec<_> = diagnostics.iter().map(|d| d.code().name()).collect();
+        assert_eq!(
+            budget.used(Kind::ModelBytes),
+            drawing.total_model_bytes(),
+            "seed {seed}"
+        );
+        if has_unique_space_ids(&drawing) {
             assert_eq!(result, Ok((source, drawing)), "seed {seed}");
             assert!(codes.is_empty(), "seed {seed}: {codes:?}");
         } else {
@@ -288,6 +303,100 @@ fn refuses_overlapping_sections_and_noncanonical_padding() {
 }
 
 #[test]
+fn reads_old_dimension_styles_and_round_trips_display_overrides() {
+    use crate::{
+        Arrowhead, DimensionDisplayRecord, DimensionDisplayTarget, DimensionDisplayValues,
+        DimensionStyle,
+    };
+    use zumen_base::Key;
+
+    let style = DimensionStyle {
+        name: "Measured".to_owned(),
+        ends: [Arrowhead::Default, Arrowhead::Default],
+        leader: Arrowhead::Default,
+        size: 0.175,
+        scale: 1.0,
+        tick: None,
+        source: Ref::default().with_key(Key::Handle(0x73)),
+    };
+    // 1.1 の Drawing2D。最初の 8 フィールド、寸法スタイル表、残る 6 フィールドを当時の順で書く。
+    let old_drawing = packed(|out| {
+        out.record(|out| {
+            out.bytes.extend_from_slice(&[0; 8]);
+            out.uint(1);
+            style.pack(out);
+            out.bytes.extend_from_slice(&[0; 6]);
+        });
+    })
+    .0;
+    let (result, codes) = load(&assemble(1, 0, &[source_section(&[]), old_drawing]));
+    assert!(codes.is_empty());
+    let (origin, mut drawing) = result.unwrap();
+    assert!(drawing.dimension_display.is_empty());
+    assert_eq!(
+        drawing.dimension_styles.as_slice(),
+        std::slice::from_ref(&style)
+    );
+    drawing.dimension_display = vec![
+        DimensionDisplayRecord {
+            target: DimensionDisplayTarget::Style("MEASURED".to_owned()),
+            values: DimensionDisplayValues {
+                text_height: Some(0.25),
+                text_style: Some("Letters".to_owned()),
+                ..Default::default()
+            },
+        },
+        DimensionDisplayRecord {
+            target: DimensionDisplayTarget::Element {
+                id: "space/0/h8A".to_owned(),
+                basis: Hash([1; 16]),
+            },
+            values: DimensionDisplayValues {
+                tick_size: Some(0.5),
+                suppress_first_extension: Some(false),
+                linear_precision: Some(0),
+                text_vertical_placement: Some(1),
+                text_gap: Some(-0.125),
+                ..Default::default()
+            },
+        },
+    ];
+    let (result, codes) = load(&written(&origin, &drawing));
+    assert!(codes.is_empty());
+    let (origin_again, actual) = result.unwrap();
+    assert_eq!(origin_again, origin);
+    assert_eq!(actual, drawing);
+    let (mut budget, mut diagnostics, cancel) =
+        (Budget::default(), Diagnostics::new(), CancelToken::new());
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let mut sources = Vec::new();
+    actual
+        .each_dimension_display_source(&mut cx, |kind, source, _| {
+            sources.push((kind, source.clone()));
+            Ok::<_, zumen_base::Stop>(())
+        })
+        .unwrap();
+    assert_eq!(
+        sources,
+        [
+            ("dimension_display_style", style.source.clone()),
+            (
+                "dimension_display_target",
+                Ref::default().with_id("space/0/h8A")
+            ),
+        ]
+    );
+    assert_eq!(
+        crate::id::dimension_style(&actual.dimension_styles[0], 0),
+        "dimension-style/h73"
+    );
+    assert_eq!(
+        Hash::dimension_style(&actual.dimension_styles[0]),
+        Hash::dimension_style(&style)
+    );
+}
+
+#[test]
 fn added_fields_follow_the_writers_minor_version() {
     #[derive(Debug, PartialEq)]
     struct Example {
@@ -322,6 +431,7 @@ fn added_fields_follow_the_writers_minor_version() {
             minor,
             elements: 0,
             limit: 0,
+            in_drawing: false,
             cx: &mut cx,
         };
         let value = Example::unpack(&mut reader)?;
@@ -395,7 +505,7 @@ fn reads_only_the_shortest_form_of_each_value() {
 
 #[test]
 fn checks_the_element_count_and_the_budget() {
-    let (_, _, bytes) = with_elements();
+    let (expected_source, expected_drawing, bytes) = with_elements();
     let count = u32_at(&bytes, 8).unwrap() as u32;
     for wrong in [count - 1, count + 1] {
         let mut broken = bytes.clone();
@@ -418,6 +528,17 @@ fn checks_the_element_count_and_the_budget() {
     let (result, codes) = load_with(&bytes, limits);
     assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
     assert_eq!(codes, ["budget.decoded-bytes.exceeded"]);
+
+    let model_bytes = expected_drawing.total_model_bytes();
+    let limits = Limits::default().with(Kind::ModelBytes, Limit::Finite(model_bytes - 1));
+    let (result, codes) = load_with(&bytes, limits);
+    assert!(matches!(result, Err(Error::Stopped(_))), "{result:?}");
+    assert_eq!(codes, ["budget.model-bytes.exceeded"]);
+    let limits = Limits::default().with(Kind::ModelBytes, Limit::Finite(model_bytes));
+    assert_eq!(
+        load_with(&bytes, limits),
+        (Ok((expected_source, expected_drawing)), Vec::new())
+    );
 }
 
 /// 復号で作ったバイト数は、型から決めた大きさで数えるので、ポインターの幅によらず同じ所で止まる

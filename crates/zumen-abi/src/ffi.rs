@@ -3,7 +3,6 @@
 //! 関数は引数を確かめ、セッションの錠を取ってから [`Session`] に渡す。
 //! - ネイティブでは、どの関数もパニックを `catch_unwind` で止める。そのセッションは、閉じるしかない
 //! - wasm ではパニックは trap になり、ホストがインスタンスを作り直す（決定 0010）
-//! - 32 bit の Windows では `extern "system"` が stdcall になる（VBA の `Declare` のため、決定 0011）
 
 // FFI のために unsafe を使う。ワークスペースで禁じた unsafe を、このモジュールでだけ許す（決定 0012）
 #![allow(unsafe_code)]

@@ -15,9 +15,12 @@ use zumen_drawing::{
 };
 use zumen_sdk::{Apply, Codec, Cx, Error, Lift, quietly};
 
+pub(crate) mod copy;
 pub(super) mod layers;
 pub(super) mod p21;
 pub(super) mod text;
+
+pub use copy::CopyFrom;
 
 use super::{
     Args, FeatureRecord, LINE_TYPES, PREDEFINED_COLORS, USER_LINE_TYPE, USER_WIDTH, WIDTHS,
@@ -85,6 +88,16 @@ impl SxfFile {
         changes: &Changes,
         cx: &mut Cx,
     ) -> Result<(SxfFile, Vec<Applied>), Error> {
+        self.applied_with_copies(changes, &[], cx)
+    }
+
+    /// 配置先・複写元つきの変更を当て、書き戻した後のファイルと変更の結果を返す（#889）。
+    pub fn applied_with_copies(
+        &self,
+        changes: &Changes,
+        copies: &[CopyFrom<'_>],
+        cx: &mut Cx,
+    ) -> Result<(SxfFile, Vec<Applied>), Error> {
         // 診断に書く形式の名前
         let format = match self.mode() {
             Mode::Sfc => "SFC",
@@ -124,6 +137,44 @@ impl SxfFile {
                 Ok::<_, Error>((records, codes, drawing))
             })?
         };
+        let mut sources: BTreeMap<usize, copy::SourceSxf> = BTreeMap::new();
+        for item in copies {
+            if let Some(other) = item.from {
+                let key = core::ptr::from_ref(other) as usize;
+                if let std::collections::btree_map::Entry::Vacant(slot) = sources.entry(key) {
+                    if other.mode() == Mode::Sfc {
+                        work(cx, (other.src.len() as u64).div_ceil(1024), &Ref::default())?;
+                    }
+                    let (other_records, other_drawing) = {
+                        let mut lift_cx = Cx::new(cx.budget, &mut quiet, cx.cancel);
+                        lift_cx.with_diagnostics_in_record_order(|cx| {
+                            let recs = match other.mode() {
+                                Mode::Sfc => sfc_records(other),
+                                Mode::P21 => p21_records_and_codes(other, cx)?.0,
+                            };
+                            let drw = other.lift_from_records(&recs, None, cx)?;
+                            Ok::<_, Error>((recs, drw))
+                        })?
+                    };
+                    let other_grouped = grouped(&other_records, cx)?;
+                    slot.insert(copy::SourceSxf {
+                        mode: other.mode(),
+                        records: other_records,
+                        grouped: other_grouped,
+                        drawing: other_drawing,
+                    });
+                }
+            }
+        }
+        let specs: Vec<copy::CopySpec<'_>> = copies
+            .iter()
+            .map(|item| copy::CopySpec {
+                place: item.place,
+                from: item
+                    .from
+                    .and_then(|other| sources.get(&(core::ptr::from_ref(other) as usize))),
+            })
+            .collect();
         let need_ids = changes.edits.iter().any(|change| {
             matches!(
                 change,
@@ -131,6 +182,7 @@ impl SxfFile {
                     | Edit::Restyle { .. }
                     | Edit::Replace { .. }
                     | Edit::Transform { .. }
+                    | Edit::Copy { .. }
             )
         });
         let before = Index::new(&drawing, need_ids, cx)?;
@@ -151,7 +203,7 @@ impl SxfFile {
         let mut expected = Vec::new();
         let mut targets = BTreeSet::new();
         let mut rejected = false;
-        for change in &changes.edits {
+        for (edit_index, change) in changes.edits.iter().enumerate() {
             work(cx, 1, &Ref::default())?;
             let result = match change {
                 Edit::Remove { target } => {
@@ -359,10 +411,24 @@ impl SxfFile {
                     cx.report(unsupported(format, change.name(), "dimension_style"));
                     None
                 }
-                // 写しの形式固有の値と参照を保つ書き方は、まだない（#889）
-                Edit::Copy { .. } => {
-                    cx.report(unsupported(format, change.name(), "copy"));
-                    None
+                Edit::Copy { target, transform } => {
+                    let spec = specs.get(edit_index).copied().unwrap_or_default();
+                    copy::copy_element(
+                        &mut plan,
+                        format,
+                        self.mode(),
+                        &records,
+                        &drawing,
+                        &before,
+                        &tables,
+                        &grouped,
+                        &targets,
+                        target,
+                        transform,
+                        spec,
+                        edit_index,
+                        cx,
+                    )?
                 }
                 // SXF は文書の点の表し方を持たない。点は既定義のマーカーだけ（決定 0190）
                 Edit::AddSymbol { .. } => {
@@ -440,6 +506,17 @@ impl SxfFile {
                         None
                     }
                 }
+                Expected::Copied(instance, element, exts) => {
+                    if let Some(found) = after.found(*instance) {
+                        found.element.count_copy(cx, 2)?;
+                        ((found.element.same(element)
+                            || (self.mode() == Mode::P21 && found.element.near(element)))
+                            && copy::extensions_match(&drawing, &found.id, exts))
+                        .then_some(found)
+                    } else {
+                        None
+                    }
+                }
             };
             let Some(found) = found else {
                 cx.report(unsupported(format, edit, "round_trip"));
@@ -454,7 +531,9 @@ impl SxfFile {
         let changed: BTreeSet<u64> = expected
             .iter()
             .filter_map(|(_, expected)| match expected {
-                Expected::Removed(instance) | Expected::Element(instance, _) => Some(*instance),
+                Expected::Removed(instance)
+                | Expected::Element(instance, _)
+                | Expected::Copied(instance, _, _) => Some(*instance),
                 Expected::Layer(_) => None,
             })
             .collect();
@@ -505,6 +584,8 @@ enum Expected {
     Removed(u64),
     /// このインスタンスの要素が、この値になる
     Element(u64, Box<Placed>),
+    /// 複写した要素が、この値と拡張になる
+    Copied(u64, Box<Placed>, Vec<copy::ExpectedExt>),
 }
 /// 足す要素のうち、書いていない（レイヤかブロックに従う）ので書き戻せない色・線種・線幅のフィールドの名前。点マーカー
 /// （`marker`）は線種と線幅を持たないので、色だけを見る
@@ -820,6 +901,8 @@ struct Index<'a> {
     instances: Vec<(u64, Option<usize>)>,
     /// 用紙の ID
     sheets: BTreeMap<String, zumen_drawing::SheetId>,
+    /// 空間・定義・用紙のすべての場所の ID
+    all_places: BTreeSet<String>,
 }
 
 impl<'a> Index<'a> {
@@ -851,6 +934,7 @@ impl<'a> Index<'a> {
             instance_sparse: BTreeMap::new(),
             instances: Vec::with_capacity(total_elements),
             sheets: BTreeMap::new(),
+            all_places: BTreeSet::new(),
         };
         for space in &drawing.spaces {
             let place = id::space(space.id);
@@ -859,6 +943,7 @@ impl<'a> Index<'a> {
                 work(cx, 1, &element.source)?;
                 index.note(namer.next(at, element), Any::Model(element), with_ids);
             }
+            index.all_places.insert(place);
         }
         let mut definitions = id::DefinitionNamer::default();
         for definition in &drawing.symbols {
@@ -869,6 +954,7 @@ impl<'a> Index<'a> {
                 work(cx, 1, &element.source)?;
                 index.note(namer.next(at, element), Any::Model(element), with_ids);
             }
+            index.all_places.insert(place);
         }
         let mut sheets = id::SheetNamer::default();
         for sheet in &drawing.sheets {
@@ -879,6 +965,7 @@ impl<'a> Index<'a> {
                 work(cx, 1, &element.source)?;
                 index.note(namer.next(at, element), Any::Paper(element), with_ids);
             }
+            index.all_places.insert(place.clone());
             index.sheets.insert(place, sheet.id);
         }
         for (id, &raw) in index.instance_dense.iter().enumerate() {

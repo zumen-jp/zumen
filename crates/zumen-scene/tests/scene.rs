@@ -549,6 +549,46 @@ fn splines_with_only_fit_points_pass_through_them() {
     assert!((top - 5.0).abs() < 0.02, "{top}");
 }
 
+#[test]
+fn chord_fit_spline_matches_the_curve_measured_in_autocad() {
+    let drawing = lift(&[
+        (0, "SPLINE"),
+        (5, "A1"),
+        (8, "0"),
+        (70, "1056"),
+        (71, "3"),
+        (72, "0"),
+        (73, "0"),
+        (74, "4"),
+        (44, "0.0000000001"),
+        (11, "0"),
+        (21, "0"),
+        (31, "0"),
+        (11, "5"),
+        (21, "2"),
+        (31, "0"),
+        (11, "8"),
+        (21, "5"),
+        (31, "0"),
+        (11, "15"),
+        (21, "2"),
+        (31, "0"),
+    ]);
+    let (scene, codes) = made(
+        &drawing,
+        &Options {
+            tolerance: Some(0.001),
+            ..options()
+        },
+    );
+    assert!(codes.contains(&codes::SCENE_CURVE_APPROXIMATED));
+    assert!(codes.contains(&codes::SCENE_FIT_TOLERANCE_APPROXIMATED));
+    // 同じ 4 点の R2013・R2018 の DWG を AutoCAD 2027 で開き、媒介変数の全域を
+    // 4096 等分した曲線上の点のうち、Y が最大の点と比べる（#343）。
+    let max_y = scene.extent.unwrap()[3];
+    assert!((max_y - 5.263642799417).abs() < 0.001, "{max_y}");
+}
+
 /// シーンを作るのに使った予算の量
 #[cfg(test)]
 fn used_by(drawing: &Drawing2D, kind: Kind) -> u64 {
@@ -851,6 +891,244 @@ fn dimensions_without_parts_draw_lines_and_their_value() {
     let read = Read(&scene.bytes);
     let kinds = read.u8s(layout::ENTITY_KINDS);
     assert_eq!(kinds, vec![layout::entity_kind::DIMENSION]);
+}
+
+#[test]
+fn negative_dimension_factor_uses_the_owner_even_through_a_view() {
+    use zumen_drawing::{
+        Affine, DimensionDisplayRecord, DimensionDisplayTarget, DimensionDisplayValues, Element,
+        PaperPoint, Sheet, SheetId, SheetItem, View,
+    };
+    fn dimension<P>(point: impl Fn(f64, f64) -> P, angular: bool) -> Shape<P> {
+        let kind = if angular {
+            DimensionKind::Angular {
+                vertex: point(0.0, 0.0),
+                first: point(12.0, 0.0),
+                second: point(0.0, 12.0),
+                arc: point(6.0, 6.0),
+            }
+        } else {
+            DimensionKind::Linear {
+                first: point(0.0, 0.0),
+                second: point(12.0, 0.0),
+                line: point(0.0, 6.0),
+                rotation: 0.0,
+                oblique: 0.0,
+            }
+        };
+        Shape::Dimension(Dimension {
+            kind,
+            measurement: None,
+            label: Label::Measurement,
+            text: DimensionText {
+                position: None,
+                moved: false,
+                rotation: None,
+                attachment: None,
+            },
+            style: "test".into(),
+            block: None,
+        })
+    }
+    let mut drawing = lift(&SHAPES[..9]);
+    let model = &mut drawing.spaces[0].elements[0];
+    model.shape = dimension(at, false);
+    drawing.dimension_display.push(DimensionDisplayRecord {
+        target: DimensionDisplayTarget::Style("test".to_owned()),
+        values: DimensionDisplayValues {
+            text_height: Some(0.25),
+            linear_factor: Some(-10.0),
+            ..Default::default()
+        },
+    });
+    let id = SheetId(0);
+    let on_sheet = |angular| Element {
+        layer: model.layer,
+        style: model.style,
+        source: Default::default(),
+        shape: dimension(|x, y| PaperPoint { sheet: id, x, y }, angular),
+    };
+    let view = View {
+        space: MODEL,
+        sheet: id,
+        transform: Affine {
+            m: [2.0, 0.0, 40.0, 0.0, 2.0, 40.0],
+        },
+        clip: Vec::new(),
+        hidden_layers: Vec::new(),
+        source: Default::default(),
+    };
+    drawing.sheets = vec![Sheet {
+        id,
+        name: None,
+        size: None,
+        source: Default::default(),
+        elements: vec![on_sheet(false), on_sheet(true)],
+        views: vec![view],
+        order: vec![
+            SheetItem::Element(0),
+            SheetItem::Element(1),
+            SheetItem::View(0),
+        ],
+    }];
+    let labels = |origin| {
+        let (scene, _) = made(
+            &drawing,
+            &Options {
+                origin,
+                ..options()
+            },
+        );
+        let read = Read(&scene.bytes);
+        read.u32s(layout::TEXT_STRINGS)
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|s| read.string(*s))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(labels(Origin::Space(MODEL)), ["12"]);
+    assert_eq!(labels(Origin::View { sheet: id, view: 0 }), ["12"]);
+    assert_eq!(labels(Origin::Sheet(id)), ["120", "90°", "12"]);
+}
+
+#[test]
+fn dimension_display_recreates_the_measured_lines_and_text_without_a_block() {
+    use zumen_drawing::{
+        DimensionDisplayRecord, DimensionDisplayTarget, DimensionDisplayValues, Hash,
+    };
+    let mut drawing = lift(&SHAPES[..9]);
+    let element = &mut drawing.spaces[0].elements[0];
+    element.shape = Shape::Dimension(Dimension {
+        kind: DimensionKind::Linear {
+            first: at(0.0, 0.0),
+            second: at(12.0, 0.0),
+            line: at(0.0, 6.0),
+            rotation: 0.0,
+            oblique: 0.0,
+        },
+        measurement: None,
+        label: Label::Measurement,
+        text: DimensionText {
+            position: Some(at(6.0, 6.225)),
+            moved: false,
+            rotation: None,
+            attachment: None,
+        },
+        style: "test".to_owned(),
+        block: None,
+    });
+    drawing.dimension_display = vec![
+        DimensionDisplayRecord {
+            target: DimensionDisplayTarget::Style("TEST".to_owned()),
+            values: DimensionDisplayValues {
+                extension_offset: Some(0.35),
+                extension_beyond: Some(0.4),
+                text_height: Some(0.125),
+                text_gap: Some(0.05),
+                text_vertical_placement: Some(1),
+                linear_precision: Some(2),
+                linear_factor: Some(10.0),
+                ..Default::default()
+            },
+        },
+        DimensionDisplayRecord {
+            target: DimensionDisplayTarget::Element {
+                id: "space/0/hA1".to_owned(),
+                basis: Hash::element(element),
+            },
+            values: DimensionDisplayValues {
+                scale: Some(2.0),
+                tick_size: Some(0.25),
+                linear_factor: Some(100.0),
+                linear_precision: Some(0),
+                ..Default::default()
+            },
+        },
+    ];
+    let (scene, codes) = made(&drawing, &options());
+    assert_eq!(codes, vec![codes::SCENE_DIMENSION_APPROXIMATED]);
+    assert_eq!((scene.counts.lines, scene.counts.texts), (5, 1));
+    let read = Read(&scene.bytes);
+    let origin = read.f64s(layout::CHUNK_ORIGINS);
+    let xy = read.f32s(layout::LINE_XY);
+    let points: Vec<_> = xy
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|p| [origin[0] + f64::from(p[0]), origin[1] + f64::from(p[1])])
+        .collect();
+    let near = |a: [f64; 2], b: [f64; 2]| (a[0] - b[0]).abs().max((a[1] - b[1]).abs()) < 1e-5;
+    for [a, b] in [
+        [[0.0, 0.7], [0.0, 6.8]],
+        [[12.0, 0.7], [12.0, 6.8]],
+        [[0.0, 6.0], [12.0, 6.0]],
+        [[-0.5, 5.5], [0.5, 6.5]],
+        [[11.5, 5.5], [12.5, 6.5]],
+    ] {
+        assert!(
+            points
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .any(|s| (near(s[0], a) && near(s[1], b)) || (near(s[0], b) && near(s[1], a)))
+        );
+    }
+    assert_eq!(
+        read.string(read.u32s(layout::TEXT_STRINGS).try_into().unwrap()),
+        "1200"
+    );
+    assert_eq!(read.f32s(layout::TEXT_HEIGHTS), [0.25]);
+    let text_at = |scene: &Scene| {
+        let read = Read(&scene.bytes);
+        let origin = read.f64s(layout::CHUNK_ORIGINS);
+        let xy = read.f32s(layout::TEXT_XY);
+        [origin[0] + f64::from(xy[0]), origin[1] + f64::from(xy[1])]
+    };
+    assert!(near(text_at(&scene), [6.0, 6.225]));
+    // 保存された文字の中央は以前の高さ 0.25 の位置。自動配置は新しい高さを使う。
+    drawing.dimension_display[0].values.text_height = Some(0.375);
+    let (taller, _) = made(&drawing, &options());
+    assert!(near(text_at(&taller), [6.0, 6.475]));
+    let element = &mut drawing.spaces[0].elements[0];
+    if let Shape::Dimension(dim) = &mut element.shape {
+        dim.text.moved = true;
+    }
+    if let DimensionDisplayTarget::Element { basis, .. } = &mut drawing.dimension_display[1].target
+    {
+        *basis = Hash::element(element);
+    }
+    let (moved, _) = made(&drawing, &options());
+    assert!(near(text_at(&moved), [6.0, 6.225]));
+
+    let local = &mut drawing.dimension_display[1].values;
+    local.suppress_first_extension = Some(true);
+    local.tick_size = Some(0.0);
+    let (revised, _) = made(&drawing, &options());
+    assert_eq!((revised.counts.lines, revised.counts.texts), (2, 1));
+
+    // 表示設定を持たない旧モデルの目盛りは、従来どおり斜線の全長として描く。
+    drawing.dimension_display.clear();
+    drawing
+        .dimension_styles
+        .push(zumen_drawing::DimensionStyle {
+            name: "test".into(),
+            ends: [
+                zumen_drawing::Arrowhead::Default,
+                zumen_drawing::Arrowhead::Default,
+            ],
+            leader: zumen_drawing::Arrowhead::Default,
+            size: 0.0,
+            tick: Some(0.5),
+            scale: 1.0,
+            source: zumen_base::Ref::default(),
+        });
+    let (legacy, _) = made(&drawing, &options());
+    assert_eq!((legacy.counts.lines, legacy.counts.texts), (5, 0));
+    let xy = Read(&legacy.bytes).f32s(layout::LINE_XY);
+    for [ax, ay, bx, by] in xy[12..].as_chunks::<4>().0 {
+        assert!((libm::hypotf(bx - ax, by - ay) - 0.5).abs() < 1e-5);
+    }
 }
 
 #[test]

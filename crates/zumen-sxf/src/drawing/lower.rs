@@ -352,9 +352,31 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
     {
         lower.note(source.0, Fidelity::Dropped, source.1, 0, &[], cx)?;
     }
+    drawing.each_dimension_display_source(cx, |kind, source, cx| {
+        conversion::note(
+            &mut lower.report,
+            "P21",
+            kind,
+            Fidelity::Dropped,
+            source,
+            0,
+            &[],
+            cx,
+        )
+    })?;
     if drawing.point_style.is_some() {
         lower.note(
             "point_style",
+            Fidelity::Dropped,
+            &Ref::default(),
+            0,
+            &[],
+            cx,
+        )?;
+    }
+    if drawing.georeference.is_some() {
+        lower.note(
+            "georeference",
             Fidelity::Dropped,
             &Ref::default(),
             0,

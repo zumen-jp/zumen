@@ -162,22 +162,50 @@ impl Relocate for Geometric {
     }
 
     fn model(&self, shape: &Shape<ModelPoint>, origin: ModelPoint) -> Option<Shape<ModelPoint>> {
-        // #684 は既存図面への追加。新しい DXF への変換の対応範囲（#643）は別に広げる。
-        if matches!(shape, Shape::Hatch(_)) {
-            return None;
-        }
-        geometry::shape_of(&geometry::geometry_of(shape)?, None, origin).ok()
+        relocate_geometry(shape, origin)
     }
 
     fn paper(&self, shape: &Shape<PaperPoint>, origin: PaperPoint) -> Option<Shape<PaperPoint>> {
-        if matches!(shape, Shape::Hatch(_)) {
-            return None;
-        }
-        geometry::shape_of(&geometry::geometry_of(shape)?, None, origin).ok()
+        relocate_geometry(shape, origin)
     }
 }
 
-/// 基本図形と 1 行の文字は同じ意味の形へ移す（高さの意味の違いは lower が `text_height_meaning` で記録する）。
+fn relocate_geometry<P: geometry::Spot>(shape: &Shape<P>, origin: P) -> Option<Shape<P>> {
+    let normalized = normalize_hatch(shape);
+    let source = normalized.as_ref().unwrap_or(shape);
+    let mut output = geometry::shape_of(&geometry::geometry_of(source)?, None, origin).ok()?;
+    if let (Shape::Dimension(before), Shape::Dimension(after)) = (source, &mut output) {
+        // 新規追加では文字位置の指定を手動移動とみなす。変換時は元図の自動配置と位置合わせを保つ。
+        after.text.moved = before.text.moved;
+        after.text.attachment = before.text.attachment;
+    }
+    Some(output)
+}
+
+/// 連動・境界を探した印・境界の出所を持つハッチングは、API の形の値に通す前に非連動の形へそろえる。
+/// 落とした参照や印の理由は lower 側で元の要素から記録する。
+fn normalize_hatch<P: Clone>(shape: &Shape<P>) -> Option<Shape<P>> {
+    let Shape::Hatch(hatch) = shape else {
+        return None;
+    };
+    if !hatch.associative
+        && hatch
+            .loops
+            .iter()
+            .all(|ring| !ring.derived && ring.sources.is_empty())
+    {
+        return None;
+    }
+    let mut hatch = hatch.clone();
+    hatch.associative = false;
+    for ring in &mut hatch.loops {
+        ring.derived = false;
+        ring.sources.clear();
+    }
+    Some(Shape::Hatch(hatch))
+}
+
+/// 基本図形・1 行の文字・ハッチングは同じ意味の形へ移す（文字の高さの意味やハッチングの参照の違いは lower が記録する）。
 /// 書式つきの文字・注記・記号は API の形の値にない意味があるため、見た目だけとする
 fn geometric_fidelity<P>(shape: &Shape<P>) -> zumen_acad::ConversionFidelity {
     match shape {
@@ -191,7 +219,8 @@ fn geometric_fidelity<P>(shape: &Shape<P>) -> zumen_acad::ConversionFidelity {
         | Shape::Curve(_)
         | Shape::Polyline(_)
         | Shape::Text(_)
-        | Shape::Point(_) => zumen_acad::ConversionFidelity::Equivalent,
+        | Shape::Point(_)
+        | Shape::Hatch(_) => zumen_acad::ConversionFidelity::Equivalent,
         _ => zumen_acad::ConversionFidelity::Drawn,
     }
 }

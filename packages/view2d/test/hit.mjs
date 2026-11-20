@@ -37,10 +37,10 @@ function clipped(source, polygons) {
 }
 
 /** 合成のシーンで、描画の形と可視領域に対する問い合わせを確かめる。 */
-export function testHit({ assert }) {
-  const largeStrokeRaster = testStrokeRoundoff(assert);
+export async function testHit({ assert }) {
+  const largeStrokeRaster = await testStrokeRoundoff(assert);
   const canvas = document.createElement("canvas");
-  const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 2, pixelsPerMillimeter: 2 });
+  const viewer = await View2D.create(canvas, { width: 200, height: 200, pixelRatio: 2, pixelsPerMillimeter: 2 });
   const view = { center: { x: 0, y: 0 }, scale: 2, rotation: 0 };
   viewer.jumpTo(view);
   const set = (source) => viewer.setScene(bundle(source));
@@ -242,22 +242,27 @@ export function testHit({ assert }) {
   } finally { viewer.destroy(); }
 
   const limitedCanvas = document.createElement("canvas");
-  const limited = new View2D(limitedCanvas, { width: 200, height: 200, limits: { work: 1000 } });
+  const limited = await View2D.create(limitedCanvas, { width: 200, height: 200, limits: { work: 1000 } });
+  const centerOf = async () => {
+    const shot = await limited.snapshot();
+    const offset = (100 * shot.width + 100) * 4;
+    return shot.pixels.subarray(offset, offset + 4).join(",");
+  };
   try {
     limited.setScene(bundle(face(Array.from({ length: 60 }, () => square(-30, -30, 30, 30)))));
-    const state = limited.getState(), before = limitedCanvas.getContext("2d").getImageData(100, 100, 1, 1).data.join(",");
+    const state = limited.getState(), before = await centerOf();
     let failed = false;
     try { limited.hitTestRect({ min_x: 95, min_y: 95, max_x: 105, max_y: 105 }); } catch (error) { failed = error instanceof RangeError; }
     assert(failed, "輪と境界の反復を問い合わせの作業量に数える");
-    assert(limited.getState() === state && limitedCanvas.getContext("2d").getImageData(100, 100, 1, 1).data.join(",") === before, "作業量を超えた問い合わせは画面と状態を変えない");
+    assert(limited.getState() === state && await centerOf() === before, "作業量を超えた問い合わせは画面と状態を変えない");
   } finally { limited.destroy(); }
   return largeStrokeRaster;
 }
 
 /** 元の f64 式ではなく、公開列の f32 から描いた短い stroke を問い合わせる。 */
-function testStrokeRoundoff(assert) {
+async function testStrokeRoundoff(assert) {
   const canvas = document.createElement("canvas"), reference = document.createElement("canvas").getContext("2d");
-  const viewer = new View2D(canvas, { width: 200, height: 200, pixelRatio: 1, pixelsPerMillimeter: 1 });
+  const viewer = await View2D.create(canvas, { width: 200, height: 200, pixelRatio: 1, pixelsPerMillimeter: 1 });
   const query = (min_x, min_y, max_x, max_y) => viewer.hitTestRect({ min_x, min_y, max_x, max_y }).length;
   const atPoint = (p) => query(p.x, p.y, p.x, p.y);
   const set = (xy, weight = 0) => {
@@ -272,7 +277,13 @@ function testStrokeRoundoff(assert) {
     viewer.render();
     assert(query(70, 70, 130, 130) === 1, "#806: 四隅の丸めで内部の短い線を落とさない");
     assert(viewer.hitTest({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, 0).length === 1, "同じ短い線の中点も選べる");
-    assert(canvas.getContext("2d").getImageData(81, 123, 5, 5).data.some((v, i) => i % 4 !== 3 && v < 255), "最小再現の線は実際に描かれる");
+    const reproShot = await viewer.snapshot();
+    let reproInk = false;
+    for (let py = 123; py < 128 && !reproInk; py++) for (let px = 81; px < 86; px++) {
+      const o = (py * reproShot.width + px) * 4;
+      if (reproShot.pixels[o] < 255 || reproShot.pixels[o + 1] < 255 || reproShot.pixels[o + 2] < 255) { reproInk = true; break; }
+    }
+    assert(reproInk, "最小再現の線は実際に描かれる");
 
     const offset = line([0.25631603598594666, 0, 0.2564395070075989, 0.00023456788039766252]);
     offset.chunk_origins = [100000, 50000]; offset.unit_weights = [0];
@@ -305,7 +316,7 @@ function testStrokeRoundoff(assert) {
           assert(atPoint(p(radius - 0.000001)) === 1 && atPoint(p(radius + 0.000001)) === 0, "大拡大でも幅の縁の内外を微小な隙間で区別する");
         }
         if (scale === 1e12 && pixelRatio === 1 && weight === 0 && rotation === 0) {
-          largeStrokeRaster = compareLargeStrokeRaster(canvas, assert);
+          largeStrokeRaster = await compareLargeStrokeRaster(viewer, assert);
         }
       }
     }
@@ -381,7 +392,7 @@ function testStrokeRoundoff(assert) {
 }
 
 /** 巨大パスの backend の制約（#812）と、選択の幾何の回帰を分ける。 */
-function compareLargeStrokeRaster(output, assert) {
+async function compareLargeStrokeRaster(viewer, assert) {
   // View2D のパス・投影・判定の関数を使わず、同じ端点を Canvas へ直接渡す。
   const draw = (a, b) => {
     const canvas = document.createElement("canvas"); canvas.width = canvas.height = 200;
@@ -392,7 +403,8 @@ function compareLargeStrokeRaster(output, assert) {
   };
   const direct = draw({ x: 100 - 2e15, y: 100 - 2e15 }, { x: 100 + 2e15, y: 100 + 2e15 });
   const bounded = draw({ x: -100, y: -100 }, { x: 300, y: 300 });
-  const expected = bounded.getImageData(0, 0, 200, 200).data, actual = output.getContext("2d").getImageData(0, 0, 200, 200).data;
+  const shot = await viewer.snapshot();
+  const expected = bounded.getImageData(0, 0, 200, 200).data, actual = shot.pixels;
   let sameMask = true;
   for (let i = 0; i < expected.length; i += 4) if ((expected[i] !== 255) !== (actual[i] !== 255)) sameMask = false;
   const boundedCenter = Array.from(bounded.getImageData(100, 100, 1, 1).data), boundedPixels = bounded.getImageData(0, 0, 200, 200).data;
@@ -401,8 +413,9 @@ function compareLargeStrokeRaster(output, assert) {
     if (actual[i] !== 255 || actual[i + 1] !== 255 || actual[i + 2] !== 255) ink++;
     if (boundedPixels[i] !== 255 || boundedPixels[i + 1] !== 255 || boundedPixels[i + 2] !== 255) boundedInk++;
   }
+  const centerOffset = (100 * shot.width + 100) * 4;
   const observation = { canvasCenter: Array.from(direct.getImageData(100, 100, 1, 1).data),
-    viewerCenter: Array.from(output.getContext("2d").getImageData(100, 100, 1, 1).data), boundedCenter, ink, boundedInk };
+    viewerCenter: Array.from(actual.subarray(centerOffset, centerOffset + 4)), boundedCenter, ink, boundedInk };
   assert(sameMask && ink > 0 && observation.viewerCenter.slice(0, 3).some((value) => value < 255),
     `巨大な線は中心を含めて描かれ、近傍の独立 Canvas と非白の画素が一致する: ${JSON.stringify(observation)}`);
   assert(boundedCenter.slice(0, 3).some((value) => value < 255) && boundedInk > 0,

@@ -12,7 +12,7 @@ const view: View3DView = {
   clips: [{ point: [0, 0, 0], normal: [1, 0, 0] }], box: { min: [0, 0, 0], max: [1, 1, 1] },
   selected: ["wall"], visible: false, exceptions: ["slab"], colored: [{ color: "#FF0000", ids: ["door"] }],
 };
-const viewer = new View3D(canvas, { width: 300, height: 200, pixelRatio: 2, shading: "unlit", limits: { gpuBytes: 1 << 20 }, views: [view] });
+const viewer = await View3D.create(canvas, { width: 300, height: 200, pixelRatio: 2, shading: "unlit", limits: { gpuBytes: 1 << 20 }, views: [view] });
 const document3d = { doc: "a.ifc", format: "ifc", hash: "0" };
 const report: Scene3DReport = viewer.setScene({ blob, result, document: document3d });
 const none: null = viewer.setScene(null);
@@ -22,7 +22,7 @@ viewer.setHidden(document3d, []);
 viewer.setColors(document3d, [{ color: "#80FF0000", ids: ["wall"] }], { view: "main" });
 const exported: ReviewExport = viewer.toReviewPlace("main", { frame: "contain", hashes: new Map([["wall", "h"]]) });
 const applied: ReviewApplyResult = viewer.applyReviewPlace("main", document3d, exported.place);
-const shot: Snapshot3D = viewer.snapshot("main");
+const shot: Snapshot3D = await viewer.snapshot("main");
 const firstView = viewer.getState().views[0];
 const clipCount: number = firstView.clips.length + (firstView.box === null ? 0 : 6);
 viewer.fit("main");

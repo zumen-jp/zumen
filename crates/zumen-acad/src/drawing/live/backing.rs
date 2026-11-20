@@ -177,12 +177,22 @@ pub struct DxfRecordMapper {
 }
 
 /// 保持モデルの出所を、全体保存した DWG のオブジェクトの位置へ移す。
-pub struct DwgSourceMapper(DwgSourceSpans);
+pub struct DwgSourceMapper {
+    by_handle: DwgSourceSpans,
+    by_base_span: BTreeMap<(u64, u64), Range<usize>>,
+}
 
 impl DwgSourceMapper {
     pub fn remap_ref(&self, source: &mut Ref) {
         if let Some(Key::Handle(handle)) = source.key()
-            && let Some(span) = self.0.get(&handle)
+            && let Some(span) = self.by_handle.get(&handle)
+        {
+            *source = source
+                .clone()
+                .with_bytes(span.start as u64, span.end as u64);
+        } else if source.key().is_none()
+            && let Some(bytes) = source.bytes()
+            && let Some(span) = self.by_base_span.get(&(bytes.start, bytes.end))
         {
             *source = source
                 .clone()
@@ -1031,7 +1041,10 @@ impl DwgLiveBacking {
                 cx,
             )?;
         }
-        Ok(Some(DwgSourceMapper(layout.source_spans(cx)?)))
+        Ok(Some(DwgSourceMapper {
+            by_handle: layout.source_spans(cx)?,
+            by_base_span: layout.base_span_shifts(cx)?,
+        }))
     }
 
     fn replay_file(&self, cx: &mut Cx<'_>) -> Result<DwgFile, Error> {

@@ -7,7 +7,8 @@
 フォルダーに書いた `<スキーマ>.built.ifc` と `<スキーマ>.changed.ifc` と、`create.rs` の `writes_the_templates_for_other_readers` が書いた
 `<スキーマ>.template.ifc` と、`convert.rs` の `writes_the_conversions_for_other_readers` が IFC4 の 2 階建てを
 各バージョンへ変換した `<スキーマ>.converted.ifc` と、`author.rs` の `writes_face_sets` が書いた面集合の
-`<スキーマ>.faces.ifc` がある。
+`<スキーマ>.faces.ifc` と、`writes_booleans_and_mappings` が書いた `<スキーマ>.csg.ifc` と、
+`writes_revolutions_and_sweeps` が書いた `<スキーマ>.sweep.ifc` がある。
 
 - ひな形は、検査で誤りが出ず、プロジェクトの GlobalId・名前、ミリメートルの長さの単位、`Body` の下位の文脈、
   所有履歴の作ったソフトと日時が、渡した値のとおりに読める。
@@ -18,6 +19,7 @@
 - 種類ごとの数、階の高さと配置、要素の所属、開口と建具の関係、壁の材料の層が、足した値と直した値のとおりに読める。
 - 開口を引いた壁の形の体積が、芯の長さ・高さ・層の厚さと開口の大きさから求めた値になる。
 - 面集合は、検査で誤りが出ず、表現の種類が項目のとおりで、どの形も作れ、箱の体積が寸法から求めた値になる。
+- 集合演算・写像と、回転・掃引は、検査で誤りが出ず、表現の種類と項目が書いたとおりで、体積が寸法から求めた値になる。
 """
 
 import math
@@ -48,17 +50,27 @@ COUNTS = {
     "IfcWindow": 1,
 }
 
-# 状態 → 2F の高さ、1F の最初の壁の層、壁 → 開口を引いた体積（m³）
+# 状態 → 2F の高さ、1F の最初の壁の層、要素 → 体積（m³、壁は開口を引いた体積、扉 2021 と窓 3021 は壁の厚さの 4 分の 1 の板）
 EXPECTED = {
     "built": {
         "elevation": 3000.0,
         "layers": [150.0, 50.0],
-        "volumes": {2000: (6.0 * 2.8 - 0.9 * 2.1) * 0.2, 3000: (6.0 * 2.8 - 1.2 * 1.2) * 0.2},
+        "volumes": {
+            2000: (6.0 * 2.8 - 0.9 * 2.1) * 0.2,
+            2021: 0.9 * 2.1 * 0.05,
+            3000: (6.0 * 2.8 - 1.2 * 1.2) * 0.2,
+            3021: 1.2 * 1.2 * 0.05,
+        },
     },
     "changed": {
         "elevation": 3200.0,
         "layers": [200.0, 50.0, 20.0],
-        "volumes": {2000: (6.5 * 3.0 - 0.9 * 2.1) * 0.27, 3000: (6.0 * 2.8 - 1.6 * 1.0) * 0.2},
+        "volumes": {
+            2000: (6.5 * 3.0 - 0.9 * 2.1) * 0.27,
+            2021: 0.9 * 2.1 * 0.0675,
+            3000: (6.0 * 2.8 - 1.6 * 1.0) * 0.2,
+            3021: 1.6 * 1.0 * 0.05,
+        },
     },
 }
 
@@ -333,6 +345,43 @@ def check_csg(path):
     return failures
 
 
+# 回転は矩形（x が 0.2〜0.4、y が 1）を y 軸のまわりに半回転（パップスの定理）。掃引の経路は L 字の 2 で、管は
+# 外半径 0.05・内半径 0.04、棒は始点と終点（0 と 2）を書いた経路の全体を半径 0.05 で掃引し、押し出しの柱を
+# 足す。IfcOpenShell 0.9.0.post1 は始点と終点を使わずに経路の全体を掃引するので、途中からの区間は照らさない。掃引の
+# 体積は、折れ目で重なりも隙間もなく繋ぐ（円盤を経路の向きに直交させ、折れ目の両側を角の二等分面で切る）ものとして
+# 区間の長さの和に断面積を掛けた値
+SWEEPS = {
+    200: ("SweptSolid", ["IfcRevolvedAreaSolid"], math.pi * 0.3 * 0.2 * 1.0),
+    201: ("AdvancedSweptSolid", ["IfcSweptDiskSolid"], math.pi * (0.05**2 - 0.04**2) * 2.0),
+    202: ("SolidModel", ["IfcSweptDiskSolid", "IfcExtrudedAreaSolid"], math.pi * 0.05**2 * 2.0 + 0.2 * 0.2 * 1.0),
+}
+
+
+def check_sweeps(path):
+    """回転と円盤の掃引。200 は回転、201 は穴のある管、202 は経路の途中からの棒と押し出し"""
+    failures = []
+    model = ifcopenshell.open(str(path))
+    for error in errors(model):
+        failures.append(f"検査の誤り: {error}")
+    settings = ifcopenshell.geom.settings()
+    for n, (kind, items, expected) in SWEEPS.items():
+        element = model.by_guid(gid(n))
+        [body] = element.Representation.Representations
+        found = (body.RepresentationType, [i.is_a() for i in body.Items])
+        if found != (kind, items):
+            failures.append(f"{n} の表現が {found}")
+        try:
+            shape = ifcopenshell.geom.create_shape(settings, element)
+        except RuntimeError as error:
+            failures.append(f"{n} の形を作れない: {error}")
+            continue
+        volume = ifcopenshell.util.shape.get_volume(shape.geometry)
+        # 曲面は三角形で近似するので、体積は 1 % まで許す
+        if abs(volume - expected) > expected * 1e-2:
+            failures.append(f"{n} の体積が {volume}（期待は {expected}）")
+    return failures
+
+
 def check_converted_materials(model):
     """変換した材料。元は IFC4。IFC2X3 は層の名前と構成要素を持たないので、構成要素は並びになる"""
     failures = []
@@ -374,6 +423,161 @@ def check_converted_materials(model):
     return failures
 
 
+def check_structural(path):
+    """空間・通り芯・型・要素・関係を足し、置き直し・所属変更・型の付け外し・除去まで当てた IFC（#897）"""
+    failures = []
+    model = ifcopenshell.open(str(path))
+    for error in errors(model):
+        failures.append(f"検査の誤り: {error}")
+    project = model.by_guid(gid(1))
+    site = model.by_guid(gid(10))
+    building = model.by_guid(gid(100))
+    first = model.by_guid(gid(101))
+    second = model.by_guid(gid(102))
+    grid = model.by_guid(gid(103))
+    wall_type = model.by_guid(gid(110))
+    column_type = model.by_guid(gid(111))
+    wall = model.by_guid(gid(200))
+    opening = model.by_guid(gid(201))
+    door = model.by_guid(gid(202))
+    column = model.by_guid(gid(203))
+    for child, expected_parent in [
+        (site, project),
+        (building, site),
+        (first, building),
+        (second, building),
+    ]:
+        parent = ifcopenshell.util.element.get_aggregate(child)
+        if parent is None or parent.GlobalId != expected_parent.GlobalId:
+            failures.append(f"{child.GlobalId} の集約の親が {parent}")
+    if site.RefElevation != 12000.0:
+        failures.append(f"敷地の RefElevation が {site.RefElevation}")
+    if model.schema_identifier == "IFC4X3_ADD2":
+        if second.Elevation is not None:
+            failures.append(f"2F に非推奨の Elevation {second.Elevation} がある")
+    elif second.Elevation != 3000.0:
+        failures.append(f"2F の Elevation が {second.Elevation}")
+    for element, expected_space in [
+        (grid, first),
+        (wall, first),
+        (door, first),
+        (column, second),
+    ]:
+        container = ifcopenshell.util.element.get_container(element)
+        if container is None or container.GlobalId != expected_space.GlobalId:
+            failures.append(f"{element.GlobalId} の所属が {container}")
+    if opening.ContainedInStructure:
+        failures.append(f"開口が空間に包含されている: {opening.ContainedInStructure}")
+    for element, rel_to, coords in [
+        (site, None, (100.0, 200.0, 0.0)),
+        (second, building.ObjectPlacement, (100.0, 200.0, 3000.0)),
+        (wall, first.ObjectPlacement, (1100.0, 200.0, 0.0)),
+        (opening, wall.ObjectPlacement, (1600.0, 200.0, 0.0)),
+        (door, opening.ObjectPlacement, (1600.0, 200.0, 0.0)),
+        (column, second.ObjectPlacement, (2100.0, 700.0, 3000.0)),
+    ]:
+        if element.ObjectPlacement.PlacementRelTo != rel_to:
+            failures.append(f"{element.GlobalId} の PlacementRelTo が {element.ObjectPlacement.PlacementRelTo}")
+        matrix = ifcopenshell.util.placement.get_local_placement(element.ObjectPlacement)
+        found = (matrix[0][3], matrix[1][3], matrix[2][3])
+        if any(abs(a - b) > 1e-9 for a, b in zip(found, coords)):
+            failures.append(f"{element.GlobalId} の世界座標が {found}（期待は {coords}）")
+    if ifcopenshell.util.element.get_type(wall) != wall_type or wall_type.PredefinedType != "SHEAR":
+        failures.append(f"壁の型が {ifcopenshell.util.element.get_type(wall)}")
+    if ifcopenshell.util.element.get_type(column) is not None:
+        failures.append(f"型を外した柱に型 {ifcopenshell.util.element.get_type(column)} が残っている")
+    if (column_type.PredefinedType, column_type.ElementType) != ("USERDEFINED", "C-600"):
+        failures.append(f"柱の型が {column_type.PredefinedType} {column_type.ElementType}")
+    u_tags = [a.AxisTag for a in grid.UAxes]
+    v_tags = [a.AxisTag for a in grid.VAxes]
+    if (u_tags, v_tags) != (["A", "B"], ["1", "2"]):
+        failures.append(f"通り芯の軸が {u_tags} {v_tags}")
+    hosts = [rel.RelatingBuildingElement.GlobalId for rel in opening.VoidsElements]
+    fillings = [rel.RelatedBuildingElement.GlobalId for rel in opening.HasFillings]
+    if (hosts, fillings) != ([gid(200)], [gid(202)]):
+        failures.append(f"開口の母体が {hosts}、建具が {fillings}")
+    try:
+        removed = model.by_guid(gid(299))
+        failures.append(f"除いた要素が残っている: {removed}")
+    except RuntimeError:
+        pass
+    if model.by_type("IfcSlab"):
+        failures.append(f"除いた床が残っている: {model.by_type('IfcSlab')}")
+    return failures
+
+
+PUBLIC_CONVERTED = [
+    ("text2bim", "samples/ifc/text2bim/sample_model.ifc"),
+    ("gni_model_9", "samples/ifc/gni/model_9.ifc"),
+    ("rinya", "samples/ifc/rinya/wood-office-architecture.ifc"),
+]
+
+
+def open_source_ifc(path):
+    raw = path.read_bytes()
+    if b"FILE_SCHEMA(('IFC4X3'))" in raw:
+        raw = raw.replace(b"FILE_SCHEMA(('IFC4X3'))", b"FILE_SCHEMA(('IFC4X3_ADD2'))")
+        return ifcopenshell.file.from_string(raw.decode("utf-8", "replace"))
+    return ifcopenshell.open(str(path))
+
+
+def length_unit_tuple(model):
+    project = model.by_type("IfcProject")[0]
+    for u in project.UnitsInContext.Units:
+        if getattr(u, "UnitType", None) == "LENGTHUNIT":
+            return (u.is_a(), getattr(u, "Prefix", None), getattr(u, "Name", None))
+    return None
+
+
+def check_converted_public(folder):
+    """公開サンプル（IFC2X3・IFC4・IFC4X3）から 3 版へ変換した IFC の検査と、GlobalId・空間の親子・配置・単位の照合"""
+    failures = []
+    repo_root = Path(__file__).resolve().parents[4]
+    public_dir = folder / "public"
+    if not public_dir.is_dir():
+        return [f"{public_dir} がない"]
+    for slug, rel in PUBLIC_CONVERTED:
+        src = open_source_ifc(repo_root / rel)
+        src_unit = length_unit_tuple(src)
+        for schema in SCHEMAS:
+            path = public_dir / f"{slug}.{schema}.ifc"
+            tag = f"public/{path.name}"
+            for error in errors_on_path(path):
+                failures.append(f"{tag}: 検査の誤り: {error}")
+            dst = ifcopenshell.open(str(path))
+            if length_unit_tuple(dst) != src_unit:
+                failures.append(f"{tag}: 長さの単位が {length_unit_tuple(dst)}（元は {src_unit}）")
+            for elem in dst.by_type("IfcObjectDefinition"):
+                try:
+                    orig = src.by_guid(elem.GlobalId)
+                except RuntimeError:
+                    failures.append(f"{tag}: 未知の GlobalId {elem.GlobalId} ({elem.is_a()})")
+                    continue
+                if elem.is_a("IfcSpatialStructureElement") or elem.is_a("IfcSpatialElement"):
+                    dst_parent = elem.Decomposes[0].RelatingObject.GlobalId if getattr(elem, "Decomposes", None) else None
+                    orig_parent = orig.Decomposes[0].RelatingObject.GlobalId if getattr(orig, "Decomposes", None) else None
+                    if dst_parent != orig_parent:
+                        failures.append(f"{tag}: {elem.GlobalId} の空間の親が {dst_parent}（元は {orig_parent}）")
+                elif getattr(elem, "ContainedInStructure", None):
+                    dst_cont = elem.ContainedInStructure[0].RelatingStructure.GlobalId
+                    orig_cont = orig.ContainedInStructure[0].RelatingStructure.GlobalId if getattr(orig, "ContainedInStructure", None) else None
+                    if dst_cont != orig_cont:
+                        failures.append(f"{tag}: {elem.GlobalId} の所属が {dst_cont}（元は {orig_cont}）")
+                if getattr(elem, "ObjectPlacement", None) and getattr(orig, "ObjectPlacement", None):
+                    dst_m = ifcopenshell.util.placement.get_local_placement(elem.ObjectPlacement)
+                    orig_m = ifcopenshell.util.placement.get_local_placement(orig.ObjectPlacement)
+                    max_diff = max(abs(float(dst_m[r][c] - orig_m[r][c])) for r in range(3) for c in range(4))
+                    if max_diff > 1e-4:
+                        failures.append(f"{tag}: {elem.GlobalId} の配置の差が {max_diff}")
+    return failures
+
+
+def errors_on_path(path):
+    logger = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(str(path), logger, express_rules=True)
+    return [s for s in logger.statements if s.get("level") == "error"]
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     folder = Path(sys.argv[1])
@@ -382,23 +586,30 @@ def main():
         name = f"{schema}.template.ifc"
         failures += [f"{name}: {f}" for f in check_template(folder / name)]
     for schema in SCHEMAS:
+        name = f"{schema}.structural.ifc"
+        failures += [f"{name}: {f}" for f in check_structural(folder / name)]
+    for schema in SCHEMAS:
         for state in EXPECTED:
             name = f"{schema}.{state}.ifc"
             failures += [f"{name}: {f}" for f in check(folder / name, state)]
     for schema in SCHEMAS:
         name = f"{schema}.converted.ifc"
         failures += [f"{name}: {f}" for f in check_converted(folder / name)]
+    failures += check_converted_public(folder)
     for schema in SCHEMAS:
         name = f"{schema}.faces.ifc"
         failures += [f"{name}: {f}" for f in check_faces(folder / name, schema)]
     for schema in SCHEMAS:
         name = f"{schema}.csg.ifc"
         failures += [f"{name}: {f}" for f in check_csg(folder / name)]
+    for schema in SCHEMAS:
+        name = f"{schema}.sweep.ifc"
+        failures += [f"{name}: {f}" for f in check_sweeps(folder / name)]
     for failure in failures:
         print(failure)
     if failures:
         sys.exit(1)
-    print(f"IfcOpenShell {ifcopenshell.version}: ひな形と、作った IFC・直した IFC・変換した IFC・面集合・集合演算と写像を 3 バージョンで照らした")
+    print(f"IfcOpenShell {ifcopenshell.version}: ひな形と、作った IFC・直した IFC・変換した IFC・面集合・集合演算と写像・回転と掃引を 3 バージョンで照らした")
 
 
 if __name__ == "__main__":

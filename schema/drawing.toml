@@ -10,7 +10,7 @@
 
 [versions]
 major = 1
-minor = 0
+minor = 2
 
 [[types]]
 name = "Affine"
@@ -239,6 +239,17 @@ variants = [
 ]
 
 [[types]]
+name = "Crs"
+since = 1
+variants = [
+  { name = "Geographic" },
+  { name = "Wgs84" },
+  { name = "Plane", tuple = ["Zone"] },
+  { name = "Jgd2000", tuple = ["Zone"] },
+  { name = "Tokyo", tuple = ["Zone"] },
+]
+
+[[types]]
 name = "DateTime"
 fields = [
   "year: u16",
@@ -260,6 +271,41 @@ fields = [
   "text: DimensionText<P>",
   "style: String",
   "block: Option<String>",
+]
+
+[[types]]
+name = "DimensionDisplayRecord"
+since = 2
+fields = [
+  "target: DimensionDisplayTarget",
+  "values: DimensionDisplayValues",
+]
+
+[[types]]
+name = "DimensionDisplayTarget"
+since = 2
+variants = [
+  { name = "Style", tuple = ["String"] },
+  { name = "Element", fields = ["id: String", "basis: Hash"] },
+]
+
+[[types]]
+name = "DimensionDisplayValues"
+since = 2
+fields = [
+  "scale: Option<f64>",
+  "arrow_size: Option<f64>",
+  "tick_size: Option<f64>",
+  "extension_offset: Option<f64>",
+  "extension_beyond: Option<f64>",
+  "suppress_first_extension: Option<bool>",
+  "suppress_second_extension: Option<bool>",
+  "text_height: Option<f64>",
+  "linear_factor: Option<f64>",
+  "linear_precision: Option<u8>",
+  "text_style: Option<String>",
+  "text_vertical_placement: Option<u8>",
+  "text_gap: Option<f64>",
 ]
 
 [[types]]
@@ -322,6 +368,8 @@ fields = [
   "extensions: Vec<Extension>",
   "title_blocks: Vec<TitleBlock>",
   "point_style: Option<PointStyle>",
+  "georeference: Option<Georeference> @1",
+  "dimension_display: Vec<DimensionDisplayRecord> @2",
 ]
 
 [[types]]
@@ -446,6 +494,14 @@ fields = [
   "line_spacing: LineSpacing",
   "background: Option<Background>",
   "style: String",
+]
+
+[[types]]
+name = "Georeference"
+since = 1
+fields = [
+  "crs: Crs",
+  "conversion: MapConversion",
 ]
 
 [[types]]
@@ -657,6 +713,18 @@ name = "LineWeight"
 variants = [
   { name = "Width", tuple = ["PaperLength"] },
   { name = "Default" },
+]
+
+[[types]]
+name = "MapConversion"
+since = 1
+fields = [
+  "eastings: f64",
+  "northings: f64",
+  "orthogonal_height: f64",
+  "x_axis_abscissa: f64",
+  "x_axis_ordinate: f64",
+  "scale: f64",
 ]
 
 [[types]]
@@ -1173,3 +1241,8 @@ fields = [
   "hidden_layers: Vec<LayerId>",
   "source: Ref",
 ]
+
+[[types]]
+name = "Zone"
+since = 1
+tuple = ["u8"]

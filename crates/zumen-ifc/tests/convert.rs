@@ -1,4 +1,4 @@
-//! 建物モデルから新しい IFC を書く変換（#395）。ファイルは、どれもテストの中で作る。
+//! 建物モデルから新しい IFC を書く変換（#395）。合成の 3 版と公開サンプル（`samples/ifc`・`samples/stbridge`）で確かめる。
 #![cfg(feature = "building")]
 
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, Limits, codes};
@@ -452,6 +452,119 @@ fn storey_elevation(building: &Building, n: u32) -> Option<f64> {
         .map(|m| m.value)
 }
 
+/// 敷地・建物・階と、回転と掃引の形を持つ壁・床・柱（30〜32）の文書。`degree` なら平面角の単位を度にする
+fn sweep_source(version: Version, degree: bool) -> Option<Vec<u8>> {
+    let template = Template {
+        version,
+        unit: LengthUnit::Millimeter,
+        project: global(1),
+        name: None,
+        header: Header::default(),
+        owner: Some(owner()),
+    };
+    let (bytes, _) = with(|cx| create(&template, cx));
+    let mut text = String::from_utf8(bytes.ok()?).ok()?;
+    if degree {
+        let radian = "IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.)";
+        assert!(text.contains(radian));
+        text = text
+            .replace(
+                radian,
+                "IFCCONVERSIONBASEDUNIT(#9001,.PLANEANGLEUNIT.,'degree',#9002)",
+            )
+            .replace(
+                "ENDSEC;
+END-ISO-10303-21;",
+                "#9001=IFCDIMENSIONALEXPONENTS(0,0,0,0,0,0,0);
+                 #9002=IFCMEASUREWITHUNIT(IFCPLANEANGLEMEASURE(0.0174532925199433),#9003);
+                 #9003=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);
+ENDSEC;
+END-ISO-10303-21;",
+            );
+    }
+    let (file, _) = with(|cx| Ifc::read(text.as_bytes(), cx));
+    let file = file.ok()?;
+    let mut edits = vec![
+        space(
+            SpaceKind::Site,
+            10,
+            Target::Instance(1),
+            Some(NewPlacement {
+                relative_to: None,
+                local: Transform::IDENTITY,
+            }),
+            None,
+        ),
+        space(SpaceKind::Building, 11, Target::Added(0), None, None),
+        space(SpaceKind::Storey, 12, Target::Added(1), None, Some(0.0)),
+    ];
+    for (n, class) in [(30, "IfcWall"), (31, "IfcSlab"), (32, "IfcColumn")] {
+        edits.push(element(
+            class,
+            n,
+            None,
+            Some(Target::Added(2)),
+            at(0.0, 0.0, 0.0, Target::Added(2)),
+        ));
+    }
+    for (n, shape) in (3..).zip(shape::sweep_examples()) {
+        edits.push(Edit::Shape {
+            element: Target::Added(n),
+            shape,
+        });
+    }
+    let (applied, diag) = with(|cx| apply(&file, &edits, b"seed", cx));
+    assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
+    applied.ok().map(|a| a.bytes)
+}
+
+/// 回転の角度を近い値で比べられるよう、ラジアンを 1e-12 で丸めた形
+fn rounded(mut shape: zumen_ifc::NewShape) -> zumen_ifc::NewShape {
+    for item in &mut shape.body {
+        if let NewItem::Revolution(r) = item {
+            r.angle = (r.angle * 1e12).round() / 1e12;
+        }
+    }
+    shape
+}
+
+#[test]
+fn converts_revolutions_and_sweeps() {
+    let sources = VERSIONS
+        .map(|from| (from, false))
+        .into_iter()
+        .chain([(Version::Ifc4, true)]);
+    for (from, degree) in sources {
+        let source = lift(&sweep_source(from, degree).unwrap()).unwrap();
+        for to in VERSIONS {
+            let (converted, _) = run(&source, &options(to));
+            let target = lift(&converted.unwrap().bytes).unwrap();
+            for n in [30, 31, 32] {
+                let of = |building: &Building| {
+                    building
+                        .find(Id::Global(global(n)))
+                        .and_then(|e| shape::shape_of(building, e))
+                };
+                // 角度はラジアンにし、IFC2X3 へは掃引の始点と終点を埋める
+                let wanted = of(&source).map(|s| {
+                    let s = shape::as_written(&s);
+                    rounded(if to == Version::Ifc2x3 {
+                        shape::with_parameters(s)
+                    } else {
+                        s
+                    })
+                });
+                assert!(wanted.is_some(), "{from:?} {n}");
+                assert_eq!(
+                    of(&target).map(rounded),
+                    wanted,
+                    "{from:?} {degree} → {to:?} {n}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn converts_the_structure_between_every_version() {
     for from in VERSIONS {
@@ -510,6 +623,19 @@ fn converts_the_structure_between_every_version() {
                     continue;
                 }
                 assert_eq!(found, wanted, "{from:?} → {to:?} {n}");
+                // 書き手が書いた表現をそのまま移せる組では、所有する形のハッシュ（fingerprint）も一致する
+                if boxes {
+                    let src_fp = source
+                        .find(Id::Global(global(n)))
+                        .and_then(|e| source.geometry(e))
+                        .map(|g| g.fingerprint());
+                    let dst_fp = target
+                        .find(Id::Global(global(n)))
+                        .and_then(|e| target.geometry(e))
+                        .map(|g| g.fingerprint());
+                    assert!(src_fp.is_some(), "{from:?} {n}");
+                    assert_eq!(dst_fp, src_fp, "{from:?} → {to:?} {n} fingerprint");
+                }
             }
             // 数量は保つ。IFC2X3 へは式を落とす
             let mut wanted = quantities(&source, 20);
@@ -1015,6 +1141,632 @@ fn needs_a_length_unit_it_can_write() {
     assert_eq!(codes, [codes::CONVERT_ELEMENT_UNSUPPORTED]);
 }
 
+#[test]
+fn checks_predefined_types_against_the_target_version_enum() {
+    let template = Template {
+        version: Version::Ifc4x3,
+        unit: LengthUnit::Millimeter,
+        project: global(1),
+        name: Some("Predefined".to_owned()),
+        header: Header::default(),
+        owner: Some(owner()),
+    };
+    let base = with(|cx| create(&template, cx)).0.unwrap();
+    let file = with(|cx| Ifc::read(&base, cx)).0.unwrap();
+
+    // 書き手（apply）も、バージョンの列挙にない値や ElementType のない USERDEFINED を断る
+    for (ver, edit) in [
+        (
+            Version::Ifc2x3,
+            element_type("IfcWallType", 90, Some("SOLIDWALL")),
+        ),
+        (
+            Version::Ifc4,
+            element_type("IfcWallType", 91, Some("RETAININGWALL")),
+        ),
+        (
+            Version::Ifc4,
+            element_type("IfcWallType", 92, Some("USERDEFINED")),
+        ),
+        (
+            Version::Ifc2x3,
+            element("IfcRoof", 93, Some("USERDEFINED"), None, None),
+        ),
+        (
+            Version::Ifc4,
+            element("IfcWall", 94, Some("USERDEFINED"), None, None),
+        ),
+    ] {
+        let tpl = Template {
+            version: ver,
+            ..template.clone()
+        };
+        let tpl_bytes = with(|cx| create(&tpl, cx)).0.unwrap();
+        let tpl_file = with(|cx| Ifc::read(&tpl_bytes, cx)).0.unwrap();
+        let (res, diag) = with(|cx| apply(&tpl_file, std::slice::from_ref(&edit), b"seed", cx));
+        assert!(res.is_err(), "{ver:?}: {edit:?}");
+        assert_eq!(
+            diag.iter().map(|d| d.code()).collect::<Vec<_>>(),
+            [codes::CHANGE_EDIT_UNSUPPORTED],
+            "{ver:?}: {edit:?}"
+        );
+    }
+
+    // IFC4X3 の列挙にある SOLIDWALL（IFC4 以降）・RETAININGWALL（IFC4X3 のみ）・USERDEFINED（型）を作る
+    let edits = [
+        space(
+            SpaceKind::Building,
+            9,
+            Target::Instance(1),
+            Some(NewPlacement {
+                relative_to: None,
+                local: Transform::IDENTITY,
+            }),
+            None,
+        ),
+        space(
+            SpaceKind::Storey,
+            10,
+            Target::Added(0),
+            at(0.0, 0.0, 0.0, Target::Added(0)),
+            Some(0.0),
+        ),
+        element_type("IfcWallType", 20, Some("SOLIDWALL")),
+        element_type("IfcWallType", 21, Some("RETAININGWALL")),
+        Edit::ElementType(NewType {
+            class: "IfcRoofType".to_owned(),
+            predefined: Some("USERDEFINED".to_owned()),
+            element_type: Some("CustomRoof".to_owned()),
+            name: Some("RT".to_owned()),
+            global_id: Some(global(22)),
+        }),
+        element(
+            "IfcWall",
+            30,
+            Some("RETAININGWALL"),
+            Some(Target::Added(1)),
+            at(0.0, 0.0, 0.0, Target::Added(1)),
+        ),
+    ];
+    let src_bytes = with(|cx| apply(&file, &edits, b"seed", cx))
+        .0
+        .unwrap()
+        .bytes;
+    let source = lift(&src_bytes).unwrap();
+
+    for to in VERSIONS {
+        let (converted, diag) = with(|cx| convert(&source, b"document", &options(to), cx));
+        let converted = converted.unwrap();
+        let count = |code| {
+            diag.iter()
+                .filter(|d| d.code() == code)
+                .map(|d| d.count())
+                .sum::<u64>()
+        };
+        let target = lift(&converted.bytes).unwrap();
+        let predef = |n: u32| {
+            target
+                .find(Id::Global(global(n)))
+                .and_then(|e| target.components.class.get(e))
+                .and_then(|c| c.predefined.clone())
+        };
+        match to {
+            Version::Ifc2x3 => {
+                assert_eq!(predef(20).as_deref(), Some("NOTDEFINED"));
+                assert_eq!(predef(21).as_deref(), Some("NOTDEFINED"));
+                assert_eq!(predef(22), None);
+                assert_eq!(predef(30), None);
+                assert_eq!(count(codes::CONVERT_ITEM_APPROXIMATED), 3);
+                assert_eq!(count(codes::CONVERT_ELEMENT_UNSUPPORTED), 1);
+            }
+            Version::Ifc4 => {
+                assert_eq!(predef(20).as_deref(), Some("SOLIDWALL"));
+                assert_eq!(predef(21).as_deref(), Some("NOTDEFINED"));
+                assert_eq!(predef(22).as_deref(), Some("USERDEFINED"));
+                assert_eq!(predef(30), None);
+                assert_eq!(count(codes::CONVERT_ITEM_APPROXIMATED), 2);
+                assert_eq!(count(codes::CONVERT_ELEMENT_UNSUPPORTED), 0);
+            }
+            Version::Ifc4x3 => {
+                assert_eq!(predef(20).as_deref(), Some("SOLIDWALL"));
+                assert_eq!(predef(21).as_deref(), Some("RETAININGWALL"));
+                assert_eq!(predef(22).as_deref(), Some("USERDEFINED"));
+                assert_eq!(predef(30).as_deref(), Some("RETAININGWALL"));
+                assert!(diag.is_empty(), "{:?}", diag.iter().collect::<Vec<_>>());
+            }
+        }
+    }
+}
+
+fn root_globals(bytes: &[u8]) -> Option<std::collections::BTreeSet<(String, String)>> {
+    let text = core::str::from_utf8(bytes).ok()?;
+    let mut set = std::collections::BTreeSet::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix('#').and_then(|s| s.split_once('=')) else {
+            continue;
+        };
+        let Some((entity, args)) = rest.1.split_once("('") else {
+            continue;
+        };
+        let Some((gid, _)) = args.split_once('\'') else {
+            continue;
+        };
+        if gid.len() == 22 {
+            set.insert((entity.to_owned(), gid.to_owned()));
+        }
+    }
+    Some(set)
+}
+
+#[test]
+fn keeps_unchanged_global_ids_when_reconverting_an_edited_model() {
+    // 1. IfcProject の GlobalId を持つ IFC4 を一部編集して再変換しても、未変更の要素・関係・セットの GlobalId は不変
+    let base_bytes = source(Version::Ifc4).unwrap();
+    let base_building = lift(&base_bytes).unwrap();
+    let wall_inst = instance_of(&base_bytes, global(20)).unwrap();
+    let col_inst = instance_of(&base_bytes, global(24)).unwrap();
+    let storey_inst = instance_of(&base_bytes, global(12)).unwrap();
+    let file = with(|cx| Ifc::read(&base_bytes, cx)).0.unwrap();
+    let edits = [
+        Edit::Attribute {
+            element: wall_inst,
+            attribute: zumen_ifc::RootAttribute::Name,
+            value: Some("W-Edited".to_owned()),
+        },
+        Edit::Property {
+            element: wall_inst,
+            set: "Pset_WallCommon".to_owned(),
+            name: "Reference".to_owned(),
+            value: zumen_ifc::NewValue {
+                type_name: "IfcIdentifier".to_owned(),
+                literal: zumen_ifc::NewLiteral::Text("W-2".to_owned()),
+            },
+        },
+        element(
+            "IfcBeam",
+            99,
+            Some("BEAM"),
+            Some(Target::Instance(storey_inst)),
+            at(0.0, 1000.0, 2800.0, Target::Instance(storey_inst)),
+        ),
+        Edit::Remove {
+            element: Target::Instance(col_inst),
+        },
+    ];
+    let edited_bytes = with(|cx| apply(&file, &edits, b"edit-seed", cx))
+        .0
+        .unwrap()
+        .bytes;
+    let edited_building = lift(&edited_bytes).unwrap();
+
+    for to in VERSIONS {
+        let before = run(&base_building, &options(to)).0.unwrap();
+        let after = run(&edited_building, &options(to)).0.unwrap();
+        let before_roots = root_globals(&before.bytes).unwrap();
+        let after_roots = root_globals(&after.bytes).unwrap();
+        for n in [1, 10, 11, 12, 13, 20, 21, 22, 23, 25] {
+            let gid = global(n).to_string();
+            assert!(
+                before_roots.iter().any(|(_, g)| g == &gid),
+                "{to:?} before missing {n}"
+            );
+            assert!(
+                after_roots.iter().any(|(_, g)| g == &gid),
+                "{to:?} after missing {n}"
+            );
+        }
+        // 未変更の集約・開口・充填・型の定義・数量のセットの GlobalId もすべて保たれる
+        for kind in [
+            "IFCRELAGGREGATES",
+            "IFCRELVOIDSELEMENT",
+            "IFCRELFILLSELEMENT",
+            "IFCRELDEFINESBYTYPE",
+            "IFCELEMENTQUANTITY",
+        ] {
+            for k in before_roots.iter().filter(|(entity, _)| entity == kind) {
+                // 除いた柱（24）は型も開口も数量も持たないため、元のこれらの関係の GlobalId はすべて残る
+                assert!(
+                    after_roots.contains(k),
+                    "{to:?}: relation/set GlobalId changed or vanished: {k:?}"
+                );
+            }
+        }
+    }
+
+    // 2. GlobalId を持たない入力（Id::Instance になる文書）を一部編集し、同じ名前空間で再変換しても未変更要素の導出 GlobalId は不変
+    let mut inst_text = String::from_utf8(source(Version::Ifc4).unwrap()).unwrap();
+    for n in [1, 10, 11, 12, 13, 20, 21, 22, 23, 24, 25, 26] {
+        inst_text = inst_text.replace(&format!("'{}'", global(n)), &format!("'id-{n}'"));
+    }
+    let inst_base = lift_any(inst_text.as_bytes()).unwrap();
+    assert!(matches!(
+        inst_base.id(inst_base.document.project.unwrap()),
+        Some(Id::Instance(_))
+    ));
+    let inst_edited_text = inst_text
+        .replace("'E20'", "'E20-Edited'")
+        .lines()
+        .filter(|line| !line.contains("'id-24'") && !line.contains("'E24'"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    let inst_edited = lift_any(inst_edited_text.as_bytes()).unwrap();
+    let mut opts = options(Version::Ifc4);
+    opts.namespace = Some(b"instance-ns".to_vec());
+    for to in VERSIONS {
+        opts.version = to;
+        let before = run(&inst_base, &opts).0.unwrap();
+        let after = run(&inst_edited, &opts).0.unwrap();
+        let before_lifted = lift_any(&before.bytes).unwrap();
+        let after_lifted = lift_any(&after.bytes).unwrap();
+        let collect_ids =
+            |b: &Building| -> std::collections::BTreeMap<String, (String, Option<String>)> {
+                (0..b.elements().len())
+                    .filter_map(|i| {
+                        let e = ElementRef(u32::try_from(i).ok()?);
+                        let gid = match b.id(e)? {
+                            Id::Global(g) => g.to_string(),
+                            Id::Instance(_) => return None,
+                        };
+                        let cls = b.components.class.get(e)?.name.clone();
+                        let name = b.components.identity.get(e).and_then(|id| id.name.clone());
+                        Some((gid, (cls, name)))
+                    })
+                    .collect()
+            };
+        let mut expected = collect_ids(&before_lifted);
+        expected.retain(|_, (_, name)| name.as_deref() != Some("E24"));
+        for (_, name) in expected.values_mut() {
+            if name.as_deref() == Some("E20") {
+                *name = Some("E20-Edited".to_owned());
+            }
+        }
+        let found = collect_ids(&after_lifted);
+        assert_eq!(found, expected, "{to:?}: derived GlobalIds changed on edit");
+    }
+}
+
+fn world_matrix(building: &Building, start: ElementRef) -> Option<[[f64; 4]; 3]> {
+    let mut current = Some(start);
+    let mut acc = Transform::IDENTITY;
+    let mut chain = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(e) = current {
+        if !seen.insert(e) {
+            return None;
+        }
+        let Some(p) = building.components.placement.get(e) else {
+            break;
+        };
+        let Local::Transform(local) = p.local else {
+            return None;
+        };
+        chain.push(local);
+        current = p.relative_to;
+    }
+    for local in chain.into_iter().rev() {
+        acc = acc.then(&local);
+    }
+    Some(acc.0)
+}
+
+fn public_ifc_paths() -> Option<Vec<(String, std::path::PathBuf)>> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/ifc");
+    let mut stack = vec![root.clone()];
+    let mut found = Vec::new();
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).ok()? {
+            let path = entry.ok()?.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("ifc"))
+            {
+                let rel = path
+                    .strip_prefix(&root)
+                    .ok()?
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                found.push((rel, path));
+            }
+        }
+    }
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    Some(found)
+}
+
+#[allow(clippy::disallowed_methods)]
+#[test]
+fn round_trips_public_ifc_samples_across_all_versions() {
+    let out_dir = std::env::var_os("ZUMEN_IFC_CONVERTED_SAMPLES").map(std::path::PathBuf::from);
+    if let Some(dir) = &out_dir {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let samples = public_ifc_paths().unwrap();
+    assert_eq!(samples.len(), 12);
+    const GEOMETRY_SAMPLES: &[&str] = &[
+        "bim-whale/TallBuilding.ifc",
+        "gni/model_9.ifc",
+        "text2bim/sample_model.ifc",
+    ];
+    for (name, path) in samples {
+        let with_geometry = out_dir.is_some() || GEOMETRY_SAMPLES.contains(&name.as_str());
+        let raw = std::fs::read(&path).unwrap();
+        let file = with(|cx| Ifc::read(&raw, cx)).0.unwrap();
+        let source: Building = if with_geometry {
+            with(|cx| file.lift_geometry(cx)).0.unwrap()
+        } else {
+            with(|cx| file.lift(cx)).0.unwrap()
+        };
+        let mut opts = options(Version::Ifc4);
+        opts.limit = 100_000;
+        for to in VERSIONS {
+            opts.version = to;
+            let (res, diag) = with(|cx| convert(&source, &raw, &opts, cx));
+            let converted = res.unwrap_or_else(|e| panic!("{name} → {to:?}: {e:?} {diag:?}"));
+            assert!(!converted.report.truncated, "{name} → {to:?}");
+            if let Some(dir) = &out_dir {
+                let flat = name.replace('/', "__");
+                std::fs::write(
+                    dir.join(format!("{}.{}.ifc", flat, to.file_schema())),
+                    &converted.bytes,
+                )
+                .unwrap();
+            }
+
+            // 忠実度の集計・明細と診断の種類・件数・出所の一致
+            let dropped_details: Vec<_> = converted
+                .report
+                .details
+                .iter()
+                .filter(|d| d.fidelity == ConversionFidelity::Dropped)
+                .collect();
+            let approx_reasons: usize = converted
+                .report
+                .details
+                .iter()
+                .filter(|d| d.fidelity == ConversionFidelity::Approximated)
+                .map(|d| d.reasons.len())
+                .sum();
+            let unsupported_diags: Vec<_> = diag
+                .iter()
+                .filter(|d| d.code() == codes::CONVERT_ELEMENT_UNSUPPORTED)
+                .collect();
+            let approx_diags: Vec<_> = diag
+                .iter()
+                .filter(|d| d.code() == codes::CONVERT_ITEM_APPROXIMATED)
+                .collect();
+            let unsupported_count: u64 = unsupported_diags.iter().map(|d| d.count()).sum();
+            let approx_count: u64 = approx_diags.iter().map(|d| d.count()).sum();
+            assert_eq!(
+                unsupported_count,
+                dropped_details.len() as u64,
+                "{name} → {to:?}"
+            );
+            assert_eq!(approx_count, approx_reasons as u64, "{name} → {to:?}");
+            assert_eq!(
+                diag.len(),
+                unsupported_diags.len() + approx_diags.len(),
+                "{name} → {to:?}"
+            );
+            for d in diag.iter() {
+                assert!(
+                    !d.places().is_empty(),
+                    "{name} → {to:?}: diagnostic missing source place: {d:?}"
+                );
+            }
+
+            // 書いた IFC を読み直し、ID・クラス・空間の親子・配置・型・プロパティ・数量・形を照らす
+            let out_file = with(|cx| Ifc::read(&converted.bytes, cx)).0.unwrap();
+            let target: Building = if with_geometry {
+                with(|cx| out_file.lift_geometry(cx)).0.unwrap()
+            } else {
+                with(|cx| out_file.lift(cx)).0.unwrap()
+            };
+            let reasons_by_place: std::collections::BTreeMap<_, _> = converted
+                .report
+                .details
+                .iter()
+                .map(|d| (format!("{:?}", d.source), &d.reasons))
+                .collect();
+
+            for idx in 0..target.elements().len() {
+                let dst = ElementRef(u32::try_from(idx).unwrap());
+                let Some(dst_class) = target.components.class.get(dst) else {
+                    continue;
+                };
+                if dst_class.name == "IfcMaterial" {
+                    continue;
+                }
+                let id = target.id(dst).unwrap();
+                let src = source
+                    .find(id)
+                    .unwrap_or_else(|| panic!("{name} → {to:?}: unknown id {id}"));
+                let src_class = source.components.class.get(src).unwrap();
+                assert_eq!(dst_class.name, src_class.name, "{name} → {to:?} {id}");
+
+                let empty_reasons = Vec::new();
+                let reasons = reasons_by_place
+                    .get(&format!("{:?}", source.place(src)))
+                    .copied()
+                    .unwrap_or(&empty_reasons);
+                let has_reason = |r: &str| reasons.iter().any(|x| x == r);
+
+                if !has_reason("parent")
+                    && Some(src) != source.document.project
+                    && let Some(src_parent) = source
+                        .components
+                        .parent
+                        .get(src)
+                        .and_then(|p| p.of.as_ref())
+                {
+                    let dst_parent = target
+                        .components
+                        .parent
+                        .get(dst)
+                        .and_then(|p| p.of.as_ref())
+                        .unwrap_or_else(|| panic!("{name} → {to:?} {id}: missing parent"));
+                    assert_eq!(dst_parent.kind, src_parent.kind, "{name} → {to:?} {id}");
+                    assert_eq!(
+                        target.id(dst_parent.target),
+                        source.id(src_parent.target),
+                        "{name} → {to:?} {id}"
+                    );
+                }
+
+                if !has_reason("placement")
+                    && Some(src) != source.document.project
+                    && source.components.placement.get(src).is_some()
+                    && let Some(src_m) = world_matrix(&source, src)
+                {
+                    let dst_m = world_matrix(&target, dst)
+                        .unwrap_or_else(|| panic!("{name} → {to:?} {id}: missing placement"));
+                    for (r1, r2) in src_m.iter().zip(&dst_m) {
+                        for (a, b) in r1.iter().zip(r2) {
+                            assert!(
+                                (a - b).abs() <= 1e-6,
+                                "{name} → {to:?} {id}: placement {src_m:?} != {dst_m:?}"
+                            );
+                        }
+                    }
+                }
+
+                if !has_reason("type")
+                    && let Some(src_type) = source.components.r#type.get(src)
+                {
+                    let dst_type = target
+                        .components
+                        .r#type
+                        .get(dst)
+                        .unwrap_or_else(|| panic!("{name} → {to:?} {id}: missing type"));
+                    assert_eq!(
+                        target.id(dst_type.target),
+                        source.id(src_type.target),
+                        "{name} → {to:?} {id}"
+                    );
+                }
+
+                if !has_reason("properties")
+                    && let Some(src_props) = source.components.properties.get(src)
+                {
+                    let norm = |tv: Option<TypedValue>| -> Option<TypedValue> {
+                        let mut tv = tv?;
+                        if to == Version::Ifc4x3
+                            && tv
+                                .type_name
+                                .as_deref()
+                                .is_some_and(|t| t.eq_ignore_ascii_case("IfcCountMeasure"))
+                            && let Literal::Real(r) = tv.value
+                            && r.is_finite()
+                            && r.fract() == 0.0
+                        {
+                            #[allow(clippy::cast_possible_truncation)]
+                            {
+                                tv.value = Literal::Integer(r as i64);
+                            }
+                        }
+                        Some(tv)
+                    };
+                    let flatten = |props: &zumen_building::Properties| {
+                        let mut v: Vec<_> = props
+                            .sets
+                            .iter()
+                            .flat_map(|s| {
+                                s.properties.iter().map(|p| {
+                                    (s.name.clone(), p.name.clone(), norm(p.value.clone()))
+                                })
+                            })
+                            .collect();
+                        v.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+                        v
+                    };
+                    let dst_props = target
+                        .components
+                        .properties
+                        .get(dst)
+                        .unwrap_or_else(|| panic!("{name} → {to:?} {id}: missing properties"));
+                    assert_eq!(
+                        flatten(dst_props),
+                        flatten(src_props),
+                        "{name} → {to:?} {id}"
+                    );
+                }
+
+                if !has_reason("quantities")
+                    && let Some(src_qtys) = source.components.quantities.get(src)
+                {
+                    let flatten = |qtys: &zumen_building::Quantities| {
+                        let mut v: Vec<_> = qtys
+                            .sets
+                            .iter()
+                            .flat_map(|s| {
+                                s.quantities.iter().map(move |q| {
+                                    (
+                                        s.name.clone(),
+                                        q.name.clone(),
+                                        q.kind,
+                                        q.value.value,
+                                        q.formula.clone(),
+                                    )
+                                })
+                            })
+                            .collect();
+                        v.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+                        v
+                    };
+                    let dst_qtys = target
+                        .components
+                        .quantities
+                        .get(dst)
+                        .unwrap_or_else(|| panic!("{name} → {to:?} {id}: missing quantities"));
+                    assert_eq!(flatten(dst_qtys), flatten(src_qtys), "{name} → {to:?} {id}");
+                }
+
+                if !has_reason("representation")
+                    && source
+                        .geometry(src)
+                        .is_some_and(|g| g.data().root.is_some())
+                {
+                    assert_eq!(
+                        shape::shape_of(&target, dst),
+                        shape::shape_of(&source, src).map(|s| shape::as_written(&s)),
+                        "{name} → {to:?} {id}"
+                    );
+                }
+            }
+
+            // 変換後の IFC をもう一度同じバージョンへ変換すると、書いたすべての形の所有ハッシュ（fingerprint）が完全に一致する
+            if with_geometry && to == Version::Ifc4 {
+                let again = with(|cx| convert(&target, &converted.bytes, &opts, cx))
+                    .0
+                    .unwrap();
+                let again_file = with(|cx| Ifc::read(&again.bytes, cx)).0.unwrap();
+                let again_target = with(|cx| again_file.lift_geometry(cx)).0.unwrap();
+                for idx in 0..target.elements().len() {
+                    let dst = ElementRef(u32::try_from(idx).unwrap());
+                    let Some(geom1) = target.geometry(dst).filter(|g| g.data().root.is_some())
+                    else {
+                        continue;
+                    };
+                    let id = target.id(dst).unwrap();
+                    let dst2 = again_target.find(id).unwrap();
+                    let geom2 = again_target.geometry(dst2).unwrap_or_else(|| {
+                        panic!("{name} → {to:?} {id}: missing re-converted geometry")
+                    });
+                    assert_eq!(
+                        geom2.fingerprint(),
+                        geom1.fingerprint(),
+                        "{name} → {to:?} {id} fingerprint"
+                    );
+                }
+            }
+        }
+    }
+}
+
 #[allow(clippy::disallowed_methods)]
 #[test]
 fn writes_the_conversions_for_other_readers() {
@@ -1031,5 +1783,28 @@ fn writes_the_conversions_for_other_readers() {
             converted.unwrap().bytes,
         )
         .unwrap();
+    }
+    // 公開サンプル（IFC2X3・IFC4・IFC4X3）を各版へ変換した IFC も外部照合用に書く
+    let public_dir = folder.join("public");
+    std::fs::create_dir_all(&public_dir).unwrap();
+    let samples_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/ifc");
+    for (slug, rel) in [
+        ("text2bim", "text2bim/sample_model.ifc"),
+        ("gni_model_9", "gni/model_9.ifc"),
+        ("rinya", "rinya/wood-office-architecture.ifc"),
+    ] {
+        let raw = std::fs::read(samples_root.join(rel)).unwrap();
+        let file = with(|cx| Ifc::read(&raw, cx)).0.unwrap();
+        let building = with(|cx| file.lift_geometry(cx)).0.unwrap();
+        for to in VERSIONS {
+            let mut opts = options(to);
+            opts.limit = 100_000;
+            let converted = with(|cx| convert(&building, &raw, &opts, cx)).0.unwrap();
+            std::fs::write(
+                public_dir.join(format!("{slug}.{}.ifc", to.file_schema())),
+                converted.bytes,
+            )
+            .unwrap();
+        }
     }
 }

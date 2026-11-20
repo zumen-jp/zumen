@@ -460,3 +460,155 @@ fn a_stopped_symbol_read_reports_the_stop() {
     assert!(matches!(result, Err(zumen_sdk::Error::Stopped(_))));
     assert_eq!(diag.iter().count(), 1);
 }
+
+#[test]
+fn display_retexted_handles_formatted_mtext_with_paragraphs_and_spans() {
+    use crate::{Dwg, Dxf};
+    use zumen_sdk::{Apply, Codec};
+
+    let mtext_dxf =
+        b"0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nMTEXT\n5\n20\n100\nAcDbEntity\n8\n0\n100\nAcDbMText\n\
+10\n10.0\n20\n20.0\n40\n2.5\n41\n50.0\n71\n1\n\
+1\n{\\fArial;HEAD}\\P{\\C1;\\H1.5x;BODY}\\P\\S1/2;\n\
+0\nENDSEC\n0\nEOF\n";
+
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let cx = &mut Cx::new(&mut budget, &mut diag, &cancel);
+
+    let mut live = AcadLive::open(mtext_dxf, cx).unwrap();
+    let mut ref_file = Dxf::read(mtext_dxf, cx).unwrap();
+    let row = live.display_order(cx).unwrap()[0];
+    let (kind, initial) = live.display_text(row, cx).unwrap().unwrap();
+    assert_eq!(kind, 2);
+    assert!(initial.contains("\\P"));
+
+    for next in [
+        "{\\H2x;LINE1}\\P{\\C3;LINE2}\\P\\S3/4;",
+        "",
+        "PLAIN\\PSECOND",
+    ] {
+        let target = live.seen_of_row(row, cx).unwrap().unwrap();
+        let element = live.display_retexted(row, next, cx).unwrap().unwrap();
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Replace {
+                target,
+                element: Box::new(element),
+            }],
+        };
+        live.apply(&changes, cx).unwrap();
+        ref_file.apply(&changes, cx).unwrap();
+        let mut expected = Vec::new();
+        Dxf::write(&ref_file, &mut expected, cx).unwrap();
+        assert_eq!(live.save(cx).unwrap(), expected);
+        assert_eq!(
+            live.display_text(row, cx).unwrap().unwrap(),
+            (2, next.to_owned())
+        );
+    }
+    for _ in 0..3 {
+        assert!(live.undo(cx).unwrap());
+    }
+    assert_eq!(live.save(cx).unwrap(), mtext_dxf);
+
+    // 公開サンプルの段組み MTEXT は、常駐エンジンと一括変換の両方で要素に移さず診断が一致する
+    let columns = include_bytes!("../../../../../../samples/dxf/ezdxf-mtext-columns-r2007.dxf");
+    let cols_live = AcadLive::open(columns, cx).unwrap();
+    let cols_ref = Dxf::read(columns, cx).unwrap();
+    assert!(cols_live.display_order(cx).unwrap().is_empty());
+    assert_eq!(
+        cols_live.drawing(cx).unwrap(),
+        zumen_sdk::Lift::lift(&cols_ref, cx).unwrap()
+    );
+
+    // 250 バイトを超えて 3 と 1 に分かれた MTEXT でも内容置換・保存・取り消しが一致する
+    let long_chunk = "A".repeat(250);
+    let long_dxf = format!(
+        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1021\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nMTEXT\n5\n2D\n100\nAcDbEntity\n8\n0\n100\nAcDbMText\n\
+10\n0.0\n20\n0.0\n40\n1.0\n41\n20.0\n71\n1\n\
+3\n{long_chunk}\n1\nTAIL\n\
+0\nENDSEC\n0\nEOF\n"
+    );
+    let mut long_live = AcadLive::open(long_dxf.as_bytes(), cx).unwrap();
+    let mut long_ref = Dxf::read(long_dxf.as_bytes(), cx).unwrap();
+    let mtext_row = long_live
+        .display_order(cx)
+        .unwrap()
+        .into_iter()
+        .find(|&r| long_live.display_text(r, cx).unwrap().unwrap().0 == 2)
+        .unwrap();
+    let target = long_live.seen_of_row(mtext_row, cx).unwrap().unwrap();
+    let replacement = long_live
+        .display_retexted(mtext_row, "{\\C2;A}\\P{\\H1.25x;B}", cx)
+        .unwrap()
+        .unwrap();
+    let changes = Changes {
+        document: None,
+        edits: vec![Edit::Replace {
+            target,
+            element: Box::new(replacement),
+        }],
+    };
+    long_live.apply(&changes, cx).unwrap();
+    long_ref.apply(&changes, cx).unwrap();
+    let mut expected = Vec::new();
+    Dxf::write(&long_ref, &mut expected, cx).unwrap();
+    assert_eq!(long_live.save(cx).unwrap(), expected);
+    assert!(long_live.undo(cx).unwrap());
+    assert_eq!(long_live.save(cx).unwrap(), long_dxf.as_bytes());
+
+    // DWG の書式つき MTEXT でも同じ
+    let dwg_sample = include_bytes!("../../../../../../samples/dwg/zumen-arcdim-r2018.dwg");
+    let mut dwg_file = Dwg::read(dwg_sample, cx).unwrap();
+    let added = dwg_file
+        .apply(
+            &Changes {
+                document: None,
+                edits: vec![Edit::Add {
+                    place: "space/0".to_owned(),
+                    element: Box::new(
+                        live.display_retexted(row, "{\\C1;DWG}\\PMTEXT", cx)
+                            .unwrap()
+                            .unwrap(),
+                    ),
+                }],
+            },
+            cx,
+        )
+        .unwrap();
+    assert_eq!(added.len(), 1);
+    let mut dwg_bytes = Vec::new();
+    Dwg::write(&dwg_file, &mut dwg_bytes, cx).unwrap();
+    let mut dwg_live = AcadLive::open(&dwg_bytes, cx).unwrap();
+    let dwg_mtext_row = dwg_live
+        .display_order(cx)
+        .unwrap()
+        .into_iter()
+        .find(|&r| dwg_live.display_text(r, cx).unwrap().unwrap().0 == 2)
+        .unwrap();
+    let dwg_target = dwg_live.seen_of_row(dwg_mtext_row, cx).unwrap().unwrap();
+    let dwg_retext = dwg_live
+        .display_retexted(dwg_mtext_row, "{\\H2x;AFTER}\\PLINE2", cx)
+        .unwrap()
+        .unwrap();
+    let dwg_changes = Changes {
+        document: None,
+        edits: vec![Edit::Replace {
+            target: dwg_target,
+            element: Box::new(dwg_retext),
+        }],
+    };
+    dwg_live.apply(&dwg_changes, cx).unwrap();
+    dwg_file.apply(&dwg_changes, cx).unwrap();
+    let mut expected_dwg = Vec::new();
+    Dwg::write(&dwg_file, &mut expected_dwg, cx).unwrap();
+    assert_eq!(dwg_live.save(cx).unwrap(), expected_dwg);
+    assert!(dwg_live.undo(cx).unwrap());
+    assert_eq!(dwg_live.save(cx).unwrap(), dwg_bytes);
+}

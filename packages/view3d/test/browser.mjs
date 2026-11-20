@@ -1,4 +1,4 @@
-// View3D をブラウザーの WebGL2 で検査する。画素は表示の確認で、ID・位置・当たりは独立した期待値と照らす。
+// View3D をブラウザーの WebGPU で検査する。画素は表示の確認で、ID・位置・当たりは独立した期待値と照らす。
 import { load, readScene3D } from "@zumen-jp/zumen";
 import { View3D, View3DError } from "../src/index.js";
 import { document, encode, ORIGIN, result, synthetic, topView } from "./fixture.mjs";
@@ -6,7 +6,8 @@ import { testExtras } from "./extras.mjs";
 import { testGround2D } from "./ground2d.mjs";
 import { testPointCloud } from "./pointcloud.mjs";
 
-const RED = [255, 0, 0], SELECTED = [255, 136, 0], GREEN = [0, 255, 0], WHITE = [255, 255, 255], HALF = [128, 128, 255], BLUE = [0, 0, 255];
+// 半透明（alpha 0.5）は線形色空間で混色後に sRGB へ変換するため 0.5 → 188 になる。
+const RED = [255, 0, 0], SELECTED = [255, 136, 0], GREEN = [0, 255, 0], WHITE = [255, 255, 255], HALF = [188, 188, 255], BLUE = [0, 0, 255];
 
 export async function testView3D(wasmPath, ifc, layers) {
   let assertions = 0;
@@ -17,21 +18,49 @@ export async function testView3D(wasmPath, ifc, layers) {
     try { fn(); } catch (error) { caught = error; }
     assert(caught instanceof View3DError && caught.reason === reason, `${message}: ${caught?.reason ?? caught}`);
   };
+  const rejectsAsync = async (fn, reason, message) => {
+    let caught = null;
+    try { await fn(); } catch (error) { caught = error; }
+    assert(caught instanceof View3DError && caught.reason === reason, `${message}: ${caught?.reason ?? caught}`);
+  };
   const canvas = Object.assign(globalThis.document.createElement("canvas"), { width: 200, height: 200 });
   canvas.style.cssText = "width:200px;height:200px";
   globalThis.document.body.append(canvas);
-  const viewer = new View3D(canvas, { width: 200, height: 200, shading: "unlit", unresolvedColor: "#00ff00", edgeColor: "#000000", views: [topView()] });
-  const gl = canvas.getContext("webgl2");
-  // 描いた直後の同じタスクで読む（preserveDrawingBuffer を使わない）
-  const read = (x, y) => {
-    const out = new Uint8Array(4);
-    gl.readPixels(x, 200 - y - 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
-    return [...out.slice(0, 3)];
+  rejects(() => new View3D(canvas), "invalid-input", "直接のコンストラクター呼び出しは拒む");
+  {
+    const originalGpu = Object.getOwnPropertyDescriptor(Navigator.prototype, "gpu") ?? Object.getOwnPropertyDescriptor(navigator, "gpu");
+    try {
+      for (const [label, fakeGpu] of [
+        ["navigator.gpu なし", undefined],
+        ["アダプターなし", { requestAdapter: async () => null }],
+        ["デバイス取得失敗", { requestAdapter: async () => ({ requestDevice: async () => { throw new Error("denied"); } }) }],
+      ]) {
+        Object.defineProperty(navigator, "gpu", { value: fakeGpu, configurable: true });
+        await rejectsAsync(() => View3D.create(globalThis.document.createElement("canvas"), { width: 50, height: 50 }), "webgpu-unavailable", `${label}で webgpu-unavailable を返す`);
+      }
+    } finally {
+      if (originalGpu) Object.defineProperty(Navigator.prototype, "gpu", originalGpu);
+      delete navigator.gpu;
+    }
+  }
+  const viewer = await View3D.create(canvas, { width: 200, height: 200, shading: "unlit", unresolvedColor: "#00ff00", edgeColor: "#000000", views: [topView()] });
+  const shots = new Map();
+  const render = () => { shots.clear(); return viewer.render(); };
+  const read = async (x, y) => {
+    const view = viewer.getState().views.find((v) => x >= v.rect.x && x < v.rect.x + v.rect.width && y >= v.rect.y && y < v.rect.y + v.rect.height);
+    if (!view) throw new Error(`ビューの外の画素: ${x},${y}`);
+    let shot = shots.get(view.id);
+    if (!shot) { shot = await viewer.snapshot(view.id); shots.set(view.id, shot); }
+    const lx = Math.floor((x - view.rect.x) * shot.pixelRatio), ly = Math.floor((y - view.rect.y) * shot.pixelRatio);
+    const at = (ly * shot.width + lx) * 4;
+    return [shot.pixels[at], shot.pixels[at + 1], shot.pixels[at + 2]];
   };
-  const pixel = (x, y, expected, message) => {
-    const value = read(x, y);
+  const pixel = async (x, y, expected, message) => {
+    const value = await read(x, y);
     assert(value.every((v, i) => Math.abs(v - expected[i]) <= 3), `${message}: ${value} / ${expected}`);
   };
+  render();
+  const emptyGeometries = viewer.getStats().geometries;
   const { columns } = synthetic();
   const blob = encode(columns).bytes;
   const input = { blob, result: result(columns), document };
@@ -49,20 +78,20 @@ export async function testView3D(wasmPath, ifc, layers) {
   assert(state.scene.counts.elements === 7 && state.scene.counts.instances === 7, "形のない要素も数える");
 
   start = performance.now();
-  viewer.render();
+  render();
   timings.renderMs = performance.now() - start;
   start = performance.now();
-  pixel(30, 70, RED, "大きな原点の近くの小さな形");
+  await pixel(30, 70, RED, "大きな原点の近くの小さな形");
   timings.gpuFinishMs = performance.now() - start;
-  pixel(30, 130, RED, "同じ要素の 2 つめの配置");
-  pixel(150, 70, RED, "反転した配置");
-  pixel(133, 135, RED, "非一様な尺度の左端");
-  pixel(157, 135, RED, "非一様な尺度の右端");
-  pixel(100, 100, HALF, "半透明");
-  pixel(100, 40, WHITE, "透明度 0 は描かない");
-  pixel(100, 170, GREEN, "未解決の色は代替色");
-  pixel(180, 20, WHITE, "背景");
-  pixel(110, 150, WHITE, "反転した配置は外へはみ出さない");
+  await pixel(30, 130, RED, "同じ要素の 2 つめの配置");
+  await pixel(150, 70, RED, "反転した配置");
+  await pixel(133, 135, RED, "非一様な尺度の左端");
+  await pixel(157, 135, RED, "非一様な尺度の右端");
+  await pixel(100, 100, HALF, "半透明");
+  await pixel(100, 40, WHITE, "透明度 0 は描かない");
+  await pixel(100, 170, GREEN, "未解決の色は代替色");
+  await pixel(180, 20, WHITE, "背景");
+  await pixel(110, 150, WHITE, "反転した配置は外へはみ出さない");
 
   // 当たり判定。光線の原点はカメラの f64 の位置、相対位置と距離は独立に求めた値
   const expectHit = (x, y, id, offset) => {
@@ -93,28 +122,28 @@ export async function testView3D(wasmPath, ifc, layers) {
   const off = viewer.subscribe(() => { notified++; });
   viewer.select(document, ["red"]);
   assert(viewer.getState().views[0].selected.length === 1 && viewer.getState().views[0].selected[0] === "red" && notified === 1, "選択の状態と通知");
-  viewer.render();
-  pixel(30, 70, SELECTED, "選択の色");
-  pixel(30, 130, SELECTED, "同じ要素のすべての配置");
-  pixel(150, 70, RED, "選んでいない要素");
+  render();
+  await pixel(30, 70, SELECTED, "選択の色");
+  await pixel(30, 130, SELECTED, "同じ要素のすべての配置");
+  await pixel(150, 70, RED, "選んでいない要素");
   const before = viewer.getState();
   rejects(() => viewer.select(document, ["missing"]), "unknown-element", "未知の ID");
   rejects(() => viewer.select({ ...document, hash: "1".repeat(64) }, ["red"]), "other-document", "別の版の文書");
   rejects(() => viewer.select({ ...document, doc: "other.ifc" }, ["red"]), "other-document", "別の文書");
   assert(viewer.getState() === before, "断った操作は状態を変えない");
   viewer.select(document, ["mirror", "stretch"]);
-  viewer.render();
-  pixel(30, 70, RED, "選択を外した色");
-  pixel(150, 70, SELECTED, "個別の Mesh の選択");
+  render();
+  await pixel(30, 70, RED, "選択を外した色");
+  await pixel(150, 70, SELECTED, "個別の Mesh の選択");
   viewer.setHidden(document, ["stretch", "red"]);
-  viewer.render();
-  pixel(145, 135, WHITE, "個別の Mesh を隠す");
-  pixel(30, 70, WHITE, "まとめ描きの配置を隠す");
+  render();
+  await pixel(145, 135, WHITE, "個別の Mesh を隠す");
+  await pixel(30, 70, WHITE, "まとめ描きの配置を隠す");
   assert(viewer.hitTest("top", { x: 145, y: 135 }).hits.length === 0 && viewer.hitTest("top", { x: 30, y: 70 }).hits.length === 0, "隠した要素は選ばない");
   viewer.setHidden(document, []);
   viewer.select(document, []);
-  viewer.render();
-  pixel(145, 135, RED, "隠すのをやめる");
+  render();
+  await pixel(145, 135, RED, "隠すのをやめる");
   off();
 
   // 透視投影の光線
@@ -125,13 +154,13 @@ export async function testView3D(wasmPath, ifc, layers) {
   near(corner.direction[0], 1 / Math.sqrt(3), "角の光線の x"); near(corner.direction[1], 1 / Math.sqrt(3), "角の光線の y");
   const perspectiveHit = viewer.hitTest("eye", { x: 100, y: 100 }).hits[0];
   assert(perspectiveHit.id === "half", "透視投影の当たり");
-  viewer.render();
-  pixel(100, 100, HALF, "透視投影の描画");
+  render();
+  await pixel(100, 100, HALF, "透視投影の描画");
   // 複数の枠。重なりは断り、前のビューを保つ
   viewer.setViews([topView("left", { x: 0, y: 0, width: 100, height: 200 }), topView("right", { x: 100, y: 0, width: 100, height: 200 })]);
-  viewer.render();
-  pixel(50, 100, HALF, "左の枠");
-  pixel(150, 100, HALF, "右の枠");
+  render();
+  await pixel(50, 100, HALF, "左の枠");
+  await pixel(150, 100, HALF, "右の枠");
   const views = viewer.getState().views;
   rejects(() => viewer.setViews([topView("a"), topView("b", { x: 50, y: 50, width: 100, height: 100 })]), "invalid-input", "重なる枠");
   rejects(() => viewer.setViews([{ ...topView("a"), camera: { ...topView().camera, up: [0, 0, 2] } }]), "invalid-input", "平行な上方向");
@@ -148,20 +177,20 @@ export async function testView3D(wasmPath, ifc, layers) {
     camera: { projection: "orthographic", position: [ORIGIN[0] - 7, ORIGIN[1] + 3, 10], direction: [0, 0, -1], up: [0, 1, 0], width: 10 } });
   viewer.setViews([onRed("left", 0), onRed("right", 100)]);
   viewer.select(document, ["red"], { view: "left" });
-  viewer.render();
-  pixel(50, 100, SELECTED, "左だけ選ぶ");
-  pixel(150, 100, RED, "右は選ばない");
+  render();
+  await pixel(50, 100, SELECTED, "左だけ選ぶ");
+  await pixel(150, 100, RED, "右は選ばない");
   viewer.setHidden(document, ["red"], { view: "right" });
-  viewer.render();
-  pixel(50, 100, SELECTED, "左は隠さない");
-  pixel(150, 100, WHITE, "右だけ隠す");
+  render();
+  await pixel(50, 100, SELECTED, "左は隠さない");
+  await pixel(150, 100, WHITE, "右だけ隠す");
   assert(viewer.hitTest("left", { x: 50, y: 100 }).hits[0]?.id === "red" && viewer.hitTest("right", { x: 150, y: 100 }).hits.length === 0, "当たりもビューごと");
   rejects(() => viewer.hitTest("left", { x: 150, y: 100 }), "outside-view", "別の枠の点は受けない");
   viewer.setHidden(document, [], { view: "right" });
   viewer.setColors(document, [{ color: "#0000ff", ids: ["red"] }], { view: "right" });
-  viewer.render();
-  pixel(150, 100, BLUE, "右だけ色を変える");
-  pixel(50, 100, SELECTED, "選択の色が優先する");
+  render();
+  await pixel(150, 100, BLUE, "右だけ色を変える");
+  await pixel(50, 100, SELECTED, "選択の色が優先する");
   const perView = viewer.getState().views;
   assert(perView[0].selected[0] === "red" && perView[1].selected.length === 0 && perView[1].colored[0].color === "#0000FF" && perView[1].colored[0].ids[0] === "red", "ビューごとの状態");
   rejects(() => viewer.setColors(document, [{ color: "blue", ids: ["red"] }]), "invalid-input", "色の書式");
@@ -170,7 +199,7 @@ export async function testView3D(wasmPath, ifc, layers) {
   assert(viewer.getState().views === perView, "断った操作はビューを変えない");
   // pixel ratio 2 の画素は snapshot で読み、CSS px の位置と照らす
   viewer.setSize(200, 200, 2);
-  const shot = viewer.snapshot("right");
+  const shot = await viewer.snapshot("right");
   assert(shot.width === 200 && shot.height === 400 && shot.pixelRatio === 2, `snapshot の寸法: ${shot.width}x${shot.height}`);
   const at = (x, y) => [...shot.pixels.subarray((y * shot.width + x) * 4, (y * shot.width + x) * 4 + 3)];
   assert(at(100, 200).every((v, i) => Math.abs(v - BLUE[i]) <= 3), `pixel ratio 2 の右の枠: ${at(100, 200)}`);
@@ -180,18 +209,18 @@ export async function testView3D(wasmPath, ifc, layers) {
 
   // 切断面。法線の向きを除き、描画と当たり判定で同じ条件
   viewer.setViews([{ ...topView(), clips: [{ point: [ORIGIN[0] - 7, ORIGIN[1], 0], normal: [1, 0, 0] }] }]);
-  viewer.render();
-  pixel(25, 70, RED, "切断面の残す側");
-  pixel(35, 70, WHITE, "切断面の除く側");
-  pixel(150, 70, WHITE, "除く側の別の要素");
+  render();
+  await pixel(25, 70, RED, "切断面の残す側");
+  await pixel(35, 70, WHITE, "切断面の除く側");
+  await pixel(150, 70, WHITE, "除く側の別の要素");
   assert(viewer.hitTest("top", { x: 25, y: 70 }).hits[0]?.id === "red", "残す側の当たり");
   assert(viewer.hitTest("top", { x: 35, y: 70 }).hits.length === 0 && viewer.hitTest("top", { x: 150, y: 70 }).hits.length === 0, "除く側は当たらない");
   assert(viewer.hitTest("top", { x: 30, y: 70 }).hits[0]?.id === "red", "面の上は残す");
   viewer.setViews([{ ...topView(), box: { min: [ORIGIN[0] - 0.5, ORIGIN[1] - 5, -1], max: [ORIGIN[0] + 5, ORIGIN[1] + 5, 1] } }]);
-  viewer.render();
-  pixel(100, 100, HALF, "箱の中");
-  pixel(92, 100, WHITE, "箱の外");
-  pixel(30, 70, WHITE, "箱の外の要素");
+  render();
+  await pixel(100, 100, HALF, "箱の中");
+  await pixel(92, 100, WHITE, "箱の外");
+  await pixel(30, 70, WHITE, "箱の外の要素");
   assert(viewer.hitTest("top", { x: 100, y: 100 }).hits[0]?.id === "half" && viewer.hitTest("top", { x: 92, y: 100 }).hits.length === 0, "箱の当たり");
   rejects(() => viewer.setViews([{ ...topView(), clips: [{ point: [0, 0, 0], normal: [0, 0, 0] }] }]), "invalid-input", "0 の法線");
   rejects(() => viewer.setViews([{ ...topView(), box: { min: [1, 0, 0], max: [0, 1, 1] } }]), "invalid-input", "逆の箱");
@@ -211,8 +240,8 @@ export async function testView3D(wasmPath, ifc, layers) {
   assert(applied.strict && applied.frame.width === 200, `当てた結果: ${JSON.stringify(applied)}`);
   assert(JSON.stringify(viewer.toReviewPlace("top").place) === JSON.stringify(exported.place), "レビューの場所を往復する");
   viewer.setViews([{ ...topView(), selected: ["mirror"] }]);
-  viewer.render();
-  pixel(150, 70, SELECTED, "要素の状態を持つビュー");
+  render();
+  await pixel(150, 70, SELECTED, "要素の状態を持つビュー");
   const missing = viewer.applyReviewPlace("top", document, { kind: "3d", selected: [{ id: "red" }, { id: "nope" }], colored: [{ color: "#00FF00", elements: [{ id: "red" }] }, { color: "#0000FF", elements: [{ id: "red" }] }] });
   const reasons = missing.issues.map((i) => i.reason).join(",");
   assert(!missing.strict && reasons === "element-missing,color-overridden" && missing.issues[0].elements[0] === "nope", `見つからない要素と重なる色: ${reasons}`);
@@ -234,8 +263,8 @@ export async function testView3D(wasmPath, ifc, layers) {
   viewer.setViews([topView()]);
 
   // 不正な列・参照・非有限値・応答の食い違いは、前のシーンを保つ
-  viewer.render();
-  pixel(30, 70, RED, "差し替え前");
+  render();
+  await pixel(30, 70, RED, "差し替え前");
   const nan = encode(columns); nan.view.setFloat32(nan.starts.vertex_xyz, NaN, true);
   const badReference = encode(columns); badReference.view.setUint32(badReference.starts.instance_meshes, 9, true);
   const kept = viewer.getState();
@@ -247,48 +276,53 @@ export async function testView3D(wasmPath, ifc, layers) {
   rejects(() => viewer.setScene({ ...input, extra: 1 }), "invalid-input", "未知の項目");
   rejects(() => viewer.setScene({ ...input, document: { ...document, hash: "" } }), "invalid-input", "空のハッシュ");
   assert(viewer.getState() === kept, "失敗した差し替えは状態を変えない");
-  viewer.render();
-  pixel(30, 70, RED, "失敗後も前のシーンを描く");
+  render();
+  await pixel(30, 70, RED, "失敗後も前のシーンを描く");
 
-  // 資源の上限。同じ Canvas の別の表示部品で確かめる
-  const spare = Object.assign(globalThis.document.createElement("canvas"), { width: 50, height: 50 });
+  // 資源の上限。別の Canvas の表示部品で確かめる
   for (const [limits, message] of [[{ instances: 6 }, "インスタンス"], [{ gpuBytes: 200 }, "GPU のバイト数"], [{ work: 5 }, "作業量"], [{ readWork: 10 }, "読み手の作業量"], [{ readBytes: 100 }, "読み手のバイト数"]]) {
-    const limited = new View3D(spare, { width: 50, height: 50, limits });
+    const spare = Object.assign(globalThis.document.createElement("canvas"), { width: 50, height: 50 });
+    const limited = await View3D.create(spare, { width: 50, height: 50, limits });
     try { rejects(() => limited.setScene(input), "limit", message); } finally { limited.destroy(); }
   }
-  rejects(() => new View3D(spare, { width: 5000, height: 5000 }), "limit", "Canvas の画素数");
-  rejects(() => new View3D(spare, { width: 50, height: 50, limits: { nope: 1 } }), "invalid-input", "未知の上限");
-  rejects(() => new View3D(spare, { width: 50, height: 50, background: "red" }), "invalid-input", "色の書式");
+  const spare = Object.assign(globalThis.document.createElement("canvas"), { width: 50, height: 50 });
+  await rejectsAsync(() => View3D.create(spare, { width: 5000, height: 5000 }), "limit", "Canvas の画素数");
+  await rejectsAsync(() => View3D.create(spare, { width: 50, height: 50, limits: { nope: 1 } }), "invalid-input", "未知の上限");
+  await rejectsAsync(() => View3D.create(spare, { width: 50, height: 50, background: "red" }), "invalid-input", "色の書式");
   const twoDimensional = globalThis.document.createElement("canvas"); twoDimensional.getContext("2d");
-  rejects(() => new View3D(twoDimensional, { width: 50, height: 50 }), "webgl2-unavailable", "WebGL2 を使えない Canvas");
+  await rejectsAsync(() => View3D.create(twoDimensional, { width: 50, height: 50 }), "webgpu-unavailable", "WebGPU を使えない Canvas");
 
   // 差し替えを繰り返しても資源が増え続けない
   const settled = viewer.getStats().geometries;
-  for (let i = 0; i < 10; i++) { viewer.setScene(input); viewer.render(); }
+  for (let i = 0; i < 10; i++) { viewer.setScene(input); render(); }
   assert(viewer.getStats().geometries === settled, `差し替えで資源が増えない: ${viewer.getStats().geometries} / ${settled}`);
   viewer.setScene(null);
-  viewer.render();
-  assert(viewer.getStats().geometries === 0, "シーンを外せば資源を解放する");
-  pixel(30, 70, WHITE, "シーンなし");
+  render();
+  assert(viewer.getStats().geometries === emptyGeometries && emptyGeometries < settled, `シーンを外せば資源を解放する: ${viewer.getStats().geometries} / ${emptyGeometries}`);
+  await pixel(30, 70, WHITE, "シーンなし");
   viewer.setScene(input);
 
-  // context loss と復帰
-  const extension = gl.getExtension("WEBGL_lose_context");
+  // デバイス喪失の通知と保護（独立した GPUDevice で確かめる）
   let contextLoss = "unavailable";
-  if (extension) {
-    const lost = new Promise((resolve) => viewer.on("contextlost", resolve));
-    extension.loseContext();
-    await lost;
-    // 通知の配送が終わってから戻す。配送中は戻す許可がまだない
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert(viewer.getState().contextLost && viewer.render() === false, "失った context では描かない");
-    const restored = new Promise((resolve) => viewer.on("contextrestored", resolve));
-    extension.restoreContext();
-    await restored;
-    assert(!viewer.getState().contextLost, "復帰の状態");
-    viewer.render();
-    pixel(30, 70, RED, "復帰後に描き直す");
-    contextLoss = "checked";
+  const lossAdapter = (await globalThis.navigator.gpu?.requestAdapter())
+    ?? (await globalThis.navigator.gpu?.requestAdapter({ fallbackAdapter: true }));
+  if (lossAdapter) {
+    const lossDevice = await lossAdapter.requestDevice();
+    const lossCanvas = Object.assign(globalThis.document.createElement("canvas"), { width: 50, height: 50 });
+    const lossViewer = await View3D.create(lossCanvas, {
+      width: 50, height: 50, device: lossDevice,
+      views: [topView("loss", { x: 0, y: 0, width: 50, height: 50 })],
+    });
+    try {
+      const lost = new Promise((resolve) => lossViewer.on("contextlost", resolve));
+      lossDevice.destroy();
+      await lost;
+      assert(lossViewer.getState().contextLost && lossViewer.render() === false, "失ったデバイスでは描かない");
+      await rejectsAsync(() => lossViewer.snapshot("loss"), "context-lost", "失ったデバイスでは snapshot を拒む");
+      contextLoss = "checked";
+    } finally {
+      lossViewer.destroy();
+    }
   }
 
   // 破棄。予約・購読・通知を外し、二度目は何もしない
@@ -314,7 +348,9 @@ export async function testView3D(wasmPath, ifc, layers) {
     const response = session.call({ v: 1, op: "scene3d", doc: ifc.name, tolerance: 1 }).result;
     const bytes = session.take(response.blob);
     const scene = readScene3D(bytes);
-    const coreViewer = new View3D(canvas, { width: 200, height: 200, views: [{ id: "iso", rect: { x: 0, y: 0, width: 200, height: 200 }, camera: { projection: "perspective", position: [0, 0, 0], direction: [1, 1, -1], up: [0, 0, 1], fov: 45 } }] });
+    const coreCanvas = Object.assign(globalThis.document.createElement("canvas"), { width: 200, height: 200 });
+    globalThis.document.body.append(coreCanvas);
+    const coreViewer = await View3D.create(coreCanvas, { width: 200, height: 200, views: [{ id: "iso", rect: { x: 0, y: 0, width: 200, height: 200 }, camera: { projection: "perspective", position: [0, 0, 0], direction: [1, 1, -1], up: [0, 0, 1], fov: 45 } }] });
     try {
       const coreDocument = { doc: ifc.name, format: "ifc", hash };
       start = performance.now();
@@ -332,12 +368,17 @@ export async function testView3D(wasmPath, ifc, layers) {
       start = performance.now();
       coreViewer.render();
       const renderMs = performance.now() - start;
+      const isoShot = await coreViewer.snapshot("iso");
+      const readIso = (x, y) => {
+        const at = (y * isoShot.width + x) * 4;
+        return [isoShot.pixels[at], isoShot.pixels[at + 1], isoShot.pixels[at + 2]];
+      };
       // 格子の点で、描いた画素と当たりの有無を比べる。当たりはコアの要素 ID に限る
       let drawn = 0, hit = 0, agree = 0;
       const found = new Set();
       for (let y = 5; y < 200; y += 10) {
         for (let x = 5; x < 200; x += 10) {
-          const painted = !read(x, y).every((v) => v === 255);
+          const painted = !readIso(x, y).every((v) => v === 255);
           const { hits } = coreViewer.hitTest("iso", { x: x + 0.5, y: y + 0.5 });
           for (const h of hits) { assert(ids.includes(h.id), "当たりはコアの要素 ID"); found.add(h.id); }
           drawn += painted; hit += hits.length > 0; agree += painted === (hits.length > 0);
@@ -346,7 +387,7 @@ export async function testView3D(wasmPath, ifc, layers) {
       assert(drawn > 0 && hit > 0 && agree >= 380, `描画と当たりの一致: ${drawn} ${hit} ${agree}`);
       core = { elements: ids.length, instances: scene.rows("instance_meshes"), meshes: scene.rows("mesh_vertices"), bytes: bytes.length,
         gpuBytes: coreReport.gpuBytes, setSceneMs, renderMs, grid: { drawn, hit, agree, elements: found.size } };
-    } finally { coreViewer.destroy(); }
+    } finally { coreViewer.destroy(); coreCanvas.remove(); }
 
     // m・プロジェクト空間・1:1 の枠で、コアの bcf_write と bcf_read を通して BCF 2.1・3.0 を往復する
     const metre = ifc.text.replace("IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.)", "IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)");
@@ -356,7 +397,9 @@ export async function testView3D(wasmPath, ifc, layers) {
     const metreHash = session.call({ v: 1, op: "building", doc: "m.ifc" }).result.hash;
     const metreScene = session.call({ v: 1, op: "scene3d", doc: "m.ifc", tolerance: 0.001 }).result;
     const metreDocument = { doc: "m.ifc", format: "ifc", hash: metreHash };
-    const bcfViewer = new View3D(canvas, { width: 200, height: 200, views: [{ id: "bcf", rect: { x: 0, y: 0, width: 200, height: 200 }, camera: { projection: "perspective", position: [0, 0, 0], direction: [1, 1, -1], up: [0, 0, 1], fov: 45 } }] });
+    const bcfCanvas = Object.assign(globalThis.document.createElement("canvas"), { width: 200, height: 200 });
+    globalThis.document.body.append(bcfCanvas);
+    const bcfViewer = await View3D.create(bcfCanvas, { width: 200, height: 200, views: [{ id: "bcf", rect: { x: 0, y: 0, width: 200, height: 200 }, camera: { projection: "perspective", position: [0, 0, 0], direction: [1, 1, -1], up: [0, 0, 1], fov: 45 } }] });
     const bcf = {};
     try {
       bcfViewer.setScene({ blob: session.take(metreScene.blob), result: metreScene, document: metreDocument });
@@ -396,7 +439,7 @@ export async function testView3D(wasmPath, ifc, layers) {
         }
       }
       bcfViewer.render();
-    } finally { bcfViewer.destroy(); }
+    } finally { bcfViewer.destroy(); bcfCanvas.remove(); }
     core.bcf = bcf;
   } finally { session.close(); }
 

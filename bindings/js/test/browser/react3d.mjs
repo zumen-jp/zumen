@@ -6,6 +6,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
 import { build } from "vite";
+import { chromiumLaunchOptions } from "./launch.mjs";
 
 const [product, wasm] = process.argv.slice(2);
 const browsers = { chromium, firefox, webkit, chrome: chromium, msedge: chromium };
@@ -31,7 +32,7 @@ function fixture(name, file) {
 }
 // 合成の IFC（地図の変換を持つ 7 要素）・CityGML の面・LAS の 12 点・DXF の図面
 const inputs = { ifc: fixture("scene3d", "scene.ifc"), gml: fixture("geo_scene3d"), las: fixture("scene3d_pointcloud"), dxf: fixture("scene") };
-const port = Number(process.env.ZUMEN_TEST_PORT ?? 24135 + Object.keys(browsers).indexOf(product) % 3);
+const port = Number(process.env.ZUMEN_TEST_PORT ?? 24125 + Object.keys(browsers).indexOf(product) % 3);
 const origin = "http://127.0.0.1:" + port;
 const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".wasm": "application/wasm" };
 let browser, server;
@@ -55,7 +56,11 @@ try {
     response.writeHead(200, { "Content-Type": mime[extname(path)] ?? "application/octet-stream" }).end(readFileSync(path));
   });
   await new Promise((ok, fail) => server.once("error", fail).listen(port, "127.0.0.1", ok));
-  browser = await browsers[product].launch(["chrome", "msedge"].includes(product) ? { channel: product } : {});
+  const isChromium = ["chromium", "chrome", "msedge"].includes(product);
+  const launchOptions = isChromium
+    ? chromiumLaunchOptions(browsers[product], product === "chromium" ? undefined : product)
+    : {};
+  browser = await browsers[product].launch(launchOptions);
   const context = await browser.newContext({ serviceWorkers: "block", acceptDownloads: true });
   await context.route("**/*", (route) => {
     const request = route.request(), url = new URL(request.url());
@@ -64,6 +69,17 @@ try {
     }
     return route.continue();
   });
+  // WebGPU が使えない環境でも未処理エラーを起こさず、表示できない理由を画面へ出すことを確かめる。
+  const noGpuPage = await context.newPage();
+  noGpuPage.on("pageerror", (error) => failures.push(error.message));
+  noGpuPage.on("websocket", () => failures.push("WebSocket"));
+  await noGpuPage.addInitScript(() => {
+    Object.defineProperty(navigator, "gpu", { value: undefined, configurable: true });
+  });
+  await noGpuPage.goto(origin + "/app/view3d.html");
+  await noGpuPage.locator(".status").getByText("表示できません: このブラウザーでは WebGPU を使えません", { exact: true }).waitFor();
+  await noGpuPage.close();
+
   const page = await context.newPage();
   await page.addInitScript(() => {
     window.blockedRequests = [];
@@ -76,6 +92,16 @@ try {
   const downloads = [];
   page.on("download", (download) => downloads.push(download));
   await page.goto(origin + "/app/view3d.html");
+  const hasWebGPU = await page.evaluate(async () => Boolean(
+    (await globalThis.navigator.gpu?.requestAdapter()) ?? (await globalThis.navigator.gpu?.requestAdapter({ fallbackAdapter: true })),
+  ));
+  if (!hasWebGPU && !isChromium) {
+    assert.deepEqual(await page.evaluate(() => window.blockedRequests), []);
+    assert.deepEqual(failures, []);
+    const summary = `${product} ${browser.version()}: WebGPU 非対応環境のため 3D プレイグラウンドの配信・CSP のみ確認`;
+    console.log(summary);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary + "\n");
+  } else {
 
   const status = page.locator(".status");
   const canvas = page.getByLabel("3D の表示", { exact: true });
@@ -183,6 +209,7 @@ try {
   // 本番用 React と開発用 StrictMode：差し替え・中断・古い応答・アンマウント
   for (const folder of ["production", "strict"]) {
     await page.goto(origin + "/" + folder + "/test/lifecycle3d.html");
+    await page.waitForFunction(() => Boolean(window.probe));
     await page.evaluate((bytes) => probe.render(bytes), [...inputs.ifc]);
     await page.waitForFunction(() => probe.status === "ready");
     assert.deepEqual(await page.evaluate(() => [probe.format, probe.module, probe.scene]), ["ifc", "bim", "ifc"]);
@@ -208,8 +235,14 @@ try {
     const counts = await page.evaluate(() => probe.counts);
     assert.deepEqual([counts.workers, counts.state, counts.events, counts.inputs], [0, 0, 0, 0], folder + ": " + JSON.stringify(counts));
     assert.equal(counts.starts, counts.ends);
-    assert.ok(counts.transferred >= 4 && counts.destroyed >= counts.created && counts.created >= 1, JSON.stringify(counts));
+    assert.ok(counts.transferred >= 4 && counts.destroyed === counts.created && counts.created >= 1, JSON.stringify(counts));
     assert.equal(page.workers().length, 0);
+    // View3D.create の解決前にアンマウントしても、遅れて解決したインスタンスを直ちに破棄し GPU 資源を漏らさない。
+    await page.evaluate(() => { probe.holdCreate(); probe.render(null); });
+    await page.waitForFunction(() => probe.pendingCreates === 1);
+    await page.evaluate(() => { probe.unmount(); probe.releaseCreate(); });
+    await page.waitForFunction((prev) => probe.counts.created === prev.created + 1 && probe.counts.destroyed === probe.counts.created, counts, { timeout: 10000 });
+    assert.deepEqual(await page.evaluate(() => [probe.counts.state, probe.counts.events, probe.counts.inputs, probe.counts.created - probe.counts.destroyed]), [0, 0, 0, 0]);
   }
   assert.ok([...seen].some((p) => p.includes("/app/assets/worker3d-")) && [...seen].some((p) => p.endsWith(".wasm")));
   assert.deepEqual(failures, []);
@@ -219,6 +252,7 @@ try {
   console.log(summary);
   console.log("通知: " + withLayers.replace(/\s+/g, " "));
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary + "\n");
+  }
 } catch (error) {
   console.error("失敗の時点の記録: " + JSON.stringify(failures));
   if (browser?.isConnected()) for (const page of browser.contexts().flatMap((context) => context.pages())) {

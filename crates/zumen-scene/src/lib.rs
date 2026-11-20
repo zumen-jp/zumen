@@ -25,9 +25,10 @@ use zumen_drawing::{
     Affine, Boundary, Clipping, Color, ColorSystem, Drawing2D, Edge, Fill, Flow, FormattedText,
     Hatch, HeightMeaning, Horizontal, Inherit, Islands, Item, KnotParameterization, Layer, Length,
     LineTypeDefinition, LineTypeId, MarkContent, MarkRotation, Origin, Piece, Placement, PointLook,
-    PointMark, PointSize, Polyline, Rotation, Scaled, Shape, Text, Underlay, UnderlayFrame,
+    PointMark, PointSize, Polyline, Rotation, Scaled, Shape, Spline, Text, Underlay, UnderlayFrame,
     UnderlayKind, Vertex, Vertical, VisitRef, WalkVisitor,
 };
+use zumen_drawing::{DimensionDisplayIndex, Element, Encode, Hash};
 use zumen_geom2d::{self as geom, Xy};
 
 pub use zumen_drawing::Palette;
@@ -123,6 +124,34 @@ pub const PAPER_TOLERANCE: f64 = 0.02;
 
 /// 空間からの既定の許容差の、範囲の対角線に対する割合の逆数（決定 0172）
 pub const SPACE_TOLERANCE_DIVISOR: f64 = 50000.0;
+
+/// シーンと計測で使う、フィット点を通る曲線のノットと制御点。
+pub fn interpolate_fit_points<P>(spline: &Spline<P>, fit: &[Xy]) -> Option<(Vec<f64>, Vec<Xy>)> {
+    let closed = spline.closed || spline.periodic;
+    if spline.degree == 3
+        && spline.knot_parameterization == Some(KnotParameterization::Chord)
+        && spline.control.is_empty()
+        && spline.knots.is_empty()
+        && spline.weights.is_empty()
+        && spline.start_tangent.is_none()
+        && spline.end_tangent.is_none()
+        && !closed
+    {
+        return geom::natural_cubic(fit);
+    }
+    let spacing = match spline.knot_parameterization {
+        Some(KnotParameterization::SquareRoot) => geom::Spacing::SquareRoot,
+        Some(KnotParameterization::Uniform) => geom::Spacing::Uniform,
+        _ => geom::Spacing::Chord,
+    };
+    geom::interpolate(
+        fit,
+        spline.start_tangent,
+        spline.end_tangent,
+        spacing,
+        closed,
+    )
+}
 
 /// 起点から配置をたどり、シーンを作る。たどる要素とハッチの行は `work`、作った点は `segments` で数える
 pub fn build(
@@ -382,6 +411,7 @@ fn row<K: Ord + Clone>(seen: &mut BTreeMap<K, u32>, rows: &mut Vec<K>, key: K) -
 
 struct Builder<'d, 'c, 'x> {
     drawing: &'d Drawing2D,
+    dimension_display: Option<DimensionDisplayIndex<'d>>,
     tolerance: f64,
     palette: &'d Palette,
     chunking: Chunking,
@@ -491,6 +521,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
     ) -> Self {
         Self {
             drawing,
+            dimension_display: None,
             tolerance,
             palette: &options.palette,
             chunking: options.chunking,
@@ -544,10 +575,10 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         let mut unit = None;
         match visit.item {
             Item::Model(element) => {
-                self.shape(visit, &element.shape, &element.source, &mut unit)?;
+                self.shape(visit, element, &mut unit)?;
             }
             Item::Paper(element) => {
-                self.shape(visit, &element.shape, &element.source, &mut unit)?;
+                self.shape(visit, element, &mut unit)?;
             }
             Item::ModelAttribute { symbol, index } => {
                 if let Shape::Symbol(placed) = &symbol.shape
@@ -801,19 +832,19 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         });
     }
 
-    fn shape<P: Spot>(
+    fn shape<P: Spot + Encode>(
         &mut self,
         visit: &VisitRef<'_, '_>,
-        shape: &Shape<P>,
-        source: &Ref,
+        element: &Element<P>,
         unit: &mut Option<u32>,
     ) -> Result<(), (Stop, Ref)> {
         let t = visit.transform;
         let local = self.tolerance / stretch(&t).max(f64::MIN_POSITIVE);
         let xy = |p: &P| map(&t, p.xy());
-        match shape {
+        let source = &element.source;
+        match &element.shape {
             Shape::Line { start, end } | Shape::Curve(Edge::Line { start, end }) => {
-                let unit = self.unit(visit, entity_kind_of(shape), unit)?;
+                let unit = self.unit(visit, entity_kind_of(&element.shape), unit)?;
                 self.stroke(visit, vec![xy(start), xy(end)], unit, source)?;
             }
             Shape::Circle { center, radius } => {
@@ -871,7 +902,22 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             Shape::Hatch(hatch) => self.hatch(visit, hatch, local, source, unit)?,
             Shape::Dimension(dimension) => {
                 if !self.parted.contains(visit.id) {
-                    self.dimension(visit, dimension, local, source, unit)?;
+                    let index = match &mut self.dimension_display {
+                        Some(index) => index,
+                        empty => empty.insert(
+                            DimensionDisplayIndex::new(&self.drawing.dimension_display, self.cx)
+                                .map_err(|stop| (stop, source.clone()))?,
+                        ),
+                    };
+                    let display = index
+                        .resolve(
+                            &dimension.style,
+                            visit.id,
+                            |cx| Hash::element_checked(element, cx),
+                            self.cx,
+                        )
+                        .map_err(|stop| (stop, source.clone()))?;
+                    self.dimension(visit, dimension, display, local, source, unit)?;
                 }
             }
             Shape::Leader(leader) => self.leader(visit, leader, local, source, unit)?,
@@ -970,19 +1016,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
                             );
                         }
                         let fit: Vec<Xy> = spline.fit.iter().map(|p| p.xy()).collect();
-                        let spacing = match spline.knot_parameterization {
-                            Some(KnotParameterization::SquareRoot) => geom::Spacing::SquareRoot,
-                            Some(KnotParameterization::Uniform) => geom::Spacing::Uniform,
-                            Some(KnotParameterization::Chord | KnotParameterization::Custom)
-                            | None => geom::Spacing::Chord,
-                        };
-                        let fitted = match geom::interpolate(
-                            &fit,
-                            spline.start_tangent,
-                            spline.end_tangent,
-                            spacing,
-                            spline.closed || spline.periodic,
-                        ) {
+                        let fitted = match interpolate_fit_points(spline, &fit) {
                             Some((knots, control)) => geom::try_spline_with_work(
                                 3,
                                 &knots,

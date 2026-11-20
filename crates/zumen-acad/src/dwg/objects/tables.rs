@@ -500,11 +500,12 @@ pub(super) fn table_content(
     r.bits.text()?;
     let columns = r.count()?;
     let mut widths = Vec::new();
+    let mut unsupported_format = false;
     for _ in 0..columns {
         r.bits.text()?;
         r.bits.bl()?;
         custom_data(&mut r)?;
-        cell_style(&mut r)?;
+        unsupported_format |= cell_style(&mut r)?.has_any_setting();
         r.bits.bl()?;
         widths.push(r.bd(142)?);
     }
@@ -527,6 +528,8 @@ pub(super) fn table_content(
             let mut value = Vec::new();
             let mut kind = 1;
             let mut symbol = None;
+            let mut content_height = None;
+            let mut content_color = None;
             for _ in 0..contents {
                 match r.bits.bl()? {
                     1 => value = table_value(&mut r)?,
@@ -545,10 +548,25 @@ pub(super) fn table_content(
                     r.bits.bl()?;
                 }
                 if r.bits.bs()? != 0 {
-                    content_format(&mut r)?;
+                    let format = content_format(&mut r)?;
+                    if contents == 1 {
+                        if (format.override_flags & PROP_TEXT_HEIGHT) != 0 {
+                            content_height = format.positive_text_height();
+                        }
+                        if (format.override_flags & PROP_CONTENT_COLOR) != 0 {
+                            content_color = format.aci_color();
+                        }
+                        unsupported_format |= format.has_cell_unsupported(0);
+                    } else {
+                        unsupported_format |= format.has_any_setting();
+                    }
                 }
             }
-            cell_style(&mut r)?;
+            let (style_height, style_color, cell_unsupported) =
+                cell_style(&mut r)?.cell_overrides();
+            unsupported_format |= cell_unsupported;
+            let text_height = content_height.or(style_height);
+            let text_color = content_color.or(style_color);
             r.bits.bl()?;
             if r.bits.bl()? != 0 {
                 r.bits.bl()?;
@@ -566,11 +584,11 @@ pub(super) fn table_content(
                     r.bits.bl()?;
                 }
             }
-            cells.push((row, column, kind, symbol, value));
+            cells.push((row, column, kind, symbol, value, text_height, text_color));
         }
         r.bits.bl()?;
         custom_data(&mut r)?;
-        cell_style(&mut r)?;
+        unsupported_format |= cell_style(&mut r)?.has_any_setting();
         r.bits.bl()?;
         heights.push(r.bd(141)?);
     }
@@ -578,7 +596,7 @@ pub(super) fn table_content(
         r.handle();
     }
     // AcDbFormattedTableData
-    cell_style(&mut r)?;
+    unsupported_format |= cell_style(&mut r)?.has_any_setting();
     // 結合の範囲は、上・左・下・右の行と列の番号
     let mut merged = Vec::new();
     for _ in 0..r.count()? {
@@ -595,12 +613,18 @@ pub(super) fn table_content(
         code: 342,
         data: style,
     });
+    if unsupported_format {
+        values.push(Value {
+            code: crate::db::DWG_UNSUPPORTED_TABLE_FORMAT,
+            data: Data::Bool(true),
+        });
+    }
     values.extend(direction);
     values.push(int(91, i64::try_from(rows).ok()?));
     values.push(int(92, i64::try_from(columns).ok()?));
     values.extend(heights);
     values.extend(widths);
-    for (row, column, kind, symbol, value) in cells {
+    for (row, column, kind, symbol, value, text_height, text_color) in cells {
         let (covered, columns, rows) = merged
             .iter()
             .find(|m| m.0 <= row && row <= m.2 && m.1 <= column && column <= m.3)
@@ -620,6 +644,12 @@ pub(super) fn table_content(
                 code: 340,
                 data: symbol,
             });
+        }
+        if let Some(height) = text_height {
+            values.push(real(140, height));
+        }
+        if let Some(color) = text_color {
+            values.push(int(64, i64::from(color)));
         }
         values.push(text_value(301, b"CELL_VALUE"));
         if value.is_empty() {
@@ -705,49 +735,243 @@ pub(super) fn table_value(r: &mut Slotted) -> Option<Vec<Value>> {
     Some(values)
 }
 
-/// 内容の書式（ODS 5.4.1 の 20.4.101.3）を読み飛ばす
-pub(super) fn content_format(r: &mut Slotted) -> Option<()> {
-    for _ in 0..4 {
-        r.bits.bl()?;
-    }
-    r.bits.text()?;
-    r.bits.bd()?;
-    r.bits.bd()?;
-    r.bits.bl()?;
-    r.bits.cmc_r2004()?;
-    r.handle();
-    r.bits.bd()?;
-    Some(())
+pub(super) const PROP_CONTENT_COLOR: i32 = 0x20;
+pub(super) const PROP_TEXT_STYLE: i32 = 0x40;
+pub(super) const PROP_TEXT_HEIGHT: i32 = 0x80;
+
+/// R2010 からの内容の書式（ODS 5.4.1 の 20.4.101.3）
+#[derive(Clone, Debug)]
+pub(super) struct ContentFormat {
+    pub(super) override_flags: i32,
+    pub(super) property_flags: i32,
+    pub(super) rotation: f64,
+    pub(super) alignment: i32,
+    pub(super) color: super::super::bits::Color,
+    pub(super) text_height: f64,
 }
 
-/// セルのスタイル（ODS 5.4.1 の 20.4.101.4）を読み飛ばす
-pub(super) fn cell_style(r: &mut Slotted) -> Option<()> {
-    r.bits.bl()?;
-    if r.bits.bs()? == 0 {
-        return Some(());
+impl ContentFormat {
+    pub(super) fn aci_color(&self) -> Option<i16> {
+        (self.color.rgb.is_none() && (0..=256).contains(&self.color.index))
+            .then_some(self.color.index)
     }
-    r.bits.bl()?;
-    r.bits.bl()?;
-    r.bits.cmc_r2004()?;
-    r.bits.bl()?;
-    content_format(r)?;
-    if r.bits.bs()? & 1 != 0 {
+
+    pub(super) fn positive_text_height(&self) -> Option<f64> {
+        (self.text_height.is_finite() && self.text_height > 0.0).then_some(self.text_height)
+    }
+
+    pub(super) fn has_any_setting(&self) -> bool {
+        self.override_flags != 0
+            || self.property_flags != 0
+            || self.rotation != 0.0
+            || self.alignment != 0
+            || self.positive_text_height().is_some()
+            || self.color.rgb.is_some()
+            || self.color.index != 0
+    }
+
+    pub(super) fn has_cell_unsupported(&self, extra_flags: i32) -> bool {
+        let flags = self.override_flags | extra_flags;
+        let other_flags = flags & !(PROP_CONTENT_COLOR | PROP_TEXT_HEIGHT);
+        other_flags != 0
+            || ((flags & PROP_CONTENT_COLOR) != 0 && self.aci_color().is_none())
+            || ((flags & PROP_TEXT_HEIGHT) != 0 && self.positive_text_height().is_none())
+            || self.property_flags != 0
+            || self.rotation != 0.0
+            || self.alignment != 0
+    }
+}
+
+/// R2010 からのセルのスタイル（ODS 5.4.1 の 20.4.101.4）
+#[derive(Clone, Debug)]
+pub(super) struct CellStyleData {
+    pub(super) override_flags: i32,
+    pub(super) merge_flags: i32,
+    pub(super) fill_color: super::super::bits::Color,
+    pub(super) content_layout: i32,
+    pub(super) content: Option<ContentFormat>,
+    pub(super) margin_flags: i16,
+    pub(super) has_borders: bool,
+}
+
+impl CellStyleData {
+    pub(super) fn has_any_setting(&self) -> bool {
+        let Some(content) = &self.content else {
+            return false;
+        };
+        self.override_flags != 0
+            || self.merge_flags != 0
+            || (self.content_layout & !1) != 0
+            || (self.margin_flags & 1) != 0
+            || self.has_borders
+            || self.fill_color.rgb.is_some()
+            || self.fill_color.index != 0
+            || content.has_any_setting()
+    }
+
+    pub(super) fn cell_overrides(&self) -> (Option<f64>, Option<i16>, bool) {
+        let Some(content) = &self.content else {
+            return (None, None, false);
+        };
+        let flags = self.override_flags | content.override_flags;
+        let height = ((flags & PROP_TEXT_HEIGHT) != 0)
+            .then(|| content.positive_text_height())
+            .flatten();
+        let color = ((flags & PROP_CONTENT_COLOR) != 0)
+            .then(|| content.aci_color())
+            .flatten();
+        let unsupported = content.has_cell_unsupported(self.override_flags)
+            || self.merge_flags != 0
+            || (self.content_layout & !1) != 0
+            || (self.margin_flags & 1) != 0
+            || self.has_borders
+            || self.fill_color.rgb.is_some()
+            || self.fill_color.index != 0;
+        (height, color, unsupported)
+    }
+
+    pub(super) fn style_row(
+        &self,
+        lifted_text_style: bool,
+    ) -> (Option<f64>, Option<i16>, bool, bool) {
+        let Some(content) = &self.content else {
+            return (None, None, false, false);
+        };
+        let flags = self.override_flags | content.override_flags;
+        let height = content.positive_text_height();
+        let explicit_color = (flags & PROP_CONTENT_COLOR) != 0
+            || content.color.rgb.is_some()
+            || content.color.index != 0;
+        let configured = height.is_some() || explicit_color || (flags & PROP_TEXT_HEIGHT) != 0;
+        let color = if explicit_color {
+            content.aci_color()
+        } else {
+            None
+        };
+        let allowed_flags = if lifted_text_style {
+            PROP_CONTENT_COLOR | PROP_TEXT_HEIGHT | PROP_TEXT_STYLE
+        } else {
+            PROP_CONTENT_COLOR | PROP_TEXT_HEIGHT
+        };
+        let unsupported = (flags & !allowed_flags) != 0
+            || (explicit_color && content.aci_color().is_none())
+            || ((flags & PROP_TEXT_HEIGHT) != 0 && height.is_none())
+            || self.merge_flags != 0
+            || (self.content_layout & !1) != 0
+            || (self.margin_flags & 1) != 0
+            || self.has_borders
+            || self.fill_color.rgb.is_some()
+            || self.fill_color.index != 0
+            || content.property_flags != 0
+            || content.rotation != 0.0
+            || content.alignment != 0;
+        (height, color, configured, unsupported)
+    }
+}
+
+pub(super) fn content_format_bits(
+    bits: &mut Bits,
+    mut on_handle: impl FnMut(bool) -> Data,
+) -> Option<ContentFormat> {
+    let override_flags = bits.bl()?;
+    let property_flags = bits.bl()?;
+    bits.bl()?;
+    bits.bl()?;
+    bits.text()?;
+    let rotation = bits.bd()?;
+    bits.bd()?;
+    let alignment = bits.bl()?;
+    let color = bits.cmc_r2004()?;
+    on_handle(true);
+    let text_height = bits.bd()?;
+    Some(ContentFormat {
+        override_flags,
+        property_flags,
+        rotation,
+        alignment,
+        color,
+        text_height,
+    })
+}
+
+pub(super) fn cell_style_bits(
+    bits: &mut Bits,
+    mut on_handle: impl FnMut(bool) -> Data,
+) -> Option<CellStyleData> {
+    bits.bl()?;
+    if bits.bs()? == 0 {
+        return Some(CellStyleData {
+            override_flags: 0,
+            merge_flags: 0,
+            fill_color: super::super::bits::Color {
+                index: 0,
+                rgb: None,
+                book: false,
+                transparency: None,
+            },
+            content_layout: 0,
+            content: None,
+            margin_flags: 0,
+            has_borders: false,
+        });
+    }
+    let override_flags = bits.bl()?;
+    let merge_flags = bits.bl()?;
+    let fill_color = bits.cmc_r2004()?;
+    let content_layout = bits.bl()?;
+    let content = Some(content_format_bits(bits, &mut on_handle)?);
+    let margin_flags = bits.bs()?;
+    if margin_flags & 1 != 0 {
         for _ in 0..6 {
-            r.bits.bd()?;
+            bits.bd()?;
         }
     }
-    for _ in 0..r.count()? {
-        if r.bits.bl()? != 0 {
-            r.bits.bl()?;
-            r.bits.bl()?;
-            r.bits.cmc_r2004()?;
-            r.bits.bl()?;
-            r.handle();
-            r.bits.bl()?;
-            r.bits.bd()?;
+    let borders = usize::try_from(bits.bl()?).ok()?;
+    if borders > bits.size().saturating_mul(4) {
+        return None;
+    }
+    let mut has_borders = false;
+    for _ in 0..borders {
+        if bits.bl()? != 0 {
+            has_borders = true;
+            bits.bl()?;
+            bits.bl()?;
+            bits.cmc_r2004()?;
+            bits.bl()?;
+            on_handle(false);
+            bits.bl()?;
+            bits.bd()?;
         }
     }
-    Some(())
+    Some(CellStyleData {
+        override_flags,
+        merge_flags,
+        fill_color,
+        content_layout,
+        content,
+        margin_flags,
+        has_borders,
+    })
+}
+
+/// 内容の書式（ODS 5.4.1 の 20.4.101.3）を読む
+pub(super) fn content_format(r: &mut Slotted) -> Option<ContentFormat> {
+    let slots = &mut *r.slots;
+    content_format_bits(r.bits, |_| {
+        let slot = Data::Handle(SLOT + *slots);
+        *slots += 1;
+        slot
+    })
+}
+
+/// セルのスタイル（ODS 5.4.1 の 20.4.101.4）を読む
+pub(super) fn cell_style(r: &mut Slotted) -> Option<CellStyleData> {
+    let slots = &mut *r.slots;
+    cell_style_bits(r.bits, |_| {
+        let slot = Data::Handle(SLOT + *slots);
+        *slots += 1;
+        slot
+    })
 }
 
 /// ACAD_TABLE のセルのフィールド（ODS 5.4.1 の 20.4.96.1）。種類（171）が 1 なら文字（2 と 1）、2 ならブロック（340）と、

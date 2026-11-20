@@ -14,9 +14,9 @@ function lines(xy, weight) {
 }
 
 /** 遠方の端だけを延ばしても、近い butt の端と隙間は動かない。 */
-export function testButtEnds(assert) {
+export async function testButtEnds(assert) {
   const canvas = document.createElement("canvas");
-  const viewer = new View2D(canvas, { width: 200, height: 200, pixelsPerMillimeter: 1 });
+  const viewer = await View2D.create(canvas, { width: 200, height: 200, pixelsPerMillimeter: 1 });
   const totals = { scenes: 0, points: 0, rectangles: 0, whiteGaps: 0, tiny: 0 };
   const check = (p, expected, message) => {
     const point = viewer.hitTest(p, 0), rect = viewer.hitTestRect({ min_x: p.x, min_y: p.y, max_x: p.x, max_y: p.y });
@@ -34,7 +34,10 @@ export function testButtEnds(assert) {
         const label = `extent=${h}/gap=${edge * 2}/ratio=${pixelRatio}/weight=${weight}/rotation=${rotation}/reverse=${reverse}`;
         check({ x: 100, y: 100 }, 0, `butt の隙間: ${label}`);
         if (edge === 2) {
-          const rgba = canvas.getContext("2d").getImageData(100 * pixelRatio, 100 * pixelRatio, 1, 1).data;
+          const shot = await viewer.snapshot();
+          const px = Math.floor(100 * pixelRatio), py = Math.floor(100 * pixelRatio);
+          const offset = (py * shot.width + px) * 4;
+          const rgba = shot.pixels.subarray(offset, offset + 4);
           assert(rgba.every((value) => value === 255), `隙間の中心は白: ${label}`); totals.whiteGaps++;
         }
         for (const sign of [-1, 1]) {

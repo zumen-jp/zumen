@@ -1,10 +1,11 @@
 //! 寸法スタイルの置き換え・追加・除去を、DXF の寸法スタイルの表に書き戻す（決定 0165）。
 #![cfg(feature = "drawing")]
 
-use zumen_acad::{Dxf, DxfFile};
+use zumen_acad::{AcadLive, Dxf, DxfFile};
 use zumen_base::{Budget, CancelToken, Code, Cx, Diagnostics, codes};
 use zumen_drawing::{
-    Applied, Arrowhead, Changes, DimensionStyle, Drawing2D, Edit, Hash, Seen, SymbolKey, id,
+    Applied, Arrowhead, Changes, DimensionDisplayTarget, DimensionStyle, Drawing2D, Edit, Hash,
+    Seen, SymbolKey, id,
 };
 use zumen_sdk::{Apply, Error, Lift, testkit};
 
@@ -122,6 +123,54 @@ fn lift(file: &DxfFile) -> Drawing2D {
     let mut diag = Diagnostics::new();
     file.lift(&mut Cx::new(&mut budget, &mut diag, &CancelToken::new()))
         .unwrap()
+}
+
+#[test]
+fn tick_size_alone_marks_a_newly_lifted_dimension_style() {
+    let input = String::from_utf8(src())
+        .unwrap()
+        .replace("142\n0.0\n342\n21", "142\n0.5\n342\n21");
+    let drawing = lift(&testkit::read::<Dxf>(input.as_bytes()).0.unwrap());
+    let target = DimensionDisplayTarget::Style("Arch".to_owned());
+    assert_eq!(style(&drawing, "Arch").1.tick, Some(0.5));
+    let record = drawing
+        .dimension_display
+        .iter()
+        .find(|r| r.target == target)
+        .unwrap();
+    assert_eq!(record.values, Default::default());
+}
+
+#[test]
+fn file_and_live_keep_the_height_and_automatic_placement_of_dimension_text() {
+    let source = String::from_utf8(src()).unwrap();
+    for height in [0.25, 0.75] {
+        let marker = "  2\nArch\n 70\n0\n";
+        assert_eq!(source.matches(marker).count(), 1);
+        let input = source.replace(
+            marker,
+            &format!("{marker}140\n{height}\n147\n0.1\n 77\n1\n"),
+        );
+        let drawing = lift(&testkit::read::<Dxf>(input.as_bytes()).0.unwrap());
+        let mut budget = Budget::default();
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let live = AcadLive::open_dxf(input.as_bytes(), &mut cx)
+            .unwrap()
+            .drawing(&mut cx)
+            .unwrap();
+        assert_eq!(live.dimension_display, drawing.dimension_display);
+        let target = DimensionDisplayTarget::Style("Arch".to_owned());
+        let record = drawing
+            .dimension_display
+            .iter()
+            .find(|r| r.target == target)
+            .unwrap();
+        assert_eq!(record.values.text_height, Some(height));
+        assert_eq!(record.values.text_gap, Some(0.1));
+        assert_eq!(record.values.text_vertical_placement, Some(1));
+    }
 }
 
 #[cfg(test)]

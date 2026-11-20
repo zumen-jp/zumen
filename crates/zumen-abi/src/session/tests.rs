@@ -325,7 +325,7 @@ fn answers_capabilities() {
     let reply = session.call(br#"{"v":1,"op":"capabilities"}"#, &CancelToken::new());
     assert_eq!(reply.status, Status::Ok);
     let expected = format!(
-        r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":{}}},"ops":["capabilities","open","close","describe","drawing","entities","calibrations","measure_distance","measure","intersect","regions","construct","apply","create","convert","convert_estimate","tables","scene","scene3d","check","validate","review_carry","review_adopt","review_scene","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","delivery_apply","photo","boring","building_apply","lift","render","raster"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"create":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"create":false,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"create":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"create":false,"id_rules":1}},{{"id":"sima","family":"sima","read":true,"write":true,"create":false,"id_rules":1}},{{"id":"tiff","family":"tiff","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"geojson","family":"geojson","read":true,"write":true,"create":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"stbridge","family":"stbridge","read":true,"write":false,"create":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
+        r#"{{"v":1,"result":{{"package":"{}","abi":1,"schema":{{"major":1,"minor":{}}},"ops":["capabilities","open","close","describe","drawing","entities","calibrations","measure_distance","measure","intersect","regions","construct","apply","create","convert","convert_estimate","tables","scene","scene3d","check","validate","review_carry","review_adopt","review_scene","building","building_elements","ids_check","review_adopt_ids","bcf_read","bcf_write","civil","pointcloud","deviation","civil_drawing","geo","delivery_check","delivery_apply","photo","boring","building_apply","lift","render","raster","georeference"],"formats":[{{"id":"dxf","family":"acad","read":true,"write":true,"create":true,"id_rules":2}},{{"id":"dwg","family":"acad","read":true,"write":true,"create":false,"id_rules":2}},{{"id":"sxf","family":"sxf","read":true,"write":true,"create":false,"id_rules":2}},{{"id":"jww","family":"jww","read":true,"write":true,"create":false,"id_rules":1}},{{"id":"sima","family":"sima","read":true,"write":true,"create":false,"id_rules":1}},{{"id":"tiff","family":"tiff","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"landxml","family":"landxml","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"citygml","family":"citygml","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"fgd","family":"fgd","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"extdm","family":"extdm","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"geojson","family":"geojson","read":true,"write":true,"create":false,"id_rules":1}},{{"id":"las","family":"las","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"ply","family":"ply","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"xyz","family":"xyz","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"e57","family":"e57","read":true,"write":false,"create":false,"id_rules":1}},{{"id":"stbridge","family":"stbridge","read":true,"write":false,"create":false,"id_rules":1}}]}},"diagnostics":[],"blobs":[]}}"#,
         env!("CARGO_PKG_VERSION"),
         // マイナーバージョンは schema/boundary.toml から作る定数で照らし、並行して op を足しても衝突しないようにする
         crate::abi::SCHEMA_MINOR
@@ -3756,15 +3756,34 @@ fn reads_replaces_and_transforms_tables_with_rebuilt_parts() {
         assert_eq!(text(&error(&response), "/params/pointer"), pointer);
     }
 
-    // 表の追加は書き戻さない
+    // Standard の TABLESTYLE を持つ R2004 以降の DXF には表を追加でき、持たない DXF では拒む
+    session.push(b"add.dxf", TABLE_DXF).unwrap();
+    call(&mut session, r#"{"v":1,"op":"open","input":"add.dxf"}"#);
     let (add_status, add_res) = call(
         &mut session,
         &format!(
-            r#"{{"v":1,"op":"apply","doc":"a.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{expected}}}]}}"#
+            r#"{{"v":1,"op":"apply","doc":"add.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{expected}}}]}}"#
         ),
     );
-    assert_eq!(add_status, Status::Failed);
-    assert_eq!(text(&error(&add_res), "/code"), "change.edit.unsupported");
+    assert_eq!(add_status, Status::Ok, "{add_res:?}");
+    let added_bytes = session.take(0).unwrap();
+    session.push(b"added.dxf", &added_bytes).unwrap();
+    call(&mut session, r#"{"v":1,"op":"open","input":"added.dxf"}"#);
+    assert_eq!(shapes(&mut session, "added.dxf"), [expected, expected]);
+
+    session.push(b"no_style.dxf", EDITABLE).unwrap();
+    call(
+        &mut session,
+        r#"{"v":1,"op":"open","input":"no_style.dxf"}"#,
+    );
+    let (no_status, no_res) = call(
+        &mut session,
+        &format!(
+            r#"{{"v":1,"op":"apply","doc":"no_style.dxf","edits":[{{"kind":"add","place":"space/0","geometry":{expected}}}]}}"#
+        ),
+    );
+    assert_eq!(no_status, Status::Failed);
+    assert_eq!(text(&error(&no_res), "/code"), "change.edit.unsupported");
 
     // セルの文字・空セル・列幅・位置の置き換えと、続く変換が通り、*T1 の部品も作り直される
     let updated = r#"{"shape":"table","position":[15,60],"direction":[1,0],"row_heights":[8,6],"column_widths":[25,30],"cells":[{"content":"text","text":"見出し","span":[2,1]},{"content":"empty","covered":true},{"content":"empty"},{"content":"text","text":"250"}]}"#;
@@ -4956,10 +4975,11 @@ fn maps_every_budget_unit_to_its_field() {
     let budget = messages::Budget {
         input_bytes: Some(messages::Limit::Integer(1)),
         decoded_bytes: Some(messages::Limit::Integer(2)),
-        records: Some(messages::Limit::Integer(3)),
-        elements: Some(messages::Limit::Integer(4)),
-        depth: Some(messages::Limit::Integer(5)),
-        segments: Some(messages::Limit::Integer(6)),
+        model_bytes: Some(messages::Limit::Integer(3)),
+        records: Some(messages::Limit::Integer(4)),
+        elements: Some(messages::Limit::Integer(5)),
+        depth: Some(messages::Limit::Integer(6)),
+        segments: Some(messages::Limit::Integer(7)),
         work: Some(messages::Limit::Unlimited),
     };
     let limits = limits(Some(&budget));
@@ -5532,6 +5552,172 @@ fn opens_and_converts_sima_across_drawing_civil_and_geo() {
     assert_eq!(text(&sim2_res, "/result/format"), "sima");
     let sim_bytes = session.take(0).expect("sima blob");
     assert!(sim_bytes.starts_with(b"G00,01,"));
+}
+
+#[test]
+fn adds_and_converts_dimensions_with_resident_parity() {
+    const DIM_DXF: &[u8] = b"\
+0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n9\n$INSUNITS\n70\n4\n9\n$HANDSEED\n5\n500\n0\nENDSEC\n\
+0\nSECTION\n2\nTABLES\n\
+0\nTABLE\n2\nLTYPE\n5\n5\n330\n0\n100\nAcDbSymbolTable\n70\n1\n\
+0\nLTYPE\n5\n14\n330\n5\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nContinuous\n70\n0\n3\nSolid\n72\n65\n73\n0\n40\n0.0\n0\nENDTAB\n\
+0\nTABLE\n2\nLAYER\n5\n2\n330\n0\n100\nAcDbSymbolTable\n70\n1\n\
+0\nLAYER\n5\n10\n330\n2\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nContinuous\n0\nENDTAB\n\
+0\nTABLE\n2\nSTYLE\n5\n3\n330\n0\n100\nAcDbSymbolTable\n70\n1\n\
+0\nSTYLE\n5\n11\n330\n3\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n0\nENDTAB\n\
+0\nTABLE\n2\nDIMSTYLE\n5\nA\n330\n0\n100\nAcDbSymbolTable\n70\n1\n100\nAcDbDimStyleTable\n\
+0\nDIMSTYLE\n105\n2A\n330\nA\n100\nAcDbSymbolTableRecord\n100\nAcDbDimStyleTableRecord\n2\nStandard\n70\n0\n41\n2.5\n140\n3.0\n340\n11\n0\nENDTAB\n\
+0\nTABLE\n2\nBLOCK_RECORD\n5\n1\n330\n0\n100\nAcDbSymbolTable\n70\n1\n\
+0\nBLOCK_RECORD\n5\n1F\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Model_Space\n0\nENDTAB\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nBLOCKS\n\
+0\nBLOCK\n5\n20\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Model_Space\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*Model_Space\n1\n\n\
+0\nENDBLK\n5\n21\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+
+    let mut session = Session::new(b"").unwrap();
+    session.push(b"a.dxf", DIM_DXF).unwrap();
+    call(&mut session, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+
+    let add_req = r#"{"v":1,"op":"apply","doc":"a.dxf","edits":[{"kind":"add","place":"space/0","geometry":{"shape":"dimension","kind":"linear","first":[0,0],"second":[50,0],"line":[50,15],"rotation":0,"oblique":0,"label":"measurement","style":"Standard"}},{"kind":"add","place":"space/0","geometry":{"shape":"dimension","kind":"arc_length","center":[0,0],"first":[20,0],"second":[0,20],"arc":[17.67766952966369,17.67766952966369],"label":"measurement","style":"Standard"}}]}"#;
+    let (status, res) = call(&mut session, add_req);
+    assert_eq!(status, Status::Ok, "{res:?}");
+    let saved_bytes = session.take(0).unwrap();
+
+    // 常駐の文書と、保存バイト列を別の Session で開き直した文書で同じ要素・ハッシュになる
+    let mut fresh = Session::new(b"").unwrap();
+    fresh.push(b"a.dxf", &saved_bytes).unwrap();
+    call(&mut fresh, r#"{"v":1,"op":"open","input":"a.dxf"}"#);
+    let (_, res_ents) = call(
+        &mut session,
+        r#"{"v":1,"op":"entities","doc":"a.dxf","fields":["id","kind","hash","geometry"]}"#,
+    );
+    let (_, fresh_ents) = call(
+        &mut fresh,
+        r#"{"v":1,"op":"entities","doc":"a.dxf","fields":["id","kind","hash","geometry"]}"#,
+    );
+    assert_eq!(res_ents.pointer("/result"), fresh_ents.pointer("/result"));
+    assert_eq!(number(&res_ents, "/result/total"), "2");
+
+    // convert でも新しい R2004 DXF に寸法と弧長寸法が移る
+    let (cv_status, cv_res) = call(
+        &mut session,
+        r#"{"v":1,"op":"convert","doc":"a.dxf","format":"dxf","to":"conv.dxf"}"#,
+    );
+    assert_eq!(cv_status, Status::Ok, "{cv_res:?}");
+    let _ = session.take(0).unwrap();
+    let (_, conv_ents) = call(
+        &mut session,
+        r#"{"v":1,"op":"entities","doc":"conv.dxf","fields":["kind","geometry"]}"#,
+    );
+    assert_eq!(number(&conv_ents, "/result/total"), "2");
+    assert_eq!(text(&conv_ents, "/result/items/0/kind"), "dimension");
+    assert_eq!(text(&conv_ents, "/result/items/0/geometry/kind"), "linear");
+    assert_eq!(text(&conv_ents, "/result/items/1/kind"), "dimension");
+    assert_eq!(
+        text(&conv_ents, "/result/items/1/geometry/kind"),
+        "arc_length"
+    );
+}
+
+#[test]
+fn converts_jww_paper_height_text_and_hatches_to_dxf() {
+    // 1. #913 の最小再現: DXF（線・円・文字）→ JWW 700 → DXF の往復で CDataMoji が落ちず出力される
+    const IN_DXF: &str = "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+0\nSECTION\n2\nTABLES\n\
+0\nTABLE\n2\nLAYER\n70\n1\n0\nLAYER\n5\n10\n2\n0\n70\n0\n62\n7\n6\nContinuous\n0\nENDTAB\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nLINE\n5\n20\n8\n0\n10\n0.0\n20\n0.0\n11\n100.0\n21\n0.0\n\
+0\nCIRCLE\n5\n21\n8\n0\n10\n50.0\n20\n25.0\n40\n10.0\n\
+0\nTEXT\n5\n22\n8\n0\n10\n10.0\n20\n30.0\n40\n3.5\n1\nABC\n\
+0\nHATCH\n5\n23\n8\n0\n10\n0.0\n20\n0.0\n30\n0.0\n2\nSOLID\n70\n1\n71\n1\n91\n1\n\
+92\n7\n72\n0\n73\n1\n93\n4\n10\n0.0\n20\n0.0\n10\n10.0\n20\n0.0\n10\n10.0\n20\n5.0\n10\n0.0\n20\n5.0\n97\n1\n330\n20\n75\n0\n76\n1\n98\n0\n\
+0\nENDSEC\n0\nEOF\n";
+
+    let mut session = Session::new(b"").unwrap();
+    session.push(b"in.dxf", IN_DXF.as_bytes()).unwrap();
+    call(&mut session, r#"{"v":1,"op":"open","input":"in.dxf"}"#);
+
+    // 連動・derived・sources を持つポリライン HATCH も convert / convert_estimate で出力される
+    let dxf_est = estimate_matches_conversion(IN_DXF.as_bytes(), "src.dxf");
+    assert_eq!(estimate_u64(&dxf_est, "/result/estimate/elements"), 4);
+    let hatch_detail = estimate_array(&dxf_est, "/result/estimate/details")
+        .iter()
+        .find(|item| text(item, "/kind") == "hatch")
+        .unwrap();
+    assert_eq!(text(hatch_detail, "/fidelity"), "drawn");
+
+    // JWW に変換し、その JWW を convert_estimate + convert で DXF に変換する
+    let (st_jww, res_jww) = call(
+        &mut session,
+        r#"{"v":1,"op":"convert","doc":"in.dxf","format":"jww","to":"mid.jww"}"#,
+    );
+    assert_eq!(st_jww, Status::Ok, "{res_jww:?}");
+    let jww_bytes = session.take(0).unwrap();
+
+    let jww_est = estimate_matches_conversion(&jww_bytes, "mid.jww");
+    assert_eq!(estimate_u64(&jww_est, "/result/estimate/elements"), 3);
+    let text_detail = estimate_array(&jww_est, "/result/estimate/details")
+        .iter()
+        .find(|item| text(item, "/kind") == "text")
+        .unwrap();
+    assert_eq!(text(text_detail, "/fidelity"), "drawn");
+
+    // 2. 縮尺 1:100 のレイヤグループ上の CDataMoji（紙上 3.5 mm）も実寸 350 mm の TEXT として出力される
+    // `a.jww`（縮尺 1:100、グループ 0）に API `apply` で高さ 3.5 mm（height_on_paper: true）の文字を足して確かめる
+    let mut scaled = Session::new(b"").unwrap();
+    let jww_100 = include_bytes!("../../../../samples/jww/ezjww-geometry.jww");
+    scaled.push(b"g.jww", jww_100).unwrap();
+    call(&mut scaled, r#"{"v":1,"op":"open","input":"g.jww"}"#);
+    let (st_add, res_add) = call(
+        &mut scaled,
+        r#"{"v":1,"op":"apply","doc":"g.jww","edits":[{"kind":"add","place":"space/0","color":{"jww":1},"geometry":{"shape":"text","content":"縮尺文字","position":[100,200],"height":3.5,"height_on_paper":true,"rotation":0,"horizontal":"left","vertical":"bottom"}}]}"#,
+    );
+    assert_eq!(st_add, Status::Ok, "{res_add:?}");
+    let g_bytes = scaled.take(0).unwrap();
+    let (_, g_drawing) = call(&mut scaled, r#"{"v":1,"op":"drawing","doc":"g.jww"}"#);
+    let view_scale: f64 = number(&g_drawing, "/result/sheets/0/view_details/0/matrix/0")
+        .parse()
+        .unwrap();
+    let expected_height = 3.5 / view_scale;
+
+    let g_est = estimate_matches_conversion(&g_bytes, "g2.jww");
+    let g_counts = estimate_array(&g_est, "/result/estimate/counts");
+    assert!(
+        g_counts
+            .iter()
+            .any(|item| text(item, "/kind") == "hatch" && number(item, "/output_elements") == "2"),
+        "{g_counts:?}"
+    );
+    assert!(
+        g_counts
+            .iter()
+            .any(|item| text(item, "/kind") == "text" && number(item, "/output_elements") == "1"),
+        "{g_counts:?}"
+    );
+
+    let (st_cv, res_cv) = call(
+        &mut scaled,
+        r#"{"v":1,"op":"convert","doc":"g.jww","format":"dxf","to":"g.dxf"}"#,
+    );
+    assert_eq!(st_cv, Status::Ok, "{res_cv:?}");
+    let _ = scaled.take(0).unwrap();
+    let (_, ents) = call(
+        &mut scaled,
+        r#"{"v":1,"op":"entities","doc":"g.dxf","fields":["kind","geometry"]}"#,
+    );
+    let items = estimate_array(&ents, "/result/items");
+    let found = items
+        .iter()
+        .find(|item| text(item, "/kind") == "text" && text(item, "/geometry/content") == "縮尺文字")
+        .unwrap();
+    let actual_height: f64 = number(found, "/geometry/height").parse().unwrap();
+    assert!(
+        (actual_height - expected_height).abs() < 1e-6,
+        "{actual_height} != {expected_height}"
+    );
 }
 
 include!("convert_estimate_tests.rs");

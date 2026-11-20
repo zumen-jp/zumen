@@ -1,7 +1,10 @@
 [alias]
 xtask = "run --quiet --package xtask --"
 
-# 配る wasm のモジュールから、名前のセクション（関数の名前）を除く（決定 0252）。関数の名前が要る調べものでは、
-# 環境変数 RUSTFLAGS を空の文字列にして作る（RUSTFLAGS はこの設定より先に使われる）
+# 配る wasm のモジュールから名前のセクションを除き（決定 0252）、固定幅の SIMD（simd128）を有効にする。
+# 関数の名前が要る調べものでは、RUSTFLAGS="-C target-feature=+simd128" を指定して作る
 [target.wasm32-unknown-unknown]
-rustflags = ["-C", "strip=symbols"]
+rustflags = ["-C", "strip=symbols", "-C", "target-feature=+simd128"]
+
+[target.wasm32-wasip1]
+rustflags = ["-C", "target-feature=+simd128"]

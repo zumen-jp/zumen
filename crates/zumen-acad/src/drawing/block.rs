@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use super::extension::extension_work;
 use super::{
     BLOCK, Lifted, Lifter, Out, SortKeys, amount, arrange, attached, insertion_units, invalid,
-    lift_err, single, source, text, unit_of, work,
+    lettering, lift_err, model_bytes, single, source, text, unit_of, work,
 };
 use crate::db::{AcadDb, Data, Object, Section};
 use zumen_base::{Cx, Diagnostic, codes};
@@ -181,7 +181,23 @@ impl Lifter<'_> {
             if owned.contains(&index) {
                 continue;
             }
+            if object.kind == b"MTEXT" {
+                if !lettering::is_own_column_mtext(object)
+                    && object
+                        .handle()
+                        .is_some_and(|h| h != 0 && out.mtext_column_followers.remove(&h))
+                {
+                    extension_work(db, object, cx)?;
+                    continue;
+                }
+                if let Ok(Some(followers)) = lettering::mtext_xdata_columns(object) {
+                    out.mtext_column_followers.extend(followers);
+                }
+            }
             extension_work(db, object, cx)?;
+            let mark = out.mark();
+            let prev_attributes = attributes.len();
+            let prev_elements = elements.len();
             let lifted = match object.kind.as_slice() {
                 b"ATTDEF" => self
                     .attribute_definition(object, &point, &length, out)
@@ -222,8 +238,15 @@ impl Lifter<'_> {
                 )),
             };
             if let Err(diagnostic) = lifted {
-                cx.report((*diagnostic).at(source));
+                cx.report((*diagnostic).at(source.clone()));
             }
+            for item in attributes.get(prev_attributes..).unwrap_or_default() {
+                model_bytes(cx, item, &source, &mut out.model_bytes)?;
+            }
+            for item in elements.get(prev_elements..).unwrap_or_default() {
+                model_bytes(cx, item, &source, &mut out.model_bytes)?;
+            }
+            out.charge_since(mark, &source, cx)?;
         }
         let keys = record
             .and_then(Object::handle)

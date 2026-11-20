@@ -10,7 +10,7 @@
 //! 画層は表の順に置き、表にない名前を図形が指せば、定義のない画層として足す。描く順は、モデル空間・
 //! ペーパー空間・記号の定義のブロックのレコードを指す SORTENTSTABLE で決め、なければ入力の順とする。
 //! 移さない図形と値は、元のレコードを指す診断で返す。診断の code は、表がグループ・コードで値を名付けるので、
-//! DWG でも `dxf.` で始まるものを使う。DWG のリーダーがまだ読まない値（R2010 からの表の書式）だけは、`dwg.` で
+//! DWG でも `dxf.` で始まるものを使う。DWG のリーダーがまだ移せない表の書式のフィールド（R2010 から）だけは、`dwg.` で
 //! 始まるものを使う。何をどう読んだかの推定は `docs/formats/dxf.md` に記録した。
 
 mod acad_table;
@@ -18,6 +18,7 @@ mod annotation;
 mod apply;
 mod bake;
 mod block;
+mod dimension_display;
 mod extension;
 mod finite;
 mod geometry;
@@ -32,6 +33,7 @@ pub mod single;
 mod style;
 mod template;
 
+pub use apply::CopyFrom;
 pub use live::{AcadLive, LiveFormat, LiveKind, LiveRow};
 pub use lower::{
     Lowered, Relocate, Reseat, lower_to_dxf, lower_to_dxf_with, lower_to_dxf_with_report,
@@ -47,12 +49,13 @@ use acad_table::report_cell_values;
 use extension::extension_work;
 use finite::{Converted, finite};
 use zumen_base::{Cx, Diagnostic, Key, Kind, Ref, codes};
+use zumen_crs::{GeoData, GeoValue, Georeference};
 use zumen_drawing::{
     Arrowhead, Axes, CalloutContent, CellContent, Color, ColorCode, ColorSystem, DimensionStyle,
     Draft, Drawing2D, Edge, Element, Layer, LayerId, Length, LineType, LineTypeId, ModelLength,
-    ModelPoint, ModelSpace, PaperLength, PaperPoint, PointMark, PointSize, PointStyle, Position,
-    Shape, Sheet, SheetId, SheetItem, SpaceId, Spline, SymbolDefinition, SymbolKey, TextStyle,
-    Unit, View,
+    ModelPoint, ModelSize, ModelSpace, PaperLength, PaperPoint, PointMark, PointSize, PointStyle,
+    Position, Shape, Sheet, SheetId, SheetItem, SpaceId, Spline, SymbolDefinition, SymbolKey,
+    TextStyle, Unit, View, check_draft_bytes, check_model_bytes,
 };
 use zumen_sdk::{Error, Lift};
 
@@ -195,6 +198,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
             }
             let source = source(object);
             work(cx, 1, &source)?;
+            let mark = out.mark();
             let lifted = match kind {
                 b"LTYPE" => lifter.line_type_record(db, object, source.clone(), &mut out, cx),
                 b"LAYER" => lifter.layer_record(object, source.clone(), &mut out),
@@ -209,16 +213,26 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
             let at = match kind {
                 b"LTYPE" => match out.line_types.last() {
                     Some(line_type) => Position::LineType(line_type.id),
-                    None => continue,
+                    None => {
+                        out.charge_since(mark, &source, cx)?;
+                        continue;
+                    }
                 },
                 b"LAYER" => match out.layers.last() {
                     Some(layer) => Position::Layer(layer.id),
-                    None => continue,
+                    None => {
+                        out.charge_since(mark, &source, cx)?;
+                        continue;
+                    }
                 },
-                _ => continue,
+                _ => {
+                    out.charge_since(mark, &source, cx)?;
+                    continue;
+                }
             };
             extension_work(db, object, cx)?;
             lifter.dictionary(db, object, at, &mut out, cx);
+            out.charge_since(mark, &source, cx)?;
         }
     }
     let entities: Vec<&Object> = db
@@ -240,11 +254,13 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
             .iter()
             .filter_map(|at| entities.get(*at).copied())
             .collect();
+        let mark = out.mark();
         if let Err(diagnostic) =
             lifter.entity(db, object, source.clone(), &attributes, &mut out, cx)
         {
-            cx.report((*diagnostic).at(source));
+            cx.report((*diagnostic).at(source.clone()));
         }
+        out.charge_since(mark, &source, cx)?;
     }
     let ([model_keys, paper_keys], block_keys) = lifter.sort_keys(db, cx)?;
     let symbols = lifter.definitions(db, &block_keys, &mut out, cx)?;
@@ -273,6 +289,8 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         .iter()
         .find(|line_type| line_type.name.eq_ignore_ascii_case("Continuous"))
         .map(|line_type| line_type.id);
+    let point_style = point_style(db, cx);
+    let georeference = georeference(db, cx)?;
     let mut drawing = Drawing2D {
         layers: out.layers,
         line_types: out.line_types,
@@ -281,9 +299,11 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         default_color,
         default_line_type,
         dimension_styles: out.dimension_styles,
+        dimension_display: out.dimension_display,
         text_styles: out.text_styles,
         symbols,
-        point_style: point_style(db, cx),
+        point_style,
+        georeference,
         ..Drawing2D::default()
     };
     drawing.spaces.push(ModelSpace {
@@ -363,6 +383,13 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
     // 要素がそろってから、形式固有の情報の付く先を ID とハッシュにする（決定 0156）
     drawing
         .settle_extensions(out.extensions, cx)
+        .map_err(|stop| {
+            cx.report(stop.to_diagnostic());
+            Error::Stopped(stop)
+        })?;
+    dimension_display::attach_overrides(&mut drawing, cx)?;
+    drawing
+        .finish_model_bytes(out.model_bytes, cx)
         .map_err(|stop| {
             cx.report(stop.to_diagnostic());
             Error::Stopped(stop)
@@ -554,6 +581,21 @@ fn work(cx: &mut Cx, amount: u64, place: &Ref) -> Result<(), Error> {
         cx.report(stop.to_diagnostic().at(place.clone()));
         Error::Stopped(stop)
     })
+}
+
+/// 図面モデルの項目の論理バイト数を数え、上限を超えたら出所を場所に入れて止める（#559）
+fn model_bytes<T: ModelSize>(
+    cx: &mut Cx,
+    value: &T,
+    place: &Ref,
+    accounted: &mut u64,
+) -> Result<(), Error> {
+    let bytes = check_model_bytes(value, cx).map_err(|stop| {
+        cx.report(stop.to_diagnostic().at(place.clone()));
+        Error::Stopped(stop)
+    })?;
+    *accounted = accounted.saturating_add(bytes);
+    Ok(())
 }
 
 /// 出所。ハンドルがあれば、変わらないキーとして足す（決定 0156）
@@ -753,6 +795,139 @@ fn point_style(db: &AcadDb, cx: &mut Cx) -> Option<PointStyle> {
     })
 }
 
+/// モデル空間の地理位置（`GEODATA`）から、地図の座標系と相似の変換を作る（#685）
+pub(crate) fn georeference(db: &AcadDb, cx: &mut Cx) -> Result<Option<Georeference>, Error> {
+    let mut model_record = None;
+    let mut other_blocks = BTreeSet::new();
+    for object in db.objects() {
+        if object.section != Section::Tables || object.kind != b"BLOCK_RECORD" {
+            continue;
+        }
+        let Some(handle) = object.handle() else {
+            continue;
+        };
+        let is_model = matches!(
+            object.first(2),
+            Some(Data::Text(name)) if name.trim_ascii().eq_ignore_ascii_case(b"*Model_Space")
+        );
+        if is_model && model_record.is_none() {
+            model_record = Some((handle, object));
+        } else if !is_model {
+            other_blocks.insert(handle);
+        }
+    }
+    let linked = model_record
+        .and_then(|(_, record)| xdictionary_entry(db, record, b"ACAD_GEOGRAPHICDATA"))
+        .and_then(|handle| db.get(handle))
+        .filter(|object| object.section == Section::Objects && object.kind == b"GEODATA");
+    let object = linked
+        .or_else(|| {
+            let model_handle = model_record.map(|(handle, _)| handle)?;
+            db.objects().iter().find(|object| {
+                object.section == Section::Objects
+                    && object.kind == b"GEODATA"
+                    && geodata_host_block(object) == Some(model_handle)
+            })
+        })
+        .or_else(|| {
+            db.objects().iter().find(|object| {
+                object.section == Section::Objects
+                    && object.kind == b"GEODATA"
+                    && geodata_host_block(object).is_none_or(|host| {
+                        host == 0
+                            || Some(host) == model_record.map(|(h, _)| h)
+                            || !other_blocks.contains(&host)
+                    })
+            })
+        });
+    let Some(object) = object else {
+        return Ok(None);
+    };
+    let at = source(object);
+    work(cx, 1, &at)?;
+    fn geo_value(data: &Data) -> GeoValue<'_> {
+        match data {
+            Data::Int(value) => GeoValue::Int(*value),
+            Data::Real(value) => GeoValue::Real(*value),
+            Data::Bool(value) => GeoValue::Bool(*value),
+            Data::Text(text) => GeoValue::Text(text),
+            Data::Handle(_) | Data::Binary(_) => GeoValue::Other,
+        }
+    }
+    let Some(data) = GeoData::read(
+        object
+            .values
+            .iter()
+            .map(|value| (value.code, geo_value(&value.data))),
+        &at,
+        cx,
+    ) else {
+        cx.check(Kind::Work, 0).map_err(Error::Stopped)?;
+        return Ok(None);
+    };
+    let found = data.georeference(&at, cx);
+    cx.check(Kind::Work, 0).map_err(Error::Stopped)?;
+    Ok(found)
+}
+
+/// オブジェクトの拡張辞書（`{ACAD_XDICTIONARY`）から、名前 `entry_name` の項目のハンドルを引く
+fn xdictionary_entry(db: &AcadDb, object: &Object, entry_name: &[u8]) -> Option<u64> {
+    let mut in_xdic = false;
+    let mut dict_handle = None;
+    for value in &object.values {
+        match (value.code, &value.data) {
+            (102, Data::Text(name)) if name.trim_ascii() == b"{ACAD_XDICTIONARY" => {
+                in_xdic = true;
+            }
+            (102, Data::Text(name)) if in_xdic && name.trim_ascii().starts_with(b"}") => {
+                in_xdic = false;
+            }
+            (360, Data::Handle(handle)) if in_xdic && *handle != 0 => {
+                dict_handle = Some(*handle);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let dict = db.get(dict_handle?)?;
+    if dict.kind != b"DICTIONARY" && dict.kind != b"ACDBDICTIONARYWDFLT" {
+        return None;
+    }
+    dict.values.windows(2).find_map(|pair| match pair {
+        [
+            Value {
+                code: 3,
+                data: Data::Text(name),
+            },
+            Value {
+                code: 350 | 360,
+                data: Data::Handle(target),
+            },
+        ] if name.trim_ascii().eq_ignore_ascii_case(entry_name) && *target != 0 => Some(*target),
+        _ => None,
+    })
+}
+
+/// `GEODATA` の `AcDbGeoData` サブクラスにある対象ブロックのレコード（330）のハンドル
+fn geodata_host_block(object: &Object) -> Option<u64> {
+    let mut subclass = false;
+    for value in &object.values {
+        if value.code == 100
+            && matches!(&value.data, Data::Text(name) if name.trim_ascii() == b"AcDbGeoData")
+        {
+            subclass = true;
+            continue;
+        }
+        if subclass
+            && value.code == 330
+            && let Data::Handle(handle) = value.data
+        {
+            return Some(handle);
+        }
+    }
+    None
+}
+
 /// 用紙の範囲。読めない変数は名前と座標のコードを診断し、原点は既定の 0、大きさは未指定にする。
 /// 共有の表はヘッダーのレコードの場所を持たないので、診断は変数名で指す（`$PDSIZE` と同じ）。
 fn header_limits(db: &AcadDb, name: &[u8], cx: &mut Cx) -> Option<[f64; 2]> {
@@ -802,10 +977,104 @@ struct Out {
     /// 線種の表のレコードのハンドル
     line_type_handles: BTreeMap<u64, LineTypeId>,
     dimension_styles: Vec<DimensionStyle>,
+    dimension_display: Vec<zumen_drawing::DimensionDisplayRecord>,
     text_styles: Vec<TextStyle>,
     extensions: Vec<Draft>,
     /// 要素を置いた用紙ごとの座標の対応。中身のない用紙のものは、ID を付けるときに足す
     frames: BTreeMap<SheetId, PaperFrame>,
+    /// R2013 までの段組み MTEXT の親が `ACAD` 拡張データ（`1005`）で結んだ後続段 MTEXT のハンドル集合
+    mtext_column_followers: BTreeSet<u64>,
+    /// 途中で `Kind::ModelBytes` に計上済みの論理バイト数
+    model_bytes: u64,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct OutMark {
+    layers: usize,
+    line_types: usize,
+    dimension_styles: usize,
+    dimension_display: usize,
+    text_styles: usize,
+    model: usize,
+    paper: usize,
+    views: usize,
+    extensions: usize,
+}
+
+impl Out {
+    pub(super) fn mark(&self) -> OutMark {
+        OutMark {
+            layers: self.layers.len(),
+            line_types: self.line_types.len(),
+            dimension_styles: self.dimension_styles.len(),
+            dimension_display: self.dimension_display.len(),
+            text_styles: self.text_styles.len(),
+            model: self.model.len(),
+            paper: self.paper.len(),
+            views: self.views.len(),
+            extensions: self.extensions.len(),
+        }
+    }
+
+    pub(super) fn charge_since(
+        &mut self,
+        mark: OutMark,
+        place: &Ref,
+        cx: &mut Cx,
+    ) -> Result<(), Error> {
+        fn charge_slice<T: ModelSize>(
+            slice: &[T],
+            from: usize,
+            place: &Ref,
+            accounted: &mut u64,
+            cx: &mut Cx,
+        ) -> Result<(), Error> {
+            for item in slice.get(from..).unwrap_or_default() {
+                model_bytes(cx, item, place, accounted)?;
+            }
+            Ok(())
+        }
+        charge_slice(&self.layers, mark.layers, place, &mut self.model_bytes, cx)?;
+        charge_slice(
+            &self.line_types,
+            mark.line_types,
+            place,
+            &mut self.model_bytes,
+            cx,
+        )?;
+        charge_slice(
+            &self.dimension_styles,
+            mark.dimension_styles,
+            place,
+            &mut self.model_bytes,
+            cx,
+        )?;
+        charge_slice(
+            &self.dimension_display,
+            mark.dimension_display,
+            place,
+            &mut self.model_bytes,
+            cx,
+        )?;
+        charge_slice(
+            &self.text_styles,
+            mark.text_styles,
+            place,
+            &mut self.model_bytes,
+            cx,
+        )?;
+        charge_slice(&self.model, mark.model, place, &mut self.model_bytes, cx)?;
+        charge_slice(&self.paper, mark.paper, place, &mut self.model_bytes, cx)?;
+        charge_slice(&self.views, mark.views, place, &mut self.model_bytes, cx)?;
+        for draft in self.extensions.get(mark.extensions..).unwrap_or_default() {
+            let bytes = check_draft_bytes(draft, cx).map_err(|stop| {
+                cx.report(stop.to_diagnostic().at(place.clone()));
+                Error::Stopped(stop)
+            })?;
+            self.model_bytes = self.model_bytes.saturating_add(bytes);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -818,8 +1087,7 @@ struct Lifter<'a> {
     charset: Charset,
     /// 2010 以降のバージョンなら、DXF の HATCH の SPLINE の辺はフィット点（97）を持つ
     fit_data: bool,
-    /// 2010 以降のバージョンなら、DWG の表は内容を TABLECONTENT の形で持つ。DWG のリーダーは、その書式と TABLESTYLE を
-    /// まだ読まない
+    /// 2010 以降のバージョンなら、DWG の表は内容を TABLECONTENT の形で持つ
     table_content: bool,
     /// ヘッダーの `$ACADVER`。形式固有の情報のバージョンにする
     version: Option<String>,
@@ -858,6 +1126,18 @@ impl Lifter<'_> {
         cx: &mut Cx,
     ) -> Lifted<()> {
         let kind = object.kind.as_slice();
+        if kind == b"MTEXT" {
+            if !lettering::is_own_column_mtext(object)
+                && object
+                    .handle()
+                    .is_some_and(|h| h != 0 && out.mtext_column_followers.remove(&h))
+            {
+                return Ok(());
+            }
+            if let Ok(Some(followers)) = lettering::mtext_xdata_columns(object) {
+                out.mtext_column_followers.extend(followers);
+            }
+        }
         let mut paper_mm = None;
         match kind {
             // 69 = 1 は用紙そのものを表すビューポート
@@ -952,7 +1232,7 @@ impl Lifter<'_> {
     }
 
     /// 図形を要素にする。INSERT の属性のうち移せないものは、属性の出所を指す診断を返し、INSERT は移す。
-    /// R2010 からの DWG の表は、書式を移さないことを表の出所を指す診断で返し、表は移す
+    /// R2010 からの DWG の表は、まだ移せない書式のフィールドがあれば表の出所を指す診断で返し、表は移す
     #[allow(clippy::too_many_arguments)]
     fn element<P: zumen_drawing::transform::Point>(
         &self,
@@ -989,8 +1269,11 @@ impl Lifter<'_> {
         }
         if let Shape::Table(_) = &shape {
             report_cell_values(object, cx);
-            // R2010 からの DWG のリーダーは、表のスタイル・セルのスタイル・内容の書式を読まない（docs/formats/dwg.md）
-            if self.table_content && matches!(object.origin, Origin::Dwg { .. }) {
+            // R2010 からの DWG の表は、まだ移せない書式のフィールドがあるときだけ診断する（docs/formats/dwg.md、#906）
+            if self.table_content
+                && matches!(object.origin, Origin::Dwg { .. })
+                && acad_table::has_unsupported_dwg_table_format(db, object)
+            {
                 cx.report(Diagnostic::new(codes::DWG_TABLE_FORMAT_UNSUPPORTED).at(source.clone()));
             }
         }
@@ -1065,8 +1348,9 @@ impl Lifter<'_> {
             b"ELLIPSE" => Ok(Shape::Curve(self.ellipse(object, point)?)),
             b"LWPOLYLINE" => Ok(Shape::Polyline(self.lwpolyline(object, point, length)?)),
             b"SPLINE" => Ok(Shape::Curve(Edge::Spline(self.spline(object, point)?))),
-            // 段組みのフィールドは、R2018 からは埋め込みのオブジェクト（101）に置く（推定。docs/formats/dxf.md）
+            // 段組みのフィールドは、R2018 からは埋め込みのオブジェクト（101）、R2013 までは ACAD の拡張データに置く（docs/formats/dxf.md）
             b"MTEXT" if object.first(101).is_some() => Err(columns()),
+            b"MTEXT" if lettering::mtext_xdata_columns(object)?.is_some() => Err(columns()),
             b"MTEXT" => Ok(Shape::Formatted(self.formatted(object, point, length)?)),
             // TEXT（DXF Reference「TEXT」）
             _ => Ok(Shape::Text(self.text(
@@ -1229,7 +1513,7 @@ fn invalid(kind: &[u8], code: i16) -> Box<Diagnostic> {
 
 /// スプラインの定義の数が合うか。制御点があれば、次数より多く、重みは空か同じ数で正、周期的でなければ
 /// ノットは制御点の数と次数と 1 の和。制御点もフィット点もなければ読めないとする
-fn check_spline<P>(kind: &[u8], spline: &Spline<P>) -> Lifted<()> {
+pub(crate) fn check_spline<P>(kind: &[u8], spline: &Spline<P>) -> Lifted<()> {
     let degree = spline.degree as usize;
     let controls = spline.control.len();
     if spline.degree == 0 {
@@ -1361,10 +1645,9 @@ mod tests {
         }
     }
 
-    /// バージョンが `version` の DWG（`dwg` が偽なら DXF）の、1 行 1 列の表と、フィールドのない TABLESTYLE を持つ表。DWG の
-    /// リーダーは、R2010 からの TABLESTYLE のフィールドを読まず、ACAD_TABLE を AcDbTable（100）なしで置き、表を描いた
-    /// ブロック（2）を値の終わりに置く
-    fn table_db(version: &str, dwg: bool) -> AcadDb {
+    /// バージョンが `version` の DWG（`dwg` が偽なら DXF）の、1 行 1 列の表と TABLESTYLE を持つ表。`unsupported`
+    /// が真なら、まだ移せない書式のフィールドがある印を TABLESTYLE に置く
+    fn table_db(version: &str, dwg: bool, unsupported: bool) -> AcadDb {
         let origin = |at: usize| {
             if dwg {
                 Origin::Dwg {
@@ -1379,10 +1662,17 @@ mod tests {
         let text = |code: i16, text: &str| value(code, Data::Text(text.as_bytes().to_vec()));
         let mut db = AcadDb::default();
         db.set_variable(b"$ACADVER", vec![text(1, version)]);
+        let mut style_values = vec![value(5, Data::Handle(0x40)), text(3, "")];
+        if unsupported {
+            style_values.push(value(
+                crate::db::DWG_UNSUPPORTED_TABLE_FORMAT,
+                Data::Bool(true),
+            ));
+        }
         db.push(Object {
             kind: b"TABLESTYLE".to_vec(),
             section: Section::Objects,
-            values: vec![value(5, Data::Handle(0x40))],
+            values: style_values,
             origin: origin(0),
         });
         let mut values = vec![
@@ -1416,20 +1706,23 @@ mod tests {
         db
     }
 
-    /// R2010 からの DWG の表は、書式を読まないことを、表ごとに表の出所を指す `dwg.table-format.unsupported`
-    /// で返し、表は移す。R2004 までの DWG と、DXF の表は返さない
+    /// R2010 からの DWG の表は、まだ移せない書式のフィールドがあるときだけ表の出所を指す `dwg.table-format.unsupported`
+    /// で返し、表は移す。未対応のフィールドがない表、R2004 までの DWG、DXF の表は返さない
     #[test]
     fn dwg_tables_from_2010_report_that_their_formats_are_not_read() {
         use zumen_base::{Budget, CancelToken, Diagnostics};
-        for (version, dwg, reported) in [
-            ("AC1024", true, true),
-            ("AC1027", true, true),
-            ("AC1032", true, true),
-            ("AC1018", true, false),
-            ("AC1024", false, false),
-            ("AC1032", false, false),
+        for (version, dwg, unsupported, reported) in [
+            ("AC1024", true, true, true),
+            ("AC1027", true, true, true),
+            ("AC1032", true, true, true),
+            ("AC1024", true, false, false),
+            ("AC1027", true, false, false),
+            ("AC1032", true, false, false),
+            ("AC1018", true, true, false),
+            ("AC1024", false, true, false),
+            ("AC1032", false, true, false),
         ] {
-            let db = table_db(version, dwg);
+            let db = table_db(version, dwg, unsupported);
             let mut diag = Diagnostics::new();
             let mut budget = Budget::default();
             let cancel = CancelToken::new();
@@ -1451,7 +1744,7 @@ mod tests {
             } else {
                 Vec::new()
             };
-            assert_eq!(found, expected, "{version} {dwg}");
+            assert_eq!(found, expected, "{version} {dwg} {unsupported}");
             assert_eq!(element.source, source(&db.objects()[1]), "{version} {dwg}");
         }
     }

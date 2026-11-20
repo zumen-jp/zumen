@@ -1,8 +1,8 @@
 import type { Diagnostic, ModuleName } from "@zumen-jp/zumen";
-import type { InputOptions, ReviewPlace3D, Scene3DInput, View3D, View3DEvent, View3DOptions, View3DState } from "@zumen-jp/view3d";
+import type { InputOptions, ReviewPlace3D, Scene3DInput, View3D, View3DErrorReason, View3DEvent, View3DOptions, View3DState } from "@zumen-jp/view3d";
 
 /** Canvas の接続後に View3D を返し、Canvas・設定の差し替えとアンマウントで破棄する。 */
-export declare function useView3D(canvas: HTMLCanvasElement | OffscreenCanvas | null, options?: View3DOptions): View3D | null;
+export declare function useView3D(canvas: HTMLCanvasElement | OffscreenCanvas | null, options?: View3DOptions, onError?: (error: Error & { readonly reason?: View3DErrorReason }) => void): View3D | null;
 /** attachInput を要素につなぎ、表示部品・要素・設定の差し替えとアンマウントで外す。設定は同じ参照を渡す。 */
 export declare function useView3DInput(viewer: View3D | null, element: HTMLElement | null, options?: InputOptions): void;
 export declare function useView3DState(viewer: View3D | null): View3DState | null;
