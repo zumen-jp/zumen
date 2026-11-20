@@ -98,16 +98,19 @@ impl Default for GeoData {
     }
 }
 
-/// 読んだ値の型の誤り。グループ・コードを持つ
-struct Wrong(i16);
+/// 読んだ値の型の誤りか、予算による停止
+enum TagError {
+    Wrong(i16),
+    Stopped,
+}
 
 impl GeoData {
     /// GEODATA のオブジェクトの値の並び `values`（グループ・コードと値。書かれた順）を読む。
     ///
     /// サブクラスの印（100 の `AcDbGeoData`）があれば、その後の値だけを読む。同じグループ・コードが何度もあれば、
     /// 最初の値を使う。使う値が数でないか有限でないか、倍率か北の向きが 0 なら `crs.geodata.invalid`（`code` は
-    /// グループ・コード）を `at` の場所で診断して `None` を返す。値の数だけ予算の作業量（`work`）を数え、止まれば
-    /// 理由を診断して `None` を返す
+    /// グループ・コード）を `at` の場所で診断して `None` を返す。値と定義のバイト数を予算の作業量（`work`）と展開量
+    /// （`decoded_bytes`）に数え、止まれば理由を診断して `None` を返す
     pub fn read<'a>(
         values: impl IntoIterator<Item = (i16, GeoValue<'a>)>,
         at: &Ref,
@@ -125,11 +128,16 @@ impl GeoData {
                 tags.clear();
                 continue;
             }
+            if let Err(stop) = cx.check(Kind::DecodedBytes, 32) {
+                cx.report(stop.to_diagnostic().at(at.clone()));
+                return None;
+            }
             tags.push((code, value));
         }
-        match Self::from_tags(&tags) {
+        match Self::from_tags(&tags, at, cx) {
             Ok(data) => Some(data),
-            Err(Wrong(code)) => {
+            Err(TagError::Stopped) => None,
+            Err(TagError::Wrong(code)) => {
                 cx.report(
                     Diagnostic::new(codes::CRS_GEODATA_INVALID)
                         .with("code", u64::from(code.unsigned_abs()))
@@ -140,17 +148,17 @@ impl GeoData {
         }
     }
 
-    fn from_tags(tags: &[(i16, GeoValue)]) -> Result<GeoData, Wrong> {
+    fn from_tags(tags: &[(i16, GeoValue)], at: &Ref, cx: &mut Cx) -> Result<GeoData, TagError> {
         let first = |code: i16| tags.iter().find(|(c, _)| *c == code).map(|(_, v)| *v);
         let int = |code: i16, default: i64| match first(code) {
             None => Ok(default),
             Some(GeoValue::Int(value)) => Ok(value),
-            Some(_) => Err(Wrong(code)),
+            Some(_) => Err(TagError::Wrong(code)),
         };
         let real = |code: i16, default: f64| match first(code) {
             None => Ok(default),
             Some(GeoValue::Real(value)) if value.is_finite() => Ok(value),
-            Some(_) => Err(Wrong(code)),
+            Some(_) => Err(TagError::Wrong(code)),
         };
         let mut data = GeoData {
             version: int(90, 2)?,
@@ -165,11 +173,11 @@ impl GeoData {
         }
         data.horizontal_unit_scale = real(40, 1.0)?;
         if data.horizontal_unit_scale == 0.0 {
-            return Err(Wrong(40));
+            return Err(TagError::Wrong(40));
         }
         data.vertical_unit_scale = real(41, 1.0)?;
         if data.vertical_unit_scale == 0.0 {
-            return Err(Wrong(41));
+            return Err(TagError::Wrong(41));
         }
         data.up_direction = [real(210, 0.0)?, real(220, 0.0)?, real(230, 1.0)?];
         // 版 1 の 12・22 は、メッシュの元の点（DXF Reference R2009）
@@ -177,7 +185,7 @@ impl GeoData {
         if data.version >= 2 {
             data.north_direction = [real(12, 0.0)?, real(22, 1.0)?];
             if data.north_direction == [0.0, 0.0] {
-                return Err(Wrong(12));
+                return Err(TagError::Wrong(12));
             }
         }
         data.scale_estimation_method = int(95, 1)?;
@@ -186,13 +194,19 @@ impl GeoData {
             None => false,
             Some(GeoValue::Bool(value)) => value,
             Some(GeoValue::Int(value)) => value != 0,
-            Some(_) => return Err(Wrong(294)),
+            Some(_) => return Err(TagError::Wrong(294)),
         };
         data.sea_level_elevation = real(142, 0.0)?;
         for (code, value) in tags {
             match (*code, value) {
-                (301 | 303, GeoValue::Text(text)) => data.definition.extend(uncaret(text)),
-                (301 | 303, _) => return Err(Wrong(*code)),
+                (301 | 303, GeoValue::Text(text)) => {
+                    if let Err(stop) = cx.check(Kind::DecodedBytes, text.len() as u64) {
+                        cx.report(stop.to_diagnostic().at(at.clone()));
+                        return Err(TagError::Stopped);
+                    }
+                    uncaret_into(text, &mut data.definition);
+                }
+                (301 | 303, _) => return Err(TagError::Wrong(*code)),
                 (code, _) if code == source => data.mesh_points += 1,
                 (97, _) => data.mesh_faces += 1,
                 _ => {}
@@ -393,9 +407,9 @@ fn text(doc: &Document, index: usize) -> String {
     out.trim().to_owned()
 }
 
-/// DXF の文字列の書き方（`^J` は改行、`^ ` は `^`）を戻す。ほかの `^` の並びは、そのまま残す
-fn uncaret(text: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(text.len());
+/// DXF の文字列の書き方（`^J` は改行、`^ ` は `^`）を戻して `out` に足す。ほかの `^` の並びは、そのまま残す
+fn uncaret_into(text: &[u8], out: &mut Vec<u8>) {
+    out.reserve(text.len());
     let mut bytes = text.iter().peekable();
     while let Some(&byte) = bytes.next() {
         match (byte, bytes.peek()) {
@@ -410,5 +424,4 @@ fn uncaret(text: &[u8]) -> Vec<u8> {
             _ => out.push(byte),
         }
     }
-    out
 }

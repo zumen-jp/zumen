@@ -377,6 +377,38 @@ fn reading_counts_values_in_the_budget() {
 }
 
 #[test]
+fn reading_counts_decoded_bytes_in_the_budget() {
+    // タグ配列の確保前計上（1 件あたり 32 バイト）と、301・303 の座標系定義文字列の確保前計上を確かめる
+    for limit in [64, 512] {
+        let mut budget =
+            Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(limit)));
+        let mut diagnostics = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        let read = GeoData::read(
+            [
+                (100, GeoValue::Text(b"AcDbGeoData")),
+                (90, GeoValue::Int(2)),
+                (70, GeoValue::Int(1)),
+                (301, GeoValue::Text(&[b'x'; 600])),
+            ],
+            &Ref::at_record(RECORD),
+            &mut cx,
+        );
+        assert_eq!(read, None, "limit {limit}");
+        assert_eq!(
+            codes_of(&diagnostics),
+            [codes::BUDGET_DECODED_BYTES_EXCEEDED],
+            "limit {limit}"
+        );
+        assert_eq!(
+            diagnostics.iter().next().unwrap().places()[0].record(),
+            Some(RECORD)
+        );
+    }
+}
+
+#[test]
 fn public_autocad_sample_reads_like_ezdxf_and_names_its_coordinate_system() {
     // ACadSharp（MIT）の geoloc.dxf。値は ezdxf 1.4.5 で読んだもの。座標系の定義に EPSG のコードの別名がないので、
     // ezdxf も変換を作らない

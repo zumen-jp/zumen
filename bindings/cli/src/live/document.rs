@@ -211,10 +211,16 @@ fn read_sxf_archive(bytes: &[u8], cx: &mut Cx<'_>) -> Result<Option<(Vec<u8>, Sx
     for diagnostic in quiet.iter() {
         cx.report(diagnostic.clone());
     }
+    cx.check(
+        Kind::DecodedBytes,
+        (archive.entries().len() as u64).saturating_mul(64),
+    )
+    .map_err(|stop| report_stop(cx, stop))?;
     let mut entries = Vec::with_capacity(archive.entries().len());
     let mut sxf = Vec::new();
     for (at, entry) in archive.entries().iter().enumerate() {
         cx.check(Kind::Work, 1)
+            .and_then(|()| cx.check(Kind::DecodedBytes, entry.name().len() as u64))
             .map_err(|stop| report_stop(cx, stop))?;
         let data = if entry.is_directory() {
             Vec::new()
@@ -905,6 +911,10 @@ impl Document {
     /// 行の文字の種類（0 文字でない・1 文字・2 書式つきの文字）と、元の符号のままの内容。要求の順に返す。
     /// 生きていない行があれば `Problem::Missing`
     pub fn texts(&self, rows: &[RowId], cx: &mut Cx<'_>) -> Result<Vec<(u32, String)>, Problem> {
+        let count = rows.len() as u64;
+        cx.check(Kind::Work, count)
+            .and_then(|()| cx.check(Kind::DecodedBytes, count.saturating_mul(32)))
+            .map_err(|stop| Problem::Core(report_stop(cx, stop)))?;
         let mut out = Vec::with_capacity(rows.len());
         for &row in rows {
             out.push(self.live.text(row, cx)?.ok_or(Problem::Missing(row))?);
@@ -919,6 +929,10 @@ impl Document {
 
     /// 記号の定義 `indices` の要素を、定義の座標のまま要求の順に並べる。範囲外の定義は Invalid
     pub fn symbols(&self, indices: &[u32], cx: &mut Cx<'_>) -> Result<Symbols, Problem> {
+        let count = indices.len() as u64;
+        cx.check(Kind::Work, count)
+            .and_then(|()| cx.check(Kind::DecodedBytes, count.saturating_mul(8)))
+            .map_err(|stop| Problem::Core(report_stop(cx, stop)))?;
         let total = match &self.live {
             Engine::Acad(live) => live.display_symbol_count(),
             Engine::Sxf(live) => live.display_symbol_count(),

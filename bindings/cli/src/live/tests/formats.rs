@@ -2160,3 +2160,92 @@ fn table_edits_and_extended_elements_round_trip_and_undo() {
     id += 1;
     assert_eq!(saved(&mut host, id, rev), initial);
 }
+
+/// アーカイブの展開・`texts`・`symbols` は、配列の確保の前に展開量の予算を数えて上限で止まる
+#[test]
+fn document_archive_texts_and_symbols_count_decoded_bytes() {
+    use super::super::document::Problem;
+    use zumen_base::{Budget, CancelToken, Cx, Diagnostics, Error, Kind, Limit, Limits, codes};
+
+    let sfz = zumen_zip::write(&[
+        ("D0PL001Z.SFC", SFC),
+        ("OTHER/A.TXT", b"a"),
+        ("OTHER/B.TXT", b"b"),
+    ])
+    .unwrap();
+    let mut probe_budget = Budget::default();
+    let mut probe_diag = Diagnostics::new();
+    let cancel = CancelToken::new();
+    zumen_zip::read(
+        &sfz,
+        &mut Cx::new(&mut probe_budget, &mut probe_diag, &cancel),
+    )
+    .unwrap();
+    let zip_used = probe_budget.used(Kind::DecodedBytes);
+
+    let mut archive_budget = Budget::new(Limits::default().with(
+        Kind::DecodedBytes,
+        Limit::Finite(zip_used.saturating_add(32)),
+    ));
+    let mut archive_diag = Diagnostics::new();
+    let archive_err = Document::open(
+        &sfz,
+        1,
+        &mut Cx::new(&mut archive_budget, &mut archive_diag, &cancel),
+    )
+    .err()
+    .unwrap();
+    assert!(matches!(archive_err, Error::Stopped(_)), "{archive_err:?}");
+    assert!(
+        archive_diag
+            .iter()
+            .any(|d| d.code() == codes::BUDGET_DECODED_BYTES_EXCEEDED)
+    );
+
+    let mut open_budget = Budget::default();
+    let mut open_diag = Diagnostics::new();
+    let doc = Document::open(
+        super::DXF,
+        1,
+        &mut Cx::new(&mut open_budget, &mut open_diag, &cancel),
+    )
+    .unwrap();
+
+    let mut text_budget =
+        Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(32)));
+    let mut text_diag = Diagnostics::new();
+    let text_err = doc
+        .texts(
+            &[RowId(0), RowId(1)],
+            &mut Cx::new(&mut text_budget, &mut text_diag, &cancel),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(text_err, Problem::Core(Error::Stopped(_))),
+        "{text_err:?}"
+    );
+    assert!(
+        text_diag
+            .iter()
+            .any(|d| d.code() == codes::BUDGET_DECODED_BYTES_EXCEEDED)
+    );
+
+    let mut sym_budget = Budget::new(Limits::default().with(Kind::DecodedBytes, Limit::Finite(8)));
+    let mut sym_diag = Diagnostics::new();
+    let sym_err = doc
+        .symbols(
+            &[0, 1],
+            &mut Cx::new(&mut sym_budget, &mut sym_diag, &cancel),
+        )
+        .err()
+        .unwrap();
+    assert!(
+        matches!(sym_err, Problem::Core(Error::Stopped(_))),
+        "{sym_err:?}"
+    );
+    assert!(
+        sym_diag
+            .iter()
+            .any(|d| d.code() == codes::BUDGET_DECODED_BYTES_EXCEEDED)
+    );
+}
