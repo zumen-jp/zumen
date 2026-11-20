@@ -3934,27 +3934,43 @@ fn spline_hatch(fit: &[(i16, &'static str)]) -> Vec<(i16, &'static str)> {
         (42, "2.0"),
     ];
     tags.extend_from_slice(fit);
-    tags.extend_from_slice(&[(97, "0"), (75, "0"), (76, "1"), (98, "0")]);
+    tags.extend_from_slice(&[
+        (97, "2"),
+        (330, "30"),
+        (330, "2F"),
+        (75, "0"),
+        (76, "1"),
+        (98, "0"),
+    ]);
     entity("HATCH", &tags)
 }
 
 #[test]
 fn e8_hatch_spline_edges_read_fit_data_from_2010() {
     let edges = |header: &[(i16, &str)], fit: &[(i16, &'static str)]| {
-        let (drawing, diag) = lift(&dxf(header, &spline_hatch(fit)), &mut Budget::default());
+        let line = |handle| {
+            entity(
+                "LINE",
+                &[(5, handle), (10, "0"), (20, "0"), (11, "10"), (21, "0")],
+            )
+        };
+        let entities = [line("2F"), line("30"), spline_hatch(fit)].concat();
+        let (drawing, diag) = lift(&dxf(header, &entities), &mut Budget::default());
         assert_eq!(found(&diag), []);
-        match model_shapes(&drawing.unwrap()).as_slice() {
-            [Shape::Hatch(hatch)] => match hatch.loops.as_slice() {
-                [
-                    HatchLoop {
-                        boundary: Boundary::Edges(edges),
-                        ..
-                    },
-                ] => edges.clone(),
-                other => panic!("{other:?}"),
-            },
-            other => panic!("{other:?}"),
-        }
+        let shapes = model_shapes(&drawing.unwrap());
+        let [Shape::Line { .. }, Shape::Line { .. }, Shape::Hatch(hatch)] = shapes.as_slice()
+        else {
+            panic!("{shapes:?}");
+        };
+        let [boundary] = hatch.loops.as_slice() else {
+            panic!("{:?}", hatch.loops);
+        };
+        let handles: Vec<_> = boundary.sources.iter().map(Ref::key).collect();
+        assert_eq!(handles, [Some(Key::Handle(0x30)), Some(Key::Handle(0x2F))]);
+        let Boundary::Edges(edges) = &boundary.boundary else {
+            panic!("{boundary:?}");
+        };
+        edges.clone()
     };
     let spline = |fit, start_tangent| {
         vec![Edge::Spline(Spline {
@@ -3972,11 +3988,12 @@ fn e8_hatch_spline_edges_read_fit_data_from_2010() {
         })]
     };
     // 2010 より前は、フィット点を持たない。続く 97 は、境界を作った図形の数
-    assert_eq!(edges(MM, &[]), spline(vec![], None));
-    let header = [MM, &[(9, "$ACADVER"), (1, "AC1024")]].concat();
+    let header = |version| [MM, &[(9, "$ACADVER"), (1, version)]].concat();
+    assert_eq!(edges(&header("AC1021"), &[]), spline(vec![], None));
+    assert_eq!(edges(&header("AC1024"), &[(97, "0")]), spline(vec![], None));
     assert_eq!(
         edges(
-            &header,
+            &header("AC1032"),
             &[
                 (97, "1"),
                 (11, "5.0"),
