@@ -12,7 +12,10 @@
 //! - `new_dxf`: 新しい DXF の画層の拡張データと表の件数
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{BLOCK, Charset, Home, MODEL, PaperFrame, attached, framed, mtext, source, text, work};
+use super::{
+    BLOCK, Charset, Home, MODEL, PaperFrame, attached_with_seqend, framed, mtext, source, text,
+    work,
+};
 use add::kind_of;
 pub(crate) use add::{Born, Target, next_handle_from};
 pub(crate) use callout::anchor;
@@ -68,12 +71,21 @@ impl<F> Default for CopyFrom<'_, F> {
     }
 }
 
+#[derive(Default)]
+pub(super) struct AttachedPositions {
+    /// 親の表の位置から、続く ATTRIB・VERTEX の表の位置
+    pub(super) children: BTreeMap<usize, Vec<usize>>,
+    /// 親の表の位置から、閉じる SEQEND の表の位置
+    pub(super) seqends: BTreeMap<usize, Vec<usize>>,
+}
+
 pub(super) struct SourceDb {
     pub(super) db: AcadDb,
     pub(super) drawing: Drawing2D,
     pub(super) frames: BTreeMap<SheetId, PaperFrame>,
     pub(super) positions: BTreeMap<Ref, usize>,
     pub(super) charset: Charset,
+    attached: std::cell::OnceCell<AttachedPositions>,
 }
 
 impl SourceDb {
@@ -91,7 +103,16 @@ impl SourceDb {
             frames,
             positions,
             charset,
+            attached: std::cell::OnceCell::new(),
         })
+    }
+
+    fn attached_for(&self, at: &Ref, cx: &mut Cx) -> Result<&AttachedPositions, Error> {
+        if self.attached.get().is_none() {
+            let positions = attached_positions_for(&self.db, at, cx)?;
+            let _ = self.attached.set(positions);
+        }
+        self.attached.get().ok_or(Error::Rejected)
     }
 }
 
@@ -739,7 +760,7 @@ struct Plan<'e> {
     rejected: bool,
     /// 変えた項目の ID。同じ項目は一度だけ変えられる
     targets: BTreeSet<&'e str>,
-    attribute_counts: Option<BTreeMap<usize, usize>>,
+    attached: Option<AttachedPositions>,
     layers: layer::Layers,
     text_styles: text_style::TextStyles,
     line_types: line_type::LineTypes,
@@ -774,7 +795,7 @@ impl<'e> Plan<'e> {
             added_records: 0,
             rejected: false,
             targets: BTreeSet::new(),
-            attribute_counts: None,
+            attached: None,
             layers: layer::Layers::default(),
             text_styles: text_style::TextStyles::default(),
             line_types: line_type::LineTypes::default(),
@@ -886,6 +907,18 @@ impl<'e> Plan<'e> {
             return Ok(None);
         }
         Ok(Some(found))
+    }
+
+    pub(super) fn attached_for<'a>(
+        &'a mut self,
+        db: &AcadDb,
+        at: &Ref,
+        cx: &mut Cx,
+    ) -> Result<&'a AttachedPositions, Error> {
+        if self.attached.is_none() {
+            self.attached = Some(attached_positions_for(db, at, cx)?);
+        }
+        self.attached.as_ref().ok_or(Error::Rejected)
     }
 }
 
@@ -1309,14 +1342,10 @@ fn change_element<'e>(
         _ => None,
     };
     let count = if moved_symbol || lifted_count.is_some() {
-        if plan.attribute_counts.is_none() {
-            plan.attribute_counts = Some(attribute_counts_for(db, at, cx)?);
-        }
-        plan.attribute_counts
-            .as_ref()
-            .and_then(|counts| counts.get(&position))
-            .copied()
-            .unwrap_or_default()
+        plan.attached_for(db, at, cx)?
+            .children
+            .get(&position)
+            .map_or(0, Vec::len)
     } else {
         0
     };
@@ -1397,28 +1426,38 @@ fn change_element<'e>(
                 Found::Model(element) => (element.layer, &element.style),
                 Found::Paper(element) => (element.layer, &element.style),
             };
-            // POLYLINE の続く VERTEX にも同じ変更を書き、SEQEND は画層だけをそろえる（#885）
+            // POLYLINE の続く VERTEX にも同じ変更を書き、SEQEND は画層だけをそろえる（#885・#914）
             let mut followers = Vec::new();
-            for (pos, follower) in vertices(db, position, object) {
-                let change = if follower.kind == b"SEQEND" {
-                    Restyle {
-                        layer: style.layer,
-                        color: None,
-                        line_type: None,
-                        line_type_scale: None,
-                        line_weight: None,
-                    }
-                } else {
-                    style.clone()
-                };
-                match restyled(born, follower, layer, was, &change, cx)? {
-                    Some(values) => followers.push((pos, values)),
-                    None => {
-                        plan.reject(
-                            unsupported(edit, &text(&object.kind), target).at(at.clone()),
-                            cx,
-                        );
-                        return Ok(());
+            if object.kind == b"POLYLINE" && followed(object) {
+                let attached = plan.attached_for(db, at, cx)?;
+                for &pos in attached
+                    .children
+                    .get(&position)
+                    .into_iter()
+                    .flatten()
+                    .chain(attached.seqends.get(&position).into_iter().flatten())
+                {
+                    let follower = db.objects().get(pos).ok_or(Error::Rejected)?;
+                    let change = if follower.kind == b"SEQEND" {
+                        Restyle {
+                            layer: style.layer,
+                            color: None,
+                            line_type: None,
+                            line_type_scale: None,
+                            line_weight: None,
+                        }
+                    } else {
+                        style.clone()
+                    };
+                    match restyled(born, follower, layer, was, &change, cx)? {
+                        Some(values) => followers.push((pos, values)),
+                        None => {
+                            plan.reject(
+                                unsupported(edit, &text(&object.kind), target).at(at.clone()),
+                                cx,
+                            );
+                            return Ok(());
+                        }
                     }
                 }
             }
@@ -1731,13 +1770,13 @@ pub(crate) fn symbol_moved<P: PartialEq>(before: &Shape<P>, after: &Shape<P>) ->
         if a.position != b.position || a.scale != b.scale || a.rotation != b.rotation)
 }
 
-/// 元の ATTRIB の数を、読み込みと同じ所有者・並びの規則でまとめて調べる。
+/// 元の ATTRIB・VERTEX・SEQEND の位置を、読み込みと同じ所有者・並びの規則でまとめて調べる（#914）。
 /// 添字は元の表の位置。変更が多くても表の走査は一度だけ。
-fn attribute_counts_for(
+pub(super) fn attached_positions_for(
     db: &AcadDb,
     at: &Ref,
     cx: &mut Cx<'_>,
-) -> Result<BTreeMap<usize, usize>, Error> {
+) -> Result<AttachedPositions, Error> {
     let mut entities = Vec::new();
     let mut blocks = Vec::new();
     for (position, candidate) in db.objects().iter().enumerate() {
@@ -1754,17 +1793,26 @@ fn attribute_counts_for(
             group.push((position, candidate));
         }
     }
-    let mut counts = BTreeMap::new();
+    let mut result = AttachedPositions::default();
     for group in [entities, blocks] {
         let objects: Vec<_> = group.iter().map(|(_, object)| *object).collect();
-        let (attributes, _) = attached(&objects);
-        for (index, items) in attributes {
-            if let Some((position, _)) = group.get(index) {
-                counts.insert(*position, items.len());
+        let found = attached_with_seqend(&objects);
+        for (positions, by_parent) in [
+            (&mut result.children, found.children),
+            (&mut result.seqends, found.seqends),
+        ] {
+            for (parent, items) in by_parent {
+                positions.insert(
+                    group.get(parent).ok_or(Error::Rejected)?.0,
+                    items
+                        .into_iter()
+                        .filter_map(|i| group.get(i).map(|entry| entry.0))
+                        .collect(),
+                );
             }
         }
     }
-    Ok(counts)
+    Ok(result)
 }
 
 /// 書き戻した表から図面モデルを作り直し、置き換えた要素と足した要素の ID とハッシュを求める
@@ -1989,36 +2037,6 @@ fn entity_removal(
     let skip: BTreeSet<usize> = owned.into_keys().chain([position]).collect();
     let free = !owned::pointed(db, &skip, &handles, cx, place)?;
     Ok(free.then_some(skip))
-}
-
-/// POLYLINE（表の `position`）のすぐ後に並ぶ VERTEX と、それを閉じる SEQEND（DXF Reference「POLYLINE」）。
-/// 所有者（330）を持つものは、それが POLYLINE か、POLYLINE と同じ所有者（ezdxf 1.4.5 の書き方）を指す間だけ
-/// 取る。POLYLINE でなければ空
-fn vertices<'a>(db: &'a AcadDb, position: usize, object: &Object) -> Vec<(usize, &'a Object)> {
-    let mut found = Vec::new();
-    if object.kind != b"POLYLINE" || !followed(object) {
-        return found;
-    }
-    let mine = [object.handle(), object.owner()];
-    let rest = db.objects().iter().enumerate().skip(position + 1);
-    for (at, follower) in rest {
-        let ends = match follower.kind.as_slice() {
-            b"VERTEX" => false,
-            b"SEQEND" => true,
-            _ => break,
-        };
-        if follower
-            .owner()
-            .is_some_and(|owner| !mine.contains(&Some(owner)))
-        {
-            break;
-        }
-        found.push((at, follower));
-        if ends {
-            break;
-        }
-    }
-    found
 }
 
 /// 続くレコード（POLYLINE の VERTEX、属性を持つ INSERT の ATTRIB、SEQEND）を持つ図形か

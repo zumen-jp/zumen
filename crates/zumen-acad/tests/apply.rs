@@ -2693,6 +2693,230 @@ fn polyline_restyles_reach_the_vertices() {
     assert_eq!(testkit::write::<Dxf>(&file).unwrap(), src);
 }
 
+/// SEQEND が VERTEX・ATTRIB より前に並ぶ POLYLINE と属性付き INSERT でも、頂点・属性を落とさず読み、
+/// restyle と copy がすべての子レコードに届く（#914）
+#[test]
+fn seqend_before_vertices_or_attributes_keeps_children_across_lift_restyle_and_copy() {
+    use zumen_acad::CopyFrom;
+    use zumen_drawing::{
+        Affine, Changes, Color, ColorCode, ColorSystem, Edit as Change, Inherit, LineTypeId,
+        Restyle, Seen,
+    };
+
+    let dxf_text = concat!(
+        "  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1018\n  9\n$INSUNITS\n 70\n4\n",
+        "  9\n$HANDSEED\n  5\n80\n  0\nENDSEC\n",
+        "  0\nSECTION\n  2\nTABLES\n",
+        "  0\nTABLE\n  2\nLTYPE\n  0\nLTYPE\n  5\n11\n  2\nCONTINUOUS\n 70\n0\n",
+        "  0\nLTYPE\n  5\n12\n  2\nDashed\n 70\n0\n  0\nENDTAB\n",
+        "  0\nTABLE\n  2\nLAYER\n  0\nLAYER\n  5\n10\n  2\n0\n 70\n0\n 62\n7\n  6\nCONTINUOUS\n",
+        "  0\nLAYER\n  5\n13\n  2\nWall\n 70\n0\n 62\n1\n  6\nCONTINUOUS\n  0\nENDTAB\n",
+        "  0\nTABLE\n  2\nBLOCK_RECORD\n  5\n1\n100\nAcDbSymbolTable\n 70\n3\n",
+        "  0\nBLOCK_RECORD\n  5\n1F\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n  2\n*Model_Space\n",
+        "  0\nBLOCK_RECORD\n  5\n1E\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n  2\n*Paper_Space\n",
+        "  0\nBLOCK_RECORD\n  5\n2F\n330\n1\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n  2\nBLK1\n  0\nENDTAB\n",
+        "  0\nENDSEC\n",
+        "  0\nSECTION\n  2\nBLOCKS\n",
+        "  0\nBLOCK\n  5\n20\n330\n1F\n100\nAcDbEntity\n  8\n0\n100\nAcDbBlockBegin\n  2\n*Model_Space\n 70\n0\n 10\n0.0\n 20\n0.0\n 30\n0.0\n  0\nENDBLK\n  5\n21\n330\n1F\n100\nAcDbEntity\n  8\n0\n100\nAcDbBlockEnd\n",
+        "  0\nBLOCK\n  5\n22\n330\n1E\n100\nAcDbEntity\n 67\n1\n  8\n0\n100\nAcDbBlockBegin\n  2\n*Paper_Space\n 70\n0\n 10\n0.0\n 20\n0.0\n 30\n0.0\n  0\nENDBLK\n  5\n23\n330\n1E\n100\nAcDbEntity\n 67\n1\n  8\n0\n100\nAcDbBlockEnd\n",
+        "  0\nBLOCK\n  5\n30\n330\n2F\n100\nAcDbEntity\n  8\n0\n100\nAcDbBlockBegin\n  2\nBLK1\n 70\n2\n 10\n0.0\n 20\n0.0\n 30\n0.0\n",
+        "  0\nPOLYLINE\n  5\n32\n330\n2F\n100\nAcDbEntity\n  8\n0\n 62\n2\n100\nAcDb2dPolyline\n 66\n1\n 10\n0.0\n 20\n0.0\n 30\n0.0\n 70\n1\n",
+        "  0\nSEQEND\n  5\n33\n330\n32\n100\nAcDbEntity\n  8\n0\n",
+        "  0\nVERTEX\n  5\n34\n330\n32\n100\nAcDbEntity\n  8\n0\n 62\n2\n100\nAcDbVertex\n100\nAcDb2dVertex\n 10\n10.0\n 20\n20.0\n 30\n0.0\n",
+        "  0\nVERTEX\n  5\n35\n330\n32\n100\nAcDbEntity\n  8\n0\n 62\n2\n100\nAcDbVertex\n100\nAcDb2dVertex\n 10\n22.0\n 20\n20.0\n 30\n0.0\n",
+        "  0\nVERTEX\n  5\n36\n330\n32\n100\nAcDbEntity\n  8\n0\n 62\n2\n100\nAcDbVertex\n100\nAcDb2dVertex\n 10\n25.0\n 20\n28.0\n 30\n0.0\n",
+        "  0\nENDBLK\n  5\n31\n330\n2F\n100\nAcDbEntity\n  8\n0\n100\nAcDbBlockEnd\n",
+        "  0\nENDSEC\n",
+        "  0\nSECTION\n  2\nENTITIES\n",
+        "  0\nPOLYLINE\n  5\n40\n330\n1F\n100\nAcDbEntity\n  8\n0\n 62\n2\n100\nAcDb2dPolyline\n 66\n1\n 10\n0.0\n 20\n0.0\n 30\n0.0\n 70\n1\n",
+        "  0\nSEQEND\n  5\n41\n330\n40\n100\nAcDbEntity\n  8\n0\n",
+        "  0\nVERTEX\n  5\n42\n330\n40\n100\nAcDbEntity\n  8\n0\n 62\n2\n100\nAcDbVertex\n100\nAcDb2dVertex\n 10\n10.0\n 20\n20.0\n 30\n0.0\n",
+        "  0\nVERTEX\n  5\n43\n330\n40\n100\nAcDbEntity\n  8\n0\n 62\n2\n100\nAcDbVertex\n100\nAcDb2dVertex\n 10\n22.0\n 20\n20.0\n 30\n0.0\n",
+        "  0\nVERTEX\n  5\n44\n330\n40\n100\nAcDbEntity\n  8\n0\n 62\n2\n100\nAcDbVertex\n100\nAcDb2dVertex\n 10\n25.0\n 20\n28.0\n 30\n0.0\n",
+        "  0\nPOLYLINE\n  5\n50\n330\n1E\n100\nAcDbEntity\n 67\n1\n  8\n0\n 62\n2\n100\nAcDb2dPolyline\n 66\n1\n 10\n0.0\n 20\n0.0\n 30\n0.0\n 70\n1\n",
+        "  0\nSEQEND\n  5\n51\n330\n50\n100\nAcDbEntity\n 67\n1\n  8\n0\n",
+        "  0\nVERTEX\n  5\n52\n330\n50\n100\nAcDbEntity\n 67\n1\n  8\n0\n 62\n2\n100\nAcDbVertex\n100\nAcDb2dVertex\n 10\n10.0\n 20\n20.0\n 30\n0.0\n",
+        "  0\nVERTEX\n  5\n53\n330\n50\n100\nAcDbEntity\n 67\n1\n  8\n0\n 62\n2\n100\nAcDbVertex\n100\nAcDb2dVertex\n 10\n22.0\n 20\n20.0\n 30\n0.0\n",
+        "  0\nVERTEX\n  5\n54\n330\n50\n100\nAcDbEntity\n 67\n1\n  8\n0\n 62\n2\n100\nAcDbVertex\n100\nAcDb2dVertex\n 10\n25.0\n 20\n28.0\n 30\n0.0\n",
+        "  0\nINSERT\n  5\n60\n330\n1F\n100\nAcDbEntity\n  8\n0\n100\nAcDbBlockReference\n 66\n1\n  2\nBLK1\n 10\n50.0\n 20\n60.0\n 30\n0.0\n",
+        "  0\nSEQEND\n  5\n61\n330\n60\n100\nAcDbEntity\n  8\n0\n",
+        "  0\nATTRIB\n  5\n62\n330\n60\n100\nAcDbEntity\n  8\n0\n100\nAcDbText\n 10\n51.0\n 20\n61.0\n 30\n0.0\n 40\n2.5\n  1\nA-01\n100\nAcDbAttribute\n  2\nCODE\n 70\n0\n",
+        "  0\nENDSEC\n  0\nEOF\n",
+    );
+
+    let mut file = testkit::read::<Dxf>(dxf_text.as_bytes()).0.unwrap();
+    let drawing = lift(&file);
+    let wall = LayerId(
+        drawing
+            .layers
+            .iter()
+            .position(|layer| layer.name == "Wall")
+            .unwrap() as u32,
+    );
+    let dashed = LineTypeId(
+        drawing
+            .line_types
+            .iter()
+            .position(|line_type| line_type.name == "Dashed")
+            .unwrap() as u32,
+    );
+    let magenta = Color {
+        code: Some(ColorCode {
+            system: ColorSystem::Aci,
+            value: 6,
+        }),
+        rgb: None,
+    };
+
+    let [(model_pl_seen, model_pl), (ins_seen, ins_el)] =
+        <[_; 2]>::try_from(seen(&drawing)).unwrap();
+    let Shape::Polyline(pl_geom) = &model_pl.shape else {
+        panic!("expected polyline: {:?}", model_pl.shape);
+    };
+    assert_eq!(pl_geom.vertices.len(), 3);
+    assert!(pl_geom.closed);
+    let Shape::Symbol(sym) = &ins_el.shape else {
+        panic!("expected symbol: {:?}", ins_el.shape);
+    };
+    assert_eq!(sym.attributes.len(), 1);
+    assert_eq!(sym.attributes[0].text.content, "A-01");
+
+    let sheet = &drawing.sheets[0];
+    let sheet_place = zumen_drawing::id::sheet(sheet);
+    let sheet_pl = &sheet.elements[0];
+    let Shape::Polyline(sheet_geom) = &sheet_pl.shape else {
+        panic!("expected sheet polyline");
+    };
+    assert_eq!(sheet_geom.vertices.len(), 3);
+    let sheet_pl_seen = Seen {
+        id: zumen_drawing::id::Namer::new(&sheet_place).next(0, sheet_pl),
+        hash: zumen_drawing::Hash::element(sheet_pl),
+    };
+
+    let blk_def = &drawing.symbols[0];
+    let blk_place = zumen_drawing::id::definition(blk_def);
+    let blk_pl = &blk_def.space.elements[0];
+    let Shape::Polyline(blk_geom) = &blk_pl.shape else {
+        panic!("expected block polyline");
+    };
+    assert_eq!(blk_geom.vertices.len(), 3);
+    let blk_pl_seen = Seen {
+        id: zumen_drawing::id::Namer::new(&blk_place).next(0, blk_pl),
+        hash: zumen_drawing::Hash::element(blk_pl),
+    };
+
+    let style = Restyle {
+        layer: Some(wall),
+        color: Some(Inherit::Own(magenta)),
+        line_type: Some(Inherit::Own(dashed)),
+        ..Restyle::default()
+    };
+    let changes = Changes {
+        document: None,
+        edits: vec![
+            Change::Restyle {
+                target: model_pl_seen.clone(),
+                style: style.clone(),
+            },
+            Change::Restyle {
+                target: sheet_pl_seen,
+                style: style.clone(),
+            },
+            Change::Restyle {
+                target: blk_pl_seen,
+                style,
+            },
+            Change::Copy {
+                target: ins_seen,
+                transform: Affine {
+                    m: [1.0, 0.0, 15.0, 0.0, 1.0, 5.0],
+                },
+            },
+        ],
+    };
+    let mut budget = Budget::default();
+    let mut diag = Diagnostics::new();
+    let original = file.clone();
+    file.apply_with_copies(
+        &changes,
+        &[
+            CopyFrom::default(),
+            CopyFrom::default(),
+            CopyFrom::default(),
+            CopyFrom::default(),
+        ],
+        &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+    )
+    .unwrap();
+    assert_eq!(diag.iter().count(), 0);
+
+    let written = testkit::write::<Dxf>(&file).unwrap();
+    let reread = testkit::read::<Dxf>(&written).0.unwrap();
+    let db = reread
+        .objects(&mut Cx::new(&mut budget, &mut diag, &CancelToken::new()))
+        .unwrap();
+    for v_handle in [0x34, 0x35, 0x36, 0x42, 0x43, 0x44, 0x52, 0x53, 0x54] {
+        let v = db.get(v_handle).unwrap();
+        assert_eq!(v.first(8), Some(&zumen_acad::Data::Text(b"Wall".to_vec())));
+        assert_eq!(
+            v.first(6),
+            Some(&zumen_acad::Data::Text(b"Dashed".to_vec()))
+        );
+        assert_eq!(v.first(62), Some(&zumen_acad::Data::Int(6)));
+    }
+    for s_handle in [0x33, 0x41, 0x51] {
+        let s = db.get(s_handle).unwrap();
+        assert_eq!(s.first(8), Some(&zumen_acad::Data::Text(b"Wall".to_vec())));
+        assert_eq!(s.first(62), None);
+    }
+    let after = lift(&reread);
+    assert_eq!(after.spaces[0].elements.len(), 3);
+    let Shape::Symbol(copied_sym) = &after.spaces[0].elements[2].shape else {
+        panic!("expected copied symbol");
+    };
+    assert_eq!(copied_sym.attributes.len(), 1);
+    assert_eq!(copied_sym.attributes[0].text.content, "A-01");
+
+    let cross_copy = Changes {
+        document: None,
+        edits: vec![Change::Copy {
+            target: model_pl_seen,
+            transform: Affine::translation(4.0, 6.0),
+        }],
+    };
+    let copied = file
+        .apply_with_copies(
+            &cross_copy,
+            &[CopyFrom {
+                place: Some("space/0"),
+                from: Some(&original),
+            }],
+            &mut Cx::new(&mut budget, &mut diag, &CancelToken::new()),
+        )
+        .unwrap_or_else(|error| panic!("{error:?} {diag:?}"));
+    let copied_id = copied[0].id.as_deref().unwrap();
+    let drawing = lift(&file);
+    let (_, poly) = seen(&drawing)
+        .into_iter()
+        .find(|(target, _)| target.id == copied_id)
+        .unwrap();
+    let Shape::Polyline(poly) = &poly.shape else {
+        panic!("expected copied polyline");
+    };
+    assert_eq!(
+        poly.vertices
+            .iter()
+            .map(|v| (v.point.x, v.point.y))
+            .collect::<Vec<_>>(),
+        pl_geom
+            .vertices
+            .iter()
+            .map(|v| (v.point.x + 4.0, v.point.y + 6.0))
+            .collect::<Vec<_>>()
+    );
+    assert!(diag.is_empty());
+}
+
 #[test]
 fn restyles_the_records_cannot_hold_change_nothing() {
     use zumen_drawing::{Inherit, LineWeight, Restyle};

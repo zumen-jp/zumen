@@ -258,6 +258,14 @@ pub(super) fn viewport(bits: &mut Bits, frozen: &mut u32) -> Option<Vec<Value>> 
 /// 押し出しの向き（210・220・230）は既定の値でなければ、属性が続くこと（66）は続くときだけ置く。
 /// MINSERT（`grid`）は、列と行の数（70・71）と間隔（44・45）も、既定の値（1・1・0・0）でなければ置く
 pub(super) fn insert(bits: &mut Bits, grid: bool) -> Option<Vec<Value>> {
+    insert_with_owned(bits, grid, &mut None)
+}
+
+pub(in crate::dwg) fn insert_with_owned(
+    bits: &mut Bits,
+    grid: bool,
+    owned_count: &mut Option<i32>,
+) -> Option<Vec<Value>> {
     let mut values = point3(bits, 10)?;
     let (x, y, z) = match bits.bb()? {
         3 => (1.0, 1.0, 1.0),
@@ -290,9 +298,9 @@ pub(super) fn insert(bits: &mut Bits, grid: bool) -> Option<Vec<Value>> {
     }
     if grid {
         // R2004 からは、属性を持つときだけ、列と行のフィールドの前に持つオブジェクトの数（BL）が入る（ODS 5.4.1 の
-        // 20.4.9）。INSERT ではフィールドの終わりに入るので読まない
+        // 20.4.9）。INSERT ではフィールドの終わりに入るので呼び出し側で読む
         if attribs && bits.release() >= Release::R2004 {
-            bits.bl()?;
+            *owned_count = Some(bits.bl()?);
         }
         for code in [70, 71] {
             let count = bits.bs()?;

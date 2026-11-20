@@ -16,7 +16,8 @@ use super::kinds::{
 };
 use super::objects::{
     BLOCK_FIELDS, COMMON_ENTITY, Fields, check_copy, check_values_copy, code_page_name,
-    is_table_record, kind as builtin_kind, number_anonymous, read as read_fields, unmetered_copy,
+    fast_direct_owner, is_table_record, kind as builtin_kind, number_anonymous,
+    read as read_fields, unmetered_copy,
 };
 use super::objects::{entity_data_entmode, skip_extended_data};
 use super::write_back::{can_unlink_single, encode_born_entities, encode_single_entity};
@@ -502,6 +503,7 @@ pub struct DwgSingle {
     viewport_numbers: BTreeMap<usize, i64>,
     material_bylayer: Option<u64>,
     mtext_handles: BTreeSet<u64>,
+    subentity_owners: BTreeMap<u64, u64>,
     /// ハンドルからレコード番号を引くソート済み配列（重複時は最後のレコード番号）
     handle_to_record: Vec<(u64, u32)>,
     has_duplicate_handle: bool,
@@ -545,49 +547,6 @@ fn table_code_of(name: &[u8]) -> Option<u16> {
         b"DIMSTYLE" => Some(DIMSTYLE),
         b"BLOCK_RECORD" => Some(BLOCK_RECORD),
         _ => None,
-    }
-}
-
-/// オブジェクトのデータから直接の所有者ハンドルだけを高速に読む
-fn fast_direct_owner(
-    data: &[u8],
-    release: Release,
-    entry: &Entry,
-    entity: bool,
-    header: Option<Header>,
-) -> Option<u64> {
-    let mut bits = Bits::with_release(data, release);
-    let handles_at = match entry.handles {
-        Some(at) => {
-            bits.bot()?;
-            bits.split_strings(at)?;
-            at
-        }
-        None => {
-            bits.bs()?;
-            let at = usize::try_from(bits.rl()?).ok()?;
-            if release == Release::R2007 {
-                bits.split_strings(at)?;
-            }
-            at
-        }
-    };
-    bits.handle()?;
-    skip_extended_data(&mut bits)?;
-    if entity {
-        let entmode = entity_data_entmode(&mut bits, release)?;
-        match entmode {
-            0 => {
-                bits.seek(handles_at);
-                bits.handle()?.resolve(entry.handle)
-            }
-            1 => header.map(|h| h.paper),
-            2 => header.map(|h| h.model),
-            _ => None,
-        }
-    } else {
-        bits.seek(handles_at);
-        bits.handle()?.resolve(entry.handle)
     }
 }
 
@@ -866,6 +825,7 @@ impl DwgSingle {
                 .and_then(|i| handle_to_record.get(i))
                 .map(|&(_, r)| r as usize)
         };
+        let subentity_owners = file.subentity_owners(lookup_rec, cx)?;
         let space_handles = (header.map(|h| h.model), header.map(|h| h.paper));
         for entry in &file.entries {
             cx.check(Kind::Work, 1).map_err(|stop| {
@@ -882,59 +842,11 @@ impl DwgSingle {
                 continue;
             };
             let entity = matches!(sec, Section::Entities | Section::Blocks);
-            if entity {
-                let mut bits = Bits::with_release(file.data(entry), file.release);
-                let handles_at = match entry.handles {
-                    Some(at) => {
-                        if bits.bot().is_none() || bits.split_strings(at).is_none() {
-                            continue;
-                        }
-                        at
-                    }
-                    None => {
-                        if bits.bs().is_none() {
-                            continue;
-                        }
-                        let Some(at) = bits.rl().and_then(|v| usize::try_from(v).ok()) else {
-                            continue;
-                        };
-                        if file.release == Release::R2007 && bits.split_strings(at).is_none() {
-                            continue;
-                        }
-                        at
-                    }
-                };
-                if bits.handle().is_none() || skip_extended_data(&mut bits).is_none() {
-                    continue;
-                }
-                let Some(entmode) = entity_data_entmode(&mut bits, file.release) else {
-                    continue;
-                };
-                if entmode != 0 {
-                    continue;
-                }
-                bits.seek(handles_at);
-                let Some(owner) = bits.handle().and_then(|h| h.resolve(entry.handle)) else {
-                    continue;
-                };
-                if Some(owner) == space_handles.0 || Some(owner) == space_handles.1 {
-                    continue;
-                }
-                if has_duplicate_handle {
-                    *owner_counts_by_handle.entry(owner).or_default() += 1;
-                } else if let Some(parent_rec) = lookup_rec(owner)
-                    && let Some(slot) = owner_counts.get_mut(parent_rec)
-                {
-                    if *slot < u8::MAX {
-                        *slot += 1;
-                    } else {
-                        let large = owner_counts_large.entry(parent_rec).or_insert(255);
-                        *large = large.saturating_add(1);
-                    }
-                }
-            } else if let Some(owner) =
-                fast_direct_owner(file.data(entry), file.release, entry, false, header)
-            {
+            let owner = subentity_owners
+                .get(&entry.handle)
+                .copied()
+                .or_else(|| fast_direct_owner(file.data(entry), file.release, entry, entity, None));
+            if let Some(owner) = owner {
                 if Some(owner) == space_handles.0 || Some(owner) == space_handles.1 {
                     continue;
                 }
@@ -994,6 +906,7 @@ impl DwgSingle {
             viewport_numbers,
             material_bylayer,
             mtext_handles,
+            subentity_owners,
             handle_to_record,
             has_duplicate_handle,
             owner_counts,
@@ -1137,6 +1050,7 @@ impl DwgSingle {
             + self.handle_to_record.capacity() * core::mem::size_of::<(u64, u32)>()
             + self.owner_counts.capacity()
             + self.model_owned_bits.capacity() * core::mem::size_of::<u64>()
+            + self.subentity_owners.len() * 32
     }
 
     /// ハンドルからレコード番号を引く
@@ -1194,6 +1108,15 @@ impl DwgSingle {
     /// `Section::Entities` のレコードの所属空間（モデル・ペーパー・モデルの子・ブロック定義）を高速に判定する
     pub fn classify_entity(&self, file: &DwgFile, record: usize) -> Option<EntitySpace> {
         let entry = file.entries.get(record)?;
+        if let Some(&parent_owner) = self.subentity_owners.get(&entry.handle) {
+            return if self.in_block_definition(file, Some(parent_owner)) {
+                Some(EntitySpace::BlockDefinition)
+            } else {
+                Some(EntitySpace::ModelFollower {
+                    owner: parent_owner,
+                })
+            };
+        }
         let mut bits = Bits::with_release(file.data(entry), self.release);
         let handles_at = match entry.handles {
             Some(at) => {
@@ -1260,7 +1183,13 @@ impl DwgSingle {
             if sec != Some(Section::Entities) {
                 break;
             }
-            owner = fast_direct_owner(file.data(entry), self.release, entry, true, self.header);
+            owner = self
+                .subentity_owners
+                .get(&entry.handle)
+                .copied()
+                .or_else(|| {
+                    fast_direct_owner(file.data(entry), self.release, entry, true, self.header)
+                });
         }
         owner.is_some_and(|o| o != hdr.model && o != hdr.paper)
     }
@@ -1320,6 +1249,12 @@ impl DwgSingle {
                     entity,
                     self.header,
                 );
+                if let (Some(f), Some(&parent_owner)) =
+                    (fields.as_mut(), self.subentity_owners.get(&entry.handle))
+                {
+                    f.owner = Some(parent_owner);
+                    f.values.retain(|v| v.code != 67);
+                }
                 if let (BLOCK_RECORD, Some(hdr), Some(f)) =
                     (entry.type_code, self.header, fields.as_mut())
                     && entry.handle != hdr.model
@@ -1544,10 +1479,15 @@ impl DwgSingle {
             handles,
             type_code,
         };
-        let Some(fields) = read_fields(raw_data, self.release, &entry, kname, entity, self.header)
+        let Some(mut fields) =
+            read_fields(raw_data, self.release, &entry, kname, entity, self.header)
         else {
             return Ok(None);
         };
+        if let Some(&parent_owner) = self.subentity_owners.get(&handle) {
+            fields.owner = Some(parent_owner);
+            fields.values.retain(|v| v.code != 67);
+        }
         let at = Ref::default();
         let (own, xdata) =
             fields.place_in(&self.names, &self.books, &entry, cx, &at, before_copy)?;

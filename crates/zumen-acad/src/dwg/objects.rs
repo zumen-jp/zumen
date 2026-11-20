@@ -192,6 +192,35 @@ impl DwgFile {
             });
             found.push((kind, fields));
         }
+        if self.entries.iter().any(|entry| {
+            matches!(
+                entry.type_code,
+                ATTRIB | VERTEX_2D..=VERTEX_PFACE_FACE | SEQEND
+            )
+        }) {
+            cx.check(
+                Kind::DecodedBytes,
+                (self.entries.len() as u64).saturating_mul(32),
+            )
+            .map_err(|stop| super::stopped(cx, stop))?;
+            let handle_to_rec: BTreeMap<u64, usize> = self
+                .entries
+                .iter()
+                .enumerate()
+                .map(|(idx, entry)| (entry.handle, idx))
+                .collect();
+            let sub_owners = self.subentity_owners(|h| handle_to_rec.get(&h).copied(), cx)?;
+            if !sub_owners.is_empty() {
+                for (entry, (_, fields)) in self.entries.iter().zip(found.iter_mut()) {
+                    if let (Some(f), Some(&parent_owner)) =
+                        (fields.as_mut(), sub_owners.get(&entry.handle))
+                    {
+                        f.owner = Some(parent_owner);
+                        f.values.retain(|v| v.code != 67);
+                    }
+                }
+            }
+        }
         if let Some(header) = header {
             let records = self
                 .entries
@@ -317,6 +346,295 @@ impl DwgFile {
             db.set_variable(b"$PDSIZE", vec![real(40, header.point_size)]);
         }
         Ok(db)
+    }
+
+    /// 親図形（`POLYLINE`・属性付き `INSERT` / `MINSERT`）のハンドルストリームから、自身の所有者だけでは親に繋がらない
+    /// 子レコード（`VERTEX`・`ATTRIB`・`SEQEND`）の所有者を補う（#914）
+    pub(super) fn subentity_owners(
+        &self,
+        lookup_record: impl Fn(u64) -> Option<usize>,
+        cx: &mut Cx<'_>,
+    ) -> Result<BTreeMap<u64, u64>, Error> {
+        let mut unowned_subs: BTreeMap<u64, u16> = BTreeMap::new();
+        for entry in &self.entries {
+            if !matches!(
+                entry.type_code,
+                ATTRIB | VERTEX_2D..=VERTEX_PFACE_FACE | SEQEND
+            ) {
+                continue;
+            }
+            let valid_parent = fast_direct_owner(self.data(entry), self.release, entry, true, None)
+                .and_then(&lookup_record)
+                .and_then(|rec| self.entries.get(rec))
+                .is_some_and(|parent| expected_subentity_parent(entry.type_code, parent.type_code));
+            if !valid_parent {
+                let place = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
+                cx.check(Kind::Work, 1)
+                    .and_then(|()| cx.check(Kind::DecodedBytes, 24))
+                    .map_err(|stop| stopped_at(cx, stop, place))?;
+                unowned_subs.insert(entry.handle, entry.type_code);
+            }
+        }
+        if unowned_subs.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+        let mut owners = BTreeMap::new();
+        for entry in &self.entries {
+            if !matches!(
+                entry.type_code,
+                INSERT | MINSERT | POLYLINE_2D | POLYLINE_3D | POLYLINE_PFACE | POLYLINE_MESH
+            ) {
+                continue;
+            }
+            let place = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped_at(cx, stop, place))?;
+            if let Some(children) = self.parent_owned_subentities(entry, &lookup_record, cx)? {
+                for child_handle in children {
+                    if let Some(&sub_type) = unowned_subs.get(&child_handle)
+                        && expected_subentity_parent(sub_type, entry.type_code)
+                    {
+                        cx.check(Kind::DecodedBytes, 32)
+                            .map_err(|stop| super::stopped(cx, stop))?;
+                        owners.entry(child_handle).or_insert(entry.handle);
+                    }
+                }
+            }
+        }
+        Ok(owners)
+    }
+
+    fn parent_owned_subentities(
+        &self,
+        entry: &Entry,
+        lookup_record: &impl Fn(u64) -> Option<usize>,
+        cx: &mut Cx<'_>,
+    ) -> Result<Option<Vec<u64>>, Error> {
+        let data = self.data(entry);
+        let parsed = (|| -> Option<(Bits<'_>, Option<i32>)> {
+            let mut bits = Bits::with_release(data, self.release);
+            let handles_at = match entry.handles {
+                Some(at) => {
+                    bits.bot()?;
+                    bits.split_strings(at)?;
+                    at
+                }
+                None => {
+                    bits.bs()?;
+                    let at = usize::try_from(bits.rl()?).ok()?;
+                    if self.release == Release::R2007 {
+                        bits.split_strings(at)?;
+                    }
+                    at
+                }
+            };
+            bits.handle()?;
+            skip_extended_data(&mut bits)?;
+            let common = entity_data(&mut bits)?;
+            if bits.pos() > handles_at {
+                return None;
+            }
+            let mut owned_count = None;
+            let has_children = match entry.type_code {
+                INSERT => {
+                    let own = insert_with_owned(&mut bits, false, &mut owned_count)?;
+                    let attribs = own.iter().any(|v| v.code == 66 && v.data == Data::Int(1));
+                    if attribs && self.release >= Release::R2004 {
+                        owned_count = Some(bits.bl()?);
+                    }
+                    attribs
+                }
+                MINSERT => {
+                    let own = insert_with_owned(&mut bits, true, &mut owned_count)?;
+                    own.iter().any(|v| v.code == 66 && v.data == Data::Int(1))
+                }
+                POLYLINE_2D => {
+                    polyline2d(&mut bits)?;
+                    if self.release >= Release::R2004 {
+                        owned_count = Some(bits.bl()?);
+                    }
+                    true
+                }
+                POLYLINE_3D => {
+                    polyline3d(&mut bits)?;
+                    if self.release >= Release::R2004 {
+                        owned_count = Some(bits.bl()?);
+                    }
+                    true
+                }
+                POLYLINE_PFACE => {
+                    polyface(&mut bits)?;
+                    if self.release >= Release::R2004 {
+                        owned_count = Some(bits.bl()?);
+                    }
+                    true
+                }
+                POLYLINE_MESH => {
+                    mesh(&mut bits)?;
+                    if self.release >= Release::R2004 {
+                        owned_count = Some(bits.bl()?);
+                    }
+                    true
+                }
+                _ => return None,
+            };
+            if !has_children {
+                return None;
+            }
+            bits.seek(handles_at);
+            if common.entmode == 0 {
+                bits.handle()?;
+            }
+            for _ in 0..common.reactors {
+                bits.handle()?;
+            }
+            if common.xdic {
+                bits.handle()?;
+            }
+            if !common.no_links {
+                bits.handle()?;
+                bits.handle()?;
+            }
+            if common.color_handle {
+                bits.handle()?;
+            }
+            bits.handle()?;
+            if common.ltype_flags == 3 {
+                bits.handle()?;
+            }
+            if common.plotstyle_handle {
+                bits.handle()?;
+            }
+            for _ in 0..common.styles {
+                bits.handle()?;
+            }
+            if matches!(entry.type_code, INSERT | MINSERT) {
+                bits.handle()?;
+            }
+            Some((bits, owned_count))
+        })();
+        let Some((mut bits, owned_count)) = parsed else {
+            return Ok(None);
+        };
+        let place = Ref::at_bytes(entry.span.start as u64, entry.span.end as u64);
+        if self.release >= Release::R2004 {
+            let Some(count) = owned_count.and_then(|c| usize::try_from(c).ok()) else {
+                return Ok(None);
+            };
+            if count > self.entries.len() {
+                return Ok(None);
+            }
+            let total = (count as u64).saturating_add(1);
+            cx.check(Kind::Work, total)
+                .and_then(|()| cx.check(Kind::DecodedBytes, total.saturating_mul(8)))
+                .map_err(|stop| stopped_at(cx, stop, place))?;
+            let mut out = Vec::with_capacity(count + 1);
+            for _ in 0..=count {
+                let Some(h) = bits.handle().and_then(|h| h.resolve(entry.handle)) else {
+                    return Ok(None);
+                };
+                if h != 0 {
+                    out.push(h);
+                }
+            }
+            Ok(Some(out))
+        } else {
+            let Some((first, last, seqend)) = (|| {
+                let first = bits.handle()?.resolve(entry.handle)?;
+                let last = bits.handle()?.resolve(entry.handle)?;
+                let seqend = bits.handle()?.resolve(entry.handle)?;
+                Some((first, last, seqend))
+            })() else {
+                return Ok(None);
+            };
+            let mut out = Vec::new();
+            let mut visited = std::collections::BTreeSet::new();
+            let mut cur = first;
+            while cur != 0 && !visited.contains(&cur) {
+                cx.check(Kind::Work, 1)
+                    .and_then(|()| cx.check(Kind::DecodedBytes, 32))
+                    .map_err(|stop| stopped_at(cx, stop, place.clone()))?;
+                let Some(child) = lookup_record(cur).and_then(|rec| self.entries.get(rec)) else {
+                    break;
+                };
+                if child.type_code == SEQEND
+                    || !expected_subentity_parent(child.type_code, entry.type_code)
+                {
+                    break;
+                }
+                visited.insert(cur);
+                out.push(cur);
+                if cur == last {
+                    break;
+                }
+                let next = entity_links(self.data(child), cur).map_or(0, |links| links.next);
+                cur = next;
+            }
+            if seqend != 0 {
+                out.push(seqend);
+            }
+            Ok(Some(out))
+        }
+    }
+}
+
+fn expected_subentity_parent(sub_type: u16, parent_type: u16) -> bool {
+    match sub_type {
+        ATTRIB => matches!(parent_type, INSERT | MINSERT),
+        VERTEX_2D..=VERTEX_PFACE_FACE => {
+            matches!(
+                parent_type,
+                POLYLINE_2D | POLYLINE_3D | POLYLINE_PFACE | POLYLINE_MESH
+            )
+        }
+        SEQEND => matches!(
+            parent_type,
+            INSERT | MINSERT | POLYLINE_2D | POLYLINE_3D | POLYLINE_PFACE | POLYLINE_MESH
+        ),
+        _ => false,
+    }
+}
+
+/// オブジェクトのデータから直接の所有者ハンドルだけを高速に読む
+pub(super) fn fast_direct_owner(
+    data: &[u8],
+    release: Release,
+    entry: &Entry,
+    entity: bool,
+    header: Option<Header>,
+) -> Option<u64> {
+    let mut bits = Bits::with_release(data, release);
+    let handles_at = match entry.handles {
+        Some(at) => {
+            bits.bot()?;
+            bits.split_strings(at)?;
+            at
+        }
+        None => {
+            bits.bs()?;
+            let at = usize::try_from(bits.rl()?).ok()?;
+            if release == Release::R2007 {
+                bits.split_strings(at)?;
+            }
+            at
+        }
+    };
+    bits.handle()?;
+    skip_extended_data(&mut bits)?;
+    if entity {
+        let entmode = entity_data_entmode(&mut bits, release)?;
+        match entmode {
+            0 => {
+                bits.seek(handles_at);
+                bits.handle()?.resolve(entry.handle)
+            }
+            1 => header.map(|h| h.paper),
+            2 => header.map(|h| h.model),
+            _ => None,
+        }
+    } else {
+        bits.seek(handles_at);
+        bits.handle()?.resolve(entry.handle)
     }
 }
 

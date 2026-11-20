@@ -96,7 +96,9 @@ pub(super) fn encode(
             [start, handles_at],
             release,
         )?
-    } else if release == Release::R2004 && matches!(new.kind.as_slice(), b"INSERT" | b"MTEXT") {
+    } else if release == Release::R2004
+        && matches!(new.kind.as_slice(), b"INSERT" | b"POLYLINE" | b"MTEXT")
+    {
         r2004_own_fields(
             BitWriter::default,
             old,
@@ -1190,7 +1192,7 @@ pub(super) fn r2010_own_fields(
             [start, end],
             release,
         )
-    } else if new.kind == b"INSERT" {
+    } else if matches!(new.kind.as_slice(), b"INSERT" | b"POLYLINE") {
         r2004_own_fields(
             BitWriter::with_strings,
             old,

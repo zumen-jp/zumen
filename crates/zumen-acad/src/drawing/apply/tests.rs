@@ -54,24 +54,25 @@ mod duplicate_handle_tests {
         let mut budget = Budget::default();
         let mut diag = Diagnostics::new();
         let counts =
-            attribute_counts_for(&db, &at, &mut Cx::new(&mut budget, &mut diag, &cancel)).unwrap();
-        assert_eq!(counts.get(&0), Some(&1));
-        assert_eq!(counts.get(&3), Some(&1));
+            attached_positions_for(&db, &at, &mut Cx::new(&mut budget, &mut diag, &cancel))
+                .unwrap();
+        assert_eq!(counts.children.get(&0).map(Vec::as_slice), Some(&[1][..]));
+        assert_eq!(counts.children.get(&3).map(Vec::as_slice), Some(&[4][..]));
         let spent = budget.used(Kind::Work);
         for _ in 0..100 {
-            assert_eq!(counts.get(&0), Some(&1));
-            assert_eq!(counts.get(&3), Some(&1));
+            assert_eq!(counts.children.get(&0).map(Vec::as_slice), Some(&[1][..]));
+            assert_eq!(counts.children.get(&3).map(Vec::as_slice), Some(&[4][..]));
         }
         assert_eq!(budget.used(Kind::Work), spent);
         let mut budget = Budget::new(Limits::default().with(Kind::Work, Limit::Finite(1)));
         assert!(matches!(
-            attribute_counts_for(&db, &at, &mut Cx::new(&mut budget, &mut diag, &cancel)),
+            attached_positions_for(&db, &at, &mut Cx::new(&mut budget, &mut diag, &cancel)),
             Err(Error::Stopped(_))
         ));
         let mut budget = Budget::default();
         cancel.cancel();
         assert!(matches!(
-            attribute_counts_for(&db, &at, &mut Cx::new(&mut budget, &mut diag, &cancel)),
+            attached_positions_for(&db, &at, &mut Cx::new(&mut budget, &mut diag, &cancel)),
             Err(Error::Stopped(_))
         ));
         assert_eq!(budget.used(Kind::Work), 0);

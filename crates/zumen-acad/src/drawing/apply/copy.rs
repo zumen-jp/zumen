@@ -43,6 +43,8 @@ const PARTS_COPYABLE: &[&[u8]] = &[b"DIMENSION", b"ARC_DIMENSION", b"ACAD_TABLE"
 /// 続くレコードの種類
 const FOLLOWERS: &[&[u8]] = &[b"VERTEX", b"ATTRIB", b"SEQEND"];
 
+type Followers<'a> = Vec<(usize, &'a Object)>;
+
 /// 写せない理由。診断の `field` と `value`
 type Refusal = (&'static str, &'static str);
 
@@ -376,7 +378,15 @@ fn copied(
         return Ok(Err(("kind", "unsupported")));
     };
 
-    let followers = trailing(db, position, object, cx, at)?;
+    let followers = if followed(object) {
+        let attached = plan.attached_for(db, at, cx)?;
+        match followers_from_attached(attached, db, position, cx, at)? {
+            Ok(found) => found,
+            Err(refusal) => return Ok(Err(refusal)),
+        }
+    } else {
+        Vec::new()
+    };
     if let Some(lifted) = attributes_of(found) {
         let filed = followers
             .iter()
@@ -397,11 +407,12 @@ fn copied(
             let Place::Space(space) = src_place else {
                 return Ok(Err(("transform", "unsupported")));
             };
-            moved(
+            moved_for_copy(
                 db,
                 positions,
                 was,
                 object,
+                &followers,
                 &eff_transform,
                 encoder,
                 &InSpace(space),
@@ -416,11 +427,12 @@ fn copied(
             let Some(&paper_frame) = frames.get(&sheet) else {
                 return Ok(Err(("transform", "unsupported")));
             };
-            moved(
+            moved_for_copy(
                 db,
                 positions,
                 was,
                 object,
+                &followers,
                 &eff_transform,
                 encoder,
                 &OnSheet(sheet, paper_frame),
@@ -436,23 +448,25 @@ fn copied(
         Err(refusal) => return Ok(Err(refusal)),
     };
     let want_paper = home.paper && !(home.blocks && target != Target::Dxf);
+    let want_follower_paper = home.paper && target == Target::Dxf;
     if cross_place {
         set_paper_flag(&mut values, want_paper);
     }
+    let moved_followers: BTreeMap<_, _> = moved.followers.into_iter().collect();
     let mut written = Vec::with_capacity(followers.len());
     for (at_follower, follower) in followers {
         let Some(f_kind) = kind_in(FOLLOWERS, &follower.kind) else {
             return Ok(Err(("followers", "unsupported")));
         };
-        let source = match moved.followers.iter().find(|(p, _)| *p == at_follower) {
-            Some((_, values)) => values,
+        let source = match moved_followers.get(&at_follower) {
+            Some(values) => values,
             None if f_kind == b"SEQEND" => &follower.values,
             None => return Ok(Err(("followers", "unsupported"))),
         };
         match own_values(db, source, false, cx, at)? {
             Ok(mut f_values) => {
-                if cross_place {
-                    set_paper_flag(&mut f_values, want_paper);
+                if cross_place || target != Target::Dxf {
+                    set_paper_flag(&mut f_values, want_follower_paper);
                 }
                 written.push((f_kind, f_values));
             }
@@ -537,7 +551,15 @@ fn copied_from_source(
         return Ok(Err(("xdata", "world_space")));
     }
 
-    let followers = trailing(&source.db, position, object, cx, at)?;
+    let followers = if followed(object) {
+        let attached = source.attached_for(at, cx)?;
+        match followers_from_attached(attached, &source.db, position, cx, at)? {
+            Ok(found) => found,
+            Err(refusal) => return Ok(Err(refusal)),
+        }
+    } else {
+        Vec::new()
+    };
     if let Some(lifted) = attributes_of(found) {
         let filed = followers
             .iter()
@@ -572,11 +594,12 @@ fn copied_from_source(
             let Place::Space(space) = src_place else {
                 return Ok(Err(("transform", "unsupported")));
             };
-            moved(
+            moved_for_copy(
                 &source.db,
                 &source.positions,
                 was,
                 object,
+                &followers,
                 &eff_transform,
                 &src_encoder,
                 &InSpace(space),
@@ -591,11 +614,12 @@ fn copied_from_source(
             let Some(&paper_frame) = source.frames.get(&sheet) else {
                 return Ok(Err(("transform", "unsupported")));
             };
-            moved(
+            moved_for_copy(
                 &source.db,
                 &source.positions,
                 was,
                 object,
+                &followers,
                 &eff_transform,
                 &src_encoder,
                 &OnSheet(sheet, paper_frame),
@@ -621,15 +645,17 @@ fn copied_from_source(
         return Ok(Err(refusal));
     }
     let want_paper = home.paper && !(home.blocks && target != Target::Dxf);
+    let want_follower_paper = home.paper && target == Target::Dxf;
     set_paper_flag(&mut values, want_paper);
 
+    let moved_followers: BTreeMap<_, _> = moved.followers.into_iter().collect();
     let mut written = Vec::with_capacity(followers.len());
     for (at_follower, follower) in &followers {
         let Some(f_kind) = kind_in(FOLLOWERS, &follower.kind) else {
             return Ok(Err(("followers", "unsupported")));
         };
-        let raw_source = match moved.followers.iter().find(|(p, _)| p == at_follower) {
-            Some((_, vals)) => vals,
+        let raw_source = match moved_followers.get(at_follower) {
+            Some(vals) => vals,
             None if f_kind == b"SEQEND" => &follower.values,
             None => return Ok(Err(("followers", "unsupported"))),
         };
@@ -642,7 +668,7 @@ fn copied_from_source(
         {
             return Ok(Err(refusal));
         }
-        set_paper_flag(&mut f_values, want_paper);
+        set_paper_flag(&mut f_values, want_follower_paper);
         written.push((f_kind, f_values));
     }
 
@@ -1278,38 +1304,92 @@ fn attributes_of(found: Found<'_>) -> Option<usize> {
     }
 }
 
-/// 図形（表の `position`）のすぐ後に並び、図形が所有する VERTEX・ATTRIB と、それを閉じる SEQEND
-fn trailing<'a>(
+/// 旧式の 2D POLYLINE の平行移動では、親の基点を保ち、座標を持つ VERTEX を動かす。
+#[allow(clippy::too_many_arguments)]
+fn moved_for_copy<P: Copy + PartialEq + zumen_drawing::transform::Point>(
+    db: &AcadDb,
+    positions: &BTreeMap<Ref, usize>,
+    was: &Element<P>,
+    object: &Object,
+    followers: &[(usize, &Object)],
+    transform: &Affine,
+    encoder: &Encoder,
+    frame: &impl Frame<P>,
+    model: bool,
+) -> Option<Moved> {
+    if object.kind != b"POLYLINE" {
+        return moved(db, positions, was, object, transform, encoder, frame, model);
+    }
+    let Shape::Polyline(polyline) = &was.shape else {
+        return None;
+    };
+    let [1.0, 0.0, _, 0.0, 1.0, _] = transform.m else {
+        return None;
+    };
+    let copy_values = |record: &Object| {
+        let mut values = record.values.clone();
+        if moving_xdata(record).is_some() {
+            if !model {
+                return None;
+            }
+            carried(&mut values, transform)?;
+        }
+        Some(values)
+    };
+    let mut vertices = polyline.vertices.iter();
+    let mut children = Vec::with_capacity(followers.len());
+    for &(position, child) in followers {
+        let mut values = copy_values(child)?;
+        if child.kind == b"VERTEX" {
+            let point = vertices.next()?.point;
+            place(
+                &mut values,
+                frame,
+                [10, 20],
+                &transform.point(point),
+                &point,
+            )?;
+        }
+        children.push((position, values));
+    }
+    vertices.next().is_none().then_some(())?;
+    Some(Moved {
+        object: copy_values(object)?,
+        followers: children,
+    })
+}
+
+/// 図形（表の `position`）が所有する VERTEX・ATTRIB と、それを閉じる SEQEND を `VERTEX` / `ATTRIB` → `SEQEND` の順に返す（#914）
+fn followers_from_attached<'a>(
+    attached: &AttachedPositions,
     db: &'a AcadDb,
     position: usize,
-    object: &Object,
     cx: &mut Cx,
     at: &Ref,
-) -> Result<Vec<(usize, &'a Object)>, Error> {
-    let mut found = Vec::new();
-    if !followed(object) {
-        return Ok(found);
+) -> Result<Result<Followers<'a>, Refusal>, Error> {
+    let children = attached
+        .children
+        .get(&position)
+        .map_or(&[][..], Vec::as_slice);
+    let seqends = attached
+        .seqends
+        .get(&position)
+        .map_or(&[][..], Vec::as_slice);
+    if seqends.len() != 1 {
+        return Ok(Err(("followers", "unsupported")));
     }
-    let mine = [object.handle(), object.owner()];
-    for (index, follower) in db.objects().iter().enumerate().skip(position + 1) {
+    let mut found = Vec::with_capacity(children.len() + seqends.len());
+    for &pos in children.iter().chain(seqends.iter()) {
         work(cx, 1, at)?;
-        let ends = match follower.kind.as_slice() {
-            b"VERTEX" | b"ATTRIB" => false,
-            b"SEQEND" => true,
-            _ => break,
+        let Some(follower) = db.objects().get(pos) else {
+            return Ok(Err(("followers", "unsupported")));
         };
-        if follower
-            .owner()
-            .is_some_and(|owner| !mine.contains(&Some(owner)))
-        {
-            break;
+        if follower.kind == b"VERTEX" || follower.kind == b"SEQEND" {
+            count_transform_values(follower, at, cx)?;
         }
-        found.push((index, follower));
-        if ends {
-            break;
-        }
+        found.push((pos, follower));
     }
-    Ok(found)
+    Ok(Ok(found))
 }
 
 /// 足すレコードに書く、ハンドル（5）と所有者（330）の後の値。`cross_doc` なら非 0 のハンドル参照をすべて拒む

@@ -11621,3 +11621,243 @@ fn r2007_containers_lift_unicode_objects_reject_edits_and_respect_budgets() {
     assert_eq!(neg_res, Err(Error::Invalid));
     assert_eq!(codes_of(&neg_diag), [codes::DWG_FILE_INVALID]);
 }
+
+/// オブジェクトのマップで SEQEND が VERTEX より前に並び、または子レコードが空間の entmode を持つ DWG でも、
+/// 単体復号・常駐エンジン・一括 lift が同じ頂点列を返し、POLYLINE の restyle が全 VERTEX と SEQEND に届く（#914）
+#[cfg(feature = "drawing")]
+#[test]
+fn dwg_polyline_with_seqend_before_vertices_and_space_entmode_lifts_and_restyles() {
+    use zumen_acad::{AcadLive, dwg::single::DwgSingle};
+    use zumen_drawing::{
+        Changes, Color, ColorCode, ColorSystem, Edit, Hash, Inherit, LayerId, LineTypeId, Restyle,
+        Seen, Shape, SpaceId, id,
+    };
+    use zumen_sdk::{Apply, Lift};
+
+    for sub_entmode in [0_u8, 2_u8] {
+        let layer_ctrl = object(0x32, 2, |w| w.bl_zero(), |w| w.handle(4, 0));
+        let layer_0 = object(0x33, 0x10, record_named(b"0"), record_handles(2));
+        let layer_wall = object(0x33, 0x11, record_named(b"Wall"), record_handles(2));
+        let ltype_ctrl = object(0x38, 5, |w| w.bl_zero(), |w| w.handle(4, 0));
+        let ltype_cont = object(0x39, 0x14, record_named(b"Continuous"), record_handles(5));
+        let ltype_dash = object(0x39, 0x15, record_named(b"Dashed"), record_handles(5));
+        let block_ctrl = object(0x30, 1, |w| w.bl_zero(), |w| w.handle(4, 0));
+        let model_br = object(0x31, 0x1F, record_named(b"*Model_Space"), |w| {
+            w.handle(4, 1);
+            w.handle(3, 0);
+            w.handle(5, 0);
+            w.handle(3, 0x1D);
+            w.handle(4, 0x20);
+            w.handle(4, 0x20);
+            w.handle(3, 0x1E);
+        });
+        let model_blk = object(
+            0x04,
+            0x1D,
+            |w| {
+                entity_common(w, 0, 256, 1.0, 0);
+                w.bs(13);
+                w.bytes(b"*Model_Space\0");
+            },
+            |w| {
+                w.handle(4, 0x1F);
+                w.handle(3, 0);
+                w.handle(5, 0x10);
+            },
+        );
+        let model_endblk = object(
+            0x05,
+            0x1E,
+            |w| entity_common(w, 0, 256, 1.0, 0),
+            |w| {
+                w.handle(4, 0x1F);
+                w.handle(3, 0);
+                w.handle(5, 0x10);
+            },
+        );
+        let polyline = object(
+            0x0F,
+            0x20,
+            |w| {
+                entity_common(w, 2, 2, 1.0, 0);
+                w.bs(1); // 閉じている
+                w.bs(0);
+                w.bd(0.0);
+                w.bd(0.0);
+                w.bit(true);
+                w.bd(0.0);
+                w.bit(true);
+            },
+            |w| {
+                w.handle(3, 0);
+                w.handle(5, 0x10);
+                w.handle(4, 0x22); // 最初の VERTEX
+                w.handle(4, 0x23); // 最後の VERTEX
+                w.handle(3, 0x21); // 先行する SEQEND
+            },
+        );
+        let seqend = object(
+            0x06,
+            0x21,
+            |w| entity_common(w, sub_entmode, 256, 1.0, 0),
+            |w| {
+                if sub_entmode == 0 {
+                    w.handle(4, 0x20);
+                }
+                w.handle(3, 0);
+                w.handle(5, 0x10);
+            },
+        );
+        let make_vertex = |handle: u64, [x, y]: [f64; 2], prev: u64, next: u64| {
+            object(
+                0x0A,
+                handle,
+                |w| {
+                    w.bit(false);
+                    w.bits(u64::from(sub_entmode), 2);
+                    w.bl_zero();
+                    w.bit(false); // no_links = false（前後リンクあり）
+                    w.bs(2);
+                    w.bd(1.0);
+                    w.bits(0, 2);
+                    w.bits(0, 2);
+                    w.bs(0);
+                    w.bytes(&[0x1D]);
+                    w.bytes(&[0]);
+                    for v in [x, y, 0.0, 0.0, 0.0, 0.0, 0.0] {
+                        w.bd(v);
+                    }
+                },
+                |w| {
+                    if sub_entmode == 0 {
+                        w.handle(4, 0x20);
+                    }
+                    w.handle(3, 0);
+                    w.handle(4, prev);
+                    w.handle(4, next);
+                    w.handle(5, 0x10);
+                },
+            )
+        };
+        let v1 = make_vertex(0x22, [10.0, 20.0], 0, 0x23);
+        let v2 = make_vertex(0x23, [25.0, 28.0], 0x22, 0);
+
+        let src = with_header(
+            dwg(&[
+                (1, block_ctrl),
+                (2, layer_ctrl),
+                (5, ltype_ctrl),
+                (0x10, layer_0),
+                (0x11, layer_wall),
+                (0x14, ltype_cont),
+                (0x15, ltype_dash),
+                (0x1D, model_blk),
+                (0x1E, model_endblk),
+                (0x1F, model_br),
+                (0x20, polyline),
+                (0x21, seqend),
+                (0x22, v1),
+                (0x23, v2),
+            ]),
+            0,
+            0x1F,
+            4,
+            [0.0, 0.0, 100.0, 100.0],
+            0x40,
+        );
+
+        let (file, diag) = read(&src, Limits::default());
+        assert!(diag.is_empty(), "{sub_entmode}: {:?}", codes_of(&diag));
+        let mut file = file.unwrap();
+        let mut budget = Budget::default();
+        let mut lift_diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let db = file
+            .objects(&mut Cx::new(&mut budget, &mut lift_diag, &cancel))
+            .unwrap();
+        let single =
+            DwgSingle::from_file(&file, &mut Cx::new(&mut budget, &mut lift_diag, &cancel))
+                .unwrap();
+        for (idx, expected) in db.objects().iter().enumerate() {
+            let decoded = single
+                .decode_record(
+                    &file,
+                    idx,
+                    &mut Cx::new(&mut budget, &mut lift_diag, &cancel),
+                )
+                .unwrap();
+            assert_eq!(&decoded, expected, "{sub_entmode} record {idx}");
+        }
+
+        let lifted = file
+            .lift(&mut Cx::new(&mut budget, &mut lift_diag, &cancel))
+            .unwrap();
+        let live =
+            AcadLive::open_dwg(&src, &mut Cx::new(&mut budget, &mut lift_diag, &cancel)).unwrap();
+        let live_drawing = live
+            .drawing(&mut Cx::new(&mut budget, &mut lift_diag, &cancel))
+            .unwrap();
+        assert_eq!(live_drawing, lifted, "{sub_entmode}");
+
+        let [el] = lifted.spaces[0].elements.as_slice() else {
+            panic!("{sub_entmode}: {:?}", lifted.spaces[0].elements);
+        };
+        let Shape::Polyline(pl) = &el.shape else {
+            panic!("{sub_entmode}: {:?}", el.shape);
+        };
+        assert_eq!(pl.vertices.len(), 2);
+        assert!(pl.closed);
+
+        let wall = LayerId(lifted.layers.iter().position(|l| l.name == "Wall").unwrap() as u32);
+        let dashed = LineTypeId(
+            lifted
+                .line_types
+                .iter()
+                .position(|l| l.name == "Dashed")
+                .unwrap() as u32,
+        );
+        let space = id::space(SpaceId(0));
+        let target = Seen {
+            id: id::Namer::new(&space).next(0, el),
+            hash: Hash::element(el),
+        };
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Restyle {
+                target,
+                style: Restyle {
+                    layer: Some(wall),
+                    color: Some(Inherit::Own(Color {
+                        code: Some(ColorCode {
+                            system: ColorSystem::Aci,
+                            value: 6,
+                        }),
+                        rgb: None,
+                    })),
+                    line_type: Some(Inherit::Own(dashed)),
+                    ..Restyle::default()
+                },
+            }],
+        };
+        let mut apply_diag = Diagnostics::new();
+        file.apply(
+            &changes,
+            &mut Cx::new(&mut budget, &mut apply_diag, &cancel),
+        )
+        .unwrap_or_else(|e| panic!("{sub_entmode}: {e:?} {apply_diag:?}"));
+        assert!(apply_diag.is_empty(), "{sub_entmode}: {apply_diag:?}");
+
+        let after_db = file
+            .objects(&mut Cx::new(&mut budget, &mut apply_diag, &cancel))
+            .unwrap();
+        for h in [0x20, 0x22, 0x23] {
+            let obj = after_db.get(h).unwrap();
+            assert_eq!(obj.first(8), Some(&Data::Text(b"Wall".to_vec())));
+            assert_eq!(obj.first(6), Some(&Data::Text(b"Dashed".to_vec())));
+            assert_eq!(obj.first(62), Some(&Data::Int(6)));
+        }
+        let seq = after_db.get(0x21).unwrap();
+        assert_eq!(seq.first(8), Some(&Data::Text(b"Wall".to_vec())));
+        assert_eq!(seq.first(62), None);
+    }
+}

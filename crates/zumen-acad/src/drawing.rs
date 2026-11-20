@@ -639,11 +639,18 @@ fn arrange<T>(keys: Option<&SortKeys>, items: Vec<(T, Option<u64>)>, cx: &mut Cx
     keyed.into_iter().map(|(_, item)| item).collect()
 }
 
+/// INSERT・POLYLINE の添字から、続く ATTRIB・VERTEX の添字と閉じる SEQEND の添字への対応、および
+/// いずれかの親に属するとした添字
+pub(super) struct Attached {
+    pub(super) children: BTreeMap<usize, Vec<usize>>,
+    pub(super) seqends: BTreeMap<usize, Vec<usize>>,
+    pub(super) owned: BTreeSet<usize>,
+}
+
 /// INSERT の属性（ATTRIB）と POLYLINE の頂点（VERTEX）と、終わりのマーカー（SEQEND）。所有者（330）が INSERT か
 /// POLYLINE を指すもの、所有者がないか図形でないものは、続くフラグ（66 = 1）を持つ INSERT か POLYLINE の後に並ぶ
-/// ものを、そのもののとする（DXF Reference「INSERT」「POLYLINE」）。INSERT と POLYLINE の添字から ATTRIB と
-/// VERTEX の添字への対応と、どれかのものとした添字を返す
-fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usize>) {
+/// ものを、そのもののとする（DXF Reference「INSERT」「POLYLINE」）
+pub(super) fn attached_with_seqend(entities: &[&Object]) -> Attached {
     let roles: Vec<Option<single::Followed>> = entities
         .iter()
         .map(|object| single::followed_object(object))
@@ -653,7 +660,8 @@ fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usiz
         .enumerate()
         .filter_map(|(index, object)| Some((object.handle()?, index)))
         .collect();
-    let mut attributes: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    let mut children: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    let mut seqends: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     let mut owned = BTreeSet::new();
     let mut open = None;
     for (index, role) in roles.iter().enumerate() {
@@ -676,18 +684,31 @@ fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usiz
                     });
                 if let Some(parent) = parent {
                     owned.insert(index);
-                    if *kind != single::Follow::Seqend {
-                        attributes.entry(parent).or_default().push(index);
+                    if *kind == single::Follow::Seqend {
+                        seqends.entry(parent).or_default().push(index);
+                        if open == Some(parent) {
+                            open = None;
+                        }
+                    } else {
+                        children.entry(parent).or_default().push(index);
                     }
-                }
-                if *kind == single::Follow::Seqend {
+                } else if *kind == single::Follow::Seqend {
                     open = None;
                 }
             }
             None => open = None,
         }
     }
-    (attributes, owned)
+    Attached {
+        children,
+        seqends,
+        owned,
+    }
+}
+
+fn attached(entities: &[&Object]) -> (BTreeMap<usize, Vec<usize>>, BTreeSet<usize>) {
+    let found = attached_with_seqend(entities);
+    (found.children, found.owned)
 }
 
 /// ヘッダーの `$INSUNITS`（DXF Reference「HEADER Section Group Codes」）。長さの単位でなければ不明

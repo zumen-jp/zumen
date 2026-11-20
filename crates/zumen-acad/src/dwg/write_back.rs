@@ -71,6 +71,9 @@ mod leader_tests;
 #[cfg(test)]
 mod mtext_tests;
 #[cfg(test)]
+#[cfg(feature = "drawing")]
+mod polyline_seqend_tests;
+#[cfg(test)]
 mod table_entry_tests;
 #[cfg(test)]
 mod true_color_layer_tests;
