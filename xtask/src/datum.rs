@@ -7,7 +7,10 @@ use std::io::Write as _;
 use std::path::Path;
 
 use zumen_base::{Budget, CancelToken, Cx, Diagnostics};
-use zumen_crs::{GeoPoint, ShiftGrid};
+use zumen_crs::{
+    Crs, Ellipsoid, GeoPoint, MapPoint, ShiftGrid, Shifts, Zone, to_geographic_on, to_jgd2011,
+    to_plane, to_plane_on,
+};
 
 use crate::geoid::{output_folder, outside_repository, read_limited};
 
@@ -41,6 +44,15 @@ struct Mesh {
 }
 
 impl Mesh {
+    fn from_grid(grid: &ShiftGrid) -> Self {
+        let ordered: Vec<_> = grid.nodes().map(|(code, _, _)| node(code)).collect();
+        Self {
+            nodes: ordered.iter().copied().collect(),
+            ordered,
+            step: (grid.spacing().0 / 30) as i32,
+        }
+    }
+
     fn find(&self, start: usize, accept: impl Fn(Node) -> bool) -> Option<Node> {
         let (before, after) = self.ordered.split_at(start);
         after.iter().chain(before).copied().find(|&n| accept(n))
@@ -149,24 +161,23 @@ impl Mesh {
     }
 }
 
-pub(super) fn points(
-    folder: &str,
-    grid: &str,
-    outside: Option<(&str, &str)>,
-) -> Result<(), String> {
+fn read_grid(grid: &str) -> Result<ShiftGrid, String> {
     let grid = outside_repository(Path::new(grid), "格子")?;
     let bytes = read_limited(&grid, "格子", 256 * 1024 * 1024)?;
     let mut budget = Budget::default();
     let mut diagnostics = Diagnostics::new();
     let cancel = CancelToken::new();
-    let grid = ShiftGrid::read(&bytes, &mut Cx::new(&mut budget, &mut diagnostics, &cancel))
-        .map_err(|e| format!("格子を読めませんでした（{e:?}）"))?;
-    let ordered: Vec<_> = grid.nodes().map(|(code, _, _)| node(code)).collect();
-    let mesh = Mesh {
-        nodes: ordered.iter().copied().collect(),
-        ordered,
-        step: (grid.spacing().0 / 30) as i32,
-    };
+    ShiftGrid::read(&bytes, &mut Cx::new(&mut budget, &mut diagnostics, &cancel))
+        .map_err(|e| format!("格子を読めませんでした（{e:?}）"))
+}
+
+pub(super) fn points(
+    folder: &str,
+    grid: &str,
+    outside: Option<(&str, &str)>,
+) -> Result<(), String> {
+    let grid = read_grid(grid)?;
+    let mesh = Mesh::from_grid(&grid);
     let mut points = mesh.points();
     let (lat, lon) = mesh.outside(outside)?;
     points.push(("OUT".into(), lat, lon));
@@ -187,14 +198,7 @@ pub(super) fn points(
         };
         writeln!(output, "{id}\t{}\t{}\t{b}\t{l}", dms(*lat), dms(*lon)).expect("String");
     }
-    let path = output_folder(Path::new(folder))?.join("zumen.tsv");
-    let mut file = File::create_new(&path)
-        .map_err(|e| format!("zumen.tsv を新規作成できませんでした（{}）", e.kind()))?;
-    if let Err(error) = file.write_all(output.as_bytes()) {
-        drop(file);
-        let _ = std::fs::remove_file(path);
-        return Err(format!("zumen.tsv を書けませんでした（{}）", error.kind()));
-    }
+    write_new_files(folder, &[("zumen.tsv", &output)])?;
     println!(
         "{} 点の入力と計算結果を zumen.tsv に書きました",
         points.len()
@@ -202,9 +206,185 @@ pub(super) fn points(
     Ok(())
 }
 
+/// 途中で失敗したら、この呼び出しが新規作成したものだけを戻す。
+fn write_new_files(folder: &str, contents: &[(&str, &str)]) -> Result<(), String> {
+    let folder = output_folder(Path::new(folder))?;
+    let mut created = Vec::new();
+    for &(name, data) in contents {
+        let path = folder.join(name);
+        let result = File::create_new(&path).and_then(|mut file| {
+            created.push(path);
+            file.write_all(data.as_bytes())
+        });
+        if let Err(error) = result {
+            for path in created {
+                let _ = std::fs::remove_file(path);
+            }
+            return Err(format!(
+                "{name} を新規作成できませんでした（{}）",
+                error.kind()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn site_xy(point: MapPoint) -> MapPoint {
+    let round = |value: f64| (value * 10_000.0).round() / 10_000.0;
+    MapPoint {
+        northing: round(point.northing),
+        easting: round(point.easting),
+    }
+}
+
+fn plane_stages(
+    zone: Zone,
+    at: GeoPoint,
+    tky: &ShiftGrid,
+    patch: &ShiftGrid,
+    previous: Option<&ShiftGrid>,
+) -> Option<[MapPoint; 4]> {
+    let tokyo = site_xy(to_plane_on(Ellipsoid::Bessel, zone, at)?.point);
+    let geographic = to_geographic_on(Ellipsoid::Bessel, zone, tokyo)?.point;
+    let (b, l) = tky.correction(geographic)?;
+    if b == 0.0 && l == 0.0 {
+        return None;
+    }
+    let jgd = GeoPoint {
+        latitude: geographic.latitude + b / 3600.0,
+        longitude: geographic.longitude + l / 3600.0,
+    };
+    let middle = site_xy(to_plane(zone, jgd)?.point);
+    // 改定のファイルを照らす場合、先に渡す JGD2000 用格子の対象外の点に限る。
+    // 四隅の一部だけがある点は、連続変換でも診断されて選ばれない。
+    if previous.is_some_and(|grid| grid.correction(jgd).is_some()) {
+        return None;
+    }
+    let revision = [patch];
+    let shifts = Shifts {
+        tky2jgd: Some(tky),
+        patch: &[previous.unwrap_or(patch)],
+        revision: if previous.is_some() { &revision } else { &[] },
+    };
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let cancel = CancelToken::new();
+    let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+    let (_, chain) = to_jgd2011(Crs::Tokyo(zone), tokyo, &shifts, &mut cx)?;
+    let datum = if previous.is_some() {
+        Crs::Plane(zone)
+    } else {
+        Crs::Jgd2000(zone)
+    };
+    let (_, single) = to_jgd2011(datum, middle, &shifts, &mut cx)?;
+    let single = site_xy(single);
+    (single != middle && middle != tokyo).then_some([tokyo, middle, single, site_xy(chain)])
+}
+
+pub(super) fn plane(
+    folder: &str,
+    tky: &str,
+    patch: &str,
+    zone: &str,
+    previous: Option<&str>,
+) -> Result<(), String> {
+    let zone = zone
+        .parse()
+        .ok()
+        .and_then(Zone::new)
+        .ok_or("系は 1〜19 で指定してください")?;
+    let tky = read_grid(tky)?;
+    let patch = read_grid(patch)?;
+    let previous = previous.map(read_grid).transpose()?;
+    let mesh = Mesh::from_grid(&patch);
+    let mut selected = BTreeSet::new();
+    let mut inputs = [String::new(), String::new()];
+    let mut expected =
+        String::from("id\ttokyo_x\ttokyo_y\ttky_x\ttky_y\tpatch_x\tpatch_y\tchain_x\tchain_y\n");
+    for k in 0..2 {
+        let start = mesh.ordered.len() * (2 * k + 1) / 16;
+        let (before, after) = mesh.ordered.split_at(start);
+        let (chosen, stages) = after
+            .iter()
+            .chain(before)
+            .find_map(|&(i, j)| {
+                if selected.contains(&(i, j)) || !mesh.full((i, j)) {
+                    return None;
+                }
+                let at = GeoPoint {
+                    latitude: f64::from(i * 30 + mesh.step * 10) / 3600.0,
+                    longitude: f64::from(360_000 + j * 45 + mesh.step * 15) / 3600.0,
+                };
+                Some((
+                    (i, j),
+                    plane_stages(zone, at, &tky, &patch, previous.as_ref())?,
+                ))
+            })
+            .ok_or("両段で補正される格子内の異なる点を 2 点選べませんでした")?;
+        selected.insert(chosen);
+        let id = format!("P{}", k + 1);
+        for (text, xy) in inputs.iter_mut().zip(&stages) {
+            write!(text, "{:.4} {:.4} {id}\r\n", xy.northing, xy.easting).expect("String");
+        }
+        expected.push_str(&id);
+        for xy in stages {
+            write!(expected, "\t{:.4}\t{:.4}", xy.northing, xy.easting).expect("String");
+        }
+        expected.push('\n');
+    }
+    write_new_files(
+        folder,
+        &[
+            ("tky.in", &inputs[0]),
+            ("patch.in", &inputs[1]),
+            ("expected.tsv", &expected),
+        ],
+    )?;
+    println!(
+        "第 {} 系の 2 点を tky.in、patch.in、expected.tsv に書きました",
+        zone.number()
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plane_uses_the_previous_grid_only_outside_its_region() {
+        let grid = |prefix, b, l| {
+            let mut text = String::new();
+            for i in 0..4 {
+                for j in 0..4 {
+                    writeln!(text, "{prefix}{i}{j} {b} {l}").unwrap();
+                }
+            }
+            let mut budget = Budget::default();
+            let mut diagnostics = Diagnostics::new();
+            let cancel = CancelToken::new();
+            ShiftGrid::read(
+                text.as_bytes(),
+                &mut Cx::new(&mut budget, &mut diagnostics, &cancel),
+            )
+            .unwrap()
+        };
+        let zone = Zone::new(9).unwrap();
+        let at = GeoPoint {
+            latitude: 4001.5 / 120.0,
+            longitude: 100.0 + 3201.5 / 80.0,
+        };
+        let tky = grid("504000", 1, 2);
+        let patch = grid("504000", -1, 1);
+        let outside = grid("603000", 3, 4);
+        let expected = plane_stages(zone, at, &tky, &patch, None).unwrap();
+        assert_eq!(
+            plane_stages(zone, at, &tky, &patch, Some(&outside)),
+            Some(expected)
+        );
+        assert_eq!(plane_stages(zone, at, &tky, &patch, Some(&patch)), None);
+        assert_eq!(plane_stages(zone, at, &tky, &outside, None), None);
+    }
 
     #[test]
     fn selects_the_same_cells_at_both_mesh_spacings() {

@@ -51,3 +51,27 @@ python xtask/verify/datum/batch.py compare tky2jgd /path/to/kit/zumen.tsv /path/
 ```
 
 2026-11-21 の一括計算は 3 ファイル各 19 点で、補正できた 42 点の差の最大は 0.00000 秒でした。残る 15 点はサイトの両方の結果列が `-9999.` で、zumen も補間しませんでした。TKY2JGD の一括出力ヘッダーには Ver.2.1.1、手元の格子には Ver.2.1.2 と記されています。[TKY2JGD の入出力](https://vldb.gsi.go.jp/sokuchi/surveycalc/tky2jgd/help/infile.htm)・[PatchJGD の入出力](https://vldb.gsi.go.jp/sokuchi/surveycalc/patchjgd/helpweb/infile.htm)
+
+## 平面直角座標で連続変換を照らす
+
+TKY2JGD と地域の PatchJGD の両方で座標が動く格子内の 2 点を選びます。十勝は第 13 系、熊本は第 2 系を使います。出力先は地域ごとに新しいフォルダーを指定します。
+
+```sh
+cargo xtask datum plane /path/to/tokachi /path/to/TKY2JGD.par /path/to/tokachi2003.par 13
+cargo xtask datum plane /path/to/kumamoto /path/to/TKY2JGD.par /path/to/kumamoto2026_BL.par 2 --revision-after /path/to/tokachi2003.par
+```
+
+十勝の格子は `Shifts::patch` に、熊本の改定の格子は `Shifts::revision` に渡します。`--revision-after` は日本測地系からの変換で先に当てる JGD2000 用の格子を指定します。この格子の対象外で、先の補正量が 0 の点を選びます。十勝の格子を熊本の点に使うのはこの条件を満たすためです。
+
+1. TKY2JGD の一括計算で「平面直角座標 → 平面直角座標」を選び、系番号を指定して「入力値を出力する」を有効にします。`tky.in` を入れて結果を `tky.out` に保存します。入力の列は X（北）、Y（東）、点名です。
+2. 次のコマンドで、公式の第 1 段の結果から第 2 段への入力 `site_chain.in` を作ります。サイトが出力した 0.0001 m の桁をそのまま使います。
+3. PatchJGD の一括計算で同じ入出力と系番号、地域に対応するパラメーターを選びます。`patch.in` を入れた結果は `patch.out` に、`site_chain.in` を入れた結果は `site_chain.out` に保存します。`patch.in` は zumen が計算した中間座標を 0.0001 m に丸めた入力です。
+
+各地域の出力フォルダーを `KIT` として、リポジトリのルートで実行します。
+
+```sh
+python xtask/verify/datum/plane.py chain-input KIT/expected.tsv KIT/tky.out KIT/site_chain.in
+python xtask/verify/datum/plane.py compare KIT/expected.tsv KIT/tky.out KIT/patch.out KIT/site_chain.out
+```
+
+照合は全点の点名と入力座標が合うことを確かめ、X・Y の成分ごとの差の最大を表示します。TKY2JGD はベッセル楕円体の逆投影・格子補正・GRS80 の投影、PatchJGD は同じ中間座標を入れた `to_jgd2011`、連続変換は中間座標を丸めない日本測地系からの `to_jgd2011` と比べます。再照合で調べ直す目安は、各段が表示の 1 桁分（0.0001 m）、連続変換がその 2 倍です。[測量計算サイトとの照合記録](../../../docs/formats/crs.md#測量計算サイトとの照合)

@@ -17,12 +17,11 @@ def make_input(expected):
     return "".join(lines)
 
 
-def batch_rows(raw, mode):
+def batch_fields(raw):
     try:
         content = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         content = raw.decode("cp932")
-    observed = {}
     for index, line in enumerate(content.splitlines(), 1):
         line = line.strip()
         if not line or line.startswith("#"):
@@ -30,7 +29,12 @@ def batch_rows(raw, mode):
         fields = line.split()
         if len(fields) != 5:
             raise ValueError(f"一括出力の {index} 行目の列数が不正です")
-        latitude, longitude, after_lat, after_lon, key = fields
+        yield index, fields
+
+
+def batch_rows(raw, mode):
+    observed = {}
+    for index, (latitude, longitude, after_lat, after_lon, key) in batch_fields(raw):
         if key in observed:
             raise ValueError(f"一括出力の {index} 行目の ID が重複しています")
         if (after_lat, after_lon) == ("-9999.", "-9999."):
