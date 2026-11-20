@@ -9,11 +9,15 @@ use zumen_drawing::{Drawing2D, LayerId, Shape, SpaceId, Unit};
 use zumen_sdk::{Codec, Lift, conversion::ConversionReport};
 
 fn drawing() -> Drawing2D {
+    lift_dxf(&case::source())
+}
+
+fn lift_dxf(input: &[u8]) -> Drawing2D {
     let mut budget = Budget::default();
     let mut diag = Diagnostics::new();
     let cancel = CancelToken::new();
     let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
-    zumen_acad::Dxf::read(&case::source(), &mut cx)
+    zumen_acad::Dxf::read(input, &mut cx)
         .unwrap()
         .lift(&mut cx)
         .unwrap()
@@ -432,17 +436,25 @@ fn failed_conversion_publishes_neither_document_nor_blob_and_can_be_retried() {
 fn stops_at_different_phases_have_one_diagnostic() {
     use zumen_base::{Kind, Limit, Limits, codes};
     let model = drawing();
-    for format in ["sxf", "jww"] {
+    let dimensions = lift_dxf(dimension_source().as_bytes());
+    for (format, input) in [("sxf", &model), ("jww", &model), ("dxf", &dimensions)] {
         for kind in [Kind::Work, Kind::DecodedBytes] {
             let run = |limit| {
                 let mut budget = Budget::new(Limits::default().with(kind, limit));
                 let mut diagnostics = Diagnostics::new();
                 let cancel = CancelToken::new();
                 let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
-                let result = if format == "sxf" {
-                    zumen_sxf::lower_to_p21(&model, 100, &mut cx).map(|_| ())
-                } else {
-                    zumen_jww::lower_to_jww(&model, 100, &mut cx).map(|_| ())
+                let result = match format {
+                    "sxf" => zumen_sxf::lower_to_p21(input, 100, &mut cx).map(|_| ()),
+                    "jww" => zumen_jww::lower_to_jww(input, 100, &mut cx).map(|_| ()),
+                    "dxf" => zumen_acad::lower_to_dxf_with_report(
+                        input,
+                        &zumen_acad::Reseat,
+                        100,
+                        &mut cx,
+                    )
+                    .map(|_| ()),
+                    _ => unreachable!(),
                 };
                 (result, budget.used(kind), diagnostics)
             };
@@ -460,7 +472,11 @@ fn stops_at_different_phases_have_one_diagnostic() {
                     codes::BUDGET_DECODED_BYTES_EXCEEDED
                 };
                 assert_eq!(
-                    diagnostics.iter().filter(|d| d.code() == code).count(),
+                    diagnostics
+                        .iter()
+                        .filter(|d| d.code() == code)
+                        .map(|d| d.count())
+                        .sum::<u64>(),
                     1,
                     "{format} {kind:?} {limit}"
                 );

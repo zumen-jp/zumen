@@ -262,10 +262,15 @@ pub fn lower_to_dxf_with_report(
                 .map_err(|error| failed(cx, error))?;
         }
     }
-    let template_styles = dimension_style_index(&target, cx)?;
+    let template_styles = if drawing.dimension_styles.is_empty() {
+        BTreeMap::new()
+    } else {
+        dimension_style_index(&target, cx)?
+    };
     for style in &drawing.dimension_styles {
         cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
-        cx.check(Kind::DecodedBytes, style.name.len() as u64)?;
+        cx.check(Kind::DecodedBytes, style.name.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
         let existing = template_styles
             .get(&style.name.to_ascii_lowercase())
             .copied();
@@ -276,7 +281,8 @@ pub fn lower_to_dxf_with_report(
                 Edit::ReplaceDimensionStyle {
                     target: zumen_drawing::Seen {
                         id: id::dimension_style(known, index),
-                        hash: zumen_drawing::Hash::dimension_style_checked(known, cx)?,
+                        hash: zumen_drawing::Hash::dimension_style_checked(known, cx)
+                            .map_err(|stop| stopped(cx, stop))?,
                     },
                     style: Box::new(DimensionStyle {
                         size: style.size,
@@ -865,8 +871,10 @@ fn dimension_style_index<'a>(
 ) -> Result<BTreeMap<String, (usize, &'a DimensionStyle)>, Error> {
     let mut index = BTreeMap::new();
     for (i, style) in drawing.dimension_styles.iter().enumerate() {
-        cx.check(Kind::Work, 1 + style.name.len() as u64)?;
-        cx.check(Kind::DecodedBytes, 64 + style.name.len() as u64)?;
+        cx.check(Kind::Work, 1 + style.name.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
+        cx.check(Kind::DecodedBytes, 64 + style.name.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
         index
             .entry(style.name.to_ascii_lowercase())
             .or_insert((i, style));
@@ -903,7 +911,8 @@ impl Maps<'_> {
             Shape::Dimension(dimension) => {
                 dimension.block = None;
                 dimension.measurement = None;
-                cx.check(Kind::DecodedBytes, dimension.style.len() as u64)?;
+                cx.check(Kind::DecodedBytes, dimension.style.len() as u64)
+                    .map_err(|stop| stopped(cx, stop))?;
                 if !self
                     .dimension_styles
                     .contains_key(&dimension.style.to_ascii_lowercase())
@@ -1180,7 +1189,8 @@ fn add_all<'a>(
             .rposition(|addition| !addition.dimension_xdata.is_empty())
         {
             let count = last + 1;
-            cx.check(Kind::DecodedBytes, count as u64 * 16)?;
+            cx.check(Kind::DecodedBytes, count as u64 * 16)
+                .map_err(|stop| stopped(cx, stop))?;
             dimension_xdata.extend(
                 edits
                     .iter()

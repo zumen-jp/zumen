@@ -1,6 +1,6 @@
 //! 新しい DXF の寸法スタイルと個別の DSTYLE。表示部品を合成する前に書き先の参照を決める。
 
-use super::{Report, dimension_style_index, failed, quiet, report_dropped};
+use super::{Report, dimension_style_index, failed, quiet, report_dropped, stopped};
 use crate::DxfFile;
 use crate::db::{Data, Section, Value};
 use crate::drawing::charset_of;
@@ -31,7 +31,7 @@ pub(super) fn prepare(
     let mut text_styles = BTreeMap::new();
     let mut dim_styles = BTreeMap::new();
     for (index, row) in db.objects().iter().enumerate() {
-        cx.check(Kind::Work, 1)?;
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
         if row.section != Section::Tables || !matches!(row.kind.as_slice(), b"STYLE" | b"DIMSTYLE")
         {
             continue;
@@ -39,7 +39,8 @@ pub(super) fn prepare(
         let Some(Data::Text(bytes)) = row.first(2) else {
             continue;
         };
-        cx.check(Kind::DecodedBytes, 64 + bytes.len() as u64 * 4)?;
+        cx.check(Kind::DecodedBytes, 64 + bytes.len() as u64 * 4)
+            .map_err(|stop| stopped(cx, stop))?;
         let Some(name) = charset.decode(bytes) else {
             continue;
         };
@@ -56,14 +57,16 @@ pub(super) fn prepare(
     let style_sources = dimension_style_index(drawing, cx)?;
     let mut changed = false;
     for record in &drawing.dimension_display {
-        cx.check(Kind::Work, 1)?;
-        cx.check(Kind::DecodedBytes, 64)?;
+        cx.check(Kind::Work, 1).map_err(|stop| stopped(cx, stop))?;
+        cx.check(Kind::DecodedBytes, 64)
+            .map_err(|stop| stopped(cx, stop))?;
         match &record.target {
             DimensionDisplayTarget::Element { id, basis } => {
                 locals.entry(id.as_str()).or_insert((basis, &record.values));
             }
             DimensionDisplayTarget::Style(name) => {
-                cx.check(Kind::DecodedBytes, name.len() as u64)?;
+                cx.check(Kind::DecodedBytes, name.len() as u64)
+                    .map_err(|stop| stopped(cx, stop))?;
                 let name = name.to_ascii_lowercase();
                 if !styles_seen.insert(name.clone()) {
                     continue;
@@ -80,7 +83,8 @@ pub(super) fn prepare(
                     continue;
                 };
                 for field in fields(&record.values, false, &text_styles, source, report, cx)? {
-                    cx.check(Kind::Work, row.values.len() as u64)?;
+                    cx.check(Kind::Work, row.values.len() as u64)
+                        .map_err(|stop| stopped(cx, stop))?;
                     if let Some(old) = row.values.iter_mut().find(|v| v.code == field.code) {
                         *old = field;
                     } else {
@@ -96,11 +100,12 @@ pub(super) fn prepare(
     }
     if !locals.is_empty() {
         id::each_element(drawing, |position, id, element| -> Result<(), Error> {
-            cx.check(Kind::Work, 1 + id.len() as u64)?;
+            cx.check(Kind::Work, 1 + id.len() as u64)
+                .map_err(|stop| stopped(cx, stop))?;
             let Some((basis, values)) = locals.remove(id.as_str()) else {
                 return Ok(());
             };
-            if element.hash_checked(cx)? != *basis {
+            if element.hash_checked(cx).map_err(|stop| stopped(cx, stop))? != *basis {
                 return Ok(());
             }
             let (dimension, source) = match element {
@@ -117,7 +122,8 @@ pub(super) fn prepare(
                 cx.check(
                     Kind::DecodedBytes,
                     (4 + 2 * fields.len() as u64) * FIELD_BYTES,
-                )?;
+                )
+                .map_err(|stop| stopped(cx, stop))?;
                 let text = |code, bytes: &[u8]| Value {
                     code,
                     data: Data::Text(bytes.to_vec()),
@@ -162,7 +168,8 @@ fn fields(
         ResolvedDimensionDisplay::from_records(Some(values), None)
     };
     let mut fields = Vec::new();
-    cx.check(Kind::DecodedBytes, 13 * FIELD_BYTES)?;
+    cx.check(Kind::DecodedBytes, 13 * FIELD_BYTES)
+        .map_err(|stop| stopped(cx, stop))?;
     for (code, value, specified) in [
         (40, valid.scale, local && values.scale.is_some()),
         (41, valid.arrow_size, local && values.arrow_size.is_some()),
@@ -210,8 +217,10 @@ fn fields(
         report_dropped(cx, report, "dimension_display_value", source)?;
     }
     if let Some(style) = valid.text_style {
-        cx.check(Kind::Work, 1 + style.len() as u64)?;
-        cx.check(Kind::DecodedBytes, style.len() as u64)?;
+        cx.check(Kind::Work, 1 + style.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
+        cx.check(Kind::DecodedBytes, style.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
         if let Some(&handle) = text_styles.get(&style.to_ascii_lowercase()) {
             fields.push(Value {
                 code: 340,
