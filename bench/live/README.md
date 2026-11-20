@@ -2,7 +2,7 @@
 
 [文書エンジン](../../docs/live.md)のコアを検証する `core-live` と、DXF・DWG の試作を検証する `live` を置きます。図面を開いたまま持つ実装を、従来実装の逐次 `apply`・保持モデル・保存バイト列と照合し、時間とメモリを測ります。作業は [#878](https://github.com/zumen-jp/zumen/issues/878) で追います。
 
-コアのワークスペースには入れていません（形式に依らない表・版・トランザクション・取り消し・ページ配列・空間索引・変更フラグは `crates/zumen-live` に切り出し、1 オブジェクトごとの読み書き規則は `crates/zumen-acad` で共有しています）。依存は、このリポジトリの `zumen`・`zumen-acad`・`zumen-base`・`zumen-drawing`・`zumen-jww`・`zumen-live`・`zumen-scene`・`zumen-sdk`・`zumen-sxf` と、`libm` です。`Cargo.lock` は、ワークスペースの `Cargo.lock` から同じバージョンを引き継いでいます。CI はこのフォルダーのコードを組み立てないので、下の結果は、書いた日付に手元で流したものです。
+コアのワークスペースには入れていません（形式に依らない表・版・トランザクション・取り消し・ページ配列・空間索引・変更フラグは `crates/zumen-live` に切り出し、1 オブジェクトごとの読み書き規則は `crates/zumen-acad` で共有しています）。依存は、このリポジトリの `zumen`・`zumen-acad`・`zumen-base`・`zumen-building`・`zumen-drawing`・`zumen-ifc`・`zumen-jww`・`zumen-live`・`zumen-scene`・`zumen-sdk`・`zumen-sxf` と、`libm` です。`Cargo.lock` は、ワークスペースの `Cargo.lock` から同じバージョンを引き継いでいます。CI はこのフォルダーのコードを組み立てないので、下の結果は、書いた日付に手元で流したものです。
 
 ## コアの検証と測定
 
@@ -45,6 +45,8 @@ pwsh -File bench/live/memory.ps1 -Executable target/bench-live-core/release/core
 ```
 
 この入口の比較は 2 回の移動の経路です。全種類の操作の検証は単体テストと fuzz でも続けます。初回の結果と未達は [2026-11-16 の記録](results/core-2026-11-16.md)、公開サンプル・5 形式×4 規模・1 万／10 万／100 万要素（LINE・混在・ブロック挿入）の検証と達成結果は [2026-11-20 の記録](results/core-2026-11-20.md) にあります。
+
+建物の属性編集は `ifc-live` で別に測ります。公開 IFC 3 件と自作の 1,000・10,000 枚の壁について、[検証範囲と再現コマンド](results/ifc-2026-11-21.md)を記録しています。
 
 ## 常駐子プロセスの測定
 

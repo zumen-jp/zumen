@@ -22,12 +22,18 @@ path = "src/main.rs"
 name = "core-live"
 path = "src/core_live.rs"
 
+[[bin]]
+name = "ifc-live"
+path = "src/ifc_live.rs"
+
 [dependencies]
 libm = { version = "0.2.16", default-features = false }
 zumen = { path = "../../crates/zumen" }
 zumen-acad = { path = "../../crates/zumen-acad" }
 zumen-base = { path = "../../crates/zumen-base" }
+zumen-building = { path = "../../crates/zumen-building" }
 zumen-drawing = { path = "../../crates/zumen-drawing" }
+zumen-ifc = { path = "../../crates/zumen-ifc" }
 zumen-jww = { path = "../../crates/zumen-jww" }
 zumen-live = { path = "../../crates/zumen-live" }
 zumen-scene = { path = "../../crates/zumen-scene" }
