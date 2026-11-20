@@ -40,6 +40,39 @@ jobs:
           echo 'bec7804e5394bf348b42546e6889bd2a7752ccd4ce92cec423a9b238f77c2c9a  02_douro-keihan.xml' | sha256sum --check
           python3 "$GITHUB_WORKSPACE/xtask/verify/landxml/compare_public_tin.py" "$GITHUB_WORKSPACE/target/debug/examples/tin_probe" 01_hojo-seichi.xml 02_douro-keihan.xml
 
+  citygml:
+    name: 公開 PLATEAU の地物と座標を照らす
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: 公開 Rust API で地物の ID・LOD・面・頂点を出す
+        run: |
+          rustup target add wasm32-wasip1
+          cargo build --locked -p zumen-citygml --example plateau_probe
+          cargo build --locked -p zumen-citygml --example plateau_probe --target wasm32-wasip1
+      - name: 公開原本 4 件を XML と照らし、土地利用と浸水を GDAL で読む
+        run: |
+          python -m pip install --only-binary :all: pyogrio==0.13.0 shapely==2.2.0 numpy==2.5.4
+          cd "$RUNNER_TEMP"
+          verify="$GITHUB_WORKSPACE/xtask/verify/citygml"
+          probe="$GITHUB_WORKSPACE/target/debug/examples/plateau_probe"
+          base='https://raw.githubusercontent.com/Project-PLATEAU/PLATEAU-GIS-Converter/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data'
+          files=()
+          while read -r digest file; do
+            mkdir -p "$(dirname "$file")"
+            curl --fail --silent --show-error --location --retry 3 -o "$file" "$base/$file"
+            files+=("$file")
+          done < "$verify/plateau.sha256"
+          sha256sum --check "$verify/plateau.sha256"
+          python -I "$verify/compare_plateau.py" --wasm "$GITHUB_WORKSPACE/target/wasm32-wasip1/debug/examples/plateau_probe.wasm" "$probe" "${files[@]}"
+          python -I "$verify/compare_plateau.py" --gdal "$probe" numazu-shi/udx/luse/*.gml numazu-shi/udx/fld/*.gml
+
   browser:
     name: ブラウザーで適合テスト（Firefox・WebKit）
     runs-on: ubuntu-latest

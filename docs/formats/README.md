@@ -17,7 +17,7 @@
 | [bebridge](#format-bebridge) | BE-Bridge | bebridge | building | `unknown` | `none` |  |  |
 | [boring](#format-boring) | ボーリング交換用データ（BED） | boring | delivery | `public` | `core` | `external` |  |
 | [cedxm](#format-cedxm) | CEDXM | cedxm | building | `permission` | `none` |  |  |
-| [citygml](#format-citygml) | CityGML（PLATEAU の 3D 都市モデルと i-UR を含む） | citygml | geo | `public` | `core` | `synthetic` |  |
+| [citygml](#format-citygml) | CityGML（PLATEAU の 3D 都市モデルと i-UR を含む） | citygml | geo | `public` | `core` | `external` |  |
 | [csv](#format-csv) | CSV | csv | delivery | `public` | `none` |  |  |
 | [delivery](#format-delivery) | 電子納品の管理ファイル（INDEX\_C.XML・PHOTO.XML など） | delivery | delivery | `public` | `core` | `external` | `external` |
 | [dwg](#format-dwg) | DWG | acad | drawing | `public` | `core` | `application` | `application` |
@@ -39,7 +39,7 @@
 | [las](#format-las) | LAS・LAZ | las | pointcloud | `public` | `core` | `external` |  |
 | [par](#format-par) | TKY2JGD・PatchJGD のパラメーターのファイル（座標の補正量の格子） | par | geo | `public` | `core` | `external` |  |
 | [pdf](#format-pdf) | PDF | pdf | drawing | `unknown` | `none` |  |  |
-| [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `external` |  |
+| [ply](#format-ply) | PLY（点群） | ply | pointcloud | `public` | `core` | `application` |  |
 | [png](#format-png) | PNG | png | drawing | `public` | `core` |  | `external` |
 | [saf](#format-saf) | SXF の属性ファイル（SAF） | sxf | drawing・delivery | `public` | `core` | `synthetic` |  |
 | [sima](#format-sima) | SIMA 共通フォーマット | sima | drawing・civil・geo | `public` | `core` | `synthetic` | `synthetic` |
@@ -640,8 +640,10 @@
 - 権利の根拠にした文書: [PLATEAU のサイトポリシー](https://www.mlit.go.jp/plateau/site-policy/)（確認日: 2026-11-01）
 - 照合に使う候補: PLATEAU VIEW・QGIS
 - サンプルの出どころ: PLATEAU のデータ（G 空間情報センター。多くは政府標準利用規約 2.0）。大きいので ZUMEN\_SAMPLES に置く。再配布できる 5 MB 未満の公式のサンプルは見つかっていない
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: CityGML 2.0 と PLATEAU の製品仕様書と、テストの中で作った CityGML（crates/zumen-citygml/tests）で確かめた。PLATEAU のデータでの照合はまだ（#379・#504）
+- 読みの確かめた度合い: `external`（確認日: 2026-11-21）
+- 読みの確かめた範囲: 沼津市の公開 CityGML 2.0（土地利用・浸水）で GDAL の GML ドライバーと 228 地物の ID、369 面の輪と 22,285 頂点の軸順・標高を照合した。建築物と道路を含む 4 原本は XML から LOD と座標を別に読み、ネイティブと WASI の地理モデルの値も比較した。PLATEAU VIEW と QGIS での表示は未確認
+- 読みで使った公開サンプル: [https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/blob/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data/numazu-shi/udx/luse/523836\_luse\_6668\_op.gml](https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/blob/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data/numazu-shi/udx/luse/523836_luse_6668_op.gml)・[https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/blob/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data/numazu-shi/udx/fld/52385721\_fld\_6697\_l1\_op.gml](https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/blob/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data/numazu-shi/udx/fld/52385721_fld_6697_l1_op.gml)
+- 読みで照らした外部の実装: GDAL GML 3.12.4
 - 既知の crate: nusamai-citygml・ecitygml-io
 - issue: [zumen-jp/zumen#379](https://github.com/zumen-jp/zumen/issues/379)
 - 形式の文書: [docs/formats/citygml.md](../../docs/formats/citygml.md)
@@ -1000,10 +1002,11 @@
 - 権利の根拠にした文書: [Paul Bourke「PLY - Polygon File Format」](https://paulbourke.net/dataformats/ply/)（確認日: 2026-11-01）
 - 照合に使う候補: CloudCompare・MeshLab
 - サンプルの出どころ: samples/ply/（PDAL の 4 頂点・2 面の公開サンプル）・テストの中で作る
-- 読みの確かめた度合い: `external`（確認日: 2026-11-11）
-- 読みの確かめた範囲: PDAL が作った公開サンプル 1 件（ASCII、float64 の 4 頂点・2 面）を ply-rs 0.1.3 と照合した。全頂点の順と座標をビットで比較し、面を移さない診断と座標系が不明なことを確かめた。自前の合成の ASCII・両バイト順の座標・色・強度・分類と float/float32 の丸めも照合したが、external の根拠は公開サンプルだけ。公開サンプルと float32 の応答・診断をネイティブと wasm で比較する。実測点群、公開サンプルのバイナリと属性、法線や面のモデル化、CloudCompare・MeshLab との照合はまだ（#504）
+- 読みの確かめた度合い: `application`（確認日: 2026-11-18）
+- 読みの確かめた範囲: PDAL の公開 ASCII PLY 1 件を MeshLab 2025.07 で開き、2 面の表示と ASCII 出力の 4 頂点の順序・座標を確かめた。コアでは同じ 4 頂点を ply-rs 0.1.3 とビットで照合し、面を移さない診断を確認した。自作の ASCII・両バイト順の座標と属性は別に検査した。実測点群、バイナリの公開サンプルと属性、法線や面のモデル化、CloudCompare での照合は未確認
 - 読みで使った公開サンプル: [samples/ply/](../../samples/ply/)
 - 読みで照らした外部の実装: ply-rs 0.1.3
+- 読みで開いたソフト: MeshLab 2025.07
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
 - issue: [zumen-jp/zumen#809](https://github.com/zumen-jp/zumen/issues/809)
 - 形式の文書: [docs/formats/ply.md](../../docs/formats/ply.md)

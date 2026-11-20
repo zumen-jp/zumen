@@ -1102,9 +1102,11 @@ docs = ["docs/formats/citygml.md"]
 issues = ["zumen-jp/zumen#379"]
 
 [formats.citygml.read]
-level = "synthetic"
-scope = "CityGML 2.0 と PLATEAU の製品仕様書と、テストの中で作った CityGML（crates/zumen-citygml/tests）で確かめた。PLATEAU のデータでの照合はまだ（#379・#504）"
-checked = "2026-11-03"
+level = "external"
+scope = "沼津市の公開 CityGML 2.0（土地利用・浸水）で GDAL の GML ドライバーと 228 地物の ID、369 面の輪と 22,285 頂点の軸順・標高を照合した。建築物と道路を含む 4 原本は XML から LOD と座標を別に読み、ネイティブと WASI の地理モデルの値も比較した。PLATEAU VIEW と QGIS での表示は未確認"
+checked = "2026-11-21"
+public-samples = ["https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/blob/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data/numazu-shi/udx/luse/523836_luse_6668_op.gml", "https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/blob/e1c8feff7d8ff3e132230d6c21eaed4879e4a235/nusamai-plateau/tests/data/numazu-shi/udx/fld/52385721_fld_6697_l1_op.gml"]
+implementations = [{ name = "GDAL GML", version = "3.12.4" }]
 
 [[formats.citygml.evidence]]
 title = "PLATEAU のサイトポリシー"
@@ -1223,11 +1225,12 @@ docs = ["docs/formats/ply.md"]
 issues = ["zumen-jp/zumen#373", "zumen-jp/zumen#809"]
 
 [formats.ply.read]
-level = "external"
-scope = "PDAL が作った公開サンプル 1 件（ASCII、float64 の 4 頂点・2 面）を ply-rs 0.1.3 と照合した。全頂点の順と座標をビットで比較し、面を移さない診断と座標系が不明なことを確かめた。自前の合成の ASCII・両バイト順の座標・色・強度・分類と float/float32 の丸めも照合したが、external の根拠は公開サンプルだけ。公開サンプルと float32 の応答・診断をネイティブと wasm で比較する。実測点群、公開サンプルのバイナリと属性、法線や面のモデル化、CloudCompare・MeshLab との照合はまだ（#504）"
-checked = "2026-11-11"
+level = "application"
+scope = "PDAL の公開 ASCII PLY 1 件を MeshLab 2025.07 で開き、2 面の表示と ASCII 出力の 4 頂点の順序・座標を確かめた。コアでは同じ 4 頂点を ply-rs 0.1.3 とビットで照合し、面を移さない診断を確認した。自作の ASCII・両バイト順の座標と属性は別に検査した。実測点群、バイナリの公開サンプルと属性、法線や面のモデル化、CloudCompare での照合は未確認"
+checked = "2026-11-18"
 public-samples = ["samples/ply/"]
 implementations = [{ name = "ply-rs", version = "0.1.3" }]
+software = [{ name = "MeshLab", version = "2025.07" }]
 
 [[formats.ply.evidence]]
 title = "Paul Bourke「PLY - Polygon File Format」"
