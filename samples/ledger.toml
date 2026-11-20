@@ -730,3 +730,27 @@ retrieved = "2026-11-02"
 license = "MIT"
 license-url = "https://github.com/NS-NS/STB-DiffChecker/blob/2fb1230ffd546733ef51fd0fb42e754cb51e0381/LICENSE"
 attribution = "Copyright (c) 2020 NS-NS. STB-DiffChecker の試験用の ST-Bridge。MIT License の本文は licenses/stb-diffchecker-MIT.txt"
+
+[[samples]]
+path = "xyz/pdal-tile-1.xyz"
+sha256 = "884ff9ec852094da6332f5c89655c785ea632ed3cd936f2dbda6a2a5147624ce"
+bytes = 72
+title = "PDAL のタイル分割の入力（XYZ 9 点）"
+publisher = "PDAL contributors"
+url = "https://raw.githubusercontent.com/PDAL/PDAL/a3499cd22d9c7609dfc162a8d7f32e17dedab102/test/data/text/file1.txt"
+retrieved = "2026-11-21"
+license = "BSD-3-Clause"
+license-url = "https://github.com/PDAL/PDAL/blob/a3499cd22d9c7609dfc162a8d7f32e17dedab102/LICENSE.txt"
+attribution = "Copyright (c) 2017, Hobu, Inc. ライセンスの全文と著作権表示は licenses/pdal-2017.txt。取得したバイト列を保持した。"
+
+[[samples]]
+path = "las/pdal-tile-1.las"
+sha256 = "c3e33abf0cd640fcc32cd710faba9bcd637910b5f5c56346cad479a66ee343bf"
+bytes = 741
+title = "PDAL のタイル分割の入力（同じ 9 点の LAS）"
+publisher = "PDAL contributors"
+url = "https://raw.githubusercontent.com/PDAL/PDAL/a3499cd22d9c7609dfc162a8d7f32e17dedab102/test/data/las/tile/file1.las"
+retrieved = "2026-11-21"
+license = "BSD-3-Clause"
+license-url = "https://github.com/PDAL/PDAL/blob/a3499cd22d9c7609dfc162a8d7f32e17dedab102/LICENSE.txt"
+attribution = "Copyright (c) 2017, Hobu, Inc. ライセンスの全文と著作権表示は licenses/pdal-2017.txt。取得したバイト列を保持した。"

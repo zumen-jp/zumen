@@ -1243,15 +1243,18 @@ rights = "public"
 rights-note = "決まった仕様も持ち主もない。座標と属性を区切って並べたテキストを、推定で読む"
 place = "core"
 basis = ["inferred"]
-verify = ["CloudCompare"]
-samples = ["テストの中で作る"]
+verify = ["CloudCompare", "NumPy", "laspy"]
+samples = ["samples/xyz/（PDAL のタイル分割の入力）", "テストの中で作る"]
 docs = ["docs/formats/xyz.md"]
 issues = ["zumen-jp/zumen#373"]
 
 [formats.xyz.read]
-level = "synthetic"
-scope = "テストの中で作った XYZ（crates/zumen-xyz/tests）で確かめた。決まった仕様はなく、列の読み方は推定。CloudCompare が書いた XYZ との照合はまだ（#504）"
-checked = "2026-11-03"
+level = "external"
+scope = "PDAL の公開 XYZ の見出しに続く 9 点を NumPy で読み、同時に配られた LAS の laspy による全座標と順序を照らした。公開 API の全 9 点・範囲・見出しと座標系の診断が一致した。色・強度を持つ列の読み方は合成の入力による推定で、CloudCompare の出力とはまだ照らしていない（#504）"
+checked = "2026-11-21"
+public-samples = ["samples/xyz/pdal-tile-1.xyz"]
+attached-values = ["PDAL が同じコミットで配るタイル分割の入力 LAS の全座標（samples/las/pdal-tile-1.las）"]
+implementations = [{ name = "NumPy", version = "2.5.4" }, { name = "laspy", version = "2.7.0" }]
 
 [formats.delivery]
 name = "電子納品の管理ファイル（INDEX_C.XML・PHOTO.XML など）"

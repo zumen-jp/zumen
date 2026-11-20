@@ -54,3 +54,12 @@ ZUMEN_LASPY_PYTHON="$PWD/target/laspy-venv/bin/python" cargo test --locked -p zu
 LAZ の公開サンプルは、同じコミットの `test/data/laz/simple.laz` を変更せずに取得しました。PDAL が 2011 年に LAZ の読み書きのテストの入力として足したファイルで、同じ `LICENSE.txt` の BSD に従います。ヘッダーの作ったソフトは TerraScan で、個人の氏名・住所・連絡先を含むヘッダーや VLR はありません。
 
 laz-rs の `tests/data` の LAS も調べましたが、実測の原データの来歴と再配布条件を確認できなかったため採用していません。コードのライセンスだけを、そのデータの再配布の根拠にはしません。
+
+## 公開 XYZ との照合
+
+PDAL が対で配る XYZ と LAS の 9 点を照らします。XYZ の見出しで列名を確かめ、数値の行を NumPy で読みます。LAS は laspy で読みます。全点の順と 3 成分が原本どうしで一致することを確かめてから、XYZ 全体を公開 API に渡し、点集合・軸の並び・範囲・見出しと座標系の診断を比較します。
+
+```sh
+cargo build --locked -p zumen-cli
+python -I xtask/verify/laspy/check_xyz.py target/debug/zumen
+```

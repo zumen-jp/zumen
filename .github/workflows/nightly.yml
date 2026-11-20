@@ -427,6 +427,10 @@ jobs:
         env:
           ZUMEN_LASPY_REQUIRED: '1'
         run: cargo test --locked -p zumen-las --test external
+      - name: 公開 XYZ を同じ点群の LAS と照らす
+        run: |
+          cargo build --locked -p zumen-cli
+          python -I xtask/verify/laspy/check_xyz.py target/debug/zumen
 
   photo:
     name: 工事写真の Exif と XMP の読みを Pillow と照らす

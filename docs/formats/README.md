@@ -49,7 +49,7 @@
 | [sxf](#format-sxf) | SXF（SFC・P21 と、それを ZIP に入れた SFZ・P2Z） | sxf | drawing | `public` | `core` | `external` | `external` |
 | [tiff](#format-tiff) | TIFF・GeoTIFF | tiff | drawing・geo・pointcloud | `public` | `core` | `synthetic` |  |
 | [xlsx](#format-xlsx) | Excel の表（xlsx） | xlsx | delivery | `public` | `none` |  |  |
-| [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` | `synthetic` |  |
+| [xyz](#format-xyz) | XYZ（座標を並べた点群のテキスト） | xyz | pointcloud | `public` | `core` | `external` |  |
 
 ## 仕様の入手先
 
@@ -1156,9 +1156,12 @@
 - 権利の根拠: 決まった仕様も持ち主もない。座標と属性を区切って並べたテキストを、推定で読む
 - 仕様: 登録なし
 - 実装の根拠: inferred
-- 照合に使う候補: CloudCompare
-- サンプルの出どころ: テストの中で作る
-- 読みの確かめた度合い: `synthetic`（確認日: 2026-11-03）
-- 読みの確かめた範囲: テストの中で作った XYZ（crates/zumen-xyz/tests）で確かめた。決まった仕様はなく、列の読み方は推定。CloudCompare が書いた XYZ との照合はまだ（#504）
+- 照合に使う候補: CloudCompare・NumPy・laspy
+- サンプルの出どころ: samples/xyz/（PDAL のタイル分割の入力）・テストの中で作る
+- 読みの確かめた度合い: `external`（確認日: 2026-11-21）
+- 読みの確かめた範囲: PDAL の公開 XYZ の見出しに続く 9 点を NumPy で読み、同時に配られた LAS の laspy による全座標と順序を照らした。公開 API の全 9 点・範囲・見出しと座標系の診断が一致した。色・強度を持つ列の読み方は合成の入力による推定で、CloudCompare の出力とはまだ照らしていない（#504）
+- 読みで使った公開サンプル: [samples/xyz/pdal-tile-1.xyz](../../samples/xyz/pdal-tile-1.xyz)
+- 読みで照らした、ファイルに添えられた値: PDAL が同じコミットで配るタイル分割の入力 LAS の全座標（samples/las/pdal-tile-1.las）
+- 読みで照らした外部の実装: NumPy 2.5.4・laspy 2.7.0
 - issue: [zumen-jp/zumen#373](https://github.com/zumen-jp/zumen/issues/373)
 - 形式の文書: [docs/formats/xyz.md](../../docs/formats/xyz.md)

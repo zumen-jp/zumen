@@ -98,6 +98,8 @@ for id in $(gh cache list --key fuzz-corpus- --limit 100 --json id --jq '.[].id'
 
 ## PLY
 
+[`xyz/pdal-tile-1.xyz`](xyz/pdal-tile-1.xyz) と [`las/pdal-tile-1.las`](las/pdal-tile-1.las) は、[PDAL のタイル分割コマンドの追加](https://github.com/PDAL/PDAL/commit/a3499cd22d9c7609dfc162a8d7f32e17dedab102)で一緒に配られた、同じ 9 点の入力です。XYZ の配布時の名前は `file1.txt` です。いずれも元のバイト列を保ち、同じ版の BSD-3-Clause の表示と本文は `licenses/pdal-2017.txt` にあります。
+
 `ply/pdal-mesh-fixed.ply` は PDAL の公開サンプルです（#809）。[追加コミット](https://github.com/PDAL/PDAL/commit/f65c92beb523de0d70119c1fab2dc295933e9398)の `PlyWriterTest.cpp` は、テストの中で座標を決めた 4 頂点・2 面を、小数点以下 3 桁の ASCII で書き、このファイルと比較します。実測の点群ではありません。同コミットの `LICENSE.txt` は、別記のない全ファイルを BSD とし、このファイルへの別条件はありません。出所・帰属とライセンスの全文は台帳と `licenses/pdal-2017.txt` にあります。取得した 277 バイトを変更していません。
 
 `crates/zumen-ply/tests/external.rs` は ply-rs の読みと全頂点の座標を比較し、面を移さない診断と予算の停止も確認します。`bindings/conformance/cases/pointcloud_ply_sample.json` は同じ公開サンプルの応答・診断をネイティブと wasm で照らします。確認した範囲と残りは [PLY の文書](../docs/formats/ply.md#確かめた度合い)にあります。
