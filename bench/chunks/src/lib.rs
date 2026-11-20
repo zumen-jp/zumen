@@ -119,6 +119,10 @@ fn make_case(index: usize) -> Case {
         let file = testkit::read::<Dxf>(&input).0.unwrap();
         context(|cx| file.lift(cx).unwrap())
     };
+    case_from_drawing(drawing, input.len())
+}
+
+fn case_from_drawing(drawing: Drawing2D, input_bytes: usize) -> Case {
     let visits = context(|cx| drawing.walk_parts(Origin::Space(SpaceId(0)), cx).unwrap());
     let mut lines = BTreeMap::new();
     for visit in &visits {
@@ -155,7 +159,7 @@ fn make_case(index: usize) -> Case {
     drop(visits);
     Case {
         drawing,
-        input_bytes: input.len(),
+        input_bytes,
         lines,
         ids,
         walked,
@@ -164,8 +168,30 @@ fn make_case(index: usize) -> Case {
 
 pub fn prepare(index: usize) {
     assert!(index < CASES.len());
+    set_case(make_case(index));
+}
+
+/// 松浦市が配布する 2 つの SFC のみを、従来の入力と同じ監査に渡す。
+pub fn prepare_matsuura(input: &[u8]) -> Result<u8, &'static str> {
+    let sheet = match (
+        input.len(),
+        zumen_drawing::Hash::document(input).to_string().as_str(),
+    ) {
+        (17_975_570, "v2:05c1652e57229a03b21e5b8142424c52") => 1,
+        (57_227_256, "v2:9de44bfdac79796fec0d4b9db3d49d40") => 2,
+        _ => return Err("松浦市が配布した図郭 1 または 2 を指定する"),
+    };
+    let file = testkit::read::<zumen_sxf::Sxf>(input)
+        .0
+        .map_err(|_| "SFC を読めない")?;
+    let drawing = context(|cx| file.lift(cx)).map_err(|_| "SFC を図面に変換できない")?;
+    set_case(case_from_drawing(drawing, input.len()));
+    Ok(sheet)
+}
+
+fn set_case(case: Case) {
     *STATE.lock().unwrap() = Some(State {
-        case: make_case(index),
+        case,
         scene: None,
         diagnostics: String::new(),
         report: Vec::new(),
@@ -187,11 +213,15 @@ fn policy(index: usize) -> Chunking {
 }
 
 pub fn render(index: usize) {
+    render_with_tolerance(index, Some(0.01));
+}
+
+pub fn render_with_tolerance(index: usize, tolerance: Option<f64>) {
     let mut guard = STATE.lock().unwrap();
     let state = guard.as_mut().unwrap();
     let options = Options {
         origin: Origin::Space(SpaceId(0)),
-        tolerance: Some(0.01),
+        tolerance,
         print: false,
         region: None,
         palette: Palette::default(),
@@ -317,7 +347,7 @@ pub fn audit() -> Vec<u8> {
         canonical.extend_from_slice(r.column(section));
     }
     if let Some(first) = &state.canonical {
-        assert_eq!(first, &canonical, "IDs or per-kind drawing order changed");
+        assert!(first == &canonical, "IDs or per-kind drawing order changed");
     } else {
         state.canonical = Some(canonical.clone());
     }

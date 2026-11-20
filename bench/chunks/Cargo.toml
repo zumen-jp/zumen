@@ -15,12 +15,17 @@ crate-type = ["rlib", "cdylib"]
 name = "measure"
 path = "src/main.rs"
 
+[[bin]]
+name = "sfc"
+path = "src/sfc.rs"
+
 [dependencies]
 zumen-acad = { path = "../../crates/zumen-acad" }
 zumen-base = { path = "../../crates/zumen-base" }
 zumen-drawing = { path = "../../crates/zumen-drawing" }
 zumen-scene = { path = "../../crates/zumen-scene" }
 zumen-sdk = { path = "../../crates/zumen-sdk" }
+zumen-sxf = { path = "../../crates/zumen-sxf" }
 
 [profile.release]
 lto = true

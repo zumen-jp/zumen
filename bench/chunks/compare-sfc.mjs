@@ -72,19 +72,22 @@ for (const file of files) {
     assert.equal(result.sheets[0].views, 1);
     assert.equal(result.spaces.length, 1);
     for (const { id: from } of [...result.sheets, ...result.spaces]) {
-      const checkFont = font && from === result.sheets[0].id;
+      const isSheet = from === result.sheets[0].id;
+      const checkFont = font && isSheet;
       const options = [{}, { tolerance: 0.01 }];
       if (checkFont) options.push({ fonts: [{ input: "face.otf" }] });
+      if (isSheet) options.push({ view: 0 });
       for (const fields of options) {
         const scene = await call("scene", { doc: "sheet.sfc", from, ...fields });
         const bytes = Buffer.from(await native.take(scene.result.blob));
         assert(bytes.equals(Buffer.from(session.take(scene.result.blob))));
         assert.equal(bytes.length, scene.blobs[0].size);
         console.log(JSON.stringify({
-          sheet, from, tolerance: scene.result.tolerance, counts: scene.result.counts,
+          sheet, from, view: fields.view,
+          tolerance: scene.result.tolerance, counts: scene.result.counts,
           bytes: bytes.length, sha256: digest(bytes),
           diagnostics: scene.diagnostics.map(({ code, count }) => ({ code, count })),
-          ...(checkFont && fields.tolerance === undefined ? {
+          ...(checkFont && fields.tolerance === undefined && fields.view === undefined ? {
             fontSha256: fields.fonts ? fontHash : null, ...textCounts(bytes, scene.result.counts),
           } : {}),
         }));

@@ -169,6 +169,7 @@ dependencies = [
  "encoding_rs",
  "libm",
  "zumen-base",
+ "zumen-crs",
  "zumen-drawing",
  "zumen-geom2d",
  "zumen-live",
@@ -188,6 +189,7 @@ dependencies = [
  "zumen-drawing",
  "zumen-scene",
  "zumen-sdk",
+ "zumen-sxf",
 ]
 
 [[package]]
@@ -196,6 +198,7 @@ version = "0.3.0"
 dependencies = [
  "libm",
  "zumen-base",
+ "zumen-xml",
 ]
 
 [[package]]
@@ -259,6 +262,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "zumen-step"
+version = "0.3.0"
+dependencies = [
+ "zumen-base",
+]
+
+[[package]]
+name = "zumen-sxf"
+version = "0.3.0"
+dependencies = [
+ "encoding_rs",
+ "libm",
+ "zumen-base",
+ "zumen-drawing",
+ "zumen-geom2d",
+ "zumen-live",
+ "zumen-sdk",
+ "zumen-step",
+ "zumen-xml",
+]
+
+[[package]]
 name = "zumen-text"
 version = "0.3.0"
 dependencies = [
@@ -266,4 +291,12 @@ dependencies = [
  "libm",
  "zumen-base",
  "zumen-drawing",
+]
+
+[[package]]
+name = "zumen-xml"
+version = "0.3.0"
+dependencies = [
+ "encoding_rs",
+ "zumen-base",
 ]
