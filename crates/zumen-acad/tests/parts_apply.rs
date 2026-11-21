@@ -2771,7 +2771,7 @@ fn adds_dimensions_arc_dimensions_and_tables_with_anonymous_blocks() {
 }
 
 #[test]
-fn adds_plain_table_to_r2004_dwg_and_preserves_the_original() {
+fn adds_plain_dwg_tables_and_preserves_the_original() {
     let table = Table {
         position: mpt(122.0, 80.0),
         direction: [0.0, 1.0],
@@ -2808,7 +2808,14 @@ fn adds_plain_table_to_r2004_dwg_and_preserves_the_original() {
         ("table-add-r2004.dwg", false, true),
         ("table-add-r2004.dwg", true, false),
         ("table-r2004.dwg", false, false),
-        ("table-r2018.dwg", false, false),
+        ("table-r2010.dwg", false, true),
+        ("table-r2013.dwg", false, true),
+        ("table-r2018.dwg", false, true),
+        ("table-r2018.dwg", true, false),
+        ("table-styled-r2010.dwg", false, true),
+        ("table-styled-r2013.dwg", false, true),
+        ("table-styled-r2018.dwg", false, true),
+        ("table-partial-standard-r2018.dwg", false, false),
     ] {
         let bytes = std::fs::read(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))

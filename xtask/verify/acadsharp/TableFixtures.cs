@@ -21,7 +21,8 @@ static class TableFixtures
             (ACadVersion.AC1032, "table-r2018.dwg", false),
             (ACadVersion.AC1024, "table-styled-r2010.dwg", true),
             (ACadVersion.AC1027, "table-styled-r2013.dwg", true),
-            (ACadVersion.AC1032, "table-styled-r2018.dwg", true) })
+            (ACadVersion.AC1032, "table-styled-r2018.dwg", true),
+            (ACadVersion.AC1032, "table-partial-standard-r2018.dwg", true) })
         {
             var doc = new CadDocument(version);
             var date = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -41,6 +42,13 @@ static class TableFixtures
             if (withStyles)
                 foreach (var style in new[] { tableStyle.TableCellStyle, tableStyle.DataCellStyle, tableStyle.HeaderCellStyle, tableStyle.TitleCellStyle })
                     style.TextStyle = doc.TextStyles["Standard"];
+            // 表全体の色を指定する。表示用の新規ブロックでは、まだこの書式を扱わない。
+            if (name == "table-partial-standard-r2018.dwg")
+            {
+                tableStyle.TableCellStyle.HasData = true;
+                tableStyle.TableCellStyle.TextColor = new Color(3);
+                tableStyle.TableCellStyle.PropertyOverrideFlags = ACadSharp.Objects.TableStyle.CellStylePropertyFlags.ContentColor;
+            }
             if (withStyles && version == ACadVersion.AC1018)
                 foreach (var style in new[] { tableStyle.DataCellStyle, tableStyle.HeaderCellStyle, tableStyle.TitleCellStyle })
                 {

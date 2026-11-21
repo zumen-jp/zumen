@@ -257,6 +257,7 @@ impl NewEntity<'_> {
             .ok()?);
         let mut fields = BitWriter::with_strings();
         match object.kind.as_slice() {
+            b"ACAD_TABLE" => new_table::modern(&mut fields, object, release)?,
             b"HATCH" => {
                 new_hatch(&mut fields, object, true)?;
             }
@@ -298,6 +299,9 @@ impl NewEntity<'_> {
         }
         if let Some(pointed) = self.pointed {
             handles.handle(5, pointed);
+        }
+        if object.kind == b"ACAD_TABLE" {
+            handles.handle(4, 0);
         }
         if let Some(extra) = self.extra_pointed {
             handles.handle(5, extra);
@@ -606,7 +610,8 @@ pub(super) fn r2010_addable(object: &Object) -> bool {
     if matches!(kind, b"BLOCK" | b"ENDBLK") {
         return object.section == Section::Blocks;
     }
-    const KINDS: [&[u8]; 21] = [
+    const KINDS: [&[u8]; 22] = [
+        b"ACAD_TABLE",
         b"HATCH",
         b"LEADER",
         b"DIMENSION",

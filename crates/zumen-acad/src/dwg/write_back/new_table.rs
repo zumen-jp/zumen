@@ -1,4 +1,4 @@
-//! R2004 の新規 ACAD_TABLE。既定の書式を使う文字と空のセルを扱う（ODS 5.4.1 の 20.4.96.1）。
+//! R2004・R2010 以降の新規 ACAD_TABLE。既定の書式を使う文字と空のセルを扱う（ODS 5.4.1 の 20.4.96）。
 
 use super::*;
 
@@ -74,7 +74,7 @@ pub(super) fn fields(object: &Object) -> Option<BitWriter> {
     Some(out)
 }
 
-fn text_cell(out: &mut BitWriter, cell: &[Value]) -> Option<()> {
+fn cell_text(cell: &[Value], flags_code: i16) -> Option<Vec<u8>> {
     let mut cell = cell.iter();
     for (code, expected) in [
         (171, 1),
@@ -83,7 +83,7 @@ fn text_cell(out: &mut BitWriter, cell: &[Value]) -> Option<()> {
         (174, 0),
         (175, 1),
         (176, 1),
-        (177, 0),
+        (flags_code, 0),
         (178, 0),
     ] {
         let value = cell.next()?;
@@ -101,6 +101,11 @@ fn text_cell(out: &mut BitWriter, cell: &[Value]) -> Option<()> {
         (!bytes.contains(&0)).then_some(())?;
         text.extend_from_slice(bytes);
     }
+    Some(text)
+}
+
+fn text_cell(out: &mut BitWriter, cell: &[Value]) -> Option<()> {
+    let text = cell_text(cell, 177)?;
     out.bs(1);
     out.rc(0);
     out.bit(false);
@@ -113,4 +118,148 @@ fn text_cell(out: &mut BitWriter, cell: &[Value]) -> Option<()> {
     out.rc(0);
     out.bit(false);
     Some(())
+}
+
+/// R2010 以降の ACAD_TABLE と内部の TABLECONTENT（ODS 5.4.1 の 20.4.96.2・20.4.97）。
+pub(super) fn modern(out: &mut BitWriter, object: &Object, release: Release) -> Option<()> {
+    let first = object.values.iter().position(|v| v.code == 171)?;
+    let (head, body) = object.values.split_at(first);
+    // セルの値にも 91・92 と座標が現れるので、INSERT・表の値は先頭だけで読む。
+    let header = Object {
+        kind: object.kind.clone(),
+        section: object.section.clone(),
+        origin: object.origin,
+        values: head.to_vec(),
+    };
+    let widths = encoding::table_reals(head, 142)?;
+    let heights = encoding::table_reals(head, 141)?;
+    let rows = i32::try_from(heights.len()).ok()?;
+    let cols = i32::try_from(widths.len()).ok()?;
+    (rows > 0
+        && cols > 0
+        && integer(&header, 91)?? == i64::from(rows)
+        && integer(&header, 92)?? == i64::from(cols))
+    .then_some(())?;
+    if widths.iter().chain(&heights).any(|&x| x <= 0.0) {
+        return None;
+    }
+    insert(out, &header, false, None)?;
+    out.rc(0);
+    out.bl(0);
+    if release == Release::R2010 {
+        out.bit(true);
+    } else {
+        out.bl(0);
+    }
+    // AcDbLinkedData の名前と説明。列の名前、独自のデータと上書きも持たない。
+    out.text(b"")?;
+    out.text(b"")?;
+    out.bl(cols);
+    for width in widths {
+        out.text(b"")?;
+        out.bl(0);
+        out.bl(0);
+        empty_cell_style(out);
+        out.bl(0);
+        out.bd(width);
+    }
+    out.bl(rows);
+    let mut groups = body.chunk_by(|_, next| next.code != 171);
+    for (row, height) in heights.into_iter().enumerate() {
+        out.bl(cols);
+        for _ in 0..cols {
+            let cell = groups.next()?;
+            let tag = cell.iter().position(|v| v.code == 301)?;
+            let (plain, cached) = cell.split_at_checked(tag)?;
+            let text = cell_text(plain, 91)?;
+            if !matches_cell_value(cached, &text) {
+                return None;
+            }
+            let value = core::str::from_utf8(&text).ok()?;
+            // AcDbLinkedTableData のセル。データリンクは持たず、値 1 個を置く。
+            out.bl(0);
+            out.text(b"")?;
+            out.bl(0);
+            out.bl(0);
+            out.bl(0);
+            out.bl(1);
+            out.bl(1);
+            encoding::write_r2010_table_value(out, (!value.is_empty()).then_some(value))?;
+            out.bl(0);
+            out.bs(0);
+            empty_cell_style(out);
+            out.bl(0);
+            out.bl(0);
+        }
+        out.bl(0);
+        out.bl(0);
+        empty_cell_style(out);
+        // Standard の表題（1）・見出し（2）・データ（3）の行書式を継ぐ。
+        out.bl(match row {
+            0 => 1,
+            1 => 2,
+            _ => 3,
+        });
+        out.bd(height);
+    }
+    groups.next().is_none().then_some(())?;
+    out.bl(0);
+    empty_cell_style(out);
+    out.bl(0);
+    // 表は分割しない。元の挿入点を開始位置とし、全行を 1 つの範囲に置く。
+    out.bs(38);
+    point3(out, &header, 11)?;
+    out.bl(0);
+    out.bl(1);
+    point3(out, &header, 10)?;
+    out.bl(0);
+    out.bl(rows - 1);
+    Some(())
+}
+
+/// 20.4.101 の AcDbCellStyle。種類と個別の書式指定は 0 にする。
+fn empty_cell_style(out: &mut BitWriter) {
+    out.bl(0);
+    out.bs(0);
+}
+
+/// L1 の文字・セルの値・表示文字列は同じ内容に限る。独自の書式や異なる値を落とさない。
+fn matches_cell_value(values: &[Value], text: &[u8]) -> bool {
+    let mut values = values.iter();
+    let empty = text.is_empty();
+    let marker = |v: Option<&Value>, code, text: &[u8]| {
+        v.is_some_and(|v| v.code == code && matches!(&v.data, Data::Text(bytes) if bytes == text))
+    };
+    let integer = |v: Option<&Value>, code, value| {
+        v.is_some_and(|v| v.code == code && v.data == Data::Int(value))
+    };
+    let chunks = |values: &mut core::slice::Iter<'_, Value>, more, last| {
+        let mut left = text;
+        loop {
+            let Some(v) = values.next() else {
+                return false;
+            };
+            let Data::Text(bytes) = &v.data else {
+                return false;
+            };
+            let Some(tail) = left.strip_prefix(bytes.as_slice()) else {
+                return false;
+            };
+            left = tail;
+            if v.code == last {
+                return left.is_empty();
+            }
+            if v.code != more {
+                return false;
+            }
+        }
+    };
+    marker(values.next(), 301, b"CELL_VALUE")
+        && integer(values.next(), 90, if empty { 0 } else { 4 })
+        && integer(values.next(), 93, if empty { 1 } else { 0 })
+        && (empty || (chunks(&mut values, 2, 1) && integer(values.next(), 94, 0)))
+        && marker(values.next(), 300, b"")
+        && chunks(&mut values, 303, 302)
+        && marker(values.next(), 304, b"ACVALUE_END")
+        && values.next().is_none()
 }

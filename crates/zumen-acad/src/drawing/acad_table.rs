@@ -516,6 +516,11 @@ pub(super) fn has_unsupported_dwg_table_format(db: &AcadDb, object: &Object) -> 
     let Some(style) = db.get(handle).filter(|s| s.kind == b"TABLESTYLE") else {
         return false;
     };
+    unsupported_dwg_table_style(style)
+}
+
+/// 行・罫線などの書式を移せない、または表スタイルのフィールド自体が読めていない。
+pub(super) fn unsupported_dwg_table_style(style: &Object) -> bool {
     style
         .first(crate::db::DWG_UNSUPPORTED_TABLE_FORMAT)
         .is_some()

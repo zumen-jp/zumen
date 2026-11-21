@@ -324,7 +324,7 @@ fn split_table_body(object: &Object) -> Option<(Object, &[Value])> {
     ))
 }
 
-fn table_reals(values: &[Value], code: i16) -> Option<Vec<f64>> {
+pub(super) fn table_reals(values: &[Value], code: i16) -> Option<Vec<f64>> {
     values
         .iter()
         .filter(|v| v.code == code)
@@ -699,7 +699,10 @@ fn skip_r2010_cell_style(bits: &mut Bits, data: &[u8], fields: &mut BitWriter) -
     Some(())
 }
 
-fn write_r2010_table_value(fields: &mut BitWriter, new_text: Option<&str>) -> Option<()> {
+pub(super) fn write_r2010_table_value(
+    fields: &mut BitWriter,
+    new_text: Option<&str>,
+) -> Option<()> {
     match new_text {
         None => {
             fields.bl(1);

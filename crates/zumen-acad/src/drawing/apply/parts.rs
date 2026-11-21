@@ -1223,7 +1223,7 @@ fn add_table_parts<P: Copy>(
     place: &Ref,
 ) -> Result<Option<BornPart>, Error> {
     if !current.born.since(b"AC1018")
-        || (!dxf && current.born.since(b"AC1021"))
+        || (!dxf && current.born.since(b"AC1021") && !current.born.since(b"AC1024"))
         || !current.classes.table
         || table.style.is_some()
         || table.formats.is_some()
@@ -1236,6 +1236,12 @@ fn add_table_parts<P: Copy>(
     else {
         return Ok(None);
     };
+    if !dxf
+        && current.born.since(b"AC1024")
+        && crate::drawing::acad_table::unsupported_dwg_table_style(style_obj)
+    {
+        return Ok(None);
+    }
     let rows = table.row_heights.len();
     let cols = table.column_widths.len();
     if rows == 0 || cols == 0 || rows.checked_mul(cols) != Some(table.cells.len()) {

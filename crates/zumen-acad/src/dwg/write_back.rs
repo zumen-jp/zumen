@@ -648,7 +648,7 @@ impl DwgFile {
                 .find(|c| c.entity && c.name.as_slice() == b"ARC_DIMENSION")?;
             (class.number, ARC_DIMENSION)
         } else if object.kind == b"ACAD_TABLE" {
-            (self.release == Release::R2004).then_some(())?;
+            (self.release == Release::R2004 || self.release >= Release::R2010).then_some(())?;
             let class = self
                 .classes
                 .iter()
@@ -686,6 +686,7 @@ impl DwgFile {
         let r2010: &[i16] = match object.kind.as_slice() {
             b"MTEXT" if self.release >= Release::R2010 => &[46],
             b"ATTRIB" if self.release >= Release::R2010 => &[280],
+            b"ACAD_TABLE" if self.release >= Release::R2010 => &[300, 301, 302, 303, 304],
             _ => &[],
         };
         let r2004: &[i16] = if self.release >= Release::R2004 {
