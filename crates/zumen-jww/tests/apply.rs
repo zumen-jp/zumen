@@ -408,7 +408,13 @@ fn text_is_replaced_and_moved_without_changing_other_elements() {
 
 #[test]
 fn text_is_added_with_its_encoding_and_model_height() {
-    for content in ["ASCII", "図面の注記", "寸法 🏠", "\\¥\u{ff5e}"] {
+    for (content, cells) in [
+        ("ASCII", 2.5),
+        ("図面の注記", 5.0),
+        ("寸法 🏠", 3.5),
+        ("\\¥\u{ff5e}", 2.5),
+        ("ＡAｱ", 2.0),
+    ] {
         let source = src();
         let mut file = read(&source);
         let before = lift(&file);
@@ -447,11 +453,56 @@ fn text_is_added_with_its_encoding_and_model_height() {
         assert_eq!(text.content, content);
         assert_eq!(text.height.value, Length::Paper(PaperLength(2.5)));
         assert_eq!(text.style, "ＭＳ ゴシック");
+        let raw = write(&file);
+        let end = file.records()[6].body().start + 15 + 16;
+        let ex = f64::from_le_bytes(raw[end..end + 8].try_into().unwrap());
+        let ey = f64::from_le_bytes(raw[end + 8..end + 16].try_into().unwrap());
+        let width = 2.5 * text.width_factor * cells;
+        assert!(close(
+            ex,
+            4.0 + width * libm::cos(text.rotation.to_radians())
+        ));
+        assert!(close(
+            ey,
+            5.0 + width * libm::sin(text.rotation.to_radians())
+        ));
         assert_eq!(
             Hash::element(&after.symbols[0].space.elements[0]),
             Hash::element(&before.symbols[0].space.elements[0])
         );
     }
+}
+
+#[test]
+fn replacing_a_zero_length_note_restores_its_baseline() {
+    let mut source = src();
+    let at = read(&source).records()[5].body().start + 15;
+    source[at + 16..at + 32].fill(0);
+    source[at + 52..at + 60].copy_from_slice(&0.5f64.to_le_bytes());
+    let mut file = read(&source);
+    let before = lift(&file);
+    let mut updated = element(&before, 4).1.clone();
+    let Shape::Text(text) = &mut updated.shape else {
+        panic!()
+    };
+    text.content = "施工後".into();
+    text.rotation = 90.0;
+    let (result, diagnostics) = apply(
+        &mut file,
+        vec![Edit::Replace {
+            target: seen(&before, 4),
+            element: Box::new(Placed::Model(updated)),
+        }],
+        None,
+    );
+    result.unwrap();
+    assert!(diagnostics.is_empty());
+    let bytes = write(&file);
+    let at = file.records()[5].body().start + 15 + 16;
+    let x = f64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+    let y = f64::from_le_bytes(bytes[at + 8..at + 16].try_into().unwrap());
+    assert!(close(x, 0.0));
+    assert!(close(y, 10.0));
 }
 
 #[test]

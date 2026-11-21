@@ -98,21 +98,42 @@ pub(in crate::drawing) fn bytes(
     if real(8).is_none_or(|old| old * scale != point.y) {
         set(&mut prefix, 8, y)?;
     }
-    match (original, movement) {
-        (Some(_), Some(transform)) => {
-            let (ex, ey) = transform.apply(real(16)? * scale, real(24)? * scale);
-            let (ex, ey) = (ex / scale, ey / scale);
-            if !ex.is_finite() || !ey.is_finite() {
-                return None;
-            }
-            set(&mut prefix, 16, ex)?;
-            set(&mut prefix, 24, ey)?;
+    let endpoint = if original.is_none() || (real(16) == real(0) && real(24) == real(8)) {
+        // 始点と終点が同じ文字は Jw_cad が表示せず、別名保存で消える（#921）。
+        // 字幅は全角1字の用紙幅。半角英数字・半角カナは半分の幅とする（推定）。
+        let mut half_cells = 0u64;
+        let mut characters = 0u64;
+        for ch in text.content.chars() {
+            characters += 1;
+            half_cells += if ch.is_ascii() || ('\u{ff61}'..='\u{ff9f}').contains(&ch) {
+                1
+            } else {
+                2
+            };
         }
-        (None, _) => {
-            set(&mut prefix, 16, x)?;
-            set(&mut prefix, 24, y)?;
+        let advance = width * (half_cells as f64 / 2.0)
+            + real(52).unwrap_or(0.0) * characters.saturating_sub(1) as f64;
+        let angle = text.rotation.to_radians();
+        let end = (
+            x + advance * libm::cos(angle),
+            y + advance * libm::sin(angle),
+        );
+        if !text.content.is_empty() && (advance <= 0.0 || end == (x, y)) {
+            return None;
         }
-        _ => {}
+        Some(end)
+    } else if let Some(transform) = movement {
+        let (ex, ey) = transform.apply(real(16)? * scale, real(24)? * scale);
+        Some((ex / scale, ey / scale))
+    } else {
+        None
+    };
+    if let Some((ex, ey)) = endpoint {
+        if !ex.is_finite() || !ey.is_finite() {
+            return None;
+        }
+        set(&mut prefix, 16, ex)?;
+        set(&mut prefix, 24, ey)?;
     }
     if real(44) != Some(height)
         || real(36)
