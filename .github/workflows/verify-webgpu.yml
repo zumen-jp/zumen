@@ -1,0 +1,29 @@
+name: Safari で WebGPU の画素と選択を照らす
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  safari:
+    runs-on: macos-26
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: bindings/js/test/browser
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: node node_modules/vite/bin/vite.js build --config desktop/vite.config.mjs
+      - name: Safari で 2D と 3D の合成シーンを開く
+        run: |
+          sudo safaridriver --enable
+          python3 -m venv "$RUNNER_TEMP/webdriver"
+          "$RUNNER_TEMP/webdriver/bin/python" -m pip install selenium==4.53.0
+          "$RUNNER_TEMP/webdriver/bin/python" desktop/check.py safari

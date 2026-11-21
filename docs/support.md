@@ -57,6 +57,10 @@ JavaScript のラッパーと表示部品は、`Object.hasOwn`・`Array.prototyp
 
 [適合テスト](../bindings/conformance/README.md)に従い、CI では Playwright の Chromium で WebGPU 表示を含む全テストを PR ごとに流し、毎晩のジョブで Firefox と WebKit も検査します（Linux 版 WebKit には WebGPU のバックエンドがないため、Linux 上ではコアの wasm 適合テストと `webgpu-unavailable` の扱いを確認します）。
 
+製品版の Firefox と Safari では、[合成シーンの検査](../bindings/js/test/browser/desktop/)で同じ位置の画素と選択を照合できます。`bindings/js/test/browser` で `npm ci`、`node node_modules/vite/bin/vite.js build --config desktop/vite.config.mjs` の順に実行します。Windows は `uv run desktop/check.py firefox`、macOS は Safari のリモートオートメーションを有効にして `uv run desktop/check.py safari` で検査します。[Safari の手動 CI](../.github/workflows/verify-webgpu.yml) も同じページを使います。
+
+200 × 200 CSS px のビューで、2D は（100, 70）の青い線 `space/0/h1`、3D は上面ビューの（30, 70）の赤い面 `red` を選びます。Windows 11（ビルド 26300）と Firefox 159.0 では、既定の WebGPU 設定で両方の画素と ID が一致しました。機種別の実行記録は [#918](https://github.com/zumen-jp/zumen/issues/918) にあります。
+
 ## ホストアプリ
 
 | ホストアプリ | 対象のバージョン | 言語と実行環境 |
