@@ -32,7 +32,7 @@ npm run dev
 
 ## 図面ビューアー
 
-`npm run build` は、案内の HTML のあと、既存の `playground/` を Vite で `dist/viewer/` に組みます。wasm とラッパーは npm の `@zumen-jp/zumen@0.2.0` から取り、非公開の表示部品は `packages/` を使います。Rust と手元の `target/` は使いません。
+`npm run build` は、案内の HTML のあと、既存の `playground/` を Vite で `dist/viewer/` に組みます。wasm とラッパーはサイトの lockfile で固定した npm の `@zumen-jp/zumen` から取り、非公開の表示部品は `packages/` を使います。Rust と手元の `target/` は使いません。
 
 - wasm・Worker・CSS・公開サンプルは、同一オリジンから配ります。CSP は `public/_headers` にあり、ページと Worker の外部への通信を制限します。案内ページは JavaScript を読み込みません。これをビルドの出力で毎回検査します。
 - `Cache-Control` の `no-transform` で、配信側による解析スクリプトなどの自動注入を止めます。`max-age=0, must-revalidate` で更新時の再検証も保ちます。これは [Cloudflare Web Analytics の公式の方法](https://developers.cloudflare.com/web-analytics/get-started/)で、サイトのビルドの出力に含めます。本番で注入を見つけたら、CSP や通信検査を緩めずに調べます。
@@ -74,4 +74,5 @@ Cloudflare Pages で、このリポジトリの `main` から公開する想定�
 - 文は [表記の基準](../docs/style.md) に従い、「です・ます」で書く。
 - お知らせ・対応形式は `src/data/site.ts` を直す。お知らせには、リリースと大きな節目だけを書く。対応形式は、[形式と権利の一覧](../docs/formats/README.md) と食い違わないようにする。
 - 公開版の案内は `releaseVersion` と公開レジストリの実体で確かめます。対応形式と使い方のリンクは同じバージョンのタグに固定し、main だけの機能を混ぜません。OS の対象の下限と配布物の制約も区別します。v0.2.0 の GNU Linux の制約と、v0.3.0 での修正は [#789](https://github.com/zumen-jp/zumen/issues/789) にあります。
+- 公開版を切り替えるときは、対象の Git タグを取得し、`site` で `node scripts/check-formats.mjs --tag` を実行します。対応表の各行を同じ版の形式台帳と照らし、公開 npm パッケージで ST-Bridge の読み取りの可否を調べます。さらに線分 1 本の DXF を表示している各出力先に変換し、別のセッションで開いて両端の座標を照合します。配布物の検査はサイトのビルドでも実行します。
 - 未公開のものを「使える」と書かない。

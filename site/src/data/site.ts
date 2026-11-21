@@ -2,6 +2,11 @@
 
 export const repo = 'https://github.com/zumen-jp/zumen';
 export const releaseVersion = '0.3.0';
+export const drawingOutputs = [
+  { format: 'dxf', extension: 'dxf', label: 'DXF' },
+  { format: 'sxf', extension: 'p21', label: 'SXF（P21）' },
+  { format: 'jww', extension: 'jww', label: 'JWW' },
+];
 export const releaseUrl = `${repo}/releases/tag/v${releaseVersion}`;
 export const releasedSource = (file: string) => `${repo}/blob/v${releaseVersion}/${file}`;
 
@@ -64,6 +69,8 @@ export const news: News[] = [
 export type Mark = '○' | '△' | '―' | '×';
 
 export interface Format {
+  // 公開タグの形式台帳でこの行が指すキー。
+  ids: string[];
   name: string;
   about: string;
   read: Mark;
@@ -73,24 +80,24 @@ export interface Format {
 }
 
 export const formats: Format[] = [
-  { name: 'SXF', about: '電子納品の CAD データ（SFC・P21・SFZ・P2Z）', read: '○', write: '○', top: true },
-  { name: 'JWW', about: 'Jw_cad for Windows の図面', read: '○', write: '○', top: true },
-  { name: 'JWC・JWS', about: 'Jw_cad for DOS の図面、Jw_cad の図形', read: '×', write: '×' },
-  { name: 'DXF', about: 'AutoCAD の交換形式', read: '○', write: '○', top: true },
-  { name: 'DWG', about: 'AutoCAD の図面', read: '○', write: '○', top: true },
-  { name: 'PDF', about: '図面の PDF（PDFUNDERLAY の表示は呼び出し側の pdf.js を使う）', read: '×', write: '×', top: true },
-  { name: 'IFC', about: 'BIM・土木のモデル（IFC-SPF・ifcZIP）', read: '○', write: '○', top: true },
-  { name: 'LandXML', about: '線形・地表面などの土木のデータ', read: '○', write: '―' },
-  { name: 'CityGML', about: '都市の 3D モデル', read: '○', write: '―' },
-  { name: '基盤地図情報', about: '国土地理院の地理のデータ（GML）', read: '○', write: '―' },
-  { name: 'GeoJSON', about: '地理のデータ（RFC 7946）', read: '○', write: '○' },
-  { name: 'SIMA', about: '測量データ共通フォーマット', read: '○', write: '○' },
-  { name: 'TIFF・GeoTIFF', about: '画像と地理参照付きの画像', read: '○', write: '―' },
-  { name: '拡張 DM', about: '測量成果の地理のデータ', read: '○', write: '―' },
-  { name: 'LAS・LAZ・PLY・XYZ・E57', about: '点群のデータ', read: '○', write: '―' },
-  { name: 'ST-Bridge', about: '構造のモデル（2.0 系・2.1 系）', read: '○', write: '―' },
+  { ids: ['sxf'], name: 'SXF', about: '電子納品の CAD データ（SFC・P21・SFZ・P2Z）', read: '○', write: '○', top: true },
+  { ids: ['jww'], name: 'JWW', about: 'Jw_cad for Windows の図面', read: '○', write: '○', top: true },
+  { ids: ['jwc', 'jws'], name: 'JWC・JWS', about: 'Jw_cad for DOS の図面、Jw_cad の図形', read: '×', write: '×' },
+  { ids: ['dxf'], name: 'DXF', about: 'AutoCAD の交換形式', read: '○', write: '○', top: true },
+  { ids: ['dwg'], name: 'DWG', about: 'AutoCAD の図面', read: '○', write: '○', top: true },
+  { ids: ['pdf'], name: 'PDF', about: '図面の PDF（PDFUNDERLAY の表示は呼び出し側の pdf.js を使う）', read: '×', write: '×', top: true },
+  { ids: ['ifc'], name: 'IFC', about: 'BIM・土木のモデル（IFC-SPF・ifcZIP）', read: '○', write: '○', top: true },
+  { ids: ['landxml'], name: 'LandXML', about: '線形・地表面などの土木のデータ', read: '○', write: '―' },
+  { ids: ['citygml'], name: 'CityGML', about: '都市の 3D モデル', read: '○', write: '―' },
+  { ids: ['fgd'], name: '基盤地図情報', about: '国土地理院の地理のデータ（GML）', read: '○', write: '―' },
+  { ids: ['geojson'], name: 'GeoJSON', about: '地理のデータ（RFC 7946）', read: '○', write: '○' },
+  { ids: ['sima'], name: 'SIMA', about: '測量データ共通フォーマット', read: '○', write: '○' },
+  { ids: ['tiff'], name: 'TIFF・GeoTIFF', about: '画像と地理参照付きの画像', read: '○', write: '―' },
+  { ids: ['extdm'], name: '拡張 DM', about: '測量成果の地理のデータ', read: '○', write: '―' },
+  { ids: ['las', 'ply', 'xyz', 'e57'], name: 'LAS・LAZ・PLY・XYZ・E57', about: '点群のデータ', read: '○', write: '―' },
+  { ids: ['stbridge'], name: 'ST-Bridge', about: '構造のモデル', read: '△', write: '―' },
   {
-    name: 'BE-Bridge・CEDXM・Stem',
+    ids: ['bebridge', 'cedxm', 'stem'], name: 'BE-Bridge・CEDXM・Stem',
     about: '設備の CAD データ・機器のデータ',
     read: '×',
     write: '×',

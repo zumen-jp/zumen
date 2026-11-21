@@ -2,7 +2,7 @@
 import Profile from '../components/drawings/Profile.astro';
 import FormatTable from '../components/FormatTable.astro';
 import SectionHead from '../components/SectionHead.astro';
-import { formats, releasedSource, releaseVersion, repo } from '../data/site';
+import { drawingOutputs, formats, releasedSource, releaseVersion, repo } from '../data/site';
 import Page from '../layouts/Page.astro';
 
 // 読むも書くも扱わない（×）形式。権利と方針は、形式の権利の台帳（formats/ledger.toml の rights と place）に合わせる。
@@ -23,7 +23,7 @@ const excluded = formats.filter((f) => f.read === '×' && f.write === '×');
       <SectionHead id="status-title" title="形式の一覧" en="Status" />
       <FormatTable items={formats} />
       <p class="note">v{releaseVersion} の配布物で扱う範囲です。対応する版・図形・操作には制限があります。詳しくは<a href={releasedSource('docs/formats/README.md')}>公開版の形式ごとの文書</a>をご覧ください。</p>
-      <p>SXF・JWW・DWG の「書く」は、開いた同じ形式への書き戻しです。DXF は書き戻しと DXF への変換、IFC は Name・Description・単一値のプロパティなどの書き戻しに対応します。新規作成や別形式への変換で保つ値は、操作と出力先によって異なります。</p>
+      <p>SXF・JWW・DWG・DXF は、開いた図面の変更を元の形式に書き戻せます。別形式の図面から新しく変換するときは、出力先に {drawingOutputs.map((output) => output.label).join('・')} を指定できます。IFC は Name・Description・単一値のプロパティなどを書き戻せます。新規作成や別形式への変換で保つ値は、操作と出力先によって異なります。</p>
     </div>
   </section>
 
