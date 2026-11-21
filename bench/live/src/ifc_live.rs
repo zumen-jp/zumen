@@ -2,7 +2,7 @@
 //! 各実行は 1 ファイル・1 スレッド設定。時間の単位はナノ秒。
 
 use std::{env, fs, process::ExitCode, time::Instant};
-use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics};
+use zumen_base::{Budget, CancelToken, Cx, Diagnostic, Diagnostics, Kind};
 use zumen_building::Building;
 use zumen_ifc::{Edit, Ifc, IfcLive, RootAttribute, apply};
 use zumen_sdk::{Codec, Error, Lift};
@@ -11,6 +11,7 @@ struct Measured<T> {
     value: T,
     diagnostics: Vec<Diagnostic>,
     nanos: u128,
+    decoded_bytes: u64,
 }
 
 fn measure<T>(
@@ -33,12 +34,19 @@ fn measure<T>(
         value,
         diagnostics: diagnostics.into_vec(),
         nanos,
+        decoded_bytes: budget.used(Kind::DecodedBytes),
     })
 }
 
-fn check_model(live: &IfcLive, expected: &[u8]) -> Result<(), String> {
+fn check_model(live: &IfcLive, expected: &[u8], geometry: bool) -> Result<(), String> {
     let file = measure("read", |cx| Ifc::read(expected, cx))?.value;
-    let model: Measured<Building> = measure("lift", |cx| file.lift(cx))?;
+    let model: Measured<Building> = measure("lift", |cx| {
+        if geometry {
+            file.lift_geometry(cx)
+        } else {
+            file.lift(cx)
+        }
+    })?;
     let reported = measure("live.report", |cx| live.report_lift_diagnostics(cx))?;
     if live.building() != &model.value || reported.diagnostics != model.diagnostics {
         return Err("保持する建物モデルか変換の診断が逐次実装と違う".into());
@@ -48,8 +56,10 @@ fn check_model(live: &IfcLive, expected: &[u8]) -> Result<(), String> {
 
 fn run() -> Result<(), String> {
     let args: Vec<_> = env::args().skip(1).collect();
-    let [path, threads] = args.as_slice() else {
-        return Err("使い方: ifc-live <IFC-SPF> <1 または 4>".into());
+    let (path, threads, geometry) = match args.as_slice() {
+        [path, threads] => (path, threads, false),
+        [path, threads, flag] if flag == "--geometry" => (path, threads, true),
+        _ => return Err("使い方: ifc-live <IFC-SPF> <1 または 4> [--geometry]".into()),
     };
     let threads = match threads.as_str() {
         "1" => 1,
@@ -58,9 +68,14 @@ fn run() -> Result<(), String> {
     };
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
     let base = measure("read", |cx| Ifc::read(&bytes, cx))?.value;
-    let opened = measure("live.open", |cx| {
-        IfcLive::open_with_threads(&bytes, threads, cx)
-    })?;
+    let open = |input: &[u8], cx: &mut Cx| {
+        if geometry {
+            IfcLive::open_with_geometry(input, threads, cx)
+        } else {
+            IfcLive::open_with_threads(input, threads, cx)
+        }
+    };
+    let opened = measure("live.open", |cx| open(&bytes, cx))?;
     let mut live = opened.value;
     let building = live.building();
     let count = building.elements().len();
@@ -80,6 +95,10 @@ fn run() -> Result<(), String> {
         })
         .map(|(element, _)| element)
         .ok_or("対象の壁がない")?;
+    // どちらのモードも同じ壁を編集して比べる。
+    if geometry && building.geometry(wall).is_none() {
+        return Err("比較に使う最初の壁に形状がない".into());
+    }
     let instance = building
         .element(wall)
         .and_then(|element| element.source().instance)
@@ -102,10 +121,8 @@ fn run() -> Result<(), String> {
     {
         return Err("変更件数・診断・保存バイト列のいずれかが期待値と違う".into());
     }
-    check_model(&live, &expected.value.bytes)?;
-    let reopened = measure("live.reopen", |cx| {
-        IfcLive::open_with_threads(&expected.value.bytes, threads, cx)
-    })?;
+    check_model(&live, &expected.value.bytes, geometry)?;
+    let reopened = measure("live.reopen", |cx| open(&expected.value.bytes, cx))?;
     let after = affected(&reopened.value)?.value;
     if affected(&live)?.value != after {
         return Err("編集後の依存先が再読と違う".into());
@@ -117,7 +134,7 @@ fn run() -> Result<(), String> {
     {
         return Err("取り消し後の保存または依存先が初期状態と違う".into());
     }
-    check_model(&live, &bytes)?;
+    check_model(&live, &bytes, geometry)?;
     let redone = measure("live.redo", |cx| live.redo(cx))?;
     if !redone.value
         || measure("live.save", |cx| live.save_spf(cx))?.value != expected.value.bytes
@@ -125,12 +142,12 @@ fn run() -> Result<(), String> {
     {
         return Err("やり直し後の保存または依存先が編集後と違う".into());
     }
-    check_model(&live, &expected.value.bytes)?;
+    check_model(&live, &expected.value.bytes, geometry)?;
     println!(
-        "bytes\trecords\telements\tthreads\taffected\topen_ns\tbatch_ns\tapply_ns\tsave_ns\tundo_ns\tredo_ns\tdeps_ns"
+        "bytes\trecords\telements\tthreads\taffected\topen_ns\tbatch_ns\tapply_ns\tsave_ns\tundo_ns\tredo_ns\tdeps_ns\topen_decoded_bytes\tapply_decoded_bytes\tsave_decoded_bytes\tundo_decoded_bytes\tredo_decoded_bytes"
     );
     println!(
-        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
         bytes.len(),
         base.records().len(),
         count,
@@ -142,7 +159,12 @@ fn run() -> Result<(), String> {
         saved.nanos,
         undone.nanos,
         redone.nanos,
-        before.nanos
+        before.nanos,
+        opened.decoded_bytes,
+        edited.decoded_bytes,
+        saved.decoded_bytes,
+        undone.decoded_bytes,
+        redone.decoded_bytes
     );
     Ok(())
 }
