@@ -228,7 +228,7 @@ fn adds_spaces_elements_and_relations_in_every_version() {
         assert_eq!(spatial.elevation.as_ref().map(|m| m.value), written);
         let level = building.components.level.get(second).unwrap();
         assert_eq!(level.height.value, 3000.0, "{schema}");
-        // 階の配置を省略しても、どの版でも標高だけ上げる
+        // IFC2X3・IFC4・IFC4.3 ともに、階の配置を省略したら標高だけ上げる
         assert_eq!(
             translation(&building, second),
             Some([0.0, 0.0, 3000.0]),
