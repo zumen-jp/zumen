@@ -4821,7 +4821,7 @@ ReviewSceneSourceKind = Union[
 ]
 
 
-# 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+# 開いた IFC から階の平面図、または指定した鉛直面の断面図・立面図を作る。平面は storey と height、鉛直面は vertical を指定する
 _BuildingDrawingRequestRequired = TypedDict(
     "_BuildingDrawingRequestRequired",
     {
@@ -4833,13 +4833,9 @@ _BuildingDrawingRequestRequired = TypedDict(
         "doc": str,
         # 作る図面の文書名
         "to": str,
-        # 切る高さの基準となる階の要素 ID
-        "storey": str,
         # 切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない
         "unit": "Unit",
-        # 階から切る面までの高さ
-        "height": float,
-        # 切る面から下向きに見る深さ。正の値
+        # 切る面から向こうに見る深さ。正の値
         "depth": float,
         # 用紙の縮尺の分母。正の値
         "scale": float,
@@ -4860,13 +4856,53 @@ _BuildingDrawingRequestOptional = TypedDict(
         "max_places": int,
         # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
         "time_limit_ms": int,
+        # プロジェクト座標系の鉛直面。マイナーバージョン 117 から
+        "vertical": "BuildingVerticalView",
+        # 切る高さの基準となる階の要素 ID
+        "storey": str,
+        # 階から切る面までの高さ
+        "height": float,
     },
     total=False,
 )
 
 
 class BuildingDrawingRequest(_BuildingDrawingRequestRequired, _BuildingDrawingRequestOptional):
-    "開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から"
+    "開いた IFC から階の平面図、または指定した鉛直面の断面図・立面図を作る。平面は storey と height、鉛直面は vertical を指定する"
+
+
+# プロジェクト座標系の 2 点を結ぶ鉛直面。図面の縦は上向き、原点は始点。長さは要求の unit
+BuildingVerticalView = TypedDict(
+    "BuildingVerticalView",
+    {
+        # 図面の原点 [x,y,z]
+        "start": List[float],
+        # 横軸の方向を決める終点 [x,y,z]。始点と同じ z で、xy は異なる
+        "end": List[float],
+        # 始点から終点へ向かって見る側
+        "side": "BuildingViewSide",
+        # 断面図か立面図
+        "kind": "BuildingVerticalKind",
+    },
+)
+
+# 始点から終点に向かって左側・右側のどちらから見るか
+BuildingViewSide = Union[
+    Literal[
+        "left",
+        "right",
+    ],
+    str,
+]
+
+# section は切断線と見え掛かり、elevation は見え掛かりを出す
+BuildingVerticalKind = Union[
+    Literal[
+        "section",
+        "elevation",
+    ],
+    str,
+]
 
 
 # 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ

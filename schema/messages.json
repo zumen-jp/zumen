@@ -3206,23 +3206,46 @@
       "enum": ["markup", "location"]
     },
     "building_drawing_request": {
-      "description": "開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から",
+      "description": "開いた IFC から階の平面図、または指定した鉛直面の断面図・立面図を作る。平面は storey と height、鉛直面は vertical を指定する",
       "type": "object",
       "allOf": [{ "$ref": "#/$defs/request_common" }],
       "properties": {
         "op": { "description": "op の名前", "const": "building_drawing" },
         "doc": { "description": "開いた IFC の文書名", "type": "string" },
         "to": { "description": "作る図面の文書名", "type": "string" },
+        "vertical": { "description": "プロジェクト座標系の鉛直面。マイナーバージョン 117 から", "$ref": "#/$defs/building_vertical_view" },
         "storey": { "description": "切る高さの基準となる階の要素 ID", "type": "string" },
         "unit": { "description": "切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない", "$ref": "#/$defs/unit" },
         "height": { "description": "階から切る面までの高さ", "type": "number" },
-        "depth": { "description": "切る面から下向きに見る深さ。正の値", "type": "number" },
+        "depth": { "description": "切る面から向こうに見る深さ。正の値", "type": "number" },
         "scale": { "description": "用紙の縮尺の分母。正の値", "type": "number" },
         "tolerance": { "description": "同じ点とみなす格子の幅。正の値", "type": "number" },
         "chord": { "description": "曲線の近似に使う弦の誤差。正の値", "type": "number" }
       },
-      "required": ["op", "doc", "to", "storey", "unit", "height", "depth", "scale", "tolerance", "chord"],
+      "required": ["op", "doc", "to", "unit", "depth", "scale", "tolerance", "chord"],
       "unevaluatedProperties": false
+    },
+    "building_vertical_view": {
+      "description": "プロジェクト座標系の 2 点を結ぶ鉛直面。図面の縦は上向き、原点は始点。長さは要求の unit",
+      "type": "object",
+      "properties": {
+        "start": { "description": "図面の原点 [x,y,z]", "type": "array", "items": { "type": "number" } },
+        "end": { "description": "横軸の方向を決める終点 [x,y,z]。始点と同じ z で、xy は異なる", "type": "array", "items": { "type": "number" } },
+        "side": { "description": "始点から終点へ向かって見る側", "$ref": "#/$defs/building_view_side" },
+        "kind": { "description": "断面図か立面図", "$ref": "#/$defs/building_vertical_kind" }
+      },
+      "required": ["start", "end", "side", "kind"],
+      "additionalProperties": false
+    },
+    "building_view_side": {
+      "description": "始点から終点に向かって左側・右側のどちらから見るか",
+      "type": "string",
+      "enum": ["left", "right"]
+    },
+    "building_vertical_kind": {
+      "description": "section は切断線と見え掛かり、elevation は見え掛かりを出す",
+      "type": "string",
+      "enum": ["section", "elevation"]
     },
     "building_drawing_result": {
       "description": "実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ",

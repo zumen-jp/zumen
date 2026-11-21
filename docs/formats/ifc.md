@@ -880,6 +880,8 @@ cargo test -p zumen-ifc --locked --test curves --target wasm32-wasip1 -- --test-
 
 ## 建物を図面へ切り出す
 
+`building_drawing` は、階を基準にした `storey` と `height` の組のほかに、`vertical` で鉛直面を受け取ります。`start` と `end` はプロジェクト座標系の `[x,y,z]` で、両端は同じ高さに置きます。`start` は図面の原点です。`side` は始点から終点へ向かって `left`・`right` のどちらから見るか、`kind` は `section`（断面）・`elevation`（立面）を表します。断面では切断線と見え掛かり、立面では見え掛かりを返します。`depth` は切断面の奥への距離です。切断面の座標・距離・許容差は `unit` に従います。図面の縦はプロジェクトの上方向です。
+
 IFC の `lift_geometry` で所有する建物を作り、`zumen-building::drawing::cut` へ渡します。Rust の `zumen-ifc` では `drawing` feature を有効にします。各言語の共通 API からは、開いた IFC または ifcZIP と階の要素 ID を `building_drawing` に渡します。[切断面・線の役割と出所の契約](../architecture.md#建物から図面への切り出し)
 
 以下の Python の例は、林野庁の公開 IFC の 2FL を選び、床から 1,200 mm の高さで切って DXF に書きます。切り出した図面で `entities` の `extensions` を読むと、各線の派生 ID、元の建物要素、GlobalId、STEP の要素番号と形の項目番号が分かります。DXF の書き手がこの対応を移せないときは、変換の診断に現れます。

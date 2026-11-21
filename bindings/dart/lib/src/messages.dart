@@ -6396,7 +6396,7 @@ abstract final class ReviewSceneSourceKind {
   static const location = 'location';
 }
 
-/// 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+/// 開いた IFC から階の平面図、または指定した鉛直面の断面図・立面図を作る。平面は storey と height、鉛直面は vertical を指定する
 class BuildingDrawingRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
   BuildingDrawingRequest.fromJson(super.json);
@@ -6436,6 +6436,10 @@ class BuildingDrawingRequest extends Message {
   String? get to => readField('to', asString);
   set to(String? value) => writeField('to', value);
 
+  /// プロジェクト座標系の鉛直面。マイナーバージョン 117 から
+  BuildingVerticalView? get vertical => readField('vertical', objectOf(BuildingVerticalView.fromJson));
+  set vertical(BuildingVerticalView? value) => writeField('vertical', value);
+
   /// 切る高さの基準となる階の要素 ID
   String? get storey => readField('storey', asString);
   set storey(String? value) => writeField('storey', value);
@@ -6448,7 +6452,7 @@ class BuildingDrawingRequest extends Message {
   core.double? get height => readField('height', asDouble);
   set height(core.double? value) => writeField('height', value);
 
-  /// 切る面から下向きに見る深さ。正の値
+  /// 切る面から向こうに見る深さ。正の値
   core.double? get depth => readField('depth', asDouble);
   set depth(core.double? value) => writeField('depth', value);
 
@@ -6463,6 +6467,47 @@ class BuildingDrawingRequest extends Message {
   /// 曲線の近似に使う弦の誤差。正の値
   core.double? get chord => readField('chord', asDouble);
   set chord(core.double? value) => writeField('chord', value);
+}
+
+/// プロジェクト座標系の 2 点を結ぶ鉛直面。図面の縦は上向き、原点は始点。長さは要求の unit
+class BuildingVerticalView extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingVerticalView.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingVerticalView() : super({});
+
+  /// 図面の原点 [x,y,z]
+  List<core.double>? get start => readField('start', listOf(asDouble));
+  set start(List<core.double>? value) => writeField('start', value);
+
+  /// 横軸の方向を決める終点 [x,y,z]。始点と同じ z で、xy は異なる
+  List<core.double>? get end => readField('end', listOf(asDouble));
+  set end(List<core.double>? value) => writeField('end', value);
+
+  /// 始点から終点へ向かって見る側
+  String? get side => readField('side', asString);
+  set side(String? value) => writeField('side', value);
+
+  /// 断面図か立面図
+  String? get kind => readField('kind', asString);
+  set kind(String? value) => writeField('kind', value);
+}
+
+/// 始点から終点に向かって左側・右側のどちらから見るか
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class BuildingViewSide {
+  static const left = 'left';
+  static const right = 'right';
+}
+
+/// section は切断線と見え掛かり、elevation は見え掛かりを出す
+///
+/// 列挙の値。知らない値も受け取る
+abstract final class BuildingVerticalKind {
+  static const section = 'section';
+  static const elevation = 'elevation';
 }
 
 /// 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ

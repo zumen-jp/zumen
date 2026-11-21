@@ -87,18 +87,6 @@ fn options(
     request: &BuildingDrawingRequest,
     cx: &mut Cx<'_>,
 ) -> Result<drawing::Options<'static>, Failed> {
-    let storey = request
-        .storey
-        .parse()
-        .ok()
-        .and_then(|id| building.find(id))
-        .ok_or_else(|| fail(cx, invalid_value("/storey")))?;
-    let spatial = building
-        .components
-        .spatial
-        .get(storey)
-        .filter(|s| s.kind == SpatialKind::Storey)
-        .ok_or_else(|| fail(cx, invalid_value("/storey")))?;
     cx.check(Kind::Work, building.document.units.len() as u64)
         .map_err(|s| stopped(cx, s))?;
     let unit = building
@@ -121,6 +109,78 @@ fn options(
         .ok_or_else(|| fail(cx, invalid_value("/unit")))?
         / 1000.0
         / meters;
+    let depth = request.depth * ratio;
+    let view = if let Some(vertical) = &request.vertical {
+        if request.storey.is_some() || request.height.is_some() {
+            return Err(fail(cx, invalid_value("/vertical")));
+        }
+        let point = |values: &[f64], field: &str, cx: &mut Cx<'_>| {
+            let [x, y, z] = values else {
+                return Err(fail(cx, invalid_value(field)));
+            };
+            Ok(ProjectPoint {
+                x: x * ratio,
+                y: y * ratio,
+                z: z * ratio,
+            })
+        };
+        let view = drawing::View::Vertical {
+            start: point(&vertical.start, "/vertical/start", cx)?,
+            end: point(&vertical.end, "/vertical/end", cx)?,
+            side: match vertical.side {
+                messages::BuildingViewSide::Left => drawing::Side::Left,
+                messages::BuildingViewSide::Right => drawing::Side::Right,
+            },
+            depth,
+            section: vertical.kind == messages::BuildingVerticalKind::Section,
+        };
+        view.frame().map_err(|e| cut_error(cx, e))?;
+        view
+    } else {
+        let storey = request
+            .storey
+            .as_deref()
+            .ok_or_else(|| fail(cx, invalid_value("/storey")))?;
+        let height = request
+            .height
+            .ok_or_else(|| fail(cx, invalid_value("/height")))?;
+        let z = storey_height(building, storey, meters, cx)?;
+        drawing::View::Plan {
+            floor: ProjectPoint { x: 0.0, y: 0.0, z },
+            height: height * ratio,
+            depth,
+        }
+    };
+    Ok(drawing::Options {
+        view,
+        tolerance: request.tolerance * ratio,
+        chord: request.chord * ratio,
+        paper: drawing::Paper {
+            denominator: request.scale,
+            origin: [zumen_drawing::PaperLength(0.0); 2],
+            size: None,
+        },
+        symbols: &[],
+    })
+}
+
+fn storey_height(
+    building: &Building,
+    id: &str,
+    meters: f64,
+    cx: &mut Cx<'_>,
+) -> Result<f64, Failed> {
+    let storey = id
+        .parse()
+        .ok()
+        .and_then(|id| building.find(id))
+        .ok_or_else(|| fail(cx, invalid_value("/storey")))?;
+    let spatial = building
+        .components
+        .spatial
+        .get(storey)
+        .filter(|s| s.kind == SpatialKind::Storey)
+        .ok_or_else(|| fail(cx, invalid_value("/storey")))?;
     let z = if building.components.placement.get(storey).is_some() {
         building
             .world_placement(storey, cx)
@@ -138,19 +198,5 @@ fn options(
             .ok_or_else(|| cut_error(cx, Failure::Invalid("drawing_unit")))?;
         level.value * (evaluation::length_scale(unit).map_err(|e| cut_error(cx, e))? / meters)
     };
-    Ok(drawing::Options {
-        view: drawing::View::Plan {
-            floor: ProjectPoint { x: 0.0, y: 0.0, z },
-            height: request.height * ratio,
-            depth: request.depth * ratio,
-        },
-        tolerance: request.tolerance * ratio,
-        chord: request.chord * ratio,
-        paper: drawing::Paper {
-            denominator: request.scale,
-            origin: [zumen_drawing::PaperLength(0.0); 2],
-            size: None,
-        },
-        symbols: &[],
-    })
+    Ok(z)
 }

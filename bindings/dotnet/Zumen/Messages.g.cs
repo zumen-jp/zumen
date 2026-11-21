@@ -8047,7 +8047,7 @@ namespace Zumen.Messages
     }
 
     /// <summary>
-    /// 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+    /// 開いた IFC から階の平面図、または指定した鉛直面の断面図・立面図を作る。平面は storey と height、鉛直面は vertical を指定する
     /// </summary>
     public sealed record BuildingDrawingRequest
     {
@@ -8100,10 +8100,16 @@ namespace Zumen.Messages
         public string To { get; init; } = default!;
 
         /// <summary>
+        /// プロジェクト座標系の鉛直面。マイナーバージョン 117 から
+        /// </summary>
+        [JsonPropertyName("vertical")]
+        public BuildingVerticalView? Vertical { get; init; }
+
+        /// <summary>
         /// 切る高さの基準となる階の要素 ID
         /// </summary>
         [JsonPropertyName("storey")]
-        public string Storey { get; init; } = default!;
+        public string? Storey { get; init; }
 
         /// <summary>
         /// 切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない
@@ -8115,10 +8121,10 @@ namespace Zumen.Messages
         /// 階から切る面までの高さ
         /// </summary>
         [JsonPropertyName("height")]
-        public double Height { get; init; }
+        public double? Height { get; init; }
 
         /// <summary>
-        /// 切る面から下向きに見る深さ。正の値
+        /// 切る面から向こうに見る深さ。正の値
         /// </summary>
         [JsonPropertyName("depth")]
         public double Depth { get; init; }
@@ -8140,6 +8146,58 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("chord")]
         public double Chord { get; init; }
+    }
+
+    /// <summary>
+    /// プロジェクト座標系の 2 点を結ぶ鉛直面。図面の縦は上向き、原点は始点。長さは要求の unit
+    /// </summary>
+    public sealed record BuildingVerticalView
+    {
+        /// <summary>
+        /// 図面の原点 [x,y,z]
+        /// </summary>
+        [JsonPropertyName("start")]
+        public IReadOnlyList<double> Start { get; init; } = default!;
+
+        /// <summary>
+        /// 横軸の方向を決める終点 [x,y,z]。始点と同じ z で、xy は異なる
+        /// </summary>
+        [JsonPropertyName("end")]
+        public IReadOnlyList<double> End { get; init; } = default!;
+
+        /// <summary>
+        /// 始点から終点へ向かって見る側
+        /// </summary>
+        [JsonPropertyName("side")]
+        public string Side { get; init; } = default!;
+
+        /// <summary>
+        /// 断面図か立面図
+        /// </summary>
+        [JsonPropertyName("kind")]
+        public string Kind { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 始点から終点に向かって左側・右側のどちらから見るか
+    /// </summary>
+    public static class BuildingViewSide
+    {
+        /// <summary>left</summary>
+        public const string Left = "left";
+        /// <summary>right</summary>
+        public const string Right = "right";
+    }
+
+    /// <summary>
+    /// section は切断線と見え掛かり、elevation は見え掛かりを出す
+    /// </summary>
+    public static class BuildingVerticalKind
+    {
+        /// <summary>section</summary>
+        public const string Section = "section";
+        /// <summary>elevation</summary>
+        public const string Elevation = "elevation";
     }
 
     /// <summary>

@@ -9857,7 +9857,7 @@ public enum ReviewSceneSourceKind {
     public static let location = "location"
 }
 
-/// 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+/// 開いた IFC から階の平面図、または指定した鉛直面の断面図・立面図を作る。平面は storey と height、鉛直面は vertical を指定する
 public struct BuildingDrawingRequest: Message {
     /// 包んでいる JSON のオブジェクト
     public var json: [String: JSON]
@@ -9920,6 +9920,12 @@ public struct BuildingDrawingRequest: Message {
         set { writeField("to", newValue) }
     }
 
+    /// プロジェクト座標系の鉛直面。マイナーバージョン 117 から
+    public var vertical: BuildingVerticalView? {
+        get { readField("vertical") }
+        set { writeField("vertical", newValue) }
+    }
+
     /// 切る高さの基準となる階の要素 ID
     public var storey: String? {
         get { readField("storey") }
@@ -9938,7 +9944,7 @@ public struct BuildingDrawingRequest: Message {
         set { writeField("height", newValue) }
     }
 
-    /// 切る面から下向きに見る深さ。正の値
+    /// 切る面から向こうに見る深さ。正の値
     public var depth: Double? {
         get { readField("depth") }
         set { writeField("depth", newValue) }
@@ -9961,6 +9967,62 @@ public struct BuildingDrawingRequest: Message {
         get { readField("chord") }
         set { writeField("chord", newValue) }
     }
+}
+
+/// プロジェクト座標系の 2 点を結ぶ鉛直面。図面の縦は上向き、原点は始点。長さは要求の unit
+public struct BuildingVerticalView: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 図面の原点 [x,y,z]
+    public var start: [Double]? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 横軸の方向を決める終点 [x,y,z]。始点と同じ z で、xy は異なる
+    public var end: [Double]? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
+    }
+
+    /// 始点から終点へ向かって見る側
+    public var side: String? {
+        get { readField("side") }
+        set { writeField("side", newValue) }
+    }
+
+    /// 断面図か立面図
+    public var kind: String? {
+        get { readField("kind") }
+        set { writeField("kind", newValue) }
+    }
+}
+
+/// 始点から終点に向かって左側・右側のどちらから見るか
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingViewSide {
+    public static let left = "left"
+    public static let right = "right"
+}
+
+/// section は切断線と見え掛かり、elevation は見え掛かりを出す
+///
+/// 列挙の値。知らない値も受け取る
+public enum BuildingVerticalKind {
+    public static let section = "section"
+    public static let elevation = "elevation"
 }
 
 /// 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ

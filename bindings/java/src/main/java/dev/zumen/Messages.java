@@ -16007,7 +16007,7 @@ public final class Messages {
         public static final String LOCATION = "location";
     }
 
-    /** 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から */
+    /** 開いた IFC から階の平面図、または指定した鉛直面の断面図・立面図を作る。平面は storey と height、鉛直面は vertical を指定する */
     public static final class BuildingDrawingRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public BuildingDrawingRequest(Map<String, Object> json) {
@@ -16114,6 +16114,17 @@ public final class Messages {
             return this;
         }
 
+        /** プロジェクト座標系の鉛直面。マイナーバージョン 117 から */
+        public BuildingVerticalView getVertical() {
+            return Json.read(json.get("vertical"), BuildingVerticalView::of);
+        }
+
+        /** {@link #getVertical()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withVertical(BuildingVerticalView value) {
+            put("vertical", value);
+            return this;
+        }
+
         /** 切る高さの基準となる階の要素 ID */
         public String getStorey() {
             return Json.read(json.get("storey"), Json::string);
@@ -16147,7 +16158,7 @@ public final class Messages {
             return this;
         }
 
-        /** 切る面から下向きに見る深さ。正の値 */
+        /** 切る面から向こうに見る深さ。正の値 */
         public Double getDepth() {
             return Json.read(json.get("depth"), Json::number);
         }
@@ -16190,6 +16201,95 @@ public final class Messages {
             put("chord", value);
             return this;
         }
+    }
+
+    /** プロジェクト座標系の 2 点を結ぶ鉛直面。図面の縦は上向き、原点は始点。長さは要求の unit */
+    public static final class BuildingVerticalView extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingVerticalView(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingVerticalView of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingVerticalView(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingVerticalView() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 図面の原点 [x,y,z] */
+        public List<Double> getStart() {
+            return Json.read(json.get("start"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
+        public BuildingVerticalView withStart(List<Double> value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 横軸の方向を決める終点 [x,y,z]。始点と同じ z で、xy は異なる */
+        public List<Double> getEnd() {
+            return Json.read(json.get("end"), v0 -> Json.list(v0, Json::number));
+        }
+
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
+        public BuildingVerticalView withEnd(List<Double> value) {
+            put("end", value);
+            return this;
+        }
+
+        /** 始点から終点へ向かって見る側 */
+        public String getSide() {
+            return Json.read(json.get("side"), Json::string);
+        }
+
+        /** {@link #getSide()} を書く。null ならフィールドを除く */
+        public BuildingVerticalView withSide(String value) {
+            put("side", value);
+            return this;
+        }
+
+        /** 断面図か立面図 */
+        public String getKind() {
+            return Json.read(json.get("kind"), Json::string);
+        }
+
+        /** {@link #getKind()} を書く。null ならフィールドを除く */
+        public BuildingVerticalView withKind(String value) {
+            put("kind", value);
+            return this;
+        }
+    }
+
+    /**
+     * 始点から終点に向かって左側・右側のどちらから見るか
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class BuildingViewSide {
+        private BuildingViewSide() {}
+
+        public static final String LEFT = "left";
+
+        public static final String RIGHT = "right";
+    }
+
+    /**
+     * section は切断線と見え掛かり、elevation は見え掛かりを出す
+     *
+     * 列挙の値。知らない値も受け取る
+     */
+    public static final class BuildingVerticalKind {
+        private BuildingVerticalKind() {}
+
+        public static final String SECTION = "section";
+
+        public static final String ELEVATION = "elevation";
     }
 
     /** 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ */

@@ -5337,7 +5337,7 @@ const ReviewSceneSourceKindMarkup ReviewSceneSourceKind = "markup"
 // ReviewSceneSourceKindLocation は location。
 const ReviewSceneSourceKindLocation ReviewSceneSourceKind = "location"
 
-// BuildingDrawingRequest: 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+// BuildingDrawingRequest: 開いた IFC から階の平面図、または指定した鉛直面の断面図・立面図を作る。平面は storey と height、鉛直面は vertical を指定する
 type BuildingDrawingRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
 	V *int64 `json:"v,omitempty"`
@@ -5363,6 +5363,9 @@ type BuildingDrawingRequest struct {
 	// 作る図面の文書名
 	To *string `json:"to,omitempty"`
 
+	// プロジェクト座標系の鉛直面。マイナーバージョン 117 から
+	Vertical *BuildingVerticalView `json:"vertical,omitempty"`
+
 	// 切る高さの基準となる階の要素 ID
 	Storey *string `json:"storey,omitempty"`
 
@@ -5372,7 +5375,7 @@ type BuildingDrawingRequest struct {
 	// 階から切る面までの高さ
 	Height *float64 `json:"height,omitempty"`
 
-	// 切る面から下向きに見る深さ。正の値
+	// 切る面から向こうに見る深さ。正の値
 	Depth *float64 `json:"depth,omitempty"`
 
 	// 用紙の縮尺の分母。正の値
@@ -5391,6 +5394,43 @@ func (m BuildingDrawingRequest) MarshalJSON() ([]byte, error) {
 	m.Op = "building_drawing"
 	return json.Marshal(plain(m))
 }
+
+// BuildingVerticalView: プロジェクト座標系の 2 点を結ぶ鉛直面。図面の縦は上向き、原点は始点。長さは要求の unit
+type BuildingVerticalView struct {
+	// 図面の原点 [x,y,z]
+	Start []float64 `json:"start,omitempty"`
+
+	// 横軸の方向を決める終点 [x,y,z]。始点と同じ z で、xy は異なる
+	End []float64 `json:"end,omitempty"`
+
+	// 始点から終点へ向かって見る側
+	Side *BuildingViewSide `json:"side,omitempty"`
+
+	// 断面図か立面図
+	Kind *BuildingVerticalKind `json:"kind,omitempty"`
+}
+
+// BuildingViewSide: 始点から終点に向かって左側・右側のどちらから見るか
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingViewSide string
+
+// BuildingViewSideLeft は left。
+const BuildingViewSideLeft BuildingViewSide = "left"
+
+// BuildingViewSideRight は right。
+const BuildingViewSideRight BuildingViewSide = "right"
+
+// BuildingVerticalKind: section は切断線と見え掛かり、elevation は見え掛かりを出す
+//
+// 列挙の値。知らない値も受け取る。
+type BuildingVerticalKind string
+
+// BuildingVerticalKindSection は section。
+const BuildingVerticalKindSection BuildingVerticalKind = "section"
+
+// BuildingVerticalKindElevation は elevation。
+const BuildingVerticalKindElevation BuildingVerticalKind = "elevation"
 
 // BuildingDrawingResult: 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ
 type BuildingDrawingResult struct {

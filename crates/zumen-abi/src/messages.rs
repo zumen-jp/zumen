@@ -63,7 +63,7 @@ pub enum Request {
     Building(BuildingRequest),
     /// 開いた IFC の建物モデルの要素を、書いた順に返す。コンポーネントは components で選ぶ（決定 0207・0219）。マイナーバージョン 44 から
     BuildingElements(BuildingElementsRequest),
-    /// 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+    /// 開いた IFC から階の平面図、または指定した鉛直面の断面図・立面図を作る。平面は storey と height、鉛直面は vertical を指定する
     BuildingDrawing(BuildingDrawingRequest),
     /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。マイナーバージョン 44 から
     IdsCheck(IdsCheckRequest),
@@ -14102,7 +14102,7 @@ impl ToJson for ReviewSceneSourceKind {
     }
 }
 
-/// 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+/// 開いた IFC から階の平面図、または指定した鉛直面の断面図・立面図を作る。平面は storey と height、鉛直面は vertical を指定する
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingDrawingRequest {
     /// `request_common` のフィールド
@@ -14111,13 +14111,15 @@ pub struct BuildingDrawingRequest {
     pub doc: String,
     /// 作る図面の文書名
     pub to: String,
+    /// プロジェクト座標系の鉛直面。マイナーバージョン 117 から
+    pub vertical: Option<BuildingVerticalView>,
     /// 切る高さの基準となる階の要素 ID
-    pub storey: String,
+    pub storey: Option<String>,
     /// 切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない
     pub unit: Unit,
     /// 階から切る面までの高さ
-    pub height: f64,
-    /// 切る面から下向きに見る深さ。正の値
+    pub height: Option<f64>,
+    /// 切る面から向こうに見る深さ。正の値
     pub depth: f64,
     /// 用紙の縮尺の分母。正の値
     pub scale: f64,
@@ -14133,9 +14135,10 @@ impl BuildingDrawingRequest {
         object.constant("op", "building_drawing")?;
         let doc = object.required("doc", json::string)?;
         let to = object.required("to", json::string)?;
-        let storey = object.required("storey", json::string)?;
+        let vertical = object.optional("vertical", BuildingVerticalView::from_json)?;
+        let storey = object.optional("storey", json::string)?;
         let unit = object.required("unit", Unit::from_json)?;
-        let height = object.required("height", json::number)?;
+        let height = object.optional("height", json::number)?;
         let depth = object.required("depth", json::number)?;
         let scale = object.required("scale", json::number)?;
         let tolerance = object.required("tolerance", json::number)?;
@@ -14144,6 +14147,7 @@ impl BuildingDrawingRequest {
             request_common,
             doc,
             to,
+            vertical,
             storey,
             unit,
             height,
@@ -14162,12 +14166,20 @@ impl BuildingDrawingRequest {
         out.string(&self.doc);
         out.key("to");
         out.string(&self.to);
-        out.key("storey");
-        out.string(&self.storey);
+        if let Some(value) = &self.vertical {
+            out.key("vertical");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.storey {
+            out.key("storey");
+            out.string(value);
+        }
         out.key("unit");
         self.unit.to_json(out);
-        out.key("height");
-        out.float(self.height);
+        if let Some(value) = &self.height {
+            out.key("height");
+            out.float(*value);
+        }
         out.key("depth");
         out.float(self.depth);
         out.key("scale");
@@ -14193,6 +14205,148 @@ impl ToJson for BuildingDrawingRequest {
         out.begin_object();
         self.write_fields(out);
         out.end_object();
+    }
+}
+
+/// プロジェクト座標系の 2 点を結ぶ鉛直面。図面の縦は上向き、原点は始点。長さは要求の unit
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingVerticalView {
+    /// 図面の原点 [x,y,z]
+    pub start: Vec<f64>,
+    /// 横軸の方向を決める終点 [x,y,z]。始点と同じ z で、xy は異なる
+    pub end: Vec<f64>,
+    /// 始点から終点へ向かって見る側
+    pub side: BuildingViewSide,
+    /// 断面図か立面図
+    pub kind: BuildingVerticalKind,
+}
+
+impl BuildingVerticalView {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let start = object.required("start", |value| json::array(value, json::number))?;
+        let end = object.required("end", |value| json::array(value, json::number))?;
+        let side = object.required("side", BuildingViewSide::from_json)?;
+        let kind = object.required("kind", BuildingVerticalKind::from_json)?;
+        Ok(Self {
+            start,
+            end,
+            side,
+            kind,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("start");
+        out.array(&self.start, |out, item| out.float(*item));
+        out.key("end");
+        out.array(&self.end, |out, item| out.float(*item));
+        out.key("side");
+        self.side.to_json(out);
+        out.key("kind");
+        self.kind.to_json(out);
+    }
+}
+
+impl FromJson for BuildingVerticalView {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingVerticalView {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 始点から終点に向かって左側・右側のどちらから見るか
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildingViewSide {
+    /// `left`
+    Left,
+    /// `right`
+    Right,
+}
+
+impl BuildingViewSide {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Left, Self::Right];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "left" => Some(Self::Left),
+            "right" => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for BuildingViewSide {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for BuildingViewSide {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
+    }
+}
+
+/// section は切断線と見え掛かり、elevation は見え掛かりを出す
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildingVerticalKind {
+    /// `section`
+    Section,
+    /// `elevation`
+    Elevation,
+}
+
+impl BuildingVerticalKind {
+    /// すべての値（スキーマの順）
+    pub const ALL: &[Self] = &[Self::Section, Self::Elevation];
+
+    /// JSON での名前
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Section => "section",
+            Self::Elevation => "elevation",
+        }
+    }
+
+    /// JSON での名前から引く
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "section" => Some(Self::Section),
+            "elevation" => Some(Self::Elevation),
+            _ => None,
+        }
+    }
+}
+
+impl FromJson for BuildingVerticalKind {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        Self::from_name(json::str(value)?).ok_or_else(|| Invalid::new(Problem::Value))
+    }
+}
+
+impl ToJson for BuildingVerticalKind {
+    fn to_json(&self, out: &mut Writer) {
+        out.string(self.name());
     }
 }
 
