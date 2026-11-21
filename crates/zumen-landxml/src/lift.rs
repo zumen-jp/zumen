@@ -95,11 +95,9 @@ impl<'d> Reader<'d, '_, '_> {
             "JGD2024" => Some(Realization::Survey2024),
             _ => None,
         };
+        model.realization = realization;
         match (zone, realization) {
-            (Some(zone), Some(realization)) => {
-                model.crs = Some(Crs::Plane(zone));
-                model.realization = Some(realization);
-            }
+            (Some(zone), Some(_)) => model.crs = Some(Crs::Plane(zone)),
             _ => self.cx.report(
                 Diagnostic::new(codes::LANDXML_CRS_UNSUPPORTED)
                     .with("datum", datum.as_str())

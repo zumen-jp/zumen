@@ -144,6 +144,11 @@ public struct Request: Message {
         taggedView("op", "building_elements")
     }
 
+    /// op が building_drawing の形なら、そのビュー。違えば nil
+    public var asBuildingDrawingRequest: BuildingDrawingRequest? {
+        taggedView("op", "building_drawing")
+    }
+
     /// op が ids_check の形なら、そのビュー。違えば nil
     public var asIdsCheckRequest: IdsCheckRequest? {
         taggedView("op", "ids_check")
@@ -9852,6 +9857,170 @@ public enum ReviewSceneSourceKind {
     public static let location = "location"
 }
 
+/// 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+public struct BuildingDrawingRequest: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// タグのフィールドだけを持つオブジェクトから作る
+    public init() {
+        json = ["op": .string("building_drawing")]
+    }
+
+    /// メッセージのスキーマのメジャーバージョン。今は 1
+    public var v: Int64? {
+        get { readField("v") }
+        set { writeField("v", newValue) }
+    }
+
+    /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+    public var budget: Budget? {
+        get { readField("budget") }
+        set { writeField("budget", newValue) }
+    }
+
+    /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+    public var partial: Bool? {
+        get { readField("partial") }
+        set { writeField("partial", newValue) }
+    }
+
+    /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+    public var maxPlaces: Int64? {
+        get { readField("max_places") }
+        set { writeField("max_places", newValue) }
+    }
+
+    /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+    public var timeLimitMs: Int64? {
+        get { readField("time_limit_ms") }
+        set { writeField("time_limit_ms", newValue) }
+    }
+
+    /// op の名前
+    public var op: String? {
+        get { readField("op") }
+        set { writeField("op", newValue) }
+    }
+
+    /// 開いた IFC の文書名
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 作る図面の文書名
+    public var to: String? {
+        get { readField("to") }
+        set { writeField("to", newValue) }
+    }
+
+    /// 切る高さの基準となる階の要素 ID
+    public var storey: String? {
+        get { readField("storey") }
+        set { writeField("storey", newValue) }
+    }
+
+    /// 切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない
+    public var unit: String? {
+        get { readField("unit") }
+        set { writeField("unit", newValue) }
+    }
+
+    /// 階から切る面までの高さ
+    public var height: Double? {
+        get { readField("height") }
+        set { writeField("height", newValue) }
+    }
+
+    /// 切る面から下向きに見る深さ。正の値
+    public var depth: Double? {
+        get { readField("depth") }
+        set { writeField("depth", newValue) }
+    }
+
+    /// 用紙の縮尺の分母。正の値
+    public var scale: Double? {
+        get { readField("scale") }
+        set { writeField("scale", newValue) }
+    }
+
+    /// 同じ点とみなす格子の幅。正の値
+    public var tolerance: Double? {
+        get { readField("tolerance") }
+        set { writeField("tolerance", newValue) }
+    }
+
+    /// 曲線の近似に使う弦の誤差。正の値
+    public var chord: Double? {
+        get { readField("chord") }
+        set { writeField("chord", newValue) }
+    }
+}
+
+/// 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ
+public struct BuildingDrawingResult: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 作った図面の文書名
+    public var doc: String? {
+        get { readField("doc") }
+        set { writeField("doc", newValue) }
+    }
+
+    /// 図面モデルのバイナリの blob 番号。種類は drawing
+    public var blob: Int64? {
+        get { readField("blob") }
+        set { writeField("blob", newValue) }
+    }
+
+    /// 図面に書いた線の数
+    public var lines: Int64? {
+        get { readField("lines") }
+        set { writeField("lines", newValue) }
+    }
+
+    /// 切り出しで形状の欠落がなかったか
+    public var complete: Bool? {
+        get { readField("complete") }
+        set { writeField("complete", newValue) }
+    }
+
+    /// 形状の評価が完全でなかった要素の数
+    public var evaluationFailures: Int64? {
+        get { readField("evaluation_failures") }
+        set { writeField("evaluation_failures", newValue) }
+    }
+
+    /// 投影や切り口の計算に失敗した部品の数
+    public var projectionFailures: Int64? {
+        get { readField("projection_failures") }
+        set { writeField("projection_failures", newValue) }
+    }
+
+    /// 格子で点などへ縮んだ辺や輪郭の数
+    public var collapsed: Int64? {
+        get { readField("collapsed") }
+        set { writeField("collapsed", newValue) }
+    }
+}
+
 /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
 public struct BuildingRequest: Message {
     /// 包んでいる JSON のオブジェクト
@@ -18433,6 +18602,7 @@ public enum Operations {
     public static let reviewScene = "review_scene"
     public static let building = "building"
     public static let buildingElements = "building_elements"
+    public static let buildingDrawing = "building_drawing"
     public static let idsCheck = "ids_check"
     public static let reviewAdoptIds = "review_adopt_ids"
     public static let bcfRead = "bcf_read"

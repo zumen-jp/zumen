@@ -3,6 +3,8 @@
 use super::*;
 
 #[cfg(feature = "bim")]
+mod drawing;
+#[cfg(feature = "bim")]
 mod live;
 #[cfg(test)]
 #[cfg(feature = "bim")]

@@ -192,6 +192,11 @@ public final class Messages {
             return "building_elements".equals(json.get("op")) ? new BuildingElementsRequest(json) : null;
         }
 
+        /** op が building_drawing の形なら、そのビュー。違えば null */
+        public BuildingDrawingRequest asBuildingDrawingRequest() {
+            return "building_drawing".equals(json.get("op")) ? new BuildingDrawingRequest(json) : null;
+        }
+
         /** op が ids_check の形なら、そのビュー。違えば null */
         public IdsCheckRequest asIdsCheckRequest() {
             return "ids_check".equals(json.get("op")) ? new IdsCheckRequest(json) : null;
@@ -16002,6 +16007,287 @@ public final class Messages {
         public static final String LOCATION = "location";
     }
 
+    /** 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から */
+    public static final class BuildingDrawingRequest extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingDrawingRequest(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingDrawingRequest of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingDrawingRequest(json);
+        }
+
+        /** タグのフィールドだけを持つオブジェクトから作る */
+        public BuildingDrawingRequest() {
+            super(new LinkedHashMap<String, Object>());
+            json.put("op", "building_drawing");
+        }
+
+        /** メッセージのスキーマのメジャーバージョン。今は 1 */
+        public Long getV() {
+            return Json.read(json.get("v"), Json::integer);
+        }
+
+        /** {@link #getV()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withV(Long value) {
+            put("v", value);
+            return this;
+        }
+
+        /** 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010） */
+        public Budget getBudget() {
+            return Json.read(json.get("budget"), Budget::of);
+        }
+
+        /** {@link #getBudget()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withBudget(Budget value) {
+            put("budget", value);
+            return this;
+        }
+
+        /** 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010） */
+        public Boolean getPartial() {
+            return Json.read(json.get("partial"), Json::bool);
+        }
+
+        /** {@link #getPartial()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withPartial(Boolean value) {
+            put("partial", value);
+            return this;
+        }
+
+        /** 診断ごとに返す場所の数。書かなければ 16（決定 0009） */
+        public Long getMaxPlaces() {
+            return Json.read(json.get("max_places"), Json::integer);
+        }
+
+        /** {@link #getMaxPlaces()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withMaxPlaces(Long value) {
+            put("max_places", value);
+            return this;
+        }
+
+        /** 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010） */
+        public Long getTimeLimitMs() {
+            return Json.read(json.get("time_limit_ms"), Json::integer);
+        }
+
+        /** {@link #getTimeLimitMs()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withTimeLimitMs(Long value) {
+            put("time_limit_ms", value);
+            return this;
+        }
+
+        /** op の名前 */
+        public String getOp() {
+            return Json.read(json.get("op"), Json::string);
+        }
+
+        /** {@link #getOp()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withOp(String value) {
+            put("op", value);
+            return this;
+        }
+
+        /** 開いた IFC の文書名 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 作る図面の文書名 */
+        public String getTo() {
+            return Json.read(json.get("to"), Json::string);
+        }
+
+        /** {@link #getTo()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withTo(String value) {
+            put("to", value);
+            return this;
+        }
+
+        /** 切る高さの基準となる階の要素 ID */
+        public String getStorey() {
+            return Json.read(json.get("storey"), Json::string);
+        }
+
+        /** {@link #getStorey()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withStorey(String value) {
+            put("storey", value);
+            return this;
+        }
+
+        /** 切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない */
+        public String getUnit() {
+            return Json.read(json.get("unit"), Json::string);
+        }
+
+        /** {@link #getUnit()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withUnit(String value) {
+            put("unit", value);
+            return this;
+        }
+
+        /** 階から切る面までの高さ */
+        public Double getHeight() {
+            return Json.read(json.get("height"), Json::number);
+        }
+
+        /** {@link #getHeight()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withHeight(Double value) {
+            put("height", value);
+            return this;
+        }
+
+        /** 切る面から下向きに見る深さ。正の値 */
+        public Double getDepth() {
+            return Json.read(json.get("depth"), Json::number);
+        }
+
+        /** {@link #getDepth()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withDepth(Double value) {
+            put("depth", value);
+            return this;
+        }
+
+        /** 用紙の縮尺の分母。正の値 */
+        public Double getScale() {
+            return Json.read(json.get("scale"), Json::number);
+        }
+
+        /** {@link #getScale()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withScale(Double value) {
+            put("scale", value);
+            return this;
+        }
+
+        /** 同じ点とみなす格子の幅。正の値 */
+        public Double getTolerance() {
+            return Json.read(json.get("tolerance"), Json::number);
+        }
+
+        /** {@link #getTolerance()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withTolerance(Double value) {
+            put("tolerance", value);
+            return this;
+        }
+
+        /** 曲線の近似に使う弦の誤差。正の値 */
+        public Double getChord() {
+            return Json.read(json.get("chord"), Json::number);
+        }
+
+        /** {@link #getChord()} を書く。null ならフィールドを除く */
+        public BuildingDrawingRequest withChord(Double value) {
+            put("chord", value);
+            return this;
+        }
+    }
+
+    /** 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ */
+    public static final class BuildingDrawingResult extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public BuildingDrawingResult(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static BuildingDrawingResult of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new BuildingDrawingResult(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public BuildingDrawingResult() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 作った図面の文書名 */
+        public String getDoc() {
+            return Json.read(json.get("doc"), Json::string);
+        }
+
+        /** {@link #getDoc()} を書く。null ならフィールドを除く */
+        public BuildingDrawingResult withDoc(String value) {
+            put("doc", value);
+            return this;
+        }
+
+        /** 図面モデルのバイナリの blob 番号。種類は drawing */
+        public Long getBlob() {
+            return Json.read(json.get("blob"), Json::integer);
+        }
+
+        /** {@link #getBlob()} を書く。null ならフィールドを除く */
+        public BuildingDrawingResult withBlob(Long value) {
+            put("blob", value);
+            return this;
+        }
+
+        /** 図面に書いた線の数 */
+        public Long getLines() {
+            return Json.read(json.get("lines"), Json::integer);
+        }
+
+        /** {@link #getLines()} を書く。null ならフィールドを除く */
+        public BuildingDrawingResult withLines(Long value) {
+            put("lines", value);
+            return this;
+        }
+
+        /** 切り出しで形状の欠落がなかったか */
+        public Boolean getComplete() {
+            return Json.read(json.get("complete"), Json::bool);
+        }
+
+        /** {@link #getComplete()} を書く。null ならフィールドを除く */
+        public BuildingDrawingResult withComplete(Boolean value) {
+            put("complete", value);
+            return this;
+        }
+
+        /** 形状の評価が完全でなかった要素の数 */
+        public Long getEvaluationFailures() {
+            return Json.read(json.get("evaluation_failures"), Json::integer);
+        }
+
+        /** {@link #getEvaluationFailures()} を書く。null ならフィールドを除く */
+        public BuildingDrawingResult withEvaluationFailures(Long value) {
+            put("evaluation_failures", value);
+            return this;
+        }
+
+        /** 投影や切り口の計算に失敗した部品の数 */
+        public Long getProjectionFailures() {
+            return Json.read(json.get("projection_failures"), Json::integer);
+        }
+
+        /** {@link #getProjectionFailures()} を書く。null ならフィールドを除く */
+        public BuildingDrawingResult withProjectionFailures(Long value) {
+            put("projection_failures", value);
+            return this;
+        }
+
+        /** 格子で点などへ縮んだ辺や輪郭の数 */
+        public Long getCollapsed() {
+            return Json.read(json.get("collapsed"), Json::integer);
+        }
+
+        /** {@link #getCollapsed()} を書く。null ならフィールドを除く */
+        public BuildingDrawingResult withCollapsed(Long value) {
+            put("collapsed", value);
+            return this;
+        }
+    }
+
     /** 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から */
     public static final class BuildingRequest extends Message {
         /** 読んだ JSON のオブジェクトを包む */
@@ -29919,6 +30205,8 @@ public final class Messages {
         public static final String BUILDING = "building";
 
         public static final String BUILDING_ELEMENTS = "building_elements";
+
+        public static final String BUILDING_DRAWING = "building_drawing";
 
         public static final String IDS_CHECK = "ids_check";
 

@@ -8,7 +8,7 @@ pub const ABI_VERSION: u32 = 1;
 /// メッセージのスキーマのメジャーバージョン。要求と応答の `v`
 pub const SCHEMA_MAJOR: u64 = 1;
 /// メッセージのスキーマのマイナーバージョン。`capabilities` が返す
-pub const SCHEMA_MINOR: u64 = 113;
+pub const SCHEMA_MINOR: u64 = 114;
 
 /// 状態コード。理由は応答の診断で返す
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,6 +162,7 @@ pub const MODULES: &[Module] = &[
             "convert_estimate",
             "civil",
             "scene3d",
+            "building_drawing",
         ],
     },
     // 土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）
@@ -264,6 +265,7 @@ pub fn has_op(op: &str) -> bool {
                     | "convert_estimate"
                     | "civil"
                     | "scene3d"
+                    | "building_drawing"
             ))
         || (cfg!(feature = "civil")
             && matches!(

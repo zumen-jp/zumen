@@ -356,6 +356,7 @@ impl Lift<PointCloud> for PlyFile {
         Ok(PointCloud {
             crs: None,
             vertical: None,
+            unsupported_vertical_epsg: None,
             points,
             octree,
             source: Ref::at_bytes(span.0, span.1),

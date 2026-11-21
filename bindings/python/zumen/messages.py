@@ -35,6 +35,7 @@ Request = Union[
     "ReviewSceneRequest",
     "BuildingRequest",
     "BuildingElementsRequest",
+    "BuildingDrawingRequest",
     "IdsCheckRequest",
     "ReviewAdoptIdsRequest",
     "BcfReadRequest",
@@ -4820,6 +4821,76 @@ ReviewSceneSourceKind = Union[
 ]
 
 
+# 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+_BuildingDrawingRequestRequired = TypedDict(
+    "_BuildingDrawingRequestRequired",
+    {
+        # メッセージのスキーマのメジャーバージョン。今は 1
+        "v": int,
+        # op の名前
+        "op": Literal["building_drawing"],
+        # 開いた IFC の文書名
+        "doc": str,
+        # 作る図面の文書名
+        "to": str,
+        # 切る高さの基準となる階の要素 ID
+        "storey": str,
+        # 切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない
+        "unit": "Unit",
+        # 階から切る面までの高さ
+        "height": float,
+        # 切る面から下向きに見る深さ。正の値
+        "depth": float,
+        # 用紙の縮尺の分母。正の値
+        "scale": float,
+        # 同じ点とみなす格子の幅。正の値
+        "tolerance": float,
+        # 曲線の近似に使う弦の誤差。正の値
+        "chord": float,
+    },
+)
+_BuildingDrawingRequestOptional = TypedDict(
+    "_BuildingDrawingRequestOptional",
+    {
+        # 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        "budget": "Budget",
+        # 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        "partial": bool,
+        # 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        "max_places": int,
+        # 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        "time_limit_ms": int,
+    },
+    total=False,
+)
+
+
+class BuildingDrawingRequest(_BuildingDrawingRequestRequired, _BuildingDrawingRequestOptional):
+    "開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から"
+
+
+# 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ
+BuildingDrawingResult = TypedDict(
+    "BuildingDrawingResult",
+    {
+        # 作った図面の文書名
+        "doc": str,
+        # 図面モデルのバイナリの blob 番号。種類は drawing
+        "blob": int,
+        # 図面に書いた線の数
+        "lines": int,
+        # 切り出しで形状の欠落がなかったか
+        "complete": bool,
+        # 形状の評価が完全でなかった要素の数
+        "evaluation_failures": int,
+        # 投影や切り口の計算に失敗した部品の数
+        "projection_failures": int,
+        # 格子で点などへ縮んだ辺や輪郭の数
+        "collapsed": int,
+    },
+)
+
+
 # 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
 _BuildingRequestRequired = TypedDict(
     "_BuildingRequestRequired",
@@ -9454,6 +9525,7 @@ Operation = Literal[
     "review_scene",
     "building",
     "building_elements",
+    "building_drawing",
     "ids_check",
     "review_adopt_ids",
     "bcf_read",
@@ -9502,6 +9574,7 @@ OPERATIONS: Dict[str, Any] = {
     "review_scene": ("ReviewSceneRequest", "ReviewSceneResult"),
     "building": ("BuildingRequest", "BuildingResult"),
     "building_elements": ("BuildingElementsRequest", "BuildingElementsResult"),
+    "building_drawing": ("BuildingDrawingRequest", "BuildingDrawingResult"),
     "ids_check": ("IdsCheckRequest", "IdsCheckResult"),
     "review_adopt_ids": ("ReviewAdoptIdsRequest", "Dict[str, Any]"),
     "bcf_read": ("BcfReadRequest", "BcfReadResult"),

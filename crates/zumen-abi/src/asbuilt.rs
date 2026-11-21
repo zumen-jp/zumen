@@ -2,6 +2,7 @@
 
 use zumen_base::{Cx, Diagnostic, codes};
 use zumen_civil::{CivilModel, Tin};
+use zumen_crs::{HeightDatum, Realization};
 use zumen_pointcloud::PointCloud;
 
 use crate::check::{finding_of, identity_of, profile_failed};
@@ -13,6 +14,76 @@ use crate::messages::{
     DeviationRule,
 };
 use crate::session::{Failed, fail, invalid_value, stopped};
+
+/// 点群の高さから差し引く前に設計面へ足す値。診断は点ごとに重ねず、比較する文書の組に一度返す。
+fn surface_height_offset(
+    cloud: &PointCloud,
+    model: &CivilModel,
+    tin: &Tin,
+    cx: &mut Cx<'_>,
+) -> Result<f64, Failed> {
+    let reference = model.height_reference.as_ref();
+    let name = reference
+        .and_then(|r| r.name.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let surface_name = name
+        .or(model.height_datum.map(HeightDatum::key))
+        .unwrap_or("unknown");
+    let source = reference.map_or(&tin.source, |r| &r.source);
+    if let Some(code) = cloud.unsupported_vertical_epsg {
+        return Err(fail(
+            cx,
+            Diagnostic::new(codes::CRS_HEIGHT_DATUM_UNSUPPORTED)
+                .with("first", format!("EPSG:{code}"))
+                .with("second", surface_name)
+                .at(cloud.source.clone()),
+        ));
+    }
+
+    let offset = reference.and_then(|r| r.tokyo_bay_offset);
+    let authored_surface = model.height_datum.is_some() || name.is_some() || offset.is_some();
+    // 基準名のない点群は設計面と同じ元の現場基準と仮定する。T.P. への片側だけの換算は行わない。
+    let surface_offset = match (cloud.vertical, authored_surface) {
+        (Some(_), true) => match offset {
+            Some(value) => value,
+            None if reference.is_none() && model.height_datum == Some(HeightDatum::TokyoBay) => 0.0,
+            None => {
+                return Err(fail(
+                    cx,
+                    Diagnostic::new(codes::CRS_HEIGHT_DATUM_UNSUPPORTED)
+                        .with("first", HeightDatum::TokyoBay.key())
+                        .with("second", surface_name)
+                        .at(source.clone()),
+                ));
+            }
+        },
+        _ => {
+            cx.report(Diagnostic::new(codes::DEVIATION_HEIGHT_DATUM_ASSUMED).at(
+                if cloud.vertical.is_none() {
+                    cloud.source.clone()
+                } else {
+                    source.clone()
+                },
+            ));
+            0.0
+        }
+    };
+    let point_realization = cloud.vertical.map(|v| v.realization());
+    if let Some(known) = point_realization.or(model.realization) {
+        let first = Realization::or_assume(point_realization, known, cloud.source.clone(), cx);
+        let second = Realization::or_assume(model.realization, known, source.clone(), cx);
+        if first != second {
+            cx.report(
+                Diagnostic::new(codes::CRS_HEIGHT_REALIZATION_MIXED)
+                    .with("first", first.key())
+                    .with("second", second.key())
+                    .at(source.clone()),
+            );
+        }
+    }
+    Ok(surface_offset)
+}
 
 /// 差を求めて、集計と、評価した点の一部を返す。`profiles` は入力の名前とバイト列。色分けに使う報告と規則も返す
 pub(crate) fn deviation(
@@ -47,8 +118,10 @@ pub(crate) fn deviation(
     if rules.is_empty() {
         return Err(fail(cx, invalid_value("/work")));
     }
-    let mut report = zumen_asbuilt::deviation(&cloud.points, tin, &rules, cx)
-        .map_err(|stop| stopped(cx, stop))?;
+    let offset = surface_height_offset(cloud, model, tin, cx)?;
+    let mut report =
+        zumen_asbuilt::deviation_with_height_offset(&cloud.points, tin, offset, &rules, cx)
+            .map_err(|stop| stopped(cx, stop))?;
     let total = report.evaluated.len() as u64;
     let start = request.offset.unwrap_or(0);
     let end = start.saturating_add(request.limit.unwrap_or(0));

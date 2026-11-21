@@ -8,7 +8,7 @@ export const ABI_VERSION = 1;
 /** メッセージのスキーマのメジャーバージョン（要求と応答の v） */
 export const SCHEMA_MAJOR = 1;
 /** メッセージのスキーマのマイナーバージョン */
-export const SCHEMA_MINOR = 113;
+export const SCHEMA_MINOR = 114;
 
 /** 状態コードの名前。値から引く */
 export const STATUS = Object.freeze({
@@ -44,7 +44,7 @@ export const MODULES = Object.freeze({
   bim: Object.freeze({
     description: "IFC と ST-Bridge と建物モデル、EXPRESS・IDS の照合と BCF。IFC4.3 の線形の上の所（決定 0253）",
     formats: Object.freeze(["ifc", "stbridge"]),
-    ops: Object.freeze(["capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements", "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply", "create", "convert", "convert_estimate", "civil", "scene3d"]),
+    ops: Object.freeze(["capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements", "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply", "create", "convert", "convert_estimate", "civil", "scene3d", "building_drawing"]),
   }),
   civil: Object.freeze({
     description: "土木の線形（J-LandXML・SIMA）と、地理の地物（CityGML・基盤地図情報・拡張 DM・GeoJSON・SIMA・GeoTIFF）",

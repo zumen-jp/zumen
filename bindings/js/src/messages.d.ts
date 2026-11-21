@@ -32,6 +32,7 @@ export type Request =
   | ReviewSceneRequest
   | BuildingRequest
   | BuildingElementsRequest
+  | BuildingDrawingRequest
   | IdsCheckRequest
   | ReviewAdoptIdsRequest
   | BcfReadRequest
@@ -2897,6 +2898,48 @@ export type ReviewSceneSourceKind =
   | "location"
   | (string & {});
 
+/** 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から */
+export interface BuildingDrawingRequest extends RequestCommon {
+  /** op の名前 */
+  op: "building_drawing";
+  /** 開いた IFC の文書名 */
+  doc: string;
+  /** 作る図面の文書名 */
+  to: string;
+  /** 切る高さの基準となる階の要素 ID */
+  storey: string;
+  /** 切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない */
+  unit: Unit;
+  /** 階から切る面までの高さ */
+  height: number;
+  /** 切る面から下向きに見る深さ。正の値 */
+  depth: number;
+  /** 用紙の縮尺の分母。正の値 */
+  scale: number;
+  /** 同じ点とみなす格子の幅。正の値 */
+  tolerance: number;
+  /** 曲線の近似に使う弦の誤差。正の値 */
+  chord: number;
+}
+
+/** 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ */
+export interface BuildingDrawingResult {
+  /** 作った図面の文書名 */
+  doc: string;
+  /** 図面モデルのバイナリの blob 番号。種類は drawing */
+  blob: number;
+  /** 図面に書いた線の数 */
+  lines: number;
+  /** 切り出しで形状の欠落がなかったか */
+  complete: boolean;
+  /** 形状の評価が完全でなかった要素の数 */
+  evaluation_failures: number;
+  /** 投影や切り口の計算に失敗した部品の数 */
+  projection_failures: number;
+  /** 格子で点などへ縮んだ辺や輪郭の数 */
+  collapsed: number;
+}
+
 /** 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から */
 export interface BuildingRequest extends RequestCommon {
   /** op の名前 */
@@ -5523,6 +5566,7 @@ export interface Operations {
   review_scene: { request: ReviewSceneRequest; result: ReviewSceneResult };
   building: { request: BuildingRequest; result: BuildingResult };
   building_elements: { request: BuildingElementsRequest; result: BuildingElementsResult };
+  building_drawing: { request: BuildingDrawingRequest; result: BuildingDrawingResult };
   ids_check: { request: IdsCheckRequest; result: IdsCheckResult };
   review_adopt_ids: { request: ReviewAdoptIdsRequest; result: unknown };
   bcf_read: { request: BcfReadRequest; result: BcfReadResult };

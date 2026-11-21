@@ -57,6 +57,14 @@ group-by = ["reason"]
 since = "0.3.0"
 status = "active"
 
+[codes."building.drawing.failed"]
+description = "切る階の配置・単位・切断条件などを解けず、図面を作れない"
+severity = "error"
+params = { reason = "text" }
+group-by = ["reason"]
+since = "0.3.0"
+status = "active"
+
 [codes."building.measure.failed"]
 description = "形または計測条件から数量を計算できなかった。記録済みの数量では補わない"
 severity = "warning"
@@ -3676,6 +3684,13 @@ since = "0.2.0"
 status = "active"
 
 # 出来形（決定 0234）
+
+[codes."deviation.height-datum.assumed"]
+description = "点群または設計面に高さの基準がないため、同じ現場基準の高さと仮定して比べた"
+severity = "warning"
+params = {}
+since = "0.4.0"
+status = "active"
 
 [codes."deviation.crs.mixed"]
 description = "点群と TIN の水平の座標系が違うので、標高の差を求めなかった"

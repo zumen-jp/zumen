@@ -97,6 +97,9 @@ class Request extends Message {
   /// op が building_elements の形なら、そのビュー。違えば null
   BuildingElementsRequest? get asBuildingElementsRequest => taggedView('op', 'building_elements', BuildingElementsRequest.fromJson);
 
+  /// op が building_drawing の形なら、そのビュー。違えば null
+  BuildingDrawingRequest? get asBuildingDrawingRequest => taggedView('op', 'building_drawing', BuildingDrawingRequest.fromJson);
+
   /// op が ids_check の形なら、そのビュー。違えば null
   IdsCheckRequest? get asIdsCheckRequest => taggedView('op', 'ids_check', IdsCheckRequest.fromJson);
 
@@ -6393,6 +6396,112 @@ abstract final class ReviewSceneSourceKind {
   static const location = 'location';
 }
 
+/// 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+class BuildingDrawingRequest extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingDrawingRequest.fromJson(super.json);
+
+  /// タグのフィールドだけを持つオブジェクトから作る
+  BuildingDrawingRequest() : super({'op': 'building_drawing'});
+
+  /// メッセージのスキーマのメジャーバージョン。今は 1
+  core.int? get v => readField('v', asInt);
+  set v(core.int? value) => writeField('v', value);
+
+  /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+  Budget? get budget => readField('budget', objectOf(Budget.fromJson));
+  set budget(Budget? value) => writeField('budget', value);
+
+  /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+  core.bool? get partial => readField('partial', asBool);
+  set partial(core.bool? value) => writeField('partial', value);
+
+  /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+  core.int? get maxPlaces => readField('max_places', asInt);
+  set maxPlaces(core.int? value) => writeField('max_places', value);
+
+  /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+  core.int? get timeLimitMs => readField('time_limit_ms', asInt);
+  set timeLimitMs(core.int? value) => writeField('time_limit_ms', value);
+
+  /// op の名前
+  String? get op => readField('op', asString);
+  set op(String? value) => writeField('op', value);
+
+  /// 開いた IFC の文書名
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 作る図面の文書名
+  String? get to => readField('to', asString);
+  set to(String? value) => writeField('to', value);
+
+  /// 切る高さの基準となる階の要素 ID
+  String? get storey => readField('storey', asString);
+  set storey(String? value) => writeField('storey', value);
+
+  /// 切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない
+  String? get unit => readField('unit', asString);
+  set unit(String? value) => writeField('unit', value);
+
+  /// 階から切る面までの高さ
+  core.double? get height => readField('height', asDouble);
+  set height(core.double? value) => writeField('height', value);
+
+  /// 切る面から下向きに見る深さ。正の値
+  core.double? get depth => readField('depth', asDouble);
+  set depth(core.double? value) => writeField('depth', value);
+
+  /// 用紙の縮尺の分母。正の値
+  core.double? get scale => readField('scale', asDouble);
+  set scale(core.double? value) => writeField('scale', value);
+
+  /// 同じ点とみなす格子の幅。正の値
+  core.double? get tolerance => readField('tolerance', asDouble);
+  set tolerance(core.double? value) => writeField('tolerance', value);
+
+  /// 曲線の近似に使う弦の誤差。正の値
+  core.double? get chord => readField('chord', asDouble);
+  set chord(core.double? value) => writeField('chord', value);
+}
+
+/// 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ
+class BuildingDrawingResult extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  BuildingDrawingResult.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  BuildingDrawingResult() : super({});
+
+  /// 作った図面の文書名
+  String? get doc => readField('doc', asString);
+  set doc(String? value) => writeField('doc', value);
+
+  /// 図面モデルのバイナリの blob 番号。種類は drawing
+  core.int? get blob => readField('blob', asInt);
+  set blob(core.int? value) => writeField('blob', value);
+
+  /// 図面に書いた線の数
+  core.int? get lines => readField('lines', asInt);
+  set lines(core.int? value) => writeField('lines', value);
+
+  /// 切り出しで形状の欠落がなかったか
+  core.bool? get complete => readField('complete', asBool);
+  set complete(core.bool? value) => writeField('complete', value);
+
+  /// 形状の評価が完全でなかった要素の数
+  core.int? get evaluationFailures => readField('evaluation_failures', asInt);
+  set evaluationFailures(core.int? value) => writeField('evaluation_failures', value);
+
+  /// 投影や切り口の計算に失敗した部品の数
+  core.int? get projectionFailures => readField('projection_failures', asInt);
+  set projectionFailures(core.int? value) => writeField('projection_failures', value);
+
+  /// 格子で点などへ縮んだ辺や輪郭の数
+  core.int? get collapsed => readField('collapsed', asInt);
+  set collapsed(core.int? value) => writeField('collapsed', value);
+}
+
 /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
 class BuildingRequest extends Message {
   /// 読んだ JSON のオブジェクトを包む
@@ -11951,6 +12060,7 @@ abstract final class Operations {
   static const reviewScene = 'review_scene';
   static const building = 'building';
   static const buildingElements = 'building_elements';
+  static const buildingDrawing = 'building_drawing';
   static const idsCheck = 'ids_check';
   static const reviewAdoptIds = 'review_adopt_ids';
   static const bcfRead = 'bcf_read';

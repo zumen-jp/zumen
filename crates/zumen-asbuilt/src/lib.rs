@@ -220,6 +220,17 @@ pub fn deviation(
     rules: &[Rule],
     cx: &mut Cx<'_>,
 ) -> Result<Report, Stop> {
+    deviation_with_height_offset(points, tin, 0.0, rules, cx)
+}
+
+/// 設計面の高さを点群の基準に換算して差を求める。差し引く設計高は元の TIN の高さに `surface_offset`（m）を足した値
+pub fn deviation_with_height_offset(
+    points: &Points,
+    tin: &Tin,
+    surface_offset: f64,
+    rules: &[Rule],
+    cx: &mut Cx<'_>,
+) -> Result<Report, Stop> {
     let surface = Surface::new(tin, rules, cx)?;
     let mut report = Report {
         summaries: Vec::new(),
@@ -253,7 +264,7 @@ pub fn deviation(
             report.excluded += 1;
             continue;
         }
-        let difference = height - ground;
+        let difference = height - (ground + surface_offset);
         tally.points += 1;
         tally.sum += difference;
         tally.min = Some(tally.min.map_or(difference, |min| min.min(difference)));

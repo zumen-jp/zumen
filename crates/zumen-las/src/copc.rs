@@ -360,7 +360,8 @@ pub fn read(src: &Source<'_>, query: &Query, cx: &mut Cx<'_>) -> Result<Copc, Mi
         vlrs,
         points,
     };
-    let (columns, crs, vertical) = crate::lift::parts(&file, cx)?;
+    let columns = crate::lift::parts(&file, cx)?;
+    let (crs, vertical, unsupported_vertical_epsg) = crate::lift::crs(&file, cx);
     if columns.len() as u64 != total {
         return Err(invalid(cx, "chunk-range", None));
     }
@@ -371,6 +372,7 @@ pub fn read(src: &Source<'_>, query: &Query, cx: &mut Cx<'_>) -> Result<Copc, Mi
         cloud: PointCloud {
             crs,
             vertical,
+            unsupported_vertical_epsg,
             points: columns,
             octree: tree,
             source: Ref::at_bytes(point_start, chunks_end),

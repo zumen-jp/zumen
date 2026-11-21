@@ -160,6 +160,11 @@ func (u Request) AsBuildingElementsRequest() *BuildingElementsRequest {
 	return asTagged[BuildingElementsRequest](u, "op", "building_elements")
 }
 
+// AsBuildingDrawingRequest は、op が building_drawing の形なら、その型で読む。違えば nil。
+func (u Request) AsBuildingDrawingRequest() *BuildingDrawingRequest {
+	return asTagged[BuildingDrawingRequest](u, "op", "building_drawing")
+}
+
 // AsIdsCheckRequest は、op が ids_check の形なら、その型で読む。違えば nil。
 func (u Request) AsIdsCheckRequest() *IdsCheckRequest {
 	return asTagged[IdsCheckRequest](u, "op", "ids_check")
@@ -5332,6 +5337,85 @@ const ReviewSceneSourceKindMarkup ReviewSceneSourceKind = "markup"
 // ReviewSceneSourceKindLocation は location。
 const ReviewSceneSourceKindLocation ReviewSceneSourceKind = "location"
 
+// BuildingDrawingRequest: 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+type BuildingDrawingRequest struct {
+	// メッセージのスキーマのメジャーバージョン。今は 1
+	V *int64 `json:"v,omitempty"`
+
+	// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+	Budget *Budget `json:"budget,omitempty"`
+
+	// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+	Partial *bool `json:"partial,omitempty"`
+
+	// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+	MaxPlaces *int64 `json:"max_places,omitempty"`
+
+	// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+	TimeLimitMs *int64 `json:"time_limit_ms,omitempty"`
+
+	// op の名前
+	Op string `json:"op,omitempty"`
+
+	// 開いた IFC の文書名
+	Doc *string `json:"doc,omitempty"`
+
+	// 作る図面の文書名
+	To *string `json:"to,omitempty"`
+
+	// 切る高さの基準となる階の要素 ID
+	Storey *string `json:"storey,omitempty"`
+
+	// 切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない
+	Unit *Unit `json:"unit,omitempty"`
+
+	// 階から切る面までの高さ
+	Height *float64 `json:"height,omitempty"`
+
+	// 切る面から下向きに見る深さ。正の値
+	Depth *float64 `json:"depth,omitempty"`
+
+	// 用紙の縮尺の分母。正の値
+	Scale *float64 `json:"scale,omitempty"`
+
+	// 同じ点とみなす格子の幅。正の値
+	Tolerance *float64 `json:"tolerance,omitempty"`
+
+	// 曲線の近似に使う弦の誤差。正の値
+	Chord *float64 `json:"chord,omitempty"`
+}
+
+// MarshalJSON は、タグのフィールドを入れて書く。
+func (m BuildingDrawingRequest) MarshalJSON() ([]byte, error) {
+	type plain BuildingDrawingRequest
+	m.Op = "building_drawing"
+	return json.Marshal(plain(m))
+}
+
+// BuildingDrawingResult: 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ
+type BuildingDrawingResult struct {
+	// 作った図面の文書名
+	Doc *string `json:"doc,omitempty"`
+
+	// 図面モデルのバイナリの blob 番号。種類は drawing
+	Blob *int64 `json:"blob,omitempty"`
+
+	// 図面に書いた線の数
+	Lines *int64 `json:"lines,omitempty"`
+
+	// 切り出しで形状の欠落がなかったか
+	Complete *bool `json:"complete,omitempty"`
+
+	// 形状の評価が完全でなかった要素の数
+	EvaluationFailures *int64 `json:"evaluation_failures,omitempty"`
+
+	// 投影や切り口の計算に失敗した部品の数
+	ProjectionFailures *int64 `json:"projection_failures,omitempty"`
+
+	// 格子で点などへ縮んだ辺や輪郭の数
+	Collapsed *int64 `json:"collapsed,omitempty"`
+}
+
 // BuildingRequest: 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
 type BuildingRequest struct {
 	// メッセージのスキーマのメジャーバージョン。今は 1
@@ -9678,6 +9762,9 @@ const OpBuilding = "building"
 
 // OpBuildingElements は、op の名前 building_elements。
 const OpBuildingElements = "building_elements"
+
+// OpBuildingDrawing は、op の名前 building_drawing。
+const OpBuildingDrawing = "building_drawing"
 
 // OpIdsCheck は、op の名前 ids_check。
 const OpIdsCheck = "ids_check"

@@ -163,6 +163,7 @@ impl Lift<PointCloud> for XyzFile {
         Ok(PointCloud {
             crs: None,
             vertical: None,
+            unsupported_vertical_epsg: None,
             points,
             octree,
             source: Ref::at_bytes(self.spans.first().map_or(0, |span| span.0), end),

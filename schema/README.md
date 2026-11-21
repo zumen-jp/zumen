@@ -15,6 +15,10 @@ VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenN
 
 ## 図面モデルのメモリ予算
 
+スキーマ 1.114 の `building_drawing` は、指定した階を基準に IFC を水平に切ります。階に配置があればプロジェクト空間での Z 座標を使い、配置がなければ単位付きの階の標高を使います。図の XY 原点はプロジェクトの原点です。`height`・`depth`・`tolerance`・`chord` は `unit` の単位で渡し、`scale` は用紙の縮尺の分母です。階や長さの単位が解決できないとき、予算停止・中断のときは、図面と blob を登録しません。
+
+成功時には `to` の名前の読み取り用図面と、元の IFC の形式・系統・入力ハッシュを持つ `drawing` の blob（ZMDR）を返します。各線の `zumen.building.drawing` 拡張は元の要素・形の項目と切断線などの役割を保ちます。ネイティブではその図面を `entities` や `convert` に渡せます。分割した wasm では BIM モジュールの blob を図面モジュールに渡して開きます。[切り出して DXF に書く例](../docs/formats/ifc.md#建物を図面へ切り出す)
+
 スキーマ 1.113 から、要求の `budget` とセッション既定の予算で `model_bytes` を指定できます（#559）。
 
 ```json
@@ -316,6 +320,8 @@ Rust の `drawing::build` は点を点、線を折れ線、面の外周と各穴
 合成の LAS（色・強度・分類を持つ 12 点、同じ位置を重ねた 3 段の節）を `scene3d_pointcloud.json` でネイティブと wasm に流し、全バイトのハッシュを比べます。`zumen-pointcloud` の試験は、同じ `Query` の `select` と点の順・数・`truncated`・段を比べ、座標・色・強度・分類を元の列へ戻して照らし、全予算の境界で途中の結果を返さないことを確かめます。外部実装との照合は含みません。
 
 ### 出来形の差の色分け
+
+`deviation` は、J-LandXML の設計面に指定した `differTP` を設計高に足して、点群の標高と比べます。差は「点の高さ − 換算した設計高」（メートル）です。基準名があるのに T.P. へ換算できない場合や、点群の鉛直 EPSG コードを扱えない場合は `crs.height-datum.unsupported` で止めます。基準を省いた点群は元の設計高と同じ現場基準、基準を省いた設計面は点群と同じ現場基準と仮定し、`deviation.height-datum.assumed` を返します。標高の成果が片側だけ不明なら相手側の成果を仮定して `crs.height-realization.assumed` を返します。両方の成果が分かって異なる場合は `crs.height-realization.mixed` とともに差を返します。成果間の補正は行いません。規格値との比較と色分けも同じ差を使います。離島独自の平均海面への換算は、点の位置から推定しません。[国土地理院の離島の高さ](https://www.gsi.go.jp/sokuchikijun/ritohyokogenten.html)
 
 `deviation` の要求に `scene3d`（`box`・`tolerance`・`limit`）を書くと、点群の `scene3d` と同じ点の区画のシーンと、色の段の表 `bands` を返します（スキーマ 1.89 から）。点の位置・強度・分類と点の選び方は点群のシーンと同じで、`point_rgba` だけを差の段の色に替えます。
 

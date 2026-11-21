@@ -18,6 +18,8 @@ pub struct PointCloud {
     pub crs: Option<Crs>,
     /// 高さの座標系。分からなければ `None`
     pub vertical: Option<VerticalCrs>,
+    /// 元の点群が指定した、扱えない鉛直 EPSG コード。基準の省略と区別する
+    pub unsupported_vertical_epsg: Option<u32>,
     /// 点
     pub points: Points,
     /// 八分木の索引

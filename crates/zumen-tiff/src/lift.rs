@@ -631,6 +631,7 @@ pub(crate) fn lift_pointcloud(file: &TiffFile, cx: &mut Cx) -> Result<PointCloud
     Ok(PointCloud {
         crs: Some(crs),
         vertical: geo.vertical_crs,
+        unsupported_vertical_epsg: geo.unsupported_vertical_epsg,
         points,
         octree,
         source: page.info.source.clone(),

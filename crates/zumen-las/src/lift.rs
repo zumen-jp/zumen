@@ -23,11 +23,13 @@ const GEOGRAPHIC_KEY: u16 = 2048;
 const VERTICAL_KEY: u16 = 4096;
 
 pub(crate) fn lift(file: &LasFile, cx: &mut Cx<'_>) -> Result<PointCloud, Error> {
-    let (points, crs, vertical) = parts(file, cx)?;
+    let points = parts(file, cx)?;
+    let (crs, vertical, unsupported_vertical_epsg) = crs(file, cx);
     let octree = Octree::build(&points, cx)?;
     Ok(PointCloud {
         crs,
         vertical,
+        unsupported_vertical_epsg,
         points,
         octree,
         source: Ref::at_bytes(
@@ -37,11 +39,8 @@ pub(crate) fn lift(file: &LasFile, cx: &mut Cx<'_>) -> Result<PointCloud, Error>
     })
 }
 
-/// 点の列と、水平・高さの座標系。八分木は作らない
-pub(crate) fn parts(
-    file: &LasFile,
-    cx: &mut Cx<'_>,
-) -> Result<(Points, Option<Crs>, Option<VerticalCrs>), Error> {
+/// 点の列。八分木は作らない
+pub(crate) fn parts(file: &LasFile, cx: &mut Cx<'_>) -> Result<Points, Error> {
     let header = &file.header;
     let format = header.point_format;
     let length = usize::from(header.record_length);
@@ -101,8 +100,7 @@ pub(crate) fn parts(
         }
     }
     dropped(file, cx);
-    let (crs, vertical) = crs(file, cx);
-    Ok((points, crs, vertical))
+    Ok(points)
 }
 
 /// 点群の領域モデルに持たない属性を知らせる
@@ -127,7 +125,10 @@ fn dropped(file: &LasFile, cx: &mut Cx<'_>) {
 }
 
 /// 水平と高さの座標系。扱えなければ知らせて `None` にする
-fn crs(file: &LasFile, cx: &mut Cx<'_>) -> (Option<Crs>, Option<VerticalCrs>) {
+pub(crate) fn crs(
+    file: &LasFile,
+    cx: &mut Cx<'_>,
+) -> (Option<Crs>, Option<VerticalCrs>, Option<u32>) {
     let codes_found = if file.header.wkt() {
         file.vlr(PROJECTION, WKT)
             .map(|vlr| zumen_crs::wkt_codes(&String::from_utf8_lossy(&vlr.data)))
@@ -137,7 +138,7 @@ fn crs(file: &LasFile, cx: &mut Cx<'_>) -> (Option<Crs>, Option<VerticalCrs>) {
     };
     let Some((horizontal, vertical)) = codes_found else {
         cx.report(Diagnostic::new(codes::LAS_CRS_MISSING));
-        return (None, None);
+        return (None, None, None);
     };
     // 点は地図の空間に置くので、経緯度の座標系は受けない
     let plane = horizontal
@@ -162,7 +163,11 @@ fn crs(file: &LasFile, cx: &mut Cx<'_>) -> (Option<Crs>, Option<VerticalCrs>) {
             Diagnostic::new(codes::LAS_VERTICAL_CRS_UNSUPPORTED).with("epsg", u64::from(*code)),
         );
     }
-    (crs, height)
+    (
+        crs,
+        height,
+        vertical.first().copied().filter(|_| height.is_none()),
+    )
 }
 
 /// GeoTIFF のキーの表から、水平と高さの EPSG のコード

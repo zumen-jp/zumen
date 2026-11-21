@@ -60,6 +60,9 @@
         "limit": 1
       },
       "expect": {
+        "/diagnostics/0/code": "deviation.height-datum.assumed",
+        "/diagnostics/1/code": "crs.height-realization.assumed",
+        "/diagnostics/1/params/realization": "2011",
         "/result/points": 4,
         "/result/outside": 1,
         "/result/unmatched": 0,

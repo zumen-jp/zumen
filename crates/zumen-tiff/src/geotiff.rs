@@ -126,6 +126,8 @@ pub struct GeoInfo {
     pub unsupported_epsg: Option<u32>,
     /// 鉛直座標参照系
     pub vertical_crs: Option<VerticalCrs>,
+    /// 未対応の鉛直 EPSG コード
+    pub unsupported_vertical_epsg: Option<u32>,
     /// セル基準
     pub raster_type: RasterType,
     /// アフィン変換
@@ -282,6 +284,9 @@ impl RawGeoTags {
             crs,
             unsupported_epsg,
             vertical_crs,
+            unsupported_vertical_epsg: vertical_epsg
+                .map(u32::from)
+                .filter(|_| vertical_crs.is_none()),
             raster_type,
             transform,
             nodata,

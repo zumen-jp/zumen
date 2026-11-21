@@ -10,7 +10,7 @@ abi = 1
 # メッセージのスキーマ（schema/messages.json）のメジャーバージョン。要求と応答の v
 schema-major = 1
 # メッセージのスキーマのマイナーバージョン。op・フィールド・列挙の値を足すたびに上げる
-schema-minor = 113
+schema-minor = 114
 
 # 状態コード。理由は応答の診断で返す
 
@@ -177,7 +177,7 @@ formats = ["ifc", "stbridge"]
 ops = [
     "capabilities", "open", "close", "describe", "validate", "review_carry", "building", "building_elements",
     "ids_check", "review_adopt_ids", "bcf_read", "bcf_write", "building_apply", "create", "convert", "convert_estimate",
-    "civil", "scene3d",
+    "civil", "scene3d", "building_drawing",
 ]
 
 # 土木・地理のモジュール（決定 0253）。J-LandXML・SIMA・TIFF は図面のモジュールにも置く

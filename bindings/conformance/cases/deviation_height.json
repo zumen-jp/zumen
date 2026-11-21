@@ -1,0 +1,431 @@
+{
+  "description": "標高の基準と成果を照合し、符号付きの differTP を設計面に足して差・規格値・色を返す（#916）",
+  "steps": [
+    {
+      "push": {
+        "name": "profile.json",
+        "text": "{\n  \"edition\": \"2026-03\",\n  \"format\": \"0.1\",\n  \"id\": \"mlit-earthwork\",\n  \"license\": \"CC-BY-4.0\",\n  \"revision\": 1,\n  \"rules\": [\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"max\": 150,\n        \"min\": -150\n      },\n      \"exclude\": 0.05,\n      \"id\": \"road-excavation-flat\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"max\": 50,\n        \"min\": -50\n      },\n      \"part\": \"flat\",\n      \"slope\": {\n        \"min\": 20\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-6\",\n        \"section\": \"1-2-4-2\"\n      },\n      \"work\": \"road-excavation\"\n    },\n    {\n      \"check\": \"surface-elevation\",\n      \"density\": 1,\n      \"each\": {\n        \"max\": 160,\n        \"min\": -160\n      },\n      \"exclude\": 0.05,\n      \"id\": \"road-excavation-slope\",\n      \"level\": \"error\",\n      \"mean\": {\n        \"max\": 70,\n        \"min\": -70\n      },\n      \"part\": \"slope\",\n      \"slope\": {\n        \"max\": 20\n      },\n      \"source\": {\n        \"basis\": \"chosen\",\n        \"document\": \"main\",\n        \"item\": \"Ⅰ-6\",\n        \"section\": \"1-2-4-2\"\n      },\n      \"work\": \"road-excavation\"\n    }\n  ],\n  \"sources\": {\n    \"main\": {\n      \"checked\": \"2026-11-01\",\n      \"publisher\": \"国土交通省\",\n      \"title\": \"土木工事施工管理基準及び規格値（案）\",\n      \"url\": \"https://www.mlit.go.jp/tec/content/001990185.pdf\",\n      \"version\": \"令和 8 年 3 月\"\n    }\n  },\n  \"title\": \"土木工事施工管理基準及び規格値（案）土工の面管理\"\n}\n"
+      }
+    },
+    {
+      "push": {
+        "name": "old.las",
+        "hex": "4c415346000000000000000000000000000000000000000001020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e30031010000010000000014000300000000000000000000000000000000000000000000007b14ae47e17a843f7b14ae47e17a843f7b14ae47e17a843f0000000000408f400000000000409f4000000000000000000000000000508f400000000000408f400000000000509f400000000000409f40000000000000f03f000000000000000000004c4153465f50726f6a656374696f6e00af87180000000000000000000000000000000000000000000000000000000000000000000100010000000200000c00000100151a001000000100271a0000000000000000000000000a0009020000000064000000c8000000320000001400090200000000c800000090010000640000001e00090200000000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "old.las"
+      },
+      "expect": {
+        "/result/doc": "old.las"
+      }
+    },
+    {
+      "push": {
+        "name": "new.las",
+        "hex": "4c415346000000000000000000000000000000000000000001020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e30031010000010000000014000300000000000000000000000000000000000000000000007b14ae47e17a843f7b14ae47e17a843f7b14ae47e17a843f0000000000408f400000000000409f4000000000000000000000000000508f400000000000408f400000000000509f400000000000409f40000000000000f03f000000000000000000004c4153465f50726f6a656374696f6e00af87180000000000000000000000000000000000000000000000000000000000000000000100010000000200000c00000100151a001000000100352c0000000000000000000000000a0009020000000064000000c8000000320000001400090200000000c800000090010000640000001e00090200000000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "new.las"
+      },
+      "expect": {
+        "/result/doc": "new.las"
+      }
+    },
+    {
+      "push": {
+        "name": "unsupported.las",
+        "hex": "4c415346000000000000000000000000000000000000000001020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e30031010000010000000014000300000000000000000000000000000000000000000000007b14ae47e17a843f7b14ae47e17a843f7b14ae47e17a843f0000000000408f400000000000409f4000000000000000000000000000508f400000000000408f400000000000509f400000000000409f40000000000000f03f000000000000000000004c4153465f50726f6a656374696f6e00af87180000000000000000000000000000000000000000000000000000000000000000000100010000000200000c00000100151a00100000010047160000000000000000000000000a0009020000000064000000c8000000320000001400090200000000c800000090010000640000001e00090200000000"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "unsupported.las"
+      },
+      "expect": {
+        "/result/doc": "unsupported.las"
+      }
+    },
+    {
+      "push": {
+        "name": "tp.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\">\n<CoordinateSystem horizontalDatum=\"JGD2011\" verticalDatum=\"T.P\" horizontalCoordinateSystemName=\"9(X,Y)\"/>\n<Surfaces><Surface name=\"計画面\" desc=\"FinishedGrade\"><Definition surfType=\"TIN\"><Pnts><P id=\"1\">1999 999 0</P><P id=\"2\">1999 1005 0</P><P id=\"3\">21999 1005 0</P><P id=\"4\">21999 999 0</P></Pnts><Faces><F>1 2 3</F><F>1 3 4</F></Faces></Definition></Surface></Surfaces>\n</LandXML>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "tp.xml"
+      },
+      "expect": {
+        "/result/doc": "tp.xml"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "old.las",
+        "surface": {
+          "doc": "tp.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "scene3d": {
+          "limit": 3
+        },
+        "limit": 3
+      },
+      "expect": {
+        "/result/evaluated": 3,
+        "/result/scene3d/counts/points": 3,
+        "/result/rules/0/mean": 0.5,
+        "/result/differences/0/difference": 0,
+        "/result/differences/1/difference": 0.5,
+        "/result/differences/2/difference": 1,
+        "/diagnostics": [],
+        "/result/rules/0/findings": 2,
+        "/result/rules/0/unsupported": 1
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "new.las",
+        "surface": {
+          "doc": "tp.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "scene3d": {
+          "limit": 3
+        },
+        "limit": 3
+      },
+      "expect": {
+        "/result/evaluated": 3,
+        "/result/scene3d/counts/points": 3,
+        "/result/rules/0/mean": 0.5,
+        "/result/differences/0/difference": 0,
+        "/result/differences/1/difference": 0.5,
+        "/result/differences/2/difference": 1,
+        "/diagnostics/0/code": "crs.height-realization.mixed",
+        "/result/rules/0/findings": 2,
+        "/result/rules/0/unsupported": 1
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "unsupported.las",
+        "surface": {
+          "doc": "tp.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "scene3d": {
+          "limit": 3
+        },
+        "limit": 3
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "crs.height-datum.unsupported"
+      }
+    },
+    {
+      "push": {
+        "name": "up.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\">\n<CoordinateSystem horizontalDatum=\"JGD2011\" verticalDatum=\"Local\" horizontalCoordinateSystemName=\"9(X,Y)\"><Feature><Property label=\"differTP\" value=\"0.5\"/></Feature></CoordinateSystem>\n<Surfaces><Surface name=\"計画面\" desc=\"FinishedGrade\"><Definition surfType=\"TIN\"><Pnts><P id=\"1\">1999 999 0</P><P id=\"2\">1999 1005 0</P><P id=\"3\">21999 1005 0</P><P id=\"4\">21999 999 0</P></Pnts><Faces><F>1 2 3</F><F>1 3 4</F></Faces></Definition></Surface></Surfaces>\n</LandXML>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "up.xml"
+      },
+      "expect": {
+        "/result/doc": "up.xml"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "old.las",
+        "surface": {
+          "doc": "up.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "scene3d": {
+          "limit": 3
+        },
+        "limit": 3
+      },
+      "expect": {
+        "/result/evaluated": 3,
+        "/result/scene3d/counts/points": 3,
+        "/result/rules/0/mean": 0.0,
+        "/result/differences/0/difference": -0.5,
+        "/result/differences/1/difference": 0.0,
+        "/result/differences/2/difference": 0.5,
+        "/diagnostics": [],
+        "/result/rules/0/findings": 2,
+        "/result/rules/0/unsupported": 1
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "push": {
+        "name": "down.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\">\n<CoordinateSystem horizontalDatum=\"JGD2011\" verticalDatum=\"Local\" horizontalCoordinateSystemName=\"9(X,Y)\"><Feature><Property label=\"differTP\" value=\"-0.5\"/></Feature></CoordinateSystem>\n<Surfaces><Surface name=\"計画面\" desc=\"FinishedGrade\"><Definition surfType=\"TIN\"><Pnts><P id=\"1\">1999 999 0</P><P id=\"2\">1999 1005 0</P><P id=\"3\">21999 1005 0</P><P id=\"4\">21999 999 0</P></Pnts><Faces><F>1 2 3</F><F>1 3 4</F></Faces></Definition></Surface></Surfaces>\n</LandXML>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "down.xml"
+      },
+      "expect": {
+        "/result/doc": "down.xml"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "old.las",
+        "surface": {
+          "doc": "down.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "scene3d": {
+          "limit": 3
+        },
+        "limit": 3
+      },
+      "expect": {
+        "/result/evaluated": 3,
+        "/result/scene3d/counts/points": 3,
+        "/result/rules/0/mean": 1.0,
+        "/result/differences/0/difference": 0.5,
+        "/result/differences/1/difference": 1.0,
+        "/result/differences/2/difference": 1.5,
+        "/diagnostics": [],
+        "/result/rules/0/findings": 2,
+        "/result/rules/0/unsupported": 1
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "push": {
+        "name": "unknown.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\">\n<CoordinateSystem horizontalDatum=\"JGD2011\" verticalDatum=\"Local\" horizontalCoordinateSystemName=\"9(X,Y)\"></CoordinateSystem>\n<Surfaces><Surface name=\"計画面\" desc=\"FinishedGrade\"><Definition surfType=\"TIN\"><Pnts><P id=\"1\">1999 999 0</P><P id=\"2\">1999 1005 0</P><P id=\"3\">21999 1005 0</P><P id=\"4\">21999 999 0</P></Pnts><Faces><F>1 2 3</F><F>1 3 4</F></Faces></Definition></Surface></Surfaces>\n</LandXML>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "unknown.xml"
+      },
+      "expect": {
+        "/result/doc": "unknown.xml"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "old.las",
+        "surface": {
+          "doc": "unknown.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "scene3d": {
+          "limit": 3
+        },
+        "limit": 3
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "crs.height-datum.unsupported"
+      }
+    },
+    {
+      "push": {
+        "name": "no-zone.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\">\n<CoordinateSystem horizontalDatum=\"JGD2011\" verticalDatum=\"T.P\"/>\n<Surfaces><Surface name=\"計画面\" desc=\"FinishedGrade\"><Definition surfType=\"TIN\"><Pnts><P id=\"1\">1999 999 0</P><P id=\"2\">1999 1005 0</P><P id=\"3\">21999 1005 0</P><P id=\"4\">21999 999 0</P></Pnts><Faces><F>1 2 3</F><F>1 3 4</F></Faces></Definition></Surface></Surfaces>\n</LandXML>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "no-zone.xml"
+      },
+      "expect": {
+        "/result/doc": "no-zone.xml"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "new.las",
+        "surface": {
+          "doc": "no-zone.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "scene3d": {
+          "limit": 3
+        },
+        "limit": 3
+      },
+      "expect": {
+        "/result/evaluated": 3,
+        "/result/scene3d/counts/points": 3,
+        "/result/rules/0/mean": 0.5,
+        "/result/differences/0/difference": 0,
+        "/result/differences/1/difference": 0.5,
+        "/result/differences/2/difference": 1,
+        "/result/rules/0/findings": 2,
+        "/result/rules/0/unsupported": 1,
+        "/diagnostics/0/code": "crs.height-realization.mixed"
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "push": {
+        "name": "no-year.xml",
+        "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<LandXML xmlns=\"http://www.landxml.org/schema/LandXML-1.2\" version=\"1.2\">\n<CoordinateSystem verticalDatum=\"T.P\" horizontalCoordinateSystemName=\"9(X,Y)\"/>\n<Surfaces><Surface name=\"計画面\" desc=\"FinishedGrade\"><Definition surfType=\"TIN\"><Pnts><P id=\"1\">1999 999 0</P><P id=\"2\">1999 1005 0</P><P id=\"3\">21999 1005 0</P><P id=\"4\">21999 999 0</P></Pnts><Faces><F>1 2 3</F><F>1 3 4</F></Faces></Definition></Surface></Surfaces>\n</LandXML>\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "no-year.xml"
+      },
+      "expect": {
+        "/result/doc": "no-year.xml"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "deviation",
+        "doc": "new.las",
+        "surface": {
+          "doc": "no-year.xml",
+          "id": "計画面"
+        },
+        "profiles": [
+          "profile.json"
+        ],
+        "profile": {
+          "id": "mlit-earthwork",
+          "edition": "2026-03"
+        },
+        "work": "road-excavation",
+        "scene3d": {
+          "limit": 3
+        },
+        "limit": 3
+      },
+      "expect": {
+        "/result/evaluated": 3,
+        "/result/scene3d/counts/points": 3,
+        "/result/rules/0/mean": 0.5,
+        "/result/differences/0/difference": 0,
+        "/result/differences/1/difference": 0.5,
+        "/result/differences/2/difference": 1,
+        "/result/rules/0/findings": 2,
+        "/result/rules/0/unsupported": 1,
+        "/diagnostics/0/code": "crs.height-realization.assumed"
+      }
+    },
+    {
+      "take": 0
+    }
+  ]
+}

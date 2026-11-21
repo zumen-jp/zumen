@@ -63,6 +63,8 @@ pub enum Request {
     Building(BuildingRequest),
     /// 開いた IFC の建物モデルの要素を、書いた順に返す。コンポーネントは components で選ぶ（決定 0207・0219）。マイナーバージョン 44 から
     BuildingElements(BuildingElementsRequest),
+    /// 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+    BuildingDrawing(BuildingDrawingRequest),
     /// 開いた IFC の建物モデルを、zm_push で渡した IDS で照合する（決定 0217・0219）。確かめられない facet は、指摘と分けて info の指摘で返す。マイナーバージョン 44 から
     IdsCheck(IdsCheckRequest),
     /// 開いた IFC を ids_check と同じに照合し、選んだ指摘だけを開いた指摘としてレビューの文書（決定 0218・0219）に足す。足した文書は blobs の file で返す。マイナーバージョン 44 から
@@ -130,6 +132,7 @@ impl Request {
         "review_scene",
         "building",
         "building_elements",
+        "building_drawing",
         "ids_check",
         "review_adopt_ids",
         "bcf_read",
@@ -179,6 +182,7 @@ impl Request {
             Self::ReviewScene(_) => "review_scene",
             Self::Building(_) => "building",
             Self::BuildingElements(_) => "building_elements",
+            Self::BuildingDrawing(_) => "building_drawing",
             Self::IdsCheck(_) => "ids_check",
             Self::ReviewAdoptIds(_) => "review_adopt_ids",
             Self::BcfRead(_) => "bcf_read",
@@ -236,6 +240,9 @@ impl FromJson for Request {
             "building" => Self::Building(BuildingRequest::read_fields(&mut object)?),
             "building_elements" => {
                 Self::BuildingElements(BuildingElementsRequest::read_fields(&mut object)?)
+            }
+            "building_drawing" => {
+                Self::BuildingDrawing(BuildingDrawingRequest::read_fields(&mut object)?)
             }
             "ids_check" => Self::IdsCheck(IdsCheckRequest::read_fields(&mut object)?),
             "review_adopt_ids" => {
@@ -299,6 +306,7 @@ impl ToJson for Request {
             Self::ReviewScene(value) => value.to_json(out),
             Self::Building(value) => value.to_json(out),
             Self::BuildingElements(value) => value.to_json(out),
+            Self::BuildingDrawing(value) => value.to_json(out),
             Self::IdsCheck(value) => value.to_json(out),
             Self::ReviewAdoptIds(value) => value.to_json(out),
             Self::BcfRead(value) => value.to_json(out),
@@ -14091,6 +14099,179 @@ impl FromJson for ReviewSceneSourceKind {
 impl ToJson for ReviewSceneSourceKind {
     fn to_json(&self, out: &mut Writer) {
         out.string(self.name());
+    }
+}
+
+/// 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingDrawingRequest {
+    /// `request_common` のフィールド
+    pub request_common: RequestCommon,
+    /// 開いた IFC の文書名
+    pub doc: String,
+    /// 作る図面の文書名
+    pub to: String,
+    /// 切る高さの基準となる階の要素 ID
+    pub storey: String,
+    /// 切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない
+    pub unit: Unit,
+    /// 階から切る面までの高さ
+    pub height: f64,
+    /// 切る面から下向きに見る深さ。正の値
+    pub depth: f64,
+    /// 用紙の縮尺の分母。正の値
+    pub scale: f64,
+    /// 同じ点とみなす格子の幅。正の値
+    pub tolerance: f64,
+    /// 曲線の近似に使う弦の誤差。正の値
+    pub chord: f64,
+}
+
+impl BuildingDrawingRequest {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let request_common = RequestCommon::read_fields(object)?;
+        object.constant("op", "building_drawing")?;
+        let doc = object.required("doc", json::string)?;
+        let to = object.required("to", json::string)?;
+        let storey = object.required("storey", json::string)?;
+        let unit = object.required("unit", Unit::from_json)?;
+        let height = object.required("height", json::number)?;
+        let depth = object.required("depth", json::number)?;
+        let scale = object.required("scale", json::number)?;
+        let tolerance = object.required("tolerance", json::number)?;
+        let chord = object.required("chord", json::number)?;
+        Ok(Self {
+            request_common,
+            doc,
+            to,
+            storey,
+            unit,
+            height,
+            depth,
+            scale,
+            tolerance,
+            chord,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        self.request_common.write_fields(out);
+        out.key("op");
+        out.string("building_drawing");
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("to");
+        out.string(&self.to);
+        out.key("storey");
+        out.string(&self.storey);
+        out.key("unit");
+        self.unit.to_json(out);
+        out.key("height");
+        out.float(self.height);
+        out.key("depth");
+        out.float(self.depth);
+        out.key("scale");
+        out.float(self.scale);
+        out.key("tolerance");
+        out.float(self.tolerance);
+        out.key("chord");
+        out.float(self.chord);
+    }
+}
+
+impl FromJson for BuildingDrawingRequest {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingDrawingRequest {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingDrawingResult {
+    /// 作った図面の文書名
+    pub doc: String,
+    /// 図面モデルのバイナリの blob 番号。種類は drawing
+    pub blob: u64,
+    /// 図面に書いた線の数
+    pub lines: u64,
+    /// 切り出しで形状の欠落がなかったか
+    pub complete: bool,
+    /// 形状の評価が完全でなかった要素の数
+    pub evaluation_failures: u64,
+    /// 投影や切り口の計算に失敗した部品の数
+    pub projection_failures: u64,
+    /// 格子で点などへ縮んだ辺や輪郭の数
+    pub collapsed: u64,
+}
+
+impl BuildingDrawingResult {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let doc = object.required("doc", json::string)?;
+        let blob = object.required("blob", |value| json::uint(value, 0, 9007199254740991))?;
+        let lines = object.required("lines", |value| json::uint(value, 0, 9007199254740991))?;
+        let complete = object.required("complete", json::boolean)?;
+        let evaluation_failures = object.required("evaluation_failures", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        let projection_failures = object.required("projection_failures", |value| {
+            json::uint(value, 0, 9007199254740991)
+        })?;
+        let collapsed =
+            object.required("collapsed", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            doc,
+            blob,
+            lines,
+            complete,
+            evaluation_failures,
+            projection_failures,
+            collapsed,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("doc");
+        out.string(&self.doc);
+        out.key("blob");
+        out.uint(self.blob);
+        out.key("lines");
+        out.uint(self.lines);
+        out.key("complete");
+        out.bool(self.complete);
+        out.key("evaluation_failures");
+        out.uint(self.evaluation_failures);
+        out.key("projection_failures");
+        out.uint(self.projection_failures);
+        out.key("collapsed");
+        out.uint(self.collapsed);
+    }
+}
+
+impl FromJson for BuildingDrawingResult {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for BuildingDrawingResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
     }
 }
 

@@ -317,6 +317,17 @@ pub const BUILDING_DRAWING_DROPPED: Code = Code::new(
     &["reason"],
 );
 
+/// 切る階の配置・単位・切断条件などを解けず、図面を作れない
+///
+/// `building.drawing.failed`（0.3.0 から）
+pub const BUILDING_DRAWING_FAILED: Code = Code::new(
+    "building.drawing.failed",
+    Severity::Error,
+    None,
+    &[Param::new("reason", ParamType::Text)],
+    &["reason"],
+);
+
 /// 同じ GlobalId がもうあるので、後の要素はインスタンスの番号で ID を作った
 ///
 /// `building.global-id.exists`（0.2.0 から）
@@ -1350,6 +1361,17 @@ pub const DEVIATION_CRS_MIXED: Code = Code::new(
         Param::new("points", ParamType::UInt),
         Param::new("surface", ParamType::UInt),
     ],
+    &[],
+);
+
+/// 点群または設計面に高さの基準がないため、同じ現場基準の高さと仮定して比べた
+///
+/// `deviation.height-datum.assumed`（0.4.0 から）
+pub const DEVIATION_HEIGHT_DATUM_ASSUMED: Code = Code::new(
+    "deviation.height-datum.assumed",
+    Severity::Warning,
+    None,
+    &[],
     &[],
 );
 
@@ -6276,6 +6298,7 @@ pub const ALL: &[Code] = &[
     BUDGET_WORK_EXCEEDED,
     BUILDING_BOOLEAN_FAILED,
     BUILDING_DRAWING_DROPPED,
+    BUILDING_DRAWING_FAILED,
     BUILDING_GLOBAL_ID_EXISTS,
     BUILDING_GLOBAL_ID_INVALID,
     BUILDING_GRID_APPROXIMATED,
@@ -6362,6 +6385,7 @@ pub const ALL: &[Code] = &[
     DELIVERY_FILE_INVALID,
     DELIVERY_NAME_UNSAFE,
     DEVIATION_CRS_MIXED,
+    DEVIATION_HEIGHT_DATUM_ASSUMED,
     DRAWING_BINARY_FIELD_DROPPED,
     DRAWING_BINARY_SECTION_DROPPED,
     DRAWING_BINARY_SIZE_EXCEEDED,

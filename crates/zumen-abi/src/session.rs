@@ -500,6 +500,10 @@ impl Session {
                 .and_then(|model| building::elements(model, request, &mut cx))
                 .map(|r| Box::new(r) as _),
             #[cfg(feature = "bim")]
+            Request::BuildingDrawing(request) => self
+                .building_drawing(request, &mut cx)
+                .map(|r| Box::new(r) as _),
+            #[cfg(feature = "bim")]
             Request::BuildingApply(request) => self
                 .building_apply(request, &mut cx)
                 .map(|r| Box::new(r) as _),
@@ -750,6 +754,7 @@ fn common(request: &Request) -> &RequestCommon {
         Request::ReviewScene(request) => &request.request_common,
         Request::Building(request) => &request.request_common,
         Request::BuildingElements(request) => &request.request_common,
+        Request::BuildingDrawing(request) => &request.request_common,
         Request::BuildingApply(request) => &request.request_common,
         Request::IdsCheck(request) => &request.request_common,
         Request::ReviewAdoptIds(request) => &request.request_common,

@@ -269,11 +269,12 @@ impl Lift<PointCloud> for E57File {
         points.color = has_color.then_some(color);
         points.returns = has_returns.then_some(returns);
         points.time = has_time.then_some(time);
-        let (crs, vertical) = crs(self.coordinates.as_deref(), cx);
+        let (crs, vertical, unsupported_vertical_epsg) = crs(self.coordinates.as_deref(), cx);
         let octree = Octree::build(&points, cx)?;
         Ok(PointCloud {
             crs,
             vertical,
+            unsupported_vertical_epsg,
             points,
             octree,
             source: Ref::at_bytes(0, self.size),
@@ -282,10 +283,10 @@ impl Lift<PointCloud> for E57File {
 }
 
 /// 水平と高さの座標系。扱えなければ知らせて `None` にする
-fn crs(text: Option<&str>, cx: &mut Cx<'_>) -> (Option<Crs>, Option<VerticalCrs>) {
+fn crs(text: Option<&str>, cx: &mut Cx<'_>) -> (Option<Crs>, Option<VerticalCrs>, Option<u32>) {
     let Some(text) = text.map(str::trim).filter(|text| !text.is_empty()) else {
         cx.report(Diagnostic::new(codes::E57_CRS_MISSING));
-        return (None, None);
+        return (None, None, None);
     };
     let (mut horizontal, vertical) = zumen_crs::wkt_codes(text);
     // WKT でなければ、EPSG のコードの書き方（`EPSG:6677` など）として読む
@@ -293,7 +294,7 @@ fn crs(text: Option<&str>, cx: &mut Cx<'_>) -> (Option<Crs>, Option<VerticalCrs>
         if let Some(crs) = Crs::from_name(text) {
             horizontal.push(crs.epsg());
         } else if let Some(height) = VerticalCrs::from_name(text) {
-            return (None, Some(height));
+            return (None, Some(height), None);
         }
     }
     // 点は地図の空間に置くので、経緯度の座標系は受けない
@@ -319,5 +320,9 @@ fn crs(text: Option<&str>, cx: &mut Cx<'_>) -> (Option<Crs>, Option<VerticalCrs>
             Diagnostic::new(codes::E57_VERTICAL_CRS_UNSUPPORTED).with("epsg", u64::from(*code)),
         );
     }
-    (crs, height)
+    (
+        crs,
+        height,
+        vertical.first().copied().filter(|_| height.is_none()),
+    )
 }

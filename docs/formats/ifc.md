@@ -878,7 +878,33 @@ cargo test -p zumen-ifc --locked --test curves --target wasm32-wasip1 -- --test-
 
 ## 建物を図面へ切り出す
 
-IFC の `lift_geometry` で所有する建物を作り、`zumen-building::drawing::cut` へ渡します。Rust の `zumen-ifc` では `drawing` feature を有効にします。切断面・見る深さ・許容差・縮尺・派生 ID・出所・診断の契約は、[建物から図面への切り出し](../architecture.md#建物から図面への切り出し)にあります。共通 API の op とファイルへの lower は、この Rust の入口とは別です。
+IFC の `lift_geometry` で所有する建物を作り、`zumen-building::drawing::cut` へ渡します。Rust の `zumen-ifc` では `drawing` feature を有効にします。各言語の共通 API からは、開いた IFC または ifcZIP と階の要素 ID を `building_drawing` に渡します。[切断面・線の役割と出所の契約](../architecture.md#建物から図面への切り出し)
+
+以下の Python の例は、林野庁の公開 IFC の 2FL を選び、床から 1,200 mm の高さで切って DXF に書きます。切り出した図面で `entities` の `extensions` を読むと、各線の派生 ID、元の建物要素、GlobalId、STEP の要素番号と形の項目番号が分かります。DXF の書き手がこの対応を移せないときは、変換の診断に現れます。
+
+```python
+from pathlib import Path
+from zumen import load
+
+with load().open() as session:
+    budget = {"decoded_bytes": 17179869184, "work": 10000000000}
+    session.push("building.ifc", Path("wood-office-architecture.ifc").read_bytes())
+    session.call({"v": 1, "op": "open", "input": "building.ifc", "budget": budget})
+    plan = session.call({
+        "v": 1, "op": "building_drawing", "doc": "building.ifc", "to": "2FL",
+        "storey": "22re20MQ16jwdWDv3FKVw8", "unit": "millimeter",
+        "height": 1200, "depth": 2000, "scale": 100, "tolerance": 0.01, "chord": 1,
+        "budget": budget,
+    })
+    lines = session.call({
+        "v": 1, "op": "entities", "doc": plan["result"]["doc"],
+        "fields": ["extensions"], "limit": 1,
+    })
+    print(lines["result"]["items"][0]["extensions"])
+    written = session.call({"v": 1, "op": "convert", "doc": "2FL",
+                            "format": "dxf", "to": "2FL.dxf", "budget": budget})
+    Path("2FL.dxf").write_bytes(session.take(written["blobs"][0]["id"]))
+```
 
 建具の Plan の文脈があれば、その曲線を優先します。記号を選ぶ `JoinerySymbol` は、要素、または直接の型が持つプロパティセット名・プロパティ名・列挙型名・値を照合します。要素の値を型の値で上書きしません。複数の記号が一致したら診断し、推測で選びません。現在の lift が持つ DoorPanelProperties の `PanelOperation`、WindowPanelProperties の `OperationType` などを使えます。扉・窓そのものの `OperationType`・`PartitioningType` をこのプロパティと同一視しません。幅・開く側・線幅などを切り出しのコアでは補いません。
 

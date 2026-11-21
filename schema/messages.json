@@ -33,6 +33,7 @@
         { "$ref": "#/$defs/review_scene_request" },
         { "$ref": "#/$defs/building_request" },
         { "$ref": "#/$defs/building_elements_request" },
+        { "$ref": "#/$defs/building_drawing_request" },
         { "$ref": "#/$defs/ids_check_request" },
         { "$ref": "#/$defs/review_adopt_ids_request" },
         { "$ref": "#/$defs/bcf_read_request" },
@@ -3203,6 +3204,40 @@
       "description": "シーンの ID の元の項目の種類。markup はレビューの文書の図形、location は指摘の中の場所",
       "type": "string",
       "enum": ["markup", "location"]
+    },
+    "building_drawing_request": {
+      "description": "開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から",
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/request_common" }],
+      "properties": {
+        "op": { "description": "op の名前", "const": "building_drawing" },
+        "doc": { "description": "開いた IFC の文書名", "type": "string" },
+        "to": { "description": "作る図面の文書名", "type": "string" },
+        "storey": { "description": "切る高さの基準となる階の要素 ID", "type": "string" },
+        "unit": { "description": "切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない", "$ref": "#/$defs/unit" },
+        "height": { "description": "階から切る面までの高さ", "type": "number" },
+        "depth": { "description": "切る面から下向きに見る深さ。正の値", "type": "number" },
+        "scale": { "description": "用紙の縮尺の分母。正の値", "type": "number" },
+        "tolerance": { "description": "同じ点とみなす格子の幅。正の値", "type": "number" },
+        "chord": { "description": "曲線の近似に使う弦の誤差。正の値", "type": "number" }
+      },
+      "required": ["op", "doc", "to", "storey", "unit", "height", "depth", "scale", "tolerance", "chord"],
+      "unevaluatedProperties": false
+    },
+    "building_drawing_result": {
+      "description": "実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ",
+      "type": "object",
+      "properties": {
+        "doc": { "description": "作った図面の文書名", "type": "string" },
+        "blob": { "description": "図面モデルのバイナリの blob 番号。種類は drawing", "type": "integer", "minimum": 0 },
+        "lines": { "description": "図面に書いた線の数", "type": "integer", "minimum": 0 },
+        "complete": { "description": "切り出しで形状の欠落がなかったか", "type": "boolean" },
+        "evaluation_failures": { "description": "形状の評価が完全でなかった要素の数", "type": "integer", "minimum": 0 },
+        "projection_failures": { "description": "投影や切り口の計算に失敗した部品の数", "type": "integer", "minimum": 0 },
+        "collapsed": { "description": "格子で点などへ縮んだ辺や輪郭の数", "type": "integer", "minimum": 0 }
+      },
+      "required": ["doc", "blob", "lines", "complete", "evaluation_failures", "projection_failures", "collapsed"],
+      "additionalProperties": false
     },
     "building_request": {
       "description": "開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から",

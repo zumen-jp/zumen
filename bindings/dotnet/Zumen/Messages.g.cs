@@ -52,6 +52,7 @@ namespace Zumen.Messages
             ["review_scene"] = typeof(ReviewSceneRequest),
             ["building"] = typeof(BuildingRequest),
             ["building_elements"] = typeof(BuildingElementsRequest),
+            ["building_drawing"] = typeof(BuildingDrawingRequest),
             ["ids_check"] = typeof(IdsCheckRequest),
             ["review_adopt_ids"] = typeof(ReviewAdoptIdsRequest),
             ["bcf_read"] = typeof(BcfReadRequest),
@@ -8046,6 +8047,150 @@ namespace Zumen.Messages
     }
 
     /// <summary>
+    /// 開いた IFC の階を基準に水平に切り、元要素への対応を持つ図面を作る。マイナーバージョン 114 から
+    /// </summary>
+    public sealed record BuildingDrawingRequest
+    {
+        /// <summary>
+        /// メッセージのスキーマのメジャーバージョン。今は 1
+        /// </summary>
+        [JsonPropertyName("v")]
+        public ulong V { get; init; }
+
+        /// <summary>
+        /// 予算の単位ごとの上限。書かない単位は既定値にする（決定 0010）
+        /// </summary>
+        [JsonPropertyName("budget")]
+        public Budget? Budget { get; init; }
+
+        /// <summary>
+        /// 予算で止まったとき、止まった所までの結果を求める。書かなければ false（決定 0010）
+        /// </summary>
+        [JsonPropertyName("partial")]
+        public bool? Partial { get; init; }
+
+        /// <summary>
+        /// 診断ごとに返す場所の数。書かなければ 16（決定 0009）
+        /// </summary>
+        [JsonPropertyName("max_places")]
+        public ulong? MaxPlaces { get; init; }
+
+        /// <summary>
+        /// 時間の上限（ミリ秒）。ネイティブの API が時計を見て止める。止まる所は環境で変わる。wasm では受け付けない（決定 0010）
+        /// </summary>
+        [JsonPropertyName("time_limit_ms")]
+        public ulong? TimeLimitMs { get; init; }
+
+        /// <summary>
+        /// op の名前
+        /// </summary>
+        [JsonPropertyName("op")]
+        public string Op { get; init; } = "building_drawing";
+
+        /// <summary>
+        /// 開いた IFC の文書名
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 作る図面の文書名
+        /// </summary>
+        [JsonPropertyName("to")]
+        public string To { get; init; } = default!;
+
+        /// <summary>
+        /// 切る高さの基準となる階の要素 ID
+        /// </summary>
+        [JsonPropertyName("storey")]
+        public string Storey { get; init; } = default!;
+
+        /// <summary>
+        /// 切る高さ・見る深さ・許容差・弦の誤差の長さの単位。unknown は使えない
+        /// </summary>
+        [JsonPropertyName("unit")]
+        public string Unit { get; init; } = default!;
+
+        /// <summary>
+        /// 階から切る面までの高さ
+        /// </summary>
+        [JsonPropertyName("height")]
+        public double Height { get; init; }
+
+        /// <summary>
+        /// 切る面から下向きに見る深さ。正の値
+        /// </summary>
+        [JsonPropertyName("depth")]
+        public double Depth { get; init; }
+
+        /// <summary>
+        /// 用紙の縮尺の分母。正の値
+        /// </summary>
+        [JsonPropertyName("scale")]
+        public double Scale { get; init; }
+
+        /// <summary>
+        /// 同じ点とみなす格子の幅。正の値
+        /// </summary>
+        [JsonPropertyName("tolerance")]
+        public double Tolerance { get; init; }
+
+        /// <summary>
+        /// 曲線の近似に使う弦の誤差。正の値
+        /// </summary>
+        [JsonPropertyName("chord")]
+        public double Chord { get; init; }
+    }
+
+    /// <summary>
+    /// 実寸の線と用紙のビューを持つ図面。線の拡張 zumen.building.drawing に派生 ID・役割・元の要素と形の出所を持つ
+    /// </summary>
+    public sealed record BuildingDrawingResult
+    {
+        /// <summary>
+        /// 作った図面の文書名
+        /// </summary>
+        [JsonPropertyName("doc")]
+        public string Doc { get; init; } = default!;
+
+        /// <summary>
+        /// 図面モデルのバイナリの blob 番号。種類は drawing
+        /// </summary>
+        [JsonPropertyName("blob")]
+        public ulong Blob { get; init; }
+
+        /// <summary>
+        /// 図面に書いた線の数
+        /// </summary>
+        [JsonPropertyName("lines")]
+        public ulong Lines { get; init; }
+
+        /// <summary>
+        /// 切り出しで形状の欠落がなかったか
+        /// </summary>
+        [JsonPropertyName("complete")]
+        public bool Complete { get; init; }
+
+        /// <summary>
+        /// 形状の評価が完全でなかった要素の数
+        /// </summary>
+        [JsonPropertyName("evaluation_failures")]
+        public ulong EvaluationFailures { get; init; }
+
+        /// <summary>
+        /// 投影や切り口の計算に失敗した部品の数
+        /// </summary>
+        [JsonPropertyName("projection_failures")]
+        public ulong ProjectionFailures { get; init; }
+
+        /// <summary>
+        /// 格子で点などへ縮んだ辺や輪郭の数
+        /// </summary>
+        [JsonPropertyName("collapsed")]
+        public ulong Collapsed { get; init; }
+    }
+
+    /// <summary>
     /// 開いた IFC の建物モデル（決定 0207・0219）の要約を返す。マイナーバージョン 44 から
     /// </summary>
     public sealed record BuildingRequest
@@ -15057,6 +15202,7 @@ namespace Zumen.Messages
                 ["review_scene"] = (typeof(ReviewSceneRequest), typeof(ReviewSceneResult)),
                 ["building"] = (typeof(BuildingRequest), typeof(BuildingResult)),
                 ["building_elements"] = (typeof(BuildingElementsRequest), typeof(BuildingElementsResult)),
+                ["building_drawing"] = (typeof(BuildingDrawingRequest), typeof(BuildingDrawingResult)),
                 ["ids_check"] = (typeof(IdsCheckRequest), typeof(IdsCheckResult)),
                 ["review_adopt_ids"] = (typeof(ReviewAdoptIdsRequest), typeof(JsonAny)),
                 ["bcf_read"] = (typeof(BcfReadRequest), typeof(BcfReadResult)),
