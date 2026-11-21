@@ -13,11 +13,13 @@
 
 VBA7 向けには、`boundary.toml` と `scene.toml` から `bindings/vba/ZumenNative.bas` にネイティブの宣言・ABI の型・バージョン・状態コード・シーンの配置を生成します。メッセージは UTF-8 の JSON のまま受け渡します。所有権と型の対応は [VBA のバインディング](../bindings/vba/README.md) にあります。
 
-## 図面モデルのメモリ予算
+## IFC の階から平面図を切り出す
 
 スキーマ 1.114 の `building_drawing` は、指定した階を基準に IFC を水平に切ります。階に配置があればプロジェクト空間での Z 座標を使い、配置がなければ単位付きの階の標高を使います。図の XY 原点はプロジェクトの原点です。`height`・`depth`・`tolerance`・`chord` は `unit` の単位で渡し、`scale` は用紙の縮尺の分母です。階や長さの単位が解決できないとき、予算停止・中断のときは、図面と blob を登録しません。
 
 成功時には `to` の名前の読み取り用図面と、元の IFC の形式・系統・入力ハッシュを持つ `drawing` の blob（ZMDR）を返します。各線の `zumen.building.drawing` 拡張は元の要素・形の項目と切断線などの役割を保ちます。ネイティブではその図面を `entities` や `convert` に渡せます。分割した wasm では BIM モジュールの blob を図面モジュールに渡して開きます。[切り出して DXF に書く例](../docs/formats/ifc.md#建物を図面へ切り出す)
+
+## 図面モデルのメモリ予算
 
 スキーマ 1.113 から、要求の `budget` とセッション既定の予算で `model_bytes` を指定できます（#559）。
 
