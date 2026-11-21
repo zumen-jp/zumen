@@ -3,6 +3,7 @@
 
 use super::{Reader, Version, arg};
 use crate::building::{Category, category};
+use crate::style_owners::Owner;
 use crate::{Cx, Error, Form, IfcFile, Kind, Record, Value};
 
 /// 材料の割り当て。複数ある場合も元の並びと出所を保つ
@@ -108,19 +109,21 @@ impl<'f> Reader<'f, '_, '_> {
         owner: u64,
         material: bool,
     ) -> Result<Vec<&'f Record>, Error> {
-        let (kind, parent) = if material {
+        let (kind, parent, owner_kind) = if material {
             (
                 b"IFCRELASSOCIATESMATERIAL".as_slice(),
                 b"IFCRELASSOCIATES".as_slice(),
+                Owner::Material,
             )
         } else {
             (
                 b"IFCRELDEFINESBYTYPE".as_slice(),
                 b"IFCRELDEFINES".as_slice(),
+                Owner::Type,
             )
         };
         let mut result = Vec::new();
-        for record in self.file.records() {
+        for record in self.file.owner_records(owner_kind, self.cx)? {
             self.cx
                 .check(Kind::Work, 1)
                 .map_err(|stop| crate::stopped(self.cx, stop, Some(record.span())))?;

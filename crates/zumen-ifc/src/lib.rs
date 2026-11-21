@@ -29,6 +29,8 @@ mod ids;
 #[cfg(feature = "building")]
 mod live;
 #[cfg(feature = "building")]
+mod style_owners;
+#[cfg(feature = "building")]
 mod text;
 mod zip;
 
@@ -81,6 +83,8 @@ pub struct IfcFile {
     schema: Range<usize>,
     /// インスタンスの番号から、レコードの番号。同じ番号は初めのもの
     index: BTreeMap<u64, usize>,
+    #[cfg(feature = "building")]
+    style_owners: style_owners::StyleOwners,
     #[cfg(feature = "building")]
     text_hint: bool,
     #[cfg(feature = "building")]
@@ -247,9 +251,13 @@ impl Codec for Ifc {
             return Err(Error::Unsupported);
         }
         let mut index = BTreeMap::new();
+        #[cfg(feature = "building")]
+        let mut style_owners = style_owners::StyleOwners::default();
         for (at, record) in read.records.iter().enumerate() {
             cx.check(Kind::Work, 1)
                 .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
+            #[cfg(feature = "building")]
+            style_owners.observe(record, src);
             if let Some(id) = record.id() {
                 if let std::collections::btree_map::Entry::Vacant(slot) = index.entry(id) {
                     slot.insert(at);
@@ -269,6 +277,8 @@ impl Codec for Ifc {
             records: read.records,
             schema,
             index,
+            #[cfg(feature = "building")]
+            style_owners,
             #[cfg(feature = "building")]
             text_hint,
             #[cfg(feature = "building")]

@@ -205,7 +205,10 @@ impl<'f> Reader<'f, '_, '_> {
         };
         let mut layers = Vec::new();
         let mut item_count = 0_u64;
-        for record in self.file.records() {
+        for record in self
+            .file
+            .owner_records(crate::style_owners::Owner::Layer, self.cx)?
+        {
             self.cx
                 .check(Kind::Work, 1)
                 .map_err(|stop| stopped(self.cx, stop, Some(record.span())))?;

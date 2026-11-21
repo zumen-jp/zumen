@@ -535,7 +535,10 @@ impl<'f> Reader<'f, '_, '_> {
             return Err(self.invalid("item"));
         }
         let mut styled = None;
-        for record in self.file.records() {
+        for record in self
+            .file
+            .owner_records(crate::style_owners::Owner::StyledItem, self.cx)?
+        {
             self.cx
                 .check(Kind::Work, 1)
                 .map_err(|stop| stopped(self.cx, stop, Some(record.span())))?;
