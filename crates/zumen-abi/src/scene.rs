@@ -190,7 +190,7 @@ pub(crate) fn scene(
         print: request.print.unwrap_or(false),
         region,
         palette,
-        chunking: Chunking::PROVISIONAL,
+        chunking: Chunking::DEFAULT,
     };
     let scene = zumen_scene::build_with(drawing, &options, fonts, cx)
         .map_err(|(stop, at)| fail(cx, stop.to_diagnostic().at(at)))?;
