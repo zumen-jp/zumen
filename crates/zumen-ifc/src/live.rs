@@ -411,6 +411,8 @@ pub struct IfcLive {
 
     /// 常駐する建物モデル
     building: Building,
+    /// 形状と表示を含めて開いたときは、構造の編集後も同じ成分を取得する
+    geometry: bool,
     /// インスタンス番号から建物要素への逆引き
     elements_by_instance: BTreeMap<u64, ElementRef>,
     /// 最初の `IFCPROJECT` のインスタンス番号
@@ -455,27 +457,53 @@ impl IfcLive {
 
     /// ページ圧縮に使うスレッド数を指定して IFC-SPF または ifcZIP から開く
     pub fn open_with_threads(bytes: &[u8], threads: usize, cx: &mut Cx) -> Result<Self, Error> {
+        Self::read(bytes, threads, false, cx)
+    }
+
+    /// IFC-SPF または ifcZIP の形状・表示を含む建物モデルを常駐させる。
+    /// 属性編集では形状を持ち続け、構造の編集では全成分を作り直す。
+    pub fn open_with_geometry(bytes: &[u8], threads: usize, cx: &mut Cx) -> Result<Self, Error> {
+        Self::read(bytes, threads, true, cx)
+    }
+
+    fn read(bytes: &[u8], threads: usize, geometry: bool, cx: &mut Cx) -> Result<Self, Error> {
         if IfcZip::SIGNATURES.iter().any(|s| s.matches(bytes)) {
             let zipped = IfcZip::read(bytes, cx)?;
-            Self::from_zip_file(zipped, threads, cx)
+            Self::build_zip(zipped, threads, geometry, cx)
         } else {
             let file = Ifc::read(bytes, cx)?;
-            Self::from_file(file, threads, cx)
+            Self::build(file, None, None, threads, geometry, cx)
         }
     }
 
     /// 読み込み済みの [`IfcFile`] から常駐文書エンジンを構築する
     pub fn from_file(file: IfcFile, threads: usize, cx: &mut Cx) -> Result<Self, Error> {
-        Self::build(file, None, None, threads, cx)
+        Self::build(file, None, None, threads, false, cx)
     }
 
     /// 読み込み済みの [`IfcZipFile`] から常駐文書エンジンを構築する
     pub fn from_zip_file(zipped: IfcZipFile, threads: usize, cx: &mut Cx) -> Result<Self, Error> {
+        Self::build_zip(zipped, threads, false, cx)
+    }
+
+    fn build_zip(
+        zipped: IfcZipFile,
+        threads: usize,
+        geometry: bool,
+        cx: &mut Cx,
+    ) -> Result<Self, Error> {
         let (archive_vec, entry_name, file) = zipped.into_parts();
         let clean_zip = SourceBytes::compress_slice_with_cx(&archive_vec, threads, cx)
             .map_err(|stop| stopped(cx, stop, None))?;
         drop(archive_vec);
-        Self::build(file, Some(entry_name), Some(clean_zip), threads, cx)
+        Self::build(
+            file,
+            Some(entry_name),
+            Some(clean_zip),
+            threads,
+            geometry,
+            cx,
+        )
     }
 
     fn build(
@@ -483,12 +511,17 @@ impl IfcLive {
         zip_entry: Option<String>,
         clean_zip_bytes: Option<SourceBytes>,
         threads: usize,
+        geometry: bool,
         cx: &mut Cx,
     ) -> Result<Self, Error> {
         // 変換の診断を別に集めて持つ。届いた順にまとめたものを移すので、呼び出し元には 1 件ずつ
         // 報告したのと同じ件数・場所・順で届く
         let mut lifted = Diagnostics::with_max_places(usize::MAX);
-        let result = lift_with_units(&file, &mut Cx::new(cx.budget, &mut lifted, cx.cancel));
+        let result = lift_with_units(
+            &file,
+            geometry,
+            &mut Cx::new(cx.budget, &mut lifted, cx.cancel),
+        );
         let lift_diagnostics = lifted.into_vec();
         for diagnostic in &lift_diagnostics {
             cx.report(diagnostic.clone());
@@ -595,6 +628,7 @@ impl IfcLive {
             next: max_id.saturating_add(1),
             referrers,
             building,
+            geometry,
             elements_by_instance,
             first_project_id,
             units,
@@ -725,9 +759,8 @@ impl IfcLive {
             }
             return Ok(());
         }
-        use zumen_sdk::Lift;
         let file = self.to_file(cx)?;
-        let _: Building = file.lift(cx)?;
+        lift_with_units(&file, self.geometry, cx)?;
         Ok(())
     }
 
@@ -884,7 +917,10 @@ impl IfcLive {
         let mut quiet_diag = Diagnostics::new();
         let mut inner = Cx::new(cx.budget, &mut quiet_diag, cx.cancel);
         match Ifc::read(&bytes, &mut inner) {
-            Ok(file) => Ok(file),
+            Ok(mut file) => {
+                file.set_text_encoding(self.text_encoding);
+                Ok(file)
+            }
             Err(Error::Stopped(stop)) => Err(stopped(cx, stop, None)),
             Err(other) => Err(other),
         }
@@ -893,7 +929,15 @@ impl IfcLive {
     /// 変更の一覧を原子的に当てる。書き直したインスタンスと追加したインスタンスの合計数を返す。
     /// 当てられない変更や予算超過・中断が起きた場合は、常駐状態を一切変えない。
     pub fn apply(&mut self, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result<usize, Error> {
-        if edits.iter().any(Edit::is_structural) {
+        // 属性だけを変えたときも、文字コードの手がかりが変わる場合と、表示の定義など建物要素以外を
+        // 書き換える場合は、形状中の文字列や参照を開き直したものとそろえる。
+        if edits.iter().any(|edit| {
+            edit.is_structural()
+                || (self.geometry
+                    && (self.text_encoding == TextEncoding::Auto && self.shift_jis
+                        || matches!(edit, Edit::Attribute { element, .. } | Edit::Property { element, .. }
+                            if !self.elements_by_instance.contains_key(element))))
+        }) {
             return self.rebuild(edits, seed, cx);
         }
         let staged = {
@@ -1075,8 +1119,7 @@ impl IfcLive {
     /// 保存したファイルを開き直したものと同じになる。前の状態は取り消しのために持つ。仕事とメモリは
     /// 文書の大きさに比例し、要素の差分で当てる編集より重い。断ったときと止まったときは状態を変えない
     fn rebuild(&mut self, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result<usize, Error> {
-        let mut file = self.to_file(cx)?;
-        file.set_text_encoding(self.text_encoding);
+        let file = self.to_file(cx)?;
         let applied = crate::apply(&file, edits, seed, cx)?;
         drop(file);
         // 読み直しと変換の診断は返さない（開き直したときの診断として持ち、`report_lift_diagnostics` で返す）
@@ -1084,7 +1127,14 @@ impl IfcLive {
         let mut inner = Cx::new(cx.budget, &mut quiet, cx.cancel);
         let rebuilt = Ifc::read(&applied.bytes, &mut inner).and_then(|mut file| {
             file.set_text_encoding(self.text_encoding);
-            Self::build(file, self.zip_entry.clone(), None, 1, &mut inner)
+            Self::build(
+                file,
+                self.zip_entry.clone(),
+                None,
+                1,
+                self.geometry,
+                &mut inner,
+            )
         });
         let mut next = match rebuilt {
             Ok(next) => next,

@@ -1,6 +1,6 @@
 //! 取得した値を移動し、借用する出所だけを番号へ写す。形・表示を再読込しない。
 
-use super::super::{Category, Lifter, category, lift_with_units_mode};
+use super::super::{Category, Lifter, category, lift_with_units};
 mod material;
 use zumen_building::{
     Acquired, Building, ElementRef, Geometry, GeometryData, GeometryDefinition as Definition,
@@ -20,9 +20,7 @@ impl IfcFile {
     /// 既存の Lift<Building> は属性だけの経路として保つ。この経路は同じ ID と既存の成分を作り、
     /// 形のある成分を追加する。形の取得順でハッシュを変えず、不正と停止では建物の部分結果を返さない。
     pub fn lift_geometry(&self, cx: &mut Cx) -> Result<Building, Error> {
-        cx.with_diagnostics_in_record_order(|cx| {
-            lift_with_units_mode(self, cx, true).map(|(building, _, _)| building)
-        })
+        lift_with_units(self, true, cx).map(|(building, _, _)| building)
     }
 
     /// 形・表示・通り芯を、L1 を借用しない所有する値として取得する。

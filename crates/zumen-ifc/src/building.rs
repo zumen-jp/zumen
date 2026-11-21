@@ -395,14 +395,23 @@ const SPACE_BOUNDARIES: &[(&str, &str)] = &[
 
 pub(crate) type LiftedWithUnits = (Building, Version, BTreeMap<u64, Option<Unit>>);
 
-pub(crate) fn lift_with_units(file: &IfcFile, cx: &mut Cx) -> Result<LiftedWithUnits, Error> {
-    lift_with_units_mode(file, cx, false)
+pub(crate) fn lift_with_units(
+    file: &IfcFile,
+    geometry: bool,
+    cx: &mut Cx,
+) -> Result<LiftedWithUnits, Error> {
+    let lift = |cx: &mut Cx| lift_with_units_mode(file, geometry, cx);
+    if geometry {
+        cx.with_diagnostics_in_record_order(lift)
+    } else {
+        lift(cx)
+    }
 }
 
 fn lift_with_units_mode(
     file: &IfcFile,
-    cx: &mut Cx,
     geometry: bool,
+    cx: &mut Cx,
 ) -> Result<LiftedWithUnits, Error> {
     let Some(version) = Version::of(file.schema()) else {
         cx.report(Diagnostic::new(codes::IFC_VERSION_UNSUPPORTED).with(
@@ -418,7 +427,7 @@ fn lift_with_units_mode(
 impl Lift<Building> for IfcFile {
     /// IFC2X3・IFC4・IFC4X3 から作る。ほかのバージョンは、診断して作らない（決定 0215）
     fn lift(&self, cx: &mut Cx) -> Result<Building, Error> {
-        lift_with_units(self, cx).map(|(building, _, _)| building)
+        lift_with_units(self, false, cx).map(|(building, _, _)| building)
     }
 }
 

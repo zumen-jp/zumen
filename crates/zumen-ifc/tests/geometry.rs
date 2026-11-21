@@ -739,6 +739,113 @@ fn rich_lift_keeps_metadata_ids_and_hash_v1_and_survives_dropping_l1() {
     }
 }
 
+#[test]
+fn resident_shapes_styles_and_diagnostics_follow_edits_and_history() {
+    use zumen_building::Transform;
+    use zumen_ifc::{Edit, IfcLive, NewLiteral, NewPlacement, NewValue, RootAttribute, Target};
+    let edits = [
+        Edit::Attribute {
+            element: 100,
+            attribute: RootAttribute::Name,
+            value: Some("New wall".into()),
+        },
+        Edit::Property {
+            element: 100,
+            set: "Common".into(),
+            name: "Rating".into(),
+            value: NewValue {
+                type_name: "IFCINTEGER".into(),
+                literal: NewLiteral::Integer(1),
+            },
+        },
+        Edit::Place {
+            element: Target::Instance(100),
+            placement: NewPlacement {
+                relative_to: None,
+                local: Transform([[1., 0., 0., 2.], [0., 1., 0., 3.], [0., 0., 1., 4.]]),
+            },
+        },
+    ];
+    for version in VERSIONS {
+        // 未使用のレコードを残し、属性編集で移った診断の場所も照合する。
+        let input = source(version).replace("#300=", "#699=IFCCARTESIANPOINT((0.,0.));\n#300=");
+        let mut states = vec![input.as_bytes().to_vec()];
+        for edit in &edits {
+            let file = with(Limits::default(), |cx| {
+                Ifc::read(states.last().unwrap(), cx)
+            })
+            .0
+            .unwrap();
+            states.push(
+                with(Limits::default(), |cx| {
+                    zumen_ifc::apply(&file, std::slice::from_ref(edit), b"shape", cx)
+                })
+                .0
+                .unwrap()
+                .bytes,
+            );
+        }
+        let zip = zumen_zip::write(&[("model.ifc", input.as_bytes())]).unwrap();
+        for (bytes, threads) in [(input.as_bytes(), 1), (zip.as_slice(), 4)] {
+            let mut live = with(Limits::default(), |cx| {
+                IfcLive::open_with_geometry(bytes, threads, cx)
+            })
+            .0
+            .unwrap();
+            let check = |live: &IfcLive, spf: &[u8]| {
+                let file = with(Limits::default(), |cx| Ifc::read(spf, cx)).0.unwrap();
+                let (model, expected, _) = with(Limits::default(), |cx| file.lift_geometry(cx));
+                let at = live.element_by_instance(100).unwrap();
+                assert!(
+                    !live
+                        .building()
+                        .geometry(at)
+                        .unwrap()
+                        .data()
+                        .styles
+                        .is_empty()
+                );
+                assert_eq!(live.building(), &model.unwrap());
+                assert_eq!(
+                    with(Limits::default(), |cx| live.save_spf(cx)).0.unwrap(),
+                    spf
+                );
+                let (result, actual, _) =
+                    with(Limits::default(), |cx| live.report_lift_diagnostics(cx));
+                result.unwrap();
+                assert_eq!(actual.into_vec(), expected.into_vec());
+            };
+            check(&live, &states[0]);
+            for (i, edit) in edits.iter().enumerate() {
+                let stopped = with(Limits::default().with(Kind::Work, Limit::Finite(0)), |cx| {
+                    live.apply(std::slice::from_ref(edit), b"shape", cx)
+                })
+                .0;
+                assert!(matches!(stopped, Err(Error::Stopped(_))));
+                check(&live, &states[i]);
+                with(Limits::default(), |cx| {
+                    live.apply(std::slice::from_ref(edit), b"shape", cx)
+                })
+                .0
+                .unwrap();
+                check(&live, &states[i + 1]);
+            }
+            for state in states[..edits.len()].iter().rev() {
+                assert!(with(Limits::default(), |cx| live.undo(cx)).0.unwrap());
+                check(&live, state);
+            }
+            assert_eq!(
+                with(Limits::default(), |cx| live.save(cx)).0.unwrap(),
+                bytes
+            );
+            for state in &states[1..] {
+                assert!(with(Limits::default(), |cx| live.redo(cx)).0.unwrap());
+                check(&live, state);
+            }
+        }
+    }
+}
+
 fn reverse_nodes(data: &mut GeometryData) {
     let n = data.nodes.len() as u32;
     let remap = |r: &mut GeometryRef| {
