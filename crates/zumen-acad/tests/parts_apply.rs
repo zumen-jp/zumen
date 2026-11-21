@@ -3006,3 +3006,142 @@ fn new_dwg_table_inherits_title_merge_margin_and_alignment_without_losing_other_
         }
     }
 }
+
+#[test]
+fn first_dxf_tables_create_their_resources_once_and_preserve_the_existing_dimensions() {
+    let base = String::from_utf8(all_dimensions_dxf()).unwrap();
+    let custom = "0\nXRECORD\n5\nC02\n330\nC01\n100\nAcDbXrecord\n280\n1\n1\nKeep Me\n";
+    let group = format!(
+        "0\nSECTION\n2\nOBJECTS\n0\nDICTIONARY\n5\nC00\n330\n0\n100\nAcDbDictionary\n281\n1\n3\nACAD_TABLESTYLE\n350\nC01\n0\nDICTIONARY\n5\nC01\n330\nC00\n100\nAcDbDictionary\n281\n1\n3\nCustom\n350\nC02\n{custom}0\nENDSEC\n"
+    );
+    let added = |file: &DxfFile, positions: &[f64]| {
+        let source = lift_dxf(file).spaces[0].elements[0].clone();
+        Changes {
+            document: None,
+            edits: positions
+                .iter()
+                .map(|&x| Edit::Add {
+                    place: "space/0".to_owned(),
+                    element: Box::new(Placed::Model(Element {
+                        layer: source.layer,
+                        style: source.style,
+                        source: Ref::default(),
+                        shape: Shape::Table(Table {
+                            position: mpt(x, 400.0),
+                            direction: [1.0, 0.0],
+                            row_heights: vec![mlen(50.0), mlen(60.0)],
+                            column_widths: vec![mlen(80.0), mlen(100.0)],
+                            cells: ["符号", "名称", "D-01", "扉"]
+                                .map(|s| zumen_drawing::Cell {
+                                    content: CellContent::Text {
+                                        content: s.to_owned(),
+                                        spans: Vec::new(),
+                                    },
+                                    span: [1, 1],
+                                    covered: false,
+                                    value: None,
+                                    rotation: 0.0,
+                                    format: Default::default(),
+                                })
+                                .to_vec(),
+                            style: None,
+                            formats: None,
+                            drawn: None,
+                        }),
+                    })),
+                })
+                .collect(),
+        }
+    };
+    for (version, objects) in [("AC1027", ""), ("AC1032", group.as_str())] {
+        let bytes = base
+            .replace("AC1032", version)
+            .replace("0\nEOF\n", &format!("{objects}0\nEOF\n"))
+            .into_bytes();
+        let mut file = read_dxf(&bytes);
+        let original = lift_dxf(&file);
+        let edits = added(&file, &[900.0, 1100.0]);
+        let (result, diag) = cx_run(|cx| file.apply(&edits, cx));
+        let ids = result.unwrap();
+        assert!(diag.is_empty(), "{diag:?}");
+        assert_ne!(ids[0].id, ids[1].id);
+        let written = write_dxf(&file);
+        if !objects.is_empty() {
+            assert!(String::from_utf8_lossy(&written).contains(custom));
+        }
+        let mut file = read_dxf(&written);
+        let third = added(&file, &[1300.0]);
+        cx_run(|cx| file.apply(&third, cx).unwrap());
+        let file = read_dxf(&write_dxf(&file));
+        let after = lift_dxf(&file);
+        let count = original.spaces[0].elements.len();
+        for (before, after) in original.spaces[0]
+            .elements
+            .iter()
+            .zip(&after.spaces[0].elements)
+        {
+            assert_eq!(Hash::element(before), Hash::element(after));
+        }
+        assert_eq!(after.spaces[0].elements.len(), count + 3);
+        for (number, element) in after.spaces[0].elements[count..].iter().enumerate() {
+            let Shape::Table(table) = &element.shape else {
+                panic!("表がない")
+            };
+            assert_eq!(table.position, mpt(900.0 + 200.0 * number as f64, 400.0));
+            assert_eq!(table.cells.len(), 4);
+            assert!(
+                matches!(&table.cells[3].content, CellContent::Text{content,..} if content=="扉")
+            );
+        }
+        let db = cx_run(|cx| file.objects(cx).unwrap()).0;
+        assert_eq!(
+            db.objects()
+                .iter()
+                .filter(|o| o.kind == b"TABLESTYLE")
+                .count(),
+            1
+        );
+        for (class, count) in [(b"TABLESTYLE".as_slice(), 1), (b"ACAD_TABLE".as_slice(), 3)] {
+            let classes: Vec<_> = db
+                .objects()
+                .iter()
+                .filter(|o| o.kind == b"CLASS" && o.first(1) == Some(&Data::Text(class.to_vec())))
+                .collect();
+            assert_eq!(classes.len(), 1);
+            assert_eq!(classes[0].first(91), Some(&Data::Int(count)));
+        }
+        let mut file = file;
+        let last = seen_model(&after, count + 2).0;
+        let remove = Changes {
+            document: None,
+            edits: vec![Edit::Remove { target: last }],
+        };
+        cx_run(|cx| file.apply(&remove, cx).unwrap());
+        let db = cx_run(|cx| read_dxf(&write_dxf(&file)).objects(cx).unwrap()).0;
+        let class = db
+            .objects()
+            .iter()
+            .find(|o| o.kind == b"CLASS" && o.first(1) == Some(&Data::Text(b"ACAD_TABLE".to_vec())))
+            .unwrap();
+        assert_eq!(class.first(91), Some(&Data::Int(2)));
+    }
+    // 不明な参照と重複キーを元のまま残す。要求に複数の追加があっても途中まで保存しない。
+    for broken in [
+        group.replace("350\nC01", "350\nCFF"),
+        group.replace("3\nCustom", "3\nStandard\n350\nC02\n3\nStandard"),
+        group.replace("3\nCustom", "3\nStandard"),
+    ] {
+        let bytes = base
+            .replace("0\nEOF\n", &format!("{broken}0\nEOF\n"))
+            .into_bytes();
+        let mut file = read_dxf(&bytes);
+        let edits = added(&file, &[10.0, 20.0]);
+        let (result, diag) = cx_run(|cx| file.apply(&edits, cx));
+        assert_eq!(result, Err(Error::Rejected));
+        assert!(
+            diag.iter()
+                .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+        );
+        assert_eq!(write_dxf(&file), bytes);
+    }
+}

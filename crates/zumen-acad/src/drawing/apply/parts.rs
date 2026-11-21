@@ -1149,7 +1149,7 @@ fn add_dimension_parts<P: Copy>(
     Ok(Some((main_kind, values, records, count)))
 }
 
-fn find_standard_tablestyle<'a>(
+pub(super) fn find_standard_tablestyle<'a>(
     db: &'a AcadDb,
     charset: Charset,
     cx: &mut Cx,

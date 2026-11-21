@@ -33,6 +33,7 @@ mod new_dxf;
 mod owned;
 mod parts;
 mod replace;
+mod table_resources;
 #[cfg(test)]
 mod tests;
 mod text_style;
@@ -172,6 +173,16 @@ impl DxfFile {
         cx: &mut Cx,
     ) -> Result<Vec<Applied>, Error> {
         let mut db = self.table(cx, false)?;
+        let adds_table = changes.edits.iter().any(|edit| {
+            matches!(edit, Edit::Add { element, .. } if match element.as_ref() {
+                Placed::Model(e) => matches!(e.shape, Shape::Table(_)),
+                Placed::Paper(e) => matches!(e.shape, Shape::Table(_)),
+            })
+        });
+        if adds_table && !table_resources::prepare(&mut db, cx)? {
+            cx.report(unsupported("add", "ACAD_TABLE", Target::Dxf));
+            return Err(Error::Rejected);
+        }
         let ids = edit(
             &mut db,
             changes,
@@ -651,6 +662,13 @@ fn edit(
         copy_extra_records,
         ..
     } = plan;
+    let table_count_changed = target == Target::Dxf
+        && (added.iter().any(|record| record.kind == b"ACAD_TABLE")
+            || removed.iter().any(|&pos| {
+                db.objects()
+                    .get(pos)
+                    .is_some_and(|o| o.kind == b"ACAD_TABLE")
+            }));
     count_removals(db, &replaced, &removed, cx)?;
     let insertion_work = born.insertion_work(&added, &rebuilt, db.objects().len());
     if insertion_work > 0 {
@@ -665,6 +683,9 @@ fn edit(
         db.remove(position);
     }
     let handles = born.push(db, added, rebuilt);
+    if table_count_changed {
+        table_resources::counts(db, cx)?;
+    }
     let layer_handles = layers.write_back(db, target, cx)?;
     let style_handles = text_styles.write_back(db, target, cx)?;
     let line_type_handles = line_types.write_back(db, target, cx)?;

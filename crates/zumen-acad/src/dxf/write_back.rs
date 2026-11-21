@@ -86,6 +86,91 @@ struct Header {
     variables: BTreeMap<Vec<u8>, usize>,
 }
 
+fn insert_object(txn: &mut DxfTxn<'_>, at: usize, object: &Object) -> Result<(), Error> {
+    let mut values = Vec::with_capacity(object.values.len());
+    for value in &object.values {
+        values.push((value.code, encode(txn, at, value)?));
+    }
+    let tags: Vec<(i16, &[u8])> = core::iter::once((0, object.kind.as_slice()))
+        .chain(values.iter().map(|(code, bytes)| (*code, bytes.as_slice())))
+        .collect();
+    txn.insert_record(at, &tags)
+}
+
+/// CLASSES または OBJECTS がない図面では、決まった順にセクションの両端を同じトランザクションに置く。
+/// 位置は次の SECTION または EOF の直前。途中で切れたセクションや二重の宣言へは足さない。
+fn insert_missing_sections(txn: &mut DxfTxn<'_>, objects: &[&Object]) -> Result<(), Error> {
+    use super::{Record, fresh_tag};
+    for (section, name) in [
+        (Section::Classes, b"CLASSES".as_slice()),
+        (Section::Objects, b"OBJECTS".as_slice()),
+    ] {
+        let mut group = objects
+            .iter()
+            .copied()
+            .filter(|o| o.section == section)
+            .peekable();
+        let Some(&first) = group.peek() else { continue };
+        let file = &*txn.file;
+        let mut depth = 0;
+        let mut before = None;
+        let mut complete = false;
+        for (i, r) in file.records.iter().enumerate() {
+            match file.kind(r) {
+                b"SECTION" if depth == 0 => {
+                    let here = file.section(r);
+                    if here == section {
+                        return Err(unsupported(txn, first));
+                    }
+                    if before.is_none()
+                        && (section == Section::Classes
+                            && matches!(
+                                here,
+                                Section::Tables
+                                    | Section::Blocks
+                                    | Section::Entities
+                                    | Section::Objects
+                            )
+                            || section == Section::Objects
+                                && matches!(&here, Section::Other(name) if name == b"ACDSDATA"))
+                    {
+                        before = Some(i)
+                    }
+                    depth = 1;
+                }
+                b"ENDSEC" if depth == 1 => depth = 0,
+                b"EOF" if depth == 0 => {
+                    before.get_or_insert(i);
+                    complete = true;
+                    break;
+                }
+                b"SECTION" | b"ENDSEC" | b"EOF" => return Err(unsupported(txn, first)),
+                _ => {}
+            }
+        }
+        let Some(at) = before.filter(|_| complete) else {
+            return Err(unsupported(txn, first));
+        };
+        let delimiter = |tags| Record {
+            span: 0..0,
+            tags,
+            edited: true,
+        };
+        txn.inserted.entry(at).or_default().push(delimiter(vec![
+            fresh_tag(0, b"SECTION"),
+            fresh_tag(2, name),
+        ]));
+        for object in group {
+            insert_object(txn, at, object)?;
+        }
+        txn.inserted
+            .entry(at)
+            .or_default()
+            .push(delimiter(vec![fresh_tag(0, b"ENDSEC")]));
+    }
+    Ok(())
+}
+
 fn stage(
     txn: &mut DxfTxn<'_>,
     db: &AcadDb,
@@ -126,6 +211,7 @@ fn stage(
     for &record in before.keys().filter(|r| !kept.contains(r)) {
         txn.remove_record(record)?;
     }
+    let mut missing = Vec::new();
     for (index, (object, record)) in db.objects().iter().zip(&records).enumerate() {
         match record {
             Some(record) => {
@@ -150,21 +236,22 @@ fn stage(
                     .iter()
                     .find(|(section, _)| *section == object.section)
                     .map(|&(_, end)| end);
-                let Some(at) = next.or(end) else {
+                if let Some(at) = next.or(end) {
+                    insert_object(txn, at, object)?;
+                } else if matches!(
+                    (&object.section, object.kind.as_slice()),
+                    (Section::Classes, b"CLASS")
+                        | (Section::Objects, b"DICTIONARY" | b"TABLESTYLE")
+                ) {
+                    missing.push(object);
+                } else {
                     return Err(unsupported(txn, object));
-                };
-                let mut values = Vec::with_capacity(object.values.len());
-                for value in &object.values {
-                    values.push((value.code, encode(txn, at, value)?));
                 }
-                let tags: Vec<(i16, &[u8])> = core::iter::once((0, object.kind.as_slice()))
-                    .chain(values.iter().map(|(code, bytes)| (*code, bytes.as_slice())))
-                    .collect();
-                txn.insert_record(at, &tags)?;
                 touched.push(object);
             }
         }
     }
+    insert_missing_sections(txn, &missing)?;
     let mut fixed = extents(db, &touched);
     fixed.extend(handle_seed(db).map(|seed| (HANDSEED, seed)));
     let changed: Vec<_> = db
