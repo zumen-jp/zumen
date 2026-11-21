@@ -177,7 +177,10 @@ impl DxfFile {
             changes,
             copies,
             Target::Dxf,
-            true,
+            EntityClasses {
+                arc_dimension: true,
+                table: true,
+            },
             dimension_xdata,
             cx,
         )?;
@@ -239,13 +242,16 @@ impl DwgFile {
             .collect();
         let mut db = self.objects(cx)?;
         let seed = self.handle_seed();
-        let arc_dim = self.has_entity_class(b"ARC_DIMENSION");
+        let classes = EntityClasses {
+            arc_dimension: self.has_entity_class(b"ARC_DIMENSION"),
+            table: self.has_entity_class(b"ACAD_TABLE"),
+        };
         let ids = edit(
             &mut db,
             changes,
             &specs,
             Target::Dwg(seed),
-            arc_dim,
+            classes,
             &[],
             cx,
         )?;
@@ -567,6 +573,12 @@ fn unsupported(edit: &str, kind: &str, target: Target) -> Diagnostic {
         .with("format", format)
 }
 
+#[derive(Default)]
+struct EntityClasses {
+    arc_dimension: bool,
+    table: bool,
+}
+
 /// 変更を表に当てる。すべての変更を確かめ、当てられない変更が 1 つでもあれば、表を変えずに失敗する。
 /// `target` は書き戻す先。当てたら、変更ごとの新しい ID を返す（除いた変更は `None`）
 fn edit(
@@ -574,7 +586,7 @@ fn edit(
     changes: &Changes,
     copies: &[CopySpec<'_>],
     target: Target,
-    arc_dimension_class: bool,
+    classes: EntityClasses,
     dimension_xdata: &[&[Value]],
     cx: &mut Cx,
 ) -> Result<Vec<ResultTarget>, Error> {
@@ -603,7 +615,7 @@ fn edit(
         charset,
         encoder: born.encoder(),
         target,
-        arc_dimension_class,
+        classes,
         dimension_xdata,
     };
     for (edit_index, change) in changes.edits.iter().enumerate() {
@@ -741,8 +753,8 @@ struct Current<'a> {
     /// 書き戻す文字の符号化
     encoder: &'a Encoder,
     target: Target,
-    /// `ARC_DIMENSION` を書き戻せるか（DXF は常に真、DWG はクラス定義があるとき真）
-    arc_dimension_class: bool,
+    /// 追加する図形のクラスを使えるか（DXF は常に真）。
+    classes: EntityClasses,
     dimension_xdata: &'a [&'a [Value]],
 }
 

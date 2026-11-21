@@ -643,7 +643,21 @@ pub(super) fn fast_direct_owner(
 /// オブジェクトのマップの順（ハンドルの順）の位置を番号として名前の後ろに付ける（推定。サンプルの DWG と DXF の
 /// 比較で確かめた。docs/formats/dwg.md）。`records` は、その順のレコードのフィールド
 pub(super) fn number_anonymous<'a>(records: impl Iterator<Item = Option<&'a mut Fields>>) {
-    for (number, fields) in records.enumerate() {
+    // 番号を明示したブロックを含む外部実装の図面でも、その名前を予約しておく。
+    let records: Vec<_> = records.collect();
+    let mut reserved: std::collections::BTreeSet<_> = records
+        .iter()
+        .filter_map(|fields| {
+            let value = fields.as_ref()?.values.iter().find(|v| v.code == 2)?;
+            let Data::Text(name) = &value.data else {
+                return None;
+            };
+            (name.starts_with(b"*") && name.last().is_some_and(u8::is_ascii_digit))
+                .then(|| name.to_ascii_lowercase())
+        })
+        .collect();
+    let mut next_by_prefix = BTreeMap::new();
+    for (number, fields) in records.into_iter().enumerate() {
         let Some(name) = fields.and_then(|fields| fields.values.iter_mut().find(|v| v.code == 2))
         else {
             continue;
@@ -654,7 +668,19 @@ pub(super) fn number_anonymous<'a>(records: impl Iterator<Item = Option<&'a mut 
                     *first == b'*' && !rest.is_empty() && rest.iter().all(u8::is_ascii_alphabetic)
                 }))
         {
-            name.extend_from_slice(number.to_string().as_bytes());
+            let prefix = name.to_ascii_lowercase();
+            let next = next_by_prefix.entry(prefix.clone()).or_insert(number);
+            *next = (*next).max(number);
+            loop {
+                let suffix = next.to_string();
+                *next += 1;
+                let mut candidate = prefix.clone();
+                candidate.extend_from_slice(suffix.as_bytes());
+                if reserved.insert(candidate) {
+                    name.extend_from_slice(suffix.as_bytes());
+                    break;
+                }
+            }
         }
     }
 }

@@ -2975,7 +2975,7 @@ class SplineGeometry extends Message {
   set periodic(core.bool? value) => writeField('periodic', value);
 }
 
-/// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION、DXF の ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。足すことは、まだしない。マイナーバージョン 19 から
+/// 寸法。種類（kind）ごとに、その種類の定義点のフィールドを持つ。測定値（measurement）は元の形式が保存した値で、定義点から測り直さない。寸法を描いた部品（ブロック）は形の値に含めない。置き換え（DXF と DWG の DIMENSION・対応する ARC_DIMENSION）では定義点と文字を書き直し、測定値を測り直して表示の部品を作り直す（マイナーバージョン 74 から。それまでは置き換えも change.edit.unsupported だった）。measurement は省くか元と同じ値を書く。通常寸法 7 種は対応する DXF・DWG に、弧長寸法は R2004 以降の対応形式に追加できる。DWG の弧長寸法には ARC_DIMENSION クラスが必要。マイナーバージョン 19 から
 class DimensionGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   DimensionGeometry.fromJson(super.json);
@@ -3230,7 +3230,7 @@ abstract final class CalloutContent {
   static const symbol = 'symbol';
 }
 
-/// 表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。足すことと DWG の書き戻しは、まだしない。マイナーバージョン 74 から
+/// 表（DXF・DWG の ACAD_TABLE、決定 0113）。挿入点・行の向き・行の高さ・列の幅と、行ごとのセルの並びを持つ。表のスタイル・セルの書式・型のある値・表示の部品（ブロック）は形の値に含めない。置き換え（DXF の ACAD_TABLE）では、行と列の数・セルの結合・文字でないセル（記号）を変えず、挿入点・行の向き・行の高さ・列の幅・文字と空のセルの内容と回転を書き直し、表示の部品を作り直す。R2004 以降の DXF で Standard スタイルを使って追加できる。R2004 DWG では ACAD_TABLE クラスと読み取れる Standard 表スタイルのある図面に、未結合・無回転の文字と空のセルの表を追加できる。既存の対応する DWG 表ではセル文字・行高さ・列幅・向きの変更と平行移動も扱う。マイナーバージョン 74 から
 class TableGeometry extends Message {
   /// 読んだ JSON のオブジェクトを包む
   TableGeometry.fromJson(super.json);

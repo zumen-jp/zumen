@@ -59,6 +59,7 @@ mod entities;
 mod fields;
 mod groups;
 mod links;
+mod new_table;
 mod records;
 mod restyle;
 
@@ -646,6 +647,13 @@ impl DwgFile {
                 .iter()
                 .find(|c| c.entity && c.name.as_slice() == b"ARC_DIMENSION")?;
             (class.number, ARC_DIMENSION)
+        } else if object.kind == b"ACAD_TABLE" {
+            (self.release == Release::R2004).then_some(())?;
+            let class = self
+                .classes
+                .iter()
+                .find(|class| class.entity && class.name.as_slice() == b"ACAD_TABLE")?;
+            (class.number, new_table::CODES)
         } else {
             let &(_, type_code, own) = ADDABLE.iter().find(|(kind, ..)| *kind == object.kind)?;
             // 列と行の数（70・71）か間隔（44・45）を持つ INSERT は、MINSERT として書く（決定 0060）
@@ -667,6 +675,7 @@ impl DwgFile {
             // LEADER は寸法スタイル（3）を指す（決定 0185）
             b"LEADER" => &[3],
             b"DIMENSION" | b"ARC_DIMENSION" => &[2, 3],
+            b"ACAD_TABLE" => &[2, 342, 343],
             b"ATTRIB" => &[7],
             // 属性が続くこと（66）は、1 だけ
             b"INSERT" if small(object, 66)?.is_none_or(|v| v == 1) => &[2, 66],
@@ -791,6 +800,7 @@ impl DwgFile {
                 let block = record_handle(db, b"BLOCK_RECORD", block_name)?;
                 (Some(dimstyle), Some(block))
             }
+            b"ACAD_TABLE" => new_table::references(db, &object)?,
             b"INSERT" => {
                 // 空間のブロックと、図形を持つブロックそのものは挿せない
                 let name = text_of(&object, 2)?;

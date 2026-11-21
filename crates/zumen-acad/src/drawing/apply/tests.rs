@@ -106,7 +106,7 @@ mod duplicate_handle_tests {
                 &changes,
                 &[],
                 Target::Dxf,
-                false,
+                Default::default(),
                 &[],
                 &mut Cx::new(&mut budget, &mut diag, &cancel)
             ),
@@ -122,7 +122,7 @@ mod duplicate_handle_tests {
                 &changes,
                 &[],
                 Target::Dxf,
-                false,
+                Default::default(),
                 &[],
                 &mut Cx::new(&mut budget, &mut diag, &cancel)
             ),

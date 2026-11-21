@@ -826,7 +826,7 @@ fn add_dimension_parts<P: Copy>(
     }
     let is_arc = matches!(dimension.kind, DimensionKind::ArcLength { .. });
     if is_arc {
-        if !current.born.since(b"AC1018") || !current.arc_dimension_class {
+        if !current.born.since(b"AC1018") || !current.classes.arc_dimension {
             return Ok(None);
         }
     } else if dxf && !current.born.since(b"AC1012") && !current.born.has_markers() {
@@ -1222,8 +1222,9 @@ fn add_table_parts<P: Copy>(
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<Option<BornPart>, Error> {
-    if !dxf
-        || !current.born.since(b"AC1018")
+    if !current.born.since(b"AC1018")
+        || (!dxf && current.born.since(b"AC1021"))
+        || !current.classes.table
         || table.style.is_some()
         || table.formats.is_some()
         || table.drawn.is_some()
@@ -1310,6 +1311,11 @@ fn add_table_parts<P: Copy>(
         if cell.value.is_some()
             || cell.format != Default::default()
             || !cell.rotation.is_finite()
+            || (!dxf
+                && (cell.covered
+                    || cell.span != [1, 1]
+                    || cell.rotation != 0.0
+                    || matches!(cell.content, CellContent::Symbol(_))))
             || cell.span[0] == 0
             || cell.span[1] == 0
         {
@@ -1405,13 +1411,16 @@ fn add_table_parts<P: Copy>(
     }
 
     let mut styled_table = table.clone();
-    styled_table.formats = crate::drawing::acad_table::lift_table_style_formats(
+    let formats = crate::drawing::acad_table::lift_table_style_formats(
         current.db,
         style_obj,
         current.charset,
         &|v| frame.lifted(v),
-    )
-    .map(Box::new);
+    );
+    if !dxf && formats.is_none() {
+        return Ok(None);
+    }
+    styled_table.formats = formats.flatten().map(Box::new);
     let default_height = blocks.standard_text_height.unwrap_or(2.5);
     let Some((records, count)) = build_table_records(
         current.born,

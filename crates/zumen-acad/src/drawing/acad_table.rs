@@ -465,13 +465,13 @@ const STYLE_BORDERS: BorderCodes = BorderCodes {
     vertical: Some([68, 278, 288]),
 };
 
-/// `TABLESTYLE` オブジェクトから表スタイルの書式を読む。読めなければ `None`
+/// 表スタイルの書式を読む。外側の `None` は読めない値、内側の `None` は行書式のないスタイル。
 pub(super) fn lift_table_style_formats(
     db: &AcadDb,
     style: &Object,
     charset: super::Charset,
     length: &impl Fn(f64) -> Length,
-) -> Option<TableFormats> {
+) -> Option<Option<TableFormats>> {
     let empty = std::collections::BTreeMap::new();
     let lifter = Lifter {
         layouts: &empty,
@@ -484,7 +484,7 @@ pub(super) fn lift_table_style_formats(
         mm: None,
         origin: [0.0, 0.0],
     };
-    lifter.table_formats(db, style, length).ok().flatten()
+    lifter.table_formats(db, style, length).ok()
 }
 
 /// R2010 からの DWG の表または参照する `TABLESTYLE` に、まだ移せない書式のフィールドがあるか（#906）

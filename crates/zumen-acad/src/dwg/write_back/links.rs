@@ -145,6 +145,8 @@ impl NewEntity<'_> {
             let mut fields = BitWriter::default();
             new_hatch(&mut fields, object, r2004)?;
             fields
+        } else if object.kind == b"ACAD_TABLE" {
+            new_table::fields(object)?
         } else if r2004 && self.type_code == kinds::MINSERT {
             self.minsert()?
         } else {
@@ -182,6 +184,12 @@ impl NewEntity<'_> {
         }
         if let Some(extra) = self.extra_pointed {
             handles.handle(5, extra);
+        }
+        if object.kind == b"ACAD_TABLE" {
+            for _ in object.values.iter().filter(|value| value.code == 171) {
+                // 文字セルにフィールド参照はない。
+                handles.handle(5, 0);
+            }
         }
         // INSERT は、ブロックに続けて、R2000 では最初と最後の ATTRIB を、R2004 ではすべての ATTRIB を固い
         // 所有で指し、SEQEND を指す（決定 0080）
@@ -506,14 +514,13 @@ fn addable_table_record(kind: &[u8]) -> bool {
     )
 }
 
-/// R2004 の DWG に足せるものか（決定 0079〜0081）。型ごとのフィールドが R2000 と同じ形の図形か、MTEXT か、
-/// 属性を持つ INSERT とその ATTRIB・SEQEND か、表のレコードと、足したブロックの BLOCK・ENDBLK だけを
-/// 足せる。格子を持つもの（MINSERT）も足せる
+/// R2004 DWG に追加できる図形と表のレコードの種類。クラスの有無と各フィールドは書くときに確かめる。
 pub(super) fn r2004_addable(object: &Object) -> bool {
     if object.section == Section::Tables {
         return addable_table_record(&object.kind);
     }
-    const KINDS: [&[u8]; 24] = [
+    const KINDS: [&[u8]; 25] = [
+        b"ACAD_TABLE",
         b"HATCH",
         b"LEADER",
         b"DIMENSION",

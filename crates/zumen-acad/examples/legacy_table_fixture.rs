@@ -151,7 +151,11 @@ fn table_data(class: u16, handle: u64, block: u64, layer: u64, r2004: bool) -> V
 
 fn main() {
     let folder = std::env::args().nth(1).expect("入力フォルダーを指定");
-    for (name, r2004) in [("table-r2000.dwg", false), ("table-r2004.dwg", true)] {
+    for (name, r2004) in [
+        ("table-r2000.dwg", false),
+        ("table-r2004.dwg", true),
+        ("table-add-r2004.dwg", true),
+    ] {
         let path = Path::new(&folder).join(name);
         let meta: Vec<u64> = std::fs::read_to_string(path.with_extension("dwg.meta"))
             .unwrap()

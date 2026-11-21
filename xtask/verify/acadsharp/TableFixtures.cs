@@ -15,6 +15,7 @@ static class TableFixtures
         foreach (var (version, name, withStyles) in new[] {
             (ACadVersion.AC1015, "table-r2000.dwg", false),
             (ACadVersion.AC1018, "table-r2004.dwg", false),
+            (ACadVersion.AC1018, "table-add-r2004.dwg", true),
             (ACadVersion.AC1024, "table-r2010.dwg", false),
             (ACadVersion.AC1027, "table-r2013.dwg", false),
             (ACadVersion.AC1032, "table-r2018.dwg", false),
@@ -40,6 +41,12 @@ static class TableFixtures
             if (withStyles)
                 foreach (var style in new[] { tableStyle.TableCellStyle, tableStyle.DataCellStyle, tableStyle.HeaderCellStyle, tableStyle.TitleCellStyle })
                     style.TextStyle = doc.TextStyles["Standard"];
+            if (withStyles && version == ACadVersion.AC1018)
+                foreach (var style in new[] { tableStyle.DataCellStyle, tableStyle.HeaderCellStyle, tableStyle.TitleCellStyle })
+                {
+                    style.TextHeight = 2.5;
+                    style.CellAlignment = ACadSharp.Objects.TableStyle.CellAlignmentType.MiddleCenter;
+                }
             var block = new BlockRecord("*T1");
             foreach (double y in new[] { 0.0, -10.0, -25.0 })
                 block.Entities.Add(new Line(new XYZ(0, y, 0), new XYZ(50, y, 0)));
@@ -77,7 +84,7 @@ static class TableFixtures
             doc.Entities.Add(new Line(new XYZ(-20, -20, 0), new XYZ(-10, -10, 0)));
             var path = Path.Combine(folder, name);
             DwgWriter.Write(path, doc);
-            if (withStyles)
+            if (withStyles && version >= ACadVersion.AC1024)
                 ValidateReferences(path);
             if (placeholder != null)
             {

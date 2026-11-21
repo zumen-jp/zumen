@@ -2769,3 +2769,118 @@ fn adds_dimensions_arc_dimensions_and_tables_with_anonymous_blocks() {
         );
     }
 }
+
+#[test]
+fn adds_plain_table_to_r2004_dwg_and_preserves_the_original() {
+    let table = Table {
+        position: mpt(122.0, 80.0),
+        direction: [0.0, 1.0],
+        row_heights: vec![mlen(7.0), mlen(9.0)],
+        column_widths: vec![mlen(20.0), mlen(25.0)],
+        cells: [
+            "A".to_owned(),
+            String::new(),
+            "x".repeat(251),
+            "D".to_owned(),
+        ]
+        .into_iter()
+        .map(|s| zumen_drawing::Cell {
+            content: if s.is_empty() {
+                CellContent::Empty
+            } else {
+                CellContent::Text {
+                    content: s,
+                    spans: vec![],
+                }
+            },
+            span: [1, 1],
+            covered: false,
+            value: None,
+            rotation: 0.0,
+            format: Default::default(),
+        })
+        .collect(),
+        style: None,
+        formats: None,
+        drawn: None,
+    };
+    for (name, merged, accepted) in [
+        ("table-add-r2004.dwg", false, true),
+        ("table-add-r2004.dwg", true, false),
+        ("table-r2004.dwg", false, false),
+        ("table-r2018.dwg", false, false),
+    ] {
+        let bytes = std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name),
+        )
+        .unwrap();
+        let mut file = testkit::read::<Dwg>(&bytes).0.unwrap();
+        let before = cx_run(|cx| file.lift(cx).unwrap()).0;
+        let (existing, mut element) = seen_model(&before, 0);
+        let mut input = table.clone();
+        if merged {
+            input.cells[0].span = [2, 1];
+            input.cells[1].covered = true;
+        }
+        element.shape = Shape::Table(input);
+        element.source = Ref::default();
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Add {
+                place: "space/0".to_owned(),
+                element: Box::new(Placed::Model(element)),
+            }],
+        };
+        let (applied, diagnostics) = cx_run(|cx| file.apply(&changes, cx));
+        if !accepted {
+            assert!(matches!(applied, Err(Error::Rejected)));
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+            );
+            assert_eq!(testkit::write::<Dwg>(&file).unwrap(), bytes);
+            continue;
+        }
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let applied = applied.unwrap();
+        let output = testkit::write::<Dwg>(&file).unwrap();
+        let reopened = testkit::read::<Dwg>(&output).0.unwrap();
+        let after = cx_run(|cx| reopened.lift(cx).unwrap()).0;
+        assert_eq!(
+            after.spaces[0].elements.len(),
+            before.spaces[0].elements.len() + 1
+        );
+        let (original, _) = seen_model(&after, 0);
+        assert_eq!(original.id, existing.id);
+        assert_eq!(original.hash, existing.hash);
+        let (seen, added) = seen_model(&after, before.spaces[0].elements.len());
+        assert_eq!(Some(seen.id.as_str()), applied[0].id.as_deref());
+        assert_eq!(Some(seen.hash), applied[0].hash);
+        let Shape::Table(reloaded) = added.shape else {
+            panic!("表がない")
+        };
+        assert_eq!(reloaded.position, table.position);
+        assert_eq!(reloaded.direction, table.direction);
+        assert_eq!(reloaded.row_heights, table.row_heights);
+        assert_eq!(reloaded.column_widths, table.column_widths);
+        for (cell, expected) in reloaded.cells.iter().zip(&table.cells) {
+            match (&cell.content, &expected.content) {
+                (
+                    CellContent::Text { content, .. },
+                    CellContent::Text {
+                        content: wanted, ..
+                    },
+                ) => assert_eq!(content, wanted),
+                (CellContent::Empty, CellContent::Empty) => (),
+                _ => panic!("セルの内容が異なる"),
+            }
+        }
+        assert_eq!(reloaded.cells.len(), 4);
+        let block = &reloaded.drawn.as_ref().unwrap().name;
+        assert_eq!(block, "*T2");
+        assert!(!symbol_elements(&after, block).is_empty());
+    }
+}
