@@ -44,6 +44,25 @@ Windows では CLI を `target/debug/zumen.exe` に替えます。出力先は G
 
 ## 範囲の限界
 
-自作 IDS の entity と attribute（Name）のみを対象にします。公開 IDS の再配布可能な例、IFC4/4.3、property・classification・material・partOf・制約式・仕様の全組み合わせは未確認です。自分で定めた要件の照合なので、IDS の読みの段は `synthetic` のままにします。実機の表示、ネイティブと wasm の一致、CAD の実機確認率はこの結果に含めません。
+上記の名前の検査は自作 IDS の entity と attribute（Name）を対象にします。自分で定めた要件の照合なので、IDS の読みの段は `synthetic` のままにします。実機の表示、ネイティブと wasm の一致、CAD の実機確認率はこの結果に含めません。
 
 buildingSMART/IDS の `development/LICENSE` は CC BY-ND 4.0 でした（2026-11-16、Git blob `18f0e4d4846260986bd05a14a8988e2342567385`）。個々の例の別の許諾は未確認のため、例と XSD は同梱していません。公開 API は [IfcTester の使い方](https://docs.ifcopenshell.org/ifctester.html)と [API の説明](https://docs.ifcopenshell.org/autoapi/ifctester/ids/index.html)を参照しました。
+
+## 国内積算用の公開原本
+
+buildingSMART Japan 土木委員会が公開する令和 7 年度用（202510_01）の「共同溝・プレキャスト躯体工」を対象にします。原本の版は `202510.01`、Git blob は `bc23b654c433a40072b1559dc7c8651c10bc6202`、長さは 15,808 バイト、SHA-256 は `26c98dccc6812bc941bacde073c457b0821bc765c44419761dc38b0c7fa2ca9c` です。[権利者の公開場所（固定版）](https://github.com/buildingSMART-Japan/bSJ_IDS/tree/808615294d4c3e2e9d7c2673182d06934c818e8c/bimcim-cost-estimation)・[原本へのリンク（#922）](https://github.com/zumen-jp/zumen/issues/922)
+
+原本の許諾は [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.ja) です。権利者の公開場所から取得したファイルをリポジトリの外に置きます。検査は IFC2X3 の EXPRESS を [buildingSMART の公開元](../express/README.md)から取得し、長さとハッシュを確認して ObjectType を引きます。原本やその書き換え、IFC のスキーマは配布物や検査の出力に残しません。
+
+```sh
+cargo build --locked -p zumen-cli --bin zumen
+cargo build --locked --release -p zumen-abi --target wasm32-unknown-unknown
+python -I xtask/verify/ids/cost.py --ids ../input.ids --cli target/debug/zumen --wasm target/wasm32-unknown-unknown/release/zumen_abi1.wasm
+```
+
+上記の固定版を入れた Python と Node.js を使います。Windows では CLI の末尾に `.exe` を付けます。2026-11-21 に Windows x64 で次の結果を得ました。
+
+- **原本の読み取り**。原本の根は名前空間のない `ids` です。IfcTester 0.9.0 の公開リーダーは `IdsXmlValidationError` で止まり、同梱の XSD が根を認識できません。`ids_check` は `ids.file.invalid`（`near=ids`、バイト 40〜15,808）を返します。対象・不適合の件数は両方とも取得できません。
+- **参考入力の判定**。メモリ上で IDS の要素名に IDS 1.0、restriction と enumeration に XML Schema、schemaLocation に XML Schema Instance の名前空間を割り当てます。IfcTester の XSD でこの入力を検証し、同じ入力を両実装に渡します。各仕様の ObjectType と IFCREAL のプロパティで対象を選び、3 つの必須 IFCTEXT を調べます。単純値に加え、2・3 番目の仕様には文字列の列挙があります。列挙は先頭の候補を適合例に使います。
+- **対象と不適合**。各仕様で適合、最後の必須値が欠ける要素、ObjectType が異なる要素を 1 つずつ作ります。まとめた IFC で 3 仕様は順に GlobalId の末尾（22 桁の 0 埋め）が 100・200、400・500、700・800 の要素を対象にし、それぞれ 200、500、800 に不適合が 1 件ずつありました。単体の 9 モデルでも各要素の該当・不該当を確認しました。対象数・不適合数・不適合の GlobalId は IfcTester と一致し、未対応の要件は 0 件でした。
+- **環境間の一致**。10 モデルそれぞれについて、IFC を開く要求、原本の照合、参考入力の照合を同じ順で流しました。30 応答の状態と UTF-8 バイト列の SHA-256 がネイティブ CLI と Node.js の wasm で一致しました。
