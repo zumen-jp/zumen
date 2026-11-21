@@ -278,7 +278,7 @@ ZUMEN_SAMPLES=/path/to/samples cargo test -q -p zumen-acad --test samples
 | LAYOUT・GROUP などのオブジェクトのフィールド | ACDBDICTIONARYWDFLT・GROUP・DICTIONARYVAR・SCALE・LAYOUT のフィールドを置く | 6 つの R2000 の図面のこれらをすべて読めた。`sample_AC1015` の 4 の LAYOUT・2 の GROUP・16 の DICTIONARYVAR・33 の SCALE などのフィールドが DXF と合う |
 | 表のレコードのフィールド | LAYER・STYLE・LTYPE・APPID のフィールドを置く | 6 つの R2000 の図面の表のレコードをすべて読めた。`sample_AC1015` の 77 の表のレコードのフィールドが DXF と合う |
 | VIEW・UCS・VPORT・DIMSTYLE のフィールド | これらの表のレコードのフィールドを置く | 6 つの R2000 の図面を診断なしで読めた。`sample_AC1015` の VPORT・VIEW と 6 つの DIMSTYLE のフィールドが DXF と合う。UCS と、見え方のフラグの 1・2・4・UCS に従うフラグは、サンプルにないので確かめていない |
-| ヘッダーの変数と空間の図形の所有者 | R2000 のヘッダーの変数を順に読み、用紙空間・モデル空間のブロックのレコードのハンドルを取り出して、entmode が 1・2 の図形の所有者にする | 6 つの R2000 の図面を最後の変数まで読み、`sample_AC1015` の図形の所有者がすべて DXF と合う。変数の並びは、DXF の HEADER の値（$LTSCALE・$PEXTMIN・$PLIMMAX・$DIMLWD・$INSUNITS・$FINGERPRINTGUID など）と照らして確かめた。CEPSNTYPE が 3 の図面は、サンプルにないので確かめていない |
+| ヘッダーの変数と空間の図形の所有者 | R2000 のヘッダーの変数を順に読み、用紙空間・モデル空間のブロックのレコードのハンドルを取り出して、entmode が 1・2 の図形の所有者にする | 6 つの R2000 の図面を最後の変数まで読み、`sample_AC1015` の図形の所有者がすべて DXF と合う。変数の並びは、DXF の HEADER の値（$LTSCALE・$PEXTMIN・$PLIMMAX・$DIMLWD・$INSUNITS・$FINGERPRINTGUID など）と照らして確かめた。自作の R2000・R2018 では、モデル空間の線を移して書き戻し、AutoCAD Core Console 2027 で再読した。移した座標と現在の名前付き印刷スタイルが合い、DXF に出した CEPSNTYPE は 3、CEPSNID は既定と異なる指定先のハンドルだった |
 | SOLID の角の Z | 標高を 4 つの角の Z（30〜33）に置く | SOLID のフィールドが DXF と合う |
 | 図形の画層 | 共通のハンドルのうち、拡張辞書と前後のリンクの後にある | 名前が DXF の 8 と合う |
 | MINSERT のフィールド | INSERT のフィールドに続く列と行の数と間隔を読む。R2004 から後は属性を持つとき、列と行のフィールドの前に持つオブジェクトの数を読む | AutoCAD 2027 で作った R2000・R2004・R2018 の DWG と DXF で、属性を持つものと持たないものの列・行・間隔と属性を確かめた |
