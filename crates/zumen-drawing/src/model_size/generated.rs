@@ -766,7 +766,8 @@ impl ModelSize for crate::Drawing2D {
         + <Vec<crate::TitleBlock> as ModelSize>::SIZE
         + <Option<crate::point::PointStyle> as ModelSize>::SIZE
         + <Option<zumen_crs::Georeference> as ModelSize>::SIZE
-        + <Vec<crate::dimension_display::DimensionDisplayRecord> as ModelSize>::SIZE;
+        + <Vec<crate::dimension_display::DimensionDisplayRecord> as ModelSize>::SIZE
+        + <Option<crate::ViewLineTypes> as ModelSize>::SIZE;
 
     fn heap_bytes(&self) -> u64 {
         let Self {
@@ -786,6 +787,7 @@ impl ModelSize for crate::Drawing2D {
             point_style,
             georeference,
             dimension_display,
+            view_line_types,
         } = self;
         0_u64
             .saturating_add(spaces.heap_bytes())
@@ -804,6 +806,7 @@ impl ModelSize for crate::Drawing2D {
             .saturating_add(point_style.heap_bytes())
             .saturating_add(georeference.heap_bytes())
             .saturating_add(dimension_display.heap_bytes())
+            .saturating_add(view_line_types.heap_bytes())
     }
 }
 
@@ -2479,7 +2482,8 @@ impl ModelSize for crate::space::View {
         + <crate::space::Affine as ModelSize>::SIZE
         + <Vec<crate::space::PaperPoint> as ModelSize>::SIZE
         + <Vec<crate::style::LayerId> as ModelSize>::SIZE
-        + <zumen_base::Ref as ModelSize>::SIZE;
+        + <zumen_base::Ref as ModelSize>::SIZE
+        + <Option<crate::space::PaperLength> as ModelSize>::SIZE;
 
     fn heap_bytes(&self) -> u64 {
         let Self {
@@ -2489,6 +2493,7 @@ impl ModelSize for crate::space::View {
             clip,
             hidden_layers,
             source,
+            paper_unit,
         } = self;
         0_u64
             .saturating_add(space.heap_bytes())
@@ -2497,5 +2502,10 @@ impl ModelSize for crate::space::View {
             .saturating_add(clip.heap_bytes())
             .saturating_add(hidden_layers.heap_bytes())
             .saturating_add(source.heap_bytes())
+            .saturating_add(paper_unit.heap_bytes())
     }
+}
+
+impl ModelSize for crate::ViewLineTypes {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0]);
 }

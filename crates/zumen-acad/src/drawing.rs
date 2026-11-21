@@ -295,6 +295,7 @@ fn framed(db: &AcadDb, cx: &mut Cx) -> Result<(Drawing2D, BTreeMap<SheetId, Pape
         layers: out.layers,
         line_types: out.line_types,
         line_type_scale,
+        view_line_types: Some(view_line_types(db, cx)),
         default_line_weight,
         default_color,
         default_line_type,
@@ -964,6 +965,25 @@ fn header_limits(db: &AcadDb, name: &[u8], cx: &mut Cx) -> Option<[f64; 2]> {
         }
     }
     Some(point)
+}
+
+fn view_line_types(db: &AcadDb, cx: &mut Cx) -> zumen_drawing::ViewLineTypes {
+    use zumen_drawing::ViewLineTypes;
+    let Some(values) = db.variable(b"$PSLTSCALE") else {
+        return ViewLineTypes::DefaultPaper;
+    };
+    match values
+        .iter()
+        .find(|value| value.code == 70)
+        .map(|value| &value.data)
+    {
+        Some(Data::Int(0)) => ViewLineTypes::Model,
+        Some(Data::Int(1)) => ViewLineTypes::Paper,
+        _ => {
+            cx.report(*invalid(b"$PSLTSCALE", 70));
+            ViewLineTypes::DefaultPaper
+        }
+    }
 }
 
 fn header_real(values: &[crate::Value], code: i16) -> Option<f64> {

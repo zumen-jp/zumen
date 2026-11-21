@@ -74,6 +74,7 @@ fn p21_horizontal_dimension_keeps_real_points_separate_from_label() {
                 source: Ref::default(),
                 clip: vec![],
                 hidden_layers: vec![],
+                paper_unit: None,
                 transform: Affine {
                     m: [0.1, 0., 70., 0., 0.1, 90.],
                 },
@@ -671,6 +672,7 @@ fn p21_uses_first_eligible_view_and_keeps_custom_paper_size() {
             },
             clip: vec![],
             hidden_layers: vec![],
+            paper_unit: None,
             source: Ref::at_record(99),
         }],
     }];

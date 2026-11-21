@@ -1016,6 +1016,13 @@ impl DwgSingle {
                 ],
             );
             db.set_variable(
+                b"$PSLTSCALE",
+                vec![Value {
+                    code: 70,
+                    data: Data::Int(i64::from(header.paper_line_types)),
+                }],
+            );
+            db.set_variable(
                 b"$LTSCALE",
                 vec![Value {
                     code: 40,

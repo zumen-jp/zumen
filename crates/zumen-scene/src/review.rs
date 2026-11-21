@@ -1087,6 +1087,7 @@ fn visit<'a, 'v>(
         item: Item::Model(element),
         id: scene_id,
         path: &[],
+        view_scale: None,
         transform: Affine {
             m: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
         },

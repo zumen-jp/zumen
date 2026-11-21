@@ -127,6 +127,19 @@ pub struct Drawing2D {
     pub georeference: Option<Georeference>,
     /// 部品のない寸法を描くための、寸法スタイルの補足と要素ごとの上書き。元の定義の順。
     pub dimension_display: Vec<DimensionDisplayRecord>,
+    /// 端を実線でそろえる線種の、ビューでの長さの基準。元の形式がこの描き方を使わなければ `None`
+    pub view_line_types: Option<ViewLineTypes>,
+}
+
+/// ビュー内の線種の長さ。図形の位置と線幅の縮尺には影響しない
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewLineTypes {
+    /// モデルの単位で解いた長さをビューの縮尺に合わせる
+    Model,
+    /// 用紙の単位を使う
+    Paper,
+    /// 元の文書に指定がなく、その形式の既定で用紙の単位を使う
+    DefaultPaper,
 }
 
 impl Drawing2D {
@@ -565,6 +578,7 @@ mod tests {
             },
             clip: Vec::new(),
             hidden_layers: Vec::new(),
+            paper_unit: None,
             source: Ref::default(),
         }
     }

@@ -93,6 +93,8 @@ pub struct Visit<'a> {
     pub path: Vec<Step>,
     /// 要素の空間から起点の座標への変換
     pub transform: Affine,
+    /// ビューを介したときのモデルから用紙への倍率。記号の配置の倍率を含まない
+    pub view_scale: Option<f64>,
     /// 解いた色。レイヤが値を持たなければ `None`
     pub color: Option<Color>,
     /// 解いた線種。レイヤが値を持たなければ `None`
@@ -120,6 +122,8 @@ pub struct VisitRef<'a, 'v> {
     pub path: &'v [Step],
     /// 起点への変換
     pub transform: Affine,
+    /// ビューを介したときのモデルから用紙への倍率
+    pub view_scale: Option<f64>,
     /// 解いた色
     pub color: Option<Color>,
     /// 解いた線種
@@ -139,12 +143,29 @@ pub struct VisitRef<'a, 'v> {
 }
 
 impl<'a> VisitRef<'a, '_> {
+    /// 線種の長さの単位を起点の座標に直す倍率。要素と文書の線種の倍率は含まない。
+    pub fn line_type_basis_scale(&self, drawing: &Drawing2D, basis: crate::PatternBasis) -> f64 {
+        if basis == crate::PatternBasis::Paper {
+            return 1.0;
+        }
+        let [a, b, _, d, e, _] = self.transform.m;
+        let scale = (a * e - b * d).abs().sqrt();
+        match (self.view_scale, drawing.view_line_types) {
+            (
+                Some(view),
+                Some(crate::ViewLineTypes::Paper | crate::ViewLineTypes::DefaultPaper),
+            ) => scale / view,
+            _ => scale,
+        }
+    }
+
     fn owned(&self) -> Visit<'a> {
         Visit {
             item: self.item,
             id: self.id.to_owned(),
             path: self.path.to_vec(),
             transform: self.transform,
+            view_scale: self.view_scale,
             color: self.color,
             line_type: self.line_type,
             line_weight: self.line_weight,
@@ -384,6 +405,7 @@ impl Drawing2D {
 #[derive(Clone, Debug)]
 struct Frame {
     transform: Affine,
+    view_scale: Option<f64>,
     clips: Rc<[Clipping]>,
     path: Rc<[Step]>,
     definitions: Rc<[usize]>,
@@ -398,6 +420,7 @@ impl Frame {
     fn top(transform: Affine) -> Self {
         Self {
             transform,
+            view_scale: None,
             clips: Rc::from([]),
             path: Rc::from([]),
             definitions: Rc::from([]),
@@ -528,6 +551,9 @@ impl<'a> Walker<'a, '_> {
                 )
                 .map_err(|s| (s, view.source.clone()))?;
             let mut frame = Frame::top(view.transform);
+            let [a, b, _, d, e, _] = view.transform.m;
+            frame.view_scale =
+                Some((a * e - b * d).abs().sqrt() / view.paper_unit.map_or(1.0, |unit| unit.0));
             if !view.clip.is_empty() {
                 frame.clips = Rc::from([Clipping {
                     polygon: view.clip.iter().map(|p| [p.x, p.y]).collect(),
@@ -751,6 +777,7 @@ impl<'a> Walker<'a, '_> {
                 definitions.push(definition);
                 let inner = Frame {
                     transform: placement,
+                    view_scale: frame.view_scale,
                     clips,
                     path: path.into(),
                     definitions: definitions.into(),
@@ -877,6 +904,7 @@ impl<'a> Walker<'a, '_> {
             id,
             path: &frame.path,
             transform: frame.transform,
+            view_scale: frame.view_scale,
             color,
             line_type,
             line_weight,
@@ -1138,6 +1166,7 @@ mod tests {
                         })
                         .collect(),
                     hidden_layers: Vec::new(),
+                    paper_unit: None,
                     source: Ref::default(),
                 }],
             }],
@@ -1366,6 +1395,7 @@ mod tests {
                 },
                 clip: vec![corner(0.0, 0.0), corner(10.0, 0.0), corner(10.0, 10.0)],
                 hidden_layers: vec![LayerId(2)],
+                paper_unit: None,
                 source: Ref::default(),
             }],
             order: vec![SheetItem::Element(0), SheetItem::View(0)],

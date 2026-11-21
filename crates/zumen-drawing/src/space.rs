@@ -161,6 +161,8 @@ pub struct View {
     pub hidden_layers: Vec<LayerId>,
     /// 出所
     pub source: Ref,
+    /// 元の用紙の 1 単位を mm で表した長さ。ビューの縮尺と単位換算を分けるときに使う
+    pub paper_unit: Option<PaperLength>,
 }
 
 impl View {

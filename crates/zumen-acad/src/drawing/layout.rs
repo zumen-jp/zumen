@@ -10,7 +10,7 @@ use super::{
 };
 use crate::db::{AcadDb, Data, Object, Origin, Section, Value};
 use zumen_base::{Cx, Diagnostic, Ref, codes};
-use zumen_drawing::{Affine, PaperPoint, Sheet, SheetId, View};
+use zumen_drawing::{Affine, PaperLength, PaperPoint, Sheet, SheetId, View};
 use zumen_sdk::Error;
 
 impl Lifter<'_> {
@@ -218,6 +218,7 @@ impl Lifter<'_> {
                 corner(-1.0, 1.0)?,
             ],
             hidden_layers: Vec::new(),
+            paper_unit: Some(PaperLength(mm)),
             source,
         })
     }

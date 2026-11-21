@@ -215,6 +215,7 @@ pub(super) fn write(
                 },
                 clip: Vec::new(),
                 hidden_layers: Vec::new(),
+                paper_unit: None,
                 source: Ref::default(),
             }],
             order: vec![d::SheetItem::View(0)],

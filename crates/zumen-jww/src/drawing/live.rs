@@ -2552,6 +2552,7 @@ impl JwwLive {
                 },
                 clip: Vec::new(),
                 hidden_layers: Vec::new(),
+                paper_unit: None,
                 source: Ref::at_record(0),
             });
             out.spaces.push(ModelSpace {

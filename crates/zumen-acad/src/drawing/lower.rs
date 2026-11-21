@@ -670,7 +670,12 @@ pub fn lower_to_dxf_with_report(
         report_dropped(cx, report, "georeference", &Ref::default())?;
     }
     for (kind, present) in [
-        ("line_type_scale", drawing.line_type_scale.is_some()),
+        (
+            "line_type_scale",
+            drawing
+                .line_type_scale
+                .is_some_and(|scale| !scale.is_finite() || scale <= 0.0),
+        ),
         ("default_line_weight", drawing.default_line_weight.is_some()),
         ("default_color", drawing.default_color.is_some()),
         ("default_line_type", drawing.default_line_type.is_some()),
@@ -2087,6 +2092,7 @@ mod tests {
             },
             clip: Vec::new(),
             hidden_layers: Vec::new(),
+            paper_unit: None,
             source: Ref::at_record(1),
         });
         drawing.spaces[0].elements.push(Element {
@@ -2151,6 +2157,7 @@ mod tests {
             },
             clip: Vec::new(),
             hidden_layers: Vec::new(),
+            paper_unit: None,
             source: Ref::at_record(2),
         });
         let ambiguous = lower_to_dxf_with_report(&drawing, &Reseat, 1000, &mut cx).unwrap();

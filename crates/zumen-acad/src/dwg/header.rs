@@ -40,6 +40,8 @@ pub(super) struct Header {
     pub(super) limits: [f64; 4],
     /// LTSCALE（線種の尺度）
     pub(super) line_type_scale: f64,
+    /// PSLTSCALE（ビュー内の線種の長さを用紙の単位でそろえる）
+    pub(super) paper_line_types: bool,
     /// PDMODE（点の表し方）
     pub(super) point_mode: i16,
     /// PDSIZE（点の大きさ）
@@ -347,6 +349,14 @@ fn variables(bits: &mut Bits) -> Option<Header> {
         Release::R2000 => &FIRST,
         _ => &FIRST_R2004,
     };
+    // ODS 5.4.1 の 9。R2000 以降では DIMASO から始まる B の並びの 8 番目が PSLTSCALE
+    let at = first.iter().position(|(field, _)| matches!(field, B))?;
+    skip_all(bits, first.get(..at)?)?;
+    skip_all(bits, &[(B, 7)])?;
+    let paper_line_types = bits.bit()?;
+    let (_, count) = first.get(at)?;
+    skip_all(bits, &[(B, count.checked_sub(8)?)])?;
+    let first = first.get(at + 1..)?;
     // PROXYGRAPHICS から始まる BS の並びの 8 つ目が PDMODE（ODS 5.4.1 の 9。R2000 からは
     // PROXYGRAPHICS・TREEDEPTH・LUNITS・LUPREC・AUNITS・AUPREC・ATTMODE の後）
     let at = first.iter().position(|(field, _)| matches!(field, Bs))?;
@@ -411,6 +421,7 @@ fn variables(bits: &mut Bits) -> Option<Header> {
         units,
         limits,
         line_type_scale,
+        paper_line_types,
         point_mode,
         point_size,
         point_mode_at,

@@ -290,6 +290,7 @@ pub fn fixture() -> (binary::Source, Drawing2D) {
                     paper(6.0, 20.0),
                 ],
                 hidden_layers: Vec::new(),
+                paper_unit: None,
                 source: Ref::at_record(50).with_key(Key::Handle(0x50)),
             },
             View {
@@ -300,6 +301,7 @@ pub fn fixture() -> (binary::Source, Drawing2D) {
                 },
                 clip: Vec::new(),
                 hidden_layers: Vec::new(),
+                paper_unit: None,
                 source: Ref::default(),
             },
             View {
@@ -310,6 +312,7 @@ pub fn fixture() -> (binary::Source, Drawing2D) {
                 },
                 clip: Vec::new(),
                 hidden_layers: Vec::new(),
+                paper_unit: None,
                 source: Ref::default(),
             },
         ],

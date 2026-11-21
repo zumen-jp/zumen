@@ -163,6 +163,45 @@ fn src() -> Vec<u8> {
         .into_bytes()
 }
 
+#[test]
+fn viewport_line_type_mode_distinguishes_the_absent_header_from_zero_and_one() {
+    use zumen_drawing::ViewLineTypes;
+    let source = String::from_utf8(src()).unwrap();
+    for (header, expected) in [
+        ("", ViewLineTypes::DefaultPaper),
+        ("  9\n$PSLTSCALE\n 70\n0\n", ViewLineTypes::Model),
+        ("  9\n$PSLTSCALE\n 70\n1\n", ViewLineTypes::Paper),
+    ] {
+        let source = source.replace("  2\nHEADER\n", &format!("  2\nHEADER\n{header}"));
+        let file = testkit::read::<Dxf>(source.as_bytes()).0.unwrap();
+        let mut drawing = lift(&file);
+        assert_eq!(drawing.view_line_types, Some(expected));
+        drawing.line_type_scale = Some(0.125);
+        let template = zumen_acad::NewDxfTemplate::new(&drawing);
+        let new_file = testkit::read::<Dxf>(template.bytes()).0.unwrap();
+        let reread = lift(&new_file);
+        assert_eq!(reread.view_line_types, Some(expected));
+        assert_eq!(reread.line_type_scale, Some(0.125));
+    }
+    let malformed = source.replace("  2\nHEADER\n", "  2\nHEADER\n  9\n$PSLTSCALE\n 70\n2\n");
+    let file = testkit::read::<Dxf>(malformed.as_bytes()).0.unwrap();
+    let mut budget = Budget::default();
+    let mut diagnostics = Diagnostics::new();
+    let drawing = file
+        .lift(&mut Cx::new(
+            &mut budget,
+            &mut diagnostics,
+            &CancelToken::new(),
+        ))
+        .unwrap();
+    assert_eq!(drawing.view_line_types, Some(ViewLineTypes::DefaultPaper));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code() == codes::DXF_LIFT_INVALID)
+    );
+}
+
 #[cfg(test)]
 fn lift(file: &DxfFile) -> Drawing2D {
     let mut budget = Budget::default();

@@ -1089,8 +1089,18 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             return Ok(());
         };
         let period = geom::period(&pattern);
+        let length = geom::length(&points);
+        let fit = if self.drawing.view_line_types.is_some()
+            && definition.basis == zumen_drawing::PatternBasis::Element
+        {
+            geom::fit_dashes(length, &pattern)
+        } else {
+            None
+        };
         if !definition.marks.is_empty() && period > self.tolerance {
-            self.marks(visit, &points, &pattern, scale, definition, unit, source)?;
+            self.marks(
+                visit, &points, &pattern, fit, scale, definition, unit, source,
+            )?;
         }
         // 列の 1 周が許容差より短ければ、間は見分けられないので、続けて描く
         if period.is_nan() || period <= self.tolerance {
@@ -1099,14 +1109,14 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             return Ok(());
         }
         // 作る前に、作る線の数を見積もって数える
-        let estimate = geom::length(&points) / period * pattern.len() as f64 * 2.0;
+        let estimate = length / period * pattern.len() as f64 * 2.0;
         let estimate = if estimate.is_finite() {
             estimate.min(u64::MAX as f64) as usize
         } else {
             usize::MAX
         };
         self.segments(estimate.saturating_add(points.len()), source)?;
-        for dash in geom::dashes(&points, &pattern) {
+        for dash in geom::dashes_with_fit(&points, &pattern, fit) {
             self.line(dash, unit);
         }
         Ok(())
@@ -1119,6 +1129,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
         visit: &VisitRef<'_, '_>,
         points: &[Xy],
         pattern: &[f64],
+        fit: Option<geom::DashFit>,
         scale: f64,
         definition: &LineTypeDefinition,
         unit: u32,
@@ -1134,7 +1145,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             let Some(height) = self.drawing.mark_text_height(mark) else {
                 continue;
             };
-            let places = geom::starts(points, pattern, mark.index);
+            let places = geom::starts_with_fit(points, pattern, mark.index, fit);
             self.segments(places.len(), source)?;
             let drawing = self.drawing;
             let style_def = style
@@ -1213,16 +1224,7 @@ impl<'d, 'c, 'x> Builder<'d, 'c, 'x> {
             Item::ModelAttribute { .. } | Item::PaperAttribute { .. } => 1.0,
         };
         let document = self.drawing.line_type_scale.unwrap_or(1.0);
-        // 要素の空間の長さは、要素から起点への変換で伸ばす。用紙の mm は、用紙からならそのまま使う。
-        // 空間からは用紙への尺度が決まらないので、起点の長さとみなす（決定 0178）
-        let basis = match definition.basis {
-            zumen_drawing::PatternBasis::Element => {
-                let [a, b, _, d, e, _] = visit.transform.m;
-                (a * e - b * d).abs().sqrt()
-            }
-            zumen_drawing::PatternBasis::Paper => 1.0,
-        };
-        let scale = own * document * basis;
+        let scale = own * document * visit.line_type_basis_scale(self.drawing, definition.basis);
         if !(scale.is_finite() && scale > 0.0) {
             return None;
         }

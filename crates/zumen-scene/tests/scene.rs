@@ -302,15 +302,109 @@ fn expands_line_types_into_dashes() {
     });
     drawing.spaces[0].elements[0].style.line_type = Inherit::Own(LineTypeId(90));
     let (scene, _) = made(&drawing, &options());
-    // 長さ 10 の線を、線 2・間 1 で分ける: 0-2, 3-5, 6-8, 9-10
+    // 長さ 10 の線に周期 3 を当て、両端に長さ 1.5 の線を置く。
     assert_eq!(scene.counts.lines, 4);
     let xy = Read(&scene.bytes).f32s(layout::LINE_XY);
     assert_eq!(
         xy,
         vec![
-            0.0, 0.0, 2.0, 0.0, 3.0, 0.0, 5.0, 0.0, 6.0, 0.0, 8.0, 0.0, 9.0, 0.0, 10.0, 0.0
+            0.0, 0.0, 1.5, 0.0, 2.5, 0.0, 4.5, 0.0, 5.5, 0.0, 7.5, 0.0, 8.5, 0.0, 10.0, 0.0
         ]
     );
+}
+
+#[test]
+fn layout_viewports_scale_line_types_in_model_or_paper_units_before_clipping() {
+    use zumen_drawing::{
+        Affine, PaperLength, PaperPoint, Sheet, SheetId, SheetItem, View, ViewLineTypes,
+    };
+
+    let id = SheetId(0);
+    let mut drawing = lift(&SHAPES[..9]);
+    let element = &mut drawing.spaces[0].elements[0];
+    element.shape = Shape::Line {
+        start: at(0.0, 0.0),
+        end: at(5000.0, 0.0),
+    };
+    drawing.line_types.push(LineType {
+        id: LineTypeId(90),
+        name: "Dash".to_string(),
+        source: element.source.clone(),
+        definition: Some(LineTypeDefinition {
+            description: String::new(),
+            pattern: vec![150.0, -50.0],
+            basis: PatternBasis::Element,
+            marks: Vec::new(),
+        }),
+    });
+    element.style.line_type = Inherit::Own(LineTypeId(90));
+    let view = |scale, unit| View {
+        space: MODEL,
+        sheet: id,
+        transform: Affine {
+            m: [scale, 0.0, 0.0, 0.0, scale, 0.0],
+        },
+        clip: [(0.5, -1.0), (40.0, -1.0), (40.0, 1.0), (0.5, 1.0)]
+            .map(|(x, y)| PaperPoint { sheet: id, x, y })
+            .to_vec(),
+        hidden_layers: Vec::new(),
+        paper_unit: Some(PaperLength(unit)),
+        source: Default::default(),
+    };
+    drawing.sheets = vec![Sheet {
+        id,
+        name: None,
+        size: None,
+        source: Default::default(),
+        elements: Vec::new(),
+        views: vec![view(0.02, 1.0), view(0.01, 1.0), view(0.02, 25.4)],
+        order: vec![SheetItem::View(0), SheetItem::View(1), SheetItem::View(2)],
+    }];
+    let strokes = |drawing: &Drawing2D, view| {
+        let (scene, codes) = made(
+            drawing,
+            &Options {
+                origin: Origin::View { sheet: id, view },
+                print: true,
+                ..options()
+            },
+        );
+        assert!(codes.is_empty(), "{codes:?}");
+        let read = Read(&scene.bytes);
+        assert!(!read.u32s(layout::UNIT_CLIPS).is_empty());
+        assert_eq!(read.f64s(layout::CLIP_XY)[0], 0.5);
+        read.f32s(layout::LINE_XY)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|xy| (xy[2] - xy[0]).abs())
+            .collect::<Vec<_>>()
+    };
+    for mode in [ViewLineTypes::DefaultPaper, ViewLineTypes::Paper] {
+        drawing.view_line_types = Some(mode);
+        assert_eq!(strokes(&drawing, 0), [100.0]);
+        assert_eq!(strokes(&drawing, 1), [50.0]);
+    }
+    drawing.view_line_types = Some(ViewLineTypes::Model);
+    for (i, edge, interior) in [(0, 1.5, 3.0), (1, 0.75, 1.5)] {
+        let lengths = strokes(&drawing, i);
+        assert_eq!(lengths.len(), 26);
+        assert_eq!(lengths[0], edge);
+        assert_eq!(lengths[25], edge);
+        assert!(lengths[1..25].iter().all(|length| *length == interior));
+    }
+    drawing.view_line_types = Some(ViewLineTypes::Paper);
+    drawing.line_type_scale = Some(0.02);
+    drawing.spaces[0].elements[0].style.line_type_scale = 2.0;
+    for (i, edge, count) in [(0, 5.0, 13), (1, 4.0, 7)] {
+        let lengths = strokes(&drawing, i);
+        assert_eq!(lengths.len(), count);
+        assert_eq!(lengths[0], edge);
+        assert_eq!(lengths[count - 1], edge);
+        assert!(lengths[1..count - 1].iter().all(|length| *length == 6.0));
+    }
+    // 用紙の 1 単位が 25.4 mm の場合、同じ線種の 1 周は紙面で 203.2 mm。
+    assert_eq!(strokes(&drawing, 2), [100.0]);
 }
 
 #[test]
@@ -956,6 +1050,7 @@ fn negative_dimension_factor_uses_the_owner_even_through_a_view() {
         },
         clip: Vec::new(),
         hidden_layers: Vec::new(),
+        paper_unit: None,
         source: Default::default(),
     };
     drawing.sheets = vec![Sheet {
@@ -1489,13 +1584,13 @@ fn line_type_text_marks_are_placed_along_the_line() {
     });
     drawing.spaces[0].elements[0].style.line_type = Inherit::Own(LineTypeId(90));
     let (scene, found) = made(&drawing, &options());
-    // 長さ 10 の線に、間の始まり 3 と 8 で 2 つの文字
+    // 長さ 10 の線に、間の始まり 1.5 と 6.5 で 2 つの文字
     assert_eq!(scene.counts.texts, 2);
     assert_eq!(found, vec![codes::SCENE_LINE_TYPE_SHAPE_DROPPED]);
     let read = Read(&scene.bytes);
     let origin = read.f64s(layout::CHUNK_ORIGINS);
     let xy = read.f32s(layout::TEXT_XY);
-    assert!((f64::from(xy[0]) + origin[0] - 3.5).abs() < 1e-6);
+    assert!((f64::from(xy[0]) + origin[0] - 2.0).abs() < 1e-6);
     assert!((f64::from(xy[1]) + origin[1] + 0.25).abs() < 1e-6);
     assert_eq!(read.f32s(layout::TEXT_HEIGHTS)[0], 0.5);
 }

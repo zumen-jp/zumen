@@ -1340,6 +1340,7 @@ impl<'f> Lifter<'f> {
                     transform,
                     clip: Vec::new(),
                     hidden_layers: Vec::new(),
+                    paper_unit: None,
                     source: source.clone(),
                 };
                 if at.view(view, out) {
@@ -1435,6 +1436,7 @@ impl<'f> Lifter<'f> {
                         transform,
                         clip: Vec::new(),
                         hidden_layers: Vec::new(),
+                        paper_unit: None,
                         source: source.clone(),
                     },
                     out,

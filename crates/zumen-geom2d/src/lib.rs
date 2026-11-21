@@ -781,22 +781,49 @@ pub fn period(pattern: &[f64]) -> f64 {
     pattern.iter().map(|v| v.abs()).sum()
 }
 
+/// 両端を同じ長さの線にそろえたときの、端の線の長さと間を入れる回数
+#[derive(Clone, Copy, Debug)]
+pub struct DashFit {
+    first: f64,
+    repeats: usize,
+}
+
+/// 元の経路の長さに線種を合わせる。切り抜きの後の長さを使わない。
+pub fn fit_dashes(length: f64, pattern: &[f64]) -> Option<DashFit> {
+    let dash = *pattern.first()?;
+    let period = period(pattern);
+    if !length.is_finite() || length < 0.0 || dash < 0.0 || !period.is_finite() || period <= 0.0 {
+        return None;
+    }
+    Some(DashFit {
+        first: (length % period + dash) * 0.5,
+        repeats: (length / period) as usize,
+    })
+}
+
 /// 線種の列（正は線、負は間、0 は点）で、折れ線を線に分ける。点は、同じ点を 2 つ持つ線にする。
 /// 列は折れ線の始点から当て、頂点をまたいで続ける。1 周の長さが 0 なら、元の折れ線を 1 本で返す
 pub fn dashes(points: &[Xy], pattern: &[f64]) -> Vec<Vec<Xy>> {
+    dashes_with_fit(points, pattern, None)
+}
+
+/// 端をそろえるときは、1 周に満たない経路を実線にし、両端に余りを等分する。
+pub fn dashes_with_fit(points: &[Xy], pattern: &[f64], fit: Option<DashFit>) -> Vec<Vec<Xy>> {
     let total = period(pattern);
     if pattern.is_empty()
         || total.is_nan()
         || total <= 0.0
         || !total.is_finite()
         || points.len() < 2
+        || fit.is_some_and(|fit| fit.repeats == 0)
     {
         return vec![points.to_vec()];
     }
     let mut out = Vec::new();
     let mut current: Option<Vec<Xy>> = None;
     let mut index = 0;
-    let mut left = pattern.first().map_or(0.0, |v| v.abs());
+    let mut left = fit.map_or_else(|| pattern.first().map_or(0.0, |v| v.abs()), |fit| fit.first);
+    let mut repeats = fit.map(|fit| fit.repeats);
     let mut drawing = pattern.first().is_some_and(|v| *v >= 0.0);
     if drawing {
         current = points.first().map(|p| vec![*p]);
@@ -831,6 +858,14 @@ pub fn dashes(points: &[Xy], pattern: &[f64]) -> Vec<Vec<Xy>> {
             let value = pattern.get(index).copied().unwrap_or(0.0);
             left = value.abs();
             drawing = value >= 0.0;
+            if index == 0
+                && let Some(repeats) = repeats.as_mut()
+            {
+                *repeats = repeats.saturating_sub(1);
+                if *repeats == 0 {
+                    left = f64::INFINITY;
+                }
+            }
             if drawing {
                 current = Some(vec![p]);
             }
@@ -1191,13 +1226,34 @@ pub fn hatch_row(
 /// 線種の列の `index` 番目の要素が始まる位置と、そこでの線の向き（度）。列は折れ線の始点から当て、頂点を
 /// またいで続ける（[`dashes`] と同じ）。1 周の長さが 0 なら空
 pub fn starts(points: &[Xy], pattern: &[f64], index: usize) -> Vec<(Xy, f64)> {
+    starts_with_fit(points, pattern, index, None)
+}
+
+/// 端をそろえた線種で、文字や形を置く要素の始点と向き。端の位置は線の切り分けと同じ
+pub fn starts_with_fit(
+    points: &[Xy],
+    pattern: &[f64],
+    index: usize,
+    fit: Option<DashFit>,
+) -> Vec<(Xy, f64)> {
     let total = period(pattern);
     if !(total.is_finite() && total > 0.0) || index >= pattern.len() {
         return Vec::new();
     }
     let first: f64 = pattern.iter().take(index).map(|v| v.abs()).sum();
     let mut out = Vec::new();
-    let mut next = first;
+    if fit.is_some_and(|fit| fit.repeats == 0) {
+        return Vec::new();
+    }
+    let shift = fit.map_or(0.0, |fit| {
+        fit.first - pattern.first().map_or(0.0, |dash| dash.abs())
+    });
+    let mut next = if index == 0 { 0.0 } else { first + shift };
+    let limit = fit.map_or(MAX_STEPS, |fit| {
+        fit.repeats
+            .saturating_add(usize::from(index == 0))
+            .min(MAX_STEPS)
+    });
     let mut walked = 0.0;
     for pair in points.windows(2) {
         let [a, b] = pair else { continue };
@@ -1206,13 +1262,16 @@ pub fn starts(points: &[Xy], pattern: &[f64], index: usize) -> Vec<(Xy, f64)> {
             continue;
         }
         let direction = libm::atan2(b[1] - a[1], b[0] - a[0]).to_degrees();
-        while next <= walked + segment && out.len() < MAX_STEPS {
+        while next <= walked + segment && out.len() < limit {
             let f = (next - walked) / segment;
             out.push((
                 [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f],
                 direction,
             ));
             next += total;
+            if index == 0 && out.len() == 1 {
+                next += shift;
+            }
         }
         walked += segment;
     }
@@ -1433,6 +1492,30 @@ mod tests {
         let work = clothoid_work(1.0, 1000.0, 1000.0001, 1e-6);
         assert!(clothoid_point_count(1.0, 1000.0, 1000.0001, 1e-6) <= 3);
         assert!(work.saturating_mul(2_000) > 10_000_000_000, "{work}");
+    }
+
+    #[test]
+    fn fitted_dashes_divide_the_two_end_strokes_and_keep_each_gap() {
+        let pattern = [150.0, -50.0];
+        for (length, count, edge) in [
+            (170.0, 1, 170.0),
+            (250.0, 2, 100.0),
+            (5000.0, 26, 75.0),
+            (5100.0, 26, 125.0),
+            (5175.0, 26, 162.5),
+        ] {
+            for direction in [-1.0, 1.0] {
+                let points = [[0.0, 0.0], [direction * length, 0.0]];
+                let lines = dashes_with_fit(&points, &pattern, fit_dashes(length, &pattern));
+                assert_eq!(lines.len(), count);
+                let span = |index: usize| distance(lines[index][0], lines[index][1]);
+                assert!((span(0) - edge).abs() < 1e-9);
+                assert!((span(count - 1) - edge).abs() < 1e-9);
+                for i in 1..count {
+                    assert!((distance(lines[i - 1][1], lines[i][0]) - 50.0).abs() < 1e-9);
+                }
+            }
+        }
     }
 
     #[test]

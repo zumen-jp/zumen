@@ -404,6 +404,7 @@ mod tests {
             },
             clip: Vec::new(),
             hidden_layers: Vec::new(),
+            paper_unit: None,
             source: Ref::default(),
         }
     }

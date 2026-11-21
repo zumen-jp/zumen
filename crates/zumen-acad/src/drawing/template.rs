@@ -287,6 +287,18 @@ fn template(
         .first()
         .and_then(|sheet| sheet.size)
         .map(|size| size.map(|s| s.0));
+    let mut line_types = String::new();
+    if let Some(scale) = drawing
+        .line_type_scale
+        .filter(|scale| scale.is_finite() && *scale > 0.0)
+    {
+        line_types.push_str(&format!("9\n$LTSCALE\n40\n{scale:?}\n"));
+    }
+    match drawing.view_line_types {
+        Some(zumen_drawing::ViewLineTypes::Model) => line_types.push_str("9\n$PSLTSCALE\n70\n0\n"),
+        Some(zumen_drawing::ViewLineTypes::Paper) => line_types.push_str("9\n$PSLTSCALE\n70\n1\n"),
+        _ => {}
+    }
     let limits = size.map_or(String::new(), |[width, height]| {
         format!(
             "9\n$PLIMMIN\n10\n0.0\n20\n0.0\n9\n$PLIMMAX\n10\n{:?}\n20\n{:?}\n",
@@ -324,7 +336,7 @@ fn template(
     // VIEWPORT を含むすべてのハンドルを割り当てた後の、まだ使っていない値。
     let seed = next();
     let out = format!(
-        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$DWGCODEPAGE\n3\nANSI_932\n9\n$INSUNITS\n70\n{unit}\n{limits}9\n$HANDSEED\n5\n{seed}\n0\nENDSEC\n{tables}{section}{entities}{objects}0\nEOF\n"
+        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1018\n9\n$DWGCODEPAGE\n3\nANSI_932\n9\n$INSUNITS\n70\n{unit}\n{line_types}{limits}9\n$HANDSEED\n5\n{seed}\n0\nENDSEC\n{tables}{section}{entities}{objects}0\nEOF\n"
     );
     // ASCII 以外は、block_names が ANSI_932 に戻せると確かめた名前だけなので、符号化は失敗しない。失敗したら
     // （不具合）、空のバイト列を返す。空のバイト列は DXF として読めてしまうので、呼び出し側が空かを見て止める
@@ -506,6 +518,7 @@ mod tests {
             transform: Affine { m },
             clip,
             hidden_layers: vec![],
+            paper_unit: None,
             source: Ref::default(),
         }
     }

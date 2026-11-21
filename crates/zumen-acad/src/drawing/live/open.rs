@@ -79,6 +79,8 @@ pub struct LiveState {
     pub unit: Unit,
     /// `$LTSCALE`
     pub line_type_scale: Option<f64>,
+    /// ビューで線種の長さを決める単位
+    pub view_line_types: zumen_drawing::ViewLineTypes,
     /// `$LWDEFAULT`
     pub default_line_weight: Option<PaperLength>,
     /// 既定色
@@ -394,6 +396,7 @@ impl LiveState {
             layers,
             line_types,
             line_type_scale: self.line_type_scale,
+            view_line_types: Some(self.view_line_types),
             default_line_weight: self.default_line_weight,
             default_color: self.default_color,
             default_line_type,
@@ -3208,6 +3211,7 @@ fn lift_live_state(
         charset: cs,
         unit: doc_unit,
         line_type_scale,
+        view_line_types: super::super::view_line_types(shell_db, cx),
         default_line_weight,
         default_color,
         default_line_type_slot,

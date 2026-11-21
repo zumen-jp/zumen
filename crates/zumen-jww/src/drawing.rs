@@ -1409,6 +1409,7 @@ impl Lifter<'_> {
                 },
                 clip: Vec::new(),
                 hidden_layers: Vec::new(),
+                paper_unit: None,
                 source: Ref::at_record(0),
             });
             self.out.spaces.push(ModelSpace {

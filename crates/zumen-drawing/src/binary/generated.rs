@@ -6,7 +6,7 @@ use super::{Input, Pack, Unpack, Writer, largest};
 pub const MAJOR: u16 = 1;
 
 /// マイナーバージョン。型の契約に型・フィールド・値を足すたびに上げる
-pub const MINOR: u16 = 2;
+pub const MINOR: u16 = 3;
 
 impl Pack for crate::space::Affine {
     fn pack(&self, out: &mut Writer) {
@@ -1424,6 +1424,7 @@ impl Pack for crate::Drawing2D {
             point_style,
             georeference,
             dimension_display,
+            view_line_types,
         } = self;
         out.record(|out| {
             spaces.pack(out);
@@ -1442,6 +1443,7 @@ impl Pack for crate::Drawing2D {
             point_style.pack(out);
             georeference.pack(out);
             dimension_display.pack(out);
+            view_line_types.pack(out);
         });
     }
 }
@@ -1462,7 +1464,8 @@ impl Unpack for crate::Drawing2D {
         + <Vec<crate::TitleBlock> as Unpack>::SIZE
         + <Option<crate::point::PointStyle> as Unpack>::SIZE
         + <Option<zumen_crs::Georeference> as Unpack>::SIZE
-        + <Vec<crate::dimension_display::DimensionDisplayRecord> as Unpack>::SIZE;
+        + <Vec<crate::dimension_display::DimensionDisplayRecord> as Unpack>::SIZE
+        + <Option<crate::ViewLineTypes> as Unpack>::SIZE;
 
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("Drawing2D", |input| {
@@ -1487,6 +1490,11 @@ impl Unpack for crate::Drawing2D {
                     Default::default()
                 },
                 dimension_display: if input.has_field(2) {
+                    Unpack::unpack(input)?
+                } else {
+                    Default::default()
+                },
+                view_line_types: if input.has_field(3) {
                     Unpack::unpack(input)?
                 } else {
                     Default::default()
@@ -4778,6 +4786,7 @@ impl Pack for crate::space::View {
             clip,
             hidden_layers,
             source,
+            paper_unit,
         } = self;
         out.record(|out| {
             space.pack(out);
@@ -4786,6 +4795,7 @@ impl Pack for crate::space::View {
             clip.pack(out);
             hidden_layers.pack(out);
             source.pack(out);
+            paper_unit.pack(out);
         });
     }
 }
@@ -4796,7 +4806,8 @@ impl Unpack for crate::space::View {
         + <crate::space::Affine as Unpack>::SIZE
         + <Vec<crate::space::PaperPoint> as Unpack>::SIZE
         + <Vec<crate::style::LayerId> as Unpack>::SIZE
-        + <zumen_base::Ref as Unpack>::SIZE;
+        + <zumen_base::Ref as Unpack>::SIZE
+        + <Option<crate::space::PaperLength> as Unpack>::SIZE;
 
     fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
         input.record("View", |input| {
@@ -4807,7 +4818,34 @@ impl Unpack for crate::space::View {
                 clip: Unpack::unpack(input)?,
                 hidden_layers: Unpack::unpack(input)?,
                 source: Unpack::unpack(input)?,
+                paper_unit: if input.has_field(3) {
+                    Unpack::unpack(input)?
+                } else {
+                    Default::default()
+                },
             })
+        })
+    }
+}
+
+impl Pack for crate::ViewLineTypes {
+    fn pack(&self, out: &mut Writer) {
+        match self {
+            Self::Model => out.uint(0),
+            Self::Paper => out.uint(1),
+            Self::DefaultPaper => out.uint(2),
+        }
+    }
+}
+
+impl Unpack for crate::ViewLineTypes {
+    const SIZE: u64 = 8 + largest(&[0, 0, 0]);
+
+    fn unpack<I: Input>(input: &mut I) -> Result<Self, I::Error> {
+        Ok(match input.variant("ViewLineTypes", 3)? {
+            0 => Self::Model,
+            1 => Self::Paper,
+            _ => Self::DefaultPaper,
         })
     }
 }

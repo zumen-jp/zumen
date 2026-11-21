@@ -10,7 +10,7 @@
 
 [versions]
 major = 1
-minor = 2
+minor = 3
 
 [[types]]
 name = "Affine"
@@ -370,6 +370,7 @@ fields = [
   "point_style: Option<PointStyle>",
   "georeference: Option<Georeference> @1",
   "dimension_display: Vec<DimensionDisplayRecord> @2",
+  "view_line_types: Option<ViewLineTypes> @3",
 ]
 
 [[types]]
@@ -1240,6 +1241,16 @@ fields = [
   "clip: Vec<PaperPoint>",
   "hidden_layers: Vec<LayerId>",
   "source: Ref",
+  "paper_unit: Option<PaperLength> @3",
+]
+
+[[types]]
+name = "ViewLineTypes"
+since = 3
+variants = [
+  { name = "Model" },
+  { name = "Paper" },
+  { name = "DefaultPaper" },
 ]
 
 [[types]]
