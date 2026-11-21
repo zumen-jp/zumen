@@ -67,16 +67,31 @@ class KitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "test.p21"
             path.write_bytes(data)
-            self.assertTrue(make.p21_circle(path, element, False)["matched"])
+            self.assertTrue(make.p21_circle(path, element, False, "DRAWING.SAF")["matched"])
             for changed in [data.replace(b"(50.,25.)", b"(51.,25.)"), data.replace(b"#25,10.)", b"#25,11.)")]:
                 self.assertNotEqual(changed, data)
                 path.write_bytes(changed)
                 with self.assertRaises(ValueError):
-                    make.p21_circle(path, element, False)
+                    make.p21_circle(path, element, False, "DRAWING.SAF")
             path.write_bytes(data)
             element["source"]["instance"] = 23
             with self.assertRaises(ValueError):
-                make.p21_circle(path, element, False)
+                make.p21_circle(path, element, False, "DRAWING.SAF")
+
+    def test_p21_attribute_group_checks_definition_and_placement_independently(self):
+        data = make.fixtures.p21("DRAWING.SAF")
+        for before, after in [(b"#10,$);", b"#10,#8);"), (b"MAP(#15,#44)", b"MAP(#11,#44)"),
+                              (b"(#23,#15)", b"(#27,#15)"), (b"TARGET(' ',#11,1.,1.)", b"TARGET(' ',#15,1.,1.)"),
+                              (b"(#48,#27,#122)", b"(#23,#27,#122)"), (b"(#23,#27,#48)", b"(#23,#27)"),
+                              (b"ITEM('$$SXF_G_$$ATRF$$10", b"ITEM('$$SXF_G_$$ATRF$$11")]:
+            with self.subTest(before=before), tempfile.TemporaryDirectory() as folder:
+                path = Path(folder) / "group.p21"
+                changed = data.replace(before, after)
+                self.assertNotEqual(changed, data)
+                path.write_bytes(changed)
+                step = make.check_ezsxf.Step(make.check_ezsxf.ezsxf.parse_p21(str(path), strict=False), {})
+                with self.assertRaises(ValueError):
+                    make.p21_attribute_group(step, "DRAWING.SAF")
 
     def test_p21_sheet_rejects_lost_references_dimensions_and_units(self):
         data = make.fixtures.p21("DRAWING.SAF")

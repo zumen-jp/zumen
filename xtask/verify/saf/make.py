@@ -146,7 +146,34 @@ def p21_sheet(step):
     return {"dimensionsMm": box[1:3], "drawingRevision": revision[0]}
 
 
-def p21_circle(path, element, changed):
+def p21_attribute_group(step, saf_name):
+    # AP202 サブセット編 2-1-20・2-1-21。定義の原点と、用紙に置くときの向きを区別する。
+    sheet = step.part(121, "DRAWING_SHEET_REVISION")
+    need(sheet and 48 in step.refs(sheet[1]), "用紙が属性付きの作図グループ配置を参照していません")
+    name = f"$$SXF_G_$$ATRF$$10$${saf_name}"
+    need(step.part(48, "REPRESENTATION_ITEM") == [name], "配置の属性名が図形番号と SAF 名に一致しません")
+    _, symbol = step.styled(48)
+    mapped = step.get(symbol, "MAPPED_ITEM")
+    need(mapped and len(mapped) == 2, "作図グループ配置から定義と配置先をたどれません")
+    mapping = step.get(mapped[0], "SYMBOL_REPRESENTATION_MAP")
+    need(mapping and len(mapping) == 2, "作図グループの定義をたどれません")
+    origin = step.get(mapping[0], "AXIS2_PLACEMENT_2D")
+    need(origin and step.point(origin[1]) == [0, 0] and origin[2] == {"kind": "unset"},
+         "作図グループの定義原点が (0, 0)・方向省略に一致しません")
+    definition = step.get(mapping[1], "DRAUGHTING_SUBFIGURE_REPRESENTATION")
+    need(definition and definition[0] == name and set(step.refs(definition[1])) == {23, step.ref(mapping[0])},
+         "グループの定義名か、定義に属する線分と原点が一致しません")
+    target = step.get(mapped[1], "SYMBOL_TARGET")
+    need(target and target[2:] == [1, 1], "作図グループの配置尺度が 1 に一致しません")
+    placement = step.get(target[1], "AXIS2_PLACEMENT_2D")
+    need(placement and step.point(placement[1]) == [0, 0] and step.get(placement[2], "DIRECTION") == [" ", [1, 0]],
+         "作図グループの配置が (0, 0)・回転 0 度に一致しません")
+    layers = step.layers()
+    need(layers.get(23) == layers.get(48) == "L", "線分か作図グループ配置の画層が L に一致しません")
+    return {"name": name, "lineInstance": 23, "placementInstance": 48, "layer": "L"}
+
+
+def p21_circle(path, element, changed, saf_name):
     # 既存の P21 照合器は円を種類だけ比べる。この自作入力の円は ezsxf の参照から値も照合する。
     step = check_ezsxf.Step(check_ezsxf.ezsxf.parse_p21(str(path), strict=False), {})
     instance = check_ezsxf.instance_of(element)
@@ -160,7 +187,8 @@ def p21_circle(path, element, changed):
     expected = {"shape": "circle", "center": [55, 22] if changed else [50, 25], "radius": 10}
     need(shape == expected == element["geometry"], "P21 の円が外部の読みと期待値に一致しません")
     need(step.layers().get(instance) == element["layer"], "P21 の円の画層が一致しません")
-    return {"instance": instance, "geometry": shape, "layer": element["layer"], "sheet": p21_sheet(step), "matched": True}
+    return {"instance": instance, "geometry": shape, "layer": element["layer"], "sheet": p21_sheet(step),
+            "attributeGroup": p21_attribute_group(step, saf_name), "matched": True}
 
 
 def call(z, request, records):
@@ -252,7 +280,7 @@ def check_case(cli, probe, folder, kind, full_name, compression):
         need(not failures, "ezsxf との食い違い: " + "; ".join(failures))
         supplement = None
         if kind == "p2z":
-            supplement = p21_circle(unpacked / drawing_name, circle if label == "input" else new_circle, label == "edited")
+            supplement = p21_circle(unpacked / drawing_name, circle if label == "input" else new_circle, label == "edited", saf_name)
         need(not audit["notes"] and not audit["warnings"] and counts["elements"] == 2 and counts["shapes"] == (2 if kind == "sfz" else 1), "ezsxf が全図形を照合できません")
         need(label == "input" or counts["expected"] == (1 if kind == "sfz" else 0), "ezsxf が変更の期待値を照合できません")
         if label == "input":
