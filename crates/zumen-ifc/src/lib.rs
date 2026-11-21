@@ -35,8 +35,6 @@ mod text;
 mod zip;
 
 #[cfg(feature = "building")]
-pub use building::Version;
-#[cfg(feature = "building")]
 pub use building::{
     ContextGeometry, ContextSource, ExtrudedArea, ExtrusionSource, FaceGraphSource, FacetedFaces,
     GeometryStyle, GeometryValue, GridAxes, GridAxisCurve, GridSource, HalfSpaceGeometry,
@@ -47,6 +45,8 @@ pub use building::{
     RevolutionSource, RevolvedArea, ShapeLinks, ShapeNode, ShapeRef, SurfaceStyleBinding,
     SurfaceStyleSelection, SurfaceStyleSource, SweptDisk, TessellatedFaces,
 };
+#[cfg(feature = "building")]
+pub use building::{JoineryDimensions, Version};
 #[cfg(feature = "building")]
 pub use edit::{
     Applied, Edit, FillingKind, NewAxis2, NewAxis3, NewBeam, NewBoolean, NewColumn, NewConstituent,

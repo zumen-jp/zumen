@@ -177,6 +177,8 @@ node crates/zumen-ifc/tests/wasi-services.mjs --compare target/services-comparis
 
 ## 材料・プロパティ・関係・建具の値
 
+`building_elements` の `components` に `joinery` を指定すると、戸と窓の実例から `OverallWidth` と `OverallHeight` を、それぞれ `overall_width` と `overall_height` として取得できます。値には文書の長さ単位を添え、単位が欠けているか競合しているときは `unit` を省きます。元属性が未記録の寸法も省きます。関連する開口の形と数量セットの `Width`・`Height` は、それぞれ別の値として扱います。
+
 `Lift<Building>` は次の値を移します（[#539](https://github.com/zumen-jp/zumen/issues/539)）。値は入力の単位のままです。既存の `properties`・`material`・`connection` の名前と意味を保ち、複合の構造には `property-details` を加えます。公開操作は Rust の `Lift<Building>` と、材料の表示を取得する `owned_geometry()` です。元の IFC を保持する L1 の読み書きと、L2 から IFC を再構築する操作は区別します。この追加は L2 の再書き出しを提供しません。
 
 - **材料。** 層とその使用法に加え、IFC4 以降の構成と断面のセットを読みます。材料への参照、構成する項目の元の並びと名前、層の厚さ・方向・オフセットを保ちます。断面の項目で省略された材料を、空の材料に置き換えません。材料のプロパティは材料の要素に直接付けます。IFC2X3 は `IfcExtendedMaterialProperties`、IFC4 以降は `IfcMaterialProperties` を読みます。構成比、断面の幾何と優先度、断面の使用法はこの成分の取得範囲に含めません。

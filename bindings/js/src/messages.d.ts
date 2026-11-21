@@ -3017,6 +3017,7 @@ export type BuildingComponent =
   | "quantities"
   | "material"
   | "opening"
+  | "joinery"
   | "group"
   | "connection"
   | "level"
@@ -3061,6 +3062,8 @@ export interface BuildingElement {
   quantities?: QuantitySet[];
   /** 材料 */
   material?: MaterialComponent;
+  /** 建具の元の全幅と全高。開口や数量からの推定は含まない */
+  joinery?: JoineryComponent;
   /** 開口と、埋める要素 */
   opening?: OpeningComponent;
   /** 属するグループの要素の ID */
@@ -3237,6 +3240,14 @@ export interface MaterialPart {
   name?: string;
   /** 厚さ */
   thickness?: Measured;
+}
+
+/** 建具の実例に直接記録された寸法。値を持たない属性は省く */
+export interface JoineryComponent {
+  /** 建具自体の全幅。IFC の OverallWidth */
+  overall_width?: Measured;
+  /** 建具自体の全高。IFC の OverallHeight */
+  overall_height?: Measured;
 }
 
 /** 開口 */

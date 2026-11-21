@@ -1209,6 +1209,20 @@ pub(crate) fn elements(
             .collect(),
         None => chosen,
     };
+    let length_unit = if components.contains(&BuildingComponent::Joinery) {
+        cx.check(Kind::Work, building.document.units.len() as u64)
+            .map_err(|stop| stopped(cx, stop))?;
+        let mut lengths = building
+            .document
+            .units
+            .iter()
+            .filter(|u| u.kind == "LENGTHUNIT");
+        lengths
+            .next()
+            .filter(|first| lengths.all(|other| other == *first))
+    } else {
+        None
+    };
     let relations = if components.contains(&BuildingComponent::Relations) {
         Some(building.relations(cx).map_err(|stop| stopped(cx, stop))?)
     } else {
@@ -1224,8 +1238,15 @@ pub(crate) fn elements(
         .take(usize::try_from(end - start).unwrap_or(usize::MAX))
     {
         elements.push(
-            self::element(model, element, components, relations.as_ref(), cx)
-                .map_err(|stop| stopped(cx, stop))?,
+            self::element(
+                model,
+                element,
+                components,
+                relations.as_ref(),
+                length_unit,
+                cx,
+            )
+            .map_err(|stop| stopped(cx, stop))?,
         );
     }
     Ok(BuildingElementsResult {
@@ -1240,6 +1261,7 @@ fn element(
     element: ElementRef,
     components: &[BuildingComponent],
     relations: Option<&Relations>,
+    length_unit: Option<&Unit>,
     cx: &mut Cx<'_>,
 ) -> Result<BuildingElement, Stop> {
     let building = &model.building;
@@ -1262,6 +1284,7 @@ fn element(
         quantities: None,
         material: None,
         opening: None,
+        joinery: None,
         group: None,
         connection: None,
         level: None,
@@ -1412,6 +1435,20 @@ fn element(
                 .collect(),
             direction: m.direction.clone(),
             offset: m.offset.as_ref().map(measured),
+        });
+    }
+    if has(BuildingComponent::Joinery)
+        && let Some(file) = &model.file
+        && let Some(instance) = building.element(element).and_then(|e| e.source().instance)
+        && let Some(dimensions) = file.joinery_dimensions(instance, cx)
+    {
+        let length = |value| Measured {
+            value,
+            unit: length_unit.map(unit),
+        };
+        out.joinery = Some(messages::JoineryComponent {
+            overall_width: dimensions.overall_width.map(length),
+            overall_height: dimensions.overall_height.map(length),
         });
     }
     if has(BuildingComponent::Opening) {

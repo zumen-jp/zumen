@@ -6690,6 +6690,7 @@ abstract final class BuildingComponent {
   static const quantities = 'quantities';
   static const material = 'material';
   static const opening = 'opening';
+  static const joinery = 'joinery';
   static const group = 'group';
   static const connection = 'connection';
   static const level = 'level';
@@ -6774,6 +6775,10 @@ class BuildingElement extends Message {
   /// 材料
   MaterialComponent? get material => readField('material', objectOf(MaterialComponent.fromJson));
   set material(MaterialComponent? value) => writeField('material', value);
+
+  /// 建具の元の全幅と全高。開口や数量からの推定は含まない
+  JoineryComponent? get joinery => readField('joinery', objectOf(JoineryComponent.fromJson));
+  set joinery(JoineryComponent? value) => writeField('joinery', value);
 
   /// 開口と、埋める要素
   OpeningComponent? get opening => readField('opening', objectOf(OpeningComponent.fromJson));
@@ -7141,6 +7146,23 @@ class MaterialPart extends Message {
   /// 厚さ
   Measured? get thickness => readField('thickness', objectOf(Measured.fromJson));
   set thickness(Measured? value) => writeField('thickness', value);
+}
+
+/// 建具の実例に直接記録された寸法。値を持たない属性は省く
+class JoineryComponent extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  JoineryComponent.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  JoineryComponent() : super({});
+
+  /// 建具自体の全幅。IFC の OverallWidth
+  Measured? get overallWidth => readField('overall_width', objectOf(Measured.fromJson));
+  set overallWidth(Measured? value) => writeField('overall_width', value);
+
+  /// 建具自体の全高。IFC の OverallHeight
+  Measured? get overallHeight => readField('overall_height', objectOf(Measured.fromJson));
+  set overallHeight(Measured? value) => writeField('overall_height', value);
 }
 
 /// 開口

@@ -10308,6 +10308,7 @@ public enum BuildingComponent {
     public static let quantities = "quantities"
     public static let material = "material"
     public static let opening = "opening"
+    public static let joinery = "joinery"
     public static let group = "group"
     public static let connection = "connection"
     public static let level = "level"
@@ -10435,6 +10436,12 @@ public struct BuildingElement: Message {
     public var material: MaterialComponent? {
         get { readField("material") }
         set { writeField("material", newValue) }
+    }
+
+    /// 建具の元の全幅と全高。開口や数量からの推定は含まない
+    public var joinery: JoineryComponent? {
+        get { readField("joinery") }
+        set { writeField("joinery", newValue) }
     }
 
     /// 開口と、埋める要素
@@ -11023,6 +11030,34 @@ public struct MaterialPart: Message {
     public var thickness: Measured? {
         get { readField("thickness") }
         set { writeField("thickness", newValue) }
+    }
+}
+
+/// 建具の実例に直接記録された寸法。値を持たない属性は省く
+public struct JoineryComponent: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 建具自体の全幅。IFC の OverallWidth
+    public var overallWidth: Measured? {
+        get { readField("overall_width") }
+        set { writeField("overall_width", newValue) }
+    }
+
+    /// 建具自体の全高。IFC の OverallHeight
+    public var overallHeight: Measured? {
+        get { readField("overall_height") }
+        set { writeField("overall_height", newValue) }
     }
 }
 

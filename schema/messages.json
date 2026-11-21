@@ -3397,6 +3397,7 @@
         "quantities",
         "material",
         "opening",
+        "joinery",
         "group",
         "connection",
         "level",
@@ -3482,6 +3483,10 @@
         "material": {
           "description": "材料",
           "$ref": "#/$defs/material_component"
+        },
+        "joinery": {
+          "description": "建具の元の全幅と全高。開口や数量からの推定は含まない",
+          "$ref": "#/$defs/joinery_component"
         },
         "opening": {
           "description": "開口と、埋める要素",
@@ -3847,6 +3852,16 @@
           "description": "厚さ",
           "$ref": "#/$defs/measured"
         }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "joinery_component": {
+      "description": "建具の実例に直接記録された寸法。値を持たない属性は省く",
+      "type": "object",
+      "properties": {
+        "overall_width": { "description": "建具自体の全幅。IFC の OverallWidth", "$ref": "#/$defs/measured" },
+        "overall_height": { "description": "建具自体の全高。IFC の OverallHeight", "$ref": "#/$defs/measured" }
       },
       "required": [],
       "additionalProperties": false

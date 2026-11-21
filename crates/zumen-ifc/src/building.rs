@@ -48,6 +48,7 @@ pub use faces::{FaceGraphSource, FacetedFaces};
 pub use geometry::{GeometryStyle, GeometryValue, ProductGeometry, Retrieved};
 pub use grid::{GridAxes, GridAxisCurve, GridSource};
 pub use indexed_faces::{IndexedFaceSource, TessellatedFaces};
+pub use joinery::JoineryDimensions;
 pub use shape::{ProductShape, ShapeLinks, ShapeNode, ShapeRef};
 pub use style::{
     ItemPresentation, ItemStyleSource, ItemSurfaceStyles, LayerAssignmentLevel, LayerPresentation,
@@ -815,17 +816,7 @@ impl<'f> Lifter<'f> {
 
     /// 数。型を付けた値（`IFCLENGTHMEASURE(1.)`）なら、その中の数
     fn real(&self, value: Option<&Value>) -> Option<f64> {
-        match value? {
-            Value::Number(range) => core::str::from_utf8(self.file.bytes(range.clone()))
-                .ok()?
-                .parse()
-                .ok(),
-            Value::Typed(part) => match part.args() {
-                [only] => self.real(Some(only)),
-                _ => None,
-            },
-            _ => None,
-        }
+        number(self.file, value)
     }
 
     /// 数の列
@@ -847,15 +838,7 @@ impl<'f> Lifter<'f> {
 
     /// 型の位置の値が読めないことを診断する
     fn invalid(&self, record: &Record, position: u64, cx: &mut Cx) {
-        cx.report(
-            Diagnostic::new(codes::IFC_ATTRIBUTE_INVALID)
-                .with(
-                    "kind",
-                    String::from_utf8_lossy(self.file.kind(record)).into_owned(),
-                )
-                .with("position", position)
-                .at(at_bytes(record.span())),
-        );
+        invalid_attribute(self.file, record, position, cx);
     }
 
     // ヘッダーと文書
@@ -2267,6 +2250,32 @@ enum Fold {
 }
 
 /// 位置 `at`（1 から）の引数。複合のインスタンスは最初の部分
+fn number(file: &IfcFile, value: Option<&Value>) -> Option<f64> {
+    match value? {
+        Value::Number(range) => core::str::from_utf8(file.bytes(range.clone()))
+            .ok()?
+            .parse()
+            .ok(),
+        Value::Typed(part) => match part.args() {
+            [only] => number(file, Some(only)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn invalid_attribute(file: &IfcFile, record: &Record, position: u64, cx: &mut Cx) {
+    cx.report(
+        Diagnostic::new(codes::IFC_ATTRIBUTE_INVALID)
+            .with(
+                "kind",
+                String::from_utf8_lossy(file.kind(record)).into_owned(),
+            )
+            .with("position", position)
+            .at(at_bytes(record.span())),
+    );
+}
+
 pub(crate) fn arg(record: &Record, at: usize) -> Option<&Value> {
     record.parts().first()?.args().get(at.checked_sub(1)?)
 }

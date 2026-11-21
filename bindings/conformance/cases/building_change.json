@@ -355,12 +355,16 @@
         "class": "ifcdoor",
         "components": [
           "placement",
-          "opening"
+          "opening",
+          "joinery"
         ]
       },
       "expect": {
         "/result/elements/0/opening/fills": "0000000000000000000500",
-        "/result/elements/0/placement/world/1/3": 2000
+        "/result/elements/0/placement/world/1/3": 2000,
+        "/result/elements/0/joinery/overall_width/value": 1000,
+        "/result/elements/0/joinery/overall_height/value": 2000,
+        "/result/elements/0/joinery/overall_width/unit/prefix": "MILLI"
       }
     }
   ]

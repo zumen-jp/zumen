@@ -8439,6 +8439,8 @@ namespace Zumen.Messages
         public const string Material = "material";
         /// <summary>opening</summary>
         public const string Opening = "opening";
+        /// <summary>joinery</summary>
+        public const string Joinery = "joinery";
         /// <summary>group</summary>
         public const string Group = "group";
         /// <summary>connection</summary>
@@ -8553,6 +8555,12 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("material")]
         public MaterialComponent? Material { get; init; }
+
+        /// <summary>
+        /// 建具の元の全幅と全高。開口や数量からの推定は含まない
+        /// </summary>
+        [JsonPropertyName("joinery")]
+        public JoineryComponent? Joinery { get; init; }
 
         /// <summary>
         /// 開口と、埋める要素
@@ -8991,6 +8999,24 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("thickness")]
         public Measured? Thickness { get; init; }
+    }
+
+    /// <summary>
+    /// 建具の実例に直接記録された寸法。値を持たない属性は省く
+    /// </summary>
+    public sealed record JoineryComponent
+    {
+        /// <summary>
+        /// 建具自体の全幅。IFC の OverallWidth
+        /// </summary>
+        [JsonPropertyName("overall_width")]
+        public Measured? OverallWidth { get; init; }
+
+        /// <summary>
+        /// 建具自体の全高。IFC の OverallHeight
+        /// </summary>
+        [JsonPropertyName("overall_height")]
+        public Measured? OverallHeight { get; init; }
     }
 
     /// <summary>

@@ -5579,6 +5579,9 @@ const BuildingComponentMaterial BuildingComponent = "material"
 // BuildingComponentOpening は opening。
 const BuildingComponentOpening BuildingComponent = "opening"
 
+// BuildingComponentJoinery は joinery。
+const BuildingComponentJoinery BuildingComponent = "joinery"
+
 // BuildingComponentGroup は group。
 const BuildingComponentGroup BuildingComponent = "group"
 
@@ -5646,6 +5649,9 @@ type BuildingElement struct {
 
 	// 材料
 	Material *MaterialComponent `json:"material,omitempty"`
+
+	// 建具の元の全幅と全高。開口や数量からの推定は含まない
+	Joinery *JoineryComponent `json:"joinery,omitempty"`
 
 	// 開口と、埋める要素
 	Opening *OpeningComponent `json:"opening,omitempty"`
@@ -5865,6 +5871,15 @@ type MaterialPart struct {
 
 	// 厚さ
 	Thickness *Measured `json:"thickness,omitempty"`
+}
+
+// JoineryComponent: 建具の実例に直接記録された寸法。値を持たない属性は省く
+type JoineryComponent struct {
+	// 建具自体の全幅。IFC の OverallWidth
+	OverallWidth *Measured `json:"overall_width,omitempty"`
+
+	// 建具自体の全高。IFC の OverallHeight
+	OverallHeight *Measured `json:"overall_height,omitempty"`
 }
 
 // OpeningComponent: 開口

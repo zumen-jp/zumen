@@ -14616,6 +14616,8 @@ pub enum BuildingComponent {
     Material,
     /// `opening`
     Opening,
+    /// `joinery`
+    Joinery,
     /// `group`
     Group,
     /// `connection`
@@ -14644,6 +14646,7 @@ impl BuildingComponent {
         Self::Quantities,
         Self::Material,
         Self::Opening,
+        Self::Joinery,
         Self::Group,
         Self::Connection,
         Self::Level,
@@ -14666,6 +14669,7 @@ impl BuildingComponent {
             Self::Quantities => "quantities",
             Self::Material => "material",
             Self::Opening => "opening",
+            Self::Joinery => "joinery",
             Self::Group => "group",
             Self::Connection => "connection",
             Self::Level => "level",
@@ -14689,6 +14693,7 @@ impl BuildingComponent {
             "quantities" => Some(Self::Quantities),
             "material" => Some(Self::Material),
             "opening" => Some(Self::Opening),
+            "joinery" => Some(Self::Joinery),
             "group" => Some(Self::Group),
             "connection" => Some(Self::Connection),
             "level" => Some(Self::Level),
@@ -14795,6 +14800,8 @@ pub struct BuildingElement {
     pub quantities: Option<Vec<QuantitySet>>,
     /// 材料
     pub material: Option<MaterialComponent>,
+    /// 建具の元の全幅と全高。開口や数量からの推定は含まない
+    pub joinery: Option<JoineryComponent>,
     /// 開口と、埋める要素
     pub opening: Option<OpeningComponent>,
     /// 属するグループの要素の ID
@@ -14831,6 +14838,7 @@ impl BuildingElement {
             json::array(value, QuantitySet::from_json)
         })?;
         let material = object.optional("material", MaterialComponent::from_json)?;
+        let joinery = object.optional("joinery", JoineryComponent::from_json)?;
         let opening = object.optional("opening", OpeningComponent::from_json)?;
         let group = object.optional("group", |value| json::array(value, json::string))?;
         let connection = object.optional("connection", |value| {
@@ -14853,6 +14861,7 @@ impl BuildingElement {
             properties,
             quantities,
             material,
+            joinery,
             opening,
             group,
             connection,
@@ -14906,6 +14915,10 @@ impl BuildingElement {
         }
         if let Some(value) = &self.material {
             out.key("material");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.joinery {
+            out.key("joinery");
             value.to_json(out);
         }
         if let Some(value) = &self.opening {
@@ -15800,6 +15813,54 @@ impl FromJson for MaterialPart {
 }
 
 impl ToJson for MaterialPart {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 建具の実例に直接記録された寸法。値を持たない属性は省く
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct JoineryComponent {
+    /// 建具自体の全幅。IFC の OverallWidth
+    pub overall_width: Option<Measured>,
+    /// 建具自体の全高。IFC の OverallHeight
+    pub overall_height: Option<Measured>,
+}
+
+impl JoineryComponent {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let overall_width = object.optional("overall_width", Measured::from_json)?;
+        let overall_height = object.optional("overall_height", Measured::from_json)?;
+        Ok(Self {
+            overall_width,
+            overall_height,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        if let Some(value) = &self.overall_width {
+            out.key("overall_width");
+            value.to_json(out);
+        }
+        if let Some(value) = &self.overall_height {
+            out.key("overall_height");
+            value.to_json(out);
+        }
+    }
+}
+
+impl FromJson for JoineryComponent {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for JoineryComponent {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

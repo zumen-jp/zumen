@@ -5048,6 +5048,7 @@ BuildingComponent = Union[
         "quantities",
         "material",
         "opening",
+        "joinery",
         "group",
         "connection",
         "level",
@@ -5116,6 +5117,8 @@ _BuildingElementOptional = TypedDict(
         "quantities": List["QuantitySet"],
         # 材料
         "material": "MaterialComponent",
+        # 建具の元の全幅と全高。開口や数量からの推定は含まない
+        "joinery": "JoineryComponent",
         # 開口と、埋める要素
         "opening": "OpeningComponent",
         # 属するグループの要素の ID
@@ -5460,6 +5463,19 @@ MaterialPart = TypedDict(
         "name": str,
         # 厚さ
         "thickness": "Measured",
+    },
+    total=False,
+)
+
+
+# 建具の実例に直接記録された寸法。値を持たない属性は省く
+JoineryComponent = TypedDict(
+    "JoineryComponent",
+    {
+        # 建具自体の全幅。IFC の OverallWidth
+        "overall_width": "Measured",
+        # 建具自体の全高。IFC の OverallHeight
+        "overall_height": "Measured",
     },
     total=False,
 )

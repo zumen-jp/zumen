@@ -131,3 +131,68 @@ fn public_reads_after_building_edits_match_the_saved_version() {
         check_reads(&mut session, name, &bytes, "failed", -1000);
     }
 }
+
+/// 空のプロジェクトに、既存の適合試料と同じ二階建ての編集を当て、保存結果を取得する。
+fn saved_storeys() -> Vec<u8> {
+    let fixture = zumen_json::parse(include_bytes!(
+        "../../../../../../bindings/conformance/cases/building_storeys.json"
+    ))
+    .unwrap();
+    let source = zumen_json::str(fixture.pointer("/steps/0/push/text").unwrap()).unwrap();
+    let mut session = opened("a.ifc", source.as_bytes(), "");
+    let mut writer = zumen_json::Writer::new();
+    writer.value(fixture.pointer("/steps/3/call").unwrap());
+    let req = String::from_utf8(writer.into_bytes()).unwrap();
+    let (status, response, mut files) = answer(&mut session, &req);
+    assert_eq!(status, Status::Ok, "{}", String::from_utf8_lossy(&response));
+    files.remove(0)
+}
+
+#[test]
+fn reopened_joinery_matches_the_opening_edit_and_keeps_the_other_storey() {
+    let initial = saved_storeys();
+    let mut edit = opened("a.ifc", &initial, "");
+    let opening = "0000000000000000002020";
+    let hash = element_hash(&mut edit, "a.ifc", opening);
+    let shape = format!(
+        r#"{{"kind":"opening_shape","opening":{{"id":"{opening}","hash":"{hash}"}},"distance":1500,"sill":0,"width":1050,"height":2150}}"#
+    );
+    let (status, response, revised) = answer(&mut edit, &request("a.ifc", "", &[shape]));
+    assert_eq!(status, Status::Ok, "{}", String::from_utf8_lossy(&response));
+    for (bytes, width, height) in [(&initial, 900, 2100), (&revised[0], 1050, 2150)] {
+        let mut session = opened("saved.ifc", bytes, "");
+        let list = r#"{"v":1,"op":"building_elements","doc":"saved.ifc","ids":["0000000000000000002021","0000000000000000003021","0000000000000000002020"],"components":["joinery","opening"]}"#;
+        let (status, response) = call(&mut session, list);
+        assert_eq!(status, Status::Ok);
+        let result = zumen_json::parse(&response).unwrap();
+        let number = |key| zumen_json::uint(result.pointer(key).unwrap(), 0, 100_000).unwrap();
+        let text = |key| zumen_json::str(result.pointer(key).unwrap()).unwrap();
+        assert_eq!(text("/result/elements/0/id"), "0000000000000000002021");
+        assert_eq!(text("/result/elements/0/opening/fills"), opening);
+        assert_eq!(
+            text("/result/elements/2/opening/voids"),
+            "0000000000000000002000"
+        );
+        assert_eq!(
+            number("/result/elements/0/joinery/overall_width/value"),
+            width
+        );
+        assert_eq!(
+            number("/result/elements/0/joinery/overall_height/value"),
+            height
+        );
+        assert_eq!(
+            text("/result/elements/0/joinery/overall_width/unit/prefix"),
+            "MILLI"
+        );
+        assert_eq!(text("/result/elements/1/id"), "0000000000000000003021");
+        assert_eq!(
+            number("/result/elements/1/joinery/overall_width/value"),
+            1200
+        );
+        assert_eq!(
+            number("/result/elements/1/joinery/overall_height/value"),
+            1200
+        );
+    }
+}

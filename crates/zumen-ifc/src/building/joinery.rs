@@ -5,6 +5,53 @@
 use super::*;
 use zumen_building::{Extension, ExtensionValue};
 
+/// 建具の元の属性に記録された全高と全幅。値は文書の長さ単位で、未記録の寸法は持たない。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct JoineryDimensions {
+    /// IfcDoor または IfcWindow の OverallHeight
+    pub overall_height: Option<f64>,
+    /// IfcDoor または IfcWindow の OverallWidth
+    pub overall_width: Option<f64>,
+}
+
+impl IfcFile {
+    /// 建具の実例から直接の寸法を読む。開口の形や数量セットの値は使わない。
+    pub fn joinery_dimensions(&self, instance: u64, cx: &mut Cx) -> Option<JoineryDimensions> {
+        let record = self.instance(instance)?;
+        let kind = self.kind(record);
+        if ![
+            b"IFCDOOR".as_slice(),
+            b"IFCDOORSTANDARDCASE",
+            b"IFCWINDOW",
+            b"IFCWINDOWSTANDARDCASE",
+        ]
+        .iter()
+        .any(|name| kind.eq_ignore_ascii_case(name))
+        {
+            return None;
+        }
+        Some(self.joinery_dimensions_of(record, cx))
+    }
+
+    fn joinery_dimensions_of(&self, record: &Record, cx: &mut Cx) -> JoineryDimensions {
+        let mut dimension = |position| {
+            let source = arg(record, position)?;
+            if matches!(source, Value::Null | Value::Derived) {
+                return None;
+            }
+            let value = number(self, Some(source)).filter(|v| v.is_finite() && *v > 0.0);
+            if value.is_none() {
+                invalid_attribute(self, record, position as u64, cx);
+            }
+            value
+        };
+        JoineryDimensions {
+            overall_height: dimension(9),
+            overall_width: dimension(10),
+        }
+    }
+}
+
 impl Lifter<'_> {
     // R4 の形状付きの読み取りだけに追加する。通常の Lift と常駐編集の属性の契約は変えない。
     pub(super) fn joinery_attributes(&mut self, cx: &mut Cx) -> Result<(), Error> {
@@ -39,22 +86,17 @@ impl Lifter<'_> {
             }
             let mut values = Vec::with_capacity(3);
             if door || window {
-                for (position, name) in [(9, "OverallHeight"), (10, "OverallWidth")] {
-                    match arg(record, position) {
-                        None | Some(Value::Null | Value::Derived) => {}
-                        value => {
-                            if let Some(number) =
-                                self.real(value).filter(|v| v.is_finite() && *v > 0.0)
-                            {
-                                values.push(attribute(
-                                    name,
-                                    "IfcPositiveLengthMeasure",
-                                    Literal::Real(number),
-                                ));
-                            } else {
-                                self.invalid(record, position as u64, cx);
-                            }
-                        }
+                let dimensions = self.file.joinery_dimensions_of(record, cx);
+                for (name, number) in [
+                    ("OverallHeight", dimensions.overall_height),
+                    ("OverallWidth", dimensions.overall_width),
+                ] {
+                    if let Some(number) = number {
+                        values.push(attribute(
+                            name,
+                            "IfcPositiveLengthMeasure",
+                            Literal::Real(number),
+                        ));
                     }
                 }
             }

@@ -1,0 +1,183 @@
+{
+  "description": "IFC の建具に書かれた全幅と全高を文書の単位とともに読む。欠損・単位未解決・異なる数量・対象外の壁を区別する。",
+  "module": "all",
+  "steps": [
+    {
+      "push": {
+        "name": "mm.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('Synthetic'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Model',$,$,$,$,$,#11);\n#11=IFCUNITASSIGNMENT((#12));\n#12=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);\n#20=IFCDOOR('0000000000000000000020',$,'Door',$,$,$,$,$,2100.,900.,$,$,$);\n#21=IFCWINDOW('0000000000000000000021',$,'Window',$,$,$,$,$,$,$,$,$,$);\n#22=IFCWALL('0000000000000000000022',$,'Wall',$,$,$,$,$,.NOTDEFINED.);\n#40=IFCQUANTITYLENGTH('Width',$,$,777.,$);\n#41=IFCELEMENTQUANTITY('0000000000000000000041',$,'Qto_Custom',$,$,(#40));\n#42=IFCRELDEFINESBYPROPERTIES('0000000000000000000042',$,$,$,(#20),#41);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "mm.ifc"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "mm.ifc",
+        "ids": [
+          "0000000000000000000020"
+        ],
+        "components": [
+          "joinery",
+          "quantities"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/joinery/overall_width/value": 900,
+        "/result/elements/0/joinery/overall_height/value": 2100,
+        "/result/elements/0/joinery/overall_width/unit/name": "METRE",
+        "/result/elements/0/quantities/0/quantities/0/value/value": 777,
+        "/result/elements/0/joinery/overall_width/unit/prefix": "MILLI"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "mm.ifc",
+        "ids": [
+          "0000000000000000000021"
+        ],
+        "components": [
+          "joinery"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/joinery": {}
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "mm.ifc",
+        "ids": [
+          "0000000000000000000022"
+        ],
+        "components": [
+          "joinery"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/id": "0000000000000000000022"
+      },
+      "absent": [
+        "/result/elements/0/joinery"
+      ]
+    },
+    {
+      "push": {
+        "name": "metre.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('Synthetic'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC2X3'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Model',$,$,$,$,$,#11);\n#11=IFCUNITASSIGNMENT((#12));\n#12=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n#20=IFCDOOR('0000000000000000000020',$,'Door',$,$,$,$,$,2.15,1.05);\n#21=IFCWINDOW('0000000000000000000021',$,'Window',$,$,$,$,$,$,$);\n#22=IFCWALL('0000000000000000000022',$,'Wall',$,$,$,$,$,.NOTDEFINED.);\n#40=IFCQUANTITYLENGTH('Width',$,$,777.,$);\n#41=IFCELEMENTQUANTITY('0000000000000000000041',$,'Qto_Custom',$,$,(#40));\n#42=IFCRELDEFINESBYPROPERTIES('0000000000000000000042',$,$,$,(#20),#41);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "metre.ifc"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "metre.ifc",
+        "ids": [
+          "0000000000000000000020"
+        ],
+        "components": [
+          "joinery",
+          "quantities"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/joinery/overall_width/value": 1.05,
+        "/result/elements/0/joinery/overall_height/value": 2.15,
+        "/result/elements/0/joinery/overall_width/unit/name": "METRE",
+        "/result/elements/0/quantities/0/quantities/0/value/value": 777
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "metre.ifc",
+        "ids": [
+          "0000000000000000000021"
+        ],
+        "components": [
+          "joinery"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/joinery": {}
+      }
+    },
+    {
+      "push": {
+        "name": "unresolved.ifc",
+        "text": "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('Synthetic'),'2;1');\nFILE_NAME('','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n#1=IFCPROJECT('0000000000000000000001',$,'Model',$,$,$,$,$,$);\n#20=IFCDOOR('0000000000000000000020',$,'Door',$,$,$,$,$,2.1,$,$,$,$);\n#21=IFCWINDOW('0000000000000000000021',$,'Window',$,$,$,$,$,$,$,$,$,$);\n#22=IFCWALL('0000000000000000000022',$,'Wall',$,$,$,$,$,.NOTDEFINED.);\n#40=IFCQUANTITYLENGTH('Width',$,$,777.,$);\n#41=IFCELEMENTQUANTITY('0000000000000000000041',$,'Qto_Custom',$,$,(#40));\n#42=IFCRELDEFINESBYPROPERTIES('0000000000000000000042',$,$,$,(#20),#41);\nENDSEC;\nEND-ISO-10303-21;\n"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "open",
+        "input": "unresolved.ifc"
+      },
+      "expect": {
+        "/result/format": "ifc"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "unresolved.ifc",
+        "ids": [
+          "0000000000000000000020"
+        ],
+        "components": [
+          "joinery",
+          "quantities"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/joinery": {
+          "overall_height": {
+            "value": 2.1
+          }
+        }
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "building_elements",
+        "doc": "unresolved.ifc",
+        "ids": [
+          "0000000000000000000021"
+        ],
+        "components": [
+          "joinery"
+        ]
+      },
+      "expect": {
+        "/result/elements/0/joinery": {}
+      }
+    }
+  ]
+}

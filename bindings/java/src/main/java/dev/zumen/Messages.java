@@ -16767,6 +16767,8 @@ public final class Messages {
 
         public static final String OPENING = "opening";
 
+        public static final String JOINERY = "joinery";
+
         public static final String GROUP = "group";
 
         public static final String CONNECTION = "connection";
@@ -16979,6 +16981,17 @@ public final class Messages {
         /** {@link #getMaterial()} を書く。null ならフィールドを除く */
         public BuildingElement withMaterial(MaterialComponent value) {
             put("material", value);
+            return this;
+        }
+
+        /** 建具の元の全幅と全高。開口や数量からの推定は含まない */
+        public JoineryComponent getJoinery() {
+            return Json.read(json.get("joinery"), JoineryComponent::of);
+        }
+
+        /** {@link #getJoinery()} を書く。null ならフィールドを除く */
+        public BuildingElement withJoinery(JoineryComponent value) {
+            put("joinery", value);
             return this;
         }
 
@@ -17902,6 +17915,47 @@ public final class Messages {
         /** {@link #getThickness()} を書く。null ならフィールドを除く */
         public MaterialPart withThickness(Measured value) {
             put("thickness", value);
+            return this;
+        }
+    }
+
+    /** 建具の実例に直接記録された寸法。値を持たない属性は省く */
+    public static final class JoineryComponent extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public JoineryComponent(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static JoineryComponent of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new JoineryComponent(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public JoineryComponent() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 建具自体の全幅。IFC の OverallWidth */
+        public Measured getOverallWidth() {
+            return Json.read(json.get("overall_width"), Measured::of);
+        }
+
+        /** {@link #getOverallWidth()} を書く。null ならフィールドを除く */
+        public JoineryComponent withOverallWidth(Measured value) {
+            put("overall_width", value);
+            return this;
+        }
+
+        /** 建具自体の全高。IFC の OverallHeight */
+        public Measured getOverallHeight() {
+            return Json.read(json.get("overall_height"), Measured::of);
+        }
+
+        /** {@link #getOverallHeight()} を書く。null ならフィールドを除く */
+        public JoineryComponent withOverallHeight(Measured value) {
+            put("overall_height", value);
             return this;
         }
     }
