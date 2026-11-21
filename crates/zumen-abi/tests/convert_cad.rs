@@ -49,6 +49,156 @@ fn public_estimates_match_written_bytes_and_reopened_values() {
     assert!(!steps.is_empty());
 }
 
+fn horizontal_input(label: &str) -> String {
+    format!(
+        "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nDIMENSION\n5\nA3\n8\n0\n10\n0\n20\n100\n11\n500\n21\n100\n70\n32\n42\n1000\n1\n{label}\n13\n0\n23\n0\n14\n1000\n24\n0\n50\n0\n0\nENDSEC\n0\nEOF\n"
+    )
+}
+
+#[test]
+fn p21_horizontal_dimension_keeps_real_points_separate_from_label() {
+    use zumen_drawing::{Affine, DimensionKind, Label, Sheet, SheetId, View};
+    use zumen_sdk::conversion::ConversionFidelity;
+    for (input, expected) in [("<>", "1000"), ("995", "995")] {
+        let mut model = lift_dxf(horizontal_input(input).as_bytes());
+        model.sheets = vec![Sheet {
+            id: SheetId(0),
+            name: None,
+            source: Ref::default(),
+            size: None,
+            elements: vec![],
+            order: vec![],
+            views: vec![View {
+                space: model.spaces[0].id,
+                sheet: SheetId(0),
+                source: Ref::default(),
+                clip: vec![],
+                hidden_layers: vec![],
+                transform: Affine {
+                    m: [0.1, 0., 70., 0., 0.1, 90.],
+                },
+            }],
+        }];
+        let (_, reopened, report, count) = lower(&model, "sxf");
+        assert_eq!(count, 1);
+        let dim = &reopened.spaces[0].elements[0];
+        let Shape::Dimension(dim) = &dim.shape else {
+            panic!()
+        };
+        let DimensionKind::Linear {
+            first,
+            second,
+            line,
+            ..
+        } = dim.kind
+        else {
+            panic!()
+        };
+        assert_eq!(
+            [first.x, first.y, second.x, second.y, line.y],
+            [0., 0., 1000., 0., 100.]
+        );
+        assert!(matches!(&dim.label, Label::Override{content,..} if content == expected));
+        assert!(dim.measurement.is_none());
+        assert_eq!(
+            reopened.sheets[0].views[0].transform,
+            model.sheets[0].views[0].transform
+        );
+        let detail = report
+            .details
+            .iter()
+            .find(|d| d.kind == "dimension")
+            .unwrap();
+        assert_eq!(detail.fidelity, ConversionFidelity::Approximated);
+        assert!(detail.reasons.iter().any(|r| r == "stored_measurement"));
+        assert!(detail.reasons.iter().any(|r| r == "dimension_terminators"));
+        let ends: Vec<_> = report
+            .details
+            .iter()
+            .filter(|d| {
+                d.kind == "dimension_terminator"
+                    && d.fidelity == ConversionFidelity::Dropped
+                    && d.source == detail.source
+            })
+            .flat_map(|d| d.reasons.iter().map(String::as_str))
+            .collect();
+        assert_eq!(ends, ["first", "second"]);
+        assert_eq!(
+            detail.reasons.iter().any(|r| r == "dimension_label_fixed"),
+            input == "<>"
+        );
+        // 不等方のビューで実寸や角度を変えない。
+        model.sheets[0].views[0].transform.m[4] = 0.2;
+        let (_, _, report, count) = lower(&model, "sxf");
+        assert_eq!(count, 0);
+        assert!(report.details.iter().any(|d| d.kind == "dimension"
+            && d.fidelity == ConversionFidelity::Dropped
+            && d.source.key().is_some()));
+    }
+}
+
+#[test]
+fn p21_dimension_without_cached_value_uses_the_source_unit_and_display_factor() {
+    use zumen_drawing::{
+        DimensionDisplayRecord, DimensionDisplayTarget, DimensionDisplayValues, Label,
+    };
+    let mut model = lift_dxf(horizontal_input("<>").as_bytes());
+    model.spaces[0].unit = Unit::Centimeter;
+    let Shape::Dimension(dim) = &mut model.spaces[0].elements[0].shape else {
+        panic!()
+    };
+    dim.measurement = None;
+    model.dimension_display = vec![DimensionDisplayRecord {
+        target: DimensionDisplayTarget::Style(dim.style.clone()),
+        values: DimensionDisplayValues {
+            linear_factor: Some(0.123456),
+            linear_precision: Some(2),
+            ..Default::default()
+        },
+    }];
+    let (_, reopened, _, count) = lower(&model, "sxf");
+    assert_eq!(count, 1);
+    let Shape::Dimension(dim) = &reopened.spaces[0].elements[0].shape else {
+        panic!()
+    };
+    assert!(matches!(&dim.label, Label::Override {content,..} if content == "123.46"));
+    let zumen_drawing::DimensionKind::Linear { first, second, .. } = dim.kind else {
+        panic!()
+    };
+    assert_eq!(second.x - first.x, 10_000.);
+}
+
+#[test]
+fn cancelled_p21_dimension_can_be_retried_in_the_same_session() {
+    let mut session = zumen_abi1::Session::new(b"").unwrap();
+    session
+        .push(b"d.dxf", horizontal_input("995").as_bytes())
+        .unwrap();
+    case::call(&mut session, r#"{"v":1,"op":"open","input":"d.dxf"}"#);
+    let request = r#"{"v":1,"op":"convert","doc":"d.dxf","to":"out","format":"sxf"}"#;
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    assert_ne!(session.call(request.as_bytes(), &cancel).status, Status::Ok);
+    assert!(session.take(0).is_none());
+    assert_eq!(
+        session
+            .call(
+                br#"{"v":1,"op":"drawing","doc":"out"}"#,
+                &CancelToken::new()
+            )
+            .status,
+        Status::Failed
+    );
+    case::call(&mut session, request);
+    assert!(
+        session
+            .take(0)
+            .unwrap()
+            .windows(16)
+            .any(|w| w == b"LINEAR_DIMENSION")
+    );
+}
+
 fn dimension_source() -> &'static str {
     // Standard はひな形にもある。寸法の表示部品はなく、個別に目盛りを取り消して文字を変える。
     concat!(

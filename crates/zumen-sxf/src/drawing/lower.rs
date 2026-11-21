@@ -12,6 +12,7 @@ use zumen_drawing::{
 use zumen_sdk::conversion::{self, ConversionFidelity as Fidelity, ConversionReport, Report};
 use zumen_sdk::{Apply, Codec, Lift};
 
+mod dimension;
 mod template;
 
 /// 新しい P21 と、書いた要素数・忠実度。
@@ -37,6 +38,7 @@ struct Item {
 struct Lower<'a> {
     drawing: &'a Drawing2D,
     items: Vec<Item>,
+    dimensions: Vec<dimension::Linear>,
     layers: BTreeMap<LayerId, u32>,
     report: Report,
 }
@@ -169,6 +171,7 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
     let mut lower = Lower {
         drawing,
         items: Vec::new(),
+        dimensions: Vec::new(),
         layers: BTreeMap::new(),
         report: Report::new(limit),
     };
@@ -192,6 +195,7 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
         )?;
     }
     let sheet = drawing.sheets.first();
+    let dimension_formats = dimension::formats(drawing, cx)?;
     for space in &drawing.spaces {
         cx.check(Kind::Work, 1 + sheet.map_or(0, |s| s.views.len() as u64))?;
         let view = sheet.and_then(|s| {
@@ -228,6 +232,11 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
             )?;
         }
         let (order, changed) = transfer::order(space.elements.len(), &space.order, cx)?;
+        let dimension_view = sheet.and_then(|s| s.views.iter().find(|v| v.space == space.id));
+        let dimension_projection = space.unit.millimeters().and_then(|mm| {
+            dimension::Projection::model(space.id, mm, dimension_view)
+                .map(|projection| (mm, projection))
+        });
         if changed {
             lower.note(
                 "draw_order",
@@ -249,6 +258,25 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
                     &[],
                     cx,
                 )?;
+                continue;
+            }
+            if let Shape::Dimension(dim) = &element.shape {
+                if let Some((mm, projection)) = dimension_projection {
+                    let at = zumen_drawing::Position::Model {
+                        space: space.id,
+                        index,
+                    };
+                    lower.dimension(
+                        element,
+                        dim,
+                        |p| (p.space == space.id).then_some([p.x * mm, p.y * mm]),
+                        projection,
+                        dimension_formats.get(&at).copied().unwrap_or_default(),
+                        cx,
+                    )?;
+                } else {
+                    lower.note("dimension", Fidelity::Dropped, &element.source, 0, &[], cx)?;
+                }
                 continue;
             }
             lower.add(
@@ -293,8 +321,24 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
         for view in &sheet.views {
             lower.note("view", Fidelity::Dropped, &view.source, 0, &[], cx)?;
         }
-        for element in &sheet.elements {
+        for (index, element) in sheet.elements.iter().enumerate() {
             if i == 0 {
+                if let Shape::Dimension(dim) = &element.shape {
+                    let projection = dimension::Projection::paper();
+                    let at = zumen_drawing::Position::Paper {
+                        sheet: sheet.id,
+                        index,
+                    };
+                    lower.dimension(
+                        element,
+                        dim,
+                        |p| (p.sheet == sheet.id).then_some([p.x, p.y]),
+                        projection,
+                        dimension_formats.get(&at).copied().unwrap_or_default(),
+                        cx,
+                    )?;
+                    continue;
+                }
                 lower.add(
                     element,
                     &|p: PaperPoint| {
@@ -384,7 +428,13 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
             cx,
         )?;
     }
-    let mut file = template::make(&mut lower.items, &drawing.layers, sheet, cx)?;
+    let mut file = template::make(
+        &mut lower.items,
+        &lower.dimensions,
+        &drawing.layers,
+        sheet,
+        cx,
+    )?;
     let seed = quiet(cx, |cx| file.lift(cx))?;
     let seed_sheet = seed.sheets.first().ok_or(Error::Invalid)?;
     cx.check(
@@ -395,6 +445,7 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
         .elements
         .iter()
         .enumerate()
+        .filter(|(_, element)| matches!(element.shape, Shape::Circle { .. }))
         .map(|(i, element)| {
             Ok(Edit::Remove {
                 target: Seen {
@@ -448,7 +499,7 @@ fn lower(drawing: &Drawing2D, limit: u64, cx: &mut Cx<'_>) -> Result<Lowered, Er
         },
         cx,
     )?;
-    let mut elements = 0;
+    let mut elements = lower.dimensions.len() as u64;
     for (item, accepted) in lower.items.iter().zip(accepted) {
         if accepted {
             elements += 1;

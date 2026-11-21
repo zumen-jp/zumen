@@ -2,6 +2,7 @@
 //! 幅を持つ仮の円を各幅に 1 個置き、apply の表を作った後で必ず除く。
 
 use super::Item;
+use super::dimension::{self, Linear};
 use super::quiet;
 use crate::{Sxf, SxfFile};
 use std::collections::BTreeMap;
@@ -10,21 +11,52 @@ use zumen_base::{Cx, Error, Kind};
 use zumen_drawing::{Inherit, Layer, LineTypeId, Sheet};
 use zumen_sdk::Codec;
 
-struct Writer {
+pub(super) struct Writer {
     out: String,
     next: u64,
+    multiline: bool,
 }
 impl Writer {
-    fn add(&mut self, body: String) -> u64 {
+    pub(super) fn context(&mut self, length: u64) -> u64 {
+        let angle = self.add("(NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.))".into());
+        self.add(format!("(GEOMETRIC_REPRESENTATION_CONTEXT(2) GLOBAL_UNIT_ASSIGNED_CONTEXT((#{angle},#{length})) REPRESENTATION_CONTEXT('ID1','2D'))"))
+    }
+
+    pub(super) fn add(&mut self, body: String) -> u64 {
         let id = self.next;
         self.next += 1;
-        let _ = writeln!(self.out, "#{id}={body};");
+        let _ = write!(self.out, "#{id}=");
+        if self.multiline && body.starts_with('(') {
+            // 複合実体の各型を独立した行に書く。ラベルの文字列中の括弧・引用符には手を加えない。
+            let mut depth = 0;
+            let mut quoted = false;
+            for ch in body.chars() {
+                if ch == '\'' {
+                    quoted = !quoted;
+                }
+                if !quoted && ch == ')' {
+                    depth -= 1;
+                }
+                if !(depth == 1 && !quoted && ch == ' ') {
+                    self.out.push(ch);
+                }
+                if !quoted && ch == '(' {
+                    depth += 1;
+                }
+                if !quoted && (ch == '(' || ch == ')') && depth == 1 {
+                    self.out.push('\n');
+                }
+            }
+        } else {
+            self.out.push_str(&body);
+        }
+        self.out.push_str(";\n");
         id
     }
 }
 
 /// STEP の文字列。ASCII 以外は X2、引用符と逆斜線はエスケープする。
-fn quoted(value: &str) -> String {
+pub(super) fn quoted(value: &str) -> String {
     let mut out = String::from("'");
     for ch in value.chars() {
         match ch {
@@ -44,12 +76,13 @@ fn quoted(value: &str) -> String {
     out
 }
 
-fn real(value: f64) -> Result<String, Error> {
+pub(super) fn real(value: f64) -> Result<String, Error> {
     super::super::apply::p21::real(value).ok_or(Error::Invalid)
 }
 
 pub(super) fn make(
     items: &mut [Item],
+    dimensions: &[Linear],
     layers: &[Layer],
     sheet: Option<&Sheet>,
     cx: &mut Cx<'_>,
@@ -77,6 +110,11 @@ pub(super) fn make(
             );
         }
     }
+    for dim in dimensions {
+        cx.check(Kind::Work, 1)?;
+        colors.insert(dim.rgb, 0);
+        widths.insert(dim.width.to_bits(), 0);
+    }
     colors.entry([0; 3]).or_insert(0);
     widths.entry(0.25_f64.to_bits()).or_insert(0);
     let names = layers.iter().map(|l| l.name.len() as u64).sum::<u64>();
@@ -85,15 +123,18 @@ pub(super) fn make(
         Kind::DecodedBytes,
         16384 + names.saturating_mul(16) + layers.len() as u64 * 512,
     )?;
+    let metadata = if dimensions.is_empty() {
+        "'zumen.p21','',(''),(''),'zumen','zumen',''"
+    } else {
+        // AP202 サブセット編 3-1-2。実行時刻に依存しない交換用のタイムスタンプ。
+        "'zumen.p21','1970-01-01T00:00:00',(''),(''),'zumen$$3.1','zumen',''"
+    };
     let mut writer = Writer {
-        out: concat!(
-            "ISO-10303-21;\nHEADER;\n",
-            "FILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\n",
-            "FILE_NAME('zumen.p21','',(''),(''),'zumen','zumen','');\n",
-            "FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n"
-        )
-        .into(),
+        out: format!(
+            "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('SCADEC level2 AP202_mode'),'2;1');\nFILE_NAME({metadata});\nFILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));\nENDSEC;\nDATA;\n"
+        ),
         next: 1,
+        multiline: !dimensions.is_empty(),
     };
     let unit = writer.add("(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))".into());
     let continuous = writer.add("DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous')".into());
@@ -159,7 +200,29 @@ pub(super) fn make(
             ))
         ));
     }
+    let seed_circles = seeds.join(",");
+    let mut layer_members = dimension::write(
+        &mut writer,
+        dimensions,
+        &colors,
+        &widths,
+        continuous,
+        axis,
+        unit,
+        &mut seeds,
+        cx,
+    )?;
     let mut layer_ids = Vec::new();
+    if let Some(instances) = layer_members.remove(&0) {
+        let refs = instances
+            .iter()
+            .map(|id| format!("#{id}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        layer_ids.push(writer.add(format!(
+            "PRESENTATION_LAYER_ASSIGNMENT('$$SXF_dummy_layer_for_subfigure',' ',({refs}))"
+        )));
+    }
     for i in 0..layers.len().max(1) {
         let layer = layers.get(i);
         let fallback = format!("Layer {}", i + 1);
@@ -167,14 +230,19 @@ pub(super) fn make(
             .map(|l| l.name.as_str())
             .filter(|name| !name.is_empty() && !name.starts_with("$$SXF_dummy"))
             .unwrap_or(&fallback);
-        let id = writer.add(format!(
-            "PRESENTATION_LAYER_ASSIGNMENT({},'',({}))",
-            quoted(name),
-            if i == 0 {
-                format!("#{point},{}", seeds.join(","))
-            } else {
-                format!("#{point}")
+        let mut members = format!("#{point}");
+        if i == 0 {
+            members.push(',');
+            members.push_str(&seed_circles);
+        }
+        if let Some(extra) = layer_members.remove(&(i + 1)) {
+            for id in extra {
+                let _ = write!(members, ",#{id}");
             }
+        }
+        let id = writer.add(format!(
+            "PRESENTATION_LAYER_ASSIGNMENT({},'',({members}))",
+            quoted(name)
         ));
         layer_ids.push(id);
         if layer
@@ -210,10 +278,24 @@ pub(super) fn make(
         real(extent[1])?
     ));
     seeds.push(format!("#{frame}"));
-    let sheet = writer.add(format!(
-        "DRAWING_SHEET_REVISION('{name}',({}),'','')",
-        seeds.join(",")
-    ));
+    let members = seeds.join(",");
+    let sheet = if dimensions.is_empty() {
+        writer.add(format!(
+            "DRAWING_SHEET_REVISION('{name}',({members}),'','')"
+        ))
+    } else {
+        let definition = writer.add("DRAWING_DEFINITION('01',$)".into());
+        let revision = writer.add(format!("DRAUGHTING_DRAWING_REVISION('01',#{definition},$)"));
+        writer.add(format!("DRAUGHTING_TITLE((#{revision}),'JAPANESE',' ')"));
+        let context = writer.context(unit);
+        let id = writer.add(format!(
+            "DRAWING_SHEET_REVISION('{name}',({members}),#{context},'01')"
+        ));
+        writer.add(format!(
+            "DRAWING_SHEET_REVISION_USAGE(#{id},#{revision},'01')"
+        ));
+        id
+    };
     writer.add(format!("PRESENTATION_SIZE(#{sheet},#{frame})"));
     for layer in layer_ids {
         writer.add(format!("PRESENTATION_LAYER_USAGE(#{layer},#{sheet})"));

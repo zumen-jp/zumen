@@ -253,3 +253,17 @@ P21 の文字列のエスケープは既存の検証用の関数で戻します�
 ```powershell
 uv run --no-project --python 3.13 --with ezjww==0.7.6 --with ezsxf==0.3.7 python -X utf8 xtask/verify/check_convert_cad.py <出力先>
 ```
+
+### DXF の水平な直線寸法を P21 で確かめる
+
+ezdxf 1.4.5 で、ミリメートルの DXF R2018 に 1,000 mm の直線寸法を作ります。2 件のうち一方は測定値を表示し、もう一方は表示を「995」に上書きします。A3 の用紙には 1:10 のビューを置きます。次のコマンドはネイティブ CLI と図面用 wasm をビルドし、同じ DXF を両方に渡します。Windows では CLI の末尾に `.exe` を付けます。
+
+```sh
+cargo build --locked -p zumen-cli --bin zumen
+cargo build --locked --release -p zumen-abi --target wasm32-unknown-unknown --no-default-features --features drawing
+uv run --no-project --python 3.13 --with ezdxf==1.4.5 --with ezsxf==0.3.7 python xtask/verify/dimensions/check.py --cli target/debug/zumen --wasm target/wasm32-unknown-unknown/release/zumen_abi1.wasm --out ../dimension-check
+```
+
+検査は `convert_estimate` と `convert` の出力数・ハッシュ・診断、寸法の出所と変更理由を比べます。モデルのメモリ予算が 0 のときは失敗し、同じ宛先で再試行できます。ネイティブと wasm では応答と P21 のバイト列を照合します。`--out` に新しいフォルダーを渡すと、実機で開く DXF・P21 と変換記録が残ります。省略すると一時ファイルで検査します。
+
+独立した再読では ezsxf 0.3.7 の厳格な読み取りを使い、用紙から部分図をたどって `LINEAR_DIMENSION` が 1 件あることを確認します。モデル上の定義点は (0, 0)・(1,000, 0) mm、寸法線は Y = 100 mm です。用紙上の定義点は (70, 90)・(170, 90) mm です。表示「1000」または「995」を指す寸法文字の関係も比べます。両端の矢印については、元の寸法を出所とする見積もりの明細に始端と終端の省略が 1 件ずつあり、P21 に端末記号が 0 件であることを確認します。
