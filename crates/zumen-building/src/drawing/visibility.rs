@@ -381,6 +381,19 @@ mod tests {
             .spans
     }
     #[test]
+    fn touching_a_triangle_vertex_leaves_no_hidden_interval() {
+        let surface = Surface::Triangle([vertex(0, 0, 0.0), vertex(3, 0, 0.0), vertex(0, 3, 0.0)]);
+        let spans = split(vec![surface], [vertex(-2, 2, -1.0), vertex(2, -2, -1.0)]);
+        assert_eq!(
+            spans,
+            [Span {
+                range: [0.0, 1.0],
+                hidden: false
+            }]
+        );
+    }
+
+    #[test]
     fn a_sloped_surface_changes_visibility_at_the_depth_crossing() {
         let surface =
             Surface::Triangle([vertex(0, 0, -2.0), vertex(10, 0, 0.0), vertex(0, 10, -2.0)]);

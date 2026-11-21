@@ -83,11 +83,10 @@ fn reason(error: &Failure) -> &str {
     }
 }
 
-fn report_changes(
+fn report_snaps(
     source: &Source,
     spacing: f64,
     snapped: u64,
-    collapsed: u64,
     cx: &mut Cx<'_>,
 ) -> Result<(), Failure> {
     for _ in 0..snapped {
@@ -98,9 +97,22 @@ fn report_changes(
                 .at(source.place()),
         );
     }
-    for _ in 0..collapsed {
+    work(cx, 0)
+}
+
+fn report_loss(
+    source: &Source,
+    reason: &'static str,
+    count: u64,
+    cx: &mut Cx<'_>,
+) -> Result<(), Failure> {
+    for _ in 0..count {
         work(cx, 1)?;
-        cx.report(Diagnostic::new(codes::BUILDING_LINE_DROPPED).at(source.place()));
+        cx.report(
+            Diagnostic::new(codes::BUILDING_LINE_DROPPED)
+                .with("reason", reason)
+                .at(source.place()),
+        );
     }
     work(cx, 0)
 }
@@ -180,6 +192,7 @@ pub fn cut_with_attribute_symbols(
     let mut complete = prepared.complete;
     let mut statistics = Statistics {
         elements: evaluated.len() as u64,
+        collapsed: prepared.collapsed,
         ..Statistics::default()
     };
     for element in evaluated {
@@ -209,8 +222,9 @@ pub fn cut_with_attribute_symbols(
             let at = sources.len();
             match project::part(&part, frame, units, grid, at, cx) {
                 Ok(projected) => {
-                    complete &= projected.collapsed == 0;
-                    statistics.collapsed += projected.collapsed;
+                    let losses = projected.collapsed_edges + projected.collapsed_contours;
+                    complete &= losses == 0;
+                    statistics.collapsed += losses;
                     if !prepared.replaced.contains(&element.element)
                         && !fallback_reported
                         && !projected.edges.is_empty()
@@ -225,13 +239,9 @@ pub fn cut_with_attribute_symbols(
                         work(cx, 0)?;
                         fallback_reported = true;
                     }
-                    report_changes(
-                        &source,
-                        grid.spacing(),
-                        projected.snapped,
-                        projected.collapsed,
-                        cx,
-                    )?;
+                    report_snaps(&source, grid.spacing(), projected.snapped, cx)?;
+                    report_loss(&source, "projected_edge", projected.collapsed_edges, cx)?;
+                    report_loss(&source, "cut_contour", projected.collapsed_contours, cx)?;
                     reserve(&mut edges, projected.edges.len(), 64, cx)?;
                     reserve(&mut surfaces, projected.surfaces.len(), 80, cx)?;
                     statistics.parts += 1;
@@ -319,15 +329,11 @@ pub fn cut_with_attribute_symbols(
                 cx,
             )?;
         }
-        report_changes(
-            sources
-                .get(edge.source)
-                .ok_or(Failure::Invalid("drawing_source"))?,
-            grid.spacing(),
-            snapped,
-            collapsed,
-            cx,
-        )?;
+        let source = sources
+            .get(edge.source)
+            .ok_or(Failure::Invalid("drawing_source"))?;
+        report_snaps(source, grid.spacing(), snapped, cx)?;
+        report_loss(source, "visibility_span", collapsed, cx)?;
         complete &= collapsed == 0;
         statistics.collapsed += collapsed;
     }

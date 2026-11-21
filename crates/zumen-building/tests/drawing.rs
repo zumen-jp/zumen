@@ -184,6 +184,37 @@ fn joinery_uses_plan_then_typed_operation_symbol_then_cut_geometry() {
         panic!()
     };
     assert_eq!(end.x, 321.0);
+    // 幅のある建具記号が格子で消えた場合は、母体の線を描けても不完全にする。
+    let tiny = [line_graph(1.0)];
+    let small_rules = [drawing::JoinerySymbol {
+        curves: &tiny,
+        ..rules[0].clone()
+    }];
+    let mut diagnostics = Diagnostics::new();
+    let small = drawing::cut(
+        &b,
+        Options {
+            symbols: &small_rules,
+            tolerance: 10.0,
+            ..opts
+        },
+        &mut Cx::new(
+            &mut Budget::default(),
+            &mut diagnostics,
+            &CancelToken::new(),
+        ),
+    )
+    .unwrap();
+    assert!(!small.complete);
+    assert_eq!(small.statistics.collapsed, 1);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code() == zumen_base::codes::BUILDING_LINE_DROPPED
+                && d.param("reason")
+                    == Some(&zumen_base::Value::Text("projected_curve".to_owned())))
+    );
+
     add_plan(&mut b);
     let plan = with(|cx| drawing::cut(&b, symbol_options, cx)).unwrap();
     assert!(plan.complete);

@@ -23,7 +23,8 @@ pub(super) struct Projected {
     pub surfaces: Vec<Surface>,
     pub edges: Vec<Edge>,
     pub snapped: u64,
-    pub collapsed: u64,
+    pub collapsed_edges: u64,
+    pub collapsed_contours: u64,
 }
 
 impl Projected {
@@ -51,7 +52,7 @@ impl Projected {
         }
         let vertices = [self.vertex(ends[0], grid)?, self.vertex(ends[1], grid)?];
         if vertices[0].point == vertices[1].point {
-            self.collapsed += 1;
+            self.collapsed_edges += 1;
             return Ok(());
         }
         cx.check(Kind::Segments, 1)?;
@@ -124,14 +125,14 @@ pub(super) fn part(
             let points = simplify(points, path.closed)?;
             let n = points.len();
             if n < if path.closed { 3 } else { 2 } {
-                result.collapsed += 1;
+                result.collapsed_contours += 1;
                 continue;
             }
             let edges = if path.closed { n } else { n.saturating_sub(1) };
             for (&a, &b) in points.iter().zip(points.iter().cycle().skip(1)).take(edges) {
                 let vertices = [a, b].map(|point| Vertex { point, depth: 0.0 });
                 if vertices[0].point == vertices[1].point {
-                    result.collapsed += 1;
+                    result.collapsed_contours += 1;
                     continue;
                 }
                 cx.check(Kind::Segments, 1)?;
@@ -163,7 +164,7 @@ pub(super) fn part(
             )
             .map_err(topology)?;
             result.snapped += regions.adjustments.len() as u64;
-            result.collapsed += regions.discarded.len() as u64;
+            result.collapsed_contours += regions.discarded.len() as u64;
             for region in regions.regions {
                 push(&mut result.surfaces, Surface::Cap(region), 80, cx)?;
             }
@@ -267,10 +268,12 @@ fn simplify(mut points: Vec<Point>, closed: bool) -> Result<Vec<Point>, Failure>
 }
 
 fn between(a: Xyz, b: Xyz, t: f64) -> Result<Xyz, Failure> {
+    // 座標が等しい軸はその値を保つ。垂直辺を深さで切ったときに投影上の長さを作らない。
+    let coordinate = |a, b| if a == b { a } else { a * (1.0 - t) + b * t };
     let p = [
-        a[0] * (1.0 - t) + b[0] * t,
-        a[1] * (1.0 - t) + b[1] * t,
-        a[2] * (1.0 - t) + b[2] * t,
+        coordinate(a[0], b[0]),
+        coordinate(a[1], b[1]),
+        coordinate(a[2], b[2]),
     ];
     if p.into_iter().all(f64::is_finite) {
         Ok(p)

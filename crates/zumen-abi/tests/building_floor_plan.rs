@@ -58,7 +58,7 @@ fn public_storey_id_reproduces_the_reference_plan_after_cancellation() {
         _ => panic!("応答に {path} がない"),
     };
     assert_eq!(number("/result/lines"), 6683);
-    assert_eq!(number("/result/collapsed"), 549);
+    assert_eq!(number("/result/collapsed"), 106);
     assert_eq!(number("/result/evaluation_failures"), 0);
     assert_eq!(number("/result/projection_failures"), 0);
 
@@ -102,32 +102,43 @@ fn public_storey_id_reproduces_the_reference_plan_after_cancellation() {
         actual == expected.drawing,
         "各線の座標・出所、または用紙が異なる"
     );
-    let dropped = diagnostics
-        .iter()
-        .find(|d| d.code() == codes::BUILDING_LINE_DROPPED)
-        .unwrap();
     let Some(zumen_json::Value::Array(items)) = json.pointer("/diagnostics") else {
         panic!("切り出しの診断がない")
     };
     let code = zumen_json::Value::String("building.line.dropped".into());
-    let item = items
+    let mut count = 0;
+    for dropped in diagnostics
         .iter()
-        .find(|item| item.pointer("/code") == Some(&code))
-        .unwrap();
-    let Some(zumen_json::Value::Array(places)) = item.pointer("/at") else {
-        panic!("縮んだ区間の場所がない")
-    };
-    let mut wire_places: Vec<_> = places
-        .iter()
-        .map(|p| {
-            let Some(zumen_json::Value::String(id)) = p.pointer("/id") else {
-                panic!("出所を特定できない")
-            };
-            id.as_str()
-        })
-        .collect();
-    let mut rust_places: Vec<_> = dropped.places().iter().map(|p| p.id().unwrap()).collect();
-    wire_places.sort_unstable();
-    rust_places.sort_unstable();
-    assert_eq!(wire_places, rust_places);
+        .filter(|d| d.code() == codes::BUILDING_LINE_DROPPED)
+    {
+        let Some(zumen_base::Value::Text(reason)) = dropped.param("reason") else {
+            panic!("縮退の種類がない")
+        };
+        let reason = zumen_json::Value::String(reason.clone());
+        let item = items
+            .iter()
+            .find(|item| {
+                item.pointer("/code") == Some(&code)
+                    && item.pointer("/params/reason") == Some(&reason)
+            })
+            .unwrap();
+        let Some(zumen_json::Value::Array(places)) = item.pointer("/at") else {
+            panic!("縮んだ区間の場所がない")
+        };
+        let mut wire_places: Vec<_> = places
+            .iter()
+            .map(|p| {
+                let Some(zumen_json::Value::String(id)) = p.pointer("/id") else {
+                    panic!("出所を特定できない")
+                };
+                id.as_str()
+            })
+            .collect();
+        let mut rust_places: Vec<_> = dropped.places().iter().map(|p| p.id().unwrap()).collect();
+        wire_places.sort_unstable();
+        rust_places.sort_unstable();
+        assert_eq!(wire_places, rust_places);
+        count += dropped.count();
+    }
+    assert_eq!(count, expected.statistics.collapsed);
 }

@@ -9,7 +9,7 @@ use super::{
     Frame, Options, Role, Source, View,
     budget::{push, work},
     output::Stroke,
-    reason, report_changes,
+    reason, report_loss, report_snaps,
 };
 use crate::{
     Building, ContextPlacement, CurveGraph, ElementRef, GeometryData, GeometryDefinition,
@@ -69,6 +69,7 @@ pub(super) struct Prepared {
     pub sources: Vec<Source>,
     pub strokes: Vec<Stroke>,
     pub complete: bool,
+    pub collapsed: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -507,6 +508,9 @@ pub(super) fn draw_curve(
         let Some([a, b]) = super::project::clip_edge([a, b], settings.frame.depth())? else {
             continue;
         };
+        if a[0] == b[0] && a[1] == b[1] {
+            continue;
+        }
         let [Ok(a), Ok(b)] = [
             settings.grid.snap([a[0], a[1]]),
             settings.grid.snap([b[0], b[1]]),
@@ -536,7 +540,10 @@ pub(super) fn draw_curve(
             cx,
         )?;
     }
-    report_changes(&source, settings.grid.spacing(), snapped, collapsed, cx)?;
+    out.complete &= collapsed == 0;
+    out.collapsed += collapsed;
+    report_snaps(&source, settings.grid.spacing(), snapped, cx)?;
+    report_loss(&source, "projected_curve", collapsed, cx)?;
     push(&mut out.sources, source, 112, cx)?;
     Ok(())
 }

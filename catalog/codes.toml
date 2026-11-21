@@ -95,6 +95,8 @@ status = "active"
 description = "図面の格子上で点に縮んだ辺または輪郭を除いた"
 severity = "warning"
 fidelity = "dropped"
+params = { reason = "text" }
+group-by = ["reason"]
 since = "0.3.0"
 status = "active"
 

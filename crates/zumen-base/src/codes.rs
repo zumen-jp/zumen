@@ -390,8 +390,8 @@ pub const BUILDING_LINE_DROPPED: Code = Code::new(
     "building.line.dropped",
     Severity::Warning,
     Some(Fidelity::Dropped),
-    &[],
-    &[],
+    &[Param::new("reason", ParamType::Text)],
+    &["reason"],
 );
 
 /// 計測の境界を整数格子へ移した。間隔と移した点数を残す
