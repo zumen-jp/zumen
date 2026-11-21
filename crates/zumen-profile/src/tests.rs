@@ -754,6 +754,7 @@ fn one_text_stops_before_saving_unbudgeted_character_findings() {
             id: "space/0/e0",
             path: &[],
             transform: Affine::IDENTITY,
+            view_scale: None,
             color: None,
             line_type: None,
             line_weight: None,
