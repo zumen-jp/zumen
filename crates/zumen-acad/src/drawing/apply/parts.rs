@@ -8,7 +8,7 @@ use super::{
     entity_removal, moving_xdata, mtext, positive, real, split_text, work,
 };
 use crate::db::{AcadDb, Data, Object, Section, Value};
-use zumen_base::{Cx, Ref};
+use zumen_base::{Code, Cx, Diagnostic, Ref, codes};
 use zumen_drawing::parts::{
     self, DimensionCurve, DimensionOffsets, DimensionParts, arrow_triangle, dimension_mtext,
     dimension_tick_line, readable_angle,
@@ -567,8 +567,21 @@ pub(super) fn copy_parts<P: Copy + PartialEq + geom_transform::Point>(
     Ok(Some((values, extra, lower)))
 }
 
+/// 既存の書き戻しの診断に続けて、入力を拒む理由を伝える。
+fn refuse<T>(detail: &mut Option<Diagnostic>, diagnostic: Diagnostic) -> Option<T> {
+    *detail = Some(diagnostic);
+    None
+}
+
+fn cell_detail(code: Code, row: usize, column: usize) -> Diagnostic {
+    Diagnostic::new(code)
+        .with("row", row as u64 + 1)
+        .with("column", column as u64 + 1)
+}
+
 /// 寸法（DIMENSION・ARC_DIMENSION）と表（ACAD_TABLE）を新しく足す（`Edit::Add`）。
 /// 主レコードと、新しい匿名ブロック（`*D<n>`・`*T<n>`）の `BLOCK_RECORD`・`BLOCK`・部品・`ENDBLK` を返す。
+#[allow(clippy::too_many_arguments)]
 pub(super) fn add_parts<P: Copy>(
     current: &Current<'_>,
     plan: &mut Plan<'_>,
@@ -576,15 +589,48 @@ pub(super) fn add_parts<P: Copy>(
     frame: &impl Frame<P>,
     home: Home,
     edit_index: usize,
+    detail: &mut Option<Diagnostic>,
     cx: &mut Cx,
 ) -> Result<Option<(Record, Vec<Record>, String)>, Error> {
+    let dxf = current.target == Target::Dxf;
+    let needs_class = match &element.shape {
+        Shape::Dimension(dimension)
+            if matches!(dimension.kind, DimensionKind::ArcLength { .. }) =>
+        {
+            Some(("ARC_DIMENSION", current.classes.arc_dimension))
+        }
+        Shape::Table(_) => Some(("ACAD_TABLE", current.classes.table)),
+        _ => None,
+    };
+    if let Some((kind, present)) = needs_class {
+        let r2007_table = !dxf
+            && kind == "ACAD_TABLE"
+            && current.born.since(b"AC1021")
+            && !current.born.since(b"AC1024");
+        if !current.born.since(b"AC1018") || r2007_table {
+            return Ok(refuse(
+                detail,
+                Diagnostic::new(codes::CHANGE_DWG_VERSION_UNSUPPORTED)
+                    .with("kind", kind)
+                    .with(
+                        "version",
+                        String::from_utf8_lossy(current.born.version()).into_owned(),
+                    ),
+            ));
+        }
+        if !present {
+            return Ok(refuse(
+                detail,
+                Diagnostic::new(codes::CHANGE_DWG_CLASS_MISSING).with("kind", kind),
+            ));
+        }
+    }
     if home.owner.is_none() || !current.born.home_ready(home) {
         return Ok(None);
     }
     let Some(next) = current.born.next_handle() else {
         return Ok(None);
     };
-    let dxf = current.target == Target::Dxf;
     if !dxf && !current.born.since(b"AC1015") {
         return Ok(None);
     }
@@ -691,6 +737,7 @@ pub(super) fn add_parts<P: Copy>(
                 frame,
                 parts_base,
                 dxf,
+                detail,
                 cx,
                 &place_ref,
             )?
@@ -825,11 +872,7 @@ fn add_dimension_parts<P: Copy>(
         return Ok(None);
     }
     let is_arc = matches!(dimension.kind, DimensionKind::ArcLength { .. });
-    if is_arc {
-        if !current.born.since(b"AC1018") || !current.classes.arc_dimension {
-            return Ok(None);
-        }
-    } else if dxf && !current.born.since(b"AC1012") && !current.born.has_markers() {
+    if !is_arc && dxf && !current.born.since(b"AC1012") && !current.born.has_markers() {
         return Ok(None);
     }
     let Some(style3) = current.born.named(3, b"DIMSTYLE", &dimension.style) else {
@@ -1253,7 +1296,12 @@ fn standard_table_margin(db: &AcadDb, style: &Object) -> Option<f64> {
 
 /// 折り返しや高さの自動拡張を必要とする表を固定した行高で書かない。
 /// Arial・幅倍率 1 の自作図面で調べた 1 行の英数・和文を扱う。文字幅の上限には実測値より大きい 2 倍を使う。
-fn fits_standard_table<P>(table: &Table<P>, frame: &impl Frame<P>, margin: f64) -> Option<()> {
+fn fits_standard_table<P>(
+    table: &Table<P>,
+    frame: &impl Frame<P>,
+    margin: f64,
+    detail: &mut Option<Diagnostic>,
+) -> Option<()> {
     let formats = table.formats.as_deref()?;
     let widths = table
         .column_widths
@@ -1271,7 +1319,10 @@ fn fits_standard_table<P>(table: &Table<P>, frame: &impl Frame<P>, margin: f64) 
         let height = frame.length(style.text_height.as_ref()?)?;
         let available_height = frame.length(table.row_heights.get(row)?)? - 2.0 * margin;
         if available_height < height * 4.0 / 3.0 {
-            return None;
+            return refuse(
+                detail,
+                Diagnostic::new(codes::CHANGE_TABLE_HEIGHT_UNSUPPORTED).with("row", row as u64 + 1),
+            );
         }
         for (col, cell) in cells.iter().enumerate() {
             if cell.covered {
@@ -1283,19 +1334,29 @@ fn fits_standard_table<P>(table: &Table<P>, frame: &impl Frame<P>, margin: f64) 
                 *widths.get(col)?
             } - 2.0 * margin;
             if available_width < height {
-                return None;
+                return refuse(
+                    detail,
+                    cell_detail(codes::CHANGE_TABLE_WIDTH_UNSUPPORTED, row, col),
+                );
             }
             if let CellContent::Text { content, .. } = &cell.content {
                 let allowed = |c: char| {
                     matches!(u32::from(c),32..=126|12288..=12351|12353..=12438|12449..=12538|19968..=40959|65281..=65376)
                         && !matches!(c, '\\' | '{' | '}')
                 };
-                if content.contains("%%")
-                    || !content.chars().all(allowed)
-                    || f64::from(u32::try_from(content.chars().count()).ok()?) * 2.0 * height
-                        > available_width
+                if content.contains("%%") || !content.chars().all(allowed) {
+                    return refuse(
+                        detail,
+                        cell_detail(codes::CHANGE_TABLE_TEXT_UNSUPPORTED, row, col),
+                    );
+                }
+                if f64::from(u32::try_from(content.chars().count()).ok()?) * 2.0 * height
+                    > available_width
                 {
-                    return None;
+                    return refuse(
+                        detail,
+                        cell_detail(codes::CHANGE_TABLE_WIDTH_UNSUPPORTED, row, col),
+                    );
                 }
             }
         }
@@ -1314,22 +1375,23 @@ fn add_table_parts<P: Copy>(
     frame: &impl Frame<P>,
     parts_base: u64,
     dxf: bool,
+    detail: &mut Option<Diagnostic>,
     cx: &mut Cx,
     place: &Ref,
 ) -> Result<Option<BornPart>, Error> {
-    if !current.born.since(b"AC1018")
-        || (!dxf && current.born.since(b"AC1021") && !current.born.since(b"AC1024"))
-        || !current.classes.table
-        || table.style.is_some()
-        || table.formats.is_some()
-        || table.drawn.is_some()
-    {
-        return Ok(None);
+    if table.style.is_some() || table.formats.is_some() || table.drawn.is_some() {
+        return Ok(refuse(
+            detail,
+            Diagnostic::new(codes::CHANGE_TABLE_INPUT_UNSUPPORTED),
+        ));
     }
     let Some((style_handle, style_obj)) =
         find_standard_tablestyle(current.db, current.charset, cx, place)?
     else {
-        return Ok(None);
+        return Ok(refuse(
+            detail,
+            Diagnostic::new(codes::CHANGE_TABLE_STYLE_MISSING),
+        ));
     };
     let modern_dwg = !dxf && current.born.since(b"AC1024");
     let margin = modern_dwg
@@ -1339,7 +1401,10 @@ fn add_table_parts<P: Copy>(
         && margin.is_none()
         && crate::drawing::acad_table::unsupported_dwg_table_style(style_obj)
     {
-        return Ok(None);
+        return Ok(refuse(
+            detail,
+            Diagnostic::new(codes::CHANGE_TABLE_STYLE_UNSUPPORTED),
+        ));
     }
     let rows = table.row_heights.len();
     let cols = table.column_widths.len();
@@ -1349,15 +1414,33 @@ fn add_table_parts<P: Copy>(
     let mut prepared;
     let table = if margin.is_some() {
         // 表題行の MergeAll は表本体にも記録する。覆う文字、利用者が指定した結合は失わない。
-        if table.cells.iter().any(|c| c.covered || c.span != [1, 1])
-            || table
-                .cells
-                .iter()
-                .take(cols)
-                .skip(1)
-                .any(|c| !matches!(c.content, CellContent::Empty))
+        if let Some(index) = table
+            .cells
+            .iter()
+            .position(|cell| cell.covered || cell.span != [1, 1])
         {
-            return Ok(None);
+            return Ok(refuse(
+                detail,
+                cell_detail(
+                    codes::CHANGE_TABLE_CELL_UNSUPPORTED,
+                    index / cols,
+                    index % cols,
+                ),
+            ));
+        }
+        if let Some((column, _)) = table
+            .cells
+            .iter()
+            .take(cols)
+            .enumerate()
+            .skip(1)
+            .find(|(_, cell)| !matches!(cell.content, CellContent::Empty))
+        {
+            return Ok(refuse(
+                detail,
+                Diagnostic::new(codes::CHANGE_TABLE_TITLE_UNSUPPORTED)
+                    .with("column", column as u64 + 1),
+            ));
         }
         prepared = table.clone();
         let Ok(span) = u32::try_from(cols) else {
@@ -1438,7 +1521,7 @@ fn add_table_parts<P: Copy>(
 
     let r2007 = current.born.since(b"AC1021");
     let flag_code = if r2007 { 91 } else { 177 };
-    for cell in &table.cells {
+    for (index, cell) in table.cells.iter().enumerate() {
         work(cx, 1, place)?;
         if cell.value.is_some()
             || cell.format != Default::default()
@@ -1450,7 +1533,14 @@ fn add_table_parts<P: Copy>(
             || cell.span[0] == 0
             || cell.span[1] == 0
         {
-            return Ok(None);
+            return Ok(refuse(
+                detail,
+                cell_detail(
+                    codes::CHANGE_TABLE_CELL_UNSUPPORTED,
+                    index / cols,
+                    index % cols,
+                ),
+            ));
         }
         let Some(rot_val) = real(145, cell.rotation) else {
             return Ok(None);
@@ -1468,7 +1558,14 @@ fn add_table_parts<P: Copy>(
                     CellContent::Symbol(_) => "",
                 };
                 let Some(text_chunks) = split_text(raw_str, 2, 1, current.encoder) else {
-                    return Ok(None);
+                    return Ok(refuse(
+                        detail,
+                        cell_detail(
+                            codes::CHANGE_TABLE_TEXT_UNSUPPORTED,
+                            index / cols,
+                            index % cols,
+                        ),
+                    ));
                 };
                 values.extend([
                     int(171, 1),
@@ -1495,7 +1592,14 @@ fn add_table_parts<P: Copy>(
                     } else {
                         let Some(fmt_chunks) = split_text(raw_str, 303, 302, current.encoder)
                         else {
-                            return Ok(None);
+                            return Ok(refuse(
+                                detail,
+                                cell_detail(
+                                    codes::CHANGE_TABLE_TEXT_UNSUPPORTED,
+                                    index / cols,
+                                    index % cols,
+                                ),
+                            ));
                         };
                         values.extend([int(90, 4), int(93, 0)]);
                         values.extend(text_chunks);
@@ -1549,11 +1653,14 @@ fn add_table_parts<P: Copy>(
         &|v| frame.lifted(v),
     );
     if !dxf && formats.is_none() {
-        return Ok(None);
+        return Ok(refuse(
+            detail,
+            Diagnostic::new(codes::CHANGE_TABLE_STYLE_UNSUPPORTED),
+        ));
     }
     styled_table.formats = formats.flatten().map(Box::new);
     if let Some(margin) = margin
-        && fits_standard_table(&styled_table, frame, margin).is_none()
+        && fits_standard_table(&styled_table, frame, margin, detail).is_none()
     {
         return Ok(None);
     }

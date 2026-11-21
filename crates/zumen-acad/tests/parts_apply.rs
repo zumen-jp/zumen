@@ -2609,12 +2609,21 @@ fn adds_dimensions_arc_dimensions_and_tables_with_anonymous_blocks() {
             )
         });
         assert!(matches!(arc_res, Err(Error::Rejected)), "{name}");
-        assert!(
-            arc_diag
-                .iter()
-                .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED),
-            "{name}"
+        let mut diagnostics = arc_diag.iter();
+        assert_eq!(
+            diagnostics.next().unwrap().code(),
+            codes::CHANGE_EDIT_UNSUPPORTED
         );
+        let reason = diagnostics.next().unwrap();
+        if name == "table-r2000.dwg" {
+            assert_eq!(reason.code(), codes::CHANGE_DWG_VERSION_UNSUPPORTED);
+            assert!(reason.params().contains(&("version", "AC1015".into())));
+        } else {
+            assert_eq!(reason.code(), codes::CHANGE_DWG_CLASS_MISSING);
+        }
+        assert!(reason.params().contains(&("kind", "ARC_DIMENSION".into())));
+        assert!(reason.params().contains(&("edit", 0u64.into())));
+        assert_eq!(testkit::write::<Dwg>(&arc_trial).unwrap(), raw);
     }
 
     // 3. ARC_DIMENSION クラスを持つ DWG サンプル（R2004・R2018）では ArcLength の追加も通る
@@ -2898,49 +2907,87 @@ fn new_dwg_table_inherits_title_merge_margin_and_alignment_without_losing_other_
     use zumen_drawing::{Cell, Horizontal, Vertical};
     let standard: &[u8] = include_bytes!("fixtures/table-title-standard-r2018.dwg");
     let custom: &[u8] = include_bytes!("fixtures/table-title-custom-border-r2018.dwg");
-    for (bytes, conflict, wrap, accepted) in [
-        (standard, true, false, false),
-        (standard, false, true, false),
-        (custom, false, false, false),
-        (standard, false, false, true),
-    ] {
+    let old_version: &[u8] = include_bytes!("fixtures/table-r2000.dwg");
+    let no_class: &[u8] = include_bytes!("../../../samples/dwg/zumen-points-a-r2018.dwg");
+    let cases = [
+        (standard, "", "品名", 11.0, None),
+        (
+            standard,
+            "残す",
+            "品名",
+            11.0,
+            Some((codes::CHANGE_TABLE_TITLE_UNSUPPORTED, None, Some(2u64))),
+        ),
+        (
+            standard,
+            "",
+            "英数がセルの中で折り返す文字列",
+            11.0,
+            Some((codes::CHANGE_TABLE_WIDTH_UNSUPPORTED, Some(2u64), Some(1))),
+        ),
+        (
+            standard,
+            "",
+            "二行\n文字",
+            11.0,
+            Some((codes::CHANGE_TABLE_TEXT_UNSUPPORTED, Some(2), Some(1))),
+        ),
+        (
+            standard,
+            "",
+            "品名",
+            1.0,
+            Some((codes::CHANGE_TABLE_HEIGHT_UNSUPPORTED, Some(1), None)),
+        ),
+        (
+            custom,
+            "",
+            "品名",
+            11.0,
+            Some((codes::CHANGE_TABLE_STYLE_UNSUPPORTED, None, None)),
+        ),
+        (
+            old_version,
+            "",
+            "品名",
+            11.0,
+            Some((codes::CHANGE_DWG_VERSION_UNSUPPORTED, None, None)),
+        ),
+        (
+            no_class,
+            "",
+            "品名",
+            11.0,
+            Some((codes::CHANGE_DWG_CLASS_MISSING, None, None)),
+        ),
+    ];
+    for (bytes, title_cell, header, title_height, reason) in cases {
         let mut file = testkit::read::<Dwg>(bytes).0.unwrap();
         let before = cx_run(|cx| file.lift(cx).unwrap()).0;
         let (_, mut element) = seen_model(&before, 0);
-        let cells = [
-            "一覧",
-            if conflict { "残す" } else { "" },
-            if wrap {
-                "英数がセルの中で折り返す文字列"
-            } else {
-                "品名"
-            },
-            "数量",
-            "ボルト",
-            "12",
-        ]
-        .into_iter()
-        .map(|s| Cell {
-            content: if s.is_empty() {
-                CellContent::Empty
-            } else {
-                CellContent::Text {
-                    content: s.into(),
-                    spans: vec![],
-                }
-            },
-            span: [1, 1],
-            covered: false,
-            value: None,
-            rotation: 0.0,
-            format: Default::default(),
-        })
-        .collect();
+        let cells = ["一覧", title_cell, header, "数量", "ボルト", "12"]
+            .into_iter()
+            .map(|s| Cell {
+                content: if s.is_empty() {
+                    CellContent::Empty
+                } else {
+                    CellContent::Text {
+                        content: s.into(),
+                        spans: vec![],
+                    }
+                },
+                span: [1, 1],
+                covered: false,
+                value: None,
+                rotation: 0.0,
+                format: Default::default(),
+            })
+            .collect();
         element.source = Ref::default();
         element.shape = Shape::Table(Table {
             position: mpt(122.0, 80.0),
             direction: [1.0, 0.0],
-            row_heights: vec![mlen(11.0), mlen(9.0), mlen(9.0)],
+            row_heights: vec![mlen(title_height), mlen(9.0), mlen(9.0)],
             column_widths: vec![mlen(60.0), mlen(60.0)],
             cells,
             style: None,
@@ -2955,13 +3002,24 @@ fn new_dwg_table_inherits_title_merge_margin_and_alignment_without_losing_other_
             }],
         };
         let (result, diagnostics) = cx_run(|cx| file.apply(&changes, cx));
-        if !accepted {
+        if let Some((code, row, column)) = reason {
             assert!(matches!(result, Err(Error::Rejected)));
-            assert!(
-                diagnostics
-                    .iter()
-                    .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+            let mut diagnostics = diagnostics.iter();
+            assert_eq!(
+                diagnostics.next().unwrap().code(),
+                codes::CHANGE_EDIT_UNSUPPORTED
             );
+            let detail = diagnostics.next().unwrap_or_else(|| {
+                panic!("詳細がない: {code:?}, header={header}, height={title_height}")
+            });
+            assert_eq!(detail.code(), code);
+            assert!(detail.params().contains(&("edit", 0u64.into())));
+            if let Some(row) = row {
+                assert!(detail.params().contains(&("row", row.into())));
+            }
+            if let Some(column) = column {
+                assert!(detail.params().contains(&("column", column.into())));
+            }
             assert_eq!(testkit::write::<Dwg>(&file).unwrap(), bytes);
             continue;
         }

@@ -3147,6 +3147,130 @@
         },
         "/result/items/1/id": "space/0/h56"
       }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "table-r2000.dwg",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "line",
+              "start": [
+                0,
+                0
+              ],
+              "end": [
+                100,
+                0
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "table",
+              "position": [
+                100,
+                100
+              ],
+              "direction": [
+                1,
+                0
+              ],
+              "row_heights": [
+                15
+              ],
+              "column_widths": [
+                60
+              ],
+              "cells": [
+                {
+                  "content": "text",
+                  "text": "A"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.edit.unsupported",
+        "/diagnostics/1/code": "change.dwg-version.unsupported",
+        "/diagnostics/1/params/kind": "ACAD_TABLE",
+        "/diagnostics/1/params/edit": 1,
+        "/blobs": [],
+        "/diagnostics/1/params/version": "AC1015"
+      },
+      "absent": [
+        "/result"
+      ]
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "apply",
+        "doc": "table-r2018.dwg",
+        "edits": [
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "line",
+              "start": [
+                0,
+                0
+              ],
+              "end": [
+                100,
+                0
+              ]
+            }
+          },
+          {
+            "kind": "add",
+            "place": "space/0",
+            "geometry": {
+              "shape": "dimension",
+              "kind": "arc_length",
+              "label": "measurement",
+              "center": [
+                0,
+                0
+              ],
+              "first": [
+                10,
+                0
+              ],
+              "second": [
+                0,
+                10
+              ],
+              "arc": [
+                12,
+                12
+              ],
+              "style": "Standard"
+            }
+          }
+        ]
+      },
+      "status": "failed",
+      "expect": {
+        "/diagnostics/0/code": "change.edit.unsupported",
+        "/diagnostics/1/code": "change.dwg-class.missing",
+        "/diagnostics/1/params/kind": "ARC_DIMENSION",
+        "/diagnostics/1/params/edit": 1,
+        "/blobs": []
+      },
+      "absent": [
+        "/result"
+      ]
     }
   ]
 }

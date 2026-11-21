@@ -4209,3 +4209,83 @@ params = { element = "text" }
 group-by = ["element"]
 since = "0.4.0"
 status = "active"
+
+[codes."change.dwg-version.unsupported"]
+description = "このバージョンの DWG にはこの種類の新しい図形を書けない"
+severity = "error"
+params = { edit = "uint", kind = "text", version = "text" }
+group-by = ["edit", "kind", "version"]
+since = "0.3.0"
+status = "active"
+
+[codes."change.dwg-class.missing"]
+description = "DWG に新しい図形を書き込むためのクラス宣言がない"
+severity = "error"
+params = { edit = "uint", kind = "text" }
+group-by = ["edit", "kind"]
+since = "0.3.0"
+status = "active"
+
+[codes."change.table-style.missing"]
+description = "DWG の新しい表が参照する標準の表スタイルを一意に解決できない"
+severity = "error"
+params = { edit = "uint" }
+group-by = ["edit"]
+since = "0.3.0"
+status = "active"
+
+[codes."change.table-style.unsupported"]
+description = "DWG の既存の標準の表スタイルの書式を保って新しい表を作れない"
+severity = "error"
+params = { edit = "uint" }
+group-by = ["edit"]
+since = "0.3.0"
+status = "active"
+
+[codes."change.table-input.unsupported"]
+description = "新しい DWG の表に指定した表スタイルや表示用ブロックを書けない"
+severity = "error"
+params = { edit = "uint" }
+group-by = ["edit"]
+since = "0.3.0"
+status = "active"
+
+[codes."change.table-title.unsupported"]
+description = "表題行を自動で結合すると入力されたセルの内容が隠れる"
+severity = "error"
+params = { edit = "uint", column = "uint" }
+group-by = ["edit", "column"]
+since = "0.3.0"
+status = "active"
+
+[codes."change.table-cell.unsupported"]
+description = "DWG の新しい表にセルの書式・結合・値などを保って追加できない"
+severity = "error"
+params = { edit = "uint", row = "uint", column = "uint" }
+group-by = ["edit", "row", "column"]
+since = "0.3.0"
+status = "active"
+
+[codes."change.table-height.unsupported"]
+description = "指定した行高には既存の表スタイルの文字高と余白が収まらない"
+severity = "error"
+params = { edit = "uint", row = "uint" }
+group-by = ["edit", "row"]
+since = "0.3.0"
+status = "active"
+
+[codes."change.table-width.unsupported"]
+description = "既存の表スタイルで指定の幅に一行で収まることを確認できない"
+severity = "error"
+params = { edit = "uint", row = "uint", column = "uint" }
+group-by = ["edit", "row", "column"]
+since = "0.3.0"
+status = "active"
+
+[codes."change.table-text.unsupported"]
+description = "文字や制御記号を符号化できないか、既存の表スタイルで一行に書けることを確認できない"
+severity = "error"
+params = { edit = "uint", row = "uint", column = "uint" }
+group-by = ["edit", "row", "column"]
+since = "0.3.0"
+status = "active"

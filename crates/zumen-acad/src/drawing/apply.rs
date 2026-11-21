@@ -645,6 +645,9 @@ fn edit(
         plan.rejected |= rejected;
     }
     if plan.rejected {
+        for detail in plan.part_details {
+            cx.report(detail);
+        }
         return Err(Error::Rejected);
     }
     let Plan {
@@ -791,6 +794,8 @@ struct Plan<'e> {
     blocks: Option<parts::BlockIndex>,
     added_records: u64,
     rejected: bool,
+    /// 以前からある診断の後ろに、拒んだ寸法・表の追加の理由を入力順で返す。
+    part_details: Vec<Diagnostic>,
     /// 変えた項目の ID。同じ項目は一度だけ変えられる
     targets: BTreeSet<&'e str>,
     attached: Option<AttachedPositions>,
@@ -827,6 +832,7 @@ impl<'e> Plan<'e> {
             blocks: None,
             added_records: 0,
             rejected: false,
+            part_details: Vec::new(),
             targets: BTreeSet::new(),
             attached: None,
             layers: layer::Layers::default(),
@@ -1046,6 +1052,7 @@ fn add_element(
         plan.rejected = true;
         return Ok(());
     };
+    let mut detail = None;
     let (built, kind) = match (place, element) {
         (Place::Space(space), Placed::Model(element)) => {
             add::work(&element.shape, cx, &Ref::default())?;
@@ -1077,9 +1084,16 @@ fn add_element(
             };
             let frame = InSpace(space);
             let built = match (home, &element.shape) {
-                (Some(home), Shape::Dimension(_) | Shape::Table(_)) => {
-                    parts::add_parts(current, plan, element, &frame, home, edit_index, cx)?
-                }
+                (Some(home), Shape::Dimension(_) | Shape::Table(_)) => parts::add_parts(
+                    current,
+                    plan,
+                    element,
+                    &frame,
+                    home,
+                    edit_index,
+                    &mut detail,
+                    cx,
+                )?,
                 (Some(home), _) => born
                     .record(element, &frame, home, plan.added_records)
                     .map(|rec| (rec, Vec::new(), String::new())),
@@ -1097,6 +1111,7 @@ fn add_element(
                     &OnSheet(sheet, frame),
                     frame.home,
                     edit_index,
+                    &mut detail,
                     cx,
                 )?,
                 (Some(&frame), _) => born
@@ -1157,6 +1172,10 @@ fn add_element(
         None => {
             plan.add_extra_records.push(0);
             plan.reject(unsupported("add", kind, target), cx);
+            if let Some(detail) = detail.filter(|_| matches!(target, Target::Dwg(_))) {
+                plan.part_details
+                    .push(detail.with("edit", edit_index as u64));
+            }
         }
     }
     Ok(())

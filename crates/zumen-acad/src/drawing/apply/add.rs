@@ -254,6 +254,10 @@ impl Born {
         &self.encoder
     }
 
+    pub(super) fn version(&self) -> &[u8] {
+        &self.version
+    }
+
     /// DXF か DWG のバージョンが `release` 以後か
     pub(super) fn since(&self, release: &[u8]) -> bool {
         self.version.as_slice() >= release

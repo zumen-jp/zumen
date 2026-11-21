@@ -647,6 +647,35 @@ pub const CHANGE_COPY_UNSUPPORTED: Code = Code::new(
 pub const CHANGE_DOCUMENT_STALE: Code =
     Code::new("change.document.stale", Severity::Error, None, &[], &[]);
 
+/// DWG に新しい図形を書き込むためのクラス宣言がない
+///
+/// `change.dwg-class.missing`（0.3.0 から）
+pub const CHANGE_DWG_CLASS_MISSING: Code = Code::new(
+    "change.dwg-class.missing",
+    Severity::Error,
+    None,
+    &[
+        Param::new("edit", ParamType::UInt),
+        Param::new("kind", ParamType::Text),
+    ],
+    &["edit", "kind"],
+);
+
+/// このバージョンの DWG にはこの種類の新しい図形を書けない
+///
+/// `change.dwg-version.unsupported`（0.3.0 から）
+pub const CHANGE_DWG_VERSION_UNSUPPORTED: Code = Code::new(
+    "change.dwg-version.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("edit", ParamType::UInt),
+        Param::new("kind", ParamType::Text),
+        Param::new("version", ParamType::Text),
+    ],
+    &["edit", "kind", "version"],
+);
+
 /// この種類の変更を、この種類の要素について、元の形式のレコードに書き戻せない。扱う種類とフィールドは docs/formats/dxf.md に書く
 ///
 /// `change.edit.unsupported`（0.0.0 から）
@@ -764,6 +793,112 @@ pub const CHANGE_SYMBOL_UNSUPPORTED: Code = Code::new(
         Param::new("value", ParamType::Text),
     ],
     &["edit", "field", "value", "format"],
+);
+
+/// DWG の新しい表にセルの書式・結合・値などを保って追加できない
+///
+/// `change.table-cell.unsupported`（0.3.0 から）
+pub const CHANGE_TABLE_CELL_UNSUPPORTED: Code = Code::new(
+    "change.table-cell.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("column", ParamType::UInt),
+        Param::new("edit", ParamType::UInt),
+        Param::new("row", ParamType::UInt),
+    ],
+    &["edit", "row", "column"],
+);
+
+/// 指定した行高には既存の表スタイルの文字高と余白が収まらない
+///
+/// `change.table-height.unsupported`（0.3.0 から）
+pub const CHANGE_TABLE_HEIGHT_UNSUPPORTED: Code = Code::new(
+    "change.table-height.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("edit", ParamType::UInt),
+        Param::new("row", ParamType::UInt),
+    ],
+    &["edit", "row"],
+);
+
+/// 新しい DWG の表に指定した表スタイルや表示用ブロックを書けない
+///
+/// `change.table-input.unsupported`（0.3.0 から）
+pub const CHANGE_TABLE_INPUT_UNSUPPORTED: Code = Code::new(
+    "change.table-input.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("edit", ParamType::UInt)],
+    &["edit"],
+);
+
+/// DWG の新しい表が参照する標準の表スタイルを一意に解決できない
+///
+/// `change.table-style.missing`（0.3.0 から）
+pub const CHANGE_TABLE_STYLE_MISSING: Code = Code::new(
+    "change.table-style.missing",
+    Severity::Error,
+    None,
+    &[Param::new("edit", ParamType::UInt)],
+    &["edit"],
+);
+
+/// DWG の既存の標準の表スタイルの書式を保って新しい表を作れない
+///
+/// `change.table-style.unsupported`（0.3.0 から）
+pub const CHANGE_TABLE_STYLE_UNSUPPORTED: Code = Code::new(
+    "change.table-style.unsupported",
+    Severity::Error,
+    None,
+    &[Param::new("edit", ParamType::UInt)],
+    &["edit"],
+);
+
+/// 文字や制御記号を符号化できないか、既存の表スタイルで一行に書けることを確認できない
+///
+/// `change.table-text.unsupported`（0.3.0 から）
+pub const CHANGE_TABLE_TEXT_UNSUPPORTED: Code = Code::new(
+    "change.table-text.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("column", ParamType::UInt),
+        Param::new("edit", ParamType::UInt),
+        Param::new("row", ParamType::UInt),
+    ],
+    &["edit", "row", "column"],
+);
+
+/// 表題行を自動で結合すると入力されたセルの内容が隠れる
+///
+/// `change.table-title.unsupported`（0.3.0 から）
+pub const CHANGE_TABLE_TITLE_UNSUPPORTED: Code = Code::new(
+    "change.table-title.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("column", ParamType::UInt),
+        Param::new("edit", ParamType::UInt),
+    ],
+    &["edit", "column"],
+);
+
+/// 既存の表スタイルで指定の幅に一行で収まることを確認できない
+///
+/// `change.table-width.unsupported`（0.3.0 から）
+pub const CHANGE_TABLE_WIDTH_UNSUPPORTED: Code = Code::new(
+    "change.table-width.unsupported",
+    Severity::Error,
+    None,
+    &[
+        Param::new("column", ParamType::UInt),
+        Param::new("edit", ParamType::UInt),
+        Param::new("row", ParamType::UInt),
+    ],
+    &["edit", "row", "column"],
 );
 
 /// 置き換える図形が、図形とともに動く XDATA（1011〜1013・1041・1042）を持つので、形の変更を書き戻せない（決定 0154）
@@ -6328,6 +6463,8 @@ pub const ALL: &[Code] = &[
     CHANGE_CHARACTER_UNSUPPORTED,
     CHANGE_COPY_UNSUPPORTED,
     CHANGE_DOCUMENT_STALE,
+    CHANGE_DWG_CLASS_MISSING,
+    CHANGE_DWG_VERSION_UNSUPPORTED,
     CHANGE_EDIT_UNSUPPORTED,
     CHANGE_ELEMENT_MISSING,
     CHANGE_ELEMENT_STALE,
@@ -6337,6 +6474,14 @@ pub const ALL: &[Code] = &[
     CHANGE_STYLE_UNSUPPORTED,
     CHANGE_SYMBOL_CYCLE_INVALID,
     CHANGE_SYMBOL_UNSUPPORTED,
+    CHANGE_TABLE_CELL_UNSUPPORTED,
+    CHANGE_TABLE_HEIGHT_UNSUPPORTED,
+    CHANGE_TABLE_INPUT_UNSUPPORTED,
+    CHANGE_TABLE_STYLE_MISSING,
+    CHANGE_TABLE_STYLE_UNSUPPORTED,
+    CHANGE_TABLE_TEXT_UNSUPPORTED,
+    CHANGE_TABLE_TITLE_UNSUPPORTED,
+    CHANGE_TABLE_WIDTH_UNSUPPORTED,
     CHANGE_XDATA_UNSUPPORTED,
     CITYGML_CRS_UNSUPPORTED,
     CITYGML_ELEMENT_UNSUPPORTED,
