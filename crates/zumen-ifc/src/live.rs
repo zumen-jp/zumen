@@ -28,8 +28,8 @@ use zumen_sdk::Stop;
 use zumen_sdk::{Codec, Cx, Error};
 
 use crate::building::{
-    Category, QUANTITIES, Version, arg, category, decode, lift_with_units, measure_types,
-    predefined_property_fields, reference, refs,
+    Category, QUANTITIES, SPACE_BOUNDARIES, Version, arg, category, decode, lift_with_units,
+    measure_types, predefined_property_fields, reference, refs,
 };
 use crate::edit::{
     Edit, Item, Keyed, NewValue, RootAttribute, Stmt, end_key, refs_in, refs_of, stmt_from_slice,
@@ -654,7 +654,7 @@ impl IfcLive {
         &self.dep
     }
 
-    /// `changed` に含まれる要素が変更されたとき、依存辺（空間階層・相対配置・型・材料・開口・グループ・通り芯・区画・プロパティ参照）をたどって影響を受ける要素列をトポロジカル順で返す
+    /// `changed` に含まれる要素が変更されたとき、依存辺（空間階層・相対配置・型・材料・開口・グループ・通り芯・区画・空間境界・プロパティ参照）をたどって影響を受ける要素列をトポロジカル順で返す
     pub fn affected_elements(
         &self,
         changed: &[ElementRef],
@@ -3061,6 +3061,18 @@ fn build_ifc_dep_graph(
                 insert_dep_source(set, RowId(m.0), cx)?;
             }
         }
+        if let Some(connection) = building.components.connection.get(elem_ref)
+            && let Some(set) = base_sources.get_mut(idx)
+        {
+            for link in &connection.links {
+                cx.check(Kind::Work, 1)
+                    .map_err(|stop| stopped(cx, stop, None))?;
+                // IfcRelSpaceBoundary の RelatingSpace が RelatedBuildingElement を境界として参照する。
+                if SPACE_BOUNDARIES.iter().any(|&(_, kind)| link.kind == kind) {
+                    insert_dep_source(set, RowId(link.target.0), cx)?;
+                }
+            }
+        }
     }
 
     let mut dep = DepGraph::new();
@@ -3876,6 +3888,51 @@ mod shared_budget_tests {
                 assert!(run(|cx| perform(&mut live, phase, cx)).0.unwrap());
             }
         }
+    }
+
+    #[test]
+    fn boundary_elements_affect_their_spaces_after_edit_undo_and_redo() {
+        let extra = concat!(
+            "#70=IFCSPACE('0000000000000000000070',$,'A',$,$,$,$,$,.ELEMENT.,.SPACE.,$);",
+            "#71=IFCSPACE('0000000000000000000071',$,'B',$,$,$,$,$,.ELEMENT.,.SPACE.,$);",
+            "#72=IFCSPACE('0000000000000000000072',$,'C',$,$,$,$,$,.ELEMENT.,.SPACE.,$);",
+            "#80=IFCRELSPACEBOUNDARY('0000000000000000000080',$,$,$,#70,#10,$,.PHYSICAL.,.INTERNAL.);",
+            "#81=IFCRELSPACEBOUNDARY1STLEVEL('0000000000000000000081',$,$,$,#71,#10,$,.PHYSICAL.,.INTERNAL.,$);",
+            "#82=IFCRELSPACEBOUNDARY2NDLEVEL('0000000000000000000082',$,$,$,#72,#10,$,.PHYSICAL.,.INTERNAL.,$,$);",
+        );
+        let bytes = String::from_utf8(fixture()).unwrap().replace(
+            "ENDSEC;END-ISO-10303-21;",
+            &format!("{extra}ENDSEC;END-ISO-10303-21;"),
+        );
+        let mut live = run(|cx| IfcLive::open_with_geometry(bytes.as_bytes(), 1, cx))
+            .0
+            .unwrap();
+        let check = |live: &IfcLive| {
+            let wall = live.element_by_instance(10).unwrap();
+            let rooms = [70, 71, 72].map(|id| live.element_by_instance(id).unwrap());
+            let affected = run(|cx| live.affected_elements(&[wall], cx)).0.unwrap();
+            assert_eq!(affected, rooms);
+            for room in rooms {
+                assert!(
+                    run(|cx| live.affected_elements(&[room], cx))
+                        .0
+                        .unwrap()
+                        .is_empty()
+                );
+            }
+        };
+        check(&live);
+        let edits = [Edit::Attribute {
+            element: 10,
+            attribute: RootAttribute::Description,
+            value: Some("updated wall".into()),
+        }];
+        assert_eq!(run(|cx| live.apply(&edits, b"boundary", cx)).0.unwrap(), 1);
+        check(&live);
+        assert!(run(|cx| live.undo(cx)).0.unwrap());
+        check(&live);
+        assert!(run(|cx| live.redo(cx)).0.unwrap());
+        check(&live);
     }
 
     #[test]

@@ -387,7 +387,7 @@ pub(crate) const QUANTITIES: &[(&str, QuantityKind, Option<&str>)] = &[
 ];
 
 /// 空間の要素どうしをつなぐ関係の、空間の側から引く種類
-const SPACE_BOUNDARIES: &[(&str, &str)] = &[
+pub(crate) const SPACE_BOUNDARIES: &[(&str, &str)] = &[
     ("IFCRELSPACEBOUNDARY", "IfcRelSpaceBoundary"),
     ("IFCRELSPACEBOUNDARY1STLEVEL", "IfcRelSpaceBoundary1stLevel"),
     ("IFCRELSPACEBOUNDARY2NDLEVEL", "IfcRelSpaceBoundary2ndLevel"),
