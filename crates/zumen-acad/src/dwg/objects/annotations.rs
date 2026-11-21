@@ -421,10 +421,12 @@ pub(in crate::dwg) fn mtext_embedded(bits: &mut Bits, attribute: bool) -> Option
     values.push(real(45, bits.bd()?));
     let automatic = bits.bit()?;
     let reversed = bits.bit()?;
-    // 属性の中では、公開生成例（#156）で確かめた手動・順方向の動的 2 段だけを読む。
-    if attribute
-        && !(not_annotative && is_default && kind == 2 && count == 2 && !automatic && !reversed)
-    {
+    // R2018 の属性で照合した固定段・動的段。自動で高さを決める動的段は段数を 0 として保存する。
+    let verified = matches!(
+        (kind, count, automatic),
+        (1, 2, false) | (2, 2..=3, false) | (2, 0, true)
+    );
+    if attribute && !(not_annotative && is_default && verified) {
         return None;
     }
     values.push(int(73, i64::from(automatic)));

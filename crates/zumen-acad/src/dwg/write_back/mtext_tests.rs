@@ -233,7 +233,26 @@ fn r2018_annotative_mtext_rejects_position_change_but_allows_text_change() {
 
 /// 複数行の属性の 2 つ目の 101 から段組みを読み、タグを変えても段データの元のビットと定義の問いを保つ。
 #[test]
-fn r2018_attribute_preserves_two_dynamic_columns_on_tag_edit() {
+fn r2018_attribute_preserves_verified_columns_on_tag_edit() {
+    for (column_kind, count, automatic, heights) in [
+        (1, 2, false, &[][..]),
+        (2, 2, false, &[16.0, 20.0]),
+        (2, 3, false, &[16.0, 20.0, 24.0]),
+        (2, 0, true, &[]),
+    ] {
+        for reversed in [false, true] {
+            check_attribute_columns(column_kind, count, automatic, reversed, heights);
+        }
+    }
+}
+
+fn check_attribute_columns(
+    column_kind: i16,
+    count: i32,
+    automatic: bool,
+    reversed: bool,
+    heights: &[f64],
+) {
     let release = Release::R2018;
     let mtext = mtext_object([0.0; 3], None, 44.0, 0.0, 1, b"L\\NR");
     for (kind, attribute_type) in [(b"ATTRIB", 2), (b"ATTDEF", 4)] {
@@ -252,7 +271,7 @@ fn r2018_attribute_preserves_two_dynamic_columns_on_tag_edit() {
             fields.bit(bit == b'1');
         }
 
-        // 段なしの MTEXT の最後の 2 ビットを、実測した動的 2 段の種類と段データに置き換える。
+        // 段なしの MTEXT の最後の 2 ビットを、実測した段の種類と段データに置き換える。
         let mut body = BitWriter::with_strings();
         r2010_mtext(&mut body, None, &mtext, &[], 0, 0, release).unwrap();
         let strings = body.take_strings();
@@ -262,14 +281,15 @@ fn r2018_attribute_preserves_two_dynamic_columns_on_tag_edit() {
             .unwrap();
         let kind_at = body.len() - 2;
         fields.copy(&body.into_bytes(), 0..kind_at).unwrap();
-        fields.bs(2);
-        fields.bl(2);
+        fields.bs(column_kind);
+        fields.bl(count);
         fields.bd(20.0);
         fields.bd(4.0);
-        fields.bit(false);
-        fields.bit(false);
-        fields.bd(16.0);
-        fields.bd(20.0);
+        fields.bit(automatic);
+        fields.bit(reversed);
+        for &height in heights {
+            fields.bd(height);
+        }
         fields.bs(0);
         fields.text(b"COLS").unwrap();
         fields.bs(0);
@@ -303,16 +323,16 @@ fn r2018_attribute_preserves_two_dynamic_columns_on_tag_edit() {
         let (head, columns) = columns_removed(&original).unwrap();
         assert_eq!(head.values.iter().filter(|v| v.code == 101).count(), 1);
         assert_eq!(columns[0], text_val(101, b"Embedded Object"));
-        assert!(columns.ends_with(&[
-            int(71, 2),
-            int(72, 2),
+        let mut expected = vec![
+            int(71, i64::from(column_kind)),
+            int(72, i64::from(count)),
             real(44, 20.0),
             real(45, 4.0),
-            int(73, 0),
-            int(74, 0),
-            real(46, 16.0),
-            real(46, 20.0),
-        ]));
+            int(73, i64::from(automatic)),
+            int(74, i64::from(reversed)),
+        ];
+        expected.extend(heights.iter().map(|&height| real(46, height)));
+        assert!(columns.ends_with(&expected));
         assert_eq!(original.first(2), Some(&Data::Text(b"COLS".to_vec())));
         if definition {
             assert_eq!(original.first(3), Some(&Data::Text(b"Prompt".to_vec())));
