@@ -342,3 +342,32 @@ pub(super) fn clip_edge([a, b]: [Xyz; 2], depth: f64) -> Result<Option<[Xyz; 2]>
     }
     Ok(Some([between(a, b, range[0])?, between(a, b, range[1])?]))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Diagnostics};
+
+    #[test]
+    fn a_vertical_edge_and_a_tilted_edge_have_distinct_subgrid_outcomes() {
+        let (mut budget, mut diagnostics, cancel) =
+            (Budget::default(), Diagnostics::new(), CancelToken::new());
+        let mut cx = Cx::new(&mut budget, &mut diagnostics, &cancel);
+        for offset in [0., 1_000_000., -1_000_000.] {
+            for (tolerance, collapsed) in [(0.01, 1), (0.001, 0)] {
+                let grid = Grid::new([0.; 2], tolerance).unwrap();
+                let start = [offset, 0., -2.];
+                let mut out = Projected::default();
+                out.edge([start, [offset, 0., 0.]], 0, false, grid, &mut cx)
+                    .unwrap();
+                assert_eq!(out.collapsed_edges, 0);
+                assert!(out.edges.is_empty());
+                // 奥行きだけが異なる辺に対し、0.8 µm の傾きは異なる投影点を持つ。
+                out.edge([start, [offset + 0.0008, 0., 0.]], 0, false, grid, &mut cx)
+                    .unwrap();
+                assert_eq!(out.collapsed_edges, collapsed);
+                assert_eq!(out.edges.is_empty(), collapsed > 0);
+            }
+        }
+    }
+}

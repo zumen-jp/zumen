@@ -403,6 +403,44 @@ mod tests {
         assert!((spans[1].range[0] - 0.505).abs() < 1e-12);
     }
     #[test]
+    fn a_nonzero_depth_crossing_has_a_span_even_when_both_ends_round_to_one_point() {
+        use zumen_geom2d::topology::Grid;
+        // 許容差 0.01 mm の格子間隔は 0.0025 mm。辺は 40 格子、奥行きは長さの 1/128 で交差する。
+        let coarse = Grid::new([0.; 2], 0.01).unwrap();
+        let finer = Grid::new([0.; 2], 0.001).unwrap();
+        for offset in [0, 400_000_000, -400_000_000] {
+            for slope in [1., -1., 0.01, -0.01] {
+                let triangle = [
+                    vertex(offset, 0, 0.),
+                    vertex(offset + 40, 0, 0.),
+                    vertex(offset, 40, 0.),
+                ];
+                let edge = [
+                    vertex(offset, 0, -0.01 - slope / 128.),
+                    vertex(offset + 40, 0, -0.01 + slope * 127. / 128.),
+                ];
+                let spans = split(vec![Surface::Triangle(triangle)], edge);
+                let [short, rest] = spans.as_slice() else {
+                    panic!("可視性が切り替わる位置が必要")
+                };
+                assert_eq!(short.hidden, slope > 0.);
+                assert_ne!(short.hidden, rest.hidden);
+                assert_eq!(short.range[0], 0.);
+                assert!((short.range[1] - 1. / 128.).abs() < 1e-12);
+                let [a, b] = edge.map(|v| coarse.position(v.point).unwrap());
+                let end = [a[0] + (b[0] - a[0]) * short.range[1], 0.];
+                // 0.78125 µm は 0 ではない。丸めの格子を変えると端点を分けられる。
+                assert!((end[0] - a[0] - 0.00078125).abs() < 1e-9);
+                assert_eq!(
+                    coarse.snap(a).unwrap().point,
+                    coarse.snap(end).unwrap().point
+                );
+                assert_ne!(finer.snap(a).unwrap().point, finer.snap(end).unwrap().point);
+            }
+        }
+    }
+
+    #[test]
     fn a_cut_cap_keeps_its_hole_and_splits_both_sides() {
         let points = |p: &[[i64; 2]]| p.iter().map(|p| Point::new(p[0], p[1]).unwrap()).collect();
         let surface = Surface::Cap(Region {
