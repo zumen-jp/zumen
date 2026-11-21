@@ -237,6 +237,9 @@ impl Object {
 
 /// R2010 以降の DWG の `ACAD_TABLE`・`TABLESTYLE` が、まだ図面モデルに移せない書式のフィールドを持つことを示す内部の印
 pub(crate) const DWG_UNSUPPORTED_TABLE_FORMAT: i16 = -2;
+/// R2010 以降の一様な行余白と、罫線が参照する線種。新規表の表示用ブロックを組める書式に限って置く。
+pub(crate) const DWG_STANDARD_TABLE_MARGIN: i16 = -3;
+pub(crate) const DWG_STANDARD_BORDER_LTYPE: i16 = -4;
 
 /// 値の並び `values` からハンドル（5。`DIMSTYLE` は 105）を読む。なければ `None`
 pub fn handle_of_values(kind: &[u8], values: &[Value]) -> Option<u64> {

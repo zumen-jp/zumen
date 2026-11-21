@@ -565,6 +565,13 @@ impl Born {
         self.named(8, b"LAYER", layer)
     }
 
+    /// 表の文字に明示する、既存の実線の線種。
+    pub(super) fn continuous_line_type(&self) -> Option<LineTypeId> {
+        self.line_types
+            .iter()
+            .find_map(|(id, name)| name.eq_ignore_ascii_case("Continuous").then_some(*id))
+    }
+
     /// 線種を名前で指す値（`code`）。表に定義がなければ `None`
     pub(super) fn line_type_value(&self, code: i16, line_type: LineTypeId) -> Option<Value> {
         let name = self.line_types.get(&line_type)?;
@@ -586,8 +593,8 @@ impl Born {
         self.target != Target::Dxf || self.since(release)
     }
 
-    /// 指定されたフィールドだけを検証し、共通の値にする。`existing` は今ある図形のスタイルの変更か。DWG は、今ある図形には
-    /// 線幅（R2000 から）と RGB の色（R2004 から）を書けるが、足す図形にはまだ書かない（#723）
+    /// 指定されたフィールドだけを検証し、共通の値にする。`existing` は今ある図形のスタイルの変更か。DWG は、既存の図形の線幅と RGB のほか、
+    /// R2010 以降に追加する図形の ByBlock の線幅と透過性を書ける。
     pub(super) fn style_values(
         &self,
         style: &Style,
@@ -595,6 +602,7 @@ impl Born {
         existing: bool,
     ) -> Option<Vec<Value>> {
         let writes = self.target == Target::Dxf || existing;
+        let added_dwg = !existing && matches!(self.target, Target::Dwg(_)) && self.since(b"AC1024");
         let mut values = Vec::new();
         if changed.contains(&6) {
             match style.line_type {
@@ -636,6 +644,7 @@ impl Born {
         if changed.contains(&370) {
             match style.line_weight {
                 None | Some(Inherit::Layer) => {}
+                Some(Inherit::Block) if added_dwg => values.push(int(370, -2)),
                 Some(weight) if writes && self.since(b"AC1015") => {
                     values.push(int(370, line_weight(weight)?));
                 }
@@ -645,9 +654,13 @@ impl Born {
         if changed.contains(&48) && style.line_type_scale != 1.0 {
             values.push(real(48, nonzero_positive(style.line_type_scale)?)?);
         }
-        // 透過性（440）は、DWG に足す図形の色のフィールドに書けないので、レイヤから継承するものだけを足す（決定 0157）
+        // 新規表の表示部品は、R2010 からの図形色の透過性（440）に ByBlock を書く。
         if changed.contains(&440) && style.transparency != Inherit::Layer {
-            return None;
+            if added_dwg && style.transparency == Inherit::Block {
+                values.push(int(440, 0x0100_0000));
+            } else {
+                return None;
+            }
         }
         // 元の順に合わせ、色の RGB を線種の倍率の後に並べる
         if let Some(position) = values.iter().position(|value| value.code == 420) {

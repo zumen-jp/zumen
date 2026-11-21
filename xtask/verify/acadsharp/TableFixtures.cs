@@ -22,7 +22,9 @@ static class TableFixtures
             (ACadVersion.AC1024, "table-styled-r2010.dwg", true),
             (ACadVersion.AC1027, "table-styled-r2013.dwg", true),
             (ACadVersion.AC1032, "table-styled-r2018.dwg", true),
-            (ACadVersion.AC1032, "table-partial-standard-r2018.dwg", true) })
+            (ACadVersion.AC1032, "table-partial-standard-r2018.dwg", true),
+            (ACadVersion.AC1032, "table-title-standard-r2018.dwg", true),
+            (ACadVersion.AC1032, "table-title-custom-border-r2018.dwg", true) })
         {
             var doc = new CadDocument(version);
             var date = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -49,6 +51,44 @@ static class TableFixtures
                 tableStyle.TableCellStyle.TextColor = new Color(3);
                 tableStyle.TableCellStyle.PropertyOverrideFlags = ACadSharp.Objects.TableStyle.CellStylePropertyFlags.ContentColor;
             }
+            // 四方 1.5 の余白、表題の結合、表示する単線、表題・見出し・データそれぞれの位置合わせ。
+            if (name is "table-title-standard-r2018.dwg" or "table-title-custom-border-r2018.dwg")
+            {
+                doc.TextStyles["Standard"].Filename = "arial.ttf";
+                foreach (var (style, height, alignment) in new[]{
+                    (tableStyle.TableCellStyle, 0.18, 1), (tableStyle.TitleCellStyle, 6.0, 5),
+                    (tableStyle.HeaderCellStyle, 4.5, 5), (tableStyle.DataCellStyle, 4.5, 2)})
+                {
+                    style.HasData = true;
+                    style.Type = ACadSharp.Objects.TableStyle.CellStyleType.Table;
+                    style.ContentLayoutFlags = ACadSharp.Objects.TableStyle.CellContentLayoutFlags.Flow;
+                    style.TextHeight = height;
+                    style.Alignment = alignment;
+                    style.Scale = 1;
+                    style.ValueDataType = 4;
+                    style.ValueUnitType = 0;
+                    style.MarginOverrideFlags = ACadSharp.Objects.TableStyle.MarginFlags.Override;
+                    style.HorizontalMargin = style.VerticalMargin = style.RightMargin = style.BottomMargin = 1.5;
+                    style.PropertyOverrideFlags = ACadSharp.Objects.TableStyle.CellStylePropertyFlags.None;
+                    style.TableCellStylePropertyFlags = style == tableStyle.TitleCellStyle
+                        ? ACadSharp.Objects.TableStyle.CellStylePropertyFlags.MergeAll
+                        : ACadSharp.Objects.TableStyle.CellStylePropertyFlags.None;
+                    style.TopBorder = new(ACadSharp.Objects.TableStyle.CellEdgeFlags.Top);
+                    style.RightBorder = new(ACadSharp.Objects.TableStyle.CellEdgeFlags.Right);
+                    style.BottomBorder = new(ACadSharp.Objects.TableStyle.CellEdgeFlags.Bottom);
+                    style.LeftBorder = new(ACadSharp.Objects.TableStyle.CellEdgeFlags.Left);
+                    foreach (var border in new[]{style.TopBorder,style.RightBorder,style.BottomBorder,style.LeftBorder,style.HorizontalInsideBorder,style.VerticalInsideBorder})
+                    {
+                        border.ApplyBorder = style != tableStyle.TableCellStyle;
+                        border.LineWeight = LineWeightType.ByBlock;
+                        border.Color = Color.ByBlock;
+                        border.PropertyOverrideFlags = 0;
+                        border.Type = ACadSharp.Objects.TableStyle.BorderType.Single;
+                    }
+                }
+            }
+            if (name == "table-title-custom-border-r2018.dwg")
+                tableStyle.HeaderCellStyle.TopBorder.Color = new Color(3);
             if (withStyles && version == ACadVersion.AC1018)
                 foreach (var style in new[] { tableStyle.DataCellStyle, tableStyle.HeaderCellStyle, tableStyle.TitleCellStyle })
                 {

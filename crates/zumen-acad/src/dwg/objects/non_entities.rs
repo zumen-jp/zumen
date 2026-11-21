@@ -50,7 +50,7 @@ pub(super) fn tablestyle(bits: &mut Bits) -> Option<Vec<Value>> {
 /// 次の ID と、表全体のセルのスタイル（4）と行ごとのセルのスタイル（表題 1・見出し 2・データ 3 など）を読む。
 /// データ・表題・見出しのどれかに文字の高さか色があれば、DXF と同じくデータ・表題・見出しの順で文字スタイル（7）・
 /// 高さ（140）・色（62）を置く。まだ移さないフィールド（位置合わせ・背景・枠・余白・回転・真の色・追加のセルのスタイルなど）が
-/// あれば内部の印を置く
+/// あれば内部の印を置く。新しい表に継げる単線・共通余白・表題結合の組には、余白・罫線の線種の参照と各行の位置合わせを残す。
 pub(super) fn tablestyle_r2010(bits: &mut Bits, handles: &mut Vec<i16>) -> Option<Vec<Value>> {
     bits.rc()?;
     let description = bits.text()?;
@@ -70,8 +70,8 @@ pub(super) fn tablestyle_r2010(bits: &mut Bits, handles: &mut Vec<i16>) -> Optio
         Some((style, text_style_index))
     };
     let (table_style, _) = read_style(bits, handles)?;
-    bits.bl()?;
-    bits.bl()?;
+    let table_id = bits.bl()?;
+    let table_class = bits.bl()?;
     bits.text()?;
     let mut unsupported = table_style.has_any_setting();
     let count = usize::try_from(bits.bl()?).ok()?;
@@ -81,11 +81,12 @@ pub(super) fn tablestyle_r2010(bits: &mut Bits, handles: &mut Vec<i16>) -> Optio
     let mut title = None;
     let mut header = None;
     let mut data = None;
+    let mut known_classes = true;
     for _ in 0..count {
         bits.bl()?;
         let (style, text_style_index) = read_style(bits, handles)?;
         let id = bits.bl()?;
-        bits.bl()?;
+        known_classes &= matches!(bits.bl()?, 1 | 2);
         bits.text()?;
         match id {
             1 if title.is_none() => title = Some((style, text_style_index)),
@@ -97,6 +98,31 @@ pub(super) fn tablestyle_r2010(bits: &mut Bits, handles: &mut Vec<i16>) -> Optio
     let mut values = vec![text_value(3, &description)];
     match (data, title, header) {
         (Some(data), Some(title), Some(header)) => {
+            let margin = table_style.standard_margin(4).filter(|&margin| {
+                known_classes
+                    && table_id == 4
+                    && table_class == 2
+                    && count == 3
+                    && [(3, &data.0), (1, &title.0), (2, &header.0)]
+                        .into_iter()
+                        .all(|(id, row)| row.standard_margin(id) == Some(margin))
+            });
+            if let Some(margin) = margin {
+                values.push(real(crate::db::DWG_STANDARD_TABLE_MARGIN, margin));
+                for row in [&data.0, &title.0, &header.0] {
+                    for handle in row.single_grid.as_deref()? {
+                        let Data::Handle(slot) = handle else {
+                            return None;
+                        };
+                        let index = usize::try_from(slot.checked_sub(SLOT)?).ok()?;
+                        *handles.get_mut(index)? = crate::db::DWG_STANDARD_BORDER_LTYPE;
+                        values.push(Value {
+                            code: crate::db::DWG_STANDARD_BORDER_LTYPE,
+                            data: handle.clone(),
+                        });
+                    }
+                }
+            }
             let rows = [data, title, header];
             let any_configured = rows.iter().any(|(style, _)| style.style_row(false).2);
             for (style, _) in &rows {
@@ -124,6 +150,11 @@ pub(super) fn tablestyle_r2010(bits: &mut Bits, handles: &mut Vec<i16>) -> Optio
                         code: 7,
                         data: slot,
                     });
+                    if margin.is_some()
+                        && let Some(content) = &style.content
+                    {
+                        values.push(int(170, i64::from(content.alignment)));
+                    }
                     if let Some(height) = height {
                         values.push(real(140, height));
                     }

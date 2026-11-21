@@ -744,6 +744,8 @@ pub(super) const PROP_TEXT_HEIGHT: i32 = 0x80;
 pub(super) struct ContentFormat {
     pub(super) override_flags: i32,
     pub(super) property_flags: i32,
+    plain_value: bool,
+    value_type: i32,
     pub(super) rotation: f64,
     pub(super) alignment: i32,
     pub(super) color: super::super::bits::Color,
@@ -792,9 +794,50 @@ pub(super) struct CellStyleData {
     pub(super) content: Option<ContentFormat>,
     pub(super) margin_flags: i16,
     pub(super) has_borders: bool,
+    plain_table_style: bool,
+    pub(super) margins: Option<[f64; 6]>,
+    pub(super) single_grid: Option<Vec<Data>>,
 }
 
 impl CellStyleData {
+    /// 全辺の単線を配置から継ぎ、四方の余白が同じ行書式。値の意味は ODS 20.4.101.3・20.4.101.4。
+    pub(super) fn standard_margin(&self, id: i32) -> Option<f64> {
+        let content = self.content.as_ref()?;
+        let [margin, right, bottom, left, vertical, horizontal] = self.margins?;
+        (self.plain_table_style
+            && content.plain_value
+            && (content.value_type == 4 || (id == 4 && content.value_type == 512))
+            && self.override_flags == 0
+            && self.merge_flags == if id == 1 { 0x8000 } else { 0 }
+            && self.margin_flags == 1
+            && self.content_layout == 1
+            && self.fill_color.index == 0
+            && self.fill_color.rgb.is_none()
+            && !self.fill_color.book
+            && self.fill_color.transparency.is_none()
+            && content.override_flags == 0
+            && content.property_flags == 0
+            && content.rotation == 0.0
+            && (1..=9).contains(&content.alignment)
+            && content.positive_text_height().is_some()
+            && content.color.index == 0
+            && content.color.rgb.is_none()
+            && !content.color.book
+            && content.color.transparency.is_none()
+            && margin.is_finite()
+            && margin >= 0.0
+            && right == margin
+            && bottom == margin
+            && left == margin
+            && vertical.is_finite()
+            && horizontal.is_finite()
+            && if id == 4 {
+                !self.has_borders
+            } else {
+                self.single_grid.is_some()
+            })
+        .then_some(margin)
+    }
     pub(super) fn has_any_setting(&self) -> bool {
         let Some(content) = &self.content else {
             return false;
@@ -875,11 +918,11 @@ pub(super) fn content_format_bits(
 ) -> Option<ContentFormat> {
     let override_flags = bits.bl()?;
     let property_flags = bits.bl()?;
-    bits.bl()?;
-    bits.bl()?;
-    bits.text()?;
+    let value_type = bits.bl()?;
+    let unit = bits.bl()?;
+    let format = bits.text()?;
     let rotation = bits.bd()?;
-    bits.bd()?;
+    let scale = bits.bd()?;
     let alignment = bits.bl()?;
     let color = bits.cmc_r2004()?;
     on_handle(true);
@@ -887,6 +930,8 @@ pub(super) fn content_format_bits(
     Some(ContentFormat {
         override_flags,
         property_flags,
+        plain_value: unit == 0 && format.is_empty() && scale == 1.0,
+        value_type,
         rotation,
         alignment,
         color,
@@ -898,8 +943,9 @@ pub(super) fn cell_style_bits(
     bits: &mut Bits,
     mut on_handle: impl FnMut(bool) -> Data,
 ) -> Option<CellStyleData> {
-    bits.bl()?;
-    if bits.bs()? == 0 {
+    let kind = bits.bl()?;
+    let flags = bits.bs()?;
+    if flags == 0 {
         return Some(CellStyleData {
             override_flags: 0,
             merge_flags: 0,
@@ -913,6 +959,9 @@ pub(super) fn cell_style_bits(
             content: None,
             margin_flags: 0,
             has_borders: false,
+            plain_table_style: false,
+            margins: None,
+            single_grid: None,
         });
     }
     let override_flags = bits.bl()?;
@@ -921,26 +970,53 @@ pub(super) fn cell_style_bits(
     let content_layout = bits.bl()?;
     let content = Some(content_format_bits(bits, &mut on_handle)?);
     let margin_flags = bits.bs()?;
-    if margin_flags & 1 != 0 {
-        for _ in 0..6 {
-            bits.bd()?;
-        }
-    }
+    let margins = if margin_flags & 1 != 0 {
+        Some([
+            bits.bd()?,
+            bits.bd()?,
+            bits.bd()?,
+            bits.bd()?,
+            bits.bd()?,
+            bits.bd()?,
+        ])
+    } else {
+        None
+    };
     let borders = usize::try_from(bits.bl()?).ok()?;
     if borders > bits.size().saturating_mul(4) {
         return None;
     }
     let mut has_borders = false;
+    let mut edges = 0;
+    let mut plain = true;
+    let mut lines = Vec::new();
     for _ in 0..borders {
-        if bits.bl()? != 0 {
+        let edge = bits.bl()?;
+        if edge != 0 {
             has_borders = true;
-            bits.bl()?;
-            bits.bl()?;
-            bits.cmc_r2004()?;
-            bits.bl()?;
-            on_handle(false);
-            bits.bl()?;
+            let flags = bits.bl()?;
+            let kind = bits.bl()?;
+            let color = bits.cmc_r2004()?;
+            let weight = bits.bl()?;
+            let linetype = on_handle(false);
+            if lines.len() < 6 {
+                lines.push(linetype);
+            } else {
+                plain = false;
+            }
+            let invisible = bits.bl()?;
             bits.bd()?;
+            plain &= matches!(edge, 1 | 2 | 4 | 8 | 16 | 32)
+                && edges & edge == 0
+                && flags == 0
+                && kind == 1
+                && color.index == 0
+                && color.rgb.is_none()
+                && !color.book
+                && color.transparency.is_none()
+                && weight == -2
+                && invisible == 0;
+            edges |= edge;
         }
     }
     Some(CellStyleData {
@@ -951,6 +1027,9 @@ pub(super) fn cell_style_bits(
         content,
         margin_flags,
         has_borders,
+        plain_table_style: kind == 5 && flags == 1,
+        margins,
+        single_grid: (plain && edges == 63 && lines.len() == 6).then_some(lines),
     })
 }
 

@@ -1208,6 +1208,101 @@ fn find_standard_tablestyle<'a>(
     Ok((named_styles.len() == 1).then(|| named_styles.remove(0)))
 }
 
+/// 罫線の線種は 0 または図面の ByBlock だけを受け付ける。ほかの線種を実線に変えない。
+fn standard_table_margin(db: &AcadDb, style: &Object) -> Option<f64> {
+    let Data::Real(margin) = style.first(crate::db::DWG_STANDARD_TABLE_MARGIN)? else {
+        return None;
+    };
+    for row in style.values.iter().filter(|v| v.code == 7) {
+        let Data::Handle(handle) = row.data else {
+            return None;
+        };
+        let record = db.get(handle)?;
+        if record.kind != b"STYLE"
+            || !matches!(record.first(3),Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"arial.ttf"))
+            || record
+                .first(4)
+                .is_some_and(|v| !matches!(v,Data::Text(name) if name.is_empty()))
+            || !matches!(record.first(41), None | Some(Data::Real(1.0)))
+            || !matches!(record.first(50), None | Some(Data::Real(0.0)))
+            || !matches!(record.first(71), None | Some(Data::Int(0)))
+        {
+            return None;
+        }
+    }
+    for value in style
+        .values
+        .iter()
+        .filter(|v| v.code == crate::db::DWG_STANDARD_BORDER_LTYPE)
+    {
+        match value.data {
+            Data::Handle(0) => {}
+            Data::Handle(handle) => {
+                let record = db.get(handle)?;
+                if record.kind != b"LTYPE"
+                    || !matches!(record.first(2), Some(Data::Text(name)) if name.eq_ignore_ascii_case(b"ByBlock"))
+                {
+                    return None;
+                }
+            }
+            _ => return None,
+        }
+    }
+    Some(*margin)
+}
+
+/// 折り返しや高さの自動拡張を必要とする表を固定した行高で書かない。
+/// Arial・幅倍率 1 の自作図面で調べた 1 行の英数・和文を扱う。文字幅の上限には実測値より大きい 2 倍を使う。
+fn fits_standard_table<P>(table: &Table<P>, frame: &impl Frame<P>, margin: f64) -> Option<()> {
+    let formats = table.formats.as_deref()?;
+    let widths = table
+        .column_widths
+        .iter()
+        .map(|width| frame.length(width))
+        .collect::<Option<Vec<_>>>()?;
+    let cols = widths.len();
+    let all_width: f64 = widths.iter().sum();
+    for (row, cells) in table.cells.chunks(cols).enumerate() {
+        let style = match row {
+            0 => &formats.title_format,
+            1 => &formats.header_format,
+            _ => &formats.data_format,
+        };
+        let height = frame.length(style.text_height.as_ref()?)?;
+        let available_height = frame.length(table.row_heights.get(row)?)? - 2.0 * margin;
+        if available_height < height * 4.0 / 3.0 {
+            return None;
+        }
+        for (col, cell) in cells.iter().enumerate() {
+            if cell.covered {
+                continue;
+            }
+            let available_width = if row == 0 {
+                all_width
+            } else {
+                *widths.get(col)?
+            } - 2.0 * margin;
+            if available_width < height {
+                return None;
+            }
+            if let CellContent::Text { content, .. } = &cell.content {
+                let allowed = |c: char| {
+                    matches!(u32::from(c),32..=126|12288..=12351|12353..=12438|12449..=12538|19968..=40959|65281..=65376)
+                        && !matches!(c, '\\' | '{' | '}')
+                };
+                if content.contains("%%")
+                    || !content.chars().all(allowed)
+                    || f64::from(u32::try_from(content.chars().count()).ok()?) * 2.0 * height
+                        > available_width
+                {
+                    return None;
+                }
+            }
+        }
+    }
+    Some(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn add_table_parts<P: Copy>(
     current: &Current<'_>,
@@ -1236,8 +1331,12 @@ fn add_table_parts<P: Copy>(
     else {
         return Ok(None);
     };
-    if !dxf
-        && current.born.since(b"AC1024")
+    let modern_dwg = !dxf && current.born.since(b"AC1024");
+    let margin = modern_dwg
+        .then(|| standard_table_margin(current.db, style_obj))
+        .flatten();
+    if modern_dwg
+        && margin.is_none()
         && crate::drawing::acad_table::unsupported_dwg_table_style(style_obj)
     {
         return Ok(None);
@@ -1247,6 +1346,33 @@ fn add_table_parts<P: Copy>(
     if rows == 0 || cols == 0 || rows.checked_mul(cols) != Some(table.cells.len()) {
         return Ok(None);
     }
+    let mut prepared;
+    let table = if margin.is_some() {
+        // 表題行の MergeAll は表本体にも記録する。覆う文字、利用者が指定した結合は失わない。
+        if table.cells.iter().any(|c| c.covered || c.span != [1, 1])
+            || table
+                .cells
+                .iter()
+                .take(cols)
+                .skip(1)
+                .any(|c| !matches!(c.content, CellContent::Empty))
+        {
+            return Ok(None);
+        }
+        prepared = table.clone();
+        let Ok(span) = u32::try_from(cols) else {
+            return Ok(None);
+        };
+        if let Some(first) = prepared.cells.first_mut() {
+            first.span = [span, 1];
+        }
+        for cell in prepared.cells.iter_mut().take(cols).skip(1) {
+            cell.covered = true;
+        }
+        &prepared
+    } else {
+        table
+    };
     let Some([px, py]) = frame.point(&table.position) else {
         return Ok(None);
     };
@@ -1318,8 +1444,7 @@ fn add_table_parts<P: Copy>(
             || cell.format != Default::default()
             || !cell.rotation.is_finite()
             || (!dxf
-                && (cell.covered
-                    || cell.span != [1, 1]
+                && ((margin.is_none() && (cell.covered || cell.span != [1, 1]))
                     || cell.rotation != 0.0
                     || matches!(cell.content, CellContent::Symbol(_))))
             || cell.span[0] == 0
@@ -1427,12 +1552,19 @@ fn add_table_parts<P: Copy>(
         return Ok(None);
     }
     styled_table.formats = formats.flatten().map(Box::new);
+    if let Some(margin) = margin
+        && fits_standard_table(&styled_table, frame, margin).is_none()
+    {
+        return Ok(None);
+    }
+
     let default_height = blocks.standard_text_height.unwrap_or(2.5);
     let Some((records, count)) = build_table_records(
         current.born,
         &styled_table,
         frame,
         default_height,
+        margin,
         anon_record_handle,
         parts_base,
         true,
@@ -2830,6 +2962,7 @@ fn plan_table<P: Copy + PartialEq>(
         table,
         frame,
         default_height,
+        None,
         record_handle,
         base_index,
         new_block,
@@ -3078,6 +3211,7 @@ fn build_table_records<P>(
     table: &Table<P>,
     frame: &impl Frame<P>,
     default_height: f64,
+    margin: Option<f64>,
     record_handle: u64,
     base_index: u64,
     new_block: bool,
@@ -3087,8 +3221,13 @@ fn build_table_records<P>(
     let Some(layer) = born.layer_zero() else {
         return Ok(None);
     };
-    let Some(drawn) = parts::table(table, [0.0, 0.0], |l| frame.length(l), Some(default_height))
-    else {
+    let Some(drawn) = parts::table_with_margin(
+        table,
+        [0.0, 0.0],
+        |l| frame.length(l),
+        Some(default_height),
+        margin,
+    ) else {
         return Ok(None);
     };
     let home = Home {
@@ -3109,9 +3248,27 @@ fn build_table_records<P>(
         line_type: Inherit::Block,
         line_type_scale: 1.0,
         line_weight: None,
-        transparency: Inherit::Layer,
+        transparency: if margin.is_some() {
+            Inherit::Block
+        } else {
+            Inherit::Layer
+        },
     };
 
+    let (border_style, text_line_type) = if margin.is_some() {
+        let Some(continuous) = born.continuous_line_type() else {
+            return Ok(None);
+        };
+        (
+            Style {
+                line_weight: Some(Inherit::Block),
+                ..by_block
+            },
+            Inherit::Own(continuous),
+        )
+    } else {
+        (by_block, by_block.line_type)
+    };
     let mut records = Vec::new();
     let mut added = 0u64;
     let mut push_shape = |shape: Shape<ModelPoint>, style: Style| -> Option<()> {
@@ -3140,7 +3297,7 @@ fn build_table_records<P>(
                     start: pt(a),
                     end: pt(b),
                 },
-                by_block,
+                border_style,
             )
             .is_none()
         {
@@ -3185,7 +3342,11 @@ fn build_table_records<P>(
             background: None,
             style: style_name,
         };
-        let text_style = Style { color, ..by_block };
+        let text_style = Style {
+            color,
+            line_type: text_line_type,
+            ..by_block
+        };
         if push_shape(Shape::Formatted(formatted), text_style).is_none() {
             return Ok(None);
         }

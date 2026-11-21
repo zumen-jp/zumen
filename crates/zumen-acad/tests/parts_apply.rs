@@ -2816,6 +2816,7 @@ fn adds_plain_dwg_tables_and_preserves_the_original() {
         ("table-styled-r2013.dwg", false, true),
         ("table-styled-r2018.dwg", false, true),
         ("table-partial-standard-r2018.dwg", false, false),
+        ("table-title-custom-border-r2018.dwg", false, false),
     ] {
         let bytes = std::fs::read(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -2889,5 +2890,119 @@ fn adds_plain_dwg_tables_and_preserves_the_original() {
         let block = &reloaded.drawn.as_ref().unwrap().name;
         assert_eq!(block, "*T2");
         assert!(!symbol_elements(&after, block).is_empty());
+    }
+}
+
+#[test]
+fn new_dwg_table_inherits_title_merge_margin_and_alignment_without_losing_other_cells() {
+    use zumen_drawing::{Cell, Horizontal, Vertical};
+    let standard: &[u8] = include_bytes!("fixtures/table-title-standard-r2018.dwg");
+    let custom: &[u8] = include_bytes!("fixtures/table-title-custom-border-r2018.dwg");
+    for (bytes, conflict, wrap, accepted) in [
+        (standard, true, false, false),
+        (standard, false, true, false),
+        (custom, false, false, false),
+        (standard, false, false, true),
+    ] {
+        let mut file = testkit::read::<Dwg>(bytes).0.unwrap();
+        let before = cx_run(|cx| file.lift(cx).unwrap()).0;
+        let (_, mut element) = seen_model(&before, 0);
+        let cells = [
+            "一覧",
+            if conflict { "残す" } else { "" },
+            if wrap {
+                "英数がセルの中で折り返す文字列"
+            } else {
+                "品名"
+            },
+            "数量",
+            "ボルト",
+            "12",
+        ]
+        .into_iter()
+        .map(|s| Cell {
+            content: if s.is_empty() {
+                CellContent::Empty
+            } else {
+                CellContent::Text {
+                    content: s.into(),
+                    spans: vec![],
+                }
+            },
+            span: [1, 1],
+            covered: false,
+            value: None,
+            rotation: 0.0,
+            format: Default::default(),
+        })
+        .collect();
+        element.source = Ref::default();
+        element.shape = Shape::Table(Table {
+            position: mpt(122.0, 80.0),
+            direction: [1.0, 0.0],
+            row_heights: vec![mlen(11.0), mlen(9.0), mlen(9.0)],
+            column_widths: vec![mlen(60.0), mlen(60.0)],
+            cells,
+            style: None,
+            formats: None,
+            drawn: None,
+        });
+        let changes = Changes {
+            document: None,
+            edits: vec![Edit::Add {
+                place: "space/0".into(),
+                element: Box::new(Placed::Model(element)),
+            }],
+        };
+        let (result, diagnostics) = cx_run(|cx| file.apply(&changes, cx));
+        if !accepted {
+            assert!(matches!(result, Err(Error::Rejected)));
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|d| d.code() == codes::CHANGE_EDIT_UNSUPPORTED)
+            );
+            assert_eq!(testkit::write::<Dwg>(&file).unwrap(), bytes);
+            continue;
+        }
+        let changes = result.expect("標準の行書式で表を追加できる");
+        let out = testkit::write::<Dwg>(&file).unwrap();
+        let reopened = testkit::read::<Dwg>(&out).0.unwrap();
+        let drawing = cx_run(|cx| reopened.lift(cx).unwrap()).0;
+        let (seen, added) = seen_model(&drawing, before.spaces[0].elements.len());
+        assert_eq!(Some(seen.hash), changes[0].hash);
+        let Shape::Table(table) = added.shape else {
+            panic!("表がない");
+        };
+        assert_eq!(table.cells[0].span, [2, 1]);
+        assert!(table.cells[1].covered);
+        let block = symbol_elements(&drawing, &table.drawn.unwrap().name);
+        let text: Vec<_> = block
+            .iter()
+            .filter_map(|e| match &e.shape {
+                Shape::Formatted(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(text.len(), 5);
+        for (t, (content, x, y, height, width, vertical)) in text.iter().zip([
+            ("一覧", 60., -5.5, 6., 117., Vertical::Middle),
+            ("品名", 30., -15.5, 4.5, 57., Vertical::Middle),
+            ("数量", 90., -15.5, 4.5, 57., Vertical::Middle),
+            ("ボルト", 30., -21.5, 4.5, 57., Vertical::Top),
+            ("12", 90., -21.5, 4.5, 57., Vertical::Top),
+        ]) {
+            assert_eq!(t.content, content);
+            assert_eq!((t.point.x, t.point.y), (x, y));
+            let block_len = |value| {
+                Length::Model(ModelLength {
+                    space: t.point.space,
+                    value,
+                })
+            };
+            assert_eq!(t.height.value, block_len(height));
+            assert_eq!(t.width, Some(block_len(width)));
+            assert_eq!((t.horizontal, t.vertical), (Horizontal::Center, vertical));
+        }
     }
 }

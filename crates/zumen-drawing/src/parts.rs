@@ -800,7 +800,21 @@ pub fn table<P>(
     len: impl Fn(&Length) -> Option<f64>,
     default_text_height: Option<f64>,
 ) -> Option<TableParts> {
+    table_with_margin(table, origin, len, default_text_height, None)
+}
+
+/// DWG の行に明示された四方共通の余白を使って、罫線・文字・記号を組み立てる。
+pub fn table_with_margin<P>(
+    table: &Table<P>,
+    origin: [f64; 2],
+    len: impl Fn(&Length) -> Option<f64>,
+    default_text_height: Option<f64>,
+    cell_margin: Option<f64>,
+) -> Option<TableParts> {
     if !(origin[0].is_finite() && origin[1].is_finite()) {
+        return None;
+    }
+    if cell_margin.is_some_and(|v| !v.is_finite() || v < 0.0) {
         return None;
     }
     let mut heights = Vec::with_capacity(table.row_heights.len());
@@ -918,7 +932,12 @@ pub fn table<P>(
                         .alignment
                         .or_else(|| row_format.and_then(|f| f.alignment))
                         .unwrap_or((Horizontal::Center, Vertical::Middle));
-                    let margin = text_height / 2.0;
+                    let margin = cell_margin.unwrap_or(text_height / 2.0);
+                    if cell_margin.is_some()
+                        && (x1 - x0 <= 2.0 * margin || y1 - y0 < text_height + 2.0 * margin)
+                    {
+                        return None;
+                    }
                     let x = match h {
                         Horizontal::Left => x0 + margin,
                         Horizontal::Right => x1 - margin,
@@ -952,7 +971,7 @@ pub fn table<P>(
                         rotation: degrees + cell.rotation,
                         height: text_height,
                         alignment: (h, v),
-                        width: (x1 - x0 - text_height).max(0.0),
+                        width: (x1 - x0 - 2.0 * margin).max(0.0),
                         plain,
                         formatted: content.clone(),
                         text_style,

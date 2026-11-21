@@ -74,14 +74,14 @@ pub(super) fn fields(object: &Object) -> Option<BitWriter> {
     Some(out)
 }
 
-fn cell_text(cell: &[Value], flags_code: i16) -> Option<Vec<u8>> {
+fn cell_text(cell: &[Value], flags_code: i16, covered: bool, span: i64) -> Option<Vec<u8>> {
     let mut cell = cell.iter();
     for (code, expected) in [
         (171, 1),
         (172, 0),
-        (173, 0),
+        (173, i64::from(covered)),
         (174, 0),
-        (175, 1),
+        (175, span),
         (176, 1),
         (flags_code, 0),
         (178, 0),
@@ -105,7 +105,7 @@ fn cell_text(cell: &[Value], flags_code: i16) -> Option<Vec<u8>> {
 }
 
 fn text_cell(out: &mut BitWriter, cell: &[Value]) -> Option<()> {
-    let text = cell_text(cell, 177)?;
+    let text = cell_text(cell, 177, false, 1)?;
     out.bs(1);
     out.rc(0);
     out.bit(false);
@@ -165,13 +165,31 @@ pub(super) fn modern(out: &mut BitWriter, object: &Object, release: Release) -> 
     }
     out.bl(rows);
     let mut groups = body.chunk_by(|_, next| next.code != 171);
+    let title_merged = cols > 1
+        && body
+            .iter()
+            .find(|v| v.code == 175)
+            .is_some_and(|v| v.data == Data::Int(i64::from(cols)));
     for (row, height) in heights.into_iter().enumerate() {
         out.bl(cols);
-        for _ in 0..cols {
+        for col in 0..cols {
             let cell = groups.next()?;
             let tag = cell.iter().position(|v| v.code == 301)?;
             let (plain, cached) = cell.split_at_checked(tag)?;
-            let text = cell_text(plain, 91)?;
+            let merged = title_merged && row == 0;
+            let text = cell_text(
+                plain,
+                91,
+                merged && col > 0,
+                if merged && col == 0 {
+                    i64::from(cols)
+                } else {
+                    1
+                },
+            )?;
+            if merged && col > 0 && !text.is_empty() {
+                return None;
+            }
             if !matches_cell_value(cached, &text) {
                 return None;
             }
@@ -205,7 +223,13 @@ pub(super) fn modern(out: &mut BitWriter, object: &Object, release: Release) -> 
     groups.next().is_none().then_some(())?;
     out.bl(0);
     empty_cell_style(out);
-    out.bl(0);
+    out.bl(i32::from(title_merged));
+    if title_merged {
+        out.bl(0);
+        out.bl(0);
+        out.bl(0);
+        out.bl(cols - 1);
+    }
     // 表は分割しない。元の挿入点を開始位置とし、全行を 1 つの範囲に置く。
     out.bs(38);
     point3(out, &header, 11)?;
