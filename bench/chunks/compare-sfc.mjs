@@ -1,14 +1,17 @@
 // 松浦市の公開 SFC について、用紙ビューと実寸の空間をネイティブと wasm で照らす。
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { load, readScene } from "../../bindings/js/src/index.js";
 import { openProcess } from "../../bindings/js/src/process.js";
 
-const { positionals, values } = parseArgs({ allowPositionals: true, options: { font: { type: "string" } } });
+const { positionals, values } = parseArgs({ allowPositionals: true, options: {
+  font: { type: "string" }, "scene-dir": { type: "string" },
+} });
 const [cli, wasm, ...files] = positionals;
-assert(cli && wasm && files.length > 0, "compare-sfc.mjs [--font <OTF>] <CLI> <wasm> <SFC> ...");
+assert(cli && wasm && files.length > 0, "compare-sfc.mjs [--font <OTF>] [--scene-dir <フォルダー>] <CLI> <wasm> <SFC> ...");
 const module = await load(await readFile(wasm));
 const inputs = new Map([
   ["46d58faf3b00c80a21c7e01631336647f99d9bf4b5fbaf7510752416d6d8591e", 1],
@@ -82,6 +85,11 @@ for (const file of files) {
         const bytes = Buffer.from(await native.take(scene.result.blob));
         assert(bytes.equals(Buffer.from(session.take(scene.result.blob))));
         assert.equal(bytes.length, scene.blobs[0].size);
+        if (values["scene-dir"] && Object.keys(fields).length === 0) {
+          const stem = join(values["scene-dir"], sheet + (isSheet ? "-sheet" : "-space"));
+          await writeFile(stem + ".bin", bytes, { flag: "wx" });
+          await writeFile(stem + ".json", JSON.stringify(scene.result), { flag: "wx" });
+        }
         console.log(JSON.stringify({
           sheet, from, view: fields.view,
           tolerance: scene.result.tolerance, counts: scene.result.counts,
