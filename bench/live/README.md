@@ -48,6 +48,8 @@ pwsh -File bench/live/memory.ps1 -Executable target/bench-live-core/release/core
 
 建物の属性編集は `ifc-live` で別に測ります。公開 IFC 3 件と自作の 1,000・10,000 枚の壁について、[検証範囲と再現コマンド](results/ifc-2026-11-21.md)を記録しています。
 
+同じ自作 IFC の壁を別の階へ移す `ifc-structure` では、属性・形状を持つ場合の再構築と依存伝播、保存・取り消し・やり直しを照合します。[構造編集の測定と再現コマンド](results/ifc-structure-2026-11-21.md)
+
 ## 常駐子プロセスの測定
 
 `native-ipc.mjs` は実際の `zumen live --stdio` と Node.js の接続を使い、行の ID とハッシュの取得、移動と表示差分、取り消しを往復します。1 万・100 万本の LINE を生成し、受信側の列へ 64 要素ブロックを反映します。最後に、保存の全バイトと表示の全列が初期状態と同じであることを直接照合します。

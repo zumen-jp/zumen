@@ -180,6 +180,171 @@ fn selection(g: &Geometry, case: &str) -> (&'static str, Option<[f64; 3]>) {
     }
 }
 
+/// 同じ形と型を参照する 2 枚の壁。材料だけ、レイヤの面指定、写像の面指定を切り替える。
+fn shared_walls(version: &str, case: &str) -> String {
+    let extra = if version == "IFC2X3" {
+        ""
+    } else {
+        ",.NOTDEFINED."
+    };
+    let layer = if case == "layer" {
+        "#450=IFCPRESENTATIONLAYERWITHSTYLE('Shared',$,(#30),$,.T.,.F.,.F.,(#322));"
+    } else {
+        ""
+    };
+    let base = if case == "mapped" { "mapped" } else { "type" };
+    source(version, base)
+        .replace("(#100),#600", "(#800),#600")
+        .replace("(#100),#800", "(#100,#110),#800")
+        .replace("'Wall',$,$,$,#101", "'Wall',$,$,#200,#101")
+        .replace(
+            "ENDSEC;END-ISO-10303-21;",
+            &format!(
+                "#110=IFCWALL('0000000000000000000003',$,'Sibling',$,$,#200,#101,${extra});\n\
+             #200=IFCLOCALPLACEMENT($,#20);\n{layer}\nENDSEC;END-ISO-10303-21;"
+            ),
+        )
+}
+
+fn check_wall_appearance(g: &Geometry, case: &str, assignment: Option<(u64, u64)>, new_axis: bool) {
+    if let Some((owner, material)) = assignment {
+        let m = materials(g);
+        assert_eq!(m.source.instance, Some(owner));
+        assert_eq!(m.assignments.len(), 1);
+        let members = &m.assignments[0].members;
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].source.instance, Some(material));
+    } else {
+        assert!(g.materials().is_none());
+    }
+    if new_axis {
+        let data = g.data();
+        let root = data.root.unwrap();
+        let GeometryLinks::Definition(reps) = &data.nodes[root.0 as usize].links else {
+            panic!("形の根に表現がない");
+        };
+        let [rep] = reps.as_slice() else {
+            panic!("芯の表現数")
+        };
+        let GeometryLinks::Representation {
+            identifier, items, ..
+        } = &data.nodes[rep.0 as usize].links
+        else {
+            panic!("芯の表現がない");
+        };
+        assert_eq!(identifier.as_deref(), Some("Axis"));
+        let [line] = items.as_slice() else {
+            panic!("芯の線数")
+        };
+        let (selected, _, _) = with(Limits::default(), |cx| {
+            g.resolved_surface(&[root, *rep, *line], cx)
+        });
+        assert_eq!(selected.unwrap(), ResolvedSurface::Unspecified);
+        return;
+    }
+    let appearance = match (case, assignment) {
+        ("layer" | "mapped", _) => ("item", Some([1., 0., 0.])),
+        (_, Some((_, 600))) => ("material", Some([0., 1., 0.])),
+        (_, Some((_, 610))) => ("material", Some([0., 0., 1.])),
+        (_, None) => ("none", None),
+        (_, Some((_, material))) => panic!("想定していない材料 #{material}"),
+    };
+    assert_eq!(selection(g, case), appearance);
+}
+
+#[test]
+fn live_edits_follow_materials_and_presentation_on_two_walls() {
+    use zumen_ifc::{Edit, IfcLive, NewMaterial, NewShape, Target};
+
+    let edits = [
+        Edit::Material {
+            element: Target::Instance(800),
+            material: NewMaterial::Single("Steel".into()),
+        },
+        Edit::Material {
+            element: Target::Instance(110),
+            material: NewMaterial::Single("Concrete".into()),
+        },
+        Edit::Type {
+            element: Target::Instance(100),
+            type_of: None,
+        },
+        Edit::Shape {
+            element: Target::Instance(100),
+            shape: NewShape {
+                axis: Some(vec![[0., 0.], [2., 0.]]),
+                body: vec![],
+            },
+        },
+    ];
+    // ある段で各壁が参照する材料の所有者と材料の番号。2 枚目への直接割り当ては型より優先する。
+    let expected = [
+        [Some((800, 600)), Some((800, 600))],
+        [Some((800, 610)), Some((800, 610))],
+        [Some((800, 610)), Some((110, 600))],
+        [None, Some((110, 600))],
+        [None, Some((110, 600))],
+    ];
+    for version in VERSIONS {
+        for case in ["type", "layer", "mapped"] {
+            let input = shared_walls(version, case);
+            let mut live = with(Limits::default(), |cx| {
+                IfcLive::open_with_geometry(input.as_bytes(), 1, cx)
+            })
+            .0
+            .unwrap();
+            let mut saved = vec![input.into_bytes()];
+            let check = |live: &IfcLive, bytes: &[u8], stage: usize| {
+                assert_eq!(
+                    with(Limits::default(), |cx| live.save_spf(cx)).0.unwrap(),
+                    bytes
+                );
+                let file = with(Limits::default(), |cx| Ifc::read(bytes, cx))
+                    .0
+                    .unwrap();
+                let (model, diagnostics, _) = with(Limits::default(), |cx| file.lift_geometry(cx));
+                assert_eq!(live.building(), &model.unwrap());
+                let (reported, actual, _) =
+                    with(Limits::default(), |cx| live.report_lift_diagnostics(cx));
+                reported.unwrap();
+                assert_eq!(actual.into_vec(), diagnostics.into_vec());
+                for (id, assignment) in [100, 110].into_iter().zip(expected[stage]) {
+                    let g = live
+                        .building()
+                        .geometry(live.element_by_instance(id).unwrap())
+                        .unwrap();
+                    check_wall_appearance(g, case, assignment, stage == edits.len() && id == 100);
+                }
+            };
+            check(&live, &saved[0], 0);
+            for (i, edit) in edits.iter().enumerate() {
+                let file = with(Limits::default(), |cx| Ifc::read(&saved[i], cx))
+                    .0
+                    .unwrap();
+                let edit = std::slice::from_ref(edit);
+                let (batch, expected_notes, _) = with(Limits::default(), |cx| {
+                    zumen_ifc::apply(&file, edit, b"shared", cx)
+                });
+                let batch = batch.unwrap();
+                let (changed, notes, _) =
+                    with(Limits::default(), |cx| live.apply(edit, b"shared", cx));
+                assert_eq!(changed.unwrap(), batch.changed);
+                assert_eq!(notes.into_vec(), expected_notes.into_vec());
+                saved.push(batch.bytes);
+                check(&live, &saved[i + 1], i + 1);
+            }
+            for stage in (0..edits.len()).rev() {
+                assert!(with(Limits::default(), |cx| live.undo(cx)).0.unwrap());
+                check(&live, &saved[stage], stage);
+            }
+            for (stage, bytes) in saved.iter().enumerate().skip(1) {
+                assert!(with(Limits::default(), |cx| live.redo(cx)).0.unwrap());
+                check(&live, bytes, stage);
+            }
+        }
+    }
+}
+
 #[test]
 fn occurrence_overrides_type_and_retains_assignment_sources() {
     for version in VERSIONS {

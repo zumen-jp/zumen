@@ -7,6 +7,8 @@ use crate::session::{Document, Session};
 use zumen_base::CancelToken;
 use zumen_json::Value;
 
+mod readback;
+
 /// 公開サンプル。小さいものから、共有するプロパティのセットを持つもの・日本語の名前を持つものを選ぶ
 fn samples() -> Vec<(&'static str, Vec<u8>)> {
     let mut samples = vec![

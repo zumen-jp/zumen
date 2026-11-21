@@ -26,6 +26,10 @@ path = "src/core_live.rs"
 name = "ifc-live"
 path = "src/ifc_live.rs"
 
+[[bin]]
+name = "ifc-structure"
+path = "src/ifc_structure.rs"
+
 [dependencies]
 libm = { version = "0.2.16", default-features = false }
 zumen = { path = "../../crates/zumen" }
