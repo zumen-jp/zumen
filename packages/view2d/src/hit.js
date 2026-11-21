@@ -6,10 +6,12 @@ import { addExact, divideExact, divideWide, dyadic, multiplyExact, scaleBinary, 
 import { circleBounds, circleCardinal, circleIntersects, circleSide, intersectCircleLine, intersectCirclePair, offsetCircle } from "./circle.js";
 
 const EMPTY = Object.freeze([]);
+const RECT_HIT = Symbol("rect-hit");
 const EPSILON = 16 * Number.EPSILON;
 const lessEqual = (a, b) => a <= b || a - b <= EPSILON * Math.max(1, Math.abs(a), Math.abs(b));
 const between = (n, a, b) => lessEqual(a, n) && lessEqual(n, b);
 const pointInBox = (p, b) => between(p.x, b.min_x, b.max_x) && between(p.y, b.min_y, b.max_y);
+const insideRect = (p, b) => !p.exact && p.x > b.min_x && p.x < b.max_x && p.y > b.min_y && p.y < b.max_y;
 const overlap = (a, b) => a.min_x <= b.max_x && b.min_x <= a.max_x && a.min_y <= b.max_y && b.min_y <= a.max_y;
 const segmentBounds = (a, b) => ({ min_x: Math.min(a.x, b.x), min_y: Math.min(a.y, b.y), max_x: Math.max(a.x, b.x), max_y: Math.max(a.y, b.y) });
 const sign = (value, scale = 1) => Math.abs(value) <= EPSILON * scale ? 0 : Math.sign(value);
@@ -200,13 +202,19 @@ function joinContains({ center, incoming, outgoing, first, last }, p, radius, di
 }
 
 /** 輪を塗る規則と butt/round の stroke を、描画と同じ座標から調べる。 */
-function compile(part, charge) {
+function compile(part, charge, lineRect) {
   const segments = [], joins = [];
   for (const { points, closed } of part.contours) {
     charge(1 + points.length);
     if (part.fill && (points.length < 3 || !points.slice(2).some((p) => crossAt(points[0], points[1], p) !== 0))) continue;
     const count = closed || part.fill ? points.length : Math.max(0, points.length - 1);
-    for (let i = 0; i < count; i++) segments.push({ a: points[i], b: points[(i + 1) % points.length] });
+    for (let i = 0; i < count; i++) {
+      const a = points[i], b = points[(i + 1) % points.length];
+      // 正の幅の線分が矩形と画面の共通部分に入れば、この走査中に選択を確定できる。
+      // 巨大座標は丸めた端点だけで決めず、通常の境界判定に任せる。
+      if (lineRect && insideRect(a, lineRect) && insideRect(b, lineRect) && (a.x !== b.x || a.y !== b.y)) return RECT_HIT;
+      segments.push({ a, b });
+    }
     if (!part.fill && points.length > 1) {
       for (let i = closed ? 0 : 1; i < (closed ? points.length : points.length - 1); i++) {
         charge(1);
@@ -415,6 +423,10 @@ function hit(ctx, prepared, settings, view, size, display, index, limits, query)
   const charge = (count) => { work += count; valid(Number.isSafeInteger(work) && work <= limits.work, "limits.work"); };
   const viewport = compile(viewportPart(size, charge), charge), result = [], seen = new Set();
   const internalQuery = query.bounds.min_x > 0 && query.bounds.max_x < size.width && query.bounds.min_y > 0 && query.bounds.max_y < size.height;
+  const visibleRect = !query.circle && {
+    min_x: Math.max(0, query.bounds.min_x), max_x: Math.min(size.width, query.bounds.max_x),
+    min_y: Math.max(0, query.bounds.min_y), max_y: Math.min(size.height, query.bounds.max_y),
+  };
   const { columns: c, order, omitted } = prepared;
   ctx.save();
   try {
@@ -425,23 +437,26 @@ function hit(ctx, prepared, settings, view, size, display, index, limits, query)
         const [kind, i] = group.locate(group.indices[ordinal]), unit = c[`${kind}_units`][i];
         const element = index.elements[c.unit_entities[unit]];
         if (seen.has(element) || omitted.has(`${kind}:${i}`) || !unitVisible(c, unit, display) || transparentStyle(unitStyle(c, unit, settings, display))) continue;
-        let clips;
+        let clips, selected = false;
         for (const part of primitiveParts(ctx, c, kind, i, chunk, settings, view, size, true, charge)) {
-          const shape = compile(part, charge);
-          let intersection;
+          const lineRect = kind === "line" && visibleRect && c.unit_clips[unit] === SCENE_NONE &&
+            Number.isFinite(part.width) && overlap(part.bounds, visibleRect) ? visibleRect : null;
+          const shape = compile(part, charge, lineRect);
+          if (shape === RECT_HIT) { selected = true; break; }
           if (shape.circleQuery && c.unit_clips[unit] === SCENE_NONE && internalQuery) {
             // 問い合わせ全体が viewport 内部にある単独の円だけは、可視領域を直接証明できる。
             // 二度丸めた bounds で先に除外せず、shape/viewport の課金と元の円の work を保つ。
-            charge(2); intersection = shape.circleQuery(query);
+            charge(2); selected = shape.circleQuery(query);
           } else {
             if (!overlap(shape.bounds, query.bounds) || !overlap(shape.bounds, viewport.bounds)) continue;
             if (!clips) clips = [viewport, ...Array.from(clipParts(c, unit, view, size, true, charge), (clip) => compile(clip, charge))];
-            intersection = intersects(shape, clips, query, charge);
+            selected = intersects(shape, clips, query, charge);
           }
-          if (intersection) {
-            valid(result.length < limits.stateItems, "limits.stateItems");
-            result.push(element); seen.add(element); break;
-          }
+          if (selected) break;
+        }
+        if (selected) {
+          valid(result.length < limits.stateItems, "limits.stateItems");
+          result.push(element); seen.add(element);
         }
       }
     }
