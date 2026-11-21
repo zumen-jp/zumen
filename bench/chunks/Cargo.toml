@@ -19,10 +19,15 @@ path = "src/main.rs"
 name = "sfc"
 path = "src/sfc.rs"
 
+[[bin]]
+name = "cad"
+path = "src/cad.rs"
+
 [dependencies]
 zumen-acad = { path = "../../crates/zumen-acad" }
 zumen-base = { path = "../../crates/zumen-base" }
 zumen-drawing = { path = "../../crates/zumen-drawing" }
+zumen-jww = { path = "../../crates/zumen-jww" }
 zumen-scene = { path = "../../crates/zumen-scene" }
 zumen-sdk = { path = "../../crates/zumen-sdk" }
 zumen-sxf = { path = "../../crates/zumen-sxf" }

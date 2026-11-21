@@ -187,6 +187,7 @@ dependencies = [
  "zumen-acad",
  "zumen-base",
  "zumen-drawing",
+ "zumen-jww",
  "zumen-scene",
  "zumen-sdk",
  "zumen-sxf",
@@ -222,6 +223,19 @@ dependencies = [
 [[package]]
 name = "zumen-json"
 version = "0.3.0"
+
+[[package]]
+name = "zumen-jww"
+version = "0.3.0"
+dependencies = [
+ "encoding_rs",
+ "libm",
+ "zumen-base",
+ "zumen-drawing",
+ "zumen-geom2d",
+ "zumen-live",
+ "zumen-sdk",
+]
 
 [[package]]
 name = "zumen-live"

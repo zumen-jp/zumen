@@ -2,8 +2,8 @@
 use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::Instant;
-use zumen_bench_chunks::{POLICIES, audit, bytes, prepare_matsuura, render_with_tolerance};
+use zumen_bench_chunks::{POLICIES, prepare_matsuura};
+mod policy_timing;
 
 fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
@@ -20,26 +20,11 @@ fn run() -> Result<(), String> {
     let output = Path::new(output);
     fs::create_dir_all(output).map_err(|e| e.to_string())?;
     for (index, policy) in POLICIES.iter().enumerate() {
-        render_with_tolerance(index, None);
-        let expected = bytes();
-        let metrics = audit();
-        let mut times = [0.0; 3];
-        for time in &mut times {
-            #[allow(clippy::disallowed_methods, reason = "比較するシーンの生成時間を測る")]
-            let start = Instant::now();
-            render_with_tolerance(index, None);
-            *time = start.elapsed().as_secs_f64() * 1000.0;
-            if bytes() != expected || audit() != metrics {
-                return Err("同じ設定でシーンまたは監査結果が変わった".into());
-            }
-        }
-        times.sort_by(f64::total_cmp);
+        let (median, expected, metrics) = policy_timing::measure(index, None)?;
         fs::write(output.join(format!("sfc-{sheet}-{policy}.bin")), expected)
             .map_err(|e| e.to_string())?;
-        let metrics = std::str::from_utf8(&metrics).map_err(|e| e.to_string())?;
         println!(
-            "{{\"sheet\":{sheet},\"policy\":\"{policy}\",\"median_ms\":{},\"metrics\":{metrics}}}",
-            times[1]
+            "{{\"sheet\":{sheet},\"policy\":\"{policy}\",\"median_ms\":{median},\"metrics\":{metrics}}}"
         );
     }
     Ok(())

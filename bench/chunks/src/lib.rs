@@ -9,7 +9,7 @@ use zumen_drawing::transform::Point;
 use zumen_drawing::{Drawing2D, Edge, Item, Origin, Shape, SpaceId};
 use zumen_scene::layout as l;
 use zumen_scene::{Chunking, Options, Palette, Scene};
-use zumen_sdk::{Lift, testkit};
+use zumen_sdk::{Codec, Lift, testkit};
 
 pub const CASES: [&str; 5] = [
     "layout-dwg",
@@ -33,6 +33,7 @@ const INPUTS: [&[u8]; 3] = [
 
 struct Case {
     drawing: Drawing2D,
+    origin: Origin,
     input_bytes: usize,
     // 実線の線分だけ。曲線の近似や文字の整形の誤差とは混ぜない。
     lines: BTreeMap<Vec<u8>, [[f64; 2]; 2]>,
@@ -123,7 +124,11 @@ fn make_case(index: usize) -> Case {
 }
 
 fn case_from_drawing(drawing: Drawing2D, input_bytes: usize) -> Case {
-    let visits = context(|cx| drawing.walk_parts(Origin::Space(SpaceId(0)), cx).unwrap());
+    case_from_origin(drawing, input_bytes, Origin::Space(SpaceId(0)))
+}
+
+fn case_from_origin(drawing: Drawing2D, input_bytes: usize, origin: Origin) -> Case {
+    let visits = context(|cx| drawing.walk_parts(origin, cx).unwrap());
     let mut lines = BTreeMap::new();
     for visit in &visits {
         if !visit.visible {
@@ -159,6 +164,7 @@ fn case_from_drawing(drawing: Drawing2D, input_bytes: usize) -> Case {
     drop(visits);
     Case {
         drawing,
+        origin,
         input_bytes,
         lines,
         ids,
@@ -169,6 +175,37 @@ fn case_from_drawing(drawing: Drawing2D, input_bytes: usize) -> Case {
 pub fn prepare(index: usize) {
     assert!(index < CASES.len());
     set_case(make_case(index));
+}
+
+/// 公開図面の指定した起点を同じ監査に渡し、読み取りと lift の診断を返す。
+pub fn prepare_cad<C: Codec>(
+    input: &[u8],
+    origin: Origin,
+) -> Result<Vec<zumen_base::Diagnostic>, String>
+where
+    C::File: Lift<Drawing2D>,
+{
+    let (file, mut diagnostics) = testkit::read::<C>(input);
+    let codes = |items: &[zumen_base::Diagnostic]| {
+        items
+            .iter()
+            .map(|d| format!("{}:{}", d.code().name(), d.count()))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let file = file.map_err(|_| format!("図面の読み取り失敗 {}", codes(&diagnostics)))?;
+    let mut lift = Diagnostics::new();
+    let drawing = file.lift(&mut Cx::new(
+        &mut Budget::default(),
+        &mut lift,
+        &CancelToken::new(),
+    ));
+    drop(file);
+    diagnostics.extend(lift.into_vec());
+    let drawing =
+        drawing.map_err(|_| format!("図面モデルに変換できない {}", codes(&diagnostics)))?;
+    set_case(case_from_origin(drawing, input.len(), origin));
+    Ok(diagnostics)
 }
 
 /// 松浦市が配布する 2 つの SFC のみを、従来の入力と同じ監査に渡す。
@@ -220,7 +257,7 @@ pub fn render_with_tolerance(index: usize, tolerance: Option<f64>) {
     let mut guard = STATE.lock().unwrap();
     let state = guard.as_mut().unwrap();
     let options = Options {
-        origin: Origin::Space(SpaceId(0)),
+        origin: state.case.origin,
         tolerance,
         print: false,
         region: None,
