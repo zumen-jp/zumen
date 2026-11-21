@@ -44,6 +44,8 @@ python -I observe.py before.dxf after-color.dxf color
 
 比較には STYLE の拡張データのうち、アプリケーション名が `ACAD` の 1000（書体名）と 1071 を使います。標準書体の値を基準に、上のビット以外も同じかを調べます。Autodesk の STYLE のリファレンスは 1071 に複数の属性が入るとしています。太字・斜体の指定は個別に記録でき、ビット番号はこの実験で確かめます。[STYLE の DXF グループコード](https://help.autodesk.com/cloudhelp/2017/ENU/AutoCAD-DXF/files/GUID-EF68AF7C-13EF-45A1-8175-ED6CE66C8FC9.htm)・[SetFont の Bold と Italic](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-ActiveX-Reference/files/GUID-DB668114-2395-43C6-858C-2F2514C4BF46.htm)
 
+Windows のデスクトップ版 AutoCAD 2027（26.0.118.0.0）の `-STYLE` で、上の 4 スタイルに順に `arial.ttf`・`arialbd.ttf`・`ariali.ttf`・`arialbi.ttf` を指定して DWG に保存しました。別の AutoCAD プロセスで開き直して R2018 ASCII DXF に保存し、`observe.py` の `styles` で比較しました。書体名はいずれも Arial で、1071 は編集前の 34 から、標準 34・太字 33554466・斜体 16777250・太字斜体 50331682 になりました。太字でビット 25、斜体でビット 24 が立ち、ほかのビットは同じでした。保存後の DWG をデスクトップ版と Core Console でそれぞれ再読し、`-STYLE` の一覧でも順に Arial・Arial Bold・Arial Italic・Arial Bold Italic と表示されました。監査は検出・修正とも 0 件です。文字スタイル管理で同じ書体が表示されるかは実機での確認が残ります。
+
 ### MULTILEADER の左右の枝
 
 `Z316_LEADER` 画層には、矢の先が左（−30, 0）と右（30, 0）にあるマルチ引出線が 1 つあります。マルチ引出線を選び、Ctrl キーを使って左の線だけを選択します。下の各行を 1 回ずつ、基準のコピーから始めます。個別に選べない設定は、その版では実施できなかったと記録します。右の線と、マルチ引出線の共通部（`CONTEXT_DATA{` の外）の値も、保存の前後で照らします。照らすのは、線の中の 170・92・340・171・40・341・93 と、共通部の 6・62・370・420・90・91・170・171・341・342・42 で、ほかのグループコードは照らしません。[Autodesk の線ごとの色の設定](https://help.autodesk.com/cloudhelp/2026/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_MLeader_SetLeaderLineColor_int_Color.html)
