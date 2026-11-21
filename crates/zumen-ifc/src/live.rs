@@ -1192,11 +1192,15 @@ impl IfcLive {
     /// 全体を書く保存として IFC-SPF バイト列を書き出す（現行の [`crate::apply`] を順に当てた結果とバイト列一致）
     pub fn save_spf(&self, cx: &mut Cx) -> Result<Vec<u8>, Error> {
         if self.is_clean() {
+            cx.check(Kind::DecodedBytes, self.src.len() as u64)
+                .map_err(|stop| stopped(cx, stop, None))?;
             for record in &self.records {
                 cx.check(Kind::Work, 1)
                     .map_err(|stop| stopped(cx, stop, Some(record.span())))?;
             }
-            let mut out = Vec::with_capacity(self.src.len());
+            let mut out = Vec::new();
+            out.try_reserve_exact(self.src.len())
+                .map_err(|_| Error::Invalid)?;
             for page in 0..self.src.page_count() {
                 self.src.append_page(&mut out, page);
             }
@@ -1204,7 +1208,26 @@ impl IfcLive {
         }
 
         let newline: &[u8] = if self.has_crlf { b"\r\n" } else { b"\n" };
-        let mut out = Vec::with_capacity(self.src.len() + self.added.len() * 96);
+        // 変更した文は編集時に既に直列化してあり、追加と置換を含む保存長を確保前に求められる。
+        let mut output_len = self.src.len() as u64;
+        for (&id, parsed) in &self.parsed_changed {
+            cx.check(Kind::Work, 1)
+                .map_err(|stop| stopped(cx, stop, None))?;
+            if let Some(record) = self.base_instance(id) {
+                output_len -= record.span().len() as u64;
+            } else {
+                output_len += newline.len() as u64;
+            }
+            output_len += parsed.serialized()?.len() as u64;
+        }
+        cx.check(
+            Kind::DecodedBytes,
+            output_len + SourceBytes::PAGE_SIZE as u64,
+        )
+        .map_err(|stop| stopped(cx, stop, None))?;
+        let mut out = Vec::new();
+        out.try_reserve_exact(usize::try_from(output_len).map_err(|_| Error::Invalid)?)
+            .map_err(|_| Error::Invalid)?;
         let mut reader = self.src.page_reader();
         let mut flush_start = 0usize;
         let mut placed = self.added.is_empty();
@@ -1218,8 +1241,8 @@ impl IfcLive {
                 }
                 flush_start = record.span().start;
                 for &id in &self.added {
-                    if let Some(stmt) = self.changed.get(&id) {
-                        write_stmt(id, stmt, &mut out);
+                    if let Some(parsed) = self.parsed_changed.get(&id) {
+                        out.extend_from_slice(parsed.serialized()?);
                         out.extend_from_slice(newline);
                     }
                 }
@@ -1228,13 +1251,13 @@ impl IfcLive {
 
             let modified = record.id().and_then(|id| {
                 let first = self.index.get(&id) == Some(&rec_idx);
-                first.then(|| self.changed.get(&id).map(|stmt| (id, stmt)))?
+                first.then(|| self.parsed_changed.get(&id))?
             });
-            if let Some((id, stmt)) = modified {
+            if let Some(parsed) = modified {
                 if flush_start < record.span().start {
                     reader.append_range(&mut out, flush_start..record.span().start);
                 }
-                write_stmt(id, stmt, &mut out);
+                out.extend_from_slice(parsed.serialized()?);
                 flush_start = record.span().end;
             }
         }
@@ -2746,7 +2769,16 @@ struct ParsedStmt {
     heap_bytes: usize,
 }
 
+const STEP_PREFIX: &[u8] = b"ISO-10303-21;HEADER;ENDSEC;DATA;";
+const STEP_SUFFIX: &[u8] = b"ENDSEC;END-ISO-10303-21;";
+
 impl ParsedStmt {
+    fn serialized(&self) -> Result<&[u8], Error> {
+        self.bytes
+            .get(STEP_PREFIX.len()..self.bytes.len().saturating_sub(STEP_SUFFIX.len()))
+            .ok_or(Error::Invalid)
+    }
+
     fn with_record<R>(&self, f: impl FnOnce(&Record, usize, &[u8]) -> R) -> Option<R> {
         self.record.as_ref().map(|record| f(record, 0, &self.bytes))
     }
@@ -2811,8 +2843,6 @@ fn check_model_record(record: &Record, bytes: &[u8], cx: &mut Cx) -> Result<(), 
 }
 
 fn parse_single_stmt(id: u64, stmt: &Stmt, cx: &mut Cx) -> Result<ParsedStmt, Error> {
-    const STEP_PREFIX: &[u8] = b"ISO-10303-21;HEADER;ENDSEC;DATA;";
-    const STEP_SUFFIX: &[u8] = b"ENDSEC;END-ISO-10303-21;";
     cx.check(Kind::Work, 1 + stmt.name.len().div_ceil(1024) as u64)
         .map_err(|stop| stopped(cx, stop, None))?;
     let capacity = STEP_PREFIX
@@ -3414,6 +3444,53 @@ mod shared_budget_tests {
                 check_model(&live, &bytes);
                 assert!(run(|cx| live.redo(cx)).0.unwrap());
                 check_model(&live, &expected.bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn save_spf_accounts_for_the_output_and_one_edit_page() {
+        let edits = [Edit::Property {
+            element: 10,
+            set: "Additional".into(),
+            name: "Phase".into(),
+            value: NewValue {
+                type_name: "IfcLabel".into(),
+                literal: crate::NewLiteral::Text("construction".into()),
+            },
+        }];
+        for newline in ["\n", "\r\n"] {
+            let bytes = String::from_utf8(fixture())
+                .unwrap()
+                .replace(';', &format!(";{newline}"));
+            let file = run(|cx| Ifc::read(bytes.as_bytes(), cx)).0.unwrap();
+            let edited = run(|cx| crate::apply(&file, &edits, b"save", cx))
+                .0
+                .unwrap();
+            let mut live = run(|cx| IfcLive::open(bytes.as_bytes(), cx)).0.unwrap();
+            for edit in [false, true] {
+                let (expected, page) = if edit {
+                    run(|cx| live.apply(&edits, b"save", cx)).0.unwrap();
+                    (edited.bytes.as_slice(), SourceBytes::PAGE_SIZE)
+                } else {
+                    (bytes.as_bytes(), 0)
+                };
+                let required = (expected.len() + page) as u64;
+                for limit in [required - 1, required] {
+                    let mut budget = Budget::new(
+                        Limits::default().with(Kind::DecodedBytes, Limit::Finite(limit)),
+                    );
+                    let mut diagnostics = Diagnostics::new();
+                    let cancel = CancelToken::new();
+                    let result =
+                        live.save_spf(&mut Cx::new(&mut budget, &mut diagnostics, &cancel));
+                    if limit == required {
+                        assert_eq!(result.unwrap(), expected);
+                        assert_eq!(budget.used(Kind::DecodedBytes), required);
+                    } else {
+                        assert!(matches!(result, Err(Error::Stopped(Stop::Exceeded(_)))));
+                    }
+                }
             }
         }
     }
