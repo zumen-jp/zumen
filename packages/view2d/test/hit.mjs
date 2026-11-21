@@ -61,7 +61,9 @@ export async function testHit({ assert }) {
     set(line([-10, 0, 0, 0, 0, 10]));
     assert(hit(101.2, 101.2) && !hit(101.8, 101.8), "折れ線の round join の扇形を使う");
     set(line([0, 0, 0, 0, 0, 0]));
-    assert(!hit(100, 100, 2), "長さのない butt の線を拾わない");
+    assert(!hit(100, 100, 2) && !rectangle(95, 95, 105, 105), "同じ頂点だけの butt の線は矩形の内部でも拾わない");
+    set({ ...line([70, 0, 80, 0]), chunk_bounds: [70, 0, 80, 0] });
+    assert(!rectangle(190, 90, 270, 110), "矩形が画面端をまたぐ場合も画面外だけの線は拾わない");
 
     viewer.jumpTo({ ...view, scale: 1 });
     set(line([-0.5, 0, 0, 0, 0.5, 0]));
@@ -255,7 +257,18 @@ export async function testHit({ assert }) {
     try { limited.hitTestRect({ min_x: 95, min_y: 95, max_x: 105, max_y: 105 }); } catch (error) { failed = error instanceof RangeError; }
     assert(failed, "輪と境界の反復を問い合わせの作業量に数える");
     assert(limited.getState() === state && await centerOf() === before, "作業量を超えた問い合わせは画面と状態を変えない");
+    const zigzag = Array.from({ length: 80 }, (_, i) => [-10 + i / 4, 5 + i % 2]).flat();
+    limited.setScene(bundle(line(zigzag)));
+    const selected = limited.hitTestRect({ min_x: 80, min_y: 80, max_x: 120, max_y: 120 });
+    assert(selected.length === 1 && selected[0].id === "space/0/h1", "矩形内の折れ線を限られた作業量で選択する");
   } finally { limited.destroy(); }
+  const crossing = await View2D.create(document.createElement("canvas"), { width: 200, height: 200, limits: { work: 1200 } });
+  try {
+    crossing.jumpTo(view);
+    crossing.setScene(bundle(line(Array.from({ length: 80 }, (_, i) => [i - 40, 0]).flat())));
+    const selected = crossing.hitTestRect({ min_x: 99, min_y: 99, max_x: 101, max_y: 101 });
+    assert(selected.length === 1 && selected[0].id === "space/0/h1", "矩形を横切る折れ線の境界判定でも頂点の走査を二重に数えない");
+  } finally { crossing.destroy(); }
   return largeStrokeRaster;
 }
 

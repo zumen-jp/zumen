@@ -4346,6 +4346,66 @@ fn additions_mark_symbols_with_a_grid_as_minsert_blocks() {
 }
 
 #[test]
+fn translation_preserves_the_unequal_weights_of_a_quarter_circle() {
+    use zumen_drawing::{Affine, Edge};
+
+    let input = versioned(
+        "AC1027",
+        &[
+            (0, "SPLINE"),
+            (5, "1A"),
+            (8, "0"),
+            (70, "4"),
+            (71, "2"),
+            (72, "6"),
+            (73, "3"),
+            (74, "0"),
+            (40, "0"),
+            (40, "0"),
+            (40, "0"),
+            (40, "1"),
+            (40, "1"),
+            (40, "1"),
+            (10, "12"),
+            (20, "0"),
+            (41, "1"),
+            (10, "12"),
+            (20, "12"),
+            (41, "0.7071067811865476"),
+            (10, "0"),
+            (20, "12"),
+            (41, "1"),
+        ],
+    );
+    let before = testkit::read::<Dxf>(&input).0.unwrap();
+    let (target, _) = seen(&lift(&before)).remove(0);
+    let (result, codes, saved) = changed(
+        &input,
+        vec![zumen_drawing::Edit::Transform {
+            target,
+            transform: Affine::translation(10.0, 20.0),
+        }],
+    );
+    assert_eq!(result, Ok(()), "{codes:?}");
+    let file = testkit::read::<Dxf>(&saved).0.unwrap();
+    let drawing = lift(&file);
+    let Shape::Curve(Edge::Spline(spline)) = &elements(&drawing)[0].shape else {
+        panic!()
+    };
+    assert_eq!(spline.degree, 2);
+    assert_eq!(spline.knots, [0., 0., 0., 1., 1., 1.]);
+    assert_eq!(spline.weights, [1., std::f64::consts::FRAC_1_SQRT_2, 1.]);
+    assert_eq!(
+        spline
+            .control
+            .iter()
+            .map(|p| (p.x, p.y))
+            .collect::<Vec<_>>(),
+        [(22., 20.), (22., 32.), (10., 32.)]
+    );
+}
+
+#[test]
 fn translation_moves_spline_fit_points_and_preserves_tangents() {
     use zumen_drawing::{Affine, Edge};
 
