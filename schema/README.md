@@ -105,6 +105,8 @@ DXF のバージョン・既定の表・空間と用紙は、[新規作成の規
 
 スキーマ 1.84 から、図面のモジュールで `delivery_apply` を使えます。`zm_push` した管理 XML の `input` と `edits` を渡すと、変更後の XML を 1 個の `file` blob で返します。結果は `input`・変更後の `hash`・変更数の `applied` です。入力の登録内容は変えません。blob を取り出し、`close` の `inputs` で元の登録を捨ててから同じ名前で `zm_push` し、`delivery_check` で成果品全体を照らせます。
 
+スキーマ 1.115 から `profiles` と `profile`（系統と版）を渡すと、`result.validation` で編集後の各項目を照合できます。`checks` は変更番号・規則・出力 XML のバイト範囲・結果と理由、`unchecked` は照合対象外の範囲を示します。違反があっても編集したファイルを取り出せます。[内容規則の書き方と対象範囲](../docs/formats/delivery.md#版を選んで編集内容を照らす)
+
 ```json
 {"v":1,"op":"delivery_apply","input":"納品/INDEX_C.XML","edits":[{"kind":"set_text","path":[{"name":"基礎情報"},{"name":"工事名称"}],"value":"道路改良工事"},{"kind":"append","path":[{"name":"基礎情報"}],"child":{"name":"備考","value":"確認済み"}}]}
 ```

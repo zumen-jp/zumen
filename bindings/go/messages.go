@@ -8679,6 +8679,12 @@ type DeliveryApplyRequest struct {
 
 	// 指定する順の変更。同じ親への追加は順序を保つ
 	Edits []DeliveryEdit `json:"edits,omitempty"`
+
+	// 版の照合に使うプロファイルと継承元の入力名
+	Profiles []string `json:"profiles,omitempty"`
+
+	// 編集後に照らす基準の系統と版。省略すると編集だけを行う
+	Profile *ProfileRef `json:"profile,omitempty"`
 }
 
 // MarshalJSON は、タグのフィールドを入れて書く。
@@ -8698,6 +8704,42 @@ type DeliveryApplyResult struct {
 
 	// 適用した変更の数
 	Applied *int64 `json:"applied,omitempty"`
+
+	// 版を指定したときの部分照合。違反があっても編集後のファイルを返す
+	Validation *DeliveryEditValidation `json:"validation,omitempty"`
+}
+
+// DeliveryEditValidation: 指定版で編集した箇所を照らした結果。マイナーバージョン 115 から
+type DeliveryEditValidation struct {
+	// 解決したプロファイルを継承元から並べた列
+	Chain []ProfileIdentity `json:"chain,omitempty"`
+
+	// 変更と規則の順に並べた結果
+	Checks []DeliveryEditCheck `json:"checks,omitempty"`
+
+	// 照合の対象外。子の順序と最小数、属性、追加した部分木の内容、変更していない項目
+	Unchecked []string `json:"unchecked,omitempty"`
+}
+
+// DeliveryEditCheck: 変更に対する版ごとの規則と出力 XML のバイト範囲
+type DeliveryEditCheck struct {
+	// edits の位置。0 から数える
+	Edit *int64 `json:"edit,omitempty"`
+
+	// matched・violated・unchecked のいずれか
+	Status *string `json:"status,omitempty"`
+
+	// 照らした text・child_count、または確認できない理由
+	Reason *string `json:"reason,omitempty"`
+
+	// 照らした規則の ID。該当する規則がなければ省略する
+	Rule *string `json:"rule,omitempty"`
+
+	// 変更後の対象要素の最初のバイト
+	Start *int64 `json:"start,omitempty"`
+
+	// 変更後の対象要素の末尾の次のバイト
+	End *int64 `json:"end,omitempty"`
 }
 
 // DeliveryPathStep: 根からたどる子。接頭辞を含む名前で区別する

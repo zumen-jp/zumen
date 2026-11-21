@@ -10693,6 +10693,14 @@ class DeliveryApplyRequest extends Message {
   /// 指定する順の変更。同じ親への追加は順序を保つ
   List<DeliveryEdit>? get edits => readField('edits', listOf(objectOf(DeliveryEdit.fromJson)));
   set edits(List<DeliveryEdit>? value) => writeField('edits', value);
+
+  /// 版の照合に使うプロファイルと継承元の入力名
+  List<String>? get profiles => readField('profiles', listOf(asString));
+  set profiles(List<String>? value) => writeField('profiles', value);
+
+  /// 編集後に照らす基準の系統と版。省略すると編集だけを行う
+  ProfileRef? get profile => readField('profile', objectOf(ProfileRef.fromJson));
+  set profile(ProfileRef? value) => writeField('profile', value);
 }
 
 /// 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない
@@ -10714,6 +10722,64 @@ class DeliveryApplyResult extends Message {
   /// 適用した変更の数
   core.int? get applied => readField('applied', asInt);
   set applied(core.int? value) => writeField('applied', value);
+
+  /// 版を指定したときの部分照合。違反があっても編集後のファイルを返す
+  DeliveryEditValidation? get validation => readField('validation', objectOf(DeliveryEditValidation.fromJson));
+  set validation(DeliveryEditValidation? value) => writeField('validation', value);
+}
+
+/// 指定版で編集した箇所を照らした結果。マイナーバージョン 115 から
+class DeliveryEditValidation extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliveryEditValidation.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeliveryEditValidation() : super({});
+
+  /// 解決したプロファイルを継承元から並べた列
+  List<ProfileIdentity>? get chain => readField('chain', listOf(objectOf(ProfileIdentity.fromJson)));
+  set chain(List<ProfileIdentity>? value) => writeField('chain', value);
+
+  /// 変更と規則の順に並べた結果
+  List<DeliveryEditCheck>? get checks => readField('checks', listOf(objectOf(DeliveryEditCheck.fromJson)));
+  set checks(List<DeliveryEditCheck>? value) => writeField('checks', value);
+
+  /// 照合の対象外。子の順序と最小数、属性、追加した部分木の内容、変更していない項目
+  List<String>? get unchecked => readField('unchecked', listOf(asString));
+  set unchecked(List<String>? value) => writeField('unchecked', value);
+}
+
+/// 変更に対する版ごとの規則と出力 XML のバイト範囲
+class DeliveryEditCheck extends Message {
+  /// 読んだ JSON のオブジェクトを包む
+  DeliveryEditCheck.fromJson(super.json);
+
+  /// 空のオブジェクトから作る
+  DeliveryEditCheck() : super({});
+
+  /// edits の位置。0 から数える
+  core.int? get edit => readField('edit', asInt);
+  set edit(core.int? value) => writeField('edit', value);
+
+  /// matched・violated・unchecked のいずれか
+  String? get status => readField('status', asString);
+  set status(String? value) => writeField('status', value);
+
+  /// 照らした text・child_count、または確認できない理由
+  String? get reason => readField('reason', asString);
+  set reason(String? value) => writeField('reason', value);
+
+  /// 照らした規則の ID。該当する規則がなければ省略する
+  String? get rule => readField('rule', asString);
+  set rule(String? value) => writeField('rule', value);
+
+  /// 変更後の対象要素の最初のバイト
+  core.int? get start => readField('start', asInt);
+  set start(core.int? value) => writeField('start', value);
+
+  /// 変更後の対象要素の末尾の次のバイト
+  core.int? get end => readField('end', asInt);
+  set end(core.int? value) => writeField('end', value);
 }
 
 /// 根からたどる子。接頭辞を含む名前で区別する

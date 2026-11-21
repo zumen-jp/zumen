@@ -1,0 +1,288 @@
+{
+  "description": "版を選んで文字と子の数を照らし、違反があっても変更後の XML を取り出す。",
+  "module": "drawing",
+  "steps": [
+    {
+      "push": {
+        "name": "test.xml",
+        "text": "<!DOCTYPE root SYSTEM \"one.dtd\"><root><!--keep--><group/><note>old</note></root>"
+      }
+    },
+    {
+      "push": {
+        "name": "edition",
+        "text": "{\"format\":\"0.1\",\"id\":\"synthetic\",\"edition\":\"1\",\"revision\":1,\"license\":\"MIT\",\"sources\":{},\"rules\":[{\"id\":\"group\",\"check\":\"delivery-edit-content\",\"doctype\":\"one.dtd\",\"element\":\"group\",\"text\":\"whitespace\",\"children\":{\"item\":\"unbounded\"},\"level\":\"error\",\"source\":{\"basis\":\"chosen\"}},{\"id\":\"note\",\"check\":\"delivery-edit-content\",\"doctype\":\"one.dtd\",\"element\":\"note\",\"text\":\"any\",\"children\":{},\"level\":\"error\",\"source\":{\"basis\":\"chosen\"}},{\"id\":\"root\",\"check\":\"delivery-edit-content\",\"doctype\":\"one.dtd\",\"element\":\"root\",\"text\":\"whitespace\",\"children\":{\"group\":1,\"note\":\"unbounded\"},\"level\":\"error\",\"source\":{\"basis\":\"chosen\"}}]}"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "delivery_apply",
+        "input": "test.xml",
+        "edits": [
+          {
+            "kind": "set_text",
+            "path": [
+              {
+                "name": "group"
+              }
+            ],
+            "value": "X"
+          }
+        ],
+        "profiles": [
+          "edition"
+        ],
+        "profile": {
+          "id": "synthetic",
+          "edition": "1"
+        }
+      },
+      "expect": {
+        "/result/applied": 1,
+        "/diagnostics": [],
+        "/result/validation/unchecked": [
+          "child_order",
+          "child_minimum",
+          "attributes",
+          "inserted_subtree",
+          "unchanged_items"
+        ],
+        "/result/validation/checks/0/edit": 0,
+        "/result/validation/checks/0/status": "violated",
+        "/result/validation/checks/0/reason": "text",
+        "/result/validation/checks/0/rule": "group",
+        "/result/validation/checks/0/start": 49,
+        "/result/validation/checks/0/end": 65
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "delivery_apply",
+        "input": "test.xml",
+        "edits": [
+          {
+            "kind": "append",
+            "path": [],
+            "child": {
+              "name": "group"
+            }
+          }
+        ],
+        "profiles": [
+          "edition"
+        ],
+        "profile": {
+          "id": "synthetic",
+          "edition": "1"
+        }
+      },
+      "expect": {
+        "/result/applied": 1,
+        "/diagnostics": [],
+        "/result/validation/unchecked": [
+          "child_order",
+          "child_minimum",
+          "attributes",
+          "inserted_subtree",
+          "unchanged_items"
+        ],
+        "/result/validation/checks/0/edit": 0,
+        "/result/validation/checks/0/status": "violated",
+        "/result/validation/checks/0/reason": "child_count",
+        "/result/validation/checks/0/rule": "root",
+        "/result/validation/checks/0/start": 32,
+        "/result/validation/checks/0/end": 88
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "delivery_apply",
+        "input": "test.xml",
+        "edits": [
+          {
+            "kind": "set_text",
+            "path": [
+              {
+                "name": "note"
+              }
+            ],
+            "value": "new"
+          }
+        ],
+        "profiles": [
+          "edition"
+        ],
+        "profile": {
+          "id": "synthetic",
+          "edition": "1"
+        }
+      },
+      "expect": {
+        "/result/applied": 1,
+        "/diagnostics": [],
+        "/result/validation/unchecked": [
+          "child_order",
+          "child_minimum",
+          "attributes",
+          "inserted_subtree",
+          "unchanged_items"
+        ],
+        "/result/validation/checks/0/edit": 0,
+        "/result/validation/checks/0/status": "matched",
+        "/result/validation/checks/0/reason": "text",
+        "/result/validation/checks/0/rule": "note",
+        "/result/validation/checks/0/start": 57,
+        "/result/validation/checks/0/end": 73
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "delivery_apply",
+        "input": "test.xml",
+        "edits": [
+          {
+            "kind": "append",
+            "path": [],
+            "child": {
+              "name": "note"
+            }
+          }
+        ],
+        "profiles": [
+          "edition"
+        ],
+        "profile": {
+          "id": "synthetic",
+          "edition": "1"
+        }
+      },
+      "expect": {
+        "/result/applied": 1,
+        "/diagnostics": [],
+        "/result/validation/unchecked": [
+          "child_order",
+          "child_minimum",
+          "attributes",
+          "inserted_subtree",
+          "unchanged_items"
+        ],
+        "/result/validation/checks/0/edit": 0,
+        "/result/validation/checks/0/status": "matched",
+        "/result/validation/checks/0/reason": "child_count",
+        "/result/validation/checks/0/rule": "root",
+        "/result/validation/checks/0/start": 32,
+        "/result/validation/checks/0/end": 87
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "delivery_apply",
+        "input": "test.xml",
+        "edits": [
+          {
+            "kind": "set_text",
+            "path": [
+              {
+                "name": "note"
+              }
+            ],
+            "value": "new"
+          }
+        ],
+        "profiles": [
+          "edition"
+        ],
+        "profile": {
+          "id": "synthetic",
+          "edition": "2"
+        }
+      },
+      "expect": {
+        "/result/applied": 1,
+        "/diagnostics": [],
+        "/result/validation/unchecked": [
+          "child_order",
+          "child_minimum",
+          "attributes",
+          "inserted_subtree",
+          "unchanged_items"
+        ],
+        "/result/validation/checks/0/edit": 0,
+        "/result/validation/checks/0/status": "unchecked",
+        "/result/validation/checks/0/reason": "profile_not_found",
+        "/result/validation/checks/0/start": 57,
+        "/result/validation/checks/0/end": 73
+      }
+    },
+    {
+      "take": 0
+    },
+    {
+      "push": {
+        "name": "empty",
+        "text": "{\"format\":\"0.1\",\"id\":\"synthetic\",\"edition\":\"1\",\"revision\":1,\"license\":\"MIT\",\"sources\":{},\"rules\":[]}"
+      }
+    },
+    {
+      "call": {
+        "v": 1,
+        "op": "delivery_apply",
+        "input": "test.xml",
+        "edits": [
+          {
+            "kind": "set_text",
+            "path": [
+              {
+                "name": "note"
+              }
+            ],
+            "value": "new"
+          }
+        ],
+        "profiles": [
+          "empty"
+        ],
+        "profile": {
+          "id": "synthetic",
+          "edition": "1"
+        }
+      },
+      "expect": {
+        "/result/applied": 1,
+        "/diagnostics": [],
+        "/result/validation/unchecked": [
+          "child_order",
+          "child_minimum",
+          "attributes",
+          "inserted_subtree",
+          "unchanged_items"
+        ],
+        "/result/validation/checks/0/edit": 0,
+        "/result/validation/checks/0/status": "unchecked",
+        "/result/validation/checks/0/reason": "no_rule",
+        "/result/validation/checks/0/start": 57,
+        "/result/validation/checks/0/end": 73
+      }
+    },
+    {
+      "take": 0
+    }
+  ]
+}

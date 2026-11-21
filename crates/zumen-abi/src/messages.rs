@@ -24074,6 +24074,10 @@ pub struct DeliveryApplyRequest {
     pub hash: Option<String>,
     /// 指定する順の変更。同じ親への追加は順序を保つ
     pub edits: Vec<DeliveryEdit>,
+    /// 版の照合に使うプロファイルと継承元の入力名
+    pub profiles: Option<Vec<String>>,
+    /// 編集後に照らす基準の系統と版。省略すると編集だけを行う
+    pub profile: Option<ProfileRef>,
 }
 
 impl DeliveryApplyRequest {
@@ -24084,11 +24088,15 @@ impl DeliveryApplyRequest {
         let hash = object.optional("hash", json::string)?;
         let edits =
             object.required("edits", |value| json::array(value, DeliveryEdit::from_json))?;
+        let profiles = object.optional("profiles", |value| json::array(value, json::string))?;
+        let profile = object.optional("profile", ProfileRef::from_json)?;
         Ok(Self {
             request_common,
             input,
             hash,
             edits,
+            profiles,
+            profile,
         })
     }
 
@@ -24104,6 +24112,14 @@ impl DeliveryApplyRequest {
         }
         out.key("edits");
         out.array(&self.edits, |out, item| item.to_json(out));
+        if let Some(value) = &self.profiles {
+            out.key("profiles");
+            out.array(value, |out, item| out.string(item));
+        }
+        if let Some(value) = &self.profile {
+            out.key("profile");
+            value.to_json(out);
+        }
     }
 }
 
@@ -24133,6 +24149,8 @@ pub struct DeliveryApplyResult {
     pub hash: String,
     /// 適用した変更の数
     pub applied: u64,
+    /// 版を指定したときの部分照合。違反があっても編集後のファイルを返す
+    pub validation: Option<DeliveryEditValidation>,
 }
 
 impl DeliveryApplyResult {
@@ -24140,10 +24158,12 @@ impl DeliveryApplyResult {
         let input = object.required("input", json::string)?;
         let hash = object.required("hash", json::string)?;
         let applied = object.required("applied", |value| json::uint(value, 0, 9007199254740991))?;
+        let validation = object.optional("validation", DeliveryEditValidation::from_json)?;
         Ok(Self {
             input,
             hash,
             applied,
+            validation,
         })
     }
 
@@ -24154,6 +24174,10 @@ impl DeliveryApplyResult {
         out.string(&self.hash);
         out.key("applied");
         out.uint(self.applied);
+        if let Some(value) = &self.validation {
+            out.key("validation");
+            value.to_json(out);
+        }
     }
 }
 
@@ -24167,6 +24191,130 @@ impl FromJson for DeliveryApplyResult {
 }
 
 impl ToJson for DeliveryApplyResult {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 指定版で編集した箇所を照らした結果。マイナーバージョン 115 から
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliveryEditValidation {
+    /// 解決したプロファイルを継承元から並べた列
+    pub chain: Vec<ProfileIdentity>,
+    /// 変更と規則の順に並べた結果
+    pub checks: Vec<DeliveryEditCheck>,
+    /// 照合の対象外。子の順序と最小数、属性、追加した部分木の内容、変更していない項目
+    pub unchecked: Vec<String>,
+}
+
+impl DeliveryEditValidation {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let chain = object.required("chain", |value| {
+            json::array(value, ProfileIdentity::from_json)
+        })?;
+        let checks = object.required("checks", |value| {
+            json::array(value, DeliveryEditCheck::from_json)
+        })?;
+        let unchecked = object.required("unchecked", |value| json::array(value, json::string))?;
+        Ok(Self {
+            chain,
+            checks,
+            unchecked,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("chain");
+        out.array(&self.chain, |out, item| item.to_json(out));
+        out.key("checks");
+        out.array(&self.checks, |out, item| item.to_json(out));
+        out.key("unchecked");
+        out.array(&self.unchecked, |out, item| out.string(item));
+    }
+}
+
+impl FromJson for DeliveryEditValidation {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliveryEditValidation {
+    fn to_json(&self, out: &mut Writer) {
+        out.begin_object();
+        self.write_fields(out);
+        out.end_object();
+    }
+}
+
+/// 変更に対する版ごとの規則と出力 XML のバイト範囲
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeliveryEditCheck {
+    /// edits の位置。0 から数える
+    pub edit: u64,
+    /// matched・violated・unchecked のいずれか
+    pub status: String,
+    /// 照らした text・child_count、または確認できない理由
+    pub reason: String,
+    /// 照らした規則の ID。該当する規則がなければ省略する
+    pub rule: Option<String>,
+    /// 変更後の対象要素の最初のバイト
+    pub start: u64,
+    /// 変更後の対象要素の末尾の次のバイト
+    pub end: u64,
+}
+
+impl DeliveryEditCheck {
+    fn read_fields(object: &mut ObjectReader<'_>) -> Result<Self, Invalid> {
+        let edit = object.required("edit", |value| json::uint(value, 0, 9007199254740991))?;
+        let status = object.required("status", json::string)?;
+        let reason = object.required("reason", json::string)?;
+        let rule = object.optional("rule", json::string)?;
+        let start = object.required("start", |value| json::uint(value, 0, 9007199254740991))?;
+        let end = object.required("end", |value| json::uint(value, 0, 9007199254740991))?;
+        Ok(Self {
+            edit,
+            status,
+            reason,
+            rule,
+            start,
+            end,
+        })
+    }
+
+    fn write_fields(&self, out: &mut Writer) {
+        out.key("edit");
+        out.uint(self.edit);
+        out.key("status");
+        out.string(&self.status);
+        out.key("reason");
+        out.string(&self.reason);
+        if let Some(value) = &self.rule {
+            out.key("rule");
+            out.string(value);
+        }
+        out.key("start");
+        out.uint(self.start);
+        out.key("end");
+        out.uint(self.end);
+    }
+}
+
+impl FromJson for DeliveryEditCheck {
+    fn from_json(value: &Value) -> Result<Self, Invalid> {
+        let mut object = ObjectReader::new(value)?;
+        let this = Self::read_fields(&mut object)?;
+        object.finish()?;
+        Ok(this)
+    }
+}
+
+impl ToJson for DeliveryEditCheck {
     fn to_json(&self, out: &mut Writer) {
         out.begin_object();
         self.write_fields(out);

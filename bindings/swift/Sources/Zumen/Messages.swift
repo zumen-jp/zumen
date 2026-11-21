@@ -16502,6 +16502,18 @@ public struct DeliveryApplyRequest: Message {
         get { readField("edits") }
         set { writeField("edits", newValue) }
     }
+
+    /// 版の照合に使うプロファイルと継承元の入力名
+    public var profiles: [String]? {
+        get { readField("profiles") }
+        set { writeField("profiles", newValue) }
+    }
+
+    /// 編集後に照らす基準の系統と版。省略すると編集だけを行う
+    public var profile: ProfileRef? {
+        get { readField("profile") }
+        set { writeField("profile", newValue) }
+    }
 }
 
 /// 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない
@@ -16535,6 +16547,98 @@ public struct DeliveryApplyResult: Message {
     public var applied: Int64? {
         get { readField("applied") }
         set { writeField("applied", newValue) }
+    }
+
+    /// 版を指定したときの部分照合。違反があっても編集後のファイルを返す
+    public var validation: DeliveryEditValidation? {
+        get { readField("validation") }
+        set { writeField("validation", newValue) }
+    }
+}
+
+/// 指定版で編集した箇所を照らした結果。マイナーバージョン 115 から
+public struct DeliveryEditValidation: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// 解決したプロファイルを継承元から並べた列
+    public var chain: [ProfileIdentity]? {
+        get { readField("chain") }
+        set { writeField("chain", newValue) }
+    }
+
+    /// 変更と規則の順に並べた結果
+    public var checks: [DeliveryEditCheck]? {
+        get { readField("checks") }
+        set { writeField("checks", newValue) }
+    }
+
+    /// 照合の対象外。子の順序と最小数、属性、追加した部分木の内容、変更していない項目
+    public var unchecked: [String]? {
+        get { readField("unchecked") }
+        set { writeField("unchecked", newValue) }
+    }
+}
+
+/// 変更に対する版ごとの規則と出力 XML のバイト範囲
+public struct DeliveryEditCheck: Message {
+    /// 包んでいる JSON のオブジェクト
+    public var json: [String: JSON]
+
+    /// 読んだ JSON のオブジェクトを包む
+    public init(json: [String: JSON]) {
+        self.json = json
+    }
+
+    /// 空のオブジェクトから作る
+    public init() {
+        json = [:]
+    }
+
+    /// edits の位置。0 から数える
+    public var edit: Int64? {
+        get { readField("edit") }
+        set { writeField("edit", newValue) }
+    }
+
+    /// matched・violated・unchecked のいずれか
+    public var status: String? {
+        get { readField("status") }
+        set { writeField("status", newValue) }
+    }
+
+    /// 照らした text・child_count、または確認できない理由
+    public var reason: String? {
+        get { readField("reason") }
+        set { writeField("reason", newValue) }
+    }
+
+    /// 照らした規則の ID。該当する規則がなければ省略する
+    public var rule: String? {
+        get { readField("rule") }
+        set { writeField("rule", newValue) }
+    }
+
+    /// 変更後の対象要素の最初のバイト
+    public var start: Int64? {
+        get { readField("start") }
+        set { writeField("start", newValue) }
+    }
+
+    /// 変更後の対象要素の末尾の次のバイト
+    public var end: Int64? {
+        get { readField("end") }
+        set { writeField("end", newValue) }
     }
 }
 

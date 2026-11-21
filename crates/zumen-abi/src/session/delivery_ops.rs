@@ -79,7 +79,73 @@ impl Session {
                 })
             })
             .collect::<Result<Vec<_>, Failed>>()?;
-        let bytes = zumen_delivery::write_xml(source, &edits, cx).map_err(|_| Failed)?;
+        let resolved = match &request.profile {
+            Some(profile) => {
+                let names = request.profiles.as_deref().unwrap_or_default();
+                cx.check(Kind::DecodedBytes, (names.len() as u64).saturating_mul(32))
+                    .map_err(|stop| stopped(cx, stop))?;
+                let profiles = names
+                    .iter()
+                    .enumerate()
+                    .map(|(index, name)| {
+                        Ok((
+                            name.as_str(),
+                            self.input(name, &format!("/profiles/{index}"), cx)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, Failed>>()?;
+                match zumen_profile::rules(&profiles, &profile.id, &profile.edition, cx) {
+                    Ok(resolved) => Some(resolved),
+                    Err(zumen_profile::Error::NotFound) => Some((Vec::new(), Vec::new())),
+                    Err(error) => return Err(crate::check::profile_failed(cx, error)),
+                }
+            }
+            None if request.profiles.is_some() => return Err(fail(cx, invalid_value("/profile"))),
+            None => None,
+        };
+        let rules = resolved.as_ref().map(|(_, rules)| rules.as_slice());
+        let (bytes, checks) =
+            zumen_delivery::write_xml_checked(source, &edits, rules, cx).map_err(|_| Failed)?;
+        let validation = if let Some((chain, _)) = resolved {
+            cx.check(
+                Kind::DecodedBytes,
+                (checks.len() as u64)
+                    .saturating_mul(192)
+                    .saturating_add(384),
+            )
+            .map_err(|stop| stopped(cx, stop))?;
+            let missing = chain.is_empty();
+            Some(messages::DeliveryEditValidation {
+                chain: chain.into_iter().map(crate::check::identity_of).collect(),
+                checks: checks
+                    .into_iter()
+                    .map(|check| messages::DeliveryEditCheck {
+                        edit: check.edit,
+                        rule: check.rule,
+                        status: check.status.into(),
+                        reason: if missing {
+                            "profile_not_found"
+                        } else {
+                            check.reason
+                        }
+                        .into(),
+                        start: check.start,
+                        end: check.end,
+                    })
+                    .collect(),
+                unchecked: [
+                    "child_order",
+                    "child_minimum",
+                    "attributes",
+                    "inserted_subtree",
+                    "unchanged_items",
+                ]
+                .map(str::to_owned)
+                .into(),
+            })
+        } else {
+            None
+        };
         let hash = Hash::document_checked(&bytes, cx).map_err(|stop| stopped(cx, stop))?;
         self.blobs.push(Some(Blob {
             kind: BlobKind::File,
@@ -89,6 +155,7 @@ impl Session {
             input: request.input.clone(),
             hash: hash.to_string(),
             applied: request.edits.len() as u64,
+            validation,
         })
     }
 

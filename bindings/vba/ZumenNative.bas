@@ -13,7 +13,7 @@ End Type
 Public Const ZM_PACKAGE_VERSION As String = "0.3.0"
 Public Const ZM_EXPECTED_ABI_VERSION As Long = 1
 Public Const ZM_SCHEMA_VERSION_MAJOR As Long = 1
-Public Const ZM_SCHEMA_VERSION_MINOR As Long = 114
+Public Const ZM_SCHEMA_VERSION_MINOR As Long = 115
 Public Const ZM_OK As Long = 0
 Public Const ZM_FAILED As Long = 1
 Public Const ZM_INVALID As Long = 2

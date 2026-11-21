@@ -4,6 +4,8 @@ use super::{Cx, Diagnostic, Diagnostics, Error, Kind, Ref, codes, stopped};
 use zumen_xml::{Document, Edit as XmlEdit, Element, Node};
 
 pub use zumen_xml::NewElement;
+mod validation;
+pub use validation::EditCheck;
 
 /// 根からたどる子の指定。名前は接頭辞を含めて区別する。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,6 +38,16 @@ pub enum Edit<'a> {
 /// 宣言・属性・DTD・未変更の範囲を保ち、変更後の XML を同じ予算で再読してから返す。
 /// DTD の取得や検証はしない。失敗や中断では結果を返さない。
 pub fn write_xml(src: &[u8], edits: &[Edit<'_>], cx: &mut Cx<'_>) -> Result<Vec<u8>, Error> {
+    write_xml_checked(src, edits, None, cx).map(|(bytes, _)| bytes)
+}
+
+/// 指定された版の規則で、変更後の項目の文字・追加した子の出現回数を検査する。
+pub fn write_xml_checked(
+    src: &[u8],
+    edits: &[Edit<'_>],
+    rules: Option<&[(String, zumen_json::Value)]>,
+    cx: &mut Cx<'_>,
+) -> Result<(Vec<u8>, Vec<EditCheck>), Error> {
     let doc = read(src, true, cx)?;
     cx.check(Kind::Work, edits.len() as u64)
         .map_err(|stop| stopped(cx, stop))?;
@@ -55,9 +67,13 @@ pub fn write_xml(src: &[u8], edits: &[Edit<'_>], cx: &mut Cx<'_>) -> Result<Vec<
         });
     }
     let bytes = zumen_xml::write(&doc, &resolved, cx)?;
-    read(&bytes, false, cx)?;
+    let written = read(&bytes, false, cx)?;
+    let checks = match rules {
+        Some(rules) => validation::check(&written, edits, rules, cx)?,
+        None => Vec::new(),
+    };
     cx.check(Kind::Work, 0).map_err(|stop| stopped(cx, stop))?;
-    Ok(bytes)
+    Ok((bytes, checks))
 }
 
 fn read(src: &[u8], report: bool, cx: &mut Cx<'_>) -> Result<Document, Error> {

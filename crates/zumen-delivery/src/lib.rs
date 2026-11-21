@@ -15,7 +15,7 @@ mod check;
 mod write;
 
 pub use check::{Report, check};
-pub use write::{Edit, NewElement, PathStep, write_xml};
+pub use write::{Edit, EditCheck, NewElement, PathStep, write_xml, write_xml_checked};
 
 /// 成果品
 #[derive(Clone, Debug, Default, PartialEq)]

@@ -26770,6 +26770,28 @@ public final class Messages {
             put("edits", value);
             return this;
         }
+
+        /** 版の照合に使うプロファイルと継承元の入力名 */
+        public List<String> getProfiles() {
+            return Json.read(json.get("profiles"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getProfiles()} を書く。null ならフィールドを除く */
+        public DeliveryApplyRequest withProfiles(List<String> value) {
+            put("profiles", value);
+            return this;
+        }
+
+        /** 編集後に照らす基準の系統と版。省略すると編集だけを行う */
+        public ProfileRef getProfile() {
+            return Json.read(json.get("profile"), ProfileRef::of);
+        }
+
+        /** {@link #getProfile()} を書く。null ならフィールドを除く */
+        public DeliveryApplyRequest withProfile(ProfileRef value) {
+            put("profile", value);
+            return this;
+        }
     }
 
     /** 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない */
@@ -26820,6 +26842,154 @@ public final class Messages {
         /** {@link #getApplied()} を書く。null ならフィールドを除く */
         public DeliveryApplyResult withApplied(Long value) {
             put("applied", value);
+            return this;
+        }
+
+        /** 版を指定したときの部分照合。違反があっても編集後のファイルを返す */
+        public DeliveryEditValidation getValidation() {
+            return Json.read(json.get("validation"), DeliveryEditValidation::of);
+        }
+
+        /** {@link #getValidation()} を書く。null ならフィールドを除く */
+        public DeliveryApplyResult withValidation(DeliveryEditValidation value) {
+            put("validation", value);
+            return this;
+        }
+    }
+
+    /** 指定版で編集した箇所を照らした結果。マイナーバージョン 115 から */
+    public static final class DeliveryEditValidation extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliveryEditValidation(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliveryEditValidation of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliveryEditValidation(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeliveryEditValidation() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** 解決したプロファイルを継承元から並べた列 */
+        public List<ProfileIdentity> getChain() {
+            return Json.read(json.get("chain"), v0 -> Json.list(v0, ProfileIdentity::of));
+        }
+
+        /** {@link #getChain()} を書く。null ならフィールドを除く */
+        public DeliveryEditValidation withChain(List<ProfileIdentity> value) {
+            put("chain", value);
+            return this;
+        }
+
+        /** 変更と規則の順に並べた結果 */
+        public List<DeliveryEditCheck> getChecks() {
+            return Json.read(json.get("checks"), v0 -> Json.list(v0, DeliveryEditCheck::of));
+        }
+
+        /** {@link #getChecks()} を書く。null ならフィールドを除く */
+        public DeliveryEditValidation withChecks(List<DeliveryEditCheck> value) {
+            put("checks", value);
+            return this;
+        }
+
+        /** 照合の対象外。子の順序と最小数、属性、追加した部分木の内容、変更していない項目 */
+        public List<String> getUnchecked() {
+            return Json.read(json.get("unchecked"), v0 -> Json.list(v0, Json::string));
+        }
+
+        /** {@link #getUnchecked()} を書く。null ならフィールドを除く */
+        public DeliveryEditValidation withUnchecked(List<String> value) {
+            put("unchecked", value);
+            return this;
+        }
+    }
+
+    /** 変更に対する版ごとの規則と出力 XML のバイト範囲 */
+    public static final class DeliveryEditCheck extends Message {
+        /** 読んだ JSON のオブジェクトを包む */
+        public DeliveryEditCheck(Map<String, Object> json) {
+            super(json);
+        }
+
+        /** JSON の値を包む。オブジェクトでなければ null */
+        public static DeliveryEditCheck of(Object value) {
+            Map<String, Object> json = Json.object(value);
+            return json == null ? null : new DeliveryEditCheck(json);
+        }
+
+        /** 空のオブジェクトから作る */
+        public DeliveryEditCheck() {
+            super(new LinkedHashMap<String, Object>());
+        }
+
+        /** edits の位置。0 から数える */
+        public Long getEdit() {
+            return Json.read(json.get("edit"), Json::integer);
+        }
+
+        /** {@link #getEdit()} を書く。null ならフィールドを除く */
+        public DeliveryEditCheck withEdit(Long value) {
+            put("edit", value);
+            return this;
+        }
+
+        /** matched・violated・unchecked のいずれか */
+        public String getStatus() {
+            return Json.read(json.get("status"), Json::string);
+        }
+
+        /** {@link #getStatus()} を書く。null ならフィールドを除く */
+        public DeliveryEditCheck withStatus(String value) {
+            put("status", value);
+            return this;
+        }
+
+        /** 照らした text・child_count、または確認できない理由 */
+        public String getReason() {
+            return Json.read(json.get("reason"), Json::string);
+        }
+
+        /** {@link #getReason()} を書く。null ならフィールドを除く */
+        public DeliveryEditCheck withReason(String value) {
+            put("reason", value);
+            return this;
+        }
+
+        /** 照らした規則の ID。該当する規則がなければ省略する */
+        public String getRule() {
+            return Json.read(json.get("rule"), Json::string);
+        }
+
+        /** {@link #getRule()} を書く。null ならフィールドを除く */
+        public DeliveryEditCheck withRule(String value) {
+            put("rule", value);
+            return this;
+        }
+
+        /** 変更後の対象要素の最初のバイト */
+        public Long getStart() {
+            return Json.read(json.get("start"), Json::integer);
+        }
+
+        /** {@link #getStart()} を書く。null ならフィールドを除く */
+        public DeliveryEditCheck withStart(Long value) {
+            put("start", value);
+            return this;
+        }
+
+        /** 変更後の対象要素の末尾の次のバイト */
+        public Long getEnd() {
+            return Json.read(json.get("end"), Json::integer);
+        }
+
+        /** {@link #getEnd()} を書く。null ならフィールドを除く */
+        public DeliveryEditCheck withEnd(Long value) {
+            put("end", value);
             return this;
         }
     }

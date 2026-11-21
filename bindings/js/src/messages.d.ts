@@ -4930,6 +4930,10 @@ export interface DeliveryApplyRequest extends RequestCommon {
   hash?: string;
   /** 指定する順の変更。同じ親への追加は順序を保つ */
   edits: DeliveryEdit[];
+  /** 版の照合に使うプロファイルと継承元の入力名 */
+  profiles?: string[];
+  /** 編集後に照らす基準の系統と版。省略すると編集だけを行う */
+  profile?: ProfileRef;
 }
 
 /** 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない */
@@ -4940,6 +4944,34 @@ export interface DeliveryApplyResult {
   hash: string;
   /** 適用した変更の数 */
   applied: number;
+  /** 版を指定したときの部分照合。違反があっても編集後のファイルを返す */
+  validation?: DeliveryEditValidation;
+}
+
+/** 指定版で編集した箇所を照らした結果。マイナーバージョン 115 から */
+export interface DeliveryEditValidation {
+  /** 解決したプロファイルを継承元から並べた列 */
+  chain: ProfileIdentity[];
+  /** 変更と規則の順に並べた結果 */
+  checks: DeliveryEditCheck[];
+  /** 照合の対象外。子の順序と最小数、属性、追加した部分木の内容、変更していない項目 */
+  unchecked: string[];
+}
+
+/** 変更に対する版ごとの規則と出力 XML のバイト範囲 */
+export interface DeliveryEditCheck {
+  /** edits の位置。0 から数える */
+  edit: number;
+  /** matched・violated・unchecked のいずれか */
+  status: string;
+  /** 照らした text・child_count、または確認できない理由 */
+  reason: string;
+  /** 照らした規則の ID。該当する規則がなければ省略する */
+  rule?: string;
+  /** 変更後の対象要素の最初のバイト */
+  start: number;
+  /** 変更後の対象要素の末尾の次のバイト */
+  end: number;
 }
 
 /** 根からたどる子。接頭辞を含む名前で区別する */

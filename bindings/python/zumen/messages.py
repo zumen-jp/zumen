@@ -8406,6 +8406,10 @@ _DeliveryApplyRequestOptional = TypedDict(
         "time_limit_ms": int,
         # 元の XML の文書ハッシュ。違えば変更しない。省略すれば検査しない
         "hash": str,
+        # 版の照合に使うプロファイルと継承元の入力名
+        "profiles": List[str],
+        # 編集後に照らす基準の系統と版。省略すると編集だけを行う
+        "profile": "ProfileRef",
     },
     total=False,
 )
@@ -8416,8 +8420,8 @@ class DeliveryApplyRequest(_DeliveryApplyRequestRequired, _DeliveryApplyRequestO
 
 
 # 変更後の管理 XML の情報。file blob は 1 個。入力は変更しない
-DeliveryApplyResult = TypedDict(
-    "DeliveryApplyResult",
+_DeliveryApplyResultRequired = TypedDict(
+    "_DeliveryApplyResultRequired",
     {
         # 元の入力の名前
         "input": str,
@@ -8427,6 +8431,62 @@ DeliveryApplyResult = TypedDict(
         "applied": int,
     },
 )
+_DeliveryApplyResultOptional = TypedDict(
+    "_DeliveryApplyResultOptional",
+    {
+        # 版を指定したときの部分照合。違反があっても編集後のファイルを返す
+        "validation": "DeliveryEditValidation",
+    },
+    total=False,
+)
+
+
+class DeliveryApplyResult(_DeliveryApplyResultRequired, _DeliveryApplyResultOptional):
+    "変更後の管理 XML の情報。file blob は 1 個。入力は変更しない"
+
+
+# 指定版で編集した箇所を照らした結果。マイナーバージョン 115 から
+DeliveryEditValidation = TypedDict(
+    "DeliveryEditValidation",
+    {
+        # 解決したプロファイルを継承元から並べた列
+        "chain": List["ProfileIdentity"],
+        # 変更と規則の順に並べた結果
+        "checks": List["DeliveryEditCheck"],
+        # 照合の対象外。子の順序と最小数、属性、追加した部分木の内容、変更していない項目
+        "unchecked": List[str],
+    },
+)
+
+
+# 変更に対する版ごとの規則と出力 XML のバイト範囲
+_DeliveryEditCheckRequired = TypedDict(
+    "_DeliveryEditCheckRequired",
+    {
+        # edits の位置。0 から数える
+        "edit": int,
+        # matched・violated・unchecked のいずれか
+        "status": str,
+        # 照らした text・child_count、または確認できない理由
+        "reason": str,
+        # 変更後の対象要素の最初のバイト
+        "start": int,
+        # 変更後の対象要素の末尾の次のバイト
+        "end": int,
+    },
+)
+_DeliveryEditCheckOptional = TypedDict(
+    "_DeliveryEditCheckOptional",
+    {
+        # 照らした規則の ID。該当する規則がなければ省略する
+        "rule": str,
+    },
+    total=False,
+)
+
+
+class DeliveryEditCheck(_DeliveryEditCheckRequired, _DeliveryEditCheckOptional):
+    "変更に対する版ごとの規則と出力 XML のバイト範囲"
 
 
 # 根からたどる子。接頭辞を含む名前で区別する

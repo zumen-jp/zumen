@@ -219,7 +219,7 @@ fn rules(values: &[(String, Value)], cx: &mut Cx<'_>) -> Vec<Rule> {
             Value::Object(object) => text(object.get("check")).unwrap_or_default(),
             _ => "",
         };
-        if !is_delivery(value) && !check.is_empty() {
+        if check == "delivery-edit-content" || (!is_delivery(value) && !check.is_empty()) {
             continue;
         }
         match rule(id, value) {

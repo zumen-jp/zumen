@@ -6028,7 +6028,9 @@
           "items": {
             "$ref": "#/$defs/delivery_edit"
           }
-        }
+        },
+        "profiles": { "description": "版の照合に使うプロファイルと継承元の入力名", "type": "array", "items": { "type": "string" } },
+        "profile": { "description": "編集後に照らす基準の系統と版。省略すると編集だけを行う", "$ref": "#/$defs/profile_ref" }
       },
       "required": [
         "op",
@@ -6053,13 +6055,39 @@
           "description": "適用した変更の数",
           "type": "integer",
           "minimum": 0
-        }
+        },
+        "validation": { "description": "版を指定したときの部分照合。違反があっても編集後のファイルを返す", "$ref": "#/$defs/delivery_edit_validation" }
       },
       "required": [
         "input",
         "hash",
         "applied"
       ],
+      "additionalProperties": false
+    },
+    "delivery_edit_validation": {
+      "description": "指定版で編集した箇所を照らした結果。マイナーバージョン 115 から",
+      "type": "object",
+      "properties": {
+        "chain": { "description": "解決したプロファイルを継承元から並べた列", "type": "array", "items": { "$ref": "#/$defs/profile_identity" } },
+        "checks": { "description": "変更と規則の順に並べた結果", "type": "array", "items": { "$ref": "#/$defs/delivery_edit_check" } },
+        "unchecked": { "description": "照合の対象外。子の順序と最小数、属性、追加した部分木の内容、変更していない項目", "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["chain", "checks", "unchecked"],
+      "additionalProperties": false
+    },
+    "delivery_edit_check": {
+      "description": "変更に対する版ごとの規則と出力 XML のバイト範囲",
+      "type": "object",
+      "properties": {
+        "edit": { "description": "edits の位置。0 から数える", "type": "integer", "minimum": 0 },
+        "status": { "description": "matched・violated・unchecked のいずれか", "type": "string" },
+        "reason": { "description": "照らした text・child_count、または確認できない理由", "type": "string" },
+        "rule": { "description": "照らした規則の ID。該当する規則がなければ省略する", "type": "string" },
+        "start": { "description": "変更後の対象要素の最初のバイト", "type": "integer", "minimum": 0 },
+        "end": { "description": "変更後の対象要素の末尾の次のバイト", "type": "integer", "minimum": 0 }
+      },
+      "required": ["edit", "status", "reason", "start", "end"],
       "additionalProperties": false
     },
     "delivery_path_step": {

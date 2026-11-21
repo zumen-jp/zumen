@@ -13459,6 +13459,18 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("edits")]
         public IReadOnlyList<JsonAny> Edits { get; init; } = default!;
+
+        /// <summary>
+        /// 版の照合に使うプロファイルと継承元の入力名
+        /// </summary>
+        [JsonPropertyName("profiles")]
+        public IReadOnlyList<string>? Profiles { get; init; }
+
+        /// <summary>
+        /// 編集後に照らす基準の系統と版。省略すると編集だけを行う
+        /// </summary>
+        [JsonPropertyName("profile")]
+        public ProfileRef? Profile { get; init; }
     }
 
     /// <summary>
@@ -13483,6 +13495,78 @@ namespace Zumen.Messages
         /// </summary>
         [JsonPropertyName("applied")]
         public ulong Applied { get; init; }
+
+        /// <summary>
+        /// 版を指定したときの部分照合。違反があっても編集後のファイルを返す
+        /// </summary>
+        [JsonPropertyName("validation")]
+        public DeliveryEditValidation? Validation { get; init; }
+    }
+
+    /// <summary>
+    /// 指定版で編集した箇所を照らした結果。マイナーバージョン 115 から
+    /// </summary>
+    public sealed record DeliveryEditValidation
+    {
+        /// <summary>
+        /// 解決したプロファイルを継承元から並べた列
+        /// </summary>
+        [JsonPropertyName("chain")]
+        public IReadOnlyList<ProfileIdentity> Chain { get; init; } = default!;
+
+        /// <summary>
+        /// 変更と規則の順に並べた結果
+        /// </summary>
+        [JsonPropertyName("checks")]
+        public IReadOnlyList<DeliveryEditCheck> Checks { get; init; } = default!;
+
+        /// <summary>
+        /// 照合の対象外。子の順序と最小数、属性、追加した部分木の内容、変更していない項目
+        /// </summary>
+        [JsonPropertyName("unchecked")]
+        public IReadOnlyList<string> Unchecked { get; init; } = default!;
+    }
+
+    /// <summary>
+    /// 変更に対する版ごとの規則と出力 XML のバイト範囲
+    /// </summary>
+    public sealed record DeliveryEditCheck
+    {
+        /// <summary>
+        /// edits の位置。0 から数える
+        /// </summary>
+        [JsonPropertyName("edit")]
+        public ulong Edit { get; init; }
+
+        /// <summary>
+        /// matched・violated・unchecked のいずれか
+        /// </summary>
+        [JsonPropertyName("status")]
+        public string Status { get; init; } = default!;
+
+        /// <summary>
+        /// 照らした text・child_count、または確認できない理由
+        /// </summary>
+        [JsonPropertyName("reason")]
+        public string Reason { get; init; } = default!;
+
+        /// <summary>
+        /// 照らした規則の ID。該当する規則がなければ省略する
+        /// </summary>
+        [JsonPropertyName("rule")]
+        public string? Rule { get; init; }
+
+        /// <summary>
+        /// 変更後の対象要素の最初のバイト
+        /// </summary>
+        [JsonPropertyName("start")]
+        public ulong Start { get; init; }
+
+        /// <summary>
+        /// 変更後の対象要素の末尾の次のバイト
+        /// </summary>
+        [JsonPropertyName("end")]
+        public ulong End { get; init; }
     }
 
     /// <summary>
