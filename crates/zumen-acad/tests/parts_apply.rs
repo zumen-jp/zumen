@@ -2155,7 +2155,7 @@ fn replaces_and_transforms_paper_space_dimension() {
         let Shape::Dimension(dim) = &element.shape else {
             panic!()
         };
-        assert_eq!(dim.measurement.as_ref().unwrap().value, 120.0);
+        assert_eq!(dim.measurement.as_ref().unwrap().value, 1200.0);
         let parts = symbol_elements(&after, dim.block.as_deref().unwrap());
         assert!(
             parts
@@ -2189,6 +2189,7 @@ fn replaces_and_transforms_paper_space_dimension() {
     let Shape::Dimension(dim) = &copied.spaces[0].elements.last().unwrap().shape else {
         panic!()
     };
+    assert_eq!(dim.measurement.as_ref().unwrap().value, 120.0);
     let parts = symbol_elements(&copied, dim.block.as_deref().unwrap());
     assert!(
         parts

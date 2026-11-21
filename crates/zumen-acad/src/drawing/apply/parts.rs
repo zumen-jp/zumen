@@ -842,13 +842,7 @@ fn add_dimension_parts<P: Copy>(
         origin: crate::Origin::New,
     };
     let params = DimParams::resolve(current, blocks, &dummy, &dimension.style, frame.is_paper());
-    let Some(drawn) = parts::dimension_with_suppression(
-        dimension,
-        |p| frame.point(p),
-        |l| frame.length(l),
-        params.offsets,
-        params.suppress_ext,
-    ) else {
+    let Some(drawn) = params.dimension_parts(dimension, frame) else {
         return Ok(None);
     };
     let text_pos = if dimension.text.moved {
@@ -1765,6 +1759,29 @@ impl DimParams {
         }
     }
 
+    fn dimension_parts<P>(
+        &self,
+        dimension: &Dimension<P>,
+        frame: &impl Frame<P>,
+    ) -> Option<DimensionParts> {
+        let mut drawn = parts::dimension_with_suppression(
+            dimension,
+            |p| frame.point(p),
+            |l| frame.length(l),
+            self.offsets,
+            self.suppress_ext,
+        )?;
+        if !matches!(
+            dimension.kind,
+            DimensionKind::Angular { .. } | DimensionKind::AngularLines { .. }
+        ) {
+            // AutoCAD は長さの文字とグループ 42 の両方に、空間に応じた DIMLFAC を掛ける。
+            drawn.display_value *= self.linear_factor;
+            drawn.raw_measurement *= self.linear_factor;
+        }
+        Some(drawn)
+    }
+
     fn text_position<P>(
         &self,
         dimension: &Dimension<P>,
@@ -1873,13 +1890,7 @@ fn plan_dimension<P: Copy + PartialEq>(
         return Ok(None);
     }
     let params = DimParams::resolve(current, blocks, object, &dimension.style, paper);
-    let Some(drawn) = parts::dimension_with_suppression(
-        dimension,
-        |p| frame.point(p),
-        |l| frame.length(l),
-        params.offsets,
-        params.suppress_ext,
-    ) else {
+    let Some(drawn) = params.dimension_parts(dimension, frame) else {
         return Ok(None);
     };
 
@@ -2169,14 +2180,12 @@ fn build_dimension_records<P>(
     } else {
         params.linear_dec
     };
-    let display_val = if angular {
-        drawn.display_value
-    } else {
-        drawn.display_value * params.linear_factor
-    };
-    if let Some(mut content) =
-        dimension_mtext(&dimension.kind, &dimension.label, display_val, precision)
-    {
+    if let Some(mut content) = dimension_mtext(
+        &dimension.kind,
+        &dimension.label,
+        drawn.display_value,
+        precision,
+    ) {
         if matches!(dimension.kind, DimensionKind::ArcLength { .. })
             && matches!(dimension.label, Label::Measurement)
         {

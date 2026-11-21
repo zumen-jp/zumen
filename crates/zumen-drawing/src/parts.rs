@@ -61,7 +61,7 @@ pub struct DimensionParts {
     pub along: f64,
     /// 文字に書く測定値（長さは要素の空間の単位、角度は度）
     pub display_value: f64,
-    /// 保存する生の測定値（長さは要素の空間の単位、角度はラジアン。DXF の 42）
+    /// 定義点から求めた測定値（長さは要素の空間の単位、角度はラジアン）
     pub raw_measurement: f64,
 }
 
