@@ -237,7 +237,7 @@ fn set_case(case: Case) {
 }
 
 fn policy(index: usize) -> Chunking {
-    let mut value = Chunking::PROVISIONAL;
+    let mut value = Chunking::DEFAULT;
     match index {
         0 => (),
         1 => value.items = 1024,

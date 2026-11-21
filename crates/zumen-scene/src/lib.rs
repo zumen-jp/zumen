@@ -40,8 +40,7 @@ pub use crate::review::{
     ReviewStyle, build_review, build_review_with,
 };
 
-/// 塊の分け方。塊の大きさは実際の図面で測って決める（決定 0137・0172、#219）。それまでの仮の値を
-/// [`Chunking::PROVISIONAL`] に置く
+/// 2D シーンの塊の分け方。図面とレビューのシーンの既定値は [`Chunking::DEFAULT`]（#219）
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Chunking {
     /// 塊ごとの描くものの数の上限
@@ -52,11 +51,14 @@ pub struct Chunking {
 }
 
 impl Chunking {
-    /// 仮の値（決定 0178）。描くもの 4096 個、許容差の 2^16 倍
-    pub const PROVISIONAL: Self = Self {
+    /// 描くもの 4,096 個、範囲は表示の許容差の 65,536 倍を目安に区切る
+    pub const DEFAULT: Self = Self {
         items: 4096,
         span: 65536.0,
     };
+
+    /// 実測前から使っている名前。値は [`Self::DEFAULT`] と同じ
+    pub const PROVISIONAL: Self = Self::DEFAULT;
 }
 
 fn system_code(system: ColorSystem) -> u8 {

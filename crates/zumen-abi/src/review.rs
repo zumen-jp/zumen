@@ -209,7 +209,7 @@ pub(crate) fn scene(
         origin,
         tolerance,
         region,
-        chunking: zumen_scene::Chunking::PROVISIONAL,
+        chunking: zumen_scene::Chunking::DEFAULT,
         style,
     };
     let built = match zumen_scene::build_review_with(drawing, review, target, &options, fonts, cx) {
