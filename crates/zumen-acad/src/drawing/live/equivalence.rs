@@ -1790,10 +1790,16 @@ fn solid_and_hatch_styling_and_refused_moves_match_apply() {
 }
 
 #[test]
-fn spline_replacement_and_refused_transform_match_apply() {
+fn spline_translation_replacement_and_refused_scale_match_apply() {
     for threads in [1, 4] {
         let mut pair = DxfPair::open(&general_shapes_dxf(), threads);
         pair.reject(Edit::Transform {
+            target: pair.seen(0x122),
+            transform: Affine {
+                m: [2.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            },
+        });
+        pair.apply(Edit::Transform {
             target: pair.seen(0x122),
             transform: Affine::translation(2.0, 3.0),
         });
@@ -2549,26 +2555,14 @@ fn dwg_general_shape_edits_match_sequential_apply() {
                             ..Restyle::default()
                         },
                     });
-                    let edit = Edit::Transform {
+                    pair.apply(Edit::Transform {
                         target: pair.seen(handle),
                         transform: Affine::translation(2.0, 3.0),
-                    };
-                    if matches!(original.shape, Shape::Curve(Edge::Spline(_))) {
-                        pair.reject(edit);
-                    } else {
-                        pair.apply(edit);
-                    }
+                    });
                     let model = fresh_cx(|cx| pair.reference.lift(cx)).0.unwrap();
                     let mut replacement = model.spaces[0].elements.last().unwrap().clone();
                     let affine = Affine::translation(-3.0, 4.0);
-                    if let Shape::Curve(Edge::Spline(spline)) = &mut replacement.shape {
-                        for control in &mut spline.control {
-                            *control = affine.point(*control);
-                        }
-                    } else {
-                        replacement.shape =
-                            transform::transform(&replacement.shape, &affine).unwrap();
-                    }
+                    replacement.shape = transform::transform(&replacement.shape, &affine).unwrap();
                     pair.apply(Edit::Replace {
                         target: pair.seen(handle),
                         element: Box::new(Placed::Model(replacement)),

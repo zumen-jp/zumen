@@ -241,6 +241,21 @@ pub fn transform<P: Point>(shape: &Shape<P>, transform: &Affine) -> Option<Shape
             })
         }
         Shape::Curve(Edge::Spline(spline))
+            if !spline.control.is_empty()
+                && !spline.knots.is_empty()
+                && spline.fit.is_empty()
+                && spline.start_tangent.is_none()
+                && spline.end_tangent.is_none()
+                && matches!(transform.m, [1.0, 0.0, _, 0.0, 1.0, _]) =>
+        {
+            // 有理曲線も平行移動では各制御点が同じだけ移り、重みとノットは保たれる。
+            let mut moved = spline.clone();
+            for control in &mut moved.control {
+                *control = point(control);
+            }
+            Shape::Curve(Edge::Spline(moved))
+        }
+        Shape::Curve(Edge::Spline(spline))
             if spline.control.is_empty()
                 && spline.knots.is_empty()
                 && spline.weights.is_empty()
