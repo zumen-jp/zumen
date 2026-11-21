@@ -1,5 +1,5 @@
 //! IfcArbitraryProfileDefWithVoids の OuterCurve / InnerCurves と Informal Propositions。
-//! 2D の閉じた輪を元のまま保持する。輪同士の交差・包含・接触と、合成の区間の接続は未評価。
+//! 2D の閉じた輪を元のまま保持する。輪同士の交差・包含・接触と、区間の実際の接続は形状評価で確かめる。
 
 use super::*;
 use std::collections::BTreeSet;
@@ -47,6 +47,27 @@ impl<'f> Reader<'f, '_, '_> {
         }
         let (graph, holes) =
             super::super::curve::profile_boundaries(self.file, outer, &inner, version, self.cx)?;
+        self.check_profile_curves(&graph)?;
+        self.profile_boundary(&graph, graph.root)?;
+        for &hole in &holes {
+            self.profile_boundary(&graph, hole)?;
+        }
+        self.current = profile.id().unwrap_or(0);
+        self.alloc(1, 320)?;
+        Ok((
+            AreaProfile {
+                name,
+                position: None,
+                kind: AreaProfileKind::ArbitraryWithVoids {
+                    boundary: graph.root,
+                    holes,
+                },
+            },
+            graph,
+        ))
+    }
+
+    pub(super) fn check_profile_curves(&mut self, graph: &CurveGraph) -> Result<(), Error> {
         // 曲線の各値は既存の経路で読む。この入口では、補助レコードを含む単純な形式と 2D を追加検査する。
         for item in &graph.items {
             self.current = item.source.instance.unwrap_or(0);
@@ -73,35 +94,48 @@ impl<'f> Reader<'f, '_, '_> {
                 CurveKind::Circle { position, .. } if position.location.dimension() != 2 => {
                     return Err(self.invalid("dimension"));
                 }
+                CurveKind::Composite { segments, .. } => {
+                    // IfcCompositeCurveSegment.ParentIsBoundedCurve。切っていない直線や円を区間とみなさない。
+                    for segment in segments {
+                        self.check(Kind::Work, 1)?;
+                        let child = graph
+                            .item(segment.curve)
+                            .ok_or_else(|| self.invalid("reference"))?;
+                        if matches!(
+                            child.kind,
+                            CurveKind::Circle { .. } | CurveKind::Line { .. }
+                        ) {
+                            self.current = child.source.instance.unwrap_or(0);
+                            return Err(self.unsupported_kind("boundary"));
+                        }
+                    }
+                }
+                CurveKind::Trimmed { trim1, trim2, .. } => {
+                    for trim in trim1.iter().chain(trim2) {
+                        self.check(Kind::Work, 1)?;
+                        if matches!(trim, zumen_building::CurveTrim::Point(p) if p.dimension() != 2)
+                        {
+                            return Err(self.invalid("dimension"));
+                        }
+                    }
+                }
                 CurveKind::Unsupported(_) => return Err(self.unsupported_kind("boundary")),
                 _ => {}
             }
         }
-        self.void_boundary(&graph, graph.root)?;
-        for &hole in &holes {
-            self.void_boundary(&graph, hole)?;
-        }
-        self.current = profile.id().unwrap_or(0);
-        self.alloc(1, 320)?;
-        Ok((
-            AreaProfile {
-                name,
-                position: None,
-                kind: AreaProfileKind::ArbitraryWithVoids {
-                    boundary: graph.root,
-                    holes,
-                },
-            },
-            graph,
-        ))
+        Ok(())
     }
 
-    fn void_boundary(&mut self, graph: &CurveGraph, at: CurveRef) -> Result<(), Error> {
+    pub(super) fn profile_boundary(
+        &mut self,
+        graph: &CurveGraph,
+        at: CurveRef,
+    ) -> Result<(), Error> {
         let item = graph.item(at).ok_or_else(|| self.invalid("reference"))?;
         self.current = item.source.instance.unwrap_or(0);
         if let CurveKind::Composite { segments, .. } = &item.kind {
             // IfcCompositeCurve.ClosedCurve の自然言語の説明は最後の Transition を閉鎖の申告とする。
-            // 全区間で不連続を拒否するが、宣言どおりに点や接線がつながることはまだ評価しない。
+            // 全区間で不連続を拒否するが、宣言どおりに点や接線がつながるかは、ここでは評価しない。
             if segments.is_empty() {
                 return Err(self.invalid("count"));
             }

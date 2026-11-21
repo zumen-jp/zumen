@@ -112,7 +112,6 @@ fn append(out: &mut Vec<Xyz>, part: &[Xyz], cx: &mut Cx) -> Result<(), Failure> 
 
 fn trim_value(
     values: &[CurveTrim],
-    preference: TrimmingPreference,
     factor: f64,
     cx: &mut Cx,
 ) -> Result<(Option<Xyz>, Option<f64>), Failure> {
@@ -125,9 +124,6 @@ fn trim_value(
             CurveTrim::Parameter(t) => parameter = Some(t),
         }
     }
-    if preference == TrimmingPreference::Parameter && parameter.is_some() {
-        point = None;
-    }
     Ok((point, parameter))
 }
 
@@ -136,16 +132,24 @@ fn trimmed(
     basis: CurveRef,
     trims: [&[CurveTrim]; 2],
     selection: (bool, TrimmingPreference),
-    chord: f64,
+    accuracy: (f64, Option<f64>),
     changes: &mut MeshChanges,
     cx: &mut Cx,
 ) -> Result<Vec<Xyz>, Failure> {
     let (sense, preference) = selection;
+    let (chord, join) = accuracy;
     let factor = unit(graph.length_unit.as_ref(), "LENGTHUNIT")?;
     let ((p1, t1), (p2, t2)) = (
-        trim_value(trims[0], preference, factor, cx)?,
-        trim_value(trims[1], preference, factor, cx)?,
+        trim_value(trims[0], factor, cx)?,
+        trim_value(trims[1], factor, cx)?,
     );
+    let preferred_point = |point: Option<Xyz>, parameter: Option<f64>| {
+        if preference == TrimmingPreference::Parameter && parameter.is_some() {
+            None
+        } else {
+            point
+        }
+    };
     let kind = &graph
         .item(basis)
         .ok_or(Failure::Invalid("curve_reference"))?
@@ -159,27 +163,63 @@ fn trimmed(
             let origin = scale(coordinates(*point), factor);
             let d = normalize(coordinates(*direction)).ok_or(Failure::Invalid("line_direction"))?;
             let at = |point: Option<Xyz>, parameter: Option<f64>| -> Result<Xyz, Failure> {
-                if let Some(p) = point {
-                    return Ok(p);
+                let from_parameter =
+                    parameter.map(|t| add(origin, scale(d, t * magnitude * factor)));
+                if let (Some(tol), Some(p)) = (join, point) {
+                    let delta = sub(p, origin);
+                    if length(cross(delta, d)) > tol
+                        || from_parameter.is_some_and(|at| length(sub(at, p)) > tol)
+                    {
+                        return Err(Failure::Invalid("profile_trim"));
+                    }
                 }
-                let t = parameter.ok_or(Failure::Invalid("trim"))?;
-                Ok(add(origin, scale(d, t * magnitude * factor)))
+                preferred_point(point, parameter)
+                    .or(from_parameter)
+                    .ok_or(Failure::Invalid("trim"))
             };
             let (a, b) = (at(p1, t1)?, at(p2, t2)?);
             let mut out = Vec::new();
             reserve(&mut out, 2, 24, cx)?;
-            out.extend(if sense { [a, b] } else { [b, a] });
+            if join.is_some() && (dot(sub(b, a), d) > 0.) != sense {
+                return Err(Failure::Invalid("profile_trim"));
+            }
+            out.extend(if sense || join.is_some() {
+                [a, b]
+            } else {
+                [b, a]
+            });
             Ok(out)
         }
         CurveKind::Circle { position, radius } => {
             let frame = frame(position, factor)?;
+            // IfcTrimmedCurve の Informal Propositions 1・2。閉断面では点を母円と照らす。
             let angle = |point: Option<Xyz>, parameter: Option<f64>| -> Result<f64, Failure> {
+                let selected = preferred_point(point, parameter);
+                let from_parameter = match parameter {
+                    Some(t) if join.is_some() || selected.is_none() => {
+                        Some(t * unit(graph.angle_unit.as_ref(), "PLANEANGLEUNIT")?)
+                    }
+                    _ => None,
+                };
                 if let Some(p) = point {
-                    let p = Plane::project(&frame, p);
-                    return Ok(libm::atan2(p[1], p[0]));
+                    let local = Plane::project(&frame, p);
+                    let a = libm::atan2(local[1], local[0]);
+                    if let Some(tol) = join {
+                        let t = from_parameter.unwrap_or(a);
+                        let r = radius * factor;
+                        if length(sub(
+                            frame.point([r * libm::cos(t), r * libm::sin(t), 0.]),
+                            p,
+                        )) > tol
+                        {
+                            return Err(Failure::Invalid("profile_trim"));
+                        }
+                    }
+                    if selected.is_some() {
+                        return Ok(a);
+                    }
                 }
-                Ok(parameter.ok_or(Failure::Invalid("trim"))?
-                    * unit(graph.angle_unit.as_ref(), "PLANEANGLEUNIT")?)
+                from_parameter.ok_or(Failure::Invalid("trim"))
             };
             let (a, b) = (angle(p1, t1)?, angle(p2, t2)?);
             let mut sweep = if sense {
@@ -188,6 +228,9 @@ fn trimmed(
                 -(a - b).rem_euclid(core::f64::consts::TAU)
             };
             if sweep == 0.0 {
+                if join.is_some() {
+                    return Err(Failure::Invalid("profile_trim"));
+                }
                 sweep = if sense {
                     core::f64::consts::TAU
                 } else {
@@ -195,10 +238,10 @@ fn trimmed(
                 };
             }
             let mut out = arc(frame, radius * factor, a, sweep, chord, changes, cx)?;
-            if let (Some(p), Some(first)) = (p1, out.first_mut()) {
+            if let (Some(p), Some(first)) = (preferred_point(p1, t1), out.first_mut()) {
                 *first = p;
             }
-            if let (Some(p), Some(last)) = (p2, out.last_mut()) {
+            if let (Some(p), Some(last)) = (preferred_point(p2, t2), out.last_mut()) {
                 *last = p;
             }
             Ok(out)
@@ -211,6 +254,17 @@ pub(crate) fn evaluate(
     graph: &CurveGraph,
     reference: CurveRef,
     chord: f64,
+    changes: &mut MeshChanges,
+    cx: &mut Cx,
+) -> Result<Vec<Xyz>, Failure> {
+    evaluate_with_joins(graph, reference, chord, None, changes, cx)
+}
+
+pub(super) fn evaluate_with_joins(
+    graph: &CurveGraph,
+    reference: CurveRef,
+    chord: f64,
+    join: Option<f64>,
     changes: &mut MeshChanges,
     cx: &mut Cx,
 ) -> Result<Vec<Xyz>, Failure> {
@@ -279,11 +333,29 @@ pub(crate) fn evaluate(
             }
             CurveKind::Composite { segments, .. } => {
                 for segment in segments {
-                    let mut points = evaluate(graph, segment.curve, chord, changes, cx)?;
+                    if join.is_some() && segment.transition == crate::CurveTransition::Discontinuous
+                    {
+                        return Err(Failure::Invalid("profile_curve_join"));
+                    }
+                    let mut points =
+                        evaluate_with_joins(graph, segment.curve, chord, join, changes, cx)?;
                     if !segment.same_sense {
                         points.reverse();
                     }
-                    append(&mut out, &points, cx)?;
+                    let mut part = points.as_slice();
+                    if let Some(tol) = join {
+                        let (first, tail) = points
+                            .split_first()
+                            .filter(|(_, tail)| !tail.is_empty())
+                            .ok_or(Failure::Invalid("profile_curve_join"))?;
+                        if let Some(&last) = out.last() {
+                            if length(sub(last, *first)) > tol {
+                                return Err(Failure::Invalid("profile_curve_join"));
+                            }
+                            part = tail;
+                        }
+                    }
+                    append(&mut out, part, cx)?;
                 }
             }
             CurveKind::Trimmed {
@@ -298,7 +370,7 @@ pub(crate) fn evaluate(
                     *basis,
                     [trim1, trim2],
                     (*sense_agreement, *preference),
-                    chord,
+                    (chord, join),
                     changes,
                     cx,
                 )?

@@ -1005,6 +1005,13 @@ impl<'f> Reader<'f, '_, '_> {
         }
     }
     fn closed(&mut self, graph: &CurveGraph) -> Result<(), Error> {
+        if matches!(
+            graph.item(graph.root).map(|item| &item.kind),
+            Some(CurveKind::Composite { .. })
+        ) {
+            self.check_profile_curves(graph)?;
+            return self.profile_boundary(graph, graph.root);
+        }
         self.closed_at(graph, graph.root)
     }
 

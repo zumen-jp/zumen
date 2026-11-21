@@ -36,7 +36,8 @@ fn boundary(
     cx: &mut Cx,
 ) -> Result<Curve, Failure> {
     let graph = graph.ok_or(Failure::Invalid("profile_curve"))?;
-    let mut points = curves::evaluate(graph, reference, tol.chord, changes, cx)?;
+    let mut points =
+        curves::evaluate_with_joins(graph, reference, tol.chord, Some(tol.length), changes, cx)?;
     if points.iter().any(|p| p[2].abs() > tol.length) {
         return Err(Failure::Invalid("profile_plane"));
     }
