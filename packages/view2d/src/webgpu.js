@@ -342,8 +342,7 @@ export class WebGPU2DSurface {
   #blitBindGroup = null;
   #uniformBuffer;
   #vpBindGroup;
-  #vertexBuffer = null;
-  #vertexBufferCapacity = 0;
+  #vertexBuffers = [];
   #verts = new Float32Array(16384 * FLOATS_PER_VERTEX);
   #vertCount = 0;
   #commands = [];
@@ -796,17 +795,22 @@ export class WebGPU2DSurface {
     }
     const b = this.#backend;
     const { device } = b;
-    const byteLength = this.#vertCount * BYTES_PER_VERTEX;
-    if (byteLength > 0) {
-      if (!this.#vertexBuffer || this.#vertexBufferCapacity < byteLength) {
-        this.#vertexBuffer?.destroy();
-        this.#vertexBufferCapacity = Math.max(65536, 1 << Math.ceil(Math.log2(byteLength)));
-        this.#vertexBuffer = device.createBuffer({
-          size: this.#vertexBufferCapacity,
-          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
+    // パイプラインはすべて triangle-list。三角形の境界で分ければステンシルと描く順を保てる。
+    const verticesPerBuffer = 3 * Math.floor(device.limits.maxBufferSize / (3 * BYTES_PER_VERTEX));
+    if (this.#vertCount > 0 && verticesPerBuffer === 0) throw new RangeError("maxBufferSize が三角形 1 個の大きさに足りない");
+    const pages = this.#vertCount ? Math.ceil(this.#vertCount / verticesPerBuffer) : 0;
+    for (const unused of this.#vertexBuffers.splice(pages)) unused.destroy();
+    for (let page = 0; page < pages; page++) {
+      const first = page * verticesPerBuffer;
+      const bytes = Math.min(this.#vertCount - first, verticesPerBuffer) * BYTES_PER_VERTEX;
+      let buffer = this.#vertexBuffers[page];
+      if (!buffer || buffer.size < bytes) {
+        buffer?.destroy();
+        const size = Math.min(verticesPerBuffer * BYTES_PER_VERTEX, Math.max(65536, 2 ** Math.ceil(Math.log2(bytes))));
+        buffer = device.createBuffer({ size, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+        this.#vertexBuffers[page] = buffer;
       }
-      device.queue.writeBuffer(this.#vertexBuffer, 0, this.#verts.buffer, 0, byteLength);
+      device.queue.writeBuffer(buffer, 0, this.#verts.buffer, first * BYTES_PER_VERTEX, bytes);
     }
 
     const encoder = device.createCommandEncoder();
@@ -829,55 +833,69 @@ export class WebGPU2DSurface {
       },
     });
 
-    if (byteLength > 0 && this.#commands.length > 0) {
+    if (pages > 0 && this.#commands.length > 0) {
       pass.setBindGroup(0, this.#vpBindGroup);
-      pass.setVertexBuffer(0, this.#vertexBuffer);
+      let bound = -1;
+      const draw = (count, first) => {
+        while (count > 0) {
+          const page = Math.floor(first / verticesPerBuffer);
+          const offset = first - page * verticesPerBuffer;
+          const length = Math.min(count, verticesPerBuffer - offset);
+          if (page !== bound) {
+            pass.setVertexBuffer(0, this.#vertexBuffers[page]);
+            bound = page;
+          }
+          pass.draw(length, 1, offset, 0);
+          first += length;
+          count -= length;
+        }
+      };
       for (const cmd of this.#commands) {
         switch (cmd.type) {
           case "clipStencil":
             pass.setPipeline(b.pipelineClipStencil);
-            pass.draw(cmd.count, 1, cmd.first, 0);
+            draw(cmd.count, cmd.first);
             break;
           case "clipMaskOut":
             pass.setPipeline(b.pipelineClipMaskOut);
             pass.setStencilReference(0);
-            pass.draw(3, 1, cmd.first, 0);
+            draw(3, cmd.first);
             break;
           case "stencilReset":
             pass.setPipeline(b.pipelineStencilReset);
             pass.setStencilReference(0);
-            pass.draw(3, 1, cmd.first, 0);
+            draw(3, cmd.first);
             break;
           case "clipReset":
             pass.setPipeline(b.pipelineClipReset);
-            pass.draw(3, 1, cmd.first, 0);
+            draw(3, cmd.first);
             break;
           case "fillEvenOdd":
             pass.setPipeline(b.pipelineStencilEvenOdd);
-            pass.draw(cmd.count, 1, cmd.first, 0);
+            draw(cmd.count, cmd.first);
             pass.setPipeline(b.pipelineCover);
             pass.setStencilReference(0);
-            pass.draw(6, 1, cmd.coverFirst, 0);
+            draw(6, cmd.coverFirst);
             break;
           case "fillNonZero":
             pass.setPipeline(b.pipelineStencilNonZero);
-            pass.draw(cmd.count, 1, cmd.first, 0);
+            draw(cmd.count, cmd.first);
             pass.setPipeline(b.pipelineCover);
             pass.setStencilReference(0);
-            pass.draw(6, 1, cmd.coverFirst, 0);
+            draw(6, cmd.coverFirst);
             break;
           case "stroke":
             pass.setPipeline(b.pipelineStencilStroke);
             pass.setStencilReference(1);
-            pass.draw(cmd.count, 1, cmd.first, 0);
+            draw(cmd.count, cmd.first);
             pass.setPipeline(b.pipelineCover);
             pass.setStencilReference(0);
-            pass.draw(6, 1, cmd.coverFirst, 0);
+            draw(6, cmd.coverFirst);
             break;
           case "textured":
             pass.setPipeline(b.pipelineTextured);
             pass.setBindGroup(1, cmd.bindGroup);
-            pass.draw(cmd.count, 1, cmd.first, 0);
+            draw(cmd.count, cmd.first);
             break;
         }
       }
@@ -1010,8 +1028,7 @@ export class WebGPU2DSurface {
     for (const entry of this.#underlayTextures.values()) entry.texture.destroy();
     this.#underlayTextures.clear();
     this.#destroyAttachments();
-    this.#vertexBuffer?.destroy();
-    this.#vertexBuffer = null;
+    for (const buffer of this.#vertexBuffers.splice(0)) buffer.destroy();
     this.#uniformBuffer?.destroy();
     this.#uniformBuffer = null;
   }

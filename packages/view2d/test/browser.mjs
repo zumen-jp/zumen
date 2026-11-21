@@ -20,6 +20,58 @@ import { testUnderlays } from "./underlays.mjs";
 import { testCalibration, testCalibrationCore } from "./calibration.mjs";
 import { testReviewCore, testReviewDrawn, testReviewStore } from "./review.mjs";
 
+async function testVertexBufferLimit(assert) {
+  const adapter = (await navigator.gpu.requestAdapter()) ?? (await navigator.gpu.requestAdapter({ fallbackAdapter: true }));
+  const device = await adapter.requestDevice();
+  const scene = fixture();
+  // クリップされた塗りの途中で複数ページにまたがり、その後ろにも線や文字が続く。
+  const points = 512;
+  const ring = [];
+  for (let i = 0; i < points; i++) {
+    const angle = 2 * Math.PI * i / points;
+    ring.push(27 * Math.cos(angle), 27 * Math.sin(angle));
+  }
+  scene.face_xy = [...ring, ...scene.face_xy.slice(8)];
+  scene.ring_vertices = [0, points, points + 4];
+  const data = bundle(scene);
+  async function render() {
+    const viewer = await View2D.create(document.createElement("canvas"), { device, width: 64, height: 64 });
+    try {
+      viewer.setScene(data);
+      viewer.render();
+      const selected = viewer.hitTestRect({ min_x: 0, min_y: 0, max_x: 64, max_y: 64 }).map(({ id }) => id);
+      return { selected, pixels: (await viewer.snapshot()).pixels };
+    } finally {
+      viewer.destroy();
+    }
+  }
+  try {
+    device.pushErrorScope("validation");
+    const whole = await render();
+    // WebGPU の maximum limits は既定より小さく要求すると既定へ戻る。実デバイスの公開値と確保を計測用に制限する。
+    const cap = 16_384;
+    Object.defineProperty(device.limits, "maxBufferSize", { value: cap, configurable: true });
+    const create = device.createBuffer.bind(device);
+    let vertexBuffers = 0;
+    Object.defineProperty(device, "createBuffer", { configurable: true, value(description) {
+      assert(description.size <= cap, "デバイスの上限内でバッファを確保する");
+      if (description.usage & GPUBufferUsage.VERTEX) vertexBuffers++;
+      return create(description);
+    } });
+    const paged = await render();
+    assert(vertexBuffers >= 2, "一つのシーンを複数の頂点バッファで描く");
+    assert(whole.pixels.some((v) => v < 255), "比較元のシーンに絵がある");
+    assert(whole.pixels.length === paged.pixels.length && whole.pixels.every((v, i) => v === paged.pixels[i]), "分割の前後で全画素が一致する");
+    assert(whole.selected.length > 1 && JSON.stringify(whole.selected) === JSON.stringify(paged.selected), "分割の前後で範囲選択の ID と順が一致する");
+    const error = await device.popErrorScope();
+    assert(error === null, `分割したシーンの WebGPU 検証: ${error?.message}`);
+  } finally {
+    delete device.createBuffer;
+    delete device.limits.maxBufferSize;
+    device.destroy();
+  }
+}
+
 export async function testView2D(wasmPath, inputs, calibrationInput) {
   let assertions = 0;
   const assert = (ok, message) => { assertions++; if (!ok) throw new Error(message); };
@@ -50,6 +102,7 @@ export async function testView2D(wasmPath, inputs, calibrationInput) {
     assert(caught?.reason === "webgpu-unavailable", `WebGPU を使えない Canvas を拒む: ${caught}`);
   }
   await testFallbackText({ assert, near });
+  await testVertexBufferLimit(assert);
   await testState({ assert, throws, throwsAsync });
   const largeStrokeRaster = await testHit({ assert, near });
   const strokeSat = await testStrokeSat(assert);
