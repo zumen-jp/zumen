@@ -130,7 +130,15 @@ pub fn convert(
     plan.openings();
     plan.material_elements(cx)?;
     let edits = std::mem::take(&mut plan.edits);
-    let mut bytes = apply(&file, &edits, &namespace, cx)?.bytes;
+    // 変換は元のモデルの配置に従う。階の標高を部材の座標に重ねて足さない。
+    let mut bytes = super::apply_with_placement(
+        &file,
+        &edits,
+        &namespace,
+        super::StoreyPlacement::FromSourceModel,
+        cx,
+    )?
+    .bytes;
     // プロパティの変更は、文書にあるインスタンスの番号で指すので、書いた後に GlobalId で引いて当てる
     let wanted = plan.properties();
     if !wanted.is_empty() {

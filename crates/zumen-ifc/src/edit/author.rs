@@ -73,7 +73,7 @@ pub struct NewSpace {
     pub name: Option<String>,
     /// 集約の親（プロジェクトか空間）
     pub parent: Target,
-    /// 配置。なければ、親の配置があればそこに恒等の変換で置く
+    /// 配置。省略した階は標高を親からの z に使う。それ以外は親の配置に恒等の変換で置く
     pub placement: Option<NewPlacement>,
     /// 標高（文書の長さの単位）。階は 10 Elevation、建物は 10 ElevationOfRefHeight、敷地は 12 RefElevation。
     /// IFC4.3 は階と建物の値を非推奨にしたので、階の高さは親の配置からの z で書き、建物の値は断る
@@ -586,7 +586,12 @@ impl Draft<'_> {
     }
 
     /// 空間を足す
-    pub(super) fn add_space(&mut self, space: &NewSpace, cx: &mut Cx) -> Result<bool, Error> {
+    pub(super) fn add_space(
+        &mut self,
+        space: &NewSpace,
+        placement: super::StoreyPlacement,
+        cx: &mut Cx,
+    ) -> Result<bool, Error> {
         let (name, arity, elevation_at): (&[u8], usize, usize) = match space.kind {
             SpaceKind::Site => (b"IFCSITE", 14, 12),
             SpaceKind::Building => (b"IFCBUILDING", 12, 10),
@@ -643,6 +648,18 @@ impl Draft<'_> {
             lifted = NewPlacement {
                 relative_to: Some(space.parent),
                 local,
+            };
+            wanted = Some(&lifted);
+        } else if placement == super::StoreyPlacement::FromElevation
+            && space.kind == SpaceKind::Storey
+            && wanted.is_none()
+            && let Some(height) = space.elevation
+        {
+            // IFC2X3 と IFC4 でも、配置を省いた階の子は標高の位置に置く。
+            // 親自身が配置を持たないときは、プロジェクトの座標で置く。
+            lifted = NewPlacement {
+                relative_to: self.placement_of(parent).map(|_| space.parent),
+                local: Transform::translation(0.0, 0.0, height),
             };
             wanted = Some(&lifted);
         }

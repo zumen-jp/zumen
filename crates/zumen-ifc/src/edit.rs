@@ -254,6 +254,22 @@ pub struct Applied {
 /// `seed` は、足す GlobalId を決めるための値で、同じ入力と変更なら同じ GlobalId になる。足す関係とセットの
 /// GlobalId は、[`Keyed`] の鍵で決め、ほかの変更の順によらない
 pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result<Applied, Error> {
+    apply_with_placement(file, edits, seed, StoreyPlacement::FromElevation, cx)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StoreyPlacement {
+    FromElevation,
+    FromSourceModel,
+}
+
+fn apply_with_placement(
+    file: &IfcFile,
+    edits: &[Edit],
+    seed: &[u8],
+    placement: StoreyPlacement,
+    cx: &mut Cx,
+) -> Result<Applied, Error> {
     let mut draft = Draft::new(file, seed, cx)?;
     let mut rejected = false;
     for edit in edits {
@@ -271,7 +287,7 @@ pub fn apply(file: &IfcFile, edits: &[Edit], seed: &[u8], cx: &mut Cx) -> Result
                 attribute,
                 value,
             } => draft.attribute(*element, *attribute, value.as_deref(), cx),
-            Edit::Space(space) => draft.add_space(space, cx)?,
+            Edit::Space(space) => draft.add_space(space, placement, cx)?,
             Edit::Element(element) => draft.add_element(element, cx)?,
             Edit::Wall(wall) => draft.add_wall(wall, cx)?,
             Edit::Slab(slab) => draft.add_slab(slab, cx)?,

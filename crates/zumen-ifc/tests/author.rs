@@ -228,11 +228,10 @@ fn adds_spaces_elements_and_relations_in_every_version() {
         assert_eq!(spatial.elevation.as_ref().map(|m| m.value), written);
         let level = building.components.level.get(second).unwrap();
         assert_eq!(level.height.value, 3000.0, "{schema}");
-        // 配置なしで足した階は、IFC2X3 と IFC4 では親の配置に恒等で置き、IFC4.3 では高さだけ上げる
-        let z = if written.is_some() { 0.0 } else { 3000.0 };
+        // 階の配置を省略しても、どの版でも標高だけ上げる
         assert_eq!(
             translation(&building, second),
-            Some([0.0, 0.0, z]),
+            Some([0.0, 0.0, 3000.0]),
             "{schema}"
         );
         assert_eq!(
@@ -2527,7 +2526,7 @@ fn two_storey_edits() -> Vec<Edit> {
             kind: SpaceKind::Storey,
             name: Some(format!("{}F", n - 1000)),
             parent: Target::Added(0),
-            placement: Some(at(0.0, 0.0, elevation, Target::Added(0))),
+            placement: None,
             elevation: Some(elevation),
             global_id: Some(global(n)),
         })
@@ -2569,6 +2568,77 @@ fn two_storey_edits() -> Vec<Edit> {
         ));
     }
     edits
+}
+
+#[test]
+fn storey_elevation_places_the_wall_and_window_after_each_save() {
+    for schema in SCHEMAS {
+        let src = sample(schema, true);
+        let mut bytes = run(src.as_bytes(), &two_storey_edits()).0.unwrap();
+        for height in [3000.0, 3600.0, 4100.0] {
+            if height != 3000.0 {
+                let id = instance_of(std::str::from_utf8(&bytes).unwrap(), 1002).unwrap();
+                let edit = Edit::Elevation {
+                    storey: Target::Instance(id),
+                    elevation: height,
+                };
+                bytes = run(&bytes, &[edit]).0.unwrap();
+            }
+            let building = lift(&bytes).unwrap();
+            for (n, z) in [
+                (2000, 0.0),
+                (1002, height),
+                (3000, height),
+                (3020, height + 900.0),
+                (3021, height + 900.0),
+            ] {
+                let element = element(&building, n).unwrap();
+                let transform = with(|cx| building.world_placement(element, cx))
+                    .0
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(transform.apply([0.0; 3])[2], z, "{schema}: {n}");
+            }
+        }
+    }
+}
+
+#[test]
+fn older_schemas_preserve_explicit_storey_z_and_place_storeys_under_an_unplaced_parent() {
+    for schema in ["IFC2X3", "IFC4"] {
+        let src = sample(schema, true);
+        let mut explicit = space(SpaceKind::Storey, 102, Target::Added(0), 3000.0);
+        if let Edit::Space(s) = &mut explicit {
+            s.placement = Some(NewPlacement {
+                relative_to: None,
+                local: Transform::translation(0.0, 0.0, 500.0),
+            });
+        }
+        let edits = [
+            space(SpaceKind::Building, 100, Target::Instance(1), 0.0),
+            space(SpaceKind::Storey, 101, Target::Added(0), -3000.0),
+            explicit,
+        ];
+        let bytes = run(src.as_bytes(), &edits).0.unwrap();
+        let building = lift(&bytes).unwrap();
+        for (n, z) in [(101, -3000.0), (102, 500.0)] {
+            let id = element(&building, n).unwrap();
+            let placement = building.components.placement.get(id).unwrap();
+            assert_eq!(placement.relative_to, None, "{schema}");
+            assert_eq!(translation(&building, id), Some([0.0, 0.0, z]));
+        }
+        let explicit = element(&building, 102).unwrap();
+        assert_eq!(
+            building
+                .components
+                .level
+                .get(explicit)
+                .unwrap()
+                .height
+                .value,
+            3000.0
+        );
+    }
 }
 
 #[test]
