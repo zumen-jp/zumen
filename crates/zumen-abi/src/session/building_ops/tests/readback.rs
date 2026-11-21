@@ -132,7 +132,7 @@ fn public_reads_after_building_edits_match_the_saved_version() {
     }
 }
 
-/// 空のプロジェクトに、既存の適合試料と同じ二階建ての編集を当て、保存結果を取得する。
+/// 空のプロジェクトに、既存の適合サンプルと同じ二階建ての編集を当て、保存結果を取得する。
 fn saved_storeys() -> Vec<u8> {
     let fixture = zumen_json::parse(include_bytes!(
         "../../../../../../bindings/conformance/cases/building_storeys.json"
