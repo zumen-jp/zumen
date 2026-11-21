@@ -125,7 +125,7 @@ fn prepare_style(db: &mut AcadDb, charset: Charset, cx: &mut Cx) -> Result<bool,
     let root = if let Some(index) = root {
         index
     } else {
-        // 辞書のない古い試料に、名前で一意に指せるスタイルがあれば従来どおり使う。
+        // 辞書のない古いサンプルに、名前で一意に指せるスタイルがあれば従来どおり使う。
         if find_standard_tablestyle(db, charset, cx, &place)?.is_some() {
             return Ok(true);
         }
