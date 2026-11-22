@@ -190,9 +190,9 @@ def raw_command(command, cwd, env=None):
     return result.stdout
 
 
-def metadata_for(stage, manifest, target, module):
+def metadata_for(stage, manifest, target, module, package):
     return json.loads(raw_command(["cargo", "metadata", "--format-version", "1", "--locked",
-                                   "--manifest-path", manifest, "--filter-platform", target, *feature_args(module)], stage))
+                                   "--manifest-path", manifest, "--filter-platform", target, *feature_args(module, package)], stage))
 
 
 def source_revision():
@@ -237,10 +237,11 @@ def generate(output, tool):
                             output / "licenses" / "wasm" / ("abi" if module == "default" else module)))
         for kind, target, module, artifact, directory in configs:
             manifest = MANIFESTS[kind]
-            notice, _ = read_info(directory, "zumen-" + kind, target, module)
-            metadata = metadata_for(stage, manifest, target, module)
+            package = "zumen-" + kind
+            notice, _ = read_info(directory, package, target, module)
+            metadata = metadata_for(stage, manifest, target, module, package)
             raw_command([tool, "cyclonedx", "--manifest-path", manifest, "--format", "json", "--spec-version", "1.5",
-                         "--target", target, "--all", "--describe", "binaries", *feature_args(module)], stage, env)
+                         "--target", target, "--all", "--describe", "binaries", *feature_args(module, package)], stage, env)
             check((stage / "Cargo.lock").read_bytes() == lock, "SBOM 生成で Cargo.lock が変わった")
             files = list((stage / manifest).parent.glob("*.cdx.json"))
             check(len(files) == 1, "対象 crate の SBOM が一意でない")

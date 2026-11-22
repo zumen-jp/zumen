@@ -62,10 +62,10 @@ def run(workspace):
         messages = [json.loads(line) for line in output.splitlines()]
         root = next(m for m in messages if m["reason"] == "compiler-artifact" and m["target"]["name"] == "zumen")
         binary = Path(root["executable"]).read_bytes()
-        actual = build_graph(workspace, manifest, host, module, messages, root["package_id"], root["features"])
+        actual = build_graph(workspace, manifest, host, module, "zumen-cli", messages, root["package_id"], root["features"])
         sbom.raw_command(["cargo", "cyclonedx", "--describe", "binaries", "--all", "--format", "json",
                           "--spec-version", "1.5", *flags], workspace, env)
-        metadata = sbom.metadata_for(workspace, str(manifest), host, module)
+        metadata = sbom.metadata_for(workspace, str(manifest), host, module, "zumen-cli")
         raw = json.loads(next(manifest.parent.glob("*.cdx.json")).read_bytes())
         notice = {"package": "zumen-cli", "target": host, "features": module, "dependencies": []}
         document = sbom.normalize(raw, metadata, notice, Path(root["executable"]).name, module, "1" * 40, lock, "1")
