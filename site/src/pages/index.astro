@@ -8,6 +8,12 @@ import SectionHead from '../components/SectionHead.astro';
 import { faqs, formats, hostApps, news, releaseVersion } from '../data/site';
 import Base from '../layouts/Base.astro';
 
+const downloadUrl = import.meta.env.PUBLIC_ZUMEN_EDITOR_MSIX_URL?.trim();
+const editor = downloadUrl ? new URL(downloadUrl) : undefined;
+if (editor && (editor.protocol !== 'https:' || editor.username || editor.password || !editor.pathname.endsWith('.msix'))) {
+  throw new Error('PUBLIC_ZUMEN_EDITOR_MSIX_URL には署名済み MSIX の公開 HTTPS URL を指定してください。');
+}
+
 const points = [
   {
     title: 'どこでも同じ結果',
@@ -38,6 +44,12 @@ const points = [
           <a class="btn btn-primary btn-lg" href="/plugins/">AI から図面を操作する</a>
           <a class="btn btn-secondary btn-lg" href="/formats/">対応形式を見る</a>
         </div>
+        {editor && (
+          <p>
+            <a href={editor.href}>zumen-editor をダウンロード（Windows 11 x64 用）</a><br />
+            図面を編集するには、ダウンロードした MSIX ファイルを開き、発行元を確認して「インストール」を選びます。
+          </p>
+        )}
       </div>
       <PlanDrawing />
     </div>
