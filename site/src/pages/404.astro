@@ -5,11 +5,14 @@ import Base from '../layouts/Base.astro';
 ---
 
 <Base title="ページが見つかりません" description="お探しのページは、移動したか、まだありません。" noindex>
-  <PageHeader title="ページが見つかりません" lead="お探しのページは、移動したか、まだありません。" />
+  <PageHeader en="404 Not Found" title="ページが見つかりません" lead="お探しのページは、移動したか、まだありません。" />
   <section class="section">
     <div class="wrap">
-      <p>URL を確かめるか、トップページからお探しください。</p>
-      <p><a class="btn btn-primary" href="/">トップページへ</a></p>
+      <p class="prose">URL を確かめるか、トップページからお探しください。</p>
+      <div class="actions">
+        <a class="btn btn-primary arrow" href="/">トップページへ</a>
+        <a class="btn btn-secondary" href="/viewer/">図面ビューアーを開く</a>
+      </div>
     </div>
   </section>
 </Base>

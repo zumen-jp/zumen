@@ -1,0 +1,110 @@
+---
+// AI プラグインの連携系統図の例。手元の図面・zumen MCP・AI エージェントの接続を製図の記号で描く。
+import Sheet from './Sheet.astro';
+
+const axes = [
+  { x: 142, name: 'S1' },
+  { x: 463, name: 'S2' },
+  { x: 816, name: 'S3' },
+];
+const modules = [
+  { y: 204, label: '読み取り・解析' },
+  { y: 264, label: 'プレビュー描画' },
+  { y: 324, label: '編集・別名保存' },
+];
+---
+
+<Sheet viewBox="0 0 960 540" code="E-01" title="AI 連携系統図（例）" scale="MCP">
+  <!-- 通り芯 -->
+  <path class="d-axis" d={axes.map((a) => `M${a.x} 68V496`).join('')} />
+
+  <!-- ローカル環境の境界（一点鎖線の敷地境界と同じ線種） -->
+  <rect class="d-tone" x="28" y="96" width="582" height="332" rx="4" />
+  <rect class="d-boundary" x="28" y="96" width="582" height="332" rx="4" />
+  <text class="d-note" x="44" y="124">ローカル環境（手元の PC）</text>
+
+  <!-- 左: 手元の図面ファイル -->
+  <g>
+    <rect class="d-paper" x="56" y="176" width="186" height="190" />
+    <rect class="d-paper" x="48" y="168" width="186" height="190" />
+    <path class="d-line" d="M48 214H234" />
+    <text class="d-name d-cell" x="141" y="191">図面フォルダー</text>
+    <!-- ミニ図面記号 -->
+    <rect class="d-faint" x="74" y="232" width="134" height="68" />
+    <path class="d-line" d="M88 286V246H194V286ZM141 246V286" />
+    <path class="d-dim" d="M88 294H194" />
+    <text class="d-note" x="141" y="332" text-anchor="middle">DXF・JWW・SXF</text>
+  </g>
+
+  <!-- 中央: zumen コア（MCP サーバー） -->
+  <g>
+    <rect class="d-solid" x="336" y="142" width="254" height="244" />
+    <rect class="d-tone" x="338" y="144" width="250" height="44" />
+    <path class="d-line" d="M336 188H590" />
+    <text class="d-name d-cell" x="463" y="166">zumen（MCP）</text>
+    {
+      modules.map((m) => (
+        <>
+          <rect class="d-paper" x="356" y={m.y} width="214" height="44" />
+          <circle class="d-dot" cx="376" cy={m.y + 22} r="4.5" />
+          <text class="d-text d-cell" x="392" y={m.y + 22}>
+            {m.label}
+          </text>
+        </>
+      ))
+    }
+  </g>
+
+  <!-- 右: AI エージェント -->
+  <g>
+    <rect class="d-paper" x="702" y="162" width="228" height="202" />
+    <rect class="d-bold" x="702" y="162" width="228" height="202" />
+    <path class="d-line" d="M702 208H930" />
+    <text class="d-name d-cell" x="816" y="185">AI エージェント</text>
+    <text class="d-note-dark" x="816" y="246" text-anchor="middle">Codex · Claude</text>
+    <text class="d-note-dark" x="816" y="280" text-anchor="middle">Cursor · Copilot</text>
+    <text class="d-note-dark" x="816" y="314" text-anchor="middle">Gemini · Antigravity</text>
+    <text class="d-note" x="816" y="346" text-anchor="middle">自然言語で操作</text>
+  </g>
+
+  <!-- 接続線: 図面 <-> zumen -->
+  <g>
+    <path class="d-bold" d="M234 236H330" />
+    <path class="d-fill" d="M336 236l-14 -7v14z" />
+    <text class="d-note d-halo" x="285" y="220" text-anchor="middle">読込</text>
+
+    <path class="d-line" d="M336 296H240" />
+    <path class="d-fill" d="M234 296l14 -7v14z" />
+    <text class="d-note d-halo" x="285" y="324" text-anchor="middle">別名保存</text>
+  </g>
+
+  <!-- 接続線: zumen <-> AI エージェント -->
+  <g>
+    <path class="d-red" d="M590 236H694" />
+    <path class="d-dot" d="M702 236l-15 -8v16z" />
+    <text class="d-dim-t d-halo" x="656" y="220">結果</text>
+
+    <path class="d-dim" d="M702 296H598" />
+    <path class="d-key" d="M590 296l14 -7v14z" />
+    <text class="d-dim-t d-halo" x="656" y="324">操作</text>
+  </g>
+
+  <!-- 通り芯の符号 -->
+  {
+    axes.map((a) => (
+      <>
+        <circle class="d-bubble" cx={a.x} cy="42" r="24" />
+        <text class="d-bubble-t" x={a.x} y="42">
+          {a.name}
+        </text>
+      </>
+    ))
+  }
+
+  <!-- 寸法線風の領域区分 -->
+  <path class="d-faint" d="M28 434V490M610 434V490M930 370V490" />
+  <path class="d-dim" d="M28 472H930" />
+  <path class="d-tick" d="M21 479L35 465M603 479L617 465M923 479L937 465" />
+  <text class="d-dim-t d-halo" x="319" y="460">手元で実行（CLI / stdio）</text>
+  <text class="d-dim-t d-halo" x="770" y="460">対話</text>
+</Sheet>

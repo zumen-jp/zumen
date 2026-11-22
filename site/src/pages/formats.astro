@@ -22,19 +22,21 @@ const excluded = formats.filter((f) => f.read === '×' && f.write === '×');
     <div class="wrap">
       <SectionHead id="status-title" title="形式の一覧" en="Status" />
       <FormatTable items={formats} />
-      <p class="note">v{releaseVersion} の配布物で扱う範囲です。対応する版・図形・操作には制限があります。詳しくは<a href={releasedSource('docs/formats/README.md')}>公開版の形式ごとの文書</a>をご覧ください。</p>
-      <p>SXF・JWW・DWG・DXF は、開いた図面の変更を元の形式に書き戻せます。別形式の図面から新しく変換するときは、出力先に {drawingOutputs.map((output) => output.label).join('・')} を指定できます。IFC は Name・Description・単一値のプロパティなどを書き戻せます。新規作成や別形式への変換で保つ値は、操作と出力先によって異なります。</p>
+      <div class="info-box">
+        <p>v{releaseVersion} の配布物で扱う範囲です。対応する版・図形・操作には制限があります。詳しくは<a href={releasedSource('docs/formats/README.md')}>公開版の形式ごとの文書</a>をご覧ください。</p>
+        <p>SXF・JWW・DWG・DXF は、開いた図面の変更を元の形式に書き戻せます。別形式の図面から新しく変換するときは、出力先に {drawingOutputs.map((output) => output.label).join('・')} を指定できます。IFC は Name・Description・単一値のプロパティなどを書き戻せます。新規作成や別形式への変換で保つ値は、操作と出力先によって異なります。</p>
+      </div>
     </div>
   </section>
 
   <section class="section section-alt" id="rights" aria-labelledby="rights-title">
     <div class="wrap">
       <SectionHead id="rights-title" title="権利と扱わない形式" en="Rights" />
-      <p>
+      <p class="prose">
         対応する形式は、どれもこのリポジトリで作り、どの言語からも同じように使えます。形式ごとの仕様の入手先と権利の根拠は、<a href={releasedSource('docs/formats/README.md')}>公開版の形式と権利の一覧</a>に、判断の手順は<a href={`${repo}/blob/main/formats/README.md`}>形式台帳の書き方</a>にあります。
       </p>
-      <p>次の形式は、権利の条件や方針により扱いません。</p>
-      <ul class="chips">
+      <p class="prose">次の形式は、権利の条件や方針により扱いません。</p>
+      <ul class="chips chips-excluded">
         {excluded.map((f) => (
           <li>{f.name}</li>
         ))}

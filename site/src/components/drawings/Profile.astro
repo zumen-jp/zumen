@@ -24,7 +24,7 @@ const rows = ['測点', '地盤高', '計画高'];
 const cells = [-66, 66, 198, 330, 462, 594, 726];
 ---
 
-<Sheet viewBox="-240 -310 980 462" caption="縦断図 H=1/1000 V=1/100（例）">
+<Sheet viewBox="-240 -310 980 462" code="C-01" title="縦断図（例）" scale="H=1/1000 V=1/100">
   <!-- 測点の線と地盤 -->
   <path class="d-faint" d={stations.map((s) => `M${s.x} 0V${s.top}`).join('')} />
   <path class="d-tone" d={`${groundLine}V0H0Z`} />

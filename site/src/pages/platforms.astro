@@ -51,17 +51,20 @@ const packages = [
     <div class="wrap">
       <SectionHead id="languages-title" title="言語の Tier" en="Languages" />
       <div class="cards">
-        <div class="card">
+        <div class="card card-tier-1">
+          <span class="tier-badge tier-1">Tier 1 · コアと同日公開</span>
           <h3>Tier 1</h3>
           <p>その言語らしいパッケージを作り、PR ごとに適合テストを走らせ、コアと同じ日に公開します。</p>
           <ul class="chips"><li>Rust</li><li>TypeScript・JavaScript</li><li>Python</li><li>.NET</li><li>C・C++</li><li>CLI・MCP</li></ul>
         </div>
-        <div class="card">
+        <div class="card card-tier-2">
+          <span class="tier-badge tier-2">Tier 2 · 毎晩の適合テスト</span>
           <h3>Tier 2</h3>
           <p>各言語のラッパーを配布し、適合テストを毎晩走らせます。</p>
           <ul class="chips"><li>Java・Kotlin</li><li>Swift</li><li>Go</li><li>Dart</li><li>VBA</li></ul>
         </div>
-        <div class="card">
+        <div class="card card-tier-3">
+          <span class="tier-badge tier-3">Tier 3 · サンプルを毎晩検証</span>
           <h3>Tier 3</h3>
           <p>C ABI、ネイティブと WASI の CLI、HTTP で図面を開くサンプルを毎晩検証します。</p>
           <ul class="chips"><li>Ruby</li><li>PHP</li><li>PowerShell</li></ul>
@@ -74,10 +77,12 @@ const packages = [
   <section class="section section-alt" id="requirements" aria-labelledby="requirements-title">
     <div class="wrap">
       <SectionHead id="requirements-title" title="OS とブラウザー" en="Requirements" />
-      <div class="table-scroll">
-        <table class="table spec">
-          <tbody>{os.map(([k, v]) => <tr><th scope="row">{k}</th><td>{v}</td></tr>)}</tbody>
-        </table>
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table class="table spec">
+            <tbody>{os.map(([k, v]) => <tr><th scope="row">{k}</th><td>{v}</td></tr>)}</tbody>
+          </table>
+        </div>
       </div>
       <p class="note">ブラウザーの下限は WebGPU と wasm の <code>simd128</code> が標準で使える世代に合わせています。根拠と CI での確かめ方は<a href={`${repo}/blob/main/docs/support.md`}>対応する環境</a>にあります。</p>
       <p class="note">v{releaseVersion} は 64 bit の環境が対象です。GNU Linux の Python wheel は <code>manylinux_2_34</code>、Swift 用の XCFramework は macOS と iOS の arm64 に対応しています。</p>
@@ -94,14 +99,32 @@ const packages = [
   <section class="section section-alt" id="packages" aria-labelledby="packages-title">
     <div class="wrap">
       <SectionHead id="packages-title" title={`公開済みのパッケージ（v${releaseVersion}）`} en="Packages" />
-      <p>Codex や Claude Code から図面を操作するには、<a href="/plugins/">AI プラグインの導入手順</a>をご覧ください。</p>
-      <div class="table-scroll">
-        <table class="table spec">
-          <tbody>{packages.map((item) => <tr><th scope="row">{item.language}</th><td><a href={item.url}><code>{item.name}</code></a>（<a href={item.guide}>使い方</a>）</td></tr>)}</tbody>
-        </table>
+      <div class="info-box info-box-inline">
+        <p>Codex や Claude Code から図面を操作するには、<a href="/plugins/">AI プラグインの導入手順</a>をご覧ください。</p>
       </div>
-      <p class="note">Dart では <code>dart pub add zumen</code> でラッパーを追加します。Java と Dart では、対象環境に合う同じ版の <a href={releaseUrl}>C ABI ライブラリ</a>も用意してください。</p>
-      <p class="note">2D 表示は <code>npm install @zumen-jp/zumen @zumen-jp/view2d</code> で導入できます。3D 表示には <code>@zumen-jp/view3d</code>、React フックには <code>@zumen-jp/react</code> を追加します。素の <code>zumen</code> はほかの人のパッケージなので、<code>npx zumen</code> を使わないでください。</p>
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table class="table spec pkg-table">
+            <tbody>
+              {
+                packages.map((item) => (
+                  <tr>
+                    <th scope="row">{item.language}</th>
+                    <td class="pkg-cell">
+                      <a class="pkg-main" href={item.url}><code>{item.name}</code></a>
+                      <a class="pkg-guide arrow" href={item.guide}>使い方</a>
+                    </td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="info-box">
+        <p>Dart では <code>dart pub add zumen</code> でラッパーを追加します。Java と Dart では、対象環境に合う同じ版の <a href={releaseUrl}>C ABI ライブラリ</a>も用意してください。</p>
+        <p>2D 表示は <code>npm install @zumen-jp/zumen @zumen-jp/view2d</code> で導入できます。3D 表示には <code>@zumen-jp/view3d</code>、React フックには <code>@zumen-jp/react</code> を追加します。素の <code>zumen</code> はほかの人のパッケージなので、<code>npx zumen</code> を使わないでください。</p>
+      </div>
     </div>
   </section>
 </Page>

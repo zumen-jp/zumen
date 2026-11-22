@@ -26,19 +26,21 @@ const policies = [
   <section class="section" id="about" aria-labelledby="about-title">
     <div class="wrap">
       <SectionHead id="about-title" title="zumen の概要" en="About" />
-      <div class="table-scroll">
-        <table class="table spec">
-          <tbody>
-            <tr><th scope="row">名称</th><td>zumen（ずめん）</td></tr>
-            <tr><th scope="row">内容</th><td>日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群</td></tr>
-            <tr><th scope="row">仕組み</th><td>読み書きと解析を Rust の 1 つの実装にし、ネイティブ・wasm・各言語のバインディングで、ビット単位で同じ出力を返します。</td></tr>
-            <tr><th scope="row">使い方の形</th><td>ネイティブのライブラリ・ブラウザーの wasm・プロセスの外・HTTP の 4 つから、用途に合わせて選べます。</td></tr>
-            <tr><th scope="row">ファイルの扱い</th><td>図面を外部のサービスへ送らず、手元の環境で読みます。</td></tr>
-            <tr><th scope="row">ライセンス</th><td>MIT License または Apache License 2.0（選んで使えます）</td></tr>
-            <tr><th scope="row">状態</th><td><a href={releaseUrl}>v{releaseVersion}</a> を公開しています。配布先と制約は<a href="/platforms/#packages">対応環境</a>で案内しています。</td></tr>
-            <tr><th scope="row">リポジトリ</th><td><a href={repo}>github.com/zumen-jp/zumen</a></td></tr>
-          </tbody>
-        </table>
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table class="table spec">
+            <tbody>
+              <tr><th scope="row">名称</th><td>zumen（ずめん）</td></tr>
+              <tr><th scope="row">内容</th><td>日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群</td></tr>
+              <tr><th scope="row">仕組み</th><td>読み書きと解析を Rust の 1 つの実装にし、ネイティブ・wasm・各言語のバインディングで、ビット単位で同じ出力を返します。</td></tr>
+              <tr><th scope="row">使い方の形</th><td>ネイティブのライブラリ・ブラウザーの wasm・プロセスの外・HTTP の 4 つから、用途に合わせて選べます。</td></tr>
+              <tr><th scope="row">ファイルの扱い</th><td>図面を外部のサービスへ送らず、手元の環境で読みます。</td></tr>
+              <tr><th scope="row">ライセンス</th><td>MIT License または Apache License 2.0（選んで使えます）</td></tr>
+              <tr><th scope="row">状態</th><td><a href={releaseUrl}>v{releaseVersion}</a> を公開しています。配布先と制約は<a href="/platforms/#packages">対応環境</a>で案内しています。</td></tr>
+              <tr><th scope="row">リポジトリ</th><td><a href={repo}>github.com/zumen-jp/zumen</a></td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </section>
@@ -46,14 +48,14 @@ const policies = [
   <section class="section section-alt" id="principles" aria-labelledby="principles-title">
     <div class="wrap">
       <SectionHead id="principles-title" title="5 つの方針" en="Principles" />
-      <ol class="cards">
+      <ol class="cards cards-five">
         {
           policies.map((p, i) => (
             <li class="card">
               <span class="card-no">{String(i + 1).padStart(2, '0')}</span>
               <h3>{p.title}</h3>
               <p>{p.body}</p>
-              {p.link && <a class="small-link" href={p.link}>詳しい説明</a>}
+              {p.link && <a class="small-link arrow" href={p.link}>詳しい説明</a>}
             </li>
           ))
         }
@@ -66,21 +68,37 @@ const policies = [
       <SectionHead id="architecture-title" title="仕組み" en="Architecture" />
       <div class="flow">
         <div class="flow-box">
+          <span class="flow-step" lang="en">Layer 01</span>
           <h3>使う所</h3>
           <ul><li>ブラウザー・Node.js</li><li>Python・.NET・Java</li><li>Excel（VBA）</li><li>Revit・AutoCAD・Rhino</li><li>CLI・MCP</li></ul>
         </div>
-        <div class="flow-arrow" aria-hidden="true">⇄</div>
+        <div class="flow-arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 9h14l-3-3M19 15H5l3 3" />
+          </svg>
+        </div>
         <div class="flow-box">
+          <span class="flow-step" lang="en">Layer 02</span>
           <h3>API</h3>
           <ul><li>数個の関数</li><li>スキーマで定めたメッセージ</li><li>ネイティブ・wasm・プロセスの外・HTTP</li><li>足すだけで、消さない</li></ul>
         </div>
-        <div class="flow-arrow" aria-hidden="true">⇄</div>
+        <div class="flow-arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 9h14l-3-3M19 15H5l3 3" />
+          </svg>
+        </div>
         <div class="flow-box core">
+          <span class="flow-step" lang="en">Core</span>
           <h3>Rust のコア</h3>
           <ul><li>読み書き・解析を 1 つの実装に</li><li>ビット単位で同じ出力</li><li>作業量で数える予算</li><li>診断を code と場所で返す</li></ul>
         </div>
-        <div class="flow-arrow" aria-hidden="true">⇄</div>
+        <div class="flow-arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 9h14l-3-3M19 15H5l3 3" />
+          </svg>
+        </div>
         <div class="flow-box">
+          <span class="flow-step" lang="en">Formats</span>
           <h3>形式</h3>
           <ul><li>SXF・JWW</li><li>DXF・DWG</li><li>IFC</li><li>土木・地理・点群</li></ul>
         </div>

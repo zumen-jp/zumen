@@ -30,29 +30,101 @@ const points = [
 <Base>
   <section class="hero" aria-labelledby="hero-title">
     <div class="wrap hero-body">
-      <div>
+      <div class="hero-copy">
         <p class="status-chip">オープンソース（MIT・Apache-2.0）</p>
         <h1 id="hero-title"><em>日本の図面</em>のための、<br />オープンライブラリ。</h1>
         <p class="hero-lead">
           zumen は、SXF・Jw_cad・DXF・DWG から BIM・土木・電子納品まで、日本の建設のデータを読み書きするライブラリ群です。Rust の 1 つのコアを、ブラウザー・サーバー・Python・.NET・Excel から同じように使えます。
         </p>
         <div class="actions">
-          <a class="btn btn-primary btn-lg" href="/viewer/">図面を手元で開く</a>
-          <a class="btn btn-primary btn-lg" href="/plugins/">AI から図面を操作する</a>
+          <a class="btn btn-primary btn-lg arrow" href="/viewer/">図面を手元で開く</a>
           <a class="btn btn-secondary btn-lg" href="/formats/">対応形式を見る</a>
         </div>
-        <p>
-          <a href={editorDownload}>zumen-editor {editorVersion} をダウンロード（Windows 11 x64・MSI）</a><br />
-          図面を編集するデスクトップアプリの先行版です。誰でも無償で評価利用できます。再配布はできません。
-          未署名のため、Windows が発行元を確認できない旨を表示する場合があります。
-          <a href={`${editorDownload}.sha256`}>SHA-256 を確認する</a>
-        </p>
+        <dl class="hero-specs" aria-label="主な仕様">
+          <div>
+            <dt>コア実装</dt>
+            <dd>Rust 単一コア</dd>
+          </div>
+          <div>
+            <dt>処理環境</dt>
+            <dd>手元完結・送信なし</dd>
+          </div>
+          <div>
+            <dt>公開版</dt>
+            <dd class="mono">v{releaseVersion}</dd>
+          </div>
+        </dl>
       </div>
       <PlanDrawing />
     </div>
   </section>
 
-  <section class="section section-alt" aria-labelledby="news-title">
+  <section class="section section-alt" aria-labelledby="start-title">
+    <div class="wrap">
+      <SectionHead id="start-title" title="今すぐ試す・使う" en="Get Started" />
+      <div class="entry-grid">
+        <article class="entry-card entry-card-featured">
+          <div class="entry-head">
+            <span class="entry-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="14" rx="2" />
+                <path d="M7 14l3-4 3 2.5 4-4.5" />
+                <path d="M8 21h8M12 18v3" />
+              </svg>
+            </span>
+            <span class="entry-badge">ブラウザー · WebGPU</span>
+          </div>
+          <h3>図面ビューアー</h3>
+          <p class="entry-desc">公開サンプルや手元の SXF・JWW・DXF・DWG を、ブラウザーの中だけで表示・距離計測・DXF 書き出しできます。</p>
+          <div class="entry-foot">
+            <a class="btn btn-primary arrow" href="/viewer/">図面を手元で開く</a>
+          </div>
+          <p class="entry-footnote">インストール不要です。開いた図面はブラウザー内だけで処理し、外部へは送りません。</p>
+        </article>
+
+        <article class="entry-card">
+          <div class="entry-head">
+            <span class="entry-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="7" height="7" rx="1.5" />
+                <rect x="14" y="13" width="7" height="7" rx="1.5" />
+                <path d="M10 7.5h4.5a3 3 0 0 1 3 3V13M14 16.5H9.5a3 3 0 0 1-3-3V11" />
+              </svg>
+            </span>
+            <span class="entry-badge">MCP · 7 エージェント対応</span>
+          </div>
+          <h3>AI プラグイン</h3>
+          <p class="entry-desc">Codex や Claude Code などの AI エージェントに zumen を追加し、手元の図面の確認・編集・別名保存を会話で行えます。</p>
+          <div class="entry-foot">
+            <a class="btn btn-secondary arrow" href="/plugins/">AI から図面を操作する</a>
+          </div>
+          <p class="entry-footnote">Codex・Claude・Cursor・Copilot CLI・Gemini CLI・Antigravity の導入手順を案内しています。</p>
+        </article>
+
+        <article class="entry-card">
+          <div class="entry-head">
+            <span class="entry-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3v11m0 0l-4-4m4 4l4-4" />
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+              </svg>
+            </span>
+            <span class="entry-badge">Windows 11 x64 · 先行版</span>
+          </div>
+          <h3>zumen-editor {editorVersion}</h3>
+          <p class="entry-desc">図面を編集するデスクトップアプリの先行版です。誰でも無償で評価利用できます。再配布はできません。</p>
+          <div class="entry-foot">
+            <a class="btn btn-secondary" href={editorDownload}>MSI をダウンロード</a>
+          </div>
+          <p class="entry-footnote">
+            未署名のため、Windows が発行元を確認できない旨を表示する場合があります。<a class="entry-sublink" href={`${editorDownload}.sha256`}>SHA-256 を確認する</a>
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="news-title">
     <div class="wrap">
       <div class="news-box-head">
         <div class="section-head">
@@ -65,7 +137,7 @@ const points = [
     </div>
   </section>
 
-  <section class="section" aria-labelledby="points-title">
+  <section class="section section-alt" aria-labelledby="points-title">
     <div class="wrap">
       <SectionHead id="points-title" title="zumen の 3 つの特長" en="Features" />
       <ol class="cards">
@@ -79,33 +151,33 @@ const points = [
           ))
         }
       </ol>
-      <p class="section-foot"><a class="btn btn-secondary" href="/features/">特長と仕組みを詳しく見る</a></p>
+      <p class="section-foot"><a class="btn btn-secondary arrow" href="/features/">特長と仕組みを詳しく見る</a></p>
     </div>
   </section>
 
-  <section class="section section-alt" aria-labelledby="formats-title">
+  <section class="section" aria-labelledby="formats-title">
     <div class="wrap">
       <SectionHead id="formats-title" title="対応形式の早見表" en="Formats" />
       <FormatTable items={formats.filter((f) => f.top)} />
       <p class="note">v{releaseVersion} の範囲です。「書く」には同形式への書き戻しを含み、対応する版・図形・操作に制限があります。</p>
-      <p class="section-foot"><a class="btn btn-secondary" href="/formats/">すべての形式を見る</a></p>
+      <p class="section-foot"><a class="btn btn-secondary arrow" href="/formats/">すべての形式を見る</a></p>
     </div>
   </section>
 
-  <section class="section" aria-labelledby="apps-title">
+  <section class="section section-alt" aria-labelledby="apps-title">
     <div class="wrap">
       <SectionHead id="apps-title" title="いつものソフトから使える" en="Integrations" />
-      <p>各言語のパッケージを通して、次のソフトの中から使えるようにします（予定）。</p>
+      <p class="section-lead">各言語のパッケージを通して、次のソフトの中から使えるようにします（予定）。</p>
       <ul class="chips chips-lg">{hostApps.map((a) => <li>{a}</li>)}</ul>
-      <p class="section-foot"><a class="btn btn-secondary" href="/platforms/">対応環境を見る</a></p>
+      <p class="section-foot"><a class="btn btn-secondary arrow" href="/platforms/">対応環境を見る</a></p>
     </div>
   </section>
 
-  <section class="section section-alt" aria-labelledby="faq-title">
+  <section class="section" aria-labelledby="faq-title">
     <div class="wrap">
       <SectionHead id="faq-title" title="よくある質問" en="FAQ" />
       <FaqList items={faqs.filter((f) => f.top)} />
-      <p class="section-foot"><a class="btn btn-secondary" href="/faq/">質問をすべて見る</a></p>
+      <p class="section-foot"><a class="btn btn-secondary arrow" href="/faq/">質問をすべて見る</a></p>
     </div>
   </section>
 

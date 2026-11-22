@@ -1,16 +1,26 @@
 ---
-// 下層のページの見出しに置く図面の飾り。トップの平面図と同じ線と色で描き、読み上げからは外す。
+// 下層のページの見出しに置く図面の飾り。トップの平面図と同じ線と色で描き、表題欄を添え、読み上げからは外す。
 interface Props {
   viewBox: string;
-  caption: string;
+  caption?: string;
+  code?: string;
+  title?: string;
+  scale?: string;
 }
 
-const { viewBox, caption } = Astro.props;
+const { viewBox, caption, code, title, scale } = Astro.props;
+const displayTitle = title ?? caption ?? '';
 ---
 
 <figure class="sheet" aria-hidden="true">
-  <div class="sheet-paper">
-    <svg viewBox={viewBox}><slot /></svg>
+  <div class="sheet-frame">
+    <div class="sheet-paper">
+      <svg viewBox={viewBox}><slot /></svg>
+    </div>
+    <figcaption class="titleblock">
+      {code && <span class="tb-code">{code}</span>}
+      <span class="tb-title">{displayTitle}</span>
+      {scale && <span class="tb-scale">{scale}</span>}
+    </figcaption>
   </div>
-  <figcaption>{caption}</figcaption>
 </figure>
