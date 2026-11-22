@@ -4,7 +4,7 @@ zumen が対象にするプラットフォーム・言語の実行環境・ホ�
 
 - 現行の 64 bit 環境・最新の言語ランタイム・WebGPU・wasm の固定幅 SIMD（`simd128`）を基準にし、32 bit 環境や古い実行環境に設計を合わせません。
 - 下限を上げる変更は、マイナーバージョンのリリースノートに書きます。
-- 公開済み v0.3.0 の配布物は引き上げ前の条件（glibc 2.28、`manylinux_2_28`、Windows x86、macOS x64 など）で作られたもので、再公開による置き換えは行いません。以下は `main`（次のマイナーバージョン以降）の対象です。
+- 以下は v0.4.0 の対応環境です。glibc 2.28、Windows x86、Intel Mac 向けの配布物は [v0.3.0](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0) から入手できます。[移行手順](releases/0.4.0.md#実行環境の移行)
 
 ## 言語ごとの約束
 
@@ -45,6 +45,8 @@ Tier 3 では、公式のラッパーを使わずに図面を開く方法を、�
 | 2 | Go | Go がサポートする 2 つのメジャーバージョン（今は 1.26・1.27） | Go と wazero のサポート方針 | 毎晩 |
 | 2 | Dart | Dart 3.5（Flutter 3.24） | 現行の Flutter 3 世代 | 毎晩 |
 | 2 | VBA | VBA7（Office 2021 以降、64 bit） | 64 bit の Microsoft 365 と Office LTSC 2024 | DLL は PR ごと。Microsoft 365 の Excel 64 bit で [VBE のコンパイルと全手順を確認](../bindings/vba/README.md#実機の検証結果) |
+
+Tier 2 の v0.4.0 は、Java・Kotlin が [Maven Central](https://central.sonatype.com/artifact/dev.zumen/zumen/0.4.0)、Swift が [SwiftPM](https://github.com/zumen-jp/zumen-swift/tree/v0.4.0)、Go が [zumen.dev/go](https://pkg.go.dev/zumen.dev/go@v0.4.0)、Dart が [Dart パッケージ（tar.gz）](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-dart-0.4.0.tar.gz)、VBA7 が [Windows x64 用 ZIP](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-vba-0.4.0-win-x64.zip) から入手できます。言語別の導入手順は [利用方法](../README.md#利用方法) にまとめています。
 
 ## ブラウザーの下限の根拠
 

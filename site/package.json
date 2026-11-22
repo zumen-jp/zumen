@@ -19,7 +19,7 @@
     "@fontsource-variable/noto-sans-jp": "5.3.1",
     "@fontsource/noto-sans-mono": "5.3.0",
     "astro": "7.4.2",
-    "@zumen-jp/zumen": "0.3.0",
+    "@zumen-jp/zumen": "0.4.0",
     "@zumen-jp/react": "file:../packages/react",
     "@zumen-jp/view2d": "file:../packages/view2d",
     "react": "19.3.1",

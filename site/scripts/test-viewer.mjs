@@ -143,12 +143,7 @@ try {
   if (hasWebGPU) {
   for (const [path, format] of [["jww/ezjww-geometry.jww", "JWW"], ["dxf/text_alignments.dxf", "DXF"], ["dxf/opendxfviewer-latin1.dxf", "DXF"], ["dwg/zumen-layout-r2000.dwg", "DWG"]]) {
     await samples.selectOption(path);
-    if (path === "dxf/opendxfviewer-latin1.dxf") {
-      // サイトの drawing wasm はこの ANSI_1252 の入力を扱わない。空の表示を描画できたと数えず、診断を確認する。
-      await page.locator(".status").filter({ hasText: "表示できる要素がありません" }).waitFor();
-      await page.getByRole("button", { name: "診断", exact: true }).click();
-      assert.match(await page.getByRole("region", { name: /^診断/ }).textContent(), /dxf.code-page.unsupported/);
-    } else await ready(format);
+    await ready(format);
     await page.getByRole("button", { name: "案内", exact: true }).click();
     await page.getByRole("region", { name: "サンプルの提供元とライセンス" }).waitFor();
   }
@@ -156,6 +151,12 @@ try {
     const { push } = JSON.parse(readFileSync(resolve(root, "bindings/conformance/cases", name + ".json"))).steps.find((step) => step.push);
     return Buffer.from(push.hex ?? push.text, push.hex ? "hex" : "utf8");
   };
+  // 表にない文字コードの DXF は、空の表示を描画できたと数えず、理由を示す。
+  const unknownCodePage = fixture("code_page_1252").toString("latin1").replace("ANSI_1252", "UNKNOWN");
+  await picker.setInputFiles({ name: "unknown-codepage.dxf", mimeType: "application/octet-stream", buffer: Buffer.from(unknownCodePage, "latin1") });
+  await page.locator(".status").filter({ hasText: "表示できる要素がありません" }).waitFor();
+  await page.getByRole("button", { name: "診断", exact: true }).click();
+  assert.match(await page.getByRole("region", { name: /^診断/ }).textContent(), /dxf.code-page.unsupported/);
   const inputs = [["scene", "dxf", "DXF"], ["open_jww", "jww", "JWW"], ["composite_sxf", "sfc", "SXF"]];
   for (const [name, extension, format] of inputs) {
     await picker.setInputFiles({ name: "local." + extension, mimeType: "application/octet-stream", buffer: fixture(name) }); await ready(format);
@@ -224,7 +225,7 @@ try {
   await first.click();
   await page.getByRole("region", { name: "出所" }).getByText("ハンドル", { exact: true }).waitFor();
   await page.getByRole("button", { name: "DXF 書き出し", exact: true }).click();
-  // 0.3.0 は convert_estimate を持つので、保存前の見積もりと保存を表示する（0.2.0 では表示しなかった）。
+  // 公開コアの convert_estimate で保存前の見積もりを表示する。
   assert.equal(await page.getByRole("region", { name: /^DXF で保存/ }).count(), 1);
   }
   await page.getByRole("button", { name: "案内", exact: true }).click();

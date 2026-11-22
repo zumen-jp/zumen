@@ -7,22 +7,32 @@ import Page from '../layouts/Page.astro';
 const os = [
   ['Windows', 'Windows 11、Windows Server 2022（x64・ARM64）'],
   ['macOS', 'macOS 14（Apple Silicon / arm64）'],
-  ['Linux', 'glibc 2.34（x64・arm64）'],
+  ['GNU Linux', 'カーネル 5.14、glibc 2.34（x64・arm64）'],
   ['iOS・iPadOS', 'iOS 17（arm64）'],
   ['Android', 'Android 12（API 31、arm64-v8a・x86_64）'],
-  ['ブラウザー', 'Chrome・Edge 113、Firefox 141、Safari 26（WebGPU・wasm simd128）'],
+  ['ブラウザー', 'Chrome・Edge 113、Firefox 141（Windows）・145（macOS）、Safari 26（WebGPU・wasm simd128）'],
   ['Node.js', '24'],
   ['Python', '3.12'],
   ['.NET', '.NET 8、.NET 10（Revit・AutoCAD 2025 以降）'],
 ];
 
+const releaseAsset = (name: string) => `${repo}/releases/download/v${releaseVersion}/${name}`;
+
 const packages = [
-  { language: 'Rust', name: 'zumen', url: `https://crates.io/crates/zumen/${releaseVersion}`, guide: `https://docs.rs/zumen/${releaseVersion}/zumen/` },
+  { language: 'Rust', name: 'crates.io の zumen', url: `https://crates.io/crates/zumen/${releaseVersion}`, guide: `https://docs.rs/zumen/${releaseVersion}/zumen/` },
   { language: 'TypeScript・JavaScript', name: '@zumen-jp/zumen', url: `https://www.npmjs.com/package/@zumen-jp/zumen/v/${releaseVersion}`, guide: releasedSource('bindings/js/README.md') },
   { language: 'Python', name: 'zumen', url: `https://pypi.org/project/zumen/${releaseVersion}/`, guide: releasedSource('bindings/python/README.md') },
-  { language: '.NET', name: 'Zumen', url: `https://www.nuget.org/packages/Zumen/${releaseVersion}`, guide: releasedSource('bindings/dotnet/README.md') },
+  { language: '.NET', name: 'NuGet の Zumen', url: `https://www.nuget.org/packages/Zumen/${releaseVersion}`, guide: releasedSource('bindings/dotnet/README.md') },
   { language: 'C・C++', name: 'C ABI・ヘッダー', url: releaseUrl, guide: releasedSource('bindings/c/README.md') },
   { language: 'CLI・MCP', name: 'zumen', url: releaseUrl, guide: releasedSource('bindings/cli/README.md') },
+  { language: 'Java・Kotlin', name: 'dev.zumen:zumen（Maven Central）', url: `https://central.sonatype.com/artifact/dev.zumen/zumen/${releaseVersion}`, guide: releasedSource('bindings/java/README.md') },
+  { language: 'Swift', name: 'zumen-swift', url: `https://github.com/zumen-jp/zumen-swift/tree/v${releaseVersion}`, guide: releasedSource('bindings/swift/README.md') },
+  { language: 'Go', name: 'zumen.dev/go', url: `https://pkg.go.dev/zumen.dev/go@v${releaseVersion}`, guide: releasedSource('bindings/go/README.md') },
+  { language: 'Dart', name: 'zumen（tar.gz）', url: releaseAsset(`zumen-dart-${releaseVersion}.tar.gz`), guide: releasedSource('bindings/dart/README.md') },
+  { language: 'VBA（64 bit）', name: 'Excel 用 ZIP', url: releaseAsset(`zumen-vba-${releaseVersion}-win-x64.zip`), guide: releasedSource('bindings/vba/README.md') },
+  { language: 'WebGPU 2D', name: '@zumen-jp/view2d', url: releaseAsset(`zumen-jp-view2d-${releaseVersion}.tgz`), guide: releasedSource('packages/view2d/README.md') },
+  { language: 'WebGPU 3D', name: '@zumen-jp/view3d', url: releaseAsset(`zumen-jp-view3d-${releaseVersion}.tgz`), guide: releasedSource('packages/view3d/README.md') },
+  { language: 'React', name: '@zumen-jp/react', url: releaseAsset(`zumen-jp-react-${releaseVersion}.tgz`), guide: releasedSource('packages/react/README.md') },
 ];
 ---
 
@@ -48,7 +58,7 @@ const packages = [
         </div>
         <div class="card">
           <h3>Tier 2</h3>
-          <p>生成したパッケージを作り、適合テストを毎晩走らせます。パッケージの公開は準備中です。</p>
+          <p>各言語のラッパーを配布し、適合テストを毎晩走らせます。</p>
           <ul class="chips"><li>Java・Kotlin</li><li>Swift</li><li>Go</li><li>Dart</li><li>VBA</li></ul>
         </div>
         <div class="card">
@@ -70,7 +80,7 @@ const packages = [
         </table>
       </div>
       <p class="note">ブラウザーの下限は WebGPU と wasm の <code>simd128</code> が標準で使える世代に合わせています。根拠と CI での確かめ方は<a href={`${repo}/blob/main/docs/support.md`}>対応する環境</a>にあります。</p>
-      <p class="note">表は <code>main</code>（次のマイナーバージョン以降）が対象にする 64 bit 環境です。公開済み v{releaseVersion} の配布物は引き上げ前の条件（Windows x86・macOS x64・GNU Linux glibc 2.28 / <code>manylinux_2_28</code> など、<a href={`${repo}/issues/789`}>#789</a>）で作られています。iOS・Android のバイナリはまだ配布していません。</p>
+      <p class="note">v{releaseVersion} は 64 bit の環境が対象です。GNU Linux の Python wheel は <code>manylinux_2_34</code>、Swift 用の XCFramework は macOS と iOS の arm64 に対応しています。</p>
     </div>
   </section>
 
@@ -90,7 +100,7 @@ const packages = [
           <tbody>{packages.map((item) => <tr><th scope="row">{item.language}</th><td><a href={item.url}><code>{item.name}</code></a>（<a href={item.guide}>使い方</a>）</td></tr>)}</tbody>
         </table>
       </div>
-      <p class="note">導入手順は公開版のソースに固定しています。npm は <code>@zumen-jp/zumen</code> を使います。素の <code>zumen</code> はほかの人のパッケージなので、<code>npx zumen</code> を使わないでください。React の表示部品など、リポジトリの中だけのパッケージは公開していません。</p>
+      <p class="note">2D・3D 表示部品と React フックは、表のリンクから必要な GitHub Release のパッケージを取得し、たとえば 2D なら <code>npm install ./zumen-jp-view2d-{releaseVersion}.tgz</code> で入れます。この 3 件の npm レジストリ公開は準備中です。コアは npm の <code>@zumen-jp/zumen</code> を使います。素の <code>zumen</code> はほかの人のパッケージなので、<code>npx zumen</code> を使わないでください。</p>
     </div>
   </section>
 </Page>
