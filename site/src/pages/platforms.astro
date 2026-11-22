@@ -84,6 +84,7 @@ const packages = [
   <section class="section section-alt" id="packages" aria-labelledby="packages-title">
     <div class="wrap">
       <SectionHead id="packages-title" title={`公開済みのパッケージ（v${releaseVersion}）`} en="Packages" />
+      <p>Codex や Claude Code から図面を操作するには、<a href="/plugins/">AI プラグインの導入手順</a>をご覧ください。</p>
       <div class="table-scroll">
         <table class="table spec">
           <tbody>{packages.map((item) => <tr><th scope="row">{item.language}</th><td><a href={item.url}><code>{item.name}</code></a>（<a href={item.guide}>使い方</a>）</td></tr>)}</tbody>

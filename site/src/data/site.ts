@@ -13,6 +13,7 @@ export const releasedSource = (file: string) => `${repo}/blob/v${releaseVersion}
 // ナビの並び。ビューアーのヘッダーとの一致を、組み立ての検査がこの { href, label } の形で読む。
 export const nav = [
   { href: '/viewer/', label: '図面を試す' },
+  { href: '/plugins/', label: 'AI プラグイン' },
   { href: '/features/', label: '特長' },
   { href: '/formats/', label: '対応形式' },
   { href: '/platforms/', label: '対応環境' },
@@ -30,6 +31,7 @@ export interface PageInfo {
 // ナビの各ページの肩書きと説明。下層のページの見出しと、ページの終わりの「ほかのページ」に使う。
 export const pages: Record<(typeof nav)[number]['href'], PageInfo> = {
   '/viewer/': { en: 'Viewer', lead: '公開サンプルや手元の図面を、ブラウザーの中だけで開きます。' },
+  '/plugins/': { en: 'AI Plugins', lead: 'Codex や Claude Code に zumen を追加し、手元の図面を開いて編集する手順です。' },
   '/features/': { en: 'Features', lead: 'zumen が何をするライブラリ群か、どのように作っているかを説明します。' },
   '/formats/': { en: 'Formats', lead: '形式ごとの、読む・書くの状況と、扱わない形式です。' },
   '/platforms/': { en: 'Platforms', lead: '言語ごとの約束、OS とブラウザーの下限、公開済みのパッケージです。' },
