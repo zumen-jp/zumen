@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { useDrawing, useDrawingViewer, useViewerState } from "@zumen-jp/react";
 import { VIEW_SCALE_LIMITS } from "@zumen-jp/view2d";
+import { Icon, ToolButton } from "./tools.jsx";
 import { samples } from "virtual:samples";
 import { catalog, loadModule } from "./module.js";
 import { Diagnostics, Inspector, Pages } from "./inspector.jsx";
@@ -28,15 +29,27 @@ function LogoMark() {
   </svg>;
 }
 function Masthead() {
-  return <header className="masthead">
-    <div className="wrap">
-      <a className="logo" href="/" aria-label="zumen トップ"><LogoMark/>
-        <span className="logo-text"><strong>zumen</strong><span>図面の読み書きの基盤</span></span></a>
-      <nav className="gnav" aria-label="サイト内"><ul>
-        {siteNav.map((item) => <li key={item.href}><a href={item.href} aria-current={item.href === "/viewer/" ? "page" : undefined}>{item.label}</a></li>)}
-      </ul></nav>
-    </div>
+  return <header className="cad-mast">
+    <a className="cad-brand" href="/" aria-label="zumen トップ"><LogoMark/>zumen</a>
+    <h1>図面ビューアー</h1>
+    <details className="cad-menu"><summary>サイトメニュー</summary><nav aria-label="サイト内"><ul>
+      {siteNav.map((item) => <li key={item.href}><a href={item.href} aria-current={item.href === "/viewer/" ? "page" : undefined}>{item.label}</a></li>)}
+    </ul></nav></details>
   </header>;
+}
+
+const toolNames = { select: "選択", pan: "移動", measure: "距離計測" };
+const hints = {
+  select: "クリックで選択・ドラッグで範囲選択",
+  pan: "ドラッグで図面を移動",
+  measure: "始点から終点までドラッグして距離を測定",
+};
+const units = { millimeter: "mm", centimeter: "cm", meter: "m", inch: "in", foot: "ft" };
+const jwwExample = samples.find((item) => item.path.endsWith(".jww"));
+const distanceFormat = new Intl.NumberFormat("ja-JP", { maximumSignificantDigits: 8 });
+function measurementText(value) {
+  if (value.real.status === "known") return "実寸 " + distanceFormat.format(value.real.distance) + " " + units[value.real.unit];
+  return "図面上の距離 " + distanceFormat.format(value.distance) + " " + (units[value.unit] ?? (value.unit === "unknown" ? "（単位不明）" : value.unit));
 }
 function resize(viewer, canvas) {
   viewer.resize(Math.max(1, canvas.clientWidth), Math.max(1, canvas.clientHeight), Math.min(devicePixelRatio || 1, 2));
@@ -170,6 +183,34 @@ function Export({ opened, name }) {
     {state.diagnostics && <Diagnostics entries={state.diagnostics} issues={[]} title={state.status === "done" ? "変換の診断" : "見積もりの診断"} id="export-diagnostics-title"/>}
   </section>;
 }
+function ViewerGuide({ sample }) {
+  return <div className="cad-info">
+    <h2>図面の操作</h2>
+    <p>ホイールで拡大・縮小、中ボタンドラッグまたは矢印キーで移動します。中ボタンをダブルクリックすると全体を表示します。</p>
+    <p>左右のボタンを同時にドラッグすると、右下で範囲拡大、右上で全体表示、左上で縮小、左下で前の表示に戻ります。</p>
+    <p>図面はブラウザー内で読み込みます。PDF・JWC・JWS は対象外です。
+      {import.meta.env.VITE_ZUMEN_CORE_VERSION && <> 読み込みには zumen {import.meta.env.VITE_ZUMEN_CORE_VERSION} を使います。</>}
+    </p>
+    {sample && <section className="sample-source" aria-label="サンプルの提供元とライセンス">
+      <h2>{sample.title}</h2>
+      <dl className="properties">
+        <dt>公開した者</dt><dd>{sample.publisher}</dd>
+        <dt>ライセンス</dt><dd><a href={sample.licenseUrl} target="_blank" rel="noreferrer noopener">{sample.license}</a>{sample.text && <>（<a href={sample.text} target="_blank" rel="noopener">本文</a>）</>}</dd>
+        <dt>出所</dt><dd><a href={sample.source} target="_blank" rel="noreferrer noopener">{sample.source}</a></dd>
+        <dt>表示</dt><dd>{sample.attribution}</dd>
+        {sample.changes && <><dt>変えたこと</dt><dd>{sample.changes}</dd></>}
+      </dl>
+    </section>}
+    <section aria-labelledby="report-title" className="export">
+      <h2 id="report-title">不具合を知らせる</h2>
+      <p>操作や表示の不具合は <a href="https://github.com/zumen-jp/zumen/issues">GitHub の issue</a> にお知らせください。受け取った図面・顧客の名前・図面の中身は、公開の issue に貼らないでください。</p>
+      <p>読み取りが終わらない・落ちる・メモリを使いすぎる入力は、<a href="https://github.com/zumen-jp/zumen/security/advisories/new">非公開の報告窓口</a>へお知らせください。機密の図面は添付せず、<a href="https://github.com/zumen-jp/zumen/blob/main/SECURITY.md">報告の手順</a>をご確認ください。</p>
+    </section>
+    <p><a href="/">zumen の案内に戻る</a></p>
+    <p>MIT License / Apache License 2.0</p>
+  </div>;
+}
+
 export function Playground() {
   const [canvas, setCanvas] = useState(null);
   const [overlayCanvas, setOverlayCanvas] = useState(null);
@@ -178,7 +219,10 @@ export function Playground() {
   const [sample, setSample] = useState(null);
   const [fetchError, setFetchError] = useState(null);
   const [viewerError, setViewerError] = useState(null);
+  const [panel, setPanel] = useState(null);
   const picker = useRef(null);
+  const openButton = useRef(null);
+  const fittedView = useRef(null);
   const fetching = useRef(0);
   const viewer = useDrawingViewer(canvas, viewOptions, setViewerError);
   const overlay = useDrawingViewer(overlayCanvas, overlayOptions);
@@ -191,7 +235,7 @@ export function Playground() {
   useLayoutEffect(() => { if (viewer) setViewerError(null); }, [viewer]);
   useLayoutEffect(() => {
     if (!viewer || !canvas) return;
-    const detach = viewer.attachInput();
+    const detach = viewer.attachInput(canvas, { wheelModifier: "none", cadNavigation: true });
     let frame = null, stopped = false;
     // Resize Observer §3.4.6: https://drafts.csswg.org/resize-observer/#deliver-resize-loop-error
     // 状態通知で詳細パネルの有無も変わる。配送中には書かず、次のフレームで最新の CSS 寸法を読む。
@@ -199,7 +243,15 @@ export function Playground() {
       if (stopped || frame !== null) return;
       frame = requestAnimationFrame(() => {
         frame = null;
-        if (!stopped) resize(viewer, canvas);
+        if (stopped) return;
+        const before = viewer.getView(), fitted = fittedView.current;
+        const keepFit = fitted && before.scale === fitted.scale && before.rotation === fitted.rotation &&
+          before.center.x === fitted.center.x && before.center.y === fitted.center.y;
+        resize(viewer, canvas);
+        if (keepFit && canvas.clientWidth > 32 && canvas.clientHeight > 32) {
+          viewer.fit();
+          fittedView.current = viewer.getView();
+        }
       });
     });
     observer.observe(canvas);
@@ -212,19 +264,20 @@ export function Playground() {
   }, [viewer, canvas]);
   useLayoutEffect(() => {
     if (!viewer) return;
-    setRenderError(null);
+    setRenderError(null); fittedView.current = null;
     try { viewer.setScene(input); }
     catch (error) { viewer.setScene(null); setRenderError(error); }
   }, [viewer, input]);
   useLayoutEffect(() => {
-    // 詳細パネルが並んだあとの寸法で初回だけ全体を収める。その後の移動とズームは利用者が決める。
+    // 開いた用紙を全体表示し、手動で移動・拡大するまではパネルの開閉時も収める。
     if (!ready) return;
-    try { resize(viewer, canvas); viewer.fit(); }
+    try { resize(viewer, canvas); viewer.fit(); fittedView.current = viewer.getView(); }
     catch (error) { viewer.setScene(null); setRenderError(error); }
   }, [viewer, canvas, input, ready]);
 
   function choose(next, from = null) {
     fetching.current++;
+    setPanel(null); viewer?.setTool("select");
     setPlace(null); setFile(next); setSample(from); setFetchError(null);
   }
   // 公開サンプルは、配布物の中のファイルをローカルの GET で取り、選んだファイルと同じに開く（#689）。
@@ -252,77 +305,104 @@ export function Playground() {
     : fetchError ? "サンプルを取れませんでした。"
     : failed ? opened.error?.message === "drawing.input.limit" ? "64 MiB 以下のファイルを選んでください。" : "図面を表示できませんでした。"
     : ready ? viewer.getElements().length ? "表示しました。" : "表示できる要素がありません。診断を確認してください。" : file || sample ? "図面を読んでいます。" : "図面を選んでください。";
-  return <>
-  <a className="skip" href="#viewer-main">本文へ移動</a>
-  <Masthead/>
-  <main id="viewer-main">
-    <div className="page-header"><div className="wrap">
-      <nav className="breadcrumbs" aria-label="現在の位置"><ol><li><a href="/">トップ</a></li><li aria-current="page">図面ビューアー</li></ol></nav>
-      <h1>図面ビューアー</h1>
-      <p className="page-lead">選んだ図面をこのブラウザーで開きます。図面のバイト列を外へ送らず、読み取りはこのブラウザーの中で行います。PDF・JWC・JWS・LAZ は対象外です。
-        {import.meta.env.VITE_ZUMEN_CORE_VERSION && <>zumen {import.meta.env.VITE_ZUMEN_CORE_VERSION} で読みます。未対応の文字や図形は、診断をご確認ください。</>}</p>
-    </div></div>
-    <div className="wrap">
-    <div className="file-bar">
-      <label htmlFor="drawing-file">図面ファイル</label>
-      <input ref={picker} id="drawing-file" type="file" accept=".dxf,.dwg,.jww,.sfc,.p21,.sfz,.p2z" aria-describedby="file-help"
-        onChange={(e) => choose(e.target.files?.[0] ?? null)}/>
-      <span id="file-help">DXF・DWG・JWW・SXF ／ 64 MiB まで</span>
-      <label htmlFor="drawing-sample">公開サンプル</label>
-      <select id="drawing-sample" value={sample?.path ?? ""} onChange={(e) => openSample(e.target.value)}>
-        <option value="">選ぶ</option>
-        {samples.map((item) => <option key={item.path} value={item.path}>{item.title}</option>)}
-      </select>
-      {(file || sample) && <button onClick={() => { choose(null); picker.current.value = ""; picker.current.focus(); }}>閉じる</button>}
-    </div>
-    {sample && <section className="sample-source" aria-label="サンプルの提供元とライセンス">
-      <h2>{sample.title}</h2>
-      <dl className="properties">
-        <dt>公開した者</dt><dd>{sample.publisher}</dd>
-        <dt>ライセンス</dt><dd><a href={sample.licenseUrl} target="_blank" rel="noreferrer noopener">{sample.license}</a>{sample.text && <>（<a href={sample.text} target="_blank" rel="noopener">本文</a>）</>}</dd>
-        <dt>出所</dt><dd><a href={sample.source} target="_blank" rel="noreferrer noopener">{sample.source}</a></dd>
-        <dt>表示</dt><dd>{sample.attribution}</dd>
-        {sample.changes && <><dt>変えたこと</dt><dd>{sample.changes}</dd></>}
-      </dl>
-    </section>}
-    <div className="workspace">
-      <div className="drawing-pane">
-        <div className="toolbar" role="group" aria-label="表示の操作">
-          <label>用紙・空間 <select disabled={!drawing} value={place?.id ?? input?.result.from ?? ""} onChange={(e) => setPlace({ id: e.target.value, drawing })}>
+  const tool = state?.tool ?? "select";
+  const issues = ready ? viewer.getReport().issues : [];
+  const diagnostics = opened.diagnostics ?? [];
+  const panels = [
+    { id: "layers", label: "レイヤ・要素", enabled: ready },
+    { id: "diagnostics", label: "診断", enabled: ready || failed },
+    { id: "review", label: "レビュー", enabled: ready && opened.canReview && overlay },
+    { id: "export", label: "DXF 書き出し", enabled: ready && opened.canEstimate },
+    { id: "info", label: "案内", enabled: true },
+  ];
+  const shown = panels.find((item) => item.id === panel && item.enabled);
+  function togglePanel(id) { setPanel((last) => last === id ? null : id); }
+  function activate(name) {
+    viewer.setTool(name);
+    canvas.focus({ preventScroll: true });
+  }
+  function dropFile(event) {
+    event.preventDefault();
+    const next = event.dataTransfer.files[0];
+    if (next) { picker.current.value = ""; choose(next); }
+  }
+  return <div className="cad-app">
+    <a className="skip" href="#viewer-main">本文へ移動</a>
+    <Masthead/>
+    <main id="viewer-main" className="cad-main">
+      <div className="cad-ribbon" aria-label="図面の操作">
+        <div className="cad-group" role="group" aria-label="ファイル">
+          <button ref={openButton} className="cad-open" onClick={() => picker.current.click()}><Icon name="open"/>開く</button>
+          <input hidden ref={picker} aria-label="図面ファイル" id="drawing-file" type="file" accept=".dxf,.dwg,.jww,.sfc,.p21,.sfz,.p2z"
+            onChange={(e) => choose(e.target.files?.[0] ?? null)}/>
+          <label className="cad-field" htmlFor="drawing-sample">公開サンプル
+            <select id="drawing-sample" value={sample?.path ?? ""} onChange={(e) => openSample(e.target.value)}>
+              <option value="">選ぶ</option>
+              {samples.map((item) => <option key={item.path} value={item.path}>{item.title}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="cad-group" role="group" aria-label="図面ツール">
+          {Object.entries(toolNames).map(([key, title]) => <ToolButton key={key} icon={key} disabled={!ready} aria-pressed={ready && tool === key}
+            title={hints[key]} onClick={() => activate(key)}>{title}</ToolButton>)}
+        </div>
+        <div className="cad-group" role="group" aria-label="表示の操作">
+          <ToolButton icon="zoomIn" disabled={!ready || state.view.scale >= VIEW_SCALE_LIMITS.max} onClick={() => zoom(viewer, 1.5)}>拡大</ToolButton>
+          <ToolButton icon="zoomOut" disabled={!ready || state.view.scale <= VIEW_SCALE_LIMITS.min} onClick={() => zoom(viewer, 1 / 1.5)}>縮小</ToolButton>
+          <ToolButton icon="fit" disabled={!ready} onClick={() => { viewer.fit(); fittedView.current = viewer.getView(); }}>全体を表示</ToolButton>
+        </div>
+        <div className="cad-group" role="group" aria-label="パネル">
+          {panels.map(({ id, label, enabled }) => <ToolButton key={id} icon={id} disabled={!enabled} aria-expanded={shown?.id === id}
+            aria-controls="cad-panel" onClick={() => togglePanel(id)}>{label}</ToolButton>)}
+        </div>
+      </div>
+      <div className="cad-document">
+        <Icon name="sheet"/><strong title={file?.name}>{file?.name ?? "図面未選択"}</strong>
+        {(file || sample) && <button aria-label="閉じる" title="図面を閉じる" onClick={() => {
+          choose(null); picker.current.value = ""; openButton.current.focus();
+        }}><Icon name="close"/></button>}
+        <label>用紙・空間 <select disabled={!drawing} value={place?.id ?? input?.result.from ?? ""} onChange={(e) => setPlace({ id: e.target.value, drawing })}>
             {!drawing ? <option value="">未選択</option> : <>
               {drawing.sheets.map((sheet) => <option key={sheet.id} value={sheet.id}>用紙 {sheet.name ?? sheet.id}</option>)}
-              {drawing.spaces.map((space) => <option key={space.id} value={space.id}>空間 {space.id}</option>)}
+              {drawing.spaces.map((space, i) => <option key={space.id} value={space.id}>モデル空間{drawing.spaces.length > 1 && " " + (i + 1)}</option>)}
             </>}
           </select></label>
-          <button disabled={!ready} onClick={() => viewer.fit()}>全体を表示</button>
-          <button disabled={!ready || state.view.scale >= VIEW_SCALE_LIMITS.max} onClick={() => zoom(viewer, 1.5)}>拡大</button>
-          <button disabled={!ready || state.view.scale <= VIEW_SCALE_LIMITS.min} onClick={() => zoom(viewer, 1 / 1.5)}>縮小</button>
-        </div>
-        <div className={ready ? "paper" : "paper empty"}><canvas ref={setCanvas} tabIndex="0" aria-label="図面の表示" aria-describedby="drawing-help"
-          onPointerDown={(e) => e.currentTarget.focus({ preventScroll: true })}/>
+      </div>
+      <div className="cad-workspace">
+        <div className={"paper cad-paper" + (ready ? "" : " cad-empty")} data-tool={tool}
+          onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={dropFile}>
+          <canvas ref={setCanvas} tabIndex="0" aria-label="図面の表示" aria-describedby="drawing-help"
+            onPointerDown={(event) => event.currentTarget.focus({ preventScroll: true })}/>
           <ReviewOverlay setCanvas={setOverlayCanvas}/>
-          <div className="status" role="status" aria-live="polite" aria-atomic="true">
-            {status}{ready && " " + opened.input.document.format.toUpperCase() + " ／ " + state.scene.result.from + " ／ 診断 " + (opened.diagnostics.length + viewer.getReport().issues.length) + " 件"}
+          {!ready && <div className="cad-start"><div className="cad-card">
+            <Icon name="sheet"/><h2>{failed ? "表示できませんでした" : file || sample ? "読み込み中" : "図面を開く"}</h2>
+            <p>{failed ? status : "DXF・DWG・JWW・SXF ／ 64 MiB まで"}</p>
+            {!file && !sample && !failed && <><button onClick={() => picker.current.click()}><Icon name="open"/>ファイルを選択</button><p>ここにドロップしても開けます</p>
+              {jwwExample && <button className="cad-sample-link" onClick={() => openSample(jwwExample.path)}>JWW のサンプルを開く</button>}</>}
+            {failed && <button onClick={() => setPanel("diagnostics")}>診断を確認</button>}
+          </div></div>}
+          {ready && tool === "measure" && state.measurement && <output className="cad-reading">{measurementText(state.measurement)}</output>}
+        </div>
+        <div className="cad-panel" id="cad-panel" hidden={!shown}>
+          <div className="cad-panel-head"><strong>{shown?.label}</strong><button aria-label="図面の詳細を閉じる" onClick={() => {
+            document.querySelector(".cad-group button[aria-expanded=true]")?.focus(); setPanel(null);
+          }}><Icon name="close"/></button></div>
+          <div className="cad-panel-body">
+            <div hidden={panel !== "layers"}>{ready && <Inspector key={opened.input.document.hash + "/" + state.scene.result.from} viewer={viewer} state={state} opened={opened}/>}</div>
+            <div hidden={panel !== "diagnostics"}>
+              {failed && !diagnostics.length && <p>{(viewerError ?? fetchError ?? renderError ?? opened.error)?.message}</p>}
+              {(ready || failed) && <Diagnostics entries={diagnostics} issues={issues}/>}
+            </div>
+            <div hidden={panel !== "review"}>{ready && opened.canReview && overlay && <Review key={opened.input.document.hash + "/" + state.scene.result.from} opened={opened} viewer={viewer} overlay={overlay} canvas={canvas}/>}</div>
+            <div hidden={panel !== "export"}>{ready && opened.canEstimate && <Export key={opened.input.document.hash} opened={opened} name={file?.name}/>}</div>
+            <div hidden={panel !== "info"}><ViewerGuide sample={sample}/></div>
           </div>
         </div>
-        <p id="drawing-help">図形をクリックするか、要素の一覧から選んで出所を確認します。図面にフォーカスすると矢印キーで移動できます。</p>
       </div>
-      {ready && <Inspector key={opened.input.document.hash + "/" + state.scene.result.from} viewer={viewer} state={state} opened={opened}/>}
-    </div>
-    {failed && !opened.diagnostics?.length && <details><summary>エラーの詳細</summary><p>{(viewerError ?? fetchError ?? renderError ?? opened.error)?.message}</p></details>}
-    {(ready || failed) && <Diagnostics entries={opened.diagnostics ?? []} issues={ready ? viewer.getReport().issues : []}/>}
-    {ready && opened.canReview && overlay && <Review key={opened.input.document.hash + "/" + state.scene.result.from} opened={opened} viewer={viewer} overlay={overlay} canvas={canvas}/>}
-    {ready && opened.canEstimate && <Export key={opened.input.document.hash} opened={opened} name={file?.name}/>}
-    <section aria-labelledby="report-title" className="export">
-      <h2 id="report-title">不具合を知らせる</h2>
-      <p>操作や表示の不具合は <a href="https://github.com/zumen-jp/zumen/issues">GitHub の issue</a> にお知らせください。受け取った図面・顧客の名前・図面の中身は、公開の issue に貼らないでください。</p>
-      <p>読み取りが終わらない・落ちる・メモリを使いすぎる入力は、<a href="https://github.com/zumen-jp/zumen/security/advisories/new">非公開の報告窓口</a>へお知らせください。機密の図面は添付せず、<a href="https://github.com/zumen-jp/zumen/blob/main/SECURITY.md">報告の手順</a>をご確認ください。</p>
-    </section>
-    </div>
-  </main>
-  <footer className="footer">
-    <p><a href="/">zumen の案内に戻る</a></p>
-    <p>zumen は MIT License または Apache License 2.0 で提供します。</p>
-  </footer>
-  </>;
+      <footer className="cad-status">
+        <span className="status" role="status">{status}{ready && " " + input.document.format.toUpperCase() + " ／ " + state.scene.result.from + " ／ 診断 " + (diagnostics.length + issues.length) + " 件"}</span>
+        <span id="drawing-help">{ready ? hints[tool] : "ファイルは外部に送信されません"}</span>
+      </footer>
+    </main>
+  </div>;
 }

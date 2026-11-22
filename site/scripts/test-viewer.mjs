@@ -104,7 +104,7 @@ try {
     Object.defineProperty(navigator, "gpu", { value: undefined, configurable: true });
   });
   await noGpuPage.goto(origin + "/viewer/");
-  await noGpuPage.locator(".status").getByText("このブラウザーでは WebGPU を使えないため、図面を表示できません。", { exact: true }).waitFor();
+  await noGpuPage.locator(".status").filter({ hasText: "このブラウザーでは WebGPU を使えないため、図面を表示できません。" }).waitFor();
   await noGpuPage.close();
 
   const page = await context.newPage();
@@ -137,13 +137,15 @@ try {
     });
   }
   if (hasWebGPU) {
-  for (const [path, format] of [["dxf/text_alignments.dxf", "DXF"], ["dxf/opendxfviewer-latin1.dxf", "DXF"], ["dwg/zumen-layout-r2000.dwg", "DWG"]]) {
+  for (const [path, format] of [["jww/ezjww-geometry.jww", "JWW"], ["dxf/text_alignments.dxf", "DXF"], ["dxf/opendxfviewer-latin1.dxf", "DXF"], ["dwg/zumen-layout-r2000.dwg", "DWG"]]) {
     await samples.selectOption(path);
     if (path === "dxf/opendxfviewer-latin1.dxf") {
-      // 公開済みの 0.2.0 は ANSI_1252 を扱わない。空の表示を描画できたと数えず、診断を確認する。
+      // サイトの drawing wasm はこの ANSI_1252 の入力を扱わない。空の表示を描画できたと数えず、診断を確認する。
       await page.locator(".status").filter({ hasText: "表示できる要素がありません" }).waitFor();
+      await page.getByRole("button", { name: "診断", exact: true }).click();
       assert.match(await page.getByRole("region", { name: /^診断/ }).textContent(), /dxf.code-page.unsupported/);
     } else await ready(format);
+    await page.getByRole("button", { name: "案内", exact: true }).click();
     await page.getByRole("region", { name: "サンプルの提供元とライセンス" }).waitFor();
   }
   const fixture = (name) => {
@@ -154,6 +156,46 @@ try {
   for (const [name, extension, format] of inputs) {
     await picker.setInputFiles({ name: "local." + extension, mimeType: "application/octet-stream", buffer: fixture(name) }); await ready(format);
   }
+  // 単位が分かる線分を、実際の図面上で端点から端点まで測る。
+  const line = Buffer.from([0, "SECTION", 2, "HEADER", 9, "$INSUNITS", 70, 4, 0, "ENDSEC",
+    0, "SECTION", 2, "ENTITIES", 0, "LINE", 5, "A0", 8, "0", 10, 0, 20, 0, 11, 100, 21, 0,
+    0, "ENDSEC", 0, "EOF", ""].join("\n"));
+  await picker.setInputFiles({ name: "distance.dxf", mimeType: "application/octet-stream", buffer: line });
+  await ready("DXF");
+  const canvas = page.getByLabel("図面の表示", { exact: true });
+  const tool = (name) => page.getByRole("button", { name, exact: true });
+  for (const viewport of [{ width: 390, height: 900 }, { width: 1360, height: 980 }]) {
+    await page.setViewportSize(viewport);
+    await tool("全体を表示").click();
+    const box = await canvas.boundingBox();
+    assert.ok(box.y + box.height <= viewport.height && box.height > viewport.height / 2, "図面を初期画面の過半に表示");
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "用紙を表示しても横にはみ出さない");
+    await tool("距離計測").press("Enter");
+    assert.equal(await tool("距離計測").getAttribute("aria-pressed"), "true");
+    assert.ok(await canvas.evaluate((el) => el === document.activeElement), "ツールを選ぶと図面にフォーカスする");
+    const points = await canvas.evaluate((el) => [0, 100].map((x) => el[Symbol.for("zumen.view2d")].toScreen({ x, y: 0 })));
+    const mouseAt = (point) => page.mouse.move(box.x + point.x, box.y + point.y);
+    await mouseAt(points[0]); await page.mouse.down(); await mouseAt(points[1]); await page.mouse.up();
+    await page.getByText(/^(実寸|図面上の距離) 100 mm$/).waitFor();
+    await tool("選択").press("Enter");
+    await tool("レイヤ・要素").press("Enter");
+    await page.getByRole("heading", { name: /^レイヤ/ }).waitFor();
+    await tool("図面の詳細を閉じる").press("Enter");
+    assert.ok(await tool("レイヤ・要素").evaluate((el) => el === document.activeElement));
+  }
+  const box = await canvas.boundingBox();
+  const scale = () => canvas.evaluate((el) => el[Symbol.for("zumen.view2d")].getView().scale);
+  const fitted = await scale(), x = box.x + box.width / 2, y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.wheel(0, -100);
+  await page.waitForFunction((initial) => document.querySelector("canvas")[Symbol.for("zumen.view2d")].getView().scale > initial, fitted);
+  await page.mouse.dblclick(x, y, { button: "middle" });
+  assert.equal(await scale(), fitted, "中ボタンのダブルクリックで全体表示");
+  await page.mouse.move(x - 60, y - 30);
+  await page.mouse.down({ button: "left" }); await page.mouse.down({ button: "right" });
+  await page.mouse.move(x + 60, y + 30, { steps: 3 });
+  await page.mouse.up({ button: "right" }); await page.mouse.up({ button: "left" });
+  assert.ok(await scale() > fitted, "両ボタンの右下ドラッグで範囲を拡大");
   // 図面に書かれた外部のフォント・画像・PDF の URL を、読み込み先として使わない。
   const section = (name, pairs) => [0, "SECTION", 2, name, ...pairs, 0, "ENDSEC"];
   const remote = "https://example.invalid/";
@@ -173,12 +215,17 @@ try {
   // 手元で選ぶ DWG も確認する。公開サンプルを File の入力に渡し、アップロード用の通信がないことを見る。
   await picker.setInputFiles({ name: "local.dwg", mimeType: "application/octet-stream", buffer: readFileSync(resolve(root, "samples/dwg/zumen-layout-r2000.dwg")) });
   await ready("DWG");
+  await page.getByRole("button", { name: "レイヤ・要素", exact: true }).click();
   const first = page.getByRole("region", { name: /^要素/ }).getByRole("button").first();
   await first.click();
   await page.getByRole("region", { name: "出所" }).getByText("ハンドル", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "DXF 書き出し", exact: true }).click();
   // 0.3.0 は convert_estimate を持つので、保存前の見積もりと保存を表示する（0.2.0 では表示しなかった）。
   assert.equal(await page.getByRole("region", { name: /^DXF で保存/ }).count(), 1);
   }
+  await page.getByRole("button", { name: "案内", exact: true }).click();
+  const core = JSON.parse(readFileSync(resolve(root, "site/node_modules/@zumen-jp/zumen/package.json"), "utf8"));
+  await page.getByText("読み込みには zumen " + core.version + " を使います。", { exact: false }).waitFor();
   assert.equal(await page.getByRole("link", { name: "非公開の報告窓口" }).count(), 1);
   assert.deepEqual(await page.evaluate(() => window.cspFailures), []);
   assert.deepEqual(blocked, []);
@@ -205,7 +252,8 @@ try {
   await page.setViewportSize({ width: 390, height: 900 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "狭い画面で本文が横にはみ出さない");
   if (process.env.ZUMEN_VIEWER_SCREENSHOT) await page.screenshot({ path: process.env.ZUMEN_VIEWER_SCREENSHOT, fullPage: true });
-  console.log(product + ": 公開サンプル 3 件・手元の DXF/DWG/JWW/SXF・外部参照・出所・見積もりと保存の表示・CSP の拒否・同一オリジンの資産への GET のみを確認（要求 " + requests.length + " 件）");
+  const viewerChecks = hasWebGPU ? "公開サンプル4件・手元の4形式・狭幅と広幅での距離計測・CADのマウス操作・出所・見積もり" : "WebGPU 非対応時の案内";
+  console.log(product + ": " + viewerChecks + "、CSP の拒否・同一オリジンの資産への GET のみを確認（要求 " + requests.length + " 件）");
   await page.close();
   // 案内ページはビューアーと別の HTML。すべての通常ページと、実際の 404 応答を確かめる。
   const staticPage = await context.newPage();

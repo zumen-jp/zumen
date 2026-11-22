@@ -101,7 +101,18 @@ self.onmessage = ({ data }) => {
     const result = call({ op: "scene", doc: opened.doc, from: origin });
     // take は次の call より先に行い、wasm のメモリから独立したバッファーだけを移す。
     const blob = session.take(result.blob);
-    self.postMessage({ id, value: { blob, result, document, drawing, canEstimate, canReview, diagnostics: describe(entries) } }, [blob.buffer]);
+    // シーンの実効レイヤ ID に対応する元の名前だけを画面へ渡す。
+    let layerNames = [];
+    if (ops.includes("tables")) {
+      try {
+        const tables = call({ op: "tables", doc: opened.doc });
+        layerNames = tables.layers.map(({ id, name }) => [id, name]);
+      } catch (error) {
+        if (!error.response) throw error;
+        for (const diagnostic of error.response.diagnostics) entries.push({ stage: "tables", diagnostic });
+      }
+    }
+    self.postMessage({ id, value: { blob, result, document, drawing, layerNames, canEstimate, canReview, diagnostics: describe(entries) } }, [blob.buffer]);
   } catch (error) {
     for (const diagnostic of error.response?.diagnostics ?? []) entries.push({ stage, diagnostic });
     let diagnostics;

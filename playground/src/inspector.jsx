@@ -1,7 +1,12 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const pageSize = 25;
 const pathLabel = (path) => path.map(({ id, column, row }) => id + "（列 " + column + "・行 " + row + "）").join(" → ");
+const kinds = new Map(Object.entries({
+  line: "線分", circle: "円", curve: "曲線", polyline: "折れ線", text: "文字", formatted_text: "書式付き文字",
+  dimension: "寸法", leader: "引出線", callout: "引出線付き注記", table: "表", underlay: "下絵", symbol: "記号",
+  hatch: "ハッチング", point: "点",
+}));
 
 // 大きい図面でも、一覧の DOM は現在のページだけ作る。
 export function Pages({ count, label, className = "", children }) {
@@ -54,7 +59,11 @@ function Source({ opened, element }) {
     <h2 id="source-title">出所</h2>
     <div role="status" aria-live="polite" aria-atomic="true">
       {!element ? <p>要素を選ぶと出所を表示します。</p> : <>
-        <div className="element-id">{element.id}</div>
+        <dl className="properties">
+          {answer?.value?.kind && <><dt>種類</dt><dd>{kinds.get(answer.value.kind) ?? answer.value.kind}</dd></>}
+          {answer?.value?.layer && <><dt>元のレイヤ</dt><dd>{answer.value.layer}</dd></>}
+          <dt>要素 ID</dt><dd className="element-id">{element.id}</dd>
+        </dl>
         {element.path.length > 0 && <p>配置 {pathLabel(element.path)}</p>}
         {!answer ? <p>出所を調べています。</p> : answer.failed ? <p>出所を取得できませんでした。</p> : !source || !Object.keys(source).length ? <p>出所の記録はありません。</p> :
           <dl className="properties">
@@ -71,16 +80,26 @@ function Source({ opened, element }) {
 export function Inspector({ viewer, state, opened }) {
   const elements = viewer.getElements();
   const selection = state.selection;
+  const [query, setQuery] = useState("");
+  const layerNames = opened.layerNames;
+  const layers = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return term ? state.layers.filter((id) => id.toLowerCase().includes(term) || layerNames?.get(id)?.toLowerCase().includes(term)) : state.layers;
+  }, [state.layers, layerNames, query]);
   return <aside aria-label="図面の詳細">
     <section aria-labelledby="layers-title">
       <h2 id="layers-title">レイヤ <small>{state.layers.length}</small></h2>
-      <Pages count={state.layers.length} label="レイヤ">{(i) => {
-        const layer = state.layers[i];
-        return <label className="layer"><input type="checkbox" checked={!state.hiddenLayers.includes(layer)}
-          onChange={(e) => viewer.setLayersVisible([layer], e.target.checked)}/>{layer}</label>;
+      {state.layers.length > pageSize && <input type="search" aria-label="レイヤを検索" placeholder="レイヤを検索" value={query}
+        onChange={(event) => setQuery(event.target.value)}/>}
+      <Pages key={query} count={layers.length} label="レイヤ">{(i) => {
+        const layer = layers[i];
+        return <label className="layer" title={layer}><input type="checkbox" checked={!state.hiddenLayers.includes(layer)}
+          onChange={(e) => viewer.setLayersVisible([layer], e.target.checked)}/>{layerNames?.get(layer) || layer}</label>;
       }}</Pages>
       {!state.layers.length && <p>表示するレイヤはありません。</p>}
+      {state.layers.length > 0 && !layers.length && <p>一致するレイヤはありません。</p>}
     </section>
+    <Source opened={opened} element={selection[0]}/>
     <section aria-labelledby="elements-title">
       <h2 id="elements-title">要素 <small>{elements.length}</small></h2>
       <Pages count={elements.length} label="要素" className="elements">{(i) => {
@@ -91,11 +110,10 @@ export function Inspector({ viewer, state, opened }) {
       }}</Pages>
       {selection.length > 0 && <button className="quiet" onClick={() => viewer.select([])}>選択を解除</button>}
     </section>
-    <Source opened={opened} element={selection[0]}/>
   </aside>;
 }
 
-const stages = { open: "読み込み", drawing: "図面モデル", scene: "表示", convert: "変換", convert_estimate: "見積もり", input: "読み取り" };
+const stages = { open: "読み込み", drawing: "図面モデル", scene: "表示", tables: "図面の表", convert: "変換", convert_estimate: "見積もり", input: "読み取り" };
 const severity = { error: "エラー", warning: "警告", info: "情報" };
 export function Diagnostics({ entries, issues, title = "診断", id = "diagnostics-title", showParams = false, countUnit = "", heading: Heading = "h2" }) {
   const total = entries.length + issues.length;

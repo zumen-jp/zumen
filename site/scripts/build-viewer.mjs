@@ -12,7 +12,7 @@ const require = createRequire(new URL("../package.json", import.meta.url));
 const core = dirname(dirname(require.resolve("@zumen-jp/zumen")));
 
 // ログイン名を含む 2 件の DWG はサイトには入れない（#737 の軽微 6）。出所とライセンスは共通の台帳から出す。
-export const samplePaths = ["dxf/text_alignments.dxf", "dxf/opendxfviewer-latin1.dxf", "dwg/zumen-layout-r2000.dwg"];
+export const samplePaths = ["jww/ezjww-geometry.jww", "dxf/text_alignments.dxf", "dxf/opendxfviewer-latin1.dxf", "dwg/zumen-layout-r2000.dwg"];
 
 await build({
   configFile: false,
@@ -27,7 +27,7 @@ await build({
       }
     },
   }],
-  define: { "import.meta.env.VITE_ZUMEN_CORE_VERSION": JSON.stringify("0.2.0") },
+  define: { "import.meta.env.VITE_ZUMEN_CORE_VERSION": JSON.stringify(JSON.parse(readFileSync(resolve(core, "package.json"), "utf8")).version) },
   resolve: {
     dedupe: ["react", "react-dom", "@zumen-jp/view2d", "@zumen-jp/zumen"],
     alias: [

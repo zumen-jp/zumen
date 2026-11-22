@@ -19,7 +19,7 @@ export interface DrawingOptions {
   catalog?: string | null;
 }
 export interface DrawingDiagnostic {
-  stage: "open" | "drawing" | "scene" | "convert" | "convert_estimate" | "input" | "review_scene";
+  stage: "open" | "drawing" | "scene" | "tables" | "convert" | "convert_estimate" | "input" | "review_scene";
   diagnostic: Diagnostic;
   text: string;
   /** 読み取り段階の明細が持つ L1 の出所。diagnostic.at と同じ順序。 */
@@ -32,6 +32,8 @@ export type DrawingState =
       status: "ready";
       input: SceneInput;
       drawing: DrawingResult;
+      /** レイヤの公開 ID と元の名前。表を取得できなかったときは空のマップ。 */
+      layerNames: ReadonlyMap<string, string>;
       /** この wasm が convert_estimate を提供する。未対応のバージョンでは false。 */
       canEstimate: boolean;
       diagnostics: DrawingDiagnostic[];

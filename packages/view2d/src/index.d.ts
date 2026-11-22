@@ -1,4 +1,4 @@
-import type { Budget, Extent, ReviewSceneResult, ReviewSceneSource, Response, Scene, SceneCounts, SceneResult, Session, Source } from "@zumen-jp/zumen";
+import type { Budget, EntityKind, Extent, ReviewSceneResult, ReviewSceneSource, Response, Scene, SceneCounts, SceneResult, Session, Source } from "@zumen-jp/zumen";
 
 export interface Point { readonly x: number; readonly y: number }
 /** 起点の座標の中心、CSS px / 起点の長さ、反時計回りのラジアン。 */
@@ -68,7 +68,7 @@ export interface ElementRef {
   readonly id: string;
   readonly path: readonly { readonly id: string; readonly column: number; readonly row: number }[];
 }
-export interface ElementSource extends ElementRef { readonly source: Source | null }
+export interface ElementSource extends ElementRef { readonly source: Source | null; readonly kind?: EntityKind; readonly layer?: string }
 /** 表示した版を確かめ、配置の道筋を保って entities の出所へたどる。 */
 export declare function findSource(session: Session, document: DocumentIdentity, element: ElementRef, maxPages?: number): ElementSource | null;
 export interface MeasureDistanceOptions { readonly budget?: Budget; readonly max_places?: number }
@@ -191,19 +191,21 @@ export interface InputOptions {
   wheel: boolean;
   keyboard: boolean;
   doubleClick: boolean;
+  /** 左右両ボタンで表示範囲を変え、中ボタンのダブルクリックで全体表示する。既定は false。 */
+  cadNavigation?: boolean;
   /** 既定 ctrlOrMeta。none は修飾キーなしでもホイールを受ける。 */
   wheelModifier: "ctrlOrMeta" | "none";
 }
 export interface InputModifiers { readonly shiftKey?: boolean; readonly ctrlKey?: boolean; readonly altKey?: boolean; readonly metaKey?: boolean }
 /** DOM に依らない共通の入口。座標とホイール量は CSS px。 */
 export type ToolInput = InputModifiers & (
-  { readonly type: "pointerdown" | "pointermove" | "pointerup"; readonly point: Point; readonly pointerId: number; readonly pointerType?: "mouse" | "pen" | "touch"; readonly button?: number }
+  { readonly type: "pointerdown" | "pointermove" | "pointerup"; readonly point: Point; readonly pointerId: number; readonly pointerType?: "mouse" | "pen" | "touch"; readonly button?: number; readonly buttons?: number }
   | { readonly type: "wheel"; readonly point: Point; readonly deltaY: number }
   | { readonly type: "keydown"; readonly key: string }
-  | { readonly type: "dblclick"; readonly point: Point }
+  | { readonly type: "dblclick"; readonly point: Point; readonly button?: number }
   | { readonly type: "cancel"; readonly reason?: string }
 );
-export interface Gesture { readonly type: "select" | "pan" | "measure" | "pinch" | "custom"; readonly start: Point; readonly end: Point }
+export interface Gesture { readonly type: "select" | "pan" | "measure" | "pinch" | "custom" | "cadZoom"; readonly start: Point; readonly end: Point }
 /** WebGPU 描画パスへ直接図形を発行する重ね描き用の 2D コンテキスト。 */
 export interface OverlayContext {
   strokeStyle: string;

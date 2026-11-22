@@ -1,11 +1,12 @@
 // プレイグラウンドに入れる公開サンプル（#689）。出所とライセンスは samples/ledger.toml から読み、配布物に入れる。
 // 選び方: 中身の違う DXF と、DWG の R2000・R2004・R2018 を 1 つずつ。どれも再配布を認めるライセンスのもの（決定 0171）。
-// SXF・JWW は、再配布できる公開サンプルがないので入れない（samples/README.md）。
+// JWW は線・円・寸法を試せる MIT の公開サンプルを使う。
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 const normalizePath = (path) => path.replaceAll("\\", "/");
 
 export const SAMPLE_PATHS = [
+  "jww/ezjww-geometry.jww",
   "dxf/text_alignments.dxf",
   "dxf/opendxfviewer-latin1.dxf",
   "dwg/zumen-layout-r2000.dwg",

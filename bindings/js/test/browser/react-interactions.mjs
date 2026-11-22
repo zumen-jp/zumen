@@ -114,6 +114,7 @@ export async function checkInteractions(page, ready) {
 
   const handles = Array.from({ length: 40 }, (_, i) => (0xD0 + i).toString(16).toUpperCase());
   await open(dxf(section("ENTITIES", handles.flatMap((id, i) => line(id, 0, i, 10, i)))), "selections");
+  await page.getByRole("button", { name: "レイヤ・要素", exact: true }).click();
   await page.evaluate(() => sourceGate.start());
   for (const [i, handle] of handles.entries()) {
     if (i === 25) await page.getByRole("button", { name: "次の要素" }).press("Enter");
@@ -129,6 +130,7 @@ export async function checkInteractions(page, ready) {
     section("ENTITIES", [0, "INSERT", 5, "20", 8, "0", 2, "MARK", 10, 0, 20, 0, 70, 2, 71, 2, 44, 20, 45, 20]),
   );
   await open(grid, "grid");
+  await page.getByRole("button", { name: "診断", exact: true }).click();
   const rows = await page.getByRole("region", { name: /^診断/ }).getByRole("listitem").filter({ hasText: "browser-text" }).allTextContents();
   assert.equal(rows.length, 4);
   for (const column of [0, 1]) for (const row of [0, 1]) {
@@ -136,6 +138,7 @@ export async function checkInteractions(page, ready) {
   }
 
   const bigger = page.getByRole("button", { name: "拡大", exact: true }), smaller = page.getByRole("button", { name: "縮小", exact: true });
+  await page.getByRole("button", { name: "図面の詳細を閉じる" }).click();
   const width = await canvas.evaluate((node) => node.clientWidth - 32);
   for (const [scale, button, back, atLimit] of [[2e12, bigger, smaller, true], [0.9e12, bigger, smaller, false], [0.5e-12, smaller, bigger, true], [1.1e-12, smaller, bigger, false]]) {
     await open(dxf(section("ENTITIES", line("C1", 0, 0, width / scale, 0))), "scale");

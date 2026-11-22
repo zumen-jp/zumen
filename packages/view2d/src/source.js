@@ -10,10 +10,10 @@ export function findSource(session, document, element, maxPages = 1000) {
   const place = match[1];
   let offset = 0;
   for (let page = 0; page < maxPages; page++) {
-    const result = session.call({ v: 1, op: "entities", doc: document.doc, place, offset, limit: 256, fields: ["source"] }).result;
+    const result = session.call({ v: 1, op: "entities", doc: document.doc, place, offset, limit: 256, fields: ["source", "kind", "layer"] }).result;
     if (!result) throw new Error("要素の一覧を読めない");
     const entity = result.items.find((item) => item.id === element.id);
-    if (entity) return { id: entity.id, path: element.path, source: entity.source ?? null };
+    if (entity) return { ...entity, path: element.path, source: entity.source ?? null };
     if (result.next_offset === undefined) return null;
     if (!Number.isSafeInteger(result.next_offset) || result.next_offset <= offset) throw new Error("要素の続きが進まない");
     offset = result.next_offset;

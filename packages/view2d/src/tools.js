@@ -1,6 +1,6 @@
 import { finite, valid, VIEW_SCALE_LIMITS } from "./validate.js";
 
-export const DEFAULT_INPUT = Object.freeze({ pointer: true, touch: true, drag: true, pinch: true, wheel: true, keyboard: true, doubleClick: true, wheelModifier: "ctrlOrMeta" });
+export const DEFAULT_INPUT = Object.freeze({ pointer: true, touch: true, drag: true, pinch: true, wheel: true, keyboard: true, doubleClick: true, wheelModifier: "ctrlOrMeta", cadNavigation: false });
 const BUILTINS = ["select", "pan", "measure"];
 const POINTERS = ["pointerdown", "pointermove", "pointerup"];
 const TYPES = [...POINTERS, "cancel", "wheel", "keydown", "dblclick"];
@@ -32,10 +32,16 @@ export function normalizeInput(value) {
   } else {
     input.point = position(value.point);
     if (value.type === "wheel") input.deltaY = finite(value.deltaY, "input.deltaY");
+    if (value.type === "dblclick" && value.button !== undefined) {
+      valid(Number.isInteger(value.button) && value.button >= 0 && value.button <= 5, "input.button"); input.button = value.button;
+    }
     if (POINTERS.includes(value.type)) {
       valid(Number.isSafeInteger(value.pointerId) && value.pointerId >= 0, "input.pointerId"); input.pointerId = value.pointerId;
       valid(["mouse", "pen", "touch"].includes(value.pointerType ?? "mouse"), "input.pointerType"); input.pointerType = value.pointerType ?? "mouse";
       valid(Number.isInteger(value.button ?? 0) && (value.button ?? 0) >= -1 && (value.button ?? 0) <= 5, "input.button"); input.button = value.button ?? 0;
+      if (value.buttons !== undefined) {
+        valid(Number.isInteger(value.buttons) && value.buttons >= 0 && value.buttons <= 65535, "input.buttons"); input.buttons = value.buttons;
+      }
     }
   }
   return Object.freeze(input);
@@ -48,6 +54,7 @@ export class Tools {
     this.name = "select"; this.options = DEFAULT_INPUT; this.gesture = null;
     this.definitions = new Map(); this.pointers = new Map(); this.drag = null; this.session = null;
     this.busy = false; this.revision = 0;
+    this.chord = null; this.previousView = null;
   }
   idle() { valid(!this.busy, "input.reentrant"); }
   changed(gesture = null) { this.gesture = gesture && Object.freeze(gesture); this.revision++; }
@@ -86,6 +93,8 @@ export class Tools {
     return { failed, error };
   }
   reset(reason) {
+    this.chord = null;
+    if (["scene", "options", "attach", "detach"].includes(reason)) this.previousView = null;
     this.pointers.clear(); this.drag = null; this.changed();
     const previous = this.busy; this.busy = true;
     try {
@@ -105,7 +114,11 @@ export class Tools {
       if (this.options.wheelModifier === "ctrlOrMeta" && !(input.ctrlKey || input.metaKey)) return false;
       this.zoom(Math.exp(-Math.max(-500, Math.min(500, input.deltaY)) * 0.002), input.point); return true;
     }
-    if (input.type === "dblclick") { this.zoom(input.shiftKey ? 0.5 : 2, input.point); return true; }
+    if (input.type === "dblclick") {
+      if (input.button === 1 && this.options.cadNavigation) { this.viewer.fit(); return true; }
+      if ((input.button ?? 0) !== 0) return false;
+      this.zoom(input.shiftKey ? 0.5 : 2, input.point); return true;
+    }
     if (input.type === "keydown") {
       const step = input.shiftKey ? 200 : 40;
       if (input.key === "Escape") {
@@ -125,6 +138,7 @@ export class Tools {
   builtin(input) {
     const viewer = this.viewer;
     if (input.type === "pointerdown") {
+      if (input.button === 2) return true; // 両ボタンを右から押したときにも capture する。
       const mode = input.button === 1 ? "pan" : this.name;
       if (mode === "measure" && !viewer.getScene()) return false;
       this.drag = { id: input.pointerId, start: input.point, last: input.point, mode,
@@ -157,6 +171,36 @@ export class Tools {
     }
     return false;
   }
+  cadChord(input) {
+    // Pointer Events §4.1.1: 2番目のボタンの押下と先に放したボタンは pointermove に届く。
+    if (input.buttons === 3 && !this.chord && this.pointers.has(input.pointerId)) {
+      this.chord = { id: input.pointerId, start: input.point, ended: false };
+      if (this.drag?.mode === "measure") this.viewer.setMeasurement(null);
+      this.drag = null;
+    }
+    const chord = this.chord;
+    if (!chord || chord.id !== input.pointerId) return false;
+    const dx = input.point.x - chord.start.x, dy = input.point.y - chord.start.y;
+    if (input.buttons === 3 && input.type !== "pointerup") {
+      this.changed({ type: "cadZoom", start: chord.start, end: input.point });
+      return true;
+    }
+    if (input.type === "pointerup") {
+      this.chord = null; this.pointers.delete(input.pointerId);
+    }
+    if (chord.ended) return true;
+    chord.ended = true; this.changed();
+    const viewer = this.viewer, size = viewer.getSize();
+    if (Math.hypot(dx, dy) < 3) viewer.panBy(size.width / 2 - input.point.x, size.height / 2 - input.point.y);
+    else if (dx > 0 && dy > 0) {
+      const view = viewer.getView();
+      const scale = Math.max(VIEW_SCALE_LIMITS.min, Math.min(VIEW_SCALE_LIMITS.max, view.scale * Math.min(size.width / dx, size.height / dy)));
+      viewer.jumpTo({ ...view, scale, center: viewer.toScene({ x: chord.start.x + dx / 2, y: chord.start.y + dy / 2 }) });
+    } else if (dx > 0 && dy < 0) viewer.fit();
+    else if (dx < 0 && dy < 0) this.zoom(0.5, chord.start);
+    else if (dx < 0 && dy > 0 && this.previousView) viewer.jumpTo(this.previousView);
+    return true;
+  }
   handle(input) {
     this.idle();
     if (input.type === "cancel") { const result = this.reset(input.reason); this.viewer.setMeasurement(null); if (result.failed) throw result.error; return true; }
@@ -166,8 +210,10 @@ export class Tools {
     try {
       // 中断は独自ツールが入力を処理するかどうかに依らない。
       if (input.type === "keydown" && input.key === "Escape") return this.navigate(input);
+      const cadMouse = this.options.cadNavigation && this.options.drag && input.pointerType === "mouse" && !this.definitions.has(this.name);
+      if (cadMouse && this.cadChord(input)) return true;
       if (input.type === "pointerdown") {
-        if (input.button !== 0 && input.button !== 1 || this.pointers.has(input.pointerId) || this.pointers.size >= 2) return false;
+        if (input.button !== 0 && input.button !== 1 && !(cadMouse && input.button === 2) || this.pointers.has(input.pointerId) || this.pointers.size >= 2) return false;
         if (this.pointers.size && (input.pointerType !== "touch" || !this.options.pinch || [...this.pointers.values()].some((p) => p.pointerType !== "touch"))) return false;
         this.pointers.set(input.pointerId, input);
         if (this.pointers.size === 2) {

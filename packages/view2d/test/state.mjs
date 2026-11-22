@@ -144,13 +144,14 @@ export async function testPlacedSelection(zumen, { assert, throws }) {
     const paged = { call(request) {
       calls++;
       if (request.op === "drawing") return { result: { hash: document.hash } };
-      assert(request.place === "space/h10" && request.fields.join() === "source", "定義の空間から出所を要求");
+      assert(request.place === "space/h10" && request.fields.join() === "source,kind,layer", "定義の空間から出所・種類・レイヤを要求");
       return { result: request.offset === 0 ? { items: [], next_offset: 256 } : {
-        items: [{ id: refs[0].id, source: { record: 7, bytes: { start: 10, end: 40 } } }],
+        items: [{ id: refs[0].id, kind: "line", layer: "layer/0", source: { record: 7, bytes: { start: 10, end: 40 } } }],
       } };
     } };
     const ranged = findSource(paged, document, refs[0]);
     assert(calls === 3 && ranged.source.record === 7 && ranged.source.bytes.start === 10 && ranged.source.bytes.end === 40, "ページをたどり応答のバイト範囲をそのまま返す");
+    assert(ranged.kind === "line" && ranged.layer === "layer/0", "選んだ要素の種類とレイヤを返す");
     throws(() => findSource(paged, document, refs[0], 1), "出所のページ送りにも上限");
 
     // 実際に読み込んだ DXF で、要素と定義の空間の両方に重複の接尾辞を付ける。

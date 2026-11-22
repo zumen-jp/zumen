@@ -95,6 +95,7 @@ async function checkInputDiagnostics(page, module, ready) {
   assert.ok(report.counts.every((diagnostic) => diagnostic.at.length === 0), "全件集計は場所の明細と分ける");
   await page.getByLabel("図面ファイル").setInputFiles({ name: "input-diagnostics.dxf", mimeType: "application/octet-stream", buffer: bytes });
   await ready("DXF");
+  await page.getByRole("button", { name: "DXF 書き出し", exact: true }).click();
   const panel = page.getByRole("region", { name: /^DXF で保存/ });
   await panel.getByRole("button", { name: "保存前の見積もりを確認", exact: true }).click();
   const input = panel.getByRole("region", { name: "読み取り段階の診断", exact: true });
@@ -155,10 +156,10 @@ try {
   assert.deepEqual(readFileSync(join(work, "app/viewer.css")), readFileSync(join(app, "public/viewer.css")));
   // 同梱した公開サンプルの出所と、同梱を求めるライセンスの本文の一覧（#689）
   const listed = readFileSync(join(work, "app/samples.md"), "utf8");
-  for (const name of ["dxf/text_alignments.dxf", "dxf/opendxfviewer-latin1.dxf", "dwg/zumen-layout-r2000.dwg", "dwg/zumen-minsert-r2004.dwg", "dwg/zumen-xclip-r2018.dwg"]) {
+  for (const name of ["jww/ezjww-geometry.jww", "dxf/text_alignments.dxf", "dxf/opendxfviewer-latin1.dxf", "dwg/zumen-layout-r2000.dwg", "dwg/zumen-minsert-r2004.dwg", "dwg/zumen-xclip-r2018.dwg"]) {
     assert.ok(listed.includes("## " + name), name);
   }
-  assert.equal(listed.match(/Permission is hereby granted/g)?.length, 2, "MIT の本文 2 つ");
+  assert.equal(listed.match(/Permission is hereby granted/g)?.length, 3, "MIT の本文 3 つ");
   collect(join(work, "app"), "/app");
   // 同じ境界の検査を本番用 React と開発用 StrictMode の両方で組む。検査用の入口は製品へ入れない。
   for (const [folder, mode] of [["production", "production"], ["strict", "development"]]) {
@@ -241,16 +242,18 @@ try {
     return count;
   });
   assert.equal(await status.getAttribute("role"), "status");
-  // 最初の Tab は「本文へ移動」に止まる（WebKit は既定でリンクに止まらない）。サイトのナビとパンくずのあとに、ファイルの選択へ届く。
+  // 最初に本文へ移動でき、キーボードでリボンの「開く」に届く。
+  const openButton = page.getByRole("button", { name: "開く", exact: true });
+  const focused = (control) => control.evaluate((el) => el === document.activeElement);
   await page.keyboard.press("Tab");
-  const first = await page.evaluate(() => document.activeElement?.textContent);
-  assert.ok(first === "本文へ移動" || await file.evaluate((el) => el === document.activeElement), "最初の Tab: " + first);
-  for (let i = 0; i < 12 && !await file.evaluate((el) => el === document.activeElement); i++) await page.keyboard.press("Tab");
-  assert.ok(await file.evaluate((el) => el === document.activeElement), "Tab でファイルの選択に届く");
+  assert.ok(await focused(page.getByRole("link", { name: "本文へ移動" })) || await focused(openButton));
+  for (let i = 0; i < 8 && !await focused(openButton); i++) await page.keyboard.press("Tab");
+  assert.ok(await focused(openButton), "Tab で図面を開くボタンに届く");
   for (const [format, id] of [["dxf", "space/0/hA1"], ["jww", "space/0/r1"], ["sxf", "sheet/0/i30"]]) {
     await file.setInputFiles({ name: "local." + (format === "sxf" ? "sfc" : format), mimeType: "application/octet-stream", buffer: inputs[format] });
     await ready(format.toUpperCase());
     assert.ok(await pixels() > 0, format + ": 図形の画素");
+    await page.getByRole("button", { name: "レイヤ・要素", exact: true }).click();
     if (format === "jww") {
       const canvas = page.getByLabel("図面の表示", { exact: true });
       await canvas.click();
@@ -293,8 +296,9 @@ try {
       const first = page.getByRole("region", { name: /^要素/ }).getByRole("button").first();
       await first.press("Enter"); await source.getByText("レコード", { exact: true }).waitFor();
     } else {
-      assert.match(await page.getByRole("region", { name: /^診断/ }).innerText(), /sxf\.lift\.dropped/);
       assert.match(await source.innerText(), /#30/);
+      await page.getByRole("button", { name: "診断", exact: true }).click();
+      assert.match(await page.getByRole("region", { name: /^診断/ }).innerText(), /sxf\.lift\.dropped/);
     }
   }
   await checkReview(page, ready, inputs.dxf);
@@ -308,6 +312,7 @@ try {
   for (const { name, bytes, sha256 } of conversions()) {
     await file.setInputFiles({ name, mimeType: "application/octet-stream", buffer: bytes });
     await ready(name.endsWith(".dwg") ? "DWG" : name.endsWith(".jww") ? "JWW" : "SXF");
+    await page.getByRole("button", { name: "DXF 書き出し", exact: true }).click();
     // 文書ごとに新しい欄になる（前の図面の結果を見ない）
     const shown = exportPanel.getByRole("status");
     assert.equal(await shown.innerText(), "", name);
@@ -356,6 +361,7 @@ try {
   // DXF を開いて保存するときは、元のファイルと分かる名前にする
   await file.setInputFiles({ name: "local.dxf", mimeType: "application/octet-stream", buffer: inputs.dxf });
   await ready("DXF");
+  await page.getByRole("button", { name: "DXF 書き出し", exact: true }).click();
   assert.equal(await exportPanel.getByRole("region", { name: "保存前の見積もり", exact: true }).count(), 0, "切り替え前の見積もりは残さない");
   await exportPanel.getByRole("button", { name: "保存前の見積もりを確認", exact: true }).click();
   await exportPanel.getByRole("status").getByText("見積もりを確認して、DXF で保存してください。", { exact: true }).waitFor();
@@ -366,6 +372,7 @@ try {
   for (const op of ["convert_estimate", "convert"]) {
     await file.setInputFiles({ name: "changed.dxf", mimeType: "application/octet-stream", buffer: inputs.dxf });
     await ready("DXF");
+    await page.getByRole("button", { name: "DXF 書き出し", exact: true }).click();
     if (op === "convert") {
       await exportPanel.getByRole("button", { name: "保存前の見積もりを確認", exact: true }).click();
       await exportPanel.getByRole("status").getByText("見積もりを確認して、DXF で保存してください。", { exact: true }).waitFor();
@@ -376,6 +383,7 @@ try {
     await page.waitForFunction(() => exportGate.waiting);
     await file.setInputFiles({ name: "changed.jww", mimeType: "application/octet-stream", buffer: inputs.jww });
     await ready("JWW");
+    await page.getByRole("button", { name: "DXF 書き出し", exact: true }).click();
     await page.evaluate(() => exportGate.release());
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     assert.equal(downloads.length, before, op + ": 前の入力の結果を保存しない");
@@ -392,9 +400,11 @@ try {
     await samplePicker.selectOption(path);
     await ready("DWG");
     assert.ok(await pixels() > 0, version + ": 図形の画素");
+    await page.getByRole("button", { name: "案内", exact: true }).click();
     const shown = await sampleSource.innerText();
     assert.match(shown, /CC0-1\.0/, version);
     assert.match(shown, /zumen-jp/, version);
+    await page.getByRole("button", { name: "レイヤ・要素", exact: true }).click();
     const layers = page.getByRole("checkbox");
     assert.ok(await layers.count() > 0, version + ": レイヤ");
     for (const layer of await layers.all()) await layer.uncheck();
@@ -407,11 +417,13 @@ try {
     await source.getByText("ハンドル", { exact: true }).waitFor();
     assert.match(await source.innerText(), /バイト範囲/, version);
     assert.equal(await first.getAttribute("aria-pressed"), "true", version);
+    await page.getByRole("button", { name: "診断", exact: true }).click();
     assert.equal(await page.getByRole("region", { name: /^診断/ }).count(), 1, version);
   }
   // 本文の同梱を求めるライセンス（MIT）のサンプルは、本文を配布物から開ける
   await samplePicker.selectOption("dxf/text_alignments.dxf");
   await ready("DXF");
+  await page.getByRole("button", { name: "案内", exact: true }).click();
   assert.match(await sampleSource.innerText(), /MIT/);
   const text = await sampleSource.getByRole("link", { name: "本文", exact: true }).getAttribute("href");
   assert.match(await page.evaluate((href) => fetch(href).then((r) => r.text()), text), /MIT License/);
@@ -427,6 +439,7 @@ try {
   await samplePicker.selectOption("dxf/opendxfviewer-latin1.dxf");
   await ready("DXF");
   assert.equal(await samplePicker.inputValue(), "dxf/opendxfviewer-latin1.dxf");
+  await page.getByRole("button", { name: "案内", exact: true }).click();
   assert.match(await sampleSource.innerText(), /ANSI_1252/);
   // ANSI_1252 の TEXT 2 件を読む（#327）
   assert.match(await status.textContent(), /表示しました。 DXF/);
@@ -447,7 +460,7 @@ try {
   const broken = "**/zumen-xclip-r2018-*.dwg";
   await page.route(broken, (route) => route.fulfill({ status: 500, body: "" }));
   await samplePicker.selectOption("dwg/zumen-xclip-r2018.dwg");
-  await page.getByText("サンプルを取れませんでした。", { exact: true }).waitFor();
+  await status.filter({ hasText: "サンプルを取れませんでした。" }).waitFor();
   assert.equal(await samplePicker.inputValue(), "");
   await page.unroute(broken);
   await samplePicker.selectOption("dwg/zumen-xclip-r2018.dwg");
@@ -460,15 +473,16 @@ try {
 
   await file.setInputFiles({ name: "references.dxf", mimeType: "application/octet-stream", buffer: references });
   await ready("DXF");
+  await page.getByRole("button", { name: "診断", exact: true }).click();
   const report = page.getByRole("region", { name: /^診断/ });
   assert.equal(await report.getByText("resource-unresolved", { exact: true }).count(), 2, await report.innerText());
   assert.match(await report.innerText(), /browser-text/);
   await file.setInputFiles({ name: "bad.dxf", mimeType: "application/octet-stream", buffer: Buffer.from("invalid") });
-  await page.getByText("図面を表示できませんでした。", { exact: true }).waitFor();
+  await status.filter({ hasText: "図面を表示できませんでした。" }).waitFor();
   assert.equal(await page.getByRole("complementary").count(), 0);
   await page.getByRole("button", { name: "閉じる", exact: true }).press("Enter");
   assert.equal(await status.textContent(), "図面を選んでください。");
-  assert.ok(await file.evaluate((el) => el === document.activeElement));
+  assert.ok(await focused(openButton));
 
   const resizeInput = await checkInteractions(page, ready);
   assert.deepEqual(await page.evaluate(() => window.blockedRequests), []);

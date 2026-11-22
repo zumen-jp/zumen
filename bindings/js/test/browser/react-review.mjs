@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 export async function checkReview(page, ready, dxf) {
   await page.getByLabel("図面ファイル").setInputFiles({ name: "review.dxf", mimeType: "application/octet-stream", buffer: dxf });
   await ready("DXF");
+  await page.getByRole("button", { name: "レビュー", exact: true }).click();
   const panel = page.getByRole("region", { name: "レビュー", exact: true });
   const status = panel.getByRole("status");
   const shown = async (count) => {

@@ -422,7 +422,7 @@ export class View2D {
           overlayCtx.setLineDash([]); overlayCtx.beginPath(); overlayCtx.moveTo(a.x, a.y); overlayCtx.lineTo(b.x, b.y); overlayCtx.stroke();
         }
         const gesture = this.#tools.gesture;
-        if (gesture?.type === "select") {
+        if (gesture?.type === "select" || gesture?.type === "cadZoom" && gesture.end.x > gesture.start.x && gesture.end.y > gesture.start.y) {
           overlayCtx.setLineDash([4, 4]); overlayCtx.strokeRect(gesture.start.x, gesture.start.y, gesture.end.x - gesture.start.x, gesture.end.y - gesture.start.y);
         }
       } finally { overlayCtx.restore(); }
@@ -448,6 +448,7 @@ export class View2D {
     this.#mutable(); const next = camera(view), previous = this.#view;
     if (next.center.x === previous.center.x && next.center.y === previous.center.y && next.scale === previous.scale && next.rotation === previous.rotation) return this.getReport();
     validateCircleWork(this.#prepared, this.#settings, next, this.#size, this.#display, this.#limits);
+    if (this.#tools.options.cadNavigation) this.#tools.previousView = previous;
     this.#view = next;
     return this.#refresh("view");
   }

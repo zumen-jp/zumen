@@ -47,7 +47,7 @@ export function bindInput(viewer, element) {
   }
   for (const type of ["pointerdown", "pointermove", "pointerup"]) on(element, type, (event) => {
     if (editable(event)) return;
-    const input = { type, pointerId: event.pointerId, pointerType: event.pointerType || "mouse", button: event.button, point: point(event), ...modifiers(event) };
+    const input = { type, pointerId: event.pointerId, pointerType: event.pointerType || "mouse", button: event.button, buttons: event.buttons, point: point(event), ...modifiers(event) };
     if (type === "pointerdown" && (input.point.x < 0 || input.point.y < 0 || input.point.x > viewer.getSize().width || input.point.y > viewer.getSize().height)) return;
     const handled = send(event, input);
     if (type === "pointerdown" && handled && element.setPointerCapture) {
@@ -68,6 +68,14 @@ export function bindInput(viewer, element) {
     if (!event.isComposing && !editable(event)) send(event, { type: "keydown", key: event.key, ...modifiers(event) });
   });
   on(element, "dblclick", (event) => { if (!editable(event)) send(event, { type: "dblclick", point: point(event), ...modifiers(event) }); });
+  on(element, "auxclick", (event) => {
+    if (event.button === 1 && event.detail === 2 && viewer.getState().input.cadNavigation && viewer.getState().input.pointer && !editable(event))
+      send(event, { type: "dblclick", button: 1, point: point(event), ...modifiers(event) });
+  });
+  on(element, "contextmenu", (event) => {
+    const { cadNavigation, pointer, drag } = viewer.getState().input;
+    if (cadNavigation && pointer && drag && event.button === 2 && !editable(event)) event.preventDefault();
+  });
   on(element, "blur", () => cancel("blur"));
   on(window, "blur", () => cancel("blur"));
   on(document, "visibilitychange", () => { if (document.hidden) cancel("hidden"); });

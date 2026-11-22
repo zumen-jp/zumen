@@ -41,7 +41,7 @@ export function useDrawing(file, { loadModule, from = null, catalog = null }) {
         const bytes = await readInput(file, signal);
         if (signal.aborted) return;
         client = connectWorker();
-        const { blob, result, document, drawing, canEstimate, canReview, diagnostics } = await client.request({ op: "open", module, bytes, from, catalog }, [bytes]);
+        const { blob, result, document, drawing, layerNames, canEstimate, canReview, diagnostics } = await client.request({ op: "open", module, bytes, from, catalog }, [bytes]);
         if (signal.aborted) return;
         const input = { scene: readScene(blob), result, document };
         const getSource = (element) => client.request({ op: "source", element });
@@ -52,7 +52,7 @@ export function useDrawing(file, { loadModule, from = null, catalog = null }) {
           const value = await client.request({ op: "review_scene", review: bytes, target, style, tolerance }, [bytes.buffer]);
           return { input: { scene: readScene(value.blob), result: value.result, document }, diagnostics: value.diagnostics };
         };
-        setSnapshot({ request, value: { status: "ready", input, drawing, canEstimate, canReview, diagnostics, getSource, estimate, convert, reviewScene } });
+        setSnapshot({ request, value: { status: "ready", input, drawing, layerNames: new Map(layerNames), canEstimate, canReview, diagnostics, getSource, estimate, convert, reviewScene } });
       } catch (error) {
         client?.dispose();
         if (!signal.aborted) {
