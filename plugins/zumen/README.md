@@ -61,6 +61,13 @@ Antigravity の `/plugin` で Installed を開き、zumen を有効にして「�
 gemini extensions install https://github.com/zumen-jp/zumen --ref=main
 ```
 
+Windows の Gemini CLI 0.70.0 で上のコマンドが `GIT_CONFIG_SYSTEM` のエラーを返す場合は、Git で取得してからローカルの拡張機能としてインストールできます。
+
+```sh
+git clone --depth=1 https://github.com/zumen-jp/zumen
+gemini extensions install ./zumen
+```
+
 図面のあるフォルダーで `gemini` を起動します。`/mcp` で zumen を確認できます。読み書きの対象は、そのワークスペースの中です。[Gemini CLI の拡張機能](https://geminicli.com/docs/extensions/)
 
 ## Cursor
