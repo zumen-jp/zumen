@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Java のラッパー（決定 0224）。バージョンはコアと同じにし、xtask が確かめる（決定 0015）。Maven Central に出す手順は #435 で決める -->
+<!-- Java のラッパー（決定 0224）。バージョンはコアと同じにし、xtask が確かめる（決定 0015）。 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -13,9 +13,26 @@
   <url>https://github.com/zumen-jp/zumen</url>
   <licenses>
     <license>
-      <name>MIT OR Apache-2.0</name>
+      <name>MIT License</name>
+      <url>https://opensource.org/license/mit</url>
+    </license>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
     </license>
   </licenses>
+  <developers>
+    <developer>
+      <id>zumen-jp</id>
+      <name>zumen contributors</name>
+      <url>https://github.com/zumen-jp</url>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/zumen-jp/zumen.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/zumen-jp/zumen.git</developerConnection>
+    <url>https://github.com/zumen-jp/zumen</url>
+  </scm>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -31,4 +48,75 @@
       <version>5.19.1</version>
     </dependency>
   </dependencies>
+
+  <build>
+    <resources>
+      <resource>
+        <directory>${project.basedir}</directory>
+        <includes><include>README.md</include></includes>
+      </resource>
+      <resource>
+        <directory>${project.basedir}/../..</directory>
+        <targetPath>META-INF</targetPath>
+        <includes>
+          <include>LICENSE-MIT</include>
+          <include>LICENSE-APACHE</include>
+        </includes>
+      </resource>
+    </resources>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.14.1</version>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>central</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>3.3.1</version>
+            <executions>
+              <execution>
+                <goals><goal>jar-no-fork</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-jar-plugin</artifactId>
+            <version>3.5.0</version>
+            <executions>
+              <execution>
+                <id>api-guide</id>
+                <goals><goal>jar</goal></goals>
+                <configuration>
+                  <classifier>javadoc</classifier>
+                  <includes>
+                    <include>README.md</include>
+                    <include>META-INF/LICENSE-*</include>
+                  </includes>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.12.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <skipUpload>true</skipUpload>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

@@ -1,7 +1,9 @@
 name: zumen
-description: zumen のネイティブのライブラリの C ABI を dart:ffi で呼ぶラッパー（決定 0227）。
+description: 図面の読み書きと変換に使う zumen の Dart ラッパーです。dart:ffi でネイティブのライブラリを呼び、図面の要素や描画用の座標を取り出せます。
+repository: https://github.com/zumen-jp/zumen/tree/main/bindings/dart
+issue_tracker: https://github.com/zumen-jp/zumen/issues
 version: 0.4.0
-# pub.dev にはまだ出さない（段階 2 の別の子 issue）
+# dart_package.py がライセンス本文を加えた配布物に公開先を設定する。
 publish_to: none
 
 environment:

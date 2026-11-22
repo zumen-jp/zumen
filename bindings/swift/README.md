@@ -1,10 +1,12 @@
 # Swift のラッパー
 
-zumen の C ABI を、Swift から呼ぶラッパーです。下限は iOS・iPadOS 17 と macOS 14 です（[docs/support.md](../../docs/support.md)）。まだ公開していません。SwiftPM のミラーのリポジトリに出すことは、別の issue で扱います。
+zumen の C ABI を、Swift から呼ぶラッパーです。下限は iOS・iPadOS 17 と macOS 14 です。実機、シミュレーター、Mac は arm64 に対応します。[対応する環境](https://github.com/zumen-jp/zumen/blob/main/docs/support.md)
+
+SwiftPM の鏡 `zumen-swift` に置くソースには、同じ版の GitHub Release にある XCFramework の URL と SHA-256 が入ります。鏡への初回公開は [#435](https://github.com/zumen-jp/zumen/issues/435) で扱います。
 
 ## 使い方
 
-コアを静的ライブラリで作り、XCFramework（`build/CZumen.xcframework`）にまとめてから、このフォルダーを SwiftPM のパッケージとして加えます。
+開発用に元のリポジトリから使うときは、コアを静的ライブラリで作り、XCFramework（`build/CZumen.xcframework`）にまとめてから、このフォルダーを SwiftPM のパッケージとして加えます。
 
 ```bash
 sh bindings/swift/build-xcframework.sh release
@@ -39,7 +41,7 @@ session.close()
 
 ## テスト
 
-適合テスト（[bindings/conformance](../conformance/README.md)）を、macOS と iOS のシミュレーターで流します。毎晩の `nightly.yml` でも流します。
+元のリポジトリの[適合テスト](https://github.com/zumen-jp/zumen/tree/main/bindings/conformance)を、macOS と iOS のシミュレーターで流します。毎晩の `nightly.yml` でも流します。
 
 ```bash
 sh bindings/swift/build-xcframework.sh debug aarch64-apple-darwin aarch64-apple-ios-sim
@@ -59,4 +61,4 @@ sh bindings/swift/test-simulator.sh
 
 Scene3D(blob) で ZMS3 を読みます。instanceElement と elementID で建物の要素 ID を引けます。列の取得は Swift の配列へコピーします。
 
-同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](../../schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。
+同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](https://github.com/zumen-jp/zumen/blob/main/schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。

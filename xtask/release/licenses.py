@@ -20,6 +20,9 @@ MANIFESTS = {"abi": "crates/zumen-abi/Cargo.toml", "cli": "bindings/cli/Cargo.to
 TARGETS = json.loads((Path(__file__).parent / "targets.json").read_text(encoding="utf-8"))
 WASM = "wasm32-unknown-unknown"
 MODULES = ("default", "drawing", "bim", "civil", "pointcloud")
+SWIFT_SLICES = {"macos-arm64": "aarch64-apple-darwin", "ios-arm64": "aarch64-apple-ios",
+                "ios-arm64-simulator": "aarch64-apple-ios-sim"}
+SWIFT_LIBRARY = "libzumen_abi1.a"
 
 
 def feature_args(module, package):
@@ -164,6 +167,8 @@ def main():
     for target in TARGETS:
         for kind in MANIFESTS:
             generate(args.cargo_about, kind, target["target"], output / "licenses" / "native" / target["rid"] / kind)
+    for identifier, triple in SWIFT_SLICES.items():
+        generate(args.cargo_about, "abi", triple, output / "licenses" / "swift" / identifier)
 
 
 if __name__ == "__main__":

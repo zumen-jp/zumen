@@ -99,6 +99,8 @@ def build(kind, target, module, filename, shipped, output):
     command = ["cargo", "auditable", "build", "--release", "--locked", "--target", target, "--manifest-path",
                str(manifest), "--message-format=json-render-diagnostics", *feature_args(module, package)]
     env = {**os.environ, "MACOSX_DEPLOYMENT_TARGET": "14.0"} if target == "aarch64-apple-darwin" else None
+    if target in ("aarch64-apple-ios", "aarch64-apple-ios-sim"):
+        env = {**os.environ, "IPHONEOS_DEPLOYMENT_TARGET": "17.0"}
     result = subprocess.run(command, cwd=ROOT, env=env, stdout=subprocess.PIPE, check=True)
     matches = []
     messages = [json.loads(line) for line in result.stdout.splitlines()]
@@ -123,6 +125,7 @@ def build(kind, target, module, filename, shipped, output):
                "artifact": shipped, "sha256": digest((output / shipped).read_bytes()), "commit": revision, "lock": lock_hash,
                **graph}
     (output / (shipped + ".build.json")).write_bytes(encode(receipt))
+    return source
 
 
 if __name__ == "__main__":

@@ -15,7 +15,13 @@ on:
       - 'rust-toolchain.toml'
       - '.cargo/**'
       - 'bindings/python/**'
+      - 'bindings/swift/**'
+      - 'bindings/c/include/**'
       - 'bindings/dotnet/**'
+      - 'bindings/vba/**'
+      - 'bindings/go/**'
+      - 'bindings/dart/**'
+      - 'bindings/java/**'
       - 'bindings/js/package.json'
       - 'bindings/js/src/**'
       - 'bindings/js/README.md'
@@ -167,6 +173,36 @@ jobs:
           path: out
           if-no-files-found: error
 
+  swift:
+    name: SwiftPM の XCFramework と鏡用ソースを検査する
+    needs: licenses
+    runs-on: macos-latest
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      IPHONEOS_DEPLOYMENT_TARGET: '17.0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim
+          rustup component add llvm-tools-preview
+          cargo install --locked cargo-auditable@0.7.7 rust-audit-info@0.5.4
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.x'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package-licenses
+          path: licenses
+      - run: python xtask/release/swift_package.py --licenses licenses --out out
+      - run: swift run --package-path bindings/swift -c release ZumenConformance "$GITHUB_WORKSPACE"
+      - run: sh bindings/swift/test-simulator.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: swift
+          path: out
+          if-no-files-found: error
+
   packages:
     name: npm と NuGet の配布物
     needs: [licenses, native, wasm]
@@ -190,3 +226,27 @@ jobs:
         with:
           node-version: 24
       - run: python xtask/release/package.py npm --artifacts artifacts --out out
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: bindings/go/go.mod
+          cache-dependency-path: bindings/go/go.sum
+      - run: python xtask/release/go_module.py --artifacts artifacts --out out
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: zulu
+          java-version: '21'
+      - name: Maven Central 用の JAR とソース・Javadoc を署名と送信なしで検査する
+        run: |
+          mvn -B -ntp -f bindings/java/pom.xml -Pcentral "-Dproject.build.outputTimestamp=$(git show -s --format=%ct HEAD)" clean deploy
+          python xtask/release/verify_java.py bindings/java/target/central-publishing/central-bundle.zip
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: stable
+      - name: pub.dev に配るファイルを展開して公開前検査を行う
+        run: |
+          python xtask/release/dart_package.py --out out
+          stage=$(mktemp -d)
+          tar -xzf out/zumen-dart-*.tar.gz -C "$stage"
+          cd "$stage"
+          dart pub get
+          dart pub publish --dry-run

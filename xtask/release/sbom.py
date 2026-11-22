@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote
 
-from licenses import MANIFESTS, MODULES, ROOT, TARGETS, WASM, feature_args, read_info, wasm_name
+from licenses import MANIFESTS, MODULES, ROOT, SWIFT_LIBRARY, SWIFT_SLICES, TARGETS, WASM, feature_args, read_info, wasm_name
 
 DRAFT = "cargo.cdx.json"
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
@@ -235,6 +235,8 @@ def generate(output, tool):
         for module in MODULES:
             configs.append(("abi", WASM, module, wasm_name(module),
                             output / "licenses" / "wasm" / ("abi" if module == "default" else module)))
+        for identifier, triple in SWIFT_SLICES.items():
+            configs.append(("abi", triple, "default", SWIFT_LIBRARY, output / "licenses" / "swift" / identifier))
         for kind, target, module, artifact, directory in configs:
             manifest = MANIFESTS[kind]
             package = "zumen-" + kind

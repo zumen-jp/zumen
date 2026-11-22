@@ -141,6 +141,9 @@ jobs:
       - run: python xtask/release/package.py wasm --built built --licenses licenses --out out
       - name: crates.io に出す crate を、依存の順に包めることを確かめる
         run: cargo publish --dry-run --locked $CRATES
+      - name: v0.4.0 の初回手動公開と前後の crate を照合する
+        if: needs.version.outputs.version == '0.4.0'
+        run: python xtask/release/crates_040.py check
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wasm
@@ -175,6 +178,36 @@ jobs:
           path: out
           if-no-files-found: error
 
+  swift:
+    name: SwiftPM の XCFramework と鏡用ソースを検査する
+    needs: licenses
+    runs-on: macos-latest
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      IPHONEOS_DEPLOYMENT_TARGET: '17.0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim
+          rustup component add llvm-tools-preview
+          cargo install --locked cargo-auditable@0.7.7 rust-audit-info@0.5.4
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.x'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: licenses
+          path: licenses
+      - run: python xtask/release/swift_package.py --licenses licenses --out out
+      - run: swift run --package-path bindings/swift -c release ZumenConformance "$GITHUB_WORKSPACE"
+      - run: sh bindings/swift/test-simulator.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: swift
+          path: out
+          if-no-files-found: error
+
   packages:
     name: npm と NuGet のパッケージを作る
     needs: [version, native, wasm, licenses]
@@ -199,6 +232,33 @@ jobs:
         run: python xtask/release/package.py npm --artifacts artifacts --out out
       - name: NuGet のパッケージに、対象ごとのネイティブのライブラリを入れて包む
         run: python xtask/release/package.py nuget --artifacts artifacts --out out
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: bindings/go/go.mod
+          cache-dependency-path: bindings/go/go.sum
+      - name: Go の鏡に配る wasm とソースを包み、配布物の適合を確かめる
+        run: python xtask/release/go_module.py --artifacts artifacts --out out
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: zulu
+          java-version: '21'
+      - name: Maven Central 用の JAR とソース・Javadoc を署名と送信なしで検査する
+        run: |
+          mvn -B -ntp -f bindings/java/pom.xml -Pcentral "-Dproject.build.outputTimestamp=$(git show -s --format=%ct HEAD)" clean deploy
+          python xtask/release/verify_java.py bindings/java/target/central-publishing/central-bundle.zip
+          mkdir -p out/maven
+          cp bindings/java/target/central-publishing/central-bundle.zip out/maven/
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: stable
+      - name: pub.dev に配るファイルを展開して公開前検査を行う
+        run: |
+          python xtask/release/dart_package.py --out out
+          stage=$(mktemp -d)
+          tar -xzf out/zumen-dart-*.tar.gz -C "$stage"
+          cd "$stage"
+          dart pub get
+          dart pub publish --dry-run
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages
@@ -208,7 +268,7 @@ jobs:
   release:
     name: GitHub の Release に置く
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: [version, native, wasm, packages]
+    needs: [version, native, wasm, packages, swift]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -222,6 +282,7 @@ jobs:
       - name: 置くものを 1 つのディレクトリに集める
         run: |
           mkdir -p files
+          cp artifacts/maven/central-bundle.zip "files/zumen-maven-${GITHUB_REF_NAME#v}.zip"
           cp artifacts/*.tar.gz artifacts/*.zip artifacts/zumen_abi1.wasm artifacts/zumen_abi1_drawing.wasm artifacts/zumen_abi1_bim.wasm artifacts/zumen_abi1_civil.wasm artifacts/zumen_abi1_pointcloud.wasm artifacts/THIRD_PARTY_LICENSES artifacts/wheels/*.whl artifacts/*.tgz artifacts/*.nupkg files/
           for rid in $(ls artifacts/native); do
             for f in artifacts/native/$rid/*; do cp "$f" "files/$rid-$(basename "$f")"; done
@@ -235,11 +296,13 @@ jobs:
         run: gh release create "$GITHUB_REF_NAME" files/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
 
   crates-io:
-    name: crates.io に出す
+    name: crates.io に出す（v0.4.0 は ST-Bridge の依存まで）
     if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: release
     runs-on: ubuntu-latest
     environment: release
+    outputs:
+      first-sha256: ${{ steps.first.outputs.sha256 }}
     permissions:
       contents: read
       id-token: write
@@ -249,7 +312,57 @@ jobs:
       - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         id: auth
       - run: cargo publish --locked $CRATES
+        if: github.ref != 'refs/tags/v0.4.0'
         env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      - name: ST-Bridge の直接・推移依存を公開する
+        if: github.ref == 'refs/tags/v0.4.0'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          packages=$(python3 xtask/release/crates_040.py before)
+          if [[ -n "$packages" ]]; then cargo publish --locked $packages; fi
+      - name: 利用者が初回公開する ST-Bridge をタグから包み、照合値を示す
+        if: github.ref == 'refs/tags/v0.4.0'
+        id: first
+        run: |
+          cargo package --locked --no-verify -p zumen-stbridge
+          digest=$(sha256sum target/package/zumen-stbridge-0.4.0.crate | cut -d' ' -f1)
+          echo "sha256=$digest" >> "$GITHUB_OUTPUT"
+          echo "zumen-stbridge 0.4.0 の SHA-256: \`$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          cat >> "$GITHUB_STEP_SUMMARY" <<'END'
+          1. 別の作業フォルダーでタグ `v0.4.0` をチェックアウトし、`git rev-parse HEAD` がこの実行のコミットと一致し、`git status --porcelain` が空であることを確かめます。
+          2. リポジトリの Rust で `cargo package --locked -p zumen-stbridge` を実行します。PowerShell で `(Get-FileHash target/package/zumen-stbridge-0.4.0.crate -Algorithm SHA256).Hash` を上の値と照合します。
+          3. 一致したら crates.io の本人のアカウントで `cargo publish --locked -p zumen-stbridge` を実行します。crate の Settings → Trusted Publishing で GitHub の所有者 `zumen-jp`、リポジトリ `zumen`、ワークフロー `release.yml`、環境 `release` を登録します。
+          4. この実行で「ST-Bridge の手動公開後に残りの crate を出す」の `release` 環境を承認します。公開を先に承認して照合が失敗した場合は、公開と登録を確かめて同じ実行の失敗したジョブを再実行します。
+          END
+
+  crates-io-after-stbridge:
+    name: ST-Bridge の手動公開後に残りの crate を出す
+    if: github.event_name == 'push' && github.ref == 'refs/tags/v0.4.0'
+    needs: crates-io
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - id: remaining
+        name: 初回公開の SHA-256 を照合し、残りを選ぶ
+        env:
+          FIRST_SHA256: ${{ needs.crates-io.outputs.first-sha256 }}
+        run: |
+          packages=$(python3 xtask/release/crates_040.py after --first-sha256 "$FIRST_SHA256")
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+        if: steps.remaining.outputs.packages != ''
+        id: auth
+      - run: cargo publish --locked $PACKAGES
+        if: steps.remaining.outputs.packages != ''
+        env:
+          PACKAGES: ${{ steps.remaining.outputs.packages }}
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
   npm:
@@ -323,6 +436,44 @@ jobs:
           user: ${{ vars.NUGET_USER }}
       - run: dotnet nuget push packages/*.nupkg --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json
 
+  mirrors:
+    name: ${{ matrix.kind }} の配布用の鏡に出す
+    if: >-
+      github.event_name == 'push' && github.ref_type == 'tag' &&
+      contains(fromJSON('["go","swift","both"]'), vars.PUBLISH_MIRRORS)
+    needs: release
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      attestations: read
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: ${{ fromJSON(vars.PUBLISH_MIRRORS == 'both' && '["go","swift"]' || vars.PUBLISH_MIRRORS == 'go' && '["go"]' || '["swift"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ matrix.kind == 'swift' && 'swift' || 'packages' }}
+          path: artifacts
+      - name: 同じ実行の配布物を鏡の内容と照合する
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIRROR_KIND: ${{ matrix.kind }}
+        run: >-
+          python3 xtask/release/mirrors.py plan --kind "$MIRROR_KIND" --tag "$GITHUB_REF_NAME"
+          --artifacts artifacts --work "$RUNNER_TEMP/mirror"
+      - name: 鏡の既定ブランチとタグを一緒に送る
+        env:
+          MIRROR_PUBLISH_TOKEN: ${{ secrets.MIRROR_PUBLISH_TOKEN }}
+          MIRROR_KIND: ${{ matrix.kind }}
+        run: >-
+          python3 xtask/release/mirrors.py push --kind "$MIRROR_KIND" --tag "$GITHUB_REF_NAME"
+          --work "$RUNNER_TEMP/mirror"
+
   npm-retry:
     name: 既存の npm 配布物を再公開する
     if: github.event_name == 'workflow_dispatch' && inputs.npm_retry_tag != ''
@@ -353,3 +504,127 @@ jobs:
           NPM_RETRY_TAG: ${{ inputs.npm_retry_tag }}
         run: python xtask/release/retry_npm.py "$NPM_RETRY_TAG" --out ./packages
       - run: npm publish ./packages/zumen-jp-zumen-0.2.0.tgz --ignore-scripts --access public --provenance
+
+  maven-central:
+    name: 検査済みの Java 配布物に署名し、Maven Central に出す
+    if: github.event_name == 'push' && github.ref_type == 'tag' && vars.MAVEN_CENTRAL_PUBLISH == 'true'
+    needs: release
+    concurrency: maven-central-${{ github.ref }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
+          path: packages
+      - id: check
+        name: タグと配布物を照合し、同じ版を公開済みか確かめる
+        run: |
+          published=$(python3 xtask/release/binding_published.py maven packages/maven/central-bundle.zip)
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+      - name: 同じ POM と 3 つの JAR に署名する
+        if: steps.check.outputs.published == 'false'
+        env:
+          MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          export GNUPGHOME
+          GNUPGHOME=$(mktemp -d)
+          trap 'gpgconf --kill gpg-agent; rm -rf -- "$GNUPGHOME"' EXIT
+          printf '%s\n' "$MAVEN_GPG_PRIVATE_KEY" | gpg --batch --quiet --import 2>/dev/null
+          unset MAVEN_GPG_PRIVATE_KEY
+          python3 xtask/release/sign_java.py packages/maven/central-bundle.zip "$RUNNER_TEMP/maven-signed.zip"
+      - name: 署名済み ZIP を送り、Maven Central での公開を待つ
+        if: steps.check.outputs.published == 'false'
+        env:
+          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+        run: |
+          test -n "$MAVEN_CENTRAL_TOKEN"
+          authorization=$(printf '%s' "$MAVEN_CENTRAL_TOKEN" | base64 -w0)
+          unset MAVEN_CENTRAL_TOKEN
+          api=https://central.sonatype.com/api/v1/publisher
+          portal() {
+            printf 'Authorization: Bearer %s\n' "$authorization" |
+              curl --silent --show-error --fail --header @- --max-time 90 "$@"
+          }
+          name="zumen-$GITHUB_REF_NAME"
+          page=0
+          deployments=()
+          while true; do
+            result=$(portal --retry 3 --get --data-urlencode "deploymentName=$name" \
+              --data-urlencode "page=$page" "$api/deployments")
+            pages=$(jq -er '.pageCount | numbers | select(. >= 0)' <<< "$result")
+            ids=$(jq -er --arg name "$name" \
+              '[.deployments[] | select(.deploymentName == $name and .deploymentState != "FAILED") |
+                .deploymentId | if type == "string" and test("^[0-9a-fA-F-]{36}$") then . else error("invalid deployment ID") end] | join("\n")' \
+              <<< "$result")
+            if [[ -n "$ids" ]]; then
+              while read -r id; do deployments+=("$id"); done <<< "$ids"
+            fi
+            page=$((page + 1))
+            if ((page >= pages)); then break; fi
+          done
+          case ${#deployments[@]} in
+            0) deployment=$(portal --form "bundle=@$RUNNER_TEMP/maven-signed.zip;type=application/octet-stream" \
+                 "$api/upload?publishingType=AUTOMATIC&name=$name") ;;
+            1) deployment=${deployments[0]} ;;
+            *) echo "同じタグの受付が複数あるため、Central Portal で状態を確認してください。" >&2; exit 1 ;;
+          esac
+          [[ "$deployment" =~ ^[0-9a-fA-F-]{36}$ ]]
+          echo "Maven Central の公開 ID: $deployment" >> "$GITHUB_STEP_SUMMARY"
+          for ((attempt=0; attempt<120; attempt++)); do
+            result=$(portal --retry 3 --request POST "$api/status?id=$deployment")
+            state=$(jq -er '.deploymentState' <<< "$result")
+            case "$state" in
+              PUBLISHED)
+                published=$(python3 xtask/release/binding_published.py maven packages/maven/central-bundle.zip)
+                if [[ "$published" == true ]]; then exit 0; fi
+                sleep 30 ;;
+              PENDING|VALIDATING|VALIDATED|PUBLISHING) sleep 30 ;;
+              *) echo "Maven Central の公開を確認できません。Portal で公開 ID を確認してください。" >&2; exit 1 ;;
+            esac
+          done
+          echo "Maven Central の公開は確認待ちです。Portal で公開 ID を確認してください。" >&2
+          exit 1
+
+  pub-dev:
+    name: 初版のあとの Dart パッケージを pub.dev に出す
+    if: github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name != 'v0.4.0'
+    needs: [version, release]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
+          path: packages
+      - id: check
+        name: pub.dev の同じ版のファイルを照合する
+        run: |
+          published=$(python3 xtask/release/binding_published.py dart "packages/zumen-dart-$RELEASE_VERSION.tar.gz")
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        if: steps.check.outputs.published == 'false'
+        with:
+          sdk: stable
+      - name: タグで検査した配布物を展開し、OIDC で公開する
+        if: steps.check.outputs.published == 'false'
+        run: |
+          stage=$(mktemp -d)
+          tar -xzf "packages/zumen-dart-$RELEASE_VERSION.tar.gz" -C "$stage"
+          cd "$stage"
+          dart pub get
+          dart pub publish --force

@@ -2,9 +2,9 @@
 
 wasm のモジュール（`zumen_abi1.wasm`）を [wazero](https://wazero.io/) で動かす薄いラッパーです（[依存とツールの条件](../../AGENTS.md#範囲と権利)）。cgo を使いません。下限は、Go がサポートする 2 つのメジャーバージョン（今は 1.26・1.27）です。
 
-- モジュールは `zumen.dev/go`、パッケージ名は `zumen` です。まだ出していません。
+- モジュールは `zumen.dev/go`、パッケージ名は `zumen` です。鏡に公開した版は、利用側で `go get zumen.dev/go@v<版>` を実行して導入します。[初回公開の状況](https://github.com/zumen-jp/zumen/issues/435)
 - 依存は wazero 1.12.0（Apache-2.0）と、それが使う `golang.org/x/sys`（BSD-3-Clause）だけです。
-- すべての形式を入れた `zumen_abi1.wasm` を `go:embed` で埋め込みます（[API のスキーマ](../../schema/README.md)）。モジュールはコミットしないので、使う前に作って、このフォルダーに写します。
+- 配布する Go モジュールには、すべての形式を入れた `zumen_abi1.wasm` が同梱され、`go:embed` で組み込まれます。元のリポジトリで開発するときは、下のテスト手順で wasm を作り、このフォルダーに写します。[API のスキーマ](../../schema/README.md)
 - `messages.go`・`constants.go` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
 
 ## 使い方

@@ -24,6 +24,10 @@ from licenses import MODULES, ROOT, TARGETS, WASM, license_expression, read_info
 from linux_abi import verify_linux
 
 OWN_LICENSES = ("LICENSE-MIT", "LICENSE-APACHE")
+VBA_MODULES = (
+    "ZumenNative.bas", "ZumenRuntime.bas", "ZumenSession.cls", "ZumenScene.cls",
+    "ZumenScene3DLayout.bas", "ZumenScene3D.cls",
+)
 VERSION = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
 
 
@@ -102,6 +106,24 @@ def verify_wheel(path, target, library, notice, expression, abi_bom):
         sbom.verify(archive.read(f"zumen/_native/{target['library']}"), archive.read(bom_name), abi_bom)
 
 
+def package_vba(output, native_files, library_name):
+    directory = ROOT / "bindings/vba"
+    files = {**native_files, "README.md": (directory / "README.md").read_bytes()}
+    for module in VBA_MODULES:
+        source = (directory / module).read_text(encoding="ascii")
+        files[module] = source.replace("\n", "\r\n").encode("ascii")
+    declaration = f'Public Const ZM_PACKAGE_VERSION As String = "{VERSION}"'.encode("ascii")
+    require(declaration in files["ZumenNative.bas"].splitlines(), "VBA の宣言と DLL のパッケージの版が違う")
+    name = f"zumen-vba-{VERSION}-win-x64"
+    archive = output / (name + ".zip")
+    expected = {f"{name}/{filename}": content for filename, content in files.items()}
+    write_archive(archive, expected, None)
+    packed = read_archive(archive)
+    require(packed == expected, "VBA の ZIP の中身が元のファイルと違う")
+    sbom_name = library_name + ".cdx.json"
+    sbom.verify(packed[f"{name}/{library_name}"], packed[f"{name}/{sbom_name}"], native_files[sbom_name])
+
+
 def package_native(rid, built, licenses, output):
     target = target_for(rid)
     notice_root = licenses / "licenses" / "native" / rid
@@ -142,6 +164,9 @@ def package_native(rid, built, licenses, output):
                     "--sbom", str(native / abi_name)], check=True)
     wheel = wheels / f"zumen-{VERSION}-py3-none-{target['wheel']}.whl"
     verify_wheel(wheel, target, library, abi_notice, abi_info["license_expression"], abi_bom)
+    if rid == "win-x64":
+        package_vba(output, native_files, target["library"])
+        print("win-x64: VBA の ZIP の DLL、モジュール、ライセンス、SBOM を確認した")
     print(f"{rid}: native・CLI の圧縮・wheel の本文、バイナリ、メタデータを確認した")
 
 

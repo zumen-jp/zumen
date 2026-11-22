@@ -125,7 +125,8 @@ class PackageTests(unittest.TestCase):
                 with patch("sbom.extracted_graph", side_effect=extract_fixture):
                     package.package_native(rid, built, root, output)
                 self.assertEqual((output / "native" / rid / "THIRD_PARTY_LICENSES").read_bytes(), abi)
-                archive = next(output.glob("zumen-*"))
+                extension = ".zip" if rid == "win-x64" else ".tar.gz"
+                archive = output / f"zumen-{package.VERSION}-{rid}{extension}"
                 self.assertEqual(package.read_archive(archive)[f"zumen-{package.VERSION}-{rid}/THIRD_PARTY_LICENSES"], cli)
                 wheel = next((output / "wheels").glob("*.whl"))
                 with zipfile.ZipFile(wheel) as source:
@@ -134,6 +135,19 @@ class PackageTests(unittest.TestCase):
                 self.assertEqual(entries[notice_name], abi)
                 abi_bom = (output / "native" / rid / (target["library"] + ".cdx.json")).read_bytes()
                 self.assertEqual(entries[f"zumen-{package.VERSION}.dist-info/sboms/{target['library']}.cdx.json"], abi_bom)
+                vba_name = f"zumen-vba-{package.VERSION}-win-x64"
+                if rid == "win-x64":
+                    source = licenses.ROOT / "bindings/vba"
+                    expected = {name: (licenses.ROOT / name).read_bytes() for name in ("LICENSE-MIT", "LICENSE-APACHE")}
+                    expected.update({"zumen_abi1.dll": library, "zumen_abi1.dll.cdx.json": abi_bom,
+                                     "THIRD_PARTY_LICENSES": abi, "README.md": (source / "README.md").read_bytes()})
+                    for filename in ("ZumenNative.bas", "ZumenRuntime.bas", "ZumenSession.cls", "ZumenScene.cls",
+                                     "ZumenScene3DLayout.bas", "ZumenScene3D.cls"):
+                        expected[filename] = (source / filename).read_text(encoding="ascii").replace("\n", "\r\n").encode("ascii")
+                    self.assertEqual(package.read_archive(output / (vba_name + ".zip")),
+                                     {f"{vba_name}/{name}": content for name, content in expected.items()})
+                else:
+                    self.assertFalse(list(output.glob("zumen-vba-*.zip")))
                 # 本文があっても RECORD に載っていなければ拒む。
                 record_name = f"zumen-{package.VERSION}.dist-info/RECORD"
                 entries[record_name] = b"\n".join(line for line in entries[record_name].splitlines()
