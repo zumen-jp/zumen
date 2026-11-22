@@ -117,7 +117,7 @@ XCFramework の ZIP は 3 つの静的ライブラリとヘッダー、対象別
 
 初回は手動でも進められます。元のリポジトリの GitHub Release から対象のアーカイブを取り、`gh attestation verify <ファイル> --repo zumen-jp/zumen --signer-workflow zumen-jp/zumen/.github/workflows/release.yml --source-ref refs/tags/v<版> --source-digest <タグのコミット>` で照合します。Go はアーカイブの中身、Swift は `zumen-swift-<版>-source/` の中身をそれぞれの公開鏡のルートに置き、コミットと同じ版のタグを送ります。Swift のバイナリは元の GitHub Release が配ります。
 
-タグ公開で自動化するときは、本人がリポジトリ変数 `PUBLISH_MIRRORS` に `go`、`swift`、`both` のいずれかを設定します。未設定の間は手動経路を使えます。GitHub の `release` 環境の secret `MIRROR_PUBLISH_TOKEN` には、配布先の公開リポジトリ `zumen-jp/zumen-go`・`zumen-jp/zumen-swift` のうち使うものだけにContents の読み書きを許した fine-grained personal access token を登録します。この設定と公開先の作成は利用者が決めます。トークンを使うのは計画済みの Git push のステップだけです。
+タグ公開で自動化するときは、本人がリポジトリ変数 `PUBLISH_MIRRORS` に `go`、`swift`、`both` のいずれかを設定します。未設定の間は手動経路を使えます。GitHub の `release` 環境の secret `MIRROR_PUBLISH_TOKEN` には、配布先の公開リポジトリ `zumen-jp/zumen-go`・`zumen-jp/zumen-swift` のうち使うものだけに Contents の読み書きを許した fine-grained personal access token を登録します。この設定と公開先の作成は利用者が決めます。トークンを使うのは計画済みの Git push のステップだけです。
 
 公開ジョブは同じ Actions 実行が検査したアーカイブを使います。初回は空の鏡に `main` を作り、既定のブランチがあればその履歴を引き継ぎます。前の版で配ったファイルを元の Release の証明と照らし、新版で外したものを除きます。鏡に加えた運用ファイルは保ち、配布対象への手元の変更や既存タグとの食い違いは停止して報告します。ブランチとタグは一度の atomic push で送ります。同じ中身を手動でタグ付けした場合や片方の公開後に再実行した場合は、そのタグを照合して完了します。
 
