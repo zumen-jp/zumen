@@ -142,6 +142,7 @@ export class Tools {
       const mode = input.button === 1 ? "pan" : this.name;
       if (mode === "measure" && !viewer.getScene()) return false;
       this.drag = { id: input.pointerId, start: input.point, last: input.point, mode,
+        initialView: mode === "pan" && this.options.cadNavigation ? viewer.getView() : null,
         position: mode === "measure" ? this.location(input.point) : null };
       this.changed({ type: mode, start: input.point, end: input.point });
       if (mode === "measure") viewer.setMeasurement({ start: this.drag.position, end: this.drag.position });

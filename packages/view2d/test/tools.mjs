@@ -345,6 +345,15 @@ async function testDomInput({ assert, near, throws }) {
     viewer.zoomBy(3);
     canvas.dispatchEvent(new MouseEvent("auxclick", { button: 1, detail: 2, cancelable: true }));
     near(viewer.getView().scale, fitScale, "中ボタンのダブルクリックと両ボタン右上で同じ全体表示に戻る");
+    const beforePan = viewer.getView();
+    pointer("pointerdown", 100, 100, { button: 1, buttons: 4 });
+    pointer("pointermove", 130, 120, { button: -1, buttons: 4 });
+    pointer("pointermove", 150, 90, { button: -1, buttons: 4 });
+    pointer("pointerup", 150, 90, { button: 1, buttons: 0 });
+    assert(viewer.getView().center.x !== beforePan.center.x, "中ボタンでドラッグして移動する");
+    chord(60, 120);
+    near(viewer.getView().center.x, beforePan.center.x, "前倍率で中ボタンを押した時点の横位置に戻る");
+    near(viewer.getView().center.y, beforePan.center.y, "前倍率で中ボタンを押した時点の縦位置に戻る");
     viewer.setInputOptions({ cadNavigation: false }); viewer.jumpTo(camera);
     assert(wheel().defaultPrevented, "処理したホイールだけ preventDefault する");
     near(viewer.getView().scale, 2 * Math.exp(16 * .002), "行単位のホイールを表示用 16 CSS px に直す");

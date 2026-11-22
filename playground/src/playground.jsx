@@ -222,6 +222,7 @@ export function Playground() {
   const [panel, setPanel] = useState(null);
   const picker = useRef(null);
   const openButton = useRef(null);
+  const panelButton = useRef(null);
   const fittedView = useRef(null);
   const fetching = useRef(0);
   const viewer = useDrawingViewer(canvas, viewOptions, setViewerError);
@@ -316,7 +317,10 @@ export function Playground() {
     { id: "info", label: "案内", enabled: true },
   ];
   const shown = panels.find((item) => item.id === panel && item.enabled);
-  function togglePanel(id) { setPanel((last) => last === id ? null : id); }
+  function togglePanel(id, button) {
+    panelButton.current = button;
+    setPanel((last) => last === id ? null : id);
+  }
   function activate(name) {
     viewer.setTool(name);
     canvas.focus({ preventScroll: true });
@@ -330,7 +334,7 @@ export function Playground() {
     <a className="skip" href="#viewer-main">本文へ移動</a>
     <Masthead/>
     <main id="viewer-main" className="cad-main">
-      <div className="cad-ribbon" aria-label="図面の操作">
+      <div className="cad-ribbon" role="group" aria-label="図面の操作">
         <div className="cad-group" role="group" aria-label="ファイル">
           <button ref={openButton} className="cad-open" onClick={() => picker.current.click()}><Icon name="open"/>開く</button>
           <input hidden ref={picker} aria-label="図面ファイル" id="drawing-file" type="file" accept=".dxf,.dwg,.jww,.sfc,.p21,.sfz,.p2z"
@@ -353,7 +357,7 @@ export function Playground() {
         </div>
         <div className="cad-group" role="group" aria-label="パネル">
           {panels.map(({ id, label, enabled }) => <ToolButton key={id} icon={id} disabled={!enabled} aria-expanded={shown?.id === id}
-            aria-controls="cad-panel" onClick={() => togglePanel(id)}>{label}</ToolButton>)}
+            aria-controls="cad-panel" onClick={(event) => togglePanel(id, event.currentTarget)}>{label}</ToolButton>)}
         </div>
       </div>
       <div className="cad-document">
@@ -379,13 +383,14 @@ export function Playground() {
             <p>{failed ? status : "DXF・DWG・JWW・SXF ／ 64 MiB まで"}</p>
             {!file && !sample && !failed && <><button onClick={() => picker.current.click()}><Icon name="open"/>ファイルを選択</button><p>ここにドロップしても開けます</p>
               {jwwExample && <button className="cad-sample-link" onClick={() => openSample(jwwExample.path)}>JWW のサンプルを開く</button>}</>}
-            {failed && <button onClick={() => setPanel("diagnostics")}>診断を確認</button>}
+            {failed && <button aria-controls="cad-panel" aria-expanded={shown?.id === "diagnostics"}
+              onClick={(event) => togglePanel("diagnostics", event.currentTarget)}>診断を確認</button>}
           </div></div>}
           {ready && tool === "measure" && state.measurement && <output className="cad-reading">{measurementText(state.measurement)}</output>}
         </div>
         <div className="cad-panel" id="cad-panel" hidden={!shown}>
           <div className="cad-panel-head"><strong>{shown?.label}</strong><button aria-label="図面の詳細を閉じる" onClick={() => {
-            document.querySelector(".cad-group button[aria-expanded=true]")?.focus(); setPanel(null);
+            panelButton.current?.focus(); setPanel(null);
           }}><Icon name="close"/></button></div>
           <div className="cad-panel-body">
             <div hidden={panel !== "layers"}>{ready && <Inspector key={opened.input.document.hash + "/" + state.scene.result.from} viewer={viewer} state={state} opened={opened}/>}</div>

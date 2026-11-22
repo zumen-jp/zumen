@@ -105,6 +105,10 @@ try {
   });
   await noGpuPage.goto(origin + "/viewer/");
   await noGpuPage.locator(".status").filter({ hasText: "このブラウザーでは WebGPU を使えないため、図面を表示できません。" }).waitFor();
+  const errorDetails = noGpuPage.getByRole("button", { name: "診断を確認", exact: true });
+  await errorDetails.press("Enter");
+  await noGpuPage.getByRole("button", { name: "図面の詳細を閉じる" }).press("Enter");
+  assert.ok(await errorDetails.evaluate((button) => document.activeElement === button), "診断を開いたボタンへ戻る");
   await noGpuPage.close();
 
   const page = await context.newPage();

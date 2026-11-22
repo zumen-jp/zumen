@@ -448,7 +448,7 @@ export class View2D {
     this.#mutable(); const next = camera(view), previous = this.#view;
     if (next.center.x === previous.center.x && next.center.y === previous.center.y && next.scale === previous.scale && next.rotation === previous.rotation) return this.getReport();
     validateCircleWork(this.#prepared, this.#settings, next, this.#size, this.#display, this.#limits);
-    if (this.#tools.options.cadNavigation) this.#tools.previousView = previous;
+    if (this.#tools.options.cadNavigation) this.#tools.previousView = this.#tools.drag?.initialView ?? previous;
     this.#view = next;
     return this.#refresh("view");
   }
