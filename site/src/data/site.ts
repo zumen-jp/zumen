@@ -1,7 +1,7 @@
 // サイトの中で使い回す文と表。お知らせ・対応形式は、ここを直す。
 
 export const repo = 'https://github.com/zumen-jp/zumen';
-export const releaseVersion = '0.3.0';
+export const releaseVersion = '0.4.0';
 export const drawingOutputs = [
   { format: 'dxf', extension: 'dxf', label: 'DXF' },
   { format: 'sxf', extension: 'p21', label: 'SXF（P21）' },
@@ -13,6 +13,7 @@ export const releasedSource = (file: string) => `${repo}/blob/v${releaseVersion}
 // ナビの並び。ビューアーのヘッダーとの一致を、組み立ての検査がこの { href, label } の形で読む。
 export const nav = [
   { href: '/viewer/', label: '図面を試す' },
+  { href: '/plugins/', label: 'AI プラグイン' },
   { href: '/features/', label: '特長' },
   { href: '/formats/', label: '対応形式' },
   { href: '/platforms/', label: '対応環境' },
@@ -30,6 +31,7 @@ export interface PageInfo {
 // ナビの各ページの肩書きと説明。下層のページの見出しと、ページの終わりの「ほかのページ」に使う。
 export const pages: Record<(typeof nav)[number]['href'], PageInfo> = {
   '/viewer/': { en: 'Viewer', lead: '公開サンプルや手元の図面を、ブラウザーの中だけで開きます。' },
+  '/plugins/': { en: 'AI Plugins', lead: 'Codex や Claude Code に zumen を追加し、手元の図面を開いて編集する手順です。' },
   '/features/': { en: 'Features', lead: 'zumen が何をするライブラリ群か、どのように作っているかを説明します。' },
   '/formats/': { en: 'Formats', lead: '形式ごとの、読む・書くの状況と、扱わない形式です。' },
   '/platforms/': { en: 'Platforms', lead: '言語ごとの約束、OS とブラウザーの下限、公開済みのパッケージです。' },
@@ -49,9 +51,14 @@ export interface News {
 
 export const news: News[] = [
   {
+    date: '2026-11-22',
+    tag: 'リリース',
+    html: `v${releaseVersion} を公開しました。ST-Bridge の読み取りと、ブラウザー向けの WebGPU 表示部品を配布します。Java・Swift・Go・Dart・VBA の導入先は<a href="/platforms/#packages">配布先と使い方</a>に、対応環境と API の変更は<a href="${releasedSource('docs/releases/0.4.0.md')}">リリースノート</a>にまとめています。`,
+  },
+  {
     date: '2026-11-17',
     tag: 'リリース',
-    html: `v${releaseVersion} を公開しました。GeoJSON・SIMA の読み書き、TIFF・GeoTIFF の読み取り、SXF・JWW への変換、LAZ の展開を足し、GNU Linux の配布物を glibc 2.28 で動くように作りました。<a href="/platforms/#packages">配布先と導入手順</a>、<a href="${releaseUrl}">リリースの内容</a>をご覧ください。`,
+    html: `v0.3.0 を公開しました。GeoJSON・SIMA の読み書き、TIFF・GeoTIFF の読み取り、SXF・JWW への変換、LAZ の展開を足し、GNU Linux の配布物を glibc 2.28 で動くように作りました。<a href="/platforms/#packages">配布先と導入手順</a>、<a href="${repo}/releases/tag/v0.3.0">リリースの内容</a>をご覧ください。`,
   },
   {
     date: '2026-11-10',
@@ -95,7 +102,7 @@ export const formats: Format[] = [
   { ids: ['tiff'], name: 'TIFF・GeoTIFF', about: '画像と地理参照付きの画像', read: '○', write: '―' },
   { ids: ['extdm'], name: '拡張 DM', about: '測量成果の地理のデータ', read: '○', write: '―' },
   { ids: ['las', 'ply', 'xyz', 'e57'], name: 'LAS・LAZ・PLY・XYZ・E57', about: '点群のデータ', read: '○', write: '―' },
-  { ids: ['stbridge'], name: 'ST-Bridge', about: '構造のモデル', read: '△', write: '―' },
+  { ids: ['stbridge'], name: 'ST-Bridge', about: '構造のモデル', read: '○', write: '―' },
   {
     ids: ['bebridge', 'cedxm', 'stem'], name: 'BE-Bridge・CEDXM・Stem',
     about: '設備の CAD データ・機器のデータ',
@@ -149,7 +156,7 @@ export const faqs: Faq[] = [
   },
   {
     q: 'どの言語・ソフトから使えますか。',
-    a: 'Rust・TypeScript・JavaScript・Python・.NET・C・C++ と CLI・MCP の配布物を公開しています。Java・Swift・Go・VBA などの配布と、Revit・AutoCAD・Excel などでの利用は計画を進めています。詳しくは<a href="/platforms/">対応環境</a>をご覧ください。',
+    a: 'Rust、TypeScript・JavaScript、Python、.NET、C・C++、Java、Swift、Go、Dart、VBA から利用できます。コマンドラインや MCP から使う CLI も配布しています。<a href="/platforms/#packages">言語ごとの配布先と導入手順</a>をご覧ください。',
   },
   {
     q: '読めなかった図形はどうなりますか。',

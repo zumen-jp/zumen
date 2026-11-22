@@ -1,0 +1,143 @@
+---
+import { repo } from '../data/site';
+import Page from '../layouts/Page.astro';
+import manifest from '../../../plugins/zumen/plugin.json';
+import cli from '../../../plugins/zumen/server/release.json';
+
+const agents = [
+  { id: 'codex', label: 'Codex' },
+  { id: 'claude-code', label: 'Claude Code' },
+  { id: 'claude-desktop', label: 'Claude Desktop' },
+  { id: 'copilot', label: 'GitHub Copilot CLI' },
+  { id: 'cursor', label: 'Cursor' },
+  { id: 'gemini', label: 'Gemini CLI' },
+  { id: 'antigravity', label: 'Antigravity' },
+];
+
+const sample = `${repo}/blob/v${cli.version}/samples/dxf/text_alignments.dxf`;
+const bundle = `zumen-plugin-${manifest.version}.mcpb`;
+---
+
+<Page
+  description="Codex、Claude Code、Claude Desktop などに zumen を導入し、公開 DXF で図面の確認・編集・別名保存を試す手順です。"
+  toc={[...agents, { id: 'try', label: '図面で試す' }]}
+>
+  <section class="section guide" aria-labelledby="setup">
+    <div class="wrap">
+      <h2 id="setup">インストールの準備</h2>
+      <p>使うエージェントと、図面を置く作業フォルダーを用意してください。GitHub から導入する場合は <a href="https://nodejs.org/ja/download">Node.js 24 以降</a>と <code>tar</code> が必要です。端末で <code>node --version</code> と <code>tar --version</code> を実行すると確認できます。</p>
+      <p>プラグイン v{manifest.version} は、初回起動時に GitHub から <a href={`${repo}/releases/tag/v${cli.version}`}>zumen CLI v{cli.version}</a> を自動取得します。Claude Desktop の拡張ファイルには CLI が入っています。各ストアへの掲載状況は <a href={`${repo}/issues/934`}>GitHub の配布記録</a>で確認できます。</p>
+
+      <section id="codex" aria-labelledby="codex-title">
+        <h3 id="codex-title">Codex</h3>
+        <p>端末で次の 2 行を実行し、Codex で新しいチャットを開きます。</p>
+        <pre><code>{'codex plugin marketplace add zumen-jp/zumen\ncodex plugin add zumen@zumen-jp'}</code></pre>
+        <p>初回起動時にプラグインのデータフォルダーに <code>drawings</code> ができます。PowerShell で次を実行し、表示されたフォルダーに図面を置いてください。</p>
+        <pre><code>{'$dataDir = (codex mcp get zumen --json | ConvertFrom-Json).transport.env.PLUGIN_DATA\nJoin-Path $dataDir drawings'}</code></pre>
+        <p>ほかのシェルでは <code>codex mcp get zumen --json</code> の <code>transport.env.PLUGIN_DATA</code> がデータフォルダーです。既存の図面フォルダーを使う場合は、データフォルダーに <code>drawings-root.txt</code> を作り、その絶対パスを UTF-8 で 1 行だけ書いて Codex を再起動します。</p>
+        <a href="#try">Codex でサンプル図面を試す</a>
+      </section>
+
+      <section id="claude-code" aria-labelledby="claude-code-title">
+        <h3 id="claude-code-title">Claude Code</h3>
+        <p>端末で zumen のマーケットプレースを追加し、プラグインをインストールします。</p>
+        <pre><code>{'claude plugin marketplace add zumen-jp/zumen\nclaude plugin install zumen@zumen-jp'}</code></pre>
+        <p>Claude Code で <code>/plugin configure zumen@zumen-jp</code> を開き、読み書きする図面フォルダーを選びます。<code>/mcp</code> で zumen が接続済みになったら準備完了です。</p>
+        <a href="#try">Claude Code でサンプル図面を試す</a>
+      </section>
+
+      <section id="claude-desktop" aria-labelledby="claude-desktop-title">
+        <h3 id="claude-desktop-title">Claude Desktop</h3>
+        <p>Windows または macOS の Claude Desktop には <code>{bundle}</code> をインストールします。手元で拡張ファイルを作る場合は、Git、GitHub CLI（<code>gh</code>）、Python 3.11 以降を用意し、端末で次を実行します。</p>
+        <pre><code>{`git clone --depth=1 https://github.com/zumen-jp/zumen
+cd zumen
+gh release download v${cli.version} --pattern 'zumen-${cli.version}-win-*.zip' --pattern 'zumen-${cli.version}-osx-*.tar.gz' --pattern 'zumen-${cli.version}-linux-*.tar.gz' --dir target/agent-plugin/upstream --skip-existing
+python xtask/release/agent_plugins.py target/agent-plugin/upstream target/agent-plugin/dist`}</code></pre>
+        <p>macOS で Python のコマンドが <code>python3</code> の場合は、最後の行を <code>python3</code> で実行します。Claude Desktop の「設定」から拡張機能の詳細設定を開き、「拡張機能をインストール」で <code>target/agent-plugin/dist/{bundle}</code> を選びます。図面フォルダーを指定したら、新しい会話で試してください。<a href="https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop">Claude Desktop の設定手順</a></p>
+        <a href="#try">Claude Desktop でサンプル図面を試す</a>
+      </section>
+
+      <section id="copilot" aria-labelledby="copilot-title">
+        <h3 id="copilot-title">GitHub Copilot CLI</h3>
+        <pre><code>{'copilot plugin marketplace add zumen-jp/zumen\ncopilot plugin install zumen@zumen-jp'}</code></pre>
+        <p>Copilot CLI を起動し、プラグインのデータフォルダーにある <code>drawings</code> に図面を置きます。PowerShell では次のコマンドで場所を確認できます。</p>
+        <pre><code>{'$dataDir = (copilot mcp get zumen --json | ConvertFrom-Json).zumen.env.PLUGIN_DATA\nJoin-Path $dataDir drawings'}</code></pre>
+        <p>ほかのシェルでは <code>copilot mcp get zumen --json</code> の <code>zumen.env.PLUGIN_DATA</code> がデータフォルダーです。既存のフォルダーを使う場合は、そこに <code>drawings-root.txt</code> を作り、図面フォルダーの絶対パスを UTF-8 で 1 行だけ書いて Copilot CLI を再起動します。</p>
+        <a href="#try">Copilot CLI でサンプル図面を試す</a>
+      </section>
+
+      <section id="cursor" aria-labelledby="cursor-title">
+        <h3 id="cursor-title">Cursor</h3>
+        <ol>
+          <li><a href={`${repo}/tree/main/plugins/zumen`}>zumen のリポジトリ</a>を取得します。端末では <code>git clone --depth=1 https://github.com/zumen-jp/zumen</code> で取得できます。</li>
+          <li>取得した <code>plugins/zumen/</code> の中の <code>.cursor-plugin/</code>、<code>server/</code>、<code>assets/</code>、<code>skills/</code> を、ホームフォルダーの <code>.cursor/plugins/local/zumen/</code> にコピーします。</li>
+          <li>Cursor で図面フォルダーを開き、コマンドパレットから <code>Developer: Reload Window</code> を実行します。Customize で zumen の MCP サーバーを確認します。</li>
+        </ol>
+        <p>Teams・Enterprise ではチームのマーケットプレースの「Import from Repo」に <code>{repo}</code> を指定して配布できます。<a href="https://cursor.com/docs/plugins">Cursor のプラグイン</a></p>
+        <a href="#try">Cursor でサンプル図面を試す</a>
+      </section>
+
+      <section id="gemini" aria-labelledby="gemini-title">
+        <h3 id="gemini-title">Gemini CLI</h3>
+        <pre><code>gemini extensions install https://github.com/zumen-jp/zumen --ref=main</code></pre>
+        <p>図面フォルダーで <code>gemini</code> を起動し、<code>/mcp</code> で zumen の接続を確認します。Windows の Gemini CLI 0.70.0 でインストール時に <code>GIT_CONFIG_SYSTEM</code> のエラーが出た場合は、次の方法で導入できます。</p>
+        <pre><code>{'git clone --depth=1 https://github.com/zumen-jp/zumen\ngemini extensions install ./zumen'}</code></pre>
+        <a href="#try">Gemini CLI でサンプル図面を試す</a>
+      </section>
+
+      <section id="antigravity" aria-labelledby="antigravity-title">
+        <h3 id="antigravity-title">Antigravity</h3>
+        <pre><code>agy plugin install https://github.com/zumen-jp/zumen/tree/main/plugins/zumen</code></pre>
+        <p>Antigravity の <code>/plugin</code> で Installed を開いて zumen を有効にし、「図面フォルダー」に作業フォルダーの絶対パスを入力します。</p>
+        <a href="#try">Antigravity でサンプル図面を試す</a>
+      </section>
+    </div>
+  </section>
+
+  <section class="section section-alt guide" id="try" aria-labelledby="try-title">
+    <div class="wrap">
+      <h2 id="try-title">図面で試す</h2>
+      <p>公開サンプルの <a href={sample}>text_alignments.dxf</a> を GitHub の「Download raw file」で保存し、エージェントに指定した図面フォルダーに置きます。新しい会話で、次の順に頼んでください。</p>
+      <h3>図面を開いて確認する</h3>
+      <blockquote>zumen で text_alignments.dxf を開いて、文字の件数と図面全体のプレビューを見せてください。</blockquote>
+      <p>この図面のモデル空間には文字が 16 件あります。件数とプレビューが返れば、読み込みと描画を確認できました。</p>
+      <h3>編集して別のファイルに保存する</h3>
+      <blockquote>Review というレイヤを追加し、checked.dxf として保存してください。保存した図面を開き直し、Review がレイヤ一覧にあるか確かめてください。</blockquote>
+      <p>図面フォルダーに <code>checked.dxf</code> ができ、開き直した図面のレイヤ一覧に <code>Review</code> があれば完了です。このサンプルは西欧の文字コード（Windows-1252）を使うため、追加するレイヤ名には英字を使います。利用できる編集は<a href="/formats/">図面の形式</a>によって異なります。</p>
+      <p class="note">zumen は図面を手元で処理します。読み取った文字・座標・プレビューなどのツールの結果は、利用中の AI エージェントの会話に渡ります。</p>
+    </div>
+  </section>
+</Page>
+
+<style>
+  .guide .wrap > p,
+  .guide .wrap > section,
+  .guide ol,
+  .guide blockquote {
+    max-width: 52rem;
+  }
+  .guide h2 { margin-bottom: 1rem; }
+  .guide .wrap > section {
+    border-top: 1px solid var(--line-soft);
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+  }
+  .guide .wrap > section h3 { margin-top: 0; }
+  .guide pre {
+    margin: 1rem 0;
+    padding: 1rem;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--border-radius-8);
+    background: var(--paper-sub);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .guide pre code { border: 0; padding: 0; background: transparent; }
+  .guide li + li { margin-top: 0.5rem; }
+  .guide blockquote {
+    margin: 1rem 0;
+    border-left: 4px solid var(--key);
+    padding: 1rem 1.25rem;
+    background: var(--paper);
+  }
+</style>

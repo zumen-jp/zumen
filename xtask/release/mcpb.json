@@ -5,7 +5,7 @@
   "description": "CAD 図面の要素を調べ、描画・編集して新しいファイルに保存します。",
   "author": {
     "name": "zumen-jp",
-    "url": "https://zumen.dev"
+    "url": "https://github.com/zumen-jp"
   },
   "homepage": "https://zumen.dev",
   "license": "MIT OR Apache-2.0",

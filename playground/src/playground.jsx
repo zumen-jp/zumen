@@ -14,6 +14,7 @@ const overlayOptions = Object.freeze({ background: "transparent", selectionColor
 // 案内のサイト（site/src/data/site.ts の nav）と同じ並び。ずれは site/scripts/check-output.mjs で確かめる。
 const siteNav = [
   { href: "/viewer/", label: "図面を試す" },
+  { href: "/plugins/", label: "AI プラグイン" },
   { href: "/features/", label: "特長" },
   { href: "/formats/", label: "対応形式" },
   { href: "/platforms/", label: "対応環境" },

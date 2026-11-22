@@ -12,13 +12,13 @@
 </p>
 
 <p align="center">
-  <b><a href="https://zumen.dev">サイト</a></b>・<a href="https://zumen.dev/viewer/">ビューアー</a>・<a href="https://zumen.dev/formats/">対応形式</a>・<a href="#利用方法">利用方法</a>・<a href="#文書">文書</a>・<a href="docs/releases/0.3.0.md">更新内容</a>
+  <b><a href="https://zumen.dev">サイト</a></b>・<a href="https://zumen.dev/viewer/">ビューアー</a>・<a href="https://zumen.dev/formats/">対応形式</a>・<a href="#利用方法">利用方法</a>・<a href="#文書">文書</a>・<a href="docs/releases/0.4.0.md">更新内容</a>
 </p>
 
 zumen は、日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群です。Rust の 1 つのコアを、ブラウザー・サーバー・各言語から同じ結果で使います。ファイルは外へ出さずに読みます。
 
 > [!NOTE]
-> [v0.3.0](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0) を公開しています。配布先と使い方は下の[「利用方法」](#利用方法)にあります。引き続き開発中で、1.0 までは、壊す変更をリリースノートに書いたうえで、マイナーバージョンで API を変えることがあります。
+> [v0.4.0](https://github.com/zumen-jp/zumen/releases/tag/v0.4.0) を公開しています。配布先と使い方は下の[「利用方法」](#利用方法)にあります。引き続き開発中で、1.0 までは、壊す変更をリリースノートに書いたうえで、マイナーバージョンで API を変えることがあります。
 
 ## 特長
 
@@ -30,7 +30,7 @@ zumen は、日本の建設のデータ（図面・BIM・土木・点群・納�
 
 ## できること
 
-`main` で動くものです。公開済み v0.3.0 の範囲は、サイトの[対応形式](https://zumen.dev/formats/)をご覧ください。確かめた度合いは形式ごとに違います。実物のファイルとほかの実装で照らしたものも、テストの中で作ったファイルだけで確かめたものもあります。
+`main` で動くものです。公開済み v0.4.0 の範囲は、サイトの[対応形式](https://zumen.dev/formats/)をご覧ください。確かめた度合いは形式ごとに違います。実物のファイルとほかの実装で照らしたものも、テストの中で作ったファイルだけで確かめたものもあります。
 
 | 領域 | 形式 | できること |
 | --- | --- | --- |
@@ -48,7 +48,7 @@ zumen は、日本の建設のデータ（図面・BIM・土木・点群・納�
 
 AI エージェントから図面を調べたり編集したりするときは、[zumen プラグインの導入手順](plugins/zumen/README.md)を参照してください。
 
-公開済み v0.3.0 は、各言語のパッケージマネージャーで入れられます。
+v0.4.0 は各言語のパッケージマネージャーまたは GitHub Release から入手できます。
 
 ```bash
 cargo add zumen                 # Rust
@@ -110,14 +110,24 @@ try {
 
 | 言語・入口 | 配布先 | 使い方 |
 | --- | --- | --- |
-| Rust | [crates.io の zumen](https://crates.io/crates/zumen/0.3.0) | [API と例](https://docs.rs/zumen/0.3.0/zumen/) |
-| TypeScript・JavaScript | [npm の @zumen-jp/zumen](https://www.npmjs.com/package/@zumen-jp/zumen/v/0.3.0) | [ブラウザー・Node.js](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/js/README.md#使い方) |
-| Python | [PyPI の zumen](https://pypi.org/project/zumen/0.3.0/) | [Python](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/python/README.md#使い方) |
-| .NET | [NuGet の Zumen](https://www.nuget.org/packages/Zumen/0.3.0) | [.NET](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/dotnet/README.md#使い方) |
-| CLI・MCP | [GitHub Release](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0)・[crates.io の zumen-cli](https://crates.io/crates/zumen-cli/0.3.0) | [CLI・MCP](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/cli/README.md#使い方) |
-| C・C++ | [GitHub Release の C ABI](https://github.com/zumen-jp/zumen/releases/tag/v0.3.0) | [C・C++](https://github.com/zumen-jp/zumen/blob/v0.3.0/bindings/c/README.md#使い方) |
+| Rust | [crates.io の zumen](https://crates.io/crates/zumen/0.4.0) | [API と例](https://docs.rs/zumen/0.4.0/zumen/) |
+| TypeScript・JavaScript | [npm の @zumen-jp/zumen](https://www.npmjs.com/package/@zumen-jp/zumen/v/0.4.0) | [ブラウザー・Node.js](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/js/README.md#使い方) |
+| 2D・3D 表示、React | [view2d](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-jp-view2d-0.4.0.tgz)・[view3d](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-jp-view3d-0.4.0.tgz)・[react](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-jp-react-0.4.0.tgz) | [2D](https://github.com/zumen-jp/zumen/blob/v0.4.0/packages/view2d/README.md)・[3D](https://github.com/zumen-jp/zumen/blob/v0.4.0/packages/view3d/README.md)・[React](https://github.com/zumen-jp/zumen/blob/v0.4.0/packages/react/README.md) |
+| Python | [PyPI の zumen](https://pypi.org/project/zumen/0.4.0/) | [Python](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/python/README.md#使い方) |
+| .NET | [NuGet の Zumen](https://www.nuget.org/packages/Zumen/0.4.0) | [.NET](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/dotnet/README.md#使い方) |
+| CLI・MCP | [GitHub Release](https://github.com/zumen-jp/zumen/releases/tag/v0.4.0)・[crates.io の zumen-cli](https://crates.io/crates/zumen-cli/0.4.0) | [CLI・MCP](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/cli/README.md#使い方) |
+| C・C++ | [GitHub Release の C ABI](https://github.com/zumen-jp/zumen/releases/tag/v0.4.0) | [C・C++](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/c/README.md#使い方) |
+| Java・Kotlin | [Maven Central の dev.zumen:zumen](https://central.sonatype.com/artifact/dev.zumen/zumen/0.4.0) | [Java・Android](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/java/README.md) |
+| Swift | [SwiftPM の zumen-swift](https://github.com/zumen-jp/zumen-swift/tree/v0.4.0) | [iOS・macOS](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/swift/README.md) |
+| Go | [zumen.dev/go](https://pkg.go.dev/zumen.dev/go@v0.4.0) | [Go と wasm](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/go/README.md) |
+| Dart・Flutter | [Dart パッケージ（tar.gz）](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-dart-0.4.0.tar.gz) | [Dart の FFI](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/dart/README.md) |
+| VBA7 | [Windows x64 用 ZIP](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-vba-0.4.0-win-x64.zip) | [Office への導入](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/vba/README.md#導入) |
 
-公開済み v0.3.0 の GNU Linux 配布物は glibc 2.28（Python wheel は `manylinux_2_28`）で作られています（[#789](https://github.com/zumen-jp/zumen/issues/789)）。`main`（次のマイナーバージョン以降）は 64 bit の現行環境（GNU Linux は glibc 2.34・`manylinux_2_34`）を対象にします。詳しくは[対応する環境](docs/support.md)をご覧ください。
+2D・3D 表示部品と React フックは、表のリンクから必要な `.tgz` を取得し、手元のファイルを npm でインストールします。たとえば 2D の表示部品は `npm install ./zumen-jp-view2d-0.4.0.tgz` で入ります。3 パッケージの npm レジストリ公開は準備中です。
+
+Java と Dart のラッパーには、対象環境に合う同じ版の C ABI ライブラリが必要です。SwiftPM は XCFramework を取得し、Go モジュールは wasm、VBA 用 ZIP は DLL を同梱します。
+
+v0.4.0 のデスクトップ向け配布物は Windows 11・Windows Server 2022 以降（x64・ARM64）、macOS 14 以降（Apple Silicon）、GNU Linux（x64・arm64、カーネル 5.14・glibc 2.34 以降）に対応します。Python の GNU Linux wheel は `manylinux_2_34` です。[対応する環境](docs/support.md)・[v0.3.0 からの移行](docs/releases/0.4.0.md)
 
 `main` をソースから試すには、Rust を [rustup](https://rustup.rs/) で入れ（バージョンは `rust-toolchain.toml` で決めてあります）、CLI をビルドして、公開サンプルを開きます。
 

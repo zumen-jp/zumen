@@ -1130,7 +1130,7 @@ caption.skip {
 }
 
 /* 狭い画面 */
-@media (max-width: 1000px) {
+@media (max-width: 1120px) {
   .masthead .wrap {
     flex-wrap: wrap;
     gap: 8px 16px;
@@ -1153,7 +1153,9 @@ caption.skip {
   .gnav ul {
     padding: 4px var(--gutter);
   }
+}
 
+@media (max-width: 1000px) {
   .hero-body {
     grid-template-columns: 1fr;
     gap: 32px;
