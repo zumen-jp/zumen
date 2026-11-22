@@ -33,6 +33,20 @@ Join-Path $dataDir drawings
 
 拡張機能の設定で「拡張機能をインストール」から `zumen-plugin-0.1.0.mcpb` を選び、図面フォルダーを指定してください。Windows と macOS の実行ファイルを含みます。[Claude Desktop の拡張機能](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop)
 
+## GitHub Copilot CLI
+
+```sh
+copilot plugin marketplace add zumen-jp/zumen
+copilot plugin install zumen@zumen-jp
+```
+
+PowerShell では、次のコマンドで図面を置く場所を確認できます。別のフォルダーを使う場合は Codex と同じように、データフォルダーの `drawings-root.txt` にその絶対パスを書き、Copilot CLI を再起動してください。[Copilot CLI のプラグイン](https://docs.github.com/ja/copilot/reference/copilot-cli-reference/cli-plugin-reference)
+
+```powershell
+$dataDir = (copilot mcp get zumen --json | ConvertFrom-Json).zumen.env.PLUGIN_DATA
+Join-Path $dataDir drawings
+```
+
 ## Antigravity
 
 ```sh
