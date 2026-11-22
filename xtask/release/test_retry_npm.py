@@ -1,6 +1,6 @@
 """npm の再試行で、配布物の取り違えと検証の失敗を断ることを確かめる。"""
 
-import copy
+import base64
 import hashlib
 import io
 import json
@@ -25,7 +25,7 @@ def ref_for(entry):
 
 
 def metadata_for(entry):
-    return {"name": retry_npm.PACKAGE, "version": entry["version"],
+    return {"name": entry["name"], "version": entry["version"],
             "repository": {"url": "git+https://github.com/zumen-jp/zumen.git"}}
 
 
@@ -55,7 +55,7 @@ def not_found():
 
 class RetryNpmTests(unittest.TestCase):
     def setUp(self):
-        self.entry = copy.deepcopy(retry_npm.RETRIES["v0.2.0"])
+        self.entry = retry_npm.retry_for("v0.2.0")[0]
         # mock の設定漏れでも、gh やネットワークを実際には呼ばない。
         self.run = self.enterContext(patch.object(retry_npm.subprocess, "run",
                                                  side_effect=AssertionError("unexpected subprocess")))
@@ -210,7 +210,7 @@ class RetryNpmTests(unittest.TestCase):
 
     def test_registry_404_is_the_only_missing_version_response(self):
         self.urlopen.side_effect = not_found()
-        retry_npm.require_unpublished(self.entry)
+        self.assertTrue(retry_npm.needs_publish(self.entry, Path("missing.tgz")))
         args, kwargs = self.urlopen.call_args
         self.assertEqual(args[0].full_url, "https://registry.npmjs.org/@zumen-jp%2fzumen/0.2.0")
         self.assertEqual(kwargs, {"timeout": 30})
@@ -218,7 +218,7 @@ class RetryNpmTests(unittest.TestCase):
     def test_existing_registry_version_is_rejected(self):
         self.urlopen.side_effect = None
         with self.assertRaisesRegex(ValueError, "already published"):
-            retry_npm.require_unpublished(self.entry)
+            retry_npm.needs_publish(self.entry, Path("existing.tgz"))
         self.urlopen.return_value.__exit__.assert_called_once()
 
     def test_other_registry_http_errors_are_preserved(self):
@@ -228,7 +228,7 @@ class RetryNpmTests(unittest.TestCase):
                 error.close()
                 self.urlopen.side_effect = error
                 with self.assertRaises(urllib.error.HTTPError) as raised:
-                    retry_npm.require_unpublished(self.entry)
+                    retry_npm.needs_publish(self.entry, Path("missing.tgz"))
                 self.assertIs(raised.exception, error)
 
     def test_registry_transport_failures_are_preserved(self):
@@ -236,7 +236,7 @@ class RetryNpmTests(unittest.TestCase):
             with self.subTest(kind=type(error).__name__):
                 self.urlopen.side_effect = error
                 with self.assertRaises(type(error)) as raised:
-                    retry_npm.require_unpublished(self.entry)
+                    retry_npm.needs_publish(self.entry, Path("missing.tgz"))
                 self.assertIs(raised.exception, error)
 
     def test_attestation_pins_source_signer_ref_and_hosted_runner(self):
@@ -291,13 +291,13 @@ class RetryNpmTests(unittest.TestCase):
 
             self.run.side_effect = run
             self.urlopen.side_effect = registry
-            with patch.dict(retry_npm.RETRIES, {entry["tag"]: entry}):
+            with patch.object(retry_npm, "retry_for", return_value=[entry]):
                 with patch.object(retry_npm, "gh_json", side_effect=[ref_for(entry), release_for(entry)]) as gh:
-                    path = retry_npm.prepare(entry["tag"], out)
+                    paths = retry_npm.prepare(entry["tag"], out)
                     self.assertEqual(gh.call_args_list,
                                      [call("git/ref/tags/" + entry["tag"]), call("releases/tags/" + entry["tag"])])
-            self.assertEqual(path, out / entry["asset"])
-            self.assertEqual(path.read_bytes(), source.read_bytes())
+            self.assertEqual(paths, [out / entry["asset"]])
+            self.assertEqual(paths[0].read_bytes(), source.read_bytes())
             self.assertEqual(events, ["download", "attestation", "registry"])
 
     def test_prepare_stops_after_failed_attestation(self):
@@ -308,7 +308,7 @@ class RetryNpmTests(unittest.TestCase):
             with patch.object(retry_npm, "gh_json", side_effect=[ref_for(self.entry), release_for(self.entry)]):
                 with patch.object(retry_npm, "validate_tarball") as validate:
                     with patch.object(retry_npm, "verify_attestation", side_effect=error) as verify:
-                        with patch.object(retry_npm, "require_unpublished") as unpublished:
+                        with patch.object(retry_npm, "needs_publish") as unpublished:
                             with self.assertRaises(subprocess.CalledProcessError) as raised:
                                 retry_npm.prepare(self.entry["tag"], out)
                             self.assertIs(raised.exception, error)
@@ -328,6 +328,66 @@ class RetryNpmTests(unittest.TestCase):
                     retry_npm.prepare(self.entry["tag"], out)
             self.assertEqual(existing.read_bytes(), b"existing fixture")
             self.run.assert_not_called()
+
+    def test_view_retry_pins_the_tag_and_only_the_three_packages_in_publish_order(self):
+        entries = retry_npm.retry_for("v0.4.0")
+        self.assertEqual([e["name"] for e in entries], ["@zumen-jp/view2d", "@zumen-jp/view3d", "@zumen-jp/react"])
+        for e in entries:
+            self.assertEqual(e["version"], "0.4.0")
+            self.assertEqual(e["commit"], "1b8cdee7b32a52f181ca781b449a5bd12e788bf7")
+            self.assertEqual(e["asset"], "zumen-jp-" + e["name"].split("/")[1] + "-0.4.0.tgz")
+            self.assertRegex(e["sha256"], r"^[0-9a-f]{64}$")
+
+    def test_published_view_requires_matching_registry_metadata_and_tarball_integrity(self):
+        entry = retry_npm.retry_for("v0.4.0")[1]
+        with tempfile.TemporaryDirectory() as temporary:
+            path, entry = tarball_for(Path(temporary), entry)
+            digest = base64.b64encode(hashlib.sha512(path.read_bytes()).digest()).decode("ascii")
+            metadata = dict(metadata_for(entry), dist={"integrity": "sha512-" + digest})
+            self.urlopen.side_effect = lambda *args, **kwargs: io.BytesIO(json.dumps(metadata).encode())
+            self.assertFalse(retry_npm.needs_publish(entry, path))
+            self.assertEqual(self.urlopen.call_args.args[0].full_url, "https://registry.npmjs.org/@zumen-jp%2fview3d/0.4.0")
+            original = dict(metadata)
+            for field, value in (("dist", {"integrity": "sha512-other"}), ("name", "@zumen-jp/view2d"),
+                                 ("version", "0.2.0"), ("repository", {"url": "https://example.invalid"})):
+                with self.subTest(field=field):
+                    metadata = dict(original, **{field: value})
+                    with self.assertRaisesRegex(ValueError, "differs"):
+                        retry_npm.needs_publish(entry, path)
+
+    def test_interrupted_view_publication_resumes_in_order_after_full_verification(self):
+        entries = retry_npm.retry_for("v0.4.0")
+        release = release_for(entries[0])
+        release["assets"] = [release_for(entry)["assets"][0] for entry in entries]
+        for published in range(4):
+            with self.subTest(published=published), tempfile.TemporaryDirectory() as temporary:
+                out = Path(temporary)
+                with (patch.object(retry_npm, "gh_json", side_effect=[ref_for(entries[0]), release]),
+                      patch.object(retry_npm, "validate_tarball") as validate,
+                      patch.object(retry_npm, "verify_attestation") as verify,
+                      patch.object(retry_npm, "needs_publish", side_effect=[i >= published for i in range(3)]) as registry):
+                    self.run.side_effect = None
+                    self.assertEqual(retry_npm.prepare("v0.4.0", out), [out / e["asset"] for e in entries[published:]])
+                    calls = [call(out / entry["asset"], entry) for entry in entries]
+                    self.assertEqual(validate.call_args_list, calls)
+                    self.assertEqual(verify.call_args_list, calls)
+                    self.assertEqual(registry.call_args_list, [call(entry, out / entry["asset"]) for entry in entries])
+
+    def test_later_registry_mismatch_does_not_write_a_partial_publication_plan(self):
+        entries = retry_npm.retry_for("v0.4.0")
+        release = release_for(entries[0])
+        release["assets"] = [release_for(entry)["assets"][0] for entry in entries]
+        self.run.side_effect = None
+        with tempfile.TemporaryDirectory() as temporary:
+            out = Path(temporary)
+            pending_file = out / "pending"
+            with (patch("sys.argv", ["retry_npm.py", "v0.4.0", "--out", str(out), "--pending-file", str(pending_file)]),
+                  patch.object(retry_npm, "gh_json", side_effect=[ref_for(entries[0]), release]),
+                  patch.object(retry_npm, "validate_tarball"), patch.object(retry_npm, "verify_attestation"),
+                  patch.object(retry_npm, "needs_publish", side_effect=[True, True, ValueError("integrity differs")])):
+                with self.assertRaisesRegex(ValueError, "integrity differs"):
+                    retry_npm.main()
+            self.assertFalse(pending_file.exists())
 
 
 if __name__ == "__main__":

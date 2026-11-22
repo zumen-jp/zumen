@@ -474,15 +474,15 @@ jobs:
           python3 xtask/release/mirrors.py push --kind "$MIRROR_KIND" --tag "$GITHUB_REF_NAME"
           --work "$RUNNER_TEMP/mirror"
 
-  npm-retry:
-    name: 既存の npm 配布物を再公開する
+  npm-retry-check:
+    name: 再試行する npm 配布物を確かめる
     if: github.event_name == 'workflow_dispatch' && inputs.npm_retry_tag != ''
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: read
       attestations: read
-      id-token: write
+    outputs:
+      pending: ${{ steps.check.outputs.pending }}
     steps:
       - name: main からの再試行だけを許す
         run: |
@@ -494,16 +494,45 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.x'
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NPM_RETRY_TAG: ${{ inputs.npm_retry_tag }}
+        run: |
+          python xtask/release/retry_npm.py "$NPM_RETRY_TAG" --out "$RUNNER_TEMP/npm-assets" --pending-file "$RUNNER_TEMP/pending"
+          if [[ -s "$RUNNER_TEMP/pending" ]]; then echo 'pending=true' >> "$GITHUB_OUTPUT"; fi
+
+  npm-retry:
+    name: 未公開の npm 配布物を順に公開する
+    needs: npm-retry-check
+    if: needs.npm-retry-check.outputs.pending == 'true'
+    concurrency: npm-retry-${{ inputs.npm_retry_tag }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      attestations: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.x'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - name: 元のタグ・配布物・来歴を照合し、未公開であることを確かめる
+      - name: 公開直前に配布物と npm の状態を照合し直す
         env:
           GH_TOKEN: ${{ github.token }}
           NPM_RETRY_TAG: ${{ inputs.npm_retry_tag }}
-        run: python xtask/release/retry_npm.py "$NPM_RETRY_TAG" --out ./packages
-      - run: npm publish ./packages/zumen-jp-zumen-0.2.0.tgz --ignore-scripts --access public --provenance
+        run: python xtask/release/retry_npm.py "$NPM_RETRY_TAG" --out "$RUNNER_TEMP/npm-assets" --pending-file "$RUNNER_TEMP/pending"
+      - run: |
+          while IFS= read -r tarball; do
+            npm publish "$tarball" --ignore-scripts --access public --provenance < /dev/null
+          done < "$RUNNER_TEMP/pending"
 
   maven-central:
     name: 検査済みの Java 配布物に署名し、Maven Central に出す
