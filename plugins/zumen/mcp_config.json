@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "zumen": {
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/server/zumen.mjs",
+        "${ZUMEN_DRAWINGS_ROOT}"
+      ],
+      "variables": [
+        {
+          "name": "ZUMEN_DRAWINGS_ROOT",
+          "title": "図面フォルダー",
+          "description": "zumen で読み書きする既存のフォルダーの絶対パスを入力してください。"
+        }
+      ]
+    }
+  }
+}

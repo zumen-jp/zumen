@@ -1,0 +1,23 @@
+{
+  "name": "zumen",
+  "version": "0.1.0",
+  "description": "建設図面を開き、レイヤや図形を調べ、変更を別のファイルに保存します。",
+  "author": { "name": "zumen-jp" },
+  "homepage": "https://zumen.dev",
+  "repository": "https://github.com/zumen-jp/zumen",
+  "license": "MIT OR Apache-2.0",
+  "userConfig": {
+    "drawings_root": {
+      "type": "directory",
+      "title": "図面フォルダー",
+      "description": "zumen で図面を読み書きするフォルダーを選んでください。",
+      "required": true
+    }
+  },
+  "mcpServers": {
+    "zumen": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/zumen.mjs", "${user_config.drawings_root}"]
+    }
+  }
+}

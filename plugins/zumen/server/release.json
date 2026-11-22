@@ -1,0 +1,33 @@
+{
+  "version": "0.3.0",
+  "targets": {
+    "linux-arm64": {
+      "archive": "803180d4de2595b6bd46029ee0030793f12a307d5eb6299e3c996984bb09f772",
+      "executable": "ded4b7533bd87a468312e28a90aefef821da4817a68d230f71092632a4b7ded5"
+    },
+    "linux-x64": {
+      "archive": "04268503f6f8471ad5af173e7a3e4ec937fd4e26fb330be4b0047fe8532ad6ea",
+      "executable": "8c617564fd04a76bfb7f9cf2632bce059b4eec662bba6053e08b8d031c53ccdb"
+    },
+    "osx-arm64": {
+      "archive": "9681261507da1730a26872a21aaf0c6510f29aa5e12555b4b66533f8c56de280",
+      "executable": "005c84bdde2464b23e3d8d62f1da185bcc3b891790ec7f2e0ff0c13ced1a7951"
+    },
+    "osx-x64": {
+      "archive": "909565cf5a984a5650b705cc34abaed50034d15c199df58694a992697b60e1ef",
+      "executable": "256d19227a17e46602b3ce2ba2ec2ff8e53b05d2321493d8c0f4d4a7476dcf95"
+    },
+    "win-arm64": {
+      "archive": "fa2f869ec635434980ddf691d048c805c51cc386967249c049cb6de5406b82a0",
+      "executable": "9c3424804de6ca5352430f118969136456364b667a3884c4ebdef3e82249ff10"
+    },
+    "win-x64": {
+      "archive": "ff804726a96bdbf6d097cd96605bf51f4f673d0a25edbfaf3a7e52416581ab07",
+      "executable": "f8711d87cc97fce71d89308ddfd0d93f3c0fd8d7e601c606ea4d766234dec83e"
+    },
+    "win-x86": {
+      "archive": "66d291458420bdead822a7564d5ebeed9dcb713213219a35c9a9298b8d5bf248",
+      "executable": "e6bb2f3ba5fdd5e4dcd20c75f4d473953eea8d93ba9edf9f844d72558640b075"
+    }
+  }
+}

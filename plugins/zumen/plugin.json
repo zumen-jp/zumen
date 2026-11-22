@@ -1,0 +1,85 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "zumen",
+  "version": "0.1.0",
+  "description": "建設図面を開き、レイヤや図形を調べ、変更を別のファイルに保存します。",
+  "author": { "name": "zumen-jp", "url": "https://zumen.dev" },
+  "homepage": "https://zumen.dev",
+  "repository": "https://github.com/zumen-jp/zumen",
+  "license": "MIT OR Apache-2.0",
+  "keywords": ["cad", "bim", "dxf", "jww", "sxf"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "zumen",
+        "shortDescription": "Inspect and edit CAD drawings",
+        "longDescription": "For people working with construction drawings. Open local DXF, JWW and SXF drawings, inspect layers and geometry, preview the drawing, and save supported edits to a new file. Editing support depends on the format and entity type. Diagnostics identify unsupported content.",
+        "developerName": "zumen-jp",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "websiteURL": "https://zumen.dev",
+        "supportURL": "https://github.com/zumen-jp/zumen/issues",
+        "brandColor": "#0017C1",
+        "composerIcon": "./assets/logo.svg",
+        "logo": "./assets/logo.svg",
+        "defaultPrompt": [
+          "Show me the layers and a preview of my drawing.",
+          "List the text labels in my drawing with their element IDs."
+        ]
+      },
+      "publication": {
+        "translations": {
+          "ja-JP": {
+            "subtitle": "建設図面を開いて確認・編集",
+            "description": "設計や施工で使う DXF・JWW・SXF などの図面を開き、レイヤや図形を調べ、プレビューを表示します。対応する編集を別のファイルに保存できます。編集できる内容は形式や要素の種類によって異なります。読めなかった要素や変換で形が変わった要素は、診断で確認できます。"
+          }
+        }
+      },
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Inspect the public alignment sample in the configured drawing folder.",
+              "prompt": "Open text_alignments.dxf and count lines, text elements and circles in model space.",
+              "tools_triggered": "inspect",
+              "expected_behavior": "Report 10 lines, 16 text elements and 32 circles.",
+              "file_attachment_urls": ["https://raw.githubusercontent.com/zumen-jp/zumen/v0.3.0/samples/dxf/text_alignments.dxf"]
+            },
+            {
+              "description": "Preview a DXF drawing.",
+              "prompt": "Show a PNG preview of text_alignments.dxf.",
+              "tools_triggered": "inspect, render_view",
+              "expected_behavior": "Return an image of the model space.",
+              "file_attachment_urls": ["https://raw.githubusercontent.com/zumen-jp/zumen/v0.3.0/samples/dxf/text_alignments.dxf"]
+            },
+            {
+              "description": "Identify text for later editing.",
+              "prompt": "List three text elements from text_alignments.dxf with their IDs.",
+              "tools_triggered": "inspect, entities",
+              "expected_behavior": "Return three distinct text elements with IDs from the drawing.",
+              "file_attachment_urls": ["https://raw.githubusercontent.com/zumen-jp/zumen/v0.3.0/samples/dxf/text_alignments.dxf"]
+            },
+            {
+              "description": "Save an edit and verify the result.",
+              "prompt": "Add a layer named REVIEW to text_alignments.dxf. Save as review.dxf and check that the new layer is present.",
+              "tools_triggered": "inspect, apply, take",
+              "expected_behavior": "Create review.dxf in the drawing folder. Reopen it and find the REVIEW layer. Preserve the input file.",
+              "file_attachment_urls": ["https://raw.githubusercontent.com/zumen-jp/zumen/v0.3.0/samples/dxf/text_alignments.dxf"]
+            },
+            {
+              "description": "Handle an absent drawing.",
+              "prompt": "Inspect missing-example.dxf in the drawing folder.",
+              "tools_triggered": "inspect",
+              "expected_behavior": "Report that the file could not be opened."
+            }
+          ],
+          "negative": [
+            { "description": "Send an email", "prompt": "Email the drawing to the site manager." },
+            { "description": "Print on site", "prompt": "Print my drawing on the office plotter." },
+            { "description": "Change file permissions", "prompt": "Make the drawing folder writable by everyone." }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "zumen": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${CURSOR_PLUGIN_ROOT}/server/zumen.mjs",
+        "${workspaceFolder}"
+      ]
+    }
+  }
+}

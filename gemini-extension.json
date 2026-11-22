@@ -1,0 +1,14 @@
+{
+  "name": "zumen",
+  "version": "0.1.0",
+  "description": "建設図面を開き、図形を調べ、編集結果を別のファイルに保存します。",
+  "mcpServers": {
+    "zumen": {
+      "command": "node",
+      "args": [
+        "${extensionPath}/plugins/zumen/server/zumen.mjs",
+        "${workspacePath}"
+      ]
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "zumen-jp",
+  "interface": { "displayName": "zumen-jp" },
+  "plugins": [
+    {
+      "name": "zumen",
+      "source": { "source": "local", "path": "./plugins/zumen" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

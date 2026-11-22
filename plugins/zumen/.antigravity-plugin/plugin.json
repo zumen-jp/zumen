@@ -1,0 +1,24 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "zumen",
+  "displayName": "zumen",
+  "version": "0.1.0",
+  "description": "建設図面を開き、レイヤや図形を調べ、変更を別のファイルに保存します。",
+  "author": {
+    "name": "zumen-jp"
+  },
+  "homepage": "https://zumen.dev",
+  "repository": "https://github.com/zumen-jp/zumen",
+  "license": "MIT OR Apache-2.0",
+  "keywords": [
+    "cad",
+    "bim",
+    "dxf",
+    "jww",
+    "sxf"
+  ],
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "図面を開き、レイヤの一覧と全体のプレビューを見せてください。"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "zumen-jp",
+  "owner": {
+    "name": "zumen-jp"
+  },
+  "plugins": [
+    {
+      "name": "zumen",
+      "source": "plugins/zumen"
+    }
+  ]
+}

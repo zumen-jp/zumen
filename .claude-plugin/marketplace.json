@@ -1,0 +1,12 @@
+{
+  "name": "zumen-jp",
+  "description": "建設図面を扱う zumen のプラグインを配布します。",
+  "owner": { "name": "zumen-jp" },
+  "plugins": [
+    {
+      "name": "zumen",
+      "source": "./plugins/zumen",
+      "description": "建設図面を開き、レイヤや図形を調べ、変更を別のファイルに保存します。"
+    }
+  ]
+}

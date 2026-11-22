@@ -61,6 +61,8 @@ target/debug/zumen call --input a.dxf=samples/dxf/text_alignments.dxf request.js
 
 ## MCP
 
+Claude Code・Codex などへの導入手順と図面の編集例は[プラグインの使い方](../../plugins/zumen/README.md)を参照してください。
+
 MCP 2026-07-28（状態を持たない形）と、初期化から始める前のバージョン（2025-11-25・2025-06-18・2025-03-26）に、標準入出力（`zumen mcp`）と Streamable HTTP（`zumen mcp --http`）で応えます。
 
 - よく使う手順をまとめたツールとして、`inspect`（セッションの作成・`push`・`open`・形式に応じた要約・診断の整形を 1 回で行う）、`render_view`（範囲を自動で求めて PNG または SVG に描画する）、`describe_diagnostics`（診断やチェックの指摘を日本語または英語の文に整形する）を備えます。

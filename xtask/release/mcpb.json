@@ -1,0 +1,37 @@
+{
+  "manifest_version": "0.3",
+  "name": "zumen",
+  "display_name": "zumen",
+  "description": "CAD 図面の要素を調べ、描画・編集して新しいファイルに保存します。",
+  "author": {
+    "name": "zumen-jp",
+    "url": "https://zumen.dev"
+  },
+  "homepage": "https://zumen.dev",
+  "license": "MIT OR Apache-2.0",
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32"
+    ]
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "server/zumen.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/zumen.mjs",
+        "${user_config.drawings_root}"
+      ]
+    }
+  },
+  "user_config": {
+    "drawings_root": {
+      "type": "directory",
+      "title": "図面フォルダー",
+      "description": "zumen が図面を読み書きするフォルダーを選んでください。",
+      "required": true
+    }
+  }
+}
