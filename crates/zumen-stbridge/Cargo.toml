@@ -13,10 +13,10 @@ formats = ["stbridge"]
 [dependencies]
 # 三角関数を、どの環境でも同じ値で求める（決定 0007）
 libm = { version = "0.2.16", default-features = false }
-zumen-base = { version = "0.3.0", path = "../zumen-base" }
-zumen-building = { version = "0.3.0", path = "../zumen-building" }
-zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
-zumen-xml = { version = "0.3.0", path = "../zumen-xml" }
+zumen-base = { version = "0.4.0", path = "../zumen-base" }
+zumen-building = { version = "0.4.0", path = "../zumen-building" }
+zumen-sdk = { version = "0.4.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.4.0", path = "../zumen-xml" }
 
 [lints]
 workspace = true

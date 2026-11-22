@@ -966,7 +966,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-base"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "zumen-bench-kernels"
@@ -988,7 +988,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-building"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "blake3",
  "libm",
@@ -998,7 +998,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-geom2d"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "i_overlay 9.2.0",
  "libm",
@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-geom3d"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "earcutr 0.5.0",
  "libm",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-ifc"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "encoding_rs",
  "libm",
@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-live"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -1039,7 +1039,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-sdk"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
@@ -1047,14 +1047,14 @@ dependencies = [
 
 [[package]]
 name = "zumen-step"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "zumen-base",
 ]
 
 [[package]]
 name = "zumen-zip"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",

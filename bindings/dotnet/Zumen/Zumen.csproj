@@ -15,7 +15,7 @@
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <AssemblyName>Zumen</AssemblyName>
     <RootNamespace>Zumen</RootNamespace>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <!-- ホストで同じメジャーバージョンを 1 つとして扱うため、ABI のメジャーバージョンに固定する（決定 0015） -->
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <PackageId>Zumen</PackageId>

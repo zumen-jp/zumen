@@ -164,7 +164,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "zumen-acad"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "encoding_rs",
  "libm",
@@ -178,7 +178,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-base"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "zumen-bench-chunks"
@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-crs"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-drawing"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "blake3",
  "libm",
@@ -214,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-geom2d"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "i_overlay",
  "libm",
@@ -222,11 +222,11 @@ dependencies = [
 
 [[package]]
 name = "zumen-json"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "zumen-jww"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "encoding_rs",
  "libm",
@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-live"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-review"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "blake3",
  "zumen-base",
@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-scene"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libm",
  "zumen-base",
@@ -269,7 +269,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-sdk"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",
@@ -277,14 +277,14 @@ dependencies = [
 
 [[package]]
 name = "zumen-step"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "zumen-base",
 ]
 
 [[package]]
 name = "zumen-sxf"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "encoding_rs",
  "libm",
@@ -299,7 +299,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-text"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "encoding_rs",
  "libm",
@@ -309,7 +309,7 @@ dependencies = [
 
 [[package]]
 name = "zumen-xml"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "encoding_rs",
  "zumen-base",

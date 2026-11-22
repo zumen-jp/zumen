@@ -319,7 +319,7 @@ pub const BUILDING_DRAWING_DROPPED: Code = Code::new(
 
 /// 切る階の配置・単位・切断条件などを解けず、図面を作れない
 ///
-/// `building.drawing.failed`（0.3.0 から）
+/// `building.drawing.failed`（0.4.0 から）
 pub const BUILDING_DRAWING_FAILED: Code = Code::new(
     "building.drawing.failed",
     Severity::Error,
@@ -649,7 +649,7 @@ pub const CHANGE_DOCUMENT_STALE: Code =
 
 /// DWG に新しい図形を書き込むためのクラス宣言がない
 ///
-/// `change.dwg-class.missing`（0.3.0 から）
+/// `change.dwg-class.missing`（0.4.0 から）
 pub const CHANGE_DWG_CLASS_MISSING: Code = Code::new(
     "change.dwg-class.missing",
     Severity::Error,
@@ -663,7 +663,7 @@ pub const CHANGE_DWG_CLASS_MISSING: Code = Code::new(
 
 /// このバージョンの DWG にはこの種類の新しい図形を書けない
 ///
-/// `change.dwg-version.unsupported`（0.3.0 から）
+/// `change.dwg-version.unsupported`（0.4.0 から）
 pub const CHANGE_DWG_VERSION_UNSUPPORTED: Code = Code::new(
     "change.dwg-version.unsupported",
     Severity::Error,
@@ -797,7 +797,7 @@ pub const CHANGE_SYMBOL_UNSUPPORTED: Code = Code::new(
 
 /// DWG の新しい表にセルの書式・結合・値などを保って追加できない
 ///
-/// `change.table-cell.unsupported`（0.3.0 から）
+/// `change.table-cell.unsupported`（0.4.0 から）
 pub const CHANGE_TABLE_CELL_UNSUPPORTED: Code = Code::new(
     "change.table-cell.unsupported",
     Severity::Error,
@@ -812,7 +812,7 @@ pub const CHANGE_TABLE_CELL_UNSUPPORTED: Code = Code::new(
 
 /// 指定した行高には既存の表スタイルの文字高と余白が収まらない
 ///
-/// `change.table-height.unsupported`（0.3.0 から）
+/// `change.table-height.unsupported`（0.4.0 から）
 pub const CHANGE_TABLE_HEIGHT_UNSUPPORTED: Code = Code::new(
     "change.table-height.unsupported",
     Severity::Error,
@@ -826,7 +826,7 @@ pub const CHANGE_TABLE_HEIGHT_UNSUPPORTED: Code = Code::new(
 
 /// 新しい DWG の表に指定した表スタイルや表示用ブロックを書けない
 ///
-/// `change.table-input.unsupported`（0.3.0 から）
+/// `change.table-input.unsupported`（0.4.0 から）
 pub const CHANGE_TABLE_INPUT_UNSUPPORTED: Code = Code::new(
     "change.table-input.unsupported",
     Severity::Error,
@@ -837,7 +837,7 @@ pub const CHANGE_TABLE_INPUT_UNSUPPORTED: Code = Code::new(
 
 /// DWG の新しい表が参照する標準の表スタイルを一意に解決できない
 ///
-/// `change.table-style.missing`（0.3.0 から）
+/// `change.table-style.missing`（0.4.0 から）
 pub const CHANGE_TABLE_STYLE_MISSING: Code = Code::new(
     "change.table-style.missing",
     Severity::Error,
@@ -848,7 +848,7 @@ pub const CHANGE_TABLE_STYLE_MISSING: Code = Code::new(
 
 /// DWG の既存の標準の表スタイルの書式を保って新しい表を作れない
 ///
-/// `change.table-style.unsupported`（0.3.0 から）
+/// `change.table-style.unsupported`（0.4.0 から）
 pub const CHANGE_TABLE_STYLE_UNSUPPORTED: Code = Code::new(
     "change.table-style.unsupported",
     Severity::Error,
@@ -859,7 +859,7 @@ pub const CHANGE_TABLE_STYLE_UNSUPPORTED: Code = Code::new(
 
 /// 文字や制御記号を符号化できないか、既存の表スタイルで一行に書けることを確認できない
 ///
-/// `change.table-text.unsupported`（0.3.0 から）
+/// `change.table-text.unsupported`（0.4.0 から）
 pub const CHANGE_TABLE_TEXT_UNSUPPORTED: Code = Code::new(
     "change.table-text.unsupported",
     Severity::Error,
@@ -874,7 +874,7 @@ pub const CHANGE_TABLE_TEXT_UNSUPPORTED: Code = Code::new(
 
 /// 表題行を自動で結合すると入力されたセルの内容が隠れる
 ///
-/// `change.table-title.unsupported`（0.3.0 から）
+/// `change.table-title.unsupported`（0.4.0 から）
 pub const CHANGE_TABLE_TITLE_UNSUPPORTED: Code = Code::new(
     "change.table-title.unsupported",
     Severity::Error,
@@ -888,7 +888,7 @@ pub const CHANGE_TABLE_TITLE_UNSUPPORTED: Code = Code::new(
 
 /// 既存の表スタイルで指定の幅に一行で収まることを確認できない
 ///
-/// `change.table-width.unsupported`（0.3.0 から）
+/// `change.table-width.unsupported`（0.4.0 から）
 pub const CHANGE_TABLE_WIDTH_UNSUPPORTED: Code = Code::new(
     "change.table-width.unsupported",
     Severity::Error,
@@ -1240,7 +1240,7 @@ pub const CREATE_FORMAT_UNSUPPORTED: Code = Code::new(
 
 /// 図面から地図への変換を求める対応点の組に、有限でない値がある。index は 0 から数えた組の番号（#685）
 ///
-/// `crs.control-point.invalid`（0.3.0 から）
+/// `crs.control-point.invalid`（0.4.0 から）
 pub const CRS_CONTROL_POINT_INVALID: Code = Code::new(
     "crs.control-point.invalid",
     Severity::Error,
@@ -1251,7 +1251,7 @@ pub const CRS_CONTROL_POINT_INVALID: Code = Code::new(
 
 /// 対応点の組が 2 つより少ないか、図面の点がすべて重なるか、求めた変換が有限でないので、図面から地図への相似の変換を求められなかった。points は渡した組の数（#685）
 ///
-/// `crs.control-points.failed`（0.3.0 から）
+/// `crs.control-points.failed`（0.4.0 から）
 pub const CRS_CONTROL_POINTS_FAILED: Code = Code::new(
     "crs.control-points.failed",
     Severity::Error,
@@ -1313,7 +1313,7 @@ pub const CRS_DATUM_SHIFT_MISSING: Code = Code::new(
 
 /// DXF の GEODATA の座標系の定義から、扱う座標系の EPSG のコードを引けないので、図面から地図への変換を作らなかった。name は見つけた EPSG のコードか座標系の名前で、どちらもなければ空（#685）
 ///
-/// `crs.geodata-crs.unsupported`（0.3.0 から）
+/// `crs.geodata-crs.unsupported`（0.4.0 から）
 pub const CRS_GEODATA_CRS_UNSUPPORTED: Code = Code::new(
     "crs.geodata-crs.unsupported",
     Severity::Warning,
@@ -1324,7 +1324,7 @@ pub const CRS_GEODATA_CRS_UNSUPPORTED: Code = Code::new(
 
 /// DXF の GEODATA の値が数でないか有限でないか、単位の倍率か北の向きが 0 なので、図面から地図への変換を作らなかった。code は値のグループ・コード（#685）
 ///
-/// `crs.geodata.invalid`（0.3.0 から）
+/// `crs.geodata.invalid`（0.4.0 から）
 pub const CRS_GEODATA_INVALID: Code = Code::new(
     "crs.geodata.invalid",
     Severity::Error,
@@ -1335,7 +1335,7 @@ pub const CRS_GEODATA_INVALID: Code = Code::new(
 
 /// DXF の GEODATA が、図面から地図への変換を確かめていない設定（版 1・局所の格子でない座標の種類・尺度の推定・海面補正・Z でない上の向き・メッシュの面での対応・水平と垂直で違う単位の倍率・北か南が最初の軸の座標系）なので、変換を作らなかった。reason はその設定（#685）
 ///
-/// `crs.geodata.unsupported`（0.3.0 から）
+/// `crs.geodata.unsupported`（0.4.0 から）
 pub const CRS_GEODATA_UNSUPPORTED: Code = Code::new(
     "crs.geodata.unsupported",
     Severity::Warning,
@@ -3671,7 +3671,7 @@ pub const LAS_ATTRIBUTE_DROPPED: Code = Code::new(
 
 /// COPC の情報の VLR か階層の頁が壊れているか、頁・チャンクの範囲が入力の外を指すので、読まなかった
 ///
-/// `las.copc.invalid`（0.3.0 から）
+/// `las.copc.invalid`（0.4.0 から）
 pub const LAS_COPC_INVALID: Code = Code::new(
     "las.copc.invalid",
     Severity::Error,
@@ -6011,7 +6011,7 @@ pub const SXF_TEXT_WIDTH_APPROXIMATED: Code = Code::new(
 
 /// 単バンドの数値標高格子のうち、GDAL_NODATA・非有限値・読めない値のセルを点群モデルに含めなかった。cells は理由ごとのセルの数
 ///
-/// `tiff.cell.dropped`（0.3.0 から）
+/// `tiff.cell.dropped`（0.4.0 から）
 pub const TIFF_CELL_DROPPED: Code = Code::new(
     "tiff.cell.dropped",
     Severity::Info,

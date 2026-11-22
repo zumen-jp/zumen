@@ -1,6 +1,6 @@
 {
   "name": "@zumen-jp/view3d",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "zumen の 3D のシーン（ZMS3）を WebGPU で描く表示部品",
   "repository": {
     "type": "git",
@@ -34,7 +34,7 @@
   ],
   "sideEffects": false,
   "peerDependencies": {
-    "@zumen-jp/zumen": "^0.3.0",
+    "@zumen-jp/zumen": "^0.4.0",
     "three": ">=0.187.0 <0.188.0"
   }
 }
