@@ -11,16 +11,16 @@ publish = true
 formats = ["dxf", "dwg"]
 
 [dependencies]
-zumen-base = { version = "0.3.0", path = "../zumen-base" }
-zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
-zumen-drawing = { version = "0.3.0", path = "../zumen-drawing", optional = true }
+zumen-base = { version = "0.4.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.4.0", path = "../zumen-sdk" }
+zumen-drawing = { version = "0.4.0", path = "../zumen-drawing", optional = true }
 # GEODATA から地図の座標系と相似の変換を作る（#685）
-zumen-crs = { version = "0.3.0", path = "../zumen-crs", optional = true }
+zumen-crs = { version = "0.4.0", path = "../zumen-crs", optional = true }
 # 図面モデルから新しい DXF に書くとき（lower）、横と縦の尺度の違うビューの曲線を用紙の折れ線にする（決定 0238）。
 # 三角関数は環境によらない libm で求める（決定 0007）。どちらも依存を持たない寛容なライセンスの crate
-zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d", optional = true }
+zumen-geom2d = { version = "0.4.0", path = "../zumen-geom2d", optional = true }
 # 対話の編集（文書エンジン、#878）の形式非依存の基盤（ページ配列・塊ごとの版・差分表示・LZ4 原本）
-zumen-live = { version = "0.3.0", path = "../zumen-live", optional = true }
+zumen-live = { version = "0.4.0", path = "../zumen-live", optional = true }
 libm = { version = "0.2.16", default-features = false, optional = true }
 # 2007 より前のバージョンの Shift_JIS（ANSI_932）の文字を戻し、書くときも同じ表で符号化する（新しい DXF のひな形の
 # 部品の名前など）。WHATWG の Shift_JIS で、環境によらない（決定 0175・0192、#509）。ANSI_936・ANSI_949・ANSI_950・ANSI_1361 も

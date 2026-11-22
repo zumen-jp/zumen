@@ -54,6 +54,7 @@ fn drawing() -> Drawing2D {
                 },
                 clip: Vec::new(),
                 hidden_layers: Vec::new(),
+                paper_unit: None,
                 source: Ref::default(),
             }],
             order: Vec::new(),

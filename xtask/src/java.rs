@@ -40,7 +40,12 @@ const COLUMNS: &[(&str, &str)] = &[("u8", "U8"), ("u32", "U32"), ("f32", "F32"),
 
 /// 説明を Javadoc にする
 fn javadoc(out: &mut String, indent: &str, text: &str) {
-    let text = text.replace("*/", "*&#47;");
+    let text = text
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('@', "&#64;")
+        .replace("*/", "*&#47;");
     let mut lines = text.lines();
     let Some(first) = lines.next() else {
         return;
@@ -298,7 +303,7 @@ fn render_response(out: &mut String, schema: &Schema, def: &Def) {
         let (ty, read) = java_type(schema, ty);
         render_field(out, &name, field, description, &ty, &read);
     }
-    out.push_str("\n        /** op ごとの結果（<op>_result の形の JSON のオブジェクト）。失敗したときは null */\n        public Map<String, Object> getResult() {\n            return Json.object(json.get(\"result\"));\n        }\n");
+    out.push_str("\n        /** op ごとの結果（{@code <op>_result} の形の JSON のオブジェクト）。失敗したときは null */\n        public Map<String, Object> getResult() {\n            return Json.object(json.get(\"result\"));\n        }\n");
     out.push_str("\n        /**\n         * op ごとの結果を、その op の結果の型で読む（例: {@code response.result(OpenResult::of)}）\n         *\n         * 失敗したときは null\n         */\n        public <T> T result(java.util.function.Function<Object, T> read) {\n            return Json.read(json.get(\"result\"), read);\n        }\n");
     out.push_str("    }\n");
 }
@@ -513,7 +518,7 @@ mod tests {
                   "required": ["v"]
                 },
                 "open_request": {
-                  "description": "開く",
+                  "description": "<図面> & 属性",
                   "type": "object",
                   "allOf": [{ "$ref": "#/$defs/request_common" }],
                   "properties": {
@@ -539,6 +544,7 @@ mod tests {
         )
         .unwrap();
         let types = render_types(&schema).unwrap();
+        assert!(types.contains("/** &lt;図面&gt; &amp; 属性 */"));
         assert!(types.contains("    public static final class OpenRequest extends Message {"));
         assert!(types.contains("            json.put(\"op\", \"open\");"));
         assert!(types.contains("        public Long getV() {\n            return Json.read(json.get(\"v\"), Json::integer);"));

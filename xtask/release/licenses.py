@@ -20,9 +20,12 @@ MANIFESTS = {"abi": "crates/zumen-abi/Cargo.toml", "cli": "bindings/cli/Cargo.to
 TARGETS = json.loads((Path(__file__).parent / "targets.json").read_text(encoding="utf-8"))
 WASM = "wasm32-unknown-unknown"
 MODULES = ("default", "drawing", "bim", "civil", "pointcloud")
+SWIFT_SLICES = {"macos-arm64": "aarch64-apple-darwin", "ios-arm64": "aarch64-apple-ios",
+                "ios-arm64-simulator": "aarch64-apple-ios-sim"}
+SWIFT_LIBRARY = "libzumen_abi1.a"
 
 
-def feature_args(module, package="zumen-abi"):
+def feature_args(module, package):
     # 名前を crate で限る。限らないと cargo metadata が、同じ名前の feature を workspace の別 member でも有効にする
     return [] if module == "default" else ["--no-default-features", "--features", f"{package}/{module}"]
 
@@ -107,7 +110,7 @@ def generate(tool, kind, target, output, module="default"):
     output.mkdir(parents=True, exist_ok=True)
     package = "zumen-abi" if kind == "abi" else "zumen-cli"
     args = [tool, "about", "generate", "--config", "about.toml", "--manifest-path", MANIFESTS[kind],
-            "--target", target, "--locked", "--fail", *feature_args(module)]
+            "--target", target, "--locked", "--fail", *feature_args(module, package)]
     with tempfile.TemporaryDirectory(prefix="zumen-licenses-") as temporary:
         stage = Path(temporary)
         env = {**os.environ, "CARGO": str(cargo_wrapper(stage, target))}
@@ -164,6 +167,8 @@ def main():
     for target in TARGETS:
         for kind in MANIFESTS:
             generate(args.cargo_about, kind, target["target"], output / "licenses" / "native" / target["rid"] / kind)
+    for identifier, triple in SWIFT_SLICES.items():
+        generate(args.cargo_about, "abi", triple, output / "licenses" / "swift" / identifier)
 
 
 if __name__ == "__main__":

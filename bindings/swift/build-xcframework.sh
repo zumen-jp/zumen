@@ -15,9 +15,11 @@ case $profile in
   *) echo "ビルドの種類は debug か release: $profile" >&2; exit 2 ;;
 esac
 
-for target in $targets; do
-  cargo build --manifest-path "$root/Cargo.toml" --package zumen-abi --locked $flag --target "$target"
-done
+if [ -z "${ZUMEN_SWIFT_LIBRARIES:-}" ]; then
+  for target in $targets; do
+    cargo build --manifest-path "$root/Cargo.toml" --package zumen-abi --locked $flag --target "$target"
+  done
+fi
 
 rm -rf "$out/headers" "$out/lib" "$out/CZumen.xcframework"
 mkdir -p "$out/headers"
@@ -32,6 +34,13 @@ MAP
 
 # プラットフォームごとに、アーキテクチャーの違うライブラリを 1 つにする
 set --
+if [ -n "${ZUMEN_SWIFT_LIBRARIES:-}" ]; then
+  # 配布では各プラットフォームに対して検査した arm64 の書庫をそのまま使う。
+  for target in $targets; do
+    set -- "$@" -library "$ZUMEN_SWIFT_LIBRARIES/$target/libzumen_abi1.a" -headers "$out/headers"
+  done
+  exec xcodebuild -create-xcframework "$@" -output "$out/CZumen.xcframework"
+fi
 for platform in macos ios ios-simulator; do
   libraries=
   for target in $targets; do

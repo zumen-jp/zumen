@@ -12,8 +12,8 @@ publish = true
 encoding_rs = { version = "0.8.35" }
 # 角度とカーブの計算（決定 0007）。どの対象でも同じ値にする
 libm = { version = "0.2.16", default-features = false }
-zumen-base = { version = "0.3.0", path = "../zumen-base" }
-zumen-drawing = { version = "0.3.0", path = "../zumen-drawing" }
+zumen-base = { version = "0.4.0", path = "../zumen-base" }
+zumen-drawing = { version = "0.4.0", path = "../zumen-drawing" }
 
 [lints]
 workspace = true

@@ -15,13 +15,13 @@ building-drawing = ["building", "zumen-building/drawing", "dep:zumen-geom2d"]
 [dependencies]
 # 縮尺の分母を仮数と 10 の累乗に分ける対数（決定 0007）。どの対象でも同じ値にする
 libm = { version = "0.2.16", default-features = false }
-zumen-base = { version = "0.3.0", path = "../zumen-base" }
-zumen-drawing = { version = "0.3.0", path = "../zumen-drawing" }
-zumen-json = { version = "0.3.0", path = "../zumen-json" }
-zumen-building = { version = "0.3.0", path = "../zumen-building", features = ["measure"], optional = true }
-zumen-crs = { version = "0.3.0", path = "../zumen-crs", optional = true }
-zumen-geom3d = { version = "0.3.0", path = "../zumen-geom3d", optional = true }
-zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d", optional = true }
+zumen-base = { version = "0.4.0", path = "../zumen-base" }
+zumen-drawing = { version = "0.4.0", path = "../zumen-drawing" }
+zumen-json = { version = "0.4.0", path = "../zumen-json" }
+zumen-building = { version = "0.4.0", path = "../zumen-building", features = ["measure"], optional = true }
+zumen-crs = { version = "0.4.0", path = "../zumen-crs", optional = true }
+zumen-geom3d = { version = "0.4.0", path = "../zumen-geom3d", optional = true }
+zumen-geom2d = { version = "0.4.0", path = "../zumen-geom2d", optional = true }
 blake3 = { version = "1.8.2", default-features = false, features = ["pure"], optional = true }
 
 [dev-dependencies]

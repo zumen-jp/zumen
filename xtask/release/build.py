@@ -17,7 +17,7 @@ from sbom import DRAFT, audit_proc_macro, bom_ref, check, digest, document_graph
 def target_tree(workspace, manifest, crate, target, module, kinds, names):
     """選んだ package・target・feature の Cargo の木から、深さを使って直接の辺を復元する。"""
     output = raw_command(["cargo", "tree", "--locked", "--manifest-path", str(manifest), "-p", crate, "--target", target,
-                          *feature_args(module), "--edges", kinds, "--prefix", "depth", "--charset", "ascii",
+                          *feature_args(module, crate), "--edges", kinds, "--prefix", "depth", "--charset", "ascii",
                           "--color", "never", "--format", "|{p}|{f}|"], workspace)
     parents, edges = [], {}
     root_features = ()
@@ -36,9 +36,9 @@ def target_tree(workspace, manifest, crate, target, module, kinds, names):
     return parents[0], root_features, edges
 
 
-def build_graph(workspace, manifest, target, module, messages, root_id, enabled):
+def build_graph(workspace, manifest, target, module, package, messages, root_id, enabled):
     """metadata は ID の翻訳だけに使い、依存の集合は実ビルド、辺は対象を絞った cargo tree から得る。"""
-    metadata = metadata_for(workspace, str(manifest), target, module)
+    metadata = metadata_for(workspace, str(manifest), target, module, package)
     packages = {p["id"]: p for p in metadata["packages"]}
     members = set(metadata["workspace_members"])
     compiled_ids = {m["package_id"] for m in messages if m["reason"] == "compiler-artifact"}
@@ -95,9 +95,12 @@ def build(kind, target, module, filename, shipped, output):
     revision = source_revision()
     lock_hash = digest((ROOT / "Cargo.lock").read_bytes())
     manifest = ROOT / MANIFESTS[kind]
+    package = "zumen-" + kind
     command = ["cargo", "auditable", "build", "--release", "--locked", "--target", target, "--manifest-path",
-               str(manifest), "--message-format=json-render-diagnostics", *feature_args(module)]
+               str(manifest), "--message-format=json-render-diagnostics", *feature_args(module, package)]
     env = {**os.environ, "MACOSX_DEPLOYMENT_TARGET": "14.0"} if target == "aarch64-apple-darwin" else None
+    if target in ("aarch64-apple-ios", "aarch64-apple-ios-sim"):
+        env = {**os.environ, "IPHONEOS_DEPLOYMENT_TARGET": "17.0"}
     result = subprocess.run(command, cwd=ROOT, env=env, stdout=subprocess.PIPE, check=True)
     matches = []
     messages = [json.loads(line) for line in result.stdout.splitlines()]
@@ -114,14 +117,15 @@ def build(kind, target, module, filename, shipped, output):
         check("default" in enabled, "既定の feature が有効でない")
     elif module != "default":
         check(set(MODULES).intersection(enabled) == {module}, "分けた wasm の feature が違う")
-    graph = build_graph(ROOT, manifest, target, module, messages, root_id, enabled)
+    graph = build_graph(ROOT, manifest, target, module, package, messages, root_id, enabled)
     output.mkdir(parents=True, exist_ok=True)
     # CLI を同じファイルから実行して検査するため、実行の権限も保つ。時刻はコピーしない。
     shutil.copy(source, output / shipped)
-    receipt = {"package": "zumen-" + kind, "target": target, "features": module, "enabled": sorted(enabled),
+    receipt = {"package": package, "target": target, "features": module, "enabled": sorted(enabled),
                "artifact": shipped, "sha256": digest((output / shipped).read_bytes()), "commit": revision, "lock": lock_hash,
                **graph}
     (output / (shipped + ".build.json")).write_bytes(encode(receipt))
+    return source
 
 
 if __name__ == "__main__":

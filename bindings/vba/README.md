@@ -1,10 +1,12 @@
 # VBA のバインディング
 
-Windows の VBA7（Office 2021 以降、64 bit）向けです。C ABI を `Declare PtrSafe` で呼びます。Microsoft 365 の Excel 実機でコンパイルと実行を確認しました。[対応する環境](../../docs/support.md)・[実機の検証結果](#実機の検証結果)
+Windows の VBA7（Office 2021 以降、64 bit）向けです。C ABI を `Declare PtrSafe` で呼びます。Microsoft 365 の Excel 実機でコンパイルと実行を確認しました。[対応する環境](https://github.com/zumen-jp/zumen/blob/main/docs/support.md)・[実機の検証結果](#実機の検証結果)
 
 ## 導入
 
-64 bit の `zumen_abi1.dll` をビルドし、Office が DLL を検索するフォルダーに置きます。開発時は、そのフォルダーを `PATH` に含めた PowerShell から Office を起動できます。DLL のフォルダーは利用者が管理する場所にしてください。
+VBA 用の ZIP `zumen-vba-<版>-win-x64.zip` を使う場合は、利用者が管理するフォルダーに展開します。DLL と下記の 6 ファイルが同じフォルダーに入っています。Office が DLL を検索できるよう、展開した DLL のフォルダーを `PATH` に含めた PowerShell から Office を起動します。
+
+ソースから使う場合は、次のコマンドで 64 bit の DLL を作り、`target/release` を同様に指定します。
 
 ```powershell
 cargo build -p zumen-abi --release --locked
@@ -55,6 +57,8 @@ session.CloseSession
 
 ## 確かめ方
 
+次の検査には、ZIP と同じ版のリポジトリのソースを使います。
+
 生成器は `schema/boundary.toml` の `native` の関数だけを出し、未対応の型を拒否します。コアと同じパッケージのバージョンを生成するので、`cargo xtask codegen --check` がバージョンの違いも見つけます。
 
 ```powershell
@@ -73,7 +77,7 @@ ZumenConformance.ZumenConformance "C:\work\zumen\target\vba-conformance.tsv"
 
 マクロは配列の空値・UTF-8 の日本語と補助文字・NUL・TSV のエスケープ・バッファーの配置・失敗の応答・終了後の呼び出しを確かめたあと、共通手順をラッパーで流します。SHA-256 は Windows の BCrypt で計算します。状態と全ハッシュが一致し、シーンの列を読めた場合だけ件数を表示します。入力・応答の中身やパスはログに出しません。
 
-実機の確認では、64 bit の Microsoft 365 または Office LTSC 2024 を使い、Office の製品とビルド・DLL のコミット・マクロの表示件数を記録します。CI は Office を起動せず、実機の検証では現在のマクロの信頼設定を保ちます。Release の zip への同梱は別の公開作業です。
+実機の確認では、64 bit の Microsoft 365 または Office LTSC 2024 を使い、Office の製品とビルド・DLL のコミット・マクロの表示件数を記録します。CI は Office を起動せず、実機の検証では現在のマクロの信頼設定を保ちます。
 
 ### 実機の検証結果
 
@@ -93,4 +97,4 @@ ZumenConformance.ZumenConformance "C:\work\zumen\target\vba-conformance.tsv"
 
 ZumenScene3DLayout.bas と ZumenScene3D.cls を追加して読み込み、ZumenScene3D.Read に Byte() を渡します。InstanceElement と ElementId で建物の要素 ID を引けます。配列はクラス内へコピーし、各列の値は Value で取得します。
 
-同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](../../schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。
+同じ blob の 2D 用の読み手との混用はできません。列の配置・座標・単位・色・選択と検査範囲は [3D のシーンの契約](https://github.com/zumen-jp/zumen/blob/main/schema/README.md#3d-のシーンの契約)に従います。元の blob を共有する読み手の利用中は、そのバイト列を変更しません。

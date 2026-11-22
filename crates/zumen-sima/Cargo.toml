@@ -13,14 +13,14 @@ formats = ["sima"]
 [dependencies]
 encoding_rs = "0.8.35"
 libm = { version = "0.2.16", default-features = false }
-zumen-base = { version = "0.3.0", path = "../zumen-base" }
-zumen-civil = { version = "0.3.0", path = "../zumen-civil" }
-zumen-crs = { version = "0.3.0", path = "../zumen-crs" }
-zumen-drawing = { version = "0.3.0", path = "../zumen-drawing" }
-zumen-geo = { version = "0.3.0", path = "../zumen-geo" }
-zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d" }
-zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
-zumen-xml = { version = "0.3.0", path = "../zumen-xml" }
+zumen-base = { version = "0.4.0", path = "../zumen-base" }
+zumen-civil = { version = "0.4.0", path = "../zumen-civil" }
+zumen-crs = { version = "0.4.0", path = "../zumen-crs" }
+zumen-drawing = { version = "0.4.0", path = "../zumen-drawing" }
+zumen-geo = { version = "0.4.0", path = "../zumen-geo" }
+zumen-geom2d = { version = "0.4.0", path = "../zumen-geom2d" }
+zumen-sdk = { version = "0.4.0", path = "../zumen-sdk" }
+zumen-xml = { version = "0.4.0", path = "../zumen-xml" }
 
 [lints]
 workspace = true

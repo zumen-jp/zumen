@@ -7,7 +7,7 @@
 - リリースを止めるのは、[タグの前に利用者に示す一覧](../../fuzz/README.md#初回リリース後の記録先)に載る入力の失敗、公開の試運転の失敗や権利・ライセンスの問題、ID の契約を破る変更です。
 - CI と `release.yml` の試運転が通った main のコミットで区切り、そのコミットのタグの push を利用者に頼み、同じ日に push します。依頼・コミットの変更・取り下げはバージョンごとのリリースの issue に記録します。依頼後に見つけた対象の失敗は非公開で扱い、そのリリースを止めずにパッチで直します。
 - 0.2.0 のあとは 2 週間ごとに main から出します。非公開で扱う入力の失敗を直したら、周期を待たずにパッチを出します。壊す変更や環境の下限を上げる変更ではマイナー、それ以外はパッチを上げます。タグを打つ対象は、バージョンを更新した main のコミット（PR を使ったときはマージしたコミット）です。
-- 0.2.0 で PDF と LAZ を外した判断は [#317](https://github.com/zumen-jp/zumen/issues/317) の履歴です。その後、PDF・表（xlsx・CSV）は [903a9ea0](https://github.com/zumen-jp/zumen/commit/903a9ea0) でコアから外しました。PDF の配布を戻す予定はありません。LAZ の展開は自前実装で main に戻しており（[#510](https://github.com/zumen-jp/zumen/issues/510)）、外部依存の修正版は待ちません。次の公開の対象と未完了条件は [#795](https://github.com/zumen-jp/zumen/issues/795)・[#796](https://github.com/zumen-jp/zumen/issues/796) に従います。
+- v0.4.0 の配布先・タグを打つコミット・公開状況は [#932](https://github.com/zumen-jp/zumen/issues/932) に記録します。v0.3.0 の実績は [#795](https://github.com/zumen-jp/zumen/issues/795) にあります。
 
 ## ライセンス本文と SBOM を作る
 
@@ -39,6 +39,8 @@ python xtask/release/package.py native --rid win-x64 --built target/release-buil
 ```
 
 `out` の下に、ライセンス本文と SBOM を添えた `native/{rid}/`、CLI の zip か tar.gz、`wheels/*.whl` ができます。依存の区分や辺、ビルド時の記録、梱包後のバイナリや本文が違えば止まります。wheel は `.dist-info/sboms/` と `RECORD`、`License-File` も確かめます。
+
+`win-x64` では [VBA 用](../../bindings/vba/README.md)の `zumen-vba-<版>-win-x64.zip` も作ります。VBE に取り込む 6 ファイルを ASCII・CRLF で収録し、同じビルドの DLL、ABI 用のライセンス本文・SBOM、導入手順を同梱します。ZIP を読み戻して中身と DLL の依存情報を照合します。タグ公開時はこの ZIP も GitHub Release の添付に含まれます。
 
 ### GNU Linux の下限を確かめる
 
@@ -79,6 +81,12 @@ python xtask/release/package.py npm --artifacts target/release-licenses --out ta
 
 全体版と 4 つの分割版の wasm に、それぞれ同じ名前で対応する SBOM を `*-wasm-sboms.tar.gz` と `@zumen-jp/zumen` の `sboms/` に入れます。tgz の中の wasm からも埋込情報を読み取ります。あわせて表示部品と React フック（`@zumen-jp/view2d`・`@zumen-jp/view3d`・`@zumen-jp/react`）も、ライセンス本文を添えて同じ版数の `.tgz` に包み、収録ファイル・メタデータ・peer dependency のみを確かめます（[#909](https://github.com/zumen-jp/zumen/issues/909)）。
 
+## Go の鏡に配るファイルを作る
+
+`python xtask/release/go_module.py --artifacts artifacts --out out` に、同じコミットで作った wasm・ライセンス・SBOM を渡します。全形式の wasm、ソース、`go.mod` と `go.sum`、ライセンス本文と SBOM を `zumen-go-<版>.tar.gz` にまとめ、展開したモジュールを共通の適合テストにかけます。
+
+初回は GitHub Release のアーカイブのビルド証明を `gh attestation verify <ファイル> --repo zumen-jp/zumen` で確かめ、配布用のリポジトリ `zumen-jp/zumen-go` のルートに展開します。展開したファイルをコミットしてコアと同じ版のタグを付けたら、空の利用側のモジュールで `go get zumen.dev/go@v<版>` が成功することを確かめます。
+
 ## npm の公開を再試行する
 
 公開済みの Release のパッケージを検証し、npm だけに公開する経路です。ワークフローの差分、`release` 環境に `main` ブランチの許可を足す設定変更、手動公開の例外と実際の公開について、利用者の承認を受けてから使います。設定の追加では、既存のタグの許可・承認者・ほかの保護の規則を維持します。
@@ -92,6 +100,26 @@ gh workflow run release.yml --ref main -f npm_retry_tag=v0.2.0
 npm の provenance は、再試行した main のワークフローとコミットを参照します。元のタグの配布物と同じことは、固定した digest と元の GitHub attestation の検証で、別に確かめます。
 
 `npm_retry_tag` を空にした手動実行は、公開せずにビルドと `cargo publish --dry-run` までを確かめます。手動でタグを指定した場合も、公開しません。通常の公開は、これまでどおり `v*` のタグの push で行います。
+
+## SwiftPM の配布物を作る
+
+macOS の Xcode と Rust の `aarch64-apple-darwin`・`aarch64-apple-ios`・`aarch64-apple-ios-sim` が必要です。`rustup component add llvm-tools-preview` で同じ toolchain の `llvm-ar` を用意します。独立したライセンスの工程で作った `licenses/swift/<対象>/` を使います。
+
+```bash
+python xtask/release/swift_package.py --licenses target/release-licenses --out target/release-packages
+```
+
+XCFramework の ZIP は 3 つの静的ライブラリとヘッダー、対象別の第三者のライセンス・SBOM、リポジトリのライセンスを収めます。各アーカイブのコンパイル記録と Cargo の依存の辺を SBOM に照合します。固定版の cargo-auditable が同じコンパイルで作る依存情報のオブジェクトを静的ライブラリに加え、XCFramework のアーカイブから読み戻して依存の区分と辺を照合します。SBOM の SHA-256 はそのアーカイブ全体の値です。
+
+`zumen-swift-<版>-source.tar.gz` は鏡に置く Swift ソースと `Package.swift` を収めます。マニフェストは同じ版の GitHub Release の ZIP と、そのバイト列から SwiftPM が計算したチェックサムを参照します。試運転ではマニフェストを検査し、コピーで ZIP の展開先を指定して SwiftPM のビルドを行い、macOS・iOS シミュレーターで適合検査を行います。
+
+## Swift と Go の鏡に出す
+
+初回は手動でも進められます。元のリポジトリの GitHub Release から対象のアーカイブを取り、`gh attestation verify <ファイル> --repo zumen-jp/zumen --signer-workflow zumen-jp/zumen/.github/workflows/release.yml --source-ref refs/tags/v<版> --source-digest <タグのコミット>` で照合します。Go はアーカイブの中身、Swift は `zumen-swift-<版>-source/` の中身をそれぞれの公開鏡のルートに置き、コミットと同じ版のタグを送ります。Swift のバイナリは元の GitHub Release が配ります。
+
+タグ公開で自動化するときは、本人がリポジトリ変数 `PUBLISH_MIRRORS` に `go`、`swift`、`both` のいずれかを設定します。未設定の間は手動経路を使えます。GitHub の `release` 環境の secret `MIRROR_PUBLISH_TOKEN` には、配布先の公開リポジトリ `zumen-jp/zumen-go`・`zumen-jp/zumen-swift` のうち使うものだけに Contents の読み書きを許した fine-grained personal access token を登録します。この設定と公開先の作成は利用者が決めます。トークンを使うのは計画済みの Git push のステップだけです。
+
+公開ジョブは同じ Actions 実行が検査したアーカイブを使います。初回は空の鏡に `main` を作り、既定のブランチがあればその履歴を引き継ぎます。前の版で配ったファイルを元の Release の証明と照らし、新版で外したものを除きます。鏡に加えた運用ファイルは保ち、配布対象への手元の変更や既存タグとの食い違いは停止して報告します。ブランチとタグは一度の atomic push で送ります。同じ中身を手動でタグ付けした場合や片方の公開後に再実行した場合は、そのタグを照合して完了します。
 
 ## NuGet を作る
 

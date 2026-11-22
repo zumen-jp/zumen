@@ -1088,7 +1088,7 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** 範囲を渡す入力の名前。<入力の名前>#<start>-<end> */
+        /** 範囲を渡す入力の名前。&lt;入力の名前&gt;#&lt;start&gt;-&lt;end&gt; */
         public String getInput() {
             return Json.read(json.get("input"), Json::string);
         }
@@ -7567,7 +7567,7 @@ public final class Messages {
             return this;
         }
 
-        /** 利用者が書いた寸法値の文字の元の内容。label が override のときだけ持つ。測定値に置き換える符号（DXF の <>）と書式の符号もそのまま持つ */
+        /** 利用者が書いた寸法値の文字の元の内容。label が override のときだけ持つ。測定値に置き換える符号（DXF の &lt;&gt;）と書式の符号もそのまま持つ */
         public String getContent() {
             return Json.read(json.get("content"), Json::string);
         }
@@ -9409,7 +9409,7 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** FILE_DESCRIPTION に ViewDefinition [<値>] として書く MVD の名前。書かなければ書かない */
+        /** FILE_DESCRIPTION に ViewDefinition [&lt;値&gt;] として書く MVD の名前。書かなければ書かない */
         public String getViewDefinition() {
             return Json.read(json.get("view_definition"), Json::string);
         }
@@ -10714,7 +10714,7 @@ public final class Messages {
             return this;
         }
 
-        /** 新しい名前。ほかのレイヤと重ならず（大文字と小文字を区別しない）、< > / \ " : ; ? * | = ` を含まないもの。0 と Defpoints の名前は変えられない */
+        /** 新しい名前。ほかのレイヤと重ならず（大文字と小文字を区別しない）、&lt; &gt; / \ " : ; ? * | = ` を含まないもの。0 と Defpoints の名前は変えられない */
         public String getName() {
             return Json.read(json.get("name"), Json::string);
         }
@@ -10908,7 +10908,7 @@ public final class Messages {
             return this;
         }
 
-        /** 新しい名前。ほかの文字スタイルと重ならず（大文字と小文字を区別しない）、< > / \ " : ; ? * | = ` を含まないもの。Standard の名前は変えられない */
+        /** 新しい名前。ほかの文字スタイルと重ならず（大文字と小文字を区別しない）、&lt; &gt; / \ " : ; ? * | = ` を含まないもの。Standard の名前は変えられない */
         public String getName() {
             return Json.read(json.get("name"), Json::string);
         }
@@ -11243,7 +11243,7 @@ public final class Messages {
             return this;
         }
 
-        /** 新しい名前。ほかの線種と重ならず（大文字と小文字を区別しない）、< > / \ " : ; ? * | = ` を含まないもの。ByLayer・ByBlock・Continuous と外部参照に依る線種の名前は変えられない */
+        /** 新しい名前。ほかの線種と重ならず（大文字と小文字を区別しない）、&lt; &gt; / \ " : ; ? * | = ` を含まないもの。ByLayer・ByBlock・Continuous と外部参照に依る線種の名前は変えられない */
         public String getName() {
             return Json.read(json.get("name"), Json::string);
         }
@@ -11446,7 +11446,7 @@ public final class Messages {
             return this;
         }
 
-        /** 新しい名前。ほかの寸法スタイルと重ならず（大文字と小文字を区別しない）、$ と < > / \ " : ; ? * | = ` を含まないもの。Standard・子の寸法スタイル（名前に $ を持つもの）・子を持つ寸法スタイル・外部参照に依る寸法スタイルの名前は変えられない */
+        /** 新しい名前。ほかの寸法スタイルと重ならず（大文字と小文字を区別しない）、$ と &lt; &gt; / \ " : ; ? * | = ` を含まないもの。Standard・子の寸法スタイル（名前に $ を持つもの）・子を持つ寸法スタイル・外部参照に依る寸法スタイルの名前は変えられない */
         public String getName() {
             return Json.read(json.get("name"), Json::string);
         }
@@ -12994,7 +12994,7 @@ public final class Messages {
             return this;
         }
 
-        /** 平面直角座標系の GeoTIFF の DEM だけに指定する。真なら標高格子を点でなく地形の面で返す。セル代表点を頂点にし、隣り合う 4 つの格子点が点にできれば 2 個、3 つなら 1 個の三角形を作る。nodata などのセルは面に含めない。面は 128 間隔四方の区画ごとの要素（ID は区画の初めの行と列の r<行>c<列>、クラスは dem）に分け、隣の区画と縁の頂点を共有する。座標系と高さの基準は変換しない。偽か省略なら点で返す。105 から */
+        /** 平面直角座標系の GeoTIFF の DEM だけに指定する。真なら標高格子を点でなく地形の面で返す。セル代表点を頂点にし、隣り合う 4 つの格子点が点にできれば 2 個、3 つなら 1 個の三角形を作る。nodata などのセルは面に含めない。面は 128 間隔四方の区画ごとの要素（ID は区画の初めの行と列の r&lt;行&gt;c&lt;列&gt;、クラスは dem）に分け、隣の区画と縁の頂点を共有する。座標系と高さの基準は変換しない。偽か省略なら点で返す。105 から */
         public Boolean getSurface() {
             return Json.read(json.get("surface"), Json::bool);
         }
@@ -14696,7 +14696,7 @@ public final class Messages {
         }
     }
 
-    /** 指摘。diagnostic は診断と同じ形で、describe で文にできる。severity は規則の level で、照合できない値（profile.<種類>.unsupported）は info。count は 1 */
+    /** 指摘。diagnostic は診断と同じ形で、describe で文にできる。severity は規則の level で、照合できない値（profile.&lt;種類&gt;.unsupported）は info。count は 1 */
     public static final class CheckFinding extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public CheckFinding(Map<String, Object> json) {
@@ -15622,7 +15622,7 @@ public final class Messages {
             return this;
         }
 
-        /** 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。書けば、文書の view が用紙の ID に /view/<番号> を足した値の項目だけを描く */
+        /** 起点の用紙のビューの番号。0 から数える。from が用紙のときだけ書ける。書けば、文書の view が用紙の ID に /view/&lt;番号&gt; を足した値の項目だけを描く */
         public Long getView() {
             return Json.read(json.get("view"), Json::integer);
         }
@@ -15938,7 +15938,7 @@ public final class Messages {
             super(new LinkedHashMap<String, Object>());
         }
 
-        /** シーンの ID。review/markup/<hex> か review/location/<hex>/<hex> */
+        /** シーンの ID。review/markup/&lt;hex&gt; か review/location/&lt;hex&gt;/&lt;hex&gt; */
         public String getId() {
             return Json.read(json.get("id"), Json::string);
         }
@@ -24295,7 +24295,7 @@ public final class Messages {
             return this;
         }
 
-        /** op ごとの結果（<op>_result の形の JSON のオブジェクト）。失敗したときは null */
+        /** op ごとの結果（{@code <op>_result} の形の JSON のオブジェクト）。失敗したときは null */
         public Map<String, Object> getResult() {
             return Json.object(json.get("result"));
         }
@@ -30359,7 +30359,7 @@ public final class Messages {
         }
     }
 
-    /** describe に使うカタログのファイル。catalog/<言語>.toml から生成し、zm_push で渡す（決定 0009） */
+    /** describe に使うカタログのファイル。catalog/&lt;言語&gt;.toml から生成し、zm_push で渡す（決定 0009） */
     public static final class Catalog extends Message {
         /** 読んだ JSON のオブジェクトを包む */
         public Catalog(Map<String, Object> json) {

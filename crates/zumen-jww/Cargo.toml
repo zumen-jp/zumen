@@ -11,11 +11,11 @@ publish = true
 formats = ["jww"]
 
 [dependencies]
-zumen-base = { version = "0.3.0", path = "../zumen-base" }
-zumen-sdk = { version = "0.3.0", path = "../zumen-sdk" }
-zumen-drawing = { version = "0.3.0", path = "../zumen-drawing", optional = true }
-zumen-geom2d = { version = "0.3.0", path = "../zumen-geom2d", optional = true }
-zumen-live = { version = "0.3.0", path = "../zumen-live", optional = true }
+zumen-base = { version = "0.4.0", path = "../zumen-base" }
+zumen-sdk = { version = "0.4.0", path = "../zumen-sdk" }
+zumen-drawing = { version = "0.4.0", path = "../zumen-drawing", optional = true }
+zumen-geom2d = { version = "0.4.0", path = "../zumen-geom2d", optional = true }
+zumen-live = { version = "0.4.0", path = "../zumen-live", optional = true }
 # Shift_JIS の名前と文字を戻す。WHATWG の Shift_JIS で、環境によらない（決定 0121・0134）
 encoding_rs = { version = "0.8.35", optional = true }
 # 円弧の端と楕円の軸の向き。std の三角関数は環境で値が違いうる（決定 0007）
