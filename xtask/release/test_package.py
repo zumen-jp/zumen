@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+import dart_package
 import licenses
 import package
 import sbom
@@ -37,6 +38,12 @@ def notice(directory, kind, target):
 
 
 class PackageTests(unittest.TestCase):
+    def test_dart_pubspec_omits_only_the_source_publish_guard(self):
+        source = (package.ROOT / "bindings/dart/pubspec.yaml").read_bytes().splitlines(keepends=True)
+        self.assertEqual(source.count(b"publish_to: none\n"), 1)
+        source.remove(b"publish_to: none\n")
+        self.assertEqual(dart_package.dart_files()["pubspec.yaml"], b"".join(source))
+
     def test_colored_cargo_about_warning_is_rejected(self):
         result = subprocess.CompletedProcess([], 0, "", "\x1b[33mWARN\x1b[0m changed clarify checksum")
         with patch("licenses.subprocess.run", return_value=result), self.assertRaisesRegex(ValueError, "警告"):

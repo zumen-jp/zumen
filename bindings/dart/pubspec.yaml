@@ -3,7 +3,7 @@ description: 図面の読み書きと変換に使う zumen の Dart ラッパー
 repository: https://github.com/zumen-jp/zumen/tree/main/bindings/dart
 issue_tracker: https://github.com/zumen-jp/zumen/issues
 version: 0.4.0
-# dart_package.py がライセンス本文を加えた配布物に公開先を設定する。
+# dart_package.py は梱包時にソースからの公開を防ぐ設定を外す。
 publish_to: none
 
 environment:

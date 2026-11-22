@@ -21,7 +21,7 @@ def dart_files():
     for field in ("name: zumen", f"version: {VERSION}", "publish_to: none"):
         if manifest.count(field) != 1:
             raise ValueError(f"Dart の名前・版・公開先を確認できない: {field}")
-    manifest[manifest.index("publish_to: none")] = "publish_to: https://pub.dev"
+    manifest.remove("publish_to: none")
     files["pubspec.yaml"] = ("\n".join(manifest) + "\n").encode("utf-8")
     files["README.md"] = (source / "README.md").read_bytes()
     files["CHANGELOG.md"] = (
