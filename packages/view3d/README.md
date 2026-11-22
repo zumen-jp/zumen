@@ -2,7 +2,7 @@
 
 zumen の 3D のシーン（ZMS3）を、利用側の Canvas に WebGPU で描く表示部品です。メッシュ・稜線・複数の配置・透明度・未解決の色を描き、要素の ID でビューごとに選択・非表示・色を指定し、切断面で切り、画面の点から要素を当てます。レビュー文書の 3D の場所と往復します。設計は [3D の表示部品](../../docs/view3d.md) に従います。
 
-`@zumen-jp/zumen` と同じ版数で npm の配布物を組みます（初回のレジストリ公開は [#909](https://github.com/zumen-jp/zumen/issues/909) で準備中）。手元では `packages/view3d/src/index.js` を ESM として読み込み、`@zumen-jp/zumen` を `bindings/js/src/index.js` に、`three`・`three/webgpu`・`three/tsl` を利用側の three.js に解決します。
+`@zumen-jp/zumen` と同じ版数で npm の配布物を組みます。[npm の @zumen-jp/view3d](https://www.npmjs.com/package/@zumen-jp/view3d) を `npm install @zumen-jp/view3d` で追加できます。手元では `packages/view3d/src/index.js` を ESM として読み込み、`@zumen-jp/zumen` を `bindings/js/src/index.js` に、`three`・`three/webgpu`・`three/tsl` を利用側の three.js に解決します。
 
 ## 依存
 

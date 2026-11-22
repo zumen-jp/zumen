@@ -112,7 +112,7 @@ try {
 | --- | --- | --- |
 | Rust | [crates.io の zumen](https://crates.io/crates/zumen/0.4.0) | [API と例](https://docs.rs/zumen/0.4.0/zumen/) |
 | TypeScript・JavaScript | [npm の @zumen-jp/zumen](https://www.npmjs.com/package/@zumen-jp/zumen/v/0.4.0) | [ブラウザー・Node.js](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/js/README.md#使い方) |
-| 2D・3D 表示、React | [view2d](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-jp-view2d-0.4.0.tgz)・[view3d](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-jp-view3d-0.4.0.tgz)・[react](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-jp-react-0.4.0.tgz) | [2D](https://github.com/zumen-jp/zumen/blob/v0.4.0/packages/view2d/README.md)・[3D](https://github.com/zumen-jp/zumen/blob/v0.4.0/packages/view3d/README.md)・[React](https://github.com/zumen-jp/zumen/blob/v0.4.0/packages/react/README.md) |
+| 2D・3D 表示、React | [view2d](https://www.npmjs.com/package/@zumen-jp/view2d/v/0.4.0)・[view3d](https://www.npmjs.com/package/@zumen-jp/view3d/v/0.4.0)・[react](https://www.npmjs.com/package/@zumen-jp/react/v/0.4.0) | [2D](https://github.com/zumen-jp/zumen/blob/v0.4.0/packages/view2d/README.md)・[3D](https://github.com/zumen-jp/zumen/blob/v0.4.0/packages/view3d/README.md)・[React](https://github.com/zumen-jp/zumen/blob/v0.4.0/packages/react/README.md) |
 | Python | [PyPI の zumen](https://pypi.org/project/zumen/0.4.0/) | [Python](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/python/README.md#使い方) |
 | .NET | [NuGet の Zumen](https://www.nuget.org/packages/Zumen/0.4.0) | [.NET](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/dotnet/README.md#使い方) |
 | CLI・MCP | [GitHub Release](https://github.com/zumen-jp/zumen/releases/tag/v0.4.0)・[crates.io の zumen-cli](https://crates.io/crates/zumen-cli/0.4.0) | [CLI・MCP](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/cli/README.md#使い方) |
@@ -120,12 +120,12 @@ try {
 | Java・Kotlin | [Maven Central の dev.zumen:zumen](https://central.sonatype.com/artifact/dev.zumen/zumen/0.4.0) | [Java・Android](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/java/README.md) |
 | Swift | [SwiftPM の zumen-swift](https://github.com/zumen-jp/zumen-swift/tree/v0.4.0) | [iOS・macOS](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/swift/README.md) |
 | Go | [zumen.dev/go](https://pkg.go.dev/zumen.dev/go@v0.4.0) | [Go と wasm](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/go/README.md) |
-| Dart・Flutter | [Dart パッケージ（tar.gz）](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-dart-0.4.0.tar.gz) | [Dart の FFI](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/dart/README.md) |
+| Dart・Flutter | [pub.dev の zumen](https://pub.dev/packages/zumen/versions/0.4.0) | [Dart の FFI](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/dart/README.md) |
 | VBA7 | [Windows x64 用 ZIP](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-vba-0.4.0-win-x64.zip) | [Office への導入](https://github.com/zumen-jp/zumen/blob/v0.4.0/bindings/vba/README.md#導入) |
 
-2D・3D 表示部品と React フックは、表のリンクから必要な `.tgz` を取得し、手元のファイルを npm でインストールします。たとえば 2D の表示部品は `npm install ./zumen-jp-view2d-0.4.0.tgz` で入ります。3 パッケージの npm レジストリ公開は準備中です。
+2D 表示を使う場合は `npm install @zumen-jp/zumen @zumen-jp/view2d` で導入できます。3D 表示には `@zumen-jp/view3d`、React フックを使う場合は `@zumen-jp/react` を追加します。
 
-Java と Dart のラッパーには、対象環境に合う同じ版の C ABI ライブラリが必要です。SwiftPM は XCFramework を取得し、Go モジュールは wasm、VBA 用 ZIP は DLL を同梱します。
+Dart は `dart pub add zumen` で導入できます。Java と Dart のラッパーには、対象環境に合う同じ版の C ABI ライブラリが必要です。SwiftPM は XCFramework を取得し、Go モジュールは wasm、VBA 用 ZIP は DLL を同梱します。
 
 v0.4.0 のデスクトップ向け配布物は Windows 11・Windows Server 2022 以降（x64・ARM64）、macOS 14 以降（Apple Silicon）、GNU Linux（x64・arm64、カーネル 5.14・glibc 2.34 以降）に対応します。Python の GNU Linux wheel は `manylinux_2_34` です。[対応する環境](docs/support.md)・[v0.3.0 からの移行](docs/releases/0.4.0.md)
 

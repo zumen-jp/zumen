@@ -28,11 +28,11 @@ const packages = [
   { language: 'Java・Kotlin', name: 'dev.zumen:zumen（Maven Central）', url: `https://central.sonatype.com/artifact/dev.zumen/zumen/${releaseVersion}`, guide: releasedSource('bindings/java/README.md') },
   { language: 'Swift', name: 'zumen-swift', url: `https://github.com/zumen-jp/zumen-swift/tree/v${releaseVersion}`, guide: releasedSource('bindings/swift/README.md') },
   { language: 'Go', name: 'zumen.dev/go', url: `https://pkg.go.dev/zumen.dev/go@v${releaseVersion}`, guide: releasedSource('bindings/go/README.md') },
-  { language: 'Dart', name: 'zumen（tar.gz）', url: releaseAsset(`zumen-dart-${releaseVersion}.tar.gz`), guide: releasedSource('bindings/dart/README.md') },
+  { language: 'Dart', name: 'pub.dev の zumen', url: `https://pub.dev/packages/zumen/versions/${releaseVersion}`, guide: releasedSource('bindings/dart/README.md') },
   { language: 'VBA（64 bit）', name: 'Excel 用 ZIP', url: releaseAsset(`zumen-vba-${releaseVersion}-win-x64.zip`), guide: releasedSource('bindings/vba/README.md') },
-  { language: 'WebGPU 2D', name: '@zumen-jp/view2d', url: releaseAsset(`zumen-jp-view2d-${releaseVersion}.tgz`), guide: releasedSource('packages/view2d/README.md') },
-  { language: 'WebGPU 3D', name: '@zumen-jp/view3d', url: releaseAsset(`zumen-jp-view3d-${releaseVersion}.tgz`), guide: releasedSource('packages/view3d/README.md') },
-  { language: 'React', name: '@zumen-jp/react', url: releaseAsset(`zumen-jp-react-${releaseVersion}.tgz`), guide: releasedSource('packages/react/README.md') },
+  { language: 'WebGPU 2D', name: '@zumen-jp/view2d', url: `https://www.npmjs.com/package/@zumen-jp/view2d/v/${releaseVersion}`, guide: releasedSource('packages/view2d/README.md') },
+  { language: 'WebGPU 3D', name: '@zumen-jp/view3d', url: `https://www.npmjs.com/package/@zumen-jp/view3d/v/${releaseVersion}`, guide: releasedSource('packages/view3d/README.md') },
+  { language: 'React', name: '@zumen-jp/react', url: `https://www.npmjs.com/package/@zumen-jp/react/v/${releaseVersion}`, guide: releasedSource('packages/react/README.md') },
 ];
 ---
 
@@ -100,7 +100,8 @@ const packages = [
           <tbody>{packages.map((item) => <tr><th scope="row">{item.language}</th><td><a href={item.url}><code>{item.name}</code></a>（<a href={item.guide}>使い方</a>）</td></tr>)}</tbody>
         </table>
       </div>
-      <p class="note">2D・3D 表示部品と React フックは、表のリンクから必要な GitHub Release のパッケージを取得し、たとえば 2D なら <code>npm install ./zumen-jp-view2d-{releaseVersion}.tgz</code> で入れます。この 3 件の npm レジストリ公開は準備中です。コアは npm の <code>@zumen-jp/zumen</code> を使います。素の <code>zumen</code> はほかの人のパッケージなので、<code>npx zumen</code> を使わないでください。</p>
+      <p class="note">Dart では <code>dart pub add zumen</code> でラッパーを追加します。Java と Dart では、対象環境に合う同じ版の <a href={releaseUrl}>C ABI ライブラリ</a>も用意してください。</p>
+      <p class="note">2D 表示は <code>npm install @zumen-jp/zumen @zumen-jp/view2d</code> で導入できます。3D 表示には <code>@zumen-jp/view3d</code>、React フックには <code>@zumen-jp/react</code> を追加します。素の <code>zumen</code> はほかの人のパッケージなので、<code>npx zumen</code> を使わないでください。</p>
     </div>
   </section>
 </Page>

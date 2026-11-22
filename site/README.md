@@ -32,7 +32,7 @@ npm run dev
 
 ## 図面ビューアー
 
-`npm run build` は、案内の HTML のあと、既存の `playground/` を Vite で `dist/viewer/` に組みます。wasm とラッパーはサイトの lockfile で固定した npm の `@zumen-jp/zumen` から取り、非公開の表示部品は `packages/` を使います。Rust と手元の `target/` は使いません。
+`npm run build` は、案内の HTML のあと、既存の `playground/` を Vite で `dist/viewer/` に組みます。wasm とラッパーはサイトの lockfile で固定した npm の `@zumen-jp/zumen` から取り、表示部品と React フックは、同じチェックアウトの `packages/` にある実装を使います。Rust と手元の `target/` は使いません。
 
 - wasm・Worker・CSS・公開サンプルは、同一オリジンから配ります。CSP は `public/_headers` にあり、ページと Worker の外部への通信を制限します。案内ページは JavaScript を読み込みません。これをビルドの出力で毎回検査します。
 - `Cache-Control` の `no-transform` で、配信側による解析スクリプトなどの自動注入を止めます。`max-age=0, must-revalidate` で更新時の再検証も保ちます。これは [Cloudflare Web Analytics の公式の方法](https://developers.cloudflare.com/web-analytics/get-started/)で、サイトのビルドの出力に含めます。本番で注入を見つけたら、CSP や通信検査を緩めずに調べます。

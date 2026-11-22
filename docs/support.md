@@ -46,11 +46,13 @@ Tier 3 では、公式のラッパーを使わずに図面を開く方法を、�
 | 2 | Dart | Dart 3.5（Flutter 3.24） | 現行の Flutter 3 世代 | 毎晩 |
 | 2 | VBA | VBA7（Office 2021 以降、64 bit） | 64 bit の Microsoft 365 と Office LTSC 2024 | DLL は PR ごと。Microsoft 365 の Excel 64 bit で [VBE のコンパイルと全手順を確認](../bindings/vba/README.md#実機の検証結果) |
 
-Tier 2 の v0.4.0 は、Java・Kotlin が [Maven Central](https://central.sonatype.com/artifact/dev.zumen/zumen/0.4.0)、Swift が [SwiftPM](https://github.com/zumen-jp/zumen-swift/tree/v0.4.0)、Go が [zumen.dev/go](https://pkg.go.dev/zumen.dev/go@v0.4.0)、Dart が [Dart パッケージ（tar.gz）](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-dart-0.4.0.tar.gz)、VBA7 が [Windows x64 用 ZIP](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-vba-0.4.0-win-x64.zip) から入手できます。言語別の導入手順は [利用方法](../README.md#利用方法) にまとめています。
+Tier 2 の v0.4.0 は、Java・Kotlin が [Maven Central](https://central.sonatype.com/artifact/dev.zumen/zumen/0.4.0)、Swift が [SwiftPM](https://github.com/zumen-jp/zumen-swift/tree/v0.4.0)、Go が [zumen.dev/go](https://pkg.go.dev/zumen.dev/go@v0.4.0)、Dart が [pub.dev](https://pub.dev/packages/zumen/versions/0.4.0)、VBA7 が [Windows x64 用 ZIP](https://github.com/zumen-jp/zumen/releases/download/v0.4.0/zumen-vba-0.4.0-win-x64.zip) から入手できます。言語別の導入手順は [利用方法](../README.md#利用方法) にまとめています。
 
 ## ブラウザーの下限の根拠
 
-ブラウザー向けのパッケージ（`@zumen-jp/zumen`・`@zumen-jp/view2d`・`@zumen-jp/view3d`・`@zumen-jp/react`）とサイトのビューアーは、次の 2 つを前提にします。
+ブラウザー向けのパッケージは npm から取得できます。[コア・表示部品・React フックの導入手順](../README.md#利用方法)
+
+ブラウザー向けのパッケージとサイトのビューアーは、次の 2 つを前提にします。
 
 1. **WebGPU（`navigator.gpu`）**: 2D と 3D の表示部品は描画を WebGPU に一本化し、Canvas 2D や WebGL2 へのフォールバックを持ちません。WebGPU が標準で有効になった Chrome・Edge 113、Firefox 141（Windows。macOS は 145 以降）、Safari 26 を下限とします。WebGPU は Secure Context（`https:`・`http://localhost`・`http://127.0.0.1` など）でのみ利用できます。
 2. **wasm の固定幅 SIMD（`simd128`）**: 配布用の `.cargo/config.toml` は、`wasm32-unknown-unknown` と `wasm32-wasip1` で `simd128` を有効にします（決定性を崩す `relaxed-simd` は使いません）。あわせて Rust の既定機能（multivalue・mutable-globals・reference-types・sign-ext・bulk-memory・nontrapping-fptoint）を使います。これらは上の WebGPU 対応下限のすべてのブラウザーに含まれます。

@@ -2,7 +2,7 @@
 
 ネイティブのライブラリ（`zumen_abi1.dll`・`libzumen_abi1.so`・`libzumen_abi1.dylib`）の C ABI を、dart:ffi で呼ぶ薄いラッパーです。下限は Dart 3.5（Flutter 3.24）です。
 
-- パッケージ名は `zumen` です。ネイティブのライブラリは同じ版の [GitHub Releases](https://github.com/zumen-jp/zumen/releases) から入手します。[初回公開の進み具合](https://github.com/zumen-jp/zumen/issues/435)
+- アプリのフォルダーで `dart pub add zumen` を実行し、[pub.dev の zumen](https://pub.dev/packages/zumen) を追加します。ネイティブのライブラリは同じ版の [GitHub Releases](https://github.com/zumen-jp/zumen/releases) から入手します。
 - 依存は `ffi`（BSD-3-Clause）だけです。
 - `Zumen.open(道筋)` でライブラリを読み込みます。アプリに静的にリンクしたとき（iOS など）は `Zumen.process()` を使います。
 - `lib/src/messages.dart`・`constants.dart` は、`schema/` から `cargo xtask codegen` で生成します。手で直さないでください。
@@ -68,7 +68,7 @@ dart:ffi の呼び出しは、終わるまで isolate を止めます。取り�
 python xtask/release/dart_package.py --out target/release-packages
 ```
 
-`zumen-dart-<版>.tar.gz` を空のフォルダーに展開し、展開先で `dart pub publish --dry-run` を実行します。ラッパーのソース、pubspec、README、変更履歴、ライセンス本文を確認できます。初版の 0.4.0 は、公開担当者が同じタグの Release にある配布物を展開し、`dart pub publish` を実行します。[Dart の公開手順](https://dart.dev/tools/pub/publishing)
+`zumen-dart-<版>.tar.gz` を空のフォルダーに展開し、展開先で `dart pub publish --dry-run` を実行します。ラッパーのソース、pubspec、README、変更履歴、ライセンス本文を確認できます。pub.dev へ送る配布物の `pubspec.yaml` では `publish_to` を省きます。初版の 0.4.0 は GitHub Release の配布物から `publish_to: https://pub.dev` の 1 行を除いて公開しました。[pubspec の公開先](https://dart.dev/tools/pub/pubspec#publish_to)・[初版の記録](https://github.com/zumen-jp/zumen/issues/435)
 
 初版を公開したら、pub.dev の `zumen` の Admin で GitHub Actions からの公開を有効にし、リポジトリを `zumen-jp/zumen`、タグのパターンを `v{{version}}`、必須の環境を `release` にします。後続のタグでは、その環境の承認後に検査済みの配布物を展開し、GitHub が発行する短期のトークンで公開します。[pub.dev の自動公開](https://dart.dev/tools/pub/automated-publishing)
 
