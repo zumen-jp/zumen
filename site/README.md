@@ -69,7 +69,7 @@ Cloudflare Pages で、このリポジトリの `main` から公開する想定�
 - ビルドのコマンド: `npm ci && npm run build`
 - 出力のディレクトリ: `dist`
 
-Windows 11 x64 用 zumen-editor の配布を始めるときは、署名済み MSIX を取得できる公開 HTTPS URL をビルド環境の `PUBLIC_ZUMEN_EDITOR_MSIX_URL` に設定し、再ビルドします。トップページにダウンロードリンクとインストールの案内が表示されます。未設定のときは表示しません。
+Windows 11 x64 用 zumen-editor の配布先は [配布専用リポジトリ](https://github.com/zumen-jp/zumen-editor-releases/releases) です。更新時は MSI と SHA-256 を公開し、トップページの `editorVersion` をその版に合わせます。
 
 ## 直すとき
 
