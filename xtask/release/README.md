@@ -92,10 +92,14 @@ python xtask/release/package.py npm --artifacts target/release-licenses --out ta
 公開済みの Release のパッケージを検証し、npm だけに公開する経路です。ワークフローの差分、`release` 環境に `main` ブランチの許可を足す設定変更、手動公開の例外と実際の公開について、利用者の承認を受けてから使います。設定の追加では、既存のタグの許可・承認者・ほかの保護の規則を維持します。
 
 ```bash
-gh workflow run release.yml --ref main -f npm_retry_tag=v0.2.0
+gh workflow run release.yml --ref main -f npm_retry_tag=v0.4.0
 ```
 
-このコマンドは、検証後に npm への公開を始めます。今回は、許可リストに固定した `v0.2.0` だけが対象です。元のタグのコミット、Release の状態、asset と取得したファイルの SHA-256、パッケージの名前・バージョン・リポジトリ、元の GitHub attestation を確かめます。ファイルの展開・再ビルド・パッケージのスクリプトの実行はしません。npm に同じバージョンがすでにあれば断り、ほかのレジストリには出し直しません。
+このコマンドは `@zumen-jp/view2d`、`@zumen-jp/view3d`、`@zumen-jp/react` の順で 0.4.0 を公開します。各パッケージに npm の trusted publisher を設定します。GitHub の所有者は `zumen-jp`、リポジトリは `zumen`、ワークフローは `release.yml`、環境は `release` です。
+
+検査では元のタグのコミット、Release の状態、配布物の SHA-256、パッケージの名前・バージョン・リポジトリ、元の GitHub attestation を確かめます。npm で同じ版の名前・バージョン・リポジトリと tarball の SHA-512 が一致すれば、そのパッケージの公開は済んでいます。不一致や通信エラーでは公開前に止まります。途中で公開が止まった場合も、同じコマンドで残りを公開できます。未公開のパッケージがあれば `release` 環境でもう一度照合し、元の tarball を使って公開します。
+
+`npm_retry_tag=v0.2.0` の対象は `@zumen-jp/zumen@0.2.0` です。この版が公開済みなら再試行を断ります。
 
 npm の provenance は、再試行した main のワークフローとコミットを参照します。元のタグの配布物と同じことは、固定した digest と元の GitHub attestation の検証で、別に確かめます。
 
