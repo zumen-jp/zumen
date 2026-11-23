@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <b><a href="https://zumen.dev">サイト</a></b>・<a href="https://zumen.dev/viewer/">ビューアー</a>・<a href="https://zumen.dev/formats/">対応形式</a>・<a href="#利用方法">利用方法</a>・<a href="#文書">文書</a>・<a href="docs/releases/0.4.0.md">更新内容</a>
+  <b><a href="https://zumen.dev">サイト</a></b>・<a href="https://editor.zumen.dev/">Web エディター</a>・<a href="https://zumen.dev/formats/">対応形式</a>・<a href="#利用方法">利用方法</a>・<a href="#文書">文書</a>・<a href="docs/releases/0.4.0.md">更新内容</a>
 </p>
 
 zumen は、日本の建設のデータ（図面・BIM・土木・点群・納品）を読み書きする、寛容なライセンスのライブラリ群です。Rust の 1 つのコアを、ブラウザー・サーバー・各言語から同じ結果で使います。ファイルは外へ出さずに読みます。

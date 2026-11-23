@@ -1,6 +1,7 @@
 // サイトの中で使い回す文と表。お知らせ・対応形式は、ここを直す。
 
 export const repo = 'https://github.com/zumen-jp/zumen';
+export const webEditor = 'https://editor.zumen.dev/';
 export const releaseVersion = '0.4.0';
 export const drawingOutputs = [
   { format: 'dxf', extension: 'dxf', label: 'DXF' },
@@ -10,9 +11,9 @@ export const drawingOutputs = [
 export const releaseUrl = `${repo}/releases/tag/v${releaseVersion}`;
 export const releasedSource = (file: string) => `${repo}/blob/v${releaseVersion}/${file}`;
 
-// ナビの並び。ビューアーのヘッダーとの一致を、組み立ての検査がこの { href, label } の形で読む。
+// ナビの並び。ヘッダー・フッター・下層ページの「ほかのページ」で共有する。
 export const nav = [
-  { href: '/viewer/', label: '図面を試す' },
+  { href: webEditor, label: '図面を試す' },
   { href: '/plugins/', label: 'AI プラグイン' },
   { href: '/features/', label: '特長' },
   { href: '/formats/', label: '対応形式' },
@@ -30,7 +31,7 @@ export interface PageInfo {
 
 // ナビの各ページの肩書きと説明。下層のページの見出しと、ページの終わりの「ほかのページ」に使う。
 export const pages: Record<(typeof nav)[number]['href'], PageInfo> = {
-  '/viewer/': { en: 'Viewer', lead: '公開サンプルや手元の図面を、ブラウザーの中だけで開きます。' },
+  [webEditor]: { en: 'Web Editor', lead: 'サンプルや手元の図面を、ブラウザーの中だけで表示・照合・AI 編集できます。' },
   '/plugins/': { en: 'AI Plugins', lead: 'Codex や Claude Code に zumen を追加し、手元の図面を開いて編集する手順です。' },
   '/features/': { en: 'Features', lead: 'zumen が何をするライブラリ群か、どのように作っているかを説明します。' },
   '/formats/': { en: 'Formats', lead: '形式ごとの、読む・書くの状況と、扱わない形式です。' },
@@ -137,7 +138,7 @@ export interface Faq {
 export const faqs: Faq[] = [
   {
     q: '今すぐ使えますか。',
-    a: `v${releaseVersion} を公開しています。<a href="/platforms/#packages">言語ごとの配布先と導入手順</a>をご覧ください。ブラウザーでは<a href="/viewer/">図面ビューアー</a>で試せます。対応する形式と操作は<a href="/formats/">対応形式</a>で案内しています。`,
+    a: `v${releaseVersion} を公開しています。<a href="/platforms/#packages">言語ごとの配布先と導入手順</a>をご覧ください。ブラウザーでは <a href="${webEditor}">zumen-editor-web</a> で試せます。対応する形式と操作は<a href="/formats/">対応形式</a>で案内しています。`,
     top: true,
   },
   {

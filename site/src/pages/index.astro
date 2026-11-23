@@ -5,7 +5,7 @@ import GithubCta from '../components/GithubCta.astro';
 import NewsList from '../components/NewsList.astro';
 import PlanDrawing from '../components/PlanDrawing.astro';
 import SectionHead from '../components/SectionHead.astro';
-import { faqs, formats, hostApps, news, releaseVersion } from '../data/site';
+import { faqs, formats, hostApps, news, releaseVersion, webEditor } from '../data/site';
 import Base from '../layouts/Base.astro';
 
 const editorVersion = '0.1.0';
@@ -37,7 +37,7 @@ const points = [
           zumen は、SXF・Jw_cad・DXF・DWG から BIM・土木・電子納品まで、日本の建設のデータを読み書きするライブラリ群です。Rust の 1 つのコアを、ブラウザー・サーバー・Python・.NET・Excel から同じように使えます。
         </p>
         <div class="actions">
-          <a class="btn btn-primary btn-lg arrow" href="/viewer/">図面を手元で開く</a>
+          <a class="btn btn-primary btn-lg arrow" href={webEditor}>図面を手元で開く</a>
           <a class="btn btn-secondary btn-lg" href="/formats/">対応形式を見る</a>
         </div>
         <dl class="hero-specs" aria-label="主な仕様">
@@ -63,7 +63,7 @@ const points = [
     <div class="wrap">
       <SectionHead id="start-title" title="今すぐ試す・使う" en="Get Started" />
       <div class="entry-grid">
-        <article class="entry-card entry-card-featured">
+        <article class="entry-card">
           <div class="entry-head">
             <span class="entry-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -72,14 +72,14 @@ const points = [
                 <path d="M8 21h8M12 18v3" />
               </svg>
             </span>
-            <span class="entry-badge">ブラウザー · WebGPU</span>
+            <span class="entry-badge">Chrome · WebGPU · OSS</span>
           </div>
-          <h3>図面ビューアー</h3>
-          <p class="entry-desc">公開サンプルや手元の SXF・JWW・DXF・DWG を、ブラウザーの中だけで表示・距離計測・DXF 書き出しできます。</p>
+          <h3>zumen-editor-web</h3>
+          <p class="entry-desc">サンプルや手元の SXF・JWW・DXF・DWG を、Chrome の中だけで表示・計測・CAD 製図基準チェック・AI 編集できます。</p>
           <div class="entry-foot">
-            <a class="btn btn-primary arrow" href="/viewer/">図面を手元で開く</a>
+            <a class="btn btn-primary arrow" href={webEditor}>図面を手元で開く</a>
           </div>
-          <p class="entry-footnote">インストール不要です。開いた図面はブラウザー内だけで処理し、外部へは送りません。</p>
+          <p class="entry-footnote">インストール不要です。図面の読み込みと表示はブラウザー内だけで完結し、サーバーへ保管しません。</p>
         </article>
 
         <article class="entry-card">

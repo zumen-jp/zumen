@@ -1,6 +1,7 @@
 ---
 // 存在しないパスのページ。Cloudflare Pages は、dist/404.html があれば、見つからないパスに状態 404 で返す（#688）。
 import PageHeader from '../components/PageHeader.astro';
+import { webEditor } from '../data/site';
 import Base from '../layouts/Base.astro';
 ---
 
@@ -11,7 +12,7 @@ import Base from '../layouts/Base.astro';
       <p class="prose">URL を確かめるか、トップページからお探しください。</p>
       <div class="actions">
         <a class="btn btn-primary arrow" href="/">トップページへ</a>
-        <a class="btn btn-secondary" href="/viewer/">図面ビューアーを開く</a>
+        <a class="btn btn-secondary" href={webEditor}>Web 図面エディターを開く</a>
       </div>
     </div>
   </section>

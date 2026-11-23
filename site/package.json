@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "astro dev --port 24150",
-    "build": "node scripts/check-formats.mjs && astro build && node scripts/build-viewer.mjs && node scripts/check-output.mjs",
+    "build": "node scripts/check-formats.mjs && astro build && node scripts/check-output.mjs",
     "preview": "astro preview --port 24150",
     "test:browser": "node scripts/test-viewer.mjs",
     "check": "astro check"
