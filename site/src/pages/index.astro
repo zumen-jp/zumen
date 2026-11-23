@@ -5,11 +5,8 @@ import GithubCta from '../components/GithubCta.astro';
 import NewsList from '../components/NewsList.astro';
 import PlanDrawing from '../components/PlanDrawing.astro';
 import SectionHead from '../components/SectionHead.astro';
-import { faqs, formats, hostApps, news, releaseVersion, webEditor } from '../data/site';
+import { editorDownload, editorVersion, faqs, formats, hostApps, news, releaseVersion, webEditor } from '../data/site';
 import Base from '../layouts/Base.astro';
-
-const editorVersion = '0.1.0';
-const editorDownload = `https://github.com/zumen-jp/zumen-editor-releases/releases/download/v${editorVersion}/zumen-editor-${editorVersion}-windows-x64.msi`;
 
 const points = [
   {
@@ -112,12 +109,12 @@ const points = [
             <span class="entry-badge">Windows 11 x64 · 先行版</span>
           </div>
           <h3>zumen-editor {editorVersion}</h3>
-          <p class="entry-desc">図面を編集するデスクトップアプリの先行版です。誰でも無償で評価利用できます。再配布はできません。</p>
+          <p class="entry-desc">SXF・JWW・DXF・DWG の編集に加え、zmpdf による PDF 図面の閲覧・計測・差分・赤入れ・DXF 取り込み・PDF 出図に対応した先行版です。</p>
           <div class="entry-foot">
             <a class="btn btn-secondary" href={editorDownload}>MSI をダウンロード</a>
           </div>
           <p class="entry-footnote">
-            未署名のため、Windows が発行元を確認できない旨を表示する場合があります。<a class="entry-sublink" href={`${editorDownload}.sha256`}>SHA-256 を確認する</a>
+            無償で評価利用できます（再配布不可）。未署名のため警告が出る場合があります。<a class="entry-sublink" href={`${editorDownload}.sha256`}>SHA-256 を確認する</a>
           </p>
         </article>
       </div>
@@ -127,50 +124,33 @@ const points = [
   <section class="section" id="overview" aria-labelledby="overview-title">
     <div class="wrap">
       <SectionHead id="overview-title" title="30 秒でわかる zumen" en="Overview" />
-      <div class="intro-video-grid">
-        <figure class="intro-video-figure">
-          <div class="sheet-frame">
-            <div class="intro-video-stage">
-              <video
-                class="intro-video"
-                controls
-                playsinline
-                preload="metadata"
-                width="1280"
-                height="720"
-                poster="/media/zumen-intro-30s-poster.webp"
-                aria-labelledby="overview-title"
-              >
-                <source src="/media/zumen-intro-30s.mp4" type="video/mp4" />
-                お使いのブラウザーは動画の再生に対応していません。<a href="/media/zumen-intro-30s.mp4">MP4 ファイルを開く</a>ことができます。
-              </video>
-            </div>
-            <figcaption class="titleblock">
-              <span class="tb-code">V-01</span>
-              <span class="tb-title">zumen 紹介動画（音声・字幕付き）</span>
-              <span class="tb-scale">720p · 0:28</span>
-            </figcaption>
+      <p class="section-lead">
+        日本の建設データを扱う Rust 単一コアの仕組み、手元完結の設計、AI エージェントとの MCP 連携を約 30 秒でまとめています。
+      </p>
+      <figure class="intro-video-figure">
+        <div class="sheet-frame">
+          <div class="intro-video-stage">
+            <video
+              class="intro-video"
+              controls
+              playsinline
+              preload="metadata"
+              width="1280"
+              height="720"
+              poster="/media/zumen-intro-30s-poster.webp"
+              aria-labelledby="overview-title"
+            >
+              <source src="/media/zumen-intro-30s.mp4" type="video/mp4" />
+              お使いのブラウザーは動画の再生に対応していません。<a href="/media/zumen-intro-30s.mp4">MP4 ファイルを開く</a>ことができます。
+            </video>
           </div>
-        </figure>
-
-        <div class="intro-video-meta">
-          <p class="intro-video-lead">
-            日本の建設データを扱う Rust 単一コアの仕組み、手元完結の設計、AI エージェントとの MCP 連携を約 30 秒でまとめています。
-          </p>
-          <ol class="intro-chapters">
-            <li><span class="mono">0:00</span><span>図面・BIM・土木・点群を 1 つの基盤で</span></li>
-            <li><span class="mono">0:07</span><span>Rust 単一コアによる一致性と手元完結</span></li>
-            <li><span class="mono">0:15</span><span>MCP 標準装備で AI エージェントから操作</span></li>
-            <li><span class="mono">0:22</span><span>MIT・Apache-2.0 のオープンソース公開</span></li>
-          </ol>
-          <details class="intro-transcript">
-            <summary>音声の書き起こしを読む</summary>
-            <p>
-              日本の図面のためのオープンライブラリ、zumen。図面から BIM・土木・点群まで。Rust の単一コアで全環境で同じ結果。機密図面も外部へ送らず、手元で完結。MCP 標準装備。AI エージェントから手元の図面を安全にチェックし編集。MIT・Apache 2.0。今すぐ、zumen.dev で。
-            </p>
-          </details>
+          <figcaption class="titleblock">
+            <span class="tb-code">V-01</span>
+            <span class="tb-title">zumen 紹介動画（音声・字幕付き）</span>
+            <span class="tb-scale">720p · 0:28</span>
+          </figcaption>
         </div>
-      </div>
+      </figure>
     </div>
   </section>
 
@@ -210,6 +190,7 @@ const points = [
       <SectionHead id="formats-title" title="対応形式の早見表" en="Formats" />
       <FormatTable items={formats.filter((f) => f.top)} />
       <p class="note">v{releaseVersion} の範囲です。「書く」には同形式への書き戻しを含み、対応する版・図形・操作に制限があります。</p>
+      <p class="note">PDF 図面はオープンソースのコア本体には含めず、zmpdf を搭載した zumen-editor や、<code>@zumen-jp/view2d</code> と pdf.js などの連携で扱えます（詳しくは<a href="/formats/#pdf">PDF の扱い方</a>をご覧ください）。</p>
       <p class="section-foot"><a class="btn btn-secondary arrow" href="/formats/">すべての形式を見る</a></p>
     </div>
   </section>

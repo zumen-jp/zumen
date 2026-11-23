@@ -3,6 +3,9 @@
 export const repo = 'https://github.com/zumen-jp/zumen';
 export const webEditor = 'https://editor.zumen.dev/';
 export const releaseVersion = '0.4.0';
+export const editorVersion = '0.2.0';
+export const editorReleaseUrl = `https://github.com/zumen-jp/zumen-editor-releases/releases/tag/v${editorVersion}`;
+export const editorDownload = `https://github.com/zumen-jp/zumen-editor-releases/releases/download/v${editorVersion}/zumen-editor-${editorVersion}-windows-x64.msi`;
 export const drawingOutputs = [
   { format: 'dxf', extension: 'dxf', label: 'DXF' },
   { format: 'sxf', extension: 'p21', label: 'SXF（P21）' },
@@ -34,7 +37,7 @@ export const pages: Record<(typeof nav)[number]['href'], PageInfo> = {
   [webEditor]: { en: 'Web Editor', lead: 'サンプルや手元の図面を、ブラウザーの中だけで表示・照合・AI 編集できます。' },
   '/plugins/': { en: 'AI Plugins', lead: 'Codex や Claude Code に zumen を追加し、手元の図面を開いて編集する手順です。' },
   '/features/': { en: 'Features', lead: 'zumen が何をするライブラリ群か、どのように作っているかを説明します。' },
-  '/formats/': { en: 'Formats', lead: '形式ごとの、読む・書くの状況と、扱わない形式です。' },
+  '/formats/': { en: 'Formats', lead: '形式ごとの、読む・書くの状況と、PDF の扱い方・対象外の形式です。' },
   '/platforms/': { en: 'Platforms', lead: '言語ごとの約束、OS とブラウザーの下限、公開済みのパッケージです。' },
   '/news/': { en: 'News', lead: 'リリースと、開発の大きな節目を知らせます。' },
   '/faq/': { en: 'FAQ', lead: 'zumen について、よくいただく質問と答えです。' },
@@ -73,8 +76,8 @@ export const news: News[] = [
   },
 ];
 
-// ○ 使える・△ 開発中（未公開）・― 予定・× 扱わない
-export type Mark = '○' | '△' | '―' | '×';
+// ○ 使える・△ 開発中（未公開）・― 予定・※ コア外・別手段で対応・× 扱わない
+export type Mark = '○' | '△' | '―' | '※' | '×';
 
 export interface Format {
   // 公開タグの形式台帳でこの行が指すキー。
@@ -83,6 +86,8 @@ export interface Format {
   about: string;
   read: Mark;
   write: Mark;
+  // 内容欄の末尾に添える案内リンク
+  link?: { href: string; label: string };
   // トップの早見表に出す
   top?: boolean;
 }
@@ -93,7 +98,14 @@ export const formats: Format[] = [
   { ids: ['jwc', 'jws'], name: 'JWC・JWS', about: 'Jw_cad for DOS の図面、Jw_cad の図形', read: '×', write: '×' },
   { ids: ['dxf'], name: 'DXF', about: 'AutoCAD の交換形式', read: '○', write: '○', top: true },
   { ids: ['dwg'], name: 'DWG', about: 'AutoCAD の図面', read: '○', write: '○', top: true },
-  { ids: ['pdf'], name: 'PDF', about: '図面の PDF（PDFUNDERLAY の表示は呼び出し側の pdf.js を使う）', read: '×', write: '×', top: true },
+  {
+    ids: ['pdf'],
+    name: 'PDF',
+    about: '図面の PDF（zmpdf を搭載した zumen-editor や、@zumen-jp/view2d と外部レンダラーの連携で対応）',
+    read: '※',
+    write: '※',
+    link: { href: '/formats/#pdf', label: 'PDF の扱い方' },
+  },
   { ids: ['ifc'], name: 'IFC', about: 'BIM・土木のモデル（IFC-SPF・ifcZIP）', read: '○', write: '○', top: true },
   { ids: ['landxml'], name: 'LandXML', about: '線形・地表面などの土木のデータ', read: '○', write: '―' },
   { ids: ['citygml'], name: 'CityGML', about: '都市の 3D モデル', read: '○', write: '―' },
@@ -149,6 +161,11 @@ export const faqs: Faq[] = [
   {
     q: '図面を外部のサーバーに送りますか。',
     a: '送りません。図面は、利用者のパソコン・ブラウザー・社内のサーバーの中で読みます。',
+    top: true,
+  },
+  {
+    q: 'PDF の図面は扱えますか。',
+    a: `オープンソースの zumen コア本体には含めていませんが、2 つの方法で対応できます。デスクトップ版の <a href="${editorReleaseUrl}">zumen-editor</a> は純 Rust 製 PDF エンジン zmpdf を搭載しており、PDF 図面の閲覧・文字抽出・実寸計測・OSNAP・改訂差分・原本保持赤入れ・DXF 取り込み・ベクター PDF 出図を行えます。ライブラリとして組み込む場合は、<code>@zumen-jp/view2d</code> と pdf.js などの連携で図面内の PDF 下絵（PDFUNDERLAY）を表示できます。詳しくは<a href="/formats/#pdf">対応形式の「PDF の扱い方」</a>をご覧ください。`,
     top: true,
   },
   {

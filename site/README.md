@@ -61,7 +61,7 @@ Cloudflare Pages で、このリポジトリの `main` から公開する想定�
 - ビルドのコマンド: `npm ci && npm run build`
 - 出力のディレクトリ: `dist`
 
-Windows 11 x64 用 zumen-editor の配布先は [配布専用リポジトリ](https://github.com/zumen-jp/zumen-editor-releases/releases) です。更新時は MSI と SHA-256 を公開し、トップページの `editorVersion` をその版に合わせます。
+Windows 11 x64 用 zumen-editor の配布先は [配布専用リポジトリ](https://github.com/zumen-jp/zumen-editor-releases/releases) です。更新時は MSI と SHA-256 を公開し、`src/data/site.ts` の `editorVersion` をその版に合わせます。
 
 ## 直すとき
 

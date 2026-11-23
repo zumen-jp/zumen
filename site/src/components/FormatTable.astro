@@ -6,13 +6,14 @@ interface Props {
 }
 
 const { items } = Astro.props;
-const markClass: Record<Mark, string> = { '○': 'm-on', '△': 'm-half', '―': 'm-plan', '×': 'm-off' };
+const markClass: Record<Mark, string> = { '○': 'm-on', '△': 'm-half', '―': 'm-plan', '※': 'm-ext', '×': 'm-off' };
 ---
 
 <ul class="legend" aria-label="記号の意味">
   <li><span class="status-badge m-on" aria-hidden="true">○</span> 使える</li>
   <li><span class="status-badge m-half" aria-hidden="true">△</span> 開発中（未公開）</li>
   <li><span class="status-badge m-plan" aria-hidden="true">―</span> 予定</li>
+  <li><span class="status-badge m-ext" aria-hidden="true">※</span> コア外・別手段で対応</li>
   <li><span class="status-badge m-off" aria-hidden="true">×</span> 扱わない</li>
 </ul>
 <div class="table-wrap">
@@ -26,7 +27,15 @@ const markClass: Record<Mark, string> = { '○': 'm-on', '△': 'm-half', '―':
           items.map((f) => (
             <tr>
               <th scope="row">{f.name}</th>
-              <td>{f.about}</td>
+              <td>
+                {f.about}
+                {f.link && (
+                  <>
+                    {' '}
+                    <a class="table-link arrow" href={f.link.href}>{f.link.label}</a>
+                  </>
+                )}
+              </td>
               <td class="mark" data-label="読む">
                 <span class:list={['status-badge', markClass[f.read]]}>{f.read}</span>
               </td>

@@ -2,7 +2,16 @@
 import Profile from '../components/drawings/Profile.astro';
 import FormatTable from '../components/FormatTable.astro';
 import SectionHead from '../components/SectionHead.astro';
-import { drawingOutputs, formats, releasedSource, releaseVersion, repo } from '../data/site';
+import {
+  drawingOutputs,
+  editorDownload,
+  editorReleaseUrl,
+  editorVersion,
+  formats,
+  releasedSource,
+  releaseVersion,
+  repo,
+} from '../data/site';
 import Page from '../layouts/Page.astro';
 
 // 読むも書くも扱わない（×）形式。権利と方針は、形式の権利の台帳（formats/ledger.toml の rights と place）に合わせる。
@@ -10,9 +19,10 @@ const excluded = formats.filter((f) => f.read === '×' && f.write === '×');
 ---
 
 <Page
-  description="形式ごとの、読む・書くの状況と、扱わない形式です。"
+  description="形式ごとの、読む・書くの状況と、PDF の扱い方・対象外の形式です。"
   toc={[
     { id: 'status', label: '形式の一覧' },
+    { id: 'pdf', label: 'PDF の扱い方' },
     { id: 'rights', label: '権利と扱わない形式' },
   ]}
 >
@@ -29,11 +39,51 @@ const excluded = formats.filter((f) => f.read === '×' && f.write === '×');
     </div>
   </section>
 
-  <section class="section section-alt" id="rights" aria-labelledby="rights-title">
+  <section class="section section-alt" id="pdf" aria-labelledby="pdf-title">
+    <div class="wrap">
+      <SectionHead id="pdf-title" title="PDF の扱い方" en="PDF" />
+      <p class="prose">
+        PDF は ISO 32000-2 の権利条件の確認方針と、汎用文書は呼び出し側で扱う設計により、オープンソースの zumen コア本体には入れていません。PDF 図面を扱う場合は、用途に応じて次の方法を使えます。
+      </p>
+      <div class="cards cards-two pdf-options">
+        <article class="card pdf-card">
+          <div class="pdf-card-head">
+            <span class="card-no">01</span>
+            <span class="entry-badge">Windows 11 x64 · zmpdf 搭載</span>
+          </div>
+          <h3>アプリでそのまま扱う（zumen-editor）</h3>
+          <p>
+            純 Rust 製 PDF エンジン zmpdf（商用・非公開）を組み込んだデスクトップアプリ zumen-editor で、PDF 図面の閲覧・文字抽出・実寸計測・OSNAP・改訂差分比較・原本保持の増分赤入れ・DXF 取り込み（PDFIMPORT）・図面からのベクター PDF/A-2b 出図を手元完結で行えます。
+          </p>
+          <div class="pdf-card-actions">
+            <a class="btn btn-primary" href={editorDownload}>zumen-editor {editorVersion} MSI をダウンロード</a>
+            <a class="small-link arrow" href={editorReleaseUrl}>リリース詳細を見る</a>
+          </div>
+        </article>
+
+        <article class="card pdf-card">
+          <div class="pdf-card-head">
+            <span class="card-no">02</span>
+            <span class="entry-badge">MIT・Apache-2.0 · ライブラリ連携</span>
+          </div>
+          <h3>OSS ライブラリと組み合わせる</h3>
+          <p>
+            DXF・DWG に含まれる PDF 下絵（PDFUNDERLAY）の枠と外部参照はコアで保持します。2D 表示部品 <code>@zumen-jp/view2d</code> の <code>underlayRenderer</code> 契約に pdf.js や zmpdf などの PDF レンダラーを渡せば、図面の下絵として表示できます。図面からの書き出しは、コア単体でも SVG・PNG 出力に対応しています。
+          </p>
+          <div class="pdf-card-actions">
+            <a class="small-link arrow" href={`${releasedSource('packages/view2d/README.md')}#画像と-pdf-のアンダーレイ`}>@zumen-jp/view2d の連携手順</a>
+            <a class="small-link arrow" href={releasedSource('docs/render.md')}>SVG・PNG 出力の仕様</a>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="rights" aria-labelledby="rights-title">
     <div class="wrap">
       <SectionHead id="rights-title" title="権利と扱わない形式" en="Rights" />
       <p class="prose">
-        対応する形式は、どれもこのリポジトリで作り、どの言語からも同じように使えます。形式ごとの仕様の入手先と権利の根拠は、<a href={releasedSource('docs/formats/README.md')}>公開版の形式と権利の一覧</a>に、判断の手順は<a href={`${repo}/blob/main/formats/README.md`}>形式台帳の書き方</a>にあります。
+        コアで対応する形式は、どれもこのリポジトリで作り、どの言語からも同じように使えます。形式ごとの仕様の入手先と権利の根拠は、<a href={releasedSource('docs/formats/README.md')}>公開版の形式と権利の一覧</a>に、判断の手順は<a href={`${repo}/blob/main/formats/README.md`}>形式台帳の書き方</a>にあります。PDF の扱いについては上の<a href="#pdf">PDF の扱い方</a>をご覧ください。
       </p>
       <p class="prose">次の形式は、権利の条件や方針により扱いません。</p>
       <ul class="chips chips-excluded">
