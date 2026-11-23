@@ -545,7 +545,6 @@ a.skip:focus {
   margin-top: 24px;
   padding: 20px 24px;
   border: 1px solid var(--rule);
-  border-left: 3px solid var(--key);
   border-radius: var(--border-radius-8);
   background: var(--surface);
   font-size: 15px;
@@ -977,10 +976,6 @@ a.skip:focus {
   box-shadow: var(--shadow-md);
 }
 
-.entry-card-featured {
-  border-top: 3px solid var(--key);
-}
-
 .entry-head {
   display: flex;
   align-items: center;
@@ -1099,21 +1094,16 @@ a.skip:focus {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  border-top: 1px solid var(--rule);
 }
 
 .intro-chapters li {
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: baseline;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--rule);
-  border-left: 3px solid var(--key);
-  border-radius: var(--border-radius-6);
-  background: var(--paper);
+  gap: 14px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--rule);
   font-size: 14.5px;
   font-weight: 600;
   color: var(--ink-strong);
@@ -1127,8 +1117,6 @@ a.skip:focus {
 }
 
 .intro-transcript {
-  border-top: 1px solid var(--rule);
-  padding-top: 14px;
   font-size: 14px;
   color: var(--ink-sub);
 }
@@ -1348,20 +1336,11 @@ a.skip:focus {
 .card {
   display: flex;
   flex-direction: column;
-  padding: 26px 28px 28px;
+  padding: 28px;
   border: 1px solid var(--rule);
-  border-top: 3px solid var(--key);
   border-radius: var(--border-radius-12);
   background: var(--paper);
   box-shadow: var(--shadow-sm);
-}
-
-.card-tier-2 {
-  border-top-color: var(--key-bright);
-}
-
-.card-tier-3 {
-  border-top-color: var(--rule-strong);
 }
 
 .section .card h3 {
@@ -1758,9 +1737,8 @@ a.skip:focus {
 }
 
 .flow-box.core {
-  border: 2px solid var(--key);
+  border-color: var(--key-border);
   background: var(--key-tint);
-  box-shadow: var(--shadow-md);
 }
 
 .flow-step {
@@ -1857,7 +1835,6 @@ a.skip:focus {
   padding: 16px 20px;
   border-radius: var(--border-radius-8);
   border: 1px solid #1e2d4d;
-  border-left: 3px solid var(--key-bright);
   background: var(--navy);
   color: #edf2f9;
   font-family: var(--font-mono);
@@ -1920,10 +1897,9 @@ a.skip:focus {
 .prompt-box {
   margin: 0 0 16px;
   padding: 16px 18px;
-  border: 1px solid var(--key-border);
-  border-left: 4px solid var(--key);
+  border: 1px solid var(--rule);
   border-radius: var(--border-radius-8);
-  background: var(--key-tint);
+  background: var(--surface);
 }
 
 .prompt-label {
