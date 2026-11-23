@@ -1289,6 +1289,82 @@ a.skip:focus {
   white-space: nowrap;
 }
 
+/* zumen-editor 専用ページ */
+.editor-download-card {
+  margin-top: 24px;
+  padding: 28px;
+  border: 1px solid var(--rule);
+  border-radius: var(--border-radius-12);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.editor-download-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+
+.editor-download-head h3 {
+  margin: 10px 0 0;
+  font-size: 24px;
+}
+
+.editor-download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+}
+
+.editor-whatsnew {
+  margin: 20px 0 0;
+  padding: 16px 20px 16px 38px;
+  border: 1px solid var(--rule);
+  border-radius: var(--border-radius-8);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.editor-whatsnew li + li {
+  margin-top: 6px;
+}
+
+.editor-spec-wrap {
+  margin-top: 18px;
+}
+
+.editor-hash {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.editor-download-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 24px;
+  margin-top: 18px;
+}
+
+.editor-download-links .small-link {
+  margin-top: 0;
+}
+
+.compare-table th:first-child {
+  width: 190px;
+  white-space: nowrap;
+}
+
+.editor-steps {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 /* 5 つの方針: 6 列グリッドで上段 2 枚（3 列ずつ）＋下段 3 枚（2 列ずつ）の完全な長方形に収める */
 .cards-five {
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1306,6 +1382,7 @@ a.skip:focus {
 .card {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   padding: 28px;
   border: 1px solid var(--rule);
   border-radius: var(--border-radius-12);
@@ -1854,11 +1931,16 @@ a.skip:focus {
 }
 
 .try-step {
+  min-width: 0;
   padding: 28px;
   border: 1px solid var(--rule);
   border-radius: var(--border-radius-12);
   background: var(--paper);
   box-shadow: var(--shadow-sm);
+}
+
+.try-step code {
+  overflow-wrap: anywhere;
 }
 
 .try-step-head .card-no {
@@ -1895,7 +1977,7 @@ a.skip:focus {
   line-height: 1.65;
 }
 
-/* 下層ページの終わり: ほかのページ（6 枚を 3 列 × 2 行の均整な図面目録にする） */
+/* 下層ページの終わり: ほかのページ（7 枚を 12 列グリッドで上段 4 枚＋下段 3 枚の均整な図面目録にする） */
 .page-end {
   border-top: 1px solid var(--rule);
   background: var(--paper);
@@ -1907,11 +1989,19 @@ a.skip:focus {
 
 .page-links {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 18px;
   list-style: none;
   margin: 0;
   padding: 0;
+}
+
+.page-links > li:nth-child(-n + 4) {
+  grid-column: span 3;
+}
+
+.page-links > li:nth-child(n + 5) {
+  grid-column: span 4;
 }
 
 .page-links a {
@@ -2161,7 +2251,8 @@ a.skip:focus {
   }
 
   .gnav a {
-    padding: 8px 9px;
+    padding: 8px 8px;
+    font-size: 13.5px;
   }
 }
 
@@ -2246,12 +2337,21 @@ a.skip:focus {
   }
 
   .try-steps,
+  .editor-steps,
   .cards-two {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .page-links {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .page-links > li:nth-child(n) {
+    grid-column: span 1;
+  }
+
+  .page-links > li:last-child {
+    grid-column: 1 / -1;
   }
 }
 
@@ -2289,8 +2389,21 @@ a.skip:focus {
     grid-template-columns: 1fr;
   }
 
-  .cards-five > .card:last-child {
+  .cards-five > .card:last-child,
+  .page-links > li:last-child {
     grid-column: auto;
+  }
+
+  .editor-download-card {
+    padding: 20px;
+  }
+
+  .compare-table {
+    min-width: 600px;
+  }
+
+  .compare-table th:first-child {
+    width: 9em;
   }
 
   .news li {
@@ -2382,6 +2495,7 @@ a.skip:focus {
 
   .spec tr {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .spec tbody th {
@@ -2411,8 +2525,11 @@ a.skip:focus {
     grid-column: 1 / -1;
   }
 
-  .actions .btn {
+  .actions .btn,
+  .pdf-card-actions .btn {
     width: 100%;
+    white-space: normal;
+    text-align: center;
   }
 }
 

@@ -190,9 +190,14 @@ try {
   }
 
   // 狭い画面での横はみ出し確認
-  await staticPage.goto(origin + "/");
   await staticPage.setViewportSize({ width: 390, height: 900 });
-  assert.ok(await staticPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "狭い画面で本文が横にはみ出さない");
+  for (const path of staticPaths) {
+    await staticPage.goto(origin + path);
+    assert.ok(
+      await staticPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      `狭い画面で ${path} の本文が横にはみ出さない`,
+    );
+  }
 
   assert.deepEqual(blocked, [], "CSP が通信前に止める。route で止めたものを成功と数えない");
   assert.deepEqual(errors, []);

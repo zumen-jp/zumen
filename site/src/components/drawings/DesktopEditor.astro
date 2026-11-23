@@ -1,0 +1,111 @@
+---
+// zumen-editor の画面とローカル実行構成を示す製図シート。
+import { editorVersion, releaseVersion } from '../../data/site';
+import Sheet from './Sheet.astro';
+
+const axes = [
+  { x: 192, name: 'W1' },
+  { x: 626, name: 'W2' },
+];
+const tabs = [
+  { x: 362, w: 112, label: 'CAD 図面', active: true },
+  { x: 482, w: 140, label: 'PDF (zmpdf)', active: false },
+  { x: 630, w: 116, label: 'IFC・点群', active: false },
+  { x: 754, w: 136, label: 'テキスト・表', active: false },
+];
+---
+
+<Sheet viewBox="0 0 960 540" code="D-01" title="zumen-editor 構成図（例）" scale={`v${editorVersion}`}>
+  <!-- 通り芯 -->
+  <path class="d-axis" d={axes.map((a) => `M${a.x} 68V496`).join('')} />
+
+  <!-- アプリ外枠（ローカル完結の作業空間） -->
+  <rect class="d-tone" x="34" y="88" width="892" height="352" rx="4" />
+  <rect class="d-boundary" x="34" y="88" width="892" height="352" rx="4" />
+  <text class="d-note" x="50" y="114">Windows 11 x64 · ローカル完結（作業フォルダー内のみ）</text>
+
+  <!-- 左ペイン: AI 対話・承認 -->
+  <g>
+    <rect class="d-paper" x="54" y="130" width="276" height="224" />
+    <rect class="d-line" x="54" y="130" width="276" height="40" />
+    <rect class="d-tone" x="55" y="131" width="274" height="38" />
+    <text class="d-name d-cell" x="192" y="150">AI 対話・承認</text>
+
+    <rect class="d-faint" x="70" y="182" width="244" height="42" />
+    <text class="d-note-dark d-cell" x="192" y="203" text-anchor="middle">図面・PDF の確認依頼</text>
+
+    <rect class="d-paper" x="70" y="236" width="244" height="48" />
+    <circle class="d-dot" cx="88" cy="260" r="4.5" />
+    <text class="d-text d-cell" x="104" y="260">変更案の重ね描き</text>
+
+    <rect class="d-solid" x="70" y="296" width="244" height="42" />
+    <text class="d-note-dark d-cell" x="192" y="317" text-anchor="middle">人の操作で適用・保存</text>
+  </g>
+
+  <!-- 右ペイン: タブ・リボン・キャンバス・インスペクター -->
+  <g>
+    <rect class="d-paper" x="346" y="130" width="560" height="224" />
+    <rect class="d-bold" x="346" y="130" width="560" height="224" />
+
+    <!-- タブ帯 -->
+    {
+      tabs.map((t) => (
+        <>
+          <rect class={t.active ? 'd-solid' : 'd-faint'} x={t.x} y="142" width={t.w} height="30" />
+          <text class="d-note-dark d-cell" x={t.x + t.w / 2} y="157" text-anchor="middle">
+            {t.label}
+          </text>
+        </>
+      ))
+    }
+
+    <!-- CAD リボン帯 -->
+    <rect class="d-tone" x="362" y="180" width="528" height="28" />
+    <text class="d-note d-cell" x="626" y="194" text-anchor="middle">CAD リボン · スナップ · 計測 · 差分 · 照合</text>
+
+    <!-- 図面キャンバス領域 -->
+    <rect class="d-faint" x="362" y="218" width="340" height="120" />
+    <path class="d-line" d="M392 316V240H672V316ZM532 240V316" />
+    <path class="d-red" d="M432 278H624" />
+    <circle class="d-dot" cx="432" cy="278" r="4" />
+    <circle class="d-dot" cx="624" cy="278" r="4" />
+    <path class="d-dim" d="M392 326H672" />
+    <text class="d-dim-t d-halo" x="532" y="266">WebGPU ベクタ表示</text>
+
+    <!-- 右インスペクター -->
+    <rect class="d-paper" x="714" y="218" width="176" height="120" />
+    <path class="d-line" d="M714 248H890M714 278H890M714 308H890" />
+    <text class="d-note-dark d-cell" x="802" y="233" text-anchor="middle">レイヤ・属性</text>
+    <text class="d-note d-cell" x="802" y="263" text-anchor="middle">診断・照合</text>
+    <text class="d-note d-cell" x="802" y="293" text-anchor="middle">履歴・控え</text>
+    <text class="d-note d-cell" x="802" y="323" text-anchor="middle">PDF/A 出図</text>
+  </g>
+
+  <!-- 下段: ローカル常駐エンジン -->
+  <g>
+    <rect class="d-solid" x="54" y="370" width="416" height="52" />
+    <text class="d-name d-cell" x="262" y="396">{`zumen v${releaseVersion}（常駐＋wasm）`}</text>
+
+    <rect class="d-solid" x="490" y="370" width="416" height="52" />
+    <text class="d-name d-cell" x="698" y="396">zmpdf（純 Rust PDF エンジン）</text>
+  </g>
+
+  <!-- 通り芯の符号 -->
+  {
+    axes.map((a) => (
+      <>
+        <circle class="d-bubble" cx={a.x} cy="42" r="24" />
+        <text class="d-bubble-t" x={a.x} y="42">
+          {a.name}
+        </text>
+      </>
+    ))
+  }
+
+  <!-- 寸法線風の領域区分 -->
+  <path class="d-faint" d="M54 446V490M330 446V490M906 446V490" />
+  <path class="d-dim" d="M54 472H906" />
+  <path class="d-tick" d="M47 479L61 465M323 479L337 465M899 479L913 465" />
+  <text class="d-dim-t d-halo" x="192" y="460">対話・承認</text>
+  <text class="d-dim-t d-halo" x="618" y="460">図面・PDF・BIM 編集と出図</text>
+</Sheet>

@@ -1,5 +1,5 @@
 ---
-// ほかのページへの案内。下層のページの終わりに置く。6 ページを 3 列 × 2 行の均整な目録として並べる。
+// ほかのページへの案内。下層のページの終わりに置く。7 ページを上段 4 枚＋下段 3 枚の均整な目録として並べる。
 import { nav, pages, webEditor } from '../data/site';
 
 interface Props {
@@ -9,6 +9,7 @@ interface Props {
 const { current } = Astro.props;
 const sheetCodes: Record<(typeof nav)[number]['href'], string> = {
   [webEditor]: 'V-01',
+  '/editor/': 'D-01',
   '/plugins/': 'E-01',
   '/features/': 'A-02',
   '/formats/': 'C-01',

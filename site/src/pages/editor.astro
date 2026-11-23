@@ -1,0 +1,285 @@
+---
+import DesktopEditor from '../components/drawings/DesktopEditor.astro';
+import SectionHead from '../components/SectionHead.astro';
+import {
+  editorBytes,
+  editorDownload,
+  editorLicenseUrl,
+  editorReleaseUrl,
+  editorSha256,
+  editorVersion,
+  releaseVersion,
+  webEditor,
+} from '../data/site';
+import Page from '../layouts/Page.astro';
+
+const msiFileName = `zumen-editor-${editorVersion}-windows-x64.msi`;
+
+const highlights = [
+  {
+    badge: 'CAD 図面',
+    title: 'SXF・JWW・DXF・DWG を手元で編集',
+    body: 'SXF（SFC・P21・SFZ・P2Z・SAF）・JWW・DXF・DWG・SIMA・TIFF をタブで開き、CAD リボンやコマンドで編集・取り消し・世代控え付き保存・CAD製図基準チェックを行えます。',
+  },
+  {
+    badge: 'PDF · zmpdf',
+    title: 'PDF 図面の閲覧・計測・比較・出図',
+    body: '純 Rust 製 PDF エンジン zmpdf を搭載し、WebGPU ベクタ表示・文字抽出・実寸計測・OSNAP・改訂差分・原本保持赤入れ・DXF 取り込み・ベクター PDF/A-2b 出図を手元完結で行えます。',
+  },
+  {
+    badge: 'BIM · IFC',
+    title: 'IFC の 3D 表示・平面図・属性編集',
+    body: 'IFC（IFC-SPF・ifcZIP）の 3D 形状表示・平面図の発行・属性とプロパティの書き戻し、IDS による仕様照合、BCF（2.1・3.0）の指摘管理に対応しています。',
+  },
+  {
+    badge: '土木・地理・点群',
+    title: '線形計算・出来形・電子納品チェック',
+    body: 'J-LandXML・SIMA の線形計算と平面/縦断/横断の DXF 作図、点群（LAS・LAZ・PLY・XYZ・E57）の 3D 表示と出来形照合、工事写真・ボーリング XML・電子納品成果品の確認を行えます。',
+  },
+  {
+    badge: 'テキスト・表',
+    title: '文字コード保護付きの編集と横断検索',
+    body: 'UTF-8・Shift_JIS・UTF-16 のテキストを元の文字コード・改行・BOM のまま編集してフォルダー横断検索でき、Excel（xlsx）・CSV・TSV の表もタブで閲覧できます。',
+  },
+  {
+    badge: 'AI 対話編集',
+    title: '変更案のプレビューと人の承認で安全に適用',
+    body: '左ペインのチャットから図面・PDF・専門データを調べて変更案を出せます。キャンバス上の重ね描きプレビューを確かめ、適用と保存は必ず人の操作で行います。',
+  },
+];
+
+const pdfFeatures = [
+  ['閲覧・表示', 'ページ送り・拡縮・回転・しおり移動・WebGPU ベクタ表示・OCG 画層切り替え・抽出テキストの確認'],
+  ['計測・スナップ', 'ISO 32000 の /Measure 縮尺辞書を使った実寸距離・面積計測と、ベクタ線分・頂点・交点への OSNAP'],
+  ['改訂比較・赤入れ', '2 つの版の PDF のベクタ差分比較（変更領域ハイライト）と、元のバイト列を壊さない原本保持の増分赤入れ追記'],
+  ['CAD 相互変換', 'ベクタ図面ページからの新規 DXF 取り込み（PDFIMPORT）と、開いている CAD 図面からのベクター PDF/A-2b 出図'],
+];
+
+const comparison = [
+  ['導入方法', 'インストール不要（Chrome で開く）', `Windows 11 x64 用 MSI（v${editorVersion}）`],
+  ['ライセンス', 'オープンソース（MIT・Apache-2.0）', '無償評価利用（再配布不可）'],
+  ['対応形式', 'SXF・JWW・DXF・DWG', 'CAD 全形式 ＋ PDF（zmpdf）・IFC・IDS・BCF・点群・土木・地理・電子納品・表'],
+  ['処理エンジン', 'ブラウザー内 WebAssembly ＋ WebGPU', `64 bit ネイティブ常駐（zumen v${releaseVersion}）＋ zmpdf ＋ WebGPU`],
+  ['AI 連携', 'Sign in with ChatGPT または API キー', '利用者自身の Claude 認証（API キー・Bedrock・Vertex AI・Foundry・Claude ログイン）'],
+  ['オフライン利用', '図面処理はブラウザー完結', 'AI を使わない操作は完全オフライン・外部通信なし'],
+];
+
+const releaseSpecs = [
+  ['製品・バージョン', `zumen-editor ${editorVersion}（Windows 先行版）`],
+  ['対象 OS', 'Windows 11（64 bit / x64、WebGPU 対応環境）'],
+  ['搭載エンジン', `zumen v${releaseVersion}（ネイティブ常駐＋wasm）・zmpdf（純 Rust 製 PDF エンジン）`],
+  ['配布形式・容量', `MSI インストーラー（${editorBytes} バイト、未署名）`],
+  ['SHA-256', editorSha256],
+  ['利用条件', '誰でも無償で評価利用できます。再配布はできません。'],
+];
+---
+
+<Page
+  description={`Windows 11 向けの図面・PDF・BIM 統合デスクトップアプリ zumen-editor ${editorVersion}（先行版）の特長・PDF 対応（zmpdf）・ダウンロードと導入手順です。`}
+  toc={[
+    { id: 'download', label: `ダウンロード（v${editorVersion}）` },
+    { id: 'capabilities', label: 'できること' },
+    { id: 'pdf', label: 'PDF 図面への対応' },
+    { id: 'compare', label: 'Web 版との使い分け' },
+    { id: 'install', label: '導入・検証・削除' },
+    { id: 'notes', label: '動作要件・ご注意' },
+  ]}
+>
+  <DesktopEditor slot="drawing" />
+
+  <section class="section" id="download" aria-labelledby="download-title">
+    <div class="wrap">
+      <SectionHead id="download-title" title={`zumen-editor ${editorVersion} を入手する`} en="Download" />
+      <p class="prose">
+        zumen-editor は、作業フォルダーの中の図面・PDF・BIM・建設データを手元で開き、編集・照合・出図できる Windows 11 向けデスクトップアプリの先行版です。Node.js や Rust などの開発環境を入れずに、そのまま使えます。
+      </p>
+
+      <div class="editor-download-card">
+        <div class="editor-download-head">
+          <div>
+            <span class="entry-badge">Windows 11 x64 · 先行版 · 未署名 MSI</span>
+            <h3>zumen-editor {editorVersion}</h3>
+          </div>
+          <div class="editor-download-actions">
+            <a class="btn btn-primary btn-lg" href={editorDownload}>MSI をダウンロード</a>
+            <a class="btn btn-secondary" href={`${editorDownload}.sha256`}>SHA-256 ファイル</a>
+          </div>
+        </div>
+
+        <ul class="editor-whatsnew" aria-label={`v${editorVersion} の主な内容`}>
+          <li>コアを zumen v{releaseVersion}、PDF エンジン zmpdf を最新版へ更新しました。</li>
+          <li>CAD リボン UI と作図コマンド（スナップ・注記・鏡像など）を拡充しました。</li>
+          <li>WebGPU による PDF ベクタ表示と、IFC 平面図の発行に対応しました。</li>
+        </ul>
+
+        <div class="table-wrap editor-spec-wrap">
+          <div class="table-scroll">
+            <table class="table spec">
+              <tbody>
+                {
+                  releaseSpecs.map(([k, v]) => (
+                    <tr>
+                      <th scope="row">{k}</th>
+                      <td class={k === 'SHA-256' ? 'mono editor-hash' : undefined}>{v}</td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="editor-download-links">
+          <a class="small-link arrow" href={editorReleaseUrl}>GitHub Releases の詳細を見る</a>
+          <a class="small-link arrow" href={editorLicenseUrl}>利用条件（LICENSE）を確認する</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="capabilities" aria-labelledby="capabilities-title">
+    <div class="wrap">
+      <SectionHead id="capabilities-title" title="できること" en="Capabilities" />
+      <p class="section-lead">
+        左ペインで AI エージェントと対話し、右ペインのタブで CAD 図面・PDF・BIM・専門データを直接確認・編集できます。AI を使わない操作は認証なし・オフラインで動作します。
+      </p>
+      <ol class="cards">
+        {
+          highlights.map((item, i) => (
+            <li class="card">
+              <div class="pdf-card-head">
+                <span class="card-no">{String(i + 1).padStart(2, '0')}</span>
+                <span class="entry-badge">{item.badge}</span>
+              </div>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+
+  <section class="section" id="pdf" aria-labelledby="pdf-title">
+    <div class="wrap">
+      <SectionHead id="pdf-title" title="PDF 図面への対応（zmpdf）" en="PDF Engine" />
+      <p class="prose">
+        オープンソースの zumen コア本体では扱わない PDF 図面について、zumen-editor では純 Rust 製 PDF エンジン zmpdf（商用・非公開）を組み込み、ローカル完結で以下の操作に対応しています。
+      </p>
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table class="table spec">
+            <tbody>
+              {
+                pdfFeatures.map(([category, detail]) => (
+                  <tr>
+                    <th scope="row">{category}</th>
+                    <td>{detail}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p class="note">
+        オープンソースのライブラリ（<code>@zumen-jp/view2d</code>）から pdf.js などの外部レンダラーを組み合わせて PDF 下絵を表示する方法は、<a href="/formats/#pdf">対応形式の「PDF の扱い方」</a>をご覧ください。
+      </p>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="compare" aria-labelledby="compare-title">
+    <div class="wrap">
+      <SectionHead id="compare-title" title="Web 版との使い分け" en="Comparison" />
+      <p class="section-lead">
+        ブラウザーですぐ試す場合は <a href={webEditor}>zumen-editor-web</a>、PDF 図面や IFC・点群・電子納品を含めて手元の作業フォルダー全体を扱う場合は zumen-editor（Windows 版）が適しています。
+      </p>
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table class="table compare-table">
+            <thead>
+              <tr>
+                <th scope="col">観点</th>
+                <th scope="col">zumen-editor-web（ブラウザー版）</th>
+                <th scope="col">zumen-editor {editorVersion}（Windows 版）</th>
+              </tr>
+            </thead>
+            <tbody>
+              {
+                comparison.map(([topic, web, desktop]) => (
+                  <tr>
+                    <th scope="row">{topic}</th>
+                    <td>{web}</td>
+                    <td>{desktop}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p class="section-foot">
+        <a class="btn btn-secondary arrow" href={webEditor}>ブラウザー版（zumen-editor-web）を開く</a>
+      </p>
+    </div>
+  </section>
+
+  <section class="section" id="install" aria-labelledby="install-title">
+    <div class="wrap">
+      <SectionHead id="install-title" title="導入・検証・削除の手順" en="Install" />
+      <ol class="try-steps editor-steps">
+        <li class="try-step">
+          <div class="try-step-head">
+            <span class="card-no">STEP 01</span>
+            <h3>ダウンロードと SHA-256 照合</h3>
+          </div>
+          <p>
+            MSI ファイルと同名の <code>.sha256</code> ファイルを取得し、PowerShell でハッシュが一致することを確かめます。
+          </p>
+          <pre class="codeblock"><code>{`Get-FileHash .\\${msiFileName} -Algorithm SHA256`}</code></pre>
+          <p>出力された値が <code class="editor-hash">{editorSha256}</code> と一致すれば正常に取得できています。</p>
+        </li>
+
+        <li class="try-step">
+          <div class="try-step-head">
+            <span class="card-no">STEP 02</span>
+            <h3>インストールと起動</h3>
+          </div>
+          <p>
+            ダウンロードした MSI を開くと、利用者権限で <code>%LOCALAPPDATA%\Programs\zumen-editor</code> へインストールされます。先行版は未署名のため、Windows が発行元を確認できない旨を表示する場合があります。
+          </p>
+          <p>
+            インストール後はスタートメニューの「zumen-editor」から起動し、「フォルダーを選ぶ」で作業フォルダーを開いてください。AI 対話を使う場合のみ、利用者自身の Claude 認証を設定します。
+          </p>
+        </li>
+
+        <li class="try-step">
+          <div class="try-step-head">
+            <span class="card-no">STEP 03</span>
+            <h3>アンインストール</h3>
+          </div>
+          <p>
+            削除するときは、Windows の「設定」→「アプリ」→「インストールされているアプリ」から「zumen-editor」を選びます。アプリを削除しても、作業フォルダー内の図面ファイルは消えません。
+          </p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="notes" aria-labelledby="notes-title">
+    <div class="wrap">
+      <SectionHead id="notes-title" title="動作要件・利用条件・ご注意" en="Notes" />
+      <div class="info-box">
+        <p>
+          <strong>通信と認証情報の扱い:</strong> エージェントを使わない閲覧・編集・計測・チェック・PDF 処理・書き出しでは外部へ通信しません。エージェントと対話する場合のみ、利用者自身の認証（<code>ANTHROPIC_API_KEY</code>、Amazon Bedrock、Google Cloud Vertex AI、Microsoft Foundry、または Claude ログイン）を使って推論基盤へ接続します。認証情報はアプリに保存せず、業務図面にはモデル学習に使われない商用契約経路の利用を推奨します。
+        </p>
+        <p>
+          <strong>DWG 保存時の通知について:</strong> zumen-editor が保存した DWG ファイルを AutoCAD で開くと、Autodesk 製品またはライセンス製品以外で保存された旨の通知が表示される場合があります。これは Autodesk 製品固有の印を書き込まない仕様による表示であり、図面データの破損ではありません。提出先の要領で AutoCAD による保存が指定されている場合は、提出前に AutoCAD で開いて監査・保存してください。
+        </p>
+        <p>
+          <strong>利用条件と商標:</strong> 公式配布版は誰でも無償で評価利用できます（再配布はできません。詳しくは<a href={editorLicenseUrl}>利用条件</a>をご覧ください）。AutoCAD、DWG、DXF、TrustedDWG、Revit は Autodesk, Inc. またはその子会社・関連会社の登録商標または商標です。IFC は buildingSMART International Ltd. の商標、Claude・Claude Code・Anthropic は Anthropic PBC の商標です。本製品はこれらの団体による公認・提携・保証を受けたものではありません。
+        </p>
+      </div>
+    </div>
+  </section>
+</Page>

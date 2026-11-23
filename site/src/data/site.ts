@@ -4,7 +4,10 @@ export const repo = 'https://github.com/zumen-jp/zumen';
 export const webEditor = 'https://editor.zumen.dev/';
 export const releaseVersion = '0.4.0';
 export const editorVersion = '0.2.0';
+export const editorBytes = '408,286,673';
+export const editorSha256 = '4c9fec9bc4bce3b42af3550b587d765b15f58174e12c19e37f129c46132b367d';
 export const editorReleaseUrl = `https://github.com/zumen-jp/zumen-editor-releases/releases/tag/v${editorVersion}`;
+export const editorLicenseUrl = `https://github.com/zumen-jp/zumen-editor-releases/blob/v${editorVersion}/LICENSE`;
 export const editorDownload = `https://github.com/zumen-jp/zumen-editor-releases/releases/download/v${editorVersion}/zumen-editor-${editorVersion}-windows-x64.msi`;
 export const drawingOutputs = [
   { format: 'dxf', extension: 'dxf', label: 'DXF' },
@@ -17,6 +20,7 @@ export const releasedSource = (file: string) => `${repo}/blob/v${releaseVersion}
 // ナビの並び。ヘッダー・フッター・下層ページの「ほかのページ」で共有する。
 export const nav = [
   { href: webEditor, label: '図面を試す' },
+  { href: '/editor/', label: 'zumen-editor' },
   { href: '/plugins/', label: 'AI プラグイン' },
   { href: '/features/', label: '特長' },
   { href: '/formats/', label: '対応形式' },
@@ -35,6 +39,10 @@ export interface PageInfo {
 // ナビの各ページの肩書きと説明。下層のページの見出しと、ページの終わりの「ほかのページ」に使う。
 export const pages: Record<(typeof nav)[number]['href'], PageInfo> = {
   [webEditor]: { en: 'Web Editor', lead: 'サンプルや手元の図面を、ブラウザーの中だけで表示・照合・AI 編集できます。' },
+  '/editor/': {
+    en: 'Desktop Editor',
+    lead: `CAD 図面・PDF（zmpdf）・BIM を手元で扱い、AI と対話編集できる Windows 11 向け先行版（v${editorVersion}）です。`,
+  },
   '/plugins/': { en: 'AI Plugins', lead: 'Codex や Claude Code に zumen を追加し、手元の図面を開いて編集する手順です。' },
   '/features/': { en: 'Features', lead: 'zumen が何をするライブラリ群か、どのように作っているかを説明します。' },
   '/formats/': { en: 'Formats', lead: '形式ごとの、読む・書くの状況と、PDF の扱い方・対象外の形式です。' },
@@ -165,7 +173,7 @@ export const faqs: Faq[] = [
   },
   {
     q: 'PDF の図面は扱えますか。',
-    a: `オープンソースの zumen コア本体には含めていませんが、2 つの方法で対応できます。デスクトップ版の <a href="${editorReleaseUrl}">zumen-editor</a> は純 Rust 製 PDF エンジン zmpdf を搭載しており、PDF 図面の閲覧・文字抽出・実寸計測・OSNAP・改訂差分・原本保持赤入れ・DXF 取り込み・ベクター PDF 出図を行えます。ライブラリとして組み込む場合は、<code>@zumen-jp/view2d</code> と pdf.js などの連携で図面内の PDF 下絵（PDFUNDERLAY）を表示できます。詳しくは<a href="/formats/#pdf">対応形式の「PDF の扱い方」</a>をご覧ください。`,
+    a: 'オープンソースの zumen コア本体には含めていませんが、2 つの方法で対応できます。デスクトップ版の <a href="/editor/">zumen-editor</a> は純 Rust 製 PDF エンジン zmpdf を搭載しており、PDF 図面の閲覧・文字抽出・実寸計測・OSNAP・改訂差分・原本保持赤入れ・DXF 取り込み・ベクター PDF 出図を行えます。ライブラリとして組み込む場合は、<code>@zumen-jp/view2d</code> と pdf.js などの連携で図面内の PDF 下絵（PDFUNDERLAY）を表示できます。詳しくは<a href="/formats/#pdf">対応形式の「PDF の扱い方」</a>をご覧ください。',
     top: true,
   },
   {
