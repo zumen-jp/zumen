@@ -2525,11 +2525,16 @@ a.skip:focus {
     grid-column: 1 / -1;
   }
 
-  .actions .btn,
-  .pdf-card-actions .btn {
-    width: 100%;
+  .btn {
+    max-width: 100%;
     white-space: normal;
     text-align: center;
+  }
+
+  .actions .btn,
+  .pdf-card-actions .btn,
+  .section-foot .btn {
+    width: 100%;
   }
 }
 
