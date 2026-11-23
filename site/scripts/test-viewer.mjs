@@ -26,7 +26,7 @@ const headers = Object.fromEntries(readFileSync(resolve(dist, "_headers"), "utf8
   .filter((line) => /^\s+\S+:/.test(line)).map((line) => {
     const colon = line.indexOf(":"); return [line.slice(0, colon).trim(), line.slice(colon + 1).trim()];
   }));
-const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".wasm": "application/wasm", ".svg": "image/svg+xml", ".md": "text/plain; charset=utf-8" };
+const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".wasm": "application/wasm", ".svg": "image/svg+xml", ".md": "text/plain; charset=utf-8", ".mp4": "video/mp4", ".webp": "image/webp" };
 const requests = [], errors = [], blocked = [];
 let server, browser;
 try {
@@ -43,7 +43,19 @@ try {
           '<script>window.staticScriptRan=true</script><script defer src="https://example.invalid/parser-classic.js"></script><script type="module" src="https://example.invalid/parser-module.js"></script></body>');
         response.writeHead(404, { "Content-Type": mime[".html"], "Cache-Control": "no-store" }).end(html); return;
       }
-      response.writeHead(200, { "Content-Type": mime[extname(path)] ?? "application/octet-stream", ...(url.pathname.startsWith("/viewer/") ? headers : { "Cache-Control": headers["Cache-Control"] }) }).end(readFileSync(path));
+      const body = readFileSync(path);
+      const baseHeaders = { "Content-Type": mime[extname(path)] ?? "application/octet-stream", "Accept-Ranges": "bytes", ...(url.pathname.startsWith("/viewer/") ? headers : { "Cache-Control": headers["Cache-Control"] }) };
+      const range = request.headers.range;
+      const match = range && /^bytes=(\d+)-(\d*)$/.exec(range);
+      if (match) {
+        const start = Number(match[1]);
+        const end = match[2] ? Math.min(Number(match[2]), body.length - 1) : body.length - 1;
+        if (start < body.length && start <= end) {
+          response.writeHead(206, { ...baseHeaders, "Content-Range": `bytes ${start}-${end}/${body.length}`, "Content-Length": end - start + 1 }).end(body.subarray(start, end + 1));
+          return;
+        }
+      }
+      response.writeHead(200, { ...baseHeaders, "Content-Length": body.length }).end(body);
     });
     const port = Number(process.env.ZUMEN_TEST_PORT ?? 24189);
     await new Promise((ok, fail) => server.once("error", fail).listen(port, "127.0.0.1", ok));

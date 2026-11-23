@@ -1053,6 +1053,104 @@ a.skip:focus {
   color: var(--ink-sub);
 }
 
+/* トップ「30 秒でわかる zumen」紹介動画セクション（共通の製図シート枠と表題欄に揃える） */
+.intro-video-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.95fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.intro-video-figure {
+  margin: 0;
+}
+
+.intro-video-stage {
+  background: var(--navy-deep);
+  line-height: 0;
+}
+
+.intro-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  background: var(--navy-deep);
+}
+
+.intro-video-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px 26px;
+  border: 1px solid var(--rule);
+  border-radius: var(--border-radius-8);
+  background: var(--surface);
+}
+
+.intro-video-lead {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--ink);
+}
+
+.intro-chapters {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.intro-chapters li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--key);
+  border-radius: var(--border-radius-6);
+  background: var(--paper);
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink-strong);
+  line-height: 1.5;
+}
+
+.intro-chapters .mono {
+  color: var(--key);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.intro-transcript {
+  border-top: 1px solid var(--rule);
+  padding-top: 14px;
+  font-size: 14px;
+  color: var(--ink-sub);
+}
+
+.intro-transcript summary {
+  cursor: pointer;
+  color: var(--key);
+  font-weight: 700;
+  list-style-position: outside;
+  margin-left: 16px;
+}
+
+.intro-transcript summary:hover {
+  color: var(--key-hover);
+}
+
+.intro-transcript p {
+  margin: 10px 0 0;
+  line-height: 1.75;
+  color: var(--ink);
+}
+
 /* 下層ページの見出し（方眼紙の帯＋右の製図シート） */
 .page-header {
   padding: 28px 0 48px;
@@ -2161,6 +2259,11 @@ a.skip:focus {
     gap: 18px;
   }
 
+  .intro-video-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
   .entry-card {
     display: flex;
     flex-direction: column;
@@ -2384,6 +2487,7 @@ a.skip:focus {
   .header-cta,
   .toc,
   .sheet,
+  .intro-video-stage,
   .page-end,
   .page-end + .section-cta,
   .footer {

@@ -124,7 +124,57 @@ const points = [
     </div>
   </section>
 
-  <section class="section" aria-labelledby="news-title">
+  <section class="section" id="overview" aria-labelledby="overview-title">
+    <div class="wrap">
+      <SectionHead id="overview-title" title="30 秒でわかる zumen" en="Overview" />
+      <div class="intro-video-grid">
+        <figure class="intro-video-figure">
+          <div class="sheet-frame">
+            <div class="intro-video-stage">
+              <video
+                class="intro-video"
+                controls
+                playsinline
+                preload="metadata"
+                width="1280"
+                height="720"
+                poster="/media/zumen-intro-30s-poster.webp"
+                aria-labelledby="overview-title"
+              >
+                <source src="/media/zumen-intro-30s.mp4" type="video/mp4" />
+                お使いのブラウザーは動画の再生に対応していません。<a href="/media/zumen-intro-30s.mp4">MP4 ファイルを開く</a>ことができます。
+              </video>
+            </div>
+            <figcaption class="titleblock">
+              <span class="tb-code">V-01</span>
+              <span class="tb-title">zumen 紹介動画（音声・字幕付き）</span>
+              <span class="tb-scale">720p · 0:28</span>
+            </figcaption>
+          </div>
+        </figure>
+
+        <div class="intro-video-meta">
+          <p class="intro-video-lead">
+            日本の建設データを扱う Rust 単一コアの仕組み、手元完結の設計、AI エージェントとの MCP 連携を約 30 秒でまとめています。
+          </p>
+          <ol class="intro-chapters">
+            <li><span class="mono">0:00</span><span>図面・BIM・土木・点群を 1 つの基盤で</span></li>
+            <li><span class="mono">0:07</span><span>Rust 単一コアによる一致性と手元完結</span></li>
+            <li><span class="mono">0:15</span><span>MCP 標準装備で AI エージェントから操作</span></li>
+            <li><span class="mono">0:22</span><span>MIT・Apache-2.0 のオープンソース公開</span></li>
+          </ol>
+          <details class="intro-transcript">
+            <summary>音声の書き起こしを読む</summary>
+            <p>
+              日本の図面のためのオープンライブラリ、zumen。図面から BIM・土木・点群まで。Rust の単一コアで全環境で同じ結果。機密図面も外部へ送らず、手元で完結。MCP 標準装備。AI エージェントから手元の図面を安全にチェックし編集。MIT・Apache 2.0。今すぐ、zumen.dev で。
+            </p>
+          </details>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" aria-labelledby="news-title">
     <div class="wrap">
       <div class="news-box-head">
         <div class="section-head">
@@ -137,7 +187,7 @@ const points = [
     </div>
   </section>
 
-  <section class="section section-alt" aria-labelledby="points-title">
+  <section class="section" aria-labelledby="points-title">
     <div class="wrap">
       <SectionHead id="points-title" title="zumen の 3 つの特長" en="Features" />
       <ol class="cards">
@@ -155,7 +205,7 @@ const points = [
     </div>
   </section>
 
-  <section class="section" aria-labelledby="formats-title">
+  <section class="section section-alt" aria-labelledby="formats-title">
     <div class="wrap">
       <SectionHead id="formats-title" title="対応形式の早見表" en="Formats" />
       <FormatTable items={formats.filter((f) => f.top)} />
@@ -164,7 +214,7 @@ const points = [
     </div>
   </section>
 
-  <section class="section section-alt" aria-labelledby="apps-title">
+  <section class="section" aria-labelledby="apps-title">
     <div class="wrap">
       <SectionHead id="apps-title" title="いつものソフトから使える" en="Integrations" />
       <p class="section-lead">各言語のパッケージを通して、次のソフトの中から使えるようにします（予定）。</p>
@@ -173,7 +223,7 @@ const points = [
     </div>
   </section>
 
-  <section class="section" aria-labelledby="faq-title">
+  <section class="section section-alt" aria-labelledby="faq-title">
     <div class="wrap">
       <SectionHead id="faq-title" title="よくある質問" en="FAQ" />
       <FaqList items={faqs.filter((f) => f.top)} />
