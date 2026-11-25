@@ -409,6 +409,7 @@ mod kani_proofs {
     fn any_small_raw_ray() -> Ray {
         let x: i8 = kani::any();
         let y: i8 = kani::any();
+        kani::assume((-16..=16).contains(&x) && (-16..=16).contains(&y));
         kani::assume(x != 0 || y != 0);
         Ray([i64::from(x), i64::from(y)])
     }

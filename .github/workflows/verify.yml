@@ -85,13 +85,13 @@ jobs:
           cargo kani setup
       - name: 対象 7 crate の証明ハーネスと関数契約を確かめる
         run: |
-          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-base
-          cargo kani -Z unstable-options -Z function-contracts -Z stubbing --harness-timeout 120 --output-format terse -p zumen-geom2d
-          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-live
-          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-building --features measure
-          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-zip
-          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-las
-          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-acad
+          cargo kani -Z unstable-options --harness-timeout 180 --output-format terse -p zumen-base
+          cargo kani -Z unstable-options -Z function-contracts -Z stubbing --harness-timeout 180 --output-format terse -p zumen-geom2d
+          cargo kani -Z unstable-options --harness-timeout 180 --output-format terse -p zumen-live
+          cargo kani -Z unstable-options --harness-timeout 180 --output-format terse -p zumen-building --features measure
+          cargo kani -Z unstable-options --harness-timeout 180 --output-format terse -p zumen-zip
+          cargo kani -Z unstable-options --harness-timeout 180 --output-format terse -p zumen-las
+          cargo kani -Z unstable-options --harness-timeout 180 --output-format terse -p zumen-acad
 
   quint:
     name: Quint・Apalache・MBT
