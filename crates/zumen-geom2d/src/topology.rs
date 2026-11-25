@@ -328,6 +328,17 @@ fn exact(point: Point) -> SegmentIntersection {
     })
 }
 
+fn round_half_away(value: i128, denominator: i128) -> Result<i64, Error> {
+    let quotient = value / denominator;
+    let remainder = value % denominator;
+    let away = if remainder.abs() * 2 >= denominator {
+        value.signum()
+    } else {
+        0
+    };
+    i64::try_from(quotient + away).map_err(|_| Error::Range)
+}
+
 fn intersect(a: Segment, b: Segment) -> Result<SegmentIntersection, Error> {
     let r = difference(a.end, a.start);
     let s = difference(b.end, b.start);
@@ -368,18 +379,154 @@ fn intersect(a: Segment, b: Segment) -> Result<SegmentIntersection, Error> {
     let [dx, dy] = r;
     let nx = i128::from(x) * denominator + dx * numerator;
     let ny = i128::from(y) * denominator + dy * numerator;
-    let rounded = |value: i128| -> Result<i64, Error> {
-        let quotient = value / denominator;
-        let remainder = value % denominator;
-        let away = if remainder.abs() * 2 >= denominator {
-            value.signum()
-        } else {
-            0
-        };
-        i64::try_from(quotient + away).map_err(|_| Error::Range)
-    };
     Ok(SegmentIntersection::Point(Hit {
-        point: Point::new(rounded(nx)?, rounded(ny)?)?,
+        point: Point::new(
+            round_half_away(nx, denominator)?,
+            round_half_away(ny, denominator)?,
+        )?,
         rounded: nx % denominator != 0 || ny % denominator != 0,
     }))
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    fn any_point() -> Point {
+        let x: i64 = kani::any();
+        let y: i64 = kani::any();
+        kani::assume((-MAX_COORDINATE..=MAX_COORDINATE).contains(&x));
+        kani::assume((-MAX_COORDINATE..=MAX_COORDINATE).contains(&y));
+        Point::new(x, y).unwrap()
+    }
+
+    #[kani::proof]
+    fn verify_point_new_enforces_max_coordinate() {
+        let x: i64 = kani::any();
+        let y: i64 = kani::any();
+        let in_range = (-MAX_COORDINATE..=MAX_COORDINATE).contains(&x)
+            && (-MAX_COORDINATE..=MAX_COORDINATE).contains(&y);
+        assert_eq!(Point::new(x, y).is_ok(), in_range);
+    }
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_difference_and_cross_bound_across_full_grid() {
+        let a0 = any_point();
+        let a1 = any_point();
+        let b0 = any_point();
+        let b1 = any_point();
+
+        let r = difference(a1, a0);
+        let s = difference(b1, b0);
+        let c = cross(r, s);
+        let max_coord = i128::from(MAX_COORDINATE);
+        // 各座標差は 2 * MAX_COORDINATE 以下なので外積は 8 * MAX_COORDINATE^2 以内（83 bit）
+        assert!(c.abs() <= 8 * max_coord * max_coord);
+    }
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_intersection_numerator_never_overflows_given_cross_bound() {
+        let max_coord = i128::from(MAX_COORDINATE);
+        let max_denom = 8 * max_coord * max_coord;
+
+        let x: i64 = kani::any();
+        let dx: i64 = kani::any();
+        let denominator: i128 = kani::any();
+        let numerator: i128 = kani::any();
+        kani::assume((-MAX_COORDINATE..=MAX_COORDINATE).contains(&x));
+        kani::assume((-2 * MAX_COORDINATE..=2 * MAX_COORDINATE).contains(&dx));
+        kani::assume((1..=max_denom).contains(&denominator));
+        kani::assume((0..=denominator).contains(&numerator));
+
+        // 交点の分子 x * denominator + dx * numerator は 125 bit 未満で決してあふれない
+        let nx = i128::from(x) * denominator + i128::from(dx) * numerator;
+        assert!(nx.unsigned_abs() < (1u128 << 125));
+    }
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_round_half_away_is_odd_symmetric_and_exact() {
+        let num: i8 = kani::any();
+        let den: u8 = kani::any();
+        kani::assume(den > 0);
+        let n = i128::from(num);
+        let d = i128::from(den);
+        let pos = round_half_away(n, d).unwrap();
+        let neg = round_half_away(-n, d).unwrap();
+        // 原点対称（半分は原点から遠い側へ丸める）
+        assert_eq!(pos, -neg);
+        // 元の実数との差は必ず 1/2 以下（|pos * d - n| * 2 <= d）
+        let err = (i128::from(pos) * d - n).abs();
+        assert!(err * 2 <= d);
+    }
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_segment_intersection_collinear_symmetry_across_full_grid() {
+        // 水平線分（y = 0 を直接構成）により denominator == 0 を定数畳み込みし、全格子域で共線・接触・重なりの対称性を検証する
+        let ax0: i64 = kani::any();
+        let ax1: i64 = kani::any();
+        let bx0: i64 = kani::any();
+        let bx1: i64 = kani::any();
+        kani::assume((-MAX_COORDINATE..=MAX_COORDINATE).contains(&ax0));
+        kani::assume((-MAX_COORDINATE..=MAX_COORDINATE).contains(&ax1));
+        kani::assume((-MAX_COORDINATE..=MAX_COORDINATE).contains(&bx0));
+        kani::assume((-MAX_COORDINATE..=MAX_COORDINATE).contains(&bx1));
+
+        let a = Segment {
+            start: Point([ax0, 0]),
+            end: Point([ax1, 0]),
+        };
+        let b = Segment {
+            start: Point([bx0, 0]),
+            end: Point([bx1, 0]),
+        };
+        let a_rev = Segment {
+            start: a.end,
+            end: a.start,
+        };
+        let mut work = 0u64;
+        let mut points = 0u64;
+        let ab = segment_intersection(a, b, |charge| -> Result<(), ()> {
+            match charge {
+                Charge::Work(n) => work += n,
+                Charge::Points(n) => points += n,
+                Charge::Bytes(_) => {}
+            }
+            Ok(())
+        })
+        .unwrap();
+        let ba = intersect(b, a).unwrap();
+        let a_rev_b = intersect(a_rev, b).unwrap();
+        assert_eq!(ab, ba);
+        assert_eq!(ab, a_rev_b);
+        assert_eq!(work, 1);
+        match ab {
+            SegmentIntersection::None => assert_eq!(points, 0),
+            SegmentIntersection::Point(_) => assert_eq!(points, 1),
+            SegmentIntersection::Overlap(seg) => {
+                assert_eq!(points, 2);
+                assert!(seg.start < seg.end);
+            }
+        }
+    }
+
+    #[kani::proof]
+    fn verify_segment_intersection_stops_before_returning_on_budget_exceeded() {
+        let a = Segment {
+            start: any_point(),
+            end: any_point(),
+        };
+        let b = Segment {
+            start: any_point(),
+            end: any_point(),
+        };
+        let res = segment_intersection(a, b, |charge| match charge {
+            Charge::Work(_) => Err(1u8),
+            _ => Ok(()),
+        });
+        assert_eq!(res, Err(Failure::Stopped(1)));
+    }
 }

@@ -1,0 +1,21 @@
+# Quint 仕様（specs/*.qnt）と実装を照合するモデルベーステスト（MBT）パッケージ。
+# fuzz/ や bench/live/ と同じくルートワークスペースの外に置き、公開 crate の依存を汚さない。
+
+[workspace]
+
+[package]
+name = "zumen-specs-mbt"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+anyhow = "1.0"
+quint-connect = "0.1.2"
+serde = { version = "1.0", features = ["derive"] }
+zumen-abi = { path = "../../crates/zumen-abi" }
+zumen-base = { path = "../../crates/zumen-base" }
+zumen-drawing = { path = "../../crates/zumen-drawing" }
+zumen-json = { path = "../../crates/zumen-json" }
+zumen-live = { path = "../../crates/zumen-live" }

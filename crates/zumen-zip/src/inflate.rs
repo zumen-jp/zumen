@@ -309,3 +309,74 @@ fn codes(
         }
     }
 }
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn verify_bits_take_range_and_no_panic() {
+        let data: [u8; 6] = kani::any();
+        let n1: u32 = kani::any();
+        let n2: u32 = kani::any();
+        kani::assume(n1 <= 16 && n2 <= 16);
+
+        let mut bits = Bits {
+            src: &data,
+            at: 0,
+            buf: 0,
+            count: 0,
+        };
+        if let Ok(v1) = bits.take(n1) {
+            assert!(v1 < (1u32 << n1));
+            if let Ok(v2) = bits.take(n2) {
+                assert!(v2 < (1u32 << n2));
+            }
+        }
+        assert!(bits.at <= data.len());
+    }
+
+    #[kani::proof]
+    #[kani::unwind(18)]
+    fn verify_huffman_new_and_decode_safe() {
+        let lengths: [u8; 6] = kani::any();
+        let gap = match kani::any::<u8>() % 3 {
+            0 => Gap::Never,
+            1 => Gap::Single,
+            _ => Gap::Any,
+        };
+        let Some(table) = Huffman::new(&lengths, gap) else {
+            return;
+        };
+        let stream: [u8; 3] = kani::any();
+        let mut bits = Bits {
+            src: &stream,
+            at: 0,
+            buf: 0,
+            count: 0,
+        };
+        if let Ok(sym) = table.decode(&mut bits) {
+            assert!(usize::from(sym) < lengths.len());
+        }
+    }
+
+    #[kani::proof]
+    fn verify_stored_block_respects_limit() {
+        let data: [u8; 10] = kani::any();
+        let limit: usize = kani::any();
+        kani::assume(limit <= 12);
+
+        let mut bits = Bits {
+            src: &data,
+            at: 0,
+            buf: 0,
+            count: 0,
+        };
+        let mut out = Vec::new();
+        if stored(&mut bits, &mut out, limit).is_ok() {
+            assert!(out.len() <= limit);
+            assert!(bits.at <= data.len());
+        }
+    }
+}

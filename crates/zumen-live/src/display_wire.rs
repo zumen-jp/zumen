@@ -369,42 +369,7 @@ impl<'a> Packet<'a> {
             bytes: &[],
         }; 13];
         for ((column, kind), width) in columns.iter_mut().zip(COLUMNS).zip(WIDTHS) {
-            cx.check(Kind::Work, 1)?;
-            if take_u32(&mut input)? != kind as u32 || take_u32(&mut input)? != width {
-                return Err(Error::Invalid);
-            }
-            let rows = take_u32(&mut input)?;
-            let count = take_u32(&mut input)?;
-            if count > rows.div_ceil(DIRTY_BLOCK as u32)
-                || (full && count != rows.div_ceil(DIRTY_BLOCK as u32))
-            {
-                return Err(Error::Invalid);
-            }
-            let start_bytes = input;
-            let mut end = 0;
-            for _ in 0..count {
-                cx.check(Kind::Records, 1)?;
-                cx.check(Kind::Work, 1)?;
-                let first = take_u32(&mut input)?;
-                let size = take_u32(&mut input)?;
-                if first >= rows
-                    || first % DIRTY_BLOCK as u32 != 0
-                    || first < end
-                    || (full && first != end)
-                    || size != (rows - first).min(DIRTY_BLOCK as u32)
-                {
-                    return Err(Error::Invalid);
-                }
-                take(&mut input, (size * width * 4) as usize)?;
-                end = first + size;
-            }
-            let used = start_bytes.len() - input.len();
-            *column = PacketColumn {
-                kind,
-                rows,
-                stride: width * 4,
-                bytes: start_bytes.get(..used).ok_or(Error::Invalid)?,
-            };
+            *column = parse_column(&mut input, kind, width, full, cx)?;
         }
         if !input.is_empty() || !valid_lengths(&columns.map(|c| c.rows)) {
             return Err(Error::Invalid);
@@ -416,6 +381,51 @@ impl<'a> Packet<'a> {
     pub const fn columns(&self) -> &[PacketColumn<'a>; 13] {
         &self.columns
     }
+}
+
+fn parse_column<'a>(
+    input: &mut &'a [u8],
+    kind: Column,
+    width: u32,
+    full: bool,
+    cx: &mut Cx<'_>,
+) -> Result<PacketColumn<'a>, Error> {
+    cx.check(Kind::Work, 1)?;
+    if take_u32(input)? != kind as u32 || take_u32(input)? != width {
+        return Err(Error::Invalid);
+    }
+    let rows = take_u32(input)?;
+    let count = take_u32(input)?;
+    if count > rows.div_ceil(DIRTY_BLOCK as u32)
+        || (full && count != rows.div_ceil(DIRTY_BLOCK as u32))
+    {
+        return Err(Error::Invalid);
+    }
+    let start_bytes = *input;
+    let mut end = 0;
+    for _ in 0..count {
+        cx.check(Kind::Records, 1)?;
+        cx.check(Kind::Work, 1)?;
+        let first = take_u32(input)?;
+        let size = take_u32(input)?;
+        if first >= rows
+            || first % DIRTY_BLOCK as u32 != 0
+            || first < end
+            || (full && first != end)
+            || size != (rows - first).min(DIRTY_BLOCK as u32)
+        {
+            return Err(Error::Invalid);
+        }
+        take(input, (size * width * 4) as usize)?;
+        end = first + size;
+    }
+    let used = start_bytes.len() - input.len();
+    Ok(PacketColumn {
+        kind,
+        rows,
+        stride: width * 4,
+        bytes: start_bytes.get(..used).ok_or(Error::Invalid)?,
+    })
 }
 
 fn take<'a>(input: &mut &'a [u8], count: usize) -> Result<&'a [u8], Error> {
@@ -431,3 +441,110 @@ fn take_u32(input: &mut &[u8]) -> Result<u32, Error> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use zumen_base::{Budget, CancelToken, Diagnostics, Limits};
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_valid_lengths_enforces_group_equality_and_1gib_limit() {
+        let rows: [u32; 13] = kani::any();
+        let ok = valid_lengths(&rows);
+        if ok {
+            assert_eq!(rows[0], rows[1]);
+            assert_eq!(rows[0], rows[2]);
+            assert_eq!(rows[3], rows[4]);
+            assert_eq!(rows[3], rows[5]);
+            assert_eq!(rows[6], rows[7]);
+            assert_eq!(rows[6], rows[8]);
+            assert_eq!(rows[9], rows[10]);
+            assert_eq!(rows[9], rows[11]);
+            assert_eq!(rows[9], rows[12]);
+
+            let seg_bytes = u64::from(rows[0]) * (8 + 1 + 2) * 4;
+            let arc_bytes = u64::from(rows[3]) * (7 + 1 + 2) * 4;
+            let txt_bytes = u64::from(rows[6]) * (8 + 1 + 2) * 4;
+            let ins_bytes = u64::from(rows[9]) * (9 + 3 + 1 + 2) * 4;
+            assert!(seg_bytes + arc_bytes + txt_bytes + ins_bytes <= MAX_PACKET_BYTES as u64);
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn verify_packet_parse_rejects_corrupt_header_without_panic() {
+        // 16 バイトのパケットヘッダーと後続 4 バイトの任意バイト列（1 列目のヘッダー 16 バイトに満たない）
+        let raw: [u8; 20] = kani::any();
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+        assert!(Packet::parse(&raw, &mut cx).is_err());
+    }
+
+    #[kani::proof]
+    #[kani::unwind(3)]
+    #[kani::solver(kissat)]
+    fn verify_parse_column_validates_blocks_without_panic() {
+        let col_idx: usize = kani::any();
+        kani::assume(col_idx < COLUMNS.len());
+        let kind = COLUMNS[col_idx];
+        let width = WIDTHS[col_idx];
+        let full: bool = kani::any();
+
+        // 列ヘッダー 16 バイト＋ブロック部 20 バイト（最小 1 ブロック = 12 バイトのため最大 1 ブロック有効）
+        let raw: [u8; 36] = kani::any();
+        let mut input: &[u8] = &raw;
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+
+        if let Ok(col) = parse_column(&mut input, kind, width, full, &mut cx) {
+            assert_eq!(col.kind(), kind);
+            assert_eq!(col.stride(), width * 4);
+            let mut prev_end = 0u32;
+            for block in col.blocks() {
+                assert!(block.start < col.rows());
+                assert_eq!(block.start % DIRTY_BLOCK as u32, 0);
+                assert!(block.start >= prev_end);
+                if full {
+                    assert_eq!(block.start, prev_end);
+                }
+                assert_eq!(
+                    block.rows,
+                    (col.rows() - block.start).min(DIRTY_BLOCK as u32)
+                );
+                assert_eq!(block.bytes.len(), (block.rows * col.stride()) as usize);
+                prev_end = block.start + block.rows;
+            }
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(2)]
+    fn verify_parse_column_empty_roundtrip() {
+        let col_idx: usize = kani::any();
+        kani::assume(col_idx < COLUMNS.len());
+        let kind = COLUMNS[col_idx];
+        let width = WIDTHS[col_idx];
+        let full: bool = kani::any();
+
+        let mut raw = [0u8; 16];
+        raw[0..4].copy_from_slice(&(kind as u32).to_le_bytes());
+        raw[4..8].copy_from_slice(&width.to_le_bytes());
+        let mut input: &[u8] = &raw;
+        let mut budget = Budget::new(Limits::default());
+        let mut diag = Diagnostics::new();
+        let cancel = CancelToken::new();
+        let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
+
+        let col = parse_column(&mut input, kind, width, full, &mut cx).unwrap();
+        assert!(input.is_empty());
+        assert_eq!(col.kind(), kind);
+        assert_eq!(col.rows(), 0);
+        assert_eq!(col.stride(), width * 4);
+        assert_eq!(col.blocks().count(), 0);
+    }
+}

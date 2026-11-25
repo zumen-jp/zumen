@@ -2,6 +2,7 @@
 //! 座標の範囲は親のモジュールで制限する。除算・動的な確保・可変長の反復は使わない。
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub(super) struct Wide {
     high: u128,
     low: u128,
@@ -11,6 +12,7 @@ impl Wide {
     pub(super) const ZERO: Self = Self { high: 0, low: 0 };
 
     /// 128 bit どうしの積を、64 bit の 4 つの積から求める。
+    #[cfg_attr(kani, kani::ensures(|res: &Self| (a == 0 || b == 0) == (*res == Self::ZERO)))]
     pub(super) fn product(a: u128, b: u128) -> Self {
         let (a0, a1) = (u128::from(a as u64), a >> 64);
         let (b0, b1) = (u128::from(b as u64), b >> 64);
@@ -270,5 +272,140 @@ mod tests {
                 low: 1 << 127
             }
         );
+    }
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof_for_contract(Wide::product)]
+    #[kani::solver(kissat)]
+    fn verify_wide_product_contract() {
+        let a: u128 = kani::any();
+        let b: u128 = kani::any();
+        let _ = Wide::product(a, b);
+    }
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_wide_product_commutativity_and_small_exact() {
+        // 下位 64 bit からの桁上がり（<< 60）と上位 64 bit を含む 4 肢の積すべてで可換性を検証する
+        let a0 = u128::from(kani::any::<u8>() & 0x0F);
+        let a1 = u128::from(kani::any::<u8>() & 0x0F);
+        let b0 = u128::from(kani::any::<u8>() & 0x0F);
+        let b1 = u128::from(kani::any::<u8>() & 0x0F);
+        let a = (a1 << 64) | (a0 << 60);
+        let b = (b1 << 64) | (b0 << 60);
+        assert_eq!(Wide::product(a, b), Wide::product(b, a));
+
+        let x = u128::from(kani::any::<u8>());
+        let y = u128::from(kani::any::<u8>());
+        let small = Wide::product(x, y);
+        assert_eq!(small.high, 0);
+        assert_eq!(small.low, x * y);
+    }
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_wide_add_sub_roundtrip_and_overflow() {
+        let a = Wide {
+            high: kani::any(),
+            low: kani::any(),
+        };
+        let b = Wide {
+            high: kani::any(),
+            low: kani::any(),
+        };
+        if let Some(sum) = a.checked_add(b) {
+            assert_eq!(sum.checked_sub(b), Some(a));
+            assert_eq!(sum.checked_sub(a), Some(b));
+            assert!(sum >= a && sum >= b);
+        }
+        if let Some(diff) = a.checked_sub(b) {
+            assert!(a >= b);
+            assert_eq!(diff.checked_add(b), Some(a));
+        } else {
+            assert!(a < b);
+        }
+    }
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_wide_full_product_no_overflow_and_matches_checked_mul() {
+        // 下位・上位の桁上がり境界と 256 bit 上限超過（Some / None の両枝）をすべて通す
+        let ah: u8 = kani::any();
+        let al: u8 = kani::any();
+        let lh: u8 = kani::any();
+        let ll: u8 = kani::any();
+        let f: u8 = kani::any();
+        let a = Wide {
+            high: (u128::from(ah) << 120) | u128::from(al),
+            low: (u128::from(lh) << 120) | u128::from(ll),
+        };
+        let factor = u128::from(f);
+        let full = a.full_product(Wide {
+            high: 0,
+            low: factor,
+        });
+        match a.checked_mul(factor) {
+            Some(prod) => {
+                assert_eq!(full.high, Wide::ZERO);
+                assert_eq!(full.low, prod);
+            }
+            None => {
+                assert!(full.high != Wide::ZERO);
+            }
+        }
+    }
+
+    #[kani::proof]
+    #[kani::stub_verified(Wide::product)]
+    fn verify_wide_square_zero_iff_input_zero_via_verified_stub() {
+        let value: i128 = kani::any();
+        let sq = Wide::square(value);
+        assert_eq!(sq == Wide::ZERO, value == 0);
+    }
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_wide_full_product_total_no_overflow() {
+        let a = Wide {
+            high: kani::any(),
+            low: kani::any(),
+        };
+        let b = Wide {
+            high: kani::any(),
+            low: kani::any(),
+        };
+        let p = a.full_product(b);
+        if a == Wide::ZERO || b == Wide::ZERO {
+            assert_eq!(p.high, Wide::ZERO);
+            assert_eq!(p.low, Wide::ZERO);
+        }
+    }
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_signed_wide_difference_of_products_antisymmetry_and_exact() {
+        let a: i8 = kani::any();
+        let b: i8 = kani::any();
+        let c: i8 = kani::any();
+        let d: i8 = kani::any();
+        let ai = i128::from(a);
+        let bi = i128::from(b);
+        let ci = i128::from(c);
+        let di = i128::from(d);
+
+        // 全符号組合せで反対称性と厳密な a * b - c * d との一致を検証する
+        let fwd = SignedWide::difference_of_products(ai, bi, ci, di).unwrap();
+        let rev = SignedWide::difference_of_products(ci, di, ai, bi).unwrap();
+        assert_eq!(fwd.magnitude, rev.magnitude);
+        assert_eq!(fwd.sign(), rev.sign().reverse());
+
+        let exact = ai * bi - ci * di;
+        assert_eq!(fwd.sign(), exact.cmp(&0));
+        assert_eq!(fwd.magnitude.high, 0);
+        assert_eq!(fwd.magnitude.low, exact.unsigned_abs());
     }
 }

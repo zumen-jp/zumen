@@ -268,3 +268,59 @@ mod tests {
         assert_eq!(idx.override_len(), 0);
     }
 }
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn verify_row_id_bit_tagging_partition_and_roundtrip() {
+        let raw: u32 = kani::any();
+        let id = RowId(raw);
+
+        // 全 u32 は通常行・仮想ノード・NONE のちょうど 1 つに排他分類される
+        let is_normal = raw < RowId::VIRTUAL_TAG;
+        let is_virtual = id.is_virtual();
+        let is_none = id.is_none();
+        assert_eq!(
+            u8::from(is_normal) + u8::from(is_virtual) + u8::from(is_none),
+            1
+        );
+
+        if is_virtual {
+            let idx = id.as_virtual().unwrap();
+            assert_eq!(RowId::virtual_node(idx), Some(id));
+        } else {
+            assert_eq!(id.as_virtual(), None);
+        }
+
+        let idx_usize: usize = kani::any();
+        if let Some(normal) = RowId::from_index(idx_usize) {
+            assert!(!normal.is_virtual() && !normal.is_none());
+            assert_eq!(normal.index(), idx_usize);
+        }
+
+        let v_idx: u32 = kani::any();
+        match RowId::virtual_node(v_idx) {
+            Some(vid) => {
+                assert!(vid.is_virtual() && !vid.is_none());
+                assert_eq!(vid.as_virtual(), Some(v_idx));
+            }
+            None => {
+                assert!(v_idx >= 0x7FFF_FFFF);
+            }
+        }
+    }
+
+    #[kani::proof]
+    fn verify_revision_next_is_monotonic_and_saturates() {
+        let rev = Revision(kani::any());
+        let next = rev.next();
+        if rev.get() < u64::MAX {
+            assert_eq!(next.get(), rev.get() + 1);
+            assert!(next > rev);
+        } else {
+            assert_eq!(next.get(), u64::MAX);
+        }
+    }
+}

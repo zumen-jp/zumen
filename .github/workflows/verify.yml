@@ -1,0 +1,131 @@
+name: verify
+
+# Miri・Kani・Quint（Apalache と quint-connect MBT を含む）の 3 層で、
+# FFI の未定義動作・幾何や復号の境界条件・状態機械の不変条件を確かめる。
+# 動かし方と役割は specs/README.md にある。
+
+on:
+  schedule:
+    # 日曜 6:30（日本時間）。ci.yml の日曜定期実行の直後に回す
+    - cron: '30 21 * * 6'
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'crates/zumen-abi/src/**'
+      - 'crates/zumen-base/src/**'
+      - 'crates/zumen-json/src/**'
+      - 'crates/zumen-geom2d/src/**'
+      - 'crates/zumen-live/src/**'
+      - 'crates/zumen-building/src/measure/**'
+      - 'crates/zumen-zip/src/**'
+      - 'crates/zumen-las/src/laz/**'
+      - 'crates/zumen-acad/src/dwg/bits.rs'
+      - 'bindings/cli/src/live/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'specs/**'
+      - '.github/workflows/verify.yml'
+      - '!**/*.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # fuzz.yml と同じ nightly に固定する
+  NIGHTLY: nightly-2026-10-30
+  KANI_VERSION: 0.68.0
+  QUINT_VERSION: 0.34.0
+
+jobs:
+  miri:
+    name: Miri（FFI とコアの動的 UB 検査）
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 固定した nightly の Rust に Miri と 32 bit ターゲットを入れる
+        run: |
+          rustup toolchain install "$NIGHTLY" --profile minimal --component rust-src,miri
+          rustup target add i686-unknown-linux-gnu --toolchain "$NIGHTLY"
+      - name: FFI 境界と並列中断を Tree Borrows と Isolation で確かめる
+        run: |
+          MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check" \
+            cargo "+$NIGHTLY" miri test -p zumen-abi --lib ffi::tests --locked
+          MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance -Zmiri-many-seeds=0..8 -Zmiri-preemption-rate=0.1" \
+            cargo "+$NIGHTLY" miri test -p zumen-abi --lib ffi::tests::concurrent_cancel_and_busy_close_keep_session_sound --locked
+      - name: 純 Rust コアを 64 bit と 32 bit の両方で確かめる
+        run: |
+          export MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check"
+          cargo "+$NIGHTLY" miri test -p zumen-base --lib --locked
+          cargo "+$NIGHTLY" miri test -p zumen-json --lib --locked
+          cargo "+$NIGHTLY" miri test -p zumen-geom2d --lib topology --locked
+          cargo "+$NIGHTLY" miri test -p zumen-live --lib --locked -- dirty::tests handle::tests cow::tests hit::tests
+          cargo "+$NIGHTLY" miri test --target i686-unknown-linux-gnu -p zumen-base --lib budget::tests --locked
+          cargo "+$NIGHTLY" miri test --target i686-unknown-linux-gnu -p zumen-geom2d --lib topology::wide::tests --locked
+          cargo "+$NIGHTLY" miri test --target i686-unknown-linux-gnu -p zumen-live --lib --locked -- dirty::tests handle::tests cow::tests
+
+  kani:
+    name: Kani（静的境界モデル検査と関数契約）
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: rust-toolchain.toml の Rust とバージョンを固定した Kani を入れる
+        run: |
+          rustup toolchain install
+          cargo install --locked kani-verifier --version "$KANI_VERSION"
+          cargo kani setup
+      - name: 対象 7 crate の証明ハーネスと関数契約を確かめる
+        run: |
+          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-base
+          cargo kani -Z unstable-options -Z function-contracts -Z stubbing --harness-timeout 120 --output-format terse -p zumen-geom2d
+          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-live
+          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-building --features measure
+          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-zip
+          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-las
+          cargo kani -Z unstable-options --harness-timeout 120 --output-format terse -p zumen-acad
+
+  quint:
+    name: Quint・Apalache・MBT
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: rust-toolchain.toml の Rust とバージョンを固定した Quint を入れる
+        run: |
+          rustup toolchain install
+          npm install -g "@informalsystems/quint@$QUINT_VERSION"
+          quint --version
+      - name: 3 仕様の型検査・単体テスト・シミュレーションと Apalache 検証を実行する
+        run: |
+          for spec in specs/live_ipc.qnt specs/live_txn.qnt specs/resident_replay.qnt; do
+            quint typecheck "$spec"
+            quint test "$spec"
+            quint run --max-samples=2000 --max-steps=40 --invariant=inv_all "$spec"
+          done
+          apalache_dir="$RUNNER_TEMP/apalache"
+          mkdir -p "$apalache_dir"
+          root="$PWD"
+          (cd "$apalache_dir" && quint verify --max-steps=6 --invariant=inv_all "$root/specs/live_ipc.qnt")
+          (cd "$apalache_dir" && quint verify --max-steps=4 --invariant=inv_all "$root/specs/live_txn.qnt")
+          (cd "$apalache_dir" && quint verify --max-steps=6 --invariant=inv_all "$root/specs/resident_replay.qnt")
+      - name: CLI をビルドし quint-connect で 3 仕様のトレースを実装へリプレイする
+        run: |
+          cargo build --locked -p zumen-cli
+          ZUMEN_BIN="$PWD/target/debug/zumen" cargo test --manifest-path specs/mbt/Cargo.toml

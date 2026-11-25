@@ -341,3 +341,80 @@ pub(super) fn finish<E>(
     check(Charge::Points(points)).map_err(Failure::Stopped)?;
     Ok(result)
 }
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn verify_circle_new_enforces_grid_bounds() {
+        let x: i64 = kani::any();
+        let y: i64 = kani::any();
+        let r: i64 = kani::any();
+        let Ok(center) = Point::new(x, y) else {
+            return;
+        };
+        if let Ok(circle) = Circle::new(center, r) {
+            assert!(circle.radius() >= 0);
+            assert!(x.saturating_add(r) <= MAX_COORDINATE);
+            assert!(x.saturating_sub(r) >= -MAX_COORDINATE);
+            assert!(y.saturating_add(r) <= MAX_COORDINATE);
+            assert!(y.saturating_sub(r) >= -MAX_COORDINATE);
+        }
+    }
+
+    /// `sign(a, b, d)`（`a + b * sqrt(d)` の符号判定）の反対称性と特殊ケースの厳密性を証明する。
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_curve_sign_antisymmetric_and_exact() {
+        let a: i8 = kani::any();
+        let b: i8 = kani::any();
+        let d_lo: u8 = kani::any();
+        // 全符号・0・平方数（完全相殺）・非平方数を網羅する
+        let ai = i128::from(a);
+        let bi = i128::from(b);
+        let d = Wide::product(u128::from(d_lo), 1);
+        let fwd = sign(ai, bi, d).unwrap();
+        let rev = sign(-ai, -bi, d).unwrap();
+        assert_eq!(fwd, rev.reverse());
+        if d_lo == 0 || b == 0 {
+            assert_eq!(fwd, a.cmp(&0));
+        }
+        if a == 0 && d_lo > 0 {
+            assert_eq!(fwd, b.cmp(&0));
+        }
+    }
+
+    #[kani::proof]
+    fn verify_segment_circle_stops_before_returning_on_budget_exceeded() {
+        let sx: i64 = kani::any();
+        let sy: i64 = kani::any();
+        let ex: i64 = kani::any();
+        let ey: i64 = kani::any();
+        let cx: i64 = kani::any();
+        let cy: i64 = kani::any();
+        let r: i64 = kani::any();
+        let Ok(a) = Point::new(sx, sy) else {
+            return;
+        };
+        let Ok(b) = Point::new(ex, ey) else {
+            return;
+        };
+        let Ok(center) = Point::new(cx, cy) else {
+            return;
+        };
+        let Ok(circle) = Circle::new(center, r) else {
+            return;
+        };
+        let res =
+            segment_circle_intersection(
+                Segment { start: a, end: b },
+                circle,
+                |charge| match charge {
+                    Charge::Work(_) => Err(7u8),
+                    _ => Ok(()),
+                },
+            );
+        assert_eq!(res, Err(Failure::Stopped(7)));
+    }
+}

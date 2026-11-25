@@ -291,3 +291,93 @@ mod tests {
         assert_eq!(bits.len(), n);
     }
 }
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    /// `RankBitset` の任意ビット列（6 bit）と 1 回の `set`・`push`・`pop` について、
+    /// `get`・`rank`・`select`・`count_ones` が素朴な bool 配列と完全一致することを証明する。
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn verify_rank_and_select_match_naive_model() {
+        let mut bs = RankBitset::all_zeros(6);
+        let mut model = [false; 7];
+        let mut len = 6usize;
+        for i in 0..6usize {
+            let v: bool = kani::any();
+            bs.set(i, v);
+            model[i] = v;
+        }
+
+        // 任意の 1 操作（set / push / pop）
+        let op: u8 = kani::any();
+        kani::assume(op < 3);
+        match op {
+            0 => {
+                let pos: usize = kani::any();
+                let val: bool = kani::any();
+                kani::assume(pos <= 7);
+                let changed = bs.set(pos, val);
+                if pos < len {
+                    assert_eq!(changed, model[pos] != val);
+                    model[pos] = val;
+                } else {
+                    assert!(!changed);
+                }
+            }
+            1 => {
+                let val: bool = kani::any();
+                bs.push(val);
+                model[len] = val;
+                len += 1;
+            }
+            _ => {
+                let popped = bs.pop();
+                len -= 1;
+                assert_eq!(popped, Some(model[len]));
+                model[len] = false;
+            }
+        }
+
+        assert_eq!(bs.len(), len);
+        let mut total_ones = 0u32;
+        for i in 0..len {
+            if model[i] {
+                total_ones += 1;
+            }
+        }
+        assert_eq!(bs.count_ones(), total_ones);
+
+        // 全称プローブ: 任意の位置 probe と任意の順位 k について rank / select の完全一致を証明
+        let probe: usize = kani::any();
+        kani::assume(probe <= len + 1);
+        let mut expected_rank = 0u32;
+        for i in 0..probe.min(len) {
+            if model[i] {
+                expected_rank += 1;
+            }
+        }
+        assert_eq!(bs.rank(probe), expected_rank);
+        if probe < len {
+            assert_eq!(bs.get(probe), model[probe]);
+        } else {
+            assert!(!bs.get(probe));
+        }
+
+        let k: u32 = kani::any();
+        kani::assume(k <= total_ones + 1);
+        let mut seen = 0u32;
+        let mut expected_select = None;
+        for i in 0..len {
+            if model[i] {
+                if seen == k {
+                    expected_select = Some(i);
+                    break;
+                }
+                seen += 1;
+            }
+        }
+        assert_eq!(bs.select(k), expected_select);
+    }
+}

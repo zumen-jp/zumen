@@ -21,6 +21,7 @@ CODE_EXTENSIONS = (".rs", ".toml", ".yml")
 # パッケージに同梱して照合する bindings/js や、キットに写す acc の README は個別に扱う。
 PROSE_READMES = {
     "catalog/README.md", "formats/README.md", "fuzz/README.md", "profiles/README.md", "schema/README.md",
+    "specs/README.md",
     "packages/react/README.md", "packages/view2d/README.md", "packages/view3d/README.md", "playground/README.md", "site/README.md",
     "xtask/release/README.md", "xtask/verify/README.md",
     "xtask/verify/pdfjs/README.md",
@@ -35,6 +36,9 @@ def checks_for(path):
     if path.endswith(".md") and ("/" not in path or path.startswith(("docs/", ".github/"))):
         return set()
     if path in PROSE_READMES:
+        return set()
+    if path.startswith("specs/"):
+        # 形式仕様と独立 MBT は verify.yml で確かめる。
         return set()
     if path in {".github/ci/checks.py", ".github/ci/test_checks.py"}:
         return {"selector"}

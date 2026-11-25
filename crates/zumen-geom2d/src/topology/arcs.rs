@@ -41,7 +41,7 @@ impl Ray {
     }
 
     pub(super) fn vector(self) -> [i128; 2] {
-        self.0.map(i128::from)
+        [i128::from(self.0[0]), i128::from(self.0[1])]
     }
 
     fn half(self) -> bool {
@@ -399,4 +399,96 @@ fn coincident<E>(
     };
     check(Charge::Points(2 * span_count as u64 + point_count as u64)).map_err(Failure::Stopped)?;
     Ok(result)
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use crate::topology::Point;
+
+    fn any_small_raw_ray() -> Ray {
+        let x: i8 = kani::any();
+        let y: i8 = kani::any();
+        kani::assume(x != 0 || y != 0);
+        Ray([i64::from(x), i64::from(y)])
+    }
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    #[kani::unwind(8)]
+    fn verify_ray_new_normalizes_and_rejects_zero() {
+        let x: i8 = kani::any();
+        let y: i8 = kani::any();
+        kani::assume((-12..=12).contains(&x) && (-12..=12).contains(&y));
+        match Ray::new(i64::from(x), i64::from(y)) {
+            Ok(ray) => {
+                assert!(x != 0 || y != 0);
+                let [rx, ry] = ray.components();
+                assert!(rx != 0 || ry != 0);
+                // 元のベクトルと同じ向き（外積 0・内積正）
+                assert_eq!(
+                    i128::from(x) * i128::from(ry),
+                    i128::from(y) * i128::from(rx)
+                );
+                assert!(i128::from(x) * i128::from(rx) + i128::from(y) * i128::from(ry) > 0);
+            }
+            Err(Error::Degenerate) => {
+                assert!(x == 0 && y == 0);
+            }
+            Err(_) => unreachable!(),
+        }
+    }
+
+    #[kani::proof]
+    #[kani::solver(kissat)]
+    fn verify_ray_ord_is_antisymmetric_and_reflexive() {
+        let a = any_small_raw_ray();
+        let b = any_small_raw_ray();
+        assert_eq!(a.cmp(&a), Ordering::Equal);
+        assert_eq!(a.cmp(&b), b.cmp(&a).reverse());
+    }
+
+    /// `Ray` の全順序公理（`Ord` と `Eq` の整合）だけを抽象化して `Arc::contains_ray` の区間論理を高速検証するスタブ
+    #[allow(dead_code)]
+    fn stub_ray_cmp(a: &Ray, b: &Ray) -> Ordering {
+        a.0.cmp(&b.0)
+    }
+
+    #[kani::proof]
+    #[kani::stub(Ray::cmp, stub_ray_cmp)]
+    fn verify_arc_reversed_preserves_contains_ray() {
+        let c = Circle::new(Point::new(0, 0).unwrap(), 10).unwrap();
+        let start = Ray([i64::from(kani::any::<u8>()), 0]);
+        let end = Ray([i64::from(kani::any::<u8>()), 0]);
+        let probe = Ray([i64::from(kani::any::<u8>()), 0]);
+        let after: bool = kani::any();
+        let dir = if kani::any() {
+            Direction::CounterClockwise
+        } else {
+            Direction::Clockwise
+        };
+
+        let arc = Arc::new(c, start, end, dir).unwrap();
+        assert_eq!(arc.reversed().reversed(), arc);
+        assert_eq!(arc.ccw(), arc.reversed().ccw());
+        assert_eq!(
+            arc.contains_ray(probe, after),
+            arc.reversed().contains_ray(probe, after)
+        );
+        assert!(arc.contains_ray(start, false));
+        assert!(arc.contains_ray(end, false));
+
+        // 異なる 2 端点の補円弧どうしは半開区間（after = true）で全周を重複なく分割する
+        if start != end {
+            let complement = Arc::new(c, end, start, dir).unwrap();
+            assert_ne!(
+                arc.contains_ray(probe, true),
+                complement.contains_ray(probe, true)
+            );
+        }
+
+        let full = Arc::full(c, start, dir).unwrap();
+        assert!(full.contains_ray(probe, after));
+        assert!(full.reversed().contains_ray(probe, after));
+    }
 }

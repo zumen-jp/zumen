@@ -207,7 +207,16 @@ fn lz4_decompress_prefix(
     need_len: usize,
     out: &mut [u8; SourceBytes::PAGE_SIZE],
 ) -> usize {
-    let orig_len = orig_len.min(SourceBytes::PAGE_SIZE);
+    lz4_decompress_prefix_into(comp, orig_len, need_len, out.as_mut_slice())
+}
+
+fn lz4_decompress_prefix_into(
+    comp: &[u8],
+    orig_len: usize,
+    need_len: usize,
+    out: &mut [u8],
+) -> usize {
+    let orig_len = orig_len.min(SourceBytes::PAGE_SIZE).min(out.len());
     let need_len = need_len.min(orig_len);
     if comp.len() == orig_len {
         if let (Some(dst), Some(src)) = (out.get_mut(..need_len), comp.get(..need_len)) {
@@ -1192,5 +1201,51 @@ mod tests {
         let mut cx = Cx::new(&mut budget, &mut diag, &cancel);
         let err = compress_pages_slice_with_cx(&secret, &mut cx).unwrap_err();
         assert!(matches!(err, Stop::Exceeded(e) if e.kind == Kind::DecodedBytes));
+    }
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn verify_record_slice_never_panics_for_any_bounds() {
+        let data: [u8; 8] = kani::any();
+        let base: usize = kani::any();
+        let start: u32 = kani::any();
+        let end: u32 = kani::any();
+        let view = RecordSlice { base, bytes: &data };
+        let sliced = view.slice(start, end);
+        assert!(sliced.len() <= data.len());
+    }
+
+    #[kani::proof]
+    #[kani::unwind(5)]
+    #[kani::solver(kissat)]
+    fn verify_lz4_decompress_corrupt_input_never_panics() {
+        let comp: [u8; 4] = kani::any();
+        let orig_len: usize = kani::any();
+        let need_len: usize = kani::any();
+        kani::assume(orig_len <= 4 && need_len <= 4);
+        let mut out = [0u8; 4];
+        let written = lz4_decompress_prefix_into(&comp, orig_len, need_len, &mut out);
+        assert!(written <= orig_len);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(6)]
+    #[kani::solver(kissat)]
+    fn verify_lz4_decompress_match_copy_never_panics() {
+        // リテラル 4 バイト＋マッチ長 4 バイト（任意の 16 bit オフセット）で非重複・重複コピーの両経路を網羅
+        let mut comp = [0u8; 7];
+        comp[0] = 0x40;
+        let payload: [u8; 6] = kani::any();
+        comp[1..7].copy_from_slice(&payload);
+        let orig_len: usize = kani::any();
+        let need_len: usize = kani::any();
+        kani::assume(orig_len <= 8 && need_len <= 8);
+        let mut out = [0u8; 8];
+        let written = lz4_decompress_prefix_into(&comp, orig_len, need_len, &mut out);
+        assert!(written <= orig_len);
     }
 }

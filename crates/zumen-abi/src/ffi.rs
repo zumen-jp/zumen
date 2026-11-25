@@ -567,11 +567,6 @@ mod tests {
             unsafe { zm_session_new(b"{".as_ptr(), 1, &mut out) },
             Status::Invalid.code()
         );
-        let process = br#"{"v":1,"engine":"process","process_path":"no-such-folder/zumen"}"#;
-        assert_eq!(
-            unsafe { zm_session_new(process.as_ptr(), process.len(), &mut out) },
-            Status::Failed.code()
-        );
         assert!(out.is_null());
         assert_eq!(
             unsafe {
@@ -742,5 +737,74 @@ mod tests {
         assert!(unsafe { out.read_unaligned() }.ptr.is_null());
         unsafe { write_buf(out, Vec::new()) };
         assert!(unsafe { out.read_unaligned() }.ptr.is_null());
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn rejects_missing_process_executable_without_a_response() {
+        let mut out = ptr::null_mut();
+        let process = br#"{"v":1,"engine":"process","process_path":"no-such-folder/zumen"}"#;
+        assert_eq!(
+            unsafe { zm_session_new(process.as_ptr(), process.len(), &mut out) },
+            Status::Failed.code()
+        );
+        assert!(out.is_null());
+    }
+
+    #[test]
+    fn concurrent_cancel_and_busy_close_keep_session_sound() {
+        // 生ポインターをスレッド間で渡すだけの最小ラッパー。解放は join 後に主スレッドだけが行う
+        struct SharedSession(*mut SessionHandle);
+        // SAFETY: `zm_cancel`・`zm_call`・`zm_session_close` の並列呼び出し安全性を検証する。
+        unsafe impl Send for SharedSession {}
+        unsafe impl Sync for SharedSession {}
+
+        let session = open();
+        let shared = std::sync::Arc::new(SharedSession(session));
+        let handle = unsafe { &*session };
+        let token = CancelToken::new();
+        let held = handle.session.lock().unwrap();
+        handle.set_running(Some(token.clone()));
+
+        let worker_session = std::sync::Arc::clone(&shared);
+        let worker = std::thread::spawn(move || {
+            let ptr = worker_session.0;
+            let mut response = empty();
+            assert_eq!(
+                unsafe {
+                    zm_call(
+                        ptr,
+                        CAPABILITIES.as_ptr(),
+                        CAPABILITIES.len(),
+                        &mut response,
+                    )
+                },
+                Status::Busy.code()
+            );
+            assert!(response.ptr.is_null());
+            unsafe { zm_cancel(ptr) };
+            // ロック保持中は閉じず、解放もしない
+            unsafe { zm_session_close(ptr) };
+        });
+
+        worker.join().unwrap();
+        assert!(token.stop().is_some());
+        handle.set_running(None);
+        drop(held);
+
+        let mut response = empty();
+        assert_eq!(
+            unsafe {
+                zm_call(
+                    session,
+                    CAPABILITIES.as_ptr(),
+                    CAPABILITIES.len(),
+                    &mut response,
+                )
+            },
+            Status::Ok.code()
+        );
+        take_text(&mut response);
+        unsafe { zm_session_close(session) };
     }
 }

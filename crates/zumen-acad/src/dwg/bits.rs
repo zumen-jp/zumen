@@ -928,3 +928,116 @@ mod tests {
         assert_eq!(crc16(0, b""), 0);
     }
 }
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn verify_bits_fixed_readers_never_panic_and_advance_in_bounds() {
+        let data: [u8; 8] = kani::any();
+        let start_pos: usize = kani::any();
+        let op: u8 = kani::any();
+        kani::assume(start_pos <= data.len() * 8 + 4);
+        kani::assume(op < 7);
+
+        let mut bits = Bits::new(&data);
+        bits.seek(start_pos);
+        let before = bits.pos();
+
+        let ok = match op {
+            0 => bits.bit().is_some(),
+            1 => bits.bb().is_some(),
+            2 => bits.rc().is_some(),
+            3 => bits.rs().is_some(),
+            4 => bits.rl().is_some(),
+            5 => bits.bs().is_some(),
+            _ => bits.bl().is_some(),
+        };
+        if ok {
+            assert!(bits.pos() >= before);
+            assert!(bits.pos() <= data.len() * 8);
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(12)]
+    fn verify_bits_varlen_readers_never_panic_and_advance_in_bounds() {
+        let data: [u8; 10] = kani::any();
+        let start_pos: usize = kani::any();
+        let op: u8 = kani::any();
+        kani::assume(start_pos <= data.len() * 8 + 4);
+        kani::assume(op < 3);
+
+        let mut bits = Bits::new(&data);
+        bits.seek(start_pos);
+        let before = bits.pos();
+
+        let ok = match op {
+            0 => bits.bot().is_some(),
+            1 => bits.bll().is_some(),
+            _ => bits.main_handle().is_some(),
+        };
+        if ok {
+            assert!(bits.pos() >= before);
+            assert!(bits.pos() <= data.len() * 8);
+        }
+    }
+
+    #[kani::proof]
+    fn verify_skip_bytes_checks_overflow_and_bounds() {
+        let data: [u8; 8] = kani::any();
+        let start_pos: usize = kani::any();
+        let n: usize = kani::any();
+        let mut bits = Bits::new(&data);
+        bits.seek(start_pos);
+
+        if bits.skip_bytes(n).is_some() {
+            assert!(bits.pos() <= data.len() * 8);
+            assert_eq!(bits.pos() - start_pos, n * 8);
+        }
+    }
+
+    #[kani::proof]
+    fn verify_handle_ref_resolve_handles_all_boundaries() {
+        let code: u8 = kani::any();
+        let value: u64 = kani::any();
+        let base: u64 = kani::any();
+        let href = HandleRef { code, value };
+
+        let resolved = href.resolve(base);
+        match code {
+            0x6 => assert_eq!(resolved, base.checked_add(1)),
+            0x8 => assert_eq!(resolved, base.checked_sub(1)),
+            0xA => assert_eq!(resolved, base.checked_add(value)),
+            0xC => assert_eq!(resolved, base.checked_sub(value)),
+            _ => assert_eq!(resolved, Some(value)),
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(12)]
+    fn verify_modular_char_arbitrary_bytes_no_panic() {
+        let data: [u8; 10] = kani::any();
+        let signed: bool = kani::any();
+        let mut pos = 0usize;
+        let _ = modular_char(&data, &mut pos, signed);
+        assert!(pos <= data.len());
+    }
+
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn verify_modular_char_roundtrip() {
+        let value: i32 = kani::any();
+        let signed: bool = kani::any();
+        if !signed {
+            kani::assume(value >= 0);
+        }
+        let mut out = Vec::with_capacity(8);
+        push_modular_char(&mut out, i64::from(value), signed);
+        let mut pos = 0usize;
+        assert_eq!(modular_char(&out, &mut pos, signed), Some(i64::from(value)));
+        assert_eq!(pos, out.len());
+    }
+}

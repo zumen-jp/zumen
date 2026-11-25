@@ -1217,3 +1217,63 @@ mod tests {
         assert!(replay.is_none());
     }
 }
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use crate::budget::Limits;
+
+    /// `Cx::replay` の事前判定が通れば途中の `budget.spend` は決して失敗せず、
+    /// 拒否したときは `Budget` の全 8 単位と `exceeded` を 1 ビットも変えないことを証明する。
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn verify_replay_preflight_is_atomic_and_sound() {
+        let mut spent = [0u64; Kind::ALL.len()];
+        for (i, slot) in spent.iter_mut().enumerate() {
+            if Kind::ALL[i] == Kind::Depth {
+                *slot = 0;
+            } else {
+                *slot = kani::any();
+            }
+        }
+        let depth_room = if kani::any() { Some(kani::any()) } else { None };
+        let replay = Replay {
+            spent,
+            depth_room,
+            diagnostics: Diagnostics::with_max_places(4),
+        };
+
+        let mut limits = Limits::default();
+        for kind in Kind::ALL {
+            let lim = if kani::any() {
+                Limit::Unlimited
+            } else {
+                Limit::Finite(kani::any())
+            };
+            limits.set(kind, lim);
+        }
+        let mut budget = Budget::new(limits);
+        // 事前に 1 単位だけ適当に消費した状態を作る
+        let pre_kind = Kind::ALL[kani::any::<usize>() % Kind::ALL.len()];
+        let pre_amount: u64 = kani::any();
+        let _ = budget.spend(pre_kind, pre_amount);
+
+        let before = budget.clone();
+        let max_places: usize = if kani::any() { 4 } else { 8 };
+        let mut diag = Diagnostics::with_max_places(max_places);
+        let cancel = CancelToken::new();
+        if kani::any() {
+            cancel.cancel();
+        }
+
+        let applied = Cx::new(&mut budget, &mut diag, &cancel).replay(&replay);
+        if applied {
+            assert_eq!(budget.exceeded(), None);
+            for (kind, s) in Kind::ALL.into_iter().zip(spent) {
+                assert_eq!(budget.used(kind), before.used(kind).saturating_add(s));
+            }
+        } else {
+            assert_eq!(budget, before);
+        }
+    }
+}

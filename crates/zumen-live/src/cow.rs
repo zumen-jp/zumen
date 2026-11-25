@@ -150,6 +150,9 @@ impl<T: Clone, const BITS: usize> CowColumn<T, BITS> {
     /// `index` 番めの要素を書き換えるために借りる（ほかの版と共有している塊はこの時点で複製される）
     #[inline]
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        if index >= self.len {
+            return None;
+        }
         let chunk_arc = self.chunks.get_mut(index >> BITS)?;
         Arc::make_mut(chunk_arc).get_mut(index & Self::MASK)
     }
@@ -355,5 +358,106 @@ mod tests {
         assert_eq!(snap.len(), 640);
         assert_eq!(col.pop(), Some(640));
         assert_eq!(col.len(), 640);
+    }
+
+    #[test]
+    fn out_of_bounds_get_mut_does_not_clone_shared_tail_chunk() {
+        let mut col: CowColumn<u64, 2> = (0..5u64).collect(); // 2 塊（[0..4], [4]）
+        let snap = col.clone();
+        assert_eq!(col.shared_chunks_with(&snap), 2);
+        assert_eq!(col.get_mut(5), None);
+        assert_eq!(col.set(6, 99), None);
+        assert_eq!(col.shared_chunks_with(&snap), 2);
+    }
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    /// `CowColumn<u16, 1>`（1 塊 2 要素）について、`Clone` スナップショットの隔離と
+    /// 書き換えていない塊の `Arc` 共有が保たれることを証明する。
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn verify_cow_column_set_and_snapshot_isolation() {
+        let init: [u16; 3] = [kani::any(), kani::any(), kani::any()];
+        let mut col: CowColumn<u16, 1> = CowColumn::with_capacity(4);
+        col.push(init[0]);
+        col.push(init[1]);
+        col.push(init[2]);
+        let snap = col.clone();
+        assert_eq!(col.shared_chunks_with(&snap), 2);
+
+        let idx: usize = kani::any();
+        let new_val: u16 = kani::any();
+        kani::assume(idx <= 4);
+
+        let mut expected = init;
+        let prev = col.set(idx, new_val);
+        if idx < 3 {
+            assert_eq!(prev, Some(init[idx]));
+            expected[idx] = new_val;
+            // 2 塊のうち 1 塊だけを複製し、もう 1 塊は共有されたままになる
+            assert_eq!(col.shared_chunks_with(&snap), 1);
+        } else {
+            assert_eq!(prev, None);
+            assert_eq!(col.shared_chunks_with(&snap), 2);
+        }
+
+        for i in 0..3 {
+            assert_eq!(col.get(i), Some(&expected[i]));
+            assert_eq!(snap.get(i), Some(&init[i]));
+        }
+    }
+
+    /// `CowColumn<u16, 1>` の `chunk_slice` が同一塊内のみスライスを返し、
+    /// 塊境界をまたぐときは `None` を返すことを全 `(start, end)` で証明する。
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn verify_cow_column_chunk_slice_boundaries() {
+        let init: [u16; 3] = [kani::any(), kani::any(), kani::any()];
+        let mut col: CowColumn<u16, 1> = CowColumn::with_capacity(4);
+        col.push(init[0]);
+        col.push(init[1]);
+        col.push(init[2]);
+
+        let start: usize = kani::any();
+        let end: usize = kani::any();
+        kani::assume(start <= 5 && end <= 5);
+        let eff_end = end.min(3);
+        let slice = col.chunk_slice(start, end);
+        if start >= eff_end {
+            assert_eq!(slice, Some(&[][..]));
+        } else if (start >> 1) == ((eff_end - 1) >> 1) {
+            assert_eq!(slice, Some(&init[start..eff_end]));
+        } else {
+            assert_eq!(slice, None);
+        }
+    }
+
+    /// `CowColumn<u16, 1>` の `truncate` が任意の `new_len` で要素・長さ・スナップショット隔離を保つことを証明する。
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn verify_cow_column_truncate_preserves_snapshot() {
+        let init: [u16; 3] = [kani::any(), kani::any(), kani::any()];
+        let mut col: CowColumn<u16, 1> = CowColumn::with_capacity(4);
+        col.push(init[0]);
+        col.push(init[1]);
+        col.push(init[2]);
+        let snap = col.clone();
+
+        let new_len: usize = kani::any();
+        kani::assume(new_len <= 4);
+        col.truncate(new_len);
+        let expected_len = 3usize.min(new_len);
+        assert_eq!(col.len(), expected_len);
+        for i in 0..expected_len {
+            assert_eq!(col.get(i), Some(&init[i]));
+        }
+        assert_eq!(col.get(expected_len), None);
+        assert_eq!(snap.len(), 3);
+        for i in 0..3 {
+            assert_eq!(snap.get(i), Some(&init[i]));
+        }
     }
 }

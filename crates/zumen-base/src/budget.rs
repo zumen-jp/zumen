@@ -321,3 +321,74 @@ mod tests {
         assert_eq!(diagnostic.param("requested"), Some(&12_u64.into()));
     }
 }
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    fn any_kind() -> Kind {
+        Kind::ALL[(kani::any::<usize>()) % Kind::ALL.len()]
+    }
+
+    fn any_limit() -> Limit {
+        if kani::any() {
+            Limit::Unlimited
+        } else {
+            Limit::Finite(kani::any())
+        }
+    }
+
+    #[kani::proof]
+    fn verify_budget_spend_is_sticky_and_monotonic() {
+        let k1 = any_kind();
+        let k2 = any_kind();
+        let lim1 = any_limit();
+        let lim2 = any_limit();
+        let a1: u64 = kani::any();
+        let a2: u64 = kani::any();
+
+        let limits = Limits::default().with(k1, lim1).with(k2, lim2);
+        let mut budget = Budget::new(limits);
+
+        let r1 = budget.spend(k1, a1);
+        match r1 {
+            Ok(()) => {
+                assert_eq!(budget.exceeded(), None);
+                assert_eq!(budget.used(k1), a1);
+                if let Limit::Finite(l) = budget.limits().get(k1) {
+                    assert!(a1 <= l);
+                }
+            }
+            Err(ex) => {
+                assert_eq!(budget.exceeded(), Some(ex));
+                assert_eq!(ex.kind, k1);
+                assert_eq!(budget.used(k1), 0);
+                // 一度止まったらほかの単位や 0 でも同じ Exceeded を返し状態を変えない
+                assert_eq!(budget.spend(k2, a2), Err(ex));
+                assert_eq!(budget.used(k2), 0);
+                assert_eq!(budget.exceeded(), Some(ex));
+            }
+        }
+    }
+
+    #[kani::proof]
+    fn verify_budget_unlimited_never_fails_and_depth_leave_saturates() {
+        let mut budget = Budget::new(
+            Limits::default()
+                .with(Kind::Work, Limit::Unlimited)
+                .with(Kind::Depth, Limit::Finite(16)),
+        );
+        let x: u64 = kani::any();
+        let y: u64 = kani::any();
+        assert_eq!(budget.spend(Kind::Work, x), Ok(()));
+        assert_eq!(budget.spend(Kind::Work, y), Ok(()));
+        assert_eq!(budget.used(Kind::Work), x.saturating_add(y));
+
+        let enter: u64 = kani::any();
+        let leave: u64 = kani::any();
+        kani::assume(enter <= 16);
+        assert_eq!(budget.spend(Kind::Depth, enter), Ok(()));
+        budget.leave(leave);
+        assert_eq!(budget.used(Kind::Depth), enter.saturating_sub(leave));
+    }
+}

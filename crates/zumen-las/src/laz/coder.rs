@@ -596,3 +596,83 @@ impl Median5 {
 pub(super) fn clamp_u8(v: i32) -> u8 {
     v.clamp(0, 255) as u8
 }
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn verify_slice_cursor_take_never_overflows() {
+        let data: [u8; 8] = kani::any();
+        let mut cursor = SliceCursor::new(&data);
+        let first: usize = kani::any();
+        let second: usize = kani::any();
+
+        if let Ok(s) = cursor.take(first) {
+            assert_eq!(s.len(), first);
+            assert!(cursor.pos <= data.len());
+        }
+        if let Ok(s) = cursor.take(second) {
+            assert_eq!(s.len(), second);
+            assert!(cursor.pos <= data.len());
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn verify_range_decoder_bit_preserves_invariant() {
+        let data: [u8; 12] = kani::any();
+        let Ok(mut dec) = RangeDecoder::from_slice(&data) else {
+            return;
+        };
+        assert!(dec.value < dec.length);
+        assert!(dec.length >= AC_MIN_LENGTH);
+
+        let mut model = BitModel::default();
+        for _ in 0..4 {
+            match dec.decode_bit(&mut model) {
+                Ok(bit) => {
+                    assert!(bit <= 1);
+                    assert!(dec.value < dec.length);
+                    assert!(dec.length >= AC_MIN_LENGTH);
+                    assert!(model.bit_count > 0 && model.bit_count <= BM_MAX_COUNT);
+                    assert!(model.bit_0_prob > 0 && model.bit_0_prob < BM_MAX_COUNT);
+                }
+                Err(_) => break,
+            }
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn verify_range_decoder_read_bits_preserves_invariant() {
+        let data: [u8; 12] = kani::any();
+        let bits: u32 = kani::any();
+        kani::assume(bits <= 40);
+
+        let Ok(mut dec) = RangeDecoder::from_slice(&data) else {
+            return;
+        };
+        if let Ok(val) = dec.read_bits(bits) {
+            assert!(bits <= 32);
+            if bits < 32 {
+                assert!(val < (1u32 << bits));
+            }
+            assert!(dec.value < dec.length);
+            assert!(dec.length >= AC_MIN_LENGTH);
+        }
+    }
+
+    #[kani::proof]
+    fn verify_clamp_u8_bounds() {
+        let v: i32 = kani::any();
+        let out = clamp_u8(v);
+        if v <= 0 {
+            assert_eq!(out, 0);
+        } else if v >= 255 {
+            assert_eq!(out, 255);
+        } else {
+            assert_eq!(i32::from(out), v);
+        }
+    }
+}
