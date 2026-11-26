@@ -166,6 +166,10 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers
           npx --no-install playwright install --with-deps --only-shell chromium
           npm run test:browser
+      - name: サイトの表示と通信制限を WebKit でも確かめる
+        run: |
+          npx --no-install playwright install --with-deps webkit
+          npm run test:browser -- webkit
 
   test:
     name: 試験（${{ matrix.name }}）
