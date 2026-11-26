@@ -113,9 +113,16 @@ try {
   await context.route("**/*", (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    requests.push({ origin: url.origin, path: url.pathname, method: request.method(), body: request.postDataBuffer() !== null });
-    if (url.origin !== origin || !allowed.has(url.pathname) || url.search || request.method() !== "GET" || request.postDataBuffer() !== null) {
-      blocked.push({ method: request.method(), path: url.origin === origin ? url.pathname : "(external)", type: request.resourceType(), query: Boolean(url.search), body: request.postDataBuffer() !== null });
+    const method = request.method();
+    const body = request.postDataBuffer() !== null;
+    const type = request.resourceType();
+    // WebKit は動画の操作ボタン用の画像を同一オリジンの blob: から読む。HTTP 通信は発生しない。
+    if (url.protocol === "blob:" && url.origin === origin && type === "image" && method === "GET" && !body && !url.search) {
+      return route.continue();
+    }
+    requests.push({ origin: url.origin, path: url.pathname, method, body });
+    if (url.origin !== origin || !allowed.has(url.pathname) || url.search || method !== "GET" || body) {
+      blocked.push({ protocol: url.protocol, path: url.origin === origin ? url.pathname : "(external)", type, method, body });
       return route.abort();
     }
     return route.continue();
