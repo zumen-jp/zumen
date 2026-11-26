@@ -115,7 +115,7 @@ try {
     const url = new URL(request.url());
     requests.push({ origin: url.origin, path: url.pathname, method: request.method(), body: request.postDataBuffer() !== null });
     if (url.origin !== origin || !allowed.has(url.pathname) || url.search || request.method() !== "GET" || request.postDataBuffer() !== null) {
-      blocked.push("request");
+      blocked.push({ method: request.method(), path: url.origin === origin ? url.pathname : "(external)", type: request.resourceType(), query: Boolean(url.search), body: request.postDataBuffer() !== null });
       return route.abort();
     }
     return route.continue();
